@@ -19,12 +19,13 @@ use syn::{GenericArgument, Meta, PathArguments, Type};
 /// The parameter types the boundary accepts, as the refusal messages
 /// list them.
 pub const PARAM_TYPES: &str = "i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 \
-                               &str &[u8] &T &mut T (T marked `#[axiom_opaque]`)";
+                               &str &[u8] &[i64] AxFn1 AxFn2 AxFn3 \
+                               &T &mut T (T marked `#[axiom_opaque]`)";
 
 /// The return types the boundary accepts, as the refusal messages list
 /// them.
 pub const RETURN_TYPES: &str = "i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 () \
-                                String Vec<u8> Option<T> Result<T, E> \
+                                String Vec<u8> Vec<i64> Vec<String> Option<T> Result<T, E> \
                                 T (T marked `#[axiom_opaque]`; E: Display)";
 
 /// The keys `#[axiom_export(...)]` accepts, as the refusal lists them.
@@ -139,6 +140,11 @@ pub enum Param {
     Bytes,
     /// `&T` / `&mut T`: a borrowed opaque handle.
     Opaque { ty: OpaqueTy, mutable: bool },
+    /// `&[i64]`: a borrowed view of an Axiom `Vec`'s words.
+    Words,
+    /// `AxFn1` / `AxFn2` / `AxFn3`: an Axiom closure record, borrowed
+    /// for the call. The arity is 1, 2 or 3.
+    Callback(u8),
 }
 
 /// What a fallible or optional return carries on success.
@@ -147,6 +153,11 @@ pub enum Payload {
     Scalar(Scalar),
     /// `String` / `Vec<u8>`: owned bytes, handed over through the cell.
     Bytes,
+    /// `Vec<i64>`: owned words `(ptr, len)`, handed over through the cell.
+    Words,
+    /// `Vec<String>`: `(ptr, n)` where `ptr` holds `2n` words of
+    /// `(bytesPtr, byteLen)` pairs, handed over through the cell.
+    Strs,
     /// An owned opaque value, boxed, handed over as its address.
     Opaque(OpaqueTy),
 }
@@ -160,6 +171,11 @@ pub enum Ret {
     Opaque(OpaqueTy),
     /// The shim takes an out-cell, writes `(ptr, len)`, returns 0.
     Bytes,
+    /// The shim takes an out-cell, writes `(ptr, len)` of words, returns 0.
+    Words,
+    /// The shim takes an out-cell, writes `(ptr, n)` of string pairs,
+    /// returns 0.
+    Strs,
     /// The shim takes an out-cell; 0 = payload in the cell, 1 = an
     /// error message's `(ptr, len)` in the cell.
     Result(Payload),
@@ -170,7 +186,7 @@ pub enum Ret {
 impl Ret {
     /// Whether the shim takes a trailing out-cell word.
     pub fn needs_cell(&self) -> bool {
-        matches!(self, Ret::Bytes | Ret::Result(_) | Ret::Option(_))
+        matches!(self, Ret::Bytes | Ret::Words | Ret::Strs | Ret::Result(_) | Ret::Option(_))
     }
 
     /// Whether an `Err` can come back (so an invalid `&str` argument is
@@ -257,16 +273,31 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
                     Ok(Param::Str)
                 }
                 Type::Slice(s) => {
-                    if !is_u8(&s.elem) {
-                        return Err(refuse_param(&text, " (only `&[u8]` slices cross)"));
-                    }
                     if mutable {
                         return Err(refuse_param(
                             &text,
-                            " (Axiom strings are immutable through the FFI; take `&[u8]`)",
+                            " (Axiom values are immutable through the FFI; take `&[u8]` \
+                             or `&[i64]`)",
                         ));
                     }
-                    Ok(Param::Bytes)
+                    if is_u8(&s.elem) {
+                        return Ok(Param::Bytes);
+                    }
+                    if is_named(&s.elem, "i64") {
+                        return Ok(Param::Words);
+                    }
+                    if matches!(&*s.elem, Type::Reference(r) if is_str(&r.elem)) {
+                        return Err(refuse_param(
+                            &text,
+                            " (a slice of strings does not cross: Axiom's `Vec` holds \
+                             String handles whose bytes live behind a second indirection; \
+                             take one `&str` per call, or a `&str` to split on the Rust side)",
+                        ));
+                    }
+                    Err(refuse_param(
+                        &text,
+                        " (only `&[u8]` and `&[i64]` slices cross; an Axiom `Vec` holds words)",
+                    ))
                 }
                 Type::Path(_) => {
                     let (seg, name) = path_last(&r.elem).ok_or_else(|| {
@@ -279,12 +310,18 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
                         "String" | "Vec" | "Option" | "Result" | "Box" | "Rc" | "Arc" => {
                             return Err(refuse_param(
                                 &text,
-                                " (borrow the bytes as `&str`/`&[u8]`, or hold the value \
-                                 in a type marked `#[axiom_opaque]`)",
+                                " (borrow the bytes as `&str`/`&[u8]`, the words as `&[i64]`, \
+                                 or hold the value in a type marked `#[axiom_opaque]`)",
                             ));
                         }
                         "u64" | "u128" | "i128" | "char" => {
                             return Err(refuse_param(&text, ""));
+                        }
+                        "AxFn1" | "AxFn2" | "AxFn3" => {
+                            return Err(refuse_param(
+                                &text,
+                                " (a callback is one word and `Copy`; take it by value)",
+                            ));
                         }
                         _ => {}
                     }
@@ -306,6 +343,11 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
                     return Ok(Param::Scalar(s));
                 }
             }
+            if let Some(arity) = callback_arity(&name) {
+                if seg.arguments.is_none() {
+                    return Ok(Param::Callback(arity));
+                }
+            }
             match name.as_str() {
                 "u64" | "u128" | "i128" => Err(refuse_param(
                     &text,
@@ -317,7 +359,7 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
                     " (take an `i64` code point, or a `&str`)",
                 )),
                 "String" => Err(refuse_param(&text, " (borrow it: take `&str`)")),
-                "Vec" => Err(refuse_param(&text, " (borrow it: take `&[u8]`)")),
+                "Vec" => Err(refuse_param(&text, " (borrow it: take `&[u8]` or `&[i64]`)")),
                 "Option" | "Result" => Err(refuse_param(
                     &text,
                     " (`Option` and `Result` may only be returned)",
@@ -333,7 +375,22 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
 }
 
 fn is_str(ty: &Type) -> bool {
-    matches!(path_last(ty), Some((seg, name)) if name == "str" && seg.arguments.is_none())
+    is_named(ty, "str")
+}
+
+/// `ty` is the bare path `name` (its last segment, with no generics).
+fn is_named(ty: &Type, wanted: &str) -> bool {
+    matches!(path_last(ty), Some((seg, name)) if name == wanted && seg.arguments.is_none())
+}
+
+/// `AxFn1` -> 1, `AxFn2` -> 2, `AxFn3` -> 3.
+fn callback_arity(name: &str) -> Option<u8> {
+    match name {
+        "AxFn1" => Some(1),
+        "AxFn2" => Some(2),
+        "AxFn3" => Some(3),
+        _ => None,
+    }
 }
 
 /// Classify the payload of `Result<T, _>` / `Option<T>`, or a direct
@@ -356,17 +413,22 @@ fn classify_payload(ty: &Type, outer: &str, whole: &str) -> Result<Payload, Stri
             }
             match name.as_str() {
                 "String" => Ok(Payload::Bytes),
-                "Vec" => {
-                    if single_generic(seg).map(is_u8).unwrap_or(false) {
-                        Ok(Payload::Bytes)
-                    } else {
-                        Err(refuse_return(
-                            whole,
-                            " (only `Vec<u8>` crosses directly; other collections must be \
-                             serialised or held in an `#[axiom_opaque]` type)",
-                        ))
-                    }
-                }
+                "Vec" => match single_generic(seg) {
+                    Some(elem) if is_u8(elem) => Ok(Payload::Bytes),
+                    Some(elem) if is_named(elem, "i64") => Ok(Payload::Words),
+                    Some(elem) if is_named(elem, "String") => Ok(Payload::Strs),
+                    _ => Err(refuse_return(
+                        whole,
+                        " (only `Vec<u8>`, `Vec<i64>` and `Vec<String>` cross directly; \
+                         other collections must be serialised or held in an \
+                         `#[axiom_opaque]` type)",
+                    )),
+                },
+                "AxFn1" | "AxFn2" | "AxFn3" => Err(refuse_return(
+                    whole,
+                    " (a callback is borrowed from the Axiom caller for the call and \
+                     cannot be handed back; answer a word)",
+                )),
                 "Option" | "Result" => {
                     if outer.is_empty() {
                         unreachable!("the outer classifier handles Option/Result")
@@ -428,8 +490,69 @@ pub fn classify_return(ty: Option<&Type>) -> Result<Ret, String> {
     Ok(match classify_payload(ty, "", &whole)? {
         Payload::Scalar(s) => Ret::Scalar(s),
         Payload::Bytes => Ret::Bytes,
+        Payload::Words => Ret::Words,
+        Payload::Strs => Ret::Strs,
         Payload::Opaque(o) => Ret::Opaque(o),
     })
+}
+
+// ---------------------------------------------------------------------
+// Signature descriptors
+// ---------------------------------------------------------------------
+//
+// Beside every shim `axffi_x` the macro exports a no-op function whose
+// NAME encodes the shim's shape: `axffi_x__sig_<params>_<ret>`. The
+// driver derives the same string from the Axiom `extern` item's
+// declared type and refuses a mismatch (AX4005) before the link, where
+// a wrong arity used to be a silent wrong answer. One character per
+// word the shim takes, in order - the out-cell word included - then
+// `_`, then one for the word it answers.
+
+/// The descriptor tag of a parameter word.
+pub fn param_tag(p: &Param) -> char {
+    match p {
+        Param::Scalar(s) if s.is_float() => 'f',
+        Param::Scalar(_) | Param::Opaque { .. } | Param::Words => 'i',
+        Param::Str | Param::Bytes => 's',
+        Param::Callback(_) => 'c',
+    }
+}
+
+/// The descriptor tag of the word the shim answers. Every protocol
+/// return (bytes, a status, a boxed address) is a plain word; only a
+/// float answers its bits.
+pub fn return_tag(r: &Ret) -> char {
+    match r {
+        Ret::Scalar(s) if s.is_float() => 'f',
+        _ => 'i',
+    }
+}
+
+/// `<params>_<ret>`: the tags of the shim's words in order, the
+/// out-cell word included when the return takes one.
+///
+/// ```
+/// # use axiom_ffi_classify::*;
+/// assert_eq!(sig_tags(&[Param::Str], &Ret::Bytes), "si_i");
+/// assert_eq!(sig_tags(&[], &Ret::Scalar(Scalar::I64)), "_i");
+/// ```
+pub fn sig_tags(params: &[Param], ret: &Ret) -> String {
+    let mut out = String::with_capacity(params.len() + 3);
+    for p in params {
+        out.push(param_tag(p));
+    }
+    if ret.needs_cell() {
+        out.push('i');
+    }
+    out.push('_');
+    out.push(return_tag(ret));
+    out
+}
+
+/// The descriptor symbol of the shim `symbol`: `axffi_add__sig_ii_i`,
+/// `axffi_abi_probe__sig__i` for a nullary shim.
+pub fn sig_symbol(symbol: &str, params: &[Param], ret: &Ret) -> String {
+    format!("{symbol}__sig_{}", sig_tags(params, ret))
 }
 
 // ---------------------------------------------------------------------
@@ -662,15 +785,37 @@ mod tests {
         assert!(matches!(classify_param(&ty("&[u8]")), Ok(Param::Bytes)));
         assert!(matches!(classify_param(&ty("&Counter")), Ok(Param::Opaque { mutable: false, .. })));
         assert!(matches!(classify_param(&ty("&mut Counter")), Ok(Param::Opaque { mutable: true, .. })));
+        assert!(matches!(classify_param(&ty("&[i64]")), Ok(Param::Words)));
+        assert!(matches!(classify_param(&ty("AxFn1")), Ok(Param::Callback(1))));
+        assert!(matches!(classify_param(&ty("axiom_ffi::AxFn2")), Ok(Param::Callback(2))));
+        assert!(matches!(classify_param(&ty("AxFn3")), Ok(Param::Callback(3))));
+    }
+
+    #[test]
+    fn refused_slices_and_callbacks_say_why() {
+        let e = classify_param(&ty("&[&str]")).err().unwrap();
+        assert!(e.contains("a slice of strings does not cross"), "{e}");
+        let e = classify_param(&ty("&[i32]")).err().unwrap();
+        assert!(e.contains("only `&[u8]` and `&[i64]`"), "{e}");
+        let e = classify_param(&ty("&mut [i64]")).err().unwrap();
+        assert!(e.contains("immutable"), "{e}");
+        let e = classify_param(&ty("&AxFn1")).err().unwrap();
+        assert!(e.contains("take it by value"), "{e}");
+        let e = classify_return(Some(&ty("AxFn1"))).err().unwrap();
+        assert!(e.contains("cannot be handed back"), "{e}");
+        let e = classify_return(Some(&ty("Option<AxFn2>"))).err().unwrap();
+        assert!(e.contains("cannot be handed back"), "{e}");
+        let e = classify_return(Some(&ty("Vec<i32>"))).err().unwrap();
+        assert!(e.contains("`Vec<u8>`, `Vec<i64>` and `Vec<String>`"), "{e}");
     }
 
     #[test]
     fn refusals_list_the_set() {
-        for bad in ["u64", "char", "Counter", "String", "Option<i64>", "&mut str", "&i64", "(i64, i64)"] {
+        for bad in ["u64", "char", "Counter", "String", "Option<i64>", "&mut str", "&i64", "(i64, i64)", "&[&str]", "&AxFn1"] {
             let e = classify_param(&ty(bad)).err().expect(bad);
             assert!(e.contains(PARAM_TYPES), "{e}");
         }
-        for bad in ["u64", "char", "Vec<i64>", "Result<Option<i64>, String>", "&str", "Option<()>"] {
+        for bad in ["u64", "char", "Vec<i32>", "Result<Option<i64>, String>", "&str", "Option<()>", "AxFn1"] {
             let e = classify_return(Some(&ty(bad))).err().expect(bad);
             assert!(e.contains(RETURN_TYPES), "{e}");
         }
@@ -689,6 +834,45 @@ mod tests {
         ));
         assert!(matches!(classify_return(Some(&ty("Option<i64>"))), Ok(Ret::Option(Payload::Scalar(Scalar::I64)))));
         assert!(matches!(classify_return(Some(&ty("Result<(), E>"))), Ok(Ret::Result(Payload::Scalar(Scalar::Unit)))));
+        assert!(matches!(classify_return(Some(&ty("Vec<i64>"))), Ok(Ret::Words)));
+        assert!(matches!(classify_return(Some(&ty("Vec<String>"))), Ok(Ret::Strs)));
+        assert!(matches!(classify_return(Some(&ty("Result<Vec<i64>, String>"))), Ok(Ret::Result(Payload::Words))));
+        assert!(matches!(classify_return(Some(&ty("Option<Vec<String>>"))), Ok(Ret::Option(Payload::Strs))));
+    }
+
+    #[test]
+    fn descriptors() {
+        let i = Param::Scalar(Scalar::I64);
+        let f = Param::Scalar(Scalar::F64);
+        let b = Param::Scalar(Scalar::Bool);
+        let narrow = Param::Scalar(Scalar::U8);
+        let opaque = classify_param(&ty("&Counter")).unwrap();
+        assert_eq!(sig_symbol("axffi_add", &[i.clone(), i.clone()], &Ret::Scalar(Scalar::I64)), "axffi_add__sig_ii_i");
+        assert_eq!(sig_symbol("axffi_abi_probe", &[], &Ret::Scalar(Scalar::I64)), "axffi_abi_probe__sig__i");
+        // The out-cell word of a bytes/fallible shim is an `i` parameter;
+        // a unit, String, Result or Option result answers `i`.
+        assert_eq!(sig_symbol("axffi_shout", &[Param::Str], &Ret::Bytes), "axffi_shout__sig_si_i");
+        assert_eq!(sig_tags(&[Param::Bytes], &Ret::Result(Payload::Scalar(Scalar::F64))), "si_i");
+        assert_eq!(sig_tags(&[i.clone()], &Ret::Option(Payload::Opaque(classify_opaque()))), "ii_i");
+        assert_eq!(sig_tags(&[i.clone()], &Ret::Scalar(Scalar::Unit)), "i_i");
+        // Floats carry their bits; everything else is a word.
+        assert_eq!(sig_tags(&[f.clone(), f], &Ret::Scalar(Scalar::F64)), "ff_f");
+        assert_eq!(sig_tags(&[b, narrow, opaque], &Ret::Scalar(Scalar::F32)), "iii_f");
+        // Handles answer their address: a word. Callbacks are `c`, a
+        // `Vec` parameter is its handle word.
+        assert_eq!(sig_tags(&[i.clone()], &Ret::Opaque(classify_opaque())), "i_i");
+        assert_eq!(sig_tags(&[Param::Callback(1), i.clone()], &Ret::Scalar(Scalar::I64)), "ci_i");
+        assert_eq!(sig_tags(&[Param::Callback(2), i.clone(), i.clone(), i.clone()], &Ret::Scalar(Scalar::I64)), "ciii_i");
+        assert_eq!(sig_tags(&[Param::Words], &Ret::Scalar(Scalar::I64)), "i_i");
+        assert_eq!(sig_tags(&[i], &Ret::Words), "ii_i");
+        assert_eq!(sig_tags(&[Param::Str], &Ret::Strs), "si_i");
+    }
+
+    fn classify_opaque() -> OpaqueTy {
+        match classify_return(Some(&ty("Counter"))).unwrap() {
+            Ret::Opaque(o) => o,
+            _ => unreachable!(),
+        }
     }
 
     #[test]

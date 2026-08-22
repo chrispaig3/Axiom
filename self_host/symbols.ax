@@ -422,6 +422,27 @@
             (smNid sm name "DTrait:")
             (smTags sm d name)
           }
+      (if (== tag TAG_D_EXTERN)
+          ; An `extern` item has a LOCATION: the item in its block,
+          ; keyed like a signature so `symbols` and the LSP point at
+          ; it rather than answering `builtin` (the checker registers
+          ; it as a function with no span of its own)
+          (let ((items (nodeC d)) (mut i 0))
+            (if (== items 0)
+                0
+                (while (< i (vecLen items))
+                  (let ((f (vecGet items i)))
+                    {
+                      (saPut2 (memGetWord sm 0) (memGetWord sm 1) (memGetWord sm 2)
+                              (nodeA f) (nodeSpan f) u)
+                      (smNid sm (nodeA f) "DExtern:")
+                      (if (== (nodeModule d) 0)
+                          0
+                          (saPut2 (memGetWord sm 0) (memGetWord sm 1) (memGetWord sm 2)
+                                  (strConcat (strConcat (nodeModule d) "$") (nodeA f))
+                                  (nodeSpan f) u))
+                      (set i (+ i 1))
+                    }))))
       (if (== tag TAG_D_EFFECT)
           ; Operation types, keyed under both spellings the checker
           ; registers ops with.
@@ -441,7 +462,7 @@
                                  (nodeB f)))
                       (set i (+ i 1))
                     }))))
-      0)))))))
+      0))))))))
       0
     })))
 

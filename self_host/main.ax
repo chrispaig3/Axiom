@@ -217,7 +217,11 @@
 ;@axiom:effect(io)
 (pub fn (compileFile fileName tname doEmit needMain)
   (let ((rerr (sourceReadErrno fileName))
-        (dfmt diagFormatArg))
+        (dfmt diagFormatArg)
+        ; `--crate DIR` first: a stale or missing binding module is
+        ; regenerated and a missing archive built, before the module
+        ; search that would otherwise report them missing
+        (_crates prepareCrates))
     (if (!= rerr 0)
         { (die (readFailMsg fileName rerr) 1) "" }
         ; An empty file is READ, not refused: it lexes to no tokens and
@@ -535,7 +539,10 @@
                               v
                               (let ((sh (flagValue "-o" 1)))
                                 (if (> (strLen sh) 0) sh "output"))))))
-              (let ((ir (compileFile inp (targetArg hostTarget) 1 1)))
+              ; a static archive needs no `main` and links nothing: its
+              ; externs, if any, are grounded when the HOST links
+              (let ((ir (compileFile inp (targetArg hostTarget) 1
+                                     (if (hasFlagAnywhere cmd "--emit-staticlib") 0 1))))
                 (let ((rc (buildToExecutable ir outp optLevelArg
                                              (if (hasFlagAnywhere cmd "--emit-llvm") 1 0)
                                              (effectiveLinkArgs ir linkArgsOf))))

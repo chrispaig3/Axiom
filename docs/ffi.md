@@ -7,25 +7,28 @@ and everything it describes was built, run and measured on 2026-08-22
 The design record this replaces — six drafts that described an FFI
 which was never built — is kept unchanged in
 [`ffi-design/00-drafts-2026-08.md`](ffi-design/00-drafts-2026-08.md)
-(§13).
+(§17).
 
 The normative memory rules are `MM-FFI-1` to `MM-FFI-6` in
-[memory-model.md](memory-model.md) §7; this document is the user-facing
+[memory-model.md](memory-model.md) §11; this document is the user-facing
 contract and cites them rather than restating them.
 
 ---
 
 ## 1. What it is, and is not
 
-**One direction.** Axiom calls Rust. An `extern` block declares linker
-symbols a static archive defines, the emitter writes a `declare` for
-each one the module calls, and the call site is the same `call i64
-@sym(i64, ...)` an internal Axiom call compiles to. Rust does not call
-Axiom: the only Axiom symbols Rust may reach are the two ownership
-primitives every emitted module exports (`axiom_retain`,
-`axiom_release`) and `axiom_alloc`. The one call in the other direction
-that is not an `extern` item is the destructor a `Handle` carries (§6),
-and Axiom makes that call.
+**Axiom calls Rust; Rust calls back, and a host calls in.** An
+`extern` block declares linker symbols a static archive defines, the
+emitter writes a `declare` for each one the module calls, and the call
+site is the same `call i64 @sym(i64, ...)` an internal Axiom call
+compiles to. Rust reaches Axiom in three ways and no other: the
+ownership primitives every emitted module exports (`axiom_retain`,
+`axiom_release`, `axiom_alloc`); a callback Axiom handed it as an
+argument (§7), valid for that call; and, when the Axiom module was
+built with `--emit-staticlib`, every `pub fn` of the module as a C
+symbol (§10) — there the Rust program is the host and owns `main`.
+The destructor a `Handle` carries (§6) is the other direction's one
+standing call, and Axiom makes it.
 
 **One word each way.** Every Axiom value is one 64-bit word
 (`MM-VAL-1`), so every shim `#[axiom_export]` generates is
@@ -53,7 +56,7 @@ document: `nm -u` on the linked executable, darwin-aarch64):
 
 The 188 are enumerated, one per line, in
 `rust/examples/demo/axiom-allow.txt` (188 non-comment lines), and the
-gate fails on any name outside that file (§10). The 18 are the names
+gate fails on any name outside that file (§14). The 18 are the names
 on `scripts/check-freestanding.sh`'s 47-name list that the `std`
 executable imports (`malloc`, `free`, `memcpy`, `getenv`, `fork`, ...);
 the figure was 14 when first measured, against a shorter list.
@@ -91,10 +94,7 @@ pub fn counter_value(c: &Counter) -> i64 { c.n }
 ```
 
 ```sh
-cargo build --release                      # -> target/release/libaxiom_mycrate.a
-cd /path/to/.axiom/rust && cargo run --release -p axiom-bindgen -- \
-  --src /path/to/mycrate/src --lib axiom_mycrate --module MyCrate \
-  -o /path/to/mycrate/axiom                # writes axiom/MyCrate.ax
+cargo install --path /path/to/.axiom/rust/axiom-bindgen   # once
 ```
 
 ```scheme
@@ -113,13 +113,20 @@ cd /path/to/.axiom/rust && cargo run --release -p axiom-bindgen -- \
 axiom build --input p.ax --output p --crate /path/to/mycrate && ./p
 ```
 
-`--crate DIR` does the whole job: `DIR/axiom/` is searched for the
-generated module and `DIR/target/release` (or the workspace's, one or
-two levels up) for the archive, which is linked because the generated
-`extern` block names it (§8). The `--lib` stem is the archive's:
-package `axiom-demo` builds `libaxiom_demo.a`, so `--lib axiom_demo`.
-`--module` must match the output file's stem, because an Axiom module
-*is* its file name. `counterNew`'s `Counter` is dropped on the Rust
+`--crate DIR` does the whole job: the driver runs `axiom-bindgen` when
+`DIR/axiom/MyCrate.ax` is missing or older than `DIR/src`, runs `cargo
+build --release` when `libaxiom_mycrate.a` is missing, searches
+`DIR/axiom/` for the generated module and `DIR/target/release` (or the
+workspace's, one or two levels up) for the archive, and links it
+because the generated `extern` block names it (§12). The module name is
+the package name in CamelCase — each `-`/`_`-separated piece
+capitalised, an `axiom-` prefix dropped: `axiom-my-crate` → `MyCrate`,
+`mycrate` → `Mycrate` — or the stem of the one `.ax` already in
+`DIR/axiom/`, and the archive stem is the package name with `-` as `_`.
+Run the tool by hand to choose another name — `axiom-bindgen --src
+DIR/src --lib axiom_mycrate --module MyCrate -o DIR/axiom` — since an
+Axiom module *is* its file name, and the driver keeps whatever is
+there. `counterNew`'s `Counter` is dropped on the Rust
 side when `c` goes out of scope; nothing is closed by hand.
 
 The worked example is `rust/examples/demo` (every shape, `std`) with
@@ -143,7 +150,7 @@ Exactly what `self_host/parser.ax` `parseExternDecl` / `parseExternItems`
 - The block head is `extern` followed by **a library name in quotes**;
   anything else is `AX2001 expected a library name in quotes`. The string
   is live: the driver links `-l<lib>` when `lib<lib>.a` is found in a
-  search directory (§8), and names it in an `AX4004`.
+  search directory (§12), and names it in an `AX4004`.
 - An item is `(name :: type clause*)`. The type is **required** — an
   untyped item is `AX2001 expected `:: type` after extern item `name``
   (`tests/diagnostics/700`). Until 2026-08-22 an untyped item became an
@@ -160,7 +167,7 @@ Exactly what `self_host/parser.ax` `parseExternDecl` / `parseExternItems`
   `axiom-bindgen` always writes the clause; so should you — a static link
   is one flat namespace.
 - A type in the signature may be only `Int`, `Float`, `Bool`, `Char`,
-  `String` or `Foreign` (§9, `AX3036`). `Handle` is refused here on
+  `String` or `Foreign` (§13, `AX3036`). `Handle` is refused here on
   purpose: a raw extern answers a `Foreign` word, and only
   `ffiHandleNew` turns one into a `Handle`.
 - `pub` makes the items importable like any other declaration; a
@@ -176,7 +183,7 @@ The emitter (`codegen.ax` `emitExternItems`) writes
 `declare i64 @sym(i64, ...) #0` **only for a symbol the module calls**;
 a program that imports a twenty-item binding module and calls two
 declares two, and every declare must ground against a linked archive
-(§8). The `#0` attribute group on the declare is what keeps `opt` from
+(§12). The `#0` attribute group on the declare is what keeps `opt` from
 reasoning about a declared name as a libc function it knows.
 
 ---
@@ -498,7 +505,198 @@ through `axiom_retain`/`axiom_release` from the Rust side;
 
 ---
 
-## 7. The contract
+## 7. Callbacks
+
+A Rust function can take an Axiom function. On the Rust side the
+parameter is `axiom_ffi::AxFn1`, `AxFn2` or `AxFn3` — a `Copy` struct
+around the closure word with `.call(a)`, `.call(a, b)`, `.call(a, b, c)`,
+every argument and the result a plain `i64`:
+
+```rust
+#[axiom_export]
+pub fn apply_twice(f: AxFn1, x: i64) -> i64 { f.call(f.call(x)) }
+
+#[axiom_export]
+pub fn fold3(f: AxFn2, a: i64, b: i64, c: i64) -> i64 { f.call(f.call(a, b), c) }
+```
+
+and on the Axiom side the parameter is the arrow with the matching
+arity — `(-> Int Int)` for `AxFn1`, `(-> Int Int Int)` for `AxFn2`,
+`(-> Int Int Int Int)` for `AxFn3` — which is what `axiom-bindgen`
+writes:
+
+```scheme
+(applyTwice :: (-> (-> Int Int) Int Int) (symbol "axffi_apply_twice"))
+(fold3 :: (-> (-> Int Int Int) Int Int Int Int) (symbol "axffi_fold3"))
+
+(applyTwice (lambda (x) (+ x k)) 1)         ; 21 when k is 10 - a capture
+(applyTwice triple 2)                       ; 18 - a top-level function
+(fold3 (lambda (a b) (plus a b)) 1 2 3)     ; 6
+```
+
+`tests/ffi/demo/130-callbacks.ax` is the fixture. What crosses is the
+closure record's address: word 0 of an Axiom closure is its code, an
+`extern "C" fn(env, arg) -> i64` that takes the record itself as `env`,
+so `AxFn1::call` is one indirect call with no trampoline. Axiom
+functions are curried — `(lambda (a b) ...)` is a one-argument lambda
+answering a one-argument lambda — so `AxFn2::call` and `AxFn3::call`
+apply one argument per step, exactly as the emitter's own
+`emitApplyChain` does, and release each intermediate link they were
+answered (those links are owned, `MM-LIFE-2c` event 2). A bare
+top-level function is a value at arity 1 only (`AX3013`: a partial
+application has nowhere to hold its arguments), so a two-argument
+function reaches `fold3` through `(lambda (a b) (plus a b))`, as the
+diagnostic's help says.
+
+The callback is **borrowed** (C1): valid for the call, not after it. A
+shim that stores one takes a share with `axiom_retain` and pairs it
+with `axiom_release`. The type discipline admits exactly these three
+shapes as *parameters*: an arrow whose every leaf is `Int`
+(`allIntArrow` in `tcCheckExternTypes`). An arrow with a `String` or
+`Float` leaf, an arrow in result position, and `AxFn` as a Rust return
+type or behind a reference are refused on their respective sides
+(`AX3036`; the macro's `tests/ui/fail/callback_return.rs`,
+`callback_ref_param.rs`). A callback that panics aborts the process
+(C7); a callback has no way to unwind back through the Rust frame.
+
+---
+
+## 8. `Vec` across the boundary
+
+Three shapes, all over words:
+
+| Rust | Axiom | wire |
+|---|---|---|
+| `-> Vec<i64>` | `Int` (a `Vec`) | the out-cell holds `{ptr, len}` of `i64`; the wrapper copies with `ffiWordsToVec` and returns the buffer with `ffiFreeWords` → `axffi_free_words(ptr, len)` |
+| `-> Vec<String>` | `Int` (a `Vec` of `String`) | the cell holds `{ptr, n}`, `ptr` at `2n` words of `(bytes, len)` pairs; `ffiStrsToVec` copies each string, `ffiFreeStrList` → `axffi_free_str_list(ptr, n)` frees every string and the pair buffer |
+| `&[i64]` parameter | `Int` (a `Vec`) | the `Vec` handle itself; Rust reads it as `axiom_abi::AxVec` (word 0 `len`, 1 `cap`, 2 the data pointer) for the call only |
+
+```rust
+#[axiom_export] pub fn range_vec(n: i64) -> Vec<i64> { (0..n).collect() }
+#[axiom_export] pub fn sum_words(xs: &[i64]) -> i64 { xs.iter().sum() }
+#[axiom_export] pub fn split_words(text: &str) -> Vec<String> { text.split(' ').map(String::from).collect() }
+```
+
+```scheme
+(sumWords (rangeVec 5))                     ; 10 - the Vec goes in as itself
+(vecLen (splitWords "a b c"))               ; 3
+```
+
+The generated wrapper for a `Vec` result is the out-cell wrapper of §5
+with one more step:
+
+```scheme
+(pub fn (rangeVec n)
+  (let ((__c ffiCellNew) (__st (rangeVecRaw n __c)) (__p (ffiCellWord __c 0))
+        (__n (ffiCellWord __c 1)) (__v (ffiWordsToVec __p __n)))
+    { (ffiFreeWords __p __n) (ffiCellFree __c) __v }))
+```
+
+`Result<Vec<..>, E>` and `Option<Vec<..>>` use the same payload after
+the status word. `tests/ffi/demo/140-vec.ax` is the fixture. Rust never
+writes an Axiom block (C4): the buffer it returns is its own, freed by
+its own free function after the copy. `&[&str]`, `Vec<T>` for a `T`
+outside `i64`/`String`, and `&mut [i64]` remain refused by the
+classifier with the accepted set in the message.
+
+---
+
+## 9. The shape check (`AX4005`)
+
+Every `#[axiom_export]` shim `axffi_x` is accompanied by a no-op
+**descriptor** symbol whose name spells the shim's shape:
+
+```
+axffi_add__sig_ii_i            add(i64, i64) -> i64
+axffi_shout__sig_si_i          shout(&str) -> String        (s = string; the out-cell is a word)
+axffi_map3__sig_ciii_i         map3(AxFn1, i64, i64, i64)   (c = callback)
+axffi_scale__sig_f_f           scale(f64) -> f64            (f = float)
+axffi_abi_version__sig__i      abi_version() -> i64
+```
+
+One tag per parameter, then `_`, then the result: `i` a plain word
+(`Int`, `Bool`, `Char`, a `Foreign` or `Handle`, a narrow int, a `Vec`
+handle, the out-cell, a unit result), `f` a `Float`, `s` a `String`
+parameter, `c` a callback. The driver derives the same string
+from the Axiom item's declared type (`sigTagOf` in `driver.ax`) and,
+when the archive holds a descriptor for the symbol, refuses a
+disagreement at the item, before any tool runs:
+
+```
+error[AX4005]: `axffi_add` is exported by the crate for `(-> Int Int Int)`; the `extern` item declares `(-> Int Int)`
+ --> 050-shape-mismatch.axbad:10:4
+  = help: the Rust shim and the `extern` item must agree on every parameter and the result
+    (docs/ffi.md, the type table); regenerate the binding module with `axiom-bindgen`, or
+    fix the hand-written item
+```
+
+A symbol with no descriptor in any archive — a hand-written raw shim —
+is grounded (`AX4004`) but not shape-checked; the `#[axiom_opaque]`
+drop shims carry none. Until this check existed a two-argument
+declaration over a three-argument shim built, linked, and answered
+whatever sat in the third register; `tests/ffi/probe-ungrounded/050`
+is the fixture and `scripts/check-ffi.sh` runs it. `axiom explain
+AX4005` has the long form.
+
+---
+
+## 10. The other direction: an Axiom archive for a Rust host
+
+`--emit-staticlib` builds an Axiom module as a static archive with no
+`main` of its own, for a program written in another language to link:
+
+```sh
+axiom build --input hostlib.ax --output libaxiom_hostlib.a --emit-staticlib
+```
+
+The codegen omits the `@main` wrapper (`cgStaticlib`), the driver
+assembles and archives with `ar rcs`, and the file need not define
+`main` at all. Every `pub fn` of the entry module is a C symbol under
+its own name; the stdlib it pulls in is there under the `Module$name`
+spelling, so a host can build Axiom strings with the archive's own
+allocator:
+
+```scheme
+; hostlib.ax
+(import Str)
+(pub fn (addTwo a b) (+ a b))
+(pub fn (shout s) (strConcat (strUpper s) "!"))
+```
+
+```rust
+// the host, a binary crate
+use axiom_ffi::host::{AxString, read_str};
+extern "C" { fn addTwo(a: i64, b: i64) -> i64; fn shout(s: i64) -> i64; }
+fn main() {
+    let hello = AxString::from_str("hello");           // Str$strAlloc + memcpy
+    unsafe {
+        println!("{}", addTwo(40, 2));                 // 42
+        println!("{}", read_str(shout(hello.word()))); // HELLO!
+    }
+}
+```
+
+The runtime needs no init call: the allocator initialises on first
+use. A value the host keeps past the call it got it from is retained
+with `axiom_retain` and released with `axiom_release`, like any shim
+(C1); `AxString` does this for the strings it builds. `IO` functions
+work — the archive contains the syscall layer — and a panic in Axiom
+(an `assert`, an out-of-range index) exits the process as it would
+from `main`. Effects are not checked across the boundary: the host is
+outside the effect system and calls what it likes.
+
+`rust/examples/host` is the worked host (a binary crate whose
+`build.rs` links `$AXIOM_HOST_ARCHIVE_DIR/libaxiom_hostlib.a`), built
+by the gate from `tests/ffi/host/hostlib.ax`, run, and checked for its
+output (§14). What does not exist: an `export` block (every `pub fn` is
+exported), a generated Rust binding for an Axiom module, and any
+promise about a non-`Int` parameter beyond `String` — a host passing a
+`Vec` or a `data` value must build it with the archive's own
+constructors.
+
+---
+
+## 11. The contract
 
 Eight rules, each defined here and cited from the code (`codegen.ax`
 `scanExternSigs` cites C1; `tests/ffi/demo/040-owned-bytes.ax` cites
@@ -553,7 +751,7 @@ C2).
 
 ---
 
-## 8. Linking and the driver
+## 12. Linking and the driver
 
 `self_host/driver.ax` `effectiveLinkArgs` builds the link line in this
 order, each directory once, existing directories only:
@@ -576,6 +774,23 @@ line in the IR (`; axiom-extern-lib axiom_demo`) beside the declares.
 `--crate DIR` (repeatable; `build`, `run`, `check`) additionally puts
 `DIR/axiom/` on the module search path, so `(import Demo)` finds the
 generated module. `--link-lib`/`--link-search` remain as overrides.
+
+**The crate builds itself.** `prepareCrates` runs before the entry is
+read: for each `--crate DIR`, when `DIR/axiom/*.ax` is missing or older
+than the newest file under `DIR/src` and `axiom-bindgen` is on `PATH`,
+the driver regenerates the module (`--src DIR/src --lib <stem>
+--module <Name> -o DIR/axiom`, saying so on stderr); when no `lib<stem>.a`
+exists in any of the crate's `target/release` directories and `cargo`
+is on `PATH`, it runs `cargo build --release --manifest-path
+DIR/Cargo.toml`. The stem and the name come from `DIR/Cargo.toml`'s
+`[package] name` (`-` → `_` for the stem; CamelCase, `axiom-` prefix
+dropped, for the module — or the single `.ax` already in `DIR/axiom/`).
+Neither tool being present is not an error: the driver then expects the
+artefacts to exist and reports `AX4004` or an unresolved import if they
+do not. `cargo install --path rust/axiom-bindgen` puts `axiom-bindgen`
+on `PATH`. Measured on the demo crate: 4 s from a clean `target/`, 0.7 s
+when nothing has changed (the checks are file-time comparisons and one
+`axiom-bindgen --check --quiet`, whose exit status is the answer).
 
 **Grounding.** Before a byte is written or a tool spawned,
 `groundExternsSpanned` reads every archive on the line and checks that
@@ -614,7 +829,7 @@ name that appears is a definition rather than a string constant.
 
 ---
 
-## 9. Diagnostics
+## 13. Diagnostics
 
 | code | when | message |
 |---|---|---|
@@ -622,10 +837,11 @@ name that appears is a definition rather than a string constant.
 | `AX2001` | a clause head other than `symbol` | ``expected `symbol` (unknown extern clause `symbo`; the clauses an extern item takes are: symbol), found `symbo` `` |
 | `AX2001` | an unquoted symbol | ``expected a quoted linker symbol after `symbol`, found `axffi_add` `` |
 | `AX2001` | a block without a quoted library name | `expected a library name in quotes` |
-| `AX3036` | a type the boundary cannot carry | ``an `extern` item cannot carry the type variable `a` across the boundary`` — also `a tuple`, `a list`, `a function-typed argument`, ``the type `Option` ``, ``the type `Handle` ``, `` `Int` applied to type arguments`` |
+| `AX3036` | a type the boundary cannot carry | ``an `extern` item cannot carry the type variable `a` across the boundary`` — also `a tuple`, `a list`, ``a function-typed argument (a callback is an arrow over `Int` only, `(-> Int Int)`)`` (the three callback shapes of §7 pass), ``the type `Option` ``, ``the type `Handle` ``, `` `Int` applied to type arguments`` |
 | `AX3002` | a type name nothing declares | ``undefined type `Slice` `` with the help "use `Foreign` for an opaque handle" |
 | `AX3006` | a `fn` spelled like an item | ``duplicate definition `add` `` pointing at both |
-| `AX4004` | a declared symbol no linked archive defines | §8, three voices |
+| `AX4004` | a declared symbol no linked archive defines | §12, three voices |
+| `AX4005` | a declared type that disagrees with the shim's descriptor | §9 |
 | `AX2004` | `foreign` | a removed construct; migration advice names `extern`. Permanent |
 
 `AX3036`'s help: "an `extern` signature names only `Int`, `Float`,
@@ -633,10 +849,11 @@ name that appears is a definition rather than a string constant.
 Rust value of any other shape crosses as a `Foreign` handle, or through
 the wrapper `axiom-bindgen` generates (a `String` result, a `Result`,
 an `Option`, an opaque type)". `tcCheckExternTypes` walks the
-signature's own arrow spine; an arrow anywhere else is the
-function-typed-argument refusal. `tests/diagnostics/700`–`702` are the
-goldens; `axiom explain AX3036` and `axiom explain AX4004` carry the
-long form.
+signature's own arrow spine; an arrow in parameter position passes
+only as one of the three all-`Int` callback shapes (`allIntArrow`),
+and an arrow anywhere else is refused. `tests/diagnostics/700`–`702` are the
+goldens; `axiom explain AX3036`, `AX4004` and `AX4005` carry the long
+form.
 
 On the Rust side, every refusal is a compile error at the offending
 type or key, with the accepted set in the message (§4), and the
@@ -650,7 +867,7 @@ parameter, and `self`.
 
 ---
 
-## 10. The gate
+## 14. The gate
 
 `scripts/check-ffi.sh` is the gate `MM-FFI-5` requires: the one that
 *enumerates* permitted external symbols rather than forbidding all of
@@ -674,7 +891,7 @@ order:
    wrong answer is this boundary's whole failure class.
 3. **Regeneration** — every checked-in `rust/examples/*/axiom/*.ax` is
    regenerated by `axiom-bindgen` and must be byte-identical.
-4. **Eight negative probes**, because a set relation is also satisfied
+4. **Nine negative probes**, because a set relation is also satisfied
    by an empty corpus, an `nm` that answers nothing and a manifest that
    permits everything: the symbol reader sees an undefined symbol in a C
    object; the manifest comparison flags an unpermitted name; and leaves
@@ -684,18 +901,25 @@ order:
    `AX4004` **and** the strings `opt:` and `AX4003` are absent (a
    refusal from the toolchain would be the `foreign` bug wearing a new
    name); a prefix of a real symbol is `AX4004` naming the real one;
-   nothing linked is said in those words, at the item.
+   nothing linked is said in those words, at the item; a declaration
+   of the wrong shape is `AX4005` (§9), not a build.
+5. **The host direction** — `tests/ffi/host/hostlib.ax` is archived
+   with `--emit-staticlib`, the archive is checked to define no `main`,
+   and `rust/examples/host` is built against it and run; its output
+   must report agreement between what the host computed and what the
+   Axiom functions answered (§10).
 
 The fixtures: `tests/ffi/demo/` — 010 add, 020 float bits, 030 string
 borrow, 040 owned bytes, 050 fallible, 060 opaque handle, 070 effect
 transitive, 080 param named cell, 090 option, 100 result opaque, 110
-narrow ints, 120 bytes param, 200/210/220 differential int/float/string
+narrow ints, 120 bytes param, 130 callbacks, 140 vec, 200/210/220
+differential int/float/string
 (Axiom and Rust compute the same answer), 300 arity sweep (arity 0 is
 the one distinct emitter path), 310 ABI version, 400 ARC retain, 410
 foreign not walked, 420 null foreign; `tests/ffi/nostd/010-fnv1a.ax`;
 `tests/ffi/probe-ungrounded/*.axbad`. The Rust side has its own:
 `cargo test --release` runs the classifier's unit tests, the `trybuild`
-suite (one pass file that runs every accepted shape, 16 fail snapshots),
+suite (one pass file that runs every accepted shape, 19 fail snapshots),
 and `axiom-bindgen`'s snapshot tests (`tests/fixtures/{nested,collision,
 unmarked}`, demo/nostd freshness, CLI behaviour, and `axiom fmt --check`
 on the output when a compiler is reachable).
@@ -705,7 +929,7 @@ no `extern` still has to answer the strict version.
 
 ---
 
-## 11. `no_std` mode
+## 15. `no_std` mode
 
 The mode to reach for when the crate can live in `core` + `alloc`:
 
@@ -745,21 +969,26 @@ would enable `axiom-ffi/std` for the `no_std` member and its
 
 ---
 
-## 12. Not supported
+## 16. Not supported
 
 Stated plainly, so nobody builds on a sentence the compiler disagrees
 with:
 
-- **Rust → Axiom.** No `export` block, no staticlib of an Axiom module,
-  no `axiom_rt_init`. Rust reaches Axiom only through `axiom_retain`,
-  `axiom_release` and the destructor callback.
-- **Callbacks and closures.** A function-typed argument is `AX3036`; the
-  macro refuses `fn` and closure types. There is no `axiom_closure_new`.
+- **Rust → Axiom beyond a `pub fn` of words and strings.** `--emit-staticlib`
+  exports every `pub fn` of the entry module (§10); there is no `export`
+  block to choose, no generated Rust binding for an Axiom module, and a
+  host that needs a `Vec` or a `data` value builds it with the archive's
+  own constructors.
+- **Callbacks outside the three word shapes.** A parameter of type
+  `(-> Int Int)`, `(-> Int Int Int)` or `(-> Int Int Int Int)` crosses
+  (§7); an arrow with a `String` or `Float` leaf, an arrow as a result,
+  and a Rust `fn`/closure type other than `AxFn1`–`AxFn3` are refused.
 - **Structs by value, tuples, lists.** Each is `AX3036` in an `extern`
-  signature; the macro refuses tuples and `&[T ≠ u8]`. Hold the value in
-  an `#[axiom_opaque]` type, or split it into words.
-- **`Vec<T>` for `T ≠ u8`**, `u64`, `u128`, `i128`, `char`, `&mut str`,
-  `Box`/`Rc`/`Arc` across the boundary, nested `Result`/`Option`.
+  signature; the macro refuses tuples and `&[T]` for `T ≠ u8, i64`. Hold
+  the value in an `#[axiom_opaque]` type, or split it into words.
+- **`Vec<T>` for `T ∉ {i64, String}`**, `&[&str]`, `&mut [i64]`, `u64`,
+  `u128`, `i128`, `char`, `&mut str`, `Box`/`Rc`/`Arc` across the
+  boundary, nested `Result`/`Option`.
 - **Panics unwinding into Axiom.** A panic aborts the process (C7); no
   status reports one.
 - **32-bit targets.** A word is 64 bits, `usize`/`isize` are
@@ -774,7 +1003,7 @@ with:
 
 ---
 
-## 13. History
+## 17. History
 
 The FFI was designed on paper first and the paper outran the tree.
 `ffi-design/00-drafts-2026-08.md` is the 4,996-line record of that
@@ -794,3 +1023,11 @@ protocol; a gate that never ran what it built. Each is a fixture now —
 `tests/diagnostics/700`–`702`, `tests/ffi/demo/080`–`120`,
 `tests/ffi/probe-ungrounded/030`–`040`, the gate's run step — and the
 surface this document describes is the one that closed them.
+
+Later the same day the surface grew what §16 had listed as absent:
+callbacks (§7), `Vec` each way (§8), the shape descriptor and `AX4005`
+(§9), the host direction (§10), and a driver that runs `axiom-bindgen`
+and `cargo` itself (§12). Each is a fixture too — `tests/ffi/demo/130`,
+`140`, `tests/ffi/probe-ungrounded/050`, `tests/ffi/host/` with
+`rust/examples/host` — and `axiom symbols` and the LSP now place an
+extern item at its line rather than calling it a builtin.

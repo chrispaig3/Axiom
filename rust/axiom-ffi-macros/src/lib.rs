@@ -18,12 +18,26 @@
 //! |---|---|---|
 //! | scalar / `()` / opaque `T` | `fn(args..) -> i64` | the value (an opaque `T` as its boxed address) |
 //! | `String` / `Vec<u8>` | `fn(args.., out: i64) -> i64` | status 0; `out` gets (ptr, len) |
+//! | `Vec<i64>` | `fn(args.., out: i64) -> i64` | status 0; `out` gets (ptr, len) of words |
+//! | `Vec<String>` | `fn(args.., out: i64) -> i64` | status 0; `out` gets (pairs, n) |
 //! | `Result<T, E>` | `fn(args.., out: i64) -> i64` | 0: payload in `out`; 1: message (ptr, len) in `out` |
 //! | `Option<T>` | `fn(args.., out: i64) -> i64` | 0: payload in `out`; 2: `None` |
 //!
 //! A byte return needs two words (pointer and length) and Axiom emits
 //! `ret i64` for everything, so those shapes take an out-cell the Axiom
 //! caller allocates. There is no wider return to reach for.
+//!
+//! Beside every shim the macro exports its **signature descriptor**: a
+//! no-op `axffi_x__sig_<params>_<ret>` (`axffi_add__sig_ii_i`,
+//! `axffi_shout__sig_si_i`, `axffi_abi_probe__sig__i`) whose name the
+//! driver derives independently from the Axiom `extern` item's declared
+//! type, so a block that declares the wrong arity or a `Float` where
+//! the shim takes a word is refused before the link (AX4005). The tags
+//! come from `axiom-ffi-classify`, the same table bindgen reads.
+//!
+//! A callback parameter (`AxFn1`, `AxFn2`, `AxFn3`) arrives as the
+//! closure record word and is wrapped without a copy; a `&[i64]`
+//! parameter is an Axiom `Vec` handle read in place.
 //!
 //! # What the shim refuses at runtime
 //!
@@ -198,6 +212,7 @@ fn expand_export(func: ItemFn, attr: cls::ExportAttr) -> Result<TokenStream2, sy
     })?;
     let fallible = ret.is_result();
     let needs_cell = ret.needs_cell();
+    let mut classified: Vec<Param> = Vec::new();
 
     // ---- parameters -------------------------------------------------
     let mut shim_params = Vec::new();
@@ -216,6 +231,7 @@ fn expand_export(func: ItemFn, attr: cls::ExportAttr) -> Result<TokenStream2, sy
             }
         };
         let param = cls::classify_param(&pt.ty).map_err(|m| syn::Error::new_spanned(&pt.ty, m))?;
+        classified.push(param.clone());
         let w = format_ident!("a{}", i);
         let idx = i + 1;
         let pname = match &*pt.pat {
@@ -269,6 +285,23 @@ fn expand_export(func: ItemFn, attr: cls::ExportAttr) -> Result<TokenStream2, sy
                 });
                 call_args.push(quote! { #w });
             }
+            Param::Words => {
+                prologue.push(quote! {
+                    let #w: &[i64] = unsafe {
+                        ::axiom_ffi::__private::words(#w, #name_str, #idx, #pname)
+                    };
+                });
+                call_args.push(quote! { #w });
+            }
+            Param::Callback(arity) => {
+                let t = format_ident!("AxFn{}", arity);
+                prologue.push(quote! {
+                    let #w: ::axiom_ffi::#t = unsafe {
+                        ::axiom_ffi::__private::callback::<::axiom_ffi::#t>(#w, #name_str, #idx, #pname)
+                    };
+                });
+                call_args.push(quote! { #w });
+            }
             Param::Opaque { ty, mutable } => {
                 let base = &ty.ty;
                 if mutable {
@@ -290,15 +323,34 @@ fn expand_export(func: ItemFn, attr: cls::ExportAttr) -> Result<TokenStream2, sy
          `#[axiom_export]`."
     );
 
+    // The descriptor: a no-op whose name is the shape. Never called;
+    // the driver reads it from the archive's symbol table.
+    let sig = format_ident!("{}", cls::sig_symbol(&shim.to_string(), &classified, &ret));
+    let sig_doc = format!(
+        "The signature descriptor of `{shim}`: its name encodes the shim's shape for the \
+         Axiom driver's check. Never called."
+    );
+    let sig_fn = quote! {
+        #[doc = #sig_doc]
+        #[doc(hidden)]
+        #[no_mangle]
+        pub extern "C" fn #sig() -> ::axiom_ffi::AxWord {
+            0
+        }
+    };
+
     let shim_fn = if needs_cell {
         let tail = match &ret {
-            Ret::Bytes => quote! {
-                let v = #body_call;
-                let (p, n) = ::axiom_ffi::__private::leak_bytes(v.into());
-                cell.payload = p;
-                cell.extra = n;
-                ::axiom_ffi::AX_OK
-            },
+            Ret::Bytes | Ret::Words | Ret::Strs => {
+                let leak = leak_fn(&ret);
+                quote! {
+                    let v = #body_call;
+                    let (p, n) = ::axiom_ffi::__private::#leak(v.into());
+                    cell.payload = p;
+                    cell.extra = n;
+                    ::axiom_ffi::AX_OK
+                }
+            }
             Ret::Result(payload) => {
                 let store = store_payload(payload);
                 quote! {
@@ -357,7 +409,17 @@ fn expand_export(func: ItemFn, attr: cls::ExportAttr) -> Result<TokenStream2, sy
         }
     };
 
-    Ok(quote! { #func #shim_fn })
+    Ok(quote! { #func #shim_fn #sig_fn })
+}
+
+/// The `__private` function that hands a direct collection return over.
+fn leak_fn(r: &Ret) -> proc_macro2::Ident {
+    match r {
+        Ret::Bytes => format_ident!("leak_bytes"),
+        Ret::Words => format_ident!("leak_words"),
+        Ret::Strs => format_ident!("leak_strs"),
+        _ => unreachable!("only the cell-carried collections leak"),
+    }
 }
 
 /// `v` (a scalar) to the word the shim returns.
@@ -380,6 +442,16 @@ fn store_payload(p: &Payload) -> TokenStream2 {
         }
         Payload::Bytes => quote! {
             let (p, n) = ::axiom_ffi::__private::leak_bytes(v.into());
+            cell.payload = p;
+            cell.extra = n;
+        },
+        Payload::Words => quote! {
+            let (p, n) = ::axiom_ffi::__private::leak_words(v);
+            cell.payload = p;
+            cell.extra = n;
+        },
+        Payload::Strs => quote! {
+            let (p, n) = ::axiom_ffi::__private::leak_strs(v);
             cell.payload = p;
             cell.extra = n;
         },

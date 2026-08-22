@@ -1,7 +1,8 @@
 ; What an `extern` signature may name: one word each way.
 ;
 ; A type variable, a declared type such as `(Option Int)` and a
-; function-typed argument are AX3036 at the item; a `fn` spelled like
+; function-typed argument outside the three callback shapes (every
+; leaf `Int`, arity 1-3) are AX3036 at the item; a `fn` spelled like
 ; an item is the duplicate it is (AX3006) - the block defines its
 ; items, not its library string, so two blocks naming one library are
 ; not duplicates of each other.
@@ -9,7 +10,8 @@
   (add :: (-> Int Int Int) (symbol "axffi_add"))
   (poly :: (-> a Int) (symbol "axffi_poly"))
   (opt :: (-> Int (Option Int)) (symbol "axffi_opt"))
-  (hof :: (-> (-> Int Int) Int) (symbol "axffi_hof")))
+  (hof :: (-> (-> String Int) Int) (symbol "axffi_hof"))
+  (cb2 :: (-> (-> Int Int Int) Int) (symbol "axffi_cb2")))
 
 (pub extern "axiom_demo"
   (sub :: (-> Int Int Int) (symbol "axffi_sub")))

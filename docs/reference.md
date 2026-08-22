@@ -287,9 +287,11 @@ its type inline and the linker symbol it binds:
   (countVowels :: (-> String Int)  (symbol "axffi_count_vowels")))
 ```
 
-Build against the crate with one flag — its `axiom/` directory holds
-the module `axiom-bindgen` generated and its `target/release` the
-archive, and the block's library name links by itself:
+Build against the crate with one flag — the driver runs
+`axiom-bindgen` when the crate's `axiom/` module is missing or older
+than its `src/`, runs `cargo build --release` when the archive is
+missing (each only if the tool is on `PATH`), and links the archive
+because the block's library name says so:
 
 ```
 axiom build --input p.ax --output p --crate path/to/crate
@@ -304,9 +306,13 @@ searched too.) The emitter writes `declare i64 @axffi_add(i64, i64)
 - The type is **inline and required**. A separate `(:: name Type)`
   draws `AX3015`; an item without `:: type` is a parse error.
 - An item's signature names only `Int`, `Float`, `Bool`, `Char`,
-  `String` and `Foreign` — one machine word each way. A type variable, a tuple, a function-typed argument or a
-  declared type (`(Option Int)`, `Handle`, a struct) is `AX3036`: such
-  values cross as a `Foreign` handle or through the generated wrapper.
+  `String` and `Foreign` — one machine word each way — plus a
+  callback parameter of type `(-> Int Int)`, `(-> Int Int Int)` or
+  `(-> Int Int Int Int)`. A type variable, a tuple, any other function
+  type or a declared type (`(Option Int)`, `Handle`, a struct) is
+  `AX3036`: such values cross as a `Foreign` handle or through the
+  generated wrapper (a `Vec<i64>` or `Vec<String>` result becomes a
+  `Vec`).
 - `(symbol "...")` is the **only clause**; any other head is a parse
   error naming it. Write it explicitly — a static link is one flat
   namespace and the default is the Axiom name.
@@ -320,6 +326,14 @@ toolchain runs — in three voices: nothing linked at all, an archive
 linked that lacks the name (with the nearest `axffi_*` name it does
 hold), and the search path it used. The check reads the archives'
 symbol tables, so a prefix of a real name is refused as the typo it is.
+A symbol the archive exports under a different shape — every
+`#[axiom_export]` shim carries a descriptor, `axffi_add__sig_ii_i` —
+is `AX4005` at the item.
+
+The other direction is `--emit-staticlib`: `axiom build --input lib.ax
+--output libaxiom_lib.a --emit-staticlib` archives a module with no
+`main`, every `pub fn` a C symbol under its own name, for a Rust (or
+C) host to link.
 
 `foreign` is not this feature renamed and remains `AX2004`. See
 [docs/ffi.md](ffi.md).

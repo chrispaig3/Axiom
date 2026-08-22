@@ -1,0 +1,5 @@
+error: `Vec<i32>` is not supported as an `#[axiom_export]` return type (only `Vec<u8>`, `Vec<i64>` and `Vec<String>` cross directly; other collections must be serialised or held in an `#[axiom_opaque]` type); the supported return types are: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 () String Vec<u8> Vec<i64> Vec<String> Option<T> Result<T, E> T (T marked `#[axiom_opaque]`; E: Display)
+ --> tests/ui/fail/vec_i32_return.rs:5:21
+  |
+5 | pub fn f(n: i64) -> Vec<i32> {
+  |                     ^^^^^^^^

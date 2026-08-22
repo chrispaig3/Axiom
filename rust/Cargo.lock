@@ -52,6 +52,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "axiom-host"
+version = "0.1.0"
+dependencies = [
+ "axiom-ffi",
+]
+
+[[package]]
 name = "axiom-leaky"
 version = "0.1.0"
 dependencies = [

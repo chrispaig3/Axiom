@@ -3,7 +3,10 @@
 //! out, an out-cell for the byte and fallible shapes.
 #![allow(clippy::all)]
 
-use axiom_ffi::{axiom_export, axiom_opaque, AxOutCell, AxStrRepr, AxWord, AX_ERR, AX_NONE, AX_OK};
+use axiom_ffi::{
+    axiom_export, axiom_opaque, AxFn1, AxFn2, AxFn3, AxOutCell, AxStrRepr, AxVecRepr, AxWord,
+    AX_ERR, AX_NONE, AX_OK,
+};
 
 #[axiom_opaque]
 pub struct Thing {
@@ -99,6 +102,93 @@ pub fn widget_new(b: bool) -> Widget { if b { Widget::B } else { Widget::A } }
 #[axiom_export]
 pub fn widget_is_b(w: &Widget) -> bool { matches!(w, Widget::B) }
 
+// Callbacks: the closure record word, called through word 0.
+#[axiom_export]
+pub fn twice(f: AxFn1, x: i64) -> i64 { f.call(f.call(x)) }
+
+#[axiom_export]
+pub fn fold(f: AxFn2, a: i64, b: i64, c: i64) -> i64 { f.call(f.call(a, b), c) }
+
+#[axiom_export]
+pub fn three(f: axiom_ffi::AxFn3) -> i64 { f.call(1, 2, 3) }
+
+// Collections: words and strings out through the cell, words in as a Vec handle.
+#[axiom_export]
+pub fn range(n: i64) -> Vec<i64> { (0..n).collect() }
+
+#[axiom_export]
+pub fn words(s: &str) -> Vec<String> { s.split(' ').map(String::from).collect() }
+
+#[axiom_export]
+pub fn total(xs: &[i64]) -> i64 { xs.iter().sum() }
+
+#[axiom_export]
+pub fn try_range(n: i64) -> Result<Vec<i64>, String> {
+    if n < 0 { Err("negative".into()) } else { Ok(range(n)) }
+}
+
+#[axiom_export]
+pub fn maybe_words(s: &str) -> Option<Vec<String>> {
+    if s.is_empty() { None } else { Some(words(s)) }
+}
+
+/// What the compiler emits for `(lambda (x) (+ x k))` with `k` captured
+/// in word 1: the hidden environment first, then the argument.
+extern "C" fn lam_add_k(env: AxWord, x: AxWord) -> AxWord {
+    let k = unsafe { *(env as *const AxWord).add(1) };
+    x + k
+}
+
+/// Every Axiom function value absorbs ONE argument: `(lambda (a b) ..)`
+/// is `(lambda (a) (lambda (b) ..))`, so the outer link answers the
+/// inner link's record (`[code, a]`), owned by the caller. This is the
+/// chain `AxFn2::call` / `AxFn3::call` walk, releasing each link.
+extern "C" fn lam_plus_outer(_env: AxWord, a: AxWord) -> AxWord {
+    Box::into_raw(Box::new([lam_add_k as usize as AxWord, a])) as AxWord
+}
+
+extern "C" fn lam_sum3_outer(_env: AxWord, a: AxWord) -> AxWord {
+    Box::into_raw(Box::new([lam_sum3_middle as usize as AxWord, a])) as AxWord
+}
+
+extern "C" fn lam_sum3_middle(env: AxWord, b: AxWord) -> AxWord {
+    let a = unsafe { *(env as *const AxWord).add(1) };
+    Box::into_raw(Box::new([lam_add_k as usize as AxWord, a + b])) as AxWord
+}
+
+/// No Axiom runtime is linked here, so the chain's releases land on a
+/// stub that frees the two-word links the outer/middle steps boxed.
+#[no_mangle]
+pub extern "C" fn axiom_release(h: AxWord) {
+    RELEASED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    drop(unsafe { Box::from_raw(h as *mut [AxWord; 2]) });
+}
+
+#[no_mangle]
+pub extern "C" fn axiom_retain(_h: AxWord) {}
+
+static RELEASED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Copy the words a shim handed over, then free them the way Axiom glue does.
+fn take_words(cell: &AxOutCell) -> Vec<i64> {
+    let v = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, cell.extra as usize) }.to_vec();
+    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, cell.extra) };
+    v
+}
+
+/// Copy every string of a `(pairs, n)` list, then free the list.
+fn take_strs(cell: &AxOutCell) -> Vec<String> {
+    let n = cell.extra as usize;
+    let pairs = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, n * 2) };
+    let v = pairs
+        .chunks_exact(2)
+        .map(|p| unsafe { std::slice::from_raw_parts(p[0] as *const u8, p[1] as usize) })
+        .map(|b| String::from_utf8(b.to_vec()).unwrap())
+        .collect();
+    unsafe { axiom_ffi::axffi_free_str_list(cell.payload as *mut i64, cell.extra) };
+    v
+}
+
 /// An Axiom `String` value as Rust sees it: the address of its three-word run.
 fn ax_str(repr: &AxStrRepr) -> AxWord {
     repr as *const AxStrRepr as AxWord
@@ -183,4 +273,64 @@ fn main() {
     assert_eq!(axffi_thing_get(cell.payload), 9);
     assert_eq!(unsafe { axffi_thing_drop(cell.payload) }, 0);
     assert_eq!(axffi_maybe_thing(0, cell_word(&mut cell)), AX_NONE);
+
+    // Callbacks: a record is [code, captures..]; the shim calls word 0
+    // with the record as the environment.
+    let add_ten: [AxWord; 2] = [lam_add_k as usize as AxWord, 10];
+    let add_ten_rec = add_ten.as_ptr() as AxWord;
+    assert_eq!(axffi_twice(add_ten_rec, 1), 21);
+    // Two and three arguments: one link per argument, each released.
+    let plus: [AxWord; 1] = [lam_plus_outer as usize as AxWord];
+    assert_eq!(axffi_fold(plus.as_ptr() as AxWord, 1, 2, 3), 6);
+    assert_eq!(RELEASED.load(std::sync::atomic::Ordering::Relaxed), 2);
+    let sum3: [AxWord; 1] = [lam_sum3_outer as usize as AxWord];
+    assert_eq!(axffi_three(sum3.as_ptr() as AxWord), 6);
+    assert_eq!(RELEASED.load(std::sync::atomic::Ordering::Relaxed), 4);
+    let direct = unsafe { <AxFn1 as axiom_ffi::AxCallback>::from_raw(add_ten_rec) };
+    assert_eq!(direct.call(5), 15);
+    assert_eq!(direct.as_word(), add_ten_rec);
+    assert_eq!(<AxFn2 as axiom_ffi::AxCallback>::ARITY, 2);
+    assert_eq!(<AxFn3 as axiom_ffi::AxCallback>::ARITY, 3);
+
+    // Words out: (ptr, len); an empty Vec is (dangling, 0) and frees as a no-op.
+    assert_eq!(axffi_range(4, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_words(&cell), vec![0, 1, 2, 3]);
+    assert_eq!(axffi_range(0, cell_word(&mut cell)), AX_OK);
+    assert_eq!(cell.extra, 0);
+    assert_eq!(take_words(&cell), Vec::<i64>::new());
+    // Strings out: (pairs, n).
+    let text = AxStrRepr { len: 9, data: b"ab cd efg ".as_ptr(), owner: 0 };
+    assert_eq!(axffi_words(ax_str(&text), cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_strs(&cell), vec!["ab", "cd", "efg"]);
+    // Words in: an Axiom Vec handle, len at word 0 and data at word 2.
+    let data = [5i64, 6, 7, 0, 0];
+    let vec = AxVecRepr { len: 3, cap: 5, data: data.as_ptr() };
+    assert_eq!(axffi_total(&vec as *const AxVecRepr as AxWord), 18);
+    let empty = AxVecRepr { len: 0, cap: 8, data: std::ptr::null() };
+    assert_eq!(axffi_total(&empty as *const AxVecRepr as AxWord), 0);
+    // Inside Result and Option.
+    assert_eq!(axffi_try_range(3, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_words(&cell), vec![0, 1, 2]);
+    assert_eq!(axffi_try_range(-1, cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"negative");
+    assert_eq!(axffi_maybe_words(ax_str(&text), cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_strs(&cell).len(), 3);
+    let none = AxStrRepr { len: 0, data: b" ".as_ptr(), owner: 0 };
+    assert_eq!(axffi_maybe_words(ax_str(&none), cell_word(&mut cell)), AX_NONE);
+
+    // Every shim carries its signature descriptor, a no-op named for
+    // the shape: one tag per word in, `_`, one for the word out.
+    assert_eq!(axffi_scalars__sig_iiiiiiiiiiff_i(), 0);
+    assert_eq!(axffi_ret_f32__sig_f_f(), 0);
+    assert_eq!(axffi_nullary__sig__i(), 0);
+    assert_eq!(axffi_text__sig_si_i(), 0);
+    assert_eq!(custom_symbol__sig_s_i(), 0);
+    assert_eq!(axffi_thing_new__sig_i_i(), 0);
+    assert_eq!(axffi_thing_bump__sig_i_i(), 0);
+    assert_eq!(axffi_res_str__sig_sii_i(), 0);
+    assert_eq!(axffi_twice__sig_ci_i(), 0);
+    assert_eq!(axffi_fold__sig_ciii_i(), 0);
+    assert_eq!(axffi_range__sig_ii_i(), 0);
+    assert_eq!(axffi_words__sig_si_i(), 0);
+    assert_eq!(axffi_total__sig_i_i(), 0);
 }

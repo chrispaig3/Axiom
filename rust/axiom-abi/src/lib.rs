@@ -261,3 +261,222 @@ impl AxOutCell {
         &mut *(word as *mut AxOutCell)
     }
 }
+
+// ---------------------------------------------------------------------
+// Callbacks: an Axiom function value, called from Rust
+// ---------------------------------------------------------------------
+//
+// An Axiom closure is a heap record whose word 0 is the code address
+// and whose later words are the captures (`self_host/codegen.ax`,
+// "Lambda expressions: capture, lifting, and the record convention").
+// The lifted code is an ordinary C function `i64 (i64 %_env, i64 arg)`
+// that takes the record itself first - a lifted lambda reads its
+// captures from it, the forwarding thunk a bare top-level function
+// gets as a value ignores it.
+//
+// EVERY function value absorbs exactly one argument. The parser builds
+// `(lambda (x y) b)` as `(lambda (x) (lambda (y) b))`
+// (`self_host/parser.ax`, `curryLam`), so a `(-> Int Int Int)` value
+// is a chain: applying the first argument answers the record of the
+// next link, and only the last application answers the value. The
+// compiler's own `emitApplyChain` does exactly this, one step per
+// argument - a flat `f(env, a, b)` call would hand the outer link a
+// word it ignores and answer the INNER RECORD'S ADDRESS (measured:
+// `fold3` printed `4376821888` before this was written as a chain).
+// So [`AxFn2::call`] and [`AxFn3::call`] step through the chain.
+//
+// Ownership: the record a shim receives is BORROWED for the call
+// (MM-LIFE-2c event 1); a shim that keeps one past its return takes a
+// share with [`axiom_retain`] and gives it back with
+// [`axiom_release`]. Each intermediate link a step answers is a value
+// a function RETURNED, hence owned by the caller (event 2): `call`
+// releases it once the next step is done.
+
+/// An Axiom function value of a fixed arity, as a shim receives it.
+///
+/// Implemented by [`AxFn1`], [`AxFn2`] and [`AxFn3`]; the generated
+/// shims construct one through [`AxCallback::from_raw`].
+pub trait AxCallback: Copy {
+    /// The number of arguments the closure takes.
+    const ARITY: usize;
+
+    /// # Safety
+    /// `record` must be a live Axiom closure record of this arity for
+    /// as long as the value is called.
+    unsafe fn from_raw(record: AxWord) -> Self;
+
+    /// The record word, for [`axiom_retain`] / [`axiom_release`].
+    fn as_word(self) -> AxWord;
+}
+
+/// One link of the chain: load word 0 of `record` and call it with
+/// the record as the hidden environment and one argument.
+///
+/// # Safety
+/// `record` must be a live closure record.
+#[inline]
+unsafe fn apply_one(record: AxWord, arg: AxWord) -> AxWord {
+    let code = *(record as *const AxWord);
+    let f: extern "C" fn(AxWord, AxWord) -> AxWord = core::mem::transmute(code as usize);
+    f(record, arg)
+}
+
+macro_rules! ax_fn {
+    ($name:ident, $arity:expr, $doc:expr) => {
+        #[doc = $doc]
+        ///
+        /// `Copy`, one word: the closure record. Valid for the call the
+        /// shim received it in; see the module note on keeping one.
+        #[repr(transparent)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct $name {
+            record: AxWord,
+        }
+
+        impl AxCallback for $name {
+            const ARITY: usize = $arity;
+
+            #[inline]
+            unsafe fn from_raw(record: AxWord) -> Self {
+                Self { record }
+            }
+
+            #[inline]
+            fn as_word(self) -> AxWord {
+                self.record
+            }
+        }
+
+        impl $name {
+            /// The record word, for [`axiom_retain`] / [`axiom_release`].
+            #[inline]
+            pub fn as_word(self) -> AxWord {
+                self.record
+            }
+        }
+    };
+}
+
+ax_fn!(AxFn1, 1, "An Axiom `(-> Int Int)` value: one argument.");
+ax_fn!(AxFn2, 2, "An Axiom `(-> Int Int Int)` value: two arguments, applied one at a time.");
+ax_fn!(AxFn3, 3, "An Axiom `(-> Int Int Int Int)` value: three arguments, applied one at a time.");
+
+impl AxFn1 {
+    /// Call the Axiom function with `a`.
+    #[inline]
+    pub fn call(self, a: AxWord) -> AxWord {
+        // SAFETY: the `from_raw` contract - a live closure record - is
+        // what the generated shim promised when it built this value
+        // from an argument word the Axiom caller typed as an arrow.
+        unsafe { apply_one(self.record, a) }
+    }
+}
+
+impl AxFn2 {
+    /// Call the Axiom function with `a` and `b`: the first application
+    /// answers the inner link, the second the value; the link is then
+    /// released.
+    #[inline]
+    pub fn call(self, a: AxWord, b: AxWord) -> AxWord {
+        // SAFETY: as `AxFn1::call`; the link is a fresh record the
+        // first step answered, owned here and released after use.
+        unsafe {
+            let link = apply_one(self.record, a);
+            let v = apply_one(link, b);
+            axiom_release(link);
+            v
+        }
+    }
+}
+
+impl AxFn3 {
+    /// Call the Axiom function with `a`, `b` and `c`, one application
+    /// per argument; the two intermediate links are released.
+    #[inline]
+    pub fn call(self, a: AxWord, b: AxWord, c: AxWord) -> AxWord {
+        // SAFETY: as `AxFn2::call`, one link deeper.
+        unsafe {
+            let link1 = apply_one(self.record, a);
+            let link2 = apply_one(link1, b);
+            let v = apply_one(link2, c);
+            axiom_release(link2);
+            axiom_release(link1);
+            v
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Vectors
+// ---------------------------------------------------------------------
+
+/// The three words an Axiom `Vec` handle points at.
+///
+/// Verified against `stdlib/Vec.ax`'s module note: word 0 the length,
+/// word 1 the capacity, word 2 the address of `cap` words of element
+/// storage. Elements are machine words - an `Int` each when the Axiom
+/// side built the vector from integers, which is the only shape a
+/// `&[i64]` parameter promises.
+#[repr(C)]
+#[derive(Debug)]
+pub struct AxVecRepr {
+    /// Live elements.
+    pub len: i64,
+    /// Elements the data block can hold.
+    pub cap: i64,
+    /// The element storage: `cap` words, `len` of them live.
+    pub data: *const i64,
+}
+
+/// A borrowed view of an Axiom `Vec` of words.
+///
+/// The lifetime is the call, as for [`AxStr`]: the vector's header is
+/// stable (only its data block moves, on growth), but the Axiom caller
+/// owns it and may grow or release it the moment the shim returns.
+#[derive(Clone, Copy)]
+pub struct AxVec<'a> {
+    raw: AxWord,
+    _life: PhantomData<&'a [i64]>,
+}
+
+impl<'a> AxVec<'a> {
+    /// # Safety
+    /// `raw` must be a live Axiom `Vec` handle for all of `'a`.
+    #[inline]
+    pub const unsafe fn from_raw(raw: AxWord) -> Self {
+        Self { raw, _life: PhantomData }
+    }
+
+    #[inline]
+    pub fn as_word(self) -> AxWord {
+        self.raw
+    }
+
+    #[inline]
+    fn repr(self) -> &'a AxVecRepr {
+        // SAFETY: the from_raw contract.
+        unsafe { &*(self.raw as *const AxVecRepr) }
+    }
+
+    #[inline]
+    pub fn len(self) -> usize {
+        self.repr().len.max(0) as usize
+    }
+
+    #[inline]
+    pub fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+
+    /// The live words, borrowed. Zero-copy: this is the data block Axiom
+    /// holds, not a duplicate.
+    #[inline]
+    pub fn as_slice(self) -> &'a [i64] {
+        let r = self.repr();
+        if r.len <= 0 || r.data.is_null() {
+            return &[];
+        }
+        // SAFETY: Axiom guarantees `len` readable words at `data`.
+        unsafe { slice::from_raw_parts(r.data, r.len as usize) }
+    }
+}

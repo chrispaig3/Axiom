@@ -28,6 +28,7 @@
 ; shape word.
 (import Mem)
 (import Str)
+(import Vec)
 
 ; The facade crate's exports, present in every archive that depends
 ; on `axiom-ffi`. `axiom_ffi` has no archive of its own: the driver
@@ -35,6 +36,8 @@
 ; every declared symbol against whatever archives are linked.
 (pub extern "axiom_ffi"
   (ffiFreeBytes :: (-> Int Int Int) (symbol "axffi_free_bytes"))
+  (ffiFreeWords :: (-> Int Int Int) (symbol "axffi_free_words"))
+  (ffiFreeStrList :: (-> Int Int Int) (symbol "axffi_free_str_list"))
   (ffiAbiVersion :: Int (symbol "axffi_abi_version")))
 
 (pub :: ffiStatusOk Int)
@@ -107,3 +110,33 @@
       ""
       (let ((s (strAlloc n)))
         { (memCopy (strData s) p n) s })))
+
+; A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n`
+; words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`.
+(pub :: ffiWordsToVec (-> Int Int Int))
+(pub fn (ffiWordsToVec p n)
+  (let ((v (vecWithCapacity (if (< n 1) 1 n))))
+    (ffiWordsInto v p n 0)))
+
+(:: ffiWordsInto (-> Int Int Int Int Int))
+(fn (ffiWordsInto v p n i)
+  (if (>= i n)
+      v
+      { (vecPush v (__load64 p i)) (ffiWordsInto v p n (+ i 1)) }))
+
+; A Rust `Vec<String>` copied into an Axiom `Vec` of Strings: `p`
+; points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT
+; free the Rust side: the wrapper calls `ffiFreeStrList`.
+(pub :: ffiStrsToVec (-> Int Int Int))
+(pub fn (ffiStrsToVec p n)
+  (let ((v (vecWithCapacity (if (< n 1) 1 n))))
+    (ffiStrsInto v p n 0)))
+
+(:: ffiStrsInto (-> Int Int Int Int Int))
+(fn (ffiStrsInto v p n i)
+  (if (>= i n)
+      v
+      ; pushed TYPED, so `vecPush`'s witness counts the share the
+      ; copy was born with
+      { (vecPush v (ffiBytesToStr (__load64 p (* i 2)) (__load64 p (+ (* i 2) 1))))
+        (ffiStrsInto v p n (+ i 1)) }))

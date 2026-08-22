@@ -412,4 +412,54 @@ if [[ -f "$nol" ]]; then
   fi
 fi
 
+# 9. P8 - A SHAPE THE CRATE DOES NOT EXPORT IS REFUSED.
+#
+#    Every `#[axiom_export]` shim carries a descriptor beside it, and a
+#    two-argument declaration over the three-argument `axffi_add` is
+#    AX4005 at the item rather than a call that reads a third register.
+shp="tests/ffi/probe-ungrounded/050-shape-mismatch.axbad"
+if [[ -f "$shp" ]]; then
+  if shp_out="$("$axiom" --diagnostic-format=ai build --input "$shp" --output "$work/shp" \
+                 --crate "$repo_root/rust/examples/demo" 2>&1)"; then
+    echo "FAIL negative probe: a declaration of the wrong shape still BUILT"
+    status=1
+  elif ! grep -q 'AX4005' <<< "$shp_out"; then
+    echo "FAIL negative probe: the wrong shape was refused, but not as AX4005"
+    printf '%s\n' "$shp_out" | sed 's/^/    /' | head -3
+    status=1
+  else
+    echo "ok   negative probe: a declaration of the wrong shape is AX4005, at the item"
+  fi
+fi
+
+# ---------------------------------------------------------------
+# The other direction: an Axiom library ARCHIVED for a Rust host.
+# `--emit-staticlib` writes tests/ffi/host/hostlib.ax as an archive
+# with no `main`; rust/examples/host links it and calls two Axiom
+# functions, one of them over a String the host built with the
+# archive's own `Str$strAlloc`.
+# ---------------------------------------------------------------
+hostlib="tests/ffi/host/hostlib.ax"
+if [[ -f "$hostlib" && -d rust/examples/host ]]; then
+  mkdir -p "$work/hostlib"
+  if ! "$axiom" build --input "$hostlib" --output "$work/hostlib/libaxiom_hostlib.a" \
+         --emit-staticlib > "$work/hostlib/build.log" 2>&1; then
+    echo "FAIL host: could not emit the static archive"; sed 's/^/    /' "$work/hostlib/build.log" | head -5
+    status=1
+  elif nm "$work/hostlib/libaxiom_hostlib.a" 2>/dev/null | grep -qE ' T _?main$'; then
+    echo "FAIL host: the archive defines \`main\`; a host has its own"
+    status=1
+  elif ! host_out="$(cd rust && AXIOM_HOST_ARCHIVE_DIR="$work/hostlib" cargo run --release -q -p axiom-host 2>&1)"; then
+    echo "FAIL host: the Rust host did not build or run"
+    printf '%s\n' "$host_out" | sed 's/^/    /' | head -8
+    status=1
+  elif ! grep -q 'addTwo=42' <<< "$host_out" || ! grep -q 'shout=HELLO' <<< "$host_out"; then
+    echo "FAIL host: the Rust host ran but did not get 42 and HELLO back from Axiom"
+    printf '%s\n' "$host_out" | sed 's/^/    /' | head -5
+    status=1
+  else
+    echo "ok   host: a Rust binary links the Axiom archive and calls it ($host_out)"
+  fi
+fi
+
 exit "$status"

@@ -1,0 +1,5 @@
+error: `&[&str]` is not supported as an `#[axiom_export]` parameter (a slice of strings does not cross: Axiom's `Vec` holds String handles whose bytes live behind a second indirection; take one `&str` per call, or a `&str` to split on the Rust side); the supported parameter types are: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 &str &[u8] &[i64] AxFn1 AxFn2 AxFn3 &T &mut T (T marked `#[axiom_opaque]`)
+ --> tests/ui/fail/str_slice_param.rs:5:17
+  |
+5 | pub fn f(words: &[&str]) -> i64 {
+  |                 ^^^^^^^

@@ -8,7 +8,7 @@ const USAGE: &str = "\
 axiom-bindgen - write the Axiom module that binds a crate's #[axiom_export] surface
 
 usage: axiom-bindgen --src <dir> --lib <name> [--module <Name>] [-o <file.ax>]
-       axiom-bindgen --src <dir> --lib <name> --check <file.ax>
+       axiom-bindgen --src <dir> --lib <name> --check <file.ax> [--quiet]
        axiom-bindgen --help
 
   --src <dir>       the crate's source root (every .rs under it is read)
@@ -19,6 +19,8 @@ usage: axiom-bindgen --src <dir> --lib <name> [--module <Name>] [-o <file.ax>]
                     -o names a directory the file is <dir>/<Name>.ax
   -o, --output <f>  where to write; omitted, the module goes to stdout
   --check <file>    regenerate and compare with <file>; exit 1 if it differs
+  --quiet           with --check, report nothing: the exit status is the answer
+                    (what `axiom build --crate` asks, before it says what it does)
 
 The module imports Ffi (and Err when a Result wrapper exists), binds every
 pub #[axiom_export] fn and every hand-written `pub extern \"C\" fn axffi_*`,
@@ -32,6 +34,7 @@ fn main() {
     let mut module: Option<String> = None;
     let mut out: Option<PathBuf> = None;
     let mut check: Option<PathBuf> = None;
+    let mut quiet = false;
 
     let mut i = 1;
     let value = |i: &mut usize, flag: &str| -> String {
@@ -55,6 +58,7 @@ fn main() {
             "--module" => module = Some(value(&mut i, "--module")),
             "-o" | "--output" => out = Some(PathBuf::from(value(&mut i, "-o"))),
             "--check" => check = Some(PathBuf::from(value(&mut i, "--check"))),
+            "--quiet" => quiet = true,
             other => {
                 eprintln!("axiom-bindgen: unknown flag `{other}`\n\n{USAGE}");
                 exit(2)
@@ -126,7 +130,7 @@ fn main() {
     };
 
     if let Some(c) = check {
-        exit(check_against(&c, &text))
+        exit(check_against(&c, &text, quiet))
     }
     match out {
         Some(p) => {
@@ -156,17 +160,24 @@ fn module_of(p: &Path) -> String {
 
 /// Compare the fresh module with a checked-in one. Answers the exit
 /// status: 0 when identical, 1 otherwise (missing counts as differing).
-fn check_against(path: &Path, fresh: &str) -> i32 {
+fn check_against(path: &Path, fresh: &str, quiet: bool) -> i32 {
     let committed = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("axiom-bindgen: --check {}: {e}", path.display());
+            if !quiet {
+                eprintln!("axiom-bindgen: --check {}: {e}", path.display());
+            }
             return 1;
         }
     };
     if committed == fresh {
-        eprintln!("axiom-bindgen: {} is what a fresh generation produces", path.display());
+        if !quiet {
+            eprintln!("axiom-bindgen: {} is what a fresh generation produces", path.display());
+        }
         return 0;
+    }
+    if quiet {
+        return 1;
     }
     eprintln!(
         "axiom-bindgen: {} differs from a fresh generation; regenerate it with -o",

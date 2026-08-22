@@ -1,0 +1,41 @@
+; Axiom -> Rust -> Axiom: a function value handed to Rust and called.
+;
+; `applyTwice` and `fold3` are Rust functions taking `AxFn1` / `AxFn2`
+; - the closure record word Axiom passes for an argument typed
+; `(-> Int Int)` / `(-> Int Int Int)`. Word 0 of the record is the
+; code address, an ordinary C function `i64 (i64 env, i64 ...)` that
+; takes the record itself first: a lifted lambda reads its captures
+; from it, and the forwarding thunk a bare top-level function gets as
+; a value ignores it. Rust calls it with the record as `env` and the
+; arguments as plain words, which is exactly what `call` does.
+;
+; Both kinds of value are passed: a lambda (with a capture, so the
+; environment word is really read) and a top-level function (so the
+; thunk record is really built). A bare top-level function is a value
+; only at arity 1 (AX3013: a partial application has nowhere to hold
+; its arguments), so the two-argument `plus` reaches `fold3` through a
+; lambda, as the diagnostic's own help suggests. The record is
+; borrowed for the call (MM-LIFE-2c event 1); Rust takes no share and
+; releases none.
+(import IO)
+(import Fmt)
+(import Demo)
+
+(pub :: triple (-> Int Int))
+(pub fn (triple x) (* x 3))
+
+(pub :: plus (-> Int Int Int))
+(pub fn (plus a b) (+ a b))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((k 10))
+    (let ((lam (applyTwice (lambda (x) (+ x k)) 1))        ; (1 + 10) + 10
+          (top (applyTwice triple 2))                      ; 3 * (3 * 2)
+          (fold (fold3 (lambda (a b) (plus a b)) 1 2 3))   ; (1 + 2) + 3
+          (foldLam (fold3 (lambda (a b) (* a b)) 2 3 4)))  ; (2 * 3) * 4
+      (if (&& (== lam 21) (&& (== top 18) (&& (== fold 6) (== foldLam 24))))
+          { (println "callbacks: agree") 0 }
+          { (println (fmtInt lam)) (println (fmtInt top))
+            (println (fmtInt fold)) (println (fmtInt foldLam)) 1 }))))
+; expect 0

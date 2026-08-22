@@ -235,6 +235,25 @@
         (if (!= rc 0)
             (toolFailDiag (if (< rc 0) "could not run `llc`" "llc failed")
                           "install LLVM and put `llc` on PATH; `--emit-llvm` keeps the IR so the step can be run by hand")
+            (if (staticlibRequested)
+                ; `--emit-staticlib`: the object is ARCHIVED, not linked -
+                ; a Rust (or C) host links it, and its `pub fn`s are the
+                ; host's `extern "C"` symbols (docs/ffi.md, the other
+                ; direction). The module was emitted without the `@main`
+                ; wrapper, so the host's own `main` is the only one.
+                (let ((arArgs (let ((v vecNew))
+                                {
+                                  (vecPush v (cast Int "rcs"))
+                                  (vecPush v (cast Int outPath))
+                                  (vecPush v (cast Int objPath))
+                                  v
+                                })))
+                  { (sysUnlink (strCStr outPath))
+                    (let ((rc3 (runTool "ar" arArgs)))
+                      (if (!= rc3 0)
+                          (toolFailDiag (if (< rc3 0) "could not run `ar`" "ar failed")
+                                        "`ar` writes the static archive; put it on PATH (it ships with every C toolchain)")
+                          0)) })
             (let ((ccArgs (let ((v vecNew))
                             {
                               (vecPush v (cast Int objPath))
@@ -256,7 +275,211 @@
                 (if (!= rc2 0)
                     (toolFailDiag (if (< rc2 0) "could not run `cc`" "cc failed")
                                   "a C compiler drives the link step; put `cc` on PATH")
-                    0))))))))
+                    0)))))))))
+
+; ------------------------------------------------------------------
+; `--crate DIR`, the whole of it: before the program is compiled, each
+; crate's binding module is brought up to date with its source when
+; `axiom-bindgen` is on PATH (`cargo install --path rust/axiom-bindgen`
+; puts it there), and its archive is built when `cargo` is and the
+; archive is missing. Each step says what it ran on stderr. Neither
+; tool present, nothing happens and the ordinary diagnostics apply -
+; AX5001 for a missing module, AX4004 for a missing archive.
+;
+; The package name comes from `DIR/Cargo.toml`; the archive stem is
+; the name with `-` as `_`; the module is the stem of the one `.ax`
+; file in `DIR/axiom/`, or, for a fresh crate, the package name in
+; CamelCase with a leading `axiom-` dropped (`axiom-demo` -> `Demo`,
+; `greeter` -> `Greeter`).
+; ------------------------------------------------------------------
+(pub :: prepareCrates Int)
+;@axiom:effect(io)
+(pub fn (prepareCrates)
+  (let ((crates (crateDirsOf)) (mut i 0))
+    {
+      (while (< i (vecLen crates))
+        {
+          (prepareCrate (cast String (vecGet crates i)))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+(pub :: prepareCrate (-> String Int))
+;@axiom:effect(io)
+(pub fn (prepareCrate dirIn)
+  (let ((dir (pathWithSlash dirIn)))
+    (let ((pkg (cargoPackageName (cat2 dir "Cargo.toml"))))
+      (if (== (strLen pkg) 0)
+          0
+          (let ((stem (dashesToUnderscores pkg))
+                (module (crateModuleName dir pkg)))
+            {
+              (if (sysFileExists (strCStr (cat2 dir "src")))
+                  (refreshBindings dir stem module)
+                  0)
+              (if (libExistsIn (crateTargetDirs dir) stem 0)
+                  0
+                  (buildCrate dir pkg))
+              0
+            })))))
+
+(pub :: crateTargetDirs (-> String Int))
+(pub fn (crateTargetDirs dir)
+  (let ((v vecNew))
+    {
+      (vecPush v (cast Int (cat2 dir "target/release")))
+      (vecPush v (cast Int (cat2 dir "../target/release")))
+      (vecPush v (cast Int (cat2 dir "../../target/release")))
+      v
+    }))
+
+; Regenerate the module when `axiom-bindgen --check` finds it stale or
+; absent. Exit 2 from `--check` is "no such file" as well as a usage
+; error, so a missing module regenerates; a bindgen that is not on
+; PATH answers below zero and nothing is written.
+(pub :: refreshBindings (-> String String String Int))
+;@axiom:effect(io)
+(pub fn (refreshBindings dir stem module)
+  (let ((modPath (cat3 (cat2 dir "axiom/") module ".ax")))
+    (let ((checkArgs (let ((v vecNew))
+                       {
+                         (vecPush v (cast Int "--src")) (vecPush v (cast Int (cat2 dir "src")))
+                         (vecPush v (cast Int "--lib")) (vecPush v (cast Int stem))
+                         (vecPush v (cast Int "--module")) (vecPush v (cast Int module))
+                         (vecPush v (cast Int "--check")) (vecPush v (cast Int modPath))
+                         (vecPush v (cast Int "--quiet"))
+                         v
+                       })))
+      (let ((rc (runToolQuiet "axiom-bindgen" checkArgs)))
+        (if (|| (< rc 0) (== rc 0))
+            0
+            (let ((genArgs (let ((v vecNew))
+                             {
+                               (vecPush v (cast Int "--src")) (vecPush v (cast Int (cat2 dir "src")))
+                               (vecPush v (cast Int "--lib")) (vecPush v (cast Int stem))
+                               (vecPush v (cast Int "--module")) (vecPush v (cast Int module))
+                               (vecPush v (cast Int "-o")) (vecPush v (cast Int (cat2 dir "axiom")))
+                               v
+                             })))
+              {
+                (writeStderrStr (cat3 "axiom: regenerating " modPath " with axiom-bindgen\n"))
+                (runTool "axiom-bindgen" genArgs)
+              }))))))
+
+(pub :: buildCrate (-> String String Int))
+;@axiom:effect(io)
+(pub fn (buildCrate dir pkg)
+  (let ((args (let ((v vecNew))
+                {
+                  (vecPush v (cast Int "build")) (vecPush v (cast Int "--release"))
+                  (vecPush v (cast Int "--manifest-path")) (vecPush v (cast Int (cat2 dir "Cargo.toml")))
+                  v
+                })))
+    {
+      (writeStderrStr (cat3 "axiom: building crate `" pkg "` with cargo (no archive found)\n"))
+      (runTool "cargo" args)
+    }))
+
+; `runTool` for a probe whose exit status is the whole answer. The
+; tool is asked to be quiet by flag (`--quiet` rides in `args`): the
+; driver redirects no descriptor, so a tool that talks anyway is heard.
+(pub :: runToolQuiet (-> String Int Int))
+;@axiom:effect(io)
+(pub fn (runToolQuiet tool args)
+  (runTool tool args))
+
+; `name = "..."` under `[package]` in a Cargo manifest, or "".
+(pub :: cargoPackageName (-> String String))
+;@axiom:effect(io)
+(pub fn (cargoPackageName path)
+  (if (sysFileExists (strCStr path))
+      (let ((text (sysReadFile (strCStr path))))
+        (let ((at (strFindSub text "[package]" 0)))
+          (if (< at 0)
+              ""
+              (let ((nm (strFindSub text "name" at)))
+                (if (< nm 0)
+                    ""
+                    (let ((q1 (strFindByte text 34 nm)))
+                      (if (< q1 0)
+                          ""
+                          (let ((q2 (strFindByte text 34 (+ q1 1))))
+                            (if (< q2 0)
+                                ""
+                                (strSlice text (+ q1 1) (- q2 (+ q1 1))))))))))))
+      ""))
+
+(pub :: dashesToUnderscores (-> String String))
+(pub fn (dashesToUnderscores s)
+  (let ((out (strDup s)) (mut i 0))
+    {
+      (while (< i (strLen out))
+        {
+          (if (== (strByte out i) 45) (__store8 (strData out) i 95) 0)
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+; The module name: the one `.ax` in `DIR/axiom/`, else CamelCase of
+; the package name without a leading `axiom-`.
+(pub :: crateModuleName (-> String String String))
+;@axiom:effect(io)
+(pub fn (crateModuleName dir pkg)
+  (let ((entries (sysReadDir (strCStr (cat2 dir "axiom"))))
+        (mut found "") (mut i 0))
+    {
+      (while (< i (vecLen entries))
+        {
+          (let ((e (cast String (vecGet entries i))))
+            ; `Name.ax` and nothing else: the first `.` is the
+            ; extension's. Until 2026-08-22 this compared with `<`,
+            ; which no plain name satisfies, so a crate whose module
+            ; was `Hash.ax` got a second module named for the package
+            (if (&& (> (strLen e) 3)
+                    (&& (strEq (strSlice e (- (strLen e) 3) 3) ".ax")
+                        (== (strFindByte e 46 0) (- (strLen e) 3))))
+                (if (== (strLen found) 0)
+                    { (set found (strSlice e 0 (strFindByte e 46 0))) 0 }
+                    0)
+                0))
+          (set i (+ i 1))
+        })
+      (if (> (strLen found) 0)
+          found
+          (camelOf (if (strStartsWith pkg "axiom-") (strSlice pkg 6 (- (strLen pkg) 6)) pkg)))
+    }))
+
+; `my-crate_name` -> `MyCrateName`.
+(pub :: camelOf (-> String String))
+(pub fn (camelOf s)
+  (let ((out (strAlloc (strLen s))) (mut i 0) (mut o 0) (mut up 1))
+    {
+      (while (< i (strLen s))
+        {
+          (let ((b (strByte s i)))
+            (if (|| (== b 45) (== b 95))
+                (set up 1)
+                {
+                  (__store8 (strData out) o (if (&& (== up 1) (&& (>= b 97) (<= b 122))) (- b 32) b))
+                  (set o (+ o 1))
+                  (set up 0)
+                }))
+          (set i (+ i 1))
+        })
+      (strSlice out 0 o)
+    }))
+
+; `--emit-staticlib` anywhere on the command line.
+(pub :: staticlibRequested Bool)
+(pub fn (staticlibRequested) (argHas "--emit-staticlib" 1))
+
+(pub :: argHas (-> String Int Bool))
+(pub fn (argHas flag i)
+  (if (>= i (sysArgc))
+      false
+      (if (strEq (sysArg i) flag) true (argHas flag (+ i 1)))))
 
 ; ------------------------------------------------------------------
 ; GROUNDING: every `declare` the module writes must name a symbol that
@@ -660,7 +883,40 @@
       0
       (let ((n (cast String (vecGet names i))))
         (if (symbolGrounded blobs n 0)
-            (groundEachSpanned names blobs paths decls units dfmt (+ i 1))
+            ; grounded: now the SHAPE. A shim `#[axiom_export]` writes
+            ; also exports `<sym>__sig_<params>_<ret>`, a no-op whose
+            ; name spells the shim's arity and word kinds (i: a word,
+            ; f: Float bits, s: a String, c: a callback), and the item's
+            ; declared type spells the same string here; a difference
+            ; is AX4005 at the item - a two-argument declaration over a
+            ; three-argument shim used to build, link and answer garbage
+            (let ((want (let ((it (findExternItem decls n 0)))
+                          (if (== it 0) "" (externSigTag (nodeB it)))))
+                  (have (descriptorsOf blobs n)))
+              (if (|| (== (strLen want) 0)
+                  (|| (== (vecLen have) 0) (>= (strIndexIn have want) 0)))
+                  (groundEachSpanned names blobs paths decls units dfmt (+ i 1))
+                  (let ((item (findExternItem decls n 0)))
+                    (let ((d (mkDiag SEV_ERROR "AX4005" "extern-shape"
+                                     (if (== item 0) 0 (nodeSpan item))
+                                     (cat3 (cat3 "`" n "` is exported by the crate for ")
+                                           (cat3 (sigTagSpelled (cast String (vecGet have 0))) "; the `extern` item declares " (sigTagSpelled want))
+                                           "")
+                                     0 0
+                                     "the Rust shim and the `extern` item must agree on every parameter and the result (docs/ffi.md, the type table); regenerate the binding module with `axiom-bindgen`, or fix the hand-written item"))
+                          (ds vecNew))
+                      {
+                        (let ((u (findExternUnit decls n units 0)))
+                          (if (>= u 0) (diagSetUnit d u) 0))
+                        (vecPush ds d)
+                        (let ((out (renderDiagsFormat dfmt ds
+                                                      (if (== item 0)
+                                                          (let ((uv vecNew))
+                                                            { (vecPush uv (cast Int (CUnit2 "<link>" "" (cast String 0)))) uv })
+                                                          units))))
+                          (sysWriteFd 2 (strData out) (strLen out)))
+                        exitToolFailed
+                      }))))
             (let ((item (findExternItem decls n 0))
                   (lib (findExternLib decls n 0)))
               (let ((msg (if (== (vecLen paths) 0)
@@ -705,6 +961,92 @@
                 0
                 (unitIndexOf units (cast String (nodeModule d)) 0))
             (findExternUnit decls sym units (+ i 1))))))
+
+; The descriptor string an extern item's declared type spells:
+; `<params>_<ret>`, one tag per parameter, the result after the
+; underscore. Mirrors rust/axiom-ffi-classify.
+(pub :: externSigTag (-> Int String))
+(pub fn (externSigTag ty)
+  (if (== ty 0)
+      ""
+      (cat3 (sigParamTags ty) "_" (sigTagOf (sigResultOf ty)))))
+
+(pub :: sigParamTags (-> Int String))
+(pub fn (sigParamTags ty)
+  (if (&& (!= ty 0) (== (nodeTag ty) TAG_T_ARR))
+      (cat2 (sigTagOf (nodeA ty)) (sigParamTags (nodeB ty)))
+      ""))
+
+(pub :: sigResultOf (-> Int Int))
+(pub fn (sigResultOf ty)
+  (if (&& (!= ty 0) (== (nodeTag ty) TAG_T_ARR))
+      (sigResultOf (nodeB ty))
+      ty))
+
+(pub :: sigTagOf (-> Int String))
+(pub fn (sigTagOf t)
+  (if (== t 0)
+      "i"
+      (if (== (nodeTag t) TAG_T_ARR)
+          "c"
+          (if (== (nodeTag t) TAG_T_CON)
+              (let ((n (nodeA t)))
+                (if (strEq n "Float")
+                    "f"
+                    (if (strEq n "String") "s" "i")))
+              "i"))))
+
+; Every `<sym>__sig_...` name an archive holds, as the part after
+; `__sig_`.
+(pub :: descriptorsOf (-> Int String Int))
+(pub fn (descriptorsOf blobs sym)
+  (let ((out vecNew) (mut i 0) (prefix (cat2 sym "__sig_")))
+    {
+      (while (< i (vecLen blobs))
+        {
+          (collectPrefixed (cast String (vecGet blobs i)) prefix out 0)
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+(pub :: collectPrefixed (-> String String Int Int Int))
+(pub fn (collectPrefixed blob prefix out from)
+  (let ((at (strFindSub blob prefix from)))
+    (if (< at 0)
+        0
+        (let ((end (strFindByte blob 0 at)))
+          (if (< end 0)
+              0
+              {
+                (let ((tail (strSlice blob (+ at (strLen prefix)) (- end (+ at (strLen prefix))))))
+                  (if (&& (< (strLen tail) 80) (== (strIndexIn out tail) (- 0 1)))
+                      (vecPush out (cast Int tail))
+                      0))
+                (collectPrefixed blob prefix out end)
+              })))))
+
+; `ii_i` spelled as a developer reads it: `(-> Int Int Int)`.
+(pub :: sigTagSpelled (-> String String))
+(pub fn (sigTagSpelled tag)
+  (let ((us (strFindByte tag 95 0)))
+    (if (< us 0)
+        (cat3 "`" tag "`")
+        (let ((ps (strSlice tag 0 us))
+              (r (strSlice tag (+ us 1) (- (strLen tag) (+ us 1)))))
+          (if (== (strLen ps) 0)
+              (cat3 "`" (tagWord r) "` (nullary)")
+              (cat3 "`(-> " (cat2 (tagWords ps 0) (tagWord r)) ")`"))))))
+
+(pub :: tagWords (-> String Int String))
+(pub fn (tagWords ps i)
+  (if (>= i (strLen ps))
+      ""
+      (cat3 (tagWord (strSlice ps i 1)) " " (tagWords ps (+ i 1)))))
+
+(pub :: tagWord (-> String String))
+(pub fn (tagWord t)
+  (if (strEq t "f") "Float" (if (strEq t "s") "String" (if (strEq t "c") "(-> Int ...)" "Int"))))
 
 (pub :: joinPaths (-> Int Int String))
 (pub fn (joinPaths paths i)
@@ -852,7 +1194,7 @@
 (pub :: usageText String)
 (pub fn (usageText)
   (cat3 "axiom - the Axiom compiler, written in Axiom\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n"
-        "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default `output`)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64\n  --opt <0-3>        optimisation level (build, run; default 1)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n"
+        "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default `output`)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64\n  --opt <0-3>        optimisation level (build, run; default 1)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive instead of an executable: no\n                     `main` is needed, every `pub fn` of the file is a C\n                     symbol a Rust or C host can call (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n"
         "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc)\n"))
 
 ; One command's help: its synopsis and the flags it actually reads.
@@ -1000,6 +1342,7 @@
           (strEq a "--diagnostic-format")))))))))
       1
   (if (|| (strEq a "--emit-llvm")
+      (|| (strEq a "--emit-staticlib")
       (|| (strEq a "--check")
       (|| (strEq a "--builtins")
       (|| (strEq a "--list")
@@ -1008,7 +1351,7 @@
       (|| (strEq a "--help")
       (|| (strEq a "-h")
       (|| (strEq a "--version")
-          (strEq a "-V"))))))))))
+          (strEq a "-V")))))))))))
       0
       (- 0 1))))
 

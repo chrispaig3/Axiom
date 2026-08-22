@@ -6,6 +6,7 @@
 (pub extern "axiom_demo"
   (abiProbe :: Int (symbol "axffi_abi_probe"))
   (add :: (-> Int Int Int) (symbol "axffi_add"))
+  (applyTwice :: (-> (-> Int Int) Int Int) (symbol "axffi_apply_twice"))
   (byteLen :: (-> String Int) (symbol "axffi_byte_len"))
   (bytePlus :: (-> Int Int Int) (symbol "axffi_byte_plus"))
   (cellTwice :: (-> Int Int) (symbol "axffi_cell_twice"))
@@ -16,16 +17,20 @@
   (counterTryNewRaw :: (-> Int Int Int) (symbol "axffi_counter_try_new"))
   (counterValueRaw :: (-> Foreign Int) (symbol "axffi_counter_value"))
   (countersDropped :: Int (symbol "axffi_counters_dropped"))
+  (fold3 :: (-> (-> Int Int Int) Int Int Int Int) (symbol "axffi_fold3"))
   (halve :: (-> Int Int) (symbol "axffi_halve"))
   (hypot :: (-> Float Float Float) (symbol "axffi_hypot"))
   (maybeRaw :: (-> Int Int Int) (symbol "axffi_maybe"))
   (parseIntRaw :: (-> String Int Int) (symbol "axffi_parse_int"))
+  (rangeVecRaw :: (-> Int Int Int) (symbol "axffi_range_vec"))
   (shoutRaw :: (-> String Int Int) (symbol "axffi_shout"))
+  (splitWordsRaw :: (-> String Int Int) (symbol "axffi_split_words"))
   (strDrop :: Int (symbol "axffi_str_drop"))
   (strKeep :: (-> Foreign Int) (symbol "axffi_str_keep"))
   (strRecall :: Int (symbol "axffi_str_recall"))
   (sum3 :: (-> Int Int Int Int) (symbol "axffi_sum3"))
-  (sum5 :: (-> Int Int Int Int Int Int) (symbol "axffi_sum5")))
+  (sum5 :: (-> Int Int Int Int Int Int) (symbol "axffi_sum5"))
+  (sumWords :: (-> Int Int) (symbol "axffi_sum_words")))
 
 ; `Counter` is a Rust value held through a `Handle`: when the last
 ; reference dies the handle runs `axffi_counter_drop`.
@@ -153,6 +158,24 @@
   )
 )
 
+(pub :: rangeVec (-> Int Int))
+
+(pub fn (rangeVec n)
+  (let (
+    (__c ffiCellNew)
+    (__st (rangeVecRaw n __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiWordsToVec __p __n))
+  )
+    {
+      (ffiFreeWords __p __n)
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
 (pub :: shout (-> String String))
 
 (pub fn (shout text)
@@ -165,6 +188,24 @@
   )
     {
       (ffiFreeBytes __p __n)
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
+(pub :: splitWords (-> String Int))
+
+(pub fn (splitWords text)
+  (let (
+    (__c ffiCellNew)
+    (__st (splitWordsRaw text __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiStrsToVec __p __n))
+  )
+    {
+      (ffiFreeStrList __p __n)
       (ffiCellFree __c)
       __v
     }

@@ -5,12 +5,17 @@
 
 (pub extern "axiom_nested"
   (checkRaw :: (-> Bool Int Int) (symbol "axffi_check"))
+  (combineRaw :: (-> (-> Int Int Int) (-> Int Int Int Int) Int Int Int) (symbol "axffi_combine"))
   (deepest :: (-> Bool Bool) (symbol "axffi_deepest"))
   (echoRaw :: (-> String Int Int) (symbol "axffi_echo"))
+  (evensRaw :: (-> Int Int Int) (symbol "axffi_evens"))
+  (mapTwice :: (-> (-> Int Int) Int Int) (symbol "axffi_map_twice"))
+  (maybePiecesRaw :: (-> String Int Int) (symbol "axffi_maybe_pieces"))
   (maybeTextRaw :: (-> Int Int Int) (symbol "axffi_maybe_text"))
   (nestedAdd :: (-> Int Int Int) (symbol "axffi_nested_add"))
   (nothing :: (-> Int Int) (symbol "axffi_nothing"))
   (peek :: (-> Foreign Int Int) (symbol "axffi_peek"))
+  (piecesRaw :: (-> String Int Int) (symbol "axffi_pieces"))
   (ratioRaw :: (-> Int Int Int Int) (symbol "axffi_ratio"))
   (renamedRaw :: (-> String Int Int Int) (symbol "custom_symbol"))
   (thingDropFn :: Int (symbol "axffi_thing_drop_fn"))
@@ -19,6 +24,8 @@
   (thingNewRaw :: (-> Int Foreign) (symbol "axffi_thing_new"))
   (thingPairRaw :: (-> Foreign Foreign Float Float) (symbol "axffi_thing_pair"))
   (thingTryRaw :: (-> Int Int Int) (symbol "axffi_thing_try"))
+  (total :: (-> Int Int) (symbol "axffi_total"))
+  (tryEvensRaw :: (-> Int Int Int) (symbol "axffi_try_evens"))
   (unitResultRaw :: (-> Int Int Int) (symbol "axffi_unit_result"))
   (wideRaw :: (-> Int Int Int Int Int Int Int) (symbol "axffi_wide"))
   (widgetDropFn :: Int (symbol "axffi_widget_v2_drop_fn"))
@@ -72,6 +79,28 @@
   )
 )
 
+(pub :: combine (-> (-> Int Int Int) (-> Int Int Int Int) Int (Option Int)))
+
+(pub fn (combine f g seed)
+  (let (
+    (__c ffiCellNew)
+    (__st (combineRaw f g seed __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      {
+        (ffiCellFree __c)
+        (Some __p)
+      }
+      {
+        (ffiCellFree __c)
+        None
+      }
+    )
+  )
+)
+
 (pub :: echo (-> String String))
 
 (pub fn (echo cell)
@@ -87,6 +116,49 @@
       (ffiCellFree __c)
       __v
     }
+  )
+)
+
+(pub :: evens (-> Int Int))
+
+(pub fn (evens upto)
+  (let (
+    (__c ffiCellNew)
+    (__st (evensRaw upto __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiWordsToVec __p __n))
+  )
+    {
+      (ffiFreeWords __p __n)
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
+(pub :: maybePieces (-> String (Option Int)))
+
+(pub fn (maybePieces text)
+  (let (
+    (__c ffiCellNew)
+    (__st (maybePiecesRaw text __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      (let ((__v (ffiStrsToVec __p __n)))
+        {
+          (ffiFreeStrList __p __n)
+          (ffiCellFree __c)
+          (Some __v)
+        }
+      )
+      {
+        (ffiCellFree __c)
+        None
+      }
+    )
   )
 )
 
@@ -112,6 +184,24 @@
         None
       }
     )
+  )
+)
+
+(pub :: pieces (-> String Int))
+
+(pub fn (pieces text)
+  (let (
+    (__c ffiCellNew)
+    (__st (piecesRaw text __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiStrsToVec __p __n))
+  )
+    {
+      (ffiFreeStrList __p __n)
+      (ffiCellFree __c)
+      __v
+    }
   )
 )
 
@@ -246,6 +336,34 @@
         (ffiCellFree __c)
         (Ok (Thing (ffiHandleNew __p thingDropFn)))
       }
+      (let ((__m (ffiBytesToStr __p __n)))
+        {
+          (ffiFreeBytes __p __n)
+          (ffiCellFree __c)
+          (Err __m)
+        }
+      )
+    )
+  )
+)
+
+(pub :: tryEvens (-> Int (Result Int String)))
+
+(pub fn (tryEvens upto)
+  (let (
+    (__c ffiCellNew)
+    (__st (tryEvensRaw upto __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st 0)
+      (let ((__v (ffiWordsToVec __p __n)))
+        {
+          (ffiFreeWords __p __n)
+          (ffiCellFree __c)
+          (Ok __v)
+        }
+      )
       (let ((__m (ffiBytesToStr __p __n)))
         {
           (ffiFreeBytes __p __n)

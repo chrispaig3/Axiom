@@ -27,3 +27,10 @@ std = []
 # exclusive with `std` (it would define a second allocator and panic
 # handler); use `default-features = false, features = ["nostd-runtime"]`.
 nostd-runtime = []
+# The other direction: a Rust BINARY that links an Axiom archive
+# (`axiom build --emit-staticlib`) and calls its `pub fn`s. Supplies the
+# `host` module - `AxString::from_str` over the archive's own
+# `Str$strAlloc`, `read_str` - which declares symbols only such an
+# archive defines, so it is off unless asked for (a staticlib that
+# Axiom links must not reference them).
+host = []

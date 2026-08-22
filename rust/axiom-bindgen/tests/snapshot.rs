@@ -107,6 +107,25 @@ fn nested_fixture_shape() {
     assert!(fresh.contains("(pub :: check (-> Bool (Option Bool)))"));
     assert!(fresh.contains("(pub :: thingTry (-> Int (Result Thing String)))"));
     assert!(fresh.contains("(Ok (Thing (ffiHandleNew __p thingDropFn)))"));
+    // Callbacks carry their arrow type on the raw item and the wrapper,
+    // and pass straight through.
+    assert!(fresh.contains("(mapTwice :: (-> (-> Int Int) Int Int) (symbol \"axffi_map_twice\"))"));
+    assert!(fresh.contains(
+        "(combineRaw :: (-> (-> Int Int Int) (-> Int Int Int Int) Int Int Int) (symbol \"axffi_combine\"))"
+    ));
+    assert!(fresh.contains("(pub :: combine (-> (-> Int Int Int) (-> Int Int Int Int) Int (Option Int)))"));
+    assert!(fresh.contains("(__st (combineRaw f g seed __c))"));
+    // A `Vec<i64>` / `Vec<String>` return is an `Int` handle built by
+    // Ffi.ax and freed on the Rust side; a `&[i64]` parameter is `Int`.
+    assert!(fresh.contains("(pub :: evens (-> Int Int))"));
+    assert!(fresh.contains("(__v (ffiWordsToVec __p __n))"));
+    assert!(fresh.contains("(ffiFreeWords __p __n)"));
+    assert!(fresh.contains("(pub :: pieces (-> String Int))"));
+    assert!(fresh.contains("(__v (ffiStrsToVec __p __n))"));
+    assert!(fresh.contains("(ffiFreeStrList __p __n)"));
+    assert!(fresh.contains("(total :: (-> Int Int) (symbol \"axffi_total\"))"));
+    assert!(fresh.contains("(pub :: tryEvens (-> Int (Result Int String)))"));
+    assert!(fresh.contains("(pub :: maybePieces (-> String (Option Int)))"));
     // Everything shared comes from Ffi.ax: no module-local helper.
     assert!(!fresh.contains("ffiSliceToStr"));
     assert!(!fresh.contains("axffi_free_bytes"));

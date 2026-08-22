@@ -1,0 +1,20 @@
+[package]
+name = "axiom-host"
+description = "The other direction: a Rust program that links an Axiom archive and calls its functions."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+# A BINARY, not a staticlib: this crate is the host. It links
+# `libaxiom_hostlib.a`, which `axiom build --emit-staticlib` writes from
+# tests/ffi/host/hostlib.ax, found through `$AXIOM_HOST_ARCHIVE_DIR`
+# (build.rs). Without the archive the crate compiles but does not link,
+# which is why it is not a default workspace member: `cargo build` at
+# the workspace root must not need an Axiom toolchain.
+[[bin]]
+name = "axiom-host"
+path = "src/main.rs"
+
+[dependencies]
+axiom-ffi = { path = "../../axiom-ffi", features = ["host"] }

@@ -1,0 +1,13 @@
+; A declaration whose shape disagrees with the crate's shim is AX4005
+; at the item, before the toolchain runs. `axffi_add` is exported for
+; `(-> Int Int Int)` - its descriptor `axffi_add__sig_ii_i` says so -
+; and this declares it over two words: until 2026-08-22 that built,
+; linked, and answered whatever sat in the third register.
+(import IO)
+(import Fmt)
+
+(pub extern "axiom_demo"
+  (add :: (-> Int Int) (symbol "axffi_add")))
+
+;@axiom:effect(io)
+(pub fn (main) { (println (fmtInt (add 20))) 0 })

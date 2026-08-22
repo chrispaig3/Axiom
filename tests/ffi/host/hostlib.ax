@@ -1,0 +1,40 @@
+; hostlib - an Axiom library a Rust program calls: the OTHER direction.
+;
+; Built with `axiom build --input hostlib.ax --output libaxiom_hostlib.a
+; --emit-staticlib`: the module is emitted without the `@main` wrapper
+; (no `main` here), assembled and archived. Every `pub fn` of this file
+; is a C symbol under its own name - `addTwo`, `shout` - with Axiom's
+; whole ABI: `i64` in, `i64` out. rust/examples/host declares them in an
+; `extern "C"` block, links the archive from `$AXIOM_HOST_ARCHIVE_DIR`,
+; and calls them. The runtime needs no initialisation call.
+;
+; The String the host passes to `shout` was built by the host through
+; this archive's own `Str$strAlloc` (the facade's `AxString::from_str`),
+; so it is a real Axiom block with a real header; the String `shout`
+; answers is owned by the caller (MM-LIFE-2c event 2), and the host
+; adopts it with `AxString::from_owned`, whose drop releases it.
+(import Str)
+
+(pub :: addTwo (-> Int Int Int))
+(pub fn (addTwo a b) (+ a b))
+
+; ASCII upper-case of `s`: a fresh String of the same length, every
+; byte `a`..`z` lifted by 32, every other byte copied.
+(pub :: shout (-> String String))
+(pub fn (shout s)
+  (let ((n (strLen s)))
+    (let ((out (strAlloc n)))
+      {
+        (upperInto (strData s) (strData out) n 0)
+        out
+      })))
+
+(:: upperInto (-> Int Int Int Int Int))
+(fn (upperInto src dst n i)
+  (if (>= i n)
+      0
+      (let ((c (__load8 src i)))
+        {
+          (__store8 dst i (if (&& (>= c 97) (<= c 122)) (- c 32) c))
+          (upperInto src dst n (+ i 1))
+        })))

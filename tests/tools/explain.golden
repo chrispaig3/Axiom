@@ -53,6 +53,7 @@
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
   [93mAX4004[0m  an `extern` names a symbol no archive defines  (ungrounded-symbol)
+  [93mAX4005[0m  an `extern` item's shape disagrees with the crate's shim  (extern-shape)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 ### explain AX1001
 AX1001 - unexpected character
@@ -893,6 +894,28 @@ break a correct build, while the case that actually happens is a typo.
 It is a `build` diagnostic and cannot fire under `check`, which has no
 link line to consult.
 
+### explain AX4005
+AX4005 - an `extern` item's shape disagrees with the crate's shim
+
+Every shim `#[axiom_export]` writes also exports a DESCRIPTOR beside it: a
+no-op function whose name spells the shim's shape, `<symbol>__sig_<params>_<result>`
+with one tag per parameter - `i` a plain word (Int, Bool, Char, a Foreign
+handle, the out-cell), `f` a Float (its IEEE-754 bits), `s` a String, `c` a
+callback - and the result after the underscore. `axffi_add__sig_ii_i` says
+`(-> Int Int Int)`.
+
+The build derives the same string from the `extern` item's declared type and
+reads the archive's symbol table for the crate's. A difference is this error,
+at the item: a two-argument declaration over a three-argument shim used to
+build, link, and answer whatever was in the third register.
+
+A symbol with no descriptor at all - a hand-written `extern "C"` shim - is not
+checked; it is trusted as written, which is the old contract and the reason
+to let the macro write the shim.
+
+Regenerate the binding module with `axiom-bindgen` when the Rust signature
+changed, or correct the hand-written item.
+
 ### explain AX5001
 AX5001 - cannot resolve import
 
@@ -984,6 +1007,7 @@ run `axiom explain --list` to see all known codes
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
   [93mAX4004[0m  an `extern` names a symbol no archive defines  (ungrounded-symbol)
+  [93mAX4005[0m  an `extern` item's shape disagrees with the crate's shim  (extern-shape)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 
 Usage: axiom explain <CODE>

@@ -3140,6 +3140,17 @@
                 }
                 (pushCrateDirs v (+ i 1)))))))
 
+; `--emit-staticlib` on the command line: the module is an archive
+; for a host, not a program.
+(pub :: cgStaticlib Bool)
+(pub fn (cgStaticlib) (cgArgHas "--emit-staticlib" 1))
+
+(pub :: cgArgHas (-> String Int Bool))
+(pub fn (cgArgHas flag i)
+  (if (>= i (sysArgc))
+      false
+      (if (strEq (sysArg i) flag) true (cgArgHas flag (+ i 1)))))
+
 (pub :: crateDirsOf Int)
 (pub fn (crateDirsOf)
   (let ((v vecNew))
@@ -3697,14 +3708,22 @@
     (emitLine cg "@__axiom_argc = internal global i64 0")
     (emitLine cg "@__axiom_argv = internal global i64 0")
     (emitLine cg "")
-    (emitLine cg "define i64 @main(i64 %argc, i64 %argv) #0 {")
-    (emitLine cg "entry:")
-    (emitLine cg "  store i64 %argc, ptr @__axiom_argc")
-    (emitLine cg "  store i64 %argv, ptr @__axiom_argv")
-    (emitLine cg "  %r = call i64 @__axiom_user_main()")
-    (emitLine cg "  ret i64 %r")
-    (emitLine cg "}")
-    (emitLine cg "")
+    ; A STATIC ARCHIVE (`--emit-staticlib`) has no `main`: the host that
+    ; links it has its own, and the module's `pub fn`s are what it
+    ; calls. The runtime below is emitted in full - the allocator
+    ; initialises on first use, so the host needs no init call.
+    (if (cgStaticlib)
+        0
+        {
+          (emitLine cg "define i64 @main(i64 %argc, i64 %argv) #0 {")
+          (emitLine cg "entry:")
+          (emitLine cg "  store i64 %argc, ptr @__axiom_argc")
+          (emitLine cg "  store i64 %argv, ptr @__axiom_argv")
+          (emitLine cg "  %r = call i64 @__axiom_user_main()")
+          (emitLine cg "  ret i64 %r")
+          (emitLine cg "}")
+          (emitLine cg "")
+        })
     (emitLine cg "@__axiom_bump = internal global i64 0")
     (emitLine cg "@__axiom_bump_end = internal global i64 0")
     ; Every mapped chunk carries a two-word header - its total size and

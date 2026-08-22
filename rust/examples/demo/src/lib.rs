@@ -1,6 +1,6 @@
 //! Every shape the boundary supports, in one crate.
 
-use axiom_ffi::{axiom_export, axiom_opaque};
+use axiom_ffi::{axiom_export, axiom_opaque, AxFn1, AxFn2};
 use core::sync::atomic::{AtomicI64, Ordering};
 
 // 1. A scalar. This is the cheapest possible crossing: the generated
@@ -140,6 +140,46 @@ pub fn byte_len(data: &[u8]) -> i64 {
 #[axiom_export]
 pub fn cell_twice(cell: i64) -> i64 {
     cell.wrapping_mul(2)
+}
+
+// 6f. Callbacks: Axiom -> Rust -> Axiom. An `AxFn1` is the closure
+//     record word Axiom passes for a `(-> Int Int)` argument - a lambda
+//     or a bare top-level function, which the compiler wraps in a
+//     forwarding thunk record. `call` loads the code address from word
+//     0 and calls it with the record as the hidden environment. The
+//     record is borrowed for the call; a shim that wanted to keep it
+//     would `axiom_retain` it.
+#[axiom_export]
+pub fn apply_twice(f: AxFn1, x: i64) -> i64 {
+    f.call(f.call(x))
+}
+
+/// `f(f(a, b), c)`: a two-argument callback.
+#[axiom_export]
+pub fn fold3(f: AxFn2, a: i64, b: i64, c: i64) -> i64 {
+    f.call(f.call(a, b), c)
+}
+
+// 6g. Vectors. A `Vec<i64>` return rides the out-cell as `(ptr, len)`
+//     of words; the wrapper pushes each into an Axiom `Vec` and frees
+//     the Rust side with `axffi_free_words`. A `Vec<String>` return is
+//     `(pairs, n)`: `2n` words of `(bytesPtr, byteLen)`, each copied
+//     into an Axiom String, then `axffi_free_str_list`. A `&[i64]`
+//     parameter reads an Axiom `Vec` handle in place - len at word 0,
+//     data at word 2 - for the call.
+#[axiom_export]
+pub fn range_vec(n: i64) -> Vec<i64> {
+    (0..n.max(0)).collect()
+}
+
+#[axiom_export]
+pub fn split_words(text: &str) -> Vec<String> {
+    text.split_whitespace().map(str::to_string).collect()
+}
+
+#[axiom_export]
+pub fn sum_words(xs: &[i64]) -> i64 {
+    xs.iter().fold(0i64, |acc, x| acc.wrapping_add(*x))
 }
 
 // 7. Arity edges. A ZERO-argument extern is the one shape with a

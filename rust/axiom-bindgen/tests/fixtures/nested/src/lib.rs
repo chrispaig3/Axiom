@@ -3,7 +3,7 @@
 //! wrapper kind, the `mod` recursion, the `pub`-only rule, the
 //! attribute keys, the raw-shim path and a parameter named `cell`.
 
-use axiom_ffi::{axiom_export, axiom_opaque};
+use axiom_ffi::{axiom_export, axiom_opaque, AxFn2, AxFn3};
 
 #[axiom_opaque]
 pub struct Thing {
@@ -86,6 +86,46 @@ pub fn unit_result(n: i64) -> Result<(), String> {
 #[axiom_export]
 pub fn maybe_text(n: i64) -> Option<String> {
     if n > 0 { Some("yes".into()) } else { None }
+}
+
+/// Callbacks: bound under their arrow types and passed straight through.
+#[axiom_export]
+pub fn map_twice(f: axiom_ffi::AxFn1, x: i64) -> i64 {
+    f.call(f.call(x))
+}
+
+#[axiom_export]
+pub fn combine(f: AxFn2, g: AxFn3, seed: i64) -> Option<i64> {
+    Some(g.call(f.call(seed, 1), 2, 3))
+}
+
+/// A `Vec<i64>` return: `ffiWordsToVec` then `ffiFreeWords`.
+#[axiom_export]
+pub fn evens(upto: i64) -> Vec<i64> {
+    (0..upto).filter(|n| n % 2 == 0).collect()
+}
+
+/// A `Vec<String>` return: `ffiStrsToVec` then `ffiFreeStrList`.
+#[axiom_export]
+pub fn pieces(text: &str) -> Vec<String> {
+    text.split(',').map(String::from).collect()
+}
+
+/// A `&[i64]` parameter: an Axiom `Vec` handle, typed `Int`.
+#[axiom_export]
+pub fn total(xs: &[i64]) -> i64 {
+    xs.iter().sum()
+}
+
+/// The collections inside `Result` and `Option`.
+#[axiom_export]
+pub fn try_evens(upto: i64) -> Result<Vec<i64>, String> {
+    if upto < 0 { Err("negative".into()) } else { Ok(evens(upto)) }
+}
+
+#[axiom_export]
+pub fn maybe_pieces(text: &str) -> Option<Vec<String>> {
+    if text.is_empty() { None } else { Some(pieces(text)) }
 }
 
 /// Not `pub`: the macro would refuse it, and bindgen skips it.

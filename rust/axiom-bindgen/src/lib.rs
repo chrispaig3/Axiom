@@ -31,13 +31,19 @@
 //! (pub :: shout (-> String String))
 //! ```
 //!
-//! Every shim that returns bytes or can fail takes a trailing out-cell,
-//! its raw binding carries a `Raw` suffix, and the ergonomic name is an
-//! Axiom wrapper that allocates the cell through `Ffi.ax`, calls,
-//! decodes and frees. An opaque value is wrapped in a `Handle` that
-//! carries the type's drop function, so the Rust value dies with its
-//! last Axiom reference. Every generated local is `__`-prefixed so a
-//! Rust parameter named `cell` or `p` is never shadowed.
+//! Every shim that returns bytes, words, strings or can fail takes a
+//! trailing out-cell, its raw binding carries a `Raw` suffix, and the
+//! ergonomic name is an Axiom wrapper that allocates the cell through
+//! `Ffi.ax`, calls, decodes and frees. An opaque value is wrapped in a
+//! `Handle` that carries the type's drop function, so the Rust value
+//! dies with its last Axiom reference. A `Vec<i64>` / `Vec<String>`
+//! return becomes an Axiom `Vec` (an `Int` handle) through
+//! `ffiWordsToVec` / `ffiStrsToVec`, freed on the Rust side with
+//! `ffiFreeWords` / `ffiFreeStrList`; a `&[i64]` parameter is a `Vec`
+//! handle passed through as `Int`; a callback (`AxFn1..3`) is bound
+//! under its arrow type, `(-> Int Int)` and so on, and passed through.
+//! Every generated local is `__`-prefixed so a Rust parameter named
+//! `cell` or `p` is never shadowed.
 //!
 //! The output is byte-for-byte what `axiom fmt` produces for it: the
 //! printer in [`sexp`] follows the formatter's structural rules (an
@@ -452,7 +458,52 @@ fn payload_axiom_type(p: &Payload) -> String {
     match p {
         Payload::Scalar(s) => s.axiom_type().to_string(),
         Payload::Bytes => "String".into(),
+        // A `Vec` is an `Int` handle in the stdlib.
+        Payload::Words | Payload::Strs => "Int".into(),
         Payload::Opaque(o) => o.name.clone(),
+    }
+}
+
+/// The Axiom type of a parameter as the RAW extern item declares it.
+fn param_raw_type(p: &Param) -> String {
+    match p {
+        Param::Scalar(s) => s.axiom_type().to_string(),
+        Param::Str | Param::Bytes => "String".into(),
+        Param::Opaque { .. } => "Foreign".into(),
+        Param::Words => "Int".into(),
+        Param::Callback(n) => callback_type(*n),
+    }
+}
+
+/// `(-> Int Int)` for one argument, and so on: the arrow type a
+/// callback parameter carries on both the raw item and the wrapper.
+fn callback_type(arity: u8) -> String {
+    let mut t = String::from("(->");
+    for _ in 0..=arity {
+        t.push_str(" Int");
+    }
+    t.push(')');
+    t
+}
+
+/// The Ffi.ax pair that builds an Axiom value from a cell-carried
+/// collection and frees the Rust side: `(build, free)`.
+fn collection_helpers(p: &Payload) -> (&'static str, &'static str) {
+    match p {
+        Payload::Bytes => ("ffiBytesToStr", "ffiFreeBytes"),
+        Payload::Words => ("ffiWordsToVec", "ffiFreeWords"),
+        Payload::Strs => ("ffiStrsToVec", "ffiFreeStrList"),
+        _ => unreachable!("only collections ride the cell as (ptr, n)"),
+    }
+}
+
+/// The payload a direct collection return carries.
+fn direct_payload(r: &Ret) -> Payload {
+    match r {
+        Ret::Bytes => Payload::Bytes,
+        Ret::Words => Payload::Words,
+        Ret::Strs => Payload::Strs,
+        _ => unreachable!("not a direct collection return"),
     }
 }
 
@@ -478,15 +529,7 @@ impl Decl {
 
     /// The raw extern's type: the shim's real arity over wire types.
     fn raw_type(&self) -> String {
-        let mut ps: Vec<String> = self
-            .params
-            .iter()
-            .map(|(_, p)| match p {
-                Param::Scalar(s) => s.axiom_type().to_string(),
-                Param::Str | Param::Bytes => "String".into(),
-                Param::Opaque { .. } => "Foreign".into(),
-            })
-            .collect();
+        let mut ps: Vec<String> = self.params.iter().map(|(_, p)| param_raw_type(p)).collect();
         let ret = if self.ret.needs_cell() {
             ps.push("Int".into());
             "Int".to_string()
@@ -506,15 +549,14 @@ impl Decl {
             .params
             .iter()
             .map(|(_, p)| match p {
-                Param::Scalar(s) => s.axiom_type().to_string(),
-                Param::Str | Param::Bytes => "String".into(),
                 Param::Opaque { ty, .. } => ty.name.clone(),
+                other => param_raw_type(other),
             })
             .collect();
         let ret = match &self.ret {
             Ret::Scalar(s) => s.axiom_type().to_string(),
             Ret::Opaque(o) => o.name.clone(),
-            Ret::Bytes => "String".into(),
+            Ret::Bytes | Ret::Words | Ret::Strs => payload_axiom_type(&direct_payload(&self.ret)),
             Ret::Result(p) => format!("(Result {} String)", payload_axiom_type(p)),
             Ret::Option(p) => format!("(Option {})", payload_axiom_type(p)),
         };
@@ -561,17 +603,18 @@ impl Decl {
                 ));
                 Ex::Let(binds, Box::new(app(vec![atom(&o.name), atom("__h")])))
             }
-            Ret::Bytes => {
+            Ret::Bytes | Ret::Words | Ret::Strs => {
+                let (build, free) = collection_helpers(&direct_payload(&self.ret));
                 call.push(atom("__c"));
                 binds.push(("__c".into(), atom("ffiCellNew")));
                 binds.push(("__st".into(), app(call)));
                 binds.push(("__p".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("0")])));
                 binds.push(("__n".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("1")])));
-                binds.push(("__v".into(), app(vec![atom("ffiBytesToStr"), atom("__p"), atom("__n")])));
+                binds.push(("__v".into(), app(vec![atom(build), atom("__p"), atom("__n")])));
                 Ex::Let(
                     binds,
                     Box::new(Ex::Block(vec![
-                        app(vec![atom("ffiFreeBytes"), atom("__p"), atom("__n")]),
+                        app(vec![atom(free), atom("__p"), atom("__n")]),
                         app(vec![atom("ffiCellFree"), atom("__c")]),
                         atom("__v"),
                     ])),
@@ -593,14 +636,17 @@ impl Decl {
                     binds.push(("__f".into(), Ex::Cast("Float".into(), Box::new(atom("__p")))));
                 }
                 let ok = match p {
-                    Payload::Bytes => Ex::Let(
-                        vec![("__v".into(), app(vec![atom("ffiBytesToStr"), atom("__p"), atom("__n")]))],
-                        Box::new(Ex::Block(vec![
-                            app(vec![atom("ffiFreeBytes"), atom("__p"), atom("__n")]),
-                            app(vec![atom("ffiCellFree"), atom("__c")]),
-                            app(vec![atom(ctor), atom("__v")]),
-                        ])),
-                    ),
+                    Payload::Bytes | Payload::Words | Payload::Strs => {
+                        let (build, free) = collection_helpers(p);
+                        Ex::Let(
+                            vec![("__v".into(), app(vec![atom(build), atom("__p"), atom("__n")]))],
+                            Box::new(Ex::Block(vec![
+                                app(vec![atom(free), atom("__p"), atom("__n")]),
+                                app(vec![atom("ffiCellFree"), atom("__c")]),
+                                app(vec![atom(ctor), atom("__v")]),
+                            ])),
+                        )
+                    }
                     other => {
                         let value = match other {
                             Payload::Scalar(s) if s.is_float() => atom("__f"),
@@ -612,7 +658,7 @@ impl Decl {
                                 atom(&o.name),
                                 app(vec![atom("ffiHandleNew"), atom("__p"), atom(&drop_fn_name(&o.name))]),
                             ]),
-                            Payload::Bytes => unreachable!(),
+                            Payload::Bytes | Payload::Words | Payload::Strs => unreachable!(),
                         };
                         Ex::Block(vec![
                             app(vec![atom("ffiCellFree"), atom("__c")]),

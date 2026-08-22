@@ -73,13 +73,16 @@ compile_error!(
 extern crate alloc;
 
 pub use axiom_abi::{
-    axiom_alloc, axiom_release, axiom_retain, AxOutCell, AxStatus, AxStr, AxStrRepr, AxWord,
-    AX_ERR, AX_NONE, AX_OK,
+    axiom_alloc, axiom_release, axiom_retain, AxCallback, AxFn1, AxFn2, AxFn3, AxOutCell,
+    AxStatus, AxStr, AxStrRepr, AxVec, AxVecRepr, AxWord, AX_ERR, AX_NONE, AX_OK,
 };
 pub use axiom_ffi_macros::{axiom_export, axiom_opaque};
 
 #[cfg(feature = "nostd-runtime")]
 pub mod nostd_runtime;
+
+#[cfg(feature = "host")]
+pub mod host;
 
 /// A type Axiom holds as an opaque handle. Implemented by
 /// `#[axiom_opaque]`, never by hand.
@@ -104,7 +107,7 @@ pub trait AxiomOpaque: Sized {
 /// Implementation details the generated shims call. Not a stable API.
 #[doc(hidden)]
 pub mod __private {
-    use super::{AxOutCell, AxStr, AxWord, AxiomOpaque, AX_ERR};
+    use super::{AxCallback, AxOutCell, AxStr, AxVec, AxWord, AxiomOpaque, AX_ERR};
     use alloc::boxed::Box;
     use alloc::string::String;
     use alloc::vec::Vec;
@@ -148,6 +151,33 @@ pub mod __private {
     pub fn error_bytes<E: core::fmt::Display>(e: &E) -> (AxWord, AxWord) {
         use alloc::string::ToString;
         leak_bytes(e.to_string().into_bytes())
+    }
+
+    /// Hand owned words to Axiom as a `(ptr, len)` pair. Axiom's glue
+    /// pushes each into a `Vec` and calls
+    /// [`axffi_free_words`](super::axffi_free_words).
+    pub fn leak_words(v: Vec<i64>) -> (AxWord, AxWord) {
+        let boxed: Box<[i64]> = v.into_boxed_slice();
+        let len = boxed.len() as AxWord;
+        let p = Box::into_raw(boxed) as *mut i64;
+        (p as AxWord, len)
+    }
+
+    /// Hand owned strings to Axiom as `(ptr, n)`: `ptr` holds `2n`
+    /// words, a `(bytesPtr, byteLen)` pair per string, each pair what
+    /// [`leak_bytes`] answers. Axiom's glue copies every string and
+    /// calls [`axffi_free_str_list`](super::axffi_free_str_list),
+    /// which frees the strings and then the pair buffer.
+    pub fn leak_strs(v: Vec<String>) -> (AxWord, AxWord) {
+        let n = v.len() as AxWord;
+        let mut pairs: Vec<i64> = Vec::with_capacity(v.len() * 2);
+        for s in v {
+            let (p, len) = leak_bytes(s.into_bytes());
+            pairs.push(p);
+            pairs.push(len);
+        }
+        let (p, _) = leak_words(pairs);
+        (p, n)
     }
 
     /// Move an opaque value onto the heap and hand Axiom its address.
@@ -256,6 +286,38 @@ pub mod __private {
         AxStr::from_raw(word).as_bytes()
     }
 
+    /// A `&[i64]` argument: the live words of an Axiom `Vec`. A 0 word
+    /// is no vector at all and aborts rather than reading address 0.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` handle for the call.
+    #[inline]
+    pub unsafe fn words<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a [i64] {
+        if word == 0 {
+            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[i64]) is not a Vec: 0"));
+        }
+        AxVec::from_raw(word).as_slice()
+    }
+
+    /// A callback argument. A 0 word is no closure record and aborts
+    /// rather than loading a code address from address 0.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom closure record of `F::ARITY`
+    /// for the call.
+    #[inline]
+    pub unsafe fn callback<F: AxCallback>(word: AxWord, func: &str, idx: usize, name: &str) -> F {
+        if word == 0 {
+            abort(format_args!(
+                "`{func}`: argument {idx} (`{name}`: a function of {} argument{}) is not a \
+                 closure: 0",
+                F::ARITY,
+                if F::ARITY == 1 { "" } else { "s" }
+            ));
+        }
+        F::from_raw(word)
+    }
+
     /// Write an error message into the cell and answer `AX_ERR`.
     pub fn err_into(cell: &mut AxOutCell, message: String) -> AxWord {
         let (p, n) = leak_bytes(message.into_bytes());
@@ -286,6 +348,40 @@ pub unsafe extern "C" fn axffi_free_bytes(ptr: *mut u8, len: i64) -> i64 {
     0
 }
 
+/// Free words handed out by a shim (a `Vec<i64>` return).
+///
+/// # Safety
+/// `ptr`/`len` must be exactly what a shim wrote into the out-cell and
+/// must not have been freed.
+#[no_mangle]
+pub unsafe extern "C" fn axffi_free_words(ptr: *mut i64, len: i64) -> i64 {
+    if ptr.is_null() || len <= 0 {
+        return 0;
+    }
+    let s = core::ptr::slice_from_raw_parts_mut(ptr, len as usize);
+    drop(alloc::boxed::Box::from_raw(s));
+    0
+}
+
+/// Free a string list handed out by a shim (a `Vec<String>` return):
+/// `ptr` holds `2n` words of `(bytesPtr, byteLen)` pairs. Every string
+/// is freed as [`axffi_free_bytes`] would free it, then the pairs.
+///
+/// # Safety
+/// `ptr`/`n` must be exactly what a shim wrote into the out-cell and
+/// must not have been freed.
+#[no_mangle]
+pub unsafe extern "C" fn axffi_free_str_list(ptr: *mut i64, n: i64) -> i64 {
+    if ptr.is_null() || n <= 0 {
+        return 0;
+    }
+    let pairs = core::slice::from_raw_parts(ptr, n as usize * 2);
+    for pair in pairs.chunks_exact(2) {
+        axffi_free_bytes(pair[0] as *mut u8, pair[1]);
+    }
+    axffi_free_words(ptr, n * 2)
+}
+
 /// The ABI fingerprint this crate was built against.
 ///
 /// Every crate that depends on the facade carries it, and an Axiom
@@ -301,5 +397,9 @@ pub extern "C" fn axffi_abi_version() -> i64 {
 ///
 /// History: 1 = the first boundary (out-cell, statuses 0/1); 2 = status
 /// 2 means `None`, opaque values carry a drop function
-/// (`axffi_<t>_drop_fn`), narrow integers are range-checked.
+/// (`axffi_<t>_drop_fn`), narrow integers are range-checked. Still 2
+/// after the additive shapes of 2026-08-22 - the `__sig_` descriptors,
+/// callbacks as closure records, `Vec<i64>`/`Vec<String>` through the
+/// cell as `(ptr, len)` / `(pairs, n)`, `&[i64]` over a `Vec` handle -
+/// because no representation a version-2 crate already uses moved.
 pub const ABI_VERSION: i64 = 2;
