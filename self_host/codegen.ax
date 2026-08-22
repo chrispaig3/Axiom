@@ -42,25 +42,23 @@
 ; recorded one - it is what MM-LIFE-2d's shape constant is computed
 ; from at construction sites. A struct's field types ride inside its
 ; slot-7 TAG_FIELD nodes already, so struct entries leave this 0.
-(pub struct TypeEntry (name : String) (nameLen : Int) (nameHash : Int) (kind : Int) (arity : Int) (tag : Int) (rep : Int) (fieldFlags : Int) (fieldNames : Int) (fieldTys : Int))
+(pub struct TypeEntry (name : String) (nameLen : Int) (kind : Int) (arity : Int) (tag : Int) (rep : Int) (fieldFlags : Int) (fieldNames : Int) (fieldTys : Int))
 (pub :: TF_DATA   Int) (pub fn (TF_DATA)   0)
 (pub :: TF_STRUCT Int) (pub fn (TF_STRUCT) 1)
 (pub :: eNameLen (-> Int Int)) (pub fn (eNameLen e) (memGetWord e 1))
-(pub :: eNameHash (-> Int Int)) (pub fn (eNameHash e) (memGetWord e 2))
-(pub :: eKind  (-> Int Int)) (pub fn (eKind  e) (memGetWord e 3))
-(pub :: eArity (-> Int Int)) (pub fn (eArity e) (memGetWord e 4))
-(pub :: eTag   (-> Int Int)) (pub fn (eTag   e) (memGetWord e 5))
-(pub :: eRep     (-> Int Int)) (pub fn (eRep e)     (memGetWord e 6))
-(pub :: eFieldFlags (-> Int Int)) (pub fn (eFieldFlags e) (memGetWord e 7))
+(pub :: eKind  (-> Int Int)) (pub fn (eKind  e) (memGetWord e 2))
+(pub :: eArity (-> Int Int)) (pub fn (eArity e) (memGetWord e 3))
+(pub :: eTag   (-> Int Int)) (pub fn (eTag   e) (memGetWord e 4))
+(pub :: eRep     (-> Int Int)) (pub fn (eRep e)     (memGetWord e 5))
+(pub :: eFieldFlags (-> Int Int)) (pub fn (eFieldFlags e) (memGetWord e 6))
 
-; A length is not a name. This used to hash to `strLen` and match on
-; (length, hash) alone, so every name of the same length was the same
-; name: with a `(struct P ...)` in scope, `(+ a b)` found `P` in the type
-; registry and was emitted as a struct construction. The length is kept
-; as a cheap pre-filter, but equality is decided by comparing the bytes.
-(pub :: nameHash (-> String Int))
-(pub fn (nameHash s)
-  (strLen s))
+; A length is not a name. An entry used to carry a `nameHash` word
+; beside its `nameLen` and match on the pair alone, so every name of the
+; same length was the same name: with a `(struct P ...)` in scope,
+; `(+ a b)` found `P` in the type registry and was emitted as a struct
+; construction. Equality is decided by comparing the bytes now, and the
+; hash word was `strLen` - the same value as `nameLen`, one word further
+; along - so the entry carried its length twice and read it once.
 
 (pub :: eName (-> Int String)) (pub fn (eName e) (memGetWord e 0))
 
@@ -70,11 +68,10 @@
 
 (pub :: addTypeNamed (-> Int String Int Int Int Int Int Int Int Int))
 (pub fn (addTypeNamed types name kind arity tag rep fieldFlags fieldNames fieldTys)
-  (let ((nl (strLen name))
-        (nh (nameHash name)))
-    (vecPush types (cast Int (TypeEntry name nl nh kind arity tag rep fieldFlags fieldNames fieldTys)))))
-(pub :: eFieldNames (-> Int Int)) (pub fn (eFieldNames e) (memGetWord e 8))
-(pub :: eFieldTys (-> Int Int)) (pub fn (eFieldTys e) (memGetWord e 9))
+  (let ((nl (strLen name)))
+    (vecPush types (cast Int (TypeEntry name nl kind arity tag rep fieldFlags fieldNames fieldTys)))))
+(pub :: eFieldNames (-> Int Int)) (pub fn (eFieldNames e) (memGetWord e 7))
+(pub :: eFieldTys (-> Int Int)) (pub fn (eFieldTys e) (memGetWord e 8))
 
 (pub :: lookupType (-> Int String Int))
 (pub fn (lookupType types name)
