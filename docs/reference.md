@@ -311,8 +311,9 @@ searched too.) The emitter writes `declare i64 @axffi_add(i64, i64)
   `(-> Int Int Int Int)`. A type variable, a tuple, any other function
   type or a declared type (`(Option Int)`, `Handle`, a struct) is
   `AX3036`: such values cross as a `Foreign` handle or through the
-  generated wrapper (a `Vec<i64>` or `Vec<String>` result becomes a
-  `Vec`).
+  generated wrapper (a `Vec<T>` result becomes a `Vec`; a Rust
+  `#[axiom_record]` struct becomes a `data` type whose fields cross
+  one word each).
 - `(symbol "...")` is the **only clause**; any other head is a parse
   error naming it. Write it explicitly — a static link is one flat
   namespace and the default is the Axiom name.
@@ -333,7 +334,10 @@ is `AX4005` at the item.
 The other direction is `--emit-staticlib`: `axiom build --input lib.ax
 --output libaxiom_lib.a --emit-staticlib` archives a module with no
 `main`, every `pub fn` a C symbol under its own name, for a Rust (or
-C) host to link.
+C) host to link; `--emit-rust-binding lib.rs` beside it writes the
+Rust module that declares and wraps them (`Int`→`i64`, `Float`→`f64`,
+`Bool`→`bool`, `Char`→`char`, `String`→`&str` in and `AxString` out),
+naming in a comment any function whose type it does not carry.
 
 `foreign` is not this feature renamed and remains `AX2004`. See
 [docs/ffi.md](ffi.md).

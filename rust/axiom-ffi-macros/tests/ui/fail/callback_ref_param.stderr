@@ -1,4 +1,4 @@
-error: `&axiom_ffi::AxFn2` is not supported as an `#[axiom_export]` parameter (a callback is one word and `Copy`; take it by value); the supported parameter types are: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 &str &[u8] &[i64] AxFn1 AxFn2 AxFn3 &T &mut T (T marked `#[axiom_opaque]`)
+error: `&axiom_ffi::AxFn2` is not supported as an `#[axiom_export]` parameter (a callback is one word and `Copy`; take it by value); the supported parameter types are: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 &str &[u8] &[&str] &[T] (T a word scalar) AxFn1 AxFn2 AxFn3 &T &mut T (T marked `#[axiom_opaque]`) T (T marked `#[axiom_record]`)
  --> tests/ui/fail/callback_ref_param.rs:5:13
   |
 5 | pub fn f(g: &axiom_ffi::AxFn2) -> i64 {

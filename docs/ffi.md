@@ -206,6 +206,9 @@ compile error whose message lists what is accepted.
 | `&str` | `String` | the `Str` header address | zero-copy view of the bytes; UTF-8 checked (§5.1) |
 | `&[u8]` | `String` | the `Str` header address | zero-copy view; no validation |
 | `&T`, `&mut T` (`T` marked `#[axiom_opaque]`) | `Foreign` | the boxed value's address | null check, then a borrow for the call |
+| `T` marked `#[axiom_record]` | `T` (a `data` type) | one word per field | `AxRecord::from_words` (§8) |
+| `&[T]`, `T` a word scalar ≠ `u8`; `&[&str]` | `Int` (a `Vec`) | the `Vec` handle | a borrowed view or a range-checked copy for the call (§8) |
+| `AxFn1`, `AxFn2`, `AxFn3` | `(-> Int Int)` … | the closure record | `.call` (§7) |
 
 Refused, with the reason in the message: `u64`/`u128`/`i128` ("an Axiom
 `Int` is an i64 and cannot hold every value; take an `i64`, or a
@@ -224,17 +227,20 @@ Refused, with the reason in the message: `u64`/`u128`/`i128` ("an Axiom
 | `String`, `Vec<u8>` | `String` | `(-> ... Int Int)` + `Raw` suffix | bytes/out-cell (§5.2) |
 | `Result<T, E>` (`E: Display`) | `(Result T' String)` | `Raw` | fallible: status 0 / 1 (§5.3) |
 | `Option<T>` | `(Option T')` | `Raw` | fallible: status 0 / 2 (§5.3) |
+| `Vec<T>`, `T` a word scalar ≠ `u8`; `Vec<String>` | `Int` (a `Vec`) | `Raw` | words / string list out-cell (§8) |
+| `T` marked `#[axiom_record]` | `T` (a `data` type) | `Raw` | field words in a cell of `ARITY` words (§8) |
 
-`T'` is the payload's own row: a scalar, `String`, or an opaque `data`
-type. Refused: `u64`, `char`, `Vec<T ≠ u8>` ("only `Vec<u8>` crosses
-directly; other collections must be serialised or held in an
-`#[axiom_opaque]` type"), a borrow (`&str`: "a borrow cannot outlive
+`T'` is the payload's own row: a scalar, `String`, an opaque `data`
+type, a `Vec` or a record. Refused: `u64`, `char`, `Vec<T>` for any
+other `T` ("a `Vec` crosses for word scalars and `String`; other
+collections must be serialised or held in an `#[axiom_opaque]` type"),
+a borrow (`&str`: "a borrow cannot outlive
 the call"), `Result<Option<_>, _>` and the other nesting ("the status
 word has one slot"), `Option<()>` ("is a `bool`; return one"),
 `Box`/`Rc`/`Arc`, a bare `Result`/`Option` with no payload written out.
 
 The refusals are pinned as compiler-message snapshots in
-`rust/axiom-ffi-macros/tests/ui/fail/*.stderr` (16 cases) and the
+`rust/axiom-ffi-macros/tests/ui/fail/*.stderr` (22 cases) and the
 accepted shapes are compiled *and run* by `tests/ui/pass/accepted_shapes.rs`.
 
 **Names.** The symbol is `axffi_<rust_name>` unless
@@ -561,43 +567,83 @@ type or behind a reference are refused on their respective sides
 
 ---
 
-## 8. `Vec` across the boundary
+## 8. `Vec`, slices and records across the boundary
 
-Three shapes, all over words:
+All over words, none of them writing an Axiom block from Rust (C4):
 
 | Rust | Axiom | wire |
 |---|---|---|
-| `-> Vec<i64>` | `Int` (a `Vec`) | the out-cell holds `{ptr, len}` of `i64`; the wrapper copies with `ffiWordsToVec` and returns the buffer with `ffiFreeWords` → `axffi_free_words(ptr, len)` |
+| `-> Vec<T>`, `T` a word scalar (`i64`, the narrow ints other than `u8`, `usize`/`isize`, `bool`, `f64`, `f32`) | `Int` (a `Vec`) | the out-cell holds `{ptr, len}` of words — each element widened to its word (ints extended, `bool` 0/1, floats as `f64` bits); the wrapper copies with `ffiWordsToVec` and returns the buffer with `ffiFreeWords` → `axffi_free_words(ptr, len)` |
 | `-> Vec<String>` | `Int` (a `Vec` of `String`) | the cell holds `{ptr, n}`, `ptr` at `2n` words of `(bytes, len)` pairs; `ffiStrsToVec` copies each string, `ffiFreeStrList` → `axffi_free_str_list(ptr, n)` frees every string and the pair buffer |
-| `&[i64]` parameter | `Int` (a `Vec`) | the `Vec` handle itself; Rust reads it as `axiom_abi::AxVec` (word 0 `len`, 1 `cap`, 2 the data pointer) for the call only |
+| `&[T]` parameter, `T` a word scalar other than `u8` | `Int` (a `Vec`) | the `Vec` handle itself; Rust reads it as `axiom_abi::AxVec` (word 0 `len`, 1 `cap`, 2 the data pointer) for the call only — `&[i64]` and `&[f64]` as the words are, any other `T` through a range-checked temporary (out of range **aborts**, §5.1) |
+| `&[&str]` parameter | `Int` (a `Vec` of `String`) | the `Vec` handle; each word a `Str`, viewed as `&str` for the call, UTF-8 checked |
+| `Point` parameter, `#[axiom_record]` | `Point` (a `data` type) | **one word per field**, in declaration order; the wrapper destructures with `match` |
+| `-> Point` | `Point` | the out-cell holds the field words (`ffiCellNewN n`); the wrapper constructs the `data` value |
+
+(`&[u8]` and `Vec<u8>` are not in this table because they were already
+in §5: a byte slice is a `String`'s bytes, and stays one.)
 
 ```rust
 #[axiom_export] pub fn range_vec(n: i64) -> Vec<i64> { (0..n).collect() }
 #[axiom_export] pub fn sum_words(xs: &[i64]) -> i64 { xs.iter().sum() }
-#[axiom_export] pub fn split_words(text: &str) -> Vec<String> { text.split(' ').map(String::from).collect() }
+#[axiom_export] pub fn sum_u16(xs: &[u16]) -> i64 { xs.iter().map(|b| *b as i64).sum() }
+#[axiom_export] pub fn halves(n: i64) -> Vec<f64> { (0..n).map(|i| i as f64 / 2.0).collect() }
+#[axiom_export] pub fn join_words(parts: &[&str]) -> String { parts.join(" ") }
+
+#[axiom_record]
+pub struct Point { pub x: i64, pub y: f64 }
+
+#[axiom_export] pub fn point_scale(p: Point, k: i64) -> Point { Point { x: p.x * k, y: p.y * k as f64 } }
 ```
 
 ```scheme
 (sumWords (rangeVec 5))                     ; 10 - the Vec goes in as itself
-(vecLen (splitWords "a b c"))               ; 3
+(cast Float (vecGet (halves 3) 1))          ; 0.5 - a Float element is its bits
+(joinWords (vecOf "a" "b"))                 ; "a b"
+(match (pointScale (Point 1 2.5) 2)
+  ((Point x y) ...))                        ; x = 2, y = 5.0
 ```
 
-The generated wrapper for a `Vec` result is the out-cell wrapper of §5
-with one more step:
+A **record** is a plain struct with named fields, every field a word
+scalar (`i64`, the narrow ints, `bool`, `f64`, `f32`) — not a `String`,
+not `char`, not an opaque type, not another record (each refused with
+the accepted set in the message). `#[axiom_record]` derives `AxRecord`
+(`ARITY`, `from_words`, `write_words`; a narrow field out of range
+aborts like a narrow parameter), the shim takes or writes one word per
+field, and `axiom-bindgen` emits `(pub data Point (Point Int Float))`
+beside the opaque types and wraps each use:
 
 ```scheme
-(pub fn (rangeVec n)
-  (let ((__c ffiCellNew) (__st (rangeVecRaw n __c)) (__p (ffiCellWord __c 0))
-        (__n (ffiCellWord __c 1)) (__v (ffiWordsToVec __p __n)))
-    { (ffiFreeWords __p __n) (ffiCellFree __c) __v }))
+(pub fn (pointScale p k)
+  (match p
+    ((Point __f0 __f1)
+      (let (
+        (__c (ffiCellNewN 2))
+        (__st (pointScaleRaw __f0 __f1 k __c))
+        (__w0 (ffiCellWord __c 0))
+        (__w1 (cast Float (ffiCellWord __c 1)))
+        (__r (Point __w0 __w1))
+      )
+        { (ffiCellFree __c) __r }))))
 ```
 
-`Result<Vec<..>, E>` and `Option<Vec<..>>` use the same payload after
-the status word. `tests/ffi/demo/140-vec.ax` is the fixture. Rust never
-writes an Axiom block (C4): the buffer it returns is its own, freed by
-its own free function after the copy. `&[&str]`, `Vec<T>` for a `T`
-outside `i64`/`String`, and `&mut [i64]` remain refused by the
-classifier with the accepted set in the message.
+How the macro knows `Point` is a record when it sees only the
+function: `#[axiom_record]` and `#[axiom_opaque]` each emit a companion
+`macro_rules!` named like the type, and `#[axiom_export]` over a bare
+`T` expands through it, so the shape is resolved at the use site
+whatever the order of the items or the module they came from. A type
+marked with neither is refused twice over: the companion is missing,
+and an `AxiomMarked` assertion says ``crosses the Axiom boundary but is
+not marked `#[axiom_opaque]` or `#[axiom_record]` ``.
+
+`Result<Point, E>` and `Option<Point>` put the field words after the
+status as any payload; the cell is `max(ARITY, 2)` words so an error
+message fits. Descriptors count one tag per field (§9), so a record
+that gains a field changes the shim's shape and a stale binding module
+is `AX4005`, not a misread register. `tests/ffi/demo/140-vec.ax`,
+`150-records.ax`, `160-str-slice.ax` and `170-vec-scalars.ax` are the
+fixtures. Still refused: `Vec<Record>`, `&[Record]`, `&[String]` and
+`Vec<String>` as parameters (say `&[&str]`), `&mut [T]`, `Vec<Vec<_>>`.
 
 ---
 
@@ -659,40 +705,105 @@ allocator:
 ```scheme
 ; hostlib.ax
 (import Str)
+(pub :: addTwo (-> Int Int Int))
 (pub fn (addTwo a b) (+ a b))
-(pub fn (shout s) (strConcat (strUpper s) "!"))
+(pub :: shout (-> String String))
+(pub fn (shout s) ...)                      ; ASCII upper-case, a fresh String
 ```
 
+A host can write the `extern "C"` block by hand — the ABI is one
+`i64` per word — or have the build write it:
+
+```sh
+axiom build --input hostlib.ax --output libaxiom_hostlib.a \
+            --emit-staticlib --emit-rust-binding hostlib.rs
+```
+
+`--emit-rust-binding PATH` writes, from the same declarations the IR
+came from, the Rust view of the file's `pub` surface (`self_host/rustbind.ax`):
+one `extern "C"` declaration per function in a `raw` module, and one
+safe wrapper per function in Rust's own types —
+
 ```rust
-// the host, a binary crate
-use axiom_ffi::host::{AxString, read_str};
-extern "C" { fn addTwo(a: i64, b: i64) -> i64; fn shout(s: i64) -> i64; }
-fn main() {
-    let hello = AxString::from_str("hello");           // Str$strAlloc + memcpy
-    unsafe {
-        println!("{}", addTwo(40, 2));                 // 42
-        println!("{}", read_str(shout(hello.word()))); // HELLO!
+mod raw {
+    extern "C" {
+        pub fn addTwo(a0: i64, a1: i64) -> i64;
+        pub fn shout(a0: i64) -> i64;
     }
+}
+
+/// `(pub :: addTwo (-> Int Int Int))`
+pub fn add_two(a: i64, b: i64) -> i64 {
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::addTwo(a, b) };
+    __r
+}
+
+/// `(pub :: shout (-> String String))`
+pub fn shout(s: &str) -> AxString {
+    let __a0 = AxString::from_str(s);
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::shout(__a0.as_word()) };
+    // SAFETY: a String a function answers is an owned share (MM-LIFE-2c event 2).
+    unsafe { AxString::from_owned(__r) }
 }
 ```
 
-The runtime needs no init call: the allocator initialises on first
-use. A value the host keeps past the call it got it from is retained
-with `axiom_retain` and released with `axiom_release`, like any shim
-(C1); `AxString` does this for the strings it builds. `IO` functions
-work — the archive contains the syscall layer — and a panic in Axiom
-(an `assert`, an out-of-range index) exits the process as it would
-from `main`. Effects are not checked across the boundary: the host is
-outside the effect system and calls what it likes.
+— which a host uses as a module:
 
-`rust/examples/host` is the worked host (a binary crate whose
-`build.rs` links `$AXIOM_HOST_ARCHIVE_DIR/libaxiom_hostlib.a`), built
-by the gate from `tests/ffi/host/hostlib.ax`, run, and checked for its
-output (§14). What does not exist: an `export` block (every `pub fn` is
-exported), a generated Rust binding for an Axiom module, and any
-promise about a non-`Int` parameter beyond `String` — a host passing a
-`Vec` or a `data` value must build it with the archive's own
-constructors.
+```rust
+mod hostlib;
+fn main() {
+    println!("{}", hostlib::add_two(40, 2));                         // 42
+    println!("{}", hostlib::shout("hello").as_str().unwrap());       // HELLO
+}
+```
+
+| Axiom | Rust parameter | Rust result | how |
+|---|---|---|---|
+| `Int` | `i64` | `i64` | the word |
+| `Float` | `f64` | `f64` | `to_bits` / `from_bits` |
+| `Bool` | `bool` | `bool` | `as i64` / `!= 0` |
+| `Char` | `char` | `char` | the code point; `from_u32(..).unwrap_or('\u{FFFD}')` |
+| `String` | `&str` | `AxString` | `AxString::from_str` (the archive's `Str$strAlloc`) for the call; the result adopted with `from_owned` |
+| `Handle`, `Foreign` | `AxWord` | `AxWord` | the bare word |
+| `()` result | — | `()` | the word dropped |
+
+Names are snake-cased (`addTwo` → `add_two`; a Rust keyword gets a
+trailing underscore). A `pub fn` whose signature names anything else —
+a `data` type, `(Option Int)`, a list, a tuple, a type variable, an
+arrow — or that has no `(pub :: name Type)` signature is **named in a
+comment at the end of the file** rather than silently omitted:
+
+```
+// Not bound - call these through the archive by hand, or change the type:
+// `firstEven`: `(-> Int Int (Option Int))` names `(Option Int)`, which the binding does not carry
+// `pairSum`: `(-> Pair Int)` names `Pair`, which the binding does not carry
+```
+
+The result adoption rests on `MM-LIFE-2c` event 2: a function that
+answers a counted reference answers a share of its own, so the host
+owns what it gets even when the function answered its argument —
+`hostlib.ax`'s `(pub fn (same s) s)` compiles to a `@axiom_retain`
+before its `ret`, and `rust/examples/host` calls it ten thousand times
+against the free list to prove the two releases are two shares. The
+runtime needs no init call: the allocator initialises on first use.
+`IO` functions work — the archive contains the syscall layer — and a
+panic in Axiom (an `assert`, an out-of-range index) exits the process
+as it would from `main`. Effects are not checked across the boundary:
+the host is outside the effect system and calls what it likes.
+
+`rust/examples/host` is the worked host: `src/hostlib.rs` is the
+generated binding, checked in, and `build.rs` links
+`$AXIOM_HOST_ARCHIVE_DIR/libaxiom_hostlib.a`. The gate builds both
+from `tests/ffi/host/hostlib.ax`, diffs the checked-in binding against
+the fresh one, requires it `rustfmt`-clean when `rustfmt` is present,
+runs the host and checks that it reports agreement (§14). What does
+not exist: an `export` block (every `pub fn` is exported — and so, as
+a matter of fact, is every other function of the entry file, under its
+own name; the binding declares only the `pub` ones), and a host-side
+constructor for a `data` value or a `Vec`, which a host builds through
+the archive's own functions.
 
 ---
 
@@ -904,10 +1015,11 @@ order:
    nothing linked is said in those words, at the item; a declaration
    of the wrong shape is `AX4005` (§9), not a build.
 5. **The host direction** — `tests/ffi/host/hostlib.ax` is archived
-   with `--emit-staticlib`, the archive is checked to define no `main`,
-   and `rust/examples/host` is built against it and run; its output
-   must report agreement between what the host computed and what the
-   Axiom functions answered (§10).
+   with `--emit-staticlib --emit-rust-binding`, the archive is checked
+   to define no `main`, the fresh binding must be byte-identical to the
+   checked-in `rust/examples/host/src/hostlib.rs` and `rustfmt`-clean
+   (when `rustfmt` is present), and `rust/examples/host` is built
+   against the archive and run; its output must end in `agree` (§10).
 
 The fixtures: `tests/ffi/demo/` — 010 add, 020 float bits, 030 string
 borrow, 040 owned bytes, 050 fallible, 060 opaque handle, 070 effect
@@ -919,7 +1031,7 @@ the one distinct emitter path), 310 ABI version, 400 ARC retain, 410
 foreign not walked, 420 null foreign; `tests/ffi/nostd/010-fnv1a.ax`;
 `tests/ffi/probe-ungrounded/*.axbad`. The Rust side has its own:
 `cargo test --release` runs the classifier's unit tests, the `trybuild`
-suite (one pass file that runs every accepted shape, 19 fail snapshots),
+suite (one pass file that runs every accepted shape, 22 fail snapshots),
 and `axiom-bindgen`'s snapshot tests (`tests/fixtures/{nested,collision,
 unmarked}`, demo/nostd freshness, CLI behaviour, and `axiom fmt --check`
 on the output when a compiler is reachable).
@@ -974,19 +1086,24 @@ would enable `axiom-ffi/std` for the `no_std` member and its
 Stated plainly, so nobody builds on a sentence the compiler disagrees
 with:
 
-- **Rust → Axiom beyond a `pub fn` of words and strings.** `--emit-staticlib`
-  exports every `pub fn` of the entry module (§10); there is no `export`
-  block to choose, no generated Rust binding for an Axiom module, and a
-  host that needs a `Vec` or a `data` value builds it with the archive's
-  own constructors.
+- **Rust → Axiom beyond words and strings.** `--emit-staticlib` exports
+  every `pub fn` of the entry module and `--emit-rust-binding` wraps the
+  ones whose types are `Int`, `Float`, `Bool`, `Char`, `String`,
+  `Handle`/`Foreign` (§10); a function over a `data` value, a list, a
+  tuple, an `Option` or a type variable is named in the binding's
+  trailing comment and called by hand, and a host that needs such a
+  value builds it through the archive's own functions. There is no
+  `export` block to choose which functions the archive holds.
 - **Callbacks outside the three word shapes.** A parameter of type
   `(-> Int Int)`, `(-> Int Int Int)` or `(-> Int Int Int Int)` crosses
   (§7); an arrow with a `String` or `Float` leaf, an arrow as a result,
   and a Rust `fn`/closure type other than `AxFn1`–`AxFn3` are refused.
-- **Structs by value, tuples, lists.** Each is `AX3036` in an `extern`
-  signature; the macro refuses tuples and `&[T]` for `T ≠ u8, i64`. Hold
-  the value in an `#[axiom_opaque]` type, or split it into words.
-- **`Vec<T>` for `T ∉ {i64, String}`**, `&[&str]`, `&mut [i64]`, `u64`,
+- **Records beyond word-scalar fields.** An `#[axiom_record]` struct
+  crosses as its fields (§8) when every field is a word scalar; a
+  `String`, opaque or record field, `Vec<Record>` and `&[Record]` are
+  refused. Tuples and lists are `AX3036` in an `extern` signature.
+- **`Vec<T>` for a `T` that is not a word scalar or `String`**, `&[String]`
+  and `Vec<String>` as parameters (say `&[&str]`), `&mut [T]`, `u64`,
   `u128`, `i128`, `char`, `&mut str`, `Box`/`Rc`/`Arc` across the
   boundary, nested `Result`/`Option`.
 - **Panics unwinding into Axiom.** A panic aborts the process (C7); no
@@ -1030,4 +1147,8 @@ callbacks (§7), `Vec` each way (§8), the shape descriptor and `AX4005`
 and `cargo` itself (§12). Each is a fixture too — `tests/ffi/demo/130`,
 `140`, `tests/ffi/probe-ungrounded/050`, `tests/ffi/host/` with
 `rust/examples/host` — and `axiom symbols` and the LSP now place an
-extern item at its line rather than calling it a builtin.
+extern item at its line rather than calling it a builtin. A third
+pass closed the rest of that list: records by value as their fields,
+`&[&str]`, `Vec<T>`/`&[T]` over every word scalar (§8, fixtures
+`150`–`170`), and `--emit-rust-binding`, the generated Rust module
+for an Axiom archive (§10, `rust/examples/host/src/hostlib.rs`).

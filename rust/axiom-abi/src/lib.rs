@@ -263,6 +263,38 @@ impl AxOutCell {
 }
 
 // ---------------------------------------------------------------------
+// Records: a struct that crosses AS ITS FIELDS
+// ---------------------------------------------------------------------
+
+/// A struct marked `#[axiom_record]`: it crosses the boundary as its
+/// fields, one word each in declaration order, never as a pointer.
+/// Implemented by the attribute, never by hand.
+///
+/// Every field is a word scalar, so the record is a fixed number of
+/// words: a PARAMETER arrives as `ARITY` shim arguments and is rebuilt
+/// with [`from_words`](AxRecord::from_words); a RESULT is written with
+/// [`write_words`](AxRecord::write_words) into an out-cell of `ARITY`
+/// words the Axiom caller allocated (`ffiCellNewN`). The words use the
+/// scalar rules: a narrow integer is range-checked on the way in (out
+/// of range aborts, as a scalar argument would), a `bool` is 0/1, an
+/// `f64` its bits, an `f32` widened to `f64` bits.
+///
+/// On the Axiom side the record is a `data` type with one constructor
+/// and one positional field per Rust field, which the generated
+/// wrapper destructures into the raw call and rebuilds from the cell.
+pub trait AxRecord: Sized {
+    /// The number of words: one per field.
+    const ARITY: usize;
+
+    /// Rebuild the value from `ARITY` words. A narrow field whose word
+    /// is out of range aborts with the type and field named.
+    fn from_words(words: &[AxWord]) -> Self;
+
+    /// Write the field words into `out[..ARITY]`.
+    fn write_words(&self, out: &mut [AxWord]);
+}
+
+// ---------------------------------------------------------------------
 // Callbacks: an Axiom function value, called from Rust
 // ---------------------------------------------------------------------
 //

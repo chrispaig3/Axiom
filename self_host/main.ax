@@ -16,6 +16,7 @@
 (import expand)
 (import codegen)
 (import driver)
+(import rustbind)
 (import format)
 (import explain)
 (import symbols)
@@ -268,6 +269,9 @@
               ; whatever it was built for.
               (let ((decls (memGetWord pr 1)))
                 (let ((tcode (checkedTargetCode tname))
+                      ; what the entry file wrote `pub`, before import
+                      ; resolution rewrites visibility (rustbind.ax)
+                      (pubFns (rbPubNames (memGetWord pr 1)))
                       (bares vecNew)
                       (fulls vecNew)
                       (mods vecNew))
@@ -378,6 +382,16 @@
                                     ; against the link line, reported at
                                     ; the item that declared it
                                     (let ((ir (emitResolved allDecls bares fulls tcode)))
+                                      ; `--emit-rust-binding PATH` beside an
+                                      ; archive: the Rust view of this file's
+                                      ; `pub` surface, written from the same
+                                      ; declarations the IR came from
+                                      (if (&& (== needMain 0) (> (strLen (flagValue "--emit-rust-binding" 1)) 0))
+                                          (let ((bp (flagValue "--emit-rust-binding" 1)))
+                                            (if (< (sysWriteFile (strCStr bp) (rustBindingOf decls pubFns fileName)) 0)
+                                                (die (cat3 "error: could not write " bp "\n") 1)
+                                                (writeStdout (cat3 "Rust binding written to " bp "\n"))))
+                                          0)
                                       (if (== needMain 1)
                                           (let ((grc (groundExternsSpanned ir allDecls units dfmt
                                                                            (effectiveLinkArgs ir linkArgsOf))))

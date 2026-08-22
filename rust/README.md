@@ -11,12 +11,12 @@ than failing it.
 
 | Crate | What it is |
 |---|---|
-| `axiom-abi` | `#![no_std]`. The value layouts (`AxStr`, `AxVec`, the out-cell), the callback types `AxFn1..3` and the retain/release protocol. The only place that knows Axiom's representation, shared by both directions. |
+| `axiom-abi` | `#![no_std]`. The value layouts (`AxStr`, `AxVec`, the out-cell), the callback types `AxFn1..3`, the `AxRecord` trait and the retain/release protocol. The only place that knows Axiom's representation, shared by both directions. |
 | `axiom-ffi-classify` | The ONE type table, attribute grammar, naming rule and signature-descriptor derivation, shared by the macro and bindgen so the two passes over an annotation cannot drift. Closed: every accepted type is enumerated, anything else is refused with the list. |
 | `axiom-ffi` | The facade a crate author depends on. `std` by default; `nostd-runtime` supplies the allocator, panic handler and memory intrinsics a `no_std` crate needs; `host` supplies the other direction's helpers. Defines `axffi_free_bytes`, `axffi_free_words`, `axffi_free_str_list` and `axffi_abi_version` (ABI 2). |
-| `axiom-ffi-macros` | `#[axiom_export]` — generates the `#[no_mangle] extern "C"` shim and its `__sig_` descriptor; `#[axiom_opaque]` — marks a handle type and generates its `axffi_<t>_drop` / `axffi_<t>_drop_fn` pair. UI-tested with `trybuild`. |
-| `axiom-bindgen` | Reads the Rust source and emits the Axiom binding module (`extern` block, one `data T (T Handle)` per opaque type, `Result`/`Option`/`String` wrappers over `stdlib/Ffi.ax`). Source-based, like `cbindgen`, because a life-before-main registry does not survive `no_std`. Output is `axiom fmt --check` clean. |
-| `examples/demo` | `std`. Scalars, narrow ints, strings, bytes, `Result`, `Option`, opaque handles, callbacks, `Vec`s. |
+| `axiom-ffi-macros` | `#[axiom_export]` — generates the `#[no_mangle] extern "C"` shim and its `__sig_` descriptor; `#[axiom_opaque]` — marks a handle type and generates its `axffi_<t>_drop` / `axffi_<t>_drop_fn` pair; `#[axiom_record]` — marks a struct that crosses as its fields and derives `AxRecord`. UI-tested with `trybuild`. |
+| `axiom-bindgen` | Reads the Rust source and emits the Axiom binding module (`extern` block, one `data T (T Handle)` per opaque type, one `data T (T Int Float ..)` per record, `Result`/`Option`/`String`/record wrappers over `stdlib/Ffi.ax`). Source-based, like `cbindgen`, because a life-before-main registry does not survive `no_std`. Output is `axiom fmt --check` clean. |
+| `examples/demo` | `std`. Scalars, narrow ints, strings, bytes, `Result`, `Option`, opaque handles, callbacks, `Vec`s over every word scalar, `&[&str]`, a record. |
 | `examples/nostd` | `no_std` + `alloc` over `axiom_alloc` via the `nostd-runtime` feature. Links with `nm -u` == 0. |
 | `examples/host` | The OTHER direction: a binary that links an archive `axiom build --emit-staticlib` wrote from `tests/ffi/host/hostlib.ax` and calls its `addTwo` and `shout`. Not a default workspace member (it needs the archive, named by `$AXIOM_HOST_ARCHIVE_DIR`). |
 
@@ -60,16 +60,20 @@ pub fn maybe(n: i64) -> Option<i64> { (n >= 0).then_some(n) }
 ```
 
 Parameters: `i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 &str
-&[u8] &[i64] AxFn1 AxFn2 AxFn3 &T &mut T`. Returns: the scalars, plus
-`() String Vec<u8> Vec<i64> Vec<String> Option<T> Result<T, E>` and an
-owned `T`. `T` must carry `#[axiom_opaque]`; anything else (`u64`,
-`char`, `Vec<i32>`, `&[&str]`, a by-value `T`, a returned `AxFn1`) is a
-compile error that lists the set. Narrow integers are range-checked at the
-boundary, invalid UTF-8 into a `&str` is an abort (or an `Err` from a
-`Result` function), and a borrow of a closed handle aborts - Axiom has
-no way to receive an error from an infallible call, so the shim refuses
-loudly rather than answer wrongly. Aborts print `axiom-ffi: ...` on fd 2
-and exit 72, the status Axiom's own runtime traps use.
+&[u8] &[&str] &[T] AxFn1 AxFn2 AxFn3 &T &mut T` and a by-value record.
+Returns: the scalars, plus `() String Vec<u8> Vec<T> Vec<String>
+Option<T> Result<T, E>`, an owned `T` and a record. `T` in `&[T]` /
+`Vec<T>` is a word scalar (`&[u8]` and `Vec<u8>` stay the byte view of
+a String); an owned `T` must carry `#[axiom_opaque]`, a by-value one
+`#[axiom_record]`; anything else (`u64`, `char`, `Vec<u64>`,
+`&[String]`, `Vec<Point>`, a returned `AxFn1`) is a compile error that
+lists the set. Narrow integers are range-checked at the boundary (an
+argument, a `&[T]` element, a record field), invalid UTF-8 into a
+`&str` or a `&[&str]` element is an abort (or an `Err` from a `Result`
+function), and a borrow of a closed handle aborts - Axiom has no way to
+receive an error from an infallible call, so the shim refuses loudly
+rather than answer wrongly. Aborts print `axiom-ffi: ...` on fd 2 and
+exit 72, the status Axiom's own runtime traps use.
 
 A `no_std` crate depends on the facade with
 `default-features = false, features = ["nostd-runtime"]` and writes
@@ -105,13 +109,54 @@ as `(ptr, len)` / `(pairs, n)` and the generated wrapper builds an Axiom
 `Vec` from it (`ffiWordsToVec` / `ffiStrsToVec` in `stdlib/Ffi.ax`) and
 frees the Rust side (`axffi_free_words` / `axffi_free_str_list`).
 
+A `Vec<T>` over any other word scalar (`Vec<f64>`, `Vec<bool>`,
+`Vec<u16>`, ...) is widened into the same words - an integer as the
+word, a bool as 0/1, a float as f64 bits - so the Axiom side is the
+same `Int` handle and reads each element as what it is:
+`(cast Float (vecGet v i))`. A `&[T]` parameter is the `Vec` handle read
+the other way: `&[i64]` and `&[f64]` in place, every other `T` through
+a range-checked temporary (an element out of range aborts with its
+index). A `&[&str]` parameter is a `Vec` of Strings, each borrowed as
+`&str` for the call.
+
+### Records
+
+```rust
+use axiom_ffi::{axiom_export, axiom_record};
+
+#[axiom_record]                       // crosses AS ITS FIELDS, one word each
+pub struct Point { pub x: i64, pub y: f64 }
+
+#[axiom_export]
+pub fn point_norm2(p: Point) -> f64 { (p.x * p.x) as f64 + p.y * p.y }   // shim: (x, y_bits) -> bits
+
+#[axiom_export]
+pub fn point_origin() -> Point { Point { x: 0, y: 0.0 } }                // shim: (out) -> 0
+```
+
+A record is a plain struct with named fields, every one a word scalar;
+it is never boxed. A parameter is one shim argument per field
+(descriptor tag `i`/`f` per field), a result is written into an
+out-cell of one word per field (`ffiCellNewN n`), and `Result<Point, E>`
+/ `Option<Point>` carry the fields behind the status word. bindgen emits
+`(pub data Point (Point Int Float))` and wrappers that destructure
+(`(match p ((Point __f0 __f1) (pointNorm2Raw __f0 __f1)))`) and rebuild
+(`(Point __w0 (cast Float __w1))`). `Vec<Point>` / `&[Point]` do not
+cross.
+
+Because a proc macro sees one item at a time, `#[axiom_record]` and
+`#[axiom_opaque]` also declare a companion `macro_rules!` named like the
+type, through which `#[axiom_export]` learns what a bare `T` is. It is
+re-exported beside the type, so a `use` of the type brings it along;
+name the type as you would anywhere (`Point`, `geom::Point`).
+
 ### Signature descriptors
 
 Beside every shim the macro exports a no-op whose NAME is the shim's
 shape - `axffi_add__sig_ii_i`, `axffi_shout__sig_si_i`,
 `axffi_abi_probe__sig__i` - one tag per word in (`i` word, `f` float
-bits, `s` string, `c` callback; the out-cell is an `i`), `_`, one tag
-for the word out. The driver derives the same string from the Axiom
+bits, `s` string, `c` callback; a record is one tag per field; the
+out-cell is an `i`), `_`, one tag for the word out. The driver derives the same string from the Axiom
 `extern` item's declared type and refuses a mismatch as AX4005 before
 the link. A hand-written `axffi_*` shim has no descriptor and is not
 checked.

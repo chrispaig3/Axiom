@@ -19,14 +19,19 @@ use syn::{GenericArgument, Meta, PathArguments, Type};
 /// The parameter types the boundary accepts, as the refusal messages
 /// list them.
 pub const PARAM_TYPES: &str = "i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 \
-                               &str &[u8] &[i64] AxFn1 AxFn2 AxFn3 \
-                               &T &mut T (T marked `#[axiom_opaque]`)";
+                               &str &[u8] &[&str] &[T] (T a word scalar) AxFn1 AxFn2 AxFn3 \
+                               &T &mut T (T marked `#[axiom_opaque]`) \
+                               T (T marked `#[axiom_record]`)";
 
 /// The return types the boundary accepts, as the refusal messages list
 /// them.
 pub const RETURN_TYPES: &str = "i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 () \
-                                String Vec<u8> Vec<i64> Vec<String> Option<T> Result<T, E> \
-                                T (T marked `#[axiom_opaque]`; E: Display)";
+                                String Vec<u8> Vec<T> (T a word scalar) Vec<String> \
+                                Option<T> Result<T, E> \
+                                T (T marked `#[axiom_opaque]` or `#[axiom_record]`; E: Display)";
+
+/// The field types an `#[axiom_record]` accepts: the word scalars.
+pub const RECORD_FIELD_TYPES: &str = "i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32";
 
 /// The keys `#[axiom_export(...)]` accepts, as the refusal lists them.
 pub const EXPORT_KEYS: &str = "`symbol = \"name\"` and `utf8 = \"lossy\"`";
@@ -130,6 +135,67 @@ pub struct OpaqueTy {
     pub name: String,
 }
 
+/// One field of an `#[axiom_record]` struct: a word scalar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordField {
+    pub name: String,
+    pub scalar: Scalar,
+}
+
+/// A struct marked `#[axiom_record]`: it crosses AS ITS FIELDS, one
+/// word each in declaration order.
+///
+/// `fields` is empty while the record is UNRESOLVED: the classifier
+/// sees only the type's name, and the field list comes from a
+/// [`Registry`] (bindgen's table of every `#[axiom_record]` under the
+/// source root; the macro's answer from the type's companion macro).
+#[derive(Clone, Debug)]
+pub struct RecordTy {
+    /// The type as written (possibly path-qualified), for the shim.
+    pub ty: Type,
+    /// The bare type name, for the Axiom `data` and the companion.
+    pub name: String,
+    pub fields: Vec<RecordField>,
+}
+
+impl RecordTy {
+    /// The number of words the record crosses as.
+    pub fn arity(&self) -> usize {
+        self.fields.len()
+    }
+
+    /// Whether the field list has been filled in.
+    pub fn is_resolved(&self) -> bool {
+        !self.fields.is_empty()
+    }
+}
+
+/// What a [`Registry`] knows about a named type.
+#[derive(Clone, Debug)]
+pub enum Named {
+    /// Marked `#[axiom_record]`, with its fields.
+    Record(Vec<RecordField>),
+    /// Marked `#[axiom_opaque]`.
+    Opaque,
+}
+
+/// The named types a classification can consult. A bare type name in
+/// parameter position is always a record; in return position it is an
+/// opaque handle unless the registry says it is a record.
+pub trait Registry {
+    fn lookup(&self, name: &str) -> Option<Named>;
+}
+
+/// Knows nothing: every bare return type is opaque and every bare
+/// parameter type is an unresolved record.
+pub struct NoRecords;
+
+impl Registry for NoRecords {
+    fn lookup(&self, _name: &str) -> Option<Named> {
+        None
+    }
+}
+
 /// How one parameter crosses.
 #[derive(Clone, Debug)]
 pub enum Param {
@@ -140,11 +206,19 @@ pub enum Param {
     Bytes,
     /// `&T` / `&mut T`: a borrowed opaque handle.
     Opaque { ty: OpaqueTy, mutable: bool },
-    /// `&[i64]`: a borrowed view of an Axiom `Vec`'s words.
-    Words,
+    /// `&[T]` for a word scalar `T`: an Axiom `Vec` handle whose words
+    /// are read as `T` for the call. `&[i64]` is read in place,
+    /// `&[f64]` reinterpreted, every other `T` converted (and
+    /// range-checked) into a temporary.
+    Words(Scalar),
+    /// `&[&str]`: an Axiom `Vec` of Strings, each borrowed as `&str`
+    /// for the call.
+    Strs,
     /// `AxFn1` / `AxFn2` / `AxFn3`: an Axiom closure record, borrowed
     /// for the call. The arity is 1, 2 or 3.
     Callback(u8),
+    /// A by-value `#[axiom_record]`: one word per field.
+    Record(RecordTy),
 }
 
 /// What a fallible or optional return carries on success.
@@ -153,13 +227,18 @@ pub enum Payload {
     Scalar(Scalar),
     /// `String` / `Vec<u8>`: owned bytes, handed over through the cell.
     Bytes,
-    /// `Vec<i64>`: owned words `(ptr, len)`, handed over through the cell.
-    Words,
+    /// `Vec<T>` for a word scalar `T`: owned words `(ptr, len)`, one
+    /// per element (ints widened, bool 0/1, floats as f64 bits), handed
+    /// over through the cell.
+    Words(Scalar),
     /// `Vec<String>`: `(ptr, n)` where `ptr` holds `2n` words of
     /// `(bytesPtr, byteLen)` pairs, handed over through the cell.
     Strs,
     /// An owned opaque value, boxed, handed over as its address.
     Opaque(OpaqueTy),
+    /// An `#[axiom_record]` value: its field words, written at the
+    /// start of a cell of `arity` words.
+    Record(RecordTy),
 }
 
 /// How the return crosses.
@@ -172,10 +251,13 @@ pub enum Ret {
     /// The shim takes an out-cell, writes `(ptr, len)`, returns 0.
     Bytes,
     /// The shim takes an out-cell, writes `(ptr, len)` of words, returns 0.
-    Words,
+    Words(Scalar),
     /// The shim takes an out-cell, writes `(ptr, n)` of string pairs,
     /// returns 0.
     Strs,
+    /// The shim takes an out-cell of `arity` words, writes the field
+    /// words, returns 0.
+    Record(RecordTy),
     /// The shim takes an out-cell; 0 = payload in the cell, 1 = an
     /// error message's `(ptr, len)` in the cell.
     Result(Payload),
@@ -186,13 +268,26 @@ pub enum Ret {
 impl Ret {
     /// Whether the shim takes a trailing out-cell word.
     pub fn needs_cell(&self) -> bool {
-        matches!(self, Ret::Bytes | Ret::Words | Ret::Strs | Ret::Result(_) | Ret::Option(_))
+        !matches!(self, Ret::Scalar(_) | Ret::Opaque(_))
     }
 
     /// Whether an `Err` can come back (so an invalid `&str` argument is
     /// reported rather than aborting).
     pub fn is_result(&self) -> bool {
         matches!(self, Ret::Result(_))
+    }
+
+    /// The number of words the out-cell must hold: two for every
+    /// protocol (a `(ptr, len)` pair, a message), a record's arity when
+    /// that is more.
+    pub fn cell_words(&self) -> usize {
+        let arity = match self {
+            Ret::Record(r) | Ret::Result(Payload::Record(r)) | Ret::Option(Payload::Record(r)) => {
+                r.arity()
+            }
+            _ => 0,
+        };
+        arity.max(2)
     }
 }
 
@@ -256,8 +351,16 @@ fn refuse_return(spelling: &str, why: &str) -> String {
     )
 }
 
-/// Classify one parameter type.
+/// Classify one parameter type with no knowledge of named types: a
+/// by-value named type is an unresolved record.
 pub fn classify_param(ty: &Type) -> Result<Param, String> {
+    classify_param_with(ty, &NoRecords)
+}
+
+/// Classify one parameter type, consulting `registry` for a by-value
+/// named type (a record's fields; an opaque type, which is refused by
+/// value).
+pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, String> {
     let text = type_text(ty);
     match ty {
         Type::Reference(r) => {
@@ -277,26 +380,40 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
                         return Err(refuse_param(
                             &text,
                             " (Axiom values are immutable through the FFI; take `&[u8]` \
-                             or `&[i64]`)",
+                             or `&[T]`)",
                         ));
                     }
                     if is_u8(&s.elem) {
                         return Ok(Param::Bytes);
                     }
-                    if is_named(&s.elem, "i64") {
-                        return Ok(Param::Words);
+                    if let Some((seg, name)) = path_last(&s.elem) {
+                        if seg.arguments.is_none() {
+                            if let Some(sc) = Scalar::from_name(&name) {
+                                return Ok(Param::Words(sc));
+                            }
+                        }
+                        if name == "String" {
+                            return Err(refuse_param(
+                                &text,
+                                " (an Axiom `Vec` of Strings is borrowed: take `&[&str]`)",
+                            ));
+                        }
+                        if seg.arguments.is_none() && !is_refused_name(&name) {
+                            return Err(refuse_param(
+                                &text,
+                                " (a slice of records or handles does not cross: an Axiom \
+                                 `Vec` holds words; take the fields as `&[T]` slices, or \
+                                 hold the collection in a type marked `#[axiom_opaque]`)",
+                            ));
+                        }
                     }
                     if matches!(&*s.elem, Type::Reference(r) if is_str(&r.elem)) {
-                        return Err(refuse_param(
-                            &text,
-                            " (a slice of strings does not cross: Axiom's `Vec` holds \
-                             String handles whose bytes live behind a second indirection; \
-                             take one `&str` per call, or a `&str` to split on the Rust side)",
-                        ));
+                        return Ok(Param::Strs);
                     }
                     Err(refuse_param(
                         &text,
-                        " (only `&[u8]` and `&[i64]` slices cross; an Axiom `Vec` holds words)",
+                        " (only `&[u8]`, `&[&str]` and `&[T]` over a word scalar cross; \
+                         an Axiom `Vec` holds words)",
                     ))
                 }
                 Type::Path(_) => {
@@ -310,7 +427,7 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
                         "String" | "Vec" | "Option" | "Result" | "Box" | "Rc" | "Arc" => {
                             return Err(refuse_param(
                                 &text,
-                                " (borrow the bytes as `&str`/`&[u8]`, the words as `&[i64]`, \
+                                " (borrow the bytes as `&str`/`&[u8]`, the words as `&[T]`, \
                                  or hold the value in a type marked `#[axiom_opaque]`)",
                             ));
                         }
@@ -324,6 +441,12 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
                             ));
                         }
                         _ => {}
+                    }
+                    if let Some(Named::Record(_)) = registry.lookup(&name) {
+                        return Err(refuse_param(
+                            &text,
+                            " (a record crosses as its fields; take it by value)",
+                        ));
                     }
                     Ok(Param::Opaque {
                         ty: OpaqueTy { ty: (*r.elem).clone(), name },
@@ -359,19 +482,92 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
                     " (take an `i64` code point, or a `&str`)",
                 )),
                 "String" => Err(refuse_param(&text, " (borrow it: take `&str`)")),
-                "Vec" => Err(refuse_param(&text, " (borrow it: take `&[u8]` or `&[i64]`)")),
+                "Vec" => Err(refuse_param(
+                    &text,
+                    " (borrow it: take `&[u8]`, `&[&str]` or `&[T]` over a word scalar)",
+                )),
                 "Option" | "Result" => Err(refuse_param(
                     &text,
                     " (`Option` and `Result` may only be returned)",
                 )),
-                _ => Err(refuse_param(
+                "Box" | "Rc" | "Arc" => Err(refuse_param(
                     &text,
-                    " (Axiom holds a handle, so take `&T` or `&mut T`, or return it)",
+                    " (hold the value in a type marked `#[axiom_opaque]` and take `&T`)",
                 )),
+                _ if !seg.arguments.is_none() => Err(refuse_param(
+                    &text,
+                    " (a type with generic arguments cannot cross: a shim is one symbol)",
+                )),
+                _ => match registry.lookup(&name) {
+                    Some(Named::Opaque) => Err(refuse_param(
+                        &text,
+                        " (Axiom holds a handle, so take `&T` or `&mut T`, or return it)",
+                    )),
+                    Some(Named::Record(fields)) => {
+                        Ok(Param::Record(RecordTy { ty: ty.clone(), name, fields }))
+                    }
+                    None => Ok(Param::Record(RecordTy { ty: ty.clone(), name, fields: Vec::new() })),
+                },
             }
         }
         _ => Err(refuse_param(&text, "")),
     }
+}
+
+/// A bare name the boundary refuses everywhere, so a slice of it gets
+/// the generic message rather than the records-and-handles one.
+fn is_refused_name(name: &str) -> bool {
+    matches!(
+        name,
+        "u64" | "u128" | "i128" | "char" | "str" | "Vec" | "Option" | "Result" | "Box" | "Rc"
+            | "Arc" | "AxFn1" | "AxFn2" | "AxFn3"
+    )
+}
+
+/// Classify the fields of an `#[axiom_record]` struct: every one a
+/// word scalar, refused otherwise with the accepted set.
+pub fn classify_record_fields<'a, I>(fields: I) -> Result<Vec<RecordField>, String>
+where
+    I: IntoIterator<Item = (&'a str, &'a Type)>,
+{
+    let mut out = Vec::new();
+    for (name, ty) in fields {
+        let text = type_text(ty);
+        let scalar = match path_last(ty) {
+            Some((seg, tn)) if seg.arguments.is_none() => Scalar::from_name(&tn),
+            _ => None,
+        };
+        let Some(scalar) = scalar else {
+            let why = match path_last(ty).map(|(_, n)| n).as_deref() {
+                Some("String") | Some("str") => " (a record is its words; put the String beside \
+                                                 it as a separate `&str` parameter, or hold it \
+                                                 in an `#[axiom_opaque]` type)",
+                Some("Vec") => " (a collection is not a word; pass it as a `&[T]` parameter \
+                                 or hold it in an `#[axiom_opaque]` type)",
+                Some("u64") | Some("u128") | Some("i128") => " (an Axiom `Int` is an i64 and \
+                                                              cannot hold every value)",
+                Some("char") => " (store the `i64` code point)",
+                _ if matches!(ty, Type::Reference(_)) => " (a record owns its words; a borrow \
+                                                          cannot cross as a field)",
+                _ if matches!(ty, Type::Path(_)) => " (a nested record or an opaque handle does \
+                                                     not cross as a field: flatten the words \
+                                                     into this record, or hold the value in an \
+                                                     `#[axiom_opaque]` type)",
+                _ => "",
+            };
+            return Err(format!(
+                "field `{name}: {text}` is not a word scalar{why}; an `#[axiom_record]` field \
+                 must be one of: {RECORD_FIELD_TYPES}"
+            ));
+        };
+        out.push(RecordField { name: name.to_string(), scalar });
+    }
+    if out.is_empty() {
+        return Err("an `#[axiom_record]` needs at least one field: it crosses as its words, \
+                    and a record of no words carries nothing"
+            .to_string());
+    }
+    Ok(out)
 }
 
 fn is_str(ty: &Type) -> bool {
@@ -395,7 +591,12 @@ fn callback_arity(name: &str) -> Option<u8> {
 
 /// Classify the payload of `Result<T, _>` / `Option<T>`, or a direct
 /// return. `nested` names the wrapper for the message when one applies.
-fn classify_payload(ty: &Type, outer: &str, whole: &str) -> Result<Payload, String> {
+fn classify_payload(
+    ty: &Type,
+    outer: &str,
+    whole: &str,
+    registry: &dyn Registry,
+) -> Result<Payload, String> {
     let text = type_text(ty);
     match ty {
         Type::Tuple(t) if t.elems.is_empty() => Ok(Payload::Scalar(Scalar::Unit)),
@@ -415,12 +616,21 @@ fn classify_payload(ty: &Type, outer: &str, whole: &str) -> Result<Payload, Stri
                 "String" => Ok(Payload::Bytes),
                 "Vec" => match single_generic(seg) {
                     Some(elem) if is_u8(elem) => Ok(Payload::Bytes),
-                    Some(elem) if is_named(elem, "i64") => Ok(Payload::Words),
                     Some(elem) if is_named(elem, "String") => Ok(Payload::Strs),
+                    Some(elem) if scalar_of(elem).is_some() => {
+                        Ok(Payload::Words(scalar_of(elem).unwrap()))
+                    }
+                    Some(elem) if is_bare_named(elem) => Err(refuse_return(
+                        whole,
+                        " (a `Vec` of records or handles does not cross: an Axiom `Vec` \
+                         holds words; return the fields as `Vec<T>` columns, or hold the \
+                         collection in an `#[axiom_opaque]` type)",
+                    )),
                     _ => Err(refuse_return(
                         whole,
-                        " (only `Vec<u8>`, `Vec<i64>` and `Vec<String>` cross directly; \
-                         other collections must be serialised or held in an \
+                        " (only `Vec<u8>`, `Vec<String>` and `Vec<T>` over a word scalar \
+                         (i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32) cross \
+                         directly; other collections must be serialised or held in an \
                          `#[axiom_opaque]` type)",
                     )),
                 },
@@ -452,15 +662,53 @@ fn classify_payload(ty: &Type, outer: &str, whole: &str) -> Result<Payload, Stri
                     whole,
                     " (return the value itself, held in a type marked `#[axiom_opaque]`)",
                 )),
-                _ => Ok(Payload::Opaque(OpaqueTy { ty: ty.clone(), name })),
+                _ if !seg.arguments.is_none() => Err(refuse_return(
+                    whole,
+                    " (a type with generic arguments cannot cross: a shim is one symbol)",
+                )),
+                _ => match registry.lookup(&name) {
+                    Some(Named::Record(fields)) => {
+                        Ok(Payload::Record(RecordTy { ty: ty.clone(), name, fields }))
+                    }
+                    _ => Ok(Payload::Opaque(OpaqueTy { ty: ty.clone(), name })),
+                },
             }
         }
         _ => Err(refuse_return(&text, "")),
     }
 }
 
-/// Classify the return type (`None` = no `->`).
+/// The word scalar `ty` names, if it is one (`()` excluded).
+fn scalar_of(ty: &Type) -> Option<Scalar> {
+    match path_last(ty) {
+        Some((seg, name)) if seg.arguments.is_none() => Scalar::from_name(&name),
+        _ => None,
+    }
+}
+
+/// A bare path with no generic arguments that is not a word scalar or
+/// a name the boundary refuses: a user type (record or handle).
+fn is_bare_named(ty: &Type) -> bool {
+    match path_last(ty) {
+        Some((seg, name)) => {
+            seg.arguments.is_none()
+                && Scalar::from_name(&name).is_none()
+                && name != "String"
+                && !is_refused_name(&name)
+        }
+        None => false,
+    }
+}
+
+/// Classify the return type (`None` = no `->`) with no knowledge of
+/// named types: every bare named type is an opaque handle.
 pub fn classify_return(ty: Option<&Type>) -> Result<Ret, String> {
+    classify_return_with(ty, &NoRecords)
+}
+
+/// Classify the return type, consulting `registry` for a bare named
+/// type (a record's fields, else an opaque handle).
+pub fn classify_return_with(ty: Option<&Type>, registry: &dyn Registry) -> Result<Ret, String> {
     let Some(ty) = ty else { return Ok(Ret::Scalar(Scalar::Unit)) };
     let whole = type_text(ty);
     if let Some((seg, name)) = path_last(ty) {
@@ -469,13 +717,13 @@ pub fn classify_return(ty: Option<&Type>) -> Result<Ret, String> {
                 let ok = single_generic(seg).ok_or_else(|| {
                     refuse_return(&whole, " (`Result` needs its `Ok` type written out)")
                 })?;
-                return Ok(Ret::Result(classify_payload(ok, "Result", &whole)?));
+                return Ok(Ret::Result(classify_payload(ok, "Result", &whole, registry)?));
             }
             "Option" => {
                 let some = single_generic(seg).ok_or_else(|| {
                     refuse_return(&whole, " (`Option` needs its payload type written out)")
                 })?;
-                let p = classify_payload(some, "Option", &whole)?;
+                let p = classify_payload(some, "Option", &whole, registry)?;
                 if matches!(p, Payload::Scalar(Scalar::Unit)) {
                     return Err(refuse_return(
                         &whole,
@@ -487,13 +735,39 @@ pub fn classify_return(ty: Option<&Type>) -> Result<Ret, String> {
             _ => {}
         }
     }
-    Ok(match classify_payload(ty, "", &whole)? {
+    Ok(match classify_payload(ty, "", &whole, registry)? {
         Payload::Scalar(s) => Ret::Scalar(s),
         Payload::Bytes => Ret::Bytes,
-        Payload::Words => Ret::Words,
+        Payload::Words(s) => Ret::Words(s),
         Payload::Strs => Ret::Strs,
         Payload::Opaque(o) => Ret::Opaque(o),
+        Payload::Record(r) => Ret::Record(r),
     })
+}
+
+/// The bare named types a signature crosses by value or hands back:
+/// the ones whose kind (record or handle) the macro learns from their
+/// companion macros. Each name once, in order of first use.
+pub fn named_types(params: &[Param], ret: &Ret) -> Vec<Type> {
+    let mut out: Vec<Type> = Vec::new();
+    let mut push = |ty: &Type| {
+        if !out.iter().any(|t| t == ty) {
+            out.push(ty.clone());
+        }
+    };
+    for p in params {
+        if let Param::Record(r) = p {
+            push(&r.ty);
+        }
+    }
+    match ret {
+        Ret::Opaque(o) => push(&o.ty),
+        Ret::Record(r) => push(&r.ty),
+        Ret::Result(Payload::Opaque(o)) | Ret::Option(Payload::Opaque(o)) => push(&o.ty),
+        Ret::Result(Payload::Record(r)) | Ret::Option(Payload::Record(r)) => push(&r.ty),
+        _ => {}
+    }
+    out
 }
 
 // ---------------------------------------------------------------------
@@ -508,13 +782,20 @@ pub fn classify_return(ty: Option<&Type>) -> Result<Ret, String> {
 // word the shim takes, in order - the out-cell word included - then
 // `_`, then one for the word it answers.
 
-/// The descriptor tag of a parameter word.
-pub fn param_tag(p: &Param) -> char {
+/// The descriptor tag of one scalar word.
+fn scalar_tag(s: Scalar) -> char {
+    if s.is_float() { 'f' } else { 'i' }
+}
+
+/// The descriptor tags of a parameter: one character per word it
+/// crosses as (a record: one per field).
+pub fn param_tags(p: &Param) -> String {
     match p {
-        Param::Scalar(s) if s.is_float() => 'f',
-        Param::Scalar(_) | Param::Opaque { .. } | Param::Words => 'i',
-        Param::Str | Param::Bytes => 's',
-        Param::Callback(_) => 'c',
+        Param::Scalar(s) => scalar_tag(*s).to_string(),
+        Param::Opaque { .. } | Param::Words(_) | Param::Strs => "i".to_string(),
+        Param::Str | Param::Bytes => "s".to_string(),
+        Param::Callback(_) => "c".to_string(),
+        Param::Record(r) => r.fields.iter().map(|f| scalar_tag(f.scalar)).collect(),
     }
 }
 
@@ -539,7 +820,7 @@ pub fn return_tag(r: &Ret) -> char {
 pub fn sig_tags(params: &[Param], ret: &Ret) -> String {
     let mut out = String::with_capacity(params.len() + 3);
     for p in params {
-        out.push(param_tag(p));
+        out.push_str(&param_tags(p));
     }
     if ret.needs_cell() {
         out.push('i');
@@ -732,6 +1013,18 @@ pub fn drop_fn_symbol(stem: &str) -> String {
     format!("axffi_{stem}_drop_fn")
 }
 
+/// `__axiom_type_<Name>`: the hidden module `#[axiom_opaque]` and
+/// `#[axiom_record]` declare beside the type, holding its COMPANION
+/// MACRO - a `macro_rules!` named exactly like the type that appends
+/// `@opaque Name` / `@record Name { field: T, .. }` to a callback
+/// invocation. `#[axiom_export]` cannot see another item's fields, so
+/// a shim that takes a record by value, or answers a bare named type,
+/// expands through the companion (re-exported into the type's module
+/// with `pub(crate) use`, so a `use` of the type imports it too).
+pub fn companion_module(type_name: &str) -> String {
+    format!("__axiom_type_{type_name}")
+}
+
 /// `HttpClient` -> `http_client`, `SHA256` -> `sha256`, `Counter` -> `counter`.
 pub fn snake_case(name: &str) -> String {
     let chars: Vec<char> = name.chars().collect();
@@ -785,18 +1078,48 @@ mod tests {
         assert!(matches!(classify_param(&ty("&[u8]")), Ok(Param::Bytes)));
         assert!(matches!(classify_param(&ty("&Counter")), Ok(Param::Opaque { mutable: false, .. })));
         assert!(matches!(classify_param(&ty("&mut Counter")), Ok(Param::Opaque { mutable: true, .. })));
-        assert!(matches!(classify_param(&ty("&[i64]")), Ok(Param::Words)));
+        assert!(matches!(classify_param(&ty("&[i64]")), Ok(Param::Words(Scalar::I64))));
         assert!(matches!(classify_param(&ty("AxFn1")), Ok(Param::Callback(1))));
         assert!(matches!(classify_param(&ty("axiom_ffi::AxFn2")), Ok(Param::Callback(2))));
         assert!(matches!(classify_param(&ty("AxFn3")), Ok(Param::Callback(3))));
     }
 
     #[test]
+    fn slices_over_every_word_scalar() {
+        for (t, s) in [
+            ("&[i32]", Scalar::I32),
+            ("&[i16]", Scalar::I16),
+            ("&[i8]", Scalar::I8),
+            ("&[u32]", Scalar::U32),
+            ("&[u16]", Scalar::U16),
+            ("&[usize]", Scalar::Usize),
+            ("&[isize]", Scalar::Isize),
+            ("&[bool]", Scalar::Bool),
+            ("&[f64]", Scalar::F64),
+            ("&[f32]", Scalar::F32),
+        ] {
+            assert!(matches!(classify_param(&ty(t)), Ok(Param::Words(x)) if x == s), "{t}");
+        }
+        // `&[u8]` stays the byte view of a String, not a Vec of words.
+        assert!(matches!(classify_param(&ty("&[u8]")), Ok(Param::Bytes)));
+        assert!(matches!(classify_param(&ty("&[&str]")), Ok(Param::Strs)));
+        for (t, s) in [("Vec<f64>", Scalar::F64), ("Vec<bool>", Scalar::Bool), ("Vec<u16>", Scalar::U16), ("Vec<f32>", Scalar::F32)] {
+            assert!(matches!(classify_return(Some(&ty(t))), Ok(Ret::Words(x)) if x == s), "{t}");
+        }
+        assert!(matches!(classify_return(Some(&ty("Result<Vec<f32>, String>"))), Ok(Ret::Result(Payload::Words(Scalar::F32)))));
+        assert!(matches!(classify_return(Some(&ty("Option<Vec<i8>>"))), Ok(Ret::Option(Payload::Words(Scalar::I8)))));
+    }
+
+    #[test]
     fn refused_slices_and_callbacks_say_why() {
-        let e = classify_param(&ty("&[&str]")).err().unwrap();
-        assert!(e.contains("a slice of strings does not cross"), "{e}");
-        let e = classify_param(&ty("&[i32]")).err().unwrap();
-        assert!(e.contains("only `&[u8]` and `&[i64]`"), "{e}");
+        let e = classify_param(&ty("&[String]")).err().unwrap();
+        assert!(e.contains("take `&[&str]`"), "{e}");
+        let e = classify_param(&ty("Vec<String>")).err().unwrap();
+        assert!(e.contains("`&[&str]`"), "{e}");
+        let e = classify_param(&ty("&[u64]")).err().unwrap();
+        assert!(e.contains("only `&[u8]`, `&[&str]` and `&[T]`"), "{e}");
+        let e = classify_param(&ty("&[Point]")).err().unwrap();
+        assert!(e.contains("a slice of records or handles does not cross"), "{e}");
         let e = classify_param(&ty("&mut [i64]")).err().unwrap();
         assert!(e.contains("immutable"), "{e}");
         let e = classify_param(&ty("&AxFn1")).err().unwrap();
@@ -805,20 +1128,129 @@ mod tests {
         assert!(e.contains("cannot be handed back"), "{e}");
         let e = classify_return(Some(&ty("Option<AxFn2>"))).err().unwrap();
         assert!(e.contains("cannot be handed back"), "{e}");
-        let e = classify_return(Some(&ty("Vec<i32>"))).err().unwrap();
-        assert!(e.contains("`Vec<u8>`, `Vec<i64>` and `Vec<String>`"), "{e}");
+        let e = classify_return(Some(&ty("Vec<u64>"))).err().unwrap();
+        assert!(e.contains("`Vec<T>` over a word scalar"), "{e}");
+        let e = classify_return(Some(&ty("Vec<Point>"))).err().unwrap();
+        assert!(e.contains("a `Vec` of records or handles does not cross"), "{e}");
+        let e = classify_return(Some(&ty("Option<Vec<Point>>"))).err().unwrap();
+        assert!(e.contains("a `Vec` of records or handles does not cross"), "{e}");
     }
 
     #[test]
     fn refusals_list_the_set() {
-        for bad in ["u64", "char", "Counter", "String", "Option<i64>", "&mut str", "&i64", "(i64, i64)", "&[&str]", "&AxFn1"] {
+        for bad in ["u64", "char", "String", "Option<i64>", "&mut str", "&i64", "(i64, i64)", "&[String]", "&[Point]", "&AxFn1", "Wrapper<i64>"] {
             let e = classify_param(&ty(bad)).err().expect(bad);
             assert!(e.contains(PARAM_TYPES), "{e}");
         }
-        for bad in ["u64", "char", "Vec<i32>", "Result<Option<i64>, String>", "&str", "Option<()>", "AxFn1"] {
+        for bad in ["u64", "char", "Vec<u64>", "Vec<Point>", "Result<Option<i64>, String>", "&str", "Option<()>", "AxFn1"] {
             let e = classify_return(Some(&ty(bad))).err().expect(bad);
             assert!(e.contains(RETURN_TYPES), "{e}");
         }
+    }
+
+    /// A registry with one record `Point { x: i64, y: f64 }` and one
+    /// opaque `Counter`.
+    struct Table;
+
+    impl Registry for Table {
+        fn lookup(&self, name: &str) -> Option<Named> {
+            match name {
+                "Point" => Some(Named::Record(vec![
+                    RecordField { name: "x".into(), scalar: Scalar::I64 },
+                    RecordField { name: "y".into(), scalar: Scalar::F64 },
+                ])),
+                "Counter" => Some(Named::Opaque),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn records() {
+        // Unresolved without a registry: a by-value name is a record
+        // whose fields are not yet known; a returned name is opaque.
+        match classify_param(&ty("Point")).unwrap() {
+            Param::Record(r) => {
+                assert_eq!(r.name, "Point");
+                assert!(!r.is_resolved());
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(classify_return(Some(&ty("Point"))), Ok(Ret::Opaque(_))));
+        // Resolved through the registry.
+        match classify_param_with(&ty("geom::Point"), &Table).unwrap() {
+            Param::Record(r) => {
+                assert_eq!(r.arity(), 2);
+                assert_eq!(r.fields[1].name, "y");
+                assert_eq!(r.fields[1].scalar, Scalar::F64);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(classify_return_with(Some(&ty("Point")), &Table), Ok(Ret::Record(_))));
+        assert!(matches!(classify_return_with(Some(&ty("Result<Point, String>")), &Table), Ok(Ret::Result(Payload::Record(_)))));
+        assert!(matches!(classify_return_with(Some(&ty("Option<Point>")), &Table), Ok(Ret::Option(Payload::Record(_)))));
+        assert!(matches!(classify_return_with(Some(&ty("Counter")), &Table), Ok(Ret::Opaque(_))));
+        assert!(matches!(classify_param_with(&ty("&Counter"), &Table), Ok(Param::Opaque { .. })));
+        // An opaque type by value, a record by reference: each says
+        // which way to take it.
+        let e = classify_param_with(&ty("Counter"), &Table).err().unwrap();
+        assert!(e.contains("take `&T` or `&mut T`"), "{e}");
+        let e = classify_param_with(&ty("&Point"), &Table).err().unwrap();
+        assert!(e.contains("take it by value"), "{e}");
+        // The cell of a record result holds its arity, never fewer than two.
+        let one = Ret::Record(RecordTy { ty: ty("One"), name: "One".into(), fields: vec![RecordField { name: "a".into(), scalar: Scalar::I64 }] });
+        assert_eq!(one.cell_words(), 2);
+        let three = classify_return_with(Some(&ty("Point")), &Table).unwrap();
+        assert_eq!(three.cell_words(), 2);
+        assert_eq!(Ret::Bytes.cell_words(), 2);
+        assert!(three.needs_cell());
+        assert!(!Ret::Opaque(classify_opaque()).needs_cell());
+    }
+
+    #[test]
+    fn record_fields() {
+        let fields = |src: &str| -> Result<Vec<RecordField>, String> {
+            let s: syn::ItemStruct = syn::parse_str(src).unwrap();
+            let named: Vec<(String, Type)> = s
+                .fields
+                .iter()
+                .map(|f| (f.ident.as_ref().unwrap().to_string(), f.ty.clone()))
+                .collect();
+            classify_record_fields(named.iter().map(|(n, t)| (n.as_str(), t)))
+        };
+        let ok = fields("struct P { a: i64, b: f32, c: bool, d: u8, e: usize }").unwrap();
+        assert_eq!(ok.len(), 5);
+        assert_eq!(ok[1].scalar, Scalar::F32);
+        assert_eq!(ok[3].name, "d");
+        for (src, why) in [
+            ("struct P { s: String }", "is not a word scalar (a record is its words"),
+            ("struct P { p: Inner }", "a nested record or an opaque handle does not cross as a field"),
+            ("struct P { v: Vec<i64> }", "a collection is not a word"),
+            ("struct P { c: char }", "store the `i64` code point"),
+            ("struct P { r: &'static str }", "a borrow cannot cross as a field"),
+            ("struct P { n: u64 }", "cannot hold every value"),
+            ("struct P { }", "at least one field"),
+        ] {
+            let e = fields(src).err().expect(src);
+            assert!(e.contains(why), "{src}: {e}");
+            if !src.ends_with("{ }") {
+                assert!(e.contains(RECORD_FIELD_TYPES), "{e}");
+            }
+        }
+    }
+
+    #[test]
+    fn named_types_once_each() {
+        let point = classify_param(&ty("Point")).unwrap();
+        let line = classify_param(&ty("Line")).unwrap();
+        let ret = classify_return(Some(&ty("Option<Point>"))).unwrap();
+        let names: Vec<String> = named_types(&[point.clone(), line, point], &ret)
+            .iter()
+            .map(type_text)
+            .collect();
+        assert_eq!(names, vec!["Point", "Line"]);
+        assert!(named_types(&[Param::Str], &Ret::Bytes).is_empty());
+        assert_eq!(companion_module("Point"), "__axiom_type_Point");
     }
 
     #[test]
@@ -834,9 +1266,9 @@ mod tests {
         ));
         assert!(matches!(classify_return(Some(&ty("Option<i64>"))), Ok(Ret::Option(Payload::Scalar(Scalar::I64)))));
         assert!(matches!(classify_return(Some(&ty("Result<(), E>"))), Ok(Ret::Result(Payload::Scalar(Scalar::Unit)))));
-        assert!(matches!(classify_return(Some(&ty("Vec<i64>"))), Ok(Ret::Words)));
+        assert!(matches!(classify_return(Some(&ty("Vec<i64>"))), Ok(Ret::Words(Scalar::I64))));
         assert!(matches!(classify_return(Some(&ty("Vec<String>"))), Ok(Ret::Strs)));
-        assert!(matches!(classify_return(Some(&ty("Result<Vec<i64>, String>"))), Ok(Ret::Result(Payload::Words))));
+        assert!(matches!(classify_return(Some(&ty("Result<Vec<i64>, String>"))), Ok(Ret::Result(Payload::Words(Scalar::I64)))));
         assert!(matches!(classify_return(Some(&ty("Option<Vec<String>>"))), Ok(Ret::Option(Payload::Strs))));
     }
 
@@ -863,9 +1295,31 @@ mod tests {
         assert_eq!(sig_tags(&[i.clone()], &Ret::Opaque(classify_opaque())), "i_i");
         assert_eq!(sig_tags(&[Param::Callback(1), i.clone()], &Ret::Scalar(Scalar::I64)), "ci_i");
         assert_eq!(sig_tags(&[Param::Callback(2), i.clone(), i.clone(), i.clone()], &Ret::Scalar(Scalar::I64)), "ciii_i");
-        assert_eq!(sig_tags(&[Param::Words], &Ret::Scalar(Scalar::I64)), "i_i");
-        assert_eq!(sig_tags(&[i], &Ret::Words), "ii_i");
+        assert_eq!(sig_tags(&[Param::Words(Scalar::I64)], &Ret::Scalar(Scalar::I64)), "i_i");
+        assert_eq!(sig_tags(&[Param::Words(Scalar::F64), Param::Strs], &Ret::Words(Scalar::Bool)), "iii_i");
+        assert_eq!(sig_tags(&[i.clone()], &Ret::Words(Scalar::I64)), "ii_i");
         assert_eq!(sig_tags(&[Param::Str], &Ret::Strs), "si_i");
+        // A record parameter is one tag per field (`f` for a float
+        // field); a record result is a cell word and a unit answer.
+        let point = match classify_param_with(&ty("Point"), &Table).unwrap() {
+            Param::Record(r) => r,
+            _ => unreachable!(),
+        };
+        assert_eq!(sig_tags(&[Param::Record(point.clone()), i.clone()], &Ret::Scalar(Scalar::F64)), "ifi_f");
+        assert_eq!(sig_tags(&[], &Ret::Record(point.clone())), "i_i");
+        assert_eq!(sig_tags(&[b2()], &Ret::Result(Payload::Record(point.clone()))), "ii_i");
+        assert_eq!(sig_symbol("axffi_point_scale", &[Param::Record(point), i], &Ret::Option(Payload::Record(classify_point()))), "axffi_point_scale__sig_ifii_i");
+    }
+
+    fn b2() -> Param {
+        Param::Scalar(Scalar::Bool)
+    }
+
+    fn classify_point() -> RecordTy {
+        match classify_param_with(&ty("Point"), &Table).unwrap() {
+            Param::Record(r) => r,
+            _ => unreachable!(),
+        }
     }
 
     fn classify_opaque() -> OpaqueTy {

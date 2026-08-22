@@ -31,19 +31,23 @@
 //! (pub :: shout (-> String String))
 //! ```
 //!
-//! Every shim that returns bytes, words, strings or can fail takes a
-//! trailing out-cell, its raw binding carries a `Raw` suffix, and the
-//! ergonomic name is an Axiom wrapper that allocates the cell through
-//! `Ffi.ax`, calls, decodes and frees. An opaque value is wrapped in a
-//! `Handle` that carries the type's drop function, so the Rust value
-//! dies with its last Axiom reference. A `Vec<i64>` / `Vec<String>`
-//! return becomes an Axiom `Vec` (an `Int` handle) through
-//! `ffiWordsToVec` / `ffiStrsToVec`, freed on the Rust side with
-//! `ffiFreeWords` / `ffiFreeStrList`; a `&[i64]` parameter is a `Vec`
-//! handle passed through as `Int`; a callback (`AxFn1..3`) is bound
-//! under its arrow type, `(-> Int Int)` and so on, and passed through.
-//! Every generated local is `__`-prefixed so a Rust parameter named
-//! `cell` or `p` is never shadowed.
+//! Every shim that returns bytes, words, strings, a record or can fail
+//! takes a trailing out-cell, its raw binding carries a `Raw` suffix,
+//! and the ergonomic name is an Axiom wrapper that allocates the cell
+//! through `Ffi.ax`, calls, decodes and frees. An opaque value is
+//! wrapped in a `Handle` that carries the type's drop function, so the
+//! Rust value dies with its last Axiom reference. A `Vec<T>` /
+//! `Vec<String>` return becomes an Axiom `Vec` (an `Int` handle)
+//! through `ffiWordsToVec` / `ffiStrsToVec`, freed on the Rust side
+//! with `ffiFreeWords` / `ffiFreeStrList`; a `&[T]` or `&[&str]`
+//! parameter is a `Vec` handle passed through as `Int`; a callback
+//! (`AxFn1..3`) is bound under its arrow type, `(-> Int Int)` and so
+//! on, and passed through. An `#[axiom_record]` struct is a `data`
+//! type with one positional field per Rust field: a parameter is
+//! destructured into one raw argument per field, a result is rebuilt
+//! from a cell of one word per field (`ffiCellNewN`). Every generated
+//! local is `__`-prefixed so a Rust parameter named `cell` or `p` is
+//! never shadowed.
 //!
 //! The output is byte-for-byte what `axiom fmt` produces for it: the
 //! printer in [`sexp`] follows the formatter's structural rules (an
@@ -56,7 +60,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use axiom_ffi_classify as cls;
-use cls::{Param, Payload, Ret, Scalar};
+use cls::{Named, Param, Payload, RecordField, RecordTy, Registry, Ret, Scalar};
 
 pub mod sexp;
 use sexp::{app, atom, Ex};
@@ -83,14 +87,24 @@ pub fn generate(src_root: &Path, lib: &str) -> Result<String> {
         return Err(Error(format!("no `.rs` files under {}", src_root.display())));
     }
 
-    let mut surface = Surface::default();
+    let mut parsed = Vec::new();
     for f in &files {
         let text = fs::read_to_string(f)
             .map_err(|e| Error(format!("{}: {e}", f.display())))?;
         let ast = syn::parse_file(&text)
             .map_err(|e| Error(format!("{}: {e}", f.display())))?;
         let file = f.strip_prefix(src_root).unwrap_or(f).display().to_string();
-        surface.walk(&ast.items, &file, "")?;
+        parsed.push((file, ast));
+    }
+    // Two passes: the types first, so a function that names a record
+    // or a handle is classified against the whole source root whatever
+    // file or order it appears in.
+    let mut surface = Surface::default();
+    for (file, ast) in &parsed {
+        surface.walk_types(&ast.items, file, "")?;
+    }
+    for (file, ast) in &parsed {
+        surface.walk_fns(&ast.items, file, "")?;
     }
     surface.validate()?;
     Ok(surface.render(lib))
@@ -150,32 +164,72 @@ struct Decl {
     at: String,
 }
 
+/// One `#[axiom_record]` struct.
+#[derive(Clone, Debug)]
+struct Record {
+    name: String,
+    fields: Vec<RecordField>,
+    at: String,
+}
+
 #[derive(Default)]
 struct Surface {
     decls: Vec<Decl>,
     opaques: Vec<Opaque>,
+    records: Vec<Record>,
+}
+
+impl Registry for Surface {
+    fn lookup(&self, name: &str) -> Option<Named> {
+        if let Some(r) = self.records.iter().find(|r| r.name == name) {
+            return Some(Named::Record(r.fields.clone()));
+        }
+        self.opaques.iter().any(|o| o.name == name).then_some(Named::Opaque)
+    }
+}
+
+/// The module path of a nested `mod` for messages (`inner::deeper`).
+fn sub_path(path: &str, m: &syn::ItemMod) -> String {
+    if path.is_empty() {
+        m.ident.to_string()
+    } else {
+        format!("{path}::{}", m.ident)
+    }
 }
 
 impl Surface {
-    /// Walk a module's items, recursing into inline `mod` bodies. `path`
-    /// is the module path for messages (`inner::deeper`).
-    fn walk(&mut self, items: &[syn::Item], file: &str, path: &str) -> Result<()> {
+    /// Walk a module's type items, recursing into inline `mod` bodies.
+    /// `path` is the module path for messages.
+    fn walk_types(&mut self, items: &[syn::Item], file: &str, path: &str) -> Result<()> {
         for item in items {
             match item {
-                syn::Item::Fn(f) => self.visit_fn(f, file, path)?,
-                syn::Item::Struct(s) => self.visit_opaque(&s.attrs, &s.ident, file, path)?,
+                syn::Item::Struct(s) => {
+                    self.visit_opaque(&s.attrs, &s.ident, file, path)?;
+                    self.visit_record(s, file, path)?;
+                }
                 syn::Item::Enum(e) => self.visit_opaque(&e.attrs, &e.ident, file, path)?,
                 syn::Item::Mod(m) => {
                     if let Some((_, inner)) = &m.content {
-                        let sub = if path.is_empty() {
-                            m.ident.to_string()
-                        } else {
-                            format!("{path}::{}", m.ident)
-                        };
-                        self.walk(inner, file, &sub)?;
+                        self.walk_types(inner, file, &sub_path(path, m))?;
                     }
                     // `mod x;` lives in its own file, which the directory
                     // walk already found.
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Walk a module's functions, after every type has been seen.
+    fn walk_fns(&mut self, items: &[syn::Item], file: &str, path: &str) -> Result<()> {
+        for item in items {
+            match item {
+                syn::Item::Fn(f) => self.visit_fn(f, file, path)?,
+                syn::Item::Mod(m) => {
+                    if let Some((_, inner)) = &m.content {
+                        self.walk_fns(inner, file, &sub_path(path, m))?;
+                    }
                 }
                 _ => {}
             }
@@ -198,6 +252,26 @@ impl Surface {
         let name = ident.to_string();
         let stem = cls::opaque_stem(&name, &parsed);
         self.opaques.push(Opaque { name, stem, at });
+        Ok(())
+    }
+
+    fn visit_record(&mut self, s: &syn::ItemStruct, file: &str, path: &str) -> Result<()> {
+        if attr_named(&s.attrs, "axiom_record").is_none() {
+            return Ok(());
+        }
+        let name = s.ident.to_string();
+        let at = where_(file, path, &name);
+        let syn::Fields::Named(named) = &s.fields else {
+            return Err(Error(format!("{at}: an `#[axiom_record]` needs named fields")));
+        };
+        let pairs: Vec<(String, &syn::Type)> = named
+            .named
+            .iter()
+            .map(|f| (f.ident.as_ref().map(|i| i.to_string()).unwrap_or_default(), &f.ty))
+            .collect();
+        let fields = cls::classify_record_fields(pairs.iter().map(|(n, t)| (n.as_str(), *t)))
+            .map_err(|m| Error(format!("{at}: {m}")))?;
+        self.records.push(Record { name, fields, at });
         Ok(())
     }
 
@@ -230,14 +304,26 @@ impl Surface {
                          for the generated wrapper's own locals"
                     )));
                 }
-                let p = cls::classify_param(&pt.ty).map_err(|m| Error(format!("{at}: {m}")))?;
+                let p = cls::classify_param_with(&pt.ty, self)
+                    .map_err(|m| Error(format!("{at}: {m}")))?;
+                if let Param::Record(r) = &p {
+                    if !r.is_resolved() {
+                        return Err(Error(format!(
+                            "{at}: `{}` is taken by value but no `#[axiom_record]` declaration \
+                             of `{}` was found under the source root; mark the struct (it \
+                             crosses as its fields), or take `&{}` with `#[axiom_opaque]`",
+                            r.name, r.name, r.name
+                        )));
+                    }
+                }
                 params.push((cls::camel_case(&pname), p));
             }
             let ret_ty = match &f.sig.output {
                 syn::ReturnType::Default => None,
                 syn::ReturnType::Type(_, t) => Some(&**t),
             };
-            let ret = cls::classify_return(ret_ty).map_err(|m| Error(format!("{at}: {m}")))?;
+            let ret = cls::classify_return_with(ret_ty, self)
+                .map_err(|m| Error(format!("{at}: {m}")))?;
             self.decls.push(Decl {
                 axiom_name: cls::camel_case(&rust_name),
                 symbol: cls::export_symbol(&rust_name, &attr),
@@ -284,14 +370,19 @@ impl Surface {
                 }
             }
         }
-        // Opaque type names are unique.
-        let mut seen: BTreeMap<&str, &Opaque> = BTreeMap::new();
-        for o in &self.opaques {
-            if let Some(prev) = seen.insert(&o.name, o) {
+        // Opaque and record type names are unique, together: each is
+        // one Axiom `data` in one flat namespace.
+        let mut seen: BTreeMap<&str, (&str, &str)> = BTreeMap::new();
+        let typed = self
+            .opaques
+            .iter()
+            .map(|o| (o.name.as_str(), "#[axiom_opaque]", o.at.as_str()))
+            .chain(self.records.iter().map(|r| (r.name.as_str(), "#[axiom_record]", r.at.as_str())));
+        for (name, kind, at) in typed {
+            if let Some((prev_kind, prev_at)) = seen.insert(name, (kind, at)) {
                 return Err(Error(format!(
-                    "two `#[axiom_opaque]` types are both named `{}` ({} and {}); the Axiom \
-                     `data` they bind to is one flat namespace",
-                    o.name, prev.at, o.at
+                    "two types are both named `{name}` (`{prev_kind}` at {prev_at} and \
+                     `{kind}` at {at}); the Axiom `data` they bind to is one flat namespace"
                 )));
             }
         }
@@ -358,7 +449,46 @@ impl Surface {
             block.push_str(&format!("\n  ({name} :: {rest})"));
         }
         block.push(')');
+        // A `Vec` is `Int`-typed and holds one word per element; which
+        // scalar those words are is only known here, so say it where
+        // the items are declared (the formatter moves a comment out of
+        // the block, so it goes before it).
+        let notes: Vec<String> = decls.iter().flat_map(|d| d.vec_notes()).collect();
+        if !notes.is_empty() {
+            let mut note = String::from(
+                "; A `Vec` is an `Int` handle holding one word per element, and the\n\
+                 ; element type is whatever the program reads it as - Float bits with\n\
+                 ; `(cast Float (vecGet v i))`, a Bool as 0/1, every integer as the word:",
+            );
+            for n in notes {
+                note.push_str("\n;   ");
+                note.push_str(&n);
+            }
+            note.push('\n');
+            note.push_str(&block);
+            block = note;
+        }
         tops.push(block);
+
+        // One `data` per record type: one constructor, one positional
+        // field per Rust field, in order.
+        let mut records: Vec<&Record> = self.records.iter().collect();
+        records.sort_by(|a, b| a.name.cmp(&b.name));
+        for r in &records {
+            let t = &r.name;
+            let fields: Vec<String> = r
+                .fields
+                .iter()
+                .map(|f| format!("{} {}", f.name, f.scalar.axiom_type()))
+                .collect();
+            let types: Vec<&str> = r.fields.iter().map(|f| f.scalar.axiom_type()).collect();
+            tops.push(format!(
+                "; `{t}` crosses the boundary as its fields, one word each: {}.\n\
+                 (pub data {t}\n  ({t} {}))",
+                fields.join(", "),
+                types.join(" ")
+            ));
+        }
 
         // One `data` per opaque type, with its close wrapper.
         for o in &opaques {
@@ -459,20 +589,54 @@ fn payload_axiom_type(p: &Payload) -> String {
         Payload::Scalar(s) => s.axiom_type().to_string(),
         Payload::Bytes => "String".into(),
         // A `Vec` is an `Int` handle in the stdlib.
-        Payload::Words | Payload::Strs => "Int".into(),
+        Payload::Words(_) | Payload::Strs => "Int".into(),
         Payload::Opaque(o) => o.name.clone(),
+        Payload::Record(r) => r.name.clone(),
     }
 }
 
-/// The Axiom type of a parameter as the RAW extern item declares it.
+/// The Axiom types of a parameter as the RAW extern item declares
+/// them: one for every shape but a record, which is one per field.
+fn param_raw_types(p: &Param) -> Vec<String> {
+    match p {
+        Param::Record(r) => r.fields.iter().map(|f| f.scalar.axiom_type().to_string()).collect(),
+        other => vec![param_raw_type(other)],
+    }
+}
+
+/// The Axiom type of a one-word parameter as the RAW extern item
+/// declares it.
 fn param_raw_type(p: &Param) -> String {
     match p {
         Param::Scalar(s) => s.axiom_type().to_string(),
         Param::Str | Param::Bytes => "String".into(),
         Param::Opaque { .. } => "Foreign".into(),
-        Param::Words => "Int".into(),
+        Param::Words(_) | Param::Strs => "Int".into(),
         Param::Callback(n) => callback_type(*n),
+        Param::Record(r) => r.name.clone(),
     }
+}
+
+/// How a field word reads back as its Axiom type: a Float or Bool is
+/// the word reinterpreted, an Int is the word.
+fn field_from_word(scalar: Scalar, word: Ex) -> Ex {
+    match scalar.axiom_type() {
+        "Int" => word,
+        other => Ex::Cast(other.to_string(), Box::new(word)),
+    }
+}
+
+/// The bindings that rebuild a record from the cell - `__w0`, `__w1`,
+/// .. one per field, then `__r` - and the record expression.
+fn record_from_cell(r: &RecordTy, binds: &mut Vec<(String, Ex)>) {
+    let mut ctor = vec![atom(&r.name)];
+    for (j, f) in r.fields.iter().enumerate() {
+        let w = format!("__w{j}");
+        let word = app(vec![atom("ffiCellWord"), atom("__c"), atom(&j.to_string())]);
+        binds.push((w.clone(), field_from_word(f.scalar, word)));
+        ctor.push(atom(&w));
+    }
+    binds.push(("__r".into(), app(ctor)));
 }
 
 /// `(-> Int Int)` for one argument, and so on: the arrow type a
@@ -491,19 +655,44 @@ fn callback_type(arity: u8) -> String {
 fn collection_helpers(p: &Payload) -> (&'static str, &'static str) {
     match p {
         Payload::Bytes => ("ffiBytesToStr", "ffiFreeBytes"),
-        Payload::Words => ("ffiWordsToVec", "ffiFreeWords"),
+        Payload::Words(_) => ("ffiWordsToVec", "ffiFreeWords"),
         Payload::Strs => ("ffiStrsToVec", "ffiFreeStrList"),
         _ => unreachable!("only collections ride the cell as (ptr, n)"),
     }
 }
 
-/// The payload a direct collection return carries.
+/// The payload a direct cell-carried return carries.
 fn direct_payload(r: &Ret) -> Payload {
     match r {
         Ret::Bytes => Payload::Bytes,
-        Ret::Words => Payload::Words,
+        Ret::Words(s) => Payload::Words(*s),
         Ret::Strs => Payload::Strs,
-        _ => unreachable!("not a direct collection return"),
+        Ret::Record(r) => Payload::Record(r.clone()),
+        _ => unreachable!("not a direct cell-carried return"),
+    }
+}
+
+/// The cell a wrapper allocates: `ffiCellNew` for the two-word
+/// protocols, `(ffiCellNewN n)` for a record of `n` words.
+fn cell_new(ret: &Ret) -> Ex {
+    let record = matches!(
+        ret,
+        Ret::Record(_) | Ret::Result(Payload::Record(_)) | Ret::Option(Payload::Record(_))
+    );
+    if record {
+        app(vec![atom("ffiCellNewN"), atom(&ret.cell_words().to_string())])
+    } else {
+        atom("ffiCellNew")
+    }
+}
+
+/// How a `Vec` of `scalar` elements reads, for the element-type note.
+fn element_note(scalar: Scalar) -> String {
+    match scalar {
+        Scalar::I64 => "Int".into(),
+        Scalar::F64 | Scalar::F32 => format!("Float bits ({})", scalar.rust_name()),
+        Scalar::Bool => "Bool (0/1)".into(),
+        other => format!("{} (each word range-checked)", other.rust_name()),
     }
 }
 
@@ -516,7 +705,10 @@ impl Decl {
         }
         self.ret.needs_cell()
             || matches!(self.ret, Ret::Opaque(_))
-            || self.params.iter().any(|(_, p)| matches!(p, Param::Opaque { .. }))
+            || self
+                .params
+                .iter()
+                .any(|(_, p)| matches!(p, Param::Opaque { .. } | Param::Record(_)))
     }
 
     fn raw_name(&self) -> String {
@@ -529,7 +721,7 @@ impl Decl {
 
     /// The raw extern's type: the shim's real arity over wire types.
     fn raw_type(&self) -> String {
-        let mut ps: Vec<String> = self.params.iter().map(|(_, p)| param_raw_type(p)).collect();
+        let mut ps: Vec<String> = self.params.iter().flat_map(|(_, p)| param_raw_types(p)).collect();
         let ret = if self.ret.needs_cell() {
             ps.push("Int".into());
             "Int".to_string()
@@ -556,21 +748,52 @@ impl Decl {
         let ret = match &self.ret {
             Ret::Scalar(s) => s.axiom_type().to_string(),
             Ret::Opaque(o) => o.name.clone(),
-            Ret::Bytes | Ret::Words | Ret::Strs => payload_axiom_type(&direct_payload(&self.ret)),
+            Ret::Bytes | Ret::Words(_) | Ret::Strs | Ret::Record(_) => {
+                payload_axiom_type(&direct_payload(&self.ret))
+            }
             Ret::Result(p) => format!("(Result {} String)", payload_axiom_type(p)),
             Ret::Option(p) => format!("(Option {})", payload_axiom_type(p)),
         };
         arrow(&ps, &ret)
     }
 
-    /// The wrapper body. Opaque parameters are unwrapped by nested
-    /// `match`es, then one `let` binds the raw pointers, the call and
-    /// the decoded result, in order.
+    /// One line per `Vec` parameter or result whose element is not a
+    /// plain `Int`, saying how its words read.
+    fn vec_notes(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        let name = &self.axiom_name;
+        for (pname, p) in &self.params {
+            match p {
+                Param::Words(s) if *s != Scalar::I64 => {
+                    out.push(format!("`{name}` reads `{pname}` as a Vec of {};", element_note(*s)))
+                }
+                Param::Strs => out.push(format!("`{name}` reads `{pname}` as a Vec of String;")),
+                _ => {}
+            }
+        }
+        let result = match &self.ret {
+            Ret::Words(s) => Some(*s),
+            Ret::Result(Payload::Words(s)) | Ret::Option(Payload::Words(s)) => Some(*s),
+            _ => None,
+        };
+        if let Some(s) = result.filter(|s| *s != Scalar::I64) {
+            out.push(format!("`{name}` answers a Vec of {};", element_note(s)));
+        }
+        out
+    }
+
+    /// The wrapper body. Opaque and record parameters are unwrapped by
+    /// nested `match`es, then one `let` binds the raw pointers, the
+    /// call and the decoded result, in order.
     fn wrapper_body(&self) -> Ex {
         // The raw call's arguments and the pointer bindings they need.
         let mut binds: Vec<(String, Ex)> = Vec::new();
         let mut args: Vec<Ex> = Vec::new();
-        let mut handles: Vec<(String, String, String)> = Vec::new(); // (param, type, __hN)
+        // (param, pattern): `(Counter __h0)` for a handle, `(Point __f0 __f1)`
+        // for a record; record field locals are numbered across the
+        // whole signature.
+        let mut matches: Vec<(String, Ex)> = Vec::new();
+        let mut field_no = 0usize;
         for (i, (name, p)) in self.params.iter().enumerate() {
             match p {
                 Param::Opaque { ty, .. } => {
@@ -581,7 +804,17 @@ impl Decl {
                         Ex::Cast("Foreign".into(), Box::new(app(vec![atom("ffiHandlePtr"), atom(&h)]))),
                     ));
                     args.push(atom(&a));
-                    handles.push((name.clone(), ty.name.clone(), h));
+                    matches.push((name.clone(), app(vec![atom(&ty.name), atom(&h)])));
+                }
+                Param::Record(r) => {
+                    let mut pat = vec![atom(&r.name)];
+                    for _ in &r.fields {
+                        let f = format!("__f{field_no}");
+                        field_no += 1;
+                        args.push(atom(&f));
+                        pat.push(atom(&f));
+                    }
+                    matches.push((name.clone(), app(pat)));
                 }
                 _ => args.push(atom(name)),
             }
@@ -603,7 +836,20 @@ impl Decl {
                 ));
                 Ex::Let(binds, Box::new(app(vec![atom(&o.name), atom("__h")])))
             }
-            Ret::Bytes | Ret::Words | Ret::Strs => {
+            Ret::Record(r) => {
+                call.push(atom("__c"));
+                binds.push(("__c".into(), cell_new(&self.ret)));
+                binds.push(("__st".into(), app(call)));
+                record_from_cell(r, &mut binds);
+                Ex::Let(
+                    binds,
+                    Box::new(Ex::Block(vec![
+                        app(vec![atom("ffiCellFree"), atom("__c")]),
+                        atom("__r"),
+                    ])),
+                )
+            }
+            Ret::Bytes | Ret::Words(_) | Ret::Strs => {
                 let (build, free) = collection_helpers(&direct_payload(&self.ret));
                 call.push(atom("__c"));
                 binds.push(("__c".into(), atom("ffiCellNew")));
@@ -623,7 +869,7 @@ impl Decl {
             Ret::Result(p) | Ret::Option(p) => {
                 let is_result = matches!(self.ret, Ret::Result(_));
                 call.push(atom("__c"));
-                binds.push(("__c".into(), atom("ffiCellNew")));
+                binds.push(("__c".into(), cell_new(&self.ret)));
                 binds.push(("__st".into(), app(call)));
                 binds.push(("__p".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("0")])));
                 binds.push(("__n".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("1")])));
@@ -631,12 +877,17 @@ impl Decl {
                 // A Float payload is the word reinterpreted. The cast is
                 // bound up front (harmless on the error path, where the
                 // word is a pointer nothing reads as a Float) so the
-                // `Ok`/`Some` application stays on one line.
+                // `Ok`/`Some` application stays on one line. A record
+                // is rebuilt up front the same way: on the other path
+                // the cell holds a message or zeros, read by nothing.
                 if matches!(p, Payload::Scalar(s) if s.is_float()) {
                     binds.push(("__f".into(), Ex::Cast("Float".into(), Box::new(atom("__p")))));
                 }
+                if let Payload::Record(r) = p {
+                    record_from_cell(r, &mut binds);
+                }
                 let ok = match p {
-                    Payload::Bytes | Payload::Words | Payload::Strs => {
+                    Payload::Bytes | Payload::Words(_) | Payload::Strs => {
                         let (build, free) = collection_helpers(p);
                         Ex::Let(
                             vec![("__v".into(), app(vec![atom(build), atom("__p"), atom("__n")]))],
@@ -658,7 +909,8 @@ impl Decl {
                                 atom(&o.name),
                                 app(vec![atom("ffiHandleNew"), atom("__p"), atom(&drop_fn_name(&o.name))]),
                             ]),
-                            Payload::Bytes | Payload::Words | Payload::Strs => unreachable!(),
+                            Payload::Record(_) => atom("__r"),
+                            Payload::Bytes | Payload::Words(_) | Payload::Strs => unreachable!(),
                         };
                         Ex::Block(vec![
                             app(vec![atom("ffiCellFree"), atom("__c")]),
@@ -689,13 +941,11 @@ impl Decl {
             }
         };
 
-        // Unwrap the handles, innermost last: `(match c ((Counter __h0) body))`.
+        // Unwrap the handles and records, innermost last:
+        // `(match c ((Counter __h0) body))`, `(match p ((Point __f0 __f1) body))`.
         let mut wrapped = body;
-        for (param, ty, h) in handles.into_iter().rev() {
-            wrapped = Ex::Match(
-                Box::new(atom(&param)),
-                vec![(app(vec![atom(&ty), atom(&h)]), wrapped)],
-            );
+        for (param, pat) in matches.into_iter().rev() {
+            wrapped = Ex::Match(Box::new(atom(&param)), vec![(pat, wrapped)]);
         }
         wrapped
     }

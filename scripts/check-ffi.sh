@@ -443,22 +443,32 @@ hostlib="tests/ffi/host/hostlib.ax"
 if [[ -f "$hostlib" && -d rust/examples/host ]]; then
   mkdir -p "$work/hostlib"
   if ! "$axiom" build --input "$hostlib" --output "$work/hostlib/libaxiom_hostlib.a" \
-         --emit-staticlib > "$work/hostlib/build.log" 2>&1; then
+         --emit-staticlib --emit-rust-binding "$work/hostlib/hostlib.rs" > "$work/hostlib/build.log" 2>&1; then
     echo "FAIL host: could not emit the static archive"; sed 's/^/    /' "$work/hostlib/build.log" | head -5
     status=1
   elif nm "$work/hostlib/libaxiom_hostlib.a" 2>/dev/null | grep -qE ' T _?main$'; then
     echo "FAIL host: the archive defines \`main\`; a host has its own"
     status=1
+  elif ! cmp -s "$work/hostlib/hostlib.rs" rust/examples/host/src/hostlib.rs; then
+    # The checked-in binding IS the generated one: a host that compiled
+    # against a stale file would be calling shapes the archive no
+    # longer has.
+    echo "FAIL host: rust/examples/host/src/hostlib.rs differs from a fresh --emit-rust-binding"
+    diff rust/examples/host/src/hostlib.rs "$work/hostlib/hostlib.rs" | head -6 | sed 's/^/    /'
+    status=1
+  elif command -v rustfmt >/dev/null 2>&1 && ! rustfmt --check "$work/hostlib/hostlib.rs" >/dev/null 2>&1; then
+    echo "FAIL host: the generated binding is not rustfmt-clean"
+    status=1
   elif ! host_out="$(cd rust && AXIOM_HOST_ARCHIVE_DIR="$work/hostlib" cargo run --release -q -p axiom-host 2>&1)"; then
     echo "FAIL host: the Rust host did not build or run"
     printf '%s\n' "$host_out" | sed 's/^/    /' | head -8
     status=1
-  elif ! grep -q 'addTwo=42' <<< "$host_out" || ! grep -q 'shout=HELLO' <<< "$host_out"; then
-    echo "FAIL host: the Rust host ran but did not get 42 and HELLO back from Axiom"
+  elif ! grep -q ' agree$' <<< "$host_out"; then
+    echo "FAIL host: the Rust host ran but what it got back from Axiom did not agree"
     printf '%s\n' "$host_out" | sed 's/^/    /' | head -5
     status=1
   else
-    echo "ok   host: a Rust binary links the Axiom archive and calls it ($host_out)"
+    echo "ok   host: a Rust binary calls the Axiom archive through its generated binding ($host_out)"
   fi
 fi
 

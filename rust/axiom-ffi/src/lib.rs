@@ -30,7 +30,10 @@
 //! `#[axiom_opaque]` marks a type Axiom holds as a handle and generates
 //! its destructor (`axffi_hasher_drop`) plus `axffi_hasher_drop_fn`,
 //! which hands Axiom the destructor's address so the handle releases the
-//! value when its count reaches zero.
+//! value when its count reaches zero. `#[axiom_record]` marks a struct
+//! of word scalars that crosses AS ITS FIELDS instead - one shim word
+//! per field, an Axiom `data` with one positional field each - and
+//! derives [`AxRecord`] for it.
 //!
 //! # The two build modes, measured
 //!
@@ -74,9 +77,11 @@ extern crate alloc;
 
 pub use axiom_abi::{
     axiom_alloc, axiom_release, axiom_retain, AxCallback, AxFn1, AxFn2, AxFn3, AxOutCell,
-    AxStatus, AxStr, AxStrRepr, AxVec, AxVecRepr, AxWord, AX_ERR, AX_NONE, AX_OK,
+    AxRecord, AxStatus, AxStr, AxStrRepr, AxVec, AxVecRepr, AxWord, AX_ERR, AX_NONE, AX_OK,
 };
-pub use axiom_ffi_macros::{axiom_export, axiom_opaque};
+pub use axiom_ffi_macros::{axiom_export, axiom_opaque, axiom_record};
+#[doc(hidden)]
+pub use axiom_ffi_macros::__axiom_export_resolved;
 
 #[cfg(feature = "nostd-runtime")]
 pub mod nostd_runtime;
@@ -104,14 +109,104 @@ pub trait AxiomOpaque: Sized {
     const DROP: unsafe extern "C" fn(AxWord) -> AxWord;
 }
 
+/// A type that may be named bare in an exported signature: marked
+/// `#[axiom_opaque]` (Axiom holds a handle) or `#[axiom_record]` (it
+/// crosses as its fields). Implemented by the two attributes, never by
+/// hand.
+///
+/// A shim that hands back or takes such a type by value learns WHICH
+/// of the two it is from the type's companion macro (see
+/// `axiom_ffi_classify::companion_module`); this bound is asserted
+/// beside that expansion so an unmarked type is reported as the
+/// missing attribute rather than only as an unresolved macro.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` crosses the Axiom boundary but is not marked `#[axiom_opaque]` or `#[axiom_record]`",
+    label = "this type needs `#[axiom_opaque]` or `#[axiom_record]`",
+    note = "put `#[axiom_opaque]` on the declaration of `{Self}` for Axiom to hold it as a handle (its destructor runs when the last reference dies), or `#[axiom_record]` for it to cross as its word-scalar fields"
+)]
+pub trait AxiomMarked: Sized {}
+
 /// Implementation details the generated shims call. Not a stable API.
 #[doc(hidden)]
 pub mod __private {
-    use super::{AxCallback, AxOutCell, AxStr, AxVec, AxWord, AxiomOpaque, AX_ERR};
+    use super::{AxCallback, AxOutCell, AxRecord, AxStr, AxVec, AxWord, AxiomOpaque, AX_ERR};
     use alloc::boxed::Box;
     use alloc::string::String;
-    use alloc::vec::Vec;
     use core::fmt::Arguments;
+
+    /// `alloc::vec::Vec`, for a generated shim in a `no_std` crate.
+    pub use alloc::vec::Vec;
+
+    /// A scalar that is one word on the wire: the conversions the
+    /// `Vec<T>` / `&[T]` shapes and record fields use. `to_word` never
+    /// fails; `from_word` answers `None` for a word that holds no value
+    /// of the type (a narrow integer out of range, a bool not 0 or 1).
+    pub trait WordScalar: Copy {
+        const NAME: &'static str;
+        /// How a word that holds no value is described: out of range
+        /// for an integer, not 0 or 1 for a bool.
+        const REFUSAL: &'static str = "is out of range";
+        fn to_word(self) -> AxWord;
+        fn from_word(w: AxWord) -> Option<Self>;
+    }
+
+    macro_rules! int_scalar {
+        ($($t:ident),*) => {$(
+            impl WordScalar for $t {
+                const NAME: &'static str = stringify!($t);
+                #[inline]
+                fn to_word(self) -> AxWord {
+                    self as AxWord
+                }
+                #[inline]
+                fn from_word(w: AxWord) -> Option<Self> {
+                    <$t>::try_from(w).ok()
+                }
+            }
+        )*};
+    }
+    int_scalar!(i64, i32, i16, i8, u32, u16, u8, usize, isize);
+
+    impl WordScalar for bool {
+        const NAME: &'static str = "bool";
+        const REFUSAL: &'static str = "is not 0 or 1";
+        #[inline]
+        fn to_word(self) -> AxWord {
+            self as AxWord
+        }
+        #[inline]
+        fn from_word(w: AxWord) -> Option<Self> {
+            match w {
+                0 => Some(false),
+                1 => Some(true),
+                _ => None,
+            }
+        }
+    }
+
+    impl WordScalar for f64 {
+        const NAME: &'static str = "f64";
+        #[inline]
+        fn to_word(self) -> AxWord {
+            self.to_bits() as AxWord
+        }
+        #[inline]
+        fn from_word(w: AxWord) -> Option<Self> {
+            Some(f64::from_bits(w as u64))
+        }
+    }
+
+    impl WordScalar for f32 {
+        const NAME: &'static str = "f32";
+        #[inline]
+        fn to_word(self) -> AxWord {
+            (self as f64).to_bits() as AxWord
+        }
+        #[inline]
+        fn from_word(w: AxWord) -> Option<Self> {
+            Some(f64::from_bits(w as u64) as f32)
+        }
+    }
 
     /// End the process with a message: `axiom-ffi: <message>` on fd 2,
     /// exit status 72 like Axiom's own runtime traps.
@@ -299,6 +394,153 @@ pub mod __private {
         AxVec::from_raw(word).as_slice()
     }
 
+    /// A `&[f64]` argument: the live words of an Axiom `Vec`, read as
+    /// the Float bits they hold. No copy: `i64` and `f64` have the same
+    /// size and alignment (8 bytes on every target Axiom emits for),
+    /// every bit pattern is a valid `f64`, and the view is borrowed for
+    /// the call exactly as the `i64` view is.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` handle for the call.
+    #[inline]
+    pub unsafe fn words_f64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a [f64] {
+        if word == 0 {
+            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[f64]) is not a Vec: 0"));
+        }
+        let s = AxVec::from_raw(word).as_slice();
+        // SAFETY: same size, same alignment, no invalid bit pattern;
+        // the lifetime and length are the word slice's own.
+        core::slice::from_raw_parts(s.as_ptr() as *const f64, s.len())
+    }
+
+    /// A `&[T]` argument for any other word scalar: every word of the
+    /// Axiom `Vec` converted into a temporary `Vec<T>`. A word that
+    /// holds no `T` (a narrow integer out of range, a bool not 0 or 1)
+    /// aborts with the element named, as a scalar argument would.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` handle for the call.
+    pub unsafe fn words_as<T: WordScalar>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<T> {
+        if word == 0 {
+            abort(format_args!(
+                "`{func}`: argument {idx} (`{name}`: &[{}]) is not a Vec: 0",
+                T::NAME
+            ));
+        }
+        let s = AxVec::from_raw(word).as_slice();
+        let mut out = Vec::with_capacity(s.len());
+        for (k, &w) in s.iter().enumerate() {
+            match T::from_word(w) {
+                Some(v) => out.push(v),
+                None => abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[{}]) element {k} {}: {w}",
+                    T::NAME,
+                    T::REFUSAL
+                )),
+            }
+        }
+        out
+    }
+
+    /// Widen a `Vec<T>` of word scalars into the words Axiom reads
+    /// (ints sign/zero-extended, bool 0/1, floats as f64 bits), for
+    /// [`leak_words`].
+    pub fn to_words<T: WordScalar>(v: Vec<T>) -> Vec<i64> {
+        v.into_iter().map(T::to_word).collect()
+    }
+
+    /// The element words of a `&[&str]` argument: an Axiom `Vec` whose
+    /// words are String handles.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` of Strings for the call.
+    unsafe fn str_words<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a [i64] {
+        if word == 0 {
+            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[&str]) is not a Vec: 0"));
+        }
+        AxVec::from_raw(word).as_slice()
+    }
+
+    /// The UTF-8 failure message for one element of a `&[&str]`.
+    fn utf8_element_message(func: &str, idx: usize, k: usize) -> String {
+        alloc::format!("element {k} of argument {idx} of `{func}` is not valid UTF-8")
+    }
+
+    /// A `&[&str]` argument of an infallible shim: every String of the
+    /// Axiom `Vec` borrowed as `&str`; invalid UTF-8 aborts.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` of Strings for the call.
+    pub unsafe fn strs_strict<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<&'a str> {
+        let mut out = Vec::new();
+        for (k, &s) in str_words(word, func, idx, name).iter().enumerate() {
+            match AxStr::from_raw(s).as_str() {
+                Ok(v) => out.push(v),
+                Err(_) => abort(format_args!("{}", utf8_element_message(func, idx, k))),
+            }
+        }
+        out
+    }
+
+    /// A `&[&str]` argument of a fallible shim: invalid UTF-8 is `Err`.
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` of Strings for the call.
+    pub unsafe fn strs_fallible<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> Result<Vec<&'a str>, String> {
+        let mut out = Vec::new();
+        for (k, &s) in str_words(word, func, idx, name).iter().enumerate() {
+            match AxStr::from_raw(s).as_str() {
+                Ok(v) => out.push(v),
+                Err(_) => return Err(utf8_element_message(func, idx, k)),
+            }
+        }
+        Ok(out)
+    }
+
+    /// A `&[&str]` argument under `utf8 = "lossy"`: the converted
+    /// strings, owned (the shim borrows a `Vec<&str>` from them).
+    ///
+    /// # Safety
+    /// `word` must be 0 or a live Axiom `Vec` of Strings for the call.
+    pub unsafe fn strs_lossy(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<String> {
+        str_words(word, func, idx, name)
+            .iter()
+            .map(|&s| String::from_utf8_lossy(AxStr::from_raw(s).as_bytes()).into_owned())
+            .collect()
+    }
+
+    /// Range-check a narrow integer FIELD of a record parameter. Out of
+    /// range aborts with the record and field named, as a scalar
+    /// argument's abort names the function and argument.
+    #[inline]
+    pub fn record_field<T: WordScalar>(word: AxWord, record: &str, field: &str) -> T {
+        match T::from_word(word) {
+            Some(v) => v,
+            None => abort(format_args!(
+                "`{record}`: field `{field}` ({}) {}: {word}",
+                T::NAME,
+                T::REFUSAL
+            )),
+        }
+    }
+
+    /// Write a record result into the out-cell: `R::ARITY` words from
+    /// the cell's first word.
+    ///
+    /// # Safety
+    /// `out` must be the address of a cell of at least `R::ARITY` words
+    /// Axiom glue allocated for this call (`ffiCellNewN`).
+    #[inline]
+    pub unsafe fn write_record<R: AxRecord>(out: AxWord, v: &R) {
+        let words = core::slice::from_raw_parts_mut(out as *mut AxWord, R::ARITY);
+        v.write_words(words)
+    }
+
     /// A callback argument. A 0 word is no closure record and aborts
     /// rather than loading a code address from address 0.
     ///
@@ -400,6 +642,8 @@ pub extern "C" fn axffi_abi_version() -> i64 {
 /// (`axffi_<t>_drop_fn`), narrow integers are range-checked. Still 2
 /// after the additive shapes of 2026-08-22 - the `__sig_` descriptors,
 /// callbacks as closure records, `Vec<i64>`/`Vec<String>` through the
-/// cell as `(ptr, len)` / `(pairs, n)`, `&[i64]` over a `Vec` handle -
+/// cell as `(ptr, len)` / `(pairs, n)`, `&[i64]` over a `Vec` handle,
+/// then records as their field words through an N-word cell, `&[&str]`
+/// and `Vec<T>`/`&[T]` over every word scalar (each element a word) -
 /// because no representation a version-2 crate already uses moved.
 pub const ABI_VERSION: i64 = 2;

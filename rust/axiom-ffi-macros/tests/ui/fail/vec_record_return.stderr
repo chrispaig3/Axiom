@@ -1,0 +1,11 @@
+error: `Vec<Point>` is not supported as an `#[axiom_export]` return type (a `Vec` of records or handles does not cross: an Axiom `Vec` holds words; return the fields as `Vec<T>` columns, or hold the collection in an `#[axiom_opaque]` type); the supported return types are: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 () String Vec<u8> Vec<T> (T a word scalar) Vec<String> Option<T> Result<T, E> T (T marked `#[axiom_opaque]` or `#[axiom_record]`; E: Display)
+  --> tests/ui/fail/vec_record_return.rs:11:26
+   |
+11 | pub fn points(n: i64) -> Vec<Point> {
+   |                          ^^^^^^^^^^
+
+error: `&[Point]` is not supported as an `#[axiom_export]` parameter (a slice of records or handles does not cross: an Axiom `Vec` holds words; take the fields as `&[T]` slices, or hold the collection in a type marked `#[axiom_opaque]`); the supported parameter types are: i64 i32 i16 i8 u32 u16 u8 usize isize bool f64 f32 &str &[u8] &[&str] &[T] (T a word scalar) AxFn1 AxFn2 AxFn3 &T &mut T (T marked `#[axiom_opaque]`) T (T marked `#[axiom_record]`)
+  --> tests/ui/fail/vec_record_return.rs:16:18
+   |
+16 | pub fn total(ps: &[Point]) -> i64 {
+   |                  ^^^^^^^^

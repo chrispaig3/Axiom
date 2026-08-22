@@ -93,6 +93,14 @@
   (let ((c (memAlloc 16)))
     { (__retain c) c }))
 
+; An out-cell of `n` words (at least two: a status' message is
+; `{ptr, len}`), for a record that crosses as its fields (one word
+; each, in declaration order) or any payload wider than two words.
+(pub :: ffiCellNewN (-> Int Int))
+(pub fn (ffiCellNewN n)
+  (let ((c (memAlloc (* 8 (if (< n 2) 2 n)))))
+    { (__retain c) c }))
+
 (pub :: ffiCellFree (-> Int Int))
 (pub fn (ffiCellFree c)
   { (__release c) 0 })

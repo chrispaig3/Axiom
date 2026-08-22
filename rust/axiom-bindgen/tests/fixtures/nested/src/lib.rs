@@ -128,6 +128,54 @@ pub fn maybe_pieces(text: &str) -> Option<Vec<String>> {
     if text.is_empty() { None } else { Some(pieces(text)) }
 }
 
+/// A record: `(pub data Pixel (Pixel Int Float Bool))`, a parameter
+/// destructured into one raw argument per field, a result rebuilt
+/// from an `ffiCellNewN 3` cell. Declared AFTER its first use, which
+/// the two-pass walk does not mind.
+#[axiom_export]
+pub fn pixel_brightness(p: Pixel, gain: f64) -> f64 {
+    if p.on { p.level as f64 * gain } else { 0.0 }
+}
+
+#[axiom_ffi::axiom_record]
+pub struct Pixel {
+    pub level: i32,
+    pub weight: f32,
+    pub on: bool,
+}
+
+#[axiom_export]
+pub fn pixel_off() -> Pixel {
+    Pixel { level: 0, weight: 0.0, on: false }
+}
+
+#[axiom_export]
+pub fn pixel_mix(a: Pixel, b: Pixel, t: &Thing) -> Option<Pixel> {
+    Some(Pixel { level: a.level + b.level + t.n as i32, weight: a.weight, on: a.on || b.on })
+}
+
+#[axiom_export]
+pub fn pixel_parse(text: &str) -> Result<Pixel, String> {
+    text.parse::<i32>().map(|level| Pixel { level, weight: 1.0, on: true }).map_err(|e| e.to_string())
+}
+
+/// Slices and vectors over the other word scalars, and a slice of
+/// strings: `Int` on the Axiom side, with the element note.
+#[axiom_export]
+pub fn mean(xs: &[f64], weights: &[u16]) -> f64 {
+    xs.iter().sum::<f64>() / weights.len() as f64
+}
+
+#[axiom_export]
+pub fn parity(n: i64) -> Vec<bool> {
+    (0..n).map(|i| i % 2 == 0).collect()
+}
+
+#[axiom_export]
+pub fn concat(parts: &[&str]) -> String {
+    parts.concat()
+}
+
 /// Not `pub`: the macro would refuse it, and bindgen skips it.
 #[axiom_export]
 fn hidden(n: i64) -> i64 {

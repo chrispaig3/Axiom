@@ -4,13 +4,109 @@
 #![allow(clippy::all)]
 
 use axiom_ffi::{
-    axiom_export, axiom_opaque, AxFn1, AxFn2, AxFn3, AxOutCell, AxStrRepr, AxVecRepr, AxWord,
-    AX_ERR, AX_NONE, AX_OK,
+    axiom_export, axiom_opaque, axiom_record, AxFn1, AxFn2, AxFn3, AxOutCell, AxRecord,
+    AxStrRepr, AxVecRepr, AxWord, AX_ERR, AX_NONE, AX_OK,
 };
+
+/// A record declared AFTER the exports that name it (`pair_*` below
+/// sit above `Pair` in this file in spirit; `Point` is used by
+/// `point_norm2` before its own declaration in source order): the
+/// companion macro resolves by path, not textually.
+#[axiom_export]
+pub fn point_norm2(p: Point) -> f64 { (p.x as f64) * (p.x as f64) + p.y * p.y }
 
 #[axiom_opaque]
 pub struct Thing {
     n: i64,
+}
+
+// Records: every word scalar kind as a field, crossing as its words.
+#[axiom_record]
+pub struct Point {
+    pub x: i64,
+    pub y: f64,
+}
+
+#[axiom_record]
+pub struct Mixed {
+    pub a: i32,
+    pub b: u8,
+    pub c: bool,
+    pub d: f32,
+    pub e: usize,
+}
+
+#[axiom_export]
+pub fn point_origin() -> Point { Point { x: 0, y: 0.0 } }
+
+#[axiom_export]
+pub fn point_scale(p: Point, k: i64) -> Point { Point { x: p.x * k, y: p.y * k as f64 } }
+
+#[axiom_export]
+pub fn point_try(ok: bool) -> Result<Point, String> {
+    if ok { Ok(Point { x: 3, y: 4.0 }) } else { Err("no point".into()) }
+}
+
+#[axiom_export]
+pub fn point_maybe(ok: bool) -> Option<Point> { ok.then_some(Point { x: -1, y: 0.5 }) }
+
+#[axiom_export]
+pub fn mixed_sum(m: Mixed, t: &Thing) -> i64 {
+    m.a as i64 + m.b as i64 + m.c as i64 + m.d as i64 + m.e as i64 + t.n
+}
+
+#[axiom_export]
+pub fn mixed_make(a: i32) -> Mixed { Mixed { a, b: 7, c: true, d: 1.5, e: 9 } }
+
+// A record named through a module path, and two records in one call.
+pub mod geom {
+    #[axiom_ffi::axiom_record]
+    pub struct Size {
+        pub w: i64,
+        pub h: i64,
+    }
+}
+
+#[axiom_export]
+pub fn area(s: geom::Size, p: Point) -> i64 { s.w * s.h + p.x }
+
+// Slices over every word scalar, and a slice of strings.
+#[axiom_export]
+pub fn sum_f64(xs: &[f64]) -> f64 { xs.iter().sum() }
+
+#[axiom_export]
+pub fn sum_u8_bytes(xs: &[u8]) -> i64 { xs.iter().map(|b| *b as i64).sum() }
+
+#[axiom_export]
+pub fn sum_i16(xs: &[i16]) -> i64 { xs.iter().map(|b| *b as i64).sum() }
+
+#[axiom_export]
+pub fn count_true(xs: &[bool]) -> i64 { xs.iter().filter(|b| **b).count() as i64 }
+
+#[axiom_export]
+pub fn sum_f32(xs: &[f32]) -> f32 { xs.iter().sum() }
+
+#[axiom_export]
+pub fn join(parts: &[&str]) -> String { parts.join("+") }
+
+#[axiom_export]
+pub fn join_try(parts: &[&str]) -> Result<String, String> { Ok(parts.join("+")) }
+
+#[axiom_export(utf8 = "lossy")]
+pub fn join_lossy(parts: &[&str]) -> String { parts.join("+") }
+
+#[axiom_export]
+pub fn flags(n: i64) -> Vec<bool> { (0..n).map(|i| i % 2 == 0).collect() }
+
+#[axiom_export]
+pub fn halves32(n: i64) -> Vec<f32> { (0..n).map(|i| i as f32 / 2.0).collect() }
+
+#[axiom_export]
+pub fn negs(n: i64) -> Vec<i8> { (0..n).map(|i| -(i as i8)).collect() }
+
+#[axiom_export]
+pub fn try_flags(n: i64) -> Result<Vec<bool>, String> {
+    if n < 0 { Err("negative".into()) } else { Ok(flags(n)) }
 }
 
 #[axiom_opaque(symbol = "widget_v2")]
@@ -318,8 +414,98 @@ fn main() {
     let none = AxStrRepr { len: 0, data: b" ".as_ptr(), owner: 0 };
     assert_eq!(axffi_maybe_words(ax_str(&none), cell_word(&mut cell)), AX_NONE);
 
+    // Records: a parameter is one word per field, a result is ARITY
+    // words from the cell's first word (the cell is ffiCellNewN ARITY,
+    // so a five-field record needs a five-word cell here too).
+    assert_eq!(<Point as AxRecord>::ARITY, 2);
+    assert_eq!(<Mixed as AxRecord>::ARITY, 5);
+    let four = 4.0f64.to_bits() as AxWord;
+    assert_eq!(f64::from_bits(axffi_point_norm2(3, four) as u64), 25.0);
+    let mut big = [0 as AxWord; 5];
+    let big_word = big.as_mut_ptr() as AxWord;
+    assert_eq!(axffi_point_origin(big_word), AX_OK);
+    assert_eq!(big[0], 0);
+    assert_eq!(f64::from_bits(big[1] as u64), 0.0);
+    assert_eq!(axffi_point_scale(2, 1.5f64.to_bits() as AxWord, 4, big_word), AX_OK);
+    assert_eq!(big[0], 8);
+    assert_eq!(f64::from_bits(big[1] as u64), 6.0);
+    assert_eq!(axffi_point_try(1, big_word), AX_OK);
+    assert_eq!((big[0], f64::from_bits(big[1] as u64)), (3, 4.0));
+    assert_eq!(axffi_point_try(0, cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"no point");
+    assert_eq!(axffi_point_maybe(1, big_word), AX_OK);
+    assert_eq!((big[0], f64::from_bits(big[1] as u64)), (-1, 0.5));
+    assert_eq!(axffi_point_maybe(0, big_word), AX_NONE);
+    // Every field kind: narrow ints range-checked like arguments, bool
+    // 0/1, f32 as f64 bits, usize a word.
+    let t = axffi_thing_new(100);
+    assert_eq!(axffi_mixed_sum(-5, 255, 1, 2.75f64.to_bits() as AxWord, 9, t), -5 + 255 + 1 + 2 + 9 + 100);
+    assert_eq!(unsafe { axffi_thing_drop(t) }, 0);
+    assert_eq!(axffi_mixed_make(-3, big_word), AX_OK);
+    assert_eq!(big, [-3, 7, 1, 1.5f64.to_bits() as AxWord, 9]);
+    let m = <Mixed as AxRecord>::from_words(&big);
+    assert_eq!((m.a, m.b, m.c, m.d, m.e), (-3, 7, true, 1.5, 9));
+    let mut back = [0 as AxWord; 5];
+    m.write_words(&mut back);
+    assert_eq!(back, big);
+    assert_eq!(axffi_area(3, 4, 10, four), 22);
+    assert_eq!(<geom::Size as AxRecord>::ARITY, 2);
+
+    // Slices over every word scalar: f64 in place, the rest converted.
+    let fdata = [1.25f64.to_bits() as i64, 2.5f64.to_bits() as i64, (-0.75f64).to_bits() as i64];
+    let fvec = AxVecRepr { len: 3, cap: 3, data: fdata.as_ptr() };
+    assert_eq!(f64::from_bits(axffi_sum_f64(&fvec as *const AxVecRepr as AxWord) as u64), 3.0);
+    let idata = [-300i64, 300, 7];
+    let ivec = AxVecRepr { len: 3, cap: 3, data: idata.as_ptr() };
+    assert_eq!(axffi_sum_i16(&ivec as *const AxVecRepr as AxWord), 7);
+    let bdata = [1i64, 0, 1, 1];
+    let bvec = AxVecRepr { len: 4, cap: 4, data: bdata.as_ptr() };
+    assert_eq!(axffi_count_true(&bvec as *const AxVecRepr as AxWord), 3);
+    let f32data = [(0.5f32 as f64).to_bits() as i64, (1.5f32 as f64).to_bits() as i64];
+    let f32vec = AxVecRepr { len: 2, cap: 2, data: f32data.as_ptr() };
+    assert_eq!(f64::from_bits(axffi_sum_f32(&f32vec as *const AxVecRepr as AxWord) as u64), 2.0);
+    // `&[u8]` is still the byte view of a String, not a Vec.
+    assert_eq!(axffi_sum_u8_bytes(ax_str(&hello)), b"hello".iter().map(|b| *b as i64).sum::<i64>());
+    // A slice of strings: a Vec whose words are String handles.
+    let brave = AxStrRepr { len: 5, data: b"brave ".as_ptr(), owner: 0 };
+    let sdata = [ax_str(&hello), ax_str(&brave)];
+    let svec = AxVecRepr { len: 2, cap: 2, data: sdata.as_ptr() };
+    let svec_word = &svec as *const AxVecRepr as AxWord;
+    assert_eq!(axffi_join(svec_word, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_bytes(&cell), b"hello+brave");
+    let bad_data = [ax_str(&hello), ax_str(&bad)];
+    let bad_vec = AxVecRepr { len: 2, cap: 2, data: bad_data.as_ptr() };
+    let bad_word = &bad_vec as *const AxVecRepr as AxWord;
+    assert_eq!(axffi_join_try(bad_word, cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"element 1 of argument 1 of `join_try` is not valid UTF-8");
+    assert_eq!(axffi_join_lossy(bad_word, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_bytes(&cell), "hello+a\u{FFFD}a".as_bytes());
+    let empty_vec = AxVecRepr { len: 0, cap: 0, data: std::ptr::null() };
+    assert_eq!(axffi_join(&empty_vec as *const AxVecRepr as AxWord, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_bytes(&cell), b"");
+    // Vec<T> results: every element widened to a word.
+    assert_eq!(axffi_flags(4, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_words(&cell), vec![1, 0, 1, 0]);
+    assert_eq!(axffi_halves32(3, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_words(&cell), vec![0, (0.5f64).to_bits() as i64, 1.0f64.to_bits() as i64]);
+    assert_eq!(axffi_negs(3, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_words(&cell), vec![0, -1, -2]);
+    assert_eq!(axffi_try_flags(2, cell_word(&mut cell)), AX_OK);
+    assert_eq!(take_words(&cell), vec![1, 0]);
+    assert_eq!(axffi_try_flags(-1, cell_word(&mut cell)), AX_ERR);
+    assert_eq!(take_bytes(&cell), b"negative");
+
     // Every shim carries its signature descriptor, a no-op named for
     // the shape: one tag per word in, `_`, one for the word out.
+    assert_eq!(axffi_point_norm2__sig_if_f(), 0);
+    assert_eq!(axffi_point_origin__sig_i_i(), 0);
+    assert_eq!(axffi_point_scale__sig_ifii_i(), 0);
+    assert_eq!(axffi_point_maybe__sig_ii_i(), 0);
+    assert_eq!(axffi_mixed_sum__sig_iiifii_i(), 0);
+    assert_eq!(axffi_area__sig_iiif_i(), 0);
+    assert_eq!(axffi_sum_f64__sig_i_f(), 0);
+    assert_eq!(axffi_join__sig_ii_i(), 0);
+    assert_eq!(axffi_flags__sig_ii_i(), 0);
     assert_eq!(axffi_scalars__sig_iiiiiiiiiiff_i(), 0);
     assert_eq!(axffi_ret_f32__sig_f_f(), 0);
     assert_eq!(axffi_nullary__sig__i(), 0);

@@ -1,0 +1,86 @@
+; Vectors over every word scalar, both ways.
+;
+; OUT: a Rust `Vec<T>` result is widened into the same `(ptr, len)` of
+; words a `Vec<i64>` answers - an f64 as its bits, an f32 as f64 bits,
+; a bool as 0/1, an integer as the word - so the wrapper is the
+; unchanged `ffiWordsToVec` / `ffiFreeWords` path and the ELEMENT TYPE
+; IS WHATEVER THE PROGRAM READS: `halves` answers Float bits, read
+; with `(cast Float (vecGet v i))`; `flags` answers 0/1 words.
+;
+; IN: a `&[T]` parameter is the `Vec` handle (Int). `sumF64` reads the
+; words in place as `&[f64]` (same size, same alignment, every bit
+; pattern a float - no copy); `sumU16` converts each word into a
+; temporary `Vec<u16>`, range-checked (a word above 65535 would abort
+; with the element named, as a narrow scalar argument does).
+;
+; `u8` is the exception on both sides, and has always been: `&[u8]` is
+; the byte view of an Axiom String and `Vec<u8>` answers a String, so
+; `sumU8` takes a String and `bytesOf` answers one.
+(import IO)
+(import Fmt)
+(import Str)
+(import Vec)
+(import Demo)
+
+(pub :: sumFloats (-> Int Int Float Float))
+(pub fn (sumFloats v i acc)
+  (if (>= i (vecLen v))
+      acc
+      (sumFloats v (+ i 1) (+ acc (cast Float (vecGet v i))))))
+
+(pub :: countOnes (-> Int Int Int Int))
+(pub fn (countOnes v i acc)
+  (if (>= i (vecLen v))
+      acc
+      (countOnes v (+ i 1) (+ acc (vecGet v i)))))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((h (halves 5))
+        (f (flags 7))
+        (noneH (halves 0))
+        (bs (bytesOf "axiom"))
+        (floats (vecNew))
+        (shorts (vecNew)))
+    {
+      (vecPush floats (cast Int 1.25))
+      (vecPush floats (cast Int 2.5))
+      (vecPush floats (cast Int -0.75))
+      (vecPush shorts 65535)
+      (vecPush shorts 1)
+      (vecPush shorts 4)
+      (let ((hLen (vecLen h))
+            (hLast (cast Float (vecGet h 4)))
+            (hSum (sumFloats h 0 0.0))
+            (fLen (vecLen f))
+            (fOnes (countOnes f 0 0))
+            (fFirst (vecGet f 0))
+            (fSecond (vecGet f 1))
+            (noneLen (vecLen noneH))
+            (bLen (strLen bs))
+            (total (sumF64 floats))
+            (empty (sumF64 noneH))
+            (sShorts (sumU16 shorts))
+            (sBytes (sumU8 "ab")))
+        (if (&& (== hLen 5)
+            (&& (== hLast 2.0)
+            (&& (== hSum 5.0)
+            (&& (== fLen 7)
+            (&& (== fOnes 4)
+            (&& (== fFirst 1)
+            (&& (== fSecond 0)
+            (&& (== noneLen 0)
+            (&& (== bLen 5)
+            (&& (strEq bs "axiom")
+            (&& (== total 3.0)
+            (&& (== empty 0.0)
+            (&& (== sShorts 65540)
+                (== sBytes 195))))))))))))))
+            { (println "vec scalars: agree") 0 }
+            { (println (fmtInt hLen)) (println (fmtFloat hLast)) (println (fmtFloat hSum))
+              (println (fmtInt fLen)) (println (fmtInt fOnes)) (println (fmtInt fFirst))
+              (println (fmtInt fSecond)) (println (fmtInt noneLen)) (println (fmtInt bLen))
+              (println bs) (println (fmtFloat total)) (println (fmtFloat empty))
+              (println (fmtInt sShorts)) (println (fmtInt sBytes)) 1 }))
+    }))
+; expect 0

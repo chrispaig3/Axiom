@@ -1,12 +1,15 @@
 ; hostlib - an Axiom library a Rust program calls: the OTHER direction.
 ;
 ; Built with `axiom build --input hostlib.ax --output libaxiom_hostlib.a
-; --emit-staticlib`: the module is emitted without the `@main` wrapper
-; (no `main` here), assembled and archived. Every `pub fn` of this file
-; is a C symbol under its own name - `addTwo`, `shout` - with Axiom's
-; whole ABI: `i64` in, `i64` out. rust/examples/host declares them in an
-; `extern "C"` block, links the archive from `$AXIOM_HOST_ARCHIVE_DIR`,
-; and calls them. The runtime needs no initialisation call.
+; --emit-staticlib --emit-rust-binding hostlib.rs`: the module is
+; emitted without the `@main` wrapper (no `main` here), assembled and
+; archived, and the Rust binding of its `pub` surface is written beside
+; it. Every `pub fn` of this file is a C symbol under its own name -
+; `addTwo`, `shout`, ... - with Axiom's whole ABI: `i64` in, `i64` out.
+; rust/examples/host includes the generated binding
+; (src/hostlib.rs, checked in and diffed by the gate), links the archive
+; from `$AXIOM_HOST_ARCHIVE_DIR`, and calls through the wrappers. The
+; runtime needs no initialisation call.
 ;
 ; The String the host passes to `shout` was built by the host through
 ; this archive's own `Str$strAlloc` (the facade's `AxString::from_str`),
@@ -28,6 +31,43 @@
         (upperInto (strData s) (strData out) n 0)
         out
       })))
+
+; Every other leaf the binding carries: Float as its bits, Bool as
+; 0/1, Char as the code point, a nullary function, and a String
+; answered as it arrived - which is an OWNED share by MM-LIFE-2c
+; event 2 (the emitted `same` retains before it returns), so the host
+; adopts it and the argument it built stays its own; the host calls
+; this ten thousand times to prove it.
+(pub :: halve (-> Float Float))
+(pub fn (halve x) (/ x 2.0))
+
+(pub :: isEven (-> Int Bool))
+(pub fn (isEven n) (== (% n 2) 0))
+
+(pub :: nextChar (-> Char Char))
+(pub fn (nextChar c) (cast Char (+ (cast Int c) 1)))
+
+(pub :: answer Int)
+(pub fn (answer) 42)
+
+(pub :: same (-> String String))
+(pub fn (same s) s)
+
+(pub :: strLenOf (-> String Int))
+(pub fn (strLenOf s) (strLen s))
+
+; Not carried by the binding: an `Option` result and a `data` value.
+; The generated file names each in a comment instead of declaring it.
+(pub :: firstEven (-> Int Int (Option Int)))
+(pub fn (firstEven a b)
+  (if (isEven a) (Some a) (if (isEven b) (Some b) None)))
+
+(pub data Pair (Pair Int Int))
+
+(pub :: pairSum (-> Pair Int))
+(pub fn (pairSum p)
+  (match p
+    ((Pair a b) (+ a b))))
 
 (:: upperInto (-> Int Int Int Int Int))
 (fn (upperInto src dst n i)

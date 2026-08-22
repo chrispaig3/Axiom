@@ -1,6 +1,6 @@
 //! Every shape the boundary supports, in one crate.
 
-use axiom_ffi::{axiom_export, axiom_opaque, AxFn1, AxFn2};
+use axiom_ffi::{axiom_export, axiom_opaque, axiom_record, AxFn1, AxFn2};
 use core::sync::atomic::{AtomicI64, Ordering};
 
 // 1. A scalar. This is the cheapest possible crossing: the generated
@@ -180,6 +180,108 @@ pub fn split_words(text: &str) -> Vec<String> {
 #[axiom_export]
 pub fn sum_words(xs: &[i64]) -> i64 {
     xs.iter().fold(0i64, |acc, x| acc.wrapping_add(*x))
+}
+
+// 6h. Vectors over every word scalar. A `Vec<T>` result is widened
+//     into the same `(ptr, len)` of words as a `Vec<i64>` - an f64 as
+//     its bits, an f32 as f64 bits, a bool as 0/1, a u8 as the word -
+//     so the Axiom wrapper is unchanged and the element type is
+//     whatever the program reads: `(cast Float (vecGet v i))` for
+//     `halves`, `(vecGet v i)` for `flags`. A `&[T]` parameter reads
+//     the Axiom `Vec` the other way: `&[f64]` reinterprets the words
+//     in place (same size, same alignment, every bit pattern a float),
+//     every other narrow scalar is converted into a temporary with
+//     each word range-checked (out of range aborts, as a scalar
+//     argument would).
+//
+//     `u8` is the one exception, on both sides: `&[u8]` is the byte
+//     view of an Axiom String (6d) and `Vec<u8>` answers a String (4),
+//     which is what they always were - so `sum_u8` takes a String and
+//     `bytes_of` answers one; `sum_u16` is the range-checked Vec path.
+#[axiom_export]
+pub fn sum_f64(xs: &[f64]) -> f64 {
+    xs.iter().sum()
+}
+
+#[axiom_export]
+pub fn sum_u8(xs: &[u8]) -> i64 {
+    xs.iter().map(|b| *b as i64).sum()
+}
+
+#[axiom_export]
+pub fn sum_u16(xs: &[u16]) -> i64 {
+    xs.iter().map(|b| *b as i64).sum()
+}
+
+#[axiom_export]
+pub fn halves(n: i64) -> Vec<f64> {
+    (0..n.max(0)).map(|i| i as f64 / 2.0).collect()
+}
+
+#[axiom_export]
+pub fn flags(n: i64) -> Vec<bool> {
+    (0..n.max(0)).map(|i| i % 2 == 0).collect()
+}
+
+#[axiom_export]
+pub fn bytes_of(s: &str) -> Vec<u8> {
+    s.as_bytes().to_vec()
+}
+
+// 6i. A `&[&str]` parameter: an Axiom `Vec` of Strings, each word a
+//     String handle the shim borrows as `&str` for the call. Invalid
+//     UTF-8 in any element aborts, as a `&str` argument would (or is
+//     `Err` from a `Result` function; `utf8 = "lossy"` converts).
+#[axiom_export]
+pub fn join_words(parts: &[&str]) -> String {
+    parts.join(" ")
+}
+
+// 6j. A record: a struct that crosses AS ITS FIELDS. `Point` is never
+//     boxed - a parameter arrives as one shim word per field
+//     (`axffi_point_norm2(x, y_bits)`), a result is written into an
+//     out-cell of one word per field (`ffiCellNewN 2`), and the Axiom
+//     side is `(pub data Point (Point Int Float))`, destructured and
+//     rebuilt by the generated wrapper. `Result<Point, _>` and
+//     `Option<Point>` carry the fields the same way behind the status
+//     word.
+#[axiom_record]
+pub struct Point {
+    pub x: i64,
+    pub y: f64,
+}
+
+#[axiom_export]
+pub fn point_norm2(p: Point) -> f64 {
+    (p.x as f64) * (p.x as f64) + p.y * p.y
+}
+
+#[axiom_export]
+pub fn point_origin() -> Point {
+    Point { x: 0, y: 0.0 }
+}
+
+#[axiom_export]
+pub fn point_scale(p: Point, k: i64) -> Point {
+    Point { x: p.x.wrapping_mul(k), y: p.y * k as f64 }
+}
+
+#[axiom_export]
+pub fn point_try(ok: bool) -> Result<Point, String> {
+    if ok {
+        Ok(Point { x: 3, y: 4.0 })
+    } else {
+        Err("no point".to_string())
+    }
+}
+
+#[axiom_export]
+pub fn point_maybe(ok: bool) -> Option<Point> {
+    if ok {
+        Some(Point { x: -1, y: 0.5 })
+    } else {
+        None
+    }
 }
 
 // 7. Arity edges. A ZERO-argument extern is the one shape with a

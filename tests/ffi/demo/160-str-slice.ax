@@ -1,0 +1,35 @@
+; A `&[&str]` parameter: an Axiom `Vec` of Strings, borrowed.
+;
+; `joinWords` takes `parts: &[&str]`. Axiom passes the `Vec` handle
+; (an `Int`, tag `i`); the shim reads the Vec's words - each a String
+; handle - and borrows every one as `&str` for the call, building a
+; `Vec<&str>` on the Rust side that dies with the call. Nothing is
+; copied and nothing is retained; an element that is not UTF-8 aborts
+; exactly as a `&str` argument would (`axiom-ffi: element K of
+; argument 1 of `join_words` is not valid UTF-8`, exit 72).
+;
+; The empty Vec crosses as an empty slice and joins to "".
+(import IO)
+(import Str)
+(import Vec)
+(import Demo)
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((parts (vecNew))
+        (none (vecNew)))
+    {
+      (vecPush parts "hello")
+      (vecPush parts "brave")
+      (vecPush parts "new")
+      (vecPush parts "world")
+      (let ((joined (joinWords parts))
+            (empty (joinWords none))
+            (one (let ((v (vecNew))) { (vecPush v "solo") (joinWords v) })))
+        (if (&& (strEq joined "hello brave new world")
+            (&& (strEq empty "")
+                (strEq one "solo")))
+            { (println "str slice: agree") 0 }
+            { (println joined) (println empty) (println one) 1 }))
+    }))
+; expect 0

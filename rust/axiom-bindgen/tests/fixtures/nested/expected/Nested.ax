@@ -3,19 +3,33 @@
 
 (import Err)
 
+; A `Vec` is an `Int` handle holding one word per element, and the
+; element type is whatever the program reads it as - Float bits with
+; `(cast Float (vecGet v i))`, a Bool as 0/1, every integer as the word:
+;   `concat` reads `parts` as a Vec of String;
+;   `mean` reads `xs` as a Vec of Float bits (f64);
+;   `mean` reads `weights` as a Vec of u16 (each word range-checked);
+;   `parity` answers a Vec of Bool (0/1);
 (pub extern "axiom_nested"
   (checkRaw :: (-> Bool Int Int) (symbol "axffi_check"))
   (combineRaw :: (-> (-> Int Int Int) (-> Int Int Int Int) Int Int Int) (symbol "axffi_combine"))
+  (concatRaw :: (-> Int Int Int) (symbol "axffi_concat"))
   (deepest :: (-> Bool Bool) (symbol "axffi_deepest"))
   (echoRaw :: (-> String Int Int) (symbol "axffi_echo"))
   (evensRaw :: (-> Int Int Int) (symbol "axffi_evens"))
   (mapTwice :: (-> (-> Int Int) Int Int) (symbol "axffi_map_twice"))
   (maybePiecesRaw :: (-> String Int Int) (symbol "axffi_maybe_pieces"))
   (maybeTextRaw :: (-> Int Int Int) (symbol "axffi_maybe_text"))
+  (mean :: (-> Int Int Float) (symbol "axffi_mean"))
   (nestedAdd :: (-> Int Int Int) (symbol "axffi_nested_add"))
   (nothing :: (-> Int Int) (symbol "axffi_nothing"))
+  (parityRaw :: (-> Int Int Int) (symbol "axffi_parity"))
   (peek :: (-> Foreign Int Int) (symbol "axffi_peek"))
   (piecesRaw :: (-> String Int Int) (symbol "axffi_pieces"))
+  (pixelBrightnessRaw :: (-> Int Float Bool Float Float) (symbol "axffi_pixel_brightness"))
+  (pixelMixRaw :: (-> Int Float Bool Int Float Bool Foreign Int Int) (symbol "axffi_pixel_mix"))
+  (pixelOffRaw :: (-> Int Int) (symbol "axffi_pixel_off"))
+  (pixelParseRaw :: (-> String Int Int) (symbol "axffi_pixel_parse"))
   (ratioRaw :: (-> Int Int Int Int) (symbol "axffi_ratio"))
   (renamedRaw :: (-> String Int Int Int) (symbol "custom_symbol"))
   (thingDropFn :: Int (symbol "axffi_thing_drop_fn"))
@@ -30,6 +44,10 @@
   (wideRaw :: (-> Int Int Int Int Int Int Int) (symbol "axffi_wide"))
   (widgetDropFn :: Int (symbol "axffi_widget_v2_drop_fn"))
   (widgetNewRaw :: Foreign (symbol "axffi_widget_new")))
+
+; `Pixel` crosses the boundary as its fields, one word each: level Int, weight Float, on Bool.
+(pub data Pixel
+  (Pixel Int Float Bool))
 
 ; `Thing` is a Rust value held through a `Handle`: when the last
 ; reference dies the handle runs `axffi_thing_drop`.
@@ -98,6 +116,24 @@
         None
       }
     )
+  )
+)
+
+(pub :: concat (-> Int String))
+
+(pub fn (concat parts)
+  (let (
+    (__c ffiCellNew)
+    (__st (concatRaw parts __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiBytesToStr __p __n))
+  )
+    {
+      (ffiFreeBytes __p __n)
+      (ffiCellFree __c)
+      __v
+    }
   )
 )
 
@@ -187,6 +223,24 @@
   )
 )
 
+(pub :: parity (-> Int Int))
+
+(pub fn (parity n)
+  (let (
+    (__c ffiCellNew)
+    (__st (parityRaw n __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__v (ffiWordsToVec __p __n))
+  )
+    {
+      (ffiFreeWords __p __n)
+      (ffiCellFree __c)
+      __v
+    }
+  )
+)
+
 (pub :: pieces (-> String Int))
 
 (pub fn (pieces text)
@@ -202,6 +256,106 @@
       (ffiCellFree __c)
       __v
     }
+  )
+)
+
+(pub :: pixelBrightness (-> Pixel Float Float))
+
+(pub fn (pixelBrightness p gain)
+  (match p
+    ((Pixel __f0 __f1 __f2)
+      (let ((__r (pixelBrightnessRaw __f0 __f1 __f2 gain)))
+        __r
+      )
+    )
+  )
+)
+
+(pub :: pixelMix (-> Pixel Pixel Thing (Option Pixel)))
+
+(pub fn (pixelMix a b t)
+  (match a
+    ((Pixel __f0 __f1 __f2)
+      (match b
+        ((Pixel __f3 __f4 __f5)
+          (match t
+            ((Thing __h2)
+              (let (
+                (__a2 (cast Foreign (ffiHandlePtr __h2)))
+                (__c (ffiCellNewN 3))
+                (__st (pixelMixRaw
+                  __f0                  __f1                  __f2                  __f3                  __f4                  __f5                  __a2                  __c
+                ))
+                (__p (ffiCellWord __c 0))
+                (__n (ffiCellWord __c 1))
+                (__w0 (ffiCellWord __c 0))
+                (__w1 (cast Float (ffiCellWord __c 1)))
+                (__w2 (cast Bool (ffiCellWord __c 2)))
+                (__r (Pixel __w0 __w1 __w2))
+              )
+                (if (== __st 0)
+                  {
+                    (ffiCellFree __c)
+                    (Some __r)
+                  }
+                  {
+                    (ffiCellFree __c)
+                    None
+                  }
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: pixelOff Pixel)
+
+(pub fn (pixelOff)
+  (let (
+    (__c (ffiCellNewN 3))
+    (__st (pixelOffRaw __c))
+    (__w0 (ffiCellWord __c 0))
+    (__w1 (cast Float (ffiCellWord __c 1)))
+    (__w2 (cast Bool (ffiCellWord __c 2)))
+    (__r (Pixel __w0 __w1 __w2))
+  )
+    {
+      (ffiCellFree __c)
+      __r
+    }
+  )
+)
+
+(pub :: pixelParse (-> String (Result Pixel String)))
+
+(pub fn (pixelParse text)
+  (let (
+    (__c (ffiCellNewN 3))
+    (__st (pixelParseRaw text __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+    (__w0 (ffiCellWord __c 0))
+    (__w1 (cast Float (ffiCellWord __c 1)))
+    (__w2 (cast Bool (ffiCellWord __c 2)))
+    (__r (Pixel __w0 __w1 __w2))
+  )
+    (if (== __st 0)
+      {
+        (ffiCellFree __c)
+        (Ok __r)
+      }
+      (let ((__m (ffiBytesToStr __p __n)))
+        {
+          (ffiFreeBytes __p __n)
+          (ffiCellFree __c)
+          (Err __m)
+        }
+      )
+    )
   )
 )
 

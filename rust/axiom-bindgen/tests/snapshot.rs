@@ -126,6 +126,41 @@ fn nested_fixture_shape() {
     assert!(fresh.contains("(total :: (-> Int Int) (symbol \"axffi_total\"))"));
     assert!(fresh.contains("(pub :: tryEvens (-> Int (Result Int String)))"));
     assert!(fresh.contains("(pub :: maybePieces (-> String (Option Int)))"));
+    // A record is a `data` with one positional field per Rust field,
+    // declared beside the opaque types; a record parameter is
+    // destructured into one raw argument per field (the raw item
+    // lists the field types flattened), a record result is rebuilt
+    // from an `ffiCellNewN ARITY` cell with each word read as its
+    // field's type.
+    assert!(fresh.contains("(pub data Pixel\n  (Pixel Int Float Bool))"));
+    assert!(fresh.contains("(pixelBrightnessRaw :: (-> Int Float Bool Float Float) (symbol \"axffi_pixel_brightness\"))"));
+    assert!(fresh.contains("(pub :: pixelBrightness (-> Pixel Float Float))"));
+    assert!(fresh.contains("((Pixel __f0 __f1 __f2)\n      (let ((__r (pixelBrightnessRaw __f0 __f1 __f2 gain)))"));
+    assert!(fresh.contains("(pixelOffRaw :: (-> Int Int) (symbol \"axffi_pixel_off\"))"));
+    assert!(fresh.contains("(pub :: pixelOff Pixel)"));
+    assert!(fresh.contains(
+        "(__c (ffiCellNewN 3))\n    (__st (pixelOffRaw __c))\n    (__w0 (ffiCellWord __c 0))\n    \
+         (__w1 (cast Float (ffiCellWord __c 1)))\n    (__w2 (cast Bool (ffiCellWord __c 2)))\n    \
+         (__r (Pixel __w0 __w1 __w2))"
+    ));
+    // Two records and a handle in one call: fields numbered across the
+    // signature, the raw item flattened, the Option rebuilt from the cell.
+    assert!(fresh.contains("(pixelMixRaw :: (-> Int Float Bool Int Float Bool Foreign Int Int) (symbol \"axffi_pixel_mix\"))"));
+    assert!(fresh.contains("(pub :: pixelMix (-> Pixel Pixel Thing (Option Pixel)))"));
+    assert!(fresh.contains("((Pixel __f3 __f4 __f5)"));
+    assert!(fresh.contains("(Some __r)"));
+    assert!(fresh.contains("(pub :: pixelParse (-> String (Result Pixel String)))"));
+    assert!(fresh.contains("(Ok __r)"));
+    // Slices over the other scalars and `&[&str]` are `Int`; a
+    // `Vec<bool>` result is the unchanged words path; the element
+    // note names each.
+    assert!(fresh.contains("(mean :: (-> Int Int Float) (symbol \"axffi_mean\"))"));
+    assert!(fresh.contains("(concatRaw :: (-> Int Int Int) (symbol \"axffi_concat\"))"));
+    assert!(fresh.contains("(pub :: parity (-> Int Int))"));
+    assert!(fresh.contains(";   `mean` reads `xs` as a Vec of Float bits (f64);"));
+    assert!(fresh.contains(";   `mean` reads `weights` as a Vec of u16 (each word range-checked);"));
+    assert!(fresh.contains(";   `parity` answers a Vec of Bool (0/1);"));
+    assert!(fresh.contains(";   `concat` reads `parts` as a Vec of String;"));
     // Everything shared comes from Ffi.ax: no module-local helper.
     assert!(!fresh.contains("ffiSliceToStr"));
     assert!(!fresh.contains("axffi_free_bytes"));
@@ -157,6 +192,13 @@ fn unmarked_opaque_is_an_error() {
     let err = axiom_bindgen::generate(&fixture("unmarked/src"), "axiom_unmarked").unwrap_err();
     assert!(err.0.contains("`Plain` crosses the boundary as an opaque handle"), "{err}");
     assert!(err.0.contains("#[axiom_opaque]"), "{err}");
+}
+
+#[test]
+fn unrecorded_by_value_is_an_error() {
+    let err = axiom_bindgen::generate(&fixture("unrecorded/src"), "axiom_unrecorded").unwrap_err();
+    assert!(err.0.contains("`Plain` is taken by value but no `#[axiom_record]` declaration"), "{err}");
+    assert!(err.0.contains("`plain_n`"), "{err}");
 }
 
 #[test]
