@@ -29,6 +29,8 @@
 ; implementation of one agreement with nothing comparing them. That is
 ; the defect this import removes - see `fscanName`.
 (import lexer)
+; `pastBom`: a byte order mark is formatted around, not through.
+(import core)
 
 ; ------------------------------------------------------------------
 ; Token kinds.
@@ -3588,8 +3590,27 @@
 ; rescan and re-read, must carry exactly the comments the input
 ; carried, and must be a fixed point of a second pass. Refusal is the
 ; only alternative to a faithful rewrite.
+;
+; A leading byte order mark is lifted off before the scan and put
+; back on the result - the one subcommand that still refused a BOM
+; file after the lexer learned to skip one (2026-08-21): `fscan` is
+; its own scanner, `fscanCovers` asks that every byte be a token or a
+; comment, and three bytes that are neither failed it. The mark is
+; KEPT rather than dropped because the editor that wrote it expects
+; it, and `fmt --check` compares the rewrite against the file as
+; read.
 (pub :: fmtFormat (-> String Int))
 (pub fn (fmtFormat src)
+  (let ((skip (pastBom src 0)))
+    (if (== skip 0)
+        (fmtFormatBody src)
+        (let ((r (fmtFormatBody (strSlice src skip (- (strLen src) skip)))))
+          (if (== (fzOk r) 0)
+              r
+              (cast Int (FRes 1 (strConcat (strSlice src 0 skip) (fzText r)))))))))
+
+(pub :: fmtFormatBody (-> String Int))
+(pub fn (fmtFormatBody src)
   (let ((r1 (fmtOnce src)))
     (if (== (fzOk r1) 0)
         r1

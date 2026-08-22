@@ -1,0 +1,32 @@
+; Exhaustiveness one constructor down, with the column's own type.
+;
+; The matrix spliced a constructor's declared field types into the
+; inner column as written, so over `(Option (Option Int))` the inner
+; column was the declaration's `a` - a type no constructor set
+; enumerates - and only a binder could cover it. A complete nested
+; match was therefore AX3005 "some values are not covered" (the QA
+; sweep's lead, confirmed 2026-08-21), and an incomplete one could
+; not name what it lacked. `matCtorsExh` substitutes the column's
+; arguments now (`tyEnvSubst`, which mints nothing).
+;
+;   line 20: `(Some (Some x))` and `(None)` - the inner `None` is
+;            what is missing, and is what is named            AX3005
+;   line 26: the same over a user type, `MNil` inside `MCons`  AX3005
+;
+; `deep` and `both` emit nothing: every value is covered.
+(data MyList (a) (MNil) (MCons a (MyList a)))
+
+(:: partial (-> (Option (Option Int)) Int))
+(fn (partial o) (match o ((Some (Some x)) 1) ((None) 0)))
+
+(:: deep (-> (Option (Option Int)) Int))
+(fn (deep o) (match o ((Some (Some x)) (+ x 1)) ((Some (None)) 1) ((None) 0)))
+
+(:: two (-> (MyList Int) Int))
+(fn (two l) (match l ((MCons h (MCons h2 t)) 2) ((MNil) 0)))
+
+(:: both (-> (MyList Int) Int))
+(fn (both l) (match l ((MCons h (MCons h2 t)) 2) ((MCons h (MNil)) 1) ((MNil) 0)))
+
+(:: main Int)
+(fn (main) 0)

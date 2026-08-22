@@ -1,0 +1,2 @@
+E AX3005 997-nested-exhaustive.ax:20:24-25 non-exhaustive-match "non-exhaustive pattern match: missing None" #"this `match` does not cover: None" ?"add the missing arms, or a wildcard `_` arm to catch the rest"
+E AX3005 997-nested-exhaustive.ax:26:20-21 non-exhaustive-match "non-exhaustive pattern match: missing MNil" #"this `match` does not cover: MNil" ?"add the missing arms, or a wildcard `_` arm to catch the rest"

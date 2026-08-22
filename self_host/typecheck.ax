@@ -4326,7 +4326,18 @@
                       (emitMismatch tc (tyRender (nodeA funcTy))
                                     (tyRender argTy) (spanOf (nodeB e)))
                       0)
-                  (nodeB funcTy)
+                  ; The rest of the arrow, with this parameter's
+                  ; PLACEHOLDER pinned to the argument's type where the
+                  ; argument has one to offer (`pinArg`, 2026-08-21):
+                  ; `(Some 5)` is `Option Int`, not `Option _t7`, and a
+                  ; later parameter sharing the variable is held to
+                  ; the same type. Until then a placeholder stayed a
+                  ; placeholder for the whole spine, which is why a
+                  ; let-bound `(Some 5)` matched `(Some "x")` with no
+                  ; diagnostic and dereferenced 5 as a header under the
+                  ; content comparison (the QA sweep's refutation
+                  ; pass). Pinning mints nothing.
+                  (pinArg (nodeB funcTy) (nodeA funcTy) argTy)
                 }
                 (if (== (tyIsErr funcTy) 1)
                     funcTy
@@ -4338,6 +4349,57 @@
                           (mkNode TAG_T_ERR 0 0 0)
                         })))
             }))))))))))))
+
+; `rest` with the minted placeholder `param` replaced by `argTy`
+; throughout, when `param` is one and `argTy` says something - a
+; constructor, an arrow, a tuple, a list, a pointer. A source
+; variable is never pinned (it is rigid, and `tyCompat` has already
+; judged it); a placeholder, poison or the silent wildcard on the
+; argument side pins nothing, since it would only rename an unknown.
+(pub :: pinArg (-> Int Int Int Int))
+(pub fn (pinArg rest param argTy)
+  (if (|| (== param 0) (== argTy 0))
+      rest
+      (if (!= (nodeTag param) TAG_T_VAR)
+          rest
+          (if (|| (== (tyIsSrcVar param) 1) (== (strLen (nodeA param)) 0))
+              rest
+              (let ((at (nodeTag argTy)))
+                (if (|| (== at TAG_T_VAR) (== at TAG_T_ERR))
+                    rest
+                    (tyPinVar rest (nodeA param) argTy)))))))
+
+; Every occurrence of the variable named `name` in `t` replaced by
+; `rep`; nothing minted, nothing else rebuilt.
+(pub :: tyPinVar (-> Int String Int Int))
+(pub fn (tyPinVar t name rep)
+  (if (== t 0)
+      0
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_VAR)
+            (if (strEq (nodeA t) name) rep t)
+        (if (== tg TAG_T_CON)
+            (mkTCon (nodeA t) (tyPinVarVec (nodeB t) name rep vecNew 0))
+        (if (== tg TAG_T_ARR)
+            (mkTArr (tyPinVar (nodeA t) name rep) (tyPinVar (nodeB t) name rep))
+        (if (== tg TAG_T_TUP)
+            (mkTTup (tyPinVarVec (nodeA t) name rep vecNew 0))
+        (if (== tg TAG_T_LIST)
+            (mkNode TAG_T_LIST (tyPinVar (nodeA t) name rep) 0 0)
+        (if (== tg TAG_T_PTR)
+            (mkTPtr (tyPinVar (nodeA t) name rep) (nodeB t))
+        t)))))))))
+
+(pub :: tyPinVarVec (-> Int String Int Int Int Int))
+(pub fn (tyPinVarVec xs name rep acc i)
+  (if (== xs 0)
+      acc
+      (if (>= i (vecLen xs))
+          acc
+          {
+            (vecPush acc (tyPinVar (vecGet xs i) name rep))
+            (tyPinVarVec xs name rep acc (+ i 1))
+          })))
 
 ; The dispatch probe must not REPORT.
 ;
@@ -6457,14 +6519,26 @@
                     (if (== (colHasWild matrix 0) 1)
                         (matExhaustive tc (matDefault matrix vecNew 0) rest missOut)
                         { (memSetWord missOut 0 missing) 0 })
-                    (matCtorsExh tc matrix rest (memGetWord dent 1) missOut 0))))))))
+                    (matCtorsExh tc matrix rest (memGetWord dent 1) ty missOut 0))))))))
 
-(pub :: matCtorsExh (-> Int Int Int Int Int Int Int))
-(pub fn (matCtorsExh tc matrix rest ctors missOut i)
+; `ty` is the column's own type, and the constructor's field types
+; are spliced in AT ITS ARGUMENTS: over `(Option (Option Int))` the
+; field of `Some` is `(Option Int)`, an enumerable column, not the
+; declaration's `a`. Spliced as declared until 2026-08-21, the inner
+; column was a type variable nothing but a binder could cover, so
+; `((Some (Some x)) ..) ((Some (None)) ..) ((None) ..)` was AX3005
+; "some values are not covered" - the QA sweep's lead, confirmed by
+; its refutation pass. `tyEnvSubst` replaces what the column pins and
+; leaves the rest as written; it mints nothing, so the placeholder
+; numbering every later diagnostic in the file renders is untouched.
+(pub :: matCtorsExh (-> Int Int Int Int Int Int Int Int))
+(pub fn (matCtorsExh tc matrix rest ctors ty missOut i)
   (if (>= i (vecLen ctors))
       1
       (let ((c (vecGet ctors i)))
-        (let ((fieldTys (memGetWord c 1)))
+        (let ((fieldTys (tyEnvSubstVec (memGetWord c 1)
+                                    (ctorPatEnv (memGetWord c 2) ty vecNew)
+                                    vecNew 0)))
           (if (== (matExhaustive tc
                     (matSpecialize tc matrix (bareOf (memGetWord c 0))
                                    (vecLen fieldTys) vecNew 0)
@@ -6472,7 +6546,47 @@
                     missOut)
                   0)
               0
-              (matCtorsExh tc matrix rest ctors missOut (+ i 1)))))))
+              (matCtorsExh tc matrix rest ctors ty missOut (+ i 1)))))))
+
+; `tyInstIn` without the minting: a source variable the environment
+; maps is replaced, one it does not is answered as written.
+(pub :: tyEnvSubst (-> Int Int Int))
+(pub fn (tyEnvSubst t env)
+  (if (== t 0)
+      0
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_VAR)
+            (if (== (tyIsSrcVar t) 0) t (tyEnvSubstVar t (nodeA t) env 0))
+        (if (== tg TAG_T_CON)
+            (mkTCon (nodeA t) (tyEnvSubstVec (nodeB t) env vecNew 0))
+        (if (== tg TAG_T_ARR)
+            (mkTArr (tyEnvSubst (nodeA t) env) (tyEnvSubst (nodeB t) env))
+        (if (== tg TAG_T_TUP)
+            (mkTTup (tyEnvSubstVec (nodeA t) env vecNew 0))
+        (if (== tg TAG_T_LIST)
+            (mkNode TAG_T_LIST (tyEnvSubst (nodeA t) env) 0 0)
+        (if (== tg TAG_T_PTR)
+            (mkTPtr (tyEnvSubst (nodeA t) env) (nodeB t))
+        t)))))))))
+
+(pub :: tyEnvSubstVar (-> Int String Int Int Int))
+(pub fn (tyEnvSubstVar t name env i)
+  (if (>= i (vecLen env))
+      t
+      (if (strEq (vecGet env i) name)
+          (vecGet env (+ i 1))
+          (tyEnvSubstVar t name env (+ i 2)))))
+
+(pub :: tyEnvSubstVec (-> Int Int Int Int Int))
+(pub fn (tyEnvSubstVec xs env acc i)
+  (if (== xs 0)
+      acc
+      (if (>= i (vecLen xs))
+          acc
+          {
+            (vecPush acc (tyEnvSubst (vecGet xs i) env))
+            (tyEnvSubstVec xs env acc (+ i 1))
+          })))
 
 ; One column wide, one row per arm - the entry point from checkMatch.
 (pub :: checkExhaustiveMatrix (-> Int Int Int Int Int))

@@ -1,0 +1,27 @@
+; A polymorphic call's placeholder is pinned to the argument that
+; instantiates it, for the rest of the spine and for the result.
+;
+; `(Some 5)` was `Option _t7`: the callee's `a` was minted fresh and
+; never bound, so the result matched anything, and so did a second
+; parameter sharing the variable - `(-> a a Bool)` said nothing at a
+; call site, `(-> a a)` answered a placeholder, and a let-bound
+; `(Some 5)` matched `(Some "x")` with no diagnostic and dereferenced
+; 5 as a header under the content comparison (the QA sweep's
+; refutation pass). `pinArg` (2026-08-21) replaces a minted placeholder
+; parameter by the argument's type when the argument has one to offer;
+; it mints nothing, and a rigid source variable is never pinned.
+;
+;   line 25: `(same 1 "x")` - the second `a` is `Int` by then   AX3004
+;   line 26: `(strLen (idf 5))` - `(idf 5)` is `Int`            AX3004
+;   line 27: a let-bound `(Some "s")` is `(Option String)`, and
+;            `(+ n 1)` on its binder is refused                  AX3004
+(import Str)
+(:: same (-> a a Bool))
+(fn (same x y) true)
+(:: idf (-> a a))
+(fn (idf x) x)
+(:: main Int)
+(fn (main)
+  (if (same 1 "x")
+      (strLen (idf 5))
+      (let ((o (Some "s"))) (match o ((Some n) (+ n 1)) ((None) 0)))))

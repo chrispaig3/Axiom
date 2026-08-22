@@ -791,6 +791,18 @@ grep -q '^E AX3001 bad1.ax:1:13-17 ' bad1.axdl \
   && [[ "$(grep '\^' bad1.human | sed 's/\x1b\[[0-9;]*m//g')" == "$(grep '\^' bombad1.human | sed 's/\x1b\[[0-9;]*m//g')" ]] \
   && ok "and the human caret lands under the same character" \
   || bad "BOM shifts the human caret"
+# `fmt` keeps the mark: it scans with its own scanner, which refused
+# the file until 2026-08-21, and now lifts the mark off, formats, and
+# puts it back - so a formatted BOM file still begins with the mark
+# and `--check` on it is a fixed point.
+printf '\xEF\xBB\xBF(import IO)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main)   {   (println "driver-ok")   0 })\n' >bomfmt.ax
+"$s1" fmt bomfmt.ax >/dev/null 2>&1 \
+  && [[ "$(head -c 3 bomfmt.ax | od -An -tx1 | tr -d ' \n')" == "efbbbf" ]] \
+  && "$s1" fmt --check bomfmt.ax >/dev/null 2>&1 \
+  && "$s1" build --input bomfmt.ax --output bomfmtbin >/dev/null 2>&1 \
+  && [[ "$(./bomfmtbin)" == "driver-ok" ]] \
+  && ok "fmt formats a BOM file, keeps the mark, and is a fixed point on it" \
+  || bad "fmt on a BOM file: $("$s1" fmt --check bomfmt.ax 2>&1 | head -1)"
 # Not a leading mark, not skipped: the same bytes anywhere else are
 # still an unexpected character.
 printf '(:: main Int)\n(fn (main) \xEF\xBB\xBF 0)\n' >midbom.ax

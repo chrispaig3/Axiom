@@ -1,0 +1,42 @@
+; expect 42
+; A `match` inside a `while` body, and a nested constructor pattern
+; over a parameterised scrutinee - two shapes one line each, both of
+; which the compiler refused or miscompiled until 2026-08-21.
+;
+; `bodyHasMatch` decides whether a function gets the one-word scratch
+; cell every `match` merges through. A `while`'s second word is its
+; body VECTOR, and the walk handed it to the node case, which read a
+; Vec header as a tag and answered 0: no scratch, and `opt` refused
+; the undefined `%__scr.h` as AX4003 - in the program, for a loop
+; that matched. `walk` below is that loop.
+;
+; `deep` is the exhaustiveness half. The matrix spliced a
+; constructor's DECLARED field types into the inner column, so over
+; `(Option (Option Int))` the inner column was the declaration's `a`
+; - enumerable by nothing but a binder - and the three arms that
+; cover every value were AX3005 "some values are not covered". The
+; column's own arguments are substituted now (`matCtorsExh`), and
+; the program compiles.
+;
+; 30 + 12 = 42.
+(data MyList (a) (MNil) (MCons a (MyList a)))
+(:: walk (-> (MyList Int) Int))
+(fn (walk l)
+  (let ((mut cur l) (mut acc 0) (mut go 1))
+    {
+      (while (== go 1)
+        (match cur
+          ((MCons h t) { (set acc (+ acc h)) (set cur t) })
+          ((MNil) (set go 0))))
+      acc
+    }))
+(:: deep (-> (Option (Option Int)) Int))
+(fn (deep o)
+  (match o
+    ((Some (Some x)) (+ x 1))
+    ((Some (None)) 1)
+    ((None) 0)))
+(:: main Int)
+(fn (main)
+  (+ (walk (MCons 10 (MCons 20 MNil)))
+     (deep (Some (Some 11)))))

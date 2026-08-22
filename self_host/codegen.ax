@@ -3002,8 +3002,14 @@
             (bodyHasMatch (nodeB e))
         (if (== tg TAG_E_SETF)
             (if (== (bodyHasMatch (nodeA e)) 1) 1 (bodyHasMatch (nodeC e)))
+        ; A `while`'s word 2 is its body VECTOR, not a node. Handed to
+        ; the node walk it read a Vec header as a tag and answered 0,
+        ; so a match inside a loop body got no scratch and `opt`
+        ; refused the undefined `%__scr.h` - loudly, as the comment
+        ; above promises, and in the program rather than the compiler
+        ; (the QA sweep's refutation pass, 2026-08-21).
         (if (== tg TAG_E_WHILE)
-            (if (== (bodyHasMatch (nodeA e)) 1) 1 (bodyHasMatch (nodeB e)))
+            (if (== (bodyHasMatch (nodeA e)) 1) 1 (bodyHasMatchVec (nodeB e)))
         (if (== tg TAG_E_FIELD)
             (bodyHasMatch (nodeA e))
         (if (== tg TAG_E_LAM)

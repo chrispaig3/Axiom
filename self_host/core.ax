@@ -137,10 +137,10 @@
 ; mark costs three bytes of offset and zero columns, which is the
 ; position an editor that hides it reports too. Asked of a LINE START
 ; rather than of the text, so a column on any later line is untouched.
-; `fmt` reads through its own scanner (`fscan`) and still refuses the
-; file - untouched, exit 1 - which is the one subcommand left that
-; does; `check`, `build`, `run`, `symbols` and the language server all
-; come through `lex`.
+; `fmt` reads through its own scanner (`fscan`) and lifts the mark off
+; before it, restoring it on the result (`fmtFormat`); `check`,
+; `build`, `run`, `symbols` and the language server all come through
+; `lex`.
 ; ------------------------------------------------------------------
 (pub :: pastBom (-> String Int Int))
 (pub fn (pastBom src lineStart)
