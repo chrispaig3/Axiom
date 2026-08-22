@@ -20,10 +20,12 @@ on:
   pull_request:
 
 # No `env:` block. It used to set `CARGO_TERM_COLOR` and `RUSTFLAGS: -D
-# warnings`, both of which outlived the Rust compiler they configured -
-# nothing in this repository runs cargo, so `-D warnings` was a
-# reproducibility promise no job could keep or break. The property it
-# claimed is gated for real by `scripts/check-reproducible.sh`.
+# warnings`, both of which outlived the Rust compiler they configured.
+# Cargo is back - the FFI workspace under `rust/` is a cargo workspace,
+# and the `ffi` job below builds and tests it - but a repository-wide
+# `-D warnings` is not the promise those crates want, and the
+# reproducibility property the old block claimed is gated for real by
+# `scripts/check-reproducible.sh`.
 
 jobs:
   # The cheap gate that fails first. It used to be `cargo fmt` and
@@ -69,32 +71,7 @@ jobs:
       # compiler shells out to it by name. `llvm-readobj` comes from the
       # same package and is what the cross-target gate uses to reject
       # non-position-independent objects.
-      - name: Install LLVM tools (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm clang
-          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
-      # `brew --prefix <formula>` prints the path a formula *would* be
-      # installed at and exits zero even when it is absent, so the
-      # previous one-liner appended a non-existent directory to PATH and
-      # reported success. The failure then surfaced one step later as
-      # `llc: command not found`. Install first, then resolve the prefix.
-      - name: Install LLVM tools (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install llvm
-          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
-      - run: llc --version
-
-      # Every gate below needs a compiler, and there is no longer one to
-      # build from source in the usual sense - the compiler IS the source.
-      # `bootstrap/` holds its LLVM IR, one file per target; this turns
-      # that into a working binary with `llc` and `cc` and nothing else,
-      # and installs it where every script's default `$AXIOM` looks.
-      # A failure here is the seed going stale: `scripts/reseed.sh`.
-      - name: Provision a compiler from the committed seed
-        run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin
+      - uses: ./.github/actions/provision
 
       # These cases were also run by the deleted Rust test suite, as
       # `stdlib_golden`. This script is now their only runner, which is
@@ -105,10 +82,10 @@ jobs:
       - name: Freestanding check
         run: ./scripts/check-freestanding.sh
 
-      # The only gate that exercises stage1 end to end. It runs in the
-      # matrix rather than on a single host because it compiles, assembles
-      # and *runs* the output of the self-hosted compiler, and both the
-      # syscall numbers and the object format are platform-specific.
+      # It runs in the matrix rather than on a single host because it
+      # compiles, assembles and *runs* the output of the self-hosted
+      # compiler, and both the syscall numbers and the object format are
+      # platform-specific.
       #
       # This replaces a `Game of Life` step that invoked
       # `scripts/check-game-of-life.sh`. That script was removed in
@@ -200,6 +177,14 @@ jobs:
       - name: Checking the compiler fits in a small stack
         run: ./scripts/check-stack-depth.sh
 
+      # A module's PRIVATE declarations must cost no more to resolve
+      # than its public ones. `findFnEnt` was indexed and its note
+      # recorded what was left linear on purpose - the private-name
+      # path - which is exactly the shape that rots unwatched. The gate
+      # was written, and then run by nobody for eight days.
+      - name: Private names resolve as cheaply as public ones
+        run: ./scripts/check-name-scale.sh
+
       # Two `axiom run`s in one directory must not corrupt each other.
       # The scratch name was a fixed literal in the working directory,
       # so concurrent runs overwrote each other's intermediates - and
@@ -220,38 +205,41 @@ jobs:
       - name: Formatter round-trip
         run: ./scripts/check-fmt.sh
 
-      # The self-hosted formatter is the same function as stage0's,
-      # measured: identical bytes and identical exit status over the
-      # whole corpus, the zoo three-way against the checked-in golden,
-      # and a parity bank of deliberate refusals - both compilers must
-      # refuse the same malformed inputs.
-      - name: Formatter parity between the compilers
+      # The formatter, pinned without a second compiler. This was a
+      # differential against the Rust `fmt` until that compiler was
+      # deleted - and a differential does not FAIL when its reference
+      # disappears, it passes by comparing a compiler with itself. So
+      # the reference is now a checked-in corpus golden keyed by source
+      # hash, plus the idempotence and preservation properties and the
+      # `tests/fmt/parity/*.axp` refusal bank.
+      - name: Formatter goldens, idempotence and refusals
         run: ./scripts/check-fmt-selfhost.sh
 
-      # explain and symbols, live and two-sided: every diagnostic code
-      # stage0 lists, and every .ax file's AXSYM output, byte-for-byte
-      # with matching exit statuses - the 49 broken fixtures are
-      # refusal-parity cases, not skips.
-      - name: CLI tool parity between the compilers
+      # `explain` and `symbols`, pinned without a second compiler: every
+      # code the corpus emits must be one `explain --list` lists, and
+      # every `.ax` file's AXSYM output is compared against a checked-in
+      # golden with its exit status, accepted and refused files counted
+      # live rather than against a hard-coded number.
+      - name: explain and symbols against their goldens
         run: ./scripts/check-tools-selfhost.sh
 
-      # stage1's native human diagnostic renderer: three-way against
-      # checked-in goldens, cross-checked against the AXDL goldens
-      # (which stage0 itself equalled), exit statuses DERIVED from the
-      # golden's own severity column, every quoted source row checked
-      # against the fixture, and the escape stream checked against the
-      # palette self_host/style.ax declares. Never a byte comparison
-      # with stage0's human output: that output was the `ariadne`
-      # crate's, an internal of the compiler being retired.
+      # The native human and JSON diagnostic renderers, pinned without a
+      # second compiler: checked-in goldens, cross-checked against the
+      # AXDL goldens, exit statuses DERIVED from the golden's own
+      # severity column, every quoted source row checked against the
+      # fixture, and the escape stream checked against the palette
+      # `self_host/style.ax` declares. Never a byte comparison with the
+      # Rust compiler's human output: that output was the `ariadne`
+      # crate's, an internal of a compiler that has been deleted.
       - name: Human and JSON diagnostic renderers
         run: ./scripts/check-render-selfhost.sh
 
-      # The self-hosted REPL against stage0's, piped session by piped
-      # session: byte-identical three-way for every deterministic
-      # surface, marker-pinned shape for :time/:llvm/:defs and the
-      # one recorded tyvar-leak divergence, stderr required empty and
-      # exit codes equal on both sides.
-      - name: REPL parity between the compilers
+      # The REPL, pinned without a second compiler: piped session by
+      # piped session against checked-in goldens, byte-exact for every
+      # deterministic surface and marker-pinned in shape for the ones
+      # that carry a time or an address (:time/:llvm/:defs), with
+      # stderr required empty and the exit code pinned.
+      - name: REPL sessions against their goldens
         run: ./scripts/check-repl-selfhost.sh
 
       # The language server. The first tool surface that is NOT a port
@@ -305,28 +293,56 @@ jobs:
       - name: Memory baseline (managed flat, unmanaged linear)
         run: ./scripts/check-memory-baseline.sh
 
+  # `rust/` is a cargo workspace with five crates, a trybuild suite and
+  # a bindgen snapshot suite, and `scripts/check-ffi.sh` is the gate
+  # `docs/memory-model.md` MM-FFI-5 requires - the one that enumerates
+  # the external symbols the FFI opens rather than forbidding all of
+  # them. None of it ran here: `tests/ffi/` (40 fixtures) was read by
+  # exactly one script, and that script was read by nothing. Which is
+  # the same gap this file's own risk note names - a tool with no CI
+  # gate is silently broken, as `fmt` was.
+  ffi:
+    name: FFI (${{ matrix.name }})
+    needs: grammar
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: darwin-aarch64
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/provision
+
+      # The three tiers the gate prices, the generated binding diffed
+      # against the checked-in one, the allowlist with its negative
+      # probes, and a Rust binary calling into an Axiom archive.
+      - name: The FFI opens exactly the door it declares
+        run: ./scripts/check-ffi.sh
+
+      # The crates' own suites: the classifier's unit tests, the
+      # 21-case trybuild bank of rejected `#[axiom_export]` shapes, and
+      # the bindgen snapshots. `axiom-host` is excluded because it
+      # links an Axiom archive that check-ffi.sh builds, not cargo.
+      - name: The FFI crates' own tests
+        run: cd rust && cargo test --workspace --exclude axiom-host
+
   cross:
     name: Cross-target codegen
     needs: grammar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm clang
-          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/provision
+
       # Every target's IR must at least assemble from a single host: the
       # standard library picks syscall numbers by target, and a typo in a
       # platform module is otherwise invisible until someone builds on
       # that platform.
-      # Every gate below needs a compiler, and there is no longer one to
-      # build from source in the usual sense - the compiler IS the source.
-      # `bootstrap/` holds its LLVM IR, one file per target; this turns
-      # that into a working binary with `llc` and `cc` and nothing else,
-      # and installs it where every script's default `$AXIOM` looks.
-      # A failure here is the seed going stale: `scripts/reseed.sh`.
-      - name: Provision a compiler from the committed seed
-        run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 
       - name: Assemble every target from one host
         run: ./scripts/check-cross-targets.sh
@@ -337,22 +353,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm clang
-          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/provision
+
       # `stage2 == stage3` is the criterion the whole self-hosting effort
       # is aimed at, and the script that checks it was in the tree but
       # wired into nothing - so a regression in it would have been found
       # by whoever next ran it by hand.
-      # Every gate below needs a compiler, and there is no longer one to
-      # build from source in the usual sense - the compiler IS the source.
-      # `bootstrap/` holds its LLVM IR, one file per target; this turns
-      # that into a working binary with `llc` and `cc` and nothing else,
-      # and installs it where every script's default `$AXIOM` looks.
-      # A failure here is the seed going stale: `scripts/reseed.sh`.
-      - name: Provision a compiler from the committed seed
-        run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 
       - name: stage2 and stage3 are byte-identical
         run: ./scripts/check-bootstrap.sh
@@ -363,18 +369,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm clang
-          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
-      # Every gate below needs a compiler, and there is no longer one to
-      # build from source in the usual sense - the compiler IS the source.
-      # `bootstrap/` holds its LLVM IR, one file per target; this turns
-      # that into a working binary with `llc` and `cc` and nothing else,
-      # and installs it where every script's default `$AXIOM` looks.
-      # A failure here is the seed going stale: `scripts/reseed.sh`.
-      - name: Provision a compiler from the committed seed
-        run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin
+      - uses: ./.github/actions/provision
 
       - name: Byte-identical output from two independent runs
         run: ./scripts/check-reproducible.sh
@@ -411,6 +406,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # Not `./.github/actions/provision`: that action ends by INSTALLING
+      # the result, and what this job tests is the build itself, on the
+      # two architectures where nothing else builds a seed from scratch.
       - name: Install LLVM tools (Linux)
         if: runner.os == 'Linux'
         run: |

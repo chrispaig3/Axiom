@@ -5,7 +5,7 @@
 //! that does not. Measured on darwin-aarch64, an Axiom executable linked
 //! against a `no_std` + `panic = "abort"` staticlib has an *empty*
 //! `nm -u`; the same program linked against a `std` staticlib imports 188
-//! symbols, 14 of them on `scripts/check-freestanding.sh`'s forbidden
+//! symbols, 18 of them on `scripts/check-freestanding.sh`'s forbidden
 //! list (`malloc`, `free`, `memcpy`, `strlen`, ...). Both link and run;
 //! only the first one is still freestanding.
 //!
@@ -14,7 +14,8 @@
 //! Every Axiom value is exactly one 64-bit word (`docs/memory-model.md`
 //! MM-VAL-1, invariant I1). Every Axiom function emits as
 //! `define i64 @name(i64, ...)` with no parameter attributes and no
-//! calling-convention marker (`self_host/codegen.ax:3014-3018`). So the
+//! calling-convention marker (the `"define i64 @"` header `emitFn`
+//! writes in `self_host/codegen.ax`). So the
 //! entire ABI is: **i64 in, i64 out, C calling convention**.
 //!
 //! # What Rust may and may not touch
@@ -59,10 +60,12 @@ pub const AX_NONE: AxStatus = 2;
 // ---------------------------------------------------------------------
 // The Axiom runtime symbols Rust is permitted to call.
 //
-// These four have EXTERNAL linkage in every emitted module
-// (`self_host/codegen.ax:2046`, `:2274`, `:2292`, `:1994`); the six
-// internal helpers are `define internal` and are deliberately not
-// declared here.
+// These four have EXTERNAL linkage in every emitted module - grep
+// `self_host/codegen.ax` for `define i64 @main`, `define i64
+// @axiom_alloc`, `define void @axiom_retain` and `define void
+// @axiom_release`. The internal helpers are emitted as
+// `define internal` (`__axiom_str_eq`, `__axiom_div_by_zero`,
+// `__axiom_arena_mark_fn`, ...) and are deliberately not declared here.
 // ---------------------------------------------------------------------
 extern "C" {
     /// Axiom's bump allocator. Returns a 16-byte-aligned block whose
@@ -92,7 +95,8 @@ extern "C" {
 /// Verified against `stdlib/Str.ax:126-141` — `strLen` reads word 0,
 /// `strData` word 1, `strOwner` word 2 — and against the emitted header
 /// static `{ i64, i64, i64, ptr, i64 }` whose element 2 is the value
-/// address (`self_host/codegen.ax:991-1040`). The block's own count and
+/// address (the `@strhdr_` constants the emitter writes for string
+/// literals). The block's own count and
 /// shape words sit at `-16` and `-8` from this address.
 #[repr(C)]
 #[derive(Debug)]
@@ -237,7 +241,8 @@ impl<'a> AxStr<'a> {
 ///
 /// A fallible shim cannot return two words: Axiom emits `ret i64` for
 /// every function and has no syntax or codegen path for a wider return
-/// (`self_host/codegen.ax:3014`, `:3128-3131`). It cannot use a global
+/// (every emitted header is `define i64 @...` and every return is
+/// `ret i64`). It cannot use a global
 /// last-error slot either without making every call site order-dependent.
 /// So the caller passes a cell, the shim writes the payload into it, and
 /// the status word is the return.

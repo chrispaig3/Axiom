@@ -1,8 +1,10 @@
 ; The tier that matters most: an FFI program that is STILL freestanding.
 ;
-; `rust/examples/nostd` is `#![no_std]`, its `alloc` is wired to
-; `axiom_alloc`, and it defines the seven memory intrinsics the
-; precompiled sysroot `alloc` rlib would otherwise import. Measured,
+; `rust/examples/nostd` is `#![no_std]` and its `alloc` is wired to
+; `axiom_alloc`. The six memory intrinsics the precompiled sysroot
+; `alloc` rlib would otherwise import - memcpy, memmove, memset,
+; memcmp, bzero, strlen - come from `axiom-ffi`'s `nostd-runtime`
+; feature (`nostd_runtime.rs`), not from the example crate. Measured,
 ; an Axiom executable linked against it has an EMPTY `nm -u` - the same
 ; answer a program with no `extern` at all gives.
 ;
@@ -13,15 +15,23 @@
 ; The value is checked against an independent implementation rather
 ; than merely printed, so a wrong byte-slice layout fails here instead
 ; of looking like a hash.
+; The binding is IMPORTED rather than hand-declared. It used to be
+; hand-declared, and the consequence was that `rust/examples/nostd/axiom/Hash.ax`
+; - regenerated and diffed by this gate - was never compiled into a
+; program: `repeatByte`, the only wrapper that reaches Rust's
+; `alloc::vec!` through `axiom_alloc`, was generated, diffed, and never
+; run. A generated module with no consumer is a golden, not a binding.
 (import IO)
-(import Fmt)
-
-(pub extern "axiom_nostd"
-  (fnv1a :: (-> String Int) (symbol "axffi_fnv1a")))
+(import Str)
+(import Hash)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (if (== (fnv1a "axiom") 7929549642058804759)
-      { (println "fnv1a: agree") 0 }
-      { (println (fmtInt (fnv1a "axiom"))) 1 }))
+  (if (!= (fnv1a "axiom") 7929549642058804759)
+      1
+      ; `repeatByte` allocates in Rust's `alloc` on Axiom's arena and
+      ; hands the bytes back through the out-cell protocol.
+      (if (strEq (repeatByte 65 3) "AAA")
+          { (println "nostd: agree") 0 }
+          2)))
 ; expect 0

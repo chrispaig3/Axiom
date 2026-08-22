@@ -869,18 +869,6 @@ fn collection_free(p: &Payload) -> Ex {
 }
 
 /// The payload a direct cell-carried return carries.
-fn direct_payload(r: &Ret) -> Payload {
-    match r {
-        Ret::Bytes => Payload::Bytes,
-        Ret::Words(s) => Payload::Words(*s),
-        Ret::WordLists(s) => Payload::WordLists(*s),
-        Ret::Strs => Payload::Strs,
-        Ret::Record(r) => Payload::Record(r.clone()),
-        Ret::Records(r) => Payload::Records(r.clone()),
-        _ => unreachable!("not a direct cell-carried return"),
-    }
-}
-
 /// The cell a wrapper allocates: `ffiCellNew` for the two-word
 /// protocols, `(ffiCellNewN n)` for a record of `n` words.
 fn cell_new(ret: &Ret) -> Ex {
@@ -990,7 +978,7 @@ impl Decl {
             Ret::Scalar(s) => s.axiom_type().to_string(),
             Ret::Opaque(o) => o.name.clone(),
             Ret::Bytes | Ret::Words(_) | Ret::WordLists(_) | Ret::Strs | Ret::Record(_)
-            | Ret::Records(_) => payload_axiom_type(&direct_payload(&self.ret)),
+            | Ret::Records(_) => payload_axiom_type(&self.ret.direct_payload()),
             Ret::Result(p) => format!("(Result {} String)", payload_axiom_type(p)),
             Ret::Option(p) => format!("(Option {})", payload_axiom_type(p)),
             Ret::ResultOption(p) => format!("(Result (Option {}) String)", payload_axiom_type(p)),
@@ -1129,7 +1117,7 @@ impl Decl {
                 Ex::Let(binds, Box::new(Ex::Block(vec![cell_free, atom("__r")])))
             }
             Ret::Bytes | Ret::Words(_) | Ret::WordLists(_) | Ret::Strs | Ret::Records(_) => {
-                let payload = direct_payload(&self.ret);
+                let payload = self.ret.direct_payload();
                 call.push(atom("__c"));
                 binds.push(("__c".into(), atom("ffiCellNew")));
                 binds.push(("__st".into(), app(call)));

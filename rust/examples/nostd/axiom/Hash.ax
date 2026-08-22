@@ -3,8 +3,6 @@
 
 (pub extern "axiom_nostd"
   (fnv1a :: (-> String Int) (symbol "axffi_fnv1a"))
-  (probeFirst :: (-> String Int) (symbol "axffi_probe_first"))
-  (probeLen :: (-> String Int) (symbol "axffi_probe_len"))
   (repeatByteRaw :: (-> Int Int Int Int) (symbol "axffi_repeat_byte")))
 
 (pub :: repeatByte (-> Int Int String))

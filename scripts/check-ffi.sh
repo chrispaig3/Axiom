@@ -109,7 +109,8 @@ for crate_dir in rust/examples/*/; do
   [[ "$crate" == "leaky" ]] && continue
 
   # `examples/nostd` is its own workspace (cargo unifies features across
-  # members, and std's `panic_impl` collides with its `#[panic_handler]`),
+  # members, and std's `panic_impl` collides with the one the
+  # `nostd-runtime` feature defines),
   # so it is built by manifest path and its artifacts land under its own
   # target directory.
   if grep -q '^\[workspace\]' "$crate_dir/Cargo.toml"; then

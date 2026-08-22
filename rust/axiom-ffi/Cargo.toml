@@ -13,7 +13,7 @@ axiom-ffi-macros = { workspace = true }
 # `std` is the DEFAULT because it is what makes the ecosystem reachable:
 # most crates worth binding are std crates. It costs the freestanding
 # property - measured, an Axiom executable linked against a std staticlib
-# imports 188 symbols, 14 of them on check-freestanding.sh's forbidden
+# imports 188 symbols, 18 of them on check-freestanding.sh's forbidden
 # list - which is exactly what the opt-in FFI gate exists to account for.
 #
 # `no_std` keeps the property intact: the same executable linked against

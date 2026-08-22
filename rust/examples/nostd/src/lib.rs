@@ -42,13 +42,3 @@ pub fn repeat_byte(b: i64, n: i64) -> alloc::vec::Vec<u8> {
     alloc::vec![b as u8; n]
 }
 
-/// Diagnostic probes: what does Rust actually see for an Axiom String?
-#[axiom_export]
-pub fn probe_len(data: &[u8]) -> i64 {
-    data.len() as i64
-}
-
-#[axiom_export]
-pub fn probe_first(data: &[u8]) -> i64 {
-    if data.is_empty() { -1 } else { data[0] as i64 }
-}

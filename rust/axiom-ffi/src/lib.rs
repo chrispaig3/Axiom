@@ -684,7 +684,7 @@ pub mod __private {
             abort(format_args!("`{func}`: argument {idx} (`{name}`: &[{record}]) is not a Vec: 0"));
         }
         let s = AxVec::from_raw(word).as_slice();
-        if s.len() % R::ARITY != 0 {
+        if !s.len().is_multiple_of(R::ARITY) {
             abort(format_args!(
                 "`{func}`: argument {idx} (`{name}`: &[{record}]) holds {} words, not a multiple \
                  of the record's {} fields",

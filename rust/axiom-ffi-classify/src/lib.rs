@@ -125,22 +125,6 @@ impl Scalar {
         }
     }
 
-    /// An integer narrower than the word: the shim range-checks it on
-    /// the way in (and widens losslessly on the way out).
-    pub fn is_narrow_int(self) -> bool {
-        matches!(
-            self,
-            Scalar::I32
-                | Scalar::I16
-                | Scalar::I8
-                | Scalar::U32
-                | Scalar::U16
-                | Scalar::U8
-                | Scalar::Usize
-                | Scalar::Isize
-        )
-    }
-
     pub fn is_float(self) -> bool {
         matches!(self, Scalar::F64 | Scalar::F32)
     }
@@ -345,6 +329,25 @@ impl Ret {
         }
     }
 
+    /// The payload a DIRECT (non-status) cell-carried return puts in
+    /// the cell. The sibling of `status_payload`, for the shapes that
+    /// have no status word.
+    ///
+    /// Both the proc-macro and the binding generator had a private copy
+    /// of this match, under the same name - which is the drift this
+    /// crate's own header says it exists to prevent.
+    pub fn direct_payload(&self) -> Payload {
+        match self {
+            Ret::Bytes => Payload::Bytes,
+            Ret::Words(s) => Payload::Words(*s),
+            Ret::WordLists(s) => Payload::WordLists(*s),
+            Ret::Strs => Payload::Strs,
+            Ret::Record(r) => Payload::Record(r.clone()),
+            Ret::Records(r) => Payload::Records(r.clone()),
+            _ => unreachable!("only the cell-carried shapes are direct payloads"),
+        }
+    }
+
     /// The number of words the out-cell must hold: two for every
     /// protocol (a `(ptr, len)` pair, a message), a record's arity when
     /// that is more.
@@ -358,10 +361,6 @@ impl Ret {
         };
         arity.max(2)
     }
-}
-
-fn type_text(ty: &Type) -> String {
-    quote_type(ty)
 }
 
 fn quote_type(ty: &Type) -> String {
@@ -393,7 +392,7 @@ fn path_last(ty: &Type) -> Option<(&syn::PathSegment, String)> {
 /// The single generic argument of `Seg<T>`, if that is the shape.
 fn single_generic(seg: &syn::PathSegment) -> Option<&Type> {
     if let PathArguments::AngleBracketed(a) = &seg.arguments {
-        if a.args.len() >= 1 {
+        if !a.args.is_empty() {
             if let GenericArgument::Type(t) = &a.args[0] {
                 return Some(t);
             }
@@ -430,7 +429,7 @@ pub fn classify_param(ty: &Type) -> Result<Param, String> {
 /// named type (a record's fields; an opaque type, which is refused by
 /// value).
 pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, String> {
-    let text = type_text(ty);
+    let text = quote_type(ty);
     match ty {
         Type::Reference(r) => {
             let mutable = r.mutability.is_some();
@@ -653,7 +652,7 @@ where
 {
     let mut out = Vec::new();
     for (name, ty) in fields {
-        let text = type_text(ty);
+        let text = quote_type(ty);
         let scalar = match path_last(ty) {
             Some((seg, tn)) if seg.arguments.is_none() => Scalar::from_name(&tn),
             _ => None,
@@ -716,7 +715,7 @@ fn classify_payload(
     whole: &str,
     registry: &dyn Registry,
 ) -> Result<Payload, String> {
-    let text = type_text(ty);
+    let text = quote_type(ty);
     match ty {
         Type::Tuple(t) if t.elems.is_empty() => Ok(Payload::Scalar(Scalar::Unit)),
         Type::Reference(_) => Err(refuse_return(
@@ -866,7 +865,7 @@ pub fn classify_return(ty: Option<&Type>) -> Result<Ret, String> {
 /// type (a record's fields, else an opaque handle).
 pub fn classify_return_with(ty: Option<&Type>, registry: &dyn Registry) -> Result<Ret, String> {
     let Some(ty) = ty else { return Ok(Ret::Scalar(Scalar::Unit)) };
-    let whole = type_text(ty);
+    let whole = quote_type(ty);
     if let Some((outer, inner)) = status_wrapper(ty) {
         let inner = inner.ok_or_else(|| {
             refuse_return(
@@ -1078,15 +1077,20 @@ pub struct OpaqueAttr {
 }
 
 /// A refused attribute: the offending meta (for a span) and the message.
+///
+/// The meta is boxed. A `syn::Meta` is over 250 bytes, and this type is
+/// the `Err` half of three `Result`s on the hot parse path, so every
+/// successful call was paying for the failure's payload
+/// (clippy::result_large_err).
 pub struct AttrError {
-    pub meta: Option<Meta>,
+    pub meta: Option<Box<Meta>>,
     pub message: String,
 }
 
 fn string_value(m: &Meta, key: &str, what: &str) -> Result<String, AttrError> {
     let Meta::NameValue(nv) = m else {
         return Err(AttrError {
-            meta: Some(m.clone()),
+            meta: Some(Box::new(m.clone())),
             message: format!("`{key}` takes a value: `{key} = \"{what}\"`"),
         });
     };
@@ -1094,7 +1098,7 @@ fn string_value(m: &Meta, key: &str, what: &str) -> Result<String, AttrError> {
         Ok(s.value())
     } else {
         Err(AttrError {
-            meta: Some(m.clone()),
+            meta: Some(Box::new(m.clone())),
             message: format!("`{key}` must be a string literal: `{key} = \"{what}\"`"),
         })
     }
@@ -1122,7 +1126,7 @@ where
                 let v = string_value(m, "symbol", "axffi_name")?;
                 if !is_c_ident(&v) {
                     return Err(AttrError {
-                        meta: Some(m.clone()),
+                        meta: Some(Box::new(m.clone())),
                         message: format!(
                             "`symbol = \"{v}\"` is not a linker symbol: use letters, digits \
                              and `_`, not starting with a digit"
@@ -1138,7 +1142,7 @@ where
                     "strict" => Utf8::Strict,
                     other => {
                         return Err(AttrError {
-                            meta: Some(m.clone()),
+                            meta: Some(Box::new(m.clone())),
                             message: format!(
                                 "`utf8 = \"{other}\"` is not a policy; the policies are \
                                  `\"lossy\"` (replace invalid sequences) and `\"strict\"` \
@@ -1151,7 +1155,7 @@ where
             other => {
                 let shown = if other.is_empty() { "<non-identifier>".to_string() } else { other.to_string() };
                 return Err(AttrError {
-                    meta: Some(m.clone()),
+                    meta: Some(Box::new(m.clone())),
                     message: format!(
                         "unknown `axiom_export` key `{shown}`; the keys are {EXPORT_KEYS}"
                     ),
@@ -1175,7 +1179,7 @@ where
                 let v = string_value(m, "symbol", "stem")?;
                 if !is_c_ident(&v) {
                     return Err(AttrError {
-                        meta: Some(m.clone()),
+                        meta: Some(Box::new(m.clone())),
                         message: format!(
                             "`symbol = \"{v}\"` is not a symbol stem: use letters, digits \
                              and `_`, not starting with a digit"
@@ -1187,7 +1191,7 @@ where
             other => {
                 let shown = if other.is_empty() { "<non-identifier>".to_string() } else { other.to_string() };
                 return Err(AttrError {
-                    meta: Some(m.clone()),
+                    meta: Some(Box::new(m.clone())),
                     message: format!(
                         "unknown `axiom_opaque` key `{shown}`; the only key is {OPAQUE_KEYS}"
                     ),
@@ -1360,7 +1364,6 @@ mod tests {
         assert!(matches!(classify_return(Some(&ty("Result<char, String>"))), Ok(Ret::Result(Payload::Scalar(Scalar::Char)))));
         assert_eq!(Scalar::Char.axiom_type(), "Char");
         assert_eq!(Scalar::U64.axiom_type(), "Int");
-        assert!(!Scalar::U64.is_narrow_int());
         assert!(Scalar::U64.is_word_sized() && Scalar::F64.is_word_sized() && Scalar::I64.is_word_sized());
         assert!(!Scalar::Char.is_word_sized() && !Scalar::U32.is_word_sized());
         // Two words fit nowhere, and the message says what to do.
@@ -1402,7 +1405,7 @@ mod tests {
         // Named types and unresolved ones are reported from every position.
         let ps = classify_param(&ty("&[Point]")).unwrap();
         let ret = classify_return(Some(&ty("Option<Vec<Line>>"))).unwrap();
-        let names: Vec<String> = named_types(&[ps.clone()], &ret).iter().map(type_text).collect();
+        let names: Vec<String> = named_types(std::slice::from_ref(&ps), &ret).iter().map(quote_type).collect();
         assert_eq!(names, vec!["Point", "Line"]);
         assert_eq!(unresolved_records(&[ps], &ret), vec!["Point", "Line"]);
         let resolved = classify_param_with(&ty("&[Point]"), &Table).unwrap();
@@ -1418,12 +1421,12 @@ mod tests {
         assert!(matches!(classify_param(&ty("&[&[i64]]")), Ok(Param::WordLists(Scalar::I64))));
         assert!(matches!(classify_param(&ty("&[&[bool]]")), Ok(Param::WordLists(Scalar::Bool))));
         for bad in ["Vec<Vec<String>>", "Vec<Vec<Point>>", "Vec<Vec<Vec<i64>>>", "Option<Vec<Vec<String>>>"] {
-            let e = classify_return(Some(&ty(bad))).err().expect(bad);
+            let e = classify_return(Some(&ty(bad))).expect_err(bad);
             assert!(e.contains("one level of word scalars"), "{bad}: {e}");
             assert!(e.contains(RETURN_TYPES), "{e}");
         }
         for bad in ["&[&[&str]]", "&[&[Point]]", "&[&[&[i64]]]"] {
-            let e = classify_param(&ty(bad)).err().expect(bad);
+            let e = classify_param(&ty(bad)).expect_err(bad);
             assert!(e.contains("one level of word scalars"), "{bad}: {e}");
             assert!(e.contains(PARAM_TYPES), "{e}");
         }
@@ -1437,7 +1440,7 @@ mod tests {
         assert!(matches!(classify_param(&ty("&mut [f64]")), Ok(Param::MutWords(Scalar::F64))));
         assert!(matches!(classify_param(&ty("&mut [u64]")), Ok(Param::MutWords(Scalar::U64))));
         for bad in ["&mut [i32]", "&mut [u8]", "&mut [bool]", "&mut [char]", "&mut [f32]", "&mut [Point]", "&mut [&str]"] {
-            let e = classify_param(&ty(bad)).err().expect(bad);
+            let e = classify_param(&ty(bad)).expect_err(bad);
             assert!(e.contains("take `&[T]` and return a `Vec<T>`"), "{bad}: {e}");
             assert!(e.contains("could not be written back as the same words"), "{e}");
         }
@@ -1464,7 +1467,7 @@ mod tests {
             "Option<Option<i64>>",
             "Result<Option<Result<i64, E>>, E>",
         ] {
-            let e = classify_return(Some(&ty(bad))).err().expect(bad);
+            let e = classify_return(Some(&ty(bad))).expect_err(bad);
             assert!(e.contains("three states"), "{bad}: {e}");
             assert!(e.contains(RETURN_TYPES), "{e}");
         }
@@ -1475,11 +1478,11 @@ mod tests {
     #[test]
     fn refusals_list_the_set() {
         for bad in ["u128", "String", "Option<i64>", "&mut str", "&i64", "(i64, i64)", "&[String]", "&mut [i32]", "&[&[&str]]", "&AxFn1", "Wrapper<i64>"] {
-            let e = classify_param(&ty(bad)).err().expect(bad);
+            let e = classify_param(&ty(bad)).expect_err(bad);
             assert!(e.contains(PARAM_TYPES), "{e}");
         }
         for bad in ["i128", "Vec<u128>", "Vec<Vec<String>>", "Result<Option<Option<i64>>, String>", "&str", "Option<()>", "AxFn1"] {
-            let e = classify_return(Some(&ty(bad))).err().expect(bad);
+            let e = classify_return(Some(&ty(bad))).expect_err(bad);
             assert!(e.contains(RETURN_TYPES), "{e}");
         }
     }
@@ -1568,7 +1571,7 @@ mod tests {
             ("struct P { n: u128 }", "split it into two `u64`s"),
             ("struct P { }", "at least one field"),
         ] {
-            let e = fields(src).err().expect(src);
+            let e = fields(src).expect_err(src);
             assert!(e.contains(why), "{src}: {e}");
             if !src.ends_with("{ }") {
                 assert!(e.contains(RECORD_FIELD_TYPES), "{e}");
@@ -1583,7 +1586,7 @@ mod tests {
         let ret = classify_return(Some(&ty("Option<Point>"))).unwrap();
         let names: Vec<String> = named_types(&[point.clone(), line, point], &ret)
             .iter()
-            .map(type_text)
+            .map(quote_type)
             .collect();
         assert_eq!(names, vec!["Point", "Line"]);
         assert!(named_types(&[Param::Str], &Ret::Bytes).is_empty());
@@ -1622,19 +1625,19 @@ mod tests {
         // a unit, String, Result or Option result answers `i`.
         assert_eq!(sig_symbol("axffi_shout", &[Param::Str], &Ret::Bytes), "axffi_shout__sig_si_i");
         assert_eq!(sig_tags(&[Param::Bytes], &Ret::Result(Payload::Scalar(Scalar::F64))), "si_i");
-        assert_eq!(sig_tags(&[i.clone()], &Ret::Option(Payload::Opaque(classify_opaque()))), "ii_i");
-        assert_eq!(sig_tags(&[i.clone()], &Ret::Scalar(Scalar::Unit)), "i_i");
+        assert_eq!(sig_tags(std::slice::from_ref(&i), &Ret::Option(Payload::Opaque(classify_opaque()))), "ii_i");
+        assert_eq!(sig_tags(std::slice::from_ref(&i), &Ret::Scalar(Scalar::Unit)), "i_i");
         // Floats carry their bits; everything else is a word.
         assert_eq!(sig_tags(&[f.clone(), f], &Ret::Scalar(Scalar::F64)), "ff_f");
         assert_eq!(sig_tags(&[b, narrow, opaque], &Ret::Scalar(Scalar::F32)), "iii_f");
         // Handles answer their address: a word. Callbacks are `c`, a
         // `Vec` parameter is its handle word.
-        assert_eq!(sig_tags(&[i.clone()], &Ret::Opaque(classify_opaque())), "i_i");
+        assert_eq!(sig_tags(std::slice::from_ref(&i), &Ret::Opaque(classify_opaque())), "i_i");
         assert_eq!(sig_tags(&[Param::Callback(1), i.clone()], &Ret::Scalar(Scalar::I64)), "ci_i");
         assert_eq!(sig_tags(&[Param::Callback(2), i.clone(), i.clone(), i.clone()], &Ret::Scalar(Scalar::I64)), "ciii_i");
         assert_eq!(sig_tags(&[Param::Words(Scalar::I64)], &Ret::Scalar(Scalar::I64)), "i_i");
         assert_eq!(sig_tags(&[Param::Words(Scalar::F64), Param::Strs], &Ret::Words(Scalar::Bool)), "iii_i");
-        assert_eq!(sig_tags(&[i.clone()], &Ret::Words(Scalar::I64)), "ii_i");
+        assert_eq!(sig_tags(std::slice::from_ref(&i), &Ret::Words(Scalar::I64)), "ii_i");
         assert_eq!(sig_tags(&[Param::Str], &Ret::Strs), "si_i");
         // A record parameter is one tag per field (`f` for a float
         // field); a record result is a cell word and a unit answer.

@@ -1,0 +1,47 @@
+name: Provision an Axiom compiler
+description: >
+  Install the LLVM tools the gates shell out to, then turn the committed
+  seed into a working compiler at .axiom-bin/axiom.
+
+# Five jobs in ci.yml opened with these same two steps, and the LLVM
+# install was pasted into all five while the six-line comment above the
+# provisioning step was pasted into four - including two jobs that run a
+# single sub-minute script underneath it. A composite action is the only
+# way GitHub Actions lets a workflow say a sequence once.
+runs:
+  using: composite
+  steps:
+    # `llc` is not on the default PATH on either runner image, and the
+    # compiler shells out to it by name. `llvm-readobj` comes from the
+    # same package and is what the cross-target gate uses to reject
+    # non-position-independent objects.
+    - name: Install LLVM tools (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y llvm clang
+        echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+    # `brew --prefix <formula>` prints the path a formula *would* be
+    # installed at and exits zero even when it is absent, so the version
+    # of this that resolved the prefix first appended a non-existent
+    # directory to PATH and reported success - surfacing one step later
+    # as `llc: command not found`. Install first, then resolve.
+    - name: Install LLVM tools (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew install llvm
+        echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+    - shell: bash
+      run: llc --version
+
+    # Every gate needs a compiler, and there is no longer one to build
+    # from source in the usual sense - the compiler IS the source.
+    # `bootstrap/` holds its LLVM IR, one file per target; this turns
+    # that into a working binary with `llc` and `cc` and nothing else,
+    # and installs it where the shared gate preamble's default `$AXIOM`
+    # looks. A failure here is the seed going stale: `scripts/reseed.sh`.
+    - name: Provision a compiler from the committed seed
+      shell: bash
+      run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin

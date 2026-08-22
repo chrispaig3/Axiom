@@ -3,7 +3,9 @@
 # Cargo unifies features across workspace members built together. With
 # this crate inside the root workspace, a plain `cargo build` enables
 # `axiom-ffi/std` - because `axiom-demo` asks for it - and std's
-# `panic_impl` then collides with this crate's `#[panic_handler]`:
+# `panic_impl` then collides with the one `axiom-ffi`'s `nostd-runtime`
+# feature defines (the facade's own `compile_error!` catches the
+# combination first, but the collision is what it is guarding):
 #
 #   error[E0152]: found duplicate lang item `panic_impl`
 #

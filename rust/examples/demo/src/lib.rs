@@ -13,7 +13,8 @@ pub fn add(a: i64, b: i64) -> i64 {
 }
 
 // 2. A float. Axiom carries a Float as its IEEE-754 bits in an i64
-//    (codegen.ax:4793-4801), so the shim does `f64::from_bits` in and
+//    (`emitFlt`, the TAG_E_FLT arm in codegen.ax), so the shim does
+//    `f64::from_bits` in and
 //    `to_bits` out. Both are free at runtime.
 #[axiom_export]
 pub fn hypot(x: f64, y: f64) -> f64 {

@@ -46,7 +46,9 @@ license = "MIT"
 axiom-abi = { path = "axiom-abi", version = "0.1.0" }
 axiom-ffi-macros = { path = "axiom-ffi-macros", version = "0.1.0" }
 axiom-ffi-classify = { path = "axiom-ffi-classify", version = "0.1.0" }
-syn = { version = "2", features = ["full", "extra-traits", "parsing", "printing", "visit"] }
+# `parsing` and `printing` are syn defaults; the `visit` visitor API is
+# used by none of the three crates that parse Rust here.
+syn = { version = "2", features = ["full", "extra-traits"] }
 quote = "1"
 proc-macro2 = "1"
 

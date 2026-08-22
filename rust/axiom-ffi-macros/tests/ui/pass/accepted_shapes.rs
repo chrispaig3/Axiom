@@ -531,7 +531,7 @@ fn main() {
     assert_eq!(cell.extra, 0);
     assert_eq!(take_words(&cell), Vec::<i64>::new());
     // Strings out: (pairs, n).
-    let text = AxStrRepr { len: 9, data: b"ab cd efg ".as_ptr(), owner: 0 };
+    let text = AxStrRepr { len: 9, data: b"ab cd efg\0".as_ptr(), owner: 0 };
     assert_eq!(axffi_words(ax_str(&text), cell_word(&mut cell)), AX_OK);
     assert_eq!(take_strs(&cell), vec!["ab", "cd", "efg"]);
     // Words in: an Axiom Vec handle, len at word 0 and data at word 2.
@@ -547,7 +547,7 @@ fn main() {
     assert_eq!(take_bytes(&cell), b"negative");
     assert_eq!(axffi_maybe_words(ax_str(&text), cell_word(&mut cell)), AX_OK);
     assert_eq!(take_strs(&cell).len(), 3);
-    let none = AxStrRepr { len: 0, data: b" ".as_ptr(), owner: 0 };
+    let none = AxStrRepr { len: 0, data: b"\0".as_ptr(), owner: 0 };
     assert_eq!(axffi_maybe_words(ax_str(&none), cell_word(&mut cell)), AX_NONE);
 
     // Records: a parameter is one word per field, a result is ARITY

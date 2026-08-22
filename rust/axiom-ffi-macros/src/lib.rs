@@ -4,7 +4,8 @@
 //! `#[axiom_export]` generates a `#[no_mangle] pub extern "C"` shim
 //! whose signature is entirely `i64`s, because that is Axiom's whole
 //! ABI: every value is one 64-bit word and every emitted function is
-//! `define i64 @name(i64, ...)` (`self_host/codegen.ax:3014-3018`).
+//! `define i64 @name(i64, ...)` (the header `emitFn` writes in
+//! `self_host/codegen.ax`).
 //! The shim is the only `unsafe` the crate author does not write. It
 //! converts words to Rust types on the way in, calls the real function,
 //! and converts back on the way out.
@@ -557,7 +558,8 @@ fn classify_signature(
             &func.sig.generics,
             "an exported function must be monomorphic: an Axiom `extern` may not be \
              polymorphic, because a polymorphic Axiom function grows a hidden trailing \
-             evidence word (codegen.ax:3008-3021) that must never reach Rust.",
+             evidence word (the trailing `i64 %__evw.h` codegen.ax adds \
+              to a polymorphic function) that must never reach Rust.",
         ));
     }
     if func.sig.variadic.is_some() {
@@ -860,7 +862,7 @@ fn expand_shim(
         let tail = match &ret {
             Ret::Bytes | Ret::Words(_) | Ret::WordLists(_) | Ret::Strs | Ret::Record(_)
             | Ret::Records(_) => {
-                let store = store_payload(&direct_payload(&ret));
+                let store = store_payload(&ret.direct_payload());
                 quote! {
                     let v = #body_call;
                     #store
@@ -953,18 +955,6 @@ fn expand_shim(
 }
 
 /// The payload a direct cell-carried return stores.
-fn direct_payload(r: &Ret) -> Payload {
-    match r {
-        Ret::Bytes => Payload::Bytes,
-        Ret::Words(s) => Payload::Words(*s),
-        Ret::WordLists(s) => Payload::WordLists(*s),
-        Ret::Strs => Payload::Strs,
-        Ret::Record(r) => Payload::Record(r.clone()),
-        Ret::Records(r) => Payload::Records(r.clone()),
-        _ => unreachable!("only the cell-carried shapes are direct payloads"),
-    }
-}
-
 /// `v` (a scalar expression) to the word it crosses as. A `u64` and
 /// a `char` are the plain `as` cast like every integer: the bits, and
 /// the code point.

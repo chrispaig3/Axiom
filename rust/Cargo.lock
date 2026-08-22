@@ -11,7 +11,6 @@ name = "axiom-bindgen"
 version = "0.1.0"
 dependencies = [
  "axiom-ffi-classify",
- "proc-macro2",
  "syn 2.0.119",
 ]
 
@@ -34,7 +33,6 @@ dependencies = [
 name = "axiom-ffi-classify"
 version = "0.1.0"
 dependencies = [
- "proc-macro2",
  "quote",
  "syn 2.0.119",
 ]
