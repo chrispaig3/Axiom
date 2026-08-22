@@ -18,13 +18,16 @@
 ;       iteration's string dies at the next store: the release walks
 ;       the header, the header's map walks to the bytes, and both
 ;       file. Unfixed, every iteration leaks both.
-;   16  the overwritten value's count reaches 0 - measured on the
-;       header, not inferred from the flatness.
-;    8  and the stored value's reaches 1.
+;   16  the overwritten value's count reaches 1 - measured on the
+;       header, not inferred from the flatness. One, not zero: the
+;       `let` that bound it holds the share `strDup` answered (event
+;       2, 2026-08-21) until its scope ends, which is after the probe.
+;    8  and the stored value's reaches 2: the let's and the field's.
 ;    4  `(set e.f e.f)` SURVIVES. Retain-then-release is the order,
 ;       so a self-assignment cannot free what it just stored; the
 ;       string still reads its own first byte afterwards.
-;    2  an `Int` field is not a reference and takes none of this: the
+;    2  an `Int` field is not a reference and takes none of this (the
+;       String beside it reads 2 for the reason term 16 gives): the
 ;       classification is `fldClass`'s, the same one that decided the
 ;       block's map, so the release set and the walk set cannot
 ;       disagree.
@@ -78,8 +81,8 @@
         (let ((sl (struct Slot a 0)))
           {
             (set sl.s b)
-            (set acc (+ acc (* 16 (b2i (== (cnt a) 0)))))
-            (set acc (+ acc (* 8 (b2i (== (cnt b) 1)))))
+            (set acc (+ acc (* 16 (b2i (== (cnt a) 1)))))
+            (set acc (+ acc (* 8 (b2i (== (cnt b) 2)))))
             (set steps (+ steps 1))
           }))
       ; --- 4: a self-assignment is not a free ---------------------
@@ -95,7 +98,7 @@
         (let ((sl (struct Slot d 7)))
           {
             (set sl.n 9)
-            (set acc (+ acc (* 2 (b2i (&& (== sl.n 9) (== (cnt d) 1))))))
+            (set acc (+ acc (* 2 (b2i (&& (== sl.n 9) (== (cnt d) 2))))))
             (set steps (+ steps 1))
           }))
       (if (== steps 4) (+ acc 1) acc)

@@ -1,0 +1,1 @@
+E AX3005 999-bool-column.ax:15:21-22 non-exhaustive-match "non-exhaustive pattern match: missing false" #"this `match` does not cover: false" ?"add the missing arms, or a wildcard `_` arm to catch the rest"

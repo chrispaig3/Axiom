@@ -138,7 +138,21 @@ codegen, not delegated to LLVM. Measured: a self-recursive loop of
 
 The tail positions recognised are exactly: the expression itself, both
 arms of an `if`, the last expression of a `{}` block, every `match` arm,
-and every `cond` clause. **A `let` body is not a tail position.**
+every `cond` clause, and — since 2026-08-22 — **the body of a `let`**
+(and of a `mut` binding; not a `while` body or an `&&`/`||` operand). The
+`let` body was excluded for two defects that following stage0's
+omission avoided: a `mut` binding inside the loop re-ran its `alloca`
+each iteration — every `alloca` a function emits now sits in its entry
+block, so a `mut` binding inside any loop allocates once per activation
+(measured: 5,000,000 iterations at `--opt 0`, where the body-block
+`alloca` overflowed) — and a local shadowing the function's own name
+was rewritten as a jump — the emitter resolves a call's head as a local
+before it considers the rewrite, and a `let` binding the name itself is
+never a tail. What made the inclusion necessary: `MM-LIFE-2c` event 3
+releases a `let`'s owned temporary AFTER the call its body makes, and
+that release is exactly what stopped LLVM's sibling-call pass from
+rescuing `(let ((s (strConcat s "x"))) (grow s (- n 1)))` — 200,000
+deep, it overflowed the stack where the leaking compiler had not.
 
 > `docs/reference.md` attributed this to LLVM until 2026-08-14 — "at
 > `--opt 0` each recursive iteration costs a stack frame; `--opt 1` …
@@ -164,8 +178,8 @@ SIGSEGV (status 139).
 > today's binary and those loops are self tail calls. The comment now
 > quotes its old reason as history and keeps the spelling for the rule
 > that outlives it: the `while` needs no optimisation to be flat, and
-> `MM-EXEC-6c` means a mutual or let-bound respelling would still be
-> unsafe.
+> `MM-EXEC-6c` means a mutual respelling would still be unsafe (a
+> let-bound one is a jump since 2026-08-22).
 
 **MM-EXEC-7 (R).** A top-level function **MUST NOT** be partially
 applied. It has no closure record to hold the missing arguments, and
@@ -1588,19 +1602,18 @@ to the block, whose death hands it back, so
 a string the allocator had already scrubbed. A `match` BINDER is the
 same field under another name, and is asked the same question in the
 match's own position - value, or, for a `set` RHS and a lambda,
-any. And a CALL in value position whose arguments mention the
-binding escapes unless its head cannot answer a reference - an
-operator, a primitive, or a GLOBAL function whose signature's result
-is a machine scalar (`(-> Pair Int)` still releases the `Pair`; a
-parameter or local that merely shares the name is a value nothing
-signed) - because
-event 2's retain-on-return is not shipped (below): `(fn (ident s) s)`
-hands its argument straight back, and a constructor head is the same
-case one event over - a tyvar-typed field without an evidence stamp
-takes no share. A `let` whose initialiser may alias the block asks
-the question again of its own binder. Each of these leaks where it
-used to free early; `tests/selfhost/997-let-box-value-escapes.ax`
-holds the seven spellings.
+any. And a CALL whose arguments mention the binding escapes when
+the callee STASHES that parameter, or - in value position, for a
+callee whose result is a word - may answer it (the callee's own flow
+masks, "Where an argument goes" below); a callee whose result is a
+counted reference answers a share of its own (event 2, shipped the
+same day, below), so the argument's is untouched. A parameter or
+local that merely shares a global's name is a function value
+nothing signed, and every argument it is given escapes. A `let`
+whose initialiser may alias the block asks the question again of its
+own binder. Each of these leaks where it used to free early;
+`tests/selfhost/997-let-box-value-escapes.ax` holds the eight
+spellings.
 
 Measured, all five directions. A record built, read and dropped:
 20,000 calls move the bump **256 bytes where they moved 640,224**. A
@@ -1620,44 +1633,208 @@ functions that return `Int`-declared handles, which is the same reason
 `MM-LIFE-2e`'s acceptance measurements cannot move. The event is for
 programs, not for this one.
 
-**Event 2 is implemented, measured, and NOT shipped — and the
-measurement is the reason.** The paragraph that stood here said event
-2 was blocked on a node-to-type table: codegen has no type for a `let`
-binding, so it cannot tell whether a call's result is a reference. That
-was true and it was cheap to fix — the checker knows `initTy` at the
-`let` it is checking, and word 6 of a `let` node is free (an
-application's word 6 already carries the evidence stamp of a
-polymorphic call, which is why a GENERAL node-to-type table cannot live
-there, but a `let` is never a call). Three lines, one store per
-binding, and the emitted IR is byte-identical.
-
-With that in hand both halves were built: event 2 retaining a
-reference result before every return, and event 3 releasing a `let`
-bound to a call whose declared result is a reference. Then they were
-measured on this compiler:
+**Events 2 and 3 ship, with owned temporaries, since 2026-08-21 —
+and the measurement that declined them for a year was measuring the
+wrong thing.** The paragraph that stood here recorded the pair as
+built and measured: retain every reference result before returning
+it, release a `let` bound to such a call, and
 
 | | before | after |
 |---|---|---|
-| release sites in the compiler's own IR | 112 | **120** |
-| retain sites | 335 | **620** |
-| self-compile peak RSS | 535 MiB | **535 MiB** |
-| self-compile wall clock | 6.3 s | **6.9 s** |
+| release sites in the compiler's own IR | 112 | 120 |
+| retain sites | 335 | 620 |
+| self-compile peak RSS | 535 MiB | 535 MiB |
+| self-compile wall clock | 6.3 s | 6.9 s |
 
-**285 new retains to enable 8 new releases, 9.5% of a self-compile,
-and not one byte reclaimed.** So the pair is not shipped, and the
-reason is neither the analysis nor the table: it is that this corpus
-holds its references behind `Int`-declared handles, so a type-directed
-event has nothing to fire on. That is the same finding as the Life
-probe and as the LSP's per-message AST garbage, arrived at a third
-way — from the emitting side rather than the consuming one — and it is
-now a number rather than an expectation.
+— 285 retains for 8 releases and nothing reclaimed, so not shipped.
+The 285 were real and the diagnosis was wrong. That version retained
+EVERY tail that was not a direct construction, and a string that
+`strConcat` builds is born through `__alloc` at count **0** — free-
+floating, owned by nobody until a store takes the first share (the
+`A1` comment in `storeCountOneAt` says so: constructors birth at 1,
+raw allocation and `strWrap` stay at 0 and "the type-gated machinery
+supplies their +1 elsewhere"). Retaining such a result to 1 is not a
+leak, it is the adoption the allocator left for the type layer to
+perform; what leaked was retaining *again* every result that already
+carried a share, and what reclaimed nothing was releasing only
+`let`-bound results while every argument-position temporary kept its
+share forever. The pair is sound and cheap once the emitter can tell
+the three cases apart, and it can, by three fixpoints over the call
+graph (`inferOwnership`, `inferFlows` in codegen.ax):
 
-What would change the answer is the corpus, not the compiler: the day
-`Vec`, `Map` and `ASTNode` name their element types, the ratio inverts
-and the pair is three small diffs away. The node-to-type table the
-language server wants for hover is a separate, larger thing — a type
-per NODE, which word 6 cannot carry — and this experiment says nothing
-about its cost.
+- **Who owns a result.** A signed global's result is OWNED when every
+  tail the body can answer is a construction, a literal (statics are
+  immortal), a lambda, or a call to a reference-returning global —
+  which by this very rule answers one share — and BORROWED when some
+  tail is a parameter, a field read, a match binder, a raw load, or a
+  raw allocation. Greatest fixpoint, so recursion through an
+  owned-result function stays owned. A reference-returning global
+  retains each borrowed tail **leaf** as it is emitted — per leaf,
+  not at `ret`, so a body owned on one branch and borrowed on another
+  retains the borrowed branch only. That is event 2, exact: every
+  reference-returning global hands its caller exactly one share, and
+  `strWrapOwned`'s `(cast String s)` of a raw allocation is where
+  every string is adopted, once.
+- **Who releases it.** Event 3 releases a `let` bound to any OWNED
+  reference value — a direct construction, a call to a
+  reference-returning global applied at its arity, joined over `if`,
+  `cond`, `match`, `let` and a block — unless the walk below says it
+  escapes. An owned value discarded in statement position is released
+  on the spot. An owned temporary passed to a global whose result is a
+  word or a reference is released once the call returns; one stored
+  into a constructor's or struct's reference field, which retained it,
+  right after the store; a `match`'s owned scrutinee after the merge
+  when no binder escapes.
+- **Where an argument goes.** The one thing a callee can do to an
+  argument that counting does not see is ERASE its type: park it in a
+  field declared `Int` through a `cast`, in a mutable slot through
+  `set`, in raw memory through `__store64`, in a closure's record, or
+  hand it to a callee that does one of those — `mkDiag` parks its
+  message through `(cast Int msg)`. So each signed global carries a
+  STASH mask (the parameters it parks that way; a `__retainref` or
+  `__retain` of the parameter makes the store counted and cancels the
+  bit — `memSetWord`, `mkNode`, `strSlice`) and a RET mask (the
+  parameters whose reference may be part of a WORD it answers —
+  through `cast`, `__addr`, `strData`, `strOwner`, or a 64-bit load
+  of a header word past index 0; word 0 of a handle is a length, a
+  header's own count and shape words are numbers, and a byte is
+  never a pointer, so `strLen`, `strByte` and a count probe are
+  scalars). Least fixpoints. Each mask has THREE forms per parameter:
+  as it arrived (a typed reference, or a type variable's value), as
+  a HEADER WORD (laundered through `cast`, `__addr` or arithmetic; an
+  `Int` parameter is one already), and as an OWNER WORD (`strData`,
+  `strOwner`, a header word past index 0: a pointer to or into the
+  block the string's header owns). `__retainref` counts a typed
+  arrival only; `__retain` counts what it is given — a header in
+  both header forms, an owner as the owner — and a count cancels a
+  park of the SAME thing: `strSlice` and `sysReadAll` retain the
+  owner and park the owner, and are balanced; a retain of the owner
+  licenses no park of the header, which two forms could not say, and
+  a match binder's `__retainref` never stands for its scrutinee —
+  a count is credited only to what the retained expression MUST be:
+  the parameter, a `cast` of it, a `let` alias of one of those, and
+  one parameter only, never a field, a binder or a join. A callee's
+  arrival bit and its owner bit are STRONG parks (whatever it is
+  given is parked, uncounted — an owner word is never what
+  `__retainref` counted, so `(__store64 m 0 (strData s))` keeps a
+  typed `s` alive at the call, at the loop's boundary and at its
+  exit); its header bit is WEAK (parked only when a header word
+  arrives, the typed arrival being counted), so `memSetWord` of a
+  typed string is counted and `memSetWord` of `(cast Int s)` parks
+  `s` however it arrived, and a polymorphic `put` forwarding its
+  parameter to `memSetWord` inherits the weak bit. A `mut` slot's
+  flow is its initialiser joined with every `set` in its scope, to a
+  fixpoint, so what is parked or answered through the slot is seen;
+  arithmetic and `&&`/`||` pass their position to their operands. The word-taking heads look THROUGH a
+  reference-returning call or a construction to its arguments —
+  `(strOwner (strSlice s 1 3))` is the owner of `s`. And the count
+  pairs with the stash per PATH: every `if` arm, `cond` test, `cond`
+  body, `while` condition, `while` body, `match` arm, right operand
+  of `&&`/`||`, and `handle` handler is a region, and a count cancels
+  a stash in its own region or one it encloses, never a sibling's,
+  never the test it does not dominate — a `cond` test parks on the
+  false path where its body's count never runs, and a `handle`
+  naming only built-in effects never evaluates its handler. A
+  temporary is not released past a callee that stashes or answers
+  it, and the escape walk treats such an argument as the binding
+  escaping; a `(set k v)` escapes the binding when `v` flows it or
+  parks it (a lambda capturing it, a constructor's word field, a
+  callee that stashes), not when `v` is a length computed from it.
+  Retaining at every `cast` instead was measured and rejected:
+  `strLen` and `strData` are casts, and every string in the compiler
+  grew a share per read.
+
+The self-tail-call boundary retains each new slot value, releases an
+owned temporary's own share, and releases the old slot value — except
+a parameter passed through AS ITSELF, the shape of every linear scan,
+whose slot keeps the block it had (skipped when the name still
+resolves to the slot, paid when a `let` shadows it), and except a
+parameter the function PARKS a word of (its own STASH mask —
+`parseModPathRest` hands `acc` to `pOk`, which stores it through a
+`cast`): the slot's share is the stash's keeper, so neither the
+boundary nor the return path takes it back, and the parked value is
+exactly one share. Two more keep their slot's share: a parameter
+the function ANSWERS A WORD OF (`(cast Int s)` as a tail — the word
+has no other keeper, so the block leaks rather than dangles), and a
+TYPE-VARIABLE parameter of a self-tail-calling function, whose slot
+takes no class-directed retain at the boundary. That slot, and every
+`Int` slot of such a function, is treated as a park: what flows into
+it — a `let`'s word through a helper, a parameter's header — is
+never released at the jump or by the caller, the leak direction,
+until the boundary retains by evidence.
+A function value — a bare reference to a top-level function — is
+born at count 1 like a lambda: born at 0, a record it was stored in
+adopted it and freed it under the frame still calling it. Read through the loop's name that the function
+epilogue had already cleared, that mask was 0 at every `ret`, and the
+fixed compiler's first self-build resolved no import: `pOk`'s parked
+module name was freed at the parser's return.
+That skip is what made the reclaiming compiler faster than the
+leaking one rather than slower: measured before it, the new releases
+in the scans cost 1.7 → 2.1 s. And the release walk has NO DEPTH: a
+dead record is linked into a dead list through its own count word —
+dead storage from that moment, and the free-list link once it files —
+and the drain pops one record at a time, releases what its map names
+(a child that dies joins the list, it is never recursed into), then
+files it. No recursion, no auxiliary stack, one word the block already
+owns. The recursive walk took the process down on a 400,000-cell list
+(`tests/selfhost/700-tco.ax`); deferring the last field did the same
+for a link that was not last; a 4,096-entry worklist with a recursive
+fallback did the same for `(Cons String L)`, whose every level left a
+string pending until the chain ended (170,000 levels). Measured now: a
+1,000,000-cell list in either field order, a 400,000-level caterpillar
+tree, a 20-deep full tree, dropped whole, in 0.45 s and 129 MiB
+(`tests/selfhost/994-deep-release-first-field.ax`).
+
+Measured on the compiler compiling itself, emit-llvm of
+`self_host/main.ax`, same machine and load for both: **2.93 s → 1.94
+s**, **314 → 248 MiB peak**, 143 → 5,817 release sites, 399 → 559
+retain sites, `stage2 == stage3`. The compiler got a third faster and
+a fifth smaller because it now reclaims its own strings and stops
+counting what a scan passes through. Measured
+on programs, bytes the arena grows per iteration over 10,000
+iterations (`tests/stdlib/372-arc-owned-results.ax`, six shapes: a
+record with a `fmtInt`+`strConcat` String field read through an
+accessor; `(strLen (fmtInt i))`; a `let`-bound `strConcat`; a record
+with a static field; `(Some (fmtInt i))` matched; a String answered
+borrowed through two helpers): **0, 0, 0, 0, 0, 0**, where the
+previous compiler measured 80, 80, 80, 0, 112, 0. The instrument is
+the mark cell's BUMP word, not the cell's address: the cell is a
+24-byte block, and once anything that size has died the allocator
+hands the next cell out from a free list, so two cells' addresses
+say nothing about growth under reclamation (the fixture compared
+addresses until 2026-08-22, and read its zeros by the accident of
+the same block coming back; by the bump word the previous compiler
+reads 80, then crosses chunks).
+
+Event 4's other end shipped with it: the TCO prologue retained every
+reference parameter into its slot and the boundary kept the slots
+balanced per jump, but nothing gave the last iteration's shares back,
+so every self-recursive function leaked one share of each reference
+parameter per call; they are released on the return path now, after
+the tail leaf took its own. And a temporary handed to a self tail
+call hands its share back after the boundary retain, as after any
+call.
+
+A join is owned when every arm is: a construction, a static, a call to
+a reference-returning global — and a nullary constructor, `None` or
+`Nil`, an immediate that costs nothing to release, so `(if c (Some x)
+None)` gives its `Some` back (104 bytes per iteration before). A `set`
+escapes a binding only when the binding or a word of it reaches the
+slot, not a length or a sum computed from it.
+
+What is still leaked, each the leak direction and each narrower than
+before: a temporary passed to a primitive, to a `cast`, to a local
+function value, or to a function whose result is a type variable
+(none of those retains what it hands back); a temporary a `match`
+binder escapes from; a temporary stored through `set`; a `let` whose
+value is a field of the block it binds; a join of an owned temporary
+with a BORROWED arm (a parameter, a field) stored into a field — the
+field retains, and the owned arm's birth share has no path back; a
+closure's captures, which the closure record takes and never returns;
+a polymorphic self-tail-call loop matching an owned `(Some x)`. A function whose result is a
+type variable retains nothing on return, so a `let` bound to
+`(vecGet v i)` is never released — the container convention this
+compiler is written in stays where it was.
 
 **The blocker was two numbers, and it is solved.** Probed
 2026-08-15, before: a `String` whose header count reads 0, pushed into
@@ -1859,7 +2036,14 @@ per-variable witness codes (constant 0, constant 1, or *bit k of
 the caller's own word*), MEETING over every occurrence — any
 disagreement, cast-rooted argument, or unclassifiable witness
 collapses to 0, because first-occurrence-wins was a wrong-free
-generator on programs the checker accepts. Codegen passes the word
+generator on programs the checker accepts. A PLACEHOLDER occurrence
+says nothing and is the meet's identity (since 2026-08-22): inside
+`(fn (singleton x) (PCons x (PNil)))` the `(PNil)` argument's `(PL
+_t)` met x's bit k as "a scalar" and collapsed the site to 0, so the
+cell stored x uncounted with no map bit while the flow model trusted
+the store (event 6), and the caller released the temporary under it
+— inert while nothing released, a use-after-free once events 2/3
+shipped. Codegen passes the word
 at every direct call (presence signature-driven, value
 stamp-driven), lambdas capture it as an ordinary capture, a
 self-tail-call recomputes it into a slot beside the parameters',

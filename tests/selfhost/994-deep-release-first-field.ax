@@ -1,0 +1,17 @@
+; expect 42
+; A dead block's reference fields are handed back by a WORKLIST, not
+; by recursion: the release walk keeps its pending blocks on an
+; explicit stack, so the depth of what dies never matters - and the
+; link is the FIRST field here, the shape a deferred-last-field loop
+; still recursed on. Four 400,000-cell lists are built and dropped;
+; the recursive walk overflowed the stack at this length.
+(import IO)
+(import Str)
+(data L (Nil) (Cons L String))
+(:: build (-> Int L L))
+(fn (build n acc) (if (== n 0) acc (build (- n 1) (Cons acc (fmtInt n)))))
+(:: len (-> L Int Int))
+(fn (len l acc) (match l ((Nil) acc) ((Cons r _) (len r (+ acc 1)))))
+(:: go (-> Int Int))
+(fn (go i) (if (== i 0) 0 { (let ((l (build 400000 (Nil)))) (len l 0)) (go (- i 1)) }))
+(fn (main) { (go 3) (if (== (len (build 400000 (Nil)) 0) 400000) 42 1) })

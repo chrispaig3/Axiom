@@ -2700,11 +2700,11 @@ size. Both walks are `while` loops rather than self tail calls, for the
 reason `stdlib/Mem.ax` records at length — their depth is the size of
 the data, and a standard library must not owe its stack safety to an
 optimisation: a self tail call in these shapes tends to land in a `let`
-body, which is not a tail position under the compiler's own rewrite
-(`docs/memory-model.md` MM-EXEC-6b/6c), and then survives only through
-LLVM's passes at `--opt 1`+. (This sentence blamed "stage1 emits no
-tail-call elimination", which stopped being true when self-TCO landed
-in the compiler's own codegen.)
+body, which was not a tail position under the compiler's own rewrite
+until 2026-08-22 (`docs/memory-model.md` MM-EXEC-6b/6c), and until then
+survived only through LLVM's passes at `--opt 1`+. (This sentence
+blamed "stage1 emits no tail-call elimination", which stopped being
+true when self-TCO landed in the compiler's own codegen.)
 
 **The shape mattered more than the constant.** At `(bytes × lines) / 2`,
 every module added to `self_host/` paid for itself twice: the compiler
@@ -3622,10 +3622,10 @@ symbolised to `lexer$scanAxtagsFrom`.
 It is the same finding as `lexTokens`/`dispatchChar`: a walk written as
 recursion in a shape the compiler's own rewrite does not reach — a
 direct self tail call is a loop at every `--opt` level
-(`docs/memory-model.md` MM-EXEC-6b), but mutual and let-bound tail
-calls are free only where LLVM's passes turn them into a jump
-(MM-EXEC-6c), and a stage1-built binary that has not been through
-`opt` does not get them. `check-self-host.sh` deliberately runs `llc`
+(`docs/memory-model.md` MM-EXEC-6b, and a let-bound one too since
+2026-08-22), but mutual tail calls are free only where LLVM's passes
+turn them into a jump (MM-EXEC-6c), and a stage1-built binary that has
+not been through `opt` does not get them. `check-self-host.sh` deliberately runs `llc`
 without `opt`, so that is exactly the binary under test. Rewritten as
 a `while`, its depth is constant.
 
@@ -7083,15 +7083,17 @@ assertion that every name in the accept chain appears in `--help`.
 
 `scripts/check-stack-depth.sh`, new 2026-08-10.
 
-This backend eliminates only **self** tail calls, and a `let` body is not
-a tail position (`codegen.ax`'s `tailCallsSelf`, deliberately — following
-it re-executed `alloca` per iteration for `mut` bindings). So
+This backend eliminates only **self** tail calls, and until 2026-08-22
+a `let` body was not a tail position (`codegen.ax`'s `tailCallsSelf`,
+deliberately — following it re-executed `alloca` per iteration for
+`mut` bindings; every `alloca` sits in the entry block now, and the
+`let` body is a tail position). So, when this was written,
 
 ```scheme
 (let ((e (vecGet v i))) (if ... e (recur ...)))
 ```
 
-costs one real stack frame per loop iteration, and that is the shape
+cost one real stack frame per loop iteration, and that is the shape
 almost all of `typecheck.ax` is written in — a file with **no `while` at
 all** — so a dozen of its table walks are one frame per table entry.
 

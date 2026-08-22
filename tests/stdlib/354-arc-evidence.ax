@@ -24,10 +24,11 @@
 ;        box around s, and each box's SYMBOLIC field retain - gated
 ;        by the evidence bit at run time - left a share on s. Only
 ;        the thunk probe did not (its word is 0). So s reads
-;        strDup's 0, plus five field retains, plus two explicit
-;        ones, minus the released box's walk: 6. The pre-events
-;        compiler emits no field retains and never walks - it reads
-;        2 and fails here.
+;        strDup's 1 (it answered 0 until 2026-08-21, when event 2
+;        began adopting the free-floating header it builds), plus
+;        five field retains, plus two explicit ones, minus the
+;        released box's walk: 7. The pre-events compiler emits no
+;        field retains and never walks - it reads 3 and fails here.
 ;
 ; The pre-EVIDENCE compiler answers 82: every tyvar cell is a leaf
 ; (the 4-expecting probes pass, the mapped ones fail, and the walk
@@ -145,7 +146,7 @@
                   (-
                     (cast Int s)                    16
                   )                  0
-                )                6
+                )                7
               )
             )
           ))

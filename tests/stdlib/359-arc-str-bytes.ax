@@ -20,7 +20,9 @@
 ;       and the payload does not: the same run reads 80,304.
 ;   16  the same chain, one level and no loop: the payload block a
 ;       dead string owned is handed back to the very next request of
-;       its size class.
+;       its size class. ONE `__release` kills it: `wide` answers the
+;       header at count 1 since 2026-08-21 (event 2 adopts it), where
+;       a retain/release pair used to take it 0 -> 1 -> 0.
 ;    8  a slice keeps its parent's bytes alive BY ARITHMETIC. The
 ;       parent header dies while the slice lives, and the slice still
 ;       reads 'c' - the owner's count went 2 -> 1, not 2 -> 0. This
@@ -85,7 +87,6 @@
       (let ((d (wide 0)))
         (let ((ba (strData d)))
           {
-            (__retain (cast Int d))
             (__release (cast Int d))
             (set acc (+ acc (* 16 (b2i (== (memAlloc 49) ba)))))
             (set steps (+ steps 1))
@@ -95,10 +96,8 @@
         (let ((s (strSlice p 2 3)))
           (let ((pd (strData p)))
             {
-              (__retain (cast Int p))
               (__release (cast Int p))
               (set acc (+ acc (* 8 (b2i (== (strByte s 0) 99)))))
-              (__retain (cast Int s))
               (__release (cast Int s))
               (set acc (+ acc (* 4 (b2i (== (memAlloc 9) pd)))))
               (set steps (+ steps 1))
@@ -106,7 +105,6 @@
       ; --- 2: owner 0 releases harmlessly -------------------------
       (let ((u (strWrap (__addr "unowned") 7)))
         {
-          (__retain (cast Int u))
           (__release (cast Int u))
           (set acc (+ acc (* 2 (b2i (== (strLen "unowned") 7)))))
           (set steps (+ steps 1))

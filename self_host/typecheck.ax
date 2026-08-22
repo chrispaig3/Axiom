@@ -596,7 +596,14 @@
                       0
                       (let ((k (evNameVecIdx sv (nodeA t))))
                         (if (< k 0) 0 (+ 2 k)))))
-                0)
+                ; a placeholder says NOTHING about the class, and the
+                ; meet must not hear it as "a scalar": inside
+                ; `(fn (singleton x) (PCons x (PNil)))` the `(PNil)`
+                ; argument's `(PL _t)` met x's bit k and collapsed the
+                ; site to 0, so the cell stored x uncounted with no map
+                ; bit while the flow model trusted the store (event 6)
+                ; and the caller released the temporary under it
+                (- 0 1))
         (if (== tg TAG_T_ARR)
             1
         (if (== tg TAG_T_TUP)
@@ -620,9 +627,11 @@
 ; integer in the cell frees the integer.
 (pub :: evMeet (-> Int Int Int))
 (pub fn (evMeet old new)
-  (if (== old (- 0 1))
-      new
-      (if (== old new) old 0)))
+  (if (== new (- 0 1))
+      old
+      (if (== old (- 0 1))
+          new
+          (if (== old new) old 0))))
 
 ; Instantiate AND stamp: same answer as tyInst, plus a TAG_EVSTAMP
 ; on the reference node when the declaration has type variables. A
@@ -4337,7 +4346,7 @@
                   ; diagnostic and dereferenced 5 as a header under the
                   ; content comparison (the QA sweep's refutation
                   ; pass). Pinning mints nothing.
-                  (pinArg (nodeB funcTy) (nodeA funcTy) argTy)
+                  (pinShape (nodeB funcTy) (nodeA funcTy) argTy)
                 }
                 (if (== (tyIsErr funcTy) 1)
                     funcTy
@@ -4356,6 +4365,45 @@
 ; variable is never pinned (it is rigid, and `tyCompat` has already
 ; judged it); a placeholder, poison or the silent wildcard on the
 ; argument side pins nothing, since it would only rename an unknown.
+; `pinArg` through the parameter's SHAPE: a placeholder under an
+; arrow or a constructor - `(-> (-> a b) a b)` applied to `inc`, whose
+; type is `(-> Int Int)` - is pinned from the matching subtree of the
+; argument's type. The walk stops where the shapes stop agreeing.
+(pub :: pinShape (-> Int Int Int Int))
+(pub fn (pinShape rest param argTy)
+  (if (|| (== param 0) (== argTy 0))
+      rest
+      (let ((pt (nodeTag param)))
+        (if (== pt TAG_T_VAR)
+            (pinArg rest param argTy)
+        (if (== pt TAG_T_ARR)
+            (if (== (nodeTag argTy) TAG_T_ARR)
+                (pinShape (pinShape rest (nodeA param) (nodeA argTy))
+                          (nodeB param) (nodeB argTy))
+                rest)
+        (if (== pt TAG_T_CON)
+            (if (&& (== (nodeTag argTy) TAG_T_CON)
+                    (&& (strEq (nodeA param) (nodeA argTy))
+                        (== (vecLen (nodeB param)) (vecLen (nodeB argTy)))))
+                (pinShapeVec rest (nodeB param) (nodeB argTy) 0)
+                rest)
+        (if (== pt TAG_T_TUP)
+            (if (&& (== (nodeTag argTy) TAG_T_TUP)
+                    (== (vecLen (nodeA param)) (vecLen (nodeA argTy))))
+                (pinShapeVec rest (nodeA param) (nodeA argTy) 0)
+                rest)
+        (if (== pt TAG_T_LIST)
+            (if (== (nodeTag argTy) TAG_T_LIST)
+                (pinShape rest (nodeA param) (nodeA argTy))
+                rest)
+            rest))))))))
+
+(pub :: pinShapeVec (-> Int Int Int Int Int))
+(pub fn (pinShapeVec rest ps as i)
+  (if (>= i (vecLen ps))
+      rest
+      (pinShapeVec (pinShape rest (vecGet ps i) (vecGet as i)) ps as (+ i 1))))
+
 (pub :: pinArg (-> Int Int Int Int))
 (pub fn (pinArg rest param argTy)
   (if (|| (== param 0) (== argTy 0))
@@ -6482,6 +6530,41 @@
       }))
 
 ; D(P): rows whose first column binds unconditionally, minus it.
+; Is the column's type exactly `Bool`?
+(pub :: tyIsBoolTy (-> Int Int))
+(pub fn (tyIsBoolTy t)
+  (if (== t 0)
+      0
+      (if (!= (nodeTag t) TAG_T_CON)
+          0
+          (if (strEq (nodeA t) "Bool") 1 0))))
+
+; Any row whose first column is the literal `lit`.
+(pub :: colHasBoolLit (-> Int String Int Int))
+(pub fn (colHasBoolLit matrix lit i)
+  (if (>= i (vecLen matrix))
+      0
+      (let ((p (vecGet (vecGet matrix i) 0)))
+        (if (&& (== (nodeTag p) TAG_E_VAR) (strEq (nodeA p) lit))
+            1
+            (colHasBoolLit matrix lit (+ i 1))))))
+
+; S(lit, P) for a Bool literal: the rows that test `lit`, and the
+; binder rows, minus the column.
+(pub :: matBoolRows (-> Int String Int Int Int))
+(pub fn (matBoolRows matrix lit acc i)
+  (if (>= i (vecLen matrix))
+      acc
+      {
+        (let ((row (vecGet matrix i)))
+          (let ((p (vecGet row 0)))
+            (if (|| (== (patIrrefutable p) 1)
+                    (&& (== (nodeTag p) TAG_E_VAR) (strEq (nodeA p) lit)))
+                (vecPush acc (rowTail row))
+                0)))
+        (matBoolRows matrix lit acc (+ i 1))
+      }))
+
 (pub :: matDefault (-> Int Int Int Int))
 (pub fn (matDefault matrix acc i)
   (if (>= i (vecLen matrix))
@@ -6504,13 +6587,35 @@
                         (findData tc (nodeA ty))
                         0)))
           (if (== dent 0)
+              ; `Bool` is the one non-data column with an enumerable
+              ; value set: `true` and `false` are two nullary
+              ; constructors as far as coverage goes, and a column is
+              ; total when both rows exist or a binder does. Until
+              ; 2026-08-21 only the top-level `armsBoolComplete`
+              ; special case knew this, so `((Some true) ..) ((Some
+              ; false) ..) ((None) ..)` over `(Option Bool)` was
+              ; AX3005.
+              (if (== (tyIsBoolTy ty) 1)
+                  (if (== (colHasWild matrix 0) 1)
+                      (matExhaustive tc (matDefault matrix vecNew 0) rest missOut)
+                      (if (&& (== (colHasBoolLit matrix "true" 0) 1)
+                              (== (colHasBoolLit matrix "false" 0) 1))
+                          (if (== (matExhaustive tc (matBoolRows matrix "true" vecNew 0) rest missOut) 0)
+                              0
+                              (matExhaustive tc (matBoolRows matrix "false" vecNew 0) rest missOut))
+                          { (memSetWord missOut 0
+                              (let ((m vecNew))
+                                { (if (== (colHasBoolLit matrix "true" 0) 0) (vecPush m "true") 0)
+                                  (if (== (colHasBoolLit matrix "false" 0) 0) (vecPush m "false") 0)
+                                  m }))
+                            0 }))
               ; Nothing enumerable in this column: only a binder covers
               ; it. `Int`, `String`, a type variable and an unresolved
               ; name all land here, which is why a literal arm never
               ; makes a match total on its own.
               (if (== (colHasWild matrix 0) 1)
                   (matExhaustive tc (matDefault matrix vecNew 0) rest missOut)
-                  { (memSetWord missOut 0 vecNew) 0 })
+                  { (memSetWord missOut 0 vecNew) 0 }))
               (let ((missing (matMissing matrix (memGetWord dent 1) vecNew 0)))
                 (if (> (vecLen missing) 0)
                     ; An incomplete constructor set is covered only by

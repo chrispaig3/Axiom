@@ -13,8 +13,10 @@
 ;        count 4, and ONE map bit - word 1, the String (131072 + 8)
 ;    64  releasing the pair spends its birth share: the walk returns
 ;        the String's field retain, and the count a double __retain
-;        raised reads 2 after the pair dies - strDup births at 0,
-;        two retains and the field store made 3, the walk took 1
+;        raised reads 3 after the pair dies - strDup ANSWERS at 1
+;        since 2026-08-21 (event 2 adopts the free-floating header
+;        it built; it read 0 before), two retains and the field
+;        store made 4, the walk took 1
 ;    32  a type-variable field with an INTEGER witness reads the
 ;        leaf: (BoxOne 5) is count 2 with an empty map (354 probes
 ;        the String side)
@@ -91,7 +93,7 @@
                     (-
                       (cast Int s)                      16
                     )                    0
-                  )                  2
+                  )                  3
                 )
               )
             )

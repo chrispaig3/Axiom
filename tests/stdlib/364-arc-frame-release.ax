@@ -47,8 +47,14 @@
 ;       291,328 bytes over 5,000. This is the one the permissive half
 ;       of the walk makes possible and therefore the one it has to
 ;       refuse
-;   16  a record RETURNED rather than read is not released: 160,224
-;       bytes over 5,000
+;   16  a record RETURNED from `keep` and read by `readA` IS released
+;       since 2026-08-22: event 2 hands the caller exactly one share,
+;       `readA` is signed `(-> Pair Int)` and answers a scalar field -
+;       no word of its parameter - so the temporary is released after
+;       the call, and 5,000 of them move the bump under 4,096 bytes.
+;       Until then this term asserted the OPPOSITE, 160,224 bytes over
+;       5,000, because event 2 was unshipped and a returned record had
+;       no release path
 ;    8  a record built, PASSED TO A FUNCTION, and dropped IS released:
 ;       20,000 calls move the bump 256 bytes where they moved 640,224.
 ;       This is what the positional walk buys over "field reads only"
@@ -63,8 +69,10 @@
 ; `stdlib/` bind a direct construction at all, because the corpus
 ; builds its records through `mk*` functions returning `Int`-declared
 ; handles. That is the same reason MM-LIFE-2e's acceptance
-; measurements cannot move, and it is why MM-LIFE-2c's event 2 is
-; implemented, measured and NOT shipped - see the rule.
+; measurements cannot move. (Event 2 was declined on that count for a
+; year and shipped on 2026-08-21 once the emitter could tell an
+; adopted share from a second one - 372-arc-owned-results.ax is its
+; fixture, and the 8 bit here still stands: `total` answers a word.)
 ;
 ; Two ablations, because this fixture pins two commits' worth of rule.
 ; The compiler that predates the event answers 115 - both flatness
@@ -230,7 +238,7 @@
         {
           (sumEscaped 5000 0)
           (let ((d2 (memAlloc 200)))
-            (set acc (+ acc (* 16 (b2i (grew d1 d2)))))
+            (set acc (+ acc (* 16 (b2i (< (- d2 d1) 4096)))))
           )
           (set steps (+ steps 1))
         }

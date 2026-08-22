@@ -1,0 +1,18 @@
+; `Bool` is the one non-data column the exhaustiveness matrix can
+; enumerate: `true` and `false` are two nullary constructors as far
+; as coverage goes. Until 2026-08-21 only the top-level
+; `armsBoolComplete` special case knew it, so a `Bool` nested in a
+; constructor was coverable by nothing but a binder, and the complete
+; `full` below was AX3005 "some values are not covered".
+;
+;   line 15: `(Some true)` with no `(Some false)`   AX3005, missing false
+;
+; `full` emits nothing: both literals and `None` are present.
+(:: full (-> (Option Bool) Int))
+(fn (full o) (match o ((Some true) 1) ((Some false) 2) ((None) 0)))
+
+(:: half (-> (Option Bool) Int))
+(fn (half o) (match o ((Some true) 1) ((None) 0)))
+
+(:: main Int)
+(fn (main) 0)

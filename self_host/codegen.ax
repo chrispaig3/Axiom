@@ -12,6 +12,10 @@
 (import diag)
 (import expand)
 (import render)
+; `Intern`: the O(1) indexes `emitResolved` builds over the signature
+; table and the mangle map, for the ownership questions asked at
+; every call site (`findFSigCg`, `mangledForCg`).
+(import Intern)
 
 ; ------------------------------------------------------------------
 ; Type registry: constructor/struct name -> arity, kind, tag.
@@ -258,7 +262,7 @@
 ;            an evidence stamp names its author, and `evStampOk`
 ;            refuses a stamp another declaration wrote - a
 ;            macro-spliced argument node is a shared object)
-(pub struct CG (lines : Int) (tmp : Int) (result : String) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : String) (strings : Int) (curBlock : String) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : String) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int) (dataTyNames : Int) (curDeclNode : Int))
+(pub struct CG (lines : Int) (tmp : Int) (result : String) (types : Int) (tagN : Int) (argVec : Int) (symnames : Int) (symregs : Int) (decls : Int) (argsTyped : String) (strings : Int) (curBlock : String) (mangleBares : Int) (mangleFulls : Int) (resultIsFloat : Int) (floatSigs : Int) (symfloats : Int) (curParams : Int) (curFlags : Int) (macros : Int) (symkinds : Int) (pendingLams : Int) (lamN : Int) (thunkFulls : Int) (thunkArities : Int) (thunksEmitted : Int) (target : Int) (tcoName : Int) (tcoSlots : Int) (tcoLabel : String) (tailOK : Int) (terminated : Int) (effDecls : Int) (effOps : Int) (curModule : Int) (dataTyNames : Int) (curDeclNode : Int) (sigIntern : Int) (sigById : Int) (bareIntern : Int) (bareFirst : Int) (tailRetain : Int) (pendingOwned : Int) (allocaMark : Int) (hoisted : Int))
 
 ; ------------------------------------------------------------------
 ; Tail-call optimisation, fields 27-31.
@@ -315,7 +319,7 @@
                     0
                     (let ((ft vecNew)) { (vecPush ft (cast Int (mkTVar "a"))) ft }))
       (addType ts "None" TF_DATA 0 1 2 vecNew)
-      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0 vecNew vecNew 0 vecNew 0)
+      (CG vecNew 0 "" ts 2 vecNew vecNew vecNew 0 "" vecNew "entry" vecNew vecNew 0 vecNew vecNew 0 0 vecNew vecNew vecNew 0 vecNew vecNew 0 0 0 vecNew "" 0 0 vecNew vecNew 0 vecNew 0 0 vecNew 0 vecNew vecNew vecNew (- 0 1) vecNew)
     }))
 
 (pub :: zeroFloat (-> Int Int))
@@ -333,7 +337,14 @@
 ; `sigTy` is the D_SIG's parsed type tree (node word 6) - the SAME
 ; object the checker walked, which is what keeps MM-LIFE-2d's
 ; evidence ordering agreed between the phases without a protocol.
-(pub struct FSig (name : String) (nameLen : Int) (flags : Int) (sigTy : Int) (takesEv : Int))
+; `owned` is MM-LIFE-2c's ownership of the function's RESULT, inferred
+; by `inferOwnership` below: 1 when every value the body can answer
+; carries a share of its own (a construction, a static, an allocation,
+; the result of another owned-result function), 0 when some path
+; answers a share the frame only borrowed (a parameter, a field, a
+; match binder, a raw load). Event 2 retains the result of a
+; reference-returning function exactly when this is 0.
+(pub struct FSig (name : String) (nameLen : Int) (flags : Int) (sigTy : Int) (takesEv : Int) (owned : Int) (arity : Int) (stash : Int) (ret : Int))
 
 (pub :: scanFloatSigs (-> Int Int Int Int))
 (pub fn (scanFloatSigs decls sigs i)
@@ -343,7 +354,7 @@
         (let ((d (vecGet decls i)))
           (if (== (nodeTag d) TAG_D_SIG)
               (vecPush sigs (cast Int (FSig (nodeA d) (strLen (nodeA d)) (nodeB d) (nodeTy d)
-                                            (cgTakesEvidence (nodeTy d)))))
+                                            (cgTakesEvidence (nodeTy d)) 1 (- 0 1) 0 0)))
               0))
         (scanFloatSigs decls sigs (+ i 1))
       }))
@@ -361,6 +372,1441 @@
         (if (&& (== (memGetWord e 1) nl) (strEq (memGetWord e 0) name))
             e
             (findFSigIn sigs name nl (+ i 1))))))
+
+; The signature table and the mangle map, indexed. `findFSig` and
+; `mangledFor` are linear scans - 1,700 signatures, 1,600 bares - and
+; were asked a few times per function; the ownership questions below
+; ask them at every call site, several times, and a self-compile went
+; from 2.8 s to 5.0 s on the scans alone. Built once in
+; `emitResolved`, after every `mangleRecord` has run.
+(pub :: buildNameIndexes (-> Int Int))
+(pub fn (buildNameIndexes cg)
+  (let ((sigs (memGetWord cg 15))
+        (si internNew)
+        (byId vecNew)
+        (bares (memGetWord cg 12))
+        (bi internNew)
+        (first vecNew))
+    {
+      (let ((mut i 0))
+        (while (< i (vecLen sigs))
+          {
+            (let ((e (vecGet sigs i)))
+              (let ((id (internIntern si (memGetWord e 0))))
+                (if (== id (vecLen byId)) (vecPush byId e) 0)))
+            (set i (+ i 1))
+          }))
+      (let ((mut j 0))
+        (while (< j (vecLen bares))
+          {
+            (let ((id (internIntern bi (vecGet bares j))))
+              (if (== id (vecLen first)) (vecPush first j) 0))
+            (set j (+ j 1))
+          }))
+      (memSetWord cg 37 si)
+      (memSetWord cg 38 byId)
+      (memSetWord cg 39 bi)
+      (memSetWord cg 40 first)
+      cg
+    }))
+
+; `findFSig` through the index; the linear scan when no index has
+; been built (the REPL's and LSP's partial paths).
+(pub :: findFSigCg (-> Int String Int))
+(pub fn (findFSigCg cg name)
+  (let ((si (memGetWord cg 37)))
+    (if (== si 0)
+        (findFSig (memGetWord cg 15) name)
+        (let ((id (internFind si (declSpellingOf name))))
+          (if (< id 0) 0 (vecGet (memGetWord cg 38) id))))))
+
+; `mangledFor` through the index: the same answer, the module-local
+; spelling first, then the first bare record, then the name itself.
+(pub :: mangledForCg (-> Int String String))
+(pub fn (mangledForCg cg name)
+  (let ((bi (memGetWord cg 39)))
+    (if (== bi 0)
+        (mangledFor cg name)
+        (if (strEq name "main")
+            "__axiom_user_main"
+            (let ((m (memGetWord cg 34)))
+              (let ((hit (if (== (cast Int m) 0)
+                             (- 0 1)
+                             (internFind bi (cat3 m "$" name)))))
+                (if (>= hit 0)
+                    (cat3 m "$" name)
+                    (let ((id (internFind bi name)))
+                      (if (< id 0)
+                          name
+                          (vecGet (memGetWord cg 13)
+                                  (vecGet (memGetWord cg 40) id)))))))))))
+
+; A signed function's parameter count, recorded by `inferOwnership`
+; from its definition; -1 for a name with no signature or no body.
+(pub :: fnArityCg (-> Int String Int))
+(pub fn (fnArityCg cg name)
+  (let ((e (findFSigCg cg (mangledForCg cg name))))
+    (if (== e 0) (- 0 1) (memGetWord e 6))))
+
+; ------------------------------------------------------------------
+; MM-LIFE-2c events 2 and 3, made exact: WHO OWNS A RESULT.
+;
+; The memory model records the pair - retain a reference result
+; before every return, release a `let` bound to such a call - as
+; built, measured at 285 retains for 8 releases, and declined. The
+; version measured retained EVERY tail that was not a direct
+; construction, and that is where the 285 came from: a string built
+; by `strConcat`, returned through a `let` or a `cast`, is born at
+; count 1 and was retained to 2, and the one share a caller could
+; ever hand back left it at 1 forever. Retaining what is already owned
+; is the leak; not retaining what is borrowed is the dangle. The pair
+; is sound and cheap only if the emitter can tell the two apart, and
+; it can, by asking the same question of every function in the program
+; and iterating to a fixpoint:
+;
+;   a result is OWNED when every tail the body can answer is a direct
+;   construction, a literal (statics are immortal), a lambda, an
+;   `__alloc`, a word, or a call to a function whose result is owned;
+;   `cast` answers its operand's ownership; a `let`-bound name answers
+;   its initialiser's; a `match` binder, a parameter, a field read, a
+;   raw load, a local function value's answer, an effect operation's
+;   answer are BORROWED.
+;
+; The fixpoint is the GREATEST one - every function starts owned and
+; loses it when a path shows otherwise - so recursion through an
+; owned-result function stays owned, which is the truth: a value
+; reached through the cycle is produced at its end.
+;
+; With that, event 2 retains a reference-class result iff the function
+; is not owned (`borrowedTailLeaves`), so every reference-returning global
+; hands its caller exactly one share; event 3 releases a `let` bound
+; to any such call or construction (`valueOwnedRef`), not only to a
+; direct construction; an owned value discarded in statement position
+; is released on the spot; and an owned value passed to a global whose
+; result class is known, or stored into a constructor's or struct's
+; reference field, is released once the callee or the store has taken
+; its own share (`releaseOwnedArgs`, `emitFieldStores`, `emitSetF`).
+; Words are never released - a `release` on an integer that is not a
+; handle is a wild read - so everything here is gated on the declared
+; result or field class being a reference (`fldClass` 2).
+;
+; What stays leaked, deliberately: a temporary passed to a primitive,
+; a `cast`, a local function value, or a function whose result is a
+; type variable (none of those retains what it is handed back);
+; a `match` scrutinee built in place; a temporary stored through
+; `set`. Each is the leak direction, and each is narrower than the
+; old rule's "everything not bound to a direct construction".
+; ------------------------------------------------------------------
+(pub :: inferOwnership (-> Int Int Int))
+(pub fn (inferOwnership cg decls)
+  (if (== (inferOwnershipPass cg decls 0 0) 0)
+      { (memSetWord cg 34 0) (memSetWord cg 36 0) }
+      (inferOwnership cg decls)))
+
+; One pass: recompute every signed function; answer 1 if any flag
+; moved (always 1 -> 0, so the loop terminates).
+(pub :: inferOwnershipPass (-> Int Int Int Int Int))
+(pub fn (inferOwnershipPass cg decls i changed)
+  (if (>= i (vecLen decls))
+      changed
+      (let ((d (vecGet decls i)))
+        (if (!= (nodeTag d) TAG_D_FN)
+            (inferOwnershipPass cg decls (+ i 1) changed)
+            ; the body's bare references resolve in the module that
+            ; wrote it - a private sibling has no bare-map entry and
+            ; is reachable only as `Mod$name` (`emitModuleTail` sets
+            ; the same word for the same reason)
+            (let ((_m (memSetWord cg 34 (nodeModule d)))
+                  (_d (memSetWord cg 36 d))
+                  (e (findFSigCg cg (nodeA d))))
+              (if (== e 0)
+                  (inferOwnershipPass cg decls (+ i 1) changed)
+                  (if (== (memGetWord e 5) 0)
+                      (inferOwnershipPass cg decls (+ i 1) changed)
+                      (if (== (let ((_a (memSetWord e 6 (vecLen (nodeB d)))))
+                                (tailOwned cg (nodeC d) (nodeB d) vecNew))
+                              1)
+                          (inferOwnershipPass cg decls (+ i 1) changed)
+                          {
+                            (memSetWord e 5 0)
+                            (inferOwnershipPass cg decls (+ i 1) 1)
+                          }))))))))
+
+; The ownership of the named global's result under the current
+; assumption: 0 when it has no signature, which is also what a local,
+; a constructor-less head and an effect operation answer.
+(pub :: fnResultOwned (-> Int String Int))
+(pub fn (fnResultOwned cg name)
+  (let ((e (findFSigCg cg (mangledForCg cg name))))
+    (if (== e 0) 0 (memGetWord e 5))))
+
+; Is every value `e` can answer owned? `params` are the enclosing
+; function's parameters; `env` is a flat name/flag vector of the
+; `let` bindings and match binders in scope.
+(pub :: tailOwned (-> Int Int Int Int Int))
+(pub fn (tailOwned cg e params env)
+  (if (== e 0)
+      1
+      (let ((tg (nodeTag e)))
+        (if (|| (== tg TAG_E_INT)
+            (|| (== tg TAG_E_FLT)
+            (|| (== tg TAG_E_STR)
+            (|| (== tg TAG_E_CHAR) (== tg TAG_E_LAM)))))
+            1
+        (if (== tg TAG_E_VAR)
+            (let ((k (envFlagOf env (nodeA e))))
+              (if (>= k 0)
+                  k
+                  (if (>= (paramIndexIn params (nodeA e) 0) 0)
+                      0
+                      ; a nullary constructor is an immediate: owned,
+                      ; and releasing it is a no-op
+                      (if (!= (lookupType (memGetWord cg 3) (nodeA e)) 0)
+                          1
+                          ; a bare global name: a nullary function's
+                          ; answer, or a function value - the former by
+                          ; its own flag, the latter a record of its own
+                          (fnResultOwned cg (nodeA e))))))
+        (if (== tg TAG_E_FIELD)
+            0
+        (if (== tg TAG_E_APP)
+            (tailOwnedApp cg e params env)
+        (if (== tg TAG_E_IF)
+            (if (== (tailOwned cg (nodeB e) params env) 1)
+                (tailOwned cg (nodeC e) params env)
+                0)
+        (if (== tg TAG_E_COND)
+            (if (== (tailOwnedClauses cg (nodeA e) params env 0) 1)
+                (tailOwned cg (nodeB e) params env)
+                0)
+        (if (== tg TAG_E_MATCH)
+            (tailOwnedArms cg (nodeB e) params env 0)
+        (if (== tg TAG_E_BEGIN)
+            (if (== (vecLen (nodeA e)) 0)
+                1
+                (tailOwned cg (vecGet (nodeA e) (- (vecLen (nodeA e)) 1)) params env))
+        (if (== tg TAG_E_LET)
+            (tailOwned cg (nodeC e) params
+                       (envWith env (nodeA e) (tailOwned cg (nodeB e) params env)))
+        (if (== tg TAG_E_LETM)
+            ; a mutable slot may be reassigned to anything
+            (tailOwned cg (nodeC e) params (envWith env (nodeA e) 0))
+        (if (|| (== tg TAG_E_WHILE)
+            (|| (== tg TAG_E_SET)
+            (|| (== tg TAG_E_SETF) (== tg TAG_E_STRUCTCON))))
+            ; words, and a keyword construction born at count 1
+            1
+        (if (== tg TAG_E_ALLOC)
+            ; `(alloc T n)` is raw memory at count 0 - see `__alloc`
+            0
+            0)))))))))))))))
+
+; An application's ownership, by its head.
+(pub :: tailOwnedApp (-> Int Int Int Int Int))
+(pub fn (tailOwnedApp cg e params env)
+  (let ((hd (spineHeadE e)))
+    (if (!= (nodeTag hd) TAG_E_VAR)
+        0
+        (let ((n (nodeA hd)))
+          (if (isCastName n)
+              ; `(cast T v)`: v's ownership, v being the second
+              ; argument of the flattened spine
+              (if (>= (spineArity e) 2)
+                  (tailOwned cg (spineArgAt e 1) params env)
+                  0)
+          (if (|| (strEq n "sizeof") (strEq n "alignof"))
+              1
+          (if (isBinop n)
+              ; arithmetic on a word of a borrowed reference is still
+              ; that reference, laundered: owned iff every operand is
+              (tailOwnedArgsAll cg e (spineArity e) params env 0)
+          (if (|| (isCmpOp n) (isAndOr n))
+              1
+          (if (isPrimName n)
+              ; a static's address and a converted number are words;
+              ; a load answers what some block holds; and a FRESH
+              ; ALLOCATION is born at count 0 - free-floating, owned
+              ; by nobody until a store takes the first share - so a
+              ; reference-class function answering one must ADOPT it
+              ; (event 2's retain takes it to 1), which is why it
+              ; answers 0 here rather than 1. A constructor
+              ; expression is the one birth at count 1 (`A1` in
+              ; `emitConstructor`); every `String` comes through
+              ; `__alloc`.
+              (if (|| (strEq n "__load64")
+                  (|| (strEq n "__load8")
+                  (|| (strEq n "__argv") (strEq n "__alloc"))))
+                  0
+                  1)
+          (if (|| (>= (envFlagOf env n) 0) (>= (paramIndexIn params n 0) 0))
+              ; a local function value: no signature, no event 2
+              0
+          (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
+              ; a reference-returning global answers ONE share by
+              ; construction - it retains a borrowed tail itself - so
+              ; its flag is its own business; a word-returning one or a
+              ; type-variable one answers what its tails answer
+              (if (== (fnResultClass cg n) 2) 1 (fnResultOwned cg n))
+              (if (!= (lookupType (memGetWord cg 3) n) 0)
+                  1
+                  0))))))))))))
+
+(pub :: tailOwnedArgsAll (-> Int Int Int Int Int Int Int))
+(pub fn (tailOwnedArgsAll cg e n_ params env i)
+  (if (>= i n_)
+      1
+      (if (== (tailOwned cg (spineArgAt e i) params env) 1)
+          (tailOwnedArgsAll cg e n_ params env (+ i 1))
+          0)))
+
+(pub :: tailOwnedClauses (-> Int Int Int Int Int Int))
+(pub fn (tailOwnedClauses cg cls params env i)
+  (if (>= i (vecLen cls))
+      1
+      (if (== (tailOwned cg (nodeB (vecGet cls i)) params env) 1)
+          (tailOwnedClauses cg cls params env (+ i 1))
+          0)))
+
+(pub :: tailOwnedArms (-> Int Int Int Int Int Int))
+(pub fn (tailOwnedArms cg arms params env i)
+  (if (>= i (vecLen arms))
+      1
+      (let ((arm (vecGet arms i)))
+        (let ((bs (patBindersCg (nodeA arm) vecNew)))
+          (if (== bs 0)
+              0
+              (if (== (tailOwned cg (nodeB arm) params (envWithAll env bs 0)) 1)
+                  (tailOwnedArms cg arms params env (+ i 1))
+                  0))))))
+
+; The spine's argument count and i-th argument, WITHOUT building a
+; vector: the flow walks below run over every application several
+; times per fixpoint pass, and a vector per visit was 60 MB of a
+; self-compile in an arena that never frees.
+(pub :: spineArity (-> Int Int))
+(pub fn (spineArity e)
+  (if (== (nodeTag e) TAG_E_APP) (+ 1 (spineArity (nodeA e))) 0))
+
+(pub :: spineArgAt (-> Int Int Int))
+(pub fn (spineArgAt e i)
+  (spineArgFromEnd e (- (- (spineArity e) 1) i)))
+
+(pub :: spineArgFromEnd (-> Int Int Int))
+(pub fn (spineArgFromEnd e k)
+  (if (<= k 0) (nodeB e) (spineArgFromEnd (nodeA e) (- k 1))))
+
+; The spine's arguments, in order - the emitter's own walk.
+(pub :: spineArgsE (-> Int Int Int))
+(pub fn (spineArgsE e acc)
+  (if (== (nodeTag e) TAG_E_APP)
+      {
+        (spineArgsE (nodeA e) acc)
+        (vecPush acc (nodeB e))
+        acc
+      }
+      acc))
+
+; The flat name/flag environment: innermost binding wins, -1 when
+; the name is not bound.
+(pub :: envFlagOf (-> Int String Int))
+(pub fn (envFlagOf env name)
+  (envFlagFrom env name (- (vecLen env) 2)))
+
+(pub :: envFlagFrom (-> Int String Int Int))
+(pub fn (envFlagFrom env name i)
+  (if (< i 0)
+      (- 0 1)
+      (if (strEq (cast String (vecGet env i)) name)
+          (cast Int (vecGet env (+ i 1)))
+          (envFlagFrom env name (- i 2)))))
+
+(pub :: envWith (-> Int String Int Int))
+(pub fn (envWith env name flag)
+  (let ((v (envCopy env vecNew 0)))
+    { (vecPush v (cast Int name)) (vecPush v flag) v }))
+
+; The arms' binders with their flows: a binder of a REFERENCE field
+; carries the scrutinee's flow (the field is storage the block owns);
+; a binder of a SCALAR field carries nothing - `(ICons x r)`'s `x` is
+; a number, and a function summing it answered "a word of the list",
+; so no caller ever released one.
+(pub :: envWithPat (-> Int Int Int Int Int))
+(pub fn (envWithPat cg env pat flag)
+  (let ((v (envCopy env vecNew 0)))
+    { (envPushPat cg v pat flag) v }))
+
+(pub :: envPushPat (-> Int Int Int Int Int))
+(pub fn (envPushPat cg v pat flag)
+  (if (== pat 0)
+      0
+      (let ((tag (nodeTag pat)))
+        (if (== tag TAG_E_VAR)
+            { (vecPush v (cast Int (nodeA pat))) (vecPush v flag) 0 }
+        (if (== tag TAG_E_APP)
+            (let ((hd (spineHeadE pat)))
+              (let ((entry (if (== (nodeTag hd) TAG_E_VAR)
+                               (lookupType (memGetWord cg 3) (nodeA hd))
+                               0)))
+                (envPushPatArgs cg v pat (spineArity pat) entry flag 0)))
+        (if (== tag TAG_P_CONNAMED)
+            (envPushPatVec cg v (nodeC pat) flag 0)
+            0))))))
+
+(pub :: envPushPatArgs (-> Int Int Int Int Int Int Int Int))
+(pub fn (envPushPatArgs cg v pat n_ entry flag i)
+  (if (>= i n_)
+      0
+      (let ((tn (if (== entry 0) 0 (fieldTypeNode entry i))))
+        (let ((f (if (== tn 0) flag (if (== (fldClass cg tn) 0) 0 flag))))
+          { (envPushPat cg v (spineArgAt pat i) f)
+            (envPushPatArgs cg v pat n_ entry flag (+ i 1)) }))))
+
+(pub :: envPushPatVec (-> Int Int Int Int Int Int))
+(pub fn (envPushPatVec cg v subs flag i)
+  (if (== subs 0)
+      0
+      (if (>= i (vecLen subs))
+          0
+          { (envPushPat cg v (vecGet subs i) flag)
+            (envPushPatVec cg v subs flag (+ i 1)) })))
+
+(pub :: envWithAll (-> Int Int Int Int))
+(pub fn (envWithAll env names flag)
+  (let ((v (envCopy env vecNew 0)))
+    (envPushAll v names flag 0)))
+
+(pub :: envCopy (-> Int Int Int Int))
+(pub fn (envCopy src acc i)
+  (if (>= i (vecLen src))
+      acc
+      { (vecPush acc (vecGet src i)) (envCopy src acc (+ i 1)) }))
+
+(pub :: envPushAll (-> Int Int Int Int Int))
+(pub fn (envPushAll v names flag i)
+  (if (>= i (vecLen names))
+      v
+      { (vecPush v (vecGet names i)) (vecPush v flag) (envPushAll v names flag (+ i 1)) }))
+
+; ------------------------------------------------------------------
+; WHERE AN ARGUMENT GOES: the parameter-escape half of the model.
+;
+; A caller may hand back a temporary's share after a call, and a
+; `let` may release its block after passing it to a callee, only if
+; the callee kept nothing of it that counting did not see. The stores
+; counting sees are the reference-typed ones (events 5 and 6,
+; `memSetWord`'s `__retainref`). The ones it cannot see are the
+; erasures: a value parked in a field declared `Int` through a
+; `cast`, in a mutable slot through `set`, in raw memory through
+; `__store64`, in a closure's record, or handed on to a callee that
+; does one of those - `mkDiag` parks its message through
+; `(cast Int msg)` in an `Int`-declared field, and the first draft of
+; this released the message right after the call. Retaining at every
+; `cast` instead was measured and rejected: `strLen` and `strData` are
+; casts, and every string in the compiler grew a share per read.
+;
+; So each signed function carries two masks over its parameters:
+; STASH - the parameters some part of whose reference the body parks
+; beyond the frame uncounted; RET - the parameters whose reference
+; may be (part of) a WORD the function answers, for a function whose
+; result is not itself a counted reference. Both are least fixpoints
+; over the call graph: a call to `g` stashes what `g` stashes, and
+; answers what `g` answers.
+;
+; TWO FORMS. A reference reaches a callee either typed - a `String`
+; parameter, which `memSetWord`'s `__retainref` will count before
+; storing - or already laundered to a WORD by `cast`, `strData`,
+; `strOwner`, `__addr` or arithmetic on one of those, which no witness
+; retains. `(memSetWord m 0 (cast Int s))` parks `s` uncounted where
+; `(memSetWord m 0 s)` does not. So every flow mask, and every
+; summary, has two halves: bits 0-29 for "parameter i as it arrived",
+; bits 30-59 for "a word of parameter i, laundered here". A summary's
+; word half says what happens to a parameter that ARRIVES as a word;
+; its arrival half, to one that arrives typed. A `__retainref` of a
+; parameter cancels its arrival-half stash only - the witness for a
+; word is `Int`, and retains nothing. The refutation pass found both
+; holes the single-form draft had: the cancel trusted blindly, and
+; `(+ (cast Int s) 0)` dropping `s` at the operator.
+; ------------------------------------------------------------------
+(pub :: inferFlows (-> Int Int Int))
+(pub fn (inferFlows cg decls)
+  (if (== (inferFlowsPass cg decls 0 0) 0)
+      { (memSetWord cg 34 0) (memSetWord cg 36 0) }
+      (inferFlows cg decls)))
+
+(pub :: inferFlowsPass (-> Int Int Int Int Int))
+(pub fn (inferFlowsPass cg decls i changed)
+  (if (>= i (vecLen decls))
+      changed
+      (let ((d (vecGet decls i)))
+        (if (!= (nodeTag d) TAG_D_FN)
+            (inferFlowsPass cg decls (+ i 1) changed)
+            (let ((_m (memSetWord cg 34 (nodeModule d)))
+                  (_d (memSetWord cg 36 d))
+                  (e (findFSigCg cg (nodeA d))))
+              (if (== e 0)
+                  (inferFlowsPass cg decls (+ i 1) changed)
+                  (let ((cell (regionNew)))
+                    {
+                      (flowStashes cg (nodeC d) (nodeB d) vecNew cell)
+                      ; MM-LIFE-2g's own stores: a parameter the body
+                      ; handed to `__retainref` is COUNTED before it
+                      ; is parked - when it arrived typed. `__retain`
+                      ; counts the word it is given whatever its form.
+                      ; A summary's word half always contains its
+                      ; arrival half: what parks a typed reference
+                      ; uncounted parks a word too. The count pairs
+                      ; with the stash only on the paths it runs on:
+                      ; `regionNet` nets each branch's stashes against
+                      ; the counts of that branch and its enclosing
+                      ; regions, never a sibling's.
+                      (let ((st0 (| (regionNet cell) (tyvarSlotsMask cg e d))))
+                      (let ((st (| (memGetWord e 7) (| st0 (arrivalToWord st0))))
+                            (rt (| (memGetWord e 8)
+                                   (flowMask cg (nodeC d) (nodeB d) vecNew))))
+                        (if (&& (== st (memGetWord e 7)) (== rt (memGetWord e 8)))
+                            (inferFlowsPass cg decls (+ i 1) changed)
+                            {
+                              (memSetWord e 7 st)
+                              (memSetWord e 8 rt)
+                              (inferFlowsPass cg decls (+ i 1) 1)
+                            })))
+                    })))))))
+
+; A self-tail-calling function's TYPE-VARIABLE and `Int` parameters,
+; every form: the loop's slot for such a parameter takes no retain
+; (a type variable's class is decided by evidence the boundary does
+; not consult; a word is a word), so an argument handed to it is
+; parked uncounted - a `let`'s temporary paid at the jump was freed
+; under the slot, and `(l1 s (asWord t) (- n 1))` handed the slot a
+; pointer into `t`. Parked, the walk keeps it; the leak is the safe
+; direction until the boundary retains by evidence.
+(pub :: tyvarSlotsMask (-> Int Int Int Int))
+(pub fn (tyvarSlotsMask cg e d)
+  (if (== (tailCallsSelf (nodeC d) (bareName (nodeA d)) (vecLen (nodeB d))) 1)
+      (tyvarSlotsFrom cg (memGetWord e 3) (vecLen (nodeB d)) 0)
+      0))
+
+(pub :: tyvarSlotsFrom (-> Int Int Int Int Int))
+(pub fn (tyvarSlotsFrom cg sigTy n i)
+  (if (>= i n)
+      0
+      (| (let ((cls (fldClass cg (arrowParamTy sigTy i))))
+           ; a type-variable slot, and an `Int` slot: a word of a
+           ; binding handed to either is parked there uncounted,
+           ; and the binding must outlive the jump
+           (if (|| (== cls 1) (== cls 0))
+               (bothForms (paramBit i))
+               0))
+         (tyvarSlotsFrom cg sigTy n (+ i 1)))))
+
+; The encoding: THREE forms of parameter i, twenty parameters per
+; form (i >= 19 share bit 19).
+;
+;   bit i        ARRIVAL - parameter i as it came: a typed reference,
+;                or a type-variable value of whatever kind
+;   bit 20 + i   HEADER WORD - the handle laundered into a word by
+;                `cast`, `__addr` or arithmetic; an `Int` parameter
+;                arrives as one
+;   bit 40 + i   OWNER WORD - a pointer into, or to, the block the
+;                string's header OWNS: `strData`, `strOwner`, a load
+;                of a header word past index 0; an `Int` parameter
+;                may be one of these too
+;
+; A count pairs with a park of the SAME thing: `(__retainref s)` and
+; `(__retain (cast Int s))` count the header and license a park of
+; the header (bit i, bit 20+i); `(__retain (strOwner s))` counts the
+; owner and licenses a park of the owner (bit 40+i) - `strSlice` and
+; `sysReadAll` - and nothing of the header, which two forms could
+; not say: the owner's count cancelled a park of the header, and
+; `(match o ((Full x) { (__retainref x) (__store64 m 0 (cast Int o))
+; 0 }))` freed `o` under the store.
+(pub :: paramBit (-> Int Int))
+(pub fn (paramBit i)
+  (if (< i 0) 0 (if (>= i 19) (<< 1 19) (<< 1 i))))
+
+(pub :: wordBit (-> Int Int))
+(pub fn (wordBit i)
+  (if (< i 0) 0 (if (>= i 19) (<< 1 39) (<< 1 (+ 20 i)))))
+
+(pub :: ownerBit (-> Int Int))
+(pub fn (ownerBit i)
+  (if (< i 0) 0 (if (>= i 19) (<< 1 59) (<< 1 (+ 40 i)))))
+
+; All three forms of parameter i.
+(pub :: anyBit (-> Int Int))
+(pub fn (anyBit i) (| (paramBit i) (| (wordBit i) (ownerBit i))))
+
+(pub :: arrivalPart (-> Int Int))
+(pub fn (arrivalPart m) (& m (- (<< 1 20) 1)))
+
+(pub :: wordPart (-> Int Int))
+(pub fn (wordPart m) (& m (<< (- (<< 1 20) 1) 20)))
+
+(pub :: ownerPart (-> Int Int))
+(pub fn (ownerPart m) (& m (<< (- (<< 1 20) 1) 40)))
+
+; The two word forms together.
+(pub :: wordParts (-> Int Int))
+(pub fn (wordParts m) (| (wordPart m) (ownerPart m)))
+
+; The arrival third moved to the header-word third.
+(pub :: arrivalToWord (-> Int Int))
+(pub fn (arrivalToWord m) (<< (arrivalPart m) 20))
+
+; The header-word third moved to the arrival third.
+(pub :: wordToArrival (-> Int Int))
+(pub fn (wordToArrival m) (>> (wordPart m) 20))
+
+(pub :: ownerToArrival (-> Int Int))
+(pub fn (ownerToArrival m) (>> (ownerPart m) 40))
+
+; The parameters `m` mentions in any form, as arrival bits.
+(pub :: paramsOf (-> Int Int))
+(pub fn (paramsOf m) (| (arrivalPart m) (| (wordToArrival m) (ownerToArrival m))))
+
+; Everything in `m` laundered by `cast`, `__addr` or arithmetic: an
+; arrival or a header word becomes a header word; an owner word
+; under arithmetic is still a pointer into the owner.
+(pub :: toWord (-> Int Int))
+(pub fn (toWord m) (| (arrivalToWord m) (wordParts m)))
+
+; Everything in `m` read through `strData`, `strOwner` or a header
+; word past index 0: the owner of whatever it was.
+(pub :: toOwner (-> Int Int))
+(pub fn (toOwner m) (<< (paramsOf m) 40))
+
+; Everything in `m` in every form - what an uncounted park records:
+; the parameter is parked however it arrived or was laundered.
+(pub :: bothForms (-> Int Int))
+(pub fn (bothForms m)
+  (let ((ps (paramsOf m)))
+    (| ps (| (<< ps 20) (<< ps 40)))))
+
+; The forms a value of flow `m` is parked in, or counted in: a
+; header - typed, or as a header word - in both header forms, an
+; owner word as the owner. What `__retain` counts and what a raw
+; store, a word field or a capture parks.
+(pub :: parkForms (-> Int Int))
+(pub fn (parkForms m)
+  (let ((hp (| (arrivalPart m) (wordToArrival m))))
+    (| (| hp (<< hp 20)) (ownerPart m))))
+
+(pub :: fnStashMask (-> Int String Int))
+(pub fn (fnStashMask cg name)
+  (let ((e (findFSigCg cg (mangledForCg cg name))))
+    (if (== e 0) 0 (memGetWord e 7))))
+
+(pub :: fnRetMask (-> Int String Int))
+(pub fn (fnRetMask cg name)
+  (let ((e (findFSigCg cg (mangledForCg cg name))))
+    (if (== e 0) 0 (memGetWord e 8))))
+
+; The mask of parameters whose reference may be (part of) `e`'s
+; value, in the form it has here. `env` is a flat name/mask vector
+; for `let` bindings and match binders.
+(pub :: flowMask (-> Int Int Int Int Int))
+(pub fn (flowMask cg e params env)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (== tg TAG_E_VAR)
+            (let ((k (envFlagOf env (nodeA e))))
+              (if (>= k 0)
+                  (& k (- MUST_BIT 1))
+                  (paramFlowBit cg params (paramIndexIn params (nodeA e) 0))))
+        (if (== tg TAG_E_FIELD)
+            ; a reference field is storage the base owns - a word of
+            ; it is a word of the base; a scalar field is a number
+            (if (== (fieldReadIsScalar cg e) 1)
+                0
+                (flowMask cg (nodeA e) params env))
+        (if (== tg TAG_E_APP)
+            (flowMaskApp cg e params env)
+        (if (== tg TAG_E_IF)
+            (| (flowMask cg (nodeB e) params env) (flowMask cg (nodeC e) params env))
+        (if (== tg TAG_E_COND)
+            (| (flowMaskClauses cg (nodeA e) params env 0) (flowMask cg (nodeB e) params env))
+        (if (== tg TAG_E_MATCH)
+            (flowMaskArms cg (nodeB e) params env (flowMask cg (nodeA e) params env) 0)
+        (if (== tg TAG_E_BEGIN)
+            (if (== (vecLen (nodeA e)) 0)
+                0
+                (flowMask cg (vecGet (nodeA e) (- (vecLen (nodeA e)) 1)) params env))
+        (if (== tg TAG_E_LET)
+            (flowMask cg (nodeC e) params
+                      (envWith env (nodeA e) (letFlag cg (nodeB e) params env)))
+        (if (== tg TAG_E_LETM)
+            (flowMask cg (nodeC e) params
+                      (envWith env (nodeA e) (mutFlag cg (nodeA e) (nodeB e) (nodeC e) params env)))
+        (if (== tg TAG_E_HANDLE)
+            ; the body's value, or the handler's
+            (| (flowMask cg (nodeA e) params env) (flowMask cg (nodeC e) params env))
+            0)))))))))))))
+
+; Parameter i as it arrives: a typed reference or a type variable in
+; the arrival form; a parameter declared a machine word (`Int`) is a
+; word already - a header word or an owner word, the callee cannot
+; tell which, so both - and a witness-directed store of it counts
+; nothing (`strWrapOwned`'s `(memSetWord s 1 bytes)` parks `bytes`).
+(pub :: paramFlowBit (-> Int Int Int Int))
+(pub fn (paramFlowBit cg params i)
+  (if (< i 0)
+      0
+      (let ((d (memGetWord cg 36)))
+        (if (== d 0)
+            (paramBit i)
+            (if (!= (vecLen params) (vecLen (nodeB d)))
+                (paramBit i)
+                (let ((e (findFSigCg cg (nodeA d))))
+                  (if (== e 0)
+                      (paramBit i)
+                      (if (== (fldClass cg (arrowParamTy (memGetWord e 3) i)) 0)
+                          (| (wordBit i) (ownerBit i))
+                          (paramBit i)))))))))
+
+(pub :: flowMaskApp (-> Int Int Int Int Int))
+(pub fn (flowMaskApp cg e params env)
+  (let ((hd (spineHeadE e))
+        (n_ (spineArity e)))
+    (if (!= (nodeTag hd) TAG_E_VAR)
+        (flowMaskAll cg e n_ params env 0)
+        (let ((n (nodeA hd)))
+          ; the named word-taking heads, and arithmetic on what they
+          ; answer, hand the reference out as a WORD - `cast` its
+          ; second argument, the rest every argument; every OTHER
+          ; word, a load included, is a scalar: `strLen` is
+          ; `memGetWord s 0` and is a length, and MM-LIFE-2g names
+          ; the four heads as the whole of how a reference becomes a
+          ; word
+          (if (isCastName n)
+              (if (>= n_ 2) (toWord (aliasFlow cg (spineArgAt e 1) params env)) 0)
+          (if (strEq n "__addr")
+              (toWord (aliasFlowAll cg e n_ params env 0))
+          (if (== (wordTakingHead hd) 1)
+              ; `strData`, `strOwner`: the OWNER of whatever the
+              ; operand aliases - a slice's owner is its parent's
+              (toOwner (aliasFlowAll cg e n_ params env 0))
+          (if (isBinop n)
+              (toWord (flowMaskAll cg e n_ params env 0))
+          (if (|| (isCmpOp n) (isAndOr n))
+              0
+          (if (|| (strEq n "memGetWord") (strEq n "__load64"))
+              ; a header word: word 0 of a String is its length, a
+              ; scalar; words past it are pointers into what the
+              ; address aliases - `strData` and `strOwner` hand-rolled.
+              ; A byte (`__load8`) is never a pointer
+              (if (&& (>= n_ 2)
+                      (&& (== (loadIndexIsZero (spineArgAt e 1)) 1)
+                          (== (addrIsHandle (spineArgAt e 0)) 1)))
+                  0
+                  (if (>= n_ 1) (toOwner (aliasFlow cg (spineArgAt e 0) params env)) 0))
+          (if (isPrimName n)
+              0
+          (if (|| (>= (envFlagOf env n) 0) (>= (paramIndexIn params n 0) 0))
+              ; a local function value: whatever it was given
+              (flowMaskAll cg e n_ params env 0)
+          (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
+              (if (== (fnResultClass cg n) 2)
+                  ; a counted reference of its own (event 2)
+                  0
+                  (flowMaskSel cg e n_ params env (fnRetMask cg n) 0))
+              (if (!= (lookupType (memGetWord cg 3) n) 0)
+                  ; a construction is a fresh block
+                  0
+                  (flowMaskAll cg e n_ params env 0)))))))))))))))
+
+; `flowMask` that looks THROUGH a reference-returning call or a
+; construction to what its arguments carried - what the result may
+; share storage with, for the word-taking heads: a slice shares its
+; parent's bytes, a constructor holds its arguments.
+(pub :: aliasFlow (-> Int Int Int Int Int))
+(pub fn (aliasFlow cg e params env)
+  (| (flowMask cg e params env)
+     (if (== e 0)
+         0
+         (if (!= (nodeTag e) TAG_E_APP)
+             0
+             (let ((hd (spineHeadE e)))
+               (if (!= (nodeTag hd) TAG_E_VAR)
+                   0
+                   (let ((n (nodeA hd)))
+                     (if (|| (isCastName n) (|| (isPrimName n) (|| (isBinop n) (|| (isCmpOp n) (isAndOr n)))))
+                         0
+                         (if (|| (!= (lookupType (memGetWord cg 3) n) 0)
+                                 (== (fnResultClass cg n) 2))
+                             (aliasFlowAll cg e (spineArity e) params env 0)
+                             0)))))))))
+
+(pub :: aliasFlowAll (-> Int Int Int Int Int Int Int))
+(pub fn (aliasFlowAll cg e n_ params env i)
+  (if (>= i n_)
+      0
+      (| (aliasFlow cg (spineArgAt e i) params env)
+         (aliasFlowAll cg e n_ params env (+ i 1)))))
+
+(pub :: loadIndexIsZero (-> Int Int))
+(pub fn (loadIndexIsZero e)
+  (if (== e 0) 0 (if (&& (== (nodeTag e) TAG_E_INT) (== (nodeA e) 0)) 1 0)))
+
+; The address is a HANDLE - a name, a field, or a cast of one - so
+; its word 0 is the header's length. An address computed by
+; arithmetic (`(+ (cast Int s) 8)`) points anywhere, and its word 0
+; is whatever lives there.
+(pub :: addrIsHandle (-> Int Int))
+(pub fn (addrIsHandle e)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (|| (== tg TAG_E_VAR) (== tg TAG_E_FIELD))
+            1
+            (if (== tg TAG_E_APP)
+                (let ((hd (spineHeadE e)))
+                  (if (!= (nodeTag hd) TAG_E_VAR)
+                      0
+                      (if (&& (isCastName (nodeA hd)) (== (spineArity e) 2))
+                          (addrIsHandle (spineArgAt e 1))
+                          ; `(- handle 16)`, `(- handle 8)`: the block's
+                          ; own count or shape word, a number
+                          (if (&& (strEq (nodeA hd) "-")
+                                  (&& (== (spineArity e) 2)
+                                      (== (nodeTag (spineArgAt e 1)) TAG_E_INT)))
+                              (addrIsHandle (spineArgAt e 0))
+                              0))))
+                0)))))
+
+; OR over the spine's arguments, `n_` of them.
+(pub :: flowMaskAll (-> Int Int Int Int Int Int Int))
+(pub fn (flowMaskAll cg e n_ params env i)
+  (if (>= i n_)
+      0
+      (| (flowMask cg (spineArgAt e i) params env)
+         (flowMaskAll cg e n_ params env (+ i 1)))))
+
+; What a callee's RET mask makes of the arguments: a parameter it
+; answers as it arrived keeps the argument's form; one it answers as a
+; word launders it.
+(pub :: flowMaskSel (-> Int Int Int Int Int Int Int Int))
+(pub fn (flowMaskSel cg e n_ params env mask i)
+  (if (>= i n_)
+      0
+      (| (let ((f (flowMask cg (spineArgAt e i) params env)))
+           (| (if (!= (& mask (paramBit i)) 0) f 0)
+              (| (if (!= (& mask (wordBit i)) 0) (toWord f) 0)
+                 (if (!= (& mask (ownerBit i)) 0) (toOwner f) 0))))
+         (flowMaskSel cg e n_ params env mask (+ i 1)))))
+
+(pub :: flowMaskClauses (-> Int Int Int Int Int Int))
+(pub fn (flowMaskClauses cg cls params env i)
+  (if (>= i (vecLen cls))
+      0
+      (| (flowMask cg (nodeB (vecGet cls i)) params env)
+         (flowMaskClauses cg cls params env (+ i 1)))))
+
+(pub :: flowMaskArms (-> Int Int Int Int Int Int Int))
+(pub fn (flowMaskArms cg arms params env scrut i)
+  (if (>= i (vecLen arms))
+      0
+      (let ((arm (vecGet arms i)))
+        (let ((bs (patBindersCg (nodeA arm) vecNew)))
+          (| (flowMask cg (nodeB arm) params
+                       (if (== bs 0) env (envWithPat cg env (nodeA arm) scrut)))
+             (flowMaskArms cg arms params env scrut (+ i 1)))))))
+
+; Walk the whole body and OR into `cell` word 0 the parameters some
+; part of whose reference is parked beyond the frame uncounted, and
+; into word 1 the ones `__retainref`/`__retain` counted.
+(pub :: flowStashes (-> Int Int Int Int Int Int))
+(pub fn (flowStashes cg e params env cell)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (== tg TAG_E_APP)
+            (flowStashesApp cg e params env cell)
+        (if (== tg TAG_E_FIELD)
+            (flowStashes cg (nodeA e) params env cell)
+        ; every arm is a REGION of its own: a `__retainref` that runs
+        ; only on some path counts on that path only, and pairs with
+        ; the stashes of that path (`strSlice` retains and parks under
+        ; one branch) and never with a sibling's or the unconditional
+        ; ones outside it
+        (if (== tg TAG_E_IF)
+            { (flowStashes cg (nodeA e) params env cell)
+              (branchEnter cell)
+              (flowStashes cg (nodeB e) params env cell)
+              (branchLeave cell)
+              (branchEnter cell)
+              (flowStashes cg (nodeC e) params env cell)
+              (branchLeave cell) }
+        (if (== tg TAG_E_COND)
+            { (flowStashesClauses cg (nodeA e) params env cell 0)
+              (branchEnter cell)
+              (flowStashes cg (nodeB e) params env cell)
+              (branchLeave cell) }
+        (if (== tg TAG_E_MATCH)
+            { (flowStashes cg (nodeA e) params env cell)
+              (flowStashesArms cg (nodeB e) params env cell
+                               (flowMask cg (nodeA e) params env) 0) }
+        (if (== tg TAG_E_BEGIN)
+            (flowStashesVec cg (nodeA e) params env cell 0)
+        (if (== tg TAG_E_WHILE)
+            ; the condition runs once more than the body, and the
+            ; body may never run: two regions
+            { (branchEnter cell)
+              (flowStashes cg (nodeA e) params env cell)
+              (branchLeave cell)
+              (branchEnter cell)
+              (flowStashesVec cg (nodeB e) params env cell 0)
+              (branchLeave cell) }
+        (if (== tg TAG_E_LET)
+            { (flowStashes cg (nodeB e) params env cell)
+              (flowStashes cg (nodeC e) params
+                           (envWith env (nodeA e) (letFlag cg (nodeB e) params env)) cell) }
+        (if (== tg TAG_E_LETM)
+            ; a `mut` slot is frame storage: it dies with the frame,
+            ; so what is put in it is parked only where a lambda
+            ; captures the slot's value (`lamCaptureMask`, through
+            ; the alias recorded here). Counted as a park, every
+            ; `(let ((mut t s)) ...)` marked `s` stashed, and a loop
+            ; never gave the slot's share back
+            { (flowStashes cg (nodeB e) params env cell)
+              (flowStashes cg (nodeC e) params
+                           (envWith env (nodeA e) (mutFlag cg (nodeA e) (nodeB e) (nodeC e) params env)) cell) }
+        (if (== tg TAG_E_SET)
+            (flowStashes cg (nodeB e) params env cell)
+        (if (== tg TAG_E_SETF)
+            { (flowStashes cg (nodeA e) params env cell)
+              (flowStashes cg (nodeC e) params env cell)
+              ; a reference field retains (event 5); a word field parks
+              (if (== (fieldReadIsScalar cg e) 1)
+                  (stashAdd cell (parkForms (flowMask cg (nodeC e) params env)))
+                  0) }
+        (if (== tg TAG_E_HANDLE)
+            ; the body in this region; the handler in one of its own -
+            ; a `handle` naming only built-in effects never evaluates
+            ; it (B is the Vec of effect names, not a node)
+            { (flowStashes cg (nodeA e) params env cell)
+              (branchEnter cell)
+              (flowStashes cg (nodeC e) params env cell)
+              (branchLeave cell) }
+        (if (== tg TAG_E_LAM)
+            ; a capture of a PARAMETER takes a share (event 4's
+            ; exception, `emitLambda`); a capture of a local that
+            ; aliases one takes none, and parks it
+            (stashAdd cell (parkForms (lamCaptureMask cg (nodeB e) params env)))
+        (if (== tg TAG_E_STRUCTCON)
+            (let ((entry (lookupType (memGetWord cg 3) (nodeA e))))
+              { (flowStashesVec cg (nodeB e) params env cell 0)
+                (if (== entry 0)
+                    0
+                    (flowStashesFieldsVec cg entry (nodeB e) params env cell 0)) })
+            0)))))))))))))))))
+
+; The region cell: word 0 the stashes pending in the open region
+; (a child's, already netted against the child's own counts, joins
+; its parent's on leave), word 1 the counts taken in the open region,
+; word 2 a stack of the enclosing regions' (stash, count) pairs. A
+; count cancels a stash when the count's region encloses the stash's:
+; the same arm, or any region around it - that is every path the
+; stash runs on.
+(pub :: regionNew Int)
+(pub fn (regionNew)
+  (let ((cell (memAlloc 24)))
+    { (memSetWord cell 0 0) (memSetWord cell 1 0) (memSetWord cell 2 vecNew) cell }))
+
+(pub :: stashAdd (-> Int Int Int))
+(pub fn (stashAdd cell m)
+  { (memSetWord cell 0 (| (memGetWord cell 0) m)) 0 })
+
+(pub :: countedAdd (-> Int Int Int))
+(pub fn (countedAdd cell m)
+  { (memSetWord cell 1 (| (memGetWord cell 1) m)) 0 })
+
+; The flow a COUNT is credited to: what the retained expression MUST
+; be - the parameter itself, a `cast` of it, a `let` alias of one of
+; those - and one parameter only. `(__retainref r.name)` retains the
+; field, not the record `r` whose park it would otherwise cancel;
+; `(__retainref (if c s t))` retains one of two, and cancels neither.
+(pub :: countFlow (-> Int Int Int Int Int))
+(pub fn (countFlow cg e params env)
+  (let ((m (mustFlow cg e params env)))
+    (if (== (popcount (paramsOf m)) 1) m 0)))
+
+; The flow of `e` when `e` MUST be that: a parameter, a `let` alias
+; recorded as must (`MUST_BIT` on its environment flag - its own
+; initialiser was one of these), a `cast` of one; anything else - a
+; field, a match binder, a join, a call - 0.
+(pub :: mustFlow (-> Int Int Int Int Int))
+(pub fn (mustFlow cg e params env)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (== tg TAG_E_VAR)
+            (let ((k (envFlagOf env (nodeA e))))
+              (if (>= k 0)
+                  (if (!= (& k MUST_BIT) 0) (& k (- MUST_BIT 1)) 0)
+                  (paramFlowBit cg params (paramIndexIn params (nodeA e) 0))))
+            (if (== tg TAG_E_APP)
+                (let ((hd (spineHeadE e)))
+                  (if (!= (nodeTag hd) TAG_E_VAR)
+                      0
+                      (let ((n (nodeA hd)))
+                        (if (&& (isCastName n) (== (spineArity e) 2))
+                            (toWord (mustFlow cg (spineArgAt e 1) params env))
+                        (if (&& (strEq n "__addr") (== (spineArity e) 1))
+                            (toWord (mustFlow cg (spineArgAt e 0) params env))
+                        ; the owner of one string is one block, and so
+                        ; is its data pointer: `sysReadAll` counts
+                        ; `(strOwner buf)` through a `let`
+                        (if (&& (|| (strEq n "strData") (strEq n "strOwner")) (== (spineArity e) 1))
+                            (toOwner (mustFlow cg (spineArgAt e 0) params env))
+                        (if (&& (|| (strEq n "memGetWord") (strEq n "__load64"))
+                                (&& (== (spineArity e) 2)
+                                    (&& (== (nodeTag (spineArgAt e 1)) TAG_E_INT)
+                                        (!= (nodeA (spineArgAt e 1)) 0))))
+                            (toOwner (mustFlow cg (spineArgAt e 0) params env))
+                            0)))))))
+                0)))))
+
+(pub :: MUST_BIT Int)
+(pub fn (MUST_BIT) (<< 1 60))
+
+; A `mut` slot's flow: its initialiser joined with every `(set name
+; v)` in its scope - to a fixpoint, since a `set` may read the slot
+; (`(set t (strConcat t "x"))`). The flag of the slot is what a park
+; or an answer of it carries: `(let ((mut t 0)) { (set t (cast Int
+; s)) (__store64 m 0 t) })` parks a header word of `s`.
+(pub :: mutFlag (-> Int String Int Int Int Int Int))
+(pub fn (mutFlag cg name init body params env)
+  (mutFlagIter cg name body params env (flowMask cg init params env) 0))
+
+(pub :: mutFlagIter (-> Int String Int Int Int Int Int Int))
+(pub fn (mutFlagIter cg name body params env f k)
+  (let ((f2 (| f (setFlows cg name body params (envWith env name f)))))
+    (if (|| (== f2 f) (>= k 6))
+        f2
+        (mutFlagIter cg name body params env f2 (+ k 1)))))
+
+; OR of the flows of every `(set name v)` under `e`; a nested binding
+; of the same name is not distinguished (conservative).
+(pub :: setFlows (-> Int String Int Int Int Int))
+(pub fn (setFlows cg name e params env)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (|| (== tg TAG_E_INT)
+            (|| (== tg TAG_E_FLT)
+            (|| (== tg TAG_E_STR)
+            (|| (== tg TAG_E_CHAR)
+            (|| (== tg TAG_E_VAR) (== tg TAG_E_QUOTE))))))
+            0
+        (if (== tg TAG_E_SET)
+            (| (if (strEq (nodeA e) name) (flowMask cg (nodeB e) params env) 0)
+               (setFlows cg name (nodeB e) params env))
+        (if (|| (== tg TAG_E_APP) (== tg TAG_E_IF))
+            (| (setFlows cg name (nodeA e) params env)
+               (| (setFlows cg name (nodeB e) params env)
+                  (setFlows cg name (nodeC e) params env)))
+        ; a binding's word 1 is its NAME, a String, not a node
+        (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+            (| (setFlows cg name (nodeB e) params env)
+               (setFlows cg name (nodeC e) params env))
+        (if (== tg TAG_E_SETF)
+            (| (setFlows cg name (nodeA e) params env)
+               (setFlows cg name (nodeC e) params env))
+        (if (|| (== tg TAG_E_FIELD) (== tg TAG_E_ALLOC))
+            (setFlows cg name (nodeA e) params env)
+        (if (== tg TAG_E_BEGIN)
+            (setFlowsVec cg name (nodeA e) params env 0)
+        (if (== tg TAG_E_COND)
+            (| (setFlowsClauses cg name (nodeA e) params env 0)
+               (setFlows cg name (nodeB e) params env))
+        (if (== tg TAG_E_MATCH)
+            (| (setFlows cg name (nodeA e) params env)
+               (setFlowsArms cg name (nodeB e) params env 0))
+        (if (== tg TAG_E_WHILE)
+            (| (setFlows cg name (nodeA e) params env)
+               (setFlowsVec cg name (nodeB e) params env 0))
+        (if (== tg TAG_E_LAM)
+            (setFlows cg name (nodeB e) params env)
+        (if (== tg TAG_E_STRUCTCON)
+            (setFlowsVec cg name (nodeB e) params env 0)
+        (if (== tg TAG_E_HANDLE)
+            (| (setFlows cg name (nodeA e) params env)
+               (setFlows cg name (nodeC e) params env))
+            0))))))))))))))))
+
+(pub :: setFlowsVec (-> Int String Int Int Int Int Int))
+(pub fn (setFlowsVec cg name v params env i)
+  (if (== v 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          (| (setFlows cg name (vecGet v i) params env)
+             (setFlowsVec cg name v params env (+ i 1))))))
+
+(pub :: setFlowsClauses (-> Int String Int Int Int Int Int))
+(pub fn (setFlowsClauses cg name cls params env i)
+  (if (== cls 0)
+      0
+      (if (>= i (vecLen cls))
+          0
+          (let ((c (vecGet cls i)))
+            (| (| (setFlows cg name (nodeA c) params env)
+                  (setFlows cg name (nodeB c) params env))
+               (setFlowsClauses cg name cls params env (+ i 1)))))))
+
+(pub :: setFlowsArms (-> Int String Int Int Int Int Int))
+(pub fn (setFlowsArms cg name arms params env i)
+  (if (== arms 0)
+      0
+      (if (>= i (vecLen arms))
+          0
+          (| (setFlows cg name (nodeB (vecGet arms i)) params env)
+             (setFlowsArms cg name arms params env (+ i 1))))))
+
+; A `let`'s environment flag: its flow, marked must when the
+; initialiser must be what it flows from.
+(pub :: letFlag (-> Int Int Int Int Int))
+(pub fn (letFlag cg init params env)
+  (let ((f (flowMask cg init params env)))
+    (if (!= (mustFlow cg init params env) 0) (| f MUST_BIT) f)))
+
+(pub :: popcount (-> Int Int))
+(pub fn (popcount m)
+  (if (== m 0) 0 (+ (& m 1) (popcount (>> m 1)))))
+
+; What the open region parks net of its own counts.
+(pub :: regionNet (-> Int Int))
+(pub fn (regionNet cell)
+  (& (memGetWord cell 0) (^ (memGetWord cell 1) (- 0 1))))
+
+(pub :: branchEnter (-> Int Int))
+(pub fn (branchEnter cell)
+  (let ((stk (memGetWord cell 2)))
+    { (vecPush stk (memGetWord cell 0))
+      (vecPush stk (memGetWord cell 1))
+      (memSetWord cell 0 0)
+      (memSetWord cell 1 0)
+      0 }))
+
+(pub :: branchLeave (-> Int Int))
+(pub fn (branchLeave cell)
+  (let ((stk (memGetWord cell 2))
+        (net (regionNet cell)))
+    (let ((n (vecLen stk)))
+      (let ((outerStash (vecGet stk (- n 2)))
+            (outerCount (vecGet stk (- n 1))))
+        { (vecPop stk)
+          (vecPop stk)
+          (memSetWord cell 0 (| outerStash net))
+          (memSetWord cell 1 outerCount)
+          0 }))))
+
+(pub :: flowStashesVec (-> Int Int Int Int Int Int Int))
+(pub fn (flowStashesVec cg v params env cell i)
+  (if (== v 0)
+      0
+      (if (>= i (vecLen v))
+          0
+          { (flowStashes cg (vecGet v i) params env cell)
+            (flowStashesVec cg v params env cell (+ i 1)) })))
+
+(pub :: flowStashesClauses (-> Int Int Int Int Int Int Int))
+(pub fn (flowStashesClauses cg cls params env cell i)
+  (if (>= i (vecLen cls))
+      0
+      (let ((c (vecGet cls i)))
+        ; the TEST is a region of its own: it runs whenever the
+        ; clauses before it failed, whether or not this body runs,
+        ; so a count in the body licenses no park in the test
+        { (branchEnter cell)
+          (flowStashes cg (nodeA c) params env cell)
+          (branchLeave cell)
+          (branchEnter cell)
+          (flowStashes cg (nodeB c) params env cell)
+          (branchLeave cell)
+          (flowStashesClauses cg cls params env cell (+ i 1)) })))
+
+(pub :: flowStashesArms (-> Int Int Int Int Int Int Int Int))
+(pub fn (flowStashesArms cg arms params env cell scrut i)
+  (if (>= i (vecLen arms))
+      0
+      (let ((arm (vecGet arms i)))
+        (let ((bs (patBindersCg (nodeA arm) vecNew)))
+          { (branchEnter cell)
+            (flowStashes cg (nodeB arm) params
+                         (if (== bs 0) env (envWithPat cg env (nodeA arm) scrut)) cell)
+            (branchLeave cell)
+            (flowStashesArms cg arms params env cell scrut (+ i 1)) }))))
+
+; A call: what its arguments park, by the callee's own summary and
+; each argument's FORM; a constructor: what its WORD fields park; a
+; raw store: its value; a cast: nothing of itself (its consumer
+; decides).
+(pub :: flowStashesApp (-> Int Int Int Int Int Int))
+(pub fn (flowStashesApp cg e params env cell)
+  (let ((hd (spineHeadE e))
+        (n_ (spineArity e)))
+    (if (&& (== (nodeTag hd) TAG_E_VAR) (isAndOr (nodeA hd)))
+        ; `&&`/`||`: the first operand always runs, every later one
+        ; only sometimes - each of those is a region of its own, so a
+        ; count in one licenses no park outside it
+        (flowStashesArgsRegions cg e n_ params env cell 0)
+    {
+      (flowStashesArgs cg e n_ params env cell 0)
+      (selfSlotParks cg e hd n_ params env cell)
+      (if (!= (nodeTag hd) TAG_E_VAR)
+          (stashAdd cell (parkForms (flowMaskAll cg e n_ params env 0)))
+          (let ((n (nodeA hd)))
+            (if (|| (isCastName n) (|| (isBinop n) (|| (isCmpOp n) (isAndOr n))))
+                0
+            (if (isPrimName n)
+                (if (|| (strEq n "__store64") (strEq n "__store8"))
+                    (if (>= n_ 3)
+                        (stashAdd cell (parkForms (flowMask cg (spineArgAt e 2) params env)))
+                        0)
+                    (if (strEq n "__retainref")
+                        ; counts a typed arrival; a word's witness is
+                        ; `Int` and it retains nothing
+                        (if (>= n_ 1)
+                            (countedAdd cell (arrivalPart (countFlow cg (spineArgAt e 0) params env)))
+                            0)
+                        (if (strEq n "__retain")
+                            ; counts the word it is given, whatever it was
+                            (if (>= n_ 1)
+                                (countedAdd cell (parkForms (countFlow cg (spineArgAt e 0) params env)))
+                                0)
+                            0)))
+            (if (|| (>= (envFlagOf env n) 0) (>= (paramIndexIn params n 0) 0))
+                (stashAdd cell (parkForms (flowMaskAll cg e n_ params env 0)))
+            (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
+                (stashAdd cell (stashSel cg e n_ params env (fnStashMask cg n) 0))
+                (let ((entry (lookupType (memGetWord cg 3) n)))
+                  (if (== entry 0)
+                      ; an effect operation, or a name nothing signed
+                      (stashAdd cell (parkForms (flowMaskAll cg e n_ params env 0)))
+                      (flowStashesFields cg entry e n_ params env cell 0)))))))))
+    })))
+
+(pub :: flowStashesArgsRegions (-> Int Int Int Int Int Int Int Int))
+(pub fn (flowStashesArgsRegions cg e n_ params env cell i)
+  (if (>= i n_)
+      0
+      { (if (== i 0)
+            (flowStashes cg (spineArgAt e i) params env cell)
+            { (branchEnter cell)
+              (flowStashes cg (spineArgAt e i) params env cell)
+              (branchLeave cell) })
+        (flowStashesArgsRegions cg e n_ params env cell (+ i 1)) }))
+
+; A call to the function being summarised: its `Int` parameters are
+; SLOTS of the loop the self tail call becomes, and a word of a
+; reference flowing into one is parked there uncounted - the boundary
+; would release the old reference under it (`(i1 (strConcat ..) (cast
+; Int s) (- n 1))`). Every self call is treated so; a non-tail one
+; parks conservatively.
+(pub :: selfSlotParks (-> Int Int Int Int Int Int Int Int))
+(pub fn (selfSlotParks cg e hd n_ params env cell)
+  (let ((d (memGetWord cg 36)))
+    (if (|| (== d 0) (!= (nodeTag hd) TAG_E_VAR))
+        0
+        (if (if (strEq (mangledForCg cg (nodeA hd)) (nodeA d)) false true)
+            0
+            (let ((en (findFSigCg cg (nodeA d))))
+              (if (== en 0)
+                  0
+                  (selfSlotParksFrom cg e (memGetWord en 3) n_ params env cell 0)))))))
+
+(pub :: selfSlotParksFrom (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (selfSlotParksFrom cg e sigTy n_ params env cell i)
+  (if (>= i n_)
+      0
+      { (if (== (fldClass cg (arrowParamTy sigTy i)) 0)
+            (stashAdd cell (parkForms (flowMask cg (spineArgAt e i) params env)))
+            0)
+        (selfSlotParksFrom cg e sigTy n_ params env cell (+ i 1)) }))
+
+; The arguments a callee's STASH summary parks, by position and form:
+; an argument's arrival half is parked if the callee parks a typed
+; arrival there, its word half if the callee parks a word there; a
+; parked word is parked in both forms of what it was a word of.
+(pub :: stashSel (-> Int Int Int Int Int Int Int Int))
+(pub fn (stashSel cg e n_ params env mask i)
+  (if (>= i n_)
+      0
+      ; the callee's ARRIVAL bit is a STRONG park - whatever it is
+      ; given is parked uncounted: a typed argument as it arrived,
+      ; and a word of one of our parameters in every form, since a
+      ; word laundered here is parked whatever form that parameter
+      ; came in. Its WORD bits are WEAK - parked only when a word
+      ; arrives, its typed arrival being counted: nothing of a typed
+      ; argument, and a word argument in every form.
+      ; The callee's ARRIVAL bit is a STRONG park - whatever it is
+      ; given is parked uncounted - and so is its OWNER bit: an owner
+      ; word is never what `__retainref` counted. Its HEADER bit is
+      ; WEAK - parked only when a header word arrives, the typed
+      ; arrival being counted: a word argument parks in its forms,
+      ; and an arrival forwarded as itself (`(fn (put m x) (memSetWord
+      ; m 0 x))`) inherits the weak bit, so a word handed to `put`
+      ; two calls up is still seen.
+      (| (let ((f (flowMask cg (spineArgAt e i) params env)))
+           (| (if (!= (& mask (| (paramBit i) (ownerBit i))) 0)
+                  (parkForms f)
+                  0)
+              (if (!= (& mask (wordBit i)) 0)
+                  (| (parkForms (wordParts f)) (arrivalToWord (arrivalPart f)))
+                  0)))
+         (stashSel cg e n_ params env mask (+ i 1)))))
+
+(pub :: flowStashesArgs (-> Int Int Int Int Int Int Int Int))
+(pub fn (flowStashesArgs cg e n_ params env cell i)
+  (if (>= i n_)
+      0
+      { (flowStashes cg (spineArgAt e i) params env cell)
+        (flowStashesArgs cg e n_ params env cell (+ i 1)) }))
+
+; A constructor's WORD fields (declared a machine scalar) park what
+; is stored in them; reference fields retain (event 6), and a
+; type-variable field retains under its witness when the value is a
+; typed reference - a word laundered into one parks.
+(pub :: flowStashesFields (-> Int Int Int Int Int Int Int Int Int))
+(pub fn (flowStashesFields cg entry e n_ params env cell i)
+  (if (>= i n_)
+      0
+      (let ((tn (fieldTypeNode entry i))
+            (f (flowMask cg (spineArgAt e i) params env)))
+        {
+          (if (if (== tn 0) true (== (fldClass cg tn) 0))
+              (stashAdd cell (parkForms f))
+              (stashAdd cell (parkForms (wordParts f))))
+          (flowStashesFields cg entry e n_ params env cell (+ i 1))
+        })))
+
+(pub :: flowStashesFieldsVec (-> Int Int Int Int Int Int Int Int))
+(pub fn (flowStashesFieldsVec cg entry args params env cell i)
+  (if (>= i (vecLen args))
+      0
+      (let ((tn (fieldTypeNode entry i))
+            (f (flowMask cg (vecGet args i) params env)))
+        {
+          (if (if (== tn 0) true (== (fldClass cg tn) 0))
+              (stashAdd cell (parkForms f))
+              (stashAdd cell (parkForms (wordParts f))))
+          (flowStashesFieldsVec cg entry args params env cell (+ i 1))
+        })))
+
+; The declared type node of field `j` of a constructor or struct
+; entry, or 0.
+(pub :: fieldTypeNode (-> Int Int Int))
+(pub fn (fieldTypeNode entry j)
+  (if (== (eKind entry) TF_DATA)
+      (let ((ftys (eFieldTys entry)))
+        (if (== ftys 0) 0 (if (< j (vecLen ftys)) (vecGet ftys j) 0)))
+      (let ((fs (eFieldFlags entry)))
+        (if (< j (vecLen fs)) (nodeTy (vecGet fs j)) 0))))
+
+; What a lambda body parks by capture: the `let`-bound locals it
+; mentions, with their flows - a parameter captured directly takes a
+; share (`emitLambda` retains reference parameters it captures).
+(pub :: lamCaptureMask (-> Int Int Int Int Int))
+(pub fn (lamCaptureMask cg body params env)
+  (lamCaptureFrom body env 0))
+
+(pub :: lamCaptureFrom (-> Int Int Int Int))
+(pub fn (lamCaptureFrom body env i)
+  (if (>= (+ i 1) (vecLen env))
+      0
+      (| (if (== (mentions (cast String (vecGet env i)) body) 1)
+             (& (cast Int (vecGet env (+ i 1))) (- MUST_BIT 1))
+             0)
+         (lamCaptureFrom body env (+ i 2)))))
+
+; The declared result class of the named global: `fldClass` of its
+; signature's result - 0 a word, 2 a reference, 1 unclassifiable or
+; a type variable, and -1 when there is no signature at all.
+(pub :: fnResultClass (-> Int String Int))
+(pub fn (fnResultClass cg name)
+  (let ((e (findFSigCg cg (mangledForCg cg name))))
+    (if (== e 0)
+        (- 0 1)
+        (let ((res (sigResultTy (memGetWord e 3))))
+          (if (== res 0) 1 (fldClass cg res))))))
+
+; Does this expression's VALUE carry a share of its own that the
+; frame holding it may hand back - and is it a reference, so that
+; handing it back means something? A direct construction; a call to a
+; signed global whose result is a reference, applied to exactly its
+; arity (a surplus argument applies the closure it answers, whose
+; result nothing signed); and the joins over `if`, `cond`, `match`,
+; `let` and a block. A match here is only as owned as its arms, and
+; an arm answering a binder is not.
+(pub :: valueOwnedRef (-> Int Int Int))
+(pub fn (valueOwnedRef cg e)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (== (argIsDirectCon cg e) 1)
+            1
+        (if (== tg TAG_E_STR)
+            ; a static: immortal, and releasing it is a no-op, so a
+            ; branch answering one does not stop the join being owned
+            1
+        (if (== tg TAG_E_VAR)
+            ; a nullary constructor - `None`, `Nil` - is an immediate,
+            ; a no-op to release, so `(if c (Some x) None)` is owned
+            ; and the `Some` it builds is given back
+            (if (!= (lookupType (memGetWord cg 3) (nodeA e)) 0)
+                (if (isLocalValue cg (nodeA e)) 0 1)
+                0)
+        (if (== tg TAG_E_APP)
+            (let ((hd (spineHeadE e)))
+              (if (!= (nodeTag hd) TAG_E_VAR)
+                  0
+                  (let ((n (nodeA hd)))
+                    ; the indexed questions first - most arguments are
+                    ; not calls to reference-returning globals, and the
+                    ; constructor-table scan is the expensive one
+                    (if (!= (fnResultClass cg n) 2)
+                        0
+                        (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
+                            0
+                            (if (!= (lookupType (memGetWord cg 3) n) 0)
+                                0
+                                (if (== (spineArity e)
+                                        (fnArityCg cg n))
+                                    1
+                                    0)))))))
+        (if (== tg TAG_E_IF)
+            (if (== (valueOwnedRef cg (nodeB e)) 1) (valueOwnedRef cg (nodeC e)) 0)
+        (if (== tg TAG_E_COND)
+            (if (== (valueOwnedRefClauses cg (nodeA e) 0) 1)
+                (valueOwnedRef cg (nodeB e))
+                0)
+        (if (== tg TAG_E_MATCH)
+            (valueOwnedRefArms cg (nodeB e) 0)
+        (if (== tg TAG_E_LET)
+            (valueOwnedRef cg (nodeC e))
+        (if (== tg TAG_E_BEGIN)
+            (if (== (vecLen (nodeA e)) 0)
+                0
+                (valueOwnedRef cg (vecGet (nodeA e) (- (vecLen (nodeA e)) 1))))
+            0))))))))))))
+
+(pub :: valueOwnedRefClauses (-> Int Int Int Int))
+(pub fn (valueOwnedRefClauses cg cls i)
+  (if (>= i (vecLen cls))
+      1
+      (if (== (valueOwnedRef cg (nodeB (vecGet cls i))) 1)
+          (valueOwnedRefClauses cg cls (+ i 1))
+          0)))
+
+(pub :: valueOwnedRefArms (-> Int Int Int Int))
+(pub fn (valueOwnedRefArms cg arms i)
+  (if (>= i (vecLen arms))
+      (if (== i 0) 0 1)
+      (if (== (valueOwnedRef cg (nodeB (vecGet arms i))) 1)
+          (valueOwnedRefArms cg arms (+ i 1))
+          0)))
 
 ; ------------------------------------------------------------------
 ; MM-LIFE-2d evidence, emission side. A polymorphic function - one
@@ -2341,39 +3787,62 @@
     (emitLine cg "  ret void")
     (emitLine cg "}")
     (emitLine cg "")
-    (emitLine cg "define void @axiom_release(i64 %h) #0 {")
-    (emitLine cg "entry:")
+    ; MM-LIFE-2e + 2d: the release path. A handle below 4096 is an
+    ; immediate, a count of -1 a static, a count of 0 a free-floating
+    ; block nobody adopted: each is left alone. Otherwise the count
+    ; drops, and at zero the block is dead. A dead STRING (form bit 1,
+    ; or no reference map) files at once; a dead RECORD with a map is
+    ; DEFERRED: its count word - dead storage from here on, and the
+    ; free-list link once it files - links it into a dead list this
+    ; invocation keeps in a local, and nothing else is stored
+    ; anywhere. The drain pops a dead record, walks its map releasing
+    ; each payload reference through the same `relone` path (a child
+    ; that dies joins the dead list, it is never recursed into), then
+    ; files the record by its size class: class = count >> 1, THE one
+    ; convention, and a count of zero (a pre-encoding block, or a
+    ; payload too large for the field) or above 8192 (past the 64 KiB
+    ; pool ceiling) is skipped rather than misfiled.
+    ;
+    ; No recursion and no auxiliary stack, so the depth and the
+    ; breadth of what dies never matter: the recursive walk took the
+    ; process down the first time events 2/3 freed a 400,000-cell
+    ; list whole (`tests/selfhost/700-tco.ax`); deferring the LAST
+    ; field did the same for a list whose link is not its last field;
+    ; and a 4,096-entry worklist with a recursive fallback did the
+    ; same for `(Cons String L)` - every level left its string pending
+    ; until the chain ended, and 170,000 levels filled the worklist
+    ; and then the machine stack. The dead list costs one word the
+    ; block already owns.
+    (emitLine cg "define void @axiom_release(i64 %h0) #0 {")
+    (emitLine cg "start:")
+    (emitLine cg "  %dead = alloca i64")
+    (emitLine cg "  %cur = alloca i64")
+    (emitLine cg "  %D = alloca i64")
+    (emitLine cg "  %wi = alloca i64")
+    (emitLine cg "  %wm = alloca i64")
+    (emitLine cg "  store i64 0, ptr %dead")
+    (emitLine cg "  store i64 0, ptr %D")
+    (emitLine cg "  store i64 %h0, ptr %cur")
+    (emitLine cg "  br label %relone")
+    (emitLine cg "relone:")
+    (emitLine cg "  %h = load i64, ptr %cur")
     (emitLine cg "  %imm = icmp slt i64 %h, 4096")
-    (emitLine cg "  br i1 %imm, label %done, label %chk")
+    (emitLine cg "  br i1 %imm, label %after, label %chk")
     (emitLine cg "chk:")
     (emitLine cg "  %hoff = add i64 %h, -16")
     (emitLine cg "  %cp = inttoptr i64 %hoff to ptr")
     (emitLine cg "  %c = load i64, ptr %cp")
     (emitLine cg "  %stat = icmp eq i64 %c, -1")
-    (emitLine cg "  br i1 %stat, label %done, label %live")
+    (emitLine cg "  br i1 %stat, label %after, label %live")
     (emitLine cg "live:")
     (emitLine cg "  %zero = icmp eq i64 %c, 0")
-    (emitLine cg "  br i1 %zero, label %done, label %dec")
+    (emitLine cg "  br i1 %zero, label %after, label %dec")
     (emitLine cg "dec:")
     (emitLine cg "  %c1 = add i64 %c, -1")
     (emitLine cg "  store i64 %c1, ptr %cp")
-    ; MM-LIFE-2e + 2d: the release path. Before a dead block files,
-    ; its record-form reference map is WALKED - every set bit is a
-    ; payload word holding a reference this block owned, and
-    ; @axiom_release calls itself on each (the callee's own guards
-    ; cover immediates, statics, and zero counts, so the walk needs
-    ; none). Recursion depth is object-graph depth - acceptable for
-    ; the compiler's own shapes; 2c revisits with an explicit stack
-    ; if a measured need arises. At zero the block - header included
-    ; - joins its size class: class = count >> 1, THE one convention,
-    ; and a count of zero (a pre-encoding block, or a payload too
-    ; large for the field) or above 8192 (past the 64 KiB pool
-    ; ceiling) is skipped rather than misfiled. The dead block's
-    ; count word doubles as the free-list link: it is dead storage,
-    ; and the handout scrub rewrites it on reuse.
     (emitLine cg "  %isdead = icmp eq i64 %c1, 0")
-    (emitLine cg "  br i1 %isdead, label %dead, label %done")
-    (emitLine cg "dead:")
+    (emitLine cg "  br i1 %isdead, label %dead0, label %after")
+    (emitLine cg "dead0:")
     (emitLine cg "  %shq = add i64 %h, -8")
     (emitLine cg "  %shqp = inttoptr i64 %shq to ptr")
     (emitLine cg "  %shw = load i64, ptr %shqp")
@@ -2382,41 +3851,88 @@
     (emitLine cg "  %map0 = lshr i64 %shw, 16")
     (emitLine cg "  %hasmap = icmp ne i64 %map0, 0")
     (emitLine cg "  %dowalk = and i1 %isrec, %hasmap")
-    (emitLine cg "  br i1 %dowalk, label %walk, label %filechk")
-    (emitLine cg "walk:")
-    (emitLine cg "  %wi = phi i64 [ 0, %dead ], [ %wi1, %wnext ]")
-    (emitLine cg "  %wm = phi i64 [ %map0, %dead ], [ %wm1, %wnext ]")
-    (emitLine cg "  %wbit = and i64 %wm, 1")
-    (emitLine cg "  %wset = icmp ne i64 %wbit, 0")
-    (emitLine cg "  br i1 %wset, label %wrel, label %wnext")
-    (emitLine cg "wrel:")
-    (emitLine cg "  %woff = shl i64 %wi, 3")
-    (emitLine cg "  %waddr = add i64 %h, %woff")
-    (emitLine cg "  %waddrp = inttoptr i64 %waddr to ptr")
-    (emitLine cg "  %wval = load i64, ptr %waddrp")
-    (emitLine cg "  call void @axiom_release(i64 %wval)")
-    (emitLine cg "  br label %wnext")
-    (emitLine cg "wnext:")
-    (emitLine cg "  %wi1 = add i64 %wi, 1")
-    (emitLine cg "  %wm1 = lshr i64 %wm, 1")
-    (emitLine cg "  %wleft = icmp ne i64 %wm1, 0")
-    (emitLine cg "  br i1 %wleft, label %walk, label %filechk")
-    (emitLine cg "filechk:")
+    (emitLine cg "  br i1 %dowalk, label %defer, label %filev")
+    (emitLine cg "defer:")
+    (emitLine cg "  %dh = load i64, ptr %dead")
+    (emitLine cg "  store i64 %dh, ptr %cp")
+    (emitLine cg "  store i64 %h, ptr %dead")
+    (emitLine cg "  br label %after")
+    (emitLine cg "filev:")
     (emitLine cg "  %bcnt0 = lshr i64 %shw, 1")
     (emitLine cg "  %bcnt = and i64 %bcnt0, 32767")
     (emitLine cg "  %ok1 = icmp ne i64 %bcnt, 0")
     (emitLine cg "  %ok2 = icmp ule i64 %bcnt, 8192")
     (emitLine cg "  %ok = and i1 %ok1, %ok2")
-    (emitLine cg "  br i1 %ok, label %push, label %done")
+    (emitLine cg "  br i1 %ok, label %push, label %after")
     (emitLine cg "push:")
     (emitLine cg "  %pcls = lshr i64 %bcnt, 1")
     (emitLine cg "  %pslotp = getelementptr [4097 x i64], ptr @__axiom_slabs, i64 0, i64 %pcls")
     (emitLine cg "  %ohead = load i64, ptr %pslotp")
-    (emitLine cg "  %pbase = add i64 %h, -16")
-    (emitLine cg "  %pbasep = inttoptr i64 %pbase to ptr")
-    (emitLine cg "  store i64 %ohead, ptr %pbasep")
-    (emitLine cg "  store i64 %pbase, ptr %pslotp")
-    (emitLine cg "  br label %done")
+    (emitLine cg "  store i64 %ohead, ptr %cp")
+    (emitLine cg "  store i64 %hoff, ptr %pslotp")
+    (emitLine cg "  br label %after")
+    (emitLine cg "after:")
+    (emitLine cg "  %D0 = load i64, ptr %D")
+    (emitLine cg "  %hasD = icmp ne i64 %D0, 0")
+    (emitLine cg "  br i1 %hasD, label %walk, label %drain")
+    (emitLine cg "walk:")
+    (emitLine cg "  %Dw = load i64, ptr %D")
+    (emitLine cg "  %m = load i64, ptr %wm")
+    (emitLine cg "  %mzero = icmp eq i64 %m, 0")
+    (emitLine cg "  br i1 %mzero, label %fileD, label %testbit")
+    (emitLine cg "testbit:")
+    (emitLine cg "  %i = load i64, ptr %wi")
+    (emitLine cg "  %bit = and i64 %m, 1")
+    (emitLine cg "  %m1 = lshr i64 %m, 1")
+    (emitLine cg "  %i1 = add i64 %i, 1")
+    (emitLine cg "  store i64 %m1, ptr %wm")
+    (emitLine cg "  store i64 %i1, ptr %wi")
+    (emitLine cg "  %isset = icmp ne i64 %bit, 0")
+    (emitLine cg "  br i1 %isset, label %relchild, label %walk")
+    (emitLine cg "relchild:")
+    (emitLine cg "  %woff = shl i64 %i, 3")
+    (emitLine cg "  %waddr = add i64 %Dw, %woff")
+    (emitLine cg "  %waddrp = inttoptr i64 %waddr to ptr")
+    (emitLine cg "  %wval = load i64, ptr %waddrp")
+    (emitLine cg "  store i64 %wval, ptr %cur")
+    (emitLine cg "  br label %relone")
+    (emitLine cg "fileD:")
+    (emitLine cg "  %dq = add i64 %Dw, -8")
+    (emitLine cg "  %dqp = inttoptr i64 %dq to ptr")
+    (emitLine cg "  %dshw = load i64, ptr %dqp")
+    (emitLine cg "  %dcnt0 = lshr i64 %dshw, 1")
+    (emitLine cg "  %dcnt = and i64 %dcnt0, 32767")
+    (emitLine cg "  %dok1 = icmp ne i64 %dcnt, 0")
+    (emitLine cg "  %dok2 = icmp ule i64 %dcnt, 8192")
+    (emitLine cg "  %dok = and i1 %dok1, %dok2")
+    (emitLine cg "  store i64 0, ptr %D")
+    (emitLine cg "  br i1 %dok, label %pushD, label %drain")
+    (emitLine cg "pushD:")
+    (emitLine cg "  %dcls = lshr i64 %dcnt, 1")
+    (emitLine cg "  %dslotp = getelementptr [4097 x i64], ptr @__axiom_slabs, i64 0, i64 %dcls")
+    (emitLine cg "  %dohead = load i64, ptr %dslotp")
+    (emitLine cg "  %dbase = add i64 %Dw, -16")
+    (emitLine cg "  %dbasep = inttoptr i64 %dbase to ptr")
+    (emitLine cg "  store i64 %dohead, ptr %dbasep")
+    (emitLine cg "  store i64 %dbase, ptr %dslotp")
+    (emitLine cg "  br label %drain")
+    (emitLine cg "drain:")
+    (emitLine cg "  %dl = load i64, ptr %dead")
+    (emitLine cg "  %empty = icmp eq i64 %dl, 0")
+    (emitLine cg "  br i1 %empty, label %done, label %popD")
+    (emitLine cg "popD:")
+    (emitLine cg "  %lp0 = add i64 %dl, -16")
+    (emitLine cg "  %lpp = inttoptr i64 %lp0 to ptr")
+    (emitLine cg "  %nxt = load i64, ptr %lpp")
+    (emitLine cg "  store i64 %nxt, ptr %dead")
+    (emitLine cg "  store i64 %dl, ptr %D")
+    (emitLine cg "  store i64 0, ptr %wi")
+    (emitLine cg "  %pq = add i64 %dl, -8")
+    (emitLine cg "  %pqp = inttoptr i64 %pq to ptr")
+    (emitLine cg "  %pshw = load i64, ptr %pqp")
+    (emitLine cg "  %pmap = lshr i64 %pshw, 16")
+    (emitLine cg "  store i64 %pmap, ptr %wm")
+    (emitLine cg "  br label %walk")
     (emitLine cg "done:")
     (emitLine cg "  ret void")
     (emitLine cg "}")
@@ -2822,12 +4338,18 @@
             (_4 (memSetWord cg 19 vecNew)))
       (let ((cg0 (scanDecls allDecls cg 0)))
         (let ((cg0b (memSetWord cg0 8 allDecls)))
+          ; Every signature is known and the type table is built:
+          ; index both, then decide who owns what result before a
+          ; function is emitted.
+          (let ((_idx (buildNameIndexes cg0b)))
+          (let ((_own (inferOwnership cg0b allDecls)))
+          (let ((_flow (inferFlows cg0b allDecls)))
           (let ((ttHeader (cat3 "target triple = \"" (targetTriple tcode) "\"")))
             (let ((cg1 (emitLine cg0b ttHeader)))
               (let ((cg2 (emitLine cg1 "")))
                 (let ((cg3 (emitAllocator cg2)))
                   (let ((cg4 (emitLine cg3 "")))
-                    (emitModuleTail allDecls cg4 0)))))))))))
+                    (emitModuleTail allDecls cg4 0))))))))))))))
 
 (pub :: emitModuleTail (-> Int Int Int String))
 (pub fn (emitModuleTail decls cg i)
@@ -2963,6 +4485,7 @@
           {
             (memSetWord cgD 34 0)
             (memSetWord cgD 36 0)
+            (memSetWord cgD 41 vecNew)
             cgD
           }))
       cg))
@@ -3019,7 +4542,10 @@
         (if (== tg TAG_E_ALLOC)
             (bodyHasMatch (nodeA e))
         (if (== tg TAG_E_HANDLE)
-            (if (== (bodyHasMatch (nodeB e)) 1) 1 (bodyHasMatch (nodeC e)))
+            ; the body (A) and the handler (C); B is the Vec of effect
+            ; names, not a node - walked as one, it read a Vec header
+            ; as a tag and the body's `match` got no scratch word
+            (if (== (bodyHasMatch (nodeA e)) 1) 1 (bodyHasMatch (nodeC e)))
         0)))))))))))))))))
 
 (pub :: bodyHasMatchVec (-> Int Int))
@@ -3135,6 +4661,9 @@
           ; This function's own parameter names and float flags, for
           ; `%name` references in the body.
           (_5 (memSetWord cg 17 params))
+          ; event 2: the tail leaves this function must retain
+          (_5r (memSetWord cg 41 (borrowedTailLeaves cg name body params)))
+          (_5p (memSetWord cg 42 vecNew))
           (_6 (memSetWord cg 18
                 (let ((e (findFSig (memGetWord cg 15) name)))
                   (if (== e 0) 0 (memGetWord e 2))))))
@@ -3167,10 +4696,11 @@
         ; only where a match exists: raw `llc -O2` runs no dead-
         ; alloca elimination, and sixteen bytes on every frame found
         ; a deep recursion's stack guard.
-        (let ((cg1 (let ((cgH (emitLine cg0e hdr)))
-                     (if (== (bodyHasMatch body) 1)
-                         (emitLine cgH "  %__scr.h = alloca i64")
-                         cgH))))
+        (let ((cg1 (openAllocaMark
+                     (let ((cgH (emitLine cg0e hdr)))
+                       (if (== (bodyHasMatch body) 1)
+                           (emitLine cgH "  %__scr.h = alloca i64")
+                           cgH)))))
           ; NO re-scan here. This used to read
           ;
           ;   ; Re-scan declarations to ensure types Vec is fresh
@@ -3241,7 +4771,10 @@
               (let ((cg1c (if (== wantsTCO 1)
                               (openTailLoop selfName params cg1p)
                               cg1p)))
-                (let ((cg2 (if (== wantsTCO 1)
+                ; tail-aware emission whenever a leaf needs event 2's
+                ; retain, not only when a self call is to be rewritten
+                (let ((cg2 (if (|| (== wantsTCO 1)
+                                   (> (vecLen (memGetWord cg1c 41)) 0))
                                (emitExprTail body cg1c)
                                (emitExpr body cg1c))))
                   {
@@ -3253,26 +4786,124 @@
                     (if (== (memGetWord cg2 31) 1)
                         {
                           (memSetWord cg2 31 0)
-                          (emitLine cg2 "}")
+                          (emitLine (closeAllocaMark cg2) "}")
                         }
                         ; MM-LIFE-2c event 2: a function returns its
-                        ; result OWNED. A body that is a direct
-                        ; construction already hands back the birth
-                        ; share and MOVES it; anything else - a
-                        ; parameter, a field read, another call's
-                        ; result - is borrowed here, so returning it
-                        ; retains first. The caller then owns exactly
-                        ; one share, which is what lets event 3
-                        ; release a `let` bound to a call.
+                        ; result OWNED. A body whose every tail is
+                        ; owned already - a construction, a literal,
+                        ; an owned-result call, by `inferOwnership` -
+                        ; hands back the share it holds and MOVES it;
+                        ; a body that can answer a borrowed value - a
+                        ; parameter, a field, a binder - retains
+                        ; first. The caller then owns exactly one
+                        ; share, which is what lets event 3 release a
+                        ; `let` bound to a call and `releaseOwnedArgs`
+                        ; release a temporary. Only a REFERENCE result
+                        ; is retained: a word is never a share.
                         ;
-                        ; Over-retaining is the safe direction and the
-                        ; test is deliberately coarse: a tail that
-                        ; ends in a construction inside a branch is
-                        ; retained too, which leaks a share rather
-                        ; than freeing one.
-                        (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
-                          (emitLine (emitLine cg2 ret) "}")))
+                        ; The remaining coarseness: a body owned on one
+                        ; branch and borrowed on another retains the
+                        ; merged register, so the owned branch leaks a
+                        ; share - the safe direction, as before.
+                        ; MM-LIFE-2c event 4's other end: the entry
+                        ; retained every reference parameter into its
+                        ; slot (`retainRefParams`), the boundary kept
+                        ; the slots balanced per jump, and nothing gave
+                        ; the LAST iteration's shares back - one share
+                        ; of a reference parameter leaked per call of
+                        ; every self-recursive function until
+                        ; 2026-08-21. Released here, after the tail
+                        ; leaf took its own share (event 2) and before
+                        ; the `ret`.
+                        (let ((cgP (if (== wantsTCO 1)
+                                       (releaseRefParamSlots cg2)
+                                       cg2)))
+                        (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cgP 2)) "")))
+                          (emitLine (emitLine (closeAllocaMark cgP) ret) "}"))))
                   }))))))))))))))
+
+; The tail LEAVES of a function body that answer a borrowed value -
+; `emitExpr` retains each as it is emitted (event 2). Empty unless
+; the declared result is a reference and `inferOwnership` found some
+; path borrowed. Mirrors `tailOwned`'s walk over the LOWERED body, so
+; the node identities are the ones emission meets; a self tail call
+; is never a leaf (it becomes a jump, and the eventual non-recursive
+; leaf is where the value is produced).
+(pub :: borrowedTailLeaves (-> Int String Int Int Int))
+(pub fn (borrowedTailLeaves cg name body params)
+  (let ((e (findFSigCg cg name))
+        (acc vecNew))
+    (if (== e 0)
+        acc
+        (if (== (memGetWord e 5) 1)
+            acc
+            (let ((res (sigResultTy (memGetWord e 3))))
+              (if (== res 0)
+                  acc
+                  (if (!= (fldClass cg res) 2)
+                      acc
+                      { (collectTails cg body params vecNew name acc) acc })))))))
+
+(pub :: collectTails (-> Int Int Int Int String Int Int))
+(pub fn (collectTails cg e params env self acc)
+  (if (== e 0)
+      0
+      (let ((tg (nodeTag e)))
+        (if (== tg TAG_E_VAR)
+            (if (== (tailOwned cg e params env) 1) 0 { (vecPush acc e) 0 })
+        (if (|| (== tg TAG_E_FIELD) (== tg TAG_E_ALLOC))
+            { (vecPush acc e) 0 }
+        (if (== tg TAG_E_APP)
+            (let ((hd (spineHeadE e)))
+              (if (&& (== (nodeTag hd) TAG_E_VAR)
+                      (strEq (mangledForCg cg (nodeA hd)) self))
+                  0
+                  (if (== (tailOwnedApp cg e params env) 1) 0 { (vecPush acc e) 0 })))
+        (if (== tg TAG_E_IF)
+            { (collectTails cg (nodeB e) params env self acc)
+              (collectTails cg (nodeC e) params env self acc) }
+        (if (== tg TAG_E_COND)
+            { (collectTailsClauses cg (nodeA e) params env self acc 0)
+              (collectTails cg (nodeB e) params env self acc) }
+        (if (== tg TAG_E_MATCH)
+            (collectTailsArms cg (nodeB e) params env self acc 0)
+        (if (== tg TAG_E_BEGIN)
+            (if (== (vecLen (nodeA e)) 0)
+                0
+                (collectTails cg (vecGet (nodeA e) (- (vecLen (nodeA e)) 1)) params env self acc))
+        (if (== tg TAG_E_LET)
+            (collectTails cg (nodeC e) params
+                          (envWith env (nodeA e) (tailOwned cg (nodeB e) params env)) self acc)
+        (if (== tg TAG_E_LETM)
+            (collectTails cg (nodeC e) params (envWith env (nodeA e) 0) self acc)
+        (if (|| (== tg TAG_E_INT)
+            (|| (== tg TAG_E_FLT)
+            (|| (== tg TAG_E_STR)
+            (|| (== tg TAG_E_CHAR)
+            (|| (== tg TAG_E_LAM)
+            (|| (== tg TAG_E_WHILE)
+            (|| (== tg TAG_E_SET)
+            (|| (== tg TAG_E_SETF) (== tg TAG_E_STRUCTCON)))))))))
+            0
+            ; a shape the walk does not know answers borrowed
+            { (vecPush acc e) 0 })))))))))))))
+
+(pub :: collectTailsClauses (-> Int Int Int Int String Int Int Int))
+(pub fn (collectTailsClauses cg cls params env self acc i)
+  (if (>= i (vecLen cls))
+      0
+      { (collectTails cg (nodeB (vecGet cls i)) params env self acc)
+        (collectTailsClauses cg cls params env self acc (+ i 1)) }))
+
+(pub :: collectTailsArms (-> Int Int Int Int String Int Int Int))
+(pub fn (collectTailsArms cg arms params env self acc i)
+  (if (>= i (vecLen arms))
+      0
+      (let ((arm (vecGet arms i)))
+        (let ((bs (patBindersCg (nodeA arm) vecNew)))
+          { (collectTails cg (nodeB arm) params
+                          (if (== bs 0) env (envWithAll env bs 0)) self acc)
+            (collectTailsArms cg arms params env self acc (+ i 1)) }))))
 
 ; Move every parameter into an alloca, bind it as mutable storage so
 ; body references load it, and open the loop the tail call jumps back
@@ -3445,27 +5076,130 @@
       ; hand back. Reading after `evalTailArgs` is deliberate - an
       ; argument expression may still mention the parameter it is
       ; about to replace.
-      (retainTailVals (memGetWord cg 28) vals cg 0)
-      (let ((olds vecNew))
+      ;
+      ; A parameter passed through AS ITSELF - `(scan v name (+ i 1))`,
+      ; the shape of every linear scan - keeps its slot's block and
+      ; its slot's share: the retain and the release would cancel,
+      ; and cost two header touches per iteration. Skipped, once the
+      ; name still resolves to the slot (a `let` shadowing it is a
+      ; different value and pays).
+      (let ((same (tailArgsUnchanged cg (memGetWord cg 28) args vecNew 0)))
         {
-          (loadTailOlds (memGetWord cg 28) olds cg 0)
-          (storeTailSlots (memGetWord cg 28) vals cg 0)
-          (releaseTailOlds (memGetWord cg 28) olds cg 0)
+          (retainTailVals (memGetWord cg 28) vals same cg 0)
+          (let ((olds vecNew))
+            {
+              (loadTailOlds (memGetWord cg 28) olds cg 0)
+              (storeTailSlots (memGetWord cg 28) vals cg 0)
+              (releaseTailOlds (memGetWord cg 28) olds same cg 0)
+            })
         })
+      ; and an OWNED temporary among the arguments hands its own share
+      ; back, exactly as after an ordinary call (`releaseOwnedArgs`):
+      ; the boundary retain above is the slot's share, and
+      ; `(grind (wide n) (- n 1))` otherwise kept one per iteration
+      (releaseTailTemps (memGetWord cg 28) args vals cg 0)
+      ; and every releasable `let` (and owned scrutinee) still in scope:
+      ; their scope ends are past the jump and will not be reached on
+      ; this path; the values the slots keep were retained above
+      (releasePending cg (memGetWord cg 42) 0)
       (emitLine cg (cat2 "  br label %" (memGetWord cg 29)))
       (memSetWord cg 31 1)
       (memSetWord cg 2 "0")
       cg
     }))
 
-(pub :: retainTailVals (-> Int Int Int Int Int))
-(pub fn (retainTailVals slots vals cg i)
+; The STASH summary of the function being emitted - the self call
+; is a call to it, and its exit hands back its own slots.
+(pub :: curFnStashMask (-> Int Int))
+(pub fn (curFnStashMask cg)
+  ; through the declaration being emitted (word 36), not the loop
+  ; name (word 27): the exit release runs after the loop name is
+  ; cleared, and read through it the mask was 0 at every `ret`
+  (let ((d (memGetWord cg 36)))
+    (if (== d 0)
+        0
+        (let ((e (findFSigCg cg (nodeA d))))
+          (if (== e 0) 0 (memGetWord e 7))))))
+
+(pub :: curFnRetMask (-> Int Int))
+(pub fn (curFnRetMask cg)
+  (let ((d (memGetWord cg 36)))
+    (if (== d 0)
+        0
+        (let ((e (findFSigCg cg (nodeA d))))
+          (if (== e 0) 0 (memGetWord e 8))))))
+
+(pub :: releasePending (-> Int Int Int Int))
+(pub fn (releasePending cg pend i)
+  (if (>= i (vecLen pend))
+      cg
+      (releasePending (emitReleaseOf cg (cast String (vecGet pend i))) pend (+ i 1))))
+
+; The temporary's OWN share, always: the boundary retain above is
+; the slot's, and a parameter this function parks keeps the slot's
+; share for the stash (`releaseTailOlds` and the exit leave it), not
+; the temporary's as well.
+(pub :: releaseTailTemps (-> Int Int Int Int Int Int))
+(pub fn (releaseTailTemps slots args vals cg i)
   (if (>= i (vecLen slots))
       cg
-      (let ((cg1 (if (== (curParamRefClass cg i) 1)
+      (let ((cg1 (if (&& (== (curParamRefClass cg i) 1)
+                         (== (valueOwnedRef cg (vecGet args i)) 1))
+                     (emitReleaseOf cg (vecGet vals i))
+                     cg)))
+        (releaseTailTemps slots args vals cg1 (+ i 1)))))
+
+; Load and release the current value of every reference parameter's
+; slot - the entry retain's counterpart, on the return path. Word 2
+; (the function's result register) survives the loads.
+(pub :: releaseRefParamSlots (-> Int Int))
+(pub fn (releaseRefParamSlots cg)
+  (let ((v (strDup (memGetWord cg 2)))
+        (fl (memGetWord cg 14))
+        (slots (memGetWord cg 28)))
+    (let ((cgR (releaseRefParamSlotsFrom cg slots 0)))
+      { (memSetWord cgR 2 v) (memSetWord cgR 14 fl) cgR })))
+
+(pub :: releaseRefParamSlotsFrom (-> Int Int Int Int))
+(pub fn (releaseRefParamSlotsFrom cg slots i)
+  (if (>= i (vecLen slots))
+      cg
+      (if (&& (== (curParamRefClass cg i) 1)
+              ; not a parameter this very function parks a word of,
+              ; nor one it ANSWERS a WORD of (`(cast Int s)` as the
+              ; tail) - the slot's share is what keeps that word
+              ; alive, on the way out too. A typed answer is the
+              ; leaf's own retain (event 2), and the slot's share
+              ; goes back
+              (== (& (| (curFnStashMask cg) (paramsOf (wordParts (curFnRetMask cg)))) (| (paramBit i) (ownerBit i))) 0))
+          (let ((cgL (loadFromSlot cg (vecGet slots i))))
+            (releaseRefParamSlotsFrom (emitReleaseOf cgL (strDup (memGetWord cgL 2))) slots (+ i 1)))
+          (releaseRefParamSlotsFrom cg slots (+ i 1)))))
+
+(pub :: retainTailVals (-> Int Int Int Int Int Int))
+(pub fn (retainTailVals slots vals same cg i)
+  (if (>= i (vecLen slots))
+      cg
+      (let ((cg1 (if (&& (== (curParamRefClass cg i) 1) (== (vecGet same i) 0))
                      (emitRetainOf cg (vecGet vals i))
                      cg)))
-        (retainTailVals slots vals cg1 (+ i 1)))))
+        (retainTailVals slots vals same cg1 (+ i 1)))))
+
+; Flag per slot: 1 when argument i is the VAR of parameter i and the
+; name still names the slot.
+(pub :: tailArgsUnchanged (-> Int Int Int Int Int Int))
+(pub fn (tailArgsUnchanged cg slots args out i)
+  (if (>= i (vecLen slots))
+      out
+      (let ((a (vecGet args i)))
+        { (vecPush out
+                   (if (!= (nodeTag a) TAG_E_VAR)
+                       0
+                       (let ((r (lookupSym cg (nodeA a))))
+                         (if (== r 0)
+                             0
+                             (if (strEq (cast String r) (vecGet slots i)) 1 0)))))
+          (tailArgsUnchanged cg slots args out (+ i 1)) })))
 
 (pub :: loadTailOlds (-> Int Int Int Int Int))
 (pub fn (loadTailOlds slots olds cg i)
@@ -3481,14 +5215,19 @@
         (loadTailOlds slots olds cg (+ i 1))
       }))
 
-(pub :: releaseTailOlds (-> Int Int Int Int Int))
-(pub fn (releaseTailOlds slots olds cg i)
+; Not a parameter this function parks a word of: the iteration that
+; parked it left the slot's share as the stash's keeper, and the
+; jump must not take it back.
+(pub :: releaseTailOlds (-> Int Int Int Int Int Int))
+(pub fn (releaseTailOlds slots olds same cg i)
   (if (>= i (vecLen olds))
       cg
-      (let ((cg1 (if (== (curParamRefClass cg i) 1)
+      (let ((cg1 (if (&& (== (curParamRefClass cg i) 1)
+                         (&& (== (vecGet same i) 0)
+                             (== (& (curFnStashMask cg) (| (paramBit i) (ownerBit i))) 0)))
                      (emitReleaseOf cg (vecGet olds i))
                      cg)))
-        (releaseTailOlds slots olds cg1 (+ i 1)))))
+        (releaseTailOlds slots olds same cg1 (+ i 1)))))
 
 ; A parameter slot is an `alloca`; reading it is the same load
 ; `emitVar` emits for a kind-2 binding, without going through the
@@ -3558,18 +5297,28 @@
             (tailCallsSelf (nodeC e) name arity))
     (if (== tag TAG_E_MATCH)
         (armsCallSelf (nodeB e) name arity 0)
-        0))))))
+    (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+        (if (strEq (nodeA e) name)
+            0
+            (tailCallsSelf (nodeC e) name arity))
+        0)))))))
 
-; NOT a tail position: a `let` body. stage0 passes no tail context
-; into one, and following it here cost two defects at once. A `mut`
+; A `let` body IS a tail position, since 2026-08-22. It was not, for
+; two defects that following stage0's omission avoided: a `mut`
 ; binding inside the loop re-executed its `alloca` on every iteration
-; and grew the stack without bound - re-creating the exact overflow
-; this feature removes, while emitting LLVM that looks optimised. And
-; a local shadowing the function's own name (`(let ((f (lambda ...)))
-; (f x))`) became a jump to the function instead of a call to the
-; local: an infinite loop where the correct answer was a number.
-; `while` bodies and `&&`/`||` operands are not tail positions either,
-; for the same reason stage0 excludes them.
+; and grew the stack without bound - every `alloca` now sits in the
+; entry block (`openAllocaMark`), so no binding allocates per
+; iteration - and a local shadowing the function's own name
+; (`(let ((f (lambda ...))) (f x))`) became a jump to the function
+; instead of a call to the local - `dispatchCall` resolves the head
+; as a local before it considers the rewrite, and a `let` binding the
+; name itself is refused here too. What made it worth taking: event
+; 3 releases a `let`'s temporary AFTER the self call it wraps, and
+; that release is what stopped LLVM's own sibling-call pass from
+; rescuing `(let ((s (strConcat s "x"))) (grow s (- n 1)))` - 200,000
+; deep, it overflowed where the leaking compiler had not. A `mut`
+; body, a `while` body and `&&`/`||` operands are still not tail
+; positions.
 
 (pub :: armsCallSelf (-> Int String Int Int Int))
 (pub fn (armsCallSelf arms name arity i)
@@ -3613,7 +5362,7 @@
           (let ((cgA (emitExpr e cg)))
             {
               (memSetWord cgA 30 0)
-              cgA
+              (retainTailLeaf e cgA)
             })
         }
     (if (== tag TAG_E_BEGIN)
@@ -3622,7 +5371,14 @@
         (emitIfTail e cg)
     (if (== tag TAG_E_MATCH)
         (emitMatchTail e cg)
-        (emitExpr e cg)))))))
+    ; a `let`'s body inherits tail position: the leaf retain, and
+    ; the self call under it is rewritten like any other (its
+    ; pending temporary is paid at the jump, `emitTailJump`)
+    (if (== tag TAG_E_LET)
+        (emitLetAt e cg 1)
+    (if (== tag TAG_E_LETM)
+        (emitLetMAt e cg 1)
+        (retainTailLeaf e (emitExpr e cg))))))))))
 
 ; Every expression of a block but the last is ordinary; the last
 ; inherits tail position.
@@ -3636,7 +5392,7 @@
             (let ((cg1 (emitExpr e cg)))
               ; the same discard rule as emitSeq - a TCO loop body is
               ; exactly where a per-iteration build-and-drop lives
-              (let ((cg2 (if (== (argIsDirectCon cg1 e) 1)
+              (let ((cg2 (if (== (valueOwnedRef cg1 e) 1)
                              (emitReleaseOf cg1 (strDup (memGetWord cg1 2)))
                              cg1)))
                 (emitSeqTail exprs cg2 (+ i 1))))))))
@@ -3666,13 +5422,17 @@
                                 "")))
         (mn (allocReg cg1))
         (mergeB (cat2 "label_" (fmtInt mn)))
+        (rel (scrutineeReleasable node scrutExpr cg1))
+        (pmark (vecLen (memGetWord cg1 42)))
+        (_p (if (== rel 1) (vecPush (memGetWord cg1 42) (cast Int sv)) 0))
         (cg2 (emitArmsTail arms sv cell mergeB cg1 0 ff))
+        (_q (memSetWord (memGetWord cg2 42) 0 pmark))
         (_2 (emitLabel cg2 mergeB))
         (cg3 (loadWordAt cg2 cell 0))
         (armFlag (memGetWord ff 0))
         (_3 (memSetWord cg3 14 (if (== armFlag (- 0 1)) 0 armFlag)))
         (_4 (memSetWord cg3 31 0)))
-    cg3))
+    (if (== rel 1) (releaseScrutinee sv cg3) cg3)))
 
 (pub :: emitArmsTail (-> Int String String String Int Int Int Int))
 (pub fn (emitArmsTail arms sv cell mergeB cg i ff)
@@ -4020,10 +5780,11 @@
                                       ""
                                       (cat2 ", " paramStr)))
                             ") #0 {")))
-        (let ((cg1 (let ((cgH (emitLine cg hdr)))
-                     (if (== (bodyHasMatch body) 1)
-                         (emitLine cgH "  %__scr.h = alloca i64")
-                         cgH))))
+        (let ((cg1 (openAllocaMark
+                     (let ((cgH (emitLine cg hdr)))
+                       (if (== (bodyHasMatch body) 1)
+                           (emitLine cgH "  %__scr.h = alloca i64")
+                           cgH)))))
           ; The lifted-lambda twin of the re-scan deleted in `emitFnDef`,
           ; and redundant for the same reason: slot 8 is `allDecls`,
           ; already scanned once by `emitResolved`, and nothing clears
@@ -4032,7 +5793,7 @@
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
               (let ((cg2 (emitExpr body cg1c)))
                 (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
-                  (emitLine (emitLine cg2 ret) "}"))))))))))
+                  (emitLine (emitLine (closeAllocaMark cg2) ret) "}"))))))))))
 
 (pub :: bindCaps (-> Int Int Int Int Int))
 (pub fn (bindCaps cg capNames capFloats i)
@@ -4225,12 +5986,34 @@
                                 "")))
         (mn (allocReg cg1))
         (mergeB (cat2 "label_" (fmtInt mn)))
+        (rel (scrutineeReleasable node scrutExpr cg1))
+        (pmark (vecLen (memGetWord cg1 42)))
+        (_p (if (== rel 1) (vecPush (memGetWord cg1 42) (cast Int sv)) 0))
         (cg2 (emitArms arms sv cell mergeB cg1 0 ff))
+        (_q (memSetWord (memGetWord cg2 42) 0 pmark))
         (_2 (emitLabel cg2 mergeB))
         (cg3 (loadWordAt cg2 cell 0))
         (armFlag (memGetWord ff 0))
         (_3 (memSetWord cg3 14 (if (== armFlag (- 0 1)) 0 armFlag))))
-    cg3))
+    (if (== rel 1) (releaseScrutinee sv cg3) cg3)))
+
+; An OWNED scrutinee - `(match (Some (fmtInt i)) ...)` - is a
+; temporary the match consumed: released after the merge, unless some
+; arm's binder escapes through its body (the binders are the block's
+; fields, and the walk that decides this for a `let` decides it
+; here). The match's own value in word 2 is kept.
+(pub :: scrutineeReleasable (-> Int Int Int Int))
+(pub fn (scrutineeReleasable node scrutExpr cg)
+  (if (== (valueOwnedRef cg scrutExpr) 0)
+      0
+      (if (== (escapesViaBinders cg (nodeB node) 1 0 node) 1) 0 1)))
+
+(pub :: releaseScrutinee (-> String Int Int))
+(pub fn (releaseScrutinee sv cg)
+  (let ((v (strDup (memGetWord cg 2)))
+        (fl (memGetWord cg 14)))
+    (let ((cgR (emitReleaseOf cg sv)))
+      { (memSetWord cgR 2 v) (memSetWord cgR 14 fl) cgR })))
 
 (pub :: emitArms (-> Int String String String Int Int Int Int))
 (pub fn (emitArms arms sv cell mergeB cg i ff)
@@ -4493,8 +6276,46 @@
 ; ------------------------------------------------------------------
 ; Expression dispatch.
 ; ------------------------------------------------------------------
+; Event 2's retain lives HERE, on the leaf: a node `emitFnDef` listed
+; in `tailRetain` - a borrowed value in tail position of a
+; reference-returning function - is retained the moment its register
+; exists. Per leaf rather than at `ret`, because a function owned on
+; one branch and borrowed on another must retain the borrowed branch
+; only; retaining the merged register leaked a share of the owned one
+; on every call (`fmtInt`, measured: 16 MB over 200,000 calls).
 (pub :: emitExpr (-> Int Int Int))
 (pub fn (emitExpr node cg)
+  (emitExprDispatch node cg))
+
+; The retain itself, for a leaf `emitExprTail` has just emitted in
+; tail position: listed in `tailRetain`, and not a block a jump has
+; already terminated. Keyed on the POSITION as well as the node,
+; because a macro substitutes one node for every occurrence of a
+; parameter, and retaining every occurrence leaked a share per call.
+(pub :: retainTailLeaf (-> Int Int Int))
+(pub fn (retainTailLeaf node cg)
+  (let ((tr (memGetWord cg 41)))
+    (if (== (vecLen tr) 0)
+        cg
+        (if (== (memGetWord cg 31) 1)
+            cg
+            (if (== (nodeInVec tr node 0) 1)
+                (let ((v (strDup (memGetWord cg 2)))
+                      (fl (memGetWord cg 14)))
+                  (let ((cgR (emitRetainOf cg v)))
+                    { (memSetWord cgR 2 v) (memSetWord cgR 14 fl) cgR }))
+                cg)))))
+
+(pub :: nodeInVec (-> Int Int Int Int))
+(pub fn (nodeInVec v node i)
+  (if (>= i (vecLen v))
+      0
+      (if (== (cast Int (vecGet v i)) node)
+          1
+          (nodeInVec v node (+ i 1)))))
+
+(pub :: emitExprDispatch (-> Int Int Int))
+(pub fn (emitExprDispatch node cg)
   (let ((tag (nodeTag node)))
     (if (== tag TAG_E_INT)   (emitInt node cg)
     ; A char literal is its codepoint word; emission is an integer's.
@@ -4849,11 +6670,19 @@
                                    cgV)))
                       (let ((cgS (storeWordAt cgR base (nodeA fi) v)))
                         (let ((cgD (if owns (emitReleaseOf cgS old) cgS)))
+                          ; and the temporary's own share, if the value
+                          ; was an owned temporary that the retain above
+                          ; (not a MOVE) has just copied into the field
+                          (let ((cgT (if (&& owns
+                                             (&& (!= (argIsDirectCon cgD (nodeC node)) 1)
+                                                 (== (valueOwnedRef cgD (nodeC node)) 1)))
+                                         (emitReleaseOf cgD v)
+                                         cgD)))
                           {
-                            (memSetWord cgD 2 (constStr 0))
-                            (memSetWord cgD 14 0)
-                            cgD
-                          }))))))))))))
+                            (memSetWord cgT 2 (constStr 0))
+                            (memSetWord cgT 14 0)
+                            cgT
+                          })))))))))))))
 
 ; `base.field`: the field resolves through the struct the CHECKER
 ; stamped on the node (`resolveStructField`), and a struct carries no
@@ -5143,6 +6972,13 @@
                                                    (fmtInt ti)
                                                    " to i64"))
                                 (storeWordAt cg pr 0 fr)
+                                ; born at 1, as a lambda is (A1): the
+                                ; frame that built it holds it, and a
+                                ; record it is stored into takes its own
+                                ; share. Born at 0 the store ADOPTED it,
+                                ; and the record's death freed the
+                                ; value under the frame still calling it
+                                (storeCountOneAt cg pr)
                                 (memSetWord cg 2 pr)
                                 (memSetWord cg 14 0)
                                 cg
@@ -6126,7 +7962,8 @@
 
 (pub :: emitPlainCall (-> String Int Int Int Int))
 (pub fn (emitPlainCall fnName args stamp cg)
-  (let ((argStrCg (emitArgsList args cg 0)))
+  (let ((argRegs vecNew))
+  (let ((argStrCg (emitArgsRegs args cg argRegs 0)))
     (let ((argStrT (strDup (memGetWord argStrCg 9)))
           ; The callee's defining module may have renamed it - a bare
           ; reference reaches whatever symbol the map says (entry file
@@ -6154,10 +7991,83 @@
                               (cat3 argStrT evStr ")"))))
           {
             (emitLine cgE callInst)
+            ; the temporaries this call consumed, released now that
+            ; the callee has taken whatever share it keeps
+            (releaseOwnedArgs cgE fnName args argRegs 0)
             (memSetWord cgE 2 r)
             (memSetWord cgE 14 (fnRetIsFloat cgE full))
             cgE
-          })))))))))
+          }))))))))))
+
+; `emitArgsList` that also records each argument's register, in
+; order, into `regs`.
+(pub :: emitArgsRegs (-> Int Int Int Int Int))
+(pub fn (emitArgsRegs args cg regs i)
+  (if (>= i (vecLen args))
+      {
+        (memSetWord cg 2 "")
+        (memSetWord cg 9 "")
+        cg
+      }
+      (let ((node (vecGet args i)))
+        (let ((cg1 (emitExpr node cg)))
+          (let ((reg (strDup (memGetWord cg1 2))))
+            {
+              (vecPush regs (cast Int reg))
+              (let ((restCg (emitArgsRegs args cg1 regs (+ i 1))))
+                (let ((rest (memGetWord restCg 2))
+                      (restT (memGetWord restCg 9)))
+                  (if (== (strLen rest) 0)
+                      {
+                        (memSetWord restCg 2 reg)
+                        (memSetWord restCg 9 (strDup reg))
+                        restCg
+                      }
+                      {
+                        (memSetWord restCg 2 (cat3 reg ", " rest))
+                        (memSetWord restCg 9 (cat3 (strDup reg) ", i64 " restT))
+                        restCg
+                      })))
+            })))))
+
+; An OWNED temporary handed to a call is released once the call has
+; returned: the callee borrowed it (event 1), every store it could
+; make took a share (events 5/6, MM-LIFE-2g), and a callee that
+; answers it answers a retained share (event 2). Only a callee whose
+; declared result class is known - a word or a reference - gets this;
+; a function answering a type variable retains nothing on the way
+; out, and keeps today's leak. The head reaching here is a global
+; with a signature (`emitPlainCall` is past the primitive, local and
+; constructor dispatch), or an unsigned one, which answers -1.
+(pub :: releaseOwnedArgs (-> Int String Int Int Int Int))
+(pub fn (releaseOwnedArgs cg fnName args regs i)
+  (if (>= i (vecLen args))
+      cg
+      (let ((cls (fnResultClass cg fnName)))
+        (if (|| (== cls 0) (== cls 2))
+            (if (&& (== (valueOwnedRef cg (vecGet args i)) 1)
+                    ; the callee parks nothing of a typed arrival
+                    ; there, and answers no part of it that the caller
+                    ; now holds instead - and an immediate (`Nil`)
+                    ; has nothing to give back
+                    (&& (== (isNullaryConNode cg (vecGet args i)) 0)
+                    (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0)
+                        (|| (== cls 2)
+                            (== (& (fnRetMask cg fnName) (anyBit i)) 0)))))
+                (releaseOwnedArgs (emitReleaseOf cg (cast String (vecGet regs i)))
+                                  fnName args regs (+ i 1))
+                (releaseOwnedArgs cg fnName args regs (+ i 1)))
+            cg))))
+
+(pub :: isNullaryConNode (-> Int Int Int))
+(pub fn (isNullaryConNode cg e)
+  (if (== e 0)
+      0
+      (if (== (nodeTag e) TAG_E_VAR)
+          (if (!= (lookupType (memGetWord cg 3) (nodeA e)) 0) 1 0)
+          (if (&& (== (nodeTag e) TAG_E_APP) (== (spineArity e) 0))
+              (isNullaryConNode cg (spineHeadE e))
+              0))))
 
 
 ; ------------------------------------------------------------------
@@ -6405,7 +8315,9 @@
             (let ((n (cast String (nodeA tn))))
               (if (== (scalarTyName n) 1)
                   0
-              (if (strEq n "String")
+              (if (|| (strEq n "String") (strEq n "Option"))
+                  ; the builtin `Option` is seeded by the checker and
+                  ; never enters the module's data list
                   2
               (if (== (dataTyKnown (memGetWord cg 35) n 0) 1)
                   2
@@ -6850,14 +8762,27 @@
                              (if (>= rc 2)
                                  (emitRetainIfEvBit cg1 reg (- rc 2))
                                  cg1))))
-                (emitFieldStores (storeWordAt cgR ptr (+ base i) reg)
-                                 ptr args (+ i 1) base entry stamp))))))))
+                (let ((cgS (storeWordAt cgR ptr (+ base i) reg)))
+                  ; an owned temporary stored with an unconditional
+                  ; retain has handed its share to the field: release
+                  ; the one it arrived with (a direct construction
+                  ; MOVED, and answered rc -1 above)
+                  (let ((cgT (if (&& (== rc 1) (== (valueOwnedRef cgS argNode) 1))
+                                 (emitReleaseOf cgS reg)
+                                 cgS)))
+                    (emitFieldStores cgT ptr args (+ i 1) base entry stamp))))))))))
 
 ; ------------------------------------------------------------------
 ; E_Let / E_If / E_Begin.
 ; ------------------------------------------------------------------
 (pub :: emitLet (-> Int Int Int))
 (pub fn (emitLet node cg)
+  (emitLetAt node cg 0))
+
+; `tail` is 1 when the let itself sits in tail position, so its body
+; does too and a borrowed leaf there gets event 2's retain.
+(pub :: emitLetAt (-> Int Int Int Int))
+(pub fn (emitLetAt node cg tail)
   (let ((name (nodeA node))
         (valExpr (nodeB node))
         (body (nodeC node)))
@@ -6872,24 +8797,36 @@
             (valFlag (memGetWord cg1 14))
             (mark (symMark cg1)))
         (bindSym cg1 name valReg valFlag 0)
-        (let ((cgB (emitExpr body cg1)))
-          {
-            (symRestore cgB mark)
-            ; MM-LIFE-2c event 3, the subset that needs no escape
-            ; analysis to be sound. The release goes HERE - at the
-            ; binding's scope end, in the block that defines its
-            ; register - rather than before the function's `ret`,
-            ; because a `let` inside a branch defines a register that
-            ; does not dominate the return.
-            (if (== (letReleasable cg1 node valExpr name body) 1)
-                (let ((res (strDup (memGetWord cgB 2)))
-                      (cgR (emitReleaseOf cgB valReg)))
-                  {
-                    (memSetWord cgR 2 res)
-                    cgR
-                  })
-                cgB)
-          })))))
+        (let ((releasable (letReleasable cg1 node valExpr name body)))
+        (let ((pmark (vecLen (memGetWord cg1 42))))
+        {
+          ; a releasable binding is PENDING while its body emits: a
+          ; self tail call inside the body jumps back to the loop
+          ; header and never reaches the scope end, so `emitTailJump`
+          ; pays every pending share before the jump
+          (if (== releasable 1) (vecPush (memGetWord cg1 42) (cast Int valReg)) 0)
+          (let ((cgB (if (== tail 1) (emitExprTail body cg1) (emitExpr body cg1))))
+            {
+              (memSetWord (memGetWord cgB 42) 0 pmark)
+              (symRestore cgB mark)
+              ; MM-LIFE-2c event 3. The release goes HERE - at the
+              ; binding's scope end, in the block that defines its
+              ; register - rather than before the function's `ret`,
+              ; because a `let` inside a branch defines a register that
+              ; does not dominate the return. Not when the body ended
+              ; in a jump: that block is terminated, the jump path has
+              ; already paid, and an instruction after a terminator is
+              ; not LLVM.
+              (if (&& (== releasable 1) (!= (memGetWord cgB 31) 1))
+                  (let ((res (strDup (memGetWord cgB 2)))
+                        (cgR (emitReleaseOf cgB valReg)))
+                    {
+                      (memSetWord cgR 2 res)
+                      cgR
+                    })
+                  cgB)
+            })
+        }))))))
 
 ; Is this `let` binding one the frame may release when its scope ends?
 ;
@@ -6947,7 +8884,7 @@
 ; the asymmetry, taken deliberately.
 (pub :: letOwned (-> Int Int Int Int))
 (pub fn (letOwned cg node valExpr)
-  (argIsDirectCon cg valExpr))
+  (valueOwnedRef cg valExpr))
 
 
 
@@ -6962,20 +8899,22 @@
 ; store by event 5, a constructor field by event 6, a container or any
 ; other word store through `memSetWord`, which retains by MM-LIFE-2g).
 ;
-; What a callee ANSWERS is the exception, and it used to be stated as
-; a fourth guarantee - "a callee that returns the value retains it
-; first (event 2)" - which the emitter has never shipped for a
-; borrowed value (docs/memory-model.md, "Event 2 is implemented,
-; measured, and NOT shipped"). `(fn (ident s) s)` is `ret i64 %s`. So
-; a call in VALUE position whose arguments mention the binding is the
-; binding reaching the value, unless its head cannot answer a
-; reference - an operator, a primitive, a function signed to answer a
-; machine scalar (`callMayAnswerRef`); a
-; constructor head is the same case one event over, because a
-; tyvar-typed field without an evidence stamp takes no share. A field
-; of the block that is itself a reference, in value position, and a
-; `match` binder - a field under another name - are the block too
-; (`letReleasable` carries the measurement).
+; What a callee KEEPS or ANSWERS is decided by the callee's own flow
+; masks (`inferFlows`, `callEscapesArg`): an argument mentioning the
+; binding escapes when the callee stashes that parameter - parks it
+; uncounted through a `cast` into a word field, a slot, a raw store,
+; a capture, or a stashing callee - and, in VALUE position, when the
+; callee's result is a word that may be part of it. A callee whose
+; result is a counted reference answers a share of its own (event 2,
+; `borrowedTailLeaves`), so `(fn (ident s) s)` hands back a retained
+; `s` and the argument's share is untouched. Only a GLOBAL with a
+; signature has masks: a parameter or local named like one, bound
+; outside the let (the symbol table still holds it) or inside its
+; body (`boundWithin`), is a function value nothing signed, as is the
+; binding itself applied, and every argument it is given escapes. A
+; field of the block that is itself a reference, in value position,
+; and a `match` binder - a field under another name - are the block
+; too (`letReleasable` carries the measurement).
 ;
 ; Three shapes escape whatever their position, and each is a place the
 ; invariant above does not reach:
@@ -7019,25 +8958,19 @@
                 ; `cast`/`__addr`/`strData` of the binding hands out a
                 ; word, and a word takes no share
                 (mentions name e)
-                ; a CALL in value position may answer its argument, or
-                ; a field of it: event 2's retain-on-return is emitted
-                ; for no borrowed value (`emitSeq` carries the sound
-                ; subset that exists), so `(fn (ident s) s)` hands the
-                ; argument straight back and the let would free it.
-                ; A head whose DECLARED result cannot be a reference -
-                ; an operator, a primitive, a function signed to
-                ; answer a machine scalar - keeps the argument position
-                ; rule (`callMayAnswerRef`); a constructor head is
-                ; covered too, because a tyvar-typed field without an
-                ; evidence stamp takes no share (`fieldRetainCode`
-                ; answers -1)
-                (if (&& (== vp 1)
-                        (|| (== (headIsName (spineHeadE e) name) 1)
-                            (== (callMayAnswerRef cg (spineHeadE e) root) 1)))
-                    (mentions name e)
-                    (if (== (escapes cg name (nodeA e) 0 root) 1)
-                        1
-                        (escapes cg name (nodeB e) 0 root))))
+                ; a CALL keeps or answers an argument only as its
+                ; flow masks say (`callEscapesArg`); otherwise a
+                ; callee borrows, and the arguments are walked in
+                ; argument position
+                (if (== (callEscapesArg cg e name vp root) 1)
+                    1
+                    ; arithmetic and `&&`/`||` answer an operand's
+                    ; word: `(+ (asWord s) 0)` in value position is
+                    ; `(asWord s)` in value position
+                    (let ((vp2 (if (== (passesValueHead (spineHeadE e)) 1) vp 0)))
+                      (if (== (escapes cg name (nodeA e) vp2 root) 1)
+                          1
+                          (escapes cg name (nodeB e) vp2 root)))))
         (if (== tg TAG_E_IF)
             (if (== (escapes cg name (nodeA e) 0 root) 1)
                 1
@@ -7086,12 +9019,26 @@
                 1
                 (escapesSeq cg name (nodeB e) 0 0 root))
         (if (== tg TAG_E_SET)
-            ; a slot store takes no share
-            (mentions name (nodeB e))
+            ; a slot store takes no share - of what REACHES the slot:
+            ; the binding itself, a word of it, not a length or a sum
+            ; computed from it (`(set k (strLen s))` beside a self
+            ; tail call kept every iteration's string). And the value
+            ; is walked in argument position for what it PARKS on the
+            ; way: a lambda capturing the binding, a constructor's
+            ; word field, a callee that stashes it
+            (if (!= (bindingFlow cg name (nodeB e)) 0)
+                1
+                (escapes cg name (nodeB e) 0 root))
         (if (== tg TAG_E_SETF)
-            ; `(set b.f v)` retains v (event 5), so only the base is
-            ; read here - and reading a base is a borrow
-            (escapes cg name (nodeA e) 0 root)
+            ; `(set b.f v)` retains v into a REFERENCE field (event 5),
+            ; so the base is a borrow and the value walks in argument
+            ; position; a WORD field takes a `cast`, which parks the
+            ; value uncounted - that mention escapes
+            (if (== (escapes cg name (nodeA e) 0 root) 1)
+                1
+                (if (== (fieldReadIsScalar cg e) 1)
+                    (mentions name (nodeC e))
+                    (escapes cg name (nodeC e) 0 root)))
             (mentions name e))))))))))))))))
 
 (pub :: escapesSeq (-> Int String Int Int Int Int Int))
@@ -7159,7 +9106,7 @@
       0
       (let ((tg (nodeTag init)))
         (if (== tg TAG_E_APP)
-            (callMayAnswerRef cg (spineHeadE init) root)
+            (callEscapesArg cg init name 1 root)
             (if (== tg TAG_E_FIELD)
                 (if (== (fieldReadIsScalar cg init) 1) 0 1)
                 1)))))
@@ -7172,45 +9119,110 @@
 ; (tests/stdlib/364-arc-frame-release.ax, the 8 bit). A head with no
 ; signature - a lambda-valued local, an unsigned `fn`, a constructor -
 ; may, and answers 1, the leak direction.
-; The head must be the GLOBAL the signature belongs to. A parameter
-; or a `let`-bound lambda named like a scalar-signed function - bound
+; Does this call let `name` out of the frame? By the callee's own
+; flow masks (`inferFlows`): an argument mentioning `name` escapes
+; when the callee STASHES that parameter, and, in value position,
+; when the callee's result is a word that may be (part of) it. A
+; callee whose result is a counted reference answers a share of its
+; own (event 2), so the argument's is untouched. Only a GLOBAL with a
+; signature has masks: a parameter or local named like one - bound
 ; outside the let, where the symbol table still holds it, or inside
-; its body, where only the text does (`boundWithin`) - is a value
-; nothing signed, and answers 1. Found by the refutation pass:
-; `(fn (viaParam total tag) (let ((b ...)) (total b)))` handed `b`
-; back through the parameter while the global `total :: (-> SBox
-; Int)` vouched for it. The signature is looked up under the name the
-; call resolves to (`mangledFor`), so an imported `strLen` counts as
-; the scalar it is rather than as unknown.
-(pub :: callMayAnswerRef (-> Int Int Int Int))
-(pub fn (callMayAnswerRef cg hd root)
-  (if (== (scalarHead hd) 1)
-      0
-      (if (!= (nodeTag hd) TAG_E_VAR)
-          1
-          (let ((n (nodeA hd)))
-            (if (|| (!= (lookupSym cg n) 0) (>= (paramIndexOf cg n) 0))
-                1
-                (if (== (boundWithin n root) 1)
-                    1
-                    (let ((sig (findFSig (memGetWord cg 15) (mangledFor cg n))))
-                      (if (== sig 0)
-                          1
-                          (let ((res (sigResultTy (memGetWord sig 3))))
-                            (if (== res 0)
-                                1
-                                (if (== (fldClass cg res) 0) 0 1)))))))))))
+; its body, where only the text does (`boundWithin`) - is a function
+; value nothing signed, as is the binding itself applied, and every
+; argument it is given escapes. A raw store's value escapes; a
+; constructor's arguments are judged below, field by field, by the
+; walk (a word field takes a `cast`, which escapes on its own).
+(pub :: callEscapesArg (-> Int Int String Int Int Int))
+(pub fn (callEscapesArg cg e name vp root)
+  (let ((hd (spineHeadE e))
+        (n_ (spineArity e)))
+    (if (!= (nodeTag hd) TAG_E_VAR)
+        (mentionsArgs name e n_ 0)
+        (let ((n (nodeA hd)))
+          (if (strEq n name)
+              (mentions name e)
+          (if (|| (isBinop n) (|| (isCmpOp n) (isAndOr n)))
+              0
+          (if (isPrimName n)
+              (if (&& (|| (strEq n "__store64") (strEq n "__store8")) (>= n_ 3))
+                  (mentions name (spineArgAt e 2))
+                  0)
+          (if (|| (!= (lookupSym cg n) 0)
+              (|| (>= (paramIndexOf cg n) 0) (== (boundWithin n root) 1)))
+              (mentionsArgs name e n_ 0)
+          (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
+              ; the STASH mask pairs by form - a word-form park counts
+              ; a typed arrival (`__retainref`), a typed park does not
+              ; catch a word - but the RET mask names what the RESULT
+              ; aliases, and a word the callee answers of a parameter
+              ; it cast aliases the typed argument just the same:
+              ; `(fn (asWord s) (cast Int s))` handed back a pointer
+              ; into a `let` this walk then released
+              (argsEscapeByMask cg name e n_
+                                (| (fnStashMask cg n)
+                                   (if (&& (== vp 1) (!= (fnResultClass cg n) 2))
+                                       (bothForms (fnRetMask cg n))
+                                       0))
+                                0)
+              (let ((entry (lookupType (memGetWord cg 3) n)))
+                (if (!= entry 0)
+                    ; a constructor: a reference field retains what it
+                    ; is given (event 6) and is walked in argument
+                    ; position by the caller; a WORD field parks it,
+                    ; and a word of the binding can arrive there
+                    ; through any function, not only a visible `cast`
+                    (ctorWordFieldsMention cg entry name e n_ 0)
+                    ; an effect operation, or a name nothing signed
+                    (mentionsArgs name e n_ 0))))))))))))
 
-; Is the call's head the binding itself? Then the binding is a
-; closure record being applied, and whatever it answers may be that
-; record or what it captured - `(let ((total (lambda (x) x))) (total
-; total))` named after an Int-signed global was the one head
-; `boundWithin` cannot see, the binder of the very let being decided.
-(pub :: headIsName (-> Int String Int))
-(pub fn (headIsName hd name)
-  (if (!= (nodeTag hd) TAG_E_VAR)
+(pub :: passesValueHead (-> Int Int))
+(pub fn (passesValueHead h)
+  (if (!= (nodeTag h) TAG_E_VAR)
       0
-      (if (strEq (nodeA hd) name) 1 0)))
+      (if (|| (isBinop (nodeA h)) (isAndOr (nodeA h))) 1 0)))
+
+(pub :: ctorWordFieldsMention (-> Int Int String Int Int Int Int))
+(pub fn (ctorWordFieldsMention cg entry name e n_ i)
+  (if (>= i n_)
+      0
+      (let ((tn (fieldTypeNode entry i)))
+        (if (&& (if (== tn 0) true (== (fldClass cg tn) 0))
+                (== (mentions name (spineArgAt e i)) 1))
+            1
+            (ctorWordFieldsMention cg entry name e n_ (+ i 1))))))
+
+(pub :: mentionsArgs (-> String Int Int Int Int))
+(pub fn (mentionsArgs name e n_ i)
+  (if (>= i n_)
+      0
+      (if (== (mentions name (spineArgAt e i)) 1)
+          1
+          (mentionsArgs name e n_ (+ i 1)))))
+
+; An argument carrying the binding escapes by the half of the mask
+; that matches the FORM it carries it in: typed by the arrival half,
+; laundered to a word by the word half (`bindingFlow`).
+(pub :: argsEscapeByMask (-> Int String Int Int Int Int Int))
+(pub fn (argsEscapeByMask cg name e n_ mask i)
+  (if (>= i n_)
+      0
+      (let ((f (bindingFlow cg name (spineArgAt e i))))
+        (if (|| (&& (!= (& mask (| (paramBit i) (ownerBit i))) 0) (!= f 0))
+                (&& (!= (& mask (wordBit i)) 0) (!= (wordParts f) 0)))
+            1
+            (argsEscapeByMask cg name e n_ mask (+ i 1))))))
+
+; How the binding's reference may reach the VALUE of `e`, in either
+; form - `flowMask` with the binding as the one "parameter", so a
+; scalar computed from it (`(strLen a)`, `(+ acc (strLen x))`)
+; carries nothing and a word of it (`(cast Int a)`, `(strData a)`)
+; carries it laundered. A bare `mentions` made `(fmtInt (strLen a))`
+; an escape of `a`.
+(pub :: bindingFlow (-> Int String Int Int))
+(pub fn (bindingFlow cg name e)
+  (let ((ps vecNew))
+    { (vecPush ps (cast Int name))
+      (flowMask cg e ps vecNew) }))
 
 ; Does anything under `e` BIND `name` - a `let`, a lambda parameter,
 ; a match binder? Mirrors `mentions`, for binders instead of
@@ -7240,12 +9252,14 @@
             (if (== (boundWithin name (nodeA e)) 1)
                 1
                 (boundWithinArms name (nodeB e) 0))
-        (if (|| (== tg TAG_E_APP) (|| (== tg TAG_E_IF) (== tg TAG_E_SETF)))
+        (if (|| (== tg TAG_E_APP) (== tg TAG_E_IF))
             (if (== (boundWithin name (nodeA e)) 1)
                 1
                 (if (== (boundWithin name (nodeB e)) 1)
                     1
                     (boundWithin name (nodeC e))))
+        (if (== tg TAG_E_SETF)
+            (if (== (boundWithin name (nodeA e)) 1) 1 (boundWithin name (nodeC e)))
         (if (== tg TAG_E_FIELD)
             (boundWithin name (nodeA e))
         (if (== tg TAG_E_SET)
@@ -7256,7 +9270,7 @@
             (if (== (boundWithin name (nodeA e)) 1)
                 1
                 (boundWithinVec name (nodeB e) 0))
-            1))))))))))))
+            1)))))))))))))
 
 (pub :: boundWithinVec (-> String Int Int Int))
 (pub fn (boundWithinVec name v i)
@@ -7397,15 +9411,26 @@
             0
         (if (== tg TAG_E_VAR)
             (if (strEq (nodeA e) name) 1 0)
-        (if (|| (== tg TAG_E_APP)
-            (|| (== tg TAG_E_IF)
-            (|| (== tg TAG_E_LET)
-            (|| (== tg TAG_E_LETM) (== tg TAG_E_SETF)))))
+        (if (|| (== tg TAG_E_APP) (== tg TAG_E_IF))
             (if (== (mentions name (nodeA e)) 1)
                 1
                 (if (== (mentions name (nodeB e)) 1)
                     1
                     (mentions name (nodeC e))))
+        ; a binding's word 1 is its NAME, a String, not a node: walked
+        ; as one, a name whose length matched a tag followed its data
+        ; pointer into the bytes
+        (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+            (if (== (mentions name (nodeB e)) 1)
+                1
+                (mentions name (nodeC e)))
+        ; a field store's word 2 is the field NAME, a String - walking
+        ; it as a node read its length as a tag and followed its data
+        ; pointer (a 5- or 8-byte name dressed as a lambda or a block),
+        ; which is how `(set r.label ...)` beside a mention of the
+        ; binding took the compiler down with SIGSEGV
+        (if (== tg TAG_E_SETF)
+            (if (== (mentions name (nodeA e)) 1) 1 (mentions name (nodeC e)))
         (if (== tg TAG_E_FIELD)
             (mentions name (nodeA e))
         (if (== tg TAG_E_SET)
@@ -7423,7 +9448,7 @@
         (if (== tg TAG_E_LAM)
             ; a capture takes no share, so any mention counts
             (mentions name (nodeB e))
-            1))))))))))))
+            1))))))))))))))
 
 (pub :: mentionsVec (-> String Int Int Int))
 (pub fn (mentionsVec name v i)
@@ -7459,13 +9484,80 @@
               (strEq (nodeA h) "strOwner"))))
           1
           0)))
+; Every `alloca` of a function sits in its ENTRY block. An alloca in
+; a body block is legal LLVM and allocates each time the block runs:
+; a `mut` binding inside a self-tail-call loop grew the frame by a
+; word per iteration and overflowed the stack at `--opt 0` (mem2reg
+; hid it above that), and was the reason a `let` body was not a tail
+; position. The function emitter leaves a blank line after its header
+; (`openAllocaMark`), `emitAlloca` collects, and `closeAllocaMark`
+; splices the collected allocas into that line before the `ret`.
+(pub :: openAllocaMark (-> Int Int))
+(pub fn (openAllocaMark cg)
+  (let ((cgM (emitLine cg "")))
+    {
+      (memSetWord cgM 43 (- (vecLen (memGetWord cgM 0)) 1))
+      (memSetWord cgM 44 vecNew)
+      cgM
+    }))
+
+(pub :: emitAlloca (-> Int String Int))
+(pub fn (emitAlloca cg ar)
+  (if (< (memGetWord cg 43) 0)
+      (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
+      { (vecPush (memGetWord cg 44) (cast Int (cat2 (cat2 "  " ar) " = alloca i64"))) cg }))
+
+(pub :: closeAllocaMark (-> Int Int))
+(pub fn (closeAllocaMark cg)
+  (let ((mark (memGetWord cg 43)))
+    (if (< mark 0)
+        cg
+        (let ((hoisted (memGetWord cg 44)))
+          {
+            (if (> (vecLen hoisted) 0)
+                (vecSet (memGetWord cg 0) mark (cast Int (joinAllocas hoisted 0)))
+                0)
+            (memSetWord cg 43 (- 0 1))
+            (memSetWord cg 44 vecNew)
+            cg
+          }))))
+
+; One buffer of the exact size, not a recursive concatenation: 40,000
+; `mut` bindings in one function joined in 11.6 s by the suffix-
+; copying form (quadratic, and one frame per binding)
+(pub :: joinAllocas (-> Int Int String))
+(pub fn (joinAllocas v i)
+  (let ((n (vecLen v)))
+    (if (== n 0)
+        ""
+        (let ((out (strAlloc (joinAllocasSize v 0 0)))
+              (mut j 0)
+              (mut off 0))
+          {
+            (while (< j n)
+              (let ((line (cast String (vecGet v j))))
+                {
+                  (if (> j 0) { (__store8 (strData out) off 10) (set off (+ off 1)) } 0)
+                  (memCopy (+ (strData out) off) (strData line) (strLen line))
+                  (set off (+ off (strLen line)))
+                  (set j (+ j 1))
+                }))
+            out
+          }))))
+
+(pub :: joinAllocasSize (-> Int Int Int Int))
+(pub fn (joinAllocasSize v i acc)
+  (if (>= i (vecLen v))
+      (+ acc (if (> (vecLen v) 1) (- (vecLen v) 1) 0))
+      (joinAllocasSize v (+ i 1) (+ acc (strLen (cast String (vecGet v i)))))))
+
 ; A mutable binding: the initialiser's value goes into an alloca, the
-; name binds the alloca (kind 1), and reads load. `alloca` in a body
-; block rather than the entry block is legal LLVM; at -O0 nothing cares,
-; and a `while` body cannot re-execute a `let` header, so each binding
-; allocates once per activation.
+; name binds the alloca (kind 1), and reads load.
 (pub :: emitLetM (-> Int Int Int))
-(pub fn (emitLetM node cg)
+(pub fn (emitLetM node cg) (emitLetMAt node cg 0))
+
+(pub :: emitLetMAt (-> Int Int Int Int))
+(pub fn (emitLetMAt node cg tail)
   (let ((name (nodeA node))
         (valExpr (nodeB node))
         (body (nodeC node)))
@@ -7476,10 +9568,10 @@
             (an (allocReg cg1)))
         (let ((ar (cat2 "%a" (fmtInt an))))
           {
-            (emitLine cg1 (cat2 (cat2 "  " ar) " = alloca i64"))
+            (emitAlloca cg1 ar)
             (emitLine cg1 (cat4 "  store i64 " valReg ", ptr " ar))
             (bindSym cg1 name ar valFlag 1)
-            (let ((cgB (emitExpr body cg1)))
+            (let ((cgB (if (== tail 1) (emitExprTail body cg1) (emitExpr body cg1))))
               {
                 (symRestore cgB mark)
                 cgB
@@ -7623,9 +9715,14 @@
   (if (>= i (vecLen exprs)) cg
       (let ((e (vecGet exprs i)))
         (let ((cg1 (emitExpr e cg)))
+          ; Since 2026-08-21 the share handed back is any OWNED
+          ; reference (`valueOwnedRef`) - a call to a
+          ; reference-returning global included, now that event 2
+          ; makes every such call answer one share - not only the
+          ; syntactic direct construction.
           (let ((cg2 (if (if (>= (+ i 1) (vecLen exprs))
                              false
-                             (== (argIsDirectCon cg1 e) 1))
+                             (== (valueOwnedRef cg1 e) 1))
                          (emitReleaseOf cg1 (strDup (memGetWord cg1 2)))
                          cg1)))
             (emitSeq exprs cg2 (+ i 1)))))))

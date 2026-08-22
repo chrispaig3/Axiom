@@ -1,0 +1,19 @@
+; expect 42
+; A polymorphic callee's placeholder is pinned through the SHAPE of
+; its parameter: `applyf :: (-> (-> a b) a b)` applied to `inc`, whose
+; type is `(-> Int Int)`, pins `a` and `b` to `Int` from the arrow's
+; two halves, so the result is an `Int` the arithmetic below can use.
+; Until 2026-08-21 only a BARE placeholder parameter was pinned
+; (`pinArg`), so a higher-order call answered a placeholder and
+; `(+ (applyf inc 41) 1)` was refused with AX3025 when printed and
+; typed as a variable everywhere else (`pinShape`).
+;
+; 41 + 1 = 42.
+(:: applyf (-> (-> a b) a b))
+(fn (applyf f x) (f x))
+(:: inc (-> Int Int))
+(fn (inc n) (+ n 1))
+(:: twice (-> (-> a a) a a))
+(fn (twice f x) (f (f x)))
+(:: main Int)
+(fn (main) (+ (applyf inc 39) (twice inc 0)))
