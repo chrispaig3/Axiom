@@ -1042,13 +1042,27 @@ lambda literal answers for its body where the literal appears.
 ### When the Walk Cannot Answer
 
 A call whose head the walk cannot resolve to a function makes the
-inferred set a **lower bound** rather than the set. Three shapes reach
-it: a non-name head (`((b.f) x)`, an `if` or `match` in head
-position); a `let` bound to anything but a name or a lambda literal;
-and a pattern binder (`(match h ((Wrap f) (f 7)))`). They are the same
-route through memory wearing three spellings - a function value goes
-into a struct, a data constructor or a container in one place and is
-called in another, and no call edge runs between them.
+inferred set a **lower bound** rather than the set. Four shapes reach
+it:
+
+| shape | example |
+|---|---|
+| a head that is not a name | `((b.f) x)`, an `if` or `match` in head position |
+| a `let` bound to anything but a name or a lambda literal | `(let ((g b.f)) (g 7))` |
+| a pattern binder | `(match h ((Wrap f) (f 7)))` |
+| an unfollowable value handed to an effect-transparent position | `(fn (p h b) (h b.f))` |
+
+The first three are one route through memory wearing three spellings -
+a function value goes into a struct, a data constructor or a container
+in one place and is called in another, and no call edge runs between
+them.
+
+The fourth is not a memory read at the call. `h` is a parameter, so
+calling it *is* modelled; that is what effect transparency is for. What
+is not modelled is the value handed **into** the transparent position.
+"Pure modulo its function parameters" excuses `h`; it does not excuse
+an argument the walk cannot name, and `b.f` is a word out of a struct
+that the transparent parameter will call.
 
 The walk records that, `symbols` prints it as `#effects-incomplete`,
 and claim checking splits on it:
@@ -1065,6 +1079,53 @@ today: a called lambda parameter does not type-check (`AX3004`), so no
 well-typed program gets there. The marker is set anyway, because the
 alternative would record that the binder was attributed somewhere, and
 it is not.
+
+The same lower bound reaches `handle`. A handled-effects list cannot be
+checked against a lower bound either, so a `handle` whose body contains
+an unresolved call draws `AX3038` - a warning, where `AX3011` (the same
+question *answered*) is an error. That gap was not cosmetic: an effect
+operation reached with no handler installed aborts the process with
+status 71 and no message, so a handle whose body reached an effect
+through a struct field turned a compile-time refusal into a runtime
+trap.
+
+### Trait Methods
+
+A trait method is dispatched on the static type of an argument, and
+that type is not available to the effect fixpoint - the fixpoint runs
+before any body is checked, and `traitRewrite` picks the implementation
+*during* body checking. The fixpoint does not repeat the dispatch. It
+unions **every** implementation of the method instead, which is what a
+dynamically dispatched call means: the effects any implementation can
+perform are the effects the call can perform.
+
+The union is a true upper bound, and usually exact - `traitRewrite` can
+only choose a name for which the implementation exists, so the set it
+could pick from is a subset of the ones unioned here. Trait *defaults*
+need no special case: a missing method is lowered through the same
+`traitImplName`, so it is an ordinary declaration by the time the
+fixpoint runs.
+
+Before this, a trait-method call contributed nothing at all. A function
+calling one still drew its own `AX3010`, because the claim check
+re-walks the body *after* the rewrite - but its entry stayed empty, so
+every caller of it inferred nothing and `symbols` printed the caller
+`#pure`. The diagnostic and the symbol table disagreed about the same
+function on the same run, and the transitive case was reported nowhere
+(`tests/diagnostics/344-trait-effect-transitive.ax`).
+
+### AXTAG Keys
+
+The key namespace is open: a key the compiler does not know is
+metadata, is recorded, and is not checked. `agent:readonly` draws
+nothing and is meant to.
+
+A key one edit - or one change of case - from `pure` or `effect` draws
+`AX3039`. `;@axiom:pur` is not a purity claim, so nothing checks it as
+one, and a body performing IO under it drew no `AX3010` at all: the tag
+read like a guarantee and bought silence. A key containing `:` is never
+reported, because a namespaced key is deliberate by construction and
+its distance from `pure` is not evidence about anything.
 
 Until 2026-08-22 neither happened. The sentinel that records an
 unresolved call had been in the source, skipped by two consumers and
@@ -1091,13 +1152,26 @@ walked. Being loud about a limit is the same choice `AX3021` makes,
 and for the same reason: the alternative is a silence that reads as an
 answer.
 
-Five files in the 269 swept by `scripts/check-diagnostics.sh` carry a
+Six files in the 269 swept by `scripts/check-diagnostics.sh` carry a
 mark - `tests/stdlib/140-function-values.ax`,
 `tests/stdlib/280-function-application.ax`,
-`tests/selfhost/530-fn-in-ctor.ax`, `590-lambda-nested.ax` and
-`950-multi-param-lambda.ax`, seven marks between them. All five are
-the corpus's own function-value tests, none makes a claim, and no
-function in `self_host/` or `stdlib/` is marked at all.
+`tests/selfhost/530-fn-in-ctor.ax`, `590-lambda-nested.ax`,
+`950-multi-param-lambda.ax` and `999-placeholder-under-arrow.ax`, ten
+marks between them. All six are the corpus's own function-value tests,
+none makes a claim, and no function in `self_host/` or `stdlib/` is
+marked at all.
+
+Getting there needed one thing removed rather than added. `findFnEnt`
+answers 0 for every form parsed as an application without being a
+function - `cast` first of all, and every struct and data constructor
+with it - and that branch used to run the escape walk, which marked a
+parameter effect-transparent for appearing inside a `cast`.
+`memSetWord` carried `#effect-params=value` on the strength of `(cast
+Int value)` alone, and it does not call `value`. That was not only
+imprecise: a transparent parameter *suppresses* the missing-effect half
+of `AX3010`, so the wrong mark bought silence. With it left in, marking
+unfollowable arguments put the sentinel on 7,768 functions; with it
+gone, ten.
 
 The remaining honest gap: passing an effect-polymorphic function
 itself as a callback does not instantiate the callee's marks

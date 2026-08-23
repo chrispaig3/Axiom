@@ -50,6 +50,8 @@
   [93mAX3035[0m  a macro parameter used as a binder was given something that is not a variable  (macro-binder-target)
   [93mAX3036[0m  an `extern` item's type cannot cross the boundary  (extern-type)
   [93mAX3037[0m  an AXTAG claim the effect walk is not in a position to check  (axtag-unverifiable)
+  [93mAX3038[0m  a handled-effects list the effect walk is not in a position to check  (effect-unverifiable)
+  [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -896,6 +898,51 @@ call may well be where the IO comes from - reporting `missing IO`
 there is a mis-report rather than an omission, and this check is
 documented as not permitted to make one.
 
+### explain AX3038
+AX3038 - a handled-effects list the effect walk is not in a position to check
+
+The body of a `handle` reaches a call the walk could not resolve - a
+function loaded from a struct field or a container, or a `let` bound
+to one - so the set of effects it performs is a LOWER BOUND, and a
+handled-effects list cannot be checked against a lower bound.
+
+AX3011 is the same question answered: it refuses a body KNOWN to
+perform an effect the list does not name. This one cannot know, so it
+informs instead of refusing - refusing here would make dispatch
+through a stored function unwriteable rather than unverified.
+
+It matters more than the AXTAG case it mirrors. An effect operation
+reached with no handler installed does not fail softly: the process is
+aborted with status 71 and no message. Before this diagnostic existed,
+a `handle` whose body reached an effect through a field got no AX3011
+and nothing else either - the compile-time refusal became a runtime
+trap.
+
+What to do: name the function at the call so the walk can follow it,
+or widen the handled list to cover what the unresolved call might
+perform.
+
+### explain AX3039
+AX3039 - an AXTAG key one slip from a key the compiler checks
+
+The AXTAG key namespace is OPEN on purpose: a key the compiler does
+not know is metadata, it is recorded, and nothing checks it. That is
+not what this reports.
+
+This reports a key one edit - or one change of case - away from `pure`
+or `effect`, the two keys that ARE checked. `;@axiom:pur` is not a
+purity claim. Nothing validates it, so a body performing IO under it
+draws no AX3010 at all: the tag reads like a guarantee and buys
+silence, which is worse than writing no tag, because a reader spends
+trust on it.
+
+A key containing `:` is never reported. `agent:readonly` is namespaced
+and deliberate, and its distance from `pure` is not evidence about
+anything.
+
+Fix the spelling - or, if the key really is your own metadata,
+namespace it so it cannot be mistaken for a claim.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1059,6 +1106,8 @@ run `axiom explain --list` to see all known codes
   [93mAX3035[0m  a macro parameter used as a binder was given something that is not a variable  (macro-binder-target)
   [93mAX3036[0m  an `extern` item's type cannot cross the boundary  (extern-type)
   [93mAX3037[0m  an AXTAG claim the effect walk is not in a position to check  (axtag-unverifiable)
+  [93mAX3038[0m  a handled-effects list the effect walk is not in a position to check  (effect-unverifiable)
+  [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

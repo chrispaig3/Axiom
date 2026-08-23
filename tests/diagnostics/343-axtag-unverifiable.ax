@@ -1,5 +1,5 @@
 ; A `pure` claim over a call the effect walk cannot resolve, in each of
-; the three shapes that reach it.
+; the four shapes that reach it.
 ;
 ; The walk follows call edges and reference sites. A function value that
 ; travels through MEMORY - into a struct field, into a data constructor,
@@ -16,7 +16,16 @@
 ; produced by nobody since f6ddc2e removed its last producer along with
 ; the completeness gate its own comment describes.
 ;
-; A fourth shape is marked in `typecheck.ax` and is NOT tested here
+; `viaTransparent` is the fourth and it is not a memory read. `h` is a
+; PARAMETER, so calling it is modelled - that is what effect
+; transparency is for, and `#effect-params=h` says so. What is NOT
+; modelled is the value handed INTO the transparent position: `b.f` is
+; a word out of a struct, `apply1` calls whatever it is given, and no
+; call edge runs from the field store to that call. "Pure modulo its
+; function parameters" excuses `h`; it does not excuse an argument the
+; walk cannot name.
+;
+; A fifth shape is marked in `typecheck.ax` and is NOT tested here
 ; because it cannot be written: a lambda's own parameter is opaque for
 ; the same reason, but a called lambda parameter does not type-check
 ; (`AX3004`, `expected function type, found _tN` - inference never gives
@@ -64,6 +73,15 @@
   )
 )
 
+(:: apply1 (-> (-> Int Int) Int))
+
+(fn (apply1 g) (g 1))
+
+;@axiom:pure
+(:: viaTransparent (-> (-> (-> Int Int) Int) Box Int))
+
+(fn (viaTransparent h b) (h b.f))
+
 (:: main Int)
 
-(fn (main) (+ (+ (viaField install) (viaLet install)) (viaPattern hold)))
+(fn (main) (+ (+ (viaField install) (viaLet install)) (+ (viaPattern hold) (viaTransparent apply1 install))))

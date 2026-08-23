@@ -1,0 +1,2 @@
+W AX3010 344-trait-effect-transitive.ax:34:6-7 axtag-mismatch "AXTAG mismatch on `f`: `pure` claim contradicted: body performs IO"
+W AX3010 344-trait-effect-transitive.ax:39:6-7 axtag-mismatch "AXTAG mismatch on `g`: `pure` claim contradicted: body performs IO"

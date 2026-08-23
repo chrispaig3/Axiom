@@ -1,0 +1,2 @@
+W AX3038 345-effect-unverifiable.ax:50:12-13 effect-unverifiable "handled effects cannot be checked: the body calls a value the compiler could not resolve" ?"name the function at the call, or widen the handled list: an unresolved call may perform any effect, and reaching one with no handler aborts the process"
+E AX3011 345-effect-unverifiable.ax:44:12-19 effect-mismatch "effect mismatch: unhandled effect `Console`"

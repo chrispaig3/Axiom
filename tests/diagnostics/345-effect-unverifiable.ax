@@ -1,0 +1,55 @@
+; A `handle` whose body reaches an effect through a function value the
+; walk cannot follow.
+;
+; `viaDirect` performs `Console` and names only `Alloc`, so AX3011
+; refuses it - the body is KNOWN to reach an unhandled effect.
+;
+; `viaField` is the same program with one indirection: the same
+; function, reached through a struct field. The walk cannot follow a
+; word out of memory, so the body's effect set comes back a LOWER
+; BOUND, and a handled-effects list cannot be checked against a lower
+; bound. It used to be checked anyway, and silently passed.
+;
+; That silence was not a missing warning. An effect operation reached
+; with no handler installed aborts the process with status 71 and no
+; message, so the compile-time refusal became a runtime trap: this
+; file without `viaDirect` built clean and died at 71.
+;
+; AX3038 informs rather than refuses, because it cannot know. Dispatch
+; through a stored function is a legitimate program - `b.f` may well be
+; pure - and refusing here would make the shape unwriteable rather than
+; unverified. AX3011 keeps SEV_ERROR at every site where it fires.
+(effect Console
+  (log :: (-> String Int)))
+
+(struct Box
+  (f : (-> Int Int)))
+
+(:: usesLog (-> Int Int))
+
+(fn (usesLog n)
+  {
+    (log "op")
+    n
+  }
+)
+
+(:: install Box)
+
+(fn (install) (Box usesLog))
+
+(:: viaDirect (-> Int Int))
+
+(fn (viaDirect n)
+  (handle (usesLog n) (Alloc) (lambda (v) 0))
+)
+
+(:: viaField (-> Box Int))
+
+(fn (viaField b)
+  (handle (b.f 7) (Alloc) (lambda (v) 0))
+)
+
+(:: main Int)
+
+(fn (main) (+ (viaDirect 1) (viaField install)))

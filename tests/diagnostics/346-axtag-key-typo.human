@@ -1,0 +1,27 @@
+[1;33mwarning[AX3039][0m[1m: unrecognised AXTAG key `pur` on `slipped`; did you mean `pure`?[0m
+  [1;34m--> [0m346-axtag-key-typo.ax:20:6
+[1;34m   |[0m
+[1;34m20 |[0m (fn (slipped n) (__syscall3 1 1 n 0))
+[1;34m   |[0m      [1;33m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3039` for a full explanation
+
+[1;33mwarning[AX3039][0m[1m: unrecognised AXTAG key `PURE` on `shouted`; did you mean `pure`?[0m
+  [1;34m--> [0m346-axtag-key-typo.ax:25:6
+[1;34m   |[0m
+[1;34m25 |[0m (fn (shouted n) n)
+[1;34m   |[0m      [1;33m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3039` for a full explanation
+
+[1;33mwarning[AX3039][0m[1m: unrecognised AXTAG key `effct` on `other`; did you mean `effect`?[0m
+  [1;34m--> [0m346-axtag-key-typo.ax:30:6
+[1;34m   |[0m
+[1;34m30 |[0m (fn (other n) n)
+[1;34m   |[0m      [1;33m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3039` for a full explanation
+

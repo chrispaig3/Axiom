@@ -1784,7 +1784,8 @@
   (curDeclNode : Int)
   (sigTags : Int)
   (fnSufIdx : Int)
-  (privIdx : Int))
+  (privIdx : Int)
+  (implIdx : Int))
 
 ; The module whose body is being checked, or 0 for the
 ; entry file. A bare reference inside it resolves to
@@ -2130,7 +2131,7 @@
       ; collection itself looks a name up per declaration.
       (let ((tc 
         (cast Int (TC
-          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0
+          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0
         ))
       ))
         {
@@ -2141,6 +2142,14 @@
           ; collection would otherwise scan the whole table.
           (memSetWord tc 26 (fnSufIdxBuildSized (tcFns tc) (vecLen allDecls)))
           (memSetWord tc 27 (privIdxBuild (memGetWord tc 19)))
+          ; Every `impl` declaration, once. `traitUnionEffects` asks
+          ; per trait-method CALL SITE and the fixpoint asks again
+          ; every round; scanning `tcFns` there instead cost 0.10s ->
+          ; 0.41s on a 15,000-line file with 15,000 trait calls, which
+          ; is the shape this index exists to keep flat. Built here
+          ; rather than lazily because it is one pass over a list the
+          ; caller is already holding.
+          (memSetWord tc 28 (implIdxBuild allDecls vecNew 0))
           (tcCollect tc allDecls 0)
           ; Type constructors named in signatures, once collection has
           ; seen every `data`/`struct`/`type` - a signature may name a
@@ -7240,7 +7249,7 @@
     ; called too.
     {
       (markEparam bound (bsParamAlias bound n))
-      (escapeArgs bound args 0)
+      (escapeArgs bound args 0 acc)
       ; An OPAQUE local: the value came out of memory, so no call edge
       ; carries what it performs and `markEparam` had no parameter to
       ; mark. This is the `let`-shaped spelling of the same hole the
@@ -7254,22 +7263,56 @@
       (effAdd acc (builtinEff "IO"))
       (let ((ent (findFnEnt tc n)))
         (if (== ent 0)
-          ; An unresolved callee: treat it like a local, since
-          ; what it does with its arguments is unknown.
+          ; A TRAIT METHOD first. Its FnEnt does not exist under the
+          ; method's own name - `traitRewrite` rewrites the head to
+          ; `Trait#Type#method` during BODY checking, and this fixpoint
+          ; ran before that and cannot repeat it: selecting an
+          ; implementation needs the dispatch argument's TYPE, which is
+          ; exactly what is not available here.
           ;
-          ; NOT incomplete, though the sentinel's own comment names
-          ; this case. `findFnEnt` answers 0 for every form that is
-          ; parsed as an application without being a function: `cast`
-          ; first of all, and with it every struct constructor. Marking
-          ; here put the sentinel on 2,116 of the compiler's 2,437
-          ; functions - `memGetWord` is `(cast a (__load64 ...))`, so
-          ; the mark reached everything that reads a word.
-          (escapeArgs bound args 0)
+          ; So do not resolve it - union every implementation. That is
+          ; not a conservative approximation, it is what a dynamically
+          ; dispatched call MEANS: the effects any implementation can
+          ; perform are the effects the call can perform. No sentinel
+          ; is warranted and none is added.
+          ;
+          ; Before this, a trait-method call contributed nothing at all.
+          ; A function calling one still drew its own AX3010, because
+          ; `checkAxtags` re-walks the body AFTER the rewrite - but its
+          ; FnEnt stayed empty, so every CALLER of it inferred nothing
+          ; and `symbols` printed the caller `#pure`. The diagnostic and
+          ; the symbol table disagreed about the same function on the
+          ; same run.
+          (if (== (traitUnionEffects tc n acc) 1)
+            0
+            ; NOT an unresolved callee, and nothing here escapes.
+            ;
+            ; `findFnEnt` answers 0 for every form parsed as an
+            ; application without being a function - `cast` first of all,
+            ; and with it every struct and data constructor. A name that
+            ; really resolves to nothing is `AX3001` and the program does
+            ; not get this far. NONE of those CALL their arguments, so
+            ; this branch used to be doubly wrong:
+            ;
+            ;   - it marked them incomplete, which put the sentinel on
+            ;     2,116 of the compiler's 2,437 functions, because
+            ;     `memGetWord` is `(cast a (__load64 ...))`;
+            ;   - it ran `escapeArgs`, which marked a parameter
+            ;     EFFECT-TRANSPARENT for appearing inside a `cast`.
+            ;     `memSetWord` carried `#effect-params=value` on the
+            ;     strength of `(cast Int value)` alone, and it does not
+            ;     call `value`. That was not only imprecise: a spurious
+            ;     transparent parameter SUPPRESSES the missing-effect
+            ;     half of AX3010, so the wrong mark bought silence.
+            0
+          )
           {
             (effUnion acc (memGetWord ent 5) 0)
             ; Instantiate the callee's transparent positions
             ; with what this call passes there.
-            (instantiateEparams bound (memGetWord ent 6) args 0)
+            (instantiateEparams
+              bound              (memGetWord ent 6)              args              0              acc
+            )
           }
         )
       )
@@ -7298,29 +7341,45 @@
 
 (pub fn (bsOpaque) (- 0 2))
 
-(pub :: escapeArgs (-> Int Int Int Int))
+; Every argument handed to a call the walk could not resolve to a
+; function. `acc` is 0 at the sites where the CALLEE is not known to
+; call its arguments; where it is, an unaccounted value is a hole and
+; the sentinel records it.
+(pub :: escapeArgs (-> Int Int Int Int Int))
 
-(pub fn (escapeArgs bound args i)
+(pub fn (escapeArgs bound args i acc)
   (if (>= i (vecLen args))
     0
     {
-      (escapeValue bound (vecGet args i))
-      (escapeArgs bound args (+ i 1))
+      (if (&& (== (escapeValue bound (vecGet args i)) 0) (!= acc 0))
+        (effAdd acc effIncomplete)
+        0
+      )
+      (escapeArgs bound args (+ i 1) acc)
     }
   )
 )
 
-(pub :: instantiateEparams (-> Int Int Int Int Int))
+; The callee declared these positions effect-transparent, which is to
+; say IT CALLS THEM. A value the walk cannot follow, landing in one, is
+; called and unattributed - no guessing required about whether the
+; position is a called one, because that is what the mark means.
+(pub :: instantiateEparams (-> Int Int Int Int Int Int))
 
-(pub fn (instantiateEparams bound marks args i)
+(pub fn (instantiateEparams bound marks args i acc)
   (if (>= i (vecLen marks))
     0
     {
       (if (< (vecGet marks i) (vecLen args))
-        (escapeValue bound (vecGet args (vecGet marks i)))
+        (if (== (escapeValue bound (vecGet args (vecGet marks i))) 0)
+          (effAdd acc effIncomplete)
+          0
+        )
         0
       )
-      (instantiateEparams bound marks args (+ i 1))
+      (instantiateEparams
+        bound        marks        args        (+ i 1)        acc
+      )
     }
   )
 )
@@ -7380,6 +7439,73 @@
 ; LOWER BOUND on what the body performs, and every claim checked
 ; against it has to answer for the difference rather than read an
 ; absence as an acquittal.
+; Every `impl` declaration in the program, in order.
+(pub :: implIdxBuild (-> Int Int Int Int))
+
+(pub fn (implIdxBuild decls acc i)
+  (if (>= i (vecLen decls))
+    acc
+    {
+      (if (== (nodeTag (vecGet decls i)) TAG_D_IMPL)
+        (vecPush acc (vecGet decls i))
+        0
+      )
+      (implIdxBuild decls acc (+ i 1))
+    }
+  )
+)
+
+; If `n` names a method of a trait in scope, union the effects of EVERY
+; implementation of it into `acc` and answer 1.
+;
+; `traitRewrite` can only rewrite a head to a name for which
+; `fnEntExact` succeeds, so the set of names it could ever choose is a
+; subset of the ones enumerated here: the union is a true upper bound
+; on what the call can perform, and an exact one wherever every impl
+; is reachable. Trait DEFAULTS are covered without special-casing,
+; because `checkImplComplete` lowers a missing method through the same
+; `traitImplName`, so it is an ordinary declaration by the time the
+; fixpoint runs.
+(pub :: traitUnionEffects (-> Int String Int Int))
+
+(pub fn (traitUnionEffects tc n acc)
+  (let ((tr (findTraitOwning (tcTraits tc) (bareOf n) 0)))
+    (if (== tr 0)
+      0
+      {
+        (traitUnionImpls
+          tc          (memGetWord tc 28)          (nodeA tr)          (bareOf n)          acc          0
+        )
+        1
+      }
+    )
+  )
+)
+
+(pub :: traitUnionImpls (-> Int Int String String Int Int Int))
+
+(pub fn (traitUnionImpls tc impls tname method acc i)
+  (if (>= i (vecLen impls))
+    0
+    {
+      (let ((d (vecGet impls i)))
+        (if (strEq (nodeA d) tname)
+          (let ((e (fnEntExact tc (traitImplName tname (nodeC d) method))))
+            (if (== e 0)
+              0
+              (effUnion acc (memGetWord e 5) 0)
+            )
+          )
+          0
+        )
+      )
+      (traitUnionImpls
+        tc        impls        tname        method        acc        (+ i 1)
+      )
+    }
+  )
+)
+
 (pub :: effPartial (-> Int Int))
 
 (pub fn (effPartial v) (effIn v effIncomplete))
@@ -7664,10 +7790,44 @@
 ; was attributed where it was written.
 (pub :: escapeValue (-> Int Int Int))
 
+; Answers 1 when this value is ACCOUNTED FOR wherever it ends up, and 0
+; when it may be a function whose identity the walk has lost. The
+; caller decides what to do with a 0, because only the caller knows
+; whether the position it landed in is one that gets CALLED.
+;
+;   a name           `effRefSite` already unioned its effects, or it
+;                    aliases a parameter whose transparency is marked
+;                    here;
+;   a lambda literal `walkEffects` walked its body where it stands;
+;   a literal, a struct construction, an `alloc`  cannot be called at
+;                    all, so nothing can hide in one.
+;
+; Everything else - a field load, a call result, an `if` - is a word
+; the walk merely read.
 (pub fn (escapeValue b e)
   (let ((inner (stripGrouping e)))
     (if (== (nodeTag inner) TAG_E_VAR)
-      (markEparam b (bsParamAlias b (nodeA inner)))
+      {
+        (markEparam b (bsParamAlias b (nodeA inner)))
+        1
+      }
+      (if (== (nodeTag inner) TAG_E_LAM)
+        1
+        (notCallableShape inner)
+      )
+    )
+  )
+)
+
+; Shapes no call can ever go through, so an unfollowed one hides
+; nothing. Everything absent from this list is assumed callable, which
+; is the conservative direction.
+(pub :: notCallableShape (-> Int Int))
+
+(pub fn (notCallableShape e)
+  (let ((t (nodeTag e)))
+    (if (|| (== t TAG_E_INT) (|| (== t TAG_E_STR) (|| (== t TAG_E_FLT) (|| (== t TAG_E_CHAR) (|| (== t TAG_E_STRUCTCON) (== t TAG_E_ALLOC))))))
+      1
       0
     )
   )
@@ -7874,11 +8034,42 @@
     ; nothing and the whole fixpoint's work is discarded at the only
     ; place that reads it. stage0 seeds from its `__scope__` marker
     ; for the same reason.
-    (checkUnhandled
-      tc      (collectEffects tc (nodeA e) (handleScopeOf tc))      (nodeB e)      0      (spanOf (nodeA e))
+    (let ((inner (collectEffects tc (nodeA e) (handleScopeOf tc))))
+      {
+        (checkUnhandled
+          tc          inner          (nodeB e)          0          (spanOf (nodeA e))
+        )
+        ; AX3011 is checked against a set that may be a LOWER BOUND, and
+        ; it is an ERROR - so the silence on the other side of it was
+        ; the compiler asserting the handled list is complete on the
+        ; strength of a walk that had stopped early. An unhandled effect
+        ; is not a soft failure: the runtime aborts the process with
+        ; status 71 and no message, so the assertion was load-bearing.
+        (checkHandleIncomplete tc inner (spanOf (nodeA e)))
+      }
     )
     mkSilentWild
   }
+)
+
+; AX3038: the handled-effects list could not be checked, because the
+; body reaches a call the walk could not resolve. A WARNING and not an
+; error, deliberately: AX3011 refuses a program KNOWN to reach an
+; unhandled effect, and this one cannot know. Refusing here would make
+; `(handle ((b.f) x) ...)` - dispatch through a stored function -
+; unwriteable rather than unverified, which is a defect of its own.
+;
+; The gradient is the same one AX3010/AX3037 draw: "this is wrong" is
+; an error, "this cannot be checked" informs.
+(pub :: checkHandleIncomplete (-> Int Int Int Int))
+
+(pub fn (checkHandleIncomplete tc inner span)
+  (if (&& (== (effPartial inner) 1) (!= span 0))
+    (emitDiag tc (mkDiag
+      SEV_WARNING      "AX3038"      "effect-unverifiable"      span      "handled effects cannot be checked: the body calls a value the compiler could not resolve"      0      0      "name the function at the call, or widen the handled list: an unresolved call may perform any effect, and reaching one with no handler aborts the process"
+    ))
+    0
+  )
 )
 
 (pub :: checkUnhandled (-> Int Int Int Int Int Int))
@@ -10246,7 +10437,7 @@
               tc              d              val              eff              eparams
             )
           )
-          0
+          (axtagKeyTypo tc d key)
         )
       )
     )
@@ -10255,6 +10446,76 @@
 
 ; The LAST `)`, scanned backwards, which is stage0's `rfind` - a
 ; value may contain parens of its own.
+; AX3039: a key one slip away from a key the compiler actually checks.
+;
+; The AXTAG namespace is OPEN by decision - `checkOneAxtag`'s own note
+; records that the key is "metadata stage0 records and does not check" -
+; and this does not close it. An unknown key stays legal and stays
+; silent. What this catches is the one shape that COSTS something:
+; `;@axiom:pur` is not a purity claim, so nothing checks it as one, and
+; a body performing IO under it draws no AX3010 at all. The tag reads
+; like a guarantee and buys silence instead, which is worse than
+; writing nothing - a reader spends trust on it.
+;
+; A key containing `:` is left alone by construction. `agent:readonly`
+; is namespaced and deliberate, and its distance from `pure` is not
+; evidence about anything.
+(pub :: axtagKeyTypo (-> Int Int String Int))
+
+(pub fn (axtagKeyTypo tc d key)
+  (if (|| (== (strLen key) 0) (>= (strFindByte key 58 0) 0))
+    0
+    (let ((want (axtagNearMiss key)))
+      (if (== (strLen want) 0)
+        0
+        (emitAxtagKeyTypo tc d key want)
+      )
+    )
+  )
+)
+
+; The two keys that are checked, and nothing else. `suggestThreshold`
+; is deliberately NOT reused: it scales with name length so a reader
+; gets candidates for long identifiers, and at these lengths it admits
+; distance-2, which pulls in words that are not slips.
+(pub :: axtagNearMiss (-> String String))
+
+(pub fn (axtagNearMiss key)
+  (if (== (axtagSlip key "pure") 1)
+    "pure"
+    (if (== (axtagSlip key "effect") 1)
+      "effect"
+      ""
+    )
+  )
+)
+
+(pub :: axtagSlip (-> String String Int))
+
+(pub fn (axtagSlip key known)
+  (if (strEq key known)
+    0
+    (if (== (strEqCI key known) 1)
+      1
+      (if (<= (levenshtein key known) 1)
+        1
+        0
+      )
+    )
+  )
+)
+
+(pub :: emitAxtagKeyTypo (-> Int Int String String Int))
+
+(pub fn (emitAxtagKeyTypo tc d key want)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "unrecognised AXTAG key `" key) "` on `") (bareOf (nodeA d))) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"
+    ))
+  )
+)
+
 (pub :: axtagCloseAt (-> String Int))
 
 (pub fn (axtagCloseAt content) (axtagCloseFrom content (- (strLen content) 1)))

@@ -43,3 +43,17 @@ AX3010
 #          answer to a program that is actually wrong, it belongs in
 #          the other list.
 AX3037
+# AX3038 - a `handle` whose body reaches a call the walk cannot
+#          resolve, so the handled-effects list cannot be checked.
+#          AX3011 - the same question ANSWERED - keeps SEV_ERROR at
+#          every site it fires. This is the unanswerable half, and
+#          `(handle ((b.f) 7) (Alloc) ...)` over a pure `b.f` is a
+#          correct program: refusing it would make dispatch through a
+#          stored function unwriteable rather than unverified.
+AX3038
+# AX3039 - an AXTAG key one edit from `pure` or `effect`. The key
+#          namespace is open by decision, so an unknown key is not an
+#          error and this does not make it one; it reports the shape
+#          that costs something, where a typo means the claim was
+#          never checked.
+AX3039
