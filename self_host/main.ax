@@ -23,12 +23,6 @@
 (import lsp)
 (import style)
 
-(pub :: writeStdout (-> String Int))
-(pub fn (writeStdout s) (sysWriteFd 1 (strData s) (strLen s)))
-
-(pub :: writeStderr (-> String Int))
-(pub fn (writeStderr s) (sysWriteFd 2 (strData s) (strLen s)))
-
 ; Which diagnostic renderer this invocation wants. `human` is the
 ; default, as it is stage0's; the aliases are stage0's; an unknown
 ; name warns with stage0's exact text and falls back rather than
@@ -46,7 +40,7 @@
           (if (>= c 0)
               c
               {
-                (writeStderr (cat3 "warning: unknown --diagnostic-format '" v
+                (writeStderrStr (cat3 "warning: unknown --diagnostic-format '" v
                                    "', falling back to 'human' (valid: human, ai, json)\n"))
                 FMT_HUMAN
               })))))
@@ -80,7 +74,7 @@
         (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))))))
         0
         {
-          (writeStderr (cat3 "note: `symbols` emits AXSYM; --diagnostic-format='" v
+          (writeStderrStr (cat3 "note: `symbols` emits AXSYM; --diagnostic-format='" v
                              "' applies to diagnostics only\n"))
           0
         })))
@@ -88,7 +82,7 @@
 ; Exit status is the driver's answer, not a byte count: 0 on success and
 ; 1 when the source could not be read, could not be parsed, has no entry
 ; point, or does not type-check. The previous version returned whatever
-; `writeStdout` did, so a successful run exited with the length of its
+; `replOut` did, so a successful run exited with the length of its
 ; own output.
 ;
 ; The input path is the first command-line argument. It used to default
@@ -251,8 +245,8 @@
                     (units (let ((v vecNew))
                              { (vecPush v (cast Int (CUnit2 fileName src (cast String 0)))) v })))
                 {
-                  (writeStderr (renderDiagsFormat dfmt ds units))
-                  (writeStderr (renderFailTrailer 1))
+                  (writeStderrStr (renderDiagsFormat dfmt ds units))
+                  (writeStderrStr (renderFailTrailer 1))
                   (sysExitWith 1)
                   ""
                 })
@@ -325,8 +319,8 @@
                     ; correctly and the crash was one pass later).
                     (if (> (countErrorDiags eds) 0)
                         {
-                          (writeStderr (renderDiagsFormat dfmt (orderDiags eds) units))
-                          (writeStderr (renderFailTrailer (countErrorDiags eds)))
+                          (writeStderrStr (renderDiagsFormat dfmt (orderDiags eds) units))
+                          (writeStderrStr (renderFailTrailer (countErrorDiags eds)))
                           (sysExitWith 1)
                           0
                         }
@@ -343,11 +337,11 @@
                     (let ((ds (orderDiags (expMergeInto eds (checkWithFrames decls allDecls units ftbl)))))
                       {
                         (if (> (vecLen ds) 0)
-                            (writeStderr (renderDiagsFormat dfmt ds units))
+                            (writeStderrStr (renderDiagsFormat dfmt ds units))
                             0)
                         (if (> (countErrorDiags ds) 0)
                             {
-                              (writeStderr (renderFailTrailer (countErrorDiags ds)))
+                              (writeStderrStr (renderFailTrailer (countErrorDiags ds)))
                               (sysExitWith 1)
                               ""
                             }
@@ -378,8 +372,8 @@
                                                              "add `(:: main Int)` and `(define main ...)` as the program entry point"))
                                                    v })))
                                       {
-                                        (writeStderr (renderDiagsFormat dfmt mds units))
-                                        (writeStderr (renderFailTrailer 1))
+                                        (writeStderrStr (renderDiagsFormat dfmt mds units))
+                                        (writeStderrStr (renderFailTrailer 1))
                                         (sysExitWith 1)
                                         ""
                                       })
@@ -402,7 +396,7 @@
                                                   ; formatted one; without it the file is
                                                   ; as generated, and still compiles
                                                   (runToolQuiet "rustfmt" (let ((v vecNew)) { (vecPush v (cast Int "--edition")) (vecPush v (cast Int "2021")) (vecPush v (cast Int "--quiet")) (vecPush v (cast Int bp)) v }))
-                                                  (writeStdout (cat3 "Rust binding written to " bp "\n"))
+                                                  (replOut (cat3 "Rust binding written to " bp "\n"))
                                                 }))
                                           0)
                                       (if (== needMain 1)
@@ -436,9 +430,9 @@
       ; subcommand - the retired compiler did not propagate it either -
       ; so `axiom run prog.ax -V` forwards `-V` to the program.
       (if (hasFlagAnywhere first "--help")
-          { (writeStdout (helpForCommand first)) (sysExitWith 0) 0 }
+          { (replOut (helpForCommand first)) (sysExitWith 0) 0 }
           (if (hasFlagAnywhere first "-h")
-              { (writeStdout (helpForCommand first)) (sysExitWith 0) 0 }
+              { (replOut (helpForCommand first)) (sysExitWith 0) 0 }
               0))
       (if (== (strLen first) 0) (rejectTypoedSubcommand) 0)
     (if (> (strLen first) 0)
@@ -464,7 +458,7 @@
                              (if (< i2 0) hostTarget (sysArg i2)))))))
           (let ((ir (compileFile fileName tname 1 0)))
             {
-              (writeStdout ir)
+              (replOut ir)
               0
             })))))}))
 
@@ -507,9 +501,9 @@
       ; usage rather than failing: `help` is where someone goes when
       ; they are already lost, and refusing them there is unkind.
       (let ((topic (positionalFrom operandStart)))
-        { (writeStdout (if (isSubcommand topic) (helpForCommand topic) usageText)) 0 })
+        { (replOut (if (isSubcommand topic) (helpForCommand topic) usageText)) 0 })
   (if (|| (strEq cmd "version") (|| (strEq cmd "--version") (strEq cmd "-V")))
-      { (writeStdout "axiom (self-hosted) 0.1.0\n") 0 }
+      { (replOut "axiom (self-hosted) 0.1.0\n") 0 }
   (if (strEq cmd "check")
       (let ((f inputOperand))
         (if (== (strLen f) 0)
@@ -520,7 +514,7 @@
               ; not fail - success and warnings-only alike, in every
               ; diagnostic format (probed 2026-08-07). compileFile
               ; exits on errors, so reaching here IS the OK path.
-              (writeStdout "OK\n")
+              (replOut "OK\n")
               0
             }))
   (if (strEq cmd "emit-llvm")
@@ -535,10 +529,10 @@
                   (out (let ((v (flagValue "-o" 1)))
                          (if (> (strLen v) 0) v (flagValue "--output" 1)))))
               (if (== (strLen out) 0)
-                  { (writeStdout ir) 0 }
+                  { (replOut ir) 0 }
                   (if (< (sysWriteFile (strCStr out) ir) 0)
                       (die (cat3 "error: could not write LLVM IR to '" out "'\n") 4)
-                      { (writeStdout (cat3 "LLVM IR written to " out "\n")) 0 })))))
+                      { (replOut (cat3 "LLVM IR written to " out "\n")) 0 })))))
   (if (strEq cmd "build")
       ; `--input`/`--output` are stage0's spelling. A bare positional is
       ; accepted for `--input` too, because a compiler that insists on a
@@ -586,9 +580,9 @@
                       ; program's own output.
                       {
                         (if (hasFlagAnywhere cmd "--emit-llvm")
-                            (writeStdout (cat3 "LLVM IR written to " outp ".ll\n"))
+                            (replOut (cat3 "LLVM IR written to " outp ".ll\n"))
                             0)
-                        (writeStdout (cat3 "Build successful: " outp "\n"))
+                        (replOut (cat3 "Build successful: " outp "\n"))
                         0
                       }))))))
   (if (strEq cmd "fmt")
@@ -619,11 +613,11 @@
                             (let ((text (fzText res)))
                               (if (hasFlagAnywhere cmd "--check")
                                   (if (strEq src text)
-                                      { (writeStdout (cat3 "OK: " f " is already formatted\n")) 0 }
+                                      { (replOut (cat3 "OK: " f " is already formatted\n")) 0 }
                                       (die (cat3 "Error: " f " needs formatting\n") 1))
                                   (if (< (sysWriteFile (strCStr f) text) 0)
                                       (die "error: could not write formatted file\n" 1)
-                                      { (writeStdout (cat3 "OK: " f " formatted\n")) 0 }))))))
+                                      { (replOut (cat3 "OK: " f " formatted\n")) 0 }))))))
                   }))))
   (if (strEq cmd "symbols")
       ; `symbols [--builtins] FILE`: one AXSYM line per fact on
@@ -667,7 +661,7 @@
                             ; it gave up on. `compileFile` says why.
                             (let ((_stop (if (> (countErrorDiags eds) 0)
                                              {
-                                               (writeStderr (renderDiagsFormat dfmt (orderDiags eds) units))
+                                               (writeStderrStr (renderDiagsFormat dfmt (orderDiags eds) units))
                                                (sysExitWith 1)
                                                0
                                              }
@@ -680,13 +674,13 @@
                                 ; empties stdout and fails.
                                 (if (> (countErrorDiags ds) 0)
                                     {
-                                      (writeStderr (renderDiagsFormat dfmt ds units))
+                                      (writeStderrStr (renderDiagsFormat dfmt ds units))
                                       (sysExitWith 1)
                                       1
                                     }
                                     {
                                       (if (> (vecLen ds) 0)
-                                          (writeStderr (renderDiagsFormat dfmt ds units))
+                                          (writeStderrStr (renderDiagsFormat dfmt ds units))
                                           0)
                                       (symbolsFormatNotice)
                                       ; AXSYM under `ai`, the aligned
@@ -701,7 +695,7 @@
                                       (let ((axsym (symbolsRenderGens tc
                                               (if (hasFlagAnywhere cmd "--builtins") 1 0)
                                               gens)))
-                                        (writeStdout
+                                        (replOut
                                           (if (== dfmt FMT_HUMAN)
                                               (symbolsHumanTable axsym)
                                               axsym)))
@@ -716,22 +710,22 @@
       (let ((code (positionalFrom operandStart)))
         (if (|| (hasFlagAnywhere cmd "--list") (== (strLen code) 0))
             {
-              (writeStdout (explainListColored))
+              (replOut (explainListColored))
               (if (&& (== (strLen code) 0)
                       (if (hasFlagAnywhere cmd "--list") false true))
-                  (writeStdout "\nUsage: axiom explain <CODE>\n")
+                  (replOut "\nUsage: axiom explain <CODE>\n")
                   0)
               0
             }
             (let ((text (explainText (explainNormalize code))))
               (if (== (strLen text) 0)
                   {
-                    (writeStderr (cat3 "error: unknown diagnostic code '" code "'\n"))
-                    (writeStderr "run `axiom explain --list` to see all known codes\n")
+                    (writeStderrStr (cat3 "error: unknown diagnostic code '" code "'\n"))
+                    (writeStderrStr "run `axiom explain --list` to see all known codes\n")
                     (sysExitWith 1)
                     1
                   }
-                  { (writeStdout text) 0 }))))
+                  { (replOut text) 0 }))))
   (if (strEq cmd "repl")
       (replMain (if (hasFlagAnywhere cmd "--no-banner") 1 0))
   (if (strEq cmd "lsp")

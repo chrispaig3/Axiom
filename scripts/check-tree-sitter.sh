@@ -28,9 +28,12 @@
 # only finds out at compile time - which is exactly the feedback loop the
 # grammar exists to shorten.
 #
-# `tree-sitter` is not vendored. If it is absent this script says so and
-# skips, rather than failing, because a contributor working on the compiler
-# has no reason to install a JavaScript toolchain.
+# `tree-sitter` is not vendored, and if it is absent this script FAILS.
+# It used to skip, on the reasoning that a contributor working on the
+# compiler has no reason to install a JavaScript toolchain - but a gate
+# that exits 0 when its tool is missing is a gate that is off on every
+# machine that has not run the npm install below, which is most of
+# them. `AXIOM_TREE_SITTER_OPTIONAL=1` skips it on purpose.
 
 set -euo pipefail
 

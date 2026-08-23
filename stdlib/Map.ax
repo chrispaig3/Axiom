@@ -299,8 +299,11 @@
 ; `(% (+ i 1) cap)` would do it in one expression; the compare is used
 ; instead because it is a branch rather than a division, and this is the
 ; innermost operation in the module.
-(:: mapNextSlot (-> Int Int Int))
-(fn (mapNextSlot i cap)
+;
+; `pub` because `Intern` probes its own table the same way and had a
+; byte-identical copy under its own name. One statement of the step.
+(pub :: mapNextSlot (-> Int Int Int))
+(pub fn (mapNextSlot i cap)
   (if (>= (+ i 1) cap)
       0
       (+ i 1)))

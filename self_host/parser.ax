@@ -1180,7 +1180,7 @@
 ; arities, and the expander's `expIterPairs` normalises it in one
 ; place for `for` and `fold` alike.
 ;
-; The FIRST binder is the spine head, in both forms - `expSpineHead`
+; The FIRST binder is the spine head, in both forms - `spineHead`
 ; walks nodeA, and nodeA of `((x xs) (y ys))` is `(x xs)`. It is kept
 ; in the node's name slot because a diagnostic wants a name to quote,
 ; not because the expander reads it.
@@ -1673,33 +1673,6 @@
                                     }))))))))
                 (pErr pos)))
           (pErr pos))))
-
-; A declaration whose HEAD KEYWORD this parser knows and whose SHAPE it
-; cannot read is now a parse error, not a skip. The 22 fallbacks inside
-; `parseAliasDecl`, `parseTraitRest` and `parseImplRest` used to land
-; here, and the consequence was that four forms documented in `README.md`
-; and `docs/reference.md` vanished from the declaration list at exit 0
-; with no diagnostic at all - the multi-method `trait` and `impl`
-; examples, and `(type Count Int)` written without its `=`.
-;
-; `check` could not see it, because a discarded declaration is not an
-; error; only `axiom symbols` could, by not printing a row. That is the
-; same tolerance `parseTopForm` shed earlier, one level down, and the
-; same lesson `parseSigDecl` records: a type this parser cannot read is a
-; parse error.
-;
-; Converted and swept: 0 of 273 `.ax` files change behaviour, because the
-; corpus population of every shape the tolerance was covering is zero -
-; which is exactly why it survived.
-;
-; This function is retained for the one caller left that legitimately
-; wants to consume and ignore, and as the place this note belongs.
-(pub :: skipUnknownDecl (-> Int Int Int))
-(pub fn (skipUnknownDecl tokens pos)
-  (let ((r (skipParens tokens pos 1)))
-    (if (== (memGetWord r 0) 0)
-        r
-        (pOk (mkNode TAG_NIL "" 0 0) (memGetWord r 2)))))
 
 ; ------------------------------------------------------------------
 ; Type expressions, kept structurally. The grammar mirrors stage0's

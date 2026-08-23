@@ -396,7 +396,7 @@
 ; THE ONE ORDERING CONVENTION: a signature's type parameters are
 ; ordered by first occurrence in a left-to-right depth-first walk
 ; of its type tree. codegen derives the same ordering from the same
-; D_SIG tree with the same walk (sigEvVars there); the two are
+; D_SIG tree with the same walk (`cgSigVarsInto` there); the two are
 ; pinned against each other by fixture. Alias expansion writes ONE
 ; tree into both the D_SIG node and the entry (tcExpandSigAliases),
 ; so the walks see the same object; the poisoned copy a bad
@@ -2252,8 +2252,8 @@
 ; with an odd multiplier, reduced mod 2^31-1 at every step - spelled out
 ; here rather than imported. `typecheck.ax` importing `Intern` pulls
 ; `Map` with it and puts 63 declarations into six entry files' import
-; closures for one hash function, in a flat namespace that already
-; carries five separate `fmtInt`s. Intern's own note explains why the
+; closures for one hash function, into a flat namespace six entry
+; files already share. Intern's own note explains why the
 ; running value stays under the prime: the product of a value below
 ; 2^31 and a multiplier below 2^31 is below 2^62, so nothing overflows
 ; into the sign bit before the `%` brings it back down, and no negative

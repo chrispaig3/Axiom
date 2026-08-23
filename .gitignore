@@ -1,3 +1,8 @@
+# macOS Finder metadata. One of these was committed at the root and
+# nothing here would have stopped the next.
+.DS_Store
+**/.DS_Store
+
 # Editor and tooling backups.
 **/*.bak
 

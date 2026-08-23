@@ -201,7 +201,8 @@ done
 # The generated bindings are checked in, and are REGENERATED here and
 # compared. `axiom-bindgen` reads the Rust source and the proc macro
 # reads the same annotations; two independent passes over one input can
-# drift, and this is what notices. Same shape as `check-fmt.sh --check`.
+# drift, and this is what notices. Same shape as check-fmt-selfhost.sh's
+# corpus golden: a checked-in artefact compared against a fresh one.
 # ---------------------------------------------------------------
 for crate_dir in rust/examples/*/; do
   [[ -d "$crate_dir" ]] || continue

@@ -521,8 +521,8 @@
 ; char literals.
 (pub struct AxtagEnt (off : Int) (content : String))
 
-; A LOOP, not a recursion, for the same reason `lexTokens` and
-; `dispatchChar` are loops: this walks ONE BYTE PER STEP, so its depth
+; A LOOP, not a recursion, for the same reason `lexTokens` is: this
+; walks ONE BYTE PER STEP, so its depth
 ; is the size of the source. Written as a tail call that is free only
 ; where the compiler turns it into a jump, and a stage1-built binary
 ; that has not been through `opt` does not - so it cost one frame per

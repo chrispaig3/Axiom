@@ -14,7 +14,7 @@
 //! Every Axiom value is exactly one 64-bit word (`docs/memory-model.md`
 //! MM-VAL-1, invariant I1). Every Axiom function emits as
 //! `define i64 @name(i64, ...)` with no parameter attributes and no
-//! calling-convention marker (the `"define i64 @"` header `emitFn`
+//! calling-convention marker (the `"define i64 @"` header `emitFnDef`
 //! writes in `self_host/codegen.ax`). So the
 //! entire ABI is: **i64 in, i64 out, C calling convention**.
 //!

@@ -33,7 +33,7 @@ its golden**. `axiom fmt` inserts blank lines between declarations and
 splits multiple declarations off a shared line, which moves every
 position in the file. These cases are deliberately left unformatted —
 the same state most of `self_host/` is in, and the reason
-`scripts/check-fmt.sh --check` is not the mode CI runs.
+`scripts/check-fmt.sh` formats a COPY of the tree and re-runs the suites against it; it does not ask whether the working tree is already formatted.
 
 `070-nonascii-same-line.ax` is the sharpest instance: it puts two
 declarations on **one line** with an em-dash between them, precisely so

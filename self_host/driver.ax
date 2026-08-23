@@ -235,7 +235,7 @@
         (if (!= rc 0)
             (toolFailDiag (if (< rc 0) "could not run `llc`" "llc failed")
                           "install LLVM and put `llc` on PATH; `--emit-llvm` keeps the IR so the step can be run by hand")
-            (if (staticlibRequested)
+            (if (cgStaticlib)
                 ; `--emit-staticlib`: the object is ARCHIVED, not linked -
                 ; a Rust (or C) host links it, and its `pub fn`s are the
                 ; host's `extern "C"` symbols (docs/ffi.md, the other
@@ -472,9 +472,6 @@
     }))
 
 ; `--emit-staticlib` anywhere on the command line.
-(pub :: staticlibRequested Bool)
-(pub fn (staticlibRequested) (argHas "--emit-staticlib" 1))
-
 ; ------------------------------------------------------------------
 ; GROUNDING: every `declare` the module writes must name a symbol that
 ; some archive on the link line could define.
@@ -1282,16 +1279,6 @@
               (if (strStartsWith a eq)
                   (strSlice a (strLen eq) (- (strLen a) (strLen eq)))
                   (flagValueAt name (+ i 1) n)))))))
-
-(pub :: hasFlag (-> String Bool))
-(pub fn (hasFlag name) (hasFlagAt name 1 (sysArgc)))
-
-(pub :: hasFlagAt (-> String Int Int Bool))
-(pub fn (hasFlagAt name i n)
-  (if (>= i n)
-      false
-      (if (strEq (sysArg i) name) true (hasFlagAt name (+ i 1) n))))
-
 ; The INDEX of the first argument at or after `from` that is not a flag
 ; and is not the value of one, or -1.
 ;

@@ -253,14 +253,8 @@
                 (- cell 1)
                 (internFindFrom it
                                 s
-                                (internNextSlot i (internCap it))
+                                (mapNextSlot i (internCap it))
                                 (- left 1)))))))
-
-(:: internNextSlot (-> Int Int Int))
-(fn (internNextSlot i cap)
-  (if (>= (+ i 1) cap)
-      0
-      (+ i 1)))
 
 ; ------------------------------------------------------------------
 ; Interning
@@ -329,7 +323,7 @@
       it
       (if (== (memGetWord (internTable it) i) 0)
           (memSetWord (internTable it) i (+ id 1))
-          (internPlace it id (internNextSlot i (internCap it)) (- left 1)))))
+          (internPlace it id (mapNextSlot i (internCap it)) (- left 1)))))
 
 ; ------------------------------------------------------------------
 ; Rehashing

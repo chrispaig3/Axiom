@@ -17,9 +17,10 @@
 #   1  THE DIAGNOSTIC REGISTRY, BOTH WAYS. Every code with a
 #      construction site outside explain.ax is listed by
 #      `explain --list`, and every listed code has a construction site.
-#      It is 47/47 today; this line said 39/39 until 2026-08-16, and
-#      it is the kind of number this gate exists to stop anyone
-#      writing by hand. `check-tools-selfhost.sh` already checks
+#      It is 51/51 today - and the count is stated here only because a
+#      reader wants a scale; the gate computes it, which is the whole
+#      point. This line said 39/39, then 47/47, each time going stale
+#      inside a week, in the file whose subject is exactly that. `check-tools-selfhost.sh` already checks
 #      emitted -> listed, which is weaker in the direction that
 #      matters: a code CONSTRUCTED but never reached by a corpus
 #      fixture escapes it, and AX4001 sat in the table with no
@@ -84,7 +85,7 @@ listed="$("$axc" explain --list 2>/dev/null | grep -oE 'AX[0-9]{4}' | sort -u)"
 nc="$(printf '%s\n' "$constructed" | grep -c .)"
 nl="$(printf '%s\n' "$listed" | grep -c .)"
 if (( nc < 45 )); then
-  echo "FAIL: only $nc constructed codes found; the floor is 45 (47 today; the grep stopped matching)"
+  echo "FAIL: only $nc constructed codes found; the floor is 45 (51 today; the grep stopped matching)"
   failed=$((failed+1))
 fi
 orphan="$(comm -23 <(printf '%s\n' "$constructed") <(printf '%s\n' "$listed") | tr '\n' ' ')"

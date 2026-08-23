@@ -86,7 +86,7 @@ axiom/
 ├── tests/              stdlib/ selfhost/ diagnostics/ frontend/ fmt/ repl/ lsp/
 │                       tools/ ffi/ docs/
 ├── scripts/            the gates, and lib/gate.sh, the preamble they share
-├── docs/               reference.md, memory-model.md, macro-system.md, macros.md,
+├── docs/               reference.md, memory-model.md, macro-system.md,
 │                       diagnostics.md, error-model.md, ffi.md, self-hosting.md,
 │                       v1-roadmap.md
 └── README.md
@@ -247,7 +247,7 @@ be a framework a reader had to learn before reading a single gate.
 
 | Script | What it pins |
 |---|---|
-| `check-tree-sitter.sh` | the checked-in grammar parses every `.ax` file in the repository, and the documentation's Axiom blocks balance and compile |
+| `check-tree-sitter.sh` | the checked-in grammar parses every `.ax` file in the repository, and the documentation's Axiom blocks balance their delimiters (compiling them is `check-tools-selfhost.sh`) |
 | `run-stdlib-tests.sh` | every case in `tests/stdlib` compiles, runs, prints its `.out` and exits as its `.exit` says |
 | `check-freestanding.sh` | generated code needs no C library |
 | `check-self-host.sh` | every case in `tests/selfhost` compiles, assembles, runs and exits as the fixture says — the only gate that drives the compiler end to end |
@@ -290,22 +290,28 @@ was true on 2026-08-22:
 ## CI/CD
 
 Every push to `trunk` and every pull request runs
-`.github/workflows/ci.yml`. Six jobs, staged so that a cheap failure is
-reported before an expensive one — the grammar job gates the other
-five, because it is the only one that needs no compiler at all:
+`.github/workflows/ci.yml`. Seven jobs, staged so that a cheap failure
+is reported before an expensive one — the grammar job gates the other
+six, because it is the only one that needs no compiler at all. Five of
+them provision a compiler through the same composite action,
+`.github/actions/provision`:
 
 1. **Tree-sitter grammar** — the checked-in grammar parses every `.ax`
    file in the repository.
 2. **Tests** — the gate battery above, on three platforms
    (linux-x86_64, linux-aarch64, darwin-aarch64). Each job provisions a
    compiler from `bootstrap/` first.
-3. **Cross-target codegen** — every target's IR assembles from a single
-   host.
-4. **Self-hosting fixpoint** — `check-bootstrap.sh`: `stage2 ==
+3. **FFI** — `check-ffi.sh` on linux-x86_64 and darwin-aarch64: the
+   `extern` boundary opens exactly the symbols it declares, the
+   generated bindings match a fresh generation, and the `rust/`
+   workspace's own suites run (`cargo test`).
+4. **Cross-target codegen** — every target's IR assembles from a single
+   host, at `--opt` 0, 1 and 2, and all four committed seeds assemble.
+5. **Self-hosting fixpoint** — `check-bootstrap.sh`: `stage2 ==
    stage3`, byte for byte, with the ladder rooted at the committed seed.
-5. **Reproducible build** — two independent runs produce identical
+6. **Reproducible build** — two independent runs produce identical
    bytes.
-6. **Bootstrap from seed** — the load-bearing one, on linux-x86_64 and
+7. **Bootstrap from seed** — the load-bearing one, on linux-x86_64 and
    darwin-aarch64: a clean checkout builds the compiler from
    `bootstrap/` with only `llc` and `cc`. If this fails, the repository
    cannot be built at all, and a stale seed is the usual reason

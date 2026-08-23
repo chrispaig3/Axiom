@@ -84,7 +84,7 @@ because an Axiom module is its file name. `--help` lists the rest.
 
 The `.ax` files are **committed**, because `axiom check` and `axiom fmt`
 must work on a checkout with no cargo. `check-ffi.sh` regenerates and
-diffs them, the same shape as `check-fmt.sh --check`, and
+diffs them, the same shape as `check-fmt-selfhost.sh`'s corpus golden, and
 `cargo test -p axiom-bindgen` does the same plus the
 `tests/fixtures/nested` snapshot (`UPDATE_SNAPSHOTS=1` rewrites it) and
 five fixtures that must be refused: `collision`, `unmarked`,

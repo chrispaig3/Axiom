@@ -1958,8 +1958,9 @@
 ; D_SIG tree (FSig now carries it): one ordering convention, two
 ; implementations, pinned against each other by the evidence fixture.
 ; Only the WALK is duplicated on purpose - the leaf predicates it
-; needs (`tyIsSrcVar`, `nameVecHas`, `nameVecIdx`) are core.ax's, so
-; the two orderings are compared, not two copies of a list search.
+; needs are shared: `tyIsSrcVar` is `parser.ax`'s, `strVecHas` and
+; `strVecIdx` are `core.ax`'s. So what the fixture compares is two
+; orderings, not two copies of a list search.
 ; ------------------------------------------------------------------
 (pub :: cgSigVarsInto (-> Int Int Int))
 (pub fn (cgSigVarsInto t acc)

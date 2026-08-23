@@ -4,7 +4,7 @@
 //! `#[axiom_export]` generates a `#[no_mangle] pub extern "C"` shim
 //! whose signature is entirely `i64`s, because that is Axiom's whole
 //! ABI: every value is one 64-bit word and every emitted function is
-//! `define i64 @name(i64, ...)` (the header `emitFn` writes in
+//! `define i64 @name(i64, ...)` (the header `emitFnDef` writes in
 //! `self_host/codegen.ax`).
 //! The shim is the only `unsafe` the crate author does not write. It
 //! converts words to Rust types on the way in, calls the real function,
