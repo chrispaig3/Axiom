@@ -212,6 +212,23 @@ for crate_dir in rust/examples/*/; do
          > "$work/$crate-$name.log" 2>&1; then
       echo "FAIL $crate/$name: could not build"
       sed 's/^/    /' "$work/$crate-$name.log" | head -5
+      # An AX4004 says the compiler could not find the symbol in the
+      # archive. Whether the ARCHIVE is missing it or the compiler's
+      # scan is, is the whole question, and the archive can answer it
+      # here instead of over another round of CI.
+      if grep -q 'AX4004' "$work/$crate-$name.log"; then
+        want="$(sed -n 's/.*no linked archive defines `\([A-Za-z0-9_]*\)`.*/\1/p' "$work/$crate-$name.log" | head -1)"
+        if [[ -n "$want" ]]; then
+          echo "    ---- what $lib actually defines ----"
+          if nm --defined-only "$lib" 2>/dev/null | grep -q "[ ]$want\$"; then
+            echo "    the archive DOES define $want - the compiler's scan missed it"
+          else
+            echo "    the archive does NOT define $want"
+          fi
+          echo "    nearest axffi_ names in the archive:"
+          nm --defined-only "$lib" 2>/dev/null | awk '{print $NF}' | grep '^axffi_' | sort -u | head -12 | sed 's/^/      /'
+        fi
+      fi
       status=1; continue
     fi
 
