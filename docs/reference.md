@@ -1204,13 +1204,26 @@ buys is that the unsafe layer is finite and can be asked about:
 axiom symbols FILE --diagnostic-format ai | grep '#raw'
 ```
 
-Fourteen declarations in this repository carry it, and every one is a
-raw word read - `memGetWord`, `vecGet`, `nodeA`, `mapValAt`. Between
-them they have 3,980 call sites, which is why the diagnostic informs
-rather than refuses: the honest fix is to return a concrete word type
-and let callers write `cast`, and that is a migration rather than an
-edit. Before the tag existed there was no way to ask how large the
-unsafe surface was.
+Thirteen declarations in this repository carry it, and every one is a
+raw word read - `memGetWord`, `vecGet`, `nodeA`. Before the tag existed
+there was no way to ask how large the unsafe surface was.
+
+**The obvious repair is wrong, and the compiler will not tell you.**
+Making all of them concrete produces 1,223 type errors, and writing
+`(cast T ...)` at each site would fix every one of them - while
+classifying that value's evidence 0, which suppresses its retain where
+the parameter is a type variable and its release where it is concrete.
+Measured both ways in [memory-model.md](memory-model.md) MM-LIFE-2e.
+That trades a type-system unsoundness for a memory-model regression,
+1,223 times, in silence.
+
+The vehicle that works is a **typed accessor**: the cast goes at a
+RETURN, inside a function whose declared type carries the truth, so
+callers see that type and the evidence word is computed from it
+(MM-LIFE-2f). `mapValAt` was moved off the raw layer that way on
+2026-08-23 - by casting inside `mapGet`, where `a` is already witnessed
+by the `dflt` parameter - which is why the count here is thirteen and
+not fourteen.
 
 Ordinary parametric polymorphism is unaffected. `(:: witnessed (-> a
 a))` is silent, because the argument supplies the value and witnesses

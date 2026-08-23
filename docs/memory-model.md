@@ -1227,6 +1227,55 @@ instead of promoting an arena.
 
 ---
 
+### 3.5 `cast` degrades the evidence word — measured
+
+**MM-LIFE-2e (H). `cast` is not a type-level no-op. It is also an
+instruction to the reference model, and the instruction is "do not
+trust this word".** `evStampFill` (`self_host/typecheck.ax`) classifies
+an argument whose root is a `cast` as evidence **0** outright, on the
+stated grounds that "the cast launders a word past the checker, and
+evidence must not trust it".
+
+The consequence is not confined to arguments in type-variable
+positions, and it is not a warning anywhere. Measured on the emitted
+LLVM, same program either way:
+
+| the call | evidence word | `axiom_release` |
+|---|---|---|
+| `(memSetWord p 0 "hi")` | `1` | emitted |
+| `(memSetWord p 0 (cast String "hi"))` | **`0`** | **gone** |
+| `(strEq (mk 1) "ab")` — concrete parameter | — | 4 releases |
+| `(strEq (cast String (mk 1)) "ab")` | — | **3 releases** |
+
+So a `cast` at an argument root suppresses a retain where the parameter
+is a type variable, and suppresses a release where it is concrete. The
+first direction risks a **premature free**; the second **leaks**.
+
+**Why this matters more than it looks.** `cast` is the language's only
+reinterpretation operator, so it is the obvious tool for repairing the
+type-soundness hole `AX3040` reports — a signature returning a variable
+no parameter mentions. Making all fourteen of those concrete produces
+**1,223 type errors**, and the obvious repair is a `cast` at each site.
+That repair would trade a type-system unsoundness for a memory-model
+regression at 1,223 places, silently.
+
+**MM-LIFE-2f (H). The safe vehicle is a typed accessor, not a
+call-site cast.** A cast placed at a RETURN, inside a function whose
+declared type carries the truth, leaves callers seeing that declared
+type — and the evidence word is computed from it. Measured:
+
+```scheme
+;@axiom:raw
+(:: getStr (-> Int Int String))
+(fn (getStr a i) (cast String (memGetWord a i)))
+
+(memSetWord p 0 (getStr p 0))     ; evidence word 1, releases emitted
+```
+
+That is the migration recipe for the `#raw` layer, and it is why
+`mapValAt` was moved off it by casting inside `mapGet` - where `a` is
+already witnessed by the `dflt` parameter - rather than at the call.
+
 ## 4. Mutation
 
 **MM-MUT-1 (H).** `(let ((mut x e)) ...)` introduces a mutable local,

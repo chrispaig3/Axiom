@@ -304,9 +304,7 @@
 
 (fn (mapKeyAt m i) (memGetWord (memGetWord m 2) i))
 
-; RAW: a `Map` carries no value type; see `vecGet`.
-;@axiom:raw
-(:: mapValAt (-> Int Int a))
+(:: mapValAt (-> Int Int Int))
 
 (fn (mapValAt m i) (memGetWord (memGetWord m 3) i))
 
@@ -476,7 +474,12 @@
   (let ((i (mapFindSlot m key)))
     (if (< i 0)
       dflt
-      (mapValAt m i)
+      ; `mapValAt` answers the raw word. `a` here is witnessed by
+      ; `dflt`, so this cast sits at a RETURN inside a signature that
+      ; already carries the type. A cast at an ARGUMENT root instead
+      ; would classify that value's evidence 0 and drop its retain -
+      ; measured, see docs/memory-model.md.
+      (cast a (mapValAt m i))
     )
   )
 )
