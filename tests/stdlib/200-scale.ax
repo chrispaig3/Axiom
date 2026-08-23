@@ -45,156 +45,241 @@
 ; `scripts/bench-datastructures.sh`, which is where the roadmap's
 ; "within 2x" criterion lives.
 (import IO)
+
 (import Map)
+
 (import Vec)
+
 (import Intern)
+
 (import Str)
+
 (import Fmt)
 
 (pub :: scN Int)
+
 (pub fn (scN) 100000)
 
 ; ------------------------------------------------------------------
 ; Vec
 ; ------------------------------------------------------------------
-
 (pub :: scPush (-> Int Int Int Int))
+
 (pub fn (scPush v lo hi)
   (if (>= lo hi)
-      v
-      {
-        (vecPush v lo)
-        (scPush v (+ lo 1) hi)
-      }))
+    v
+    {
+      (vecPush v lo)
+      (scPush v (+ lo 1) hi)
+    }
+  )
+)
 
 ; Read every element back and count the ones holding what was pushed.
 ; Checked against the index rather than summed, so a Vec that returns
 ; the right total from the wrong slots still fails.
 (pub :: scVecIntact (-> Int Int Int Int Int))
+
 (pub fn (scVecIntact v lo hi acc)
   (if (>= lo hi)
-      acc
-      (scVecIntact v (+ lo 1) hi (+ acc (if (== (vecGet v lo) lo) 1 0)))))
+    acc
+    (scVecIntact
+      v      (+ lo 1)      hi      (+
+        acc        (if (== (vecGet v lo) lo)
+          1
+          0
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Map
 ; ------------------------------------------------------------------
-
 (pub :: scInsert (-> Int Int Int Int))
+
 (pub fn (scInsert m lo hi)
   (if (>= lo hi)
-      m
-      {
-        (mapInsert m lo (* lo 3))
-        (scInsert m (+ lo 1) hi)
-      }))
+    m
+    {
+      (mapInsert m lo (* lo 3))
+      (scInsert m (+ lo 1) hi)
+    }
+  )
+)
 
 (pub :: scMapIntact (-> Int Int Int Int Int))
+
 (pub fn (scMapIntact m lo hi acc)
   (if (>= lo hi)
-      acc
-      (scMapIntact m (+ lo 1) hi
-        (+ acc (if (== (mapGet m lo (- 0 1)) (* lo 3)) 1 0)))))
+    acc
+    (scMapIntact
+      m      (+ lo 1)      hi      (+
+        acc        (if (== (mapGet m lo (- 0 1)) (* lo 3))
+          1
+          0
+        )
+      )
+    )
+  )
+)
 
 ; Absent keys must stay absent at scale: a table that has grown 14 times
 ; has 14 chances to leave a stale slot answering a key nobody inserted.
 ; The probe uses keys well outside the inserted range.
 (pub :: scMapAbsent (-> Int Int Int Int Int))
+
 (pub fn (scMapAbsent m lo hi acc)
   (if (>= lo hi)
-      acc
-      (scMapAbsent m (+ lo 1) hi
-        (+ acc (if (mapHas m (+ lo 1000000)) 1 0)))))
+    acc
+    (scMapAbsent
+      m      (+ lo 1)      hi      (+
+        acc        (if (mapHas m (+ lo 1000000))
+          1
+          0
+        )
+      )
+    )
+  )
+)
 
 ; Remove every other key, then confirm the survivors survived. This is
 ; the tombstone path at a size where a probe run can be long.
 (pub :: scRemoveEven (-> Int Int Int Int))
+
 (pub fn (scRemoveEven m lo hi)
   (if (>= lo hi)
-      m
-      {
-        (mapRemove m lo)
-        (scRemoveEven m (+ lo 2) hi)
-      }))
+    m
+    {
+      (mapRemove m lo)
+      (scRemoveEven m (+ lo 2) hi)
+    }
+  )
+)
 
 (pub :: scOddsIntact (-> Int Int Int Int Int))
+
 (pub fn (scOddsIntact m lo hi acc)
   (if (>= lo hi)
-      acc
-      (scOddsIntact m (+ lo 2) hi
-        (+ acc (if (== (mapGet m lo (- 0 1)) (* lo 3)) 1 0)))))
+    acc
+    (scOddsIntact
+      m      (+ lo 2)      hi      (+
+        acc        (if (== (mapGet m lo (- 0 1)) (* lo 3))
+          1
+          0
+        )
+      )
+    )
+  )
+)
 
 (pub :: scEvensGone (-> Int Int Int Int Int))
+
 (pub fn (scEvensGone m lo hi acc)
   (if (>= lo hi)
-      acc
-      (scEvensGone m (+ lo 2) hi (+ acc (if (mapHas m lo) 1 0)))))
+    acc
+    (scEvensGone
+      m      (+ lo 2)      hi      (+
+        acc        (if (mapHas m lo)
+          1
+          0
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Intern
 ; ------------------------------------------------------------------
-
 ; Distinct, variable-length keys. `fmtInt` gives 1- to 6-byte strings
 ; over this range, so the hash sees every length rather than one.
 (pub :: scName (-> Int String))
-(pub fn (scName i)
-  (strConcat "sym" (fmtInt i)))
+
+(pub fn (scName i) (strConcat "sym" (fmtInt i)))
 
 (pub :: scIntern (-> Int Int Int Int))
+
 (pub fn (scIntern it lo hi)
   (if (>= lo hi)
-      it
-      {
-        (internIntern it (scName lo))
-        (scIntern it (+ lo 1) hi)
-      }))
+    it
+    {
+      (internIntern it (scName lo))
+      (scIntern it (+ lo 1) hi)
+    }
+  )
+)
 
 ; The two properties that make an interner an interner, checked over
 ; every id: re-interning equal text returns the id it returned the
 ; first time, and looking that id up returns equal text. An interner
 ; that grows correctly but renumbers on rehash passes neither.
 (pub :: scInternStable (-> Int Int Int Int Int))
+
 (pub fn (scInternStable it lo hi acc)
   (if (>= lo hi)
-      acc
-      (scInternStable it (+ lo 1) hi
-        (+ acc (if (== (internIntern it (scName lo)) lo)
-                   (if (strEq (internLookup it lo) (scName lo)) 1 0)
-                   0)))))
+    acc
+    (scInternStable
+      it      (+ lo 1)      hi      (+
+        acc        (if (== (internIntern it (scName lo)) lo)
+          (if (strEq (internLookup it lo) (scName lo))
+            1
+            0
+          )
+          0
+        )
+      )
+    )
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((v (scPush vecNew 0 (scN)))
-        (m (scInsert mapNew 0 (scN)))
-        (it (scIntern internNew 0 (scN))))
+  ; --- Vec ---
+  (let (
+    (v (scPush vecNew 0 scN))
+    (m (scInsert mapNew 0 scN))
+    (it (scIntern internNew 0 scN))
+  )
     {
-      ; --- Vec ---
-      (println (vecLen v))                            ; 100000
-      (println (scVecIntact v 0 (scN) 0))             ; 100000
-      (println (vecSum v))                            ; 4999950000
-      (println (cast Int (vecGet v 0)))                          ; 0
-      (println (cast Int (vecGet v 99999)))                      ; 99999
+      (println (vecLen v))  ; 100000
+      (println (scVecIntact v 0 scN 0))  ; 100000
+      (println (vecSum v))  ; 4999950000
+      (println
+        (cast Int (vecGet v 0))
+      )
+      ; 0
+      (println
+        (cast Int (vecGet v 99999))
+      )
+      ; 99999
       ; Capacity grows geometrically, so it stays within 2x of the
       ; length. A linear growth policy is correct and quadratic, and
       ; this is the assertion that notices.
-      (println (if (< (vecCap v) (* 2 (vecLen v))) 1 0))  ; 1
-
+      (println
+        (if (< (vecCap v) (* 2 (vecLen v)))  ; 1
+          1
+          0
+        )
+      )
       ; --- Map ---
-      (println (mapLen m))                            ; 100000
-      (println (scMapIntact m 0 (scN) 0))             ; 100000
-      (println (scMapAbsent m 0 (scN) 0))             ; 0
-      (println (mapSumKeys m))                        ; 4999950000
-      (println (mapSumVals m))                        ; 14999850000
-
+      (println (mapLen m))  ; 100000
+      (println (scMapIntact m 0 scN 0))  ; 100000
+      (println (scMapAbsent m 0 scN 0))  ; 0
+      (println (mapSumKeys m))  ; 4999950000
+      (println (mapSumVals m))  ; 14999850000
       ; --- Map after removing every even key ---
-      (println (mapLen (scRemoveEven m 0 (scN))))     ; 50000
-      (println (scOddsIntact m 1 (scN) 0))            ; 50000
-      (println (scEvensGone m 0 (scN) 0))             ; 0
-
+      (println (mapLen (scRemoveEven m 0 scN)))  ; 50000
+      (println (scOddsIntact m 1 scN 0))  ; 50000
+      (println (scEvensGone m 0 scN 0))  ; 0
       ; --- Intern ---
-      (println (internCount it))                      ; 100000
-      (println (scInternStable it 0 (scN) 0))         ; 100000
-      (println (internCount it))                      ; 100000, re-interning added nothing
+      (println (internCount it))  ; 100000
+      (println (scInternStable it 0 scN 0))  ; 100000
+      (println (internCount it))  ; 100000, re-interning added nothing
       0
-    }))
+    }
+  )
+)

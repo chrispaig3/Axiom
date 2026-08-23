@@ -18,28 +18,72 @@
 ;   (shows 7)       a trait whose method returns something other than
 ;                   its own type parameter, so the dispatch position is
 ;                   found rather than assumed
-(trait (Eq a) where
-  (eq :: (-> a a Bool)
-   ne :: (-> a a Bool)))
+(trait (Eq a) where (
+  eq :: (-> a a Bool)
+  ne :: (-> a a Bool)
+))
 
-(trait (Show a) where
-  (shows :: (-> a Int)))
+(trait (Show a) where (
+  shows :: (-> a Int)
+))
 
-(impl (Eq Int) where
-  ((eq (lambda (x y) (== x y)))
-   (ne (lambda (x y) (if (== x y) false true)))))
+(impl (Eq Int) where (
+  (eq
+    (lambda (x y) (== x y))
+  )
+  (ne
+    (lambda (x y)
+      (if (== x y)
+        false
+        true
+      )
+    )
+  )
+))
 
-(impl (Eq Bool) where
-  ((eq (lambda (x y) (if x y (if y false true))))
-   (ne (lambda (x y) (if x (if y false true) y)))))
+(impl (Eq Bool) where (
+  (eq
+    (lambda (x y)
+      (if x
+        y
+        (if y
+          false
+          true
+        )
+      )
+    )
+  )
+  (ne
+    (lambda (x y)
+      (if x
+        (if y
+          false
+          true
+        )
+        y
+      )
+    )
+  )
+))
 
-(impl (Show Int) where
-  ((shows (lambda (n) (* n 6)))))
+(impl (Show Int) where (
+  (shows
+    (lambda (n) (* n 6))
+  )
+))
 
 (:: main Int)
+
 (fn (main)
-  (if (&& (&& (eq 3 3) (if (eq 3 4) false true))
-          (&& (&& (eq true true) (ne true false))
-              (&& (ne 1 2) (== (shows 7) 42))))
-      42
-      1))
+  (if (&&
+    (&&
+      (eq 3 3)      (if (eq 3 4)
+        false
+        true
+      )
+    )    (&& (&& (eq true true) (ne true false)) (&& (ne 1 2) (== (shows 7) 42)))
+  )
+    42
+    1
+  )
+)

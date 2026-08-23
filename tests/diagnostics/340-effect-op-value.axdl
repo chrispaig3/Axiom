@@ -1,2 +1,2 @@
-E AX3017 340-effect-op-value.ax:5:27-30 effect-handler-unsupported "effect operation `ask` cannot be used as a bare value; call it, or wrap it: `(lambda (x) (ask x))`"
-E AX3011 340-effect-op-value.ax:5:21-26 effect-mismatch "effect mismatch: unhandled effect `Ask`"
+E AX3017 340-effect-op-value.ax:11:18-21 effect-handler-unsupported "effect operation `ask` cannot be used as a bare value; call it, or wrap it: `(lambda (x) (ask x))`"
+E AX3011 340-effect-op-value.ax:11:12-17 effect-mismatch "effect mismatch: unhandled effect `Ask`"

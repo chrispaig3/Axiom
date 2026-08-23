@@ -17,52 +17,67 @@
 (import IO)
 
 (pub :: classify (-> Int Int))
+
 (pub fn (classify n)
   (cond
     ((< n 0) 1)
     ((== n 0) 2)
     ((< n 10) 3)
-    (else 4)))
+    (else 4)
+  )
+)
 
 ; A clause body may be a sequence, like any other body position.
 (pub :: sequenced (-> Int Int))
+
 (pub fn (sequenced n)
   (cond
     ((> n 0)
       {
         (+ n 1)
         (* n 10)
-      })
-    (else 0)))
+      }
+    )
+    (else 0)
+  )
+)
 
 ; No `else`: the form falls through to 0, as `while` does - there is no
 ; last value to report and inventing one would make the type depend on a
 ; runtime condition.
 (pub :: noElse (-> Int Int))
+
 (pub fn (noElse n)
   (cond
-    ((> n 100) 7)))
+    ((> n 100) 7)
+  )
+)
 
 ; A self tail call in a `cond` clause must still be a jump, not a frame.
 ; Three million iterations is well past the 60,000-80,000 frames an 8 MiB
 ; stack holds, so this would crash rather than merely run slowly.
 (pub :: countdown (-> Int Int Int))
+
 (pub fn (countdown n acc)
   (cond
     ((<= n 0) acc)
-    (else (countdown (- n 1) (+ acc 1)))))
+    (else (countdown (- n 1) (+ acc 1)))
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (println (classify (- 0 5)))   ; 1
-    (println (classify 0))         ; 2
-    (println (classify 5))         ; 3
-    (println (classify 99))        ; 4
-    (println (sequenced 4))        ; 40
-    (println (noElse 1))           ; 0: no clause matched, no else
-    (println (noElse 200))         ; 7
-    (println (countdown 3000000 0)); 3000000
+    (println (classify (- 0 5)))  ; 1
+    (println (classify 0))  ; 2
+    (println (classify 5))  ; 3
+    (println (classify 99))  ; 4
+    (println (sequenced 4))  ; 40
+    (println (noElse 1))  ; 0: no clause matched, no else
+    (println (noElse 200))  ; 7
+    (println (countdown 3000000 0))  ; 3000000
     0
-  })
+  }
+)

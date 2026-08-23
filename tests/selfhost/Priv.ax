@@ -9,22 +9,30 @@
 ; been DELETED from the program by the file that imported it, and the
 ; two public bodies below would have failed to find them - reported at
 ; THIS file's lines, in a program that merely read it.
-
 ; A private data type, its constructor, and a private function that
 ; matches on it. A public body uses all three.
-(data Wrap (W Int))
+(data Wrap
+  (W Int))
 
 (:: unwrap (-> Wrap Int))
-(fn (unwrap w) (match w ((W x) x)))
+
+(fn (unwrap w)
+  (match w
+    ((W x) x)
+  )
+)
 
 ; A private helper whose name the importing file also defines. If the
 ; module's own call reaches the importer's definition instead of this
 ; one, `quad` answers 4 rather than 18.
 (:: scale (-> Int Int))
+
 (fn (scale n) (* n 3))
 
 (pub :: quad (-> Int Int))
+
 (pub fn (quad n) (scale (scale n)))
 
 (pub :: roundTrip (-> Int Int))
+
 (pub fn (roundTrip n) (unwrap (W n)))

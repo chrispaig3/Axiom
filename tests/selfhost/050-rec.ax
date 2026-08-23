@@ -1,5 +1,13 @@
 ; expect 55
 (:: sum (-> Int Int))
-(fn (sum n) (if (<= n 0) 0 (+ n (sum (- n 1)))))
+
+(fn (sum n)
+  (if (<= n 0)
+    0
+    (+ n (sum (- n 1)))
+  )
+)
+
 (:: main Int)
+
 (fn (main) (sum 10))

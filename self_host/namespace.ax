@@ -74,26 +74,34 @@
 ; answering 42, importing a module that generates its own `tagShape`
 ; answering 7, checked clean and answered 7.
 (pub :: mangleRecordEntry (-> Int Int String Int))
+
 (pub fn (mangleRecordEntry bares fulls name)
   (let ((i (mangleIndexOf bares name 0)))
     (if (< i 0)
-        {
-          (vecPush bares name)
-          (vecPush fulls name)
-          0
-        }
-        {
-          (vecSet fulls i name)
-          0
-        })))
+      {
+        (vecPush bares name)
+        (vecPush fulls name)
+        0
+      }
+      {
+        (vecSet fulls i name)
+        0
+      }
+    )
+  )
+)
 
 (pub :: mangleIndexOf (-> Int String Int Int))
+
 (pub fn (mangleIndexOf bares name i)
   (if (>= i (vecLen bares))
-      (- 0 1)
-      (if (strEq (vecGet bares i) name)
-          i
-          (mangleIndexOf bares name (+ i 1)))))
+    (- 0 1)
+    (if (strEq (vecGet bares i) name)
+      i
+      (mangleIndexOf bares name (+ i 1))
+    )
+  )
+)
 
 (pub :: mangleHasIn (-> Int String Int Bool))
 
@@ -189,16 +197,21 @@
 ; change the mapping - an unexported item is simply never referenced
 ; from outside, and recording it costs one entry.
 (pub :: mangleExternItems (-> Int Int Int Int Int))
+
 (pub fn (mangleExternItems items i bares fulls)
   (if (== items 0)
+    0
+    (if (>= i (vecLen items))
       0
-      (if (>= i (vecLen items))
-          0
-          {
-            (let ((f (vecGet items i)))
-              (mangleRecord bares fulls (nodeA f) (nodeC f)))
-            (mangleExternItems items (+ i 1) bares fulls)
-          })))
+      {
+        (let ((f (vecGet items i)))
+          (mangleRecord bares fulls (nodeA f) (nodeC f))
+        )
+        (mangleExternItems items (+ i 1) bares fulls)
+      }
+    )
+  )
+)
 
 ; The half of `mangleRecord` that a private declaration gets: the
 ; mangled name maps to itself, and the bare slot is left for whoever

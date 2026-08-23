@@ -1,3 +1,3 @@
-E AX3004 240-type-render.ax:5:20-21 type-mismatch "type mismatch: expected Box Int, found Box Bool" #"this has type `Box Bool`, expected `Box Int`"
-E AX3004 240-type-render.ax:7:23-24 type-mismatch "type mismatch: expected function type, found _t3" #"this has type `_t3`, expected `function type`"
-E AX3004 240-type-render.ax:7:29-30 type-mismatch "type mismatch: expected function type, found _t4" #"this has type `_t4`, expected `function type`"
+E AX3004 240-type-render.ax:10:20-21 type-mismatch "type mismatch: expected Box Int, found Box Bool" #"this has type `Box Bool`, expected `Box Int`"
+E AX3004 240-type-render.ax:16:6-7 type-mismatch "type mismatch: expected function type, found _t3" #"this has type `_t3`, expected `function type`"
+E AX3004 240-type-render.ax:17:6-7 type-mismatch "type mismatch: expected function type, found _t4" #"this has type `_t4`, expected `function type`"

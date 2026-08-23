@@ -4,4 +4,5 @@
 (macro (loopy x) (loopy x))
 
 (:: main Int)
+
 (fn (main) (loopy 1))

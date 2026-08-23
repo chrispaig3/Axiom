@@ -17,65 +17,93 @@
 ; neither, and a mark taken before the first chunk existed produced a
 ; null pointer.
 (import IO)
+
 (import Mem)
+
 (import Str)
 
 ; Fill enough memory to force the allocator past a 1 MiB chunk, so the
 ; reset below has to restore a position from a *different* chunk than the
 ; one in use when it runs.
 (pub :: burn (-> Int Int))
+
 (pub fn (burn n)
   (if (<= n 0)
-      0
-      {
-        (memAlloc 65536)
-        (burn (- n 1))
-      }))
+    0
+    {
+      (memAlloc 65536)
+      (burn (- n 1))
+    }
+  )
+)
 
 ; Write a word and read it back, so a returned address is shown to be
 ; usable memory and not merely a plausible-looking number.
 (pub :: usable (-> Int Int))
+
 (pub fn (usable p)
   {
     (memSetWord p 0 987654321)
     (memGetWord p 0)
-  })
+  }
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((m (__axiom_arena_mark))
-        (a (memAlloc 64))
-        (b (memAlloc 64))
-        (afterAlloc (memAlloc 0)))
+  (let (
+    (m __axiom_arena_mark)
+    (a (memAlloc 64))
+    (b (memAlloc 64))
+    (afterAlloc (memAlloc 0))
+  )
     {
-      (println (if (> afterAlloc a) 1 0))   ; 1: allocation advances the waterline
-      (println (- b a))                     ; 80: contiguous, 64 + the 16-byte MM-LIFE-2b header
-
+      (println
+        (if (> afterAlloc a)  ; 1: allocation advances the waterline
+          1
+          0
+        )
+      )
+      (println (- b a))  ; 80: contiguous, 64 + the 16-byte MM-LIFE-2b header
       ; --- reset reclaims, and the next allocation reuses the space ---
       (__axiom_arena_reset m)
-      (println (if (== (memAlloc 64) a) 1 0))  ; 1
-
+      (println
+        (if (== (memAlloc 64) a)  ; 1
+          1
+          0
+        )
+      )
       ; --- nesting: an inner mark/reset leaves the outer one intact ---
       (println
-        (let ((outer (__axiom_arena_mark))
-              (p (memAlloc 64))
-              (inner (__axiom_arena_mark))
-              (q (memAlloc 64))
-              (r0 (__axiom_arena_reset inner))
-              (q2 (memAlloc 64))
-              (r1 (__axiom_arena_reset outer))
-              (p2 (memAlloc 64)))
-          (if (&& (== q2 q) (== p2 p)) 1 0)))    ; 1
-
+        (let (
+          (outer __axiom_arena_mark)
+          (p (memAlloc 64))
+          (inner __axiom_arena_mark)
+          (q (memAlloc 64))
+          (r0 (__axiom_arena_reset inner))
+          (q2 (memAlloc 64))
+          (r1 (__axiom_arena_reset outer))
+          (p2 (memAlloc 64))
+        )
+          (if (&& (== q2 q) (== p2 p))  ; 1
+            1
+            0
+          )
+        )
+      )
       ; --- a reset across a chunk boundary must still yield usable memory ---
       (println
-        (let ((far (__axiom_arena_mark))
-              (junk (burn 40))                   ; > 1 MiB, so the chunk changes
-              (r2 (__axiom_arena_reset far))
-              (fresh (memAlloc 64)))
-          (usable fresh)))                       ; 987654321
-
+        (let (
+          (far __axiom_arena_mark)
+          (junk (burn 40))  ; > 1 MiB, so the chunk changes
+          (r2 (__axiom_arena_reset far))
+          (fresh (memAlloc 64))
+        )
+          (usable fresh)
+        )
+      )
+      ; 987654321
       ; --- reclaimed memory is handed back ZEROED ---
       ;
       ; `memAlloc` promises zeroed memory and the standard library
@@ -88,22 +116,30 @@
       ; a 3-byte string, which is `strCStr` running off the end of a
       ; string into whatever the arena last held.
       (println
-        (let ((z (__axiom_arena_mark))
-              (scribble (memSet (memAlloc 256) 255 256))
-              (r3 (__axiom_arena_reset z))
-              (again (memAlloc 256)))
-          (+ (memGetByte again 0) (memGetByte again 200))))   ; 0
-
+        (let (
+          (z __axiom_arena_mark)
+          (scribble (memSet (memAlloc 256) 255 256))
+          (r3 (__axiom_arena_reset z))
+          (again (memAlloc 256))
+        )
+          (+ (memGetByte again 0) (memGetByte again 200))
+        )
+      )
+      ; 0
       (println
-        (let ((z2 (__axiom_arena_mark))
-              (fill (memSet (memAlloc 64) 65 64))
-              (r4 (__axiom_arena_reset z2))
-              (s (strAlloc 3))
-              (h (memPutByte (strData s) 0 104))
-              (i (memPutByte (strData s) 1 105))
-              (b (memPutByte (strData s) 2 33)))
-          (cstrLen (strData s) 0)))                          ; 3
-
+        (let (
+          (z2 __axiom_arena_mark)
+          (fill (memSet (memAlloc 64) 65 64))
+          (r4 (__axiom_arena_reset z2))
+          (s (strAlloc 3))
+          (h (memPutByte (strData s) 0 104))
+          (i (memPutByte (strData s) 1 105))
+          (b (memPutByte (strData s) 2 33))
+        )
+          (cstrLen (strData s) 0)
+        )
+      )
+      ; 3
       ; --- and a chunk mapped after the mark is REUSED, not stranded ---
       ;
       ; Two rounds of the same chunk-crossing burn from the same mark:
@@ -113,12 +149,21 @@
       ; which it did, at a measured 576 KiB per iteration - the second
       ; round maps new memory and the addresses differ.
       (println
-        (let ((c0 (__axiom_arena_mark))
-              (j1 (burn 40))
-              (a1 (memAlloc 64))
-              (r5 (__axiom_arena_reset c0))
-              (j2 (burn 40))
-              (a2 (memAlloc 64)))
-          (if (== a1 a2) 1 0)))                              ; 1
+        (let (
+          (c0 __axiom_arena_mark)
+          (j1 (burn 40))
+          (a1 (memAlloc 64))
+          (r5 (__axiom_arena_reset c0))
+          (j2 (burn 40))
+          (a2 (memAlloc 64))
+        )
+          (if (== a1 a2)  ; 1
+            1
+            0
+          )
+        )
+      )
       0
-    }))
+    }
+  )
+)

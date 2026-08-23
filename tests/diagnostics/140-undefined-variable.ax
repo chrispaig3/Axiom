@@ -1,5 +1,9 @@
 (:: main Int)
+
 (fn (main)
   (let ((a (+ zzz1 1)))
     (match a
-      (x (+ (+ zzz2 zzz3) (+ x zzz2))))))
+      (x (+ (+ zzz2 zzz3) (+ x zzz2)))
+    )
+  )
+)

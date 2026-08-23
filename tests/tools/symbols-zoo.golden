@@ -1,49 +1,49 @@
-F memAlloc stdlib/Mem.ax:39:9-17 "(Int -> Int)" @0fd03fba89121d1d
-F memAllocMapped stdlib/Mem.ax:74:9-23 "(Int -> (Int -> Int))" @cdcfd5fd6fed28da
-F memCopy stdlib/Mem.ax:93:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5
-F memCopyFrom stdlib/Mem.ax:118:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815
-F memSet stdlib/Mem.ax:131:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8
-F memSetFrom stdlib/Mem.ax:135:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178
-F memCmp stdlib/Mem.ax:149:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c
-F memCmpFrom stdlib/Mem.ax:153:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4
-F memGetWord stdlib/Mem.ax:174:9-19 "(Int -> (Int -> a))" @b5f8fe0f14e0113c
-F memSetWord stdlib/Mem.ax:202:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #effect-params=value
-F memGetByte stdlib/Mem.ax:210:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e
-F memPutByte stdlib/Mem.ax:214:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53
-F sysRead stdlib/Sys/Platform.darwin.ax:21:9-16 "Int" @d99009b49c22cd84
+F memAlloc stdlib/Mem.ax:38:9-17 "(Int -> Int)" @0fd03fba89121d1d
+F memAllocMapped stdlib/Mem.ax:73:9-23 "(Int -> (Int -> Int))" @cdcfd5fd6fed28da
+F memCopy stdlib/Mem.ax:103:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5
+F memCopyFrom stdlib/Mem.ax:127:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815
+F memSet stdlib/Mem.ax:143:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8
+F memSetFrom stdlib/Mem.ax:147:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178
+F memCmp stdlib/Mem.ax:164:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c
+F memCmpFrom stdlib/Mem.ax:168:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4
+F memGetWord stdlib/Mem.ax:193:9-19 "(Int -> (Int -> a))" @b5f8fe0f14e0113c
+F memSetWord stdlib/Mem.ax:223:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #effect-params=value
+F memGetByte stdlib/Mem.ax:235:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e
+F memPutByte stdlib/Mem.ax:239:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53
+F sysRead stdlib/Sys/Platform.darwin.ax:20:9-16 "Int" @d99009b49c22cd84
 F sysWrite stdlib/Sys/Platform.darwin.ax:25:9-17 "Int" @74cf7b68f9a13d7f
-F sysOpen stdlib/Sys/Platform.darwin.ax:29:9-16 "Int" @48be4da44965be58
-F sysClose stdlib/Sys/Platform.darwin.ax:33:9-17 "Int" @3f19c86be94cca74
-F sysExit stdlib/Sys/Platform.darwin.ax:37:9-16 "Int" @c21daf50c2bdc420
-F sysLseek stdlib/Sys/Platform.darwin.ax:41:9-17 "Int" @b985a8cd089c8e5c
-F openNeedsDirFd stdlib/Sys/Platform.darwin.ax:47:9-23 "Int" @d12588b93c717bad
-F atFdCwd stdlib/Sys/Platform.darwin.ax:52:9-16 "Int" @dd105a98ff529076
-F oRdonly stdlib/Sys/Platform.darwin.ax:55:9-16 "Int" @bea12e59bc90ac1c
-F oWronlyCreateTrunc stdlib/Sys/Platform.darwin.ax:59:9-27 "Int" @20f55868f574f56b
-F oWronlyCreateAppend stdlib/Sys/Platform.darwin.ax:69:9-28 "Int" @26a10abfaabe5f03
-F seekEnd stdlib/Sys/Platform.darwin.ax:72:9-16 "Int" @ffd6d76db53ee6f4
-F seekSet stdlib/Sys/Platform.darwin.ax:75:9-16 "Int" @9bb0af6e0d80b0bd
-F spawnUsesPosixSpawn stdlib/Sys/Platform.darwin.ax:91:9-28 "Int" @7f321f2729051480
-F sysPosixSpawn stdlib/Sys/Platform.darwin.ax:111:9-22 "Int" @301427b704c87bd6
-F sysWait4 stdlib/Sys/Platform.darwin.ax:115:9-17 "Int" @c6592bc7da3c817f
-F sysFork stdlib/Sys/Platform.darwin.ax:121:9-16 "Int" @d2301f5b9cd3da3c
-F sysForkArg stdlib/Sys/Platform.darwin.ax:124:9-19 "Int" @ccc826600e295ed8
-F sysExecve stdlib/Sys/Platform.darwin.ax:127:9-18 "Int" @cf0811b42b349ef8
-F sysUnlinkNum stdlib/Sys/Platform.darwin.ax:131:9-21 "Int" @ba296983f73bf8b5
-F sysMkdirNum stdlib/Sys/Platform.darwin.ax:136:9-20 "Int" @d70958f5f657e079
-F sysRmdirNum stdlib/Sys/Platform.darwin.ax:140:9-20 "Int" @624e8f20729e9500
-F sysRenameNum stdlib/Sys/Platform.darwin.ax:145:9-21 "Int" @2f71f22a53ea2a9a
-F sysGetdentsNum stdlib/Sys/Platform.darwin.ax:160:9-23 "Int" @b41c5b342d9c34f2
-F dirReadNeedsPosition stdlib/Sys/Platform.darwin.ax:163:9-29 "Int" @67e373cb3c77d650
-F direntNameOffset stdlib/Sys/Platform.darwin.ax:176:9-25 "Int" @cbddd296a9b48d3f
-F cwdUsesFcntlPath stdlib/Sys/Platform.darwin.ax:195:9-25 "Int" @bc3db68f15679b55
-F sysCwdNum stdlib/Sys/Platform.darwin.ax:199:9-18 "Int" @9f128b205b538472
-F fGetPath stdlib/Sys/Platform.darwin.ax:202:9-17 "Int" @7c3930a7ed86acda
-F eExist stdlib/Sys/Platform.darwin.ax:214:9-15 "Int" @4a860ff9c061ee75
-F eIsDir stdlib/Sys/Platform.darwin.ax:217:9-15 "Int" @6b013530d7d877b5
-F sysGetPidNum stdlib/Sys/Platform.darwin.ax:221:9-21 "Int" @8dd97b36f3b03217
-F sysClockNum stdlib/Sys/Platform.darwin.ax:228:9-20 "Int" @338b1a845ae4c6ae
-F clockIsGettimeofday stdlib/Sys/Platform.darwin.ax:231:9-28 "Int" @48d4af426412da35
+F sysOpen stdlib/Sys/Platform.darwin.ax:30:9-16 "Int" @48be4da44965be58
+F sysClose stdlib/Sys/Platform.darwin.ax:35:9-17 "Int" @3f19c86be94cca74
+F sysExit stdlib/Sys/Platform.darwin.ax:40:9-16 "Int" @c21daf50c2bdc420
+F sysLseek stdlib/Sys/Platform.darwin.ax:45:9-17 "Int" @b985a8cd089c8e5c
+F openNeedsDirFd stdlib/Sys/Platform.darwin.ax:52:9-23 "Int" @d12588b93c717bad
+F atFdCwd stdlib/Sys/Platform.darwin.ax:58:9-16 "Int" @dd105a98ff529076
+F oRdonly stdlib/Sys/Platform.darwin.ax:62:9-16 "Int" @bea12e59bc90ac1c
+F oWronlyCreateTrunc stdlib/Sys/Platform.darwin.ax:67:9-27 "Int" @20f55868f574f56b
+F oWronlyCreateAppend stdlib/Sys/Platform.darwin.ax:78:9-28 "Int" @26a10abfaabe5f03
+F seekEnd stdlib/Sys/Platform.darwin.ax:82:9-16 "Int" @ffd6d76db53ee6f4
+F seekSet stdlib/Sys/Platform.darwin.ax:86:9-16 "Int" @9bb0af6e0d80b0bd
+F spawnUsesPosixSpawn stdlib/Sys/Platform.darwin.ax:103:9-28 "Int" @7f321f2729051480
+F sysPosixSpawn stdlib/Sys/Platform.darwin.ax:124:9-22 "Int" @301427b704c87bd6
+F sysWait4 stdlib/Sys/Platform.darwin.ax:129:9-17 "Int" @c6592bc7da3c817f
+F sysFork stdlib/Sys/Platform.darwin.ax:136:9-16 "Int" @d2301f5b9cd3da3c
+F sysForkArg stdlib/Sys/Platform.darwin.ax:140:9-19 "Int" @ccc826600e295ed8
+F sysExecve stdlib/Sys/Platform.darwin.ax:144:9-18 "Int" @cf0811b42b349ef8
+F sysUnlinkNum stdlib/Sys/Platform.darwin.ax:149:9-21 "Int" @ba296983f73bf8b5
+F sysMkdirNum stdlib/Sys/Platform.darwin.ax:155:9-20 "Int" @d70958f5f657e079
+F sysRmdirNum stdlib/Sys/Platform.darwin.ax:160:9-20 "Int" @624e8f20729e9500
+F sysRenameNum stdlib/Sys/Platform.darwin.ax:166:9-21 "Int" @2f71f22a53ea2a9a
+F sysGetdentsNum stdlib/Sys/Platform.darwin.ax:182:9-23 "Int" @b41c5b342d9c34f2
+F dirReadNeedsPosition stdlib/Sys/Platform.darwin.ax:186:9-29 "Int" @67e373cb3c77d650
+F direntNameOffset stdlib/Sys/Platform.darwin.ax:200:9-25 "Int" @cbddd296a9b48d3f
+F cwdUsesFcntlPath stdlib/Sys/Platform.darwin.ax:220:9-25 "Int" @bc3db68f15679b55
+F sysCwdNum stdlib/Sys/Platform.darwin.ax:225:9-18 "Int" @9f128b205b538472
+F fGetPath stdlib/Sys/Platform.darwin.ax:229:9-17 "Int" @7c3930a7ed86acda
+F eExist stdlib/Sys/Platform.darwin.ax:242:9-15 "Int" @4a860ff9c061ee75
+F eIsDir stdlib/Sys/Platform.darwin.ax:246:9-15 "Int" @6b013530d7d877b5
+F sysGetPidNum stdlib/Sys/Platform.darwin.ax:251:9-21 "Int" @8dd97b36f3b03217
+F sysClockNum stdlib/Sys/Platform.darwin.ax:259:9-20 "Int" @338b1a845ae4c6ae
+F clockIsGettimeofday stdlib/Sys/Platform.darwin.ax:263:9-28 "Int" @48d4af426412da35
 F apply tests/fmt/syntax-zoo.ax:78:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:82:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:92:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure

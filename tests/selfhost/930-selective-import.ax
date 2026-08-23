@@ -17,8 +17,14 @@
 (import PrivSel (viaSibling))
 
 (:: sibling (-> Int Int))
+
 (fn (sibling n) (+ n 2))
 
 (:: main Int)
+
 (fn (main)
-  (if (== (+ (viaSibling 2) (sibling 2)) 22) 42 1))
+  (if (== (+ (viaSibling 2) (sibling 2)) 22)
+    42
+    1
+  )
+)

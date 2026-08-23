@@ -1,6 +1,16 @@
-(data T (A Int) (B))
-(struct S (f : Int))
+(data T
+  (A Int)
+  (B))
+
+(struct S
+  (f : Int))
+
 (:: main Int)
+
 (fn (main)
   (let ((s (S 1)))
-    (match (A 1) ((A v) (+ v s.nope)))))
+    (match (A 1)
+      ((A v) (+ v s.nope))
+    )
+  )
+)

@@ -24,25 +24,36 @@
 ; constructors after it, which is the failure a last-position-only
 ; test cannot produce.
 (import IO)
+
 (import Pre)
+
 (import Str)
 
-(data Colour (Red) (Green) (Blue))
+(data Colour
+  (Red)
+  (Green)
+  (Blue))
+
 (deriveShow Colour)
 
 ; Nullary FIRST and LAST, with a fieldful constructor between them, so
 ; a wildcard in arm 1 would swallow `Mid` and `Last` alike.
-(data Mixed (First) (Mid Int) (Last))
+(data Mixed
+  (First)
+  (Mid Int)
+  (Last))
+
 (deriveShow Mixed)
 
 (:: bit (-> Bool Int Int))
-(fn (bit b w) (if b w 0))
+
+(fn (bit b w)
+  (if b
+    w
+    0
+  )
+)
 
 (:: main Int)
-(fn (main)
-  (+ (bit (strEq (showColour (Red)) "Red") 1)
-     (+ (bit (strEq (showColour (Green)) "Green") 2)
-        (+ (bit (strEq (showColour (Blue)) "Blue") 4)
-           (+ (bit (strEq (showMixed (First)) "First") 8)
-              (+ (bit (strEq (showMixed (Mid 7)) "Mid") 16)
-                 (bit (strEq (showMixed (Last)) "Last") 32)))))))
+
+(fn (main) (+ (bit (strEq (showColour Red) "Red") 1) (+ (bit (strEq (showColour Green) "Green") 2) (+ (bit (strEq (showColour Blue) "Blue") 4) (+ (bit (strEq (showMixed First) "First") 8) (+ (bit (strEq (showMixed (Mid 7)) "Mid") 16) (bit (strEq (showMixed Last) "Last") 32)))))))

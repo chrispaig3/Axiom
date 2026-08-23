@@ -1,7 +1,13 @@
-(data Color (Red) (Green Int))
+(data Color
+  (Red)
+  (Green Int))
+
 (:: main Int)
+
 (fn (main)
-  (match (Red)
+  (match Red
     ((Green) 1)
     ((Green a b) 2)
-    (_ 0)))
+    (_ 0)
+  )
+)

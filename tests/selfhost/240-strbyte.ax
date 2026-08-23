@@ -1,6 +1,10 @@
 ; expect 42
 (import Str)
+
 (:: main Int)
+
 (fn (main)
   (let ((s "*"))
-    (strByte s 0)))
+    (strByte s 0)
+  )
+)

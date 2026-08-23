@@ -1,7 +1,7 @@
 [1;31merror[AX3001][0m[1m: undefined variable `noSuchFn`[0m
-  [1;34m--> [0m490-expansion-backtrace.ax:17:14
+  [1;34m--> [0m490-expansion-backtrace.ax:19:14
 [1;34m   |[0m
-[1;34m17 |[0m (fn (one n) (frameBad n))
+[1;34m19 |[0m (fn (one n) (frameBad n))
 [1;34m   |[0m              [1;31m^^^^^^^^ no binding named `noSuchFn` in scope[0m
 [1;34m   |[0m
   [1;34m--> [0mMacFrame.ax:6:13
@@ -13,14 +13,14 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
 [1;31merror[AX3001][0m[1m: undefined variable `noSuchFn`[0m
-  [1;34m--> [0m490-expansion-backtrace.ax:19:14
+  [1;34m--> [0m490-expansion-backtrace.ax:23:14
 [1;34m   |[0m
-[1;34m19 |[0m (fn (two n) (frameOuter n))
+[1;34m23 |[0m (fn (two n) (frameOuter n))
 [1;34m   |[0m              [1;31m^^^^^^^^^^ no binding named `noSuchFn` in scope[0m
 [1;34m   |[0m
-  [1;34m--> [0mMacFrame.ax:7:13
+  [1;34m--> [0mMacFrame.ax:8:13
 [1;34m   |[0m
-[1;34m 7 |[0m (pub macro (frameOuter x) (frameBad x))
+[1;34m 8 |[0m (pub macro (frameOuter x) (frameBad x))
 [1;34m   |[0m             [1;36m^^^^^^^^^^ in this expansion of `frameOuter`[0m
 [1;34m   |[0m
   [1;34m--> [0mMacFrame.ax:6:13

@@ -3,11 +3,24 @@
 ; because the crate imports symbols its `axiom-allow.txt` does not
 ; permit. The gate requires that failure.
 (import IO)
+
 (import Fmt)
 
 (pub extern "axiom_leaky"
   (homeLen :: Int (symbol "axffi_home_len")))
 
 ;@axiom:effect(io)
-(pub fn (main) { (println (fmtInt (if (>= homeLen 0) 1 0))) 0 })
+(pub fn (main)
+  {
+    (println
+      (fmtInt
+        (if (>= homeLen 0)
+          1
+          0
+        )
+      )
+    )
+    0
+  }
+)
 ; expect 0

@@ -6,6 +6,13 @@
 ; inner closure's address; both compilers had that bug and both now
 ; chain.
 (:: main Int)
+
 (fn (main)
-  (let ((h (lambda (a) (lambda (b) (+ a b)))))
-    (h 3 4)))
+  (let ((h 
+    (lambda (a)
+      (lambda (b) (+ a b))
+    )
+  ))
+    (h 3 4)
+  )
+)

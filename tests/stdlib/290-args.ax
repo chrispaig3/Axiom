@@ -6,16 +6,25 @@
 ; wild address; the argument-passing half is pinned by an integration
 ; test that actually passes some.
 (import IO)
+
 (import Sys)
+
 (import Str)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (println (sysArgc))                            ; 1
-    (println (if (> (strLen (sysArg 0)) 0) 1 0))   ; 1: program name
-    (println (strLen (sysArg 5)))                  ; 0: out of range
-    (println (strLen (sysArg (- 0 1))))            ; 0: negative
+    (println sysArgc)  ; 1
+    (println
+      (if (> (strLen (sysArg 0)) 0)  ; 1: program name
+        1
+        0
+      )
+    )
+    (println (strLen (sysArg 5)))  ; 0: out of range
+    (println (strLen (sysArg (- 0 1))))  ; 0: negative
     0
-  })
+  }
+)

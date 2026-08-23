@@ -14,7 +14,9 @@
 (import Str)
 
 (:: strLen (-> String Int))
+
 (fn (strLen s) 41)
 
 (:: main Int)
+
 (fn (main) (+ (strLen "abc") (strByte "abc" 2)))

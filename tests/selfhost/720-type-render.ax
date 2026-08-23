@@ -19,43 +19,52 @@
 ;   main    a bare non-arrow signature
 ;   pf      `String`, the one builtin type name the four above omit
 (import Str)
+
 (import Vec)
+
 (import Mem)
+
 (import core)
+
 (import lexer)
+
 (import parser)
+
 (import typecheck)
 
 (:: renderSigAt (-> Int Int String))
-(fn (renderSigAt decls i)
-  (tyRender (nodeTy (vecGet decls i))))
+
+(fn (renderSigAt decls i) (tyRender (nodeTy (vecGet decls i))))
 
 (:: main Int)
+
 (fn (main)
-  (let ((src (strConcat
-               (strConcat
-                 (strConcat "(:: apply (-> (-> Int Int) Int Int))\n"
-                            "(:: pick (-> (Maybe Int) (Int Bool) (* Any) Int))\n")
-                 (strConcat "(:: unit (-> () Int))\n"
-                            "(:: main Int)\n"))
-               "(:: pf (-> String Int))\n")))
+  (let ((src (strConcat (strConcat (strConcat "(:: apply (-> (-> Int Int) Int Int))\n" "(:: pick (-> (Maybe Int) (Int Bool) (* Any) Int))\n") (strConcat "(:: unit (-> () Int))\n" "(:: main Int)\n")) "(:: pf (-> String Int))\n")))
     (let ((pr (parseModule (lex src))))
       (if (== (memGetWord pr 0) 0)
-          7
-          (let ((decls (memGetWord pr 1)))
-            (if (!= (vecLen decls) 5)
-                8
-                (if (strEq (renderSigAt decls 0)
-                           "((Int -> Int) -> (Int -> Int))")
-                    (if (strEq (renderSigAt decls 1)
-                               "(Maybe Int -> ((Int, Bool) -> (*Any -> Int)))")
-                        (if (strEq (renderSigAt decls 2) "(() -> Int)")
-                            (if (strEq (renderSigAt decls 3) "Int")
-                                (if (strEq (renderSigAt decls 4)
-                                           "(String -> Int)")
-                                    42
-                                    13)
-                                12)
-                            11)
-                        10)
-                    9)))))))
+        7
+        (let ((decls (memGetWord pr 1)))
+          (if (!= (vecLen decls) 5)
+            8
+            (if (strEq (renderSigAt decls 0) "((Int -> Int) -> (Int -> Int))")
+              (if (strEq (renderSigAt decls 1) "(Maybe Int -> ((Int, Bool) -> (*Any -> Int)))")
+                (if (strEq (renderSigAt decls 2) "(() -> Int)")
+                  (if (strEq (renderSigAt decls 3) "Int")
+                    (if (strEq (renderSigAt decls 4) "(String -> Int)")
+                      42
+                      13
+                    )
+                    12
+                  )
+                  11
+                )
+                10
+              )
+              9
+            )
+          )
+        )
+      )
+    )
+  )
+)

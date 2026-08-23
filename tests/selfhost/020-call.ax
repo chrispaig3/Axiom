@@ -1,5 +1,8 @@
 ; expect 42
 (:: add (-> Int Int Int))
+
 (fn (add x y) (+ x y))
+
 (:: main Int)
+
 (fn (main) (add 40 2))

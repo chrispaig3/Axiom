@@ -17,9 +17,15 @@
 (macro (v) 9)
 
 (:: f (-> Int Int))
+
 (fn (f v) v)
 
 (:: main Int)
+
 (fn (main)
-  (+ (f 1)
-     (let ((v 2)) v)))
+  (+
+    (f 1)    (let ((v 2))
+      v
+    )
+  )
+)

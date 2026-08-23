@@ -1,2 +1,2 @@
-E AX3004 994-string-return-int-body.ax:19:13-14 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"
-E AX3004 994-string-return-int-body.ax:22:15-16 type-mismatch "type mismatch: expected Int, found String" #"this has type `String`, expected `Int`"
+E AX3004 994-string-return-int-body.ax:20:13-14 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"
+E AX3004 994-string-return-int-body.ax:24:15-16 type-mismatch "type mismatch: expected Int, found String" #"this has type `String`, expected `Int`"

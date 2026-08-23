@@ -39,49 +39,132 @@
 ; back). Word 2 is the chunk: a growth that crossed into a new chunk
 ; answers 999999 rather than a difference of two unrelated bumps.
 (import IO)
+
 (import Str)
-(pub struct Rec (n : Int) (name : String))
+
+(pub struct Rec
+  (n : Int)
+  (name : String))
+
 (:: nameOf (-> Rec String))
+
 (fn (nameOf r) r.name)
+
 (:: nameOf2 (-> Rec String))
+
 (fn (nameOf2 r) (nameOf r))
+
 (:: s0 (-> Int Int))
-(fn (s0 i) (let ((r (Rec i (strConcat "nm-" (fmtInt i))))) (strLen (nameOf r))))
+
+(fn (s0 i)
+  (let ((r (Rec i (strConcat "nm-" (fmtInt i)))))
+    (strLen (nameOf r))
+  )
+)
+
 (:: s1 (-> Int Int))
+
 (fn (s1 i) (strLen (fmtInt i)))
+
 (:: s2 (-> Int Int))
-(fn (s2 i) (let ((s (strConcat "nm-" (fmtInt i)))) (strLen s)))
+
+(fn (s2 i)
+  (let ((s (strConcat "nm-" (fmtInt i))))
+    (strLen s)
+  )
+)
+
 (:: s3 (-> Int Int))
-(fn (s3 i) (let ((r (Rec i "lit"))) (+ (strLen r.name) r.n)))
+
+(fn (s3 i)
+  (let ((r (Rec i "lit")))
+    (+ (strLen r.name) r.n)
+  )
+)
+
 (:: s4 (-> Int Int))
-(fn (s4 i) (match (Some (fmtInt i)) ((Some s) (strLen s)) ((None) 0)))
+
+(fn (s4 i)
+  (match (Some (fmtInt i))
+    ((Some s) (strLen s))
+    ((None) 0)
+  )
+)
+
 (:: s5 (-> Int Int))
-(fn (s5 i) (let ((r (Rec i (fmtInt i)))) (strLen (nameOf2 r))))
+
+(fn (s5 i)
+  (let ((r (Rec i (fmtInt i))))
+    (strLen (nameOf2 r))
+  )
+)
+
 (:: run (-> Int Int Int))
+
 (fn (run which n)
-  (let ((mut i 0) (mut acc 0))
-    { (while (< i n)
-        { (set acc (+ acc (if (== which 0) (s0 i)
-                          (if (== which 1) (s1 i)
-                          (if (== which 2) (s2 i)
-                          (if (== which 3) (s3 i)
-                          (if (== which 4) (s4 i) (s5 i))))))))
-          (set i (+ i 1)) })
-      acc }))
+  (let (
+    (mut i 0)
+    (mut acc 0)
+  )
+    {
+      (while (< i n)
+        {
+          (set acc (+
+            acc            (if (== which 0)
+              (s0 i)
+              (if (== which 1)
+                (s1 i)
+                (if (== which 2)
+                  (s2 i)
+                  (if (== which 3)
+                    (s3 i)
+                    (if (== which 4)
+                      (s4 i)
+                      (s5 i)
+                    )
+                  )
+                )
+              )
+            )
+          ))
+          (set i (+ i 1))
+        })
+      acc
+    }
+  )
+)
+
 (:: measure (-> Int Int))
+
 (fn (measure which)
-  { (run which 1000)
-    (let ((m0 (__axiom_arena_mark)))
-      { (run which 10000)
-        (let ((m1 (__axiom_arena_mark)))
+  {
+    (run which 1000)
+    (let ((m0 __axiom_arena_mark))
+      {
+        (run which 10000)
+        (let ((m1 __axiom_arena_mark))
           (if (!= (__load64 m1 2) (__load64 m0 2))
-              999999
-              (/ (- (__load64 m1 0) (__load64 m0 0)) 10000))) }) })
+            999999
+            (/ (- (__load64 m1 0) (__load64 m0 0)) 10000)
+          )
+        )
+      }
+    )
+  }
+)
+
 (:: main Int)
+
 ;@axiom:effect(io)
 (fn (main)
   (let ((mut w 0))
-    { (while (< w 6)
-        { (println (measure w))
-          (set w (+ w 1)) })
-      0 }))
+    {
+      (while (< w 6)
+        {
+          (println (measure w))
+          (set w (+ w 1))
+        })
+      0
+    }
+  )
+)

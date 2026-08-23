@@ -1,8 +1,8 @@
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing false[0m
-  [1;34m--> [0m999-bool-column.ax:15:21
+  [1;34m--> [0m999-bool-column.ax:24:10
 [1;34m   |[0m
-[1;34m15 |[0m (fn (half o) (match o ((Some true) 1) ((None) 0)))
-[1;34m   |[0m                     [1;31m^ this `match` does not cover: false[0m
+[1;34m24 |[0m   (match o
+[1;34m   |[0m          [1;31m^ this `match` does not cover: false[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation

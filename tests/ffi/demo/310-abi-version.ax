@@ -11,6 +11,7 @@
 ; the pin on `declare i64 @axffi_abi_version()` staying parenthesised
 ; correctly.
 (import IO)
+
 (import Fmt)
 
 (pub extern "axiom_demo"
@@ -19,6 +20,14 @@
 ;@axiom:effect(io)
 (pub fn (main)
   (if (== abiVersion 2)
-      { (println "abi: 2") 0 }
-      { (println (fmtInt abiVersion)) 1 }))
+    {
+      (println "abi: 2")
+      0
+    }
+    {
+      (println (fmtInt abiVersion))
+      1
+    }
+  )
+)
 ; expect 0

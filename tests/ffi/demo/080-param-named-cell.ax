@@ -12,16 +12,32 @@
 ; same name through a wrapper that DOES allocate an out-cell. Both must
 ; see the caller's value.
 (import IO)
+
 (import Fmt)
+
 (import Str)
+
 (import Demo)
 
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((cell 21))
-    (let ((doubled (cellTwice cell))
-          (shouted (shout "cell")))
+    (let (
+      (doubled (cellTwice cell))
+      (shouted (shout "cell"))
+    )
       (if (&& (== doubled 42) (strEq shouted "CELL!"))
-          { (println "param named cell: agree") 0 }
-          { (println (fmtInt doubled)) (println shouted) 1 }))))
+        {
+          (println "param named cell: agree")
+          0
+        }
+        {
+          (println (fmtInt doubled))
+          (println shouted)
+          1
+        }
+      )
+    )
+  )
+)
 ; expect 0

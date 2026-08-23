@@ -17,18 +17,34 @@
 ; guard, the field loads and the float flags are all unchanged.
 (data Shape
   (Rect { w : Int, h : Int }))
+
 (data Boxed
   (Wrap { inner : Shape, tag : Int }))
+
 (:: area (-> Shape Int))
+
 (fn (area s)
   (match s
-    ((Rect { h = h, w = w }) (+ (* w 10) h))))
+    ((Rect {h = h, w = w}) (+ (* w 10) h))
+  )
+)
+
 (:: inner (-> Boxed Int))
+
 (fn (inner b)
   (match b
-    ((Wrap { inner = (Rect { w, h }), tag = t }) (+ (* w 10) (+ h t)))))
+    ((Wrap {inner = (Rect {w = w, h = h}), tag = t}) (+ (* w 10) (+ h t)))
+  )
+)
+
 (:: main Int)
+
 (fn (main)
   (if (== (area (Rect 3 4)) 34)
-      (if (== (inner (Wrap (Rect 3 4) 0)) 34) 34 1)
-      2))
+    (if (== (inner (Wrap (Rect 3 4) 0)) 34)
+      34
+      1
+    )
+    2
+  )
+)

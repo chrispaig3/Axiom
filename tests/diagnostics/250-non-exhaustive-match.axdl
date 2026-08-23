@@ -1,2 +1,2 @@
-E AX3005 250-non-exhaustive-match.ax:4:11-14 non-exhaustive-match "non-exhaustive pattern match: missing Green, Blue" #"this `match` does not cover: Green, Blue" ?"add the missing arms, or a wildcard `_` arm to catch the rest"
-E AX3005 250-non-exhaustive-match.ax:8:11-14 non-exhaustive-match "non-exhaustive pattern match: missing Red" #"this `match` does not cover: Red" ?"add the missing arms, or a wildcard `_` arm to catch the rest"
+E AX3005 250-non-exhaustive-match.ax:9:10-13 non-exhaustive-match "non-exhaustive pattern match: missing Green, Blue" #"this `match` does not cover: Green, Blue" ?"add the missing arms, or a wildcard `_` arm to catch the rest"
+E AX3005 250-non-exhaustive-match.ax:17:10-13 non-exhaustive-match "non-exhaustive pattern match: missing Red" #"this `match` does not cover: Red" ?"add the missing arms, or a wildcard `_` arm to catch the rest"

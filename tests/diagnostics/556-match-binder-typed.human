@@ -1,23 +1,23 @@
 [1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
-  [1;34m--> [0m556-match-binder-typed.ax:39:16
+  [1;34m--> [0m556-match-binder-typed.ax:40:16
 [1;34m   |[0m
-[1;34m39 |[0m     (x (strLen x))))
+[1;34m40 |[0m     (x (strLen x))
 [1;34m   |[0m                [1;31m^ this has type `Int`, expected `String`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Int, found String[0m
-  [1;34m--> [0m556-match-binder-typed.ax:44:11
+  [1;34m--> [0m556-match-binder-typed.ax:48:11
 [1;34m   |[0m
-[1;34m44 |[0m     (x (+ x 1))))
+[1;34m48 |[0m     (x (+ x 1))
 [1;34m   |[0m           [1;31m^ this has type `String`, expected `Int`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Int, found String[0m
-  [1;34m--> [0m556-match-binder-typed.ax:48:10
+  [1;34m--> [0m556-match-binder-typed.ax:55:10
 [1;34m   |[0m
-[1;34m48 |[0m   (match s
+[1;34m55 |[0m   (match s
 [1;34m   |[0m          [1;31m^ this has type `String`, expected `Int`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation

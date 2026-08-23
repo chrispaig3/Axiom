@@ -34,15 +34,20 @@
 ;
 ; Width 3 against 8 submissions, so the pool genuinely blocks and reaps
 ; mid-run rather than spawning everything at once.
-
 (import IO)
+
 (import Sys)
+
 (import Str)
+
 (import Fmt)
+
 (import Vec)
+
 (import Job)
 
 (pub :: sh3 (-> String Int))
+
 (pub fn (sh3 script)
   (let ((v vecNew))
     {
@@ -50,54 +55,67 @@
       (vecPush v "-c")
       (vecPush v script)
       v
-    }))
+    }
+  )
+)
 
 ; `sleep 0.0N; exit CODE`, with the sleep DESCENDING as the code
 ; ascends, so completion order is the reverse of submit order.
 (pub :: staggered (-> Int Int))
-(pub fn (staggered i)
-  (sh3 (strConcat (strConcat "sleep 0.0" (fmtInt (- 8 i)))
-                  (strConcat "; exit " (fmtInt (+ i 10))))))
+
+(pub fn (staggered i) (sh3 (strConcat (strConcat "sleep 0.0" (fmtInt (- 8 i))) (strConcat "; exit " (fmtInt (+ i 10))))))
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((cmds vecNew)
-        (mut i 0))
+  (let (
+    (cmds vecNew)
+    (mut i 0)
+  )
     {
       (while (< i 8)
         {
           (vecPush cmds (staggered i))
           (set i (+ i 1))
         })
-
       ; Term 1: order under a deliberately reversed completion order.
-      (let ((res (jobRunAll cmds 3))
-            (mut k 0))
+      (let (
+        (res (jobRunAll cmds 3))
+        (mut k 0)
+      )
         {
           (println "submit order")
           (while (< k (vecLen res))
             {
-              (println (cast Int (vecGet res k)))
+              (println
+                (cast Int (vecGet res k))
+              )
               (set k (+ k 1))
             })
-        })
-
+        }
+      )
       ; Term 2: an argument that is a SLICE, not a literal. "exit 23" is
       ; carved out of a longer string, so its bytes do not end where the
       ; `Str` does.
-      (let ((long "XXexit 23YYYY")
-            (c2 vecNew))
+      (let (
+        (long "XXexit 23YYYY")
+        (c2 vecNew)
+      )
         {
           (vecPush c2 (sh3 (strSlice long 2 7)))
           (println "slice argument")
-          (println (cast Int (vecGet (jobRunAll c2 2) 0)))
-        })
-
+          (println
+            (cast Int (vecGet (jobRunAll c2 2) 0))
+          )
+        }
+      )
       ; Term 3: a program that does not exist keeps its own slot, and
       ; answers negative rather than 127.
-      (let ((c3 vecNew)
-            (miss vecNew))
+      (let (
+        (c3 vecNew)
+        (miss vecNew)
+      )
         {
           (vecPush miss "/nonexistent/definitely-not-here")
           (vecPush c3 (sh3 "exit 5"))
@@ -107,10 +125,23 @@
             {
               (println "missing program")
               (println (vecLen r3))
-              (println (cast Int (vecGet r3 0)))
-              (println (if (< (vecGet r3 1) 0) "negative" "NOT-NEGATIVE"))
-              (println (cast Int (vecGet r3 2)))
-            })
-        })
+              (println
+                (cast Int (vecGet r3 0))
+              )
+              (println
+                (if (< (vecGet r3 1) 0)
+                  "negative"
+                  "NOT-NEGATIVE"
+                )
+              )
+              (println
+                (cast Int (vecGet r3 2))
+              )
+            }
+          )
+        }
+      )
       0
-    }))
+    }
+  )
+)

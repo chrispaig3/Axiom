@@ -1,12 +1,25 @@
-(data Color (Red) (Green Int) (Blue))
+(data Color
+  (Red)
+  (Green Int)
+  (Blue))
+
 (:: two (-> Int Int))
+
 (fn (two n)
-  (match (Red)
-    ((Red) 1)))
+  (match Red
+    ((Red) 1)
+  )
+)
+
 (:: one (-> Int Int))
+
 (fn (one n)
-  (match (Red)
+  (match Red
     ((Green x) x)
-    ((Blue) 3)))
+    ((Blue) 3)
+  )
+)
+
 (:: main Int)
+
 (fn (main) 0)

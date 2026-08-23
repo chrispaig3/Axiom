@@ -12,9 +12,8 @@
 ; formatted copy of this file that `check-fmt.sh` builds still runs and
 ; still answers 55.
 (:: main Int)
-(fn (main)
-  #| a comment before the body |#
-  (+ #| between the head and its first argument |#
-     50
-     #| nested: #| (fn (this) would not parse |# still comment |#
-     5))
+
+(fn (main) (+ 50 5))
+#| a comment before the body |#
+#| between the head and its first argument |#
+#| nested: #| (fn (this) would not parse |# still comment |#

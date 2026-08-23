@@ -3,4 +3,5 @@
 ; is exactly 1: the program name, captured by the @main wrapper both
 ; compilers now emit before the user's (renamed) main runs.
 (:: main Int)
-(fn (main) (__argc))
+
+(fn (main) __argc)

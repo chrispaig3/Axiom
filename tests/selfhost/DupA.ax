@@ -1,4 +1,5 @@
 ; One half of a name two imported modules both define. See
 ; `974-qualified-ambiguous.ax`.
 (pub :: dup (-> Int Int))
+
 (pub fn (dup n) (+ n 1))

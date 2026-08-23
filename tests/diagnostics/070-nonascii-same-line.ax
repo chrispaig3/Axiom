@@ -1,3 +1,7 @@
 (:: main Int)
+
 (fn (main) 0)
-(fn (dash) "—") (fn (dash) "-")
+
+(fn (dash) "—")
+
+(fn (dash) "-")

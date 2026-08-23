@@ -1,10 +1,10 @@
 [1;31merror[AX3006][0m[1m: duplicate definition `thing`[0m
- [1;34m--> [0m993-macro-shadows-function.ax:8:6
+ [1;34m--> [0m993-macro-shadows-function.ax:9:6
 [1;34m  |[0m
 [1;34m5 |[0m (macro (thing x) (+ x 1))
 [1;34m  |[0m         [1;36m----- `thing` first defined here[0m
 [1;34m...[0m
-[1;34m8 |[0m (fn (thing n) (* n 2))
+[1;34m9 |[0m (fn (thing n) (* n 2))
 [1;34m  |[0m      [1;31m^^^^^ `thing` redefined here[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate

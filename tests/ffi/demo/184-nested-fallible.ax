@@ -8,57 +8,82 @@
 ; third level (`Result<Option<Option<_>>, _>`) is refused at compile
 ; time: three states is what the status word has.
 (import IO)
+
 (import Fmt)
+
 (import Str)
+
 (import Err)
+
 (import Demo)
 
 (pub :: parsed (-> (Result (Option Int) String) Int))
+
 (pub fn (parsed r)
   (match r
     ((Ok (Some v)) v)
     ((Ok None) -1)
-    ((Err _) -2)))
+    ((Err _) -2)
+  )
+)
 
 (pub :: parsedMsg (-> (Result (Option Int) String) String))
+
 (pub fn (parsedMsg r)
   (match r
     ((Ok _) "")
-    ((Err m) m)))
+    ((Err m) m)
+  )
+)
 
 (pub :: found (-> (Option (Result Int String)) Int))
+
 (pub fn (found o)
   (match o
     ((Some (Ok v)) v)
     ((Some (Err _)) -2)
-    (None -1)))
+    (None -1)
+  )
+)
 
 (pub :: foundMsg (-> (Option (Result Int String)) String))
+
 (pub fn (foundMsg o)
   (match o
     ((Some (Err m)) m)
-    (_ "")))
+    (_ "")
+  )
+)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((some (parsed (maybeParse " 42 ")))
-        (none (parsed (maybeParse "")))
-        (bad (parsed (maybeParse "x1")))
-        (badMsg (parsedMsg (maybeParse "x1")))
-        (hit (found (lookup 3)))
-        (miss (found (lookup 0)))
-        (neg (found (lookup -2)))
-        (negMsg (foundMsg (lookup -2))))
-    (if (&& (== some 42)
-        (&& (== none -1)
-        (&& (== bad -2)
-        (&& (strEq badMsg "invalid digit found in string")
-        (&& (== hit 30)
-        (&& (== miss -1)
-        (&& (== neg -2)
-            (strEq negMsg "negative index -2"))))))))
-        { (println "nested fallible: agree") 0 }
-        { (println (fmtInt some)) (println (fmtInt none)) (println (fmtInt bad))
-          (println badMsg) (println (fmtInt hit)) (println (fmtInt miss))
-          (println (fmtInt neg)) (println negMsg) 1 })))
+  (let (
+    (some (parsed (maybeParse " 42 ")))
+    (none (parsed (maybeParse "")))
+    (bad (parsed (maybeParse "x1")))
+    (badMsg (parsedMsg (maybeParse "x1")))
+    (hit (found (lookup 3)))
+    (miss (found (lookup 0)))
+    (neg (found (lookup -2)))
+    (negMsg (foundMsg (lookup -2)))
+  )
+    (if (&& (== some 42) (&& (== none -1) (&& (== bad -2) (&& (strEq badMsg "invalid digit found in string") (&& (== hit 30) (&& (== miss -1) (&& (== neg -2) (strEq negMsg "negative index -2"))))))))
+      {
+        (println "nested fallible: agree")
+        0
+      }
+      {
+        (println (fmtInt some))
+        (println (fmtInt none))
+        (println (fmtInt bad))
+        (println badMsg)
+        (println (fmtInt hit))
+        (println (fmtInt miss))
+        (println (fmtInt neg))
+        (println negMsg)
+        1
+      }
+    )
+  )
+)
 ; expect 0

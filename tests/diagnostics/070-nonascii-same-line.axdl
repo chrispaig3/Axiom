@@ -1,1 +1,1 @@
-E AX3006 070-nonascii-same-line.ax:3:22-26 duplicate-definition "duplicate definition `dash`" #"`dash` redefined here" ^3:6-10:"`dash` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 070-nonascii-same-line.ax:7:6-10 duplicate-definition "duplicate definition `dash`" #"`dash` redefined here" ^5:6-10:"`dash` first defined here" ?"rename one of the definitions, or remove the duplicate"

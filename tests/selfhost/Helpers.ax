@@ -8,4 +8,5 @@
 ; file of this tree on its own, and a module that references a name
 ; nothing it imports defines is an honest `AX3001` there.
 (pub :: bump (-> Int Int))
+
 (pub fn (bump x) (+ x 100))

@@ -42,68 +42,159 @@
 ; Eight correct strings answer 42; fewer answer how many survived,
 ; which is never 42.
 (import Str)
-(data Box (a) (Mk a))
-(pub struct S (f : String))
+
+(data Box a
+  (Mk a))
+
+(pub struct S
+  (f : String))
+
 (:: viaMatch (-> String String))
+
 (fn (viaMatch t)
   (let ((b (Mk (strConcat "id-" t))))
-    (match b ((Mk s) s))))
+    (match b
+      ((Mk s) s)
+    )
+  )
+)
+
 (:: viaField (-> String String))
+
 (fn (viaField t)
   (let ((b (S (strConcat "id-" t))))
-    b.f))
+    b.f
+  )
+)
+
 (:: viaAlias (-> String String))
+
 (fn (viaAlias t)
   (let ((b (S (strConcat "id-" t))))
-    (let ((x b.f)) x)))
+    (let ((x b.f))
+      x
+    )
+  )
+)
+
 (:: viaSet (-> String String))
+
 (fn (viaSet t)
   (let ((mut r "none"))
     (let ((b (Mk (strConcat "id-" t))))
       {
-        (match b ((Mk s) (set r s)))
+        (match b
+          ((Mk s)
+            (set r s)
+          )
+        )
         r
-      })))
+      }
+    )
+  )
+)
+
 (:: viaLambda (-> String String))
+
 (fn (viaLambda t)
-  (let ((mut g (lambda (i) "none")))
+  (let ((mut g 
+    (lambda (i) "none")
+  ))
     (let ((b (Mk (strConcat "id-" t))))
       {
-        (match b ((Mk s) (set g (lambda (i) s))))
+        (match b
+          ((Mk s)
+            (set g (lambda (i) s))
+          )
+        )
         (g 0)
-      })))
+      }
+    )
+  )
+)
+
 (:: ident (-> String String))
+
 (fn (ident s) s)
+
 (:: viaIdent (-> String String))
+
 (fn (viaIdent t)
   (let ((b (Mk (strConcat "id-" t))))
-    (match b ((Mk s) (ident s)))))
+    (match b
+      ((Mk s) (ident s))
+    )
+  )
+)
+
 (:: unbox (-> (Box String) String))
-(fn (unbox b) (match b ((Mk s) s)))
+
+(fn (unbox b)
+  (match b
+    ((Mk s) s)
+  )
+)
+
 (:: viaWrap (-> String String))
+
 (fn (viaWrap t)
-  (unbox (let ((b (Mk (strConcat "id-" t))))
-           (match b ((Mk s) (Mk s))))))
+  (unbox
+    (let ((b (Mk (strConcat "id-" t))))
+      (match b
+        ((Mk s) (Mk s))
+      )
+    )
+  )
+)
+
 (:: total (-> (Box String) Int))
+
 (fn (total b) 1)
+
 (:: viaShadow (-> (-> (Box String) (Box String)) String String))
+
 (fn (viaShadow total t)
-  (unbox (let ((b (Mk (strConcat "id-" t))))
-           (total b))))
+  (unbox
+    (let ((b (Mk (strConcat "id-" t))))
+      (total b)
+    )
+  )
+)
+
 (:: held (-> String String Int))
+
 (fn (held got want)
-  (let ((a (strConcat "......" "......"))
-        (b (strConcat "......" "......"))
-        (c (strConcat "......" "......")))
-    (if (== got want) 1 0)))
+  (let (
+    (a (strConcat "......" "......"))
+    (b (strConcat "......" "......"))
+    (c (strConcat "......" "......"))
+  )
+    (if (== got want)
+      1
+      0
+    )
+  )
+)
+
 (:: main Int)
+
 (fn (main)
-  (let ((n (+ (+ (+ (held (viaMatch "one") "id-one")
-                    (held (viaField "two") "id-two"))
-                 (+ (held (viaAlias "three") "id-three")
-                    (held (viaSet "four") "id-four")))
-              (+ (+ (held (viaLambda "five") "id-five")
-                    (held (viaIdent "six") "id-six"))
-                 (+ (held (viaWrap "seven") "id-seven")
-                    (held (viaShadow (lambda (x) x) "eight") "id-eight"))))))
-    (if (== n 8) 42 n)))
+  (let ((n 
+    (+
+      (+ (+ (held (viaMatch "one") "id-one") (held (viaField "two") "id-two")) (+ (held (viaAlias "three") "id-three") (held (viaSet "four") "id-four")))      (+
+        (+ (held (viaLambda "five") "id-five") (held (viaIdent "six") "id-six"))        (+
+          (held (viaWrap "seven") "id-seven")          (held
+            (viaShadow
+              (lambda (x) x)              "eight"
+            )            "id-eight"
+          )
+        )
+      )
+    )
+  ))
+    (if (== n 8)
+      42
+      n
+    )
+  )
+)

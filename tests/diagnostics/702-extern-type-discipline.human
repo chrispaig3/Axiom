@@ -26,12 +26,12 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3036` for a full explanation
 
 [1;31merror[AX3006][0m[1m: duplicate definition `add`[0m
-  [1;34m--> [0m702-extern-type-discipline.ax:20:6
+  [1;34m--> [0m702-extern-type-discipline.ax:21:6
 [1;34m   |[0m
 [1;34m10 |[0m   (add :: (-> Int Int Int) (symbol "axffi_add"))
 [1;34m   |[0m    [1;36m--- `add` first defined here[0m
 [1;34m...[0m
-[1;34m20 |[0m (fn (add a b) (+ a b))
+[1;34m21 |[0m (fn (add a b) (+ a b))
 [1;34m   |[0m      [1;31m^^^ `add` redefined here[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate

@@ -2,11 +2,9 @@
 ; refuses, for 580: a diagnostic raised inside a MODULE-side expansion
 ; has to name the module's file, carry the expansion frame, and lose
 ; its machine-applicable fix (MAC-TOOL-5, MAC-DIAG-4).
-(pub data Thing
-  (One))
+(pub data Thing (One))
 
-(pub macro mkBump
-  ((mkBump T)
+(pub macro mkBump ((mkBump T)
    (pub :: (syntax/join bump T) (-> T Int))
    (pub fn ((syntax/join bump T) v)
      (let ((tmp 1))
@@ -28,4 +26,6 @@
     {
       (set tmp 2)
       tmp
-    }))
+    }
+  )
+)

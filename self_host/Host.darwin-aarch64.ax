@@ -26,6 +26,6 @@
 ; here fails at compile time with `cannot read module: Host`, which is
 ; the loud failure; a fallback would silently hand the new target
 ; somebody else's triple.
-
 (pub :: hostTarget String)
+
 (pub fn (hostTarget) "darwin-aarch64")

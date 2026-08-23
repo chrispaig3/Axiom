@@ -16,47 +16,56 @@
 ; Numbers are stable kernel ABI (see `/usr/include/sys/syscall.h`) and
 ; identical on arm64 and x86_64, which is why one Darwin file serves
 ; both architectures.
-
 ; read(fd, buf, count) - BSD 3
 (pub :: sysRead Int)
+
 (pub fn (sysRead) 33554435)
 
 ; write(fd, buf, count) - BSD 4
 (pub :: sysWrite Int)
+
 (pub fn (sysWrite) 33554436)
 
 ; open(path, flags, mode) - BSD 5
 (pub :: sysOpen Int)
+
 (pub fn (sysOpen) 33554437)
 
 ; close(fd) - BSD 6
 (pub :: sysClose Int)
+
 (pub fn (sysClose) 33554438)
 
 ; exit(status) - BSD 1
 (pub :: sysExit Int)
+
 (pub fn (sysExit) 33554433)
 
 ; lseek(fd, offset, whence) - BSD 199
 (pub :: sysLseek Int)
+
 (pub fn (sysLseek) 33554631)
 
 ; Darwin has a real `open`, so no `openat` indirection is needed.
 ; `Sys.ax` branches on this rather than on an OS name, so adding a
 ; platform never means editing portable code.
 (pub :: openNeedsDirFd Int)
+
 (pub fn (openNeedsDirFd) 0)
 
 ; Unused on Darwin (see `openNeedsDirFd`), but defined so that
 ; `Sys.ax` type-checks against every platform module.
 (pub :: atFdCwd Int)
+
 (pub fn (atFdCwd) 0)
 
 (pub :: oRdonly Int)
+
 (pub fn (oRdonly) 0)
 
 ; O_WRONLY | O_CREAT | O_TRUNC = 0x0001 | 0x0200 | 0x0400
 (pub :: oWronlyCreateTrunc Int)
+
 (pub fn (oWronlyCreateTrunc) 1537)
 
 ; O_WRONLY | O_CREAT | O_APPEND = 0x0001 | 0x0200 | 0x0008
@@ -67,12 +76,15 @@
 ; a seek would overwrite each other's last line, and with this flag
 ; they interleave whole writes instead.
 (pub :: oWronlyCreateAppend Int)
+
 (pub fn (oWronlyCreateAppend) 521)
 
 (pub :: seekEnd Int)
+
 (pub fn (seekEnd) 2)
 
 (pub :: seekSet Int)
+
 (pub fn (seekSet) 0)
 
 ; ------------------------------------------------------------------
@@ -89,6 +101,7 @@
 ; `spawnUsesPosixSpawn` is the capability `Sys.ax` branches on, in
 ; keeping with `openNeedsDirFd`: portable code above never names an OS.
 (pub :: spawnUsesPosixSpawn Int)
+
 (pub fn (spawnUsesPosixSpawn) 1)
 
 ; posix_spawn - BSD 244.
@@ -109,40 +122,49 @@
 ; six-argument spelling (sh with no arguments reads EOF from stdin and
 ; exits successfully) and 1792 - 7 << 8 - under this one.
 (pub :: sysPosixSpawn Int)
+
 (pub fn (sysPosixSpawn) 33554676)
 
 ; wait4(pid, status, options, rusage) - BSD 7.
 (pub :: sysWait4 Int)
+
 (pub fn (sysWait4) 33554439)
 
 ; Unused on Darwin (see `spawnUsesPosixSpawn`), but defined so that
 ; `Sys.ax` type-checks against every platform module - the same reason
 ; `atFdCwd` is defined here.
 (pub :: sysFork Int)
+
 (pub fn (sysFork) 0)
 
 (pub :: sysForkArg Int)
+
 (pub fn (sysForkArg) 0)
 
 (pub :: sysExecve Int)
+
 (pub fn (sysExecve) 0)
 
 ; unlink(path) - BSD 10.
 (pub :: sysUnlinkNum Int)
+
 (pub fn (sysUnlinkNum) 33554442)
 
 ; mkdir(path, mode) - BSD 136. Darwin has the plain call, so
 ; `openNeedsDirFd` is 0 here and `sysMkdir` uses the two-argument form.
 (pub :: sysMkdirNum Int)
+
 (pub fn (sysMkdirNum) 33554568)
 
 ; rmdir(path) - BSD 137.
 (pub :: sysRmdirNum Int)
+
 (pub fn (sysRmdirNum) 33554569)
 
 ; rename(from, to) - BSD 128. Darwin has the plain two-argument call,
 ; so `openNeedsDirFd` is 0 here and `sysRename` uses it directly.
 (pub :: sysRenameNum Int)
+
 (pub fn (sysRenameNum) 33554560)
 
 ; ------------------------------------------------------------------
@@ -158,9 +180,11 @@
 ; is what `dirReadNeedsPosition` selects, the same way
 ; `openNeedsDirFd` selects `open` from `openat`.
 (pub :: sysGetdentsNum Int)
+
 (pub fn (sysGetdentsNum) 33554776)
 
 (pub :: dirReadNeedsPosition Int)
+
 (pub fn (dirReadNeedsPosition) 1)
 
 ; Where the name starts inside one record. Darwin's 64-bit `dirent` is
@@ -174,6 +198,7 @@
 ; Probed on this host 2026-08-15: `.` and `..` come back with
 ; d_reclen 32, d_namlen 1 and 2, d_type 4.
 (pub :: direntNameOffset Int)
+
 (pub fn (direntNameOffset) 21)
 
 ; ------------------------------------------------------------------
@@ -193,13 +218,16 @@
 ; `sysCwdNum` is `fcntl` here and `getcwd` on Linux; the two have
 ; different shapes and `cwdUsesFcntlPath` picks between them.
 (pub :: cwdUsesFcntlPath Int)
+
 (pub fn (cwdUsesFcntlPath) 1)
 
 ; fcntl(fd, cmd, arg) - BSD 92.
 (pub :: sysCwdNum Int)
+
 (pub fn (sysCwdNum) 33554524)
 
 (pub :: fGetPath Int)
+
 (pub fn (fGetPath) 50)
 
 ; ------------------------------------------------------------------
@@ -212,13 +240,16 @@
 ; targets today, and naming them here is what keeps that a
 ; measurement instead of an assumption.
 (pub :: eExist Int)
+
 (pub fn (eExist) 17)
 
 (pub :: eIsDir Int)
+
 (pub fn (eIsDir) 21)
 
 ; getpid() - BSD 20
 (pub :: sysGetPidNum Int)
+
 (pub fn (sysGetPidNum) 33554452)
 
 ; gettimeofday(tv, tz) - BSD 116. Writes {tv_sec i64, tv_usec i32+pad}
@@ -226,7 +257,9 @@
 ; WRONG on arm64 (x0 is 0 on success, never seconds). Verified against
 ; the shell clock, 400,000 reads, zero backwards steps, ~200ns/call.
 (pub :: sysClockNum Int)
+
 (pub fn (sysClockNum) 33554548)
 
 (pub :: clockIsGettimeofday Int)
+
 (pub fn (clockIsGettimeofday) 1)

@@ -5,5 +5,7 @@
   (log :: (-> Int Int)))
 
 (pub :: ownRun (-> Int Int))
+
 (pub fn (ownRun x)
-  (handle (log x) (Console) (lambda (v) (* v 2))))
+  (handle (log x) (Console) (lambda (v) (* v 2)))
+)

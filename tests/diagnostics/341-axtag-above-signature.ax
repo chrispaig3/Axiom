@@ -16,6 +16,14 @@
 ; claim is about the function and `emitAxtag` has always anchored there.
 ;@axiom:pure
 (:: emit (-> Int Int))
-(fn (emit fd) { (__syscall3 1 fd 0 0) (alloc Int 1) })
+
+(fn (emit fd)
+  {
+    (__syscall3 1 fd 0 0)
+    (alloc Int 1)
+  }
+)
+
 (:: main Int)
+
 (fn (main) 0)

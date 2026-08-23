@@ -24,13 +24,18 @@
 ;   d  0.000  -> 0.0    a fraction of only zeros keeps one digit
 ;   e  007.50 -> 7.5    an integer part's leading zeros must still go
 (:: main Int)
+
 (fn (main)
-  (let ((a 0.05)
-        (b 0.0583)
-        (c 1.050)
-        (d 0.000)
-        (e 007.50))
-    (if (&& (&& (< a 0.1) (< b 0.1))
-            (&& (&& (< c 1.1) (== d 0.0)) (&& (> e 7.4) (< e 7.6))))
-        42
-        1)))
+  (let (
+    (a 0.05)
+    (b 0.0583)
+    (c 1.05)
+    (d 0.0)
+    (e 7.5)
+  )
+    (if (&& (&& (< a 0.1) (< b 0.1)) (&& (&& (< c 1.1) (== d 0.0)) (&& (> e 7.4) (< e 7.6))))
+      42
+      1
+    )
+  )
+)

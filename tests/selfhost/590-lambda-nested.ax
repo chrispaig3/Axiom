@@ -5,9 +5,19 @@
 ; `let`-bound value - stage1 does not curry partial application, and
 ; this spelling means the same thing under both compilers.
 (:: mk (-> Int Int))
+
 (fn (mk a)
-  (let ((f (lambda (b) (lambda (c) (+ a (+ b c))))))
+  (let ((f 
+    (lambda (b)
+      (lambda (c) (+ a (+ b c)))
+    )
+  ))
     (let ((g (f 20)))
-      (g 5))))
+      (g 5)
+    )
+  )
+)
+
 (:: main Int)
+
 (fn (main) (mk 20))

@@ -1,1 +1,1 @@
-E AX3006 455-effect-op-collision.ax:14:6-9 duplicate-definition "duplicate definition `two`" #"`two` redefined here" ^11:4-7:"`two` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 455-effect-op-collision.ax:15:6-9 duplicate-definition "duplicate definition `two`" #"`two` redefined here" ^11:4-7:"`two` first defined here" ?"rename one of the definitions, or remove the duplicate"

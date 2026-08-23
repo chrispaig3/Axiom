@@ -1,1 +1,1 @@
-E AX3006 060-nonascii-earlier-line.ax:4:6-10 duplicate-definition "duplicate definition `main`" #"`main` redefined here" ^3:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 060-nonascii-earlier-line.ax:6:6-10 duplicate-definition "duplicate definition `main`" #"`main` redefined here" ^4:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"

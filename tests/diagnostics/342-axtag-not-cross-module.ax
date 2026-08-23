@@ -12,6 +12,9 @@
 ; TAG_D_SIG and a TAG_D_FN alike, so a function and its own signature
 ; agree exactly and the lookup can be - and now is - an exact match.
 (import TagPure)
+
 (import TagNone)
+
 (:: main Int)
+
 (fn (main) 0)

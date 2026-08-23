@@ -4,52 +4,64 @@
 ; `--target=linux-aarch64`. Numbers come from the generic
 ; `include/uapi/asm-generic/unistd.h` table that AArch64 uses, and are
 ; deliberately *not* shared with x86-64, which has its own table.
-
 (pub :: sysRead Int)
+
 (pub fn (sysRead) 63)
 
 (pub :: sysWrite Int)
+
 (pub fn (sysWrite) 64)
 
 ; AArch64's generic syscall table has no plain `open` at all - only
 ; `openat` (56). `Sys.ax` adapts by prepending a directory fd when
 ; `openNeedsDirFd` says to, so nothing above this file has to know.
 (pub :: sysOpen Int)
+
 (pub fn (sysOpen) 56)
 
 (pub :: sysClose Int)
+
 (pub fn (sysClose) 57)
 
 ; exit_group (94), not exit (93) - see the x86-64 module for why.
 (pub :: sysExit Int)
+
 (pub fn (sysExit) 94)
 
 (pub :: sysLseek Int)
+
 (pub fn (sysLseek) 62)
 
 (pub :: openNeedsDirFd Int)
+
 (pub fn (openNeedsDirFd) 1)
 
 ; AT_FDCWD is -100: resolve a relative path against the current
 ; working directory.
 (pub :: atFdCwd Int)
+
 (pub fn (atFdCwd) (- 0 100))
 
 (pub :: oRdonly Int)
+
 (pub fn (oRdonly) 0)
 
 ; O_WRONLY | O_CREAT | O_TRUNC = 0x1 | 0x40 | 0x200
 (pub :: oWronlyCreateTrunc Int)
+
 (pub fn (oWronlyCreateTrunc) 577)
 
 ; O_WRONLY | O_CREAT | O_APPEND = 0x1 | 0x40 | 0x400
 (pub :: oWronlyCreateAppend Int)
+
 (pub fn (oWronlyCreateAppend) 1089)
 
 (pub :: seekEnd Int)
+
 (pub fn (seekEnd) 2)
 
 (pub :: seekSet Int)
+
 (pub fn (seekSet) 0)
 
 ; ------------------------------------------------------------------
@@ -60,6 +72,7 @@
 ; be (it returns a second value in x1), which is what this capability
 ; selects between.
 (pub :: spawnUsesPosixSpawn Int)
+
 (pub fn (spawnUsesPosixSpawn) 0)
 
 ; The generic syscall table has no `fork` at all - it has `clone` (220),
@@ -68,12 +81,15 @@
 ; it a bare `clone(0, ...)` creates a child whose parent is never
 ; notified and which `wait4` therefore never reaps.
 (pub :: sysFork Int)
+
 (pub fn (sysFork) 220)
 
 (pub :: sysForkArg Int)
+
 (pub fn (sysForkArg) 17)
 
 (pub :: sysExecve Int)
+
 (pub fn (sysExecve) 221)
 
 ; 260 is `wait4` in `include/uapi/asm-generic/unistd.h`, among the
@@ -82,22 +98,26 @@
 ; `unlink` note above carried one entry too far: that table really does
 ; lack `unlink`, and really does have `wait4`.
 (pub :: sysWait4 Int)
+
 (pub fn (sysWait4) 260)
 
 ; Unused on Linux, defined so `Sys.ax` type-checks against every
 ; platform module.
 (pub :: sysPosixSpawn Int)
+
 (pub fn (sysPosixSpawn) 0)
 
 ; The generic table has no `unlink`, only `unlinkat` (35) - the same
 ; shape as `openat`, so `Sys.ax` branches on `openNeedsDirFd` for both.
 (pub :: sysUnlinkNum Int)
+
 (pub fn (sysUnlinkNum) 35)
 
 ; mkdirat(dirfd, path, mode) - 34. AArch64 Linux has no plain `mkdir`,
 ; the same way it has no `open` and no `unlink`, so this is the `at`
 ; number and `openNeedsDirFd` (1 here) selects the three-argument form.
 (pub :: sysMkdirNum Int)
+
 (pub fn (sysMkdirNum) 34)
 
 ; AArch64 Linux has no `rmdir` either. It is `unlinkat` - the SAME
@@ -107,6 +127,7 @@
 ; removing a file and removing a directory are one call distinguished
 ; by a flag.
 (pub :: sysRmdirNum Int)
+
 (pub fn (sysRmdirNum) 35)
 
 ; The generic table has no `rename`, only `renameat` (38) - the third
@@ -114,13 +135,16 @@
 ; branch on `openNeedsDirFd`. It takes FOUR arguments, a directory fd
 ; before each of the two paths, where the plain call takes two.
 (pub :: sysRenameNum Int)
+
 (pub fn (sysRenameNum) 38)
 
 ; getdents64(fd, buf, count) - 61.
 (pub :: sysGetdentsNum Int)
+
 (pub fn (sysGetdentsNum) 61)
 
 (pub :: dirReadNeedsPosition Int)
+
 (pub fn (dirReadNeedsPosition) 0)
 
 ; `struct linux_dirent64`'s layout is architecture-independent, so
@@ -128,37 +152,46 @@
 ; reading the two Linux targets DO share, where the syscall number is
 ; not. See the x86-64 module for the field list.
 (pub :: direntNameOffset Int)
+
 (pub fn (direntNameOffset) 19)
 
 (pub :: cwdUsesFcntlPath Int)
+
 (pub fn (cwdUsesFcntlPath) 0)
 
 ; getcwd(buf, size) - 17. The generic table keeps this one, unlike
 ; `open`, `unlink`, `mkdir` and `rename`, all of which it has only in
 ; their `at` forms.
 (pub :: sysCwdNum Int)
+
 (pub fn (sysCwdNum) 17)
 
 ; Unused on Linux, defined so `Sys.ax` type-checks against every
 ; platform module.
 (pub :: fGetPath Int)
+
 (pub fn (fGetPath) 0)
 
 (pub :: eExist Int)
+
 (pub fn (eExist) 17)
 
 (pub :: eIsDir Int)
+
 (pub fn (eIsDir) 21)
 
 ; getpid() - 172
 (pub :: sysGetPidNum Int)
+
 (pub fn (sysGetPidNum) 172)
 
 ; clock_gettime(clockid, ts) - 113. CLOCK_MONOTONIC=1; timespec is
 ; {tv_sec i64, tv_nsec i64}. Verified by the REPL gate on the CI
 ; runner - the first Linux execution of this number.
 (pub :: sysClockNum Int)
+
 (pub fn (sysClockNum) 113)
 
 (pub :: clockIsGettimeofday Int)
+
 (pub fn (clockIsGettimeofday) 0)

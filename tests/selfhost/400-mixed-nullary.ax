@@ -4,8 +4,19 @@
 ; tags only when the WHOLE type is nullary. Treating `(None4)` as a
 ; bare integer made the `(Just4 x)` arm's tag load dereference it:
 ; SIGSEGV. 40 + 6.
-(data M4 (None4) (Just4 Int))
+(data M4
+  (None4)
+  (Just4 Int))
+
 (:: g (-> M4 Int))
-(fn (g m) (match m ((Just4 x) (+ x 1)) ((None4) 40)))
+
+(fn (g m)
+  (match m
+    ((Just4 x) (+ x 1))
+    ((None4) 40)
+  )
+)
+
 (:: main Int)
-(fn (main) (+ (g (None4)) (g (Just4 5))))
+
+(fn (main) (+ (g None4) (g (Just4 5))))

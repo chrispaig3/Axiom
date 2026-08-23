@@ -11,7 +11,9 @@
   (two :: (-> Int Int Int)))
 
 (:: two (-> Int Int))
+
 (fn (two n) 5)
 
 (:: main Int)
+
 (fn (main) (two 3))

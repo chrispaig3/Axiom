@@ -9,20 +9,32 @@
 ; of both spans: 5 + 10 + 19 + 20 = 54, minus 9 so a silent zero
 ; (every span unset) cannot coincide with the expected value.
 (import Str)
+
 (import Vec)
+
 (import Mem)
+
 (import lexer)
+
 (import parser)
+
 (:: main Int)
+
 (fn (main)
   (let ((pr (parseModule (lex "(fn (fname) 1)\n(:: s Int)"))))
     (if (== (memGetWord pr 0) 0)
-        7
-        (let ((decls (memGetWord pr 1)))
-          (if (< (vecLen decls) 2)
-              8
-              (let ((fnSpan (nodeSpan (vecGet decls 0)))
-                    (sigSpan (nodeSpan (vecGet decls 1))))
-                (- (+ (+ (spanStart fnSpan) (spanEnd fnSpan))
-                      (+ (spanStart sigSpan) (spanEnd sigSpan)))
-                   9)))))))
+      7
+      (let ((decls (memGetWord pr 1)))
+        (if (< (vecLen decls) 2)
+          8
+          (let (
+            (fnSpan (nodeSpan (vecGet decls 0)))
+            (sigSpan (nodeSpan (vecGet decls 1)))
+          )
+            (- (+ (+ (spanStart fnSpan) (spanEnd fnSpan)) (+ (spanStart sigSpan) (spanEnd sigSpan))) 9)
+          )
+        )
+      )
+    )
+  )
+)

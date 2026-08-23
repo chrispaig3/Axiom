@@ -1,7 +1,7 @@
 [1;31merror[AX3026][0m[1m: `axiom_alloc` is the emitted runtime's allocator symbol; a program cannot define it[0m
- [1;34m--> [0m471-reserved-runtime-name.ax:8:6
+ [1;34m--> [0m471-reserved-runtime-name.ax:9:6
 [1;34m  |[0m
-[1;34m8 |[0m (fn (axiom_alloc n) 0)
+[1;34m9 |[0m (fn (axiom_alloc n) 0)
 [1;34m  |[0m      [1;31m^^^^^^^^^^^ this name belongs to the runtime[0m
 [1;34m  |[0m
  [1;34m = [0m[1mnote: [0mthe backend emits its own definition of `axiom_alloc` unconditionally; before this refusal the build died in `opt` as a duplicate symbol after `check` said OK

@@ -31,12 +31,18 @@
 ; a collision in the table index only, which is what linear probing has
 ; to survive.
 (import IO)
+
 (import Intern)
 
 ; `Bool` as a printable digit.
 (pub :: itBit (-> Bool Int))
+
 (pub fn (itBit b)
-  (if b 1 0))
+  (if b
+    1
+    0
+  )
+)
 
 ; The nth generated name: "id0", "id1", ...
 ;
@@ -45,18 +51,21 @@
 ; `Str` handle every time it is called - which is exactly the condition
 ; the re-interning check below needs.
 (pub :: itName (-> Int String))
-(pub fn (itName n)
-  (strConcat "id" (fmtInt n)))
+
+(pub fn (itName n) (strConcat "id" (fmtInt n)))
 
 ; Intern "id{lo}" .. "id{hi-1}".
 (pub :: itInternRange (-> Int Int Int Int))
+
 (pub fn (itInternRange it lo hi)
   (if (>= lo hi)
-      it
-      {
-        (internIntern it (itName lo))
-        (itInternRange it (+ lo 1) hi)
-      }))
+    it
+    {
+      (internIntern it (itName lo))
+      (itInternRange it (+ lo 1) hi)
+    }
+  )
+)
 
 ; Count the n in [lo, hi) for which re-interning "id{n}" - from a freshly
 ; built handle - returns the id it was first given, `n`, *and* looking that
@@ -68,37 +77,45 @@
 ; `&&` miscompiles when its operands are comparisons, and a `Bool` may not
 ; be the value of an `if`. See the note above `Map`'s probe loops.
 (pub :: itCountRoundTrip (-> Int Int Int Int))
+
 (pub fn (itCountRoundTrip it lo hi)
   (if (>= lo hi)
-      0
-      (+ (if (== (internIntern it (itName lo)) lo)
-             (if (strEq (internLookup it lo) (itName lo)) 1 0)
-             0)
-         (itCountRoundTrip it (+ lo 1) hi))))
+    0
+    (+
+      (if (== (internIntern it (itName lo)) lo)
+        (if (strEq (internLookup it lo) (itName lo))
+          1
+          0
+        )
+        0
+      )      (itCountRoundTrip it (+ lo 1) hi)
+    )
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((it (internNew))
-        (col (internWithCapacity 8))
-        (big (internNew))
-        (alpha "alpha")
-        (built (strConcat "al"
-                          "pha"))
-        (haystack "not-alpha-either"))
+  ; --- a fresh interner ---
+  (let (
+    (it internNew)
+    (col (internWithCapacity 8))
+    (big internNew)
+    (alpha "alpha")
+    (built (strConcat "al" "pha"))
+    (haystack "not-alpha-either")
+  )
     {
-      ; --- a fresh interner ---
-      (println (internCount it))                    ; 0
-      (println (internCap it))                      ; 64
-      (println (internFind it alpha))               ; -1: nothing yet
-      (println (strLen (internLookup it 0)))        ; 0: empty, not a crash
-
+      (println (internCount it))  ; 0
+      (println (internCap it))  ; 64
+      (println (internFind it alpha))  ; -1: nothing yet
+      (println (strLen (internLookup it 0)))  ; 0: empty, not a crash
       ; --- distinct strings get distinct, dense ids ---
-      (println (internIntern it alpha))             ; 0
-      (println (internIntern it "beta"))   ; 1
+      (println (internIntern it alpha))  ; 0
+      (println (internIntern it "beta"))  ; 1
       (println (internIntern it "gamma"))  ; 2
-      (println (internCount it))                    ; 3
-
+      (println (internCount it))  ; 3
       ; --- THE POINT: equal content, four unrelated handles, one id ---
       ; The handles differ...
       ;
@@ -109,72 +126,74 @@
       ; question this line has always meant: are they the same handle.
       ; Written as `(== alpha built)` it now answers 1, and would be
       ; asserting the opposite of what the comment says.
-      (println (itBit (== (cast Int alpha) (cast Int built))))    ; 0: different Ints
+      (println
+        (itBit
+          (==
+            (cast Int alpha)            (cast Int built)
+          )
+        )
+      )
+      ; 0: different Ints
       ; ...but the ids do not.
-      (println (internIntern it built))             ; 0
-      (println (internIntern it (strSlice haystack 4 5)))        ; 0
-      (println (internIntern it (strDup built)))    ; 0
-      (println (internIntern it alpha))             ; 0
-      (println (internCount it))                    ; 3: nothing added
-      (println (internCap it))                      ; 64: no rehash
-
+      (println (internIntern it built))  ; 0
+      (println (internIntern it (strSlice haystack 4 5)))  ; 0
+      (println (internIntern it (strDup built)))  ; 0
+      (println (internIntern it alpha))  ; 0
+      (println (internCount it))  ; 3: nothing added
+      (println (internCap it))  ; 64: no rehash
       ; --- and a *different* slice of the same haystack does not ---
-      (println (internIntern it (strSlice haystack 0 3)))        ; 3: "not"
-      (println (internCount it))                    ; 4
-
+      (println (internIntern it (strSlice haystack 0 3)))  ; 3: "not"
+      (println (internCount it))  ; 4
       ; --- id -> string round trip ---
-      (println (internLookup it 0))                    ; alpha
-      (println (internLookup it 1))                    ; beta
-      (println (internLookup it 2))                    ; gamma
-      (println (internLookup it 3))                    ; not
-      (println (itBit (strEq (internLookup it 0) built)))        ; 1
-
+      (println (internLookup it 0))  ; alpha
+      (println (internLookup it 1))  ; beta
+      (println (internLookup it 2))  ; gamma
+      (println (internLookup it 3))  ; not
+      (println (itBit (strEq (internLookup it 0) built)))  ; 1
       ; --- out-of-range ids ---
-      (println (strLen (internLookup it 4)))        ; 0: one past the end
+      (println (strLen (internLookup it 4)))  ; 0: one past the end
       (println (strLen (internLookup it (- 0 1))))  ; 0
-      (println (strLen (internLookup it 100000)))   ; 0
-
+      (println (strLen (internLookup it 100000)))  ; 0
       ; --- the empty string is an ordinary key ---
-      (println (internIntern it ""))       ; 4
-      (println (internCount it))                    ; 5
-      (println (internIntern it (strSlice haystack 0 0)))        ; 4: again
-      (println (internCount it))                    ; 5
-      (println (strLen (internLookup it 4)))        ; 0: and it is empty
-
+      (println (internIntern it ""))  ; 4
+      (println (internCount it))  ; 5
+      (println (internIntern it (strSlice haystack 0 0)))  ; 4: again
+      (println (internCount it))  ; 5
+      (println (strLen (internLookup it 4)))  ; 0: and it is empty
       ; --- a string that was never interned ---
-      (println (internFind it "delta"))    ; -1
-      (println (internFind it "alph"))     ; -1: prefix
-      (println (internFind it "alphaa"))   ; -1: extension
-      (println (internCount it))                    ; 5: find never adds
-
+      (println (internFind it "delta"))  ; -1
+      (println (internFind it "alph"))  ; -1: prefix
+      (println (internFind it "alphaa"))  ; -1: extension
+      (println (internCount it))  ; 5: find never adds
       ; --- three strings sharing one table index ---
-      (println (internCap col))                     ; 16
-      (println (internSlotOf "ae" 16))     ; 0
-      (println (internSlotOf "ah" 16))     ; 0
-      (println (internSlotOf "ba" 16))     ; 0
-      (println (internIntern col "ae"))    ; 0
-      (println (internIntern col "ah"))    ; 1
-      (println (internIntern col "ba"))    ; 2
-      (println (internCount col))                   ; 3
-      (println (internCap col))                     ; 16: no rehash yet
+      (println (internCap col))  ; 16
+      (println (internSlotOf "ae" 16))  ; 0
+      (println (internSlotOf "ah" 16))  ; 0
+      (println (internSlotOf "ba" 16))  ; 0
+      (println (internIntern col "ae"))  ; 0
+      (println (internIntern col "ah"))  ; 1
+      (println (internIntern col "ba"))  ; 2
+      (println (internCount col))  ; 3
+      (println (internCap col))  ; 16: no rehash yet
       ; Re-intern each, from fresh handles, so the whole probe run is
       ; walked rather than only its first slot.
-      (println (internIntern col "ae"))    ; 0
-      (println (internIntern col "ah"))    ; 1
-      (println (internIntern col "ba"))    ; 2
-      (println (internCount col))                   ; 3: still three
-      (println (internLookup col 2))                   ; ba
-
+      (println (internIntern col "ae"))  ; 0
+      (println (internIntern col "ah"))  ; 1
+      (println (internIntern col "ba"))  ; 2
+      (println (internCount col))  ; 3: still three
+      (println (internLookup col 2))  ; ba
       ; --- 100 strings, two rehashes: 64 -> 128 -> 256 ---
       (itInternRange big 0 100)
-      (println (internCount big))                   ; 100
-      (println (internCap big))                     ; 256
-      (println (itCountRoundTrip big 0 100))        ; 100: none lost
-      (println (internCount big))                   ; 100: none re-added
-      (println (internLookup big 0))                   ; id0
-      (println (internLookup big 99))                  ; id99
-      (println (internFind big "id7"))     ; 7
-      (println (internFind big "id100"))   ; -1
-      (println (strLen (internLookup big 100)))     ; 0
+      (println (internCount big))  ; 100
+      (println (internCap big))  ; 256
+      (println (itCountRoundTrip big 0 100))  ; 100: none lost
+      (println (internCount big))  ; 100: none re-added
+      (println (internLookup big 0))  ; id0
+      (println (internLookup big 99))  ; id99
+      (println (internFind big "id7"))  ; 7
+      (println (internFind big "id100"))  ; -1
+      (println (strLen (internLookup big 100)))  ; 0
       0
-    }))
+    }
+  )
+)

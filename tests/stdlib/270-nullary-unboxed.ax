@@ -18,106 +18,164 @@
 ; `Vec` slots, the builtin `Option`'s `None`, both spellings of a bare
 ; construction, and an all-nullary type as the regression control.
 (import IO)
+
 (import Vec)
 
-(data IList (INil) (ICons Int IList))
+(data IList
+  (INil)
+  (ICons Int IList))
 
 ; Boxed arm first: the tag read runs before any arm is chosen, so this
 ; order dereferenced an immediate `INil` when the read was an
 ; unconditional load.
 (:: sumList (-> IList Int))
+
 (fn (sumList l)
   (match l
     ((ICons h t) (+ h (sumList t)))
-    ((INil) 0)))
+    ((INil) 0)
+  )
+)
 
 ; Nullary arm first: the immediate comparison path.
 (:: lenList (-> IList Int))
+
 (fn (lenList l)
   (match l
     ((INil) 0)
-    ((ICons _ t) (+ 1 (lenList t)))))
+    ((ICons _ t) (+ 1 (lenList t)))
+  )
+)
 
 ; Nested patterns: the inner field is an immediate in the second arm
 ; and a pointer in the first, so the inner tag read exercises both
 ; sides of the runtime test.
 (:: pairSum (-> IList Int))
+
 (fn (pairSum l)
   (match l
     ((ICons a (ICons b t)) (+ (+ a b) (pairSum t)))
     ((ICons a (INil)) a)
-    ((INil) 0)))
+    ((INil) 0)
+  )
+)
 
 ; An immediate travels through a `data` field and a `struct` field
 ; exactly as any other word does.
-(data Wrap (W IList Int))
-(struct Holder (contents : IList) (label : Int))
+(data Wrap
+  (W IList Int))
+
+(struct Holder
+  (contents : IList)
+  (label : Int))
 
 (:: unwrapLen (-> Wrap Int))
+
 (fn (unwrapLen w)
   (match w
-    ((W l k) (+ (lenList l) k))))
+    ((W l k) (+ (lenList l) k))
+  )
+)
 
 ; The builtin Option is itself a mixed type - `Some` has a field,
 ; `None` does not - so `None` is an immediate in every program.
 (:: getOr (-> (Option Int) Int Int))
+
 (fn (getOr o d)
   (match o
     ((Some x) x)
-    ((None) d)))
+    ((None) d)
+  )
+)
 
 ; All-nullary control: already immediate before this change, and the
 ; match still compares the scrutinee directly with no tag load.
-(data Color (Red) (Green) (Blue))
+(data Color
+  (Red)
+  (Green)
+  (Blue))
+
 (:: colorRank (-> Color Int))
+
 (fn (colorRank c)
   (match c
     ((Red) 1)
     ((Green) 2)
-    ((Blue) 3)))
+    ((Blue) 3)
+  )
+)
 
 (:: main Int)
+
 ;@axiom:effect(io)
 (fn (main)
-  (let ((three (ICons 1 (ICons 2 (ICons 3 (INil)))))
-        (one (ICons 7 (INil)))
-        ; A bare reference to a nullary constructor constructs it too.
-        (empty INil))
+  ; A bare reference to a nullary constructor constructs it too.
+  ; --- match arm orders, over every list shape ---
+  (let (
+    (three (ICons 1 (ICons 2 (ICons 3 INil))))
+    (one (ICons 7 INil))
+    (empty INil)
+  )
     {
-      ; --- match arm orders, over every list shape ---
-      (println (sumList three))            ; 6
-      (println (sumList (INil)))           ; 0
-      (println (lenList three))            ; 3
-      (println (lenList empty))            ; 0
-
+      (println (sumList three))  ; 6
+      (println (sumList INil))  ; 0
+      (println (lenList three))  ; 3
+      (println (lenList empty))  ; 0
       ; --- nested patterns, immediate and pointer inner fields ---
-      (println (pairSum three))            ; 1+2 then tail (3 . nil) -> 6
-      (println (pairSum one))              ; 7
-      (println (pairSum (INil)))           ; 0
-
+      (println (pairSum three))  ; 1+2 then tail (3 . nil) -> 6
+      (println (pairSum one))  ; 7
+      (println (pairSum INil))  ; 0
       ; --- immediates through data and struct fields ---
-      (println (unwrapLen (W three 10)))   ; 13
-      (println (unwrapLen (W (INil) 10)))  ; 10
+      (println (unwrapLen (W three 10)))  ; 13
+      (println (unwrapLen (W INil 10)))  ; 10
       (let ((h (Holder one 5)))
-        (println (+ (lenList h.contents) h.label)))  ; 6
-
+        (println (+ (lenList h.contents) h.label))
+      )
+      ; 6
       ; --- immediates in Vec slots ---
-      (let ((v (vecNew)))
-        (let ((v2 (vecPush v (cast Int (INil)))))
-          (let ((v3 (vecPush v2 (cast Int three))))
+      (let ((v vecNew))
+        (let ((v2 
+          (vecPush
+            v            (cast Int INil)
+          )
+        ))
+          (let ((v3 
+            (vecPush
+              v2              (cast Int three)
+            )
+          ))
             {
-              (println (lenList (cast IList (vecGet v3 0))))  ; 0
-              (println (lenList (cast IList (vecGet v3 1))))  ; 3
-            })))
-
+              (println
+                (lenList
+                  (cast IList (vecGet v3 0))
+                )
+              )
+              ; 0
+              (println
+                (lenList
+                  (cast IList (vecGet v3 1))
+                )
+              )
+            }
+          )
+        )
+      )
+      ; 3
       ; --- the builtin Option's None ---
-      (println (getOr (Some 42) 9))        ; 42
-      (println (getOr (None) 9))           ; 9
-
+      (println (getOr (Some 42) 9))  ; 42
+      (println (getOr None 9))  ; 9
       ; --- two separately constructed INil are the same immediate ---
-      (println (if (== (cast Int (INil)) (cast Int INil)) 1 0))  ; 1
-
+      (println
+        (if (==
+          (cast Int INil)          (cast Int INil)
+        )
+          1  ; 1
+          0
+        )
+      )
       ; --- all-nullary control ---
-      (println (+ (colorRank (Red)) (+ (colorRank (Green)) (colorRank (Blue)))))  ; 6
+      (println (+ (colorRank Red) (+ (colorRank Green) (colorRank Blue))))  ; 6
       0
-    }))
+    }
+  )
+)

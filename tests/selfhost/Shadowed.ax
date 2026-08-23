@@ -6,13 +6,16 @@
 (import Helpers)
 
 (pub :: helper (-> Int Int))
+
 (pub fn (helper x) (* x 10))
 
 ; A call this module makes to its OWN helper.
 (pub :: viaOwn (-> Int Int))
+
 (pub fn (viaOwn x) (helper x))
 
 ; A call this module makes to a name it does NOT define, which must
 ; still resolve outward exactly as it did before.
 (pub :: viaImport (-> Int Int))
+
 (pub fn (viaImport x) (bump x))

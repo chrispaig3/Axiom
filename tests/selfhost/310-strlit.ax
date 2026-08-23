@@ -11,7 +11,11 @@
 ; are built from the same source. Getting it wrong is silent - the
 ; length word would be read out of the first eight bytes of the text.
 (import Str)
+
 (:: main Int)
+
 (fn (main)
   (let ((s "hello"))
-    (+ (strLen s) 37)))
+    (+ (strLen s) 37)
+  )
+)

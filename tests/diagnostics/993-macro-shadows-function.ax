@@ -5,7 +5,9 @@
 (macro (thing x) (+ x 1))
 
 (:: thing (-> Int Int))
+
 (fn (thing n) (* n 2))
 
 (:: main Int)
+
 (fn (main) (thing 10))

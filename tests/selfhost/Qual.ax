@@ -5,7 +5,10 @@
   (Dim)
   (Bright))
 
-(pub struct Pair (a : Int) (b : Int))
+(pub struct Pair
+  (a : Int)
+  (b : Int))
 
 (pub :: twice (-> Int Int))
+
 (pub fn (twice x) (* x 2))

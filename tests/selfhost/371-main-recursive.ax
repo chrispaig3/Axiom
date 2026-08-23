@@ -10,4 +10,10 @@
 ; tables under the declared name (`declSpellingOf`). The unfixed
 ; compiler exits 4 on this file.
 (:: main Int)
-(fn (main) (if (< 1 0) (main) 5))
+
+(fn (main)
+  (if (< 1 0)
+    main
+    5
+  )
+)

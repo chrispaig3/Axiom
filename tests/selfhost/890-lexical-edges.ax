@@ -19,13 +19,13 @@
   (Rect { w : Int, h : Int }))
 
 (:: area (-> Shape Int))
+
 (fn (area s)
   (match s
-    ((Rect { w = w, h = h }) (* w h))))
+    ((Rect {w = w, h = h}) (* w h))
+  )
+)
 
 (:: main Int)
-(fn (main)
-  (+ (strLen "a
-b")
-     (+ (area (Rect 2 5))
-        (+ (strByte "'" 0) (strLen "\n\t\\")))))
+
+(fn (main) (+ (strLen "a\nb") (+ (area (Rect 2 5)) (+ (strByte "'" 0) (strLen "\n\t\\")))))

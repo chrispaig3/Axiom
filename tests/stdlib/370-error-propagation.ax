@@ -67,6 +67,7 @@
 ; and not a value. Drop the `let` in `carry` and construct the error
 ; inline: term 4 goes to 0 and that bump moves 288,176.
 (import Str)
+
 (import Mem)
 
 (data Res (a e)
@@ -74,86 +75,142 @@
   (Bad e))
 
 (:: b2i (-> Bool Int))
-(fn (b2i x) (if x 1 0))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
 
 (:: wide (-> Int String))
+
 (fn (wide k) (strDup "0123456789abcdef0123456789abcdef"))
 
 ; a fallible step that does not, in fact, fail here
 (:: step (-> Int (Res Int Int)))
+
 (fn (step n)
-  (if (< n 0) (Bad n) (Good 1)))
+  (if (< n 0)
+    (Bad n)
+    (Good 1)
+  )
+)
 
 ; the same step with no error value, for term 8's control
 (:: stepPlain (-> Int Int))
+
 (fn (stepPlain n) 1)
 
 ; THE SHAPE. The fallible call is the scrutinee; the recursion is the
 ; Good arm's answer, in tail position, and converts to a loop.
 (:: total (-> Int Int (Res Int Int)))
+
 (fn (total n acc)
   (if (== n 0)
-      (Good acc)
-      (match (step n)
-        ((Bad e) (Bad e))
-        ((Good v) (total (- n 1) (+ acc v))))))
+    (Good acc)
+    (match (step n)
+      ((Bad e) (Bad e))
+      ((Good v) (total (- n 1) (+ acc v)))
+    )
+  )
+)
 
 ; term 8's control: identical loop, no Res constructed
 (:: totalPlain (-> Int Int Int))
+
 (fn (totalPlain n acc)
   (if (== n 0)
-      acc
-      (totalPlain (- n 1) (+ acc (stepPlain n)))))
+    acc
+    (totalPlain (- n 1) (+ acc (stepPlain n)))
+  )
+)
 
 ; a loop carrying a reference in the error payload, let-bound so the
 ; frame may release it
 (:: carry (-> (Res Int String) Int Int))
+
 (fn (carry r n)
   (if (<= n 0)
-      0
-      (let ((next (Bad (wide n))))
-        (carry next (- n 1)))))
+    0
+    (let ((next (Bad (wide n))))
+      (carry next (- n 1))
+    )
+  )
+)
 
 ; an error raised mid-loop must answer unchanged, not be re-wrapped
 (:: failAt (-> Int Int (Res Int Int)))
+
 (fn (failAt n acc)
   (if (== n 0)
-      (Good acc)
-      (match (if (== n 500) (Bad 77) (Good 1))
-        ((Bad e) (Bad e))
-        ((Good v) (failAt (- n 1) (+ acc v))))))
+    (Good acc)
+    (match (if (== n 500)
+      (Bad 77)
+      (Good 1)
+    )
+      ((Bad e) (Bad e))
+      ((Good v) (failAt (- n 1) (+ acc v)))
+    )
+  )
+)
 
 (:: main Int)
-(fn (main)
-  (let ((mut acc 0) (mut steps 0))
-    {
-      (set acc (+ acc (* 16 (b2i (== (match (total 1000000 0)
-                                       ((Good x) x)
-                                       ((Bad e) (- 0 1)))
-                                     1000000)))))
-      (set steps (+ steps 1))
 
+(fn (main)
+  (let (
+    (mut acc 0)
+    (mut steps 0)
+  )
+    {
+      (set acc (+
+        acc        (*
+          16          (b2i
+            (==
+              (match (total 1000000 0)
+                ((Good x) x)
+                ((Bad e) (- 0 1))
+              )              1000000
+            )
+          )
+        )
+      ))
+      (set steps (+ steps 1))
       (let ((a1 (memAlloc 8)))
         {
           (totalPlain 100000 0)
           (let ((a2 (memAlloc 8)))
-            (set acc (+ acc (* 8 (b2i (< (- a2 a1) 4096))))))
+            (set acc (+ acc (* 8 (b2i (< (- a2 a1) 4096)))))
+          )
           (set steps (+ steps 1))
-        })
-
+        }
+      )
       (let ((b1 (memAlloc 8)))
         {
           (carry (Bad (wide 0)) 2000)
           (let ((b2 (memAlloc 8)))
-            (set acc (+ acc (* 4 (b2i (< (- b2 b1) 4096))))))
+            (set acc (+ acc (* 4 (b2i (< (- b2 b1) 4096)))))
+          )
           (set steps (+ steps 1))
-        })
-
-      (set acc (+ acc (* 2 (b2i (== (match (failAt 1000 0)
-                                      ((Good x) x)
-                                      ((Bad e) e))
-                                    77)))))
+        }
+      )
+      (set acc (+
+        acc        (*
+          2          (b2i
+            (==
+              (match (failAt 1000 0)
+                ((Good x) x)
+                ((Bad e) e)
+              )              77
+            )
+          )
+        )
+      ))
       (set steps (+ steps 1))
-
-      (if (== steps 4) (+ acc 1) acc)
-    }))
+      (if (== steps 4)
+        (+ acc 1)
+        acc
+      )
+    }
+  )
+)

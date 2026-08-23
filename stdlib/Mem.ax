@@ -10,7 +10,6 @@
 ; it is the layer where Axiom's type system stops and the machine
 ; begins - and every safe abstraction above it (`Str`, `Buf`) is
 ; responsible for never handing out an address a caller could misuse.
-
 ; Allocate `bytes` bytes of zeroed memory and return its address.
 ;
 ; Memory comes from the arena the compiler emits (a bump allocator over
@@ -37,8 +36,8 @@
 ; below that line as it allocates. Callers may rely on the promise;
 ; `Map`, `Intern`, `Str` and `Vec` all do.
 (pub :: memAlloc (-> Int Int))
-(pub fn (memAlloc bytes)
-  (__alloc bytes))
+
+(pub fn (memAlloc bytes) (__alloc bytes))
 
 ; The same allocation, declaring which of the block's words hold
 ; REFERENCES: bit i of `map` says payload word i is a handle to
@@ -72,18 +71,29 @@
 ; A zero-byte request keeps MM-ALLOC-8b's behaviour exactly: no block,
 ; no header, nothing stamped.
 (pub :: memAllocMapped (-> Int Int Int))
+
 (pub fn (memAllocMapped bytes map)
   (let ((h (__alloc bytes)))
     (if (== bytes 0)
-        h
-        (let ((sw (__load64 (- h 8) 0)))
-          (let ((cnt (& (>> sw 1) 32767)))
-            (let ((lim (if (> cnt 47) 47 cnt)))
-              {
-                (__store64 (- h 8) 0
-                           (| sw (<< (& map (- (<< 1 lim) 1)) 16)))
-                h
-              }))))))
+      h
+      (let ((sw (__load64 (- h 8) 0)))
+        (let ((cnt (& (>> sw 1) 32767)))
+          (let ((lim 
+            (if (> cnt 47)
+              47
+              cnt
+            )
+          ))
+            {
+              (__store64 (- h 8) 0 (| sw (<< (& map (- (<< 1 lim) 1)) 16)))
+              h
+            }
+          )
+        )
+      )
+    )
+  )
+)
 
 ; Copy `count` bytes from `src` to `dst`. Returns `dst`.
 ;
@@ -91,8 +101,8 @@
 ; `dst <= src`; `memMove` is not provided yet rather than being
 ; provided wrongly.
 (pub :: memCopy (-> Int Int Int Int))
-(pub fn (memCopy dst src count)
-  (memCopyFrom dst src count 0))
+
+(pub fn (memCopy dst src count) (memCopyFrom dst src count 0))
 
 ; ------------------------------------------------------------------
 ; WHY THESE THREE ARE LOOPS AND NOT RECURSIONS
@@ -114,8 +124,8 @@
 ; all it takes to turn the former into the latter. A `while` loop is
 ; flat by construction (`tests/selfhost/500-while-mut.ax`).
 ; ------------------------------------------------------------------
-
 (:: memCopyFrom (-> Int Int Int Int Int))
+
 (fn (memCopyFrom dst src count start)
   (let ((mut i start))
     {
@@ -125,14 +135,17 @@
           (set i (+ i 1))
         })
       dst
-    }))
+    }
+  )
+)
 
 ; Set `count` bytes at `addr` to `value` (low 8 bits). Returns `addr`.
 (pub :: memSet (-> Int Int Int Int))
-(pub fn (memSet addr value count)
-  (memSetFrom addr value count 0))
+
+(pub fn (memSet addr value count) (memSetFrom addr value count 0))
 
 (:: memSetFrom (-> Int Int Int Int Int))
+
 (fn (memSetFrom addr value count start)
   (let ((mut i start))
     {
@@ -142,18 +155,23 @@
           (set i (+ i 1))
         })
       addr
-    }))
+    }
+  )
+)
 
 ; Compare `count` bytes. 0 if equal, otherwise the signed difference of
 ; the first differing byte pair (so the result orders like `memcmp`).
 (pub :: memCmp (-> Int Int Int Int))
-(pub fn (memCmp a b count)
-  (memCmpFrom a b count 0))
+
+(pub fn (memCmp a b count) (memCmpFrom a b count 0))
 
 (:: memCmpFrom (-> Int Int Int Int Int))
+
 (fn (memCmpFrom a b count start)
-  (let ((mut i start)
-        (mut diff 0))
+  (let (
+    (mut i start)
+    (mut diff 0)
+  )
     {
       (while (&& (< i count) (== diff 0))
         {
@@ -161,7 +179,9 @@
           (set i (+ i 1))
         })
       diff
-    }))
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Word-granular access
@@ -170,10 +190,11 @@
 ; built on them - the `Str` header, `Buf`, and every `data` value the
 ; compiler boxes - are arrays of machine words.
 ; ------------------------------------------------------------------
-
 (pub :: memGetWord (-> Int Int a))
+
 (pub fn (memGetWord addr index)
-  (cast a (__load64 addr index)))
+  (cast a (__load64 addr index))
+)
 
 ; Storing a word here is the moment a value can leave the type
 ; system's sight: `(cast Int value)` erases whatever `value` was, and
@@ -200,20 +221,26 @@
 ; points at, which is the precondition every remaining ownership
 ; event was waiting on.
 (pub :: memSetWord (-> Int Int a Int))
+
 (pub fn (memSetWord addr index value)
   {
     (__retainref value)
-    (__store64 addr index (cast Int value))
+    (__store64
+      addr      index      (cast Int value)
+    )
     addr
-  })
+  }
+)
 
 (pub :: memGetByte (-> Int Int Int))
-(pub fn (memGetByte addr index)
-  (__load8 addr index))
+
+(pub fn (memGetByte addr index) (__load8 addr index))
 
 (pub :: memPutByte (-> Int Int Int Int))
+
 (pub fn (memPutByte addr index value)
   {
     (__store8 addr index value)
     addr
-  })
+  }
+)

@@ -1,10 +1,11 @@
 [1;31merror[AX3012][0m[1m: cannot assign to immutable binding `x`[0m
- [1;34m--> [0m190-assign-match-binder.ax:4:15
+ [1;34m--> [0m190-assign-match-binder.ax:7:14
 [1;34m  |[0m
-[1;34m4 |[0m     (x { (set x 9) x })))
+[1;34m5 |[0m     (x
 [1;34m  |[0m      [1;36m- `x` is bound here[0m
-[1;34m4 |[0m     (x { (set x 9) x })))
-[1;34m  |[0m               [1;31m^ `x` cannot be assigned[0m
+[1;34m...[0m
+[1;34m7 |[0m         (set x 9)
+[1;34m  |[0m              [1;31m^ `x` cannot be assigned[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut x ...)`[1;35m ~> mut x[0m
  [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`

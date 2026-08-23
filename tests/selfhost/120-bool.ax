@@ -1,3 +1,9 @@
 ; expect 42
 (:: main Int)
-(fn (main) (if true 42 7))
+
+(fn (main)
+  (if true
+    42
+    7
+  )
+)

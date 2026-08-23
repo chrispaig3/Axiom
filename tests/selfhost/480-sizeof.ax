@@ -2,4 +2,9 @@
 ; sizeof/alignof are compile-time 8s - every Axiom value is one
 ; machine word - not calls to symbols nothing defines.
 (:: main Int)
-(fn (main) (+ (sizeof Int) (alignof Int)))
+
+(fn (main)
+  (+
+    (sizeof Int)    (alignof Int)
+  )
+)

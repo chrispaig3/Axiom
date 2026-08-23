@@ -5,8 +5,13 @@
   (two :: (-> Int Int Int)))
 
 (:: under (-> Int Int))
+
 (fn (under n)
-  (handle (two 3) (Two) (lambda (p) (lambda (q) (* p q)))))
+  (handle (two 3) (Two) (lambda (p)
+    (lambda (q) (* p q))
+  ))
+)
 
 (:: main Int)
+
 (fn (main) 0)

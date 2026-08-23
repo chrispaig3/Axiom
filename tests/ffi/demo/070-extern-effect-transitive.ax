@@ -10,18 +10,26 @@
 ; The pin is the AXTAG: `effect(io)` two hops from the extern call is
 ; only accurate if the effect propagated.
 (import IO)
+
 (import Fmt)
 
 (pub extern "axiom_demo"
   (add :: (-> Int Int Int) (symbol "axffi_add")))
 
 (pub :: layer1 (-> Int Int))
+
 (pub fn (layer1 n) (add n 1))
 
 ;@axiom:effect(io)
 (pub :: layer2 (-> Int Int))
+
 (pub fn (layer2 n) (layer1 n))
 
 ;@axiom:effect(io)
-(pub fn (main) { (println (fmtInt (layer2 41))) 0 })
+(pub fn (main)
+  {
+    (println (fmtInt (layer2 41)))
+    0
+  }
+)
 ; expect 0

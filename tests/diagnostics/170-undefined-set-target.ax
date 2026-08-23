@@ -1,4 +1,10 @@
 (:: main Int)
+
 (fn (main)
   (let ((mut count 1))
-    { (set cound 2) count }))
+    {
+      (set cound 2)
+      count
+    }
+  )
+)

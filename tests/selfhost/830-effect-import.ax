@@ -19,5 +19,11 @@
 (import EffOps)
 
 (:: main Int)
+
 (fn (main)
-  (handle (+ (ask 20) (EffOps::ask 1)) (Ask) (lambda (x) (* x 2))))
+  (handle (+
+    (ask 20)    (EffOps::ask
+      1
+    )
+  ) (Ask) (lambda (x) (* x 2)))
+)

@@ -1,2 +1,2 @@
-E AX3003 210-undefined-constructor.ax:5:7-13 undefined-constructor "undefined constructor `Purple`" #"no constructor named `Purple` is visible here" ?"check the `data` declaration for the correct constructor name"
-E AX3003 210-undefined-constructor.ax:6:7-12 undefined-constructor "undefined constructor `Grean`" #"no constructor named `Grean` is visible here" ?6:7-12:"a similarly named constructor `Green` is visible; did you mean this?"~>"Green"
+E AX3003 210-undefined-constructor.ax:9:7-13 undefined-constructor "undefined constructor `Purple`" #"no constructor named `Purple` is visible here" ?"check the `data` declaration for the correct constructor name"
+E AX3003 210-undefined-constructor.ax:10:7-12 undefined-constructor "undefined constructor `Grean`" #"no constructor named `Grean` is visible here" ?10:7-12:"a similarly named constructor `Green` is visible; did you mean this?"~>"Green"

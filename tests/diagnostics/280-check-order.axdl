@@ -1,3 +1,3 @@
-E AX3007 280-check-order.ax:6:32-36 field-not-found "field `nope` not found on type `S`" #"no field `nope` on `S`" ?"check the field name and the definition of `S`"
-E AX3004 280-check-order.ax:6:30-31 type-mismatch "type mismatch: expected Int, found I64" #"this has type `I64`, expected `Int`"
-E AX3005 280-check-order.ax:6:13-14 non-exhaustive-match "non-exhaustive pattern match: missing B" #"this `match` does not cover: B" ?"add the missing arms, or a wildcard `_` arm to catch the rest"
+E AX3007 280-check-order.ax:13:21-25 field-not-found "field `nope` not found on type `S`" #"no field `nope` on `S`" ?"check the field name and the definition of `S`"
+E AX3004 280-check-order.ax:13:19-20 type-mismatch "type mismatch: expected Int, found I64" #"this has type `I64`, expected `Int`"
+E AX3005 280-check-order.ax:12:13-14 non-exhaustive-match "non-exhaustive pattern match: missing B" #"this `match` does not cover: B" ?"add the missing arms, or a wildcard `_` arm to catch the rest"

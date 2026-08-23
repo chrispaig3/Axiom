@@ -2,8 +2,17 @@
 ; A constructor's `Float` fields keep their float-ness when a pattern
 ; binds them: the declared field types travel into the binder flags, so
 ; `(* w h)` is `fmul` on the bound words. 6.5 * 4.0 = 26.
-(data P (Mk Float Float))
+(data P
+  (Mk Float Float))
+
 (:: area (-> P Float))
-(fn (area p) (match p ((Mk w h) (* w h))))
+
+(fn (area p)
+  (match p
+    ((Mk w h) (* w h))
+  )
+)
+
 (:: main Int)
+
 (fn (main) (__floatToInt (area (Mk 6.5 4.0))))

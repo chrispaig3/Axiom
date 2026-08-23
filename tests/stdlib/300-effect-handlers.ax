@@ -17,7 +17,9 @@
 ;    next handler, because it runs under the evidence in scope at its
 ;    installation - the naive lowering re-entered itself forever.
 (import IO)
+
 (import Str)
+
 (import Fmt)
 
 (effect Console
@@ -27,38 +29,68 @@
   (ask :: (-> Int Int Int)))
 
 (:: helper (-> Int Int))
-(fn (helper n)
-  (log "from helper"))
+
+(fn (helper n) (log "from helper"))
 
 (:: main Int)
+
 (fn (main)
+  ; `cast Int`: a `handle` expression's type is the checker's silent
+  ; wildcard - an effect operation's result is the one shape stage1
+  ; cannot represent - so it selects no `Show` implementation
+  ; (AX3025). Without the cast this compiled clean and died in `opt`
+  ; on a call to an undefined `@show`.
   {
-    ; `cast Int`: a `handle` expression's type is the checker's silent
-    ; wildcard - an effect operation's result is the one shape stage1
-    ; cannot represent - so it selects no `Show` implementation
-    ; (AX3025). Without the cast this compiled clean and died in `opt`
-    ; on a call to an undefined `@show`.
-    (println (cast Int (handle (ask 3 4) (Ask) (lambda (a) (lambda (b) (+ a b))))))
-    (handle
+    (println
+      (cast Int (handle (ask 3 4) (Ask) (lambda (a)
+        (lambda (b) (+ a b))
+      )))
+    )
+    (handle {
+      (log "outer-first")
+      (handle (log "inner") (Console) (lambda (s)
+        {
+          (println "inner handler")
+          0
+        }
+      ))
+      (log "outer-second")
+      (helper 1)
+      0
+    } (Console IO Alloc) (lambda (s)
       {
-        (log "outer-first")
-        (handle (log "inner") (Console) (lambda (s) { (println "inner handler") 0 }))
-        (log "outer-second")
-        (helper 1)
+        ; `cast String`: a handler parameter's type is a variable, so it
+        ; selects no `Show` implementation (AX3025).
+        (println
+          (cast String s)
+        )
         0
       }
-      (Console IO Alloc)
-      ; `cast String`: a handler parameter's type is a variable, so it
-      ; selects no `Show` implementation (AX3025).
-      (lambda (s) { (println (cast String s)) 0 }))
-    (handle
-      (handle (log "deep") (Console) (lambda (s) { (log "relayed") 0 }))
-      (Console IO Alloc)
-      (lambda (s) { (println (strConcat "outer saw " s)) 0 }))
+    ))
+    (handle (handle (log "deep") (Console) (lambda (s)
+      {
+        (log "relayed")
+        0
+      }
+    )) (Console IO Alloc) (lambda (s)
+      {
+        (println (strConcat "outer saw " s))
+        0
+      }
+    ))
     ; a local shadowing an operation name binds the local - sema
     ; resolves it that way, and the generator once disagreed,
     ; dispatching the name through the (absent) handler and trapping
-    (let ((log (lambda (s) { (println "local log") 0 })))
-      (log "ignored"))
+    (let ((log 
+      (lambda (s)
+        {
+          (println "local log")
+          0
+        }
+      )
+    ))
+      (log "ignored")
+    )
     0
-  })
+  }
+)

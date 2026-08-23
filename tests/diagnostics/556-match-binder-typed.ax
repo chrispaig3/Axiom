@@ -34,19 +34,29 @@
 (import Str)
 
 (:: viaInt (-> Int Int))
+
 (fn (viaInt n)
   (match n
-    (x (strLen x))))
+    (x (strLen x))
+  )
+)
 
 (:: viaString (-> String Int))
+
 (fn (viaString s)
   (match s
-    (x (+ x 1))))
+    (x (+ x 1))
+  )
+)
 
 (:: viaReturn (-> String Int))
+
 (fn (viaReturn s)
   (match s
-    (x x)))
+    (x x)
+  )
+)
 
 (:: main Int)
+
 (fn (main) 0)

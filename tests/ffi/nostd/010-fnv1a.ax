@@ -22,16 +22,24 @@
 ; `alloc::vec!` through `axiom_alloc`, was generated, diffed, and never
 ; run. A generated module with no consumer is a golden, not a binding.
 (import IO)
+
 (import Str)
+
 (import Hash)
 
 ;@axiom:effect(io)
 (pub fn (main)
   (if (!= (fnv1a "axiom") 7929549642058804759)
-      1
-      ; `repeatByte` allocates in Rust's `alloc` on Axiom's arena and
-      ; hands the bytes back through the out-cell protocol.
-      (if (strEq (repeatByte 65 3) "AAA")
-          { (println "nostd: agree") 0 }
-          2)))
+    1
+    ; `repeatByte` allocates in Rust's `alloc` on Axiom's arena and
+    ; hands the bytes back through the out-cell protocol.
+    (if (strEq (repeatByte 65 3) "AAA")
+      {
+        (println "nostd: agree")
+        0
+      }
+      2
+    )
+  )
+)
 ; expect 0

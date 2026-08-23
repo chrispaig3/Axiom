@@ -14,7 +14,9 @@
 ;
 ; `known` emits nothing: `__argc` is in the table.
 (:: main Int)
+
 (fn (main) (__thisPrimitiveDoesNotExist 1 2))
 
 (:: known Int)
-(fn (known) (__argc))
+
+(fn (known) __argc)

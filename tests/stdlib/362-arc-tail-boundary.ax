@@ -46,69 +46,102 @@
 ; second number is the co-ownership blocker itself, and it is why the
 ; two halves ship together.
 (import Str)
+
 (import Vec)
+
 (import Mem)
 
 (:: b2i (-> Bool Int))
-(fn (b2i x) (if x 1 0))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
 
 (:: wide (-> Int String))
+
 (fn (wide k) (strDup "0123456789abcdef0123456789abcdef"))
 
 ; a fresh reference per iteration, dead the moment the next is built
 (:: grind (-> String Int Int))
+
 (fn (grind s n)
   (if (<= n 0)
-      (strLen s)
-      (grind (wide n) (- n 1))))
+    (strLen s)
+    (grind (wide n) (- n 1))
+  )
+)
 
 ; the same loop, with the parameter stashed where counting could not
 ; see it until `memSetWord` began taking a share
 (:: hoard (-> Int String Int Int))
+
 (fn (hoard v s n)
   (if (<= n 0)
-      0
-      {
-        (vecPush v s)
-        (hoard v (wide n) (- n 1))
-      }))
+    0
+    {
+      (vecPush v s)
+      (hoard v (wide n) (- n 1))
+    }
+  )
+)
 
 ; a parameter that never changes: the retain and the release must
 ; cancel, not free it
 (:: hold (-> String Int Int))
+
 (fn (hold s n)
   (if (<= n 0)
-      (strLen s)
-      (hold s (- n 1))))
+    (strLen s)
+    (hold s (- n 1))
+  )
+)
 
 ; an Int accumulator, climbing well past the immediates guard
 (:: climb (-> Int Int Int))
+
 (fn (climb acc n)
   (if (<= n 0)
-      acc
-      (climb (+ acc 1000000) (- n 1))))
+    acc
+    (climb (+ acc 1000000) (- n 1))
+  )
+)
 
 (:: main Int)
+
 (fn (main)
-  (let ((mut acc 0) (mut steps 0))
+  (let (
+    (mut acc 0)
+    (mut steps 0)
+  )
     {
       (let ((b1 (memAlloc 200)))
         {
           (grind (wide 0) 2000)
           (let ((b2 (memAlloc 200)))
-            (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096))))))
+            (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096)))))
+          )
           (set steps (+ steps 1))
-        })
+        }
+      )
       (let ((v vecNew))
         {
           (hoard v (wide 0) 300)
           (set acc (+ acc (* 16 (b2i (== (strLen (vecGet v 5)) 32)))))
           (set acc (+ acc (* 8 (b2i (== (strLen (vecGet v 299)) 32)))))
           (set steps (+ steps 1))
-        })
+        }
+      )
       (set acc (+ acc (* 4 (b2i (== (hold (wide 0) 1000) 32)))))
       (set steps (+ steps 1))
       (set acc (+ acc (* 2 (b2i (== (climb 0 1000) 1000000000)))))
       (set steps (+ steps 1))
-      (if (== steps 4) (+ acc 1) acc)
-    }))
+      (if (== steps 4)
+        (+ acc 1)
+        acc
+      )
+    }
+  )
+)

@@ -1,1 +1,1 @@
-E AX3001 160-cast-type-is-not-a-variable.ax:3:30-34 undefined-variable "undefined variable `nope`" #"no binding named `nope` in scope" ?3:30-34:"a similarly named binding `Some` is in scope; did you mean this?"~>"Some"
+E AX3001 160-cast-type-is-not-a-variable.ax:5:32-36 undefined-variable "undefined variable `nope`" #"no binding named `nope` in scope" ?5:32-36:"a similarly named binding `Some` is in scope; did you mean this?"~>"Some"

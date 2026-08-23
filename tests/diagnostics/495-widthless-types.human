@@ -8,9 +8,9 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
 
 [1;31merror[AX3002][0m[1m: undefined type `U8`[0m
-  [1;34m--> [0m495-widthless-types.ax:13:5
+  [1;34m--> [0m495-widthless-types.ax:15:5
 [1;34m   |[0m
-[1;34m13 |[0m (:: u (-> U8 Int))
+[1;34m15 |[0m (:: u (-> U8 Int))
 [1;34m   |[0m     [1;31m^ no type named `U8` is visible here[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration

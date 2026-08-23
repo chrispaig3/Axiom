@@ -10,10 +10,17 @@
 ;
 ; 41 + 1 = 42.
 (:: applyf (-> (-> a b) a b))
+
 (fn (applyf f x) (f x))
+
 (:: inc (-> Int Int))
+
 (fn (inc n) (+ n 1))
+
 (:: twice (-> (-> a a) a a))
+
 (fn (twice f x) (f (f x)))
+
 (:: main Int)
+
 (fn (main) (+ (applyf inc 39) (twice inc 0)))

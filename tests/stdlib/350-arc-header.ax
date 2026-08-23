@@ -19,8 +19,13 @@
 ; The unfixed compiler has no __retain primitive - this fixture is
 ; AX3001 there, exit 1.
 (:: main Int)
+
 (fn (main)
-  (let ((h (__alloc 24)) (lit "hello") (mut acc 0))
+  (let (
+    (h (__alloc 24))
+    (lit "hello")
+    (mut acc 0)
+  )
     {
       (set acc (+ acc (* 27 (__load64 (- h 16) 0))))
       (__retain h)
@@ -30,8 +35,23 @@
       (__release h)
       (__release h)
       (set acc (+ acc (* 3 (__load64 (- h 16) 0))))
-      (__retain (cast Int lit))
-      (set acc (+ acc (if (== (__load64 (- (cast Int lit) 16) 0) (- 0 1)) 1 0)))
+      (__retain
+        (cast Int lit)
+      )
+      (set acc (+
+        acc        (if (==
+          (__load64
+            (-
+              (cast Int lit)              16
+            )            0
+          )          (- 0 1)
+        )
+          1
+          0
+        )
+      ))
       (__retain (- 0 7))
       acc
-    }))
+    }
+  )
+)

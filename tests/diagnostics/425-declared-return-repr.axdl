@@ -1,2 +1,2 @@
-E AX3004 425-declared-return-repr.ax:2:11-13 type-mismatch "type mismatch: expected Bool, found Int" #"this has type `Int`, expected `Bool`"
-E AX3004 425-declared-return-repr.ax:4:11-13 type-mismatch "type mismatch: expected Float, found Int" #"this has type `Int`, expected `Float`"
+E AX3004 425-declared-return-repr.ax:3:11-13 type-mismatch "type mismatch: expected Bool, found Int" #"this has type `Int`, expected `Bool`"
+E AX3004 425-declared-return-repr.ax:7:11-13 type-mismatch "type mismatch: expected Float, found Int" #"this has type `Int`, expected `Float`"

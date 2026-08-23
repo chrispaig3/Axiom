@@ -6,7 +6,13 @@
 
 (pub macro (pubMac x) (privMac x))
 
-(data Hidden (Wrap Int))
+(data Hidden
+  (Wrap Int))
 
 (pub :: unwrapped (-> Int Int))
-(pub fn (unwrapped n) (match (Wrap n) ((Wrap x) x)))
+
+(pub fn (unwrapped n)
+  (match (Wrap n)
+    ((Wrap x) x)
+  )
+)

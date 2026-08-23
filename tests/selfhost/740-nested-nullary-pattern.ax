@@ -4,10 +4,18 @@
 ; pattern context, so it became an ordinary variable - a BINDER that
 ; matches anything, and the first arm swallowed every scrutinee. This
 ; answers from the second arm, which is the only arm that matches.
-(data Color (Red) (Green))
-(data Item (Wrap Color))
+(data Color
+  (Red)
+  (Green))
+
+(data Item
+  (Wrap Color))
+
 (:: main Int)
+
 (fn (main)
-  (match (Wrap (Green))
+  (match (Wrap Green)
     ((Wrap (Red)) 1)
-    ((Wrap (Green)) 2)))
+    ((Wrap (Green)) 2)
+  )
+)

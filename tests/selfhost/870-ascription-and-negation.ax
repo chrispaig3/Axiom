@@ -30,17 +30,21 @@
 ; `negated` and `ascribed` are separate functions rather than inline
 ; forms so that the negation crosses a call boundary, where a checker
 ; that had been given the answer by constant folding would not be.
-
 (:: negated (-> Int Int))
+
 (fn (negated n) (- n))
 
 (:: ascribed (-> Int Int))
-(fn (ascribed n) (:: n Int))
+
+(fn (ascribed n)
+  (:: n Int)
+)
 
 ; A literal argument, which is the case stage0's formatter prints back
 ; as `-8` rather than as a call.
 (:: literalNegation Int)
-(fn (literalNegation) (- 8))
+
+(fn (literalNegation) -8)
 
 ; `(- 0 (negated 4))` rather than `(- 0 (- 4))`, which is a different
 ; bug in a different compiler and has its own case: stage0 prints the
@@ -48,6 +52,5 @@
 ; position re-lexes as two tokens, so the form grows a third argument on
 ; the next pass. `fmt` catches that as a lost fixed point and refuses.
 (:: main Int)
-(fn (main)
-  (+ (ascribed 50)
-     (+ (negated 4) (+ (literalNegation) (- 0 (negated 4))))))
+
+(fn (main) (+ (ascribed 50) (+ (negated 4) (+ literalNegation (- 0 (negated 4))))))

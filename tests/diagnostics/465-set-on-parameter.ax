@@ -5,6 +5,14 @@
 ; check that should have refused this program did not run".
 ; docs/memory-model.md MM-MUT-1a.
 (:: f (-> Int Int))
-(fn (f x) { (set x 1) x })
+
+(fn (f x)
+  {
+    (set x 1)
+    x
+  }
+)
+
 (:: main Int)
+
 (fn (main) (f 2))

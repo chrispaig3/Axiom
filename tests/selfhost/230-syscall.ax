@@ -1,5 +1,11 @@
 ; expect 42
 (import Sys)
+
 (:: main Int)
+
 (fn (main)
-  { (sysWriteFd 1 (__addr "ok\n") 3) 42 })
+  {
+    (sysWriteFd 1 (__addr "ok\n") 3)
+    42
+  }
+)

@@ -1,6 +1,18 @@
-(trait (Eq a) where
-  (eq :: (-> a a Bool)))
-(impl (Eq Int) where
-  ((eq (lambda (x y) (== x y)))))
+(trait (Eq a) where (
+  eq :: (-> a a Bool)
+))
+
+(impl (Eq Int) where (
+  (eq
+    (lambda (x y) (== x y))
+  )
+))
+
 (:: main Int)
-(fn (main) (if (eq true true) 1 0))
+
+(fn (main)
+  (if (eq true true)
+    1
+    0
+  )
+)

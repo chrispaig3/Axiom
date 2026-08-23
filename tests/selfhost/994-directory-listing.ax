@@ -30,8 +30,11 @@
 ;   3. NOT-A-DIRECTORY ANSWERS EMPTY. `open` succeeds on a regular
 ;      file, so the refusal has to come from the `getdents` itself.
 (import Sys)
+
 (import Str)
+
 (import Fmt)
+
 (import Vec)
 
 ; 185 bytes of padding, so a name is 190 and one record is ~216 -
@@ -40,101 +43,180 @@
 ; buffer. Long names rather than many files, because this crosses the
 ; buffer at 300 `open`s where six-byte names would need 1200.
 (:: pad String)
-(fn (pad)
-  "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+(fn (pad) "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
 
 (:: bigCount Int)
+
 (fn (bigCount) 300)
 
 (:: nameOf (-> Int String))
-(fn (nameOf i)
-  (strConcat pad (fmtPadZerosLeft (fmtInt i) 5)))
+
+(fn (nameOf i) (strConcat pad (fmtPadZerosLeft (fmtInt i) 5)))
 
 (:: pathOf (-> Int String))
-(fn (pathOf i)
-  (strConcat "ax994_big/" (nameOf i)))
+
+(fn (pathOf i) (strConcat "ax994_big/" (nameOf i)))
 
 (:: fill (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (fill i)
   (if (>= i bigCount)
-      0
-      { (sysWriteFile (strCStr (pathOf i)) "x") (fill (+ i 1)) }))
+    0
+    {
+      (sysWriteFile (strCStr (pathOf i)) "x")
+      (fill (+ i 1))
+    }
+  )
+)
 
 (:: drain (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (drain i)
   (if (>= i bigCount)
-      0
-      { (sysUnlink (strCStr (pathOf i))) (drain (+ i 1)) }))
+    0
+    {
+      (sysUnlink (strCStr (pathOf i)))
+      (drain (+ i 1))
+    }
+  )
+)
 
 ; Is `want` one of the names in `v`?
 (:: holds (-> Int String Int Bool))
+
 (fn (holds v want i)
   (if (>= i (vecLen v))
-      false
-      (if (strEq (cast String (vecGet v i)) want)
-          true
-          (holds v want (+ i 1)))))
+    false
+    (if (strEq
+      (cast String (vecGet v i))      want
+    )
+      true
+      (holds v want (+ i 1))
+    )
+  )
+)
 
 (:: main Int)
+
 (fn (main)
-  (let ((d (strCStr "ax994"))
-        (big (strCStr "ax994_big"))
-        (f (strCStr "ax994/plain.txt"))
-        (mut n 0))
+  ; --- a directory is never empty ---------------------------------
+  (let (
+    (d (strCStr "ax994"))
+    (big (strCStr "ax994_big"))
+    (f (strCStr "ax994/plain.txt"))
+    (mut n 0)
+  )
     {
-      ; --- a directory is never empty ---------------------------------
       (sysMkdir d sysDirMode)
       (let ((v (sysReadDir d)))
         {
-          (if (== (vecLen v) 2) (set n (+ n 1)) 0)
-          (if (holds v "." 0) (set n (+ n 1)) 0)
-          (if (holds v ".." 0) (set n (+ n 1)) 0)
-        })
-
+          (if (== (vecLen v) 2)
+            (set n (+ n 1))
+            0
+          )
+          (if (holds v "." 0)
+            (set n (+ n 1))
+            0
+          )
+          (if (holds v ".." 0)
+            (set n (+ n 1))
+            0
+          )
+        }
+      )
       ; --- what is in it shows up -------------------------------------
       (sysWriteFile f "x")
       (sysMkdir (strCStr "ax994/sub") sysDirMode)
       (let ((v (sysReadDir d)))
         {
-          (if (== (vecLen v) 4) (set n (+ n 1)) 0)
-          (if (holds v "plain.txt" 0) (set n (+ n 1)) 0)
+          (if (== (vecLen v) 4)
+            (set n (+ n 1))
+            0
+          )
+          (if (holds v "plain.txt" 0)
+            (set n (+ n 1))
+            0
+          )
           ; a subdirectory is an entry like any other - no `d_type` is
           ; read, so nothing here can be fooled by DT_UNKNOWN
-          (if (holds v "sub" 0) (set n (+ n 1)) 0)
-          (if (holds v "absent" 0) 0 (set n (+ n 1)))
-        })
-
+          (if (holds v "sub" 0)
+            (set n (+ n 1))
+            0
+          )
+          (if (holds v "absent" 0)
+            0
+            (set n (+ n 1))
+          )
+        }
+      )
       ; --- what is not a directory ------------------------------------
       ; `open` succeeds on both of these; the emptiness has to come
       ; from further in.
-      (if (== (vecLen (sysReadDir f)) 0) (set n (+ n 1)) 0)
-      (if (== (vecLen (sysReadDir (strCStr "ax994/nope"))) 0) (set n (+ n 1)) 0)
-
+      (if (== (vecLen (sysReadDir f)) 0)
+        (set n (+ n 1))
+        0
+      )
+      (if (== (vecLen (sysReadDir (strCStr "ax994/nope"))) 0)
+        (set n (+ n 1))
+        0
+      )
       ; --- more than one buffer ---------------------------------------
       (sysMkdir big sysDirMode)
       (fill 0)
       (let ((v (sysReadDir big)))
         {
-          (if (== (vecLen v) (+ bigCount 2)) (set n (+ n 1)) 0)
+          (if (== (vecLen v) (+ bigCount 2))
+            (set n (+ n 1))
+            0
+          )
           ; the first pass's names must still be their own - this is
           ; the check a wrapped-not-copied decode fails
-          (if (holds v (nameOf 0) 0) (set n (+ n 1)) 0)
-          (if (holds v (nameOf 1) 0) (set n (+ n 1)) 0)
+          (if (holds v (nameOf 0) 0)
+            (set n (+ n 1))
+            0
+          )
+          (if (holds v (nameOf 1) 0)
+            (set n (+ n 1))
+            0
+          )
           ; and so must the last pass's
-          (if (holds v (nameOf (- bigCount 1)) 0) (set n (+ n 1)) 0)
-          (if (holds v (nameOf (/ bigCount 2)) 0) (set n (+ n 1)) 0)
-          (if (holds v (nameOf bigCount) 0) 0 (set n (+ n 1)))
-        })
-
+          (if (holds v (nameOf (- bigCount 1)) 0)
+            (set n (+ n 1))
+            0
+          )
+          (if (holds v (nameOf (/ bigCount 2)) 0)
+            (set n (+ n 1))
+            0
+          )
+          (if (holds v (nameOf bigCount) 0)
+            0
+            (set n (+ n 1))
+          )
+        }
+      )
       ; --- teardown ----------------------------------------------------
       (drain 0)
-      (if (== (sysRmdir big) 0) (set n (+ n 1)) 0)
+      (if (== (sysRmdir big) 0)
+        (set n (+ n 1))
+        0
+      )
       (sysUnlink f)
       (sysRmdir (strCStr "ax994/sub"))
-      (if (== (sysRmdir d) 0) (set n (+ n 1)) 0)
-      (if (sysFileExists d) 0 (set n (+ n 1)))
-
-      (if (== n 18) 88 1)
-    }))
+      (if (== (sysRmdir d) 0)
+        (set n (+ n 1))
+        0
+      )
+      (if (sysFileExists d)
+        0
+        (set n (+ n 1))
+      )
+      (if (== n 18)
+        88
+        1
+      )
+    }
+  )
+)

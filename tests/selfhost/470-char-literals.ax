@@ -1,6 +1,14 @@
 ; expect 16
 ; A char literal is its codepoint word; 'a'=97, 'b'=98, 7+9.
 (:: f (-> Char Int))
-(fn (f c) (match c ('a' 7) (x 9)))
+
+(fn (f c)
+  (match c
+    ('a' 7)
+    (x 9)
+  )
+)
+
 (:: main Int)
+
 (fn (main) (+ (f 'a') (f 'b')))

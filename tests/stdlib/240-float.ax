@@ -16,70 +16,104 @@
 ; floats through a `data` constructor and through the `Int`-typed `Vec`
 ; without either of them knowing floats exist.
 (import IO)
+
 (import Fmt)
+
 (import Mem)
+
 (import Vec)
 
 (pub :: area (-> Float Float Float))
+
 (pub fn (area w h) (* w h))
 
 (pub :: half (-> Float Float))
+
 (pub fn (half x) (/ x 2.0))
 
 ; Floats as constructor fields: the pattern binding has to know the
 ; field is a float, or the arm's arithmetic lowers to an integer `add`
 ; over the bit patterns - which compiles, runs, and is wrong.
-(pub data Vec2 (V2 Float Float))
+(pub data Vec2
+  (V2 Float Float))
 
 (pub :: sumV2 (-> Vec2 Float))
+
 (pub fn (sumV2 v)
   (match v
-    ((V2 x y) (+ x y))))
+    ((V2 x y) (+ x y))
+  )
+)
 
 ; `cast` reinterprets rather than converts, which is what lets a float
 ; travel through the `Int`-typed standard library and come back intact.
 (pub :: throughVec (-> Float Float Float))
+
 (pub fn (throughVec a b)
-  (let ((v (vecNew)))
+  (let ((v vecNew))
     {
-      (vecPush v (cast Int a))
-      (vecPush v (cast Int b))
-      (+ (cast Float (vecGet v 0)) (cast Float (vecGet v 1)))
-    }))
+      (vecPush
+        v        (cast Int a)
+      )
+      (vecPush
+        v        (cast Int b)
+      )
+      (+
+        (cast Float (vecGet v 0))        (cast Float (vecGet v 1))
+      )
+    }
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
+  ; --- arithmetic ---
   {
-    ; --- arithmetic ---
-    (println (fmtFloatPrec (+ 1.5 2.25) 2))        ; 3.75
-    (println (fmtFloatPrec (- 0.75 0.25) 2))       ; 0.50
-    (println (fmtFloatPrec (* 2.0 3.5) 2))         ; 7.00
-    (println (fmtFloatPrec (/ 10.0 4.0) 2))        ; 2.50
-
+    (println (fmtFloatPrec (+ 1.5 2.25) 2))  ; 3.75
+    (println (fmtFloatPrec (- 0.75 0.25) 2))  ; 0.50
+    (println (fmtFloatPrec (* 2.0 3.5) 2))  ; 7.00
+    (println (fmtFloatPrec (/ 10.0 4.0) 2))  ; 2.50
     ; --- comparison yields Bool, and is ordered ---
-    (println (if (< 1.5 2.5) 1 0))              ; 1
-    (println (if (> 1.5 2.5) 1 0))              ; 0
-    (println (if (== 0.5 0.5) 1 0))             ; 1
-    (println (if (>= 2.5 2.5) 1 0))             ; 1
-
+    (println
+      (if (< 1.5 2.5)  ; 1
+        1
+        0
+      )
+    )
+    (println
+      (if (> 1.5 2.5)  ; 0
+        1
+        0
+      )
+    )
+    (println
+      (if (== 0.5 0.5)  ; 1
+        1
+        0
+      )
+    )
+    (println
+      (if (>= 2.5 2.5)  ; 1
+        1
+        0
+      )
+    )
     ; --- parameters, locals and returns ---
     (println (fmtFloatPrec (half (area 2.5 4.0)) 2))  ; 5.00
-
     ; --- through a constructor field ---
-    (println (fmtFloatPrec (sumV2 (V2 1.25 2.75)) 2)) ; 4.00
-
+    (println (fmtFloatPrec (sumV2 (V2 1.25 2.75)) 2))  ; 4.00
     ; --- through the Int-typed Vec, via cast ---
-    (println (fmtFloatPrec (throughVec 1.5 2.5) 2))   ; 4.00
-
+    (println (fmtFloatPrec (throughVec 1.5 2.5) 2))  ; 4.00
     ; --- numeric conversion, which `cast` is not ---
-    (println (__floatToInt 3.99))                  ; 3
-    (println (__floatToInt (- 0.0 3.99)))          ; -3
-    (println (fmtFloatPrec (__intToFloat 7) 3))       ; 7.000
-
+    (println (__floatToInt 3.99))  ; 3
+    (println (__floatToInt (- 0.0 3.99)))  ; -3
+    (println (fmtFloatPrec (__intToFloat 7) 3))  ; 7.000
     ; --- formatting: rounding carries into the integer part ---
-    (println (fmtFloatPrec 0.999 2))                  ; 1.00
-    (println (fmtFloatPrec (- 0.0 2.5) 1))            ; -2.5
-    (println (fmtFloatPrec (/ 1.0 3.0) 6))            ; 0.333333
+    (println (fmtFloatPrec 0.999 2))  ; 1.00
+    (println (fmtFloatPrec (- 0.0 2.5) 1))  ; -2.5
+    (println (fmtFloatPrec (/ 1.0 3.0) 6))  ; 0.333333
     0
-  })
+  }
+)

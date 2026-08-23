@@ -1,17 +1,17 @@
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing None[0m
-  [1;34m--> [0m997-nested-exhaustive.ax:20:24
+  [1;34m--> [0m997-nested-exhaustive.ax:24:10
 [1;34m   |[0m
-[1;34m20 |[0m (fn (partial o) (match o ((Some (Some x)) 1) ((None) 0)))
-[1;34m   |[0m                        [1;31m^ this `match` does not cover: None[0m
+[1;34m24 |[0m   (match o
+[1;34m   |[0m          [1;31m^ this `match` does not cover: None[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing MNil[0m
-  [1;34m--> [0m997-nested-exhaustive.ax:26:20
+  [1;34m--> [0m997-nested-exhaustive.ax:43:10
 [1;34m   |[0m
-[1;34m26 |[0m (fn (two l) (match l ((MCons h (MCons h2 t)) 2) ((MNil) 0)))
-[1;34m   |[0m                    [1;31m^ this `match` does not cover: MNil[0m
+[1;34m43 |[0m   (match l
+[1;34m   |[0m          [1;31m^ this `match` does not cover: MNil[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation

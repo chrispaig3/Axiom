@@ -7,34 +7,45 @@
 ; integration tests (the golden harness compiles with the default
 ; allocator).
 (import IO)
+
 (import Vec)
 
 (effect Console
   (log :: (-> String Int)))
 
 (:: churn (-> Int Int))
+
 (fn (churn n)
   (if (== n 0)
-      0
-      (let ((v (vecNew)))
-        {
-          (vecPush v 1)
-          (vecPush v 2)
-          (churn (- n 1))
-        })))
+    0
+    (let ((v vecNew))
+      {
+        (vecPush v 1)
+        (vecPush v 2)
+        (churn (- n 1))
+      }
+    )
+  )
+)
 
 (:: main Int)
+
 (fn (main)
   {
-    (handle
+    (handle {
+      (churn 200000)
+      (log "still alive")
+      0
+    } (Console IO Alloc) (lambda (s)
       {
-        (churn 200000)
-        (log "still alive")
+        ; `cast String`: a handler parameter's type is a variable, so it
+        ; selects no `Show` implementation (AX3025).
+        (println
+          (cast String s)
+        )
         0
       }
-      (Console IO Alloc)
-      ; `cast String`: a handler parameter's type is a variable, so it
-      ; selects no `Show` implementation (AX3025).
-      (lambda (s) { (println (cast String s)) 0 }))
+    ))
     0
-  })
+  }
+)

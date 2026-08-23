@@ -18,71 +18,107 @@
 ; adopts it with `AxString::from_owned`, whose drop releases it.
 (import Str)
 
-(pub :: addTwo (-> Int Int Int))
-(pub fn (addTwo a b) (+ a b))
-
 ; ASCII upper-case of `s`: a fresh String of the same length, every
 ; byte `a`..`z` lifted by 32, every other byte copied.
-(pub :: shout (-> String String))
-(pub fn (shout s)
-  (let ((n (strLen s)))
-    (let ((out (strAlloc n)))
-      {
-        (upperInto (strData s) (strData out) n 0)
-        out
-      })))
-
 ; Every other leaf the binding carries: Float as its bits, Bool as
 ; 0/1, Char as the code point, a nullary function, and a String
 ; answered as it arrived - which is an OWNED share by MM-LIFE-2c
 ; event 2 (the emitted `same` retains before it returns), so the host
 ; adopts it and the argument it built stays its own; the host calls
 ; this ten thousand times to prove it.
-(pub :: halve (-> Float Float))
-(pub fn (halve x) (/ x 2.0))
-
-(pub :: isEven (-> Int Bool))
-(pub fn (isEven n) (== (% n 2) 0))
-
-(pub :: nextChar (-> Char Char))
-(pub fn (nextChar c) (cast Char (+ (cast Int c) 1)))
-
-(pub :: answer Int)
-(pub fn (answer) 42)
-
-(pub :: same (-> String String))
-(pub fn (same s) s)
-
-(pub :: strLenOf (-> String Int))
-(pub fn (strLenOf s) (strLen s))
-
 ; Values with structure cross too. The binding carries a `data` or
 ; `struct` of the file, `Option`, `Result` and a user `List`, through
 ; accessor shims the `--emit-rust-binding` build synthesises into this
 ; archive (`axh_*`); a `Vec` is an `Int` here and a word the host
 ; builds through the binding's `AxVecBuf`.
 (import Vec)
+
 (import Err)
 
+(pub :: addTwo (-> Int Int Int))
+
+(pub fn (addTwo a b) (+ a b))
+
+(pub :: shout (-> String String))
+
+(pub fn (shout s)
+  (let ((n (strLen s)))
+    (let ((out (strAlloc n)))
+      {
+        (upperInto (strData s) (strData out) n 0)
+        out
+      }
+    )
+  )
+)
+
+(pub :: halve (-> Float Float))
+
+(pub fn (halve x) (/ x 2.0))
+
+(pub :: isEven (-> Int Bool))
+
+(pub fn (isEven n) (== (% n 2) 0))
+
+(pub :: nextChar (-> Char Char))
+
+(pub fn (nextChar c)
+  (cast Char (+
+    (cast Int c)    1
+  ))
+)
+
+(pub :: answer Int)
+
+(pub fn (answer) 42)
+
+(pub :: same (-> String String))
+
+(pub fn (same s) s)
+
+(pub :: strLenOf (-> String Int))
+
+(pub fn (strLenOf s) (strLen s))
+
 (pub :: firstEven (-> Int Int (Option Int)))
+
 (pub fn (firstEven a b)
-  (if (isEven a) (Some a) (if (isEven b) (Some b) None)))
+  (if (isEven a)
+    (Some a)
+    (if (isEven b)
+      (Some b)
+      None
+    )
+  )
+)
 
 (pub :: safeDiv (-> Int Int (Result Int String)))
-(pub fn (safeDiv a b)
-  (if (== b 0) (Err "division by zero") (Ok (/ a b))))
 
-(pub data Pair (Pair Int Int))
+(pub fn (safeDiv a b)
+  (if (== b 0)
+    (Err "division by zero")
+    (Ok (/ a b))
+  )
+)
+
+(pub data Pair
+  (Pair Int Int))
 
 (pub :: pairSum (-> Pair Int))
+
 (pub fn (pairSum p)
   (match p
-    ((Pair a b) (+ a b))))
+    ((Pair a b) (+ a b))
+  )
+)
 
 (pub :: pairSwap (-> Pair Pair))
+
 (pub fn (pairSwap p)
   (match p
-    ((Pair a b) (Pair b a))))
+    ((Pair a b) (Pair b a))
+  )
+)
 
 (pub data Shape
   (Circle Float)
@@ -90,71 +126,129 @@
   (Empty))
 
 (pub :: shapeArea (-> Shape Float))
+
 (pub fn (shapeArea s)
   (match s
     ((Circle r) (* 3.0 (* r r)))
-    ((Rect w h) (cast Float (* w h)))
-    ((Empty) 0.0)))
+    ((Rect w h)
+      (cast Float (* w h))
+    )
+    ((Empty) 0.0)
+  )
+)
 
 (pub :: shapeGrow (-> Shape Int Shape))
+
 (pub fn (shapeGrow s k)
   (match s
-    ((Circle r) (Circle (* r (cast Float k))))
+    ((Circle r)
+      (Circle
+        (*
+          r          (cast Float k)
+        )
+      )
+    )
     ((Rect w h) (Rect (* w k) (* h k)))
-    ((Empty) Empty)))
+    ((Empty) Empty)
+  )
+)
 
-(pub struct Named (name : String) (score : Int))
+(pub struct Named
+  (name : String)
+  (score : Int))
 
 (pub :: namedBump (-> Named Named))
-(pub fn (namedBump n)
-  (Named (strConcat n.name "!") (+ n.score 1)))
 
-(pub data List (a) (Nil) (Cons a (List a)))
+(pub fn (namedBump n) (Named (strConcat n.name "!") (+ n.score 1)))
+
+(pub data List a
+  (Nil)
+  (Cons a (List a)))
 
 (pub :: listSum (-> (List Int) Int))
+
 (pub fn (listSum xs)
   (match xs
     ((Nil) 0)
-    ((Cons x rest) (+ x (listSum rest)))))
+    ((Cons x rest) (+ x (listSum rest)))
+  )
+)
 
 (pub :: listRange (-> Int (List Int)))
+
 (pub fn (listRange n)
-  (if (<= n 0) Nil (Cons n (listRange (- n 1)))))
+  (if (<= n 0)
+    Nil
+    (Cons n (listRange (- n 1)))
+  )
+)
 
 (pub :: optPairSum (-> (Option Pair) Int))
+
 (pub fn (optPairSum o)
   (match o
     ((None) (- 0 1))
-    ((Some p) (pairSum p))))
+    ((Some p) (pairSum p))
+  )
+)
 
 (pub :: vecSum (-> Int Int))
-(pub fn (vecSum v)
-  (vecSumFrom v 0 0))
+
+(pub fn (vecSum v) (vecSumFrom v 0 0))
 
 (:: vecSumFrom (-> Int Int Int Int))
+
 (fn (vecSumFrom v i acc)
-  (if (>= i (vecLen v)) acc (vecSumFrom v (+ i 1) (+ acc (vecGet v i)))))
+  (if (>= i (vecLen v))
+    acc
+    (vecSumFrom v (+ i 1) (+ acc (vecGet v i)))
+  )
+)
 
 (pub :: vecDouble (-> Int Int))
+
 (pub fn (vecDouble v)
   (let ((out vecNew))
-    { (vecDoubleInto v out 0) out }))
+    {
+      (vecDoubleInto v out 0)
+      out
+    }
+  )
+)
 
 (:: vecDoubleInto (-> Int Int Int Int))
+
 (fn (vecDoubleInto v out i)
-  (if (>= i (vecLen v)) 0 { (vecPush out (* 2 (vecGet v i))) (vecDoubleInto v out (+ i 1)) }))
+  (if (>= i (vecLen v))
+    0
+    {
+      (vecPush out (* 2 (vecGet v i)))
+      (vecDoubleInto v out (+ i 1))
+    }
+  )
+)
 
 ; Not carried by the binding: a function over a type variable. The
 ; generated file names it in a comment instead of declaring it.
 (pub :: identity (-> a a))
+
 (pub fn (identity x) x)
 
 (:: upperInto (-> Int Int Int Int Int))
+
 (fn (upperInto src dst n i)
   (if (>= i n)
-      0
-      (let ((c (__load8 src i)))
-        {
-          (__store8 dst i (if (&& (>= c 97) (<= c 122)) (- c 32) c))
-          (upperInto src dst n (+ i 1))
-        })))
+    0
+    (let ((c (__load8 src i)))
+      {
+        (__store8
+          dst          i          (if (&& (>= c 97) (<= c 122))
+            (- c 32)
+            c
+          )
+        )
+        (upperInto src dst n (+ i 1))
+      }
+    )
+  )
+)

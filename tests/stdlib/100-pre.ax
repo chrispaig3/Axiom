@@ -1,9 +1,13 @@
 (import Pre (when unless))
+
 (import IO)
+
 (pub :: main Int)
+
 (pub fn (main)
   {
     (when (> 2 1) (printlnLit (__addr "when: pass")))
     (unless (> 1 2) (printlnLit (__addr "unless: pass")))
     0
-  })
+  }
+)

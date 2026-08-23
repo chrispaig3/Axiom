@@ -13,9 +13,15 @@
 ; macro: an error about a name that appears nowhere on the line it
 ; points at.
 (import MacFrame)
+
 (:: one (-> Int Int))
+
 (fn (one n) (frameBad n))
+
 (:: two (-> Int Int))
+
 (fn (two n) (frameOuter n))
+
 (:: main Int)
+
 (fn (main) (+ (one 1) (two 2)))

@@ -13,74 +13,114 @@
 ; way behind the status word: the `Err` message and the `None` leave no
 ; half-built record, because the wrapper only wraps on status 0.
 (import IO)
+
 (import Fmt)
+
 (import Str)
+
 (import Err)
+
 (import Demo)
 
 (pub :: pointX (-> Point Int))
+
 (pub fn (pointX p)
   (match p
-    ((Point x _) x)))
+    ((Point x _) x)
+  )
+)
 
 (pub :: pointY (-> Point Float))
+
 (pub fn (pointY p)
   (match p
-    ((Point _ y) y)))
+    ((Point _ y) y)
+  )
+)
 
 (pub :: tryX (-> (Result Point String) Int))
+
 (pub fn (tryX r)
   (match r
     ((Ok p) (pointX p))
-    ((Err _) -99)))
+    ((Err _) -99)
+  )
+)
 
 (pub :: tryMsg (-> (Result Point String) String))
+
 (pub fn (tryMsg r)
   (match r
     ((Ok _) "")
-    ((Err m) m)))
+    ((Err m) m)
+  )
+)
 
 (pub :: maybeX (-> (Option Point) Int))
+
 (pub fn (maybeX o)
   (match o
     ((Some p) (pointX p))
-    (_ -77)))
+    (_ -77)
+  )
+)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((n2 (pointNorm2 (Point 3 4.0)))
-        (origin (pointOrigin))
-        (scaled (pointScale (Point 2 1.5) 4))
-        (good (pointTry true))
-        (bad (pointTry false))
-        (some (pointMaybe true))
-        (none (pointMaybe false)))
-    (let ((ox (pointX origin))
-          (oy (pointY origin))
-          (sx (pointX scaled))
-          (sy (pointY scaled))
-          (gx (tryX good))
-          (gy (pointY (match good ((Ok p) p) ((Err _) (Point 0 0.0)))))
-          (bx (tryX bad))
-          (msg (tryMsg bad))
-          (mx (maybeX some))
-          (my (pointY (match some ((Some p) p) (_ (Point 0 0.0)))))
-          (nx (maybeX none)))
-      (if (&& (== n2 25.0)
-          (&& (== ox 0)
-          (&& (== oy 0.0)
-          (&& (== sx 8)
-          (&& (== sy 6.0)
-          (&& (== gx 3)
-          (&& (== gy 4.0)
-          (&& (== bx -99)
-          (&& (strEq msg "no point")
-          (&& (== mx -1)
-          (&& (== my 0.5)
-              (== nx -77))))))))))))
-          { (println "records: agree") 0 }
-          { (println (fmtFloat n2)) (println (fmtInt ox)) (println (fmtFloat oy))
-            (println (fmtInt sx)) (println (fmtFloat sy)) (println (fmtInt gx))
-            (println (fmtFloat gy)) (println (fmtInt bx)) (println msg)
-            (println (fmtInt mx)) (println (fmtFloat my)) (println (fmtInt nx)) 1 }))))
+  (let (
+    (n2 (pointNorm2 (Point 3 4.0)))
+    (origin pointOrigin)
+    (scaled (pointScale (Point 2 1.5) 4))
+    (good (pointTry true))
+    (bad (pointTry false))
+    (some (pointMaybe true))
+    (none (pointMaybe false))
+  )
+    (let (
+      (ox (pointX origin))
+      (oy (pointY origin))
+      (sx (pointX scaled))
+      (sy (pointY scaled))
+      (gx (tryX good))
+      (gy (pointY
+        (match good
+          ((Ok p) p)
+          ((Err _) (Point 0 0.0))
+        )
+      ))
+      (bx (tryX bad))
+      (msg (tryMsg bad))
+      (mx (maybeX some))
+      (my (pointY
+        (match some
+          ((Some p) p)
+          (_ (Point 0 0.0))
+        )
+      ))
+      (nx (maybeX none))
+    )
+      (if (&& (== n2 25.0) (&& (== ox 0) (&& (== oy 0.0) (&& (== sx 8) (&& (== sy 6.0) (&& (== gx 3) (&& (== gy 4.0) (&& (== bx -99) (&& (strEq msg "no point") (&& (== mx -1) (&& (== my 0.5) (== nx -77))))))))))))
+        {
+          (println "records: agree")
+          0
+        }
+        {
+          (println (fmtFloat n2))
+          (println (fmtInt ox))
+          (println (fmtFloat oy))
+          (println (fmtInt sx))
+          (println (fmtFloat sy))
+          (println (fmtInt gx))
+          (println (fmtFloat gy))
+          (println (fmtInt bx))
+          (println msg)
+          (println (fmtInt mx))
+          (println (fmtFloat my))
+          (println (fmtInt nx))
+          1
+        }
+      )
+    )
+  )
+)
 ; expect 0

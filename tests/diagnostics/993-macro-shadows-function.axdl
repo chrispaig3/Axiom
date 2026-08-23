@@ -1,1 +1,1 @@
-E AX3006 993-macro-shadows-function.ax:8:6-11 duplicate-definition "duplicate definition `thing`" #"`thing` redefined here" ^5:9-14:"`thing` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 993-macro-shadows-function.ax:9:6-11 duplicate-definition "duplicate definition `thing`" #"`thing` redefined here" ^5:9-14:"`thing` first defined here" ?"rename one of the definitions, or remove the duplicate"

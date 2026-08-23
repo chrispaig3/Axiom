@@ -15,9 +15,18 @@
 ; which is what keeps `(- x)` meaning what it always did. Both spellings
 ; are below, because the fix is only correct if it distinguishes them.
 (:: main Int)
+
 (fn (main)
-  (let ((x -5)            ; binding position: was already a literal
-        (y (+ 3 -1))      ; argument position: was three arguments
-        (z (- 0 -4))      ; and after a leading operand
-        (w (- 5)))        ; a space, so still unary minus: -5
-    (+ x (+ y (+ z (+ w 46))))))
+  ; binding position: was already a literal
+  ; argument position: was three arguments
+  ; and after a leading operand
+  ; a space, so still unary minus: -5
+  (let (
+    (x -5)
+    (y (+ 3 -1))
+    (z (- 0 -4))
+    (w -5)
+  )
+    (+ x (+ y (+ z (+ w 46))))
+  )
+)

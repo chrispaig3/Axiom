@@ -10,26 +10,48 @@
 ;
 ; The empty Vec crosses as an empty slice and joins to "".
 (import IO)
+
 (import Str)
+
 (import Vec)
+
 (import Demo)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((parts (vecNew))
-        (none (vecNew)))
+  (let (
+    (parts vecNew)
+    (none vecNew)
+  )
     {
       (vecPush parts "hello")
       (vecPush parts "brave")
       (vecPush parts "new")
       (vecPush parts "world")
-      (let ((joined (joinWords parts))
-            (empty (joinWords none))
-            (one (let ((v (vecNew))) { (vecPush v "solo") (joinWords v) })))
-        (if (&& (strEq joined "hello brave new world")
-            (&& (strEq empty "")
-                (strEq one "solo")))
-            { (println "str slice: agree") 0 }
-            { (println joined) (println empty) (println one) 1 }))
-    }))
+      (let (
+        (joined (joinWords parts))
+        (empty (joinWords none))
+        (one (let ((v vecNew))
+          {
+            (vecPush v "solo")
+            (joinWords v)
+          }
+        ))
+      )
+        (if (&& (strEq joined "hello brave new world") (&& (strEq empty "") (strEq one "solo")))
+          {
+            (println "str slice: agree")
+            0
+          }
+          {
+            (println joined)
+            (println empty)
+            (println one)
+            1
+          }
+        )
+      )
+    }
+  )
+)
 ; expect 0

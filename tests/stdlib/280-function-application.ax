@@ -20,39 +20,109 @@
 (import IO)
 
 (pub :: add2 (-> Int Int Int))
+
 (pub fn (add2 x y) (+ x y))
 
 (pub :: inc (-> Int Int))
+
 (pub fn (inc x) (+ x 1))
 
 (pub :: dec (-> Int Int))
+
 (pub fn (dec x) (- x 1))
 
-(pub :: mkAdder (-> Int (-> Int Int)))
-(pub fn (mkAdder a) (lambda (b) (+ a b)))
+(pub :: mkAdder (-> Int Int Int))
 
-(pub data Pick (a) (First) (Second))
+(pub fn (mkAdder a)
+  (lambda (b) (+ a b))
+)
+
+(pub data Pick a
+  (First)
+  (Second))
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
+  ; --- flat multi-arg spine over a curried local ---
   {
-    ; --- flat multi-arg spine over a curried local ---
-    (println (let ((h (mkAdder 3))) (h 4)))                       ; 7
-    (println (let ((h (lambda (a) (lambda (b) (+ a b))))) (h 3 4))) ; 7
-
+    (println
+      (let ((h (mkAdder 3)))
+        (h 4)
+      )
+    )
+    ; 7
+    (println
+      (let ((h 
+        (lambda (a)
+          (lambda (b) (+ a b))
+        )
+      ))
+        (h 3 4)
+      )
+    )
+    ; 7
     ; --- expression heads: if, match ---
-    (println ((if true inc dec) 10))                              ; 11
-    (println ((if false inc dec) 10))                             ; 9
-    (println ((match (First) ((First) inc) ((Second) dec)) 20))   ; 21
-    (println ((match (Second) ((First) inc) ((Second) dec)) 20))  ; 19
-
+    (println
+      ((if true  ; 11
+        inc
+        dec
+      )
+        10
+      )
+    )
+    (println
+      ((if false  ; 9
+        inc
+        dec
+      )
+        10
+      )
+    )
+    (println
+      ((match First
+        ((First) inc)
+        ((Second) dec)
+      )
+        20
+      )
+    )
+    ; 21
+    (println
+      ((match Second
+        ((First) inc)
+        ((Second) dec)
+      )
+        20
+      )
+    )
+    ; 19
     ; --- capturing lambda applied in place ---
-    (println (let ((n 30)) ((lambda (x) (+ x n)) 5)))             ; 35
-
+    (println
+      (let ((n 30))
+        ((lambda (x) (+ x n))
+          5
+        )
+      )
+    )
+    ; 35
     ; --- the rewrite AX3013 prescribes: a lambda body calling a
     ;     top-level function must not capture the function's name ---
-    (println (let ((g (lambda (y) (add2 1 y)))) (g 2)))           ; 3
-    (println ((lambda (y) (add2 40 y)) 2))                        ; 42
+    (println
+      (let ((g 
+        (lambda (y) (add2 1 y))
+      ))
+        (g 2)
+      )
+    )
+    ; 3
+    (println
+      ((lambda (y) (add2 40 y))
+        2
+      )
+    )
+    ; 42
     0
-  })
+  }
+)

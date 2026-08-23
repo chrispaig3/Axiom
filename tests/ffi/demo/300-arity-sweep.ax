@@ -10,24 +10,29 @@
 ; nullary reference below are both exercised here rather than
 ; discovered by a user.
 (import IO)
+
 (import Fmt)
 
 (pub extern "axiom_demo"
-  (abiProbe :: Int                          (symbol "axffi_abi_probe"))
-  (add      :: (-> Int Int Int)             (symbol "axffi_add"))
-  (sum3     :: (-> Int Int Int Int)         (symbol "axffi_sum3"))
-  (sum5     :: (-> Int Int Int Int Int Int) (symbol "axffi_sum5")))
+  (abiProbe :: Int (symbol "axffi_abi_probe"))
+  (add :: (-> Int Int Int) (symbol "axffi_add"))
+  (sum3 :: (-> Int Int Int Int) (symbol "axffi_sum3"))
+  (sum5 :: (-> Int Int Int Int Int Int) (symbol "axffi_sum5")))
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (if (&& (== abiProbe 23061)
-      (&& (== (add 20 22) 42)
-      (&& (== (sum3 1 2 3) 6)
-          (== (sum5 1 2 3 4 5) 15))))
-      { (println "arity: 0, 2, 3 and 5 all agree") 0 }
-      {
-        (println (fmtInt abiProbe))
-        (println "arity: DISAGREE")
-        1
-      }))
+  (if (&& (== abiProbe 23061) (&& (== (add 20 22) 42) (&& (== (sum3 1 2 3) 6) (== (sum5
+    1    2    3    4    5
+  ) 15))))
+    {
+      (println "arity: 0, 2, 3 and 5 all agree")
+      0
+    }
+    {
+      (println (fmtInt abiProbe))
+      (println "arity: DISAGREE")
+      1
+    }
+  )
+)
 ; expect 0

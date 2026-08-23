@@ -1,1 +1,1 @@
-E AX3006 090-define-synonym.ax:5:6-10 duplicate-definition "duplicate definition `main`" #"`main` redefined here" ^4:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"
+E AX3006 090-define-synonym.ax:9:6-10 duplicate-definition "duplicate definition `main`" #"`main` redefined here" ^7:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"

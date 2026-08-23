@@ -21,16 +21,24 @@
 ;           so a caller may still pass whatever it likes - `idf` takes
 ;           an Int here and the identity is not restricted to Int.
 (:: idf (-> a a))
+
 (fn (idf x) x)
 
 (:: konst (-> a b a))
+
 (fn (konst x y) x)
 
 (:: applyf (-> (-> a b) a b))
+
 (fn (applyf f x) (f x))
 
 (:: main Int)
+
 (fn (main)
   (if (== (+ (idf 20) (konst 21 99)) 41)
-      (applyf (lambda (n) 42) 7)
-      1))
+    (applyf
+      (lambda (n) 42)      7
+    )
+    1
+  )
+)

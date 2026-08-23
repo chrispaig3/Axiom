@@ -14,9 +14,21 @@
 ;
 ; The `alloc` term is the load-bearing one: it contributes 0, so this
 ; case fails if stage1 ever "improves" on stage0 by allocating.
-(struct P (x : Int) (y : Int))
+(struct P
+  (x : Int)
+  (y : Int))
+
 (:: main Int)
+
 (fn (main)
-  (let ((p (struct P 40 2))
-        (z (cast Int (alloc Int 8))))
-    (+ (+ p.x (consume p.y)) z)))
+  (let (
+    (p (struct P 40 2))
+    (z (cast Int (alloc Int 8)))
+  )
+    (+
+      (+
+        p.x        (consume p.y)
+      )      z
+    )
+  )
+)

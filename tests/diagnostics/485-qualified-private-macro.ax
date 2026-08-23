@@ -5,5 +5,11 @@
 ; qualified private types used to get, fixed the same way
 ; (`declMatches`' rule). docs/macro-system.md MAC-LANG-12.
 (import VisAll)
+
 (:: main Int)
-(fn (main) (VisAll::privMac 2))
+
+(fn (main)
+  (VisAll::privMac
+    2
+  )
+)

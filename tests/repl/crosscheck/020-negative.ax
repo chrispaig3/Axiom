@@ -1,4 +1,11 @@
 (import IO)
+
 (:: main Int)
+
 ;@axiom:effect(io)
-(fn (main) { (println (- 0 12345)) 0 })
+(fn (main)
+  {
+    (println (- 0 12345))
+    0
+  }
+)

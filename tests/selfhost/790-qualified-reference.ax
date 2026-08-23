@@ -11,6 +11,16 @@
 ; an ordinary variable reference and the checker and emitter need to
 ; know nothing about it.
 (import Mem)
+
 (:: main Int)
+
 (fn (main)
-  (if (> (Mem::memAlloc 64) 0) 42 1))
+  (if (>
+    (Mem::memAlloc
+      64
+    )    0
+  )
+    42
+    1
+  )
+)

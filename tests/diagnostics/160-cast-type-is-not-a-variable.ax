@@ -1,3 +1,7 @@
 (:: main Int)
+
 (fn (main)
-  (+ (cast Int (sizeof Int)) nope))
+  (+
+    (cast Int (sizeof Int))    nope
+  )
+)

@@ -14,16 +14,32 @@
 ; it. The range edges are exercised instead: 255 is the largest `u8`,
 ; and -2147483648 the smallest `i32`.
 (import IO)
+
 (import Fmt)
+
 (import Demo)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((h (halve 9))
-        (hn (halve -2147483648))
-        (b (bytePlus 255 1))
-        (z (bytePlus 0 -1)))
+  (let (
+    (h (halve 9))
+    (hn (halve -2147483648))
+    (b (bytePlus 255 1))
+    (z (bytePlus 0 -1))
+  )
     (if (&& (== h 4) (&& (== hn -1073741824) (&& (== b 256) (== z -1))))
-        { (println "narrow ints: agree") 0 }
-        { (println (fmtInt h)) (println (fmtInt hn)) (println (fmtInt b)) (println (fmtInt z)) 1 })))
+      {
+        (println "narrow ints: agree")
+        0
+      }
+      {
+        (println (fmtInt h))
+        (println (fmtInt hn))
+        (println (fmtInt b))
+        (println (fmtInt z))
+        1
+      }
+    )
+  )
+)
 ; expect 0

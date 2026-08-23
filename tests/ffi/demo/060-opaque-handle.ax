@@ -19,39 +19,58 @@
 ; and a `Foreign` is excluded from MM-LIFE-2d's reference map, so no
 ; arena primitive and no release walk ever dereferences it.
 (import IO)
+
 (import Fmt)
+
 (import Demo)
 
 (pub :: sumOfFresh (-> Int Int Int))
+
 (pub fn (sumOfFresh i acc)
   ; Each iteration builds a Counter and drops it on the way out of the
   ; `let`: 200 Rust values freed by the handle, none closed by hand.
   (if (>= i 200)
-      acc
-      (let ((c (counterNew i)))
-        (sumOfFresh (+ i 1) (+ acc (counterValue c))))))
+    acc
+    (let ((c (counterNew i)))
+      (sumOfFresh (+ i 1) (+ acc (counterValue c)))
+    )
+  )
+)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((a (counterNew 41))
-        (b (counterNew 100)))
-    (let ((va (counterValue a))
-          (vb (counterValue b))
-          (vb2 (counterAdd b 1))
-          (total (sumOfFresh 0 0)))
-      ; `sumOfFresh` built 200 counters and let every one go: Rust's
-      ; `Drop` ran 200 times, through the handle, with no close call
-      (let ((dropped (countersDropped)))
+  ; `sumOfFresh` built 200 counters and let every one go: Rust's
+  ; `Drop` ran 200 times, through the handle, with no close call
+  (let (
+    (a (counterNew 41))
+    (b (counterNew 100))
+  )
+    (let (
+      (va (counterValue a))
+      (vb (counterValue b))
+      (vb2 (counterAdd b 1))
+      (total (sumOfFresh 0 0))
+    )
+      (let ((dropped countersDropped))
         {
           (counterClose b)
-          (if (&& (== va 41)
-              (&& (== vb 100)
-              (&& (== vb2 101)
-              (&& (== total 19900)
-              (&& (== dropped 200)
-                  (== (countersDropped) 201))))))
-              { (println "opaque handle: agree") 0 }
-              { (println (fmtInt va)) (println (fmtInt vb)) (println (fmtInt total))
-                (println (fmtInt dropped)) (println (fmtInt (countersDropped))) 1 })
-        }))))
+          (if (&& (== va 41) (&& (== vb 100) (&& (== vb2 101) (&& (== total 19900) (&& (== dropped 200) (== countersDropped 201))))))
+            {
+              (println "opaque handle: agree")
+              0
+            }
+            {
+              (println (fmtInt va))
+              (println (fmtInt vb))
+              (println (fmtInt total))
+              (println (fmtInt dropped))
+              (println (fmtInt countersDropped))
+              1
+            }
+          )
+        }
+      )
+    )
+  )
+)
 ; expect 0

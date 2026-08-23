@@ -12,24 +12,36 @@
 ; consumes one is still reached and still terminates - a fix that made
 ; every `'` an identifier would lose that.
 (:: prime' (-> Int Int))
+
 (fn (prime' n) n)
 
 (:: three Int)
+
 (fn (three) (prime' 1))
 
 (:: quiet (-> Int Int))
+
 ;@axiom:pure
-(fn (quiet fd) { (__syscall3 1 fd 0 0) (prime' fd) })
+(fn (quiet fd)
+  {
+    (__syscall3 1 fd 0 0)
+    (prime' fd)
+  }
+)
 
 (:: n' Int)
+
 (fn (n') 0)
 
 (:: cch Char)
+
 (fn (cch) 'x')
 
 (:: after (-> Int Int))
+
 ;@axiom:effect(nosucheffect)
 (fn (after n) n)
 
 (:: main Int)
-(fn (main) (+ (three) (+ (n') (after (quiet 0)))))
+
+(fn (main) (+ three (+ n' (after (quiet 0)))))

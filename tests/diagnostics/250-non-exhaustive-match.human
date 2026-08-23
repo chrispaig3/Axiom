@@ -1,19 +1,19 @@
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Green, Blue[0m
- [1;34m--> [0m250-non-exhaustive-match.ax:4:11
+ [1;34m--> [0m250-non-exhaustive-match.ax:9:10
 [1;34m  |[0m
-[1;34m4 |[0m   (match (Red)
-[1;34m  |[0m           [1;31m^^^ this `match` does not cover: Green, Blue[0m
+[1;34m9 |[0m   (match Red
+[1;34m  |[0m          [1;31m^^^ this `match` does not cover: Green, Blue[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Red[0m
- [1;34m--> [0m250-non-exhaustive-match.ax:8:11
-[1;34m  |[0m
-[1;34m8 |[0m   (match (Red)
-[1;34m  |[0m           [1;31m^^^ this `match` does not cover: Red[0m
-[1;34m  |[0m
- [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
- [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
+  [1;34m--> [0m250-non-exhaustive-match.ax:17:10
+[1;34m   |[0m
+[1;34m17 |[0m   (match Red
+[1;34m   |[0m          [1;31m^^^ this `match` does not cover: Red[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 compilation failed due to 2 previous errors

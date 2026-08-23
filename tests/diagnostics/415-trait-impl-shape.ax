@@ -1,10 +1,23 @@
-(trait (Eq a) where
-  (eq :: (-> a a Bool)
-   ne :: (-> a a Bool)))
-(impl (Eq Int) where
-  ((eq (lambda (x y) (== x y)))
-   (nope (lambda (x y) true))))
-(impl (Missing Int) where
-  ((m (lambda (x) x))))
+(trait (Eq a) where (
+  eq :: (-> a a Bool)
+  ne :: (-> a a Bool)
+))
+
+(impl (Eq Int) where (
+  (eq
+    (lambda (x y) (== x y))
+  )
+  (nope
+    (lambda (x y) true)
+  )
+))
+
+(impl (Missing Int) where (
+  (m
+    (lambda (x) x)
+  )
+))
+
 (:: main Int)
+
 (fn (main) 0)

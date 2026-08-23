@@ -1,23 +1,23 @@
 [1;31merror[AX3006][0m[1m: duplicate definition `sz`[0m
-  [1;34m--> [0m445-trait-method-duplicate.ax:16:6
+  [1;34m--> [0m445-trait-method-duplicate.ax:17:6
 [1;34m   |[0m
-[1;34m14 |[0m   (sz :: (-> a Int)))
-[1;34m   |[0m    [1;36m-- `sz` first defined here[0m
+[1;34m14 |[0m   sz :: (-> a Int)
+[1;34m   |[0m   [1;36m-- `sz` first defined here[0m
 [1;34m...[0m
-[1;34m16 |[0m (fn (sz n) 7)
+[1;34m17 |[0m (fn (sz n) 7)
 [1;34m   |[0m      [1;31m^^ `sz` redefined here[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
 
 [1;31merror[AX3006][0m[1m: duplicate definition `tw`[0m
-  [1;34m--> [0m445-trait-method-duplicate.ax:21:4
+  [1;34m--> [0m445-trait-method-duplicate.ax:22:3
 [1;34m   |[0m
-[1;34m18 |[0m (fn (tw n) 1)
+[1;34m19 |[0m (fn (tw n) 1)
 [1;34m   |[0m      [1;36m-- `tw` first defined here[0m
 [1;34m...[0m
-[1;34m21 |[0m   (tw :: (-> a Int)))
-[1;34m   |[0m    [1;31m^^ `tw` redefined here[0m
+[1;34m22 |[0m   tw :: (-> a Int)
+[1;34m   |[0m   [1;31m^^ `tw` redefined here[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation

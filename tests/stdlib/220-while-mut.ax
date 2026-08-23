@@ -20,68 +20,90 @@
 ; stack between 60,000 and 80,000 frames (see the note in `200-scale`).
 ; A `while` that lowered to recursion would not survive this file.
 (import IO)
+
 (import Str)
 
 ; --- basic accumulation ---------------------------------------------
-
 (pub :: sumTo (-> Int Int))
+
 (pub fn (sumTo n)
-  (let ((mut i 0)
-        (mut acc 0))
+  (let (
+    (mut i 0)
+    (mut acc 0)
+  )
     {
       (while (< i n)
-        (set acc (+ acc i))
-        (set i (+ i 1)))
+        {
+          (set acc (+ acc i))
+          (set i (+ i 1))
+        })
       acc
-    }))
+    }
+  )
+)
 
 ; --- a body of one expression needs no block ------------------------
-
 (pub :: countDown (-> Int Int))
+
 (pub fn (countDown n)
   (let ((mut i n))
     {
-      (while (> i 0) (set i (- i 1)))
+      (while (> i 0)
+        (set i (- i 1)))
       i
-    }))
+    }
+  )
+)
 
 ; --- zero iterations: the condition is tested before the body -------
-
 (pub :: neverRuns Int)
+
 (pub fn (neverRuns)
   (let ((mut touched 0))
     {
-      (while false (set touched 1))
+      (while false
+        (set touched 1))
       touched
-    }))
+    }
+  )
+)
 
 ; --- nesting, and an inner loop that re-initialises each time -------
-
 (pub :: gridSum (-> Int Int Int))
+
 (pub fn (gridSum rows cols)
-  (let ((mut r 0)
-        (mut total 0))
+  (let (
+    (mut r 0)
+    (mut total 0)
+  )
     {
       (while (< r rows)
-        (let ((mut c 0))
-          (while (< c cols)
-            {
-              (set total (+ total (* r c)))
-              (set c (+ c 1))
-            }))
-        (set r (+ r 1)))
+        {
+          (let ((mut c 0))
+            (while (< c cols)
+              {
+                (set total (+ total (* r c)))
+                (set c (+ c 1))
+              })
+          )
+          (set r (+ r 1))
+        })
       total
-    }))
+    }
+  )
+)
 
 ; --- a mutable binding is still an ordinary value -------------------
 ;
 ; `mut` affects assignability, not representation: a mutable local can
 ; hold a `Str` handle exactly like an immutable one.
-
 (pub :: joinDigits (-> Int Int))
+
 (pub fn (joinDigits n)
-  (let ((mut i 0)
-        (mut out ""))
+  (let (
+    (mut i 0)
+    (mut out "")
+  )
     {
       (while (< i n)
         {
@@ -89,45 +111,62 @@
           (set i (+ i 1))
         })
       (strLen out)
-    }))
+    }
+  )
+)
 
 ; --- shadowing: an inner `let` may rebind the same name immutably ---
-
 (pub :: shadowed Int)
+
 (pub fn (shadowed)
   (let ((mut x 1))
     {
       (set x 2)
       (let ((x 100))
-        (+ x (let ((mut y 0)) { (set y x) y })))
-    }))
+        (+
+          x          (let ((mut y 0))
+            {
+              (set y x)
+              y
+            }
+          )
+        )
+      )
+    }
+  )
+)
 
 ; --- the loop really is a loop --------------------------------------
-
 (pub :: bigLoop Int)
+
 (pub fn (bigLoop)
   (let ((mut i 0))
     {
-      (while (< i 1000000) (set i (+ i 1)))
+      (while (< i 1000000)
+        (set i (+ i 1)))
       i
-    }))
+    }
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (println (sumTo 0))          ; 0
-    (println (sumTo 1))          ; 0
-    (println (sumTo 10))         ; 45
-    (println (sumTo 100))        ; 4950
-    (println (countDown 5))      ; 0
-    (println (countDown 0))      ; 0
-    (println neverRuns)          ; 0
-    (println (gridSum 3 3))      ; 9: (0+1+2)*(0+1+2)
-    (println (gridSum 4 5))      ; 60: (0+1+2+3)*(0+1+2+3+4)
-    (println (gridSum 0 5))      ; 0
-    (println (joinDigits 7))     ; 7
-    (println shadowed)           ; 200
-    (println bigLoop)            ; 1000000
+    (println (sumTo 0))  ; 0
+    (println (sumTo 1))  ; 0
+    (println (sumTo 10))  ; 45
+    (println (sumTo 100))  ; 4950
+    (println (countDown 5))  ; 0
+    (println (countDown 0))  ; 0
+    (println neverRuns)  ; 0
+    (println (gridSum 3 3))  ; 9: (0+1+2)*(0+1+2)
+    (println (gridSum 4 5))  ; 60: (0+1+2+3)*(0+1+2+3+4)
+    (println (gridSum 0 5))  ; 0
+    (println (joinDigits 7))  ; 7
+    (println shadowed)  ; 200
+    (println bigLoop)  ; 1000000
     0
-  })
+  }
+)

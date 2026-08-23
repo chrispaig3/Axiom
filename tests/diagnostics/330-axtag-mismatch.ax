@@ -1,24 +1,51 @@
-(effect Console (log :: (-> String Int)))
+(effect Console
+  (log :: (-> String Int)))
+
 (:: sys (-> Int Int))
+
 ;@axiom:pure
-(fn (sys fd) { (__syscall3 1 fd 0 0) (alloc Int 1) })
+(fn (sys fd)
+  {
+    (__syscall3 1 fd 0 0)
+    (alloc Int 1)
+  }
+)
+
 (:: reached (-> Int Int))
+
 ;@axiom:pure
 (fn (reached n) (sys n))
+
 (:: claims (-> Int Int))
+
 ;@axiom:effect(console)
 (fn (claims n) n)
+
 (:: honest (-> String Int))
+
 ;@axiom:effect(console)
 (fn (honest s) (log s))
+
 (:: higher (-> (-> Int Int) Int Int))
+
 ;@axiom:pure
 (fn (higher f x) (f x))
+
 (:: leaky (-> (-> Int Int) Int Int))
+
 ;@axiom:pure
-(fn (leaky f x) { (__syscall3 1 x 0 0) (f x) })
+(fn (leaky f x)
+  {
+    (__syscall3 1 x 0 0)
+    (f x)
+  }
+)
+
 (:: nonexistent (-> (-> Int Int) Int Int))
+
 ;@axiom:effect(nosucheffect)
 (fn (nonexistent f x) (f x))
+
 (:: main Int)
+
 (fn (main) 0)

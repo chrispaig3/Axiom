@@ -1,3 +1,5 @@
 (:: ghost (-> Int Int))
+
 (:: main Int)
+
 (fn (main) 0)

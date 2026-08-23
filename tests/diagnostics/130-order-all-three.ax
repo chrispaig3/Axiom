@@ -1,6 +1,11 @@
 (:: ghost (-> Int Int))
+
 (:: add (-> Int Int Int))
+
 (fn (add a b) (+ a b))
+
 (:: main Int)
+
 (fn (main) (add 1))
+
 (fn (main) 0)

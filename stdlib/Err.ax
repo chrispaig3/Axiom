@@ -16,7 +16,6 @@
 ;   - every payload field declares its real type. The reference map is
 ;     built from declared types, so a `String` behind an `Int` field is
 ;     invisible to release and leaks (ERR-TYPE-5 / ERR-MEM-1).
-
 (import Str)
 
 ; ------------------------------------------------------------------
@@ -45,21 +44,32 @@
 
 ; The codes this module raises itself. A program's own codes live in
 ; its own space; these are the ones `ERR-REC-2` needs.
-(pub :: errDivideByZero Int) (pub fn (errDivideByZero) 1)
-(pub :: errOverflow     Int) (pub fn (errOverflow)     2)
-(pub :: errShiftTooWide Int) (pub fn (errShiftTooWide) 3)
+(pub :: errDivideByZero Int)
+
+(pub fn (errDivideByZero) 1)
+
+(pub :: errOverflow Int)
+
+(pub fn (errOverflow) 2)
+
+(pub :: errShiftTooWide Int)
+
+(pub fn (errShiftTooWide) 3)
 
 (pub :: mkError (-> Int String Error))
-(pub fn (mkError code message)
-  (Error code message ""))
+
+(pub fn (mkError code message) (Error code message ""))
 
 (pub :: errCode (-> Error Int))
+
 (pub fn (errCode e) e.code)
 
 (pub :: errMessage (-> Error String))
+
 (pub fn (errMessage e) e.message)
 
 (pub :: errContext (-> Error String))
+
 (pub fn (errContext e) e.context)
 
 ; The rendering `main` writes to fd 2 (ERR-REC-4), and the one a
@@ -68,31 +78,43 @@
 ; reached through a type variable is AX3025, and every caller here has
 ; a concrete `Error` in hand anyway.
 (pub :: errorText (-> Error String))
+
 (pub fn (errorText e)
   (if (== (strLen e.context) 0)
-      e.message
-      (strConcat (strConcat e.message " while ") e.context)))
+    e.message
+    (strConcat (strConcat e.message " while ") e.context)
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Inspecting.
 ; ------------------------------------------------------------------
 (pub :: isOk (-> (Result a e) Bool))
+
 (pub fn (isOk r)
   (match r
     ((Ok x) true)
-    ((Err y) false)))
+    ((Err y) false)
+  )
+)
 
 (pub :: isErr (-> (Result a e) Bool))
+
 (pub fn (isErr r)
   (match r
     ((Ok x) false)
-    ((Err y) true)))
+    ((Err y) true)
+  )
+)
 
 (pub :: unwrapOr (-> (Result a e) a a))
+
 (pub fn (unwrapOr r fallback)
   (match r
     ((Ok x) x)
-    ((Err y) fallback)))
+    ((Err y) fallback)
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Transforming.
@@ -102,22 +124,31 @@
 ; compiler finds nothing on its behalf.
 ; ------------------------------------------------------------------
 (pub :: mapOk (-> (Result a e) (-> a b) (Result b e)))
+
 (pub fn (mapOk r f)
   (match r
     ((Ok x) (Ok (f x)))
-    ((Err y) (Err y))))
+    ((Err y) (Err y))
+  )
+)
 
 (pub :: mapErr (-> (Result a e) (-> e f) (Result a f)))
+
 (pub fn (mapErr r f)
   (match r
     ((Ok x) (Ok x))
-    ((Err y) (Err (f y)))))
+    ((Err y) (Err (f y)))
+  )
+)
 
 (pub :: andThen (-> (Result a e) (-> a (Result b e)) (Result b e)))
+
 (pub fn (andThen r f)
   (match r
     ((Ok x) (f x))
-    ((Err y) (Err y))))
+    ((Err y) (Err y))
+  )
+)
 
 ; Attach what the caller was doing to an error in flight, passing `Ok`
 ; through untouched. It needs no binder, so it is a function and not a
@@ -133,14 +164,17 @@
 ; `Error` gets the concrete type back, which is the shape every
 ; error-inspecting combinator in this module has to take.
 (pub :: errContextOf (-> Error String Error))
-(pub fn (errContextOf e ctx)
-  (Error e.code e.message ctx))
+
+(pub fn (errContextOf e ctx) (Error e.code e.message ctx))
 
 (pub :: withContext (-> (Result a Error) String (Result a Error)))
+
 (pub fn (withContext r ctx)
   (match r
     ((Ok x) (Ok x))
-    ((Err y) (Err (errContextOf y ctx)))))
+    ((Err y) (Err (errContextOf y ctx)))
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Option, converted explicitly.
@@ -150,16 +184,22 @@
 ; no implicit coercion in either direction (ERR-TYPE-4).
 ; ------------------------------------------------------------------
 (pub :: okOr (-> (Option a) e (Result a e)))
+
 (pub fn (okOr o e)
   (match o
     ((Some x) (Ok x))
-    ((None) (Err e))))
+    ((None) (Err e))
+  )
+)
 
 (pub :: toOption (-> (Result a e) (Option a)))
+
 (pub fn (toOption r)
   (match r
     ((Ok x) (Some x))
-    ((Err y) (None))))
+    ((Err y) None)
+  )
+)
 
 ; ------------------------------------------------------------------
 ; ERR-REC-2: a value-returning alternative for every trap.
@@ -176,38 +216,53 @@
 ; checked operator exists to end.
 ; ------------------------------------------------------------------
 (pub :: intMin Int)
+
 (pub fn (intMin) (- (- 0 9223372036854775807) 1))
 
 (pub :: divChecked (-> Int Int (Result Int Error)))
+
 (pub fn (divChecked a b)
   (if (== b 0)
-      (Err (mkError (errDivideByZero) "divided by zero"))
-      (if (&& (== a (intMin)) (== b (- 0 1)))
-          (Err (mkError (errOverflow) "quotient is not representable"))
-          (Ok (/ a b)))))
+    (Err (mkError errDivideByZero "divided by zero"))
+    (if (&& (== a intMin) (== b (- 0 1)))
+      (Err (mkError errOverflow "quotient is not representable"))
+      (Ok (/ a b))
+    )
+  )
+)
 
 (pub :: remChecked (-> Int Int (Result Int Error)))
+
 (pub fn (remChecked a b)
   (if (== b 0)
-      (Err (mkError (errDivideByZero) "took the remainder by zero"))
-      (if (&& (== a (intMin)) (== b (- 0 1)))
-          (Err (mkError (errOverflow) "remainder is not representable"))
-          (Ok (% a b)))))
+    (Err (mkError errDivideByZero "took the remainder by zero"))
+    (if (&& (== a intMin) (== b (- 0 1)))
+      (Err (mkError errOverflow "remainder is not representable"))
+      (Ok (% a b))
+    )
+  )
+)
 
 ; A shift amount of 64 or more, and a negative one, are undefined and
 ; no masking is emitted - `(<< 1 100)` answers 68719476736 at `--opt 0`
 ; and 1 at `--opt 1`.
 (pub :: shlChecked (-> Int Int (Result Int Error)))
+
 (pub fn (shlChecked a n)
   (if (|| (< n 0) (>= n 64))
-      (Err (mkError (errShiftTooWide) "shifted by 64 or more"))
-      (Ok (<< a n))))
+    (Err (mkError errShiftTooWide "shifted by 64 or more"))
+    (Ok (<< a n))
+  )
+)
 
 (pub :: shrChecked (-> Int Int (Result Int Error)))
+
 (pub fn (shrChecked a n)
   (if (|| (< n 0) (>= n 64))
-      (Err (mkError (errShiftTooWide) "shifted by 64 or more"))
-      (Ok (>> a n))))
+    (Err (mkError errShiftTooWide "shifted by 64 or more"))
+    (Ok (>> a n))
+  )
+)
 
 ; ------------------------------------------------------------------
 ; ERR-SUGAR-2: the propagation form.
@@ -235,7 +290,7 @@
 ;
 ; `er` is the template's own binder and is still renamed at every
 ; expansion, so a caller whose body mentions `er` means their own.
-(pub macro (try! x e body)
-  (match e
-    ((Err er) (Err er))
-    ((Ok x) body)))
+(pub macro (try! x e body) (match e
+  ((Err er) (Err er))
+  ((Ok x) body)
+))

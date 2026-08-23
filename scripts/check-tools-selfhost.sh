@@ -211,9 +211,17 @@ zoo_target="darwin-aarch64"
 
 echo "== symbols: the syntax zoo, against the golden =="
 zoo_golden="tests/tools/symbols-zoo.golden"
-[[ -f "$zoo_golden" ]] || { echo "FAIL: $zoo_golden is missing"; exit 1; }
 (cd "$neutral" && "$work/axc" --target="$zoo_target" --diagnostic-format=ai symbols \
    "$repo_root/tests/fmt/syntax-zoo.ax" 2>/dev/null) | norm >"$work/zoo.out"
+# AXSYM names the file and span each symbol was DECLARED at, so this
+# golden moves whenever a stdlib module is edited - and it had no bless
+# path while its sibling table below did, so re-blessing it meant
+# knowing the pipeline by hand.
+if [[ "${AXIOM_BLESS:-0}" == 1 ]]; then
+  cp "$work/zoo.out" "$repo_root/$zoo_golden"
+  echo "blessed $zoo_golden"
+fi
+[[ -f "$zoo_golden" ]] || { echo "FAIL: $zoo_golden is missing; run with AXIOM_BLESS=1"; exit 1; }
 if ! cmp -s "$zoo_golden" "$work/zoo.out"; then
   echo "FAIL symbols: the zoo's AXSYM differs from $zoo_golden"
   diff "$zoo_golden" "$work/zoo.out" | head -10 | sed 's/^/     /'

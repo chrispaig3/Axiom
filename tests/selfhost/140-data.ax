@@ -1,6 +1,15 @@
 ; expect 42
-(data Box (Wrap Int))
+(data Box
+  (Wrap Int))
+
 (:: unwrap (-> Box Int))
-(fn (unwrap b) (match b ((Wrap v) v)))
+
+(fn (unwrap b)
+  (match b
+    ((Wrap v) v)
+  )
+)
+
 (:: main Int)
+
 (fn (main) (unwrap (Wrap 42)))

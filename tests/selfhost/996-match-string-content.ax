@@ -13,17 +13,28 @@
 ;
 ; 40 + 2 + 0 = 42; the old rule answered 0 + 0 + 0.
 (import Str)
+
 (:: tag (-> String Int))
+
 (fn (tag s)
   (match s
-    (("hello") 40)
-    (("hi") 2)
-    (_ 0)))
+    ("hello" 40)
+    ("hi" 2)
+    (_ 0)
+  )
+)
+
 (:: main Int)
+
 (fn (main)
-  (let ((hello (strConcat "hel" "lo"))
-        (hi (strConcat "h" "i"))
-        (yo (strConcat "y" "o")))
+  (let (
+    (hello (strConcat "hel" "lo"))
+    (hi (strConcat "h" "i"))
+    (yo (strConcat "y" "o"))
+  )
     (if (== hello "hello")
-        (+ (+ (tag hello) (tag hi)) (tag yo))
-        100)))
+      (+ (+ (tag hello) (tag hi)) (tag yo))
+      100
+    )
+  )
+)

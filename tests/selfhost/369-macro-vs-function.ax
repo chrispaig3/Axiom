@@ -9,7 +9,11 @@
 ; belongs to the invocation site's own module. The macro stays
 ; reachable by qualification - 368 exercises that spelling.
 (import QualMac)
+
 (:: qdbl (-> Int Int))
+
 (fn (qdbl n) (* n 3))
+
 (:: main Int)
+
 (fn (main) (qdbl 5))

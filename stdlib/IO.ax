@@ -11,11 +11,14 @@
 ; untagged function that starts doing I/O is NOT flagged: tags are
 ; opt-in claims, checked when made, and `axiom symbols` reports the
 ; inferred `#effects=` either way.
-
 (import Sys)
+
 (import Str)
+
 (import Vec)
+
 (import Fmt)
+
 ; The printing macros expand to `show`, so `IO` is where a program
 ; picks up the `Show` instances by importing one module rather than
 ; two. `Show` does not import `IO` - rendering has no effects and
@@ -25,7 +28,6 @@
 ; ------------------------------------------------------------------
 ; Writing
 ; ------------------------------------------------------------------
-
 ; Write all of `s` to `fd`, returning the number of bytes written or a
 ; negative errno.
 ;
@@ -40,9 +42,9 @@
 ; everything writing a DESCRIPTOR was not, which is the same bug
 ; sitting on the other side of one import.
 (pub :: writeStr (-> Int String Int))
+
 ;@axiom:effect(io)
-(pub fn (writeStr fd s)
-  (sysWriteAllFd fd (strData s) (strLen s) 0))
+(pub fn (writeStr fd s) (sysWriteAllFd fd (strData s) (strLen s) 0))
 
 ; ------------------------------------------------------------------
 ; Printing is MACROS AND NO FUNCTIONS.
@@ -60,7 +62,6 @@
 ; `(print "{n:>8}")`, and the three calls are still there, written by
 ; the expander instead of by the programmer.
 ; ------------------------------------------------------------------
-
 ; Print NUL-terminated bytes at an address: `(printLit (__addr "hi"))`.
 ;
 ; Not the way to print a literal any more - `(println "hi")` is, and it
@@ -70,17 +71,19 @@
 ; that arrived from somewhere without a length, such as a syscall
 ; buffer.
 (:: printLit (-> Int Int))
+
 ;@axiom:effect(io)
-(fn (printLit cstr)
-  (sysWriteAllFd stdout cstr (cstrLen cstr 0) 0))
+(fn (printLit cstr) (sysWriteAllFd stdout cstr (cstrLen cstr 0) 0))
 
 (pub :: printlnLit (-> Int Int))
+
 ;@axiom:effect(io)
 (pub fn (printlnLit cstr)
   {
     (printLit cstr)
     (printLit (__addr "\n"))
-  })
+  }
+)
 
 ; ------------------------------------------------------------------
 ; The two.
@@ -124,14 +127,13 @@
 ; newline and no rendering has `writeStr` above it, unchanged and
 ; public - that is the primitive, and it is one call too.
 ; ------------------------------------------------------------------
+(pub macro (println e) (writeStr stdout (syntax/formatln e)))
 
-(pub macro (println e)  (writeStr stdout (syntax/formatln e)))
 (pub macro (eprintln e) (writeStr stderr (syntax/formatln e)))
 
 ; ------------------------------------------------------------------
 ; Reading
 ; ------------------------------------------------------------------
-
 ; The whole contents of the file at NUL-terminated path `cstr`, or an
 ; empty `Str` if it cannot be opened.
 ;
@@ -143,14 +145,14 @@
 ; the caller: the open/read-to-EOF/close sequence, the doubling refill
 ; and MM-VAL-7's retain are stated once, in `sysReadFile`.
 (pub :: readFileLit (-> Int String))
+
 ;@axiom:effect(io)
-(pub fn (readFileLit cstr)
-  (sysReadFile cstr))
+(pub fn (readFileLit cstr) (sysReadFile cstr))
 
 (pub :: readFile (-> String String))
+
 ;@axiom:effect(io)
-(pub fn (readFile path)
-  (readFileLit (ioPath path)))
+(pub fn (readFile path) (readFileLit (ioPath path)))
 
 ; ------------------------------------------------------------------
 ; Files and directories, by name.
@@ -179,25 +181,24 @@
 ; possible failure mode. Every function here copies first. One small
 ; allocation, once, next to a syscall.
 ; ------------------------------------------------------------------
-
 ; `path` as a `char*` a syscall can take, always by copy - see above.
 (:: ioPath (-> String Int))
-(fn (ioPath path)
-  (strCStr (strDup path)))
+
+(fn (ioPath path) (strCStr (strDup path)))
 
 ; Write `s` to `path`, creating it or TRUNCATING what is there.
 ; Answers the bytes written, or a negative errno.
 (pub :: writeFile (-> String String Int))
+
 ;@axiom:effect(io)
-(pub fn (writeFile path s)
-  (sysWriteFile (ioPath path) s))
+(pub fn (writeFile path s) (sysWriteFile (ioPath path) s))
 
 ; Add `s` to the end of `path`, creating it if absent. Answers the
 ; bytes written, or a negative errno.
 (pub :: appendFile (-> String String Int))
+
 ;@axiom:effect(io)
-(pub fn (appendFile path s)
-  (sysAppendFile (ioPath path) s))
+(pub fn (appendFile path s) (sysAppendFile (ioPath path) s))
 
 ; Remove the file `path`. Answers 0, or a negative errno.
 ;
@@ -206,9 +207,9 @@
 ; `removeDir`'s job, and the two are separate calls on every platform
 ; except AArch64 Linux, where they are one call and a flag.
 (pub :: removeFile (-> String Int))
+
 ;@axiom:effect(io)
-(pub fn (removeFile path)
-  (sysUnlink (ioPath path)))
+(pub fn (removeFile path) (sysUnlink (ioPath path)))
 
 ; Move `old` to `new`, answering 0 or a negative errno.
 ;
@@ -218,9 +219,9 @@
 ; the fallback - which is not atomic, and that is the difference the
 ; two spellings are for.
 (pub :: renamePath (-> String String Int))
+
 ;@axiom:effect(io)
-(pub fn (renamePath old new)
-  (sysRename (ioPath old) (ioPath new)))
+(pub fn (renamePath old new) (sysRename (ioPath old) (ioPath new)))
 
 ; Copy `src` onto `dst`, answering the bytes written or a negative
 ; errno. `dst` is created or truncated.
@@ -233,25 +234,29 @@
 ; empty `dst` - destroying whatever was at `dst` on behalf of a source
 ; that does not exist.
 (pub :: copyFile (-> String String Int))
+
 ;@axiom:effect(io)
 (pub fn (copyFile src dst)
   (let ((e (readErrno src)))
     (if (!= e 0)
-        (- 0 e)
-        (writeFile dst (readFile src)))))
+      (- 0 e)
+      (writeFile dst (readFile src))
+    )
+  )
+)
 
 ; True when `path` names something that can be opened for reading -
 ; a directory included. `isDir` separates them.
 (pub :: fileExists (-> String Bool))
+
 ;@axiom:effect(io)
-(pub fn (fileExists path)
-  (sysFileExists (ioPath path)))
+(pub fn (fileExists path) (sysFileExists (ioPath path)))
 
 ; True when `path` names a directory.
 (pub :: isDir (-> String Bool))
+
 ;@axiom:effect(io)
-(pub fn (isDir path)
-  (sysIsDir (ioPath path)))
+(pub fn (isDir path) (sysIsDir (ioPath path)))
 
 ; The size of `path` in bytes, or a negative errno.
 ;
@@ -259,9 +264,9 @@
 ; the directory file rather than anything a caller means - ask `isDir`
 ; first if that matters. See `Sys.sysFileSize`.
 (pub :: fileSize (-> String Int))
+
 ;@axiom:effect(io)
-(pub fn (fileSize path)
-  (sysFileSize (ioPath path)))
+(pub fn (fileSize path) (sysFileSize (ioPath path)))
 
 ; 0 when `path` can be read as a file, otherwise the errno saying why
 ; not: 2 missing, 13 not permitted, 21 a directory.
@@ -270,16 +275,16 @@
 ; three - and an empty file - as "". A caller that must distinguish
 ; "the file is empty" from "there is no file" asks this first.
 (pub :: readErrno (-> String Int))
+
 ;@axiom:effect(io)
-(pub fn (readErrno path)
-  (sysReadErrno (ioPath path)))
+(pub fn (readErrno path) (sysReadErrno (ioPath path)))
 
 ; Create the directory `path`, mode 0755. Answers 0, or a negative
 ; errno - `-17` (EEXIST) when it is already there.
 (pub :: makeDir (-> String Int))
+
 ;@axiom:effect(io)
-(pub fn (makeDir path)
-  (sysMkdir (ioPath path) sysDirMode))
+(pub fn (makeDir path) (sysMkdir (ioPath path) sysDirMode))
 
 ; Create `path` and every missing directory above it. Answers 0, or
 ; the negative errno of the first component that could not be made.
@@ -289,28 +294,42 @@
 ; unconditionally instead of testing first - testing first is a race,
 ; and treating EEXIST as success is not.
 (pub :: makeDirAll (-> String Int))
-;@axiom:effect(io)
-(pub fn (makeDirAll path)
-  ; From 1, not 0: a leading `/` is the root, which exists and cannot
-  ; be created, and asking to create "" fails with ENOENT.
-  (makeDirAllFrom path 1))
 
+;@axiom:effect(io)
+(pub fn (makeDirAll path) (makeDirAllFrom path 1))
+
+; From 1, not 0: a leading `/` is the root, which exists and cannot
+; be created, and asking to create "" fails with ENOENT.
 (:: makeDirAllFrom (-> String Int Int))
+
 ;@axiom:effect(io)
 (fn (makeDirAllFrom path i)
   (if (>= i (strLen path))
-      (makeDirOk path)
-      (if (== (strByte path i) 47)
-          (let ((rc (makeDirOk (strSlice path 0 i))))
-            (if (< rc 0) rc (makeDirAllFrom path (+ i 1))))
-          (makeDirAllFrom path (+ i 1)))))
+    (makeDirOk path)
+    (if (== (strByte path i) 47)
+      (let ((rc (makeDirOk (strSlice path 0 i))))
+        (if (< rc 0)
+          rc
+          (makeDirAllFrom path (+ i 1))
+        )
+      )
+      (makeDirAllFrom path (+ i 1))
+    )
+  )
+)
 
 ; `makeDir`, with "it was already there" counted as success.
 (:: makeDirOk (-> String Int))
+
 ;@axiom:effect(io)
 (fn (makeDirOk p)
   (let ((rc (makeDir p)))
-    (if (== (sysErrno rc) eExist) 0 rc)))
+    (if (== (sysErrno rc) eExist)
+      0
+      rc
+    )
+  )
+)
 
 ; Remove the EMPTY directory `path`. Answers 0, or a negative errno -
 ; `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here
@@ -318,9 +337,9 @@
 ; caller's to write, because a library that deletes recursively on
 ; one call is a library that deletes the wrong subtree once.
 (pub :: removeDir (-> String Int))
+
 ;@axiom:effect(io)
-(pub fn (removeDir path)
-  (sysRmdir (ioPath path)))
+(pub fn (removeDir path) (sysRmdir (ioPath path)))
 
 ; The entries of the directory `path`, as a Vec of `Str` - sorted by
 ; byte, with `.` and `..` removed.
@@ -347,73 +366,104 @@
 ; borrow. A directory large enough to notice wants `Sys.sysReadDir`
 ; and its own ordering.
 (pub :: listDir (-> String Int))
+
 ;@axiom:effect(io)
 (pub fn (listDir path)
-  (let ((raw (sysReadDir (ioPath path)))
-        (out vecNew))
-    { (listDirKeep raw 0 out) out }))
+  (let (
+    (raw (sysReadDir (ioPath path)))
+    (out vecNew)
+  )
+    {
+      (listDirKeep raw 0 out)
+      out
+    }
+  )
+)
 
 (:: listDirKeep (-> Int Int Int Int))
+
 (fn (listDirKeep raw i out)
   (if (>= i (vecLen raw))
-      0
-      (let ((name (cast String (vecGet raw i))))
-        {
-          (if (|| (strEq name ".") (strEq name ".."))
-              0
-              (listDirInsert out name))
-          (listDirKeep raw (+ i 1) out)
-        })))
+    0
+    (let ((name 
+      (cast String (vecGet raw i))
+    ))
+      {
+        (if (|| (strEq name ".") (strEq name ".."))
+          0
+          (listDirInsert out name)
+        )
+        (listDirKeep raw (+ i 1) out)
+      }
+    )
+  )
+)
 
 ; Push, then bubble the new entry down to where it belongs. The Vec
 ; below it is already sorted, so this settles in one comparison when
 ; the listing arrives in order.
 (:: listDirInsert (-> Int String Int))
+
 (fn (listDirInsert v s)
   {
-    (vecPush v (cast Int s))
+    (vecPush
+      v      (cast Int s)
+    )
     (listDirSift v (- (vecLen v) 1))
-  })
+  }
+)
 
 (:: listDirSift (-> Int Int Int))
+
 (fn (listDirSift v i)
   (if (<= i 0)
-      0
-      (let ((a (cast String (vecGet v (- i 1))))
-            (b (cast String (vecGet v i))))
-        (if (<= (strCmp a b) 0)
-            0
-            {
-              (vecSet v (- i 1) (cast Int b))
-              (vecSet v i (cast Int a))
-              (listDirSift v (- i 1))
-            }))))
+    0
+    (let (
+      (a (cast String (vecGet v (- i 1))))
+      (b (cast String (vecGet v i)))
+    )
+      (if (<= (strCmp a b) 0)
+        0
+        {
+          (vecSet
+            v            (- i 1)            (cast Int b)
+          )
+          (vecSet
+            v            i            (cast Int a)
+          )
+          (listDirSift v (- i 1))
+        }
+      )
+    )
+  )
+)
 
 ; The process's working directory as an absolute path, or "" if it
 ; cannot be determined. See `Sys.sysGetCwd` for why this is two
 ; different syscalls underneath.
 (pub :: cwd String)
+
 ;@axiom:effect(io)
-(pub fn (cwd)
-  sysGetCwd)
+(pub fn (cwd) sysGetCwd)
 
 ; ------------------------------------------------------------------
 ; Process exit
 ; ------------------------------------------------------------------
-
 (pub :: exit (-> Int Int))
+
 ;@axiom:effect(io)
-(pub fn (exit code)
-  (sysExitWith code))
+(pub fn (exit code) (sysExitWith code))
 
 ; Print `s` to standard error and exit with `code`. Never returns.
 (pub :: die (-> String Int Int))
+
 ;@axiom:effect(io)
 (pub fn (die s code)
+  ; `s` is already a String and its type is DECLARED, so the macro's
+  ; `show` resolves to the identity instance; this is an ordinary
+  ; `(eprintln s)` and not a special case.
   {
-    ; `s` is already a String and its type is DECLARED, so the macro's
-    ; `show` resolves to the identity instance; this is an ordinary
-    ; `(eprintln s)` and not a special case.
     (eprintln s)
     (exit code)
-  })
+  }
+)

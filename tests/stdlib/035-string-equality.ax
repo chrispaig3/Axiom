@@ -16,25 +16,40 @@
 ; disagree, except the two that pin what must NOT change: integer
 ; comparison, and comparison of a handle with itself.
 (import IO)
+
 (import Str)
 
 ; A `String`-typed producer. The rewrite fires on what the checker
 ; CONCLUDED, so these signatures are the thing under test as much as
 ; the bodies are.
 (:: lit (-> Int String))
-(fn (lit n) (if (== n 0) "hi" "bye"))
+
+(fn (lit n)
+  (if (== n 0)
+    "hi"
+    "bye"
+  )
+)
 
 (:: copy (-> String String))
+
 (fn (copy s) (strDup s))
 
 (:: yes (-> Bool Int))
-(fn (yes b) (if b 1 0))
+
+(fn (yes b)
+  (if b
+    1
+    0
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
+  ; Equal content, two different allocations. THE case: 0 before.
   {
-    ; Equal content, two different allocations. THE case: 0 before.
     (println (yes (== (lit 0) (copy (lit 0)))))
     ; Different content.
     (println (yes (== (lit 0) (lit 1))))
@@ -58,4 +73,5 @@
     (println (yes (== 3 4)))
     (println (yes (!= 3 4)))
     0
-  })
+  }
+)

@@ -9,17 +9,19 @@
 ;
 ; Both binder positions the expander owns are exercised: a `let`
 ; binding and a match-arm pattern binder.
-(macro (bind! x e body) (let ((x e)) body))
+(macro (bind! x e body) (let ((x e))
+  body
+))
 
-(macro (pick! x e body)
-  (match e
-    ((None) 0)
-    ((Some x) body)))
+(macro (pick! x e body) (match e
+  ((None) 0)
+  ((Some x) body)
+))
 
 (:: f (-> Int Int))
+
 (fn (f n) n)
 
 (:: main Int)
-(fn (main)
-  (+ (bind! (f 1) 41 7)
-     (pick! (f 2) (Some 3) 9)))
+
+(fn (main) (+ (bind! (f 1) 41 7) (pick! (f 2) (Some 3) 9)))

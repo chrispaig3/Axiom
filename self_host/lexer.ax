@@ -1,32 +1,37 @@
 ; lexer.ax — character-at-a-time tokenizer.
 ;
 ; Dependencies: core.ax (Span, Token, TokenKind), Mem, Str, Vec.
-
 (import core)
+
 (import Mem)
+
 (import Str)
+
 (import Utf8)
+
 (import Vec)
 
 ; ------------------------------------------------------------------
 ; Character predicates.
 ; ------------------------------------------------------------------
-
 ; These three delegate to `Str`. They were three independent
 ; statements of one rule across `lexer.ax`, `format.ax` and `Json.ax`,
 ; and `isFSpace` had already drifted once - it admitted VT and FF, so
 ; `fmt` turned a file `check` refuses into one it accepts. The names
 ; stay because callers import them by name; the RULE is in one place.
 (pub :: isDigit (-> Int Bool))
+
 (pub fn (isDigit ch) (strIsDigit ch))
 
 (pub :: isAlpha (-> Int Bool))
+
 (pub fn (isAlpha ch) (strIsAlpha ch))
 
 ; `^` (94) is an operator character like the rest - leaving it out did
 ; not make it an error, it made the lexer's fallback *silently skip*
 ; the byte, so `(^ a b)` lexed as `(a b)` and xor became application.
 (pub :: isIdentStart (-> Int Bool))
+
 (pub fn (isIdentStart ch)
   ; `?` (63) is deliberately NOT here. stage0's dispatch has no arm
   ; for it, so `?` is AX1001 there and every predicate-style name
@@ -35,21 +40,115 @@
   ; is a language change, worth making on purpose with the
   ; tree-sitter grammar and the formatter moved alongside; it is not
   ; made here by an identifier set that happened to be wider.
-  (if (isAlpha ch) true (if (== ch 95) true (if (== ch 43) true (if (== ch 45) true (if (== ch 42) true (if (== ch 47) true (if (== ch 37) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 33) true (if (== ch 38) true (if (== ch 124) true (if (== ch 94) true false)))))))))))))))
+  (if (isAlpha ch)
+    true
+    (if (== ch 95)
+      true
+      (if (== ch 43)
+        true
+        (if (== ch 45)
+          true
+          (if (== ch 42)
+            true
+            (if (== ch 47)
+              true
+              (if (== ch 37)
+                true
+                (if (== ch 60)
+                  true
+                  (if (== ch 62)
+                    true
+                    (if (== ch 61)
+                      true
+                      (if (== ch 33)
+                        true
+                        (if (== ch 38)
+                          true
+                          (if (== ch 124)
+                            true
+                            (if (== ch 94)
+                              true
+                              false
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 (pub :: isIdentChar (-> Int Bool))
+
 (pub fn (isIdentChar ch)
   ; `?` (63) is absent here for the reason given on `isIdentStart`.
-  (if (isAlpha ch) true (if (isDigit ch) true (if (== ch 95) true (if (== ch 45) true (if (== ch 33) true (if (== ch 42) true (if (== ch 43) true (if (== ch 47) true (if (== ch 60) true (if (== ch 62) true (if (== ch 61) true (if (== ch 37) true (if (== ch 38) true (if (== ch 124) true (if (== ch 39) true (if (== ch 94) true false)))))))))))))))))
+  (if (isAlpha ch)
+    true
+    (if (isDigit ch)
+      true
+      (if (== ch 95)
+        true
+        (if (== ch 45)
+          true
+          (if (== ch 33)
+            true
+            (if (== ch 42)
+              true
+              (if (== ch 43)
+                true
+                (if (== ch 47)
+                  true
+                  (if (== ch 60)
+                    true
+                    (if (== ch 62)
+                      true
+                      (if (== ch 61)
+                        true
+                        (if (== ch 37)
+                          true
+                          (if (== ch 38)
+                            true
+                            (if (== ch 124)
+                              true
+                              (if (== ch 39)
+                                true
+                                (if (== ch 94)
+                                  true
+                                  false
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 (pub :: isSpace (-> Int Bool))
+
 (pub fn (isSpace ch) (strIsSpace ch))
 
 ; ------------------------------------------------------------------
 ; Skip whitespace and comments.
 ; ------------------------------------------------------------------
-
 (pub :: skipWhitespace (-> String Int Int Int))
+
 ; A loop rather than a recursion, and `skipLineComment` returns to it
 ; rather than calling back, for the reason `lexTokens` below is a loop:
 ; the two used to call each other in tail position, one frame per byte
@@ -57,33 +156,46 @@
 ; only for a SELF call. `skipLineComment` is self-recursive, so that
 ; one it does flatten.
 (pub fn (skipWhitespace src pos len)
-  (let ((mut p pos)
-        (mut go 1))
+  (let (
+    (mut p pos)
+    (mut go 1)
+  )
     {
       (while (== go 1)
         (if (>= p len)
-            (set go 0)
-            (let ((ch (strByte src p)))
-              (if (isSpace ch)
-                  (set p (+ p 1))
+          (set go 0)
+          (let ((ch (strByte src p)))
+            (if (isSpace ch)
+              (set p (+ p 1))
               (if (== ch 59)
-                  (set p (skipLineComment src (+ p 1) len))
-              (if (&& (== ch 35) (isBlockOpen src p len))
+                (set p (skipLineComment src (+ p 1) len))
+                (if (&& (== ch 35) (isBlockOpen src p len))
                   (set p (skipBlockComment src (+ p 2) len))
-                  (set go 0)))))))
+                  (set go 0)
+                )
+              )
+            )
+          )
+        ))
       p
-    }))
+    }
+  )
+)
 
 ; The position just past the newline that ends this comment, or `len`.
 ; It used to continue into `skipWhitespace` itself; the caller's loop
 ; does that now, which is the same walk without the mutual recursion.
 (pub :: skipLineComment (-> String Int Int Int))
+
 (pub fn (skipLineComment src pos len)
   (if (>= pos len)
-      pos
-      (if (== (strByte src pos) 10)
-          (+ pos 1)
-          (skipLineComment src (+ pos 1) len))))
+    pos
+    (if (== (strByte src pos) 10)
+      (+ pos 1)
+      (skipLineComment src (+ pos 1) len)
+    )
+  )
+)
 
 ; `#|` opens a block comment; a `#` that is not followed by `|` opens
 ; nothing and is the AX1001 the fallthrough in `stepToken` reports.
@@ -97,9 +209,8 @@
 ; worth writing down: it walks one byte per step over every module the
 ; compiler resolves.
 (pub :: isBlockOpen (-> String Int Int Bool))
-(pub fn (isBlockOpen src pos len)
-  (&& (== (strByte src pos) 35)
-      (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 124))))
+
+(pub fn (isBlockOpen src pos len) (&& (== (strByte src pos) 35) (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 124))))
 
 ; Past the end of a `#| ... |#` block comment, including the closing
 ; delimiter. `pos` is just past the opening `#|`.
@@ -121,41 +232,59 @@
 ; eliminates only SELF tail calls, so a recursive spelling costs a
 ; frame per byte of comment.
 (pub :: skipBlockComment (-> String Int Int Int))
+
 (pub fn (skipBlockComment src pos len)
-  (let ((mut p pos)
-        (mut depth 1))
+  (let (
+    (mut p pos)
+    (mut depth 1)
+  )
     {
       (while (&& (< p len) (> depth 0))
         (if (isBlockOpen src p len)
-            { (set p (+ p 2)) (set depth (+ depth 1)) }
-        (if (&& (== (strByte src p) 124)
-                (&& (< (+ p 1) len) (== (strByte src (+ p 1)) 35)))
-            { (set p (+ p 2)) (set depth (- depth 1)) }
-            (set p (+ p 1)))))
+          {
+            (set p (+ p 2))
+            (set depth (+ depth 1))
+          }
+          (if (&& (== (strByte src p) 124) (&& (< (+ p 1) len) (== (strByte src (+ p 1)) 35)))
+            {
+              (set p (+ p 2))
+              (set depth (- depth 1))
+            }
+            (set p (+ p 1))
+          )
+        ))
       p
-    }))
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Emit a token.
 ; ------------------------------------------------------------------
-
 (pub :: emitToken (-> TokenKind Int Int Int String Int))
+
 (pub fn (emitToken kind start end tokens src)
   (let ((lex (strSlice src start (- end start))))
-    (vecPush tokens (mkToken kind lex (mkSpan start end)))))
+    (vecPush tokens (mkToken kind lex (mkSpan start end)))
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Skip helpers.
 ; ------------------------------------------------------------------
-
 (pub :: skipIdent (-> String Int Int Int))
+
 (pub fn (skipIdent src pos len)
   (if (>= pos len)
-      pos
-      (let ((ch (strByte src pos)))
-        (if (isIdentChar ch)
-            (skipIdent src (+ pos 1) len)
-        pos))))
+    pos
+    (let ((ch (strByte src pos)))
+      (if (isIdentChar ch)
+        (skipIdent src (+ pos 1) len)
+        pos
+      )
+    )
+  )
+)
 
 ; `_` is a digit separator, consumed as part of the number and filtered
 ; out when the value is decoded - `1_000_000` is one token, exactly as
@@ -163,21 +292,28 @@
 ; literal into an integer and an identifier, and the identifier went on
 ; to be emitted as an SSA name nothing defines.
 (pub :: skipDigits (-> String Int Int Int))
+
 (pub fn (skipDigits src pos len)
   (if (>= pos len)
-      pos
-      (let ((ch (strByte src pos)))
-        (if (isDigit ch)
-            (skipDigits src (+ pos 1) len)
+    pos
+    (let ((ch (strByte src pos)))
+      (if (isDigit ch)
+        (skipDigits src (+ pos 1) len)
         (if (== ch 95)
-            (skipDigits src (+ pos 1) len)
-        pos)))))
+          (skipDigits src (+ pos 1) len)
+          pos
+        )
+      )
+    )
+  )
+)
 
 ; A backslash escapes whatever follows it, so an escaped quote does not
 ; end the literal. Without this, `"c\""` ended at the middle quote and
 ; the rest of the file lexed as garbage - which is exactly what a
 ; compiler emitting LLVM has to write.
 (pub :: scanStringEnd (-> String Int Int Int))
+
 (pub fn (scanStringEnd src pos len)
   ; Terminated answers one past the closing quote; UNTERMINATED
   ; answers the negative of the stop position, minus one so stop 0
@@ -189,28 +325,33 @@
   ; lexer: a line that IS a string lexed as TK_ERROR while stage0
   ; answered String (probed 2026-08-07).
   (if (>= pos len)
-      (- 0 (+ pos 1))
-      (let ((ch (strByte src pos)))
-        (if (== ch 92)
-            (scanStringEnd src (+ pos 2) len)
+    (- 0 (+ pos 1))
+    (let ((ch (strByte src pos)))
+      (if (== ch 92)
+        (scanStringEnd src (+ pos 2) len)
         (if (== ch 34)
-            (+ pos 1)
-        ; A newline is an ORDINARY character inside a string literal.
-        ; This used to stop the scan, so `"one<newline>two"` - which
-        ; stage0 lexes as one string containing a line break
-        ; (axiom-lexer/src/lib.rs:498, whose loop has no newline case)
-        ; - was refused by this compiler. It was refused before the
-        ; lexical diagnostics landed too, just less legibly: the
-        ; TK_ERROR reached the parser and came out as
-        ; `AX2001 expected expression, found "one`. Measured against
-        ; a stage1 built from 61ed4e8.
-        ;
-        ; AX1002's help says "end of input (or end of line)"; only the
-        ; first half is true of either compiler. Banning the line
-        ; break is a language decision, not a lexer detail, and would
-        ; have to move the tree-sitter grammar and the formatter with
-        ; it - so it is not made here by accident.
-        (scanStringEnd src (+ pos 1) len))))))
+          (+ pos 1)
+          ; A newline is an ORDINARY character inside a string literal.
+          ; This used to stop the scan, so `"one<newline>two"` - which
+          ; stage0 lexes as one string containing a line break
+          ; (axiom-lexer/src/lib.rs:498, whose loop has no newline case)
+          ; - was refused by this compiler. It was refused before the
+          ; lexical diagnostics landed too, just less legibly: the
+          ; TK_ERROR reached the parser and came out as
+          ; `AX2001 expected expression, found "one`. Measured against
+          ; a stage1 built from 61ed4e8.
+          ;
+          ; AX1002's help says "end of input (or end of line)"; only the
+          ; first half is true of either compiler. Banning the line
+          ; break is a language decision, not a lexer detail, and would
+          ; have to move the tree-sitter grammar and the formatter with
+          ; it - so it is not made here by accident.
+          (scanStringEnd src (+ pos 1) len)
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Lexical validity.
@@ -235,64 +376,91 @@
 ; digit an out-of-range number, `\` a bad escape, anything else an
 ; unexpected character. See `lexErrDiag` in parser.ax.
 ; ------------------------------------------------------------------
-
 ; Do the digits of the integer literal spanning [start, end) fit an
 ; i64? stage0 parses the lexeme with `from_str`, so the bound is
 ; i64::MAX and a leading `-` buys nothing (probed:
 ; `-9223372036854775808` is refused too). `_` separators are ignored,
 ; as they are everywhere else.
 (pub :: intLitFits (-> String Int Int Bool))
+
 (pub fn (intLitFits src start end)
-  (let ((mut i start) (mut acc 0) (mut ok true))
+  (let (
+    (mut i start)
+    (mut acc 0)
+    (mut ok true)
+  )
     {
       (while (< i end)
         (let ((b (strByte src i)))
           {
             (if (|| (== b 95) (== b 45))
-                0
-                (let ((d (- b 48)))
-                  (if (|| (> acc 922337203685477580)
-                          (&& (== acc 922337203685477580) (> d 7)))
-                      { (set ok false) 0 }
-                      { (set acc (+ (* acc 10) d)) 0 })))
+              0
+              (let ((d (- b 48)))
+                (if (|| (> acc 922337203685477580) (&& (== acc 922337203685477580) (> d 7)))
+                  {
+                    (set ok false)
+                    0
+                  }
+                  {
+                    (set acc (+ (* acc 10) d))
+                    0
+                  }
+                )
+              )
+            )
             (set i (+ i 1))
-          }))
+          }
+        ))
       ok
-    }))
+    }
+  )
+)
 
 ; The characters stage0 accepts after a backslash. It writes the set
 ; out twice - once for strings (axiom-lexer/src/lib.rs:513) and once
 ; for character literals (:563) - and the two lists agree, so this is
 ; one function used by both callers here.
 (pub :: isEscapeChar (-> Int Bool))
-(pub fn (isEscapeChar b)
-  (|| (== b 110) (|| (== b 116) (|| (== b 114)
-      (|| (== b 92) (|| (== b 34) (|| (== b 39) (== b 48))))))))
+
+(pub fn (isEscapeChar b) (|| (== b 110) (|| (== b 116) (|| (== b 114) (|| (== b 92) (|| (== b 34) (|| (== b 39) (== b 48))))))))
 
 ; The position of the first invalid escape inside the string literal
 ; spanning [start, end) - `start` on the opening quote, `end` one past
 ; the closing one - or -1 when every escape is one stage0 accepts.
 (pub :: badEscapeIn (-> String Int Int Int))
+
 (pub fn (badEscapeIn src start end)
-  (let ((mut i (+ start 1)) (mut found (- 0 1)))
+  (let (
+    (mut i (+ start 1))
+    (mut found (- 0 1))
+  )
     {
       (while (&& (< i (- end 1)) (< found 0))
         (let ((b (strByte src i)))
           (if (== b 92)
-              {
-                (if (isEscapeChar (if (< (+ i 1) end) (strByte src (+ i 1)) 0))
-                    0
-                    (set found i))
-                (set i (+ i 2))
-              }
-              (set i (+ i 1)))))
+            {
+              (if (isEscapeChar
+                (if (< (+ i 1) end)
+                  (strByte src (+ i 1))
+                  0
+                )
+              )
+                0
+                (set found i)
+              )
+              (set i (+ i 2))
+            }
+            (set i (+ i 1))
+          )
+        ))
       found
-    }))
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Main lexer loop.
 ; ------------------------------------------------------------------
-
 ; The token loop is a `while`, and that is a correctness property
 ; rather than a style choice.
 ;
@@ -313,117 +481,250 @@
 ; at least one byte, which is what makes the loop terminate where the
 ; recursion terminated by running out of input.
 (pub :: lexTokens (-> String Int Int Int Int))
+
 (pub fn (lexTokens src pos len tokens)
   (let ((mut p pos))
     {
       (while (< p len)
-        (set p (stepToken src p len tokens (strByte src p))))
+        (set p (stepToken
+          src          p          len          tokens          (strByte src p)
+        )))
       ; `p` may sit past `len` when the last token overshot - a char
       ; literal at EOF - which is the position the recursive version
       ; gave EOF too.
-      (emitToken TK_EOF p p tokens src)
-    }))
+      (emitToken
+        TK_EOF        p        p        tokens        src
+      )
+    }
+  )
+)
 
 (pub :: stepToken (-> String Int Int Int Int Int))
+
 (pub fn (stepToken src pos len tokens ch)
   (if (== ch 45)
-      (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 62))
-          { (emitToken TK_RARROW pos (+ pos 2) tokens src) (+ pos 2) }
-          ; `-` directly against a digit is a negative literal, exactly
-          ; as stage0 lexes it. Falling through to the identifier rule
-          ; made `-5` an ident, which codegen emitted as the SSA name
-          ; `%-5` - a value nothing defines.
-          (if (&& (< (+ pos 1) len) (isDigit (strByte src (+ pos 1))))
-              (stepNumberFrom src pos (+ pos 1) len tokens)
-              (stepIdentToken src pos len tokens)))
-(if (== ch 58)
+    (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 62))
+      {
+        (emitToken
+          TK_RARROW          pos          (+ pos 2)          tokens          src
+        )
+        (+ pos 2)
+      }
+      ; `-` directly against a digit is a negative literal, exactly
+      ; as stage0 lexes it. Falling through to the identifier rule
+      ; made `-5` an ident, which codegen emitted as the SSA name
+      ; `%-5` - a value nothing defines.
+      (if (&& (< (+ pos 1) len) (isDigit (strByte src (+ pos 1))))
+        (stepNumberFrom
+          src          pos          (+ pos 1)          len          tokens
+        )
+        (stepIdentToken src pos len tokens)
+      )
+    )
+    (if (== ch 58)
       (if (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 58))
-          { (emitToken TK_DOUBLE_COLON pos (+ pos 2) tokens src) (+ pos 2) }
-          { (emitToken TK_COLON pos (+ pos 1) tokens src) (+ pos 1) })
-(if (isDigit ch)
-      (stepNumberFrom src pos (+ pos 1) len tokens)
-(if (isIdentStart ch)
-      (let ((ep (skipIdent src (+ pos 1) len)))
-        { (emitToken TK_IDENT pos ep tokens src) ep })
-(if (== ch 34)
-      (let ((ep0 (scanStringEnd src (+ pos 1) len)))
-        (if (< ep0 0)
-            ; Unterminated: the error spans from the opening quote to
-            ; where the scan stopped, which - since a newline no longer
-            ; stops it - is the end of the source, exactly as stage0's
-            ; `span(start)` at axiom-lexer/src/lib.rs:541 is.
-            (let ((stop (let ((s (- (- 0 ep0) 1))) (if (> s len) len s))))
-              { (emitToken TK_ERROR pos stop tokens src) stop })
-            ; Terminated, but stage0 also rejects an escape outside its
-            ; set - and this lexer used to pass one through, changing
-            ; the string's BYTES rather than refusing (`"A\qB"` built
-            ; and printed `AqB`). The error spans the two characters of
-            ; the escape; lexing resumes past the whole literal, so one
-            ; bad escape does not cascade.
-            (let ((bad (badEscapeIn src pos ep0)))
-              (if (< bad 0)
-                  { (emitToken TK_STRING pos ep0 tokens src) ep0 }
-                  { (emitToken TK_ERROR_ESC bad (+ bad 2) tokens src) ep0 }))))
-(if (== ch 40)
-      { (emitToken TK_LPAREN pos (+ pos 1) tokens src) (+ pos 1) }
-(if (== ch 41)
-      { (emitToken TK_RPAREN pos (+ pos 1) tokens src) (+ pos 1) }
-(if (== ch 46)
-      ; THREE dots are one token, and that token is an ORDINARY
-      ; IDENTIFIER spelled `...` (macro-system.md MAC-LANG-16).
-      ;
-      ; Not a token kind of its own, which is what this rule's cost
-      ; estimate assumed and what would have made it a four-way
-      ; change: `format.ax` has its own `FT_*` kinds and would need
-      ; one, and tree-sitter would need a node. As an identifier it
-      ; needs neither - tree-sitter's identifier rule already admits
-      ; `.` and already parses `...` this way, and `format.ax` copies
-      ; a rule form's interior verbatim. Measured one implementation
-      ; at a time before this line was written: only this one refused.
-      ;
-      ; A single `.` is untouched, so field access and module paths
-      ; are untouched, and `MAC-HYG-3`'s gensym separator stays
-      ; unspellable - one dot still cannot sit inside an identifier,
-      ; and it is one dot that separates `name` from `counter`.
-      (if (&& (< (+ pos 2) len)
-              (&& (== (strByte src (+ pos 1)) 46)
-                  (== (strByte src (+ pos 2)) 46)))
-          { (emitToken TK_IDENT pos (+ pos 3) tokens src) (+ pos 3) }
-          { (emitToken TK_DOT pos (+ pos 1) tokens src) (+ pos 1) })
-(if (== ch 39)
-      ; A leading `'` starts a char literal unless what follows is a
-      ; space, `(` or `[` - stage0's exact rule; a mid-identifier `'`
-      ; never reaches here because isIdentChar consumes it.
-      (if (&& (< (+ pos 1) len)
-              (&& (!= (strByte src (+ pos 1)) 32)
-                  (&& (!= (strByte src (+ pos 1)) 40)
-                      (!= (strByte src (+ pos 1)) 91))))
-          (stepCharToken src pos len tokens)
-          { (emitToken TK_QUOTE pos (+ pos 1) tokens src) (+ pos 1) })
-(if (== ch 123)
-      { (emitToken TK_LBRACE pos (+ pos 1) tokens src) (+ pos 1) }
-(if (== ch 125)
-      { (emitToken TK_RBRACE pos (+ pos 1) tokens src) (+ pos 1) }
-(if (== ch 44)
-      { (emitToken TK_COMMA pos (+ pos 1) tokens src) (+ pos 1) }
-(if (== ch 91)
-      { (emitToken TK_LBRACKET pos (+ pos 1) tokens src) (+ pos 1) }
-(if (== ch 93)
-      { (emitToken TK_RBRACKET pos (+ pos 1) tokens src) (+ pos 1) }
-(if (isSpace ch)
-      (+ pos 1)
-(if (== ch 59)
-      (skipWhitespace src pos len)
-(if (&& (== ch 35) (isBlockOpen src pos len))
-      ; `#|` is a comment, not a token: it produces nothing and answers
-      ; the position past its close, exactly as the `;` arm does.
-      (skipBlockComment src (+ pos 2) len)
-      ; A byte no arm above claims. This was `(+ pos 1)` - the byte
-      ; vanished, and the token stream that came out was the stream for
-      ; a different program, with no diagnostic anywhere. stage0 refuses
-      ; it as AX1001. A bare `#` still lands here; only `#|` is claimed
-      ; by the arm above.
-      { (emitToken TK_ERROR pos (+ pos 1) tokens src) (+ pos 1) }))))))))))))))))))
+        {
+          (emitToken
+            TK_DOUBLE_COLON            pos            (+ pos 2)            tokens            src
+          )
+          (+ pos 2)
+        }
+        {
+          (emitToken
+            TK_COLON            pos            (+ pos 1)            tokens            src
+          )
+          (+ pos 1)
+        }
+      )
+      (if (isDigit ch)
+        (stepNumberFrom
+          src          pos          (+ pos 1)          len          tokens
+        )
+        (if (isIdentStart ch)
+          (let ((ep (skipIdent src (+ pos 1) len)))
+            {
+              (emitToken
+                TK_IDENT                pos                ep                tokens                src
+              )
+              ep
+            }
+          )
+          (if (== ch 34)
+            (let ((ep0 (scanStringEnd src (+ pos 1) len)))
+              (if (< ep0 0)
+                ; Unterminated: the error spans from the opening quote to
+                ; where the scan stopped, which - since a newline no longer
+                ; stops it - is the end of the source, exactly as stage0's
+                ; `span(start)` at axiom-lexer/src/lib.rs:541 is.
+                (let ((stop 
+                  (let ((s (- (- 0 ep0) 1)))
+                    (if (> s len)
+                      len
+                      s
+                    )
+                  )
+                ))
+                  {
+                    (emitToken
+                      TK_ERROR                      pos                      stop                      tokens                      src
+                    )
+                    stop
+                  }
+                )
+                ; Terminated, but stage0 also rejects an escape outside its
+                ; set - and this lexer used to pass one through, changing
+                ; the string's BYTES rather than refusing (`"A\qB"` built
+                ; and printed `AqB`). The error spans the two characters of
+                ; the escape; lexing resumes past the whole literal, so one
+                ; bad escape does not cascade.
+                (let ((bad (badEscapeIn src pos ep0)))
+                  (if (< bad 0)
+                    {
+                      (emitToken
+                        TK_STRING                        pos                        ep0                        tokens                        src
+                      )
+                      ep0
+                    }
+                    {
+                      (emitToken
+                        TK_ERROR_ESC                        bad                        (+ bad 2)                        tokens                        src
+                      )
+                      ep0
+                    }
+                  )
+                )
+              )
+            )
+            (if (== ch 40)
+              {
+                (emitToken
+                  TK_LPAREN                  pos                  (+ pos 1)                  tokens                  src
+                )
+                (+ pos 1)
+              }
+              (if (== ch 41)
+                {
+                  (emitToken
+                    TK_RPAREN                    pos                    (+ pos 1)                    tokens                    src
+                  )
+                  (+ pos 1)
+                }
+                (if (== ch 46)
+                  ; THREE dots are one token, and that token is an ORDINARY
+                  ; IDENTIFIER spelled `...` (macro-system.md MAC-LANG-16).
+                  ;
+                  ; Not a token kind of its own, which is what this rule's cost
+                  ; estimate assumed and what would have made it a four-way
+                  ; change: `format.ax` has its own `FT_*` kinds and would need
+                  ; one, and tree-sitter would need a node. As an identifier it
+                  ; needs neither - tree-sitter's identifier rule already admits
+                  ; `.` and already parses `...` this way, and `format.ax` copies
+                  ; a rule form's interior verbatim. Measured one implementation
+                  ; at a time before this line was written: only this one refused.
+                  ;
+                  ; A single `.` is untouched, so field access and module paths
+                  ; are untouched, and `MAC-HYG-3`'s gensym separator stays
+                  ; unspellable - one dot still cannot sit inside an identifier,
+                  ; and it is one dot that separates `name` from `counter`.
+                  (if (&& (< (+ pos 2) len) (&& (== (strByte src (+ pos 1)) 46) (== (strByte src (+ pos 2)) 46)))
+                    {
+                      (emitToken
+                        TK_IDENT                        pos                        (+ pos 3)                        tokens                        src
+                      )
+                      (+ pos 3)
+                    }
+                    {
+                      (emitToken
+                        TK_DOT                        pos                        (+ pos 1)                        tokens                        src
+                      )
+                      (+ pos 1)
+                    }
+                  )
+                  (if (== ch 39)
+                    ; A leading `'` starts a char literal unless what follows is a
+                    ; space, `(` or `[` - stage0's exact rule; a mid-identifier `'`
+                    ; never reaches here because isIdentChar consumes it.
+                    (if (&& (< (+ pos 1) len) (&& (!= (strByte src (+ pos 1)) 32) (&& (!= (strByte src (+ pos 1)) 40) (!= (strByte src (+ pos 1)) 91))))
+                      (stepCharToken src pos len tokens)
+                      {
+                        (emitToken
+                          TK_QUOTE                          pos                          (+ pos 1)                          tokens                          src
+                        )
+                        (+ pos 1)
+                      }
+                    )
+                    (if (== ch 123)
+                      {
+                        (emitToken
+                          TK_LBRACE                          pos                          (+ pos 1)                          tokens                          src
+                        )
+                        (+ pos 1)
+                      }
+                      (if (== ch 125)
+                        {
+                          (emitToken
+                            TK_RBRACE                            pos                            (+ pos 1)                            tokens                            src
+                          )
+                          (+ pos 1)
+                        }
+                        (if (== ch 44)
+                          {
+                            (emitToken
+                              TK_COMMA                              pos                              (+ pos 1)                              tokens                              src
+                            )
+                            (+ pos 1)
+                          }
+                          (if (== ch 91)
+                            {
+                              (emitToken
+                                TK_LBRACKET                                pos                                (+ pos 1)                                tokens                                src
+                              )
+                              (+ pos 1)
+                            }
+                            (if (== ch 93)
+                              {
+                                (emitToken
+                                  TK_RBRACKET                                  pos                                  (+ pos 1)                                  tokens                                  src
+                                )
+                                (+ pos 1)
+                              }
+                              (if (isSpace ch)
+                                (+ pos 1)
+                                (if (== ch 59)
+                                  (skipWhitespace src pos len)
+                                  (if (&& (== ch 35) (isBlockOpen src pos len))
+                                    ; `#|` is a comment, not a token: it produces nothing and answers
+                                    ; the position past its close, exactly as the `;` arm does.
+                                    (skipBlockComment src (+ pos 2) len)
+                                    ; A byte no arm above claims. This was `(+ pos 1)` - the byte
+                                    ; vanished, and the token stream that came out was the stream for
+                                    ; a different program, with no diagnostic anywhere. stage0 refuses
+                                    ; it as AX1001. A bare `#` still lands here; only `#|` is claimed
+                                    ; by the arm above.
+                                    {
+                                      (emitToken
+                                        TK_ERROR                                        pos                                        (+ pos 1)                                        tokens                                        src
+                                      )
+                                      (+ pos 1)
+                                    }
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 ; A character literal, following stage0's `consume_char`
 ; (axiom-lexer/src/lib.rs:546) step for step, because the ORDER of its
@@ -446,29 +747,79 @@
 ; stage1 fail to parse any non-ASCII char literal at all, where stage0
 ; - which lexes a Vec<char> - reads it fine.
 (pub :: stepCharToken (-> String Int Int Int Int))
+
 (pub fn (stepCharToken src pos len tokens)
+  ; Lexing resumes past the whole literal however it turned out, so
+  ; one bad character literal reports once instead of cascading.
   (let ((esc (== (strByte src (+ pos 1)) 92)))
-  (let ((ep (if esc (+ pos 4) (+ (+ pos 2) (utf8SeqLen (strByte src (+ pos 1))))))
-        (badEsc (if (&& esc (< (+ pos 2) len))
-                    (if (isEscapeChar (strByte src (+ pos 2))) false true)
-                    false)))
-    ; Lexing resumes past the whole literal however it turned out, so
-    ; one bad character literal reports once instead of cascading.
-    (let ((stop (if (> ep len) len ep)))
-      (if badEsc
-          { (emitToken TK_ERROR_ESC (+ pos 1) (+ pos 3) tokens src) stop }
+    (let (
+      (ep (if esc
+        (+ pos 4)
+        (+ (+ pos 2) (utf8SeqLen (strByte src (+ pos 1))))
+      ))
+      (badEsc (if (&& esc (< (+ pos 2) len))
+        (if (isEscapeChar (strByte src (+ pos 2)))
+          false
+          true
+        )
+        false
+      ))
+    )
+      (let ((stop 
+        (if (> ep len)
+          len
+          ep
+        )
+      ))
+        (if badEsc
+          {
+            (emitToken
+              TK_ERROR_ESC              (+ pos 1)              (+ pos 3)              tokens              src
+            )
+            stop
+          }
           ; The width was computed, never CHECKED: `'a` with no closing
           ; quote produced a CHARLIT spanning past the end of the
           ; literal and, at the end of a file, past the source.
           (if (&& (<= ep len) (== (strByte src (- ep 1)) 39))
-              { (emitToken TK_CHARLIT pos ep tokens src) ep }
-              (let ((estop (if (> (- ep 1) len) len (- ep 1))))
-                { (emitToken TK_ERROR pos estop tokens src) stop })))))))
+            {
+              (emitToken
+                TK_CHARLIT                pos                ep                tokens                src
+              )
+              ep
+            }
+            (let ((estop 
+              (if (> (- ep 1) len)
+                len
+                (- ep 1)
+              )
+            ))
+              {
+                (emitToken
+                  TK_ERROR                  pos                  estop                  tokens                  src
+                )
+                stop
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 (pub :: stepIdentToken (-> String Int Int Int Int))
+
 (pub fn (stepIdentToken src pos len tokens)
   (let ((ep (skipIdent src (+ pos 1) len)))
-    { (emitToken TK_IDENT pos ep tokens src) ep }))
+    {
+      (emitToken
+        TK_IDENT        pos        ep        tokens        src
+      )
+      ep
+    }
+  )
+)
 
 ; Digits (and separators), then `.digit`, make a float literal: `1.5`
 ; is one token, where `1.x` is an integer followed by a field access.
@@ -476,30 +827,48 @@
 ; too. `numStart` may sit on a leading `-`; the scan begins at
 ; `scanFrom`.
 (pub :: stepNumberFrom (-> String Int Int Int Int Int))
+
 (pub fn (stepNumberFrom src numStart scanFrom len tokens)
   (let ((ep (skipDigits src scanFrom len)))
-    (if (&& (< (+ ep 1) len)
-            (&& (== (strByte src ep) 46)
-                (isDigit (strByte src (+ ep 1)))))
-        (let ((fp (skipDigits src (+ ep 1) len)))
-          { (emitToken TK_FLOAT numStart fp tokens src) fp })
-        (if (intLitFits src numStart ep)
-            { (emitToken TK_INT numStart ep tokens src) ep }
-            ; Out of i64 range. This used to lex as an ordinary TK_INT
-            ; and wrap silently: stage0 refuses
-            ; `99999999999999999999999`, this compiler built it and
-            ; printed 200376420520689663.
-            { (emitToken TK_ERROR numStart ep tokens src) ep }))))
+    (if (&& (< (+ ep 1) len) (&& (== (strByte src ep) 46) (isDigit (strByte src (+ ep 1)))))
+      (let ((fp (skipDigits src (+ ep 1) len)))
+        {
+          (emitToken
+            TK_FLOAT            numStart            fp            tokens            src
+          )
+          fp
+        }
+      )
+      (if (intLitFits src numStart ep)
+        {
+          (emitToken
+            TK_INT            numStart            ep            tokens            src
+          )
+          ep
+        }
+        ; Out of i64 range. This used to lex as an ordinary TK_INT
+        ; and wrap silently: stage0 refuses
+        ; `99999999999999999999999`, this compiler built it and
+        ; printed 200376420520689663.
+        {
+          (emitToken
+            TK_ERROR            numStart            ep            tokens            src
+          )
+          ep
+        }
+      )
+    )
+  )
+)
 
 ; Public lexer interface.
 ; ------------------------------------------------------------------
-
 (pub :: lex (-> String Int))
-(pub fn (lex src)
-  ; A leading byte order mark is not a character of the program
-  ; (core.ax's `pastBom`).
-  (lexTokens src (pastBom src 0) (strLen src) (vecNew)))
 
+(pub fn (lex src) (lexTokens src (pastBom src 0) (strLen src) vecNew))
+
+; A leading byte order mark is not a character of the program
+; (core.ax's `pastBom`).
 ; ------------------------------------------------------------------
 ; AXTAGs, scanned separately from tokenization.
 ;
@@ -519,7 +888,9 @@
 ; It must skip exactly what the lexer skips, or a `;@axiom:` inside a
 ; string literal becomes a tag: string bodies with their escapes, and
 ; char literals.
-(pub struct AxtagEnt (off : Int) (content : String))
+(pub struct AxtagEnt
+  (off : Int)
+  (content : String))
 
 ; A LOOP, not a recursion, for the same reason `lexTokens` is: this
 ; walks ONE BYTE PER STEP, so its depth
@@ -532,101 +903,129 @@
 ; reached it, through `check-fmt.sh`, whose formatted copy of the
 ; repository is the largest input anything in this project reads.
 (pub :: scanAxtags (-> String Int))
+
 (pub fn (scanAxtags src)
-  (let ((acc vecNew) (len (strLen src)) (mut pos 0))
+  (let (
+    (acc vecNew)
+    (len (strLen src))
+    (mut pos 0)
+  )
     {
       (while (< pos len)
         (let ((ch (strByte src pos)))
           (if (== ch 34)
-              (set pos (skipStringBody src (+ pos 1) len))
-          ; An IDENTIFIER, consumed whole, and it has to come before the
-          ; char-literal arm. `'` is an identifier character (39 is in
-          ; `isIdentChar`, and only there - it cannot START one), so
-          ; `f'` is one token to `lexTokens`. This scanner had no
-          ; identifier arm at all, so it met the `'` of `f'` with no
-          ; context, took it for the opening quote of a char literal,
-          ; and `skipCharBody` ran to the next `'` in the file or to
-          ; EOF - swallowing every `;@axiom:` line in between.
-          ;
-          ; Measured on this repository's own AXTAG fixture: prepending
-          ; the single line `(fn (poison' n) n)` to
-          ; `tests/diagnostics/330-axtag-mismatch.ax` takes it from five
-          ; `AX3010` warnings to `OK` with none. AXTAGs are
-          ; compiler-checked metadata - a `pure` claim, an `effect(io)`
-          ; claim - so what one apostrophe deletes is the checking, in
-          ; silence, with `fmt` still preserving both the name and the
-          ; now-inert tag.
-          ;
-          ; This arm is the version that cannot drift again: it asks
-          ; `isIdentStart`/`skipIdent`, the same two functions
-          ; `stepIdentToken` asks, rather than restating the rule.
-          (if (isIdentStart ch)
+            (set pos (skipStringBody src (+ pos 1) len))
+            ; An IDENTIFIER, consumed whole, and it has to come before the
+            ; char-literal arm. `'` is an identifier character (39 is in
+            ; `isIdentChar`, and only there - it cannot START one), so
+            ; `f'` is one token to `lexTokens`. This scanner had no
+            ; identifier arm at all, so it met the `'` of `f'` with no
+            ; context, took it for the opening quote of a char literal,
+            ; and `skipCharBody` ran to the next `'` in the file or to
+            ; EOF - swallowing every `;@axiom:` line in between.
+            ;
+            ; Measured on this repository's own AXTAG fixture: prepending
+            ; the single line `(fn (poison' n) n)` to
+            ; `tests/diagnostics/330-axtag-mismatch.ax` takes it from five
+            ; `AX3010` warnings to `OK` with none. AXTAGs are
+            ; compiler-checked metadata - a `pure` claim, an `effect(io)`
+            ; claim - so what one apostrophe deletes is the checking, in
+            ; silence, with `fmt` still preserving both the name and the
+            ; now-inert tag.
+            ;
+            ; This arm is the version that cannot drift again: it asks
+            ; `isIdentStart`/`skipIdent`, the same two functions
+            ; `stepIdentToken` asks, rather than restating the rule.
+            (if (isIdentStart ch)
               (set pos (skipIdent src (+ pos 1) len))
-          (if (== ch 39)
-              (set pos (skipCharBody src (+ pos 1) len))
-          (if (&& (== ch 35) (isBlockOpen src pos len))
-              ; The same obligation as the string and char arms above,
-              ; and for the same reason: stage0 consumes a block comment
-              ; before its `;` arm ever runs, so `#| ;@axiom:pure |#` is
-              ; a comment there and must not become a tag here.
-              (set pos (skipBlockComment src (+ pos 2) len))
-          (if (== ch 59)
-              (let ((nl (findNewline src pos len)))
-                {
-                  (if (== (hasAxiomPrefix src (+ pos 1) len) 1)
-                      (vecPush acc
-                        (cast Int (AxtagEnt pos
-                                    (strSlice src (+ pos 8)
-                                              (- nl (+ pos 8))))))
-                      0)
-                  (set pos nl)
-                })
-              (set pos (+ pos 1)))))))))
+              (if (== ch 39)
+                (set pos (skipCharBody src (+ pos 1) len))
+                (if (&& (== ch 35) (isBlockOpen src pos len))
+                  ; The same obligation as the string and char arms above,
+                  ; and for the same reason: stage0 consumes a block comment
+                  ; before its `;` arm ever runs, so `#| ;@axiom:pure |#` is
+                  ; a comment there and must not become a tag here.
+                  (set pos (skipBlockComment src (+ pos 2) len))
+                  (if (== ch 59)
+                    (let ((nl (findNewline src pos len)))
+                      {
+                        (if (== (hasAxiomPrefix src (+ pos 1) len) 1)
+                          (vecPush
+                            acc                            (cast Int (AxtagEnt pos (strSlice src (+ pos 8) (- nl (+ pos 8)))))
+                          )
+                          0
+                        )
+                        (set pos nl)
+                      }
+                    )
+                    (set pos (+ pos 1))
+                  )
+                )
+              )
+            )
+          )
+        ))
       acc
-    }))
+    }
+  )
+)
 
 ; `@axiom:` is seven bytes; the tag's content starts one past them,
 ; which is why the slice above begins at pos+8 (the `;` plus seven).
 (pub :: hasAxiomPrefix (-> String Int Int Int))
+
 (pub fn (hasAxiomPrefix src pos len)
   (if (> (+ pos 7) len)
+    0
+    (if (&& (== (strByte src pos) 64) (&& (== (strByte src (+ pos 1)) 97) (&& (== (strByte src (+ pos 2)) 120) (&& (== (strByte src (+ pos 3)) 105) (&& (== (strByte src (+ pos 4)) 111) (&& (== (strByte src (+ pos 5)) 109) (== (strByte src (+ pos 6)) 58)))))))
+      1
       0
-      (if (&& (== (strByte src pos) 64)
-          (&& (== (strByte src (+ pos 1)) 97)
-          (&& (== (strByte src (+ pos 2)) 120)
-          (&& (== (strByte src (+ pos 3)) 105)
-          (&& (== (strByte src (+ pos 4)) 111)
-          (&& (== (strByte src (+ pos 5)) 109)
-              (== (strByte src (+ pos 6)) 58)))))))
-          1
-          0)))
+    )
+  )
+)
 
 (pub :: findNewline (-> String Int Int Int))
+
 (pub fn (findNewline src pos len)
   (if (>= pos len)
-      len
-      (if (== (strByte src pos) 10)
-          pos
-          (findNewline src (+ pos 1) len))))
+    len
+    (if (== (strByte src pos) 10)
+      pos
+      (findNewline src (+ pos 1) len)
+    )
+  )
+)
 
 (pub :: skipStringBody (-> String Int Int Int))
+
 (pub fn (skipStringBody src pos len)
   (if (>= pos len)
-      len
-      (let ((ch (strByte src pos)))
-        (if (== ch 92)
-            (skipStringBody src (+ pos 2) len)
+    len
+    (let ((ch (strByte src pos)))
+      (if (== ch 92)
+        (skipStringBody src (+ pos 2) len)
         (if (== ch 34)
-            (+ pos 1)
-        (skipStringBody src (+ pos 1) len))))))
+          (+ pos 1)
+          (skipStringBody src (+ pos 1) len)
+        )
+      )
+    )
+  )
+)
 
 (pub :: skipCharBody (-> String Int Int Int))
+
 (pub fn (skipCharBody src pos len)
   (if (>= pos len)
-      len
-      (let ((ch (strByte src pos)))
-        (if (== ch 92)
-            (skipCharBody src (+ pos 2) len)
+    len
+    (let ((ch (strByte src pos)))
+      (if (== ch 92)
+        (skipCharBody src (+ pos 2) len)
         (if (== ch 39)
-            (+ pos 1)
-        (skipCharBody src (+ pos 1) len))))))
+          (+ pos 1)
+          (skipCharBody src (+ pos 1) len)
+        )
+      )
+    )
+  )
+)

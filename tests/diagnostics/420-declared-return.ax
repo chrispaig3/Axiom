@@ -1,4 +1,7 @@
 (:: g (-> Int Int Int))
+
 (fn (g a) a)
+
 (:: main Int)
+
 (fn (main) (g 41 2))

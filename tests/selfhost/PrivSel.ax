@@ -6,7 +6,9 @@
 ; delete this module's own call to it exactly as a missing `pub` did -
 ; `resolveDeclsPhase` asked one question with two `&&`ed halves.
 (pub :: sibling (-> Int Int))
+
 (pub fn (sibling n) (* n 3))
 
 (pub :: viaSibling (-> Int Int))
+
 (pub fn (viaSibling n) (sibling (sibling n)))

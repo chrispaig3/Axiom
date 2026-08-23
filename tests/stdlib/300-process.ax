@@ -21,11 +21,14 @@
 ; from stdin, and stdin is whatever the harness inherited. A hang is an
 ; unusual way for a test to discriminate, so it is recorded here - the
 ; case is doing its job when it stops, not when it fails a diff.
-
 (import IO)
+
 (import Sys)
+
 (import Str)
+
 (import Mem)
+
 (import Vec)
 
 ; Build a NULL-terminated argv from up to three Str arguments; a "" ends
@@ -33,31 +36,43 @@
 ; every element is copied through `strDup` - a slice of a larger string
 ; shares storage and stops at no NUL.
 (pub :: argv3 (-> String String String Int))
+
 (pub fn (argv3 a b c)
   (let ((v (memAlloc 32)))
     {
       (memSetWord v 0 (strCStr (strDup a)))
-      (memSetWord v 1 (if (> (strLen b) 0) (strCStr (strDup b)) 0))
-      (memSetWord v 2 (if (> (strLen c) 0) (strCStr (strDup c)) 0))
+      (memSetWord
+        v        1        (if (> (strLen b) 0)
+          (strCStr (strDup b))
+          0
+        )
+      )
+      (memSetWord
+        v        2        (if (> (strLen c) 0)
+          (strCStr (strDup c))
+          0
+        )
+      )
       (memSetWord v 3 0)
       v
-    }))
+    }
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
+  ; A child that exits 0, and one that exits 1: the status has to
+  ; travel, not merely the fact that something ran.
   (let ((env sysEnvp))
     {
-      ; A child that exits 0, and one that exits 1: the status has to
-      ; travel, not merely the fact that something ran.
-      (println (sysRun (strCStr "/usr/bin/true") (argv3 "/usr/bin/true" "" "") env))   ; 0
-      (println (sysRun (strCStr "/usr/bin/false") (argv3 "/usr/bin/false" "" "") env)) ; 1
-
+      (println (sysRun (strCStr "/usr/bin/true") (argv3 "/usr/bin/true" "" "") env))  ; 0
+      (println (sysRun (strCStr "/usr/bin/false") (argv3 "/usr/bin/false" "" "") env))  ; 1
       ; THE discriminator: an exit code that can only arise if both
       ; arguments reached the child. With a NULL argv, `sh` reads EOF
       ; from stdin and exits 0 instead.
-      (println (sysRun (strCStr "/bin/sh") (argv3 "/bin/sh" "-c" "exit 7") env))       ; 7
-
+      (println (sysRun (strCStr "/bin/sh") (argv3 "/bin/sh" "-c" "exit 7") env))  ; 7
       ; A path that does not exist must report the spawn's own failure
       ; rather than some exit code, so a driver can tell "llc is not
       ; installed" from "llc rejected the module".
@@ -70,22 +85,35 @@
       ; `sysSpawn` grew a pre-fork test. Ablating that test and running
       ; on macOS passes, which is a property of the defect rather than
       ; a weak case.
-      (println (if (< (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env) 0) 1 0)) ; 1
-
+      (println
+        (if (< (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env) 0)  ; 1
+          1
+          0
+        )
+      )
       ; PATH search finds a bare name, and still delivers arguments.
-      (println (sysRunPath "sh" (argv3 "sh" "-c" "exit 3") env))                       ; 3
-
+      (println (sysRunPath "sh" (argv3 "sh" "-c" "exit 3") env))  ; 3
       ; A bare name that is on no PATH entry answers -ENOENT, not an
       ; exit code that could be confused with success.
-      (println (if (< (sysRunPath "axiom-no-such-tool" (argv3 "x" "" "") env) 0) 1 0))  ; 1
-
+      (println
+        (if (< (sysRunPath "axiom-no-such-tool" (argv3 "x" "" "") env) 0)  ; 1
+          1
+          0
+        )
+      )
       ; The environment is readable, and is the process's own: PATH is
       ; set for every process that got here through a shell.
-      (println (if (> (strLen (sysEnv "PATH")) 0) 1 0))                                ; 1
-      (println (strLen (sysEnv "AXIOM_NO_SUCH_VARIABLE_IS_SET")))                      ; 0
-
+      (println
+        (if (> (strLen (sysEnv "PATH")) 0)  ; 1
+          1
+          0
+        )
+      )
+      (println (strLen (sysEnv "AXIOM_NO_SUCH_VARIABLE_IS_SET")))  ; 0
       ; The forwarded environment reaches the child: `sh` can see PATH
       ; only if `envp` was passed through rather than emptied.
       (println (sysRunPath "sh" (argv3 "sh" "-c" "test -n \"$PATH\" && exit 5") env))  ; 5
       0
-    }))
+    }
+  )
+)

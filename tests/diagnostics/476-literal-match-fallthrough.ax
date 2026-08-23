@@ -7,4 +7,10 @@
 ; MM-VAL-9b; refused since 2026-08-14. (A bool match carrying BOTH
 ; `true` and `false` arms still checks - it cannot fall through.)
 (:: main Int)
-(fn (main) (match 7 ((1) 11) ((2) 22)))
+
+(fn (main)
+  (match 7
+    (1 11)
+    (2 22)
+  )
+)

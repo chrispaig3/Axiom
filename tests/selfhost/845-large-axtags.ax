@@ -27,17 +27,27 @@
 ; scan has real work to do rather than one long skip. Restoring the
 ; recursive spelling fails this case with SIGSEGV.
 (import Str)
+
 (import Vec)
+
 (import lexer)
 
 (:: rep (-> String Int String))
+
 (fn (rep s n)
-  (if (== n 0) s (rep (strConcat s s) (- n 1))))
+  (if (== n 0)
+    s
+    (rep (strConcat s s) (- n 1))
+  )
+)
 
 (:: main Int)
+
 (fn (main)
   (let ((src (rep ";@axiom:pure\n(fn (f x) x)\n" 14)))
-    (if (&& (> (strLen src) 400000)
-            (== (vecLen (scanAxtags src)) 16384))
-        42
-        1)))
+    (if (&& (> (strLen src) 400000) (== (vecLen (scanAxtags src)) 16384))
+      42
+      1
+    )
+  )
+)

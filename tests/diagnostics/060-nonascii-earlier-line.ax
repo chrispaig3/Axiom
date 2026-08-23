@@ -1,4 +1,6 @@
 ; A comment with an em-dash — before the error, on an EARLIER line.
 (:: main Int)
+
 (fn (main) 0)
+
 (fn (main) 1)

@@ -1,8 +1,8 @@
 [1;31merror[AX3008][0m[1m: a lambda with no parameters can never be called[0m
- [1;34m--> [0m390-nullary-lambda.ax:2:22
+ [1;34m--> [0m390-nullary-lambda.ax:5:6
 [1;34m  |[0m
-[1;34m2 |[0m (fn (main) (let ((f (lambda () 42))) (f)))
-[1;34m  |[0m                      [1;31m^^^^^^ this lambda takes no parameters[0m
+[1;34m5 |[0m     (lambda () 42)
+[1;34m  |[0m      [1;31m^^^^^^ this lambda takes no parameters[0m
 [1;34m  |[0m
  [1;34m = [0m[1mnote: [0m`(f)` and `f` are the same expression, so no syntax applies a nullary closure; it used to evaluate to the closure record's address
  [1;34m = [0m[1;32mhelp: [0mgive it a parameter, or write a top-level `(fn (name) body)` - a bare reference to a nullary function does call it

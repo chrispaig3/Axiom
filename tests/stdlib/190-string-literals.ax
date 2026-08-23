@@ -12,44 +12,66 @@
 ; eight bytes of the length word. Everything below therefore checks
 ; the two spellings agree rather than merely that each runs.
 (import IO)
+
 (import Str)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((direct "hello")
-        (viaAddr (strFromLit (__addr "hello")))
-        (empty "")
-        (escapes "a\tb\nc\\d\"e"))
+  ; Same length, same bytes, same comparison result.
+  (let (
+    (direct "hello")
+    (viaAddr (strFromLit (__addr "hello")))
+    (empty "")
+    (escapes "a\tb\nc\\d\"e")
+  )
     {
-      ; Same length, same bytes, same comparison result.
       (println (strLen direct))
       (println (strLen viaAddr))
       (println (strCmp direct viaAddr))
       (println direct)
       (println viaAddr)
-
       ; An empty literal has length zero and is not confused with a
       ; NUL byte of payload.
       (println (strLen empty))
-      (println (if (strIsEmpty empty) 1 0))
-      (println (if (strIsEmpty direct) 1 0))
-
+      (println
+        (if (strIsEmpty empty)
+          1
+          0
+        )
+      )
+      (println
+        (if (strIsEmpty direct)
+          1
+          0
+        )
+      )
       ; Escapes are resolved before the length is computed, so the
       ; header's length counts bytes, not source characters.
       (println (strLen escapes))
       (println escapes)
-
       ; A literal is an ordinary `Str` everywhere: concatenation,
       ; slicing and byte access do not care where it came from.
       (println (strConcat direct ", world"))
       (println (strSlice "abcdef" 2 3))
       (println (strByte "abc" 1))
-      (println (if (strEq "abc" "abc") 1 0))
-      (println (if (strEq "abc" "abd") 1 0))
-
+      (println
+        (if (strEq "abc" "abc")
+          1
+          0
+        )
+      )
+      (println
+        (if (strEq "abc" "abd")
+          1
+          0
+        )
+      )
       ; Two occurrences of the same text share one global, so they are
       ; equal by value; identity is not promised and is not checked.
       (println (strCmp "same" "same"))
       0
-    }))
+    }
+  )
+)

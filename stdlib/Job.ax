@@ -41,10 +41,12 @@
 ; That last distinction is the one a driver must not lose - "could not
 ; start llc" and "llc rejected the module" are different failures, and
 ; `Sys.ax` says so where `sysRun` is defined.
-
 (import Mem)
+
 (import Str)
+
 (import Vec)
+
 (import Sys)
 
 ; A pool is a 4-word record:
@@ -57,59 +59,93 @@
 ; `pids` and `codes` are parallel and pushed in lockstep - the discipline
 ; `codegen.ax`'s `bares`/`fulls` pair records the hard way. Every write
 ; below appends to both or to neither.
-(struct JobPool (width : Int) (pids : Int) (codes : Int) (live : Int))
+(struct JobPool
+  (width : Int)
+  (pids : Int)
+  (codes : Int)
+  (live : Int))
 
 ; The sentinel a slot's result holds before it has been reaped. It is
 ; outside `sysRun`'s whole range - exit codes are 0..255, signal deaths
 ; are 128+n, and spawn failures are negative errnos, none of which reach
 ; -1000 - so it cannot be mistaken for an answer.
 (:: jobPending Int)
+
 (fn (jobPending) (- 0 1000))
 
-(:: jobWidth (-> Int Int))   (fn (jobWidth p) (memGetWord p 0))
-(:: jobPids (-> Int Int))    (fn (jobPids p) (memGetWord p 1))
-(:: jobCodes (-> Int Int))   (fn (jobCodes p) (memGetWord p 2))
-(:: jobLive (-> Int Int))    (fn (jobLive p) (memGetWord p 3))
+(:: jobWidth (-> Int Int))
+
+(fn (jobWidth p) (memGetWord p 0))
+
+(:: jobPids (-> Int Int))
+
+(fn (jobPids p) (memGetWord p 1))
+
+(:: jobCodes (-> Int Int))
+
+(fn (jobCodes p) (memGetWord p 2))
+
+(:: jobLive (-> Int Int))
+
+(fn (jobLive p) (memGetWord p 3))
 
 ; A width below 1 would submit nothing and join forever, so it is
 ; clamped rather than trusted. `width` 1 is meaningful and is the
 ; default a gate should use when it wants reproducibility: the pool
 ; then behaves exactly like a sequence of `sysRun` calls.
 (:: jobPoolNew (-> Int Int))
+
 (fn (jobPoolNew width)
-  (JobPool (if (< width 1) 1 width) vecNew vecNew 0))
+  (JobPool
+    (if (< width 1)
+      1
+      width
+    )    vecNew    vecNew    0
+  )
+)
 
 ; Reap the oldest slot that is still outstanding, recording its result.
 ; Answers 1 if it reaped one, 0 if there was nothing to reap.
 (:: jobReapOldest (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (jobReapOldest p)
-  (let ((pids (jobPids p))
-        (codes (jobCodes p))
-        (mut i 0)
-        (mut done 0))
+  (let (
+    (pids (jobPids p))
+    (codes (jobCodes p))
+    (mut i 0)
+    (mut done 0)
+  )
     {
       (while (&& (== done 0) (< i (vecLen pids)))
         (let ((pid (vecGet pids i)))
           (if (== pid 0)
-              (set i (+ i 1))
-              {
-                (vecSet codes i (jobStatusToCode (sysWaitPid pid)))
-                (vecSet pids i 0)
-                (memSetWord p 3 (- (jobLive p) 1))
-                (set done 1)
-              })))
+            (set i (+ i 1))
+            {
+              (vecSet codes i (jobStatusToCode (sysWaitPid pid)))
+              (vecSet pids i 0)
+              (memSetWord p 3 (- (jobLive p) 1))
+              (set done 1)
+            }
+          )
+        ))
       done
-    }))
+    }
+  )
+)
 
 ; `sysRun`'s reading of a raw wait status, kept identical to it.
 (:: jobStatusToCode (-> Int Int))
+
 (fn (jobStatusToCode st)
   (if (< st 0)
-      st
-      (if (!= (sysTermSignal st) 0)
-          (+ 128 (sysTermSignal st))
-          (sysExitCode st))))
+    st
+    (if (!= (sysTermSignal st) 0)
+      (+ 128 (sysTermSignal st))
+      (sysExitCode st)
+    )
+  )
+)
 
 ; Start `path` with `argv` and `envp`, answering the slot it was given.
 ;
@@ -118,44 +154,54 @@
 ; the caller still gets one answer per submission and still gets them in
 ; order - a failed submission must not shift every later result by one.
 (:: jobSubmit (-> Int Int Int Int Int))
+
 ;@axiom:effect(io)
 (fn (jobSubmit p path argv envp)
+  ; The loop exits on `jobReapOldest` answering 0 as well as on the
+  ; pool draining. `live` and the `pids` Vec are two views of the same
+  ; fact, and a loop that trusted only the counter would spin forever
+  ; if they ever disagreed - which is the shape of hang this project
+  ; has already met once, in the parser's effect-list loops that
+  ; consumed no token on an unrecognised one.
   {
-    ; The loop exits on `jobReapOldest` answering 0 as well as on the
-    ; pool draining. `live` and the `pids` Vec are two views of the same
-    ; fact, and a loop that trusted only the counter would spin forever
-    ; if they ever disagreed - which is the shape of hang this project
-    ; has already met once, in the parser's effect-list loops that
-    ; consumed no token on an unrecognised one.
     (let ((mut more 1))
       (while (&& (== more 1) (>= (jobLive p) (jobWidth p)))
-        (set more (jobReapOldest p))))
-    (let ((slot (vecLen (jobPids p)))
-          (pid (sysSpawn path argv envp)))
+        (set more (jobReapOldest p)))
+    )
+    (let (
+      (slot (vecLen (jobPids p)))
+      (pid (sysSpawn path argv envp))
+    )
       (if (< pid 0)
-          {
-            (vecPush (jobPids p) 0)
-            (vecPush (jobCodes p) pid)
-            slot
-          }
-          {
-            (vecPush (jobPids p) pid)
-            (vecPush (jobCodes p) jobPending)
-            (memSetWord p 3 (+ (jobLive p) 1))
-            slot
-          }))
-  })
+        {
+          (vecPush (jobPids p) 0)
+          (vecPush (jobCodes p) pid)
+          slot
+        }
+        {
+          (vecPush (jobPids p) pid)
+          (vecPush (jobCodes p) jobPending)
+          (memSetWord p 3 (+ (jobLive p) 1))
+          slot
+        }
+      )
+    )
+  }
+)
 
 ; Wait for every outstanding child and answer the Vec of results, in
 ; SUBMIT order. Safe to call more than once; the second call finds
 ; nothing live and answers the same Vec.
 (:: jobWaitAll (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (jobWaitAll p)
   {
-    (while (> (jobLive p) 0) (jobReapOldest p))
+    (while (> (jobLive p) 0)
+      (jobReapOldest p))
     (jobCodes p)
-  })
+  }
+)
 
 ; Run every command in `cmds` at up to `width` at once, answering their
 ; exit codes in the order they appear in `cmds`.
@@ -165,10 +211,13 @@
 ; PATH the same way. This is the shape a gate script wants - a list of
 ; cases, a width, and an answer per case in the order it was listed.
 (pub :: jobRunAll (-> Int Int Int))
+
 ;@axiom:effect(io)
 (pub fn (jobRunAll cmds width)
-  (let ((p (jobPoolNew width))
-        (mut i 0))
+  (let (
+    (p (jobPoolNew width))
+    (mut i 0)
+  )
     {
       (while (< i (vecLen cmds))
         {
@@ -176,7 +225,9 @@
           (set i (+ i 1))
         })
       (jobWaitAll p)
-    }))
+    }
+  )
+)
 
 ; Submit one argv Vec, resolving element 0 the way `sysRunPath` does.
 ;
@@ -185,11 +236,14 @@
 ; child that exits 127 - the distinction `sysSpawn` documents and goes
 ; to some trouble to preserve.
 (:: jobSubmitArgv (-> Int Int Int))
+
 ;@axiom:effect(io)
 (fn (jobSubmitArgv p argv)
   (if (== (vecLen argv) 0)
-      (jobSubmit p (strCStr "") (jobArgvVector argv) sysEnvp)
-      (jobSubmit p (strCStr (strDup (vecGet argv 0))) (jobArgvVector argv) sysEnvp)))
+    (jobSubmit p (strCStr "") (jobArgvVector argv) sysEnvp)
+    (jobSubmit p (strCStr (strDup (vecGet argv 0))) (jobArgvVector argv) sysEnvp)
+  )
+)
 
 ; A NULL-terminated array of char* from a Vec of `Str`, which is the
 ; shape `execve` and `posix_spawn` both take.
@@ -203,9 +257,12 @@
 ; `Str` does. `tests/stdlib/300-process.ax` records the same rule for
 ; the same reason on its own argv helper.
 (:: jobArgvVector (-> Int Int))
+
 (fn (jobArgvVector argv)
-  (let ((n (vecLen argv))
-        (mut i 0))
+  (let (
+    (n (vecLen argv))
+    (mut i 0)
+  )
     (let ((v (memAlloc (* 8 (+ n 1)))))
       {
         (while (< i n)
@@ -215,4 +272,7 @@
           })
         (memSetWord v n 0)
         v
-      })))
+      }
+    )
+  )
+)

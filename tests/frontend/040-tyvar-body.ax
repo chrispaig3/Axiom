@@ -2,7 +2,9 @@
 ; Arithmetic on a value whose type the caller chooses. Checked clean
 ; and printed a heap address before source type variables were rigid.
 (:: bad (-> a Int))
+
 (fn (bad x) (+ x 1))
 
 (:: main Int)
+
 (fn (main) 0)

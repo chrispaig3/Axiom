@@ -10,12 +10,27 @@
 ; lines, which is what makes this a fixture and not a file with an
 ; empty golden.
 (:: quiet (-> Int Int))
+
 #|
 ;@axiom:pure
 |#
-(fn (quiet fd) { (__syscall3 1 fd 0 0) 0 })
+(fn (quiet fd)
+  {
+    (__syscall3 1 fd 0 0)
+    0
+  }
+)
+
 (:: loud (-> Int Int))
+
 ;@axiom:pure
-(fn (loud fd) { (__syscall3 1 fd 0 0) 0 })
+(fn (loud fd)
+  {
+    (__syscall3 1 fd 0 0)
+    0
+  }
+)
+
 (:: main Int)
+
 (fn (main) 0)

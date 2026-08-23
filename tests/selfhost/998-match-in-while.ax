@@ -19,24 +19,46 @@
 ; the program compiles.
 ;
 ; 30 + 12 = 42.
-(data MyList (a) (MNil) (MCons a (MyList a)))
+(data MyList a
+  (MNil)
+  (MCons a (MyList a)))
+
 (:: walk (-> (MyList Int) Int))
+
 (fn (walk l)
-  (let ((mut cur l) (mut acc 0) (mut go 1))
+  (let (
+    (mut cur l)
+    (mut acc 0)
+    (mut go 1)
+  )
     {
       (while (== go 1)
         (match cur
-          ((MCons h t) { (set acc (+ acc h)) (set cur t) })
-          ((MNil) (set go 0))))
+          ((MCons h t)
+            {
+              (set acc (+ acc h))
+              (set cur t)
+            }
+          )
+          ((MNil)
+            (set go 0)
+          )
+        ))
       acc
-    }))
+    }
+  )
+)
+
 (:: deep (-> (Option (Option Int)) Int))
+
 (fn (deep o)
   (match o
     ((Some (Some x)) (+ x 1))
     ((Some (None)) 1)
-    ((None) 0)))
+    ((None) 0)
+  )
+)
+
 (:: main Int)
-(fn (main)
-  (+ (walk (MCons 10 (MCons 20 MNil)))
-     (deep (Some (Some 11)))))
+
+(fn (main) (+ (walk (MCons 10 (MCons 20 MNil))) (deep (Some (Some 11)))))

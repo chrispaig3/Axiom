@@ -38,6 +38,7 @@
 ; never in question - and the three terms that measure ownership do
 ; not.
 (import Str)
+
 (import Mem)
 
 (struct Slot
@@ -45,61 +46,108 @@
   (n : Int))
 
 (:: b2i (-> Bool Int))
-(fn (b2i x) (if x 1 0))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
 
 (:: cnt (-> String Int))
-(fn (cnt s) (__load64 (- (cast Int s) 16) 0))
+
+(fn (cnt s)
+  (__load64
+    (-
+      (cast Int s)      16
+    )    0
+  )
+)
 
 (:: wide (-> Int String))
+
 (fn (wide k) (strDup "0123456789abcdef0123456789abcdef0123456789abcdef"))
 
 (:: churn (-> Slot Int Int))
+
 (fn (churn sl n)
   (if (<= n 0)
-      0
-      {
-        (set sl.s (wide n))
-        (churn sl (- n 1))
-      }))
+    0
+    {
+      (set sl.s (wide n))
+      (churn sl (- n 1))
+    }
+  )
+)
 
 (:: main Int)
+
 (fn (main)
-  (let ((mut acc 0) (mut steps 0))
+  ; --- 32: the loop is flat -----------------------------------
+  (let (
+    (mut acc 0)
+    (mut steps 0)
+  )
     {
-      ; --- 32: the loop is flat -----------------------------------
       (let ((seed (wide 0)))
-        (let ((sl (struct Slot seed 0)))
+        (let ((sl 
+          (struct Slot seed 0)
+        ))
           (let ((b1 (memAlloc 200)))
             {
               (churn sl 1000)
               (let ((b2 (memAlloc 200)))
-                (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096))))))
+                (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096)))))
+              )
               (set steps (+ steps 1))
-            })))
+            }
+          )
+        )
+      )
       ; --- 16 and 8: the counts move both ways --------------------
-      (let ((a (strDup "aaaa")) (b (strDup "bbbb")))
-        (let ((sl (struct Slot a 0)))
+      (let (
+        (a (strDup "aaaa"))
+        (b (strDup "bbbb"))
+      )
+        (let ((sl 
+          (struct Slot a 0)
+        ))
           {
             (set sl.s b)
             (set acc (+ acc (* 16 (b2i (== (cnt a) 1)))))
             (set acc (+ acc (* 8 (b2i (== (cnt b) 2)))))
             (set steps (+ steps 1))
-          }))
+          }
+        )
+      )
       ; --- 4: a self-assignment is not a free ---------------------
       (let ((c (strDup "cccc")))
-        (let ((sl (struct Slot c 0)))
+        (let ((sl 
+          (struct Slot c 0)
+        ))
           {
             (set sl.s sl.s)
             (set acc (+ acc (* 4 (b2i (== (strByte sl.s 0) 99)))))
             (set steps (+ steps 1))
-          }))
+          }
+        )
+      )
       ; --- 2: a scalar field is left alone ------------------------
       (let ((d (strDup "dddd")))
-        (let ((sl (struct Slot d 7)))
+        (let ((sl 
+          (struct Slot d 7)
+        ))
           {
             (set sl.n 9)
             (set acc (+ acc (* 2 (b2i (&& (== sl.n 9) (== (cnt d) 2))))))
             (set steps (+ steps 1))
-          }))
-      (if (== steps 4) (+ acc 1) acc)
-    }))
+          }
+        )
+      )
+      (if (== steps 4)
+        (+ acc 1)
+        acc
+      )
+    }
+  )
+)

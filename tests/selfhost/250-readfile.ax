@@ -1,9 +1,17 @@
 ; expect 42
 (import Str)
+
 (import Sys)
+
 ; in.ax is this file; its first line is the `; expect` marker, so a
 ; successful read is any non-zero length.
 (:: main Int)
+
 (fn (main)
   (let ((src (sysReadFile (__addr "in.ax"))))
-    (if (> (strLen src) 0) 42 7)))
+    (if (> (strLen src) 0)
+      42
+      7
+    )
+  )
+)

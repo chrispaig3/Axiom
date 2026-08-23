@@ -13,14 +13,20 @@
 ;   (tri 21)   trait default using a parameterised macro AND a bare
 ;              zero-parameter one (MAC-LANG-3's other spelling) -> 51
 (macro (dbl x) (+ x x))
+
 (macro (nine) 9)
 
-(trait (Doubler a) where
-  (dub :: (-> a Int)
-   tri :: (-> a Int) = (lambda (x) (+ (dbl x) nine))))
+(trait (Doubler a) where (
+  dub :: (-> a Int)
+  tri :: (-> a Int) = (lambda (x) (+ (dbl x) nine))
+))
 
-(impl (Doubler Int) where
-  ((dub (lambda (x) (dbl x)))))
+(impl (Doubler Int) where (
+  (dub
+    (lambda (x) (dbl x))
+  )
+))
 
 (:: main Int)
+
 (fn (main) (+ (dub 21) (tri 21)))

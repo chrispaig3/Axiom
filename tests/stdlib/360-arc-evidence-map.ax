@@ -40,38 +40,57 @@
   (tock :: (-> Int Int)))
 
 (:: b2i (-> Bool Int))
-(fn (b2i x) (if x 1 0))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
 
 (:: hspin (-> Int Int Int))
+
 (fn (hspin n acc)
   (if (<= n 0)
-      acc
-      (hspin (- n 1)
-             (+ acc (handle (tick n) (Tick) (lambda (k) k))))))
+    acc
+    (hspin
+      (- n 1)      (+
+        acc        (handle (tick n) (Tick) (lambda (k) k))
+      )
+    )
+  )
+)
 
 ; The handlers are BOUND here rather than built at the handle, which
 ; makes this the retain case rather than the move case: word 0 holds a
 ; block the caller also holds, so the record has to take a share and
 ; give it back, where `hspin`'s inline lambda simply moves in.
 (:: nested (-> Int Int))
-(fn (nested n)
-  (let ((inner (lambda (b) (* b 10)))
-        (outer (lambda (a) a)))
-    (handle (+ (tick n)
-               (handle (tock n) (Tock) inner))
-            ; `Alloc` rides in the effect list because the inner
-            ; `handle` allocates its own evidence record, and the
-            ; outer handle's body is where that allocation happens -
-            ; the same list `tests/stdlib/300-effect-handlers.ax`
-            ; writes for its nesting.
-            (Tick Alloc)
-            outer)))
 
+(fn (nested n)
+  (let (
+    (inner (lambda (b) (* b 10)))
+    (outer (lambda (a) a))
+  )
+    (handle (+
+      (tick n)      (handle (tock n) (Tock) inner)
+    ) (Tick Alloc) outer)
+  )
+)
+
+; `Alloc` rides in the effect list because the inner
+; `handle` allocates its own evidence record, and the
+; outer handle's body is where that allocation happens -
+; the same list `tests/stdlib/300-effect-handlers.ax`
+; writes for its nesting.
 (:: main Int)
+
 (fn (main)
   (let ((b1 (memAlloc 200)))
     (let ((r (hspin 1000 0)))
       (let ((b2 (memAlloc 200)))
-        (+ (* 4 (b2i (< (- b2 b1) 4096)))
-           (+ (* 2 (b2i (== r 500500)))
-              (b2i (== (nested 3) 33))))))))
+        (+ (* 4 (b2i (< (- b2 b1) 4096))) (+ (* 2 (b2i (== r 500500))) (b2i (== (nested 3) 33))))
+      )
+    )
+  )
+)

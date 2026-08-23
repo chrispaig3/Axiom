@@ -34,16 +34,14 @@
 
 ;; The lens set of macro-system.md section 10.3, named by TYPE and
 ;; field rather than by field alone.
-(pub macro deriveGetQ
-  ((deriveGetQ S)
+(pub macro deriveGetQ ((deriveGetQ S)
    (syntax/for (f (syntax/fields S))
      (pub :: (syntax/join (syntax/join get S) f) (-> S Int))
      (pub fn ((syntax/join (syntax/join get S) f) s) s.f))))
 
 ;; Three parts on the left, one on the right - the nesting is not
 ;; special-cased to depth one.
-(pub macro deriveMyGet
-  ((deriveMyGet S)
+(pub macro deriveMyGet ((deriveMyGet S)
    (syntax/for (f (syntax/fields S))
      (pub :: (syntax/join (syntax/join (syntax/join my get) S) f) (-> S Int))
      (pub fn ((syntax/join (syntax/join (syntax/join my get) S) f) s) s.f))))
@@ -57,23 +55,28 @@
 (:: main Int)
 
 (fn (main)
-  (+ (if (== (getPointX (Point 1 2)) 1)
-       1
-       0
-     )
-     (+ (if (== (getRectX (Rect 3 4)) 3)
-          2
+  (+
+    (if (== (getPointX (Point 1 2)) 1)
+      1
+      0
+    )    (+
+      (if (== (getRectX (Rect 3 4)) 3)
+        2
+        0
+      )      (+
+        (if (== (getRectW (Rect 3 4)) 4)
+          4
           0
+        )        (+
+          (if (== (myGetPointY (Point 1 2)) 2)
+            8
+            0
+          )          (if (== (getPointY (Point 5 6)) 6)
+            32
+            0
+          )
         )
-        (+ (if (== (getRectW (Rect 3 4)) 4)
-             4
-             0
-           )
-           (+ (if (== (myGetPointY (Point 1 2)) 2)
-                8
-                0
-              )
-              (if (== (getPointY (Point 5 6)) 6)
-                32
-                0
-              ))))))
+      )
+    )
+  )
+)

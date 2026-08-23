@@ -19,67 +19,95 @@
 ; reference-counting scheme would keep every one of them, and the heap
 ; would grow without bound. Tracing collects them.
 (import IO)
+
 (import Str)
+
 (import Vec)
+
 (import Mem)
 
-(data L (Nil) (Cons Int L))
+(data L
+  (Nil)
+  (Cons Int L))
 
 (pub :: buildList (-> Int L L))
+
 (pub fn (buildList n acc)
   (if (<= n 0)
-      acc
-      (buildList (- n 1) (Cons n acc))))
+    acc
+    (buildList (- n 1) (Cons n acc))
+  )
+)
 
 ; Tail-recursive so the sum itself costs no stack, leaving the stack
 ; scan a small, honest range to walk.
 (pub :: sumFrom (-> L Int Int))
+
 (pub fn (sumFrom l acc)
   (match l
     ((Nil) acc)
-    ((Cons v t) (sumFrom t (+ acc v)))))
+    ((Cons v t) (sumFrom t (+ acc v)))
+  )
+)
 
 ; Allocate and drop, `n` times, holding `keep` across every iteration.
 (pub :: churn (-> Int L L))
+
 (pub fn (churn n keep)
   (if (<= n 0)
-      keep
-      {
-        (strAlloc 200)
-        (churn (- n 1) keep)
-      }))
+    keep
+    {
+      (strAlloc 200)
+      (churn (- n 1) keep)
+    }
+  )
+)
 
 ; Two vectors that reference each other, then dropped. Unreachable as a
 ; pair; reachable from each other forever.
 (pub :: cycles (-> Int Int Int))
+
 (pub fn (cycles n acc)
   (if (<= n 0)
-      acc
-      (let ((a (vecNew))
-            (b (vecNew))
-            (_1 (vecPush a b))
-            (_2 (vecPush b a)))
-        (cycles (- n 1) acc))))
+    acc
+    (let (
+      (a vecNew)
+      (b vecNew)
+      (_1 (vecPush a b))
+      (_2 (vecPush b a))
+    )
+      (cycles (- n 1) acc)
+    )
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((live (buildList 2000 (Nil)))
-        (before (sumFrom live 0)))
+  (let (
+    (live (buildList 2000 Nil))
+    (before (sumFrom live 0))
+  )
     {
-      (println before)                        ; 2001000 = 1+2+...+2000
-
+      (println before)  ; 2001000 = 1+2+...+2000
       ; ~22 MB of garbage, with `live` reachable only from a parameter.
       (let ((kept (churn 100000 live)))
         {
-          (println (sumFrom kept 0))          ; unchanged
-          (println (if (== (sumFrom kept 0) before) 1 0))
-        })
-
+          (println (sumFrom kept 0))  ; unchanged
+          (println
+            (if (== (sumFrom kept 0) before)
+              1
+              0
+            )
+          )
+        }
+      )
       ; ~3 MB of unreachable cycles.
-      (println (cycles 50000 7))              ; 7
-
+      (println (cycles 50000 7))  ; 7
       ; The original binding is still good after all of it.
-      (println (sumFrom live 0))              ; unchanged
+      (println (sumFrom live 0))  ; unchanged
       0
-    }))
+    }
+  )
+)

@@ -1,17 +1,17 @@
 [1;31merror[AX3016][0m[1m: unknown effect `Nope`[0m
- [1;34m--> [0m300-unknown-effect.ax:4:23
+ [1;34m--> [0m300-unknown-effect.ax:7:14
 [1;34m  |[0m
-[1;34m4 |[0m (fn (main) (handle 1 (Nope IO Alsonope Alloc) (lambda (v) 0)))
-[1;34m  |[0m                       [1;31m^^^^ no effect named `Nope` is declared[0m
+[1;34m7 |[0m   (handle 1 (Nope IO Alsonope Alloc) (lambda (v) 0))
+[1;34m  |[0m              [1;31m^^^^ no effect named `Nope` is declared[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mdeclare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3016` for a full explanation
 
 [1;31merror[AX3016][0m[1m: unknown effect `Alsonope`[0m
- [1;34m--> [0m300-unknown-effect.ax:4:31
+ [1;34m--> [0m300-unknown-effect.ax:7:22
 [1;34m  |[0m
-[1;34m4 |[0m (fn (main) (handle 1 (Nope IO Alsonope Alloc) (lambda (v) 0)))
-[1;34m  |[0m                               [1;31m^^^^^^^^ no effect named `Alsonope` is declared[0m
+[1;34m7 |[0m   (handle 1 (Nope IO Alsonope Alloc) (lambda (v) 0))
+[1;34m  |[0m                      [1;31m^^^^^^^^ no effect named `Alsonope` is declared[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mdeclare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3016` for a full explanation

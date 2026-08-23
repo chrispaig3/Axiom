@@ -28,8 +28,8 @@
 ; Its length is computed at compile time, which is why nothing here
 ; scans a literal. `(__addr "hello")` still yields the raw bytes for the
 ; cases that want NUL-terminated ones - see `strFromLit` and `strCStr`.
-
 (import Mem)
+
 ; For `strSplit`, which is the only thing here that answers a Vec.
 ; `Vec` imports `Mem` and nothing else, so this adds no cycle.
 (import Vec)
@@ -37,15 +37,14 @@
 ; ------------------------------------------------------------------
 ; Construction
 ; ------------------------------------------------------------------
-
 ; Wrap `len` bytes at `bytes` as a `Str` without copying.
 ;
 ; The caller keeps responsibility for `bytes` outliving the `Str` and
 ; for the NUL terminator at `bytes[len]`. Every other constructor in
 ; this module goes through here.
 (pub :: strWrap (-> Int Int String))
-(pub fn (strWrap bytes len)
-  (strWrapOwned bytes len 0))
+
+(pub fn (strWrap bytes len) (strWrapOwned bytes len 0))
 
 ; The same, naming the block that OWNS the bytes (MM-LIFE-2d's `Str`
 ; half): word 2 holds the handle whose death should free them, or 0
@@ -66,6 +65,7 @@
 ; mapped: for a slice it is an INTERIOR address, and no count
 ; reachable from a slice may free an interior pointer.
 (pub :: strWrapOwned (-> Int Int Int String))
+
 (pub fn (strWrapOwned bytes len owner)
   (let ((s (memAllocMapped 24 4)))
     {
@@ -80,23 +80,28 @@
       ; (`tyIsReprScalar`), and this is the explicit escape it asks
       ; for rather than an exemption.
       (cast String s)
-    }))
+    }
+  )
+)
 
 ; A `Str` over freshly allocated, zeroed space for `len` bytes.
 ;
 ; `len + 1` bytes are reserved so the NUL terminator never overwrites
 ; payload; the allocator zeroes, so the terminator is already in place.
 (pub :: strAlloc (-> Int String))
+
 (pub fn (strAlloc len)
+  ; the header's own share of its buffer - one retain here makes
+  ; the rule uniform ("a `Str` header's death releases its owner
+  ; once"), which is what lets a slice outlive the header it was
+  ; cut from without the buffer going early or staying forever
   (let ((bytes (memAlloc (+ len 1))))
     {
-      ; the header's own share of its buffer - one retain here makes
-      ; the rule uniform ("a `Str` header's death releases its owner
-      ; once"), which is what lets a slice outlive the header it was
-      ; cut from without the buffer going early or staying forever
       (__retain bytes)
       (strWrapOwned bytes len bytes)
-    }))
+    }
+  )
+)
 
 ; A `Str` sharing the bytes at a NUL-terminated address.
 ;
@@ -108,37 +113,51 @@
 ;
 ; Cost is one scan for the length; the bytes are never copied.
 (pub :: strFromLit (-> Int String))
-(pub fn (strFromLit cstr)
-  (strWrap cstr (cstrLen cstr 0)))
+
+(pub fn (strFromLit cstr) (strWrap cstr (cstrLen cstr 0)))
 
 ; Length of NUL-terminated bytes at `addr`, scanning from `i`.
 (pub :: cstrLen (-> Int Int Int))
+
 (pub fn (cstrLen addr i)
   (if (== (__load8 addr i) 0)
-      i
-      (cstrLen addr (+ i 1))))
+    i
+    (cstrLen addr (+ i 1))
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Accessors
 ; ------------------------------------------------------------------
-
 (pub :: strLen (-> String Int))
+
 (pub fn (strLen s)
   ; The one place a `String` is read AS a word address - the handle
   ; crossing into the Mem boundary is spelled with the cast, so the
   ; checker sees every other use of `s` as the string it is
   ; (memory-model.md MM-ALLOC-20).
-  (memGetWord (cast Int s) 0))
+  (memGetWord
+    (cast Int s)    0
+  )
+)
 
 (pub :: strData (-> String Int))
+
 (pub fn (strData s)
-  (memGetWord (cast Int s) 1))
+  (memGetWord
+    (cast Int s)    1
+  )
+)
 
 ; The block owning this string's bytes, or 0 for bytes no block owns
 ; (a literal's, a syscall buffer's, an arena keep block's interior).
 (pub :: strOwner (-> String Int))
+
 (pub fn (strOwner s)
-  (memGetWord (cast Int s) 2))
+  (memGetWord
+    (cast Int s)    2
+  )
+)
 
 ; The byte at `i`, or 0 when `i` is out of range.
 ;
@@ -146,39 +165,57 @@
 ; that matter - a lexer's lookahead - want "one past the end" to behave
 ; like an end-of-input sentinel, and NUL is already that sentinel here.
 (pub :: strByte (-> String Int Int))
+
 (pub fn (strByte s i)
   (if (< i 0)
+    0
+    (if (>= i (strLen s))
       0
-      (if (>= i (strLen s))
-          0
-          (__load8 (strData s) i))))
+      (__load8 (strData s) i)
+    )
+  )
+)
 
 ; The bytes of `s` as a NUL-terminated address, for handing to a
 ; syscall.
 ;
 ; Free: every `Str` this module builds is already NUL-terminated.
 (pub :: strCStr (-> String Int))
-(pub fn (strCStr s)
-  (strData s))
+
+(pub fn (strCStr s) (strData s))
 
 (pub :: strIsEmpty (-> String Bool))
-(pub fn (strIsEmpty s)
-  (== (strLen s) 0))
+
+(pub fn (strIsEmpty s) (== (strLen s) 0))
 
 ; ------------------------------------------------------------------
 ; Comparison
 ; ------------------------------------------------------------------
-
 ; 0 when equal; otherwise negative if `a` sorts before `b`, positive if
 ; after - lexicographic by unsigned byte, with a shorter prefix sorting
 ; first.
 (pub :: strCmp (-> String String Int))
+
 (pub fn (strCmp a b)
-  (let ((la (strLen a))
-        (lb (strLen b)))
-    (let ((shared (if (< la lb) la lb)))
+  (let (
+    (la (strLen a))
+    (lb (strLen b))
+  )
+    (let ((shared 
+      (if (< la lb)
+        la
+        lb
+      )
+    ))
       (let ((diff (memCmp (strData a) (strData b) shared)))
-        (if (!= diff 0) diff (- la lb))))))
+        (if (!= diff 0)
+          diff
+          (- la lb)
+        )
+      )
+    )
+  )
+)
 
 ; Equality, which is NOT `strCmp a b == 0` even though it answers the
 ; same thing. `strCmp` must produce an ORDERING, so it memcmps the
@@ -199,16 +236,19 @@
 ; idle machine: 2.8121s to 1.7218s, 1.63x. The self-hosting fixpoint
 ; holds under the change.
 (pub :: strEq (-> String String Bool))
+
 (pub fn (strEq a b)
   (let ((la (strLen a)))
     (if (!= la (strLen b))
-        false
-        (== (memCmp (strData a) (strData b) la) 0))))
+      false
+      (== (memCmp (strData a) (strData b) la) 0)
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Slicing and joining
 ; ------------------------------------------------------------------
-
 ; The `count` bytes of `s` starting at `start`, sharing `s`'s storage.
 ;
 ; A slice is *not* NUL-terminated unless it happens to end where `s`
@@ -220,58 +260,98 @@
 ; `start` and `count` are clamped to `s`, so an out-of-range slice is
 ; empty rather than a read of unrelated memory.
 (pub :: strSlice (-> String Int Int String))
+
 (pub fn (strSlice s start count)
+  ; the slice's own share of the bytes it now points into
   (let ((len (strLen s)))
-    (let ((from (if (< start 0) 0 (if (> start len) len start))))
+    (let ((from 
+      (if (< start 0)
+        0
+        (if (> start len)
+          len
+          start
+        )
+      )
+    ))
       (let ((avail (- len from)))
-        (let ((n (if (< count 0) 0 (if (> count avail) avail count))))
+        (let ((n 
+          (if (< count 0)
+            0
+            (if (> count avail)
+              avail
+              count
+            )
+          )
+        ))
           (let ((owner (strOwner s)))
             {
-              ; the slice's own share of the bytes it now points into
               (__retain owner)
               (strWrapOwned (+ (strData s) from) n owner)
-            }))))))
+            }
+          )
+        )
+      )
+    )
+  )
+)
 
 ; An owned, NUL-terminated copy of `s`.
 (pub :: strDup (-> String String))
+
 (pub fn (strDup s)
   (let ((len (strLen s)))
     (let ((out (strAlloc len)))
       {
         (memCopy (strData out) (strData s) len)
         out
-      })))
+      }
+    )
+  )
+)
 
 (pub :: strConcat (-> String String String))
+
 (pub fn (strConcat a b)
-  (let ((la (strLen a))
-        (lb (strLen b)))
+  (let (
+    (la (strLen a))
+    (lb (strLen b))
+  )
     (let ((out (strAlloc (+ la lb))))
       {
         (memCopy (strData out) (strData a) la)
         (memCopy (+ (strData out) la) (strData b) lb)
         out
-      })))
+      }
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Searching
 ; ------------------------------------------------------------------
-
 ; Index of the first `byte` at or after `from`, or -1.
 (pub :: strFindByte (-> String Int Int Int))
+
 (pub fn (strFindByte s byte from)
   (if (>= from (strLen s))
-      (- 0 1)
-      (if (== (strByte s from) byte)
-          from
-          (strFindByte s byte (+ from 1)))))
+    (- 0 1)
+    (if (== (strByte s from) byte)
+      from
+      (strFindByte s byte (+ from 1))
+    )
+  )
+)
 
 (pub :: strStartsWith (-> String String Bool))
+
 (pub fn (strStartsWith s prefix)
   (let ((lp (strLen prefix)))
     (if (> lp (strLen s))
-        false
-        (== (memCmp (strData s) (strData prefix) lp) 0))))
+      false
+      (== (memCmp (strData s) (strData prefix) lp) 0)
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Byte classification.
@@ -294,27 +374,50 @@
 ; through every one of them and requires the delegations to agree,
 ; which is the check that would have caught the VT/FF drift.
 ; ------------------------------------------------------------------
-
 (pub :: strIsDigit (-> Int Bool))
+
 (pub fn (strIsDigit ch)
-  (if (>= ch 48) (<= ch 57) false))
+  (if (>= ch 48)
+    (<= ch 57)
+    false
+  )
+)
 
 (pub :: strIsAlpha (-> Int Bool))
+
 (pub fn (strIsAlpha ch)
   (if (>= ch 65)
-      (if (<= ch 90) true (if (>= ch 97) (<= ch 122) false))
-      false))
+    (if (<= ch 90)
+      true
+      (if (>= ch 97)
+        (<= ch 122)
+        false
+      )
+    )
+    false
+  )
+)
 
 ; Space, tab, LF, CR - and nothing else. Not `char::is_whitespace`:
 ; VT and FF are AX1001 to this language's lexer, and a formatter that
 ; skipped them turned a refused file into an accepted one.
 (pub :: strIsSpace (-> Int Bool))
+
 (pub fn (strIsSpace ch)
-  (if (== ch 32) true
-  (if (== ch 10) true
-  (if (== ch 13) true
-  (if (== ch 9)  true
-  false)))))
+  (if (== ch 32)
+    true
+    (if (== ch 10)
+      true
+      (if (== ch 13)
+        true
+        (if (== ch 9)
+          true
+          false
+        )
+      )
+    )
+  )
+)
 
 ; The value of a hex digit, or -1. Stated as the VALUE and not as a
 ; predicate because the value is what every caller needed: the JSON
@@ -322,19 +425,27 @@
 ; each carried a byte-identical copy of this ladder under its own name,
 ; while the predicate here had no caller at all.
 (pub :: strHexVal (-> Int Int))
+
 (pub fn (strHexVal ch)
-  (if (&& (>= ch 48) (<= ch 57)) (- ch 48)
-  (if (&& (>= ch 97) (<= ch 102)) (+ 10 (- ch 97))
-  (if (&& (>= ch 65) (<= ch 70)) (+ 10 (- ch 65))
-  (- 0 1)))))
+  (if (&& (>= ch 48) (<= ch 57))
+    (- ch 48)
+    (if (&& (>= ch 97) (<= ch 102))
+      (+ 10 (- ch 97))
+      (if (&& (>= ch 65) (<= ch 70))
+        (+ 10 (- ch 65))
+        (- 0 1)
+      )
+    )
+  )
+)
 
 (pub :: strIsHexDigit (-> Int Bool))
+
 (pub fn (strIsHexDigit ch) (>= (strHexVal ch) 0))
 
 ; ------------------------------------------------------------------
 ; Splitting
 ; ------------------------------------------------------------------
-
 ; Every segment of `s` between occurrences of `byte`, in order, as a
 ; Vec of Str handles. Empty segments are KEPT: a `PATH` entry of ""
 ; means the working directory, and a caller that wants them dropped
@@ -349,22 +460,49 @@
 ; string - the two call sites this replaced both did that already, and
 ; for that reason.
 (pub :: strSplit (-> String Int Int))
+
 (pub fn (strSplit s byte)
   (let ((out vecNew))
-    { (strSplitFrom s byte 0 out) out }))
+    {
+      (strSplitFrom s byte 0 out)
+      out
+    }
+  )
+)
 
 (pub :: strSplitFrom (-> String Int Int Int Int))
+
 (pub fn (strSplitFrom s byte from out)
   (let ((cut (strFindByte s byte from)))
-    (let ((end (if (< cut 0) (strLen s) cut)))
+    (let ((end 
+      (if (< cut 0)
+        (strLen s)
+        cut
+      )
+    ))
       {
-        (vecPush out (cast Int (strSlice s from (- end from))))
-        (if (< cut 0) 0 (strSplitFrom s byte (+ end 1) out))
-      })))
+        (vecPush
+          out          (cast Int (strSlice s from (- end from)))
+        )
+        (if (< cut 0)
+          0
+          (strSplitFrom s byte (+ end 1) out)
+        )
+      }
+    )
+  )
+)
 
 ; A one-byte `Str` holding `b`. The compiler driver and the JSON
 ; encoder each had this three-line allocate-and-store under a private
 ; name; it is a `Str` constructor, so it lives with the others.
 (pub :: strFromByte (-> Int String))
+
 (pub fn (strFromByte b)
-  (let ((s (strAlloc 1))) { (__store8 (strData s) 0 b) s }))
+  (let ((s (strAlloc 1)))
+    {
+      (__store8 (strData s) 0 b)
+      s
+    }
+  )
+)

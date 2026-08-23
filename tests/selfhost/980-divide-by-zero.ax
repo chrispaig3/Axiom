@@ -11,7 +11,9 @@
 ; divisor comes from a function so that no constant folding can decide
 ; it before the guard does.
 (:: zero Int)
+
 (fn (zero) 0)
 
 (:: main Int)
-(fn (main) (/ 10 (zero)))
+
+(fn (main) (/ 10 zero))

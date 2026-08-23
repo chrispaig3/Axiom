@@ -8,12 +8,16 @@
   (log :: (-> String Int)))
 
 (:: covered (-> Int Int))
+
 (fn (covered n)
-  (handle (log "handled fine") (Console) (lambda (s) 0)))
+  (handle (log "handled fine") (Console) (lambda (s) 0))
+)
 
 (:: main Int)
+
 (fn (main)
   {
     (covered 1)
     (log "nobody home")
-  })
+  }
+)

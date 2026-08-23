@@ -7,7 +7,9 @@
 ; text the only way a conformance case can: `2.5` at six places is
 ; "2.500000", eight bytes.
 (import Str)
+
 (import Fmt)
 
 (:: main Int)
+
 (fn (main) (strLen (fmtFloatPrec 2.5 6)))

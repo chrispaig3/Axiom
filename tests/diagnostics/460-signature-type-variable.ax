@@ -27,13 +27,18 @@
 ; Under-report, never mis-report - the same trade recorded for effect
 ; operations before they carried their arrow. The programs that must
 ; keep working are `tests/selfhost/972-polymorphic-signature.ax`.
-(struct Pt (x : Int) (y : Int))
+(struct Pt
+  (x : Int)
+  (y : Int))
 
 (:: bad (-> a Int))
+
 (fn (bad x) (+ x 1))
 
 (:: promised (-> a b a))
+
 (fn (promised x y) y)
 
 (:: main Int)
+
 (fn (main) (bad (Pt 3 4)))

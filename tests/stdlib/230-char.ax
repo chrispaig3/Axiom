@@ -13,37 +13,50 @@
 ; called well-typed. Nothing in the stdlib returned a `Char`, so nothing
 ; noticed.
 (import IO)
+
 (import Str)
+
 (import Mem)
 
 ; The case that broke: a `Char` literal returned through a `Char`-typed
 ; signature.
 (pub :: letterZ (-> Int Char))
+
 (pub fn (letterZ _x) 'Z')
 
 ; And one that round-trips through memory, so the literal's width has to
 ; agree with what `strByte` reads back.
 (pub :: firstByte (-> String Int))
-(pub fn (firstByte s)
-  (strByte s 0))
+
+(pub fn (firstByte s) (strByte s 0))
 
 ; Build a one-character `Str` from a `Char`, which is what the REPL does
 ; to print a character result.
 (pub :: charToStr (-> Char String))
+
 (pub fn (charToStr c)
   (let ((s (strAlloc 1)))
     {
-      (memPutByte (strData s) 0 (cast Int c))
+      (memPutByte
+        (strData s)        0        (cast Int c)
+      )
       s
-    }))
+    }
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (println (charToStr (letterZ 0)))     ; Z
-    (println (cast Int (letterZ 0)))   ; 90
-    (println (firstByte "abc"))        ; 97
-    (println (charToStr 'q'))             ; q
+    (println (charToStr (letterZ 0)))  ; Z
+    (println
+      (cast Int (letterZ 0))
+    )
+    ; 90
+    (println (firstByte "abc"))  ; 97
+    (println (charToStr 'q'))  ; q
     0
-  })
+  }
+)

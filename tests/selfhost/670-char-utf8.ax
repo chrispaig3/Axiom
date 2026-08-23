@@ -13,10 +13,24 @@
 ; than a code point because an exit status is one byte and 19990
 ; would arrive as 22.
 (:: main Int)
+
 (fn (main)
-  (if (&& (== (cast Int 'A') 65)
-          (&& (== (cast Int 'é') 233)
-              (&& (== (cast Int '世') 19990)
-                  (== (cast Int '😀') 128512))))
-      42
-      7))
+  (if (&&
+    (==
+      (cast Int 'A')      65
+    )    (&&
+      (==
+        (cast Int 'é')        233
+      )      (&&
+        (==
+          (cast Int '世')          19990
+        )        (==
+          (cast Int '😀')          128512
+        )
+      )
+    )
+  )
+    42
+    7
+  )
+)

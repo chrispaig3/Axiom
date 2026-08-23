@@ -16,54 +16,131 @@
 ; one, which is why `dirty` runs first here: without it this file passes
 ; against a compiler that gets it wrong.
 (import IO)
+
 (import Str)
 
 ; Records that it ran. If short-circuiting works, it never does.
 (pub :: loud (-> Int Bool))
+
 ;@axiom:effect(io)
 (pub fn (loud x)
   {
     (println "EVALUATED")
     (> x 0)
-  })
+  }
+)
 
 ; A `Bool` that is the value of an `if`, not the direct result of a
 ; comparison - the shape that used to store one byte into eight.
 (pub :: bothZero (-> Int Int Bool))
+
 (pub fn (bothZero a b)
-  (if (== a 0) (== b 0) false))
+  (if (== a 0)
+    (== b 0)
+    false
+  )
+)
 
 ; Leave a frame full of non-zero words for `bothZero` to be laid over.
 (pub :: dirty (-> Int Int))
+
 (pub fn (dirty n)
-  (let ((a (* n 111111)) (b (* n 222222)) (c (* n 333333)) (d (* n 444444))
-        (e (* n 555555)) (f (* n 666666)) (g (* n 777777)) (h (* n 888888)))
-    (+ a (+ b (+ c (+ d (+ e (+ f (+ g h)))))))))
+  (let (
+    (a (* n 111111))
+    (b (* n 222222))
+    (c (* n 333333))
+    (d (* n 444444))
+    (e (* n 555555))
+    (f (* n 666666))
+    (g (* n 777777))
+    (h (* n 888888))
+  )
+    (+ a (+ b (+ c (+ d (+ e (+ f (+ g h)))))))
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (println (dirty 7))                            ; 27999972
-
+    (println (dirty 7))  ; 27999972
     ; --- a Bool-valued `if`, read back as a whole word ---
-    (println (if (bothZero 0 0) 1 0))              ; 1
-    (println (if (bothZero 0 5) 1 0))              ; 0
-    (println (if (bothZero 5 0) 1 0))              ; 0
-    (println (if (bothZero 5 5) 1 0))              ; 0
-
+    (println
+      (if (bothZero 0 0)  ; 1
+        1
+        0
+      )
+    )
+    (println
+      (if (bothZero 0 5)  ; 0
+        1
+        0
+      )
+    )
+    (println
+      (if (bothZero 5 0)  ; 0
+        1
+        0
+      )
+    )
+    (println
+      (if (bothZero 5 5)  ; 0
+        1
+        0
+      )
+    )
     ; --- short circuit: `loud` must stay silent in both ---
-    (println (if (&& false (loud 1)) 1 0))         ; 0
-    (println (if (|| true (loud 2)) 1 0))          ; 1
-
+    (println
+      (if (&& false (loud 1))  ; 0
+        1
+        0
+      )
+    )
+    (println
+      (if (|| true (loud 2))  ; 1
+        1
+        0
+      )
+    )
     ; --- and must still run when the answer depends on it ---
-    (println (if (&& true (> 3 1)) 1 0))           ; 1
-    (println (if (|| false (> 1 3)) 1 0))          ; 0
-
+    (println
+      (if (&& true (> 3 1))  ; 1
+        1
+        0
+      )
+    )
+    (println
+      (if (|| false (> 1 3))  ; 0
+        1
+        0
+      )
+    )
     ; --- both operands as comparisons, the `i1`/`i64` mixing case ---
-    (println (if (&& (== 1 1) (== 2 2)) 1 0))      ; 1
-    (println (if (&& (== 1 1) (== 2 3)) 1 0))      ; 0
-    (println (if (|| (== 1 2) (== 2 2)) 1 0))      ; 1
-    (println (if (|| (== 1 2) (== 2 3)) 1 0))      ; 0
+    (println
+      (if (&& (== 1 1) (== 2 2))  ; 1
+        1
+        0
+      )
+    )
+    (println
+      (if (&& (== 1 1) (== 2 3))  ; 0
+        1
+        0
+      )
+    )
+    (println
+      (if (|| (== 1 2) (== 2 2))  ; 1
+        1
+        0
+      )
+    )
+    (println
+      (if (|| (== 1 2) (== 2 3))  ; 0
+        1
+        0
+      )
+    )
     0
-  })
+  }
+)

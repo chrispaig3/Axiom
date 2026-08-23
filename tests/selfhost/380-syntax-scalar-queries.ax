@@ -38,6 +38,7 @@
 ; The unfixed compiler refuses at expansion: syntax/name is not in
 ; its vocabulary (AX3028), exit 1.
 (import Pre)
+
 (import Str)
 
 (data Shape
@@ -50,13 +51,9 @@
   (Green))
 
 (deriveShow Shape)
+
 (deriveArity Shape)
 
 (:: main Int)
 
-(fn (main)
-  (+ (* 4 (strLen (showShape (Rect 1 2))))
-     (+ (+ 7 (arityShape (Rect 1 2)))
-        (+ (+ 12 (arityShape Dot))
-           (+ (strLen (showOr Shape Dot "?"))
-              (strLen (showOr Colour Red "?")))))))
+(fn (main) (+ (* 4 (strLen (showShape (Rect 1 2)))) (+ (+ 7 (arityShape (Rect 1 2))) (+ (+ 12 (arityShape Dot)) (+ (strLen (showOr Shape Dot "?")) (strLen (showOr Colour Red "?")))))))

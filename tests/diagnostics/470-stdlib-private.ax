@@ -16,4 +16,7 @@
 (import Map)
 
 (:: main Int)
-(fn (main) (mapFindLoop 0 0 0 0 0 0 0))
+
+(fn (main) (mapFindLoop
+  0  0  0  0  0  0  0
+))

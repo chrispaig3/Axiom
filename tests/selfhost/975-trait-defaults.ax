@@ -20,24 +20,50 @@
 ;   (lte 2 2)     a default that uses a method of the SUPERTRAIT.
 ;   (lt 1 2)      a written method, beside the generated ones.
 ;   (eq 3 3)      the supertrait's own method, still dispatching.
-(trait (Eq a) where
-  (eq :: (-> a a Bool)
-   ne :: (-> a a Bool) = (lambda (x y) (if (eq x y) false true))))
+(trait (Eq a) where (
+  eq :: (-> a a Bool)
+  ne :: (-> a a Bool) = (lambda (x y)
+    (if (eq x y)
+      false
+      true
+    )
+  )
+))
 
-(trait (Ord a) (Eq a) where
-  (lt :: (-> a a Bool)
-   lte :: (-> a a Bool) = (lambda (x y) (if (lt x y) true (eq x y)))))
+(trait (Ord a) (Eq a) where (
+  lt :: (-> a a Bool)
+  lte :: (-> a a Bool) = (lambda (x y)
+    (if (lt x y)
+      true
+      (eq x y)
+    )
+  )
+))
 
-(impl (Eq Int) where
-  ((eq (lambda (x y) (== x y)))))
+(impl (Eq Int) where (
+  (eq
+    (lambda (x y) (== x y))
+  )
+))
 
-(impl (Ord Int) where
-  ((lt (lambda (x y) (< x y)))))
+(impl (Ord Int) where (
+  (lt
+    (lambda (x y) (< x y))
+  )
+))
 
 (:: main Int)
+
 (fn (main)
-  (if (&& (&& (ne 1 2) (if (ne 1 1) false true))
-          (&& (&& (lte 2 2) (lte 1 2))
-              (&& (lt 1 2) (eq 3 3))))
-      42
-      1))
+  (if (&&
+    (&&
+      (ne 1 2)      (if (ne 1 1)
+        false
+        true
+      )
+    )    (&& (&& (lte 2 2) (lte 1 2)) (&& (lt 1 2) (eq 3 3)))
+  )
+    42
+    1
+  )
+)

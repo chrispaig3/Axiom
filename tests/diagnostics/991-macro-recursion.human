@@ -1,7 +1,7 @@
 [1;31merror[AX3019][0m[1m: expanding `loopy` exceeded the macro expansion depth limit[0m
- [1;34m--> [0m991-macro-recursion.ax:7:13
+ [1;34m--> [0m991-macro-recursion.ax:8:13
 [1;34m  |[0m
-[1;34m7 |[0m (fn (main) (loopy 1))
+[1;34m8 |[0m (fn (main) (loopy 1))
 [1;34m  |[0m             [1;31m^^^^^[0m
 [1;34m  |[0m
  [1;34m--> [0m991-macro-recursion.ax:4:9

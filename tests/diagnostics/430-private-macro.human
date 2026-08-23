@@ -1,7 +1,7 @@
 [1;31merror[AX3023][0m[1m: `privMac` is private to module `VisAll`[0m
- [1;34m--> [0m430-private-macro.ax:3:27
+ [1;34m--> [0m430-private-macro.ax:5:27
 [1;34m  |[0m
-[1;34m3 |[0m (fn (main) (+ (pubMac 1) (privMac 2)))
+[1;34m5 |[0m (fn (main) (+ (pubMac 1) (privMac 2)))
 [1;34m  |[0m                           [1;31m^^^^^^^ `privMac` is not exported by its module[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too

@@ -1,7 +1,7 @@
 [1;31merror[AX3013][0m[1m: partial application of `add`: it takes 2 argument(s) and 1 were supplied[0m
- [1;34m--> [0m110-partial-application.ax:4:13
+ [1;34m--> [0m110-partial-application.ax:7:13
 [1;34m  |[0m
-[1;34m4 |[0m (fn (main) (add 1))
+[1;34m7 |[0m (fn (main) (add 1))
 [1;34m  |[0m             [1;31m^^^ `add` takes 2 argument(s); 1 more needed[0m
 [1;34m  |[0m
  [1;34m = [0m[1mnote: [0ma partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in

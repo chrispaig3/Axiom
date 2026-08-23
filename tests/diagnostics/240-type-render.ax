@@ -1,9 +1,23 @@
-(data Box (a) (Wrap a))
+(data Box a
+  (Wrap a))
+
 (:: want (-> (Box Int) Int))
+
 (fn (want b) 0)
+
 (:: give (-> (Box Bool) Int))
+
 (fn (give b) (want b))
+
 (:: beyond (-> Int Int))
-(fn (beyond a p q) { (p 1) (q 2) })
+
+(fn (beyond a p q)
+  {
+    (p 1)
+    (q 2)
+  }
+)
+
 (:: main Int)
+
 (fn (main) 0)

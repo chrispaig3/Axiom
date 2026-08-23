@@ -33,8 +33,14 @@
 (import Priv)
 
 (:: scale (-> Int Int))
+
 (fn (scale n) (+ n 1))
 
 (:: main Int)
+
 (fn (main)
-  (if (== (+ (+ (quad 2) (scale 2)) (roundTrip 5)) 26) 42 1))
+  (if (== (+ (+ (quad 2) (scale 2)) (roundTrip 5)) 26)
+    42
+    1
+  )
+)

@@ -11,9 +11,16 @@
 ; double evaluation textual substitution has always meant.
 ; twice(twice(10)) = 40, plus (if true 5 0) via when = 45.
 (macro (twice x) (+ x x))
-(macro (when t b) (if t b 0))
+
+(macro (when t b) (if t
+  b
+  0
+))
 
 (:: main Int)
+
 (fn (main)
   (let ((n (twice (twice 10))))
-    (+ n (when (== n 40) 5))))
+    (+ n (when (== n 40) 5))
+  )
+)

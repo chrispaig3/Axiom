@@ -17,20 +17,32 @@
 ;                from the tool a CI formatting gate runs.
 ;   (negf)       the Float case the `(- 0 x)` rewrite broke outright.
 (:: neg (-> Int Int))
+
 (fn (neg x) (- x))
 
 (:: lit Int)
-(fn (lit) (- 3))
+
+(fn (lit) -3)
 
 (:: viaFn (-> Int Int))
-(fn (viaFn n) (let ((f (fn (x) (+ x 1)))) (f n)))
+
+(fn (viaFn n)
+  (let ((f 
+    (lambda (x) (+ x 1))
+  ))
+    (f n)
+  )
+)
 
 (:: negf (-> Float Float))
+
 (fn (negf x) (- x))
 
 (:: main Int)
+
 (fn (main)
-  (if (&& (&& (== (neg 5) (- 0 5)) (== (lit) (- 0 3)))
-          (&& (== (viaFn 41) 42) (< (negf 1.5) 0.0)))
-      42
-      1))
+  (if (&& (&& (== (neg 5) (- 0 5)) (== lit (- 0 3))) (&& (== (viaFn 41) 42) (< (negf 1.5) 0.0)))
+    42
+    1
+  )
+)

@@ -13,10 +13,24 @@
 ; still bind both calls to whichever definition came first, and the
 ; answers here are 100 apart so that shows up as a value.
 (import DupA)
+
 (import DupB)
 
 (:: main Int)
+
 (fn (main)
-  (if (&& (== (DupA::dup 0) 1) (== (DupB::dup 0) 100))
-      42
-      1))
+  (if (&&
+    (==
+      (DupA::dup
+        0
+      )      1
+    )    (==
+      (DupB::dup
+        0
+      )      100
+    )
+  )
+    42
+    1
+  )
+)

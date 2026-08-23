@@ -1,2 +1,2 @@
-E AX3017 310-effect-handler-unsupported.ax:9:28-35 effect-handler-unsupported "effect `Console` declares 2 operations; a dynamic handler covers exactly one"
-E AX3017 310-effect-handler-unsupported.ax:11:29-30 effect-handler-unsupported "2 custom effects in one handle; nest one `handle` per effect"
+E AX3017 310-effect-handler-unsupported.ax:14:14-21 effect-handler-unsupported "effect `Console` declares 2 operations; a dynamic handler covers exactly one"
+E AX3017 310-effect-handler-unsupported.ax:20:11-12 effect-handler-unsupported "2 custom effects in one handle; nest one `handle` per effect"

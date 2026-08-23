@@ -6,32 +6,45 @@
 ; produces a plausible number for most inputs and a segfault for some,
 ; which is exactly the failure that hides in a smoke test.
 (import IO)
+
 (import Str)
 
 (pub extern "axiom_demo"
   (countVowels :: (-> String Int) (symbol "axffi_count_vowels")))
 
 (pub :: isVowel (-> Int Bool))
-(pub fn (isVowel c)
-  (|| (== c 97) (|| (== c 101) (|| (== c 105) (|| (== c 111) (|| (== c 117)
-  (|| (== c 65) (|| (== c 69) (|| (== c 73) (|| (== c 79) (== c 85)))))))))))
+
+(pub fn (isVowel c) (|| (== c 97) (|| (== c 101) (|| (== c 105) (|| (== c 111) (|| (== c 117) (|| (== c 65) (|| (== c 69) (|| (== c 73) (|| (== c 79) (== c 85)))))))))))
 
 (pub :: axiomCount (-> String Int Int Int))
+
 (pub fn (axiomCount s i acc)
   (if (>= i (strLen s))
-      acc
-      (axiomCount s (+ i 1) (if (isVowel (strByte s i)) (+ acc 1) acc))))
+    acc
+    (axiomCount
+      s      (+ i 1)      (if (isVowel (strByte s i))
+        (+ acc 1)
+        acc
+      )
+    )
+  )
+)
 
 (pub :: agrees (-> String Bool))
+
 (pub fn (agrees s) (== (countVowels s) (axiomCount s 0 0)))
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (if (&& (agrees "hello world")
-      (&& (agrees "")
-      (&& (agrees "AEIOUaeiou")
-      (&& (agrees "xyz")
-          (agrees "the quick brown fox jumps over the lazy dog")))))
-      { (println "string: agree") 0 }
-      { (println "string: DISAGREE") 1 }))
+  (if (&& (agrees "hello world") (&& (agrees "") (&& (agrees "AEIOUaeiou") (&& (agrees "xyz") (agrees "the quick brown fox jumps over the lazy dog")))))
+    {
+      (println "string: agree")
+      0
+    }
+    {
+      (println "string: DISAGREE")
+      1
+    }
+  )
+)
 ; expect 0

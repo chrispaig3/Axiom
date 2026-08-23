@@ -4,4 +4,9 @@
 ; call - it DELETES the application. A non-name head is evaluated as a
 ; value and applied one argument at a time.
 (:: main Int)
-(fn (main) ((lambda (x) x) 7))
+
+(fn (main)
+  ((lambda (x) x)
+    7
+  )
+)

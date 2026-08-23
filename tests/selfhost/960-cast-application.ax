@@ -22,21 +22,40 @@
 ;   (plain)     42 - a `cast` with NO surplus still answers its second
 ;                    argument, which is what every existing use needs.
 (:: via1 (-> Int Int))
+
 (fn (via1 n)
-  (let ((f (lambda (x) (+ x 1))))
-    ((cast Int f) n)))
+  (let ((f 
+    (lambda (x) (+ x 1))
+  ))
+    ((cast Int f)
+      n
+    )
+  )
+)
 
 (:: via2 (-> Int Int))
+
 (fn (via2 n)
-  (let ((g (lambda (x y) (+ x y))))
-    ((cast Int g) n 22)))
+  (let ((g 
+    (lambda (x y) (+ x y))
+  ))
+    ((cast Int g)
+      n      22
+    )
+  )
+)
 
 (:: plain Int)
-(fn (plain) (cast Int 42))
+
+(fn (plain)
+  (cast Int 42)
+)
 
 (:: main Int)
+
 (fn (main)
-  (if (&& (== (via1 41) 42)
-          (&& (== (via2 20) 42) (== (plain) 42)))
-      42
-      1))
+  (if (&& (== (via1 41) 42) (&& (== (via2 20) 42) (== plain 42)))
+    42
+    1
+  )
+)

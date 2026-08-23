@@ -8,7 +8,11 @@
 ; confusing them is silent rather than loud: `strFromLit` over a header
 ; would take the first eight bytes of the length word as text.
 (import Str)
+
 (:: main Int)
+
 (fn (main)
   (let ((s (strFromLit (__addr "hello"))))
-    (+ (strLen s) 37)))
+    (+ (strLen s) 37)
+  )
+)

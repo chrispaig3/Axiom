@@ -1,2 +1,2 @@
 E AX3002 495-widthless-types.ax:11:5-6 undefined-type "undefined type `Double`" #"no type named `Double` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
-E AX3002 495-widthless-types.ax:13:5-6 undefined-type "undefined type `U8`" #"no type named `U8` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
+E AX3002 495-widthless-types.ax:15:5-6 undefined-type "undefined type `U8`" #"no type named `U8` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"

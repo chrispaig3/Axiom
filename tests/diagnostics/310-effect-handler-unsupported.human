@@ -1,16 +1,16 @@
 [1;31merror[AX3017][0m[1m: effect `Console` declares 2 operations; a dynamic handler covers exactly one[0m
- [1;34m--> [0m310-effect-handler-unsupported.ax:9:28
-[1;34m  |[0m
-[1;34m9 |[0m (fn (two_ops n) (handle 1 (Console) (lambda (v) 0)))
-[1;34m  |[0m                            [1;31m^^^^^^^[0m
-[1;34m  |[0m
- [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3017` for a full explanation
+  [1;34m--> [0m310-effect-handler-unsupported.ax:14:14
+[1;34m   |[0m
+[1;34m14 |[0m   (handle 1 (Console) (lambda (v) 0))
+[1;34m   |[0m              [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3017` for a full explanation
 
 [1;31merror[AX3017][0m[1m: 2 custom effects in one handle; nest one `handle` per effect[0m
-  [1;34m--> [0m310-effect-handler-unsupported.ax:11:29
+  [1;34m--> [0m310-effect-handler-unsupported.ax:20:11
 [1;34m   |[0m
-[1;34m11 |[0m (fn (two_effects n) (handle 2 (Ask Tell) (lambda (v) 0)))
-[1;34m   |[0m                             [1;31m^[0m
+[1;34m20 |[0m   (handle 2 (Ask Tell) (lambda (v) 0))
+[1;34m   |[0m           [1;31m^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3017` for a full explanation
 

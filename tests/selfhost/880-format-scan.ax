@@ -18,23 +18,26 @@
 ; character literal, a string containing a semicolon and a quote, and
 ; `-5` in both spellings.
 (import Str)
+
 (import format)
 
 (:: sample String)
-(fn (sample)
-  (strConcat
-    (strConcat
-      "#| a block comment |#\n;@axiom:pure\n(pub fn (f x) [1, 2] { 'a' \"; not ;a comment \\\" \" })\n"
-      "; a line comment\n(fn (g y) (+ y -5) (- 5) `(a ,b ,@c) x.y)\n")
-    "(:: h (-> Int Int))\n"))
+
+(fn (sample) (strConcat (strConcat "#| a block comment |#\n;@axiom:pure\n(pub fn (f x) [1, 2] { 'a' \"; not ;a comment \\\" \" })\n" "; a line comment\n(fn (g y) (+ y -5) (- 5) `(a ,b ,@c) x.y)\n") "(:: h (-> Int Int))\n"))
 
 ; The reader pairs delimiters and refuses rather than guessing. Both
 ; directions matter: an unclosed group and a mismatched closer would
 ; each let a formatter re-nest a file silently.
 (:: formCount (-> String Int))
+
 (fn (formCount src)
   (let ((f (readForms src (fsToks (fscan src)))))
-    (if (== f 0) 99 (vecLen f))))
+    (if (== f 0)
+      99
+      (vecLen f)
+    )
+  )
+)
 
 ; `a.b` and `Mem::f` are three tokens and one form. Left unjoined they
 ; would sit as siblings and hand their enclosing group two extra
@@ -42,22 +45,53 @@
 ; The join is on ADJACENCY, which is what keeps a trait method's
 ; `show :: (-> a Int)` three separate forms.
 (:: kidsOf (-> String Int))
+
 (fn (kidsOf src)
   (let ((f (readForms src (fsToks (fscan src)))))
-    (if (== f 0) 99 (fnLen (vecGet f 0)))))
+    (if (== f 0)
+      99
+      (fnLen (vecGet f 0))
+    )
+  )
+)
 
 (:: main Int)
+
 (fn (main)
-  (let ((src (sample))
-        (sc (fscan (sample))))
-    (if (== (fscanHasError sc) 1) 1
-    (if (!= (fscanCovers src sc) 1) 2
-    (if (!= (formCount "(a b) (c) [1 2] {x}") 4) 3
-    (if (!= (formCount "`(a ,b ,@c) 'd") 2) 4
-    (if (!= (formCount "(a") 99) 5
-    (if (!= (formCount "(a]") 99) 6
-    (if (!= (kidsOf "(g x.y)") 2) 7
-    (if (!= (kidsOf "(g Mem::alloc)") 2) 8
-    (if (!= (kidsOf "(g a.b.c)") 2) 9
-    (if (!= (kidsOf "(show :: (-> a Int))") 3) 10
-    42))))))))))))
+  (let (
+    (src sample)
+    (sc (fscan sample))
+  )
+    (if (== (fscanHasError sc) 1)
+      1
+      (if (!= (fscanCovers src sc) 1)
+        2
+        (if (!= (formCount "(a b) (c) [1 2] {x}") 4)
+          3
+          (if (!= (formCount "`(a ,b ,@c) 'd") 2)
+            4
+            (if (!= (formCount "(a") 99)
+              5
+              (if (!= (formCount "(a]") 99)
+                6
+                (if (!= (kidsOf "(g x.y)") 2)
+                  7
+                  (if (!= (kidsOf "(g Mem::alloc)") 2)
+                    8
+                    (if (!= (kidsOf "(g a.b.c)") 2)
+                      9
+                      (if (!= (kidsOf "(show :: (-> a Int))") 3)
+                        10
+                        42
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

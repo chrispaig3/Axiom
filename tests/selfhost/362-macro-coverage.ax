@@ -22,23 +22,36 @@
 ; uncovered ones is still caught.
 ;
 ; 10 + 40 + 7 = 57.
-(struct P (x : Int) (y : Int))
+(struct P
+  (x : Int)
+  (y : Int))
 
-(macro (sumTo n)
-  (let ((mut i 0) (mut acc 0))
-    {
-      (while (< i n) { (set acc (+ acc i)) (set i (+ i 1)) })
-      acc
-    }))
+(macro (sumTo n) (let (
+  (mut i 0)
+  (mut acc 0)
+)
+  {
+    (while (< i n)
+      {
+        (set acc (+ acc i))
+        (set i (+ i 1))
+      })
+    acc
+  }
+))
+
 (macro (mk a b) (P a b))
+
 (macro (getx p) p.x)
-(macro (applyTwice f v) ((lambda (z) (f (f z))) v))
+
+(macro (applyTwice f v) ((lambda (z) (f (f z)))
+  v
+))
 
 (:: inc (-> Int Int))
+
 (fn (inc k) (+ k 1))
 
 (:: main Int)
-(fn (main)
-  (+ (sumTo 5)
-     (+ (getx (mk 40 1))
-        (applyTwice inc 5))))
+
+(fn (main) (+ (sumTo 5) (+ (getx (mk 40 1)) (applyTwice inc 5))))

@@ -32,18 +32,27 @@
 ;                          binding outside, and the capture must not
 ;                          win over the parameter.
 (:: main Int)
+
 (fn (main)
-  (let ((add2 (lambda (x y) (+ x y)))
-        (add3 (lambda (x y z) (+ (+ x y) z)))
-        (k 30))
-    (let ((withCap (lambda (a b) (+ k (+ a b))))
-          (y 100))
-      (let ((shadow (lambda (p y) (+ (* p 40) (+ y 0)))))
+  (let (
+    (add2 (lambda (x y) (+ x y)))
+    (add3 (lambda (x y z) (+ (+ x y) z)))
+    (k 30)
+  )
+    (let (
+      (withCap (lambda (a b) (+ k (+ a b))))
+      (y 100)
+    )
+      (let ((shadow 
+        (lambda (p y) (+ (* p 40) (+ y 0)))
+      ))
         (let ((partial (add2 20)))
-          (if (&& (&& (== (add2 20 22) 42)
-                      (== (add3 10 15 17) 42))
-                  (&& (== (withCap 5 7) 42)
-                      (&& (== (partial 22) 42)
-                          (== (shadow 1 2) 42))))
-              42
-              1))))))
+          (if (&& (&& (== (add2 20 22) 42) (== (add3 10 15 17) 42)) (&& (== (withCap 5 7) 42) (&& (== (partial 22) 42) (== (shadow 1 2) 42))))
+            42
+            1
+          )
+        )
+      )
+    )
+  )
+)

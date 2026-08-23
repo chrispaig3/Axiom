@@ -20,32 +20,71 @@
 ; anyone actually asks it, "is it there" and "how big", are `open` and
 ; `lseek`, which this module already had.
 (import Sys)
+
 (import Str)
 
 (:: main Int)
+
 (fn (main)
-  (let ((d (strCStr "axiom_test_dir_992"))
-        (f (strCStr "axiom_test_file_992"))
-        (mut n 0))
+  ; not there to begin with, and a size query on it fails
+  (let (
+    (d (strCStr "axiom_test_dir_992"))
+    (f (strCStr "axiom_test_file_992"))
+    (mut n 0)
+  )
     {
-      ; not there to begin with, and a size query on it fails
-      (if (sysFileExists d) 0 (set n (+ n 1)))
-      (if (< (sysFileSize d) 0) (set n (+ n 1)) 0)
+      (if (sysFileExists d)
+        0
+        (set n (+ n 1))
+      )
+      (if (< (sysFileSize d) 0)
+        (set n (+ n 1))
+        0
+      )
       ; created
-      (if (== (sysMkdir d sysDirMode) 0) (set n (+ n 1)) 0)
-      (if (sysFileExists d) (set n (+ n 1)) 0)
+      (if (== (sysMkdir d sysDirMode) 0)
+        (set n (+ n 1))
+        0
+      )
+      (if (sysFileExists d)
+        (set n (+ n 1))
+        0
+      )
       ; creating it again is EEXIST, not silence
-      (if (< (sysMkdir d sysDirMode) 0) (set n (+ n 1)) 0)
+      (if (< (sysMkdir d sysDirMode) 0)
+        (set n (+ n 1))
+        0
+      )
       ; removed, and gone
-      (if (== (sysRmdir d) 0) (set n (+ n 1)) 0)
-      (if (sysFileExists d) 0 (set n (+ n 1)))
+      (if (== (sysRmdir d) 0)
+        (set n (+ n 1))
+        0
+      )
+      (if (sysFileExists d)
+        0
+        (set n (+ n 1))
+      )
       ; a file with known contents has a known size. Written and
       ; removed here rather than pointed at a path in the tree,
       ; because a fixture that depends on where it was run from is a
       ; statement about the harness, not about `lseek`.
       (sysWriteFile f "hello")
-      (if (== (sysFileSize f) 5) (set n (+ n 1)) 0)
-      (if (== (sysUnlink f) 0) (set n (+ n 1)) 0)
-      (if (sysFileExists f) 0 (set n (+ n 1)))
-      (if (== n 10) 42 1)
-    }))
+      (if (== (sysFileSize f) 5)
+        (set n (+ n 1))
+        0
+      )
+      (if (== (sysUnlink f) 0)
+        (set n (+ n 1))
+        0
+      )
+      (if (sysFileExists f)
+        0
+        (set n (+ n 1))
+      )
+      (if (== n 10)
+        42
+        1
+      )
+    }
+  )
+)

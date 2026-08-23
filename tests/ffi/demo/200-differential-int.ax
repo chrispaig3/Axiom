@@ -7,21 +7,27 @@
 ;
 ; Exit 0 on agreement, 1 on any disagreement.
 (import IO)
+
 (import Fmt)
 
 (pub extern "axiom_demo"
   (add :: (-> Int Int Int) (symbol "axffi_add")))
 
 (pub :: agrees (-> Int Int Bool))
+
 (pub fn (agrees a b) (== (add a b) (+ a b)))
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (if (&& (agrees 20 22)
-      (&& (agrees 0 0)
-      (&& (agrees (- 0 7) 7)
-      (&& (agrees 1000000 2000000)
-          (agrees (- 0 1) (- 0 1))))))
-      { (println "int: agree") 0 }
-      { (println "int: DISAGREE") 1 }))
+  (if (&& (agrees 20 22) (&& (agrees 0 0) (&& (agrees (- 0 7) 7) (&& (agrees 1000000 2000000) (agrees (- 0 1) (- 0 1))))))
+    {
+      (println "int: agree")
+      0
+    }
+    {
+      (println "int: DISAGREE")
+      1
+    }
+  )
+)
 ; expect 0

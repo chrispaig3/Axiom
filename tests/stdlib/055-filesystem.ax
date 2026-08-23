@@ -18,72 +18,115 @@
 ; It cleans up after itself, in the order that works - files before the
 ; directories holding them - because a fixture that leaves litter in
 ; its working directory is a fixture every later case runs over.
-
 (import IO)
+
 (import Path)
+
 (import Str)
+
 (import Vec)
 
 (:: eq (-> String String String Int))
+
 ;@axiom:effect(io)
 (fn (eq name got want)
   (if (strEq got want)
-      { (println "ok   {name}") 0 }
-      { (println "FAIL {name} got={got} want={want}")
-        1
-      }))
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }
+  )
+)
 
 (:: eqInt (-> String Int Int Int))
+
 ;@axiom:effect(io)
 (fn (eqInt name got want)
   (if (== got want)
-      { (println "ok   {name}") 0 }
-      { (println "FAIL {name} got={got} want={want}")
-        1
-      }))
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }
+  )
+)
 
 (:: yes (-> String Bool Int))
+
 ;@axiom:effect(io)
 (fn (yes name got)
   (if got
-      { (println "ok   {name}") 0 }
-      { (println "FAIL {name} got={got} want=true")
-        1
-      }))
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want=true")
+      1
+    }
+  )
+)
 
 (:: no (-> String Bool Int))
+
 ;@axiom:effect(io)
 (fn (no name got)
   (if got
-      { (println "FAIL {name} got={got} want=false")
-        1
-      }
-      { (println "ok   {name}") 0 }))
+    {
+      (println "FAIL {name} got={got} want=false")
+      1
+    }
+    {
+      (println "ok   {name}")
+      0
+    }
+  )
+)
 
 ; The names in a Vec, joined with `,` - one string to compare a whole
 ; listing against, so a missing or extra entry is one failing check
 ; rather than a length check that passes and a content check that does
 ; not exist.
 (:: joined (-> Int Int String String))
+
 (fn (joined v i acc)
   (if (>= i (vecLen v))
-      acc
-      (let ((name (cast String (vecGet v i))))
-        (joined v (+ i 1)
-                (if (== i 0) name (strConcat (strConcat acc ",") name))))))
+    acc
+    (let ((name 
+      (cast String (vecGet v i))
+    ))
+      (joined
+        v        (+ i 1)        (if (== i 0)
+          name
+          (strConcat (strConcat acc ",") name)
+        )
+      )
+    )
+  )
+)
 
 (:: main Int)
+
 ;@axiom:effect(io)
 (fn (main)
-  (let ((mut bad 0)
-        (mut n 0)
-        (d "fs055")
-        (f "fs055/one.txt")
-        (g "fs055/two.txt"))
+  ; --- directories ------------------------------------------------
+  ; Absent, made, present, and EEXIST the second time - the round
+  ; trip, not a status check.
+  (let (
+    (mut bad 0)
+    (mut n 0)
+    (d "fs055")
+    (f "fs055/one.txt")
+    (g "fs055/two.txt")
+  )
     {
-      ; --- directories ------------------------------------------------
-      ; Absent, made, present, and EEXIST the second time - the round
-      ; trip, not a status check.
       (set bad (+ bad (no "dir absent" (fileExists d))))
       (set bad (+ bad (eqInt "makeDir" (makeDir d) 0)))
       (set bad (+ bad (yes "dir exists" (fileExists d))))
@@ -95,7 +138,6 @@
       (set bad (+ bad (yes "nested parent made" (isDir "fs055/a/b"))))
       (set bad (+ bad (eqInt "makeDirAll is idempotent" (makeDirAll "fs055/a/b/c") 0)))
       (set n (+ n 8))
-
       ; --- writing, appending, reading --------------------------------
       ; `writeFile` truncates and `appendFile` does not. Before the
       ; second existed, adding a line meant reading the file, joining,
@@ -112,7 +154,6 @@
       (set bad (+ bad (eqInt "append creates" (appendFile g "made\n") 5)))
       (set bad (+ bad (eq "created by append" (readFile g) "made\n")))
       (set n (+ n 9))
-
       ; --- the three facts `readFile` collapses -----------------------
       ; It answers "" for a missing file, an EMPTY file and a DIRECTORY
       ; alike. `readErrno` is the discriminator, and these four lines
@@ -120,8 +161,14 @@
       (set bad (+ bad (eqInt "readErrno on a file" (readErrno f) 0)))
       (set bad (+ bad (eqInt "readErrno on a directory" (readErrno d) 21)))
       (set bad (+ bad (eqInt "readErrno on nothing" (readErrno "fs055/nope") 2)))
-      (set bad (+ bad (eqInt "empty file is readable"
-                             { (writeFile "fs055/empty" "") (readErrno "fs055/empty") } 0)))
+      (set bad (+
+        bad        (eqInt
+          "empty file is readable"          {
+            (writeFile "fs055/empty" "")
+            (readErrno "fs055/empty")
+          }          0
+        )
+      ))
       (set bad (+ bad (eq "empty file reads empty" (readFile "fs055/empty") "")))
       ; and the distinction `fileExists` cannot make on its own
       (set bad (+ bad (yes "file exists" (fileExists f))))
@@ -129,7 +176,6 @@
       (set bad (+ bad (no "empty file is not a dir" (isDir "fs055/empty"))))
       (set bad (+ bad (no "nothing is not a dir" (isDir "fs055/nope"))))
       (set n (+ n 9))
-
       ; --- copy and rename --------------------------------------------
       ; `renamePath` MOVES: the destination gains the bytes and the
       ; source stops existing. Copy leaves both.
@@ -140,38 +186,28 @@
       ; destination. Reporting success would be bad; truncating an
       ; existing destination on behalf of a file that does not exist is
       ; worse, and is what `(writeFile dst (readFile src))` does.
-      (set bad (+ bad (eqInt "copy from nothing refuses"
-                             (copyFile "fs055/nope" "fs055/copy.txt") (- 0 2))))
+      (set bad (+ bad (eqInt "copy from nothing refuses" (copyFile "fs055/nope" "fs055/copy.txt") (- 0 2))))
       (set bad (+ bad (eq "destination untouched" (readFile "fs055/copy.txt") "made\n")))
       (set bad (+ bad (eqInt "renamePath" (renamePath "fs055/copy.txt" "fs055/moved.txt") 0)))
       (set bad (+ bad (no "old name is gone" (fileExists "fs055/copy.txt"))))
       (set bad (+ bad (eq "new name has the bytes" (readFile "fs055/moved.txt") "made\n")))
       (set n (+ n 8))
-
       ; --- listing ----------------------------------------------------
       ; Sorted, and without `.` and `..`. The sort is what makes this
       ; check writable at all: in filesystem order the answer differs
       ; between machines, and a fixture could only have counted the
       ; entries.
-      (set bad (+ bad (eq "listDir is sorted, without . and .."
-                          (joined (listDir d) 0 "")
-                          "a,empty,moved.txt,one.txt,two.txt")))
-      (set bad (+ bad (eq "listDir of a leaf directory"
-                          (joined (listDir "fs055/a/b") 0 "") "c")))
-      (set bad (+ bad (eqInt "listDir of a file is empty"
-                             (vecLen (listDir f)) 0)))
-      (set bad (+ bad (eqInt "listDir of nothing is empty"
-                             (vecLen (listDir "fs055/nope")) 0)))
+      (set bad (+ bad (eq "listDir is sorted, without . and .." (joined (listDir d) 0 "") "a,empty,moved.txt,one.txt,two.txt")))
+      (set bad (+ bad (eq "listDir of a leaf directory" (joined (listDir "fs055/a/b") 0 "") "c")))
+      (set bad (+ bad (eqInt "listDir of a file is empty" (vecLen (listDir f)) 0)))
+      (set bad (+ bad (eqInt "listDir of nothing is empty" (vecLen (listDir "fs055/nope")) 0)))
       (set n (+ n 4))
-
       ; --- the working directory --------------------------------------
       ; Its value is the machine's, so what is checked is its SHAPE:
       ; absolute, non-empty, and usable as a prefix.
       (set bad (+ bad (yes "cwd is absolute" (pathIsAbsolute cwd))))
-      (set bad (+ bad (yes "cwd names this file's directory"
-                           (fileExists (pathJoin cwd f)))))
+      (set bad (+ bad (yes "cwd names this file's directory" (fileExists (pathJoin cwd f)))))
       (set n (+ n 2))
-
       ; --- paths, which touch no syscall ------------------------------
       (set bad (+ bad (eq "pathDir" (pathDir "src/main.ax") "src/")))
       (set bad (+ bad (eq "pathDir of a bare name" (pathDir "main.ax") "")))
@@ -181,30 +217,23 @@
       ; A dotfile's dot names the file, it does not start an extension
       (set bad (+ bad (eq "pathExt of a dotfile" (pathExt ".axiomrc") "")))
       ; and a dot in a DIRECTORY component is not the file's either
-      (set bad (+ bad (eq "pathExt across a directory dot"
-                          (pathExt "src/v1.0/README") "")))
+      (set bad (+ bad (eq "pathExt across a directory dot" (pathExt "src/v1.0/README") "")))
       (set bad (+ bad (eq "pathStem" (pathStem "src/main.ax") "main")))
-      (set bad (+ bad (eq "pathReplaceExt keeps the directory"
-                          (pathReplaceExt "build/main.ax" ".ll") "build/main.ll")))
+      (set bad (+ bad (eq "pathReplaceExt keeps the directory" (pathReplaceExt "build/main.ax" ".ll") "build/main.ll")))
       (set bad (+ bad (eq "pathJoin" (pathJoin "src" "main.ax") "src/main.ax")))
-      (set bad (+ bad (eq "pathJoin does not double the slash"
-                          (pathJoin "src/" "main.ax") "src/main.ax")))
+      (set bad (+ bad (eq "pathJoin does not double the slash" (pathJoin "src/" "main.ax") "src/main.ax")))
       (set bad (+ bad (eq "pathJoin onto nothing" (pathJoin "" "main.ax") "main.ax")))
-      (set bad (+ bad (eq "an absolute name ignores its prefix"
-                          (pathJoin "src" "/etc/passwd") "/etc/passwd")))
+      (set bad (+ bad (eq "an absolute name ignores its prefix" (pathJoin "src" "/etc/passwd") "/etc/passwd")))
       (set bad (+ bad (eq "pathWithSlash" (pathWithSlash "src") "src/")))
       (set bad (+ bad (eq "pathWithSlash of nothing" (pathWithSlash "") "")))
       (set n (+ n 15))
-
       ; --- teardown, which is itself the last round trip ---------------
       ; A non-empty directory is REFUSED, and `removeFile` does not
       ; remove a directory. Both are the kernel's rules and both are
       ; checked here rather than assumed, because the cleanup below
       ; depends on them being true in this order.
-      (set bad (+ bad (yes "removeDir refuses a non-empty directory"
-                           (< (removeDir d) 0))))
-      (set bad (+ bad (yes "removeFile refuses a directory"
-                           (< (removeFile "fs055/a") 0))))
+      (set bad (+ bad (yes "removeDir refuses a non-empty directory" (< (removeDir d) 0))))
+      (set bad (+ bad (yes "removeFile refuses a directory" (< (removeFile "fs055/a") 0))))
       (removeFile f)
       (removeFile g)
       (removeFile "fs055/empty")
@@ -215,8 +244,9 @@
       (set bad (+ bad (eqInt "removeDir of an emptied directory" (removeDir d) 0)))
       (set bad (+ bad (no "and it is gone" (fileExists d))))
       (set n (+ n 4))
-
       (println "checks {n}")
       (println "failures {bad}")
       bad
-    }))
+    }
+  )
+)

@@ -1,7 +1,7 @@
 [1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `loud`: `pure` claim contradicted: body performs IO[0m
-  [1;34m--> [0m335-axtag-in-block-comment.ax:19:6
+  [1;34m--> [0m335-axtag-in-block-comment.ax:27:6
 [1;34m   |[0m
-[1;34m19 |[0m (fn (loud fd) { (__syscall3 1 fd 0 0) 0 })
+[1;34m27 |[0m (fn (loud fd)
 [1;34m   |[0m      [1;33m^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation

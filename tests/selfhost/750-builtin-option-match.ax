@@ -6,7 +6,10 @@
 ; tag 1 (probed against stage0), and the pair is `mixed` - `None` an
 ; immediate, `Some` a heap block.
 (:: main Int)
+
 (fn (main)
   (match (Some 42)
     ((Some x) x)
-    ((None) 0)))
+    ((None) 0)
+  )
+)

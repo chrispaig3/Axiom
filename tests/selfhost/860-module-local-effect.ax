@@ -21,5 +21,7 @@
   (log :: (-> Int Int)))
 
 (:: main Int)
+
 (fn (main)
-  (handle (ownRun 21) (Console Alloc) (lambda (v) 99)))
+  (handle (ownRun 21) (Console Alloc) (lambda (v) 99))
+)

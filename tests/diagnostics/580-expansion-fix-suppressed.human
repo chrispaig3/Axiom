@@ -1,10 +1,10 @@
 [1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp`[0m
-  [1;34m--> [0mBumpMod.ax:29:12
+  [1;34m--> [0mBumpMod.ax:27:12
 [1;34m   |[0m
-[1;34m27 |[0m   (let ((tmp 1))
+[1;34m25 |[0m   (let ((tmp 1))
 [1;34m   |[0m          [1;36m--- `tmp` is bound here[0m
 [1;34m...[0m
-[1;34m29 |[0m       (set tmp 2)
+[1;34m27 |[0m       (set tmp 2)
 [1;34m   |[0m            [1;31m^^^ `tmp` cannot be assigned[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp ...)`[1;35m ~> mut tmp[0m
@@ -65,16 +65,16 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
 [1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp.0`[0m
-  [1;34m--> [0mBumpMod.ax:18:2
+  [1;34m--> [0mBumpMod.ax:16:2
 [1;34m   |[0m
-[1;34m18 |[0m (mkBump Thing)
+[1;34m16 |[0m (mkBump Thing)
 [1;34m   |[0m  [1;31m^^^^^^ `tmp.0` cannot be assigned[0m
-[1;34m18 |[0m (mkBump Thing)
+[1;34m16 |[0m (mkBump Thing)
 [1;34m   |[0m  [1;36m------ `tmp.0` is bound here[0m
 [1;34m   |[0m
-  [1;34m--> [0mBumpMod.ax:8:12
+  [1;34m--> [0mBumpMod.ax:7:12
 [1;34m   |[0m
-[1;34m 8 |[0m (pub macro mkBump
+[1;34m 7 |[0m (pub macro mkBump ((mkBump T)
 [1;34m   |[0m            [1;36m^^^^^^ in this expansion of `mkBump`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp.0 ...)`

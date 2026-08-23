@@ -115,15 +115,23 @@
 
 (build P3 3 4 5)
 
-(four P2 1 2 3 4)
+(four
+  P2  1  2  3  4
+)
 
 (nil P2)
 
-(pre P2 100 1 2 3)
+(pre
+  P2  100  1  2  3
+)
 
-(tag P2 7 1 2 3 4)
+(tag
+  P2  7  1  2  3  4
+)
 
-(tag P3 8 1 2 3 4)
+(tag
+  P3  8  1  2  3  4
+)
 
 (pick P2 9)
 
@@ -142,14 +150,9 @@
 
 (fn (main)
   (let (
-    (two (makeP2))
-    (three (makeP3))
+    (two makeP2)
+    (three makeP3)
   )
-    (+ (b2i (== (fP2) 10))
-       (+ (* 2 (b2i (== (+ two.a (+ two.b (+ three.a (+ three.b three.c)))) 15)))
-          (+ (* 4 (b2i (== (nP2) 5)))
-             (+ (* 8 (b2i (== (wP2) 106)))
-                (+ (* 16 (b2i (&& (== (tP2) 10) (== (tP3) 0))))
-                   (* 32 (b2i (== (+ (pP2) (pP3)) 3))))))))
+    (+ (b2i (== fP2 10)) (+ (* 2 (b2i (== (+ two.a (+ two.b (+ three.a (+ three.b three.c)))) 15))) (+ (* 4 (b2i (== nP2 5))) (+ (* 8 (b2i (== wP2 106))) (+ (* 16 (b2i (&& (== tP2 10) (== tP3 0)))) (* 32 (b2i (== (+ pP2 pP3) 3))))))))
   )
 )

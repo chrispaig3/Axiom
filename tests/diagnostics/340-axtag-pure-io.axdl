@@ -1,1 +1,1 @@
-W AX3010 340-axtag-pure-io.ax:3:6-10 axtag-mismatch "AXTAG mismatch on `emit`: `pure` claim contradicted: body performs Alloc, IO"
+W AX3010 340-axtag-pure-io.ax:4:6-10 axtag-mismatch "AXTAG mismatch on `emit`: `pure` claim contradicted: body performs Alloc, IO"

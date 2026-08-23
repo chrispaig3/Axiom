@@ -14,14 +14,27 @@
 ; comfortably past where the recursive spelling died. Restoring that
 ; spelling fails this case with SIGSEGV rather than a wrong answer.
 (import Str)
+
 (import Vec)
+
 (import lexer)
 
 (:: rep (-> String Int String))
+
 (fn (rep s n)
-  (if (== n 0) s (rep (strConcat s s) (- n 1))))
+  (if (== n 0)
+    s
+    (rep (strConcat s s) (- n 1))
+  )
+)
 
 (:: main Int)
+
 (fn (main)
   (let ((src (rep "(fn (f x) (+ x 1)) " 14)))
-    (if (> (vecLen (lex src)) 100000) 42 1)))
+    (if (> (vecLen (lex src)) 100000)
+      42
+      1
+    )
+  )
+)

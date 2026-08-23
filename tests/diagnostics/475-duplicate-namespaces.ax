@@ -18,17 +18,26 @@
 ;           bucket keyed on the name alone, without the namespace,
 ;           would report one here and this file would fail.
 (fn (dup n) 1)
+
 (fn (dup n) 2)
+
 (fn (dup n) 3)
 
-(data Same (MkSame Int))
-(struct Same (x : Int))
+(data Same
+  (MkSame Int))
+
+(struct Same
+  (x : Int))
 
 (macro (mm x) (+ x 1))
+
 (fn (mm n) 2)
 
-(data Thing (MkThing Int))
+(data Thing
+  (MkThing Int))
+
 (fn (Thing n) 1)
 
 (:: main Int)
+
 (fn (main) 0)

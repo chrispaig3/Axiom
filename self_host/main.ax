@@ -1,26 +1,46 @@
 ; main.ax — self-hosted Axiom compiler entry point.
-
 (import core)
+
 (import Host)
+
 (import Mem)
+
 (import Str)
+
 (import Vec)
+
 (import Sys)
+
 (import Path)
+
 (import lexer)
+
 (import parser)
+
 (import diag)
+
 (import render)
+
 (import repl)
+
 (import typecheck)
+
 (import expand)
+
 (import codegen)
+
 (import driver)
+
 (import rustbind)
+
 (import format)
+
 (import explain)
+
 (import symbols)
+
 (import lsp)
+
 (import style)
 
 ; Which diagnostic renderer this invocation wants. `human` is the
@@ -31,19 +51,24 @@
 ; stage0 warns at argument-parse time - a clean file with a mistyped
 ; flag still gets the warning.
 (pub :: diagFormatArg Int)
+
 ;@axiom:effect(io)
 (pub fn (diagFormatArg)
   (let ((v (flagValue "--diagnostic-format" 1)))
     (if (== (strLen v) 0)
-        FMT_HUMAN
-        (let ((c (parseDiagFormatName v)))
-          (if (>= c 0)
-              c
-              {
-                (writeStderrStr (cat3 "warning: unknown --diagnostic-format '" v
-                                   "', falling back to 'human' (valid: human, ai, json)\n"))
-                FMT_HUMAN
-              })))))
+      FMT_HUMAN
+      (let ((c (parseDiagFormatName v)))
+        (if (>= c 0)
+          c
+          {
+            (writeStderrStr (cat3 "warning: unknown --diagnostic-format '" v "', falling back to 'human' (valid: human, ai, json)\n"))
+            FMT_HUMAN
+          }
+        )
+      )
+    )
+  )
+)
 
 ; `symbols` emits AXSYM and nothing else, and this says so out loud
 ; when asked for something else.
@@ -64,20 +89,21 @@
 ; script that sets it once for a run of mixed subcommands should not
 ; fail on this one.
 (pub :: symbolsFormatNotice Int)
+
 ;@axiom:effect(io)
 (pub fn (symbolsFormatNotice)
+  ; `human` and `ai` both render symbols now; only `json` has no
+  ; symbol renderer of its own and falls back.
   (let ((v (lowerAscii (flagValue "--diagnostic-format" 1))))
-    ; `human` and `ai` both render symbols now; only `json` has no
-    ; symbol renderer of its own and falls back.
-    (if (|| (== (strLen v) 0)
-        (|| (strEq v "ai") (|| (strEq v "agent") (|| (strEq v "compact")
-        (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))))))
+    (if (|| (== (strLen v) 0) (|| (strEq v "ai") (|| (strEq v "agent") (|| (strEq v "compact") (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))))))
+      0
+      {
+        (writeStderrStr (cat3 "note: `symbols` emits AXSYM; --diagnostic-format='" v "' applies to diagnostics only\n"))
         0
-        {
-          (writeStderrStr (cat3 "note: `symbols` emits AXSYM; --diagnostic-format='" v
-                             "' applies to diagnostics only\n"))
-          0
-        })))
+      }
+    )
+  )
+)
 
 ; Exit status is the driver's answer, not a byte count: 0 on success and
 ; 1 when the source could not be read, could not be parsed, has no entry
@@ -109,16 +135,23 @@
 ; ------------------------------------------------------------------
 ; Reading the input, and saying what went wrong when it cannot be read.
 ; ------------------------------------------------------------------
-
 ; The C library's own wording for the three errnos a source path
 ; realistically produces. Anything else is reported by number rather
 ; than guessed at, because a wrong reason is worse than a bare one.
 (pub :: errnoReason (-> Int String))
+
 (pub fn (errnoReason e)
-  (if (== e 2) "No such file or directory"
-  (if (== e 13) "Permission denied"
-  (if (== e 21) "Is a directory"
-      (cat2 "errno " (decStr e))))))
+  (if (== e 2)
+    "No such file or directory"
+    (if (== e 13)
+      "Permission denied"
+      (if (== e 21)
+        "Is a directory"
+        (cat2 "errno " (decStr e))
+      )
+    )
+  )
+)
 
 ; 0 when `fileName` can be read, otherwise the errno explaining why not.
 ;
@@ -135,9 +168,9 @@
 ; `read` (probed, 2026-08-08). What is left here is the `Str`-taking
 ; spelling, which is this file's convention.
 (pub :: sourceReadErrno (-> String Int))
+
 ;@axiom:effect(io)
-(pub fn (sourceReadErrno fileName)
-  (sysReadErrno (strData fileName)))
+(pub fn (sourceReadErrno fileName) (sysReadErrno (strData fileName)))
 
 ; One spelling of the read failure, everywhere.
 ;
@@ -147,8 +180,8 @@
 ; had typed, and no wording ever said whether the file was missing,
 ; unreadable, or a directory.
 (pub :: readFailMsg (-> String Int String))
-(pub fn (readFailMsg fileName e)
-  (cat2 (cat3 "Failed to read file '" fileName "': ") (cat2 (errnoReason e) "\n")))
+
+(pub fn (readFailMsg fileName e) (cat2 (cat3 "Failed to read file '" fileName "': ") (cat2 (errnoReason e) "\n")))
 
 ; Does this declaration list define a `main` function?
 ;
@@ -162,6 +195,7 @@
 ; AX4001 has been in the code table and in `axiom explain` the whole
 ; time, with no site constructing it.
 (pub :: declsHaveMain (-> Int Bool))
+
 (pub fn (declsHaveMain ds) (declsHaveMainFrom ds 0))
 
 ; Run the checker and join the expansion frames onto its diagnostics -
@@ -170,28 +204,38 @@
 ; (macro-system.md MAC-DIAG-4). One expression, so the two call shapes
 ; below swap in without moving any parentheses around them.
 (:: checkWithFrames (-> Int Int Int Int Int))
+
 (fn (checkWithFrames decls allDecls units ftbl)
   (let ((cds (checkModule decls allDecls units)))
     {
       (expAttachFrames cds ftbl units)
       cds
-    }))
+    }
+  )
+)
 
 (:: attachTcFrames (-> Int Int Int Int))
+
 (fn (attachTcFrames tc ftbl units)
   {
     (expAttachFrames (tcOut tc) ftbl units)
     (tcOut tc)
-  })
+  }
+)
 
 (pub :: declsHaveMainFrom (-> Int Int Bool))
+
 (pub fn (declsHaveMainFrom ds i)
   (if (>= i (vecLen ds))
-      false
-      (let ((d (vecGet ds i)))
-        (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeA d) "main"))
-            true
-            (declsHaveMainFrom ds (+ i 1))))))
+    false
+    (let ((d (vecGet ds i)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeA d) "main"))
+        true
+        (declsHaveMainFrom ds (+ i 1))
+      )
+    )
+  )
+)
 
 ; Compile `fileName` for `tname`, answering its LLVM text - or the empty
 ; string when `doEmit` is 0, which is what `check` wants.
@@ -209,205 +253,308 @@
 ; language with no sum type at this layer would buy nothing - no caller
 ; has a second thing to try.
 (pub :: compileFile (-> String String Int Int String))
+
 ;@axiom:effect(io)
 (pub fn (compileFile fileName tname doEmit needMain)
-  (let ((rerr (sourceReadErrno fileName))
-        (dfmt diagFormatArg)
-        ; `--crate DIR` first: a stale or missing binding module is
-        ; regenerated and a missing archive built, before the module
-        ; search that would otherwise report them missing
-        (_crates prepareCrates))
+  ; `--crate DIR` first: a stale or missing binding module is
+  ; regenerated and a missing archive built, before the module
+  ; search that would otherwise report them missing
+  (let (
+    (rerr (sourceReadErrno fileName))
+    (dfmt diagFormatArg)
+    (_crates prepareCrates)
+  )
     (if (!= rerr 0)
-        { (die (readFailMsg fileName rerr) 1) "" }
-        ; An empty file is READ, not refused: it lexes to no tokens and
-        ; parses to a module with no declarations, which `check` accepts
-        ; and `build` rejects for having no `main` - the same answers
-        ; stage0 gave. It used to be refused as unreadable.
-        (let ((src (sysReadFile (strData fileName))))
+      {
+        (die (readFailMsg fileName rerr) 1)
+        ""
+      }
+      ; An empty file is READ, not refused: it lexes to no tokens and
+      ; parses to a module with no declarations, which `check` accepts
+      ; and `build` rejects for having no `main` - the same answers
+      ; stage0 gave. It used to be refused as unreadable.
+      ; Lexical errors come first, because lexing does - and because
+      ; a file with a bad escape in it has not got a token stream
+      ; worth parsing. stage0 reports them the same way round.
+      (let ((src (sysReadFile (strData fileName))))
         (let ((toks (lex src)))
-        ; Lexical errors come first, because lexing does - and because
-        ; a file with a bad escape in it has not got a token stream
-        ; worth parsing. stage0 reports them the same way round.
-        (let ((lexD (lexErrDiag toks src)))
-        (let ((pr (if (== lexD 0)
-                      (parseModuleWith toks (scanAxtags src))
-                      (pErr 0))))
-          (if (|| (> lexD 0) (== (memGetWord pr 0) 0))
-              ; A parse failure is a DIAGNOSTIC, through the same
-              ; renderer and the same exit status as every other one.
-              ; It used to be a bare `parse failed` on stderr with exit
-              ; 2, against stage0's coded, spanned report and exit 1.
-              (let ((ds (let ((v vecNew))
-                          { (vecPush v (if (== lexD 0)
-                                           (parseErrDiag toks pr src)
-                                           lexD))
-                            v }))
-                    (units (let ((v vecNew))
-                             { (vecPush v (cast Int (CUnit2 fileName src (cast String 0)))) v })))
-                {
-                  (writeStderrStr (renderDiagsFormat dfmt ds units))
-                  (writeStderrStr (renderFailTrailer 1))
-                  (sysExitWith 1)
-                  ""
-                })
-              ; The target is the second argument, by the same names
-              ; stage0's --target takes; this compiler's OWN host when
-              ; absent.
-              ;
-              ; It used to default to the literal "darwin-aarch64",
-              ; which made every compiler built anywhere else emit
-              ; Mach-O-targeted IR unless told otherwise - including in
-              ; `check-bootstrap.sh`, which passes no target and runs on
-              ; `ubuntu-latest`. `Host` is a per-target module selected
-              ; when this compiler was compiled, so the answer is
-              ; whatever it was built for.
-              (let ((decls (memGetWord pr 1)))
-                (let ((tcode (checkedTargetCode tname))
-                      ; what the entry file wrote `pub`, before import
-                      ; resolution rewrites visibility (rustbind.ax)
-                      (pubFns (rbPubNames (memGetWord pr 1)))
-                      ; and, for a binding, the accessor shims the
-                      ; binding calls, synthesised into this module
-                      ; before it is resolved, checked and compiled
-                      (_shims (if (> (strLen (flagValue "--emit-rust-binding" 1)) 0)
-                                  (rbAppendShims (memGetWord pr 1) (rbPubNames (memGetWord pr 1)))
-                                  0))
-                      (bares vecNew)
-                      (fulls vecNew)
-                      (mods vecNew))
-                  ; Unit 0 is the entry file; `resolveImports` appends
-                  ; one per module it reads, and every diagnostic names
-                  ; the unit its spans index.
-                  (let ((units (let ((v vecNew))
-                                 { (vecPush v (cast Int (CUnit2 fileName src (cast String 0)))) v })))
-                  (let ((allDecls (resolveImports decls bares fulls mods tcode
-                                                  (pathDir fileName) units)))
-                  ; Macros expand HERE, between import resolution and
-                  ; the checker, so the checker sees what a macro
-                  ; generated and reports about it like any other
-                  ; code. Expansion used to happen inside codegen, so
-                  ; `check` never saw an expansion at all and accepted
-                  ; programs `build` could not compile - see the header
-                  ; of `self_host/expand.ax` for what that cost.
-                  (let ((eds vecNew) (ftbl vecNew))
+          (let ((lexD (lexErrDiag toks src)))
+            (let ((pr 
+              (if (== lexD 0)
+                (parseModuleWith toks (scanAxtags src))
+                (pErr 0)
+              )
+            ))
+              (if (|| (> lexD 0) (== (memGetWord pr 0) 0))
+                ; A parse failure is a DIAGNOSTIC, through the same
+                ; renderer and the same exit status as every other one.
+                ; It used to be a bare `parse failed` on stderr with exit
+                ; 2, against stage0's coded, spanned report and exit 1.
+                (let (
+                  (ds (let ((v vecNew))
+                    {
+                      (vecPush
+                        v                        (if (== lexD 0)
+                          (parseErrDiag toks pr src)
+                          lexD
+                        )
+                      )
+                      v
+                    }
+                  ))
+                  (units (let ((v vecNew))
+                    {
+                      (vecPush
+                        v                        (cast Int (CUnit2
+                          fileName                          src                          (cast String 0)
+                        ))
+                      )
+                      v
+                    }
+                  ))
+                )
                   {
-                    (expandProgram decls allDecls eds ftbl units bares fulls mods)
-                    ; The expander's OWN refusals get the frames too.
-                    ; They are diagnostics from inside an expansion by
-                    ; construction - AX3021, AX3027, AX3028 - and the
-                    ; join is the same one MAC-DIAG-4 computes for the
-                    ; checker's: a diagnostic anchored at a recorded
-                    ; invocation names the macro that was being
-                    ; instantiated. Without it a reader of `AX3028
-                    ; parallel sequences have different lengths` got a
-                    ; span and no macro name, and the two iteration
-                    ; constructs disagreed about which span to give.
-                    (expAttachFrames eds ftbl units)
-                    ; Impls become ordinary declarations before the
-                    ; checker runs, so their bodies are checked like
-                    ; any others - they used to be checked not at all.
-                    (lowerImpls allDecls eds)
-                    ; A pass that REFUSED does not hand its output to
-                    ; the next one. Expansion's errors used to be
-                    ; merged with the checker's, which meant the
-                    ; checker ran over a tree expansion had already
-                    ; given up on - and on the input that blows the
-                    ; expansion budget that tree is deep enough to
-                    ; overflow the stack inside `spineArgVec`, so a
-                    ; clean AX3024 became a SIGSEGV with no output at
-                    ; all (`lldb` put it there; the guard had fired
-                    ; correctly and the crash was one pass later).
-                    (if (> (countErrorDiags eds) 0)
+                    (writeStderrStr (renderDiagsFormat dfmt ds units))
+                    (writeStderrStr (renderFailTrailer 1))
+                    (sysExitWith 1)
+                    ""
+                  }
+                )
+                ; The target is the second argument, by the same names
+                ; stage0's --target takes; this compiler's OWN host when
+                ; absent.
+                ;
+                ; It used to default to the literal "darwin-aarch64",
+                ; which made every compiler built anywhere else emit
+                ; Mach-O-targeted IR unless told otherwise - including in
+                ; `check-bootstrap.sh`, which passes no target and runs on
+                ; `ubuntu-latest`. `Host` is a per-target module selected
+                ; when this compiler was compiled, so the answer is
+                ; whatever it was built for.
+                ; what the entry file wrote `pub`, before import
+                ; resolution rewrites visibility (rustbind.ax)
+                ; and, for a binding, the accessor shims the
+                ; binding calls, synthesised into this module
+                ; before it is resolved, checked and compiled
+                ; Unit 0 is the entry file; `resolveImports` appends
+                ; one per module it reads, and every diagnostic names
+                ; the unit its spans index.
+                ; Macros expand HERE, between import resolution and
+                ; the checker, so the checker sees what a macro
+                ; generated and reports about it like any other
+                ; code. Expansion used to happen inside codegen, so
+                ; `check` never saw an expansion at all and accepted
+                ; programs `build` could not compile - see the header
+                ; of `self_host/expand.ax` for what that cost.
+                (let ((decls (memGetWord pr 1)))
+                  (let (
+                    (tcode (checkedTargetCode tname))
+                    (pubFns (rbPubNames (memGetWord pr 1)))
+                    (_shims (if (> (strLen (flagValue "--emit-rust-binding" 1)) 0)
+                      (rbAppendShims (memGetWord pr 1) (rbPubNames (memGetWord pr 1)))
+                      0
+                    ))
+                    (bares vecNew)
+                    (fulls vecNew)
+                    (mods vecNew)
+                  )
+                    (let ((units 
+                      (let ((v vecNew))
                         {
-                          (writeStderrStr (renderDiagsFormat dfmt (orderDiags eds) units))
-                          (writeStderrStr (renderFailTrailer (countErrorDiags eds)))
-                          (sysExitWith 1)
-                          0
+                          (vecPush
+                            v                            (cast Int (CUnit2
+                              fileName                              src                              (cast String 0)
+                            ))
+                          )
+                          v
                         }
-                        0)
-                    ; Diagnostics render in the chosen format; only
-                    ; ERRORS refuse to continue. It used to be any
-                    ; diagnostic at all, which made a warnings-only
-                    ; file exit 1 where stage0 exits 0 - invisible to
-                    ; the AXDL gate, which compares bytes, not status
-                    ; (probed on 330-axtag-mismatch, 2026-08-07). The
-                    ; trailer prints in every format because stage0's
-                    ; does; the AXDL gate never saw it because its
-                    ; grep keeps only `^[EWNH] ` lines.
-                    (let ((ds (orderDiags (expMergeInto eds (checkWithFrames decls allDecls units ftbl)))))
-                      {
-                        (if (> (vecLen ds) 0)
-                            (writeStderrStr (renderDiagsFormat dfmt ds units))
-                            0)
-                        (if (> (countErrorDiags ds) 0)
-                            {
-                              (writeStderrStr (renderFailTrailer (countErrorDiags ds)))
-                              (sysExitWith 1)
-                              ""
-                            }
-                            (if (== doEmit 0)
-                                ""
-                                ; The entry point is checked HERE, after
-                                ; the module type-checks and before a
-                                ; byte of IR exists, because the wrapper
-                                ; that calls `__axiom_user_main` is
-                                ; emitted unconditionally: without this,
-                                ; the omission surfaced from `opt` as
-                                ; `use of undefined value`, against a
-                                ; temporary file already deleted, with
-                                ; exit 4 blaming the toolchain.
-                                ;
-                                ; Spanless, because the diagnostic is
-                                ; about the module rather than about any
-                                ; position in it - there is no `main` to
-                                ; point at. The renderer's `--> <file>`
-                                ; form still names the file.
-                                (if (&& (== needMain 1)
-                                        (if (declsHaveMain allDecls) false true))
-                                    (let ((mds (let ((v vecNew))
-                                                 { (vecPush v
-                                                     (mkDiag SEV_ERROR "AX4001" "missing-main" 0
-                                                             "no `main` function found"
-                                                             0 0
-                                                             "add `(:: main Int)` and `(define main ...)` as the program entry point"))
-                                                   v })))
-                                      {
-                                        (writeStderrStr (renderDiagsFormat dfmt mds units))
-                                        (writeStderrStr (renderFailTrailer 1))
-                                        (sysExitWith 1)
-                                        ""
-                                      })
-                                    ; the IR, and - for a build - every
-                                    ; `extern` symbol it calls grounded
-                                    ; against the link line, reported at
-                                    ; the item that declared it
-                                    (let ((ir (emitResolved allDecls bares fulls tcode)))
+                      )
+                    ))
+                      (let ((allDecls (resolveImports
+                        decls                        bares                        fulls                        mods                        tcode                        (pathDir fileName)                        units
+                      )))
+                        (let (
+                          (eds vecNew)
+                          (ftbl vecNew)
+                        )
+                          {
+                            (expandProgram
+                              decls                              allDecls                              eds                              ftbl                              units                              bares                              fulls                              mods
+                            )
+                            ; The expander's OWN refusals get the frames too.
+                            ; They are diagnostics from inside an expansion by
+                            ; construction - AX3021, AX3027, AX3028 - and the
+                            ; join is the same one MAC-DIAG-4 computes for the
+                            ; checker's: a diagnostic anchored at a recorded
+                            ; invocation names the macro that was being
+                            ; instantiated. Without it a reader of `AX3028
+                            ; parallel sequences have different lengths` got a
+                            ; span and no macro name, and the two iteration
+                            ; constructs disagreed about which span to give.
+                            (expAttachFrames eds ftbl units)
+                            ; Impls become ordinary declarations before the
+                            ; checker runs, so their bodies are checked like
+                            ; any others - they used to be checked not at all.
+                            (lowerImpls allDecls eds)
+                            ; A pass that REFUSED does not hand its output to
+                            ; the next one. Expansion's errors used to be
+                            ; merged with the checker's, which meant the
+                            ; checker ran over a tree expansion had already
+                            ; given up on - and on the input that blows the
+                            ; expansion budget that tree is deep enough to
+                            ; overflow the stack inside `spineArgVec`, so a
+                            ; clean AX3024 became a SIGSEGV with no output at
+                            ; all (`lldb` put it there; the guard had fired
+                            ; correctly and the crash was one pass later).
+                            (if (> (countErrorDiags eds) 0)
+                              {
+                                (writeStderrStr (renderDiagsFormat dfmt (orderDiags eds) units))
+                                (writeStderrStr (renderFailTrailer (countErrorDiags eds)))
+                                (sysExitWith 1)
+                                0
+                              }
+                              0
+                            )
+                            ; Diagnostics render in the chosen format; only
+                            ; ERRORS refuse to continue. It used to be any
+                            ; diagnostic at all, which made a warnings-only
+                            ; file exit 1 where stage0 exits 0 - invisible to
+                            ; the AXDL gate, which compares bytes, not status
+                            ; (probed on 330-axtag-mismatch, 2026-08-07). The
+                            ; trailer prints in every format because stage0's
+                            ; does; the AXDL gate never saw it because its
+                            ; grep keeps only `^[EWNH] ` lines.
+                            (let ((ds (orderDiags (expMergeInto eds (checkWithFrames decls allDecls units ftbl)))))
+                              {
+                                (if (> (vecLen ds) 0)
+                                  (writeStderrStr (renderDiagsFormat dfmt ds units))
+                                  0
+                                )
+                                (if (> (countErrorDiags ds) 0)
+                                  {
+                                    (writeStderrStr (renderFailTrailer (countErrorDiags ds)))
+                                    (sysExitWith 1)
+                                    ""
+                                  }
+                                  (if (== doEmit 0)
+                                    ""
+                                    ; The entry point is checked HERE, after
+                                    ; the module type-checks and before a
+                                    ; byte of IR exists, because the wrapper
+                                    ; that calls `__axiom_user_main` is
+                                    ; emitted unconditionally: without this,
+                                    ; the omission surfaced from `opt` as
+                                    ; `use of undefined value`, against a
+                                    ; temporary file already deleted, with
+                                    ; exit 4 blaming the toolchain.
+                                    ;
+                                    ; Spanless, because the diagnostic is
+                                    ; about the module rather than about any
+                                    ; position in it - there is no `main` to
+                                    ; point at. The renderer's `--> <file>`
+                                    ; form still names the file.
+                                    (if (&&
+                                      (== needMain 1)                                      (if (declsHaveMain allDecls)
+                                        false
+                                        true
+                                      )
+                                    )
+                                      (let ((mds 
+                                        (let ((v vecNew))
+                                          {
+                                            (vecPush v (mkDiag
+                                              SEV_ERROR                                              "AX4001"                                              "missing-main"                                              0                                              "no `main` function found"                                              0                                              0                                              "add `(:: main Int)` and `(define main ...)` as the program entry point"
+                                            ))
+                                            v
+                                          }
+                                        )
+                                      ))
+                                        {
+                                          (writeStderrStr (renderDiagsFormat dfmt mds units))
+                                          (writeStderrStr (renderFailTrailer 1))
+                                          (sysExitWith 1)
+                                          ""
+                                        }
+                                      )
+                                      ; the IR, and - for a build - every
+                                      ; `extern` symbol it calls grounded
+                                      ; against the link line, reported at
+                                      ; the item that declared it
                                       ; `--emit-rust-binding PATH` beside an
                                       ; archive: the Rust view of this file's
                                       ; `pub` surface, written from the same
                                       ; declarations the IR came from
-                                      (if (&& (== needMain 0) (> (strLen (flagValue "--emit-rust-binding" 1)) 0))
-                                          (let ((bp (flagValue "--emit-rust-binding" 1)))
-                                            (if (< (sysWriteFile (strCStr bp) (rustBindingOf decls pubFns fileName)) 0)
+                                      (let ((ir (emitResolved allDecls bares fulls tcode)))
+                                        {
+                                          (if (&& (== needMain 0) (> (strLen (flagValue "--emit-rust-binding" 1)) 0))
+                                            (let ((bp (flagValue "--emit-rust-binding" 1)))
+                                              (if (< (sysWriteFile (strCStr bp) (rustBindingOf decls pubFns fileName)) 0)
                                                 (die (cat3 "error: could not write " bp "\n") 1)
+                                                ; laid out by `rustfmt` when one is on
+                                                ; PATH, so a checked-in copy is the
+                                                ; formatted one; without it the file is
+                                                ; as generated, and still compiles
                                                 {
-                                                  ; laid out by `rustfmt` when one is on
-                                                  ; PATH, so a checked-in copy is the
-                                                  ; formatted one; without it the file is
-                                                  ; as generated, and still compiles
-                                                  (runToolQuiet "rustfmt" (let ((v vecNew)) { (vecPush v (cast Int "--edition")) (vecPush v (cast Int "2021")) (vecPush v (cast Int "--quiet")) (vecPush v (cast Int bp)) v }))
+                                                  (runToolQuiet
+                                                    "rustfmt"                                                    (let ((v vecNew))
+                                                      {
+                                                        (vecPush
+                                                          v                                                          (cast Int "--edition")
+                                                        )
+                                                        (vecPush
+                                                          v                                                          (cast Int "2021")
+                                                        )
+                                                        (vecPush
+                                                          v                                                          (cast Int "--quiet")
+                                                        )
+                                                        (vecPush
+                                                          v                                                          (cast Int bp)
+                                                        )
+                                                        v
+                                                      }
+                                                    )
+                                                  )
                                                   (replOut (cat3 "Rust binding written to " bp "\n"))
-                                                }))
-                                          0)
-                                      (if (== needMain 1)
-                                          (let ((grc (groundExternsSpanned ir allDecls units dfmt
-                                                                           (effectiveLinkArgs ir linkArgsOf))))
-                                            (if (!= grc 0)
-                                                { (sysExitWith grc) "" }
-                                                ir))
-                                          ir)))))
-                      })
-                  })))))))))))))
+                                                }
+                                              )
+                                            )
+                                            0
+                                          )
+                                          (if (== needMain 1)
+                                            (let ((grc (groundExternsSpanned
+                                              ir                                              allDecls                                              units                                              dfmt                                              (effectiveLinkArgs ir linkArgsOf)
+                                            )))
+                                              (if (!= grc 0)
+                                                {
+                                                  (sysExitWith grc)
+                                                  ""
+                                                }
+                                                ir
+                                              )
+                                            )
+                                            ir
+                                          )
+                                        }
+                                      )
+                                    )
+                                  )
+                                )
+                              }
+                            )
+                          }
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 ; The entry point: a subcommand if the first argument names one, and
 ; otherwise the original `stage1 FILE [TARGET]` spelling.
@@ -415,52 +562,82 @@
 ; See `driver.ax` for why that fallback is not optional - five gate
 ; scripts use it, and they are the only gates that watch this compiler.
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
+  ; Refuse a malformed invocation BEFORE anything acts on it. This
+  ; is what stops `axiom fmt --check=true FILE` and
+  ; `axiom fmt FILE --help` from rewriting the file: both used to
+  ; reach fmt's write path, because `hasFlag` matched exactly and
+  ; `--help` was recognised only at argv[1].
   (let ((first subcommandName))
     {
-      ; Refuse a malformed invocation BEFORE anything acts on it. This
-      ; is what stops `axiom fmt --check=true FILE` and
-      ; `axiom fmt FILE --help` from rewriting the file: both used to
-      ; reach fmt's write path, because `hasFlag` matched exactly and
-      ; `--help` was recognised only at argv[1].
       (checkArgs first)
       ; Help the user ASKED for: stdout, exit 0, from anywhere in argv.
       ; `--version`/`-V` is deliberately NOT accepted after a
       ; subcommand - the retired compiler did not propagate it either -
       ; so `axiom run prog.ax -V` forwards `-V` to the program.
       (if (hasFlagAnywhere first "--help")
-          { (replOut (helpForCommand first)) (sysExitWith 0) 0 }
-          (if (hasFlagAnywhere first "-h")
-              { (replOut (helpForCommand first)) (sysExitWith 0) 0 }
-              0))
-      (if (== (strLen first) 0) (rejectTypoedSubcommand) 0)
-    (if (> (strLen first) 0)
+        {
+          (replOut (helpForCommand first))
+          (sysExitWith 0)
+          0
+        }
+        (if (hasFlagAnywhere first "-h")
+          {
+            (replOut (helpForCommand first))
+            (sysExitWith 0)
+            0
+          }
+          0
+        )
+      )
+      (if (== (strLen first) 0)
+        rejectTypoedSubcommand
+        0
+      )
+      (if (> (strLen first) 0)
         (runSubcommand first)
         ; The original spelling: the first positional is the input, the
         ; second is the target. Positions rather than argv indices,
         ; because a global flag may sit in front of either.
-        (let ((i1 (positionalIndex 1)))
         ; No subcommand and no file: print the usage rather than a
         ; complaint about `in.ax`, a filename the user never typed and
         ; which only exists as this fallback's default. A bare `axiom`
         ; said `cannot read input: in.ax` and exited 1, which reads as a
         ; missing file rather than as a missing argument.
-        (if (< i1 0)
+        (let ((i1 (positionalIndex 1)))
+          (if (< i1 0)
             (die usageText 1)
-        (let ((fileName (sysArg i1))
-              ; `i1` is known good here, so the target scan starts
-              ; one past it unconditionally.
+            ; `i1` is known good here, so the target scan starts
+            ; one past it unconditionally.
+            (let (
+              (fileName (sysArg i1))
               (tname (let ((v (flagValue "--target" 1)))
-                       (if (> (strLen v) 0)
-                           v
-                           (let ((i2 (positionalIndex (+ i1 1))))
-                             (if (< i2 0) hostTarget (sysArg i2)))))))
-          (let ((ir (compileFile fileName tname 1 0)))
-            {
-              (replOut ir)
-              0
-            })))))}))
+                (if (> (strLen v) 0)
+                  v
+                  (let ((i2 (positionalIndex (+ i1 1))))
+                    (if (< i2 0)
+                      hostTarget
+                      (sysArg i2)
+                    )
+                  )
+                )
+              ))
+            )
+              (let ((ir (compileFile fileName tname 1 0)))
+                {
+                  (replOut ir)
+                  0
+                }
+              )
+            )
+          )
+        )
+      )
+    }
+  )
+)
 
 ; `axiom buidl f.ax` used to be read as the legacy `axiom FILE TARGET`
 ; with FILE=`buidl`, so the answer was `cannot read input: buidl` - a
@@ -473,40 +650,60 @@
 ; edit of a subcommand is a typo, not a file. A name that is neither
 ; keeps the old answer, which for the legacy grammar is the right one.
 (pub :: rejectTypoedSubcommand Int)
+
 ;@axiom:effect(io)
 (pub fn (rejectTypoedSubcommand)
   (let ((i (positionalIndex 1)))
     (if (< i 0)
-        0
-        (let ((w (sysArg i)))
-          (if (== (sourceReadErrno w) 0)
+      0
+      (let ((w (sysArg i)))
+        (if (== (sourceReadErrno w) 0)
+          0
+          (let ((near (nearestSubcommand w)))
+            (if (== (strLen near) 0)
               0
-              (let ((near (nearestSubcommand w)))
-                (if (== (strLen near) 0)
-                    0
-                    (usageError (cat2 (cat3 "error: unrecognised subcommand `" w "`\n")
-                                      (cat3 "       did you mean `" near "`?\n"))))))))))
+              (usageError (cat2 (cat3 "error: unrecognised subcommand `" w "`\n") (cat3 "       did you mean `" near "`?\n")))
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 (pub :: runSubcommand (-> String Int))
+
 ;@axiom:effect(io)
 (pub fn (runSubcommand cmd)
   (if (|| (strEq cmd "help") (|| (strEq cmd "--help") (strEq cmd "-h")))
-      ; `axiom help build` answers for `build`. The operand used to be
-      ; read and discarded, so it printed the general usage - while the
-      ; COMMANDS block promised `help <COMMAND>` would do this. A usage
-      ; text that documents behaviour the binary does not have is the
-      ; same defect as a diagnostic code nothing constructs.
-      ;
-      ; An operand that names no command falls back to the general
-      ; usage rather than failing: `help` is where someone goes when
-      ; they are already lost, and refusing them there is unkind.
-      (let ((topic (positionalFrom operandStart)))
-        { (replOut (if (isSubcommand topic) (helpForCommand topic) usageText)) 0 })
-  (if (|| (strEq cmd "version") (|| (strEq cmd "--version") (strEq cmd "-V")))
-      { (replOut "axiom (self-hosted) 0.1.0\n") 0 }
-  (if (strEq cmd "check")
-      (let ((f inputOperand))
-        (if (== (strLen f) 0)
+    ; `axiom help build` answers for `build`. The operand used to be
+    ; read and discarded, so it printed the general usage - while the
+    ; COMMANDS block promised `help <COMMAND>` would do this. A usage
+    ; text that documents behaviour the binary does not have is the
+    ; same defect as a diagnostic code nothing constructs.
+    ;
+    ; An operand that names no command falls back to the general
+    ; usage rather than failing: `help` is where someone goes when
+    ; they are already lost, and refusing them there is unkind.
+    (let ((topic (positionalFrom operandStart)))
+      {
+        (replOut
+          (if (isSubcommand topic)
+            (helpForCommand topic)
+            usageText
+          )
+        )
+        0
+      }
+    )
+    (if (|| (strEq cmd "version") (|| (strEq cmd "--version") (strEq cmd "-V")))
+      {
+        (replOut "axiom (self-hosted) 0.1.0\n")
+        0
+      }
+      (if (strEq cmd "check")
+        (let ((f inputOperand))
+          (if (== (strLen f) 0)
             (die "error: check needs an input file\n" 1)
             {
               (compileFile f (targetArg hostTarget) 0 0)
@@ -516,270 +713,425 @@
               ; exits on errors, so reaching here IS the OK path.
               (replOut "OK\n")
               0
-            }))
-  (if (strEq cmd "emit-llvm")
-      (let ((f inputOperand))
-        (if (== (strLen f) 0)
-            (die "error: emit-llvm needs an input file\n" 1)
-            ; `--output` is read as well as `-o`. Only `-o` used to be,
-            ; so `axiom emit-llvm f.ax --output out.ll` silently ignored
-            ; the flag, put 57 KB of IR on the terminal, and exited 0 -
-            ; a build script cannot detect that, because nothing failed.
-            (let ((ir (compileFile f (targetArg hostTarget) 1 0))
-                  (out (let ((v (flagValue "-o" 1)))
-                         (if (> (strLen v) 0) v (flagValue "--output" 1)))))
-              (if (== (strLen out) 0)
-                  { (replOut ir) 0 }
-                  (if (< (sysWriteFile (strCStr out) ir) 0)
-                      (die (cat3 "error: could not write LLVM IR to '" out "'\n") 4)
-                      { (replOut (cat3 "LLVM IR written to " out "\n")) 0 })))))
-  (if (strEq cmd "build")
-      ; `--input`/`--output` are stage0's spelling. A bare positional is
-      ; accepted for `--input` too, because a compiler that insists on a
-      ; flag for the one argument it always needs is a compiler people
-      ; wrap in a shell script.
-      (let ((inp inputOperand))
-        (if (== (strLen inp) 0)
-            (die "error: build needs an input file\n" 1)
-            ; `-o` is the short form of `--output` here as well as under
-            ; `emit-llvm`. It used to be read only by `emit-llvm`, so
-            ; `axiom build -o prog f.ax` consumed `prog` as a flag value
-            ; and wrote the default `output` instead - while the usage
-            ; text listed `-o <PATH>` with no qualification. A flag the
-            ; help documents and the binary ignores is the same defect
-            ; as a diagnostic code nothing constructs.
-            ;
-            ; The retired compiler made `-o` the short form of `--opt`
-            ; under `build` and of `--output` under `emit-llvm`. That is
-            ; a wart rather than a contract, and it is not reproduced:
-            ; one letter meaning two unrelated things across sibling
-            ; subcommands is how a build script writes its executable to
-            ; a file named `3`.
-            (let ((outp (let ((v (flagValue "--output" 1)))
-                          (if (> (strLen v) 0)
-                              v
-                              (let ((sh (flagValue "-o" 1)))
-                                (if (> (strLen sh) 0) sh "output"))))))
-              ; a static archive needs no `main` and links nothing: its
-              ; externs, if any, are grounded when the HOST links
-              (let ((ir (compileFile inp (targetArg hostTarget) 1
-                                     (if (hasFlagAnywhere cmd "--emit-staticlib") 0 1))))
-                (let ((rc (buildToExecutable ir outp optLevelArg
-                                             (if (hasFlagAnywhere cmd "--emit-llvm") 1 0)
-                                             (effectiveLinkArgs ir linkArgsOf))))
-                  (if (!= rc 0)
-                      (die "" rc)
-                      ; A successful build used to print NOTHING, so a
-                      ; user could not tell it from a no-op, and had to
-                      ; go looking for the file to find out. The retired
-                      ; compiler also printed `[1/5] Lexing...` and four
-                      ; more phase labels; those are not reproduced -
-                      ; they are content-free, they numbered one step
-                      ; twice whenever the entry file had imports, and
-                      ; `run` inherited them onto stdout in front of the
-                      ; program's own output.
-                      {
-                        (if (hasFlagAnywhere cmd "--emit-llvm")
-                            (replOut (cat3 "LLVM IR written to " outp ".ll\n"))
-                            0)
-                        (replOut (cat3 "Build successful: " outp "\n"))
-                        0
-                      }))))))
-  (if (strEq cmd "fmt")
-      ; `fmt FILE [--check]`: format in place, or report whether the
-      ; file would change. Verification runs before any write - the
-      ; output must rescan, keep every comment, and be a fixed point -
-      ; and a refusal exits 1 with the file untouched, which is
-      ; stage0's contract.
-      ;
-      ; The input is found by a scan that knows `--check` takes no
-      ; value: the general positional walk treats any `--flag` as
-      ; consuming its neighbour, which would swallow the file in
-      ; `fmt --check FILE`. And the empty-versus-missing distinction
-      ; needs an open probe, because `sysReadFile` answers "" for
-      ; both: an empty file formats to an empty file with exit 0.
-      (let ((f (fmtInputArg 0)))
-        (if (== (strLen f) 0)
-            (die "error: fmt needs an input file\n" 1)
-            (let ((rerr (sourceReadErrno f)))
-              (if (!= rerr 0)
-                  (die (readFailMsg f rerr) 1)
-                  {
-                    0
-                    (let ((src (sysReadFile (strData f))))
-                      (let ((res (fmtFormat src)))
-                        (if (== (fzOk res) 0)
-                            (die (cat2 f " was not rewritten: formatter refusal\n") 1)
-                            (let ((text (fzText res)))
-                              (if (hasFlagAnywhere cmd "--check")
-                                  (if (strEq src text)
-                                      { (replOut (cat3 "OK: " f " is already formatted\n")) 0 }
-                                      (die (cat3 "Error: " f " needs formatting\n") 1))
-                                  (if (< (sysWriteFile (strCStr f) text) 0)
-                                      (die "error: could not write formatted file\n" 1)
-                                      { (replOut (cat3 "OK: " f " formatted\n")) 0 }))))))
-                  }))))
-  (if (strEq cmd "symbols")
-      ; `symbols [--builtins] FILE`: one AXSYM line per fact on
-      ; stdout, diagnostics on stderr - and EVERY failure is exit 1,
-      ; stage0's rule for this subcommand, where `check` distinguishes
-      ; parse (2) from semantic (1) failures. `dieImport` applies the
-      ; same folding for unresolvable imports by inspecting argv.
-      (let ((f (inputArgSkipping "--builtins"))
-            (dfmt diagFormatArg))
-        (if (== (strLen f) 0)
-            (die "error: symbols needs an input file\n" 1)
-            (let ((rerr (sourceReadErrno f)))
-              (if (!= rerr 0)
-                  (die (readFailMsg f rerr) 1)
-                  (let ((src (sysReadFile (strData f))))
-                  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
-                    (if (== (memGetWord pr 0) 0)
-                        (die "compilation failed due to a syntax error\n" 1)
-                        (let ((decls (memGetWord pr 1))
-                              (tcode (checkedTargetCode (targetArg hostTarget)))
-                              (bares vecNew)
-                              (fulls vecNew)
-                              (mods vecNew))
-                          (let ((units (let ((v vecNew))
-                                         { (vecPush v (cast Int (CUnit2 f src (cast String 0)))) v })))
-                          (let ((allDecls (resolveImports decls bares fulls mods tcode
-                                                          (pathDir f) units)))
-                            ; `symbols` type-checks to get the types it
-                            ; prints, so it expands first for the same
-                            ; reason `check` does. A listing tool that
-                            ; disagreed with `check` about whether a
-                            ; file is well-formed is the drift this
-                            ; repository names most often.
-                            (let ((ftbl vecNew) (eds vecNew))
-                            ; `expandProgram` ANSWERS the generated-
-                            ; declaration table, which `symbols` spends
-                            ; on `#generated=` (MAC-TOOL-4).
-                            (let ((gens (expandProgram decls allDecls eds ftbl units bares fulls mods)))
-                            (let ((_lw (lowerImpls allDecls eds)))
-                            ; Expansion refused: do not type-check what
-                            ; it gave up on. `compileFile` says why.
-                            (let ((_stop (if (> (countErrorDiags eds) 0)
-                                             {
-                                               (writeStderrStr (renderDiagsFormat dfmt (orderDiags eds) units))
-                                               (sysExitWith 1)
-                                               0
-                                             }
-                                             0)))
-                            (let ((tc (checkModuleTc decls allDecls units)))
-                              (let ((ds (orderDiags (expMergeInto eds (attachTcFrames tc ftbl units)))))
-                                ; Warnings do not gate: stage0 prints
-                                ; them to stderr and emits the full
-                                ; list with exit 0. Only an E line
-                                ; empties stdout and fails.
-                                (if (> (countErrorDiags ds) 0)
-                                    {
-                                      (writeStderrStr (renderDiagsFormat dfmt ds units))
-                                      (sysExitWith 1)
-                                      1
-                                    }
-                                    {
-                                      (if (> (vecLen ds) 0)
-                                          (writeStderrStr (renderDiagsFormat dfmt ds units))
-                                          0)
-                                      (symbolsFormatNotice)
-                                      ; AXSYM under `ai`, the aligned
-                                      ; table under `human`, which is
-                                      ; the default - stage0's split,
-                                      ; and the last of the three
-                                      ; divergences docs/self-hosting.md
-                                      ; recorded OPEN. The table is
-                                      ; derived from the AXSYM text, so
-                                      ; the two cannot disagree about
-                                      ; what the symbols are.
-                                      (let ((axsym (symbolsRenderGens tc
-                                              (if (hasFlagAnywhere cmd "--builtins") 1 0)
-                                              gens)))
-                                        (replOut
-                                          (if (== dfmt FMT_HUMAN)
-                                              (symbolsHumanTable axsym)
-                                              axsym)))
-                                      0
-                                    })))))))))))))))))
-  (if (strEq cmd "explain")
-      ; `explain [CODE] [--list]`: the texts live in explain.ax,
-      ; generated byte-for-byte from stage0's own output. `--list`
-      ; wins over a code; a bare `explain` adds the usage trailer;
-      ; an unknown code is two stderr lines and exit 1, echoing the
-      ; code AS TYPED, before normalisation.
-      (let ((code (positionalFrom operandStart)))
-        (if (|| (hasFlagAnywhere cmd "--list") (== (strLen code) 0))
-            {
-              (replOut (explainListColored))
-              (if (&& (== (strLen code) 0)
-                      (if (hasFlagAnywhere cmd "--list") false true))
-                  (replOut "\nUsage: axiom explain <CODE>\n")
-                  0)
-              0
             }
-            (let ((text (explainText (explainNormalize code))))
-              (if (== (strLen text) 0)
+          )
+        )
+        (if (strEq cmd "emit-llvm")
+          (let ((f inputOperand))
+            (if (== (strLen f) 0)
+              (die "error: emit-llvm needs an input file\n" 1)
+              ; `--output` is read as well as `-o`. Only `-o` used to be,
+              ; so `axiom emit-llvm f.ax --output out.ll` silently ignored
+              ; the flag, put 57 KB of IR on the terminal, and exited 0 -
+              ; a build script cannot detect that, because nothing failed.
+              (let (
+                (ir (compileFile f (targetArg hostTarget) 1 0))
+                (out (let ((v (flagValue "-o" 1)))
+                  (if (> (strLen v) 0)
+                    v
+                    (flagValue "--output" 1)
+                  )
+                ))
+              )
+                (if (== (strLen out) 0)
                   {
-                    (writeStderrStr (cat3 "error: unknown diagnostic code '" code "'\n"))
-                    (writeStderrStr "run `axiom explain --list` to see all known codes\n")
-                    (sysExitWith 1)
-                    1
+                    (replOut ir)
+                    0
                   }
-                  { (replOut text) 0 }))))
-  (if (strEq cmd "repl")
-      (replMain (if (hasFlagAnywhere cmd "--no-banner") 1 0))
-  (if (strEq cmd "lsp")
-      ; The language server speaks JSON-RPC over stdin/stdout, so it
-      ; takes no operand and prints nothing else to stdout - anything
-      ; else written there would be read by the client as a frame.
-      (lspMain)
-  (if (strEq cmd "run")
-      (let ((f runInputOperand))
-        (if (== (strLen f) 0)
-            (die "error: run needs an input file\n" 1)
-            (let ((ir (compileFile f hostTarget 1 1)))
-              ; Unlike stage0, `run` optimises. stage0 pins its `run` at
-              ; --opt 0, which is survivable for a small program and is
-              ; not for this compiler: without `opt`'s tail-call pass a
-              ; stage2 compiling its own source overflows its stack. A
-              ; `run` that cannot run the compiler is a `run` that fails
-              ; on the largest Axiom program there is.
-              ; The scratch name carries this process's pid, the way
-              ; `replEval` names its own (repl.ax) and for the reason
-              ; `sysGetPid` is documented with in `Sys.ax`: "so two
-              ; concurrent processes cannot collide".
-              ;
-              ; It used to be the fixed literal `axiom_temp_output` in
-              ; the working directory, and `buildToExecutable` derives
-              ; `<name>.ll`, `<name>.o` and `<name>.opt.ll` from it - so
-              ; two `axiom run`s in one directory wrote over each
-              ; other's intermediates and each unlinked the other's.
-              ; That does not present as a collision; it presents as a
-              ; miscompile, because what fails is a later stage reading
-              ; a file some other process already replaced or removed.
-              ;
-              ; Measured the hard way rather than reasoned about: probe
-              ; programs run from the repository root while a gate
-              ; battery was running there returned uniformly wrong exit
-              ; codes, and running them from a scratch directory fixed
-              ; it with no other change.
-              ;
-              ; `buildToExecutable` needs no such change: its
-              ; intermediates already track `--output`, so two builds
-              ; collide only when they were asked for the same output,
-              ; which collides on the executable regardless.
-              (let ((base (cat2 "axiom_temp_output." (decStr sysGetPid))))
-                (let ((exe (cat2 "./" base)))
-                  (let ((rc (buildToExecutable ir base 1 0 (effectiveLinkArgs ir linkArgsOf))))
-                    (if (!= rc 0)
+                  (if (< (sysWriteFile (strCStr out) ir) 0)
+                    (die (cat3 "error: could not write LLVM IR to '" out "'\n") 4)
+                    {
+                      (replOut (cat3 "LLVM IR written to " out "\n"))
+                      0
+                    }
+                  )
+                )
+              )
+            )
+          )
+          (if (strEq cmd "build")
+            ; `--input`/`--output` are stage0's spelling. A bare positional is
+            ; accepted for `--input` too, because a compiler that insists on a
+            ; flag for the one argument it always needs is a compiler people
+            ; wrap in a shell script.
+            (let ((inp inputOperand))
+              (if (== (strLen inp) 0)
+                (die "error: build needs an input file\n" 1)
+                ; `-o` is the short form of `--output` here as well as under
+                ; `emit-llvm`. It used to be read only by `emit-llvm`, so
+                ; `axiom build -o prog f.ax` consumed `prog` as a flag value
+                ; and wrote the default `output` instead - while the usage
+                ; text listed `-o <PATH>` with no qualification. A flag the
+                ; help documents and the binary ignores is the same defect
+                ; as a diagnostic code nothing constructs.
+                ;
+                ; The retired compiler made `-o` the short form of `--opt`
+                ; under `build` and of `--output` under `emit-llvm`. That is
+                ; a wart rather than a contract, and it is not reproduced:
+                ; one letter meaning two unrelated things across sibling
+                ; subcommands is how a build script writes its executable to
+                ; a file named `3`.
+                ; a static archive needs no `main` and links nothing: its
+                ; externs, if any, are grounded when the HOST links
+                (let ((outp 
+                  (let ((v (flagValue "--output" 1)))
+                    (if (> (strLen v) 0)
+                      v
+                      (let ((sh (flagValue "-o" 1)))
+                        (if (> (strLen sh) 0)
+                          sh
+                          "output"
+                        )
+                      )
+                    )
+                  )
+                ))
+                  (let ((ir 
+                    (compileFile
+                      inp                      (targetArg hostTarget)                      1                      (if (hasFlagAnywhere cmd "--emit-staticlib")
+                        0
+                        1
+                      )
+                    )
+                  ))
+                    (let ((rc 
+                      (buildToExecutable
+                        ir                        outp                        optLevelArg                        (if (hasFlagAnywhere cmd "--emit-llvm")
+                          1
+                          0
+                        )                        (effectiveLinkArgs ir linkArgsOf)
+                      )
+                    ))
+                      (if (!= rc 0)
                         (die "" rc)
-                        (let ((code (sysRunPath exe (runArgv exe) sysEnvp)))
-                          {
-                            (sysUnlink (strCStr exe))
-                            (sysExitWith (if (< code 0) 4 code))
+                        ; A successful build used to print NOTHING, so a
+                        ; user could not tell it from a no-op, and had to
+                        ; go looking for the file to find out. The retired
+                        ; compiler also printed `[1/5] Lexing...` and four
+                        ; more phase labels; those are not reproduced -
+                        ; they are content-free, they numbered one step
+                        ; twice whenever the entry file had imports, and
+                        ; `run` inherited them onto stdout in front of the
+                        ; program's own output.
+                        {
+                          (if (hasFlagAnywhere cmd "--emit-llvm")
+                            (replOut (cat3 "LLVM IR written to " outp ".ll\n"))
                             0
-                          }))))))))
-      (die "error: unknown subcommand\n" 1)))))))))))))
+                          )
+                          (replOut (cat3 "Build successful: " outp "\n"))
+                          0
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            )
+            (if (strEq cmd "fmt")
+              ; `fmt FILE [--check]`: format in place, or report whether the
+              ; file would change. Verification runs before any write - the
+              ; output must rescan, keep every comment, and be a fixed point -
+              ; and a refusal exits 1 with the file untouched, which is
+              ; stage0's contract.
+              ;
+              ; The input is found by a scan that knows `--check` takes no
+              ; value: the general positional walk treats any `--flag` as
+              ; consuming its neighbour, which would swallow the file in
+              ; `fmt --check FILE`. And the empty-versus-missing distinction
+              ; needs an open probe, because `sysReadFile` answers "" for
+              ; both: an empty file formats to an empty file with exit 0.
+              (let ((f (fmtInputArg 0)))
+                (if (== (strLen f) 0)
+                  (die "error: fmt needs an input file\n" 1)
+                  (let ((rerr (sourceReadErrno f)))
+                    (if (!= rerr 0)
+                      (die (readFailMsg f rerr) 1)
+                      {
+                        0
+                        (let ((src (sysReadFile (strData f))))
+                          (let ((res (fmtFormat src)))
+                            (if (== (fzOk res) 0)
+                              (die (cat2 f " was not rewritten: formatter refusal\n") 1)
+                              (let ((text (fzText res)))
+                                (if (hasFlagAnywhere cmd "--check")
+                                  (if (strEq src text)
+                                    {
+                                      (replOut (cat3 "OK: " f " is already formatted\n"))
+                                      0
+                                    }
+                                    (die (cat3 "Error: " f " needs formatting\n") 1)
+                                  )
+                                  (if (< (sysWriteFile (strCStr f) text) 0)
+                                    (die "error: could not write formatted file\n" 1)
+                                    {
+                                      (replOut (cat3 "OK: " f " formatted\n"))
+                                      0
+                                    }
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      }
+                    )
+                  )
+                )
+              )
+              (if (strEq cmd "symbols")
+                ; `symbols [--builtins] FILE`: one AXSYM line per fact on
+                ; stdout, diagnostics on stderr - and EVERY failure is exit 1,
+                ; stage0's rule for this subcommand, where `check` distinguishes
+                ; parse (2) from semantic (1) failures. `dieImport` applies the
+                ; same folding for unresolvable imports by inspecting argv.
+                (let (
+                  (f (inputArgSkipping "--builtins"))
+                  (dfmt diagFormatArg)
+                )
+                  (if (== (strLen f) 0)
+                    (die "error: symbols needs an input file\n" 1)
+                    (let ((rerr (sourceReadErrno f)))
+                      (if (!= rerr 0)
+                        (die (readFailMsg f rerr) 1)
+                        (let ((src (sysReadFile (strData f))))
+                          (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+                            (if (== (memGetWord pr 0) 0)
+                              (die "compilation failed due to a syntax error\n" 1)
+                              ; `symbols` type-checks to get the types it
+                              ; prints, so it expands first for the same
+                              ; reason `check` does. A listing tool that
+                              ; disagreed with `check` about whether a
+                              ; file is well-formed is the drift this
+                              ; repository names most often.
+                              ; `expandProgram` ANSWERS the generated-
+                              ; declaration table, which `symbols` spends
+                              ; on `#generated=` (MAC-TOOL-4).
+                              ; Expansion refused: do not type-check what
+                              ; it gave up on. `compileFile` says why.
+                              ; Warnings do not gate: stage0 prints
+                              ; them to stderr and emits the full
+                              ; list with exit 0. Only an E line
+                              ; empties stdout and fails.
+                              (let (
+                                (decls (memGetWord pr 1))
+                                (tcode (checkedTargetCode (targetArg hostTarget)))
+                                (bares vecNew)
+                                (fulls vecNew)
+                                (mods vecNew)
+                              )
+                                (let ((units 
+                                  (let ((v vecNew))
+                                    {
+                                      (vecPush
+                                        v                                        (cast Int (CUnit2
+                                          f                                          src                                          (cast String 0)
+                                        ))
+                                      )
+                                      v
+                                    }
+                                  )
+                                ))
+                                  (let ((allDecls (resolveImports
+                                    decls                                    bares                                    fulls                                    mods                                    tcode                                    (pathDir f)                                    units
+                                  )))
+                                    (let (
+                                      (ftbl vecNew)
+                                      (eds vecNew)
+                                    )
+                                      (let ((gens (expandProgram
+                                        decls                                        allDecls                                        eds                                        ftbl                                        units                                        bares                                        fulls                                        mods
+                                      )))
+                                        (let ((_lw (lowerImpls allDecls eds)))
+                                          (let ((_stop 
+                                            (if (> (countErrorDiags eds) 0)
+                                              {
+                                                (writeStderrStr (renderDiagsFormat dfmt (orderDiags eds) units))
+                                                (sysExitWith 1)
+                                                0
+                                              }
+                                              0
+                                            )
+                                          ))
+                                            (let ((tc (checkModuleTc decls allDecls units)))
+                                              (let ((ds (orderDiags (expMergeInto eds (attachTcFrames tc ftbl units)))))
+                                                (if (> (countErrorDiags ds) 0)
+                                                  {
+                                                    (writeStderrStr (renderDiagsFormat dfmt ds units))
+                                                    (sysExitWith 1)
+                                                    1
+                                                  }
+                                                  {
+                                                    (if (> (vecLen ds) 0)
+                                                      (writeStderrStr (renderDiagsFormat dfmt ds units))
+                                                      0
+                                                    )
+                                                    symbolsFormatNotice
+                                                    ; AXSYM under `ai`, the aligned
+                                                    ; table under `human`, which is
+                                                    ; the default - stage0's split,
+                                                    ; and the last of the three
+                                                    ; divergences docs/self-hosting.md
+                                                    ; recorded OPEN. The table is
+                                                    ; derived from the AXSYM text, so
+                                                    ; the two cannot disagree about
+                                                    ; what the symbols are.
+                                                    (let ((axsym 
+                                                      (symbolsRenderGens
+                                                        tc                                                        (if (hasFlagAnywhere cmd "--builtins")
+                                                          1
+                                                          0
+                                                        )                                                        gens
+                                                      )
+                                                    ))
+                                                      (replOut
+                                                        (if (== dfmt FMT_HUMAN)
+                                                          (symbolsHumanTable axsym)
+                                                          axsym
+                                                        )
+                                                      )
+                                                    )
+                                                    0
+                                                  }
+                                                )
+                                              )
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+                (if (strEq cmd "explain")
+                  ; `explain [CODE] [--list]`: the texts live in explain.ax,
+                  ; generated byte-for-byte from stage0's own output. `--list`
+                  ; wins over a code; a bare `explain` adds the usage trailer;
+                  ; an unknown code is two stderr lines and exit 1, echoing the
+                  ; code AS TYPED, before normalisation.
+                  (let ((code (positionalFrom operandStart)))
+                    (if (|| (hasFlagAnywhere cmd "--list") (== (strLen code) 0))
+                      {
+                        (replOut explainListColored)
+                        (if (&&
+                          (== (strLen code) 0)                          (if (hasFlagAnywhere cmd "--list")
+                            false
+                            true
+                          )
+                        )
+                          (replOut "\nUsage: axiom explain <CODE>\n")
+                          0
+                        )
+                        0
+                      }
+                      (let ((text (explainText (explainNormalize code))))
+                        (if (== (strLen text) 0)
+                          {
+                            (writeStderrStr (cat3 "error: unknown diagnostic code '" code "'\n"))
+                            (writeStderrStr "run `axiom explain --list` to see all known codes\n")
+                            (sysExitWith 1)
+                            1
+                          }
+                          {
+                            (replOut text)
+                            0
+                          }
+                        )
+                      )
+                    )
+                  )
+                  (if (strEq cmd "repl")
+                    (replMain
+                      (if (hasFlagAnywhere cmd "--no-banner")
+                        1
+                        0
+                      )
+                    )
+                    (if (strEq cmd "lsp")
+                      ; The language server speaks JSON-RPC over stdin/stdout, so it
+                      ; takes no operand and prints nothing else to stdout - anything
+                      ; else written there would be read by the client as a frame.
+                      lspMain
+                      (if (strEq cmd "run")
+                        (let ((f runInputOperand))
+                          (if (== (strLen f) 0)
+                            (die "error: run needs an input file\n" 1)
+                            ; Unlike stage0, `run` optimises. stage0 pins its `run` at
+                            ; --opt 0, which is survivable for a small program and is
+                            ; not for this compiler: without `opt`'s tail-call pass a
+                            ; stage2 compiling its own source overflows its stack. A
+                            ; `run` that cannot run the compiler is a `run` that fails
+                            ; on the largest Axiom program there is.
+                            ; The scratch name carries this process's pid, the way
+                            ; `replEval` names its own (repl.ax) and for the reason
+                            ; `sysGetPid` is documented with in `Sys.ax`: "so two
+                            ; concurrent processes cannot collide".
+                            ;
+                            ; It used to be the fixed literal `axiom_temp_output` in
+                            ; the working directory, and `buildToExecutable` derives
+                            ; `<name>.ll`, `<name>.o` and `<name>.opt.ll` from it - so
+                            ; two `axiom run`s in one directory wrote over each
+                            ; other's intermediates and each unlinked the other's.
+                            ; That does not present as a collision; it presents as a
+                            ; miscompile, because what fails is a later stage reading
+                            ; a file some other process already replaced or removed.
+                            ;
+                            ; Measured the hard way rather than reasoned about: probe
+                            ; programs run from the repository root while a gate
+                            ; battery was running there returned uniformly wrong exit
+                            ; codes, and running them from a scratch directory fixed
+                            ; it with no other change.
+                            ;
+                            ; `buildToExecutable` needs no such change: its
+                            ; intermediates already track `--output`, so two builds
+                            ; collide only when they were asked for the same output,
+                            ; which collides on the executable regardless.
+                            (let ((ir (compileFile f hostTarget 1 1)))
+                              (let ((base (cat2 "axiom_temp_output." (decStr sysGetPid))))
+                                (let ((exe (cat2 "./" base)))
+                                  (let ((rc (buildToExecutable
+                                    ir                                    base                                    1                                    0                                    (effectiveLinkArgs ir linkArgsOf)
+                                  )))
+                                    (if (!= rc 0)
+                                      (die "" rc)
+                                      (let ((code (sysRunPath exe (runArgv exe) sysEnvp)))
+                                        {
+                                          (sysUnlink (strCStr exe))
+                                          (sysExitWith
+                                            (if (< code 0)
+                                              4
+                                              code
+                                            )
+                                          )
+                                          0
+                                        }
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                        (die "error: unknown subcommand\n" 1)
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 ; A diagnostic code the way stage0's `lookup` normalises one: ASCII
 ; whitespace trimmed, a leading `AX` (any case) stripped, leading
@@ -801,72 +1153,104 @@
 ; that way is passed through untouched, which is what the heading and
 ; any future blank line are.
 (pub :: explainListColored String)
+
 (pub fn (explainListColored)
-  (let ((n (strLen explainListText)) (parts vecNew) (mut i 0) (mut first true))
+  (let (
+    (n (strLen explainListText))
+    (parts vecNew)
+    (mut i 0)
+    (mut first true)
+  )
     {
       (while (< i n)
         (let ((e (lineEndFrom explainListText i)))
           (let ((line (strSlice explainListText i (- e i))))
             {
               (if first
-                  (vecPush parts (paint SGR_LIST line))
-                  (if (&& (> (strLen line) 8)
-                          (&& (== (strByte line 0) 32)
-                              (&& (== (strByte line 1) 32)
-                                  (== (strByte line 2) 65))))
-                      {
-                        (vecPush parts "  ")
-                        (vecPush parts (paint SGR_CODE (strSlice line 2 6)))
-                        (vecPush parts (strSlice line 8 (- (strLen line) 8)))
-                      }
-                      (vecPush parts line)))
+                (vecPush parts (paint SGR_LIST line))
+                (if (&& (> (strLen line) 8) (&& (== (strByte line 0) 32) (&& (== (strByte line 1) 32) (== (strByte line 2) 65))))
+                  {
+                    (vecPush parts "  ")
+                    (vecPush parts (paint SGR_CODE (strSlice line 2 6)))
+                    (vecPush parts (strSlice line 8 (- (strLen line) 8)))
+                  }
+                  (vecPush parts line)
+                )
+              )
               (set first false)
-              (if (< e n) (vecPush parts "\n") 0)
+              (if (< e n)
+                (vecPush parts "\n")
+                0
+              )
               (set i (+ e 1))
-            })))
+            }
+          )
+        ))
       (catStrs parts)
-    }))
+    }
+  )
+)
 
 ; One past the last byte of the line starting at `i`, or the string's
 ; length. (`render.ax`'s `lineEndOf` takes an offset into a source file
 ; and this takes an offset into any string; the same three lines, but
 ; importing render here for it would be a cycle through diag.)
 (pub :: explainNormalize (-> String String))
+
 (pub fn (explainNormalize s)
-  (let ((mut a 0) (mut b (strLen s)))
+  (let (
+    (mut a 0)
+    (mut b (strLen s))
+  )
     {
-      (while (&& (< a b)
-                 (let ((c (strByte s a)))
-                   (|| (== c 32) (|| (== c 9) (|| (== c 10) (== c 13))))))
+      (while (&&
+        (< a b)        (let ((c (strByte s a)))
+          (|| (== c 32) (|| (== c 9) (|| (== c 10) (== c 13))))
+        )
+      )
         (set a (+ a 1)))
-      (while (&& (> b a)
-                 (let ((c (strByte s (- b 1))))
-                   (|| (== c 32) (|| (== c 9) (|| (== c 10) (== c 13))))))
+      (while (&&
+        (> b a)        (let ((c (strByte s (- b 1))))
+          (|| (== c 32) (|| (== c 9) (|| (== c 10) (== c 13))))
+        )
+      )
         (set b (- b 1)))
-      (if (&& (< (+ a 1) b)
-              (&& (|| (== (strByte s a) 65) (== (strByte s a) 97))
-                  (|| (== (strByte s (+ a 1)) 88) (== (strByte s (+ a 1)) 120))))
-          (set a (+ a 2))
-          0)
-      (while (&& (< a b) (== (strByte s a) 45)) (set a (+ a 1)))
-      (let ((out (strAlloc (- b a))) (mut i a))
+      (if (&& (< (+ a 1) b) (&& (|| (== (strByte s a) 65) (== (strByte s a) 97)) (|| (== (strByte s (+ a 1)) 88) (== (strByte s (+ a 1)) 120))))
+        (set a (+ a 2))
+        0
+      )
+      (while (&& (< a b) (== (strByte s a) 45))
+        (set a (+ a 1)))
+      (let (
+        (out (strAlloc (- b a)))
+        (mut i a)
+      )
         {
           (while (< i b)
             (let ((c (strByte s i)))
               {
-                (__store8 (strData out) (- i a)
-                          (if (&& (>= c 97) (<= c 122)) (- c 32) c))
+                (__store8
+                  (strData out)                  (- i a)                  (if (&& (>= c 97) (<= c 122))
+                    (- c 32)
+                    c
+                  )
+                )
                 (set i (+ i 1))
-              }))
+              }
+            ))
           out
-        })
-    }))
+        }
+      )
+    }
+  )
+)
 
 ; The input file for `fmt`: the first operand that is not `--check`
 ; and does not look like a flag. `positionalFrom` cannot be used here
 ; because its skip heuristic pairs every `--flag` with the argument
 ; after it, and `--check` takes no value.
 (pub :: inputArgSkipping (-> String String))
+
 ; The input file: `--input`, or a bare positional.
 ;
 ; `build` accepted both from the start; `check`, `emit-llvm` and `run`
@@ -884,9 +1268,15 @@
 ; the flag wherever a file is expected is the weaker rule that kills the
 ; class, and it is what the usage text now says.
 (pub :: inputOperand String)
+
 (pub fn (inputOperand)
   (let ((v (flagValue "--input" 1)))
-    (if (> (strLen v) 0) v (positionalFrom operandStart))))
+    (if (> (strLen v) 0)
+      v
+      (positionalFrom operandStart)
+    )
+  )
+)
 
 ; `run`'s input file, which is deliberately NOT `inputOperand`.
 ;
@@ -912,14 +1302,23 @@
 ; programs answer different numbers, so the exit status IS which file
 ; the compiler chose.
 (pub :: runInputOperand String)
+
 (pub fn (runInputOperand)
   (let ((p (positionalIndex operandStart)))
     (if (< p 0)
-        (flagValue "--input" 1)
-        (sysArg p))))
+      (flagValue "--input" 1)
+      (sysArg p)
+    )
+  )
+)
 
 (pub fn (inputArgSkipping bare)
-  (let ((n (sysArgc)) (mut i operandStart) (mut f "") (mut endOpts 0))
+  (let (
+    (n sysArgc)
+    (mut i operandStart)
+    (mut f "")
+    (mut endOpts 0)
+  )
     {
       (while (< i n)
         (let ((a (sysArg i)))
@@ -930,21 +1329,36 @@
             ; separator has to be honoured in both places or it works
             ; for some subcommands and not others.
             (if (&& (== endOpts 0) (strEq a "--"))
-                (set endOpts 1)
-                (if (&& (== (strLen f) 0)
-                        (if (strEq a bare)
-                            false
-                            (if (== endOpts 1)
-                                true
-                                (if (strStartsWith a "-") false true))))
-                    { (set f a) 0 }
-                    0))
+              (set endOpts 1)
+              (if (&&
+                (== (strLen f) 0)                (if (strEq a bare)
+                  false
+                  (if (== endOpts 1)
+                    true
+                    (if (strStartsWith a "-")
+                      false
+                      true
+                    )
+                  )
+                )
+              )
+                {
+                  (set f a)
+                  0
+                }
+                0
+              )
+            )
             (set i (+ i 1))
-          }))
+          }
+        ))
       f
-    }))
+    }
+  )
+)
 
 (pub :: fmtInputArg (-> Int String))
+
 (pub fn (fmtInputArg _u) (inputArgSkipping "--check"))
 
 ; argv for the program `run` spawns: its own name, then every argument
@@ -962,37 +1376,59 @@
 ; this compiler does not know. A leading-dash argument that would
 ; otherwise be ambiguous can be forced across with `--`.
 (pub :: runArgv (-> String Int))
+
 (pub fn (runArgv name)
-  (let ((first (+ (positionalIndex operandStart) 1))
-        (n (sysArgc)))
-    (let ((extra (if (< (positionalIndex operandStart) 0) n first)))
+  (let (
+    (first (+ (positionalIndex operandStart) 1))
+    (n sysArgc)
+  )
+    (let ((extra 
+      (if (< (positionalIndex operandStart) 0)
+        n
+        first
+      )
+    ))
       (let ((v (memAlloc (* (+ (- n extra) 2) 8))))
         {
           (memSetWord v 0 (strCStr (strDup name)))
           (fillRunArgv v extra n 1)
           v
-        }))))
+        }
+      )
+    )
+  )
+)
 
 ; Copy argv[from..to) into `v` starting at slot `slot`, NUL-terminated.
 ;
 ; `--` is dropped as it passes: it is this compiler's end-of-options
 ; marker, not an argument the program asked for.
 (pub :: fillRunArgv (-> Int Int Int Int Int))
+
 (pub fn (fillRunArgv v from to slot)
   (if (>= from to)
-      { (memSetWord v slot 0) 0 }
-      (let ((a (sysArg from)))
-        (if (strEq a "--")
-            (fillRunArgv v (+ from 1) to slot)
-            {
-              (memSetWord v slot (strCStr (strDup a)))
-              (fillRunArgv v (+ from 1) to (+ slot 1))
-            }))))
+    {
+      (memSetWord v slot 0)
+      0
+    }
+    (let ((a (sysArg from)))
+      (if (strEq a "--")
+        (fillRunArgv v (+ from 1) to slot)
+        {
+          (memSetWord v slot (strCStr (strDup a)))
+          (fillRunArgv v (+ from 1) to (+ slot 1))
+        }
+      )
+    )
+  )
+)
 
 (pub :: die (-> String Int Int))
+
 (pub fn (die msg code)
   {
     (sysWriteFd 2 (strData msg) (strLen msg))
     (sysExitWith code)
     code
-  })
+  }
+)

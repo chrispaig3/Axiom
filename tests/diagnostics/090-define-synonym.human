@@ -1,9 +1,10 @@
 [1;31merror[AX3006][0m[1m: duplicate definition `main`[0m
- [1;34m--> [0m090-define-synonym.ax:5:6
+ [1;34m--> [0m090-define-synonym.ax:9:6
 [1;34m  |[0m
-[1;34m4 |[0m (fn (main) 0)
+[1;34m7 |[0m (fn (main) 0)
 [1;34m  |[0m      [1;36m---- `main` first defined here[0m
-[1;34m5 |[0m (fn (main) 1)
+[1;34m...[0m
+[1;34m9 |[0m (fn (main) 1)
 [1;34m  |[0m      [1;31m^^^^ `main` redefined here[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate

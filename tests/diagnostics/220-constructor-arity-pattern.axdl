@@ -1,2 +1,2 @@
-E AX3009 220-constructor-arity-pattern.ax:5:7-12 constructor-arity-mismatch "constructor `Green` expects 1 argument(s), found 0" #"0 argument(s) provided here" ?"this constructor takes exactly 1 field(s); add or remove arguments to match"
-E AX3009 220-constructor-arity-pattern.ax:6:7-12 constructor-arity-mismatch "constructor `Green` expects 1 argument(s), found 2" #"2 argument(s) provided here" ?"this constructor takes exactly 1 field(s); add or remove arguments to match"
+E AX3009 220-constructor-arity-pattern.ax:9:7-12 constructor-arity-mismatch "constructor `Green` expects 1 argument(s), found 0" #"0 argument(s) provided here" ?"this constructor takes exactly 1 field(s); add or remove arguments to match"
+E AX3009 220-constructor-arity-pattern.ax:10:7-12 constructor-arity-mismatch "constructor `Green` expects 1 argument(s), found 2" #"2 argument(s) provided here" ?"this constructor takes exactly 1 field(s); add or remove arguments to match"

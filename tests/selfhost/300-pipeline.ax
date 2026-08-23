@@ -1,19 +1,37 @@
 ; expect 42
 (import Str)
+
 (import Vec)
+
 (import Mem)
+
 (import Sys)
+
 (import lexer)
+
 (import parser)
+
 (import typecheck)
+
 (import codegen)
+
 (:: main Int)
+
 (fn (main)
   (let ((src (sysReadFile (__addr "in.ax"))))
     (if (== (strLen src) 0)
-        7
-        (let ((pr (parseModule (lex src))))
-          (if (== (memGetWord pr 0) 0)
-              8
-              (let ((out (emitModule (memGetWord pr 1) "darwin-aarch64")))
-                (if (> (strLen out) 10) 42 9)))))))
+      7
+      (let ((pr (parseModule (lex src))))
+        (if (== (memGetWord pr 0) 0)
+          8
+          (let ((out (emitModule (memGetWord pr 1) "darwin-aarch64")))
+            (if (> (strLen out) 10)
+              42
+              9
+            )
+          )
+        )
+      )
+    )
+  )
+)

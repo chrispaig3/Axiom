@@ -14,14 +14,34 @@
 (import Qual)
 
 (:: shade (-> Shade Int))
+
 (fn (shade c)
   (match c
     ((Dim) 7)
-    ((Bright) 20)))
+    ((Bright) 20)
+  )
+)
 
 (:: main Int)
+
 (fn (main)
-  (+ (shade Qual::Dim)
-     (+ (shade (Qual::Bright))
-        (+ (Qual::twice 5)
-           (let ((p (Qual::Pair 2 3))) (+ p.a p.b))))))
+  (+
+    (shade
+      Qual::Dim
+    )    (+
+      (shade
+        Qual::Bright
+      )      (+
+        (Qual::twice
+          5
+        )        (let ((p 
+          (Qual::Pair
+            2            3
+          )
+        ))
+          (+ p.a p.b)
+        )
+      )
+    )
+  )
+)

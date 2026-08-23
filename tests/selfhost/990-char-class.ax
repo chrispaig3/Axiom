@@ -29,44 +29,79 @@
 ; three predicates plus 256 for the hex value is 1024, and it is the
 ; only answer that means every byte was compared every way.
 (import Str)
+
 (import lexer)
+
 (import format)
 
 ; 1 when both answers are the same. `==` is arithmetic here, so a
 ; Bool pair has to be compared by branching on it.
 (:: agree (-> Bool Bool Int))
-(fn (agree x y) (if x (if y 1 0) (if y 0 1)))
+
+(fn (agree x y)
+  (if x
+    (if y
+      1
+      0
+    )
+    (if y
+      0
+      1
+    )
+  )
+)
 
 (:: agree3 (-> Bool Bool Bool Int))
-(fn (agree3 a b c) (if (== (agree a b) 1) (agree b c) 0))
+
+(fn (agree3 a b c)
+  (if (== (agree a b) 1)
+    (agree b c)
+    0
+  )
+)
 
 ; What a hex digit is worth, written out here rather than derived, so
 ; the sweep below is a comparison and not a tautology.
 (:: refHexVal (-> Int Int))
+
 (fn (refHexVal b)
-  (if (&& (>= b 48) (<= b 57))  (- b 48)
-  (if (&& (>= b 97) (<= b 102)) (+ 10 (- b 97))
-  (if (&& (>= b 65) (<= b 70))  (+ 10 (- b 65))
-  (- 0 1)))))
+  (if (&& (>= b 48) (<= b 57))
+    (- b 48)
+    (if (&& (>= b 97) (<= b 102))
+      (+ 10 (- b 97))
+      (if (&& (>= b 65) (<= b 70))
+        (+ 10 (- b 65))
+        (- 0 1)
+      )
+    )
+  )
+)
 
 ; 1 when `Str` answers this byte's hex value the way the reference
 ; does AND its predicate agrees with that value; 0 otherwise.
 (:: agreeHex (-> Int Int))
+
 (fn (agreeHex b)
   (if (== (strHexVal b) (refHexVal b))
-      (agree (strIsHexDigit b) (>= (refHexVal b) 0))
-      0))
+    (agree (strIsHexDigit b) (>= (refHexVal b) 0))
+    0
+  )
+)
 
 (:: sweep (-> Int Int Int))
+
 (fn (sweep b n)
   (if (>= b 256)
-      n
-      (sweep (+ b 1)
-             (+ n (+ (agree3 (isDigit b) (isFDigit b) (strIsDigit b))
-                  (+ (agree3 (isAlpha b) (isFAlpha b) (strIsAlpha b))
-                  (+ (agree3 (isSpace b) (isFSpace b) (strIsSpace b))
-                     (agreeHex b))))))))
+    n
+    (sweep (+ b 1) (+ n (+ (agree3 (isDigit b) (isFDigit b) (strIsDigit b)) (+ (agree3 (isAlpha b) (isFAlpha b) (strIsAlpha b)) (+ (agree3 (isSpace b) (isFSpace b) (strIsSpace b)) (agreeHex b))))))
+  )
+)
 
 (:: main Int)
+
 (fn (main)
-  (if (== (sweep 0 0) 1024) 42 1))
+  (if (== (sweep 0 0) 1024)
+    42
+    1
+  )
+)

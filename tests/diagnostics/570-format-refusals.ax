@@ -21,40 +21,49 @@
 (import IO)
 
 (:: unclosed (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (unclosed n) (println "a {n"))
 
 (:: stray (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (stray n) (println "a } b"))
 
 (:: empty (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (empty n) (println "a {} b"))
 
 (:: notAName (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (notAName n) (println "a {1n} b"))
 
 (:: badByteAfterName (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (badByteAfterName n) (println "a {n b"))
 
 (:: unclosedWithSpec (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (unclosedWithSpec n) (println "a {n:>8"))
 
 (:: badSpecType (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (badSpecType n) (println "a {n:q} b"))
 
 (:: precisionWithoutDigits (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (precisionWithoutDigits n) (println "a {n:.} b"))
 
 ; The precision written AFTER the type instead of before it - the one
 ; specifier mistake whose parts are each individually valid.
 (:: specTrailing (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (specTrailing n) (println "a {n:8x.2} b"))
 
@@ -64,12 +73,15 @@
 ; digits as a precision made expansion hang. Both are compile-time
 ; refusals naming the limit they enforced.
 (:: widthOverflow (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (widthOverflow n) (println "a {n:99999999999999999999} b"))
 
 (:: precisionOverflow (-> Float Int))
+
 ;@axiom:effect(io)
 (fn (precisionOverflow x) (println "a {x:.99999999999999999999} b"))
 
 (:: main Int)
+
 (fn (main) 0)

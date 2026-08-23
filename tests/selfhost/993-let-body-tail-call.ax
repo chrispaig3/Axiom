@@ -9,16 +9,40 @@
 ; not once per iteration: every `alloca` sits in the entry block, so
 ; this runs at `--opt 0` too, where a body-block `alloca` overflowed.
 (import IO)
+
 (import Str)
+
 (:: walk (-> String Int String))
+
 (fn (walk s n)
   (if (== n 0)
-      s
-      (let ((s2 (strConcat "v" (fmtInt n))))
-        (let ((mut k 0))
-          { (set k (strLen s2)) (walk s2 (- n 1)) }))))
+    s
+    (let ((s2 (strConcat "v" (fmtInt n))))
+      (let ((mut k 0))
+        {
+          (set k (strLen s2))
+          (walk s2 (- n 1))
+        }
+      )
+    )
+  )
+)
+
 (:: cnt (-> String Int))
-(fn (cnt s) (__load64 (- (cast Int s) 16) 0))
+
+(fn (cnt s)
+  (__load64
+    (-
+      (cast Int s)      16
+    )    0
+  )
+)
+
 (fn (main)
   (let ((r (walk "seed" 400000)))
-    (if (&& (strEq r "v1") (== (cnt r) 1)) 42 1)))
+    (if (&& (strEq r "v1") (== (cnt r) 1))
+      42
+      1
+    )
+  )
+)

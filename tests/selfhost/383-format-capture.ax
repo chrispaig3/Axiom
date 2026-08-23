@@ -19,31 +19,44 @@
 ;     interact: the capture applies before the padding, not instead
 ;     of it.
 (import IO)
+
 (import Show)
+
 (import Str)
 
 ; The hijack. `(-> a String)` is deliberately type-COMPATIBLE with
 ; every use the expansion makes of it - an ill-typed capture is loud
 ; and would prove nothing about the silent one.
 (:: show (-> a String))
+
 (fn (show x) "xyz")
 
 (:: bit (-> Bool Int Int))
-(fn (bit b w) (if b w 0))
+
+(fn (bit b w)
+  (if b
+    w
+    0
+  )
+)
 
 ; 1: every hole in the file goes through the entry file's `show`, so a
 ;    3-character answer is the capture and a 2-character one would be
 ;    `fmtInt`. Measured, not asserted: `xyz` is 3.
 (:: capture (-> Int Int))
+
 (fn (capture n) (strLen (format "{n}")))
 
 ; 2: the capture feeds the padding rather than bypassing it - width 6
 ;    over the captured 3 characters.
 (:: captureWidth (-> Int Int))
+
 (fn (captureWidth n) (strLen (format "{n:>6}")))
 
 (:: main Int)
+
 (fn (main)
   (let ((n 42))
-    (+ (bit (== (capture n) 3) 4)
-       (bit (== (captureWidth n) 6) 16))))
+    (+ (bit (== (capture n) 3) 4) (bit (== (captureWidth n) 6) 16))
+  )
+)

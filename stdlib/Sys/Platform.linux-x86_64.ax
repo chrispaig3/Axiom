@@ -7,50 +7,62 @@
 ; `os-arch` before `os` (see the compiler's module resolution).
 ;
 ; Numbers from the kernel's `arch/x86/entry/syscalls/syscall_64.tbl`.
-
 (pub :: sysRead Int)
+
 (pub fn (sysRead) 0)
 
 (pub :: sysWrite Int)
+
 (pub fn (sysWrite) 1)
 
 (pub :: sysOpen Int)
+
 (pub fn (sysOpen) 2)
 
 (pub :: sysClose Int)
+
 (pub fn (sysClose) 3)
 
 ; exit_group, not exit: `exit` terminates the calling thread only, which
 ; leaves a multi-threaded process alive with no way to notice. 231 is
 ; correct for a single-threaded program too.
 (pub :: sysExit Int)
+
 (pub fn (sysExit) 231)
 
 (pub :: sysLseek Int)
+
 (pub fn (sysLseek) 8)
 
 ; x86-64 still has plain `open`.
 (pub :: openNeedsDirFd Int)
+
 (pub fn (openNeedsDirFd) 0)
 
 (pub :: atFdCwd Int)
+
 (pub fn (atFdCwd) 0)
 
 (pub :: oRdonly Int)
+
 (pub fn (oRdonly) 0)
 
 ; O_WRONLY | O_CREAT | O_TRUNC = 0x1 | 0x40 | 0x200
 (pub :: oWronlyCreateTrunc Int)
+
 (pub fn (oWronlyCreateTrunc) 577)
 
 ; O_WRONLY | O_CREAT | O_APPEND = 0x1 | 0x40 | 0x400
 (pub :: oWronlyCreateAppend Int)
+
 (pub fn (oWronlyCreateAppend) 1089)
 
 (pub :: seekEnd Int)
+
 (pub fn (seekEnd) 2)
 
 (pub :: seekSet Int)
+
 (pub fn (seekSet) 0)
 
 ; ------------------------------------------------------------------
@@ -61,6 +73,7 @@
 ; Darwin's cannot (its `fork` returns a second value in x1), which is
 ; why `Sys.ax` branches on this capability rather than on an OS name.
 (pub :: spawnUsesPosixSpawn Int)
+
 (pub fn (spawnUsesPosixSpawn) 0)
 
 ; x86-64 still has a real `fork`, which takes no arguments; `sysForkArg`
@@ -68,47 +81,58 @@
 ; fork ignores whatever is in the argument registers, so passing it is
 ; harmless here and keeps one call site in portable code.
 (pub :: sysFork Int)
+
 (pub fn (sysFork) 57)
 
 (pub :: sysForkArg Int)
+
 (pub fn (sysForkArg) 0)
 
 (pub :: sysExecve Int)
+
 (pub fn (sysExecve) 59)
 
 (pub :: sysWait4 Int)
+
 (pub fn (sysWait4) 61)
 
 ; Unused on Linux, defined so `Sys.ax` type-checks against every
 ; platform module.
 (pub :: sysPosixSpawn Int)
+
 (pub fn (sysPosixSpawn) 0)
 
 ; x86-64 still has a real `unlink`.
 (pub :: sysUnlinkNum Int)
+
 (pub fn (sysUnlinkNum) 87)
 
 ; mkdir(path, mode) - 83. x86-64 Linux has the plain call, so
 ; `openNeedsDirFd` is 0 here and `sysMkdir` uses the two-argument form.
 (pub :: sysMkdirNum Int)
+
 (pub fn (sysMkdirNum) 83)
 
 ; rmdir(path) - 84.
 (pub :: sysRmdirNum Int)
+
 (pub fn (sysRmdirNum) 84)
 
 ; rename(from, to) - 82. x86-64 still has the plain two-argument call,
 ; the same way it still has `open` and `unlink`.
 (pub :: sysRenameNum Int)
+
 (pub fn (sysRenameNum) 82)
 
 ; getdents64(fd, buf, count) - 217. Three arguments: the scan position
 ; lives on the descriptor, where Darwin needs a fourth argument
 ; pointing at a cookie - see `dirReadNeedsPosition` there.
 (pub :: sysGetdentsNum Int)
+
 (pub fn (sysGetdentsNum) 217)
 
 (pub :: dirReadNeedsPosition Int)
+
 (pub fn (dirReadNeedsPosition) 0)
 
 ; `struct linux_dirent64` is
@@ -120,12 +144,14 @@
 ; one: AArch64 Linux has the same offsets under a different syscall
 ; number.
 (pub :: direntNameOffset Int)
+
 (pub fn (direntNameOffset) 19)
 
 ; Linux has a real `getcwd(buf, size)`, so no descriptor and no
 ; `fcntl` detour - see the Darwin module for the target that has
 ; neither.
 (pub :: cwdUsesFcntlPath Int)
+
 (pub fn (cwdUsesFcntlPath) 0)
 
 ; getcwd(buf, size) - 79. Answers the length INCLUDING the NUL on
@@ -133,28 +159,35 @@
 ; length back off the bytes rather than off the result, which is the
 ; one reading both conventions support.
 (pub :: sysCwdNum Int)
+
 (pub fn (sysCwdNum) 79)
 
 ; Unused on Linux (see `cwdUsesFcntlPath`), defined so `Sys.ax`
 ; type-checks against every platform module.
 (pub :: fGetPath Int)
+
 (pub fn (fGetPath) 0)
 
 (pub :: eExist Int)
+
 (pub fn (eExist) 17)
 
 (pub :: eIsDir Int)
+
 (pub fn (eIsDir) 21)
 
 ; getpid() - 39
 (pub :: sysGetPidNum Int)
+
 (pub fn (sysGetPidNum) 39)
 
 ; clock_gettime(clockid, ts) - 228. CLOCK_MONOTONIC=1; timespec is
 ; {tv_sec i64, tv_nsec i64}. Verified by the REPL gate on the CI
 ; runner - the first Linux execution of this number.
 (pub :: sysClockNum Int)
+
 (pub fn (sysClockNum) 228)
 
 (pub :: clockIsGettimeofday Int)
+
 (pub fn (clockIsGettimeofday) 0)

@@ -2,10 +2,12 @@
 (import IO)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
   {
     (printlnLit (__addr "hello, world"))
     (println "and hello again")
     0
-  })
+  }
+)

@@ -1,6 +1,17 @@
 ; expect 42
-(data C (Red) (Green))
+(data C
+  (Red)
+  (Green))
+
 (:: rank (-> C Int))
-(fn (rank c) (match c ((Red) 42) ((Green) 7)))
+
+(fn (rank c)
+  (match c
+    ((Red) 42)
+    ((Green) 7)
+  )
+)
+
 (:: main Int)
-(fn (main) (rank (Red)))
+
+(fn (main) (rank Red))

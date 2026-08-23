@@ -3,6 +3,14 @@
 ; nullary constructor named a - registering it as one turned every
 ; binder named a into a tag test that bound nothing, and arm bodies
 ; dereferenced values never bound.
-(data M9 (a) (J9 a) (N9))
+(data M9 a
+  (J9 a)
+  (N9))
+
 (:: main Int)
-(fn (main) (match 44 (a a)))
+
+(fn (main)
+  (match 44
+    (a a)
+  )
+)

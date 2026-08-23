@@ -1,50 +1,50 @@
 [1;31merror[AX3004][0m[1m: type mismatch: expected Color, found a[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:33:22
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:42:7
 [1;34m   |[0m
-[1;34m33 |[0m (fn (g v) (match v ((Red) 1) (_ 0)))
-[1;34m   |[0m                      [1;31m^^^ this has type `a`, expected `Color`[0m
+[1;34m42 |[0m     ((Red) 1)
+[1;34m   |[0m       [1;31m^^^ this has type `a`, expected `Color`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Color, found Int[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:36:22
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:51:7
 [1;34m   |[0m
-[1;34m36 |[0m (fn (h n) (match n ((Red) 1) (_ 0)))
-[1;34m   |[0m                      [1;31m^^^ this has type `Int`, expected `Color`[0m
+[1;34m51 |[0m     ((Red) 1)
+[1;34m   |[0m       [1;31m^^^ this has type `Int`, expected `Color`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Color, found Shape[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:39:22
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:60:7
 [1;34m   |[0m
-[1;34m39 |[0m (fn (k s) (match s ((Red) 1) ((Circle r) r) (_ 0)))
-[1;34m   |[0m                      [1;31m^^^ this has type `Shape`, expected `Color`[0m
+[1;34m60 |[0m     ((Red) 1)
+[1;34m   |[0m       [1;31m^^^ this has type `Shape`, expected `Color`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:42:24
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:70:6
 [1;34m   |[0m
-[1;34m42 |[0m (fn (lit n) (match n (("hello") 1) (_ 0)))
-[1;34m   |[0m                        [1;31m^^^^^^^ this has type `Int`, expected `String`[0m
+[1;34m70 |[0m     ("hello" 1)
+[1;34m   |[0m      [1;31m^^^^^^^ this has type `Int`, expected `String`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Blue[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:46:31
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:80:14
 [1;34m   |[0m
-[1;34m46 |[0m   (let ((f (lambda (x) (match x ((Red) 1) ((Green) 2)))))
-[1;34m   |[0m                               [1;31m^ this `match` does not cover: Blue[0m
+[1;34m80 |[0m       (match x
+[1;34m   |[0m              [1;31m^ this `match` does not cover: Blue[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:53:32
-[1;34m   |[0m
-[1;34m53 |[0m (fn (nested o) (match o ((Some "x") 1) (_ 0)))
-[1;34m   |[0m                                [1;31m^^^ this has type `Int`, expected `String`[0m
-[1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+   [1;34m--> [0m995-match-ctor-scrutinee-type.ax:103:12
+[1;34m    |[0m
+[1;34m103 |[0m     ((Some "x") 1)
+[1;34m    |[0m            [1;31m^^^ this has type `Int`, expected `String`[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 compilation failed due to 6 previous errors

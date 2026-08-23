@@ -18,25 +18,45 @@
 ;   pick       cond used as a plain value, no recursion, both clause
 ;              and else results observed.
 (:: countdown (-> Int Int Int))
+
 (fn (countdown n acc)
-  (cond ((== n 0) acc)
-        (else (countdown (- n 1) (+ acc 1)))))
+  (cond
+    ((== n 0) acc)
+    (else (countdown (- n 1) (+ acc 1)))
+  )
+)
+
 (:: classify (-> Int Int Int))
+
 (fn (classify n acc)
-  (cond ((== n 0) acc)
-        ((== n 1) (+ acc 100))
-        (else (classify (- n 2) (+ acc 1)))))
+  (cond
+    ((== n 0) acc)
+    ((== n 1) (+ acc 100))
+    (else (classify (- n 2) (+ acc 1)))
+  )
+)
+
 (:: pick (-> Int Int))
+
 (fn (pick n)
-  (cond ((== n 1) 10)
-        ((== n 2) 20)
-        (else 30)))
+  (cond
+    ((== n 1) 10)
+    ((== n 2) 20)
+    (else 30)
+  )
+)
+
 (:: main Int)
+
 (fn (main)
   (if (== (countdown 2000000 0) 2000000)
-      (if (== (classify 400001 0) 200100)
-          (if (== (+ (pick 1) (+ (pick 2) (pick 9))) 60)
-              42
-              11)
-          10)
-      7))
+    (if (== (classify 400001 0) 200100)
+      (if (== (+ (pick 1) (+ (pick 2) (pick 9))) 60)
+        42
+        11
+      )
+      10
+    )
+    7
+  )
+)

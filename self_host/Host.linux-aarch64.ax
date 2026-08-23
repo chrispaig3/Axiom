@@ -1,6 +1,6 @@
 ; Host - which target this compiler binary itself runs on.
 ; See `Host.darwin-aarch64.ax` for why this is a compile-time constant
 ; selected by module resolution rather than a runtime query.
-
 (pub :: hostTarget String)
+
 (pub fn (hostTarget) "linux-aarch64")

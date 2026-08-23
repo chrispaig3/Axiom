@@ -1,2 +1,2 @@
-E AX3004 460-signature-type-variable.ax:33:16-17 type-mismatch "type mismatch: expected Int, found a" #"this has type `a`, expected `Int`"
-E AX3004 460-signature-type-variable.ax:36:20-21 type-mismatch "type mismatch: expected a, found b" #"this has type `b`, expected `a`"
+E AX3004 460-signature-type-variable.ax:36:16-17 type-mismatch "type mismatch: expected Int, found a" #"this has type `a`, expected `Int`"
+E AX3004 460-signature-type-variable.ax:40:20-21 type-mismatch "type mismatch: expected a, found b" #"this has type `b`, expected `a`"

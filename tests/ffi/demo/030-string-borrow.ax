@@ -8,17 +8,20 @@
 ; The borrow is valid for the CALL and no longer: ARC may release the
 ; block the moment the call returns.
 (import IO)
+
 (import Fmt)
 
 (pub extern "axiom_demo"
   (countVowels :: (-> String Int) (symbol "axffi_count_vowels")))
 
 ;@axiom:effect(io)
-(pub fn (main) {
-  (println (fmtInt (countVowels "hello world")))
-  ; The empty string is the edge that a length-then-pointer reader gets
-  ; wrong: `data` may be null and `len` 0.
-  (println (fmtInt (countVowels "")))
-  0
-})
+(pub fn (main)
+  {
+    (println (fmtInt (countVowels "hello world")))
+    ; The empty string is the edge that a length-then-pointer reader gets
+    ; wrong: `data` may be null and `len` 0.
+    (println (fmtInt (countVowels "")))
+    0
+  }
+)
 ; expect 0

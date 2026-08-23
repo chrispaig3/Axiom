@@ -1,2 +1,10 @@
 (:: main Int)
-(fn (main) (let ((mut c 1)) { (set zzz (+ qqq 1)) c }))
+
+(fn (main)
+  (let ((mut c 1))
+    {
+      (set zzz (+ qqq 1))
+      c
+    }
+  )
+)

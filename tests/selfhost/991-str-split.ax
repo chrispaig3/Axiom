@@ -16,29 +16,65 @@
 ;   f  the segments are the right BYTES, not merely the right count -
 ;      a split that answered N empty slices would pass a-e
 (import Str)
+
 (import Vec)
 
 (:: nseg (-> String Int Int))
+
 (fn (nseg s b) (vecLen (strSplit s b)))
 
 (:: segEq (-> String Int Int String Bool))
+
 (fn (segEq s b i want) (strEq (vecGet (strSplit s b) i) want))
 
 ; Counted, not `&&`-chained and not nested: the answer says HOW MANY
 ; of the nine checks held, so a fixture that stopped exercising one of
 ; them fails with a number rather than passing by silence.
 (:: main Int)
+
 (fn (main)
   (let ((mut n 0))
     {
-      (if (== (nseg "abc" 58) 1)  (set n (+ n 1)) 0)
-      (if (== (nseg "a:" 58) 2)   (set n (+ n 1)) 0)
-      (if (== (nseg ":a" 58) 2)   (set n (+ n 1)) 0)
-      (if (== (nseg "a::b" 58) 3) (set n (+ n 1)) 0)
-      (if (== (nseg "" 58) 1)     (set n (+ n 1)) 0)
-      (if (segEq "usr:local:bin" 58 0 "usr")   (set n (+ n 1)) 0)
-      (if (segEq "usr:local:bin" 58 1 "local") (set n (+ n 1)) 0)
-      (if (segEq "usr:local:bin" 58 2 "bin")   (set n (+ n 1)) 0)
-      (if (segEq "a::b" 58 1 "")               (set n (+ n 1)) 0)
-      (if (== n 9) 42 1)
-    }))
+      (if (== (nseg "abc" 58) 1)
+        (set n (+ n 1))
+        0
+      )
+      (if (== (nseg "a:" 58) 2)
+        (set n (+ n 1))
+        0
+      )
+      (if (== (nseg ":a" 58) 2)
+        (set n (+ n 1))
+        0
+      )
+      (if (== (nseg "a::b" 58) 3)
+        (set n (+ n 1))
+        0
+      )
+      (if (== (nseg "" 58) 1)
+        (set n (+ n 1))
+        0
+      )
+      (if (segEq "usr:local:bin" 58 0 "usr")
+        (set n (+ n 1))
+        0
+      )
+      (if (segEq "usr:local:bin" 58 1 "local")
+        (set n (+ n 1))
+        0
+      )
+      (if (segEq "usr:local:bin" 58 2 "bin")
+        (set n (+ n 1))
+        0
+      )
+      (if (segEq "a::b" 58 1 "")
+        (set n (+ n 1))
+        0
+      )
+      (if (== n 9)
+        42
+        1
+      )
+    }
+  )
+)

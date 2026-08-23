@@ -2,10 +2,12 @@
 (import IO)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
   {
     (printlnLit (__addr "exiting with 42"))
     (exit 42)
     0
-  })
+  }
+)

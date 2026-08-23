@@ -1,10 +1,11 @@
 [1;31merror[AX3012][0m[1m: cannot assign to `n` from inside a lambda: the lambda captured its value, not the binding[0m
-  [1;34m--> [0m466-set-captured.ax:10:36
+  [1;34m--> [0m466-set-captured.ax:14:16
 [1;34m   |[0m
-[1;34m 9 |[0m   (let ((mut n 0))
+[1;34m10 |[0m   (let ((mut n 0))
 [1;34m   |[0m              [1;36m- `n` is bound outside the lambda, here[0m
-[1;34m10 |[0m     (let ((bump (lambda (k) { (set n (+ n k)) n })))
-[1;34m   |[0m                                    [1;31m^ `n` was captured, not shared[0m
+[1;34m...[0m
+[1;34m14 |[0m           (set n (+ n k))
+[1;34m   |[0m                [1;31m^ `n` was captured, not shared[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma closure captures by value when its record is built, so a later `set` inside it could never be observed outside; this used to pass `check` and fail inside codegen as AX4002
   [1;34m = [0m[1;32mhelp: [0mreturn the new value instead, or restructure so the assignment happens where the binding lives

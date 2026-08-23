@@ -2,7 +2,9 @@
 ; name. `quiet` is `pub` and is still not exported to an import whose
 ; list does not carry it.
 (pub :: quiet (-> Int Int))
+
 (pub fn (quiet n) (+ n 1))
 
 (pub :: loud (-> Int Int))
+
 (pub fn (loud n) (quiet n))

@@ -1,9 +1,10 @@
 [1;31merror[AX3006][0m[1m: duplicate definition `main`[0m
-   [1;34m--> [0m380-gutter-three-digits.ax:103:6
+   [1;34m--> [0m380-gutter-three-digits.ax:105:6
 [1;34m    |[0m
-[1;34m102 |[0m (fn (main) 0)
+[1;34m103 |[0m (fn (main) 0)
 [1;34m    |[0m      [1;36m---- `main` first defined here[0m
-[1;34m103 |[0m (fn (main) 1)
+[1;34m...[0m
+[1;34m105 |[0m (fn (main) 1)
 [1;34m    |[0m      [1;31m^^^^ `main` redefined here[0m
 [1;34m    |[0m
    [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate

@@ -27,24 +27,32 @@
 (import Fmt)
 
 (type Count = Int)
+
 (type Tally = Count)
+
 (type Real = Float)
 
 (:: h (-> Count Int))
+
 (fn (h c) c)
 
 (:: mkc (-> Int Count))
+
 (fn (mkc n) n)
 
 (:: t (-> Tally Int))
+
 (fn (t v) v)
 
 (:: area (-> Real Real Real))
+
 (fn (area w h) (* w h))
 
 (:: main Int)
+
 (fn (main)
-  (if (&& (&& (== (h 20) 20) (== (h (mkc 1)) 1))
-          (&& (== (t 17) 17) (== (__floatToInt (area 3.0 1.5)) 4)))
-      42
-      1))
+  (if (&& (&& (== (h 20) 20) (== (h (mkc 1)) 1)) (&& (== (t 17) 17) (== (__floatToInt (area 3.0 1.5)) 4)))
+    42
+    1
+  )
+)

@@ -1,2 +1,2 @@
-W AX3010 370-mixed-warning-error.ax:3:6-7 axtag-mismatch "AXTAG mismatch on `w`: `pure` claim contradicted: body performs IO"
-E AX3006 370-mixed-warning-error.ax:6:6-10 duplicate-definition "duplicate definition `main`" #"`main` redefined here" ^5:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"
+W AX3010 370-mixed-warning-error.ax:4:6-7 axtag-mismatch "AXTAG mismatch on `w`: `pure` claim contradicted: body performs IO"
+E AX3006 370-mixed-warning-error.ax:15:6-10 duplicate-definition "duplicate definition `main`" #"`main` redefined here" ^13:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"

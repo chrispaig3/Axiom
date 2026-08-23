@@ -24,25 +24,46 @@
   (two :: (-> Int Int Int)))
 
 (:: helper (-> Int Int))
-(fn (helper n)
-  (ask n))
+
+(fn (helper n) (ask n))
 
 (:: main Int)
+
 (fn (main)
-  (let ((a (handle (helper 5) (Ask) (lambda (x) (* x 2)))))
-    ; The outer lists name `Alloc` because a nested `handle` in the
-    ; body heap-allocates its own evidence record, which is an effect
-    ; the enclosing handle has to cover - AX3011 otherwise, in both
-    ; compilers.
-    (let ((b (handle
-               (+ (handle (ask 1) (Ask) (lambda (x) (+ x 100)))
-                  (ask 1))
-               (Ask Alloc)
-               (lambda (x) (+ x 200)))))
-      (let ((c (handle
-                 (handle (ask 3) (Ask) (lambda (x) (ask (+ x 1))))
-                 (Ask Alloc)
-                 (lambda (x) (* x 10)))))
-        (let ((d (handle (two 6 7) (Two) (lambda (p) (lambda (q) (* p q))))))
-          (let ((e (let ((ask (lambda (x) (- x 1)))) (ask 4))))
-            (if (== (+ (+ (+ (+ a b) c) d) e) 397) 42 1)))))))
+  ; The outer lists name `Alloc` because a nested `handle` in the
+  ; body heap-allocates its own evidence record, which is an effect
+  ; the enclosing handle has to cover - AX3011 otherwise, in both
+  ; compilers.
+  (let ((a 
+    (handle (helper 5) (Ask) (lambda (x) (* x 2)))
+  ))
+    (let ((b 
+      (handle (+
+        (handle (ask 1) (Ask) (lambda (x) (+ x 100)))        (ask 1)
+      ) (Ask Alloc) (lambda (x) (+ x 200)))
+    ))
+      (let ((c 
+        (handle (handle (ask 3) (Ask) (lambda (x) (ask (+ x 1)))) (Ask Alloc) (lambda (x) (* x 10)))
+      ))
+        (let ((d 
+          (handle (two 6 7) (Two) (lambda (p)
+            (lambda (q) (* p q))
+          ))
+        ))
+          (let ((e 
+            (let ((ask 
+              (lambda (x) (- x 1))
+            ))
+              (ask 4)
+            )
+          ))
+            (if (== (+ (+ (+ (+ a b) c) d) e) 397)
+              42
+              1
+            )
+          )
+        )
+      )
+    )
+  )
+)

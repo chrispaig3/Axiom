@@ -5,11 +5,17 @@
 ; trampoline and nothing to marshal, which is the whole consequence of
 ; Axiom having no VM.
 (import IO)
+
 (import Fmt)
 
 (pub extern "axiom_demo"
   (add :: (-> Int Int Int) (symbol "axffi_add")))
 
 ;@axiom:effect(io)
-(pub fn (main) { (println (fmtInt (add 20 22))) 0 })
+(pub fn (main)
+  {
+    (println (fmtInt (add 20 22)))
+    0
+  }
+)
 ; expect 0

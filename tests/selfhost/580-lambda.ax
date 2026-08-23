@@ -4,6 +4,15 @@
 ; back inside the lifted body. The call goes indirect with the record
 ; as hidden first argument.
 (:: mk (-> Int Int))
-(fn (mk n) (let ((f (lambda (x) (+ x n)))) (f 10)))
+
+(fn (mk n)
+  (let ((f 
+    (lambda (x) (+ x n))
+  ))
+    (f 10)
+  )
+)
+
 (:: main Int)
+
 (fn (main) (mk 32))

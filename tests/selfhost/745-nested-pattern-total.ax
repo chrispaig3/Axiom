@@ -17,57 +17,79 @@
 ;     column alone decides it, and all four products are present
 ;   - `viaWild` leaves combinations uncovered and catches them with a
 ;     binder, the other way a match becomes total
-(data List (a)
+(data List a
   (Nil)
   (Cons a (List a)))
 
 (:: firstTwo (-> (List Int) Int))
+
 (fn (firstTwo l)
   (match l
     ((Nil) 0)
     ((Cons h (Nil)) h)
-    ((Cons h (Cons h2 t)) (+ h h2))))
+    ((Cons h (Cons h2 t)) (+ h h2))
+  )
+)
 
 (:: deep (-> (List Int) Int))
+
 (fn (deep l)
   (match l
     ((Nil) 0)
     ((Cons h (Nil)) 1)
     ((Cons h (Cons h2 (Nil))) 2)
-    ((Cons h (Cons h2 (Cons h3 t))) 3)))
+    ((Cons h (Cons h2 (Cons h3 t))) 3)
+  )
+)
 
-(data C (R) (G))
-(data P (Mk C C))
+(data C
+  (R)
+  (G))
+
+(data P
+  (Mk C C))
 
 (:: pair (-> P Int))
+
 (fn (pair p)
   (match p
     ((Mk (R) (G)) 1)
     ((Mk (G) (R)) 2)
     ((Mk (R) (R)) 3)
-    ((Mk (G) (G)) 4)))
+    ((Mk (G) (G)) 4)
+  )
+)
 
 (:: viaWild (-> P Int))
+
 (fn (viaWild p)
   (match p
     ((Mk (R) (G)) 10)
-    (_ 20)))
+    (_ 20)
+  )
+)
 
 (:: main Int)
+
 (fn (main)
-  (let ((one (Cons 7 (Nil)))
-        (two (Cons 3 (Cons 4 (Nil))))
-        (three (Cons 1 (Cons 2 (Cons 5 (Nil))))))
-    (+ (firstTwo (Nil))            ; 0
-       (+ (firstTwo one)           ; 7
-          (+ (firstTwo two)        ; 7
-             (+ (deep (Nil))       ; 0
-                (+ (deep one)      ; 1
-                   (+ (deep two)   ; 2
-                      (+ (deep three) ; 3
-                         (+ (pair (Mk (R) (G)))   ; 1
-                            (+ (pair (Mk (G) (R))) ; 2
-                               (+ (pair (Mk (R) (R))) ; 3
-                                  (+ (pair (Mk (G) (G))) ; 4
-                                     (+ (viaWild (Mk (R) (G)))  ; 10
-                                        (viaWild (Mk (G) (G)))))))))))))))))  ; 20
+  (let (
+    (one (Cons 7 Nil))
+    (two (Cons 3 (Cons 4 Nil)))
+    (three (Cons 1 (Cons 2 (Cons 5 Nil))))
+  )
+    (+ (firstTwo Nil) (+ (firstTwo one) (+ (firstTwo two) (+ (deep Nil) (+ (deep one) (+ (deep two) (+ (deep three) (+ (pair (Mk R G)) (+ (pair (Mk G R)) (+ (pair (Mk R R)) (+ (pair (Mk G G)) (+ (viaWild (Mk R G)) (viaWild (Mk G G))))))))))))))
+  )
+)
+; 0
+; 7
+; 7
+; 0
+; 1
+; 2
+; 3
+; 1
+; 2
+; 3
+; 4
+; 10
+; 20

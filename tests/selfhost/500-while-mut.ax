@@ -4,4 +4,19 @@
 ; back to its condition block yielding 0. The loads are what make a
 ; store in the body visible on the next trip.
 (:: main Int)
-(fn (main) (let ((mut i 0) (mut acc 0)) { (while (< i 5) (set acc (+ acc i)) (set i (+ i 1))) acc }))
+
+(fn (main)
+  (let (
+    (mut i 0)
+    (mut acc 0)
+  )
+    {
+      (while (< i 5)
+        {
+          (set acc (+ acc i))
+          (set i (+ i 1))
+        })
+      acc
+    }
+  )
+)

@@ -7,14 +7,20 @@
 ; message that needed `\n` or `\u{..}` would render wrongly rather than
 ; approximately, which is why the renderer's comment says so out loud.
 (import Str)
+
 (import Vec)
+
 (import Mem)
+
 (import core)
+
 (import diag)
+
 (:: main Int)
+
 (fn (main)
-  (if (&& (strEq (quoteStr "plain") "\"plain\"")
-          (&& (strEq (quoteStr "say \"hi\"") "\"say \\\"hi\\\"\"")
-              (strEq (quoteStr "back\\slash") "\"back\\\\slash\"")))
-      42
-      7))
+  (if (&& (strEq (quoteStr "plain") "\"plain\"") (&& (strEq (quoteStr "say \"hi\"") "\"say \\\"hi\\\"\"") (strEq (quoteStr "back\\slash") "\"back\\\\slash\"")))
+    42
+    7
+  )
+)

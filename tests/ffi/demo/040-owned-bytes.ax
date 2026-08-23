@@ -17,17 +17,30 @@
 ; AXIOM_PATH, so this exercises the GENERATED wrapper rather than a copy
 ; of it written by hand.
 (import IO)
+
 (import Str)
+
 (import Demo)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((a (shout "hello"))
-        (b (shout ""))
-        (c (shout "axiom")))
-    (if (&& (strEq a "HELLO!")
-        (&& (strEq b "!")
-            (strEq c "AXIOM!")))
-        { (println "owned bytes: agree") 0 }
-        { (println a) (println b) (println c) 1 })))
+  (let (
+    (a (shout "hello"))
+    (b (shout ""))
+    (c (shout "axiom"))
+  )
+    (if (&& (strEq a "HELLO!") (&& (strEq b "!") (strEq c "AXIOM!")))
+      {
+        (println "owned bytes: agree")
+        0
+      }
+      {
+        (println a)
+        (println b)
+        (println c)
+        1
+      }
+    )
+  )
+)
 ; expect 0

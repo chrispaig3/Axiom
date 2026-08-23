@@ -17,20 +17,27 @@
 ; A megabyte is comfortably past where the recursive form died and
 ; comfortably inside the arena.
 (import Mem)
+
 (import Str)
+
 (:: main Int)
+
 (fn (main)
   (let ((n 1048576))
-    (let ((src (memAlloc n))
-          (dst (memAlloc n)))
+    (let (
+      (src (memAlloc n))
+      (dst (memAlloc n))
+    )
       {
         (memSet src 65 n)
         (__store8 src (- n 1) 90)
         (memCopy dst src n)
         ; first byte, last byte, and a full compare
-        (if (&& (== (__load8 dst 0) 65)
-                (&& (== (__load8 dst (- n 1)) 90)
-                    (== (memCmp dst src n) 0)))
-            42
-            7)
-      })))
+        (if (&& (== (__load8 dst 0) 65) (&& (== (__load8 dst (- n 1)) 90) (== (memCmp dst src n) 0)))
+          42
+          7
+        )
+      }
+    )
+  )
+)

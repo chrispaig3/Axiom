@@ -14,19 +14,48 @@
 ;   line 26: the same over a user type, `MNil` inside `MCons`  AX3005
 ;
 ; `deep` and `both` emit nothing: every value is covered.
-(data MyList (a) (MNil) (MCons a (MyList a)))
+(data MyList a
+  (MNil)
+  (MCons a (MyList a)))
 
 (:: partial (-> (Option (Option Int)) Int))
-(fn (partial o) (match o ((Some (Some x)) 1) ((None) 0)))
+
+(fn (partial o)
+  (match o
+    ((Some (Some x)) 1)
+    ((None) 0)
+  )
+)
 
 (:: deep (-> (Option (Option Int)) Int))
-(fn (deep o) (match o ((Some (Some x)) (+ x 1)) ((Some (None)) 1) ((None) 0)))
+
+(fn (deep o)
+  (match o
+    ((Some (Some x)) (+ x 1))
+    ((Some (None)) 1)
+    ((None) 0)
+  )
+)
 
 (:: two (-> (MyList Int) Int))
-(fn (two l) (match l ((MCons h (MCons h2 t)) 2) ((MNil) 0)))
+
+(fn (two l)
+  (match l
+    ((MCons h (MCons h2 t)) 2)
+    ((MNil) 0)
+  )
+)
 
 (:: both (-> (MyList Int) Int))
-(fn (both l) (match l ((MCons h (MCons h2 t)) 2) ((MCons h (MNil)) 1) ((MNil) 0)))
+
+(fn (both l)
+  (match l
+    ((MCons h (MCons h2 t)) 2)
+    ((MCons h (MNil)) 1)
+    ((MNil) 0)
+  )
+)
 
 (:: main Int)
+
 (fn (main) 0)

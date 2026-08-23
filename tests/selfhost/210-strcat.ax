@@ -1,7 +1,13 @@
 ; expect 42
 (import Str)
+
 (:: main Int)
+
 (fn (main)
-  (let ((a "abc")
-        (b "de"))
-    (+ (strLen (strConcat a b)) 37)))
+  (let (
+    (a "abc")
+    (b "de")
+  )
+    (+ (strLen (strConcat a b)) 37)
+  )
+)

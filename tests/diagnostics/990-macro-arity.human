@@ -1,7 +1,7 @@
 [1;31merror[AX3018][0m[1m: macro `two` takes 2 arguments, but was given 1[0m
- [1;34m--> [0m990-macro-arity.ax:7:13
+ [1;34m--> [0m990-macro-arity.ax:8:13
 [1;34m  |[0m
-[1;34m7 |[0m (fn (main) (two 40))
+[1;34m8 |[0m (fn (main) (two 40))
 [1;34m  |[0m             [1;31m^^^[0m
 [1;34m  |[0m
  [1;34m = [0m[1mnote: [0ma macro is a rewrite, not a function: a missing argument would leave the parameter's own name in the generated code, and a surplus one would be dropped without being evaluated

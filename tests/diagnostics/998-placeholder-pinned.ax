@@ -16,12 +16,25 @@
 ;   line 27: a let-bound `(Some "s")` is `(Option String)`, and
 ;            `(+ n 1)` on its binder is refused                  AX3004
 (import Str)
+
 (:: same (-> a a Bool))
+
 (fn (same x y) true)
+
 (:: idf (-> a a))
+
 (fn (idf x) x)
+
 (:: main Int)
+
 (fn (main)
   (if (same 1 "x")
-      (strLen (idf 5))
-      (let ((o (Some "s"))) (match o ((Some n) (+ n 1)) ((None) 0)))))
+    (strLen (idf 5))
+    (let ((o (Some "s")))
+      (match o
+        ((Some n) (+ n 1))
+        ((None) 0)
+      )
+    )
+  )
+)

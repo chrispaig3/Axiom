@@ -1,5 +1,9 @@
 (:: helper (-> Int Int))
-(define (helper x) x)
+
+(fn (helper x) x)
+
 (:: main Int)
+
 (fn (main) 0)
+
 (fn (main) 1)

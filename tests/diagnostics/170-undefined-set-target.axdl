@@ -1,1 +1,1 @@
-E AX3001 170-undefined-set-target.ax:4:12-17 undefined-variable "undefined variable `cound`" #"no binding named `cound` in scope" ?4:12-17:"a similarly named binding `count` is in scope; did you mean this?"~>"count"
+E AX3001 170-undefined-set-target.ax:6:12-17 undefined-variable "undefined variable `cound`" #"no binding named `cound` in scope" ?6:12-17:"a similarly named binding `count` is in scope; did you mean this?"~>"count"

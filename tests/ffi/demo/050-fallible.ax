@@ -11,20 +11,42 @@
 ; `Result`, so a failing foreign call is matched with the same `Ok`/`Err`
 ; arms as a failing Axiom one.
 (import IO)
+
 (import Err)
+
 (import Demo)
 
 (pub :: describe (-> (Result Int String) String))
+
 (pub fn (describe r)
   (match r
-    ((Ok n) (if (== n 42) "ok:42" "ok:other"))
-    ((Err e) e)))
+    ((Ok n)
+      (if (== n 42)
+        "ok:42"
+        "ok:other"
+      )
+    )
+    ((Err e) e)
+  )
+)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((good (describe (parseInt "42")))
-        (bad  (describe (parseInt "not-a-number"))))
+  (let (
+    (good (describe (parseInt "42")))
+    (bad (describe (parseInt "not-a-number")))
+  )
     (if (&& (strEq good "ok:42") (!= (strLen bad) 0))
-        { (println "fallible: agree") 0 }
-        { (println good) (println bad) 1 })))
+      {
+        (println "fallible: agree")
+        0
+      }
+      {
+        (println good)
+        (println bad)
+        1
+      }
+    )
+  )
+)
 ; expect 0

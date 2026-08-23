@@ -1,7 +1,7 @@
 [1;31merror[AX3023][0m[1m: `quiet` is private to module `PrivBoth`[0m
- [1;34m--> [0m380-private-name-filtered.ax:3:25
+ [1;34m--> [0m380-private-name-filtered.ax:5:25
 [1;34m  |[0m
-[1;34m3 |[0m (fn (main) (+ (loud 1) (quiet 1)))
+[1;34m5 |[0m (fn (main) (+ (loud 1) (quiet 1)))
 [1;34m  |[0m                         [1;31m^^^^^ `quiet` is not exported by its module[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too

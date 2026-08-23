@@ -1,8 +1,20 @@
 ; expect 60
 ; A literal in a *field* position: `(JustB 5)` must compare the field
 ; against 5, not bind it. 50 (lit arm) + 3 (binder arm) + 7 (nullary).
-(data M2 (NoneB) (JustB Int))
+(data M2
+  (NoneB)
+  (JustB Int))
+
 (:: h (-> M2 Int))
-(fn (h m) (match m ((JustB 5) 50) ((JustB x) x) ((NoneB) 7)))
+
+(fn (h m)
+  (match m
+    ((JustB 5) 50)
+    ((JustB x) x)
+    ((NoneB) 7)
+  )
+)
+
 (:: main Int)
+
 (fn (main) (+ (h (JustB 5)) (+ (h (JustB 3)) (h NoneB))))

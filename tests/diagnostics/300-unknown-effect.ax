@@ -1,4 +1,8 @@
 (effect Console
   (log :: (-> String Int)))
+
 (:: main Int)
-(fn (main) (handle 1 (Nope IO Alsonope Alloc) (lambda (v) 0)))
+
+(fn (main)
+  (handle 1 (Nope IO Alsonope Alloc) (lambda (v) 0))
+)

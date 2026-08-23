@@ -1,7 +1,15 @@
-(data Color (Red) (Green))
+(data Color
+  (Red)
+  (Green))
+
 (:: helper (-> Int Int))
+
 (fn (helper x) x)
+
 (:: main Int)
+
 (fn (main)
   (let ((count 1))
-    (+ (helpr count) (+ (cound) (Gren)))))
+    (+ (helpr count) (+ cound Gren))
+  )
+)

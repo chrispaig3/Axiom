@@ -1,25 +1,25 @@
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Nil[0m
-  [1;34m--> [0m477-nested-pattern-fallthrough.ax:33:10
+  [1;34m--> [0m477-nested-pattern-fallthrough.ax:34:10
 [1;34m   |[0m
-[1;34m33 |[0m   (match l
+[1;34m34 |[0m   (match l
 [1;34m   |[0m          [1;31m^ this `match` does not cover: Nil[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Nil[0m
-  [1;34m--> [0m477-nested-pattern-fallthrough.ax:39:10
+  [1;34m--> [0m477-nested-pattern-fallthrough.ax:43:10
 [1;34m   |[0m
-[1;34m39 |[0m   (match l
+[1;34m43 |[0m   (match l
 [1;34m   |[0m          [1;31m^ this `match` does not cover: Nil[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing R[0m
-  [1;34m--> [0m477-nested-pattern-fallthrough.ax:56:10
+  [1;34m--> [0m477-nested-pattern-fallthrough.ax:67:10
 [1;34m   |[0m
-[1;34m56 |[0m   (match p
+[1;34m67 |[0m   (match p
 [1;34m   |[0m          [1;31m^ this `match` does not cover: R[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest

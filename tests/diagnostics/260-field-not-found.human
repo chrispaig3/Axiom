@@ -1,16 +1,16 @@
 [1;31merror[AX3007][0m[1m: field `z` not found on type `P`[0m
- [1;34m--> [0m260-field-not-found.ax:5:10
+ [1;34m--> [0m260-field-not-found.ax:9:10
 [1;34m  |[0m
-[1;34m5 |[0m     (+ p.z p.y)))
+[1;34m9 |[0m     (+ p.z p.y)
 [1;34m  |[0m          [1;31m^ no field `z` on `P`[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mcheck the field name and the definition of `P`
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3007` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Int, found I64[0m
- [1;34m--> [0m260-field-not-found.ax:5:8
+ [1;34m--> [0m260-field-not-found.ax:9:8
 [1;34m  |[0m
-[1;34m5 |[0m     (+ p.z p.y)))
+[1;34m9 |[0m     (+ p.z p.y)
 [1;34m  |[0m        [1;31m^ this has type `I64`, expected `Int`[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation

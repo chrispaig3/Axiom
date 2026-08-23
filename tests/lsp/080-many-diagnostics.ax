@@ -1,7 +1,12 @@
 (:: pure (-> Int Int))
+
 ;@axiom:effect(io)
 (fn (pure x) x)
+
 (:: alpha Int)
+
 (fn (alpha) missingOne)
+
 (:: beta Int)
+
 (fn (beta) missingTwo)

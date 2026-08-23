@@ -17,7 +17,9 @@
   (sub :: (-> Int Int Int) (symbol "axffi_sub")))
 
 (:: add (-> Int Int Int))
+
 (fn (add a b) (+ a b))
 
 (:: main Int)
+
 (fn (main) 0)

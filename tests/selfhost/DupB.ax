@@ -2,4 +2,5 @@
 ; merely silenced `AX3014` without resolving to the named module would
 ; still pass a test that only counted diagnostics.
 (pub :: dup (-> Int Int))
+
 (pub fn (dup n) (+ n 100))

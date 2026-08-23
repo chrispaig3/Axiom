@@ -17,50 +17,76 @@
 (import IO)
 
 ; One capture, applied in a second step.
-(pub :: adder (-> Int (-> Int Int)))
-(pub fn (adder n) (lambda (x) (+ x n)))
+(pub :: adder (-> Int Int Int))
+
+(pub fn (adder n)
+  (lambda (x) (+ x n))
+)
 
 ; Two captures from a two-parameter function.
-(pub :: scaler (-> Int Int (-> Int Int)))
-(pub fn (scaler a b) (lambda (x) (* x (+ a b))))
+(pub :: scaler (-> Int Int Int Int))
+
+(pub fn (scaler a b)
+  (lambda (x) (* x (+ a b)))
+)
 
 ; Nested lambdas: each application yields another closure, so the
 ; surplus arguments cannot be applied in one step.
-(pub :: add3 (-> Int (-> Int (-> Int Int))))
-(pub fn (add3 a) (lambda (b) (lambda (c) (+ a (+ b c)))))
+(pub :: add3 (-> Int Int Int Int))
+
+(pub fn (add3 a)
+  (lambda (b)
+    (lambda (c) (+ a (+ b c)))
+  )
+)
 
 ; A function value as an ordinary parameter, called indirectly.
 (pub :: applyTo (-> (-> Int Int) Int Int))
+
 (pub fn (applyTo f v) (f v))
 
 ; A top-level function used as a value - no capture, but still passed
 ; and called through the same parameter position.
 (pub :: double (-> Int Int))
+
 (pub fn (double x) (* x 2))
 
 (pub :: twice (-> (-> Int Int) Int Int))
+
 (pub fn (twice f x) (f (f x)))
 
 ; A closure surviving a round trip through a heap-allocated constructor.
-(pub data Held (Hold (-> Int Int)))
+(pub data Held
+  (Hold (-> Int Int)))
 
 (pub :: runHeld (-> Held Int Int))
+
 (pub fn (runHeld h v)
-  (match h ((Hold f) (f v))))
+  (match h
+    ((Hold f) (f v))
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (println ((adder 10) 5))                  ; 15
-    (println ((adder 0) 7))                   ; 7: capture of 0, not "no capture"
-    (println ((scaler 2 3) 10))               ; 50
-    (println (((add3 1) 2) 3))                ; 6
-    (println (applyTo (adder 100) 5))         ; 105: closure as an argument
-    (println (applyTo (lambda (x) (- x 1)) 10)) ; 9: lambda written inline
-    (println (applyTo double 21))             ; 42: named function as a value
-    (println (twice double 3))                ; 12: called twice indirectly
-    (println (twice (adder 5) 0))             ; 10: closure called twice
+    (println (adder 10 5))  ; 15
+    (println (adder 0 7))  ; 7: capture of 0, not "no capture"
+    (println (scaler 2 3 10))  ; 50
+    (println (add3 1 2 3))  ; 6
+    (println (applyTo (adder 100) 5))  ; 105: closure as an argument
+    (println
+      (applyTo
+        (lambda (x) (- x 1))        10
+      )
+    )
+    ; 9: lambda written inline
+    (println (applyTo double 21))  ; 42: named function as a value
+    (println (twice double 3))  ; 12: called twice indirectly
+    (println (twice (adder 5) 0))  ; 10: closure called twice
     (println (runHeld (Hold (adder 100)) 5))  ; 105: through a constructor
     0
-  })
+  }
+)

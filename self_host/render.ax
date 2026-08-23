@@ -43,13 +43,18 @@
 ; the pinned example - and merging the two caret rows under one line
 ; print is a later diagnostic's business if the repetition ever reads
 ; badly in practice.
-
 (import core)
+
 (import Mem)
+
 (import Str)
+
 (import Vec)
+
 (import Utf8)
+
 (import diag)
+
 (import style)
 
 ; ------------------------------------------------------------------
@@ -59,9 +64,18 @@
 ; a wide span would pay it per character.
 ; ------------------------------------------------------------------
 (pub :: repByte (-> Int Int String))
+
 (pub fn (repByte n ch)
-  (let ((m (if (< n 0) 0 n)))
-    (let ((s (strAlloc m)) (mut i 0))
+  (let ((m 
+    (if (< n 0)
+      0
+      n
+    )
+  ))
+    (let (
+      (s (strAlloc m))
+      (mut i 0)
+    )
       {
         (while (< i m)
           {
@@ -69,9 +83,13 @@
             (set i (+ i 1))
           })
         s
-      })))
+      }
+    )
+  )
+)
 
 (pub :: spacesN (-> Int String))
+
 (pub fn (spacesN n) (repByte n 32))
 
 ; `n` right-justified in `w` columns.
@@ -80,49 +98,79 @@
 ; and if the discipline ever slips, a gutter measured in bytes would be
 ; seven columns wide per colour.
 (pub :: rjNum (-> Int Int String))
+
 (pub fn (rjNum n w)
   (let ((t (decStr n)))
-    (strConcat (spacesN (- w (visLen t))) t)))
+    (strConcat (spacesN (- w (visLen t))) t)
+  )
+)
 
 ; Byte offset one past the last byte of the line containing `off`.
 (pub :: lineEndOf (-> String Int Int))
+
 (pub fn (lineEndOf src off)
-  (let ((n (strLen src)) (mut i off))
+  (let (
+    (n (strLen src))
+    (mut i off)
+  )
     {
       (while (&& (< i n) (!= (strByte src i) 10))
         (set i (+ i 1)))
       i
-    }))
+    }
+  )
+)
 
 ; Characters (non-continuation bytes) in [a, b).
 (pub :: charsBetween (-> String Int Int Int))
+
 (pub fn (charsBetween src a b)
-  (let ((mut i a) (mut n 0))
+  (let (
+    (mut i a)
+    (mut n 0)
+  )
     {
       (while (< i b)
         {
-          (if (utf8IsCont (strByte src i)) 0 (set n (+ n 1)))
+          (if (utf8IsCont (strByte src i))
+            0
+            (set n (+ n 1))
+          )
           (set i (+ i 1))
         })
       n
-    }))
+    }
+  )
+)
 
 ; ASCII-lowercased copy, for flag-value comparison - stage0 accepts
 ; `HUMAN` and `Json` (`to_ascii_lowercase` in render.rs).
 (pub :: lowerAscii (-> String String))
+
 (pub fn (lowerAscii s)
   (let ((n (strLen s)))
-    (let ((out (strAlloc n)) (mut i 0))
+    (let (
+      (out (strAlloc n))
+      (mut i 0)
+    )
       {
         (while (< i n)
           (let ((c (strByte s i)))
             {
-              (memPutByte (strData out) i
-                          (if (&& (>= c 65) (<= c 90)) (+ c 32) c))
+              (memPutByte
+                (strData out)                i                (if (&& (>= c 65) (<= c 90))
+                  (+ c 32)
+                  c
+                )
+              )
               (set i (+ i 1))
-            }))
+            }
+          ))
         out
-      })))
+      }
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Format names, exactly the aliases stage0 accepts: human|pretty|rustc,
@@ -130,27 +178,46 @@
 ; know - the caller owns the fallback warning, because only it knows
 ; whether a flag was given at all.
 ; ------------------------------------------------------------------
-(pub :: FMT_HUMAN Int) (pub fn (FMT_HUMAN) 0)
-(pub :: FMT_AI Int)    (pub fn (FMT_AI)    1)
-(pub :: FMT_JSON Int)  (pub fn (FMT_JSON)  2)
+(pub :: FMT_HUMAN Int)
+
+(pub fn (FMT_HUMAN) 0)
+
+(pub :: FMT_AI Int)
+
+(pub fn (FMT_AI) 1)
+
+(pub :: FMT_JSON Int)
+
+(pub fn (FMT_JSON) 2)
 
 (pub :: parseDiagFormatName (-> String Int))
+
 (pub fn (parseDiagFormatName s)
   (let ((v (lowerAscii s)))
     (if (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))
-        FMT_HUMAN
-    (if (|| (strEq v "ai") (|| (strEq v "agent") (strEq v "compact")))
+      FMT_HUMAN
+      (if (|| (strEq v "ai") (|| (strEq v "agent") (strEq v "compact")))
         FMT_AI
-    (if (strEq v "json")
-        FMT_JSON
-        (- 0 1))))))
+        (if (strEq v "json")
+          FMT_JSON
+          (- 0 1)
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; The human renderer.
 ; ------------------------------------------------------------------
 (pub :: sevWord (-> Int String))
+
 (pub fn (sevWord sev)
-  (if (== sev SEV_ERROR) "error" "warning"))
+  (if (== sev SEV_ERROR)
+    "error"
+    "warning"
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Display columns.
@@ -169,102 +236,174 @@
 ; SPACES, so a caret under tab-indented source pointed at the wrong
 ; column by however much the terminal's tab stop differed from one.
 ; ------------------------------------------------------------------
-(pub :: TAB_WIDTH Int) (pub fn (TAB_WIDTH) 4)
+(pub :: TAB_WIDTH Int)
+
+(pub fn (TAB_WIDTH) 4)
 
 ; How wide a line may be quoted before it is quoted as a window, and how
 ; much of it to keep to the left of the span. A diagnostic on a
 ; generated or minified line used to echo the whole thing: measured, a
 ; 4000-column line printed in full, which is not a snippet.
-(pub :: LINE_MAX Int) (pub fn (LINE_MAX) 160)
-(pub :: LEFT_CTX Int) (pub fn (LEFT_CTX) 20)
+(pub :: LINE_MAX Int)
+
+(pub fn (LINE_MAX) 160)
+
+(pub :: LEFT_CTX Int)
+
+(pub fn (LEFT_CTX) 20)
 
 ; The 1-based display column of byte offset `off` within its own line.
 ; A byte order mark at the start of the text draws nothing, and is not
 ; counted (`pastBom`) - the same rule `colOf` follows.
 (pub :: dispColAt (-> String Int Int))
+
 (pub fn (dispColAt src off)
-  (let ((mut i (pastBom src (lineStartOf src off))) (mut col 0))
+  (let (
+    (mut i (pastBom src (lineStartOf src off)))
+    (mut col 0)
+  )
     {
       (while (< i off)
         {
           (if (== (strByte src i) 9)
-              (set col (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH))
-              (if (utf8IsCont (strByte src i)) 0 (set col (+ col 1))))
+            (set col (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH))
+            (if (utf8IsCont (strByte src i))
+              0
+              (set col (+ col 1))
+            )
+          )
           (set i (+ i 1))
         })
       (+ col 1)
-    }))
+    }
+  )
+)
 
 ; Display width of the bytes in [ls, le).
 (pub :: dispWidthLine (-> String Int Int Int))
+
 (pub fn (dispWidthLine src ls le)
-  (let ((mut i ls) (mut col 0))
+  (let (
+    (mut i ls)
+    (mut col 0)
+  )
     {
       (while (< i le)
         {
           (if (== (strByte src i) 9)
-              (set col (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH))
-              (if (utf8IsCont (strByte src i)) 0 (set col (+ col 1))))
+            (set col (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH))
+            (if (utf8IsCont (strByte src i))
+              0
+              (set col (+ col 1))
+            )
+          )
           (set i (+ i 1))
         })
       col
-    }))
+    }
+  )
+)
 
 ; Where the quoted window of a line of display width `dw` begins, given
 ; a span starting at 1-based display column `dcol`. 0 whenever the whole
 ; line fits, which is every line in the corpus.
 (pub :: winStart (-> Int Int Int))
+
 (pub fn (winStart dw dcol)
   (if (<= dw LINE_MAX)
-      0
-      (let ((s0 (- (- dcol 1) LEFT_CTX)))
-        (let ((s (if (< s0 0) 0 s0)))
-          ; A window that would run off the end is pushed back to end at
-          ; the line's end instead, so the last columns are never quoted
-          ; as a short window with nothing after them.
-          (if (>= (+ s LINE_MAX) dw)
-              (let ((t (- dw LINE_MAX))) (if (< t 0) 0 t))
-              s)))))
+    0
+    ; A window that would run off the end is pushed back to end at
+    ; the line's end instead, so the last columns are never quoted
+    ; as a short window with nothing after them.
+    (let ((s0 (- (- dcol 1) LEFT_CTX)))
+      (let ((s 
+        (if (< s0 0)
+          0
+          s0
+        )
+      ))
+        (if (>= (+ s LINE_MAX) dw)
+          (let ((t (- dw LINE_MAX)))
+            (if (< t 0)
+              0
+              t
+            )
+          )
+          s
+        )
+      )
+    )
+  )
+)
 
 (pub :: winEnd (-> Int Int Int))
+
 (pub fn (winEnd dw dcol)
   (if (<= dw LINE_MAX)
-      dw
-      (let ((e (+ (winStart dw dcol) LINE_MAX)))
-        (if (> e dw) dw e))))
+    dw
+    (let ((e (+ (winStart dw dcol) LINE_MAX)))
+      (if (> e dw)
+        dw
+        e
+      )
+    )
+  )
+)
 
 ; The bytes of [ls, le) whose display columns lie in [a, b), with tabs
 ; expanded. A tab is emitted column by column, so one straddling the
 ; window's edge contributes only the columns inside it; a multi-byte
 ; character is emitted whole at its lead byte.
 (pub :: expandWindow (-> String Int Int Int Int String))
+
 (pub fn (expandWindow src ls le a b)
-  (let ((parts vecNew) (mut i ls) (mut col 0))
+  (let (
+    (parts vecNew)
+    (mut i ls)
+    (mut col 0)
+  )
     {
       (while (< i le)
         (let ((by (strByte src i)))
           {
             (if (== by 9)
-                (let ((stop (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH)))
-                  (while (< col stop)
+              (let ((stop (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH)))
+                (while (< col stop)
+                  {
+                    (if (&& (>= col a) (< col b))
+                      (vecPush parts " ")
+                      0
+                    )
+                    (set col (+ col 1))
+                  })
+              )
+              (if (utf8IsCont by)
+                0
+                (let ((n0 (utf8SeqLen by)))
+                  (let ((n 
+                    (if (> (+ i n0) le)
+                      (- le i)
+                      n0
+                    )
+                  ))
                     {
-                      (if (&& (>= col a) (< col b)) (vecPush parts " ") 0)
+                      (if (&& (>= col a) (< col b))
+                        (vecPush parts (strSlice src i n))
+                        0
+                      )
                       (set col (+ col 1))
-                    }))
-                (if (utf8IsCont by)
-                    0
-                    (let ((n0 (utf8SeqLen by)))
-                      (let ((n (if (> (+ i n0) le) (- le i) n0)))
-                        {
-                          (if (&& (>= col a) (< col b))
-                              (vecPush parts (strSlice src i n))
-                              0)
-                          (set col (+ col 1))
-                        }))))
+                    }
+                  )
+                )
+              )
+            )
             (set i (+ i 1))
-          }))
+          }
+        ))
       (catStrs parts)
-    }))
+    }
+  )
+)
 
 ; The two lines one labeled span renders as: the source line with its
 ; gutter, and the underline row beneath it. `ch` is the underline
@@ -272,54 +411,114 @@
 ; covers the span clamped to its own line and to the quoted window, and
 ; is never shorter than one column even for an empty span.
 (pub :: labelBlock (-> String Int Int Int Int String String String))
+
 (pub fn (labelBlock src gw start end ch msg sgr)
-  (let ((ls (lineStartOf src start))
-        (le (lineEndOf src start))
-        (ln (lineOf src start)))
-    (let ((dcol (dispColAt src start))
-          (dw (dispWidthLine src ls le))
-          (m (if (== (cast Int msg) 0) "" msg)))
-      (let ((dend (dispColAt src (if (< end le) end le)))
-            (ws (winStart dw dcol))
-            (we (winEnd dw dcol)))
+  ; Clamp the underline to the window it is drawn in.
+  (let (
+    (ls (lineStartOf src start))
+    (le (lineEndOf src start))
+    (ln (lineOf src start))
+  )
+    (let (
+      (dcol (dispColAt src start))
+      (dw (dispWidthLine src ls le))
+      (m (if (==
+        (cast Int msg)        0
+      )
+        ""
+        msg
+      ))
+    )
+      (let (
+        (dend (dispColAt
+          src          (if (< end le)
+            end
+            le
+          )
+        ))
+        (ws (winStart dw dcol))
+        (we (winEnd dw dcol))
+      )
         (let ((run0 (- dend dcol)))
-          (let ((run1 (if (< run0 1) 1 run0)))
-            ; Clamp the underline to the window it is drawn in.
-            (let ((run2 (if (> (+ (- dcol 1) run1) we) (- we (- dcol 1)) run1)))
-              (let ((run (if (< run2 1) 1 run2))
-                    (lead (if (> ws 0) "..." ""))
-                    (tail (if (< we dw) "..." "")))
+          (let ((run1 
+            (if (< run0 1)
+              1
+              run0
+            )
+          ))
+            (let ((run2 
+              (if (> (+ (- dcol 1) run1) we)
+                (- we (- dcol 1))
+                run1
+              )
+            ))
+              (let (
+                (run (if (< run2 1)
+                  1
+                  run2
+                ))
+                (lead (if (> ws 0)
+                  "..."
+                  ""
+                ))
+                (tail (if (< we dw)
+                  "..."
+                  ""
+                ))
+              )
                 (strConcat
-                  (strConcat
-                    (strConcat (paint SGR_GUT (strConcat (rjNum ln gw) " |"))
-                               (strConcat " "
-                                 (strConcat (strConcat lead
-                                              (expandWindow src ls le ws we))
-                                            tail)))
-                    "\n")
-                  (strConcat
-                    (strConcat (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) " ")
-                               (strConcat (spacesN (+ (strLen lead) (- (- dcol 1) ws)))
-                                 (paint sgr
-                                   (strConcat (repByte run ch)
-                                     (if (== (strLen m) 0) "" (strConcat " " m))))))
-                    "\n"))))))))))
+                  (strConcat (strConcat (paint SGR_GUT (strConcat (rjNum ln gw) " |")) (strConcat " " (strConcat (strConcat lead (expandWindow
+                    src                    ls                    le                    ws                    we
+                  )) tail))) "\n")                  (strConcat
+                    (strConcat
+                      (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) " ")                      (strConcat
+                        (spacesN (+ (strLen lead) (- (- dcol 1) ws)))                        (paint
+                          sgr                          (strConcat
+                            (repByte run ch)                            (if (== (strLen m) 0)
+                              ""
+                              (strConcat " " m)
+                            )
+                          )
+                        )
+                      )
+                    )                    "\n"
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 ; The last position in `src` that a caret can sit on: one past the
 ; final character of the last non-empty line. A span at or beyond the
 ; end of the source is moved here, and every other span is left alone.
 (pub :: clampToSource (-> String Int Int))
+
 (pub fn (clampToSource src span)
   (if (== span 0)
-      0
-      (let ((n (strLen src)))
-        (if (< (spanStart span) n)
-            span
-            ; Step back over a trailing newline so the caret lands at
-            ; the end of the last line of text rather than on a line
-            ; that has no characters in it.
-            (let ((p (if (&& (> n 0) (== (strByte src (- n 1)) 10)) (- n 1) n)))
-              (mkSpan p p))))))
+    0
+    (let ((n (strLen src)))
+      (if (< (spanStart span) n)
+        span
+        ; Step back over a trailing newline so the caret lands at
+        ; the end of the last line of text rather than on a line
+        ; that has no characters in it.
+        (let ((p 
+          (if (&& (> n 0) (== (strByte src (- n 1)) 10))
+            (- n 1)
+            n
+          )
+        ))
+          (mkSpan p p)
+        )
+      )
+    )
+  )
+)
 
 ; `   = help: ...` - one per help the diagnostic carries, in the order
 ; stage0 stores them, with the standing `axiom explain` pointer last.
@@ -359,28 +558,42 @@
 ; a label unconditionally. Answer the null back and let the existing
 ; tests keep deciding what an absent label prints as.
 (pub :: ctlEsc (-> String String))
+
 (pub fn (ctlEsc s)
-  (if (== (cast Int s) 0)
-      s
-  (let ((n (strLen s)) (mut i 0) (mut acc ""))
-    {
-      (while (< i n)
-        (let ((b (strByte s i)))
-          {
-            (set acc
-              (if (== b 10)
-                  (strConcat acc "\\n")
-              (if (== b 9)
+  (if (==
+    (cast Int s)    0
+  )
+    s
+    (let (
+      (n (strLen s))
+      (mut i 0)
+      (mut acc "")
+    )
+      {
+        (while (< i n)
+          (let ((b (strByte s i)))
+            {
+              (set acc (if (== b 10)
+                (strConcat acc "\\n")
+                (if (== b 9)
                   (strConcat acc "\\t")
-              (if (== b 13)
-                  (strConcat acc "\\r")
-              (if (|| (< b 32) (== b 127))
-                  (strConcat acc (quoteUesc b))
-                  (strConcat acc (strSlice s i 1)))))))
-            (set i (+ i 1))
-          }))
-      acc
-    })))
+                  (if (== b 13)
+                    (strConcat acc "\\r")
+                    (if (|| (< b 32) (== b 127))
+                      (strConcat acc (quoteUesc b))
+                      (strConcat acc (strSlice s i 1))
+                    )
+                  )
+                )
+              ))
+              (set i (+ i 1))
+            }
+          ))
+        acc
+      }
+    )
+  )
+)
 
 ; `ctlEsc` is applied to the DIAGNOSTIC'S OWN text at the point it
 ; enters a line, never to a composed one: `helpLineFix` hands
@@ -389,26 +602,21 @@
 ; text `\u{1b}[...`. Seven fixtures with a machine-applicable fix said
 ; so immediately when the escape sat inside `helpLine` instead.
 (pub :: helpLine (-> Int String String))
-(pub fn (helpLine gw text)
-  (strConcat (strConcat (strConcat
-    (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_HELP "help: "))
-    (strConcat text "\n")))
+
+(pub fn (helpLine gw text) (strConcat (strConcat (strConcat (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_HELP "help: ")) (strConcat text "\n")))
 
 (pub :: helpLineEsc (-> Int String String))
-(pub fn (helpLineEsc gw text)
-  (helpLine gw (ctlEsc text)))
+
+(pub fn (helpLineEsc gw text) (helpLine gw (ctlEsc text)))
 
 (pub :: helpLineFix (-> Int String String String))
-(pub fn (helpLineFix gw text repl)
-  (helpLine gw (strConcat (ctlEsc text)
-                          (paint SGR_FIX (strConcat " ~> " (ctlEsc repl))))))
+
+(pub fn (helpLineFix gw text repl) (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX (strConcat " ~> " (ctlEsc repl))))))
 
 ; `   = note: ...`, which renders before the helps.
 (pub :: noteLine (-> Int String String))
-(pub fn (noteLine gw text)
-  (strConcat (strConcat (strConcat
-    (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_TITLE "note: "))
-    (strConcat (ctlEsc text) "\n")))
+
+(pub fn (noteLine gw text) (strConcat (strConcat (strConcat (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_TITLE "note: ")) (strConcat (ctlEsc text) "\n")))
 
 ; ------------------------------------------------------------------
 ; The rows of one snippet: one per labeled span, in source order.
@@ -417,12 +625,27 @@
 ; related - because the Diag record held at most one related span. It
 ; now holds a vector of them, so the snippet is a sorted list.
 ; ------------------------------------------------------------------
-(pub struct SnipRow (span : Int) (ch : Int) (msg : String) (sgr : String))
+(pub struct SnipRow
+  (span : Int)
+  (ch : Int)
+  (msg : String)
+  (sgr : String))
 
-(pub :: rowSpan (-> Int Int)) (pub fn (rowSpan r) (memGetWord r 0))
-(pub :: rowCh   (-> Int Int)) (pub fn (rowCh   r) (memGetWord r 1))
-(pub :: rowMsg  (-> Int String)) (pub fn (rowMsg  r) (memGetWord r 2))
-(pub :: rowSgr  (-> Int String)) (pub fn (rowSgr  r) (memGetWord r 3))
+(pub :: rowSpan (-> Int Int))
+
+(pub fn (rowSpan r) (memGetWord r 0))
+
+(pub :: rowCh (-> Int Int))
+
+(pub fn (rowCh r) (memGetWord r 1))
+
+(pub :: rowMsg (-> Int String))
+
+(pub fn (rowMsg r) (memGetWord r 2))
+
+(pub :: rowSgr (-> Int String))
+
+(pub fn (rowSgr r) (memGetWord r 3))
 
 ; Insertion sort by span START. The code this replaces compared LINE
 ; numbers and put the related span first on a tie, which agreed with
@@ -432,77 +655,115 @@
 ; written. Sorting by offset says the same thing about that case and the
 ; right thing about the case where it is not.
 (pub :: sortRows (-> Int Int))
+
 (pub fn (sortRows rows)
-  (let ((n (vecLen rows)) (mut i 1))
+  (let (
+    (n (vecLen rows))
+    (mut i 1)
+  )
     {
       (while (< i n)
-        (let ((cur (vecGet rows i)) (mut j i))
+        (let (
+          (cur (vecGet rows i))
+          (mut j i)
+        )
           {
-            (while (&& (> j 0)
-                       (> (spanStart (rowSpan (vecGet rows (- j 1))))
-                          (spanStart (rowSpan cur))))
+            (while (&& (> j 0) (> (spanStart (rowSpan (vecGet rows (- j 1)))) (spanStart (rowSpan cur))))
               {
                 (vecSet rows j (vecGet rows (- j 1)))
                 (set j (- j 1))
               })
             (vecSet rows j cur)
             (set i (+ i 1))
-          }))
+          }
+        ))
       rows
-    }))
+    }
+  )
+)
 
 ; The primary span underlined with `^` and carrying the diagnostic's own
 ; label, then every related span with `-` and its note.
 (pub :: snipRowsOf (-> Int Int Int))
+
 (pub fn (snipRowsOf d span)
-  (let ((rows vecNew) (mut i 0))
+  ; The primary underline takes the diagnostic's own severity
+  ; colour; a related one is always secondary.
+  (let (
+    (rows vecNew)
+    (mut i 0)
+  )
     {
-      ; The primary underline takes the diagnostic's own severity
-      ; colour; a related one is always secondary.
-      (vecPush rows (cast Int (SnipRow span 94 (ctlEsc (diagLabel d)) (sgrForSev (diagSev d)))))
+      (vecPush
+        rows        (cast Int (SnipRow span 94 (ctlEsc (diagLabel d)) (sgrForSev (diagSev d))))
+      )
       (while (< i (diagSecCount d))
         {
-          (vecPush rows (cast Int (SnipRow (diagSecSpan d i) 45 (ctlEsc (diagSecMsg d i)) SGR_SEC)))
+          (vecPush
+            rows            (cast Int (SnipRow (diagSecSpan d i) 45 (ctlEsc (diagSecMsg d i)) SGR_SEC))
+          )
           (set i (+ i 1))
         })
       (sortRows rows)
-    }))
+    }
+  )
+)
 
 ; Width of the widest line number any row will print.
 (pub :: rowsGutterWidth (-> String Int Int))
+
 (pub fn (rowsGutterWidth src rows)
-  (let ((mut i 0) (mut w 1))
+  (let (
+    (mut i 0)
+    (mut w 1)
+  )
     {
       (while (< i (vecLen rows))
         (let ((n (strLen (decStr (lineOf src (spanStart (rowSpan (vecGet rows i))))))))
           {
-            (if (> n w) (set w n) 0)
+            (if (> n w)
+              (set w n)
+              0
+            )
             (set i (+ i 1))
-          }))
+          }
+        ))
       w
-    }))
+    }
+  )
+)
 
 ; The labeled blocks, in order, with a `...` row wherever two adjacent
 ; rows are more than one line apart.
 (pub :: snipBody (-> String Int Int String))
+
 (pub fn (snipBody src gw rows)
-  (let ((out vecNew) (mut i 0) (mut prev 0))
+  (let (
+    (out vecNew)
+    (mut i 0)
+    (mut prev 0)
+  )
     {
       (while (< i (vecLen rows))
         (let ((r (vecGet rows i)))
           (let ((ln (lineOf src (spanStart (rowSpan r)))))
             {
               (if (&& (> i 0) (> (- ln prev) 1))
-                  (vecPush out (strConcat (paint SGR_GUT "...") "\n"))
-                  0)
-              (vecPush out (labelBlock src gw (spanStart (rowSpan r))
-                                       (spanEnd (rowSpan r)) (rowCh r) (rowMsg r)
-                                       (rowSgr r)))
+                (vecPush out (strConcat (paint SGR_GUT "...") "\n"))
+                0
+              )
+              (vecPush out (labelBlock
+                src                gw                (spanStart (rowSpan r))                (spanEnd (rowSpan r))                (rowCh r)                (rowMsg r)                (rowSgr r)
+              ))
               (set prev ln)
               (set i (+ i 1))
-            })))
+            }
+          )
+        ))
       (catStrs out)
-    }))
+    }
+  )
+)
 
 ; One diagnostic as its human block, blank-line terminated.
 ; The one note line an expansion frame renders as, shared by the human
@@ -511,17 +772,22 @@
 ; parenthetical repeats fmtSpan's exact text, so the derivation is a
 ; concatenation and not a re-parse.
 (pub :: traceNoteText (-> Int Int Int String))
+
 (pub fn (traceNoteText d i units)
-  (let ((base (strConcat (strConcat "in this expansion of `"
-                                    (diagTraceName d i)) "`")))
-    (let ((fs (diagTraceSpan d i))
-          (fu (diagTraceUnit d i)))
+  (let ((base (strConcat (strConcat "in this expansion of `" (diagTraceName d i)) "`")))
+    (let (
+      (fs (diagTraceSpan d i))
+      (fu (diagTraceUnit d i))
+    )
       (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
-          base
-          (let ((u (vecGet units fu)))
-            (strConcat (strConcat (strConcat (strConcat (strConcat
-              base " (") (memGetWord u 0)) ":")
-              (fmtSpan (memGetWord u 1) fs)) ")"))))))
+        base
+        (let ((u (vecGet units fu)))
+          (strConcat (strConcat (strConcat (strConcat (strConcat base " (") (memGetWord u 0)) ":") (fmtSpan (memGetWord u 1) fs)) ")")
+        )
+      )
+    )
+  )
+)
 
 ; MAC-DIAG-5: a frame whose unit the caller supplied renders as a
 ; SECOND location block - the macro's own file, opened, with its
@@ -529,192 +795,284 @@
 ; The note form remains for a frame with no span or no reachable
 ; unit, which is what a REPL-shaped or spanless expansion leaves.
 (pub :: traceResolvable (-> Int Int Int Int))
+
 (pub fn (traceResolvable d i units)
-  (let ((fs (diagTraceSpan d i))
-        (fu (diagTraceUnit d i)))
-    (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units)))) 0 1)))
+  (let (
+    (fs (diagTraceSpan d i))
+    (fu (diagTraceUnit d i))
+  )
+    (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
+      0
+      1
+    )
+  )
+)
 
 (pub :: traceRows (-> Int Int Int))
+
 (pub fn (traceRows d i)
   (let ((rows vecNew))
     {
-      (vecPush rows (cast Int (SnipRow (diagTraceSpan d i) 94
-        (strConcat (strConcat "in this expansion of `"
-                              (diagTraceName d i)) "`")
-        SGR_SEC)))
+      (vecPush
+        rows        (cast Int (SnipRow (diagTraceSpan d i) 94 (strConcat (strConcat "in this expansion of `" (diagTraceName d i)) "`") SGR_SEC))
+      )
       rows
-    }))
+    }
+  )
+)
 
 ; The gutter is one width for the whole report: a frame's line number
 ; can be wider than the primary's, and two blocks whose bars do not
 ; line up read as two reports.
 (pub :: traceGutterWidth (-> Int Int Int Int))
+
 (pub fn (traceGutterWidth d units w0)
-  (let ((mut i 0) (mut w w0))
+  (let (
+    (mut i 0)
+    (mut w w0)
+  )
     {
       (while (< i (diagTraceCount d))
         {
           (if (== (traceResolvable d i units) 1)
-              (let ((u (vecGet units (diagTraceUnit d i))))
-                (let ((n (rowsGutterWidth (memGetWord u 1) (traceRows d i))))
-                  (if (> n w) (set w n) 0)))
-              0)
+            (let ((u (vecGet units (diagTraceUnit d i))))
+              (let ((n (rowsGutterWidth (memGetWord u 1) (traceRows d i))))
+                (if (> n w)
+                  (set w n)
+                  0
+                )
+              )
+            )
+            0
+          )
           (set i (+ i 1))
         })
       w
-    }))
+    }
+  )
+)
 
 (pub :: traceBlocks (-> Int Int Int String))
+
 (pub fn (traceBlocks d units gw)
-  (let ((out vecNew) (mut i 0))
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
     {
       (while (< i (diagTraceCount d))
         {
           (if (== (traceResolvable d i units) 1)
-              (let ((u (vecGet units (diagTraceUnit d i)))
-                    (rows (traceRows d i)))
-                (let ((fsrc (memGetWord u 1))
-                      (ffile (memGetWord u 0))
-                      (fs (diagTraceSpan d i)))
-                  (let ((bar (strConcat (paint SGR_GUT
-                               (strConcat (spacesN gw) " |")) "\n")))
-                    {
-                      (vecPush out (strConcat (strConcat (spacesN gw)
-                                                (paint SGR_GUT "--> "))
-                        (strConcat (strConcat (strConcat (strConcat
-                          (cast String ffile) ":")
-                          (decStr (lineOf fsrc (spanStart fs)))) ":")
-                          (strConcat (decStr (colOf fsrc (spanStart fs))) "\n"))))
-                      (vecPush out bar)
-                      (vecPush out (snipBody fsrc gw rows))
-                      (vecPush out bar)
-                    })))
-              0)
+            (let (
+              (u (vecGet units (diagTraceUnit d i)))
+              (rows (traceRows d i))
+            )
+              (let (
+                (fsrc (memGetWord u 1))
+                (ffile (memGetWord u 0))
+                (fs (diagTraceSpan d i))
+              )
+                (let ((bar (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) "\n")))
+                  {
+                    (vecPush
+                      out                      (strConcat
+                        (strConcat (spacesN gw) (paint SGR_GUT "--> "))                        (strConcat
+                          (strConcat
+                            (strConcat
+                              (strConcat
+                                (cast String ffile)                                ":"
+                              )                              (decStr (lineOf fsrc (spanStart fs)))
+                            )                            ":"
+                          )                          (strConcat (decStr (colOf fsrc (spanStart fs))) "\n")
+                        )
+                      )
+                    )
+                    (vecPush out bar)
+                    (vecPush out (snipBody fsrc gw rows))
+                    (vecPush out bar)
+                  }
+                )
+              )
+            )
+            0
+          )
           (set i (+ i 1))
         })
       (catStrs out)
-    }))
+    }
+  )
+)
 
 (pub :: renderDiagHuman (-> Int String String Int String))
+
 (pub fn (renderDiagHuman d src file units)
-  (let ((sev (diagSev d))
-        (code (diagCode d))
-        (span (diagSpan d))
-        (msg (diagMsg d)))
-    (let ((head (strConcat
-                   (paint (sgrForSev sev)
-                     (strConcat (strConcat (strConcat (sevWord sev) "[") code) "]"))
-                   (strConcat (paint SGR_TITLE (strConcat ": " (ctlEsc msg))) "\n")))
-          ; A span that starts AT the end of the source is the
-          ; end-of-file diagnostic - an unclosed `(` is the commonest
-          ; syntax error there is - and it used to render spanless,
-          ; with no snippet at all. There is a line to show: the last
-          ; one, with the caret one past its final character, which is
-          ; where stage0's own human renderer puts it (probed: AXDL
-          ; says 2:1 for a one-line file, the report says 1:11). Only
-          ; the DISPLAY position is clamped; the machine-readable
-          ; location still reports where the file actually ran out.
-          (span (clampToSource src span))
-          (spanless (== span 0)))
-      ; A spanless diagnostic draws no snippet, so it has no rows and
-      ; its gutter is one column wide.
-      (let ((rows (if spanless vecNew (snipRowsOf d span))))
-        (let ((gw (traceGutterWidth d units
-                    (if spanless 1 (rowsGutterWidth src rows)))))
-          (let ((loc (strConcat (strConcat (spacesN gw) (paint SGR_GUT "--> "))
-                       (if spanless
-                           (strConcat file "\n")
-                           (strConcat (strConcat (strConcat (strConcat
-                             file ":")
-                             (decStr (lineOf src (spanStart span)))) ":")
-                             (strConcat (decStr (colOf src (spanStart span))) "\n")))))
-                (bar (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) "\n")))
-            (let ((snippet
-                    (strConcat
-                      (if spanless
-                          ""
-                          (strConcat (strConcat bar (snipBody src gw rows)) bar))
-                      (traceBlocks d units gw)))
-                  (notes (let ((acc vecNew) (mut i 0))
-                           {
-                             (while (< i (diagNoteCount d))
-                               {
-                                 (vecPush acc (noteLine gw (diagNote d i)))
-                                 (set i (+ i 1))
-                               })
-                             ; An expansion frame whose file this
-                             ; renderer could open became a location
-                             ; block above (MAC-DIAG-5); one it could
-                             ; not still reads as a note, which is
-                             ; the whole of what MAC-DIAG-4 shipped.
-                             (set i 0)
-                             (while (< i (diagTraceCount d))
-                               {
-                                 (if (== (traceResolvable d i units) 1)
-                                     0
-                                     (vecPush acc (noteLine gw
-                                       (traceNoteText d i units))))
-                                 (set i (+ i 1))
-                               })
-                             (catStrs acc)
-                           })))
-              (let ((helps (let ((acc vecNew) (mut i 0))
-                             {
-                               (while (< i (diagHelpCount d))
-                                 {
-                                   ; A MACHINE-APPLICABLE help shows the
-                                   ; replacement it would apply. stage0
-                                   ; stored one and never printed it:
-                                   ; ariadne read only `help.message`,
-                                   ; so `~>` reached AXDL and no human
-                                   ; ever saw it. The `~>` spelling is
-                                   ; AXDL's, deliberately - one fact,
-                                   ; one notation, whichever surface a
-                                   ; reader is looking at.
-                                   (vecPush acc
-                                     (if (== (diagHelpFixSpan d i) 0)
-                                         (helpLineEsc gw (diagHelpMsg d i))
-                                         (helpLineFix gw (diagHelpMsg d i)
-                                                      (diagHelpFixText d i))))
-                                   (set i (+ i 1))
-                                 })
-                               (vecPush acc (helpLine gw (strConcat (strConcat
-                                 "run `axiom explain " code)
-                                 "` for a full explanation")))
-                               (catStrs acc)
-                             })))
-                (strConcat (strConcat (strConcat (strConcat (strConcat
-                  head loc) snippet) notes) helps) "\n")))))))))
+  ; A span that starts AT the end of the source is the
+  ; end-of-file diagnostic - an unclosed `(` is the commonest
+  ; syntax error there is - and it used to render spanless,
+  ; with no snippet at all. There is a line to show: the last
+  ; one, with the caret one past its final character, which is
+  ; where stage0's own human renderer puts it (probed: AXDL
+  ; says 2:1 for a one-line file, the report says 1:11). Only
+  ; the DISPLAY position is clamped; the machine-readable
+  ; location still reports where the file actually ran out.
+  ; A spanless diagnostic draws no snippet, so it has no rows and
+  ; its gutter is one column wide.
+  ; An expansion frame whose file this
+  ; renderer could open became a location
+  ; block above (MAC-DIAG-5); one it could
+  ; not still reads as a note, which is
+  ; the whole of what MAC-DIAG-4 shipped.
+  ; A MACHINE-APPLICABLE help shows the
+  ; replacement it would apply. stage0
+  ; stored one and never printed it:
+  ; ariadne read only `help.message`,
+  ; so `~>` reached AXDL and no human
+  ; ever saw it. The `~>` spelling is
+  ; AXDL's, deliberately - one fact,
+  ; one notation, whichever surface a
+  ; reader is looking at.
+  (let (
+    (sev (diagSev d))
+    (code (diagCode d))
+    (span (diagSpan d))
+    (msg (diagMsg d))
+  )
+    (let (
+      (head (strConcat (paint (sgrForSev sev) (strConcat (strConcat (strConcat (sevWord sev) "[") code) "]")) (strConcat (paint SGR_TITLE (strConcat ": " (ctlEsc msg))) "\n")))
+      (span (clampToSource src span))
+      (spanless (== span 0))
+    )
+      (let ((rows 
+        (if spanless
+          vecNew
+          (snipRowsOf d span)
+        )
+      ))
+        (let ((gw 
+          (traceGutterWidth
+            d            units            (if spanless
+              1
+              (rowsGutterWidth src rows)
+            )
+          )
+        ))
+          (let (
+            (loc (strConcat
+              (strConcat (spacesN gw) (paint SGR_GUT "--> "))              (if spanless
+                (strConcat file "\n")
+                (strConcat (strConcat (strConcat (strConcat file ":") (decStr (lineOf src (spanStart span)))) ":") (strConcat (decStr (colOf src (spanStart span))) "\n"))
+              )
+            ))
+            (bar (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) "\n"))
+          )
+            (let (
+              (snippet (strConcat
+                (if spanless
+                  ""
+                  (strConcat (strConcat bar (snipBody src gw rows)) bar)
+                )                (traceBlocks d units gw)
+              ))
+              (notes (let (
+                (acc vecNew)
+                (mut i 0)
+              )
+                {
+                  (while (< i (diagNoteCount d))
+                    {
+                      (vecPush acc (noteLine gw (diagNote d i)))
+                      (set i (+ i 1))
+                    })
+                  (set i 0)
+                  (while (< i (diagTraceCount d))
+                    {
+                      (if (== (traceResolvable d i units) 1)
+                        0
+                        (vecPush acc (noteLine gw (traceNoteText d i units)))
+                      )
+                      (set i (+ i 1))
+                    })
+                  (catStrs acc)
+                }
+              ))
+            )
+              (let ((helps 
+                (let (
+                  (acc vecNew)
+                  (mut i 0)
+                )
+                  {
+                    (while (< i (diagHelpCount d))
+                      {
+                        (vecPush
+                          acc                          (if (== (diagHelpFixSpan d i) 0)
+                            (helpLineEsc gw (diagHelpMsg d i))
+                            (helpLineFix gw (diagHelpMsg d i) (diagHelpFixText d i))
+                          )
+                        )
+                        (set i (+ i 1))
+                      })
+                    (vecPush acc (helpLine gw (strConcat (strConcat "run `axiom explain " code) "` for a full explanation")))
+                    (catStrs acc)
+                  }
+                )
+              ))
+                (strConcat (strConcat (strConcat (strConcat (strConcat head loc) snippet) notes) helps) "\n")
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 ; Every diagnostic, each rendered against the source file its `unit`
 ; field names - the same table renderDiagsUnits (AXDL) reads.
 (pub :: renderDiagsHumanUnits (-> Int Int String))
+
 (pub fn (renderDiagsHumanUnits ds units)
-  (let ((blocks vecNew) (mut i 0))
+  (let (
+    (blocks vecNew)
+    (mut i 0)
+  )
     {
       (while (< i (vecLen ds))
         (let ((d (vecGet ds i)))
-          (let ((u (vecGet units (if (< (diagUnit d) (vecLen units))
-                                     (diagUnit d)
-                                     0))))
+          (let ((u 
+            (vecGet
+              units              (if (< (diagUnit d) (vecLen units))
+                (diagUnit d)
+                0
+              )
+            )
+          ))
             {
-              (vecPush blocks
-                (renderDiagHuman d (memGetWord u 1) (memGetWord u 0) units))
+              (vecPush blocks (renderDiagHuman d (memGetWord u 1) (memGetWord u 0) units))
               (set i (+ i 1))
-            })))
+            }
+          )
+        ))
       ; A single linear join, not a strConcat fold - the fold's peak
       ; is the sum of every intermediate (see catStrs in diag.ax).
       (catStrs blocks)
-    }))
+    }
+  )
+)
 
 ; The trailer stage0's CLI prints after failed compilation, in every
 ; format - the AXDL differential gate never saw it because its grep
 ; keeps only `^[EWNH] ` lines (probed 2026-08-07: stage0 prints it in
 ; `ai` mode too). Errors only, post-suppression, pluralized.
 (pub :: renderFailTrailer (-> Int String))
+
 (pub fn (renderFailTrailer n)
-  (strConcat (strConcat "compilation failed due to " (decStr n))
-             (if (== n 1) " previous error\n" " previous errors\n")))
+  (strConcat
+    (strConcat "compilation failed due to " (decStr n))    (if (== n 1)
+      " previous error\n"
+      " previous errors\n"
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; JSON Lines, stage0's `render_json` shape: one object per line. The
@@ -735,21 +1093,29 @@
 ; two-character escape. Named apart from codegen's `hexDigit`/`hex2`
 ; because imports join one flat top-level namespace.
 (pub :: jsonHexDigit (-> Int Int))
+
 (pub fn (jsonHexDigit n)
-  (if (< n 10) (+ 48 n) (+ 55 n)))
+  (if (< n 10)
+    (+ 48 n)
+    (+ 55 n)
+  )
+)
 
 (pub :: jsonUesc (-> Int String))
+
 (pub fn (jsonUesc b)
   (let ((s (strAlloc 6)))
     {
-      (__store8 (strData s) 0 92)   ; \
+      (__store8 (strData s) 0 92)  ; \
       (__store8 (strData s) 1 117)  ; u
-      (__store8 (strData s) 2 48)   ; 0
-      (__store8 (strData s) 3 48)   ; 0
+      (__store8 (strData s) 2 48)  ; 0
+      (__store8 (strData s) 3 48)  ; 0
       (__store8 (strData s) 4 (jsonHexDigit (/ b 16)))
       (__store8 (strData s) 5 (jsonHexDigit (% b 16)))
       s
-    }))
+    }
+  )
+)
 
 ; RFC 8259 forbids a raw byte below 0x20 inside a string, and this
 ; escaped three of them: `\"`, `\\` and `\n`, stage0's set. Every
@@ -766,57 +1132,84 @@
 ; at or above 0x20 are copied as-is, which keeps UTF-8 sequences
 ; intact - JSON strings carry them literally.
 (pub :: jsonEsc (-> String String))
+
 (pub fn (jsonEsc s)
-  (let ((n (strLen s)) (mut i 0) (mut acc ""))
+  (let (
+    (n (strLen s))
+    (mut i 0)
+    (mut acc "")
+  )
     {
       (while (< i n)
         (let ((b (strByte s i)))
           {
-            (set acc
-              (if (== b 34)
-                  (strConcat acc "\\\"")
+            (set acc (if (== b 34)
+              (strConcat acc "\\\"")
               (if (== b 92)
-                  (strConcat acc "\\\\")
-              (if (== b 10)
+                (strConcat acc "\\\\")
+                (if (== b 10)
                   (strConcat acc "\\n")
-              (if (== b 9)
-                  (strConcat acc "\\t")
-              (if (== b 13)
-                  (strConcat acc "\\r")
-              (if (== b 8)
-                  (strConcat acc "\\b")
-              (if (== b 12)
-                  (strConcat acc "\\f")
-              (if (< b 32)
-                  (strConcat acc (jsonUesc b))
-                  (strConcat acc (strSlice s i 1)))))))))))
+                  (if (== b 9)
+                    (strConcat acc "\\t")
+                    (if (== b 13)
+                      (strConcat acc "\\r")
+                      (if (== b 8)
+                        (strConcat acc "\\b")
+                        (if (== b 12)
+                          (strConcat acc "\\f")
+                          (if (< b 32)
+                            (strConcat acc (jsonUesc b))
+                            (strConcat acc (strSlice s i 1))
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            ))
             (set i (+ i 1))
-          }))
+          }
+        ))
       acc
-    }))
+    }
+  )
+)
 
 (pub :: jsonSpan (-> String Int String))
+
 (pub fn (jsonSpan src span)
-  (let ((s (spanStart span)) (e0 (spanEnd span)))
-    (let ((e (if (< e0 s) s e0)))
-      (strConcat (strConcat (strConcat (strConcat (strConcat
-        (strConcat (strConcat (strConcat (strConcat (strConcat
-          "{\"start\":{\"line\":" (decStr (lineOf src s)))
-          ",\"col\":") (decStr (colOf src s)))
-          "},\"end\":{\"line\":") (decStr (lineOf src e)))
-          ",\"col\":") (decStr (colOf src e)))
-          "},\"char_start\":") (decStr (charsBetween src 0 s)))
-        (strConcat (strConcat ",\"char_end\":" (decStr (charsBetween src 0 e))) "}")))))
+  (let (
+    (s (spanStart span))
+    (e0 (spanEnd span))
+  )
+    (let ((e 
+      (if (< e0 s)
+        s
+        e0
+      )
+    ))
+      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "{\"start\":{\"line\":" (decStr (lineOf src s))) ",\"col\":") (decStr (colOf src s))) "},\"end\":{\"line\":") (decStr (lineOf src e))) ",\"col\":") (decStr (colOf src e))) "},\"char_start\":") (decStr (charsBetween src 0 s))) (strConcat (strConcat ",\"char_end\":" (decStr (charsBetween src 0 e))) "}"))
+    )
+  )
+)
 
 ; A JSON array of quoted strings.
 (pub :: jsonStrArray (-> Int String))
+
 (pub fn (jsonStrArray items)
-  (let ((parts vecNew) (mut i 0))
+  (let (
+    (parts vecNew)
+    (mut i 0)
+  )
     {
       (vecPush parts "[")
       (while (< i (vecLen items))
         {
-          (if (> i 0) (vecPush parts ",") 0)
+          (if (> i 0)
+            (vecPush parts ",")
+            0
+          )
           (vecPush parts "\"")
           (vecPush parts (jsonEsc (vecGet items i)))
           (vecPush parts "\"")
@@ -824,25 +1217,45 @@
         })
       (vecPush parts "]")
       (catStrs parts)
-    }))
+    }
+  )
+)
 
 (pub :: jsonHelpArray (-> Int String))
+
 (pub fn (jsonHelpArray d)
-  (let ((v vecNew) (mut i 0))
+  (let (
+    (v vecNew)
+    (mut i 0)
+  )
     {
       (while (< i (diagHelpCount d))
-        { (vecPush v (diagHelpMsg d i)) (set i (+ i 1)) })
+        {
+          (vecPush v (diagHelpMsg d i))
+          (set i (+ i 1))
+        })
       (jsonStrArray v)
-    }))
+    }
+  )
+)
 
 (pub :: jsonNoteArray (-> Int String))
+
 (pub fn (jsonNoteArray d)
-  (let ((v vecNew) (mut i 0))
+  (let (
+    (v vecNew)
+    (mut i 0)
+  )
     {
       (while (< i (diagNoteCount d))
-        { (vecPush v (diagNote d i)) (set i (+ i 1)) })
+        {
+          (vecPush v (diagNote d i))
+          (set i (+ i 1))
+        })
       (jsonStrArray v)
-    }))
+    }
+  )
+)
 
 ; One object per frame: `{"macro":name}` bare, plus
 ; `"file"/"line"/"col"` - the macro declaration's START position in
@@ -850,112 +1263,161 @@
 ; resolve. The numbers are the same ones the AXDL LOC prints, which is
 ; what lets verify-json.py derive this array from that field.
 (pub :: jsonTraceArray (-> Int Int String))
+
 (pub fn (jsonTraceArray d units)
-  (let ((parts vecNew) (mut i 0))
+  (let (
+    (parts vecNew)
+    (mut i 0)
+  )
     {
       (vecPush parts "[")
       (while (< i (diagTraceCount d))
         {
-          (if (> i 0) (vecPush parts ",") 0)
+          (if (> i 0)
+            (vecPush parts ",")
+            0
+          )
           (vecPush parts "{\"macro\":\"")
           (vecPush parts (jsonEsc (diagTraceName d i)))
           (vecPush parts "\"")
-          (let ((fs (diagTraceSpan d i))
-                (fu (diagTraceUnit d i)))
+          (let (
+            (fs (diagTraceSpan d i))
+            (fu (diagTraceUnit d i))
+          )
             (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
-                0
-                (let ((u (vecGet units fu)))
-                  (let ((fsrc (memGetWord u 1)))
-                    {
-                      (vecPush parts ",\"file\":\"")
-                      (vecPush parts (jsonEsc (memGetWord u 0)))
-                      (vecPush parts "\",\"line\":")
-                      (vecPush parts (decStr (lineOf fsrc (spanStart fs))))
-                      (vecPush parts ",\"col\":")
-                      (vecPush parts (decStr (colOf fsrc (spanStart fs))))
-                    }))))
+              0
+              (let ((u (vecGet units fu)))
+                (let ((fsrc (memGetWord u 1)))
+                  {
+                    (vecPush parts ",\"file\":\"")
+                    (vecPush parts (jsonEsc (memGetWord u 0)))
+                    (vecPush parts "\",\"line\":")
+                    (vecPush parts (decStr (lineOf fsrc (spanStart fs))))
+                    (vecPush parts ",\"col\":")
+                    (vecPush parts (decStr (colOf fsrc (spanStart fs))))
+                  }
+                )
+              )
+            )
+          )
           (vecPush parts "}")
           (set i (+ i 1))
         })
       (vecPush parts "]")
       (catStrs parts)
-    }))
+    }
+  )
+)
 
 (pub :: jsonRelatedArray (-> Int String String))
+
 (pub fn (jsonRelatedArray d src)
-  (let ((parts vecNew) (mut i 0))
+  (let (
+    (parts vecNew)
+    (mut i 0)
+  )
     {
       (vecPush parts "[")
       (while (< i (diagSecCount d))
         {
-          (if (> i 0) (vecPush parts ",") 0)
+          (if (> i 0)
+            (vecPush parts ",")
+            0
+          )
           (vecPush parts "{\"span\":")
           (vecPush parts (jsonSpan src (diagSecSpan d i)))
           (vecPush parts ",\"label\":\"")
-          (vecPush parts (jsonEsc (if (== (cast Int (diagSecMsg d i)) 0) "" (diagSecMsg d i))))
+          (vecPush
+            parts            (jsonEsc
+              (if (==
+                (cast Int (diagSecMsg d i))                0
+              )
+                ""
+                (diagSecMsg d i)
+              )
+            )
+          )
           (vecPush parts "\"}")
           (set i (+ i 1))
         })
       (vecPush parts "]")
       (catStrs parts)
-    }))
+    }
+  )
+)
 
 (pub :: renderDiagJson (-> Int String String Int String))
+
 (pub fn (renderDiagJson d src file units)
-  (let ((sev (diagSev d))
-        (code (diagCode d))
-        (slug (diagSlug d))
-        (span (diagSpan d))
-        (msg (diagMsg d))
-        (label (if (== (cast Int (diagLabel d)) 0) "" (diagLabel d))))
+  (let (
+    (sev (diagSev d))
+    (code (diagCode d))
+    (slug (diagSlug d))
+    (span (diagSpan d))
+    (msg (diagMsg d))
+    (label (if (==
+      (cast Int (diagLabel d))      0
+    )
+      ""
+      (diagLabel d)
+    ))
+  )
     (strConcat
       (strConcat
         (strConcat
           (strConcat
-            (strConcat
-              (strConcat
-                (strConcat
-                  (strConcat (strConcat "{\"severity\":\"" (sevWord sev)) "\",")
-                  (strConcat (strConcat (strConcat (strConcat
-                    "\"code\":\"" code) "\",\"slug\":\"") slug) "\","))
-                (strConcat (strConcat "\"message\":\"" (jsonEsc msg)) "\","))
-              (strConcat (strConcat "\"file\":\"" (jsonEsc file)) "\","))
-            (if (== span 0)
-                ""
-                (strConcat (strConcat (strConcat (strConcat
-                  "\"span\":" (jsonSpan src span))
-                  ",\"label\":\"") (jsonEsc label)) "\",")))
-          (strConcat (strConcat "\"related\":" (jsonRelatedArray d src)) ","))
-        (strConcat (strConcat "\"notes\":" (jsonNoteArray d)) ","))
-      (strConcat (strConcat (strConcat (strConcat
-        "\"help\":" (jsonHelpArray d))
-        ",\"expansion\":") (jsonTraceArray d units)) "}"))))
+            (strConcat (strConcat (strConcat (strConcat (strConcat "{\"severity\":\"" (sevWord sev)) "\",") (strConcat (strConcat (strConcat (strConcat "\"code\":\"" code) "\",\"slug\":\"") slug) "\",")) (strConcat (strConcat "\"message\":\"" (jsonEsc msg)) "\",")) (strConcat (strConcat "\"file\":\"" (jsonEsc file)) "\","))            (if (== span 0)
+              ""
+              (strConcat (strConcat (strConcat (strConcat "\"span\":" (jsonSpan src span)) ",\"label\":\"") (jsonEsc label)) "\",")
+            )
+          )          (strConcat (strConcat "\"related\":" (jsonRelatedArray d src)) ",")
+        )        (strConcat (strConcat "\"notes\":" (jsonNoteArray d)) ",")
+      )      (strConcat (strConcat (strConcat (strConcat "\"help\":" (jsonHelpArray d)) ",\"expansion\":") (jsonTraceArray d units)) "}")
+    )
+  )
+)
 
 (pub :: renderDiagsJsonUnits (-> Int Int String))
+
 (pub fn (renderDiagsJsonUnits ds units)
-  (let ((blocks vecNew) (mut i 0))
+  (let (
+    (blocks vecNew)
+    (mut i 0)
+  )
     {
       (while (< i (vecLen ds))
         (let ((d (vecGet ds i)))
-          (let ((u (vecGet units (if (< (diagUnit d) (vecLen units))
-                                     (diagUnit d)
-                                     0))))
+          (let ((u 
+            (vecGet
+              units              (if (< (diagUnit d) (vecLen units))
+                (diagUnit d)
+                0
+              )
+            )
+          ))
             {
-              (vecPush blocks
-                (renderDiagJson d (memGetWord u 1) (memGetWord u 0) units))
+              (vecPush blocks (renderDiagJson d (memGetWord u 1) (memGetWord u 0) units))
               (vecPush blocks "\n")
               (set i (+ i 1))
-            })))
+            }
+          )
+        ))
       (catStrs blocks)
-    }))
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; The dispatch every diagnostic-printing call site goes through.
 ; ------------------------------------------------------------------
 (pub :: renderDiagsFormat (-> Int Int Int String))
+
 (pub fn (renderDiagsFormat fmt ds units)
   (if (== fmt FMT_AI)
-      (renderDiagsUnits ds units)
-      (if (== fmt FMT_JSON)
-          (renderDiagsJsonUnits ds units)
-          (renderDiagsHumanUnits ds units))))
+    (renderDiagsUnits ds units)
+    (if (== fmt FMT_JSON)
+      (renderDiagsJsonUnits ds units)
+      (renderDiagsHumanUnits ds units)
+    )
+  )
+)

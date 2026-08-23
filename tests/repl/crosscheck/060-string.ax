@@ -1,4 +1,11 @@
 (import IO)
+
 (:: main Int)
+
 ;@axiom:effect(io)
-(fn (main) { (println "cross path") 0 })
+(fn (main)
+  {
+    (println "cross path")
+    0
+  }
+)

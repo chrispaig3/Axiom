@@ -4,10 +4,18 @@
 ; itself says it is a float), an ordered `fcmp`, and both numeric
 ; conversions. 10 + 40 + 2.
 (:: scale (-> Float Float))
+
 (fn (scale x) (* x 4.0))
 
 (:: main Int)
+
 (fn (main)
-  (+ (__floatToInt (scale 2.5))
-     (+ (if (< 1.5 2.5) 40 0)
-        (__floatToInt (/ (__intToFloat 4) (__intToFloat 2))))))
+  (+
+    (__floatToInt (scale 2.5))    (+
+      (if (< 1.5 2.5)
+        40
+        0
+      )      (__floatToInt (/ (__intToFloat 4) (__intToFloat 2)))
+    )
+  )
+)

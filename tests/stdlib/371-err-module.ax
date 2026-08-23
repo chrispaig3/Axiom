@@ -41,105 +41,114 @@
 ; the two `try!` sites, which is the diagnostic the fix exists to
 ; remove.
 (import Err)
+
 (import Str)
 
 (:: b2i (-> Bool Int))
-(fn (b2i x) (if x 1 0))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
 
 ; a two-step fallible chain written with the form
 (:: chain (-> Int (Result Int Error)))
-(fn (chain n)
-  (try! a (divChecked 100 n)
-    (try! b (divChecked a 2)
-      (Ok (+ b 1)))))
+
+(fn (chain n) (try! a (divChecked 100 n) (try! b (divChecked a 2) (Ok (+ b 1)))))
 
 (:: codeOf (-> (Result Int Error) Int))
+
 (fn (codeOf r)
   (match r
     ((Ok x) 0)
-    ((Err e) (errCode e))))
+    ((Err e) (errCode e))
+  )
+)
 
 (:: valueOr (-> (Result Int Error) Int Int))
+
 (fn (valueOr r d)
   (match r
     ((Ok x) x)
-    ((Err e) d)))
+    ((Err e) d)
+  )
+)
 
 ; mapErr's target type: a different error type entirely, which is what
 ; ERR-TYPE-3 leaves in place of a `From` instance
 (:: toCode (-> Error Int))
+
 (fn (toCode e) (+ 100 e.code))
 
 (:: double (-> Int (Result Int Error)))
+
 (fn (double n) (Ok (* n 2)))
 
 (:: inc (-> Int Int))
+
 (fn (inc n) (+ n 1))
 
 (:: textOf (-> (Result Int Error) String))
+
 (fn (textOf r)
   (match r
     ((Ok x) "")
-    ((Err e) (errorText e))))
+    ((Err e) (errorText e))
+  )
+)
 
 (:: main Int)
+
 (fn (main)
-  (let ((mut acc 0) (mut steps 0))
+  (let (
+    (mut acc 0)
+    (mut steps 0)
+  )
     {
-      (set acc (+ acc (* 128 (b2i (&& (&& (&& (isOk (divChecked 10 2))
-                                              (isErr (divChecked 1 0)))
-                                          (== (valueOr (mapOk (divChecked 10 2) inc) 0)
-                                              6))
-                                      (&& (&& (strEq (errMessage (mkError 9 "absent"))
-                                                     "absent")
-                                              (strEq (errContext
-                                                       (errContextOf (mkError 9 "absent")
-                                                                     "loading"))
-                                                     "loading"))
-                                          (&& (&& (== (valueOr (remChecked 10 3) 0) 1)
-                                                  (== (codeOf (remChecked 10 0))
-                                                      (errDivideByZero)))
-                                              (== (codeOf (shrChecked 1 100))
-                                                  (errShiftTooWide)))))))))
+      (set acc (+ acc (* 128 (b2i (&& (&& (&& (isOk (divChecked 10 2)) (isErr (divChecked 1 0))) (== (valueOr (mapOk (divChecked 10 2) inc) 0) 6)) (&& (&& (strEq (errMessage (mkError 9 "absent")) "absent") (strEq (errContext (errContextOf (mkError 9 "absent") "loading")) "loading")) (&& (&& (== (valueOr (remChecked 10 3) 0) 1) (== (codeOf (remChecked 10 0)) errDivideByZero)) (== (codeOf (shrChecked 1 100)) errShiftTooWide))))))))
       (set steps (+ steps 1))
-
-      (set acc (+ acc (* 64 (b2i (&& (== (valueOr (divChecked 10 2) 0) 5)
-                                     (== (codeOf (divChecked 10 0))
-                                         (errDivideByZero)))))))
+      (set acc (+ acc (* 64 (b2i (&& (== (valueOr (divChecked 10 2) 0) 5) (== (codeOf (divChecked 10 0)) errDivideByZero))))))
       (set steps (+ steps 1))
-
-      (set acc (+ acc (* 32 (b2i (&& (== (codeOf (divChecked (intMin) (- 0 1)))
-                                         (errOverflow))
-                                     (== (codeOf (shlChecked 1 100))
-                                         (errShiftTooWide)))))))
+      (set acc (+ acc (* 32 (b2i (&& (== (codeOf (divChecked intMin (- 0 1))) errOverflow) (== (codeOf (shlChecked 1 100)) errShiftTooWide))))))
       (set steps (+ steps 1))
-
-      (set acc (+ acc (* 16 (b2i (&& (== (valueOr (chain 10) 0) 6)
-                                     (== (codeOf (chain 0))
-                                         (errDivideByZero)))))))
+      (set acc (+ acc (* 16 (b2i (&& (== (valueOr (chain 10) 0) 6) (== (codeOf (chain 0)) errDivideByZero))))))
       (set steps (+ steps 1))
-
-      (set acc (+ acc (* 8 (b2i (&& (== (match (mapErr (divChecked 1 0) toCode)
-                                          ((Ok x) 0)
-                                          ((Err c) c))
-                                        101)
-                                    (== (valueOr (andThen (divChecked 12 3) double) 0)
-                                        8))))))
+      (set acc (+
+        acc        (*
+          8          (b2i
+            (&&
+              (==
+                (match (mapErr (divChecked 1 0) toCode)
+                  ((Ok x) 0)
+                  ((Err c) c)
+                )                101
+              )              (== (valueOr (andThen (divChecked 12 3) double) 0) 8)
+            )
+          )
+        )
+      ))
       (set steps (+ steps 1))
-
-      (set acc (+ acc (* 4 (b2i (&& (== (valueOr (okOr (Some 7)
-                                                       (mkError 9 "absent"))
-                                                 0)
-                                        7)
-                                    (match (toOption (divChecked 1 0))
-                                      ((Some x) false)
-                                      ((None) true)))))))
+      (set acc (+
+        acc        (*
+          4          (b2i
+            (&&
+              (== (valueOr (okOr (Some 7) (mkError 9 "absent")) 0) 7)              (match (toOption (divChecked 1 0))
+                ((Some x) false)
+                ((None) true)
+              )
+            )
+          )
+        )
+      ))
       (set steps (+ steps 1))
-
-      (set acc (+ acc (* 2 (b2i (strEq (textOf (withContext (divChecked 1 0)
-                                                            "reading the manifest"))
-                                       "divided by zero while reading the manifest")))))
+      (set acc (+ acc (* 2 (b2i (strEq (textOf (withContext (divChecked 1 0) "reading the manifest")) "divided by zero while reading the manifest")))))
       (set steps (+ steps 1))
-
-      (if (== steps 7) (+ acc 1) acc)
-    }))
+      (if (== steps 7)
+        (+ acc 1)
+        acc
+      )
+    }
+  )
+)

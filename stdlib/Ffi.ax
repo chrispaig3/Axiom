@@ -27,7 +27,9 @@
 ; own emitter writes an Axiom block header, because only it knows the
 ; shape word.
 (import Mem)
+
 (import Str)
+
 (import Vec)
 
 ; The facade crate's exports, present in every archive that depends
@@ -42,10 +44,15 @@
   (ffiAbiVersion :: Int (symbol "axffi_abi_version")))
 
 (pub :: ffiStatusOk Int)
+
 (pub fn (ffiStatusOk) 0)
+
 (pub :: ffiStatusErr Int)
+
 (pub fn (ffiStatusErr) 1)
+
 (pub :: ffiStatusNone Int)
+
 (pub fn (ffiStatusNone) 2)
 
 ; A fresh Handle over `ptr`, to be destroyed by the C function at
@@ -53,52 +60,88 @@
 ; by this function's own answer (event 2), exactly as `strWrapOwned`
 ; adopts a header - so the caller holds one share.
 (pub :: ffiHandleNew (-> Int Int Handle))
+
 (pub fn (ffiHandleNew ptr dropFn)
+  ; the foreign form: bit 0 of the shape word. `memAllocMapped`
+  ; refuses to set it, by design - this module is the one reviewed
+  ; door that does
   (let ((h (memAlloc 16)))
     {
-      ; the foreign form: bit 0 of the shape word. `memAllocMapped`
-      ; refuses to set it, by design - this module is the one reviewed
-      ; door that does
       (__store64 (- h 8) 0 (| (__load64 (- h 8) 0) 1))
       (__store64 h 0 dropFn)
       (__store64 h 1 ptr)
       (cast Handle h)
-    }))
+    }
+  )
+)
 
 ; The Rust pointer, 0 once the handle is closed.
 (pub :: ffiHandlePtr (-> Handle Int))
+
 (pub fn (ffiHandlePtr h)
-  (__load64 (cast Int h) 1))
+  (__load64
+    (cast Int h)    1
+  )
+)
 
 (pub :: ffiHandleLive (-> Handle Bool))
-(pub fn (ffiHandleLive h)
-  (!= (ffiHandlePtr h) 0))
+
+(pub fn (ffiHandleLive h) (!= (ffiHandlePtr h) 0))
 
 ; Destroy the Rust value NOW, once: the destructor runs and the pointer
 ; is zeroed, so a second close and the handle's own death do nothing.
 (pub :: ffiHandleClose (-> Handle Int))
+
 (pub fn (ffiHandleClose h)
-  (let ((p (ffiHandlePtr h))
-        (f (__load64 (cast Int h) 0)))
+  (let (
+    (p (ffiHandlePtr h))
+    (f (__load64
+      (cast Int h)      0
+    ))
+  )
     (if (== p 0)
-        0
-        {
-          (__store64 (cast Int h) 1 0)
-          (if (== f 0) 0 (__call_word f p))
-        })))
+      0
+      {
+        (__store64
+          (cast Int h)          1          0
+        )
+        (if (== f 0)
+          0
+          (__call_word f p)
+        )
+      }
+    )
+  )
+)
 
 ; A two-word out-cell, zeroed, held by one share the wrapper gives
 ; back with `ffiCellFree`.
 (pub :: ffiCellNew Int)
+
 (pub fn (ffiCellNew) (ffiCellNewN 2))
 
 ; An out-cell of `n` words (at least two: a status' message is
 ; `{ptr, len}`), for a record that crosses as its fields (one word
 ; each, in declaration order) or any payload wider than two words.
 (pub :: ffiCellNewN (-> Int Int))
+
 (pub fn (ffiCellNewN n)
-  (let ((c (memAlloc (* 8 (if (< n 2) 2 n)))))
-    { (__retain c) c }))
+  (let ((c 
+    (memAlloc
+      (*
+        8        (if (< n 2)
+          2
+          n
+        )
+      )
+    )
+  ))
+    {
+      (__retain c)
+      c
+    }
+  )
+)
 
 ; Word `i` of a Rust-owned word buffer: what a generated wrapper reads
 ; a record's fields or a list's lengths through before freeing it. The
@@ -107,68 +150,126 @@
 ; is Rust's buffer, one is the cell the wrapper allocated - and written
 ; in terms of it so there is one load.
 (pub :: ffiWordAt (-> Int Int Int))
-(pub fn (ffiWordAt p i)
-  (ffiCellWord p i))
+
+(pub fn (ffiWordAt p i) (ffiCellWord p i))
 
 (pub :: ffiCellFree (-> Int Int))
+
 (pub fn (ffiCellFree c)
-  { (__release c) 0 })
+  {
+    (__release c)
+    0
+  }
+)
 
 (pub :: ffiCellWord (-> Int Int Int))
-(pub fn (ffiCellWord c i)
-  (__load64 c i))
+
+(pub fn (ffiCellWord c i) (__load64 c i))
 
 ; Rust-owned bytes copied into a fresh Axiom `String`. `strAlloc`
 ; reserves len+1 and zeroes it, so the NUL terminator is already there.
 ; Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after.
 (pub :: ffiBytesToStr (-> Int Int String))
+
 (pub fn (ffiBytesToStr p n)
   (if (<= n 0)
-      ""
-      (let ((s (strAlloc n)))
-        { (memCopy (strData s) p n) s })))
+    ""
+    (let ((s (strAlloc n)))
+      {
+        (memCopy (strData s) p n)
+        s
+      }
+    )
+  )
+)
 
 ; A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n`
 ; words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`.
 (pub :: ffiWordsToVec (-> Int Int Int))
+
 (pub fn (ffiWordsToVec p n)
-  (let ((v (vecWithCapacity (if (< n 1) 1 n))))
-    (ffiWordsInto v p n 0)))
+  (let ((v 
+    (vecWithCapacity
+      (if (< n 1)
+        1
+        n
+      )
+    )
+  ))
+    (ffiWordsInto v p n 0)
+  )
+)
 
 (:: ffiWordsInto (-> Int Int Int Int Int))
+
 (fn (ffiWordsInto v p n i)
   (if (>= i n)
-      v
-      { (vecPush v (__load64 p i)) (ffiWordsInto v p n (+ i 1)) }))
+    v
+    {
+      (vecPush v (__load64 p i))
+      (ffiWordsInto v p n (+ i 1))
+    }
+  )
+)
 
 ; A Rust `Vec<String>` copied into an Axiom `Vec` of Strings: `p`
 ; points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT
 ; free the Rust side: the wrapper calls `ffiFreeStrList`.
 (pub :: ffiStrsToVec (-> Int Int Int))
+
 (pub fn (ffiStrsToVec p n)
-  (let ((v (vecWithCapacity (if (< n 1) 1 n))))
-    (ffiStrsInto v p n 0)))
+  (let ((v 
+    (vecWithCapacity
+      (if (< n 1)
+        1
+        n
+      )
+    )
+  ))
+    (ffiStrsInto v p n 0)
+  )
+)
 
 (:: ffiStrsInto (-> Int Int Int Int Int))
+
 (fn (ffiStrsInto v p n i)
   (if (>= i n)
-      v
-      ; pushed TYPED, so `vecPush`'s witness counts the share the
-      ; copy was born with
-      { (vecPush v (ffiBytesToStr (__load64 p (* i 2)) (__load64 p (+ (* i 2) 1))))
-        (ffiStrsInto v p n (+ i 1)) }))
+    v
+    ; pushed TYPED, so `vecPush`'s witness counts the share the
+    ; copy was born with
+    {
+      (vecPush v (ffiBytesToStr (__load64 p (* i 2)) (__load64 p (+ (* i 2) 1))))
+      (ffiStrsInto v p n (+ i 1))
+    }
+  )
+)
 
 ; A Rust `Vec<Vec<T>>` of word scalars copied into an Axiom `Vec` of
 ; `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list.
 ; Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`.
 (pub :: ffiWordListsToVec (-> Int Int Int))
+
 (pub fn (ffiWordListsToVec p n)
-  (let ((v (vecWithCapacity (if (< n 1) 1 n))))
-    (ffiWordListsInto v p n 0)))
+  (let ((v 
+    (vecWithCapacity
+      (if (< n 1)
+        1
+        n
+      )
+    )
+  ))
+    (ffiWordListsInto v p n 0)
+  )
+)
 
 (:: ffiWordListsInto (-> Int Int Int Int Int))
+
 (fn (ffiWordListsInto v p n i)
   (if (>= i n)
-      v
-      { (vecPush v (ffiWordsToVec (__load64 p (* i 2)) (__load64 p (+ (* i 2) 1))))
-        (ffiWordListsInto v p n (+ i 1)) }))
+    v
+    {
+      (vecPush v (ffiWordsToVec (__load64 p (* i 2)) (__load64 p (+ (* i 2) 1))))
+      (ffiWordListsInto v p n (+ i 1))
+    }
+  )
+)

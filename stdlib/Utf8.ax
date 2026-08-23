@@ -35,15 +35,14 @@
 ; here terminates - a decoder that advanced by zero on a bad byte would
 ; hang the compiler on a corrupt source file. Callers that need to know
 ; use `utf8Valid`, which is the explicit question.
-
 (import Str)
 
 ; ------------------------------------------------------------------
 ; Byte classification
 ; ------------------------------------------------------------------
-
 ; Is `b` a continuation byte, `10xxxxxx`?
 (pub :: utf8IsCont (-> Int Bool))
+
 (pub fn (utf8IsCont b) (== (& b 192) 128))
 
 ; How many bytes the sequence beginning with lead byte `b` occupies.
@@ -52,21 +51,26 @@
 ; an `11111xxx` lead - so that stepping by this value always moves
 ; forward.
 (pub :: utf8SeqLen (-> Int Int))
+
 (pub fn (utf8SeqLen b)
   (if (< b 128)
-      1
-      (if (== (& b 224) 192)
-          2
-          (if (== (& b 240) 224)
-              3
-              (if (== (& b 248) 240)
-                  4
-                  1)))))
+    1
+    (if (== (& b 224) 192)
+      2
+      (if (== (& b 240) 224)
+        3
+        (if (== (& b 248) 240)
+          4
+          1
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Decoding
 ; ------------------------------------------------------------------
-
 ; The code point whose encoding begins at byte offset `i`, or -1 when
 ; there is none there.
 ;
@@ -87,42 +91,52 @@
 ; Iteration is unaffected: `utf8SeqLen` still answers 1 for a bad
 ; byte, so `utf8Next` advances and no loop can hang on one.
 (pub :: utf8DecodeAt (-> String Int Int))
+
 (pub fn (utf8DecodeAt s i)
   (let ((b (strByte s i)))
     (let ((n (utf8SeqLen b)))
       (if (|| (< i 0) (>= i (strLen s)))
+        (- 0 1)
+        (if (> (+ i n) (strLen s))
           (- 0 1)
-      (if (> (+ i n) (strLen s))
-          (- 0 1)
-      ; A byte that begins no sequence - a stray continuation byte, or
-      ; an `11111xxx` lead - is reported, not passed through as though
-      ; it were a code point. `utf8SeqLen` still answers 1 for it, so
-      ; stepping with `utf8Next` advances and every loop terminates;
-      ; only the decoded *value* refuses to invent something. Passing
-      ; it through turned the tail byte of `é` into `©`.
-      (if (&& (>= b 128) (== n 1))
-          (- 0 1)
-      (if (== n 1)
-          b
-          (if (== n 2)
-              (| (<< (& b 31) 6)
-                 (& (strByte s (+ i 1)) 63))
-              (if (== n 3)
-                  (| (| (<< (& b 15) 12)
-                        (<< (& (strByte s (+ i 1)) 63) 6))
-                     (& (strByte s (+ i 2)) 63))
-                  (| (| (| (<< (& b 7) 18)
-                           (<< (& (strByte s (+ i 1)) 63) 12))
-                        (<< (& (strByte s (+ i 2)) 63) 6))
-                     (& (strByte s (+ i 3)) 63)))))))))))
+          ; A byte that begins no sequence - a stray continuation byte, or
+          ; an `11111xxx` lead - is reported, not passed through as though
+          ; it were a code point. `utf8SeqLen` still answers 1 for it, so
+          ; stepping with `utf8Next` advances and every loop terminates;
+          ; only the decoded *value* refuses to invent something. Passing
+          ; it through turned the tail byte of `é` into `©`.
+          (if (&& (>= b 128) (== n 1))
+            (- 0 1)
+            (if (== n 1)
+              b
+              (if (== n 2)
+                (| (<< (& b 31) 6) (& (strByte s (+ i 1)) 63))
+                (if (== n 3)
+                  (| (| (<< (& b 15) 12) (<< (& (strByte s (+ i 1)) 63) 6)) (& (strByte s (+ i 2)) 63))
+                  (| (| (| (<< (& b 7) 18) (<< (& (strByte s (+ i 1)) 63) 12)) (<< (& (strByte s (+ i 2)) 63) 6)) (& (strByte s (+ i 3)) 63))
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 ; The byte offset of the character after the one beginning at `i`,
 ; clamped to the byte length - `utf8Offset` clamps, and two stepping
 ; functions that disagree about the end of a string is a trap.
 (pub :: utf8Next (-> String Int Int))
+
 (pub fn (utf8Next s i)
   (let ((n (+ i (utf8SeqLen (strByte s i)))))
-    (if (> n (strLen s)) (strLen s) n)))
+    (if (> n (strLen s))
+      (strLen s)
+      n
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Character-indexed access
@@ -134,65 +148,79 @@
 ; `(utf8CharAt s i)` over rising `i` is quadratic, and should step with
 ; `utf8Next` instead.
 ; ------------------------------------------------------------------
-
 ; The number of code points in `s`.
 (pub :: utf8Len (-> String Int))
+
 (pub fn (utf8Len s) (utf8LenFrom s 0 0))
 
 (:: utf8LenFrom (-> String Int Int Int))
+
 (fn (utf8LenFrom s i acc)
   (if (>= i (strLen s))
-      acc
-      (utf8LenFrom s (utf8Next s i) (+ acc 1))))
+    acc
+    (utf8LenFrom s (utf8Next s i) (+ acc 1))
+  )
+)
 
 ; The byte offset at which character `n` begins, or the byte length of
 ; `s` when there are fewer than `n` characters.
 (pub :: utf8Offset (-> String Int Int))
+
 (pub fn (utf8Offset s n) (utf8OffsetFrom s n 0))
 
 (:: utf8OffsetFrom (-> String Int Int Int))
+
 (fn (utf8OffsetFrom s n i)
   (if (<= n 0)
+    i
+    (if (>= i (strLen s))
       i
-      (if (>= i (strLen s))
-          i
-          (utf8OffsetFrom s (- n 1) (utf8Next s i)))))
+      (utf8OffsetFrom s (- n 1) (utf8Next s i))
+    )
+  )
+)
 
 ; Character `n` of `s`, counting from 0. -1 past the end, the same
 ; sentinel `utf8DecodeAt` uses and for the same reason.
 (pub :: utf8CharAt (-> String Int Int))
+
 (pub fn (utf8CharAt s n)
   (let ((i (utf8Offset s n)))
     (if (>= i (strLen s))
-        (- 0 1)
-        (utf8DecodeAt s i))))
+      (- 0 1)
+      (utf8DecodeAt s i)
+    )
+  )
+)
 
 ; `count` characters of `s` beginning at character `start`, as a `Str`
 ; sharing the original's bytes - the character-indexed counterpart of
 ; `strSlice`.
 (pub :: utf8Slice (-> String Int Int String))
+
 (pub fn (utf8Slice s start count)
   (let ((from (utf8Offset s start)))
     (let ((to (utf8OffsetFrom s count from)))
-      (strSlice s from (- to from)))))
+      (strSlice s from (- to from))
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Encoding
 ; ------------------------------------------------------------------
-
 ; Is `cp` a Unicode scalar value - in range, and not half of a
 ; surrogate pair? Surrogates exist only to let UTF-16 address the
 ; supplementary planes; UTF-8 encodes those directly and a surrogate in
 ; UTF-8 is ill-formed.
 (:: utf8IsScalar (-> Int Bool))
-(fn (utf8IsScalar cp)
-  (&& (>= cp 0)
-      (&& (<= cp 1114111)
-          (|| (< cp 55296) (> cp 57343)))))
+
+(fn (utf8IsScalar cp) (&& (>= cp 0) (&& (<= cp 1114111) (|| (< cp 55296) (> cp 57343)))))
 
 ; U+FFFD REPLACEMENT CHARACTER, what a code point that cannot be
 ; encoded becomes.
 (pub :: utf8Replacement Int)
+
 (pub fn (utf8Replacement) 65533)
 
 ; The code point `cp` will actually be encoded as: itself when it is a
@@ -204,51 +232,72 @@
 ; begins no valid sequence at all, and a surrogate or anything above
 ; U+10FFFF was encoded as though it were ordinary text.
 (:: utf8Encodable (-> Int Int))
+
 (fn (utf8Encodable cp)
-  (if (utf8IsScalar cp) cp utf8Replacement))
+  (if (utf8IsScalar cp)
+    cp
+    utf8Replacement
+  )
+)
 
 ; How many bytes code point `cp` occupies when encoded - counting what
 ; `utf8FromChar` will actually write, so the two never disagree.
 (pub :: utf8Width (-> Int Int))
+
 (pub fn (utf8Width cp0)
   (let ((cp (utf8Encodable cp0)))
     (if (< cp 128)
-        1
-        (if (< cp 2048)
-            2
-            (if (< cp 65536)
-                3
-                4)))))
+      1
+      (if (< cp 2048)
+        2
+        (if (< cp 65536)
+          3
+          4
+        )
+      )
+    )
+  )
+)
 
 ; A freshly allocated `Str` holding `cp` alone.
 (pub :: utf8FromChar (-> Int String))
+
 (pub fn (utf8FromChar cp0)
-  (let ((cp (utf8Encodable cp0))
-        (n (utf8Width cp0)))
+  (let (
+    (cp (utf8Encodable cp0))
+    (n (utf8Width cp0))
+  )
     (let ((s (strAlloc n)))
       (let ((d (strData s)))
         {
           (if (== n 1)
-              (__store8 d 0 cp)
-              (if (== n 2)
-                  {
-                    (__store8 d 0 (| 192 (>> cp 6)))
-                    (__store8 d 1 (| 128 (& cp 63)))
-                  }
-                  (if (== n 3)
-                      {
-                        (__store8 d 0 (| 224 (>> cp 12)))
-                        (__store8 d 1 (| 128 (& (>> cp 6) 63)))
-                        (__store8 d 2 (| 128 (& cp 63)))
-                      }
-                      {
-                        (__store8 d 0 (| 240 (>> cp 18)))
-                        (__store8 d 1 (| 128 (& (>> cp 12) 63)))
-                        (__store8 d 2 (| 128 (& (>> cp 6) 63)))
-                        (__store8 d 3 (| 128 (& cp 63)))
-                      })))
+            (__store8 d 0 cp)
+            (if (== n 2)
+              {
+                (__store8 d 0 (| 192 (>> cp 6)))
+                (__store8 d 1 (| 128 (& cp 63)))
+              }
+              (if (== n 3)
+                {
+                  (__store8 d 0 (| 224 (>> cp 12)))
+                  (__store8 d 1 (| 128 (& (>> cp 6) 63)))
+                  (__store8 d 2 (| 128 (& cp 63)))
+                }
+                {
+                  (__store8 d 0 (| 240 (>> cp 18)))
+                  (__store8 d 1 (| 128 (& (>> cp 12) 63)))
+                  (__store8 d 2 (| 128 (& (>> cp 6) 63)))
+                  (__store8 d 3 (| 128 (& cp 63)))
+                }
+              )
+            )
+          )
           s
-        }))))
+        }
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Validation
@@ -257,7 +306,6 @@
 ; compiler can keep going, and this is the question a caller asks when
 ; it actually needs the answer.
 ; ------------------------------------------------------------------
-
 ; Is every byte of `s` part of a well-formed UTF-8 sequence?
 ;
 ; Checks structure - lead byte, the right number of continuation bytes,
@@ -266,29 +314,43 @@
 ; need range checks per sequence length, and nothing in the compiler
 ; asks the question yet.
 (pub :: utf8Valid (-> String Bool))
+
 (pub fn (utf8Valid s) (utf8ValidFrom s 0))
 
 (:: utf8ValidFrom (-> String Int Bool))
+
 (fn (utf8ValidFrom s i)
   (if (>= i (strLen s))
-      true
-      (let ((b (strByte s i)))
-        (if (utf8IsCont b)
+    true
+    (let ((b (strByte s i)))
+      (if (utf8IsCont b)
+        false
+        (let ((n (utf8SeqLen b)))
+          (if (&& (>= b 248) (>= n 1))
             false
-            (let ((n (utf8SeqLen b)))
-              (if (&& (>= b 248) (>= n 1))
-                  false
-                  (if (> (+ i n) (strLen s))
-                      false
-                      (if (utf8ContRun s (+ i 1) (- n 1))
-                          (utf8ValidFrom s (+ i n))
-                          false))))))))
+            (if (> (+ i n) (strLen s))
+              false
+              (if (utf8ContRun s (+ i 1) (- n 1))
+                (utf8ValidFrom s (+ i n))
+                false
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 ; Are the next `k` bytes from `i` all continuation bytes?
 (:: utf8ContRun (-> String Int Int Bool))
+
 (fn (utf8ContRun s i k)
   (if (<= k 0)
-      true
-      (if (utf8IsCont (strByte s i))
-          (utf8ContRun s (+ i 1) (- k 1))
-          false)))
+    true
+    (if (utf8IsCont (strByte s i))
+      (utf8ContRun s (+ i 1) (- k 1))
+      false
+    )
+  )
+)

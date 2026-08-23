@@ -1,17 +1,17 @@
 [1;31merror[AX3017][0m[1m: effect operation `ask` cannot be used as a bare value; call it, or wrap it: `(lambda (x) (ask x))`[0m
- [1;34m--> [0m340-effect-op-value.ax:5:27
-[1;34m  |[0m
-[1;34m5 |[0m (fn (main) (handle (apply ask 1) (IO) (lambda (v) 0)))
-[1;34m  |[0m                           [1;31m^^^[0m
-[1;34m  |[0m
- [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3017` for a full explanation
+  [1;34m--> [0m340-effect-op-value.ax:11:18
+[1;34m   |[0m
+[1;34m11 |[0m   (handle (apply ask 1) (IO) (lambda (v) 0))
+[1;34m   |[0m                  [1;31m^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3017` for a full explanation
 
 [1;31merror[AX3011][0m[1m: effect mismatch: unhandled effect `Ask`[0m
- [1;34m--> [0m340-effect-op-value.ax:5:21
-[1;34m  |[0m
-[1;34m5 |[0m (fn (main) (handle (apply ask 1) (IO) (lambda (v) 0)))
-[1;34m  |[0m                     [1;31m^^^^^[0m
-[1;34m  |[0m
- [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3011` for a full explanation
+  [1;34m--> [0m340-effect-op-value.ax:11:12
+[1;34m   |[0m
+[1;34m11 |[0m   (handle (apply ask 1) (IO) (lambda (v) 0))
+[1;34m   |[0m            [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3011` for a full explanation
 
 compilation failed due to 2 previous errors

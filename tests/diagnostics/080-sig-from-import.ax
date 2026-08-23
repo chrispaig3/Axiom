@@ -1,5 +1,9 @@
 (import Str)
+
 (:: strLen (-> Int Int))
+
 (:: main Int)
+
 (fn (main) 0)
+
 (fn (main) 1)

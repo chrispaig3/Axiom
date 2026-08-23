@@ -2,8 +2,17 @@
 ; A function value stored in a data constructor field and recovered by
 ; a match binder, then called: construction, the pattern load, and the
 ; indirect call all treat it as the plain word it is.
-(data FB (MkF (-> Int Int)))
+(data FB
+  (MkF (-> Int Int)))
+
 (:: inc (-> Int Int))
+
 (fn (inc x) (+ x 1))
+
 (:: main Int)
-(fn (main) (match (MkF inc) ((MkF g) (g 42))))
+
+(fn (main)
+  (match (MkF inc)
+    ((MkF g) (g 42))
+  )
+)

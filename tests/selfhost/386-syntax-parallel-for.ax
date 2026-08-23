@@ -24,21 +24,27 @@
 ; first parallel binding's inner paren - `AX2001 expected (, found
 ; `(`` - exit 1. The parallel binding form is new surface, which is
 ; why this slice carries a reseed.
-(data Color (Red) (Green) (Blue))
+(data Color
+  (Red)
+  (Green)
+  (Blue))
 
-(data Hue (Rojo) (Verde) (Azul))
+(data Hue
+  (Rojo)
+  (Verde)
+  (Azul))
 
 (struct Pt
   (x : Int)
   (y : Int))
 
-(data Two (Mk Int Int))
+(data Two
+  (Mk Int Int))
 
 ;; ARM position: one arm per zipped pair. Converting one enumeration
 ;; into a parallel one is the shape this form exists for - a hand-
 ;; written version repeats the pairing, and a repeated pairing drifts.
-(pub macro deriveConvert
-  ((deriveConvert T U)
+(pub macro deriveConvert ((deriveConvert T U)
    (:: (syntax/join to U) (-> T U))
    (fn ((syntax/join to U) v)
      (match v
@@ -48,8 +54,7 @@
 ;; DECLARATION position: the whole template body per zipped element,
 ;; here a signature and its nullary definition. `U` stands in TYPE
 ;; position (MAC-EXP-17) and `C`/`D` in name and expression positions.
-(pub macro deriveConst
-  ((deriveConst T U)
+(pub macro deriveConst ((deriveConst T U)
    (syntax/for ((C (syntax/constructors T)) (D (syntax/constructors U)))
      (pub :: (syntax/join const C) U)
      (pub fn ((syntax/join const C)) (D)))))
@@ -59,8 +64,7 @@
 ;; the target constructor's binders is what makes a struct whose field
 ;; count does not match the constructor a diagnostic
 ;; (tests/diagnostics/575) instead of a silently wrong-arity call.
-(pub macro deriveOf
-  ((deriveOf S C)
+(pub macro deriveOf ((deriveOf S C)
    (:: (syntax/join of S) (-> S Two))
    (fn ((syntax/join of S) s)
      (C (syntax/for ((f (syntax/fields S)) (b (syntax/binders C p))) s.f)))))
@@ -93,15 +97,22 @@
 (:: main Int)
 
 (fn (main)
-  (+ (hueBit (toHue Red) 0 1)
-     (+ (hueBit (toHue Green) 1 2)
-        (+ (hueBit (toHue Blue) 2 4)
-           (+ (hueBit (constRed) 0 8)
-              (+ (hueBit (constBlue) 2 16)
-                 (match (ofPt (Pt 6 7))
-                   ((Mk a b) (if (&& (== a 6) (== b 7))
-                               32
-                               0
-                             ))
-                 ))))))
+  (+
+    (hueBit (toHue Red) 0 1)    (+
+      (hueBit (toHue Green) 1 2)      (+
+        (hueBit (toHue Blue) 2 4)        (+
+          (hueBit constRed 0 8)          (+
+            (hueBit constBlue 2 16)            (match (ofPt (Pt 6 7))
+              ((Mk a b)
+                (if (&& (== a 6) (== b 7))
+                  32
+                  0
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
 )

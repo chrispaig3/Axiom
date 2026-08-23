@@ -17,12 +17,21 @@
 ; invocation, which does NOT pass -O0 - so this fails before the fix
 ; and passes after. A test that only ran at -O0 could not see it.
 (import Mem)
+
 (:: main Int)
+
 (fn (main)
-  (let ((a (memAlloc 64))
-        (b (memAlloc 64)))
-    ; 80 = the request rounded to 64 plus MM-LIFE-2b's 16-byte
-    ; header; the CONSTANT is incidental - this fixture pins that a
-    ; second allocation cannot clobber the first, and any fixed
-    ; spacing proves it.
-    (if (== (- b a) 80) 42 1)))
+  ; 80 = the request rounded to 64 plus MM-LIFE-2b's 16-byte
+  ; header; the CONSTANT is incidental - this fixture pins that a
+  ; second allocation cannot clobber the first, and any fixed
+  ; spacing proves it.
+  (let (
+    (a (memAlloc 64))
+    (b (memAlloc 64))
+  )
+    (if (== (- b a) 80)
+      42
+      1
+    )
+  )
+)

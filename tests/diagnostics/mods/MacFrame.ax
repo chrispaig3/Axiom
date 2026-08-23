@@ -4,4 +4,5 @@
 ; outermost first. Both exported; the fixture's errors are the
 ; CHECKER's, arising inside the expansions.
 (pub macro (frameBad x) (noSuchFn x))
+
 (pub macro (frameOuter x) (frameBad x))

@@ -6,6 +6,14 @@
 ; docs/memory-model.md MM-VAL-9a; refused since 2026-08-14. On a
 ; data type whose every constructor is fieldful, field access stays
 ; legal - tests/stdlib/210-struct-variants.ax exercises that half.
-(data T () (E) (N { v : Int }))
+(data T
+  (E)
+  (N { v : Int }))
+
 (:: main Int)
-(fn (main) (let ((x (E))) x.v))
+
+(fn (main)
+  (let ((x E))
+    x.v
+  )
+)

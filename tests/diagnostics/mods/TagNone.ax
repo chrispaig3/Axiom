@@ -4,4 +4,10 @@
 (import IO)
 
 (pub :: work (-> Int Int))
-(pub fn (work n) { (println "tagnone does IO") n })
+
+(pub fn (work n)
+  {
+    (println "tagnone does IO")
+    n
+  }
+)

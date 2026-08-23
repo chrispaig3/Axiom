@@ -9,10 +9,24 @@
 ;
 ; `full` emits nothing: both literals and `None` are present.
 (:: full (-> (Option Bool) Int))
-(fn (full o) (match o ((Some true) 1) ((Some false) 2) ((None) 0)))
+
+(fn (full o)
+  (match o
+    ((Some true) 1)
+    ((Some false) 2)
+    ((None) 0)
+  )
+)
 
 (:: half (-> (Option Bool) Int))
-(fn (half o) (match o ((Some true) 1) ((None) 0)))
+
+(fn (half o)
+  (match o
+    ((Some true) 1)
+    ((None) 0)
+  )
+)
 
 (:: main Int)
+
 (fn (main) 0)

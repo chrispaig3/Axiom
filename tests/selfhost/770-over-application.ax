@@ -4,5 +4,13 @@
 ; belongs to that closure. Flattening the whole spine into one direct
 ; call passed both to `adder` and answered with the returned closure's
 ; ADDRESS. Every function value absorbs exactly one argument per call.
-(fn (adder n) (lambda (x) x))
-(fn (main) (if (== ((adder 10) 5) 5) 0 1))
+(fn (adder n)
+  (lambda (x) x)
+)
+
+(fn (main)
+  (if (== (adder 10 5) 5)
+    0
+    1
+  )
+)

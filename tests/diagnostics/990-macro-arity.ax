@@ -4,4 +4,5 @@
 (macro (two p q) (+ p q))
 
 (:: main Int)
+
 (fn (main) (two 40))

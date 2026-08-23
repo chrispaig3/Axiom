@@ -5,107 +5,154 @@
 ; `Int` at this layer. The field-type annotations name the logical type
 ; for the human reader and the type checker; the codegen treats every
 ; field as an 8-byte slot.
-
 (import Mem)
+
 (import Str)
+
 (import Vec)
 
 ; ------------------------------------------------------------------
 ; Span: a half-open [start, end) range of byte offsets into a source
 ; file. End may equal start for a zero-width span (e.g. EOF token).
 ; ------------------------------------------------------------------
-(pub struct Span (start : Int) (end : Int))
+(pub struct Span
+  (start : Int)
+  (end : Int))
 
 (pub :: mkSpan (-> Int Int Int))
-(pub fn (mkSpan start end)
-  (Span start end))
+
+(pub fn (mkSpan start end) (Span start end))
 
 ; ------------------------------------------------------------------
 ; TokenKind — nullary constructors, one per token shape.
 ; Every value is just a tag; the lexeme string lives in the Token struct.
 ; ------------------------------------------------------------------
 (pub data TokenKind
-  (TK_LPAREN)       ; (
-  (TK_RPAREN)       ; )
-  (TK_IDENT)        ; identifier or keyword
-  (TK_INT)          ; integer literal
-  (TK_STRING)       ; string literal
-  (TK_COLON)        ; :
-  (TK_DOUBLE_COLON) ; ::
-  (TK_RARROW)       ; ->
-  (TK_DOT)          ; .
-  (TK_QUOTE)        ; '
-  (TK_LBRACE)       ; {
-  (TK_RBRACE)       ; }
+  (TK_LPAREN)
+  (TK_RPAREN)
+  (TK_IDENT)
+  (TK_INT)
+  (TK_STRING)
+  (TK_COLON)
+  (TK_DOUBLE_COLON)
+  (TK_RARROW)
+  (TK_DOT)
+  (TK_QUOTE)
+  (TK_LBRACE)
+  (TK_RBRACE)
   (TK_EOF)
   (TK_ERROR)
-  (TK_FLOAT)        ; float literal - appended, so no existing tag moves
-  (TK_CHARLIT)      ; character literal, quotes and escape included
-  ; Brackets were SKIPPED by the lexer until `symbols` needed the
-  ; list type `[T]` rendered: a skipped delimiter is not a smaller
-  ; token stream, it is a different program - `[(Box Int)]` arrived
-  ; as `(Box Int)` and the list-ness vanished with no diagnostic.
-  ; Appended, so no existing tag moves.
-  (TK_LBRACKET)     ; [
-  (TK_RBRACKET)     ; ]
-  ; The comma separates the fields of a struct variant, and was the
-  ; last byte the lexer's final fallthrough silently swallowed:
-  ; `(Rect { w : Int, h : Int })` arrived as `{ w : Int h : Int }` and
-  ; parsed by luck, because S-expression fields are whitespace
-  ; separated anyway. Turning that fallthrough into AX1001 is what
-  ; asked the question - three corpus files failed at once.
-  (TK_COMMA)        ; ,
-  ; An invalid escape sequence, as opposed to any other lexical error.
-  ; `lexErrDiag` reads the CODE off the first byte of a TK_ERROR span,
-  ; which works for four of the five conditions - only `"` can open a
-  ; string, only `'` a char, only a digit a number - but not for the
-  ; fifth: a bare `\` is an unexpected character AND an escape starts
-  ; with one. Measured: `\` alone drew AX1005 where stage0 says
-  ; AX1001. A separate kind is the distinction the span cannot carry.
-  (TK_ERROR_ESC))   ; \x, x not one of the seven
+  (TK_FLOAT)
+  (TK_CHARLIT)
+  (TK_LBRACKET)
+  (TK_RBRACKET)
+  (TK_COMMA)
+  (TK_ERROR_ESC))
 
+; (
+; )
+; identifier or keyword
+; integer literal
+; string literal
+; :
+; ::
+; ->
+; .
+; '
+; {
+; }
+; float literal - appended, so no existing tag moves
+; character literal, quotes and escape included
+; Brackets were SKIPPED by the lexer until `symbols` needed the
+; list type `[T]` rendered: a skipped delimiter is not a smaller
+; token stream, it is a different program - `[(Box Int)]` arrived
+; as `(Box Int)` and the list-ness vanished with no diagnostic.
+; Appended, so no existing tag moves.
+; [
+; ]
+; The comma separates the fields of a struct variant, and was the
+; last byte the lexer's final fallthrough silently swallowed:
+; `(Rect { w : Int, h : Int })` arrived as `{ w : Int h : Int }` and
+; parsed by luck, because S-expression fields are whitespace
+; separated anyway. Turning that fallthrough into AX1001 is what
+; asked the question - three corpus files failed at once.
+; ,
+; An invalid escape sequence, as opposed to any other lexical error.
+; `lexErrDiag` reads the CODE off the first byte of a TK_ERROR span,
+; which works for four of the five conditions - only `"` can open a
+; string, only `'` a char, only a digit a number - but not for the
+; fifth: a bare `\` is an unexpected character AND an escape starts
+; with one. Measured: `\` alone drew AX1005 where stage0 says
+; AX1001. A separate kind is the distinction the span cannot carry.
+; \x, x not one of the seven
 ; ------------------------------------------------------------------
 ; Token: the product of lexing a single lexical item.
 ;   kind   — TokenKind tag
 ;   lexeme — Str (shared with source wherever possible)
 ;   span   — Span (byte range in source)
 ; ------------------------------------------------------------------
-(pub struct Token (kind : TokenKind) (lexeme : String) (span : Int))
+(pub struct Token
+  (kind : TokenKind)
+  (lexeme : String)
+  (span : Int))
 
 (pub :: mkToken (-> TokenKind String Int Int))
-(pub fn (mkToken kind lexeme span)
-  (Token kind lexeme span))
+
+(pub fn (mkToken kind lexeme span) (Token kind lexeme span))
 
 ; Token accessors for readability.
-(pub :: tokenKind   (-> Int TokenKind))
-(pub fn (tokenKind   t)
-  (cast TokenKind (memGetWord t 0)))
-(pub :: tokenLexeme (-> Int String)) (pub fn (tokenLexeme t) (memGetWord t 1))
-(pub :: tokenSpan   (-> Int Int)) (pub fn (tokenSpan   t) (memGetWord t 2))
-(pub :: spanStart   (-> Int Int)) (pub fn (spanStart   s) (memGetWord s 0))
-(pub :: spanEnd     (-> Int Int)) (pub fn (spanEnd     s) (memGetWord s 1))
+(pub :: tokenKind (-> Int TokenKind))
+
+(pub fn (tokenKind t)
+  (cast TokenKind (memGetWord t 0))
+)
+
+(pub :: tokenLexeme (-> Int String))
+
+(pub fn (tokenLexeme t) (memGetWord t 1))
+
+(pub :: tokenSpan (-> Int Int))
+
+(pub fn (tokenSpan t) (memGetWord t 2))
+
+(pub :: spanStart (-> Int Int))
+
+(pub fn (spanStart s) (memGetWord s 0))
+
+(pub :: spanEnd (-> Int Int))
+
+(pub fn (spanEnd s) (memGetWord s 1))
 
 ; ------------------------------------------------------------------
 ; Convert a decimal digit Str to Int. Returns 0 on non-digit.
 ; ------------------------------------------------------------------
 (pub :: strToInt (-> String Int))
+
 (pub fn (strToInt s)
   (if (&& (> (strLen s) 0) (== (strByte s 0) 45))
-      (- 0 (strToIntFrom s 1 0))
-      (strToIntFrom s 0 0)))
+    (- 0 (strToIntFrom s 1 0))
+    (strToIntFrom s 0 0)
+  )
+)
 
 (pub :: strToIntFrom (-> String Int Int Int))
+
 (pub fn (strToIntFrom s i acc)
   (if (>= i (strLen s))
-      acc
-      (let ((ch (strByte s i)))
-        (if (&& (>= ch 48) (<= ch 57))
-            (strToIntFrom s (+ i 1) (+ (* acc 10) (- ch 48)))
-            ; `_` is a digit separator: part of the token, no part of
-            ; the value.
-            (if (== ch 95)
-                (strToIntFrom s (+ i 1) acc)
-                acc)))))
+    acc
+    (let ((ch (strByte s i)))
+      (if (&& (>= ch 48) (<= ch 57))
+        (strToIntFrom s (+ i 1) (+ (* acc 10) (- ch 48)))
+        ; `_` is a digit separator: part of the token, no part of
+        ; the value.
+        (if (== ch 95)
+          (strToIntFrom s (+ i 1) acc)
+          acc
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; A compilation UNIT: one source file that contributed declarations.
@@ -115,7 +162,10 @@
 ; and by the renderer to pick that file's text. It lives here because
 ; all three of codegen, typecheck and diag need it.
 ; ------------------------------------------------------------------
-(pub struct CUnit2 (file : String) (src : String) (name : String))
+(pub struct CUnit2
+  (file : String)
+  (src : String)
+  (name : String))
 
 ; ------------------------------------------------------------------
 ; A UTF-8 byte order mark. Three bytes, EF BB BF, that a BOM-emitting
@@ -135,14 +185,16 @@
 ; `lex`.
 ; ------------------------------------------------------------------
 (pub :: pastBom (-> String Int Int))
+
 (pub fn (pastBom src lineStart)
   (if (!= lineStart 0)
-      lineStart
-      (if (&& (>= (strLen src) 3)
-              (&& (== (strByte src 0) 239)
-                  (&& (== (strByte src 1) 187) (== (strByte src 2) 191))))
-          3
-          0)))
+    lineStart
+    (if (&& (>= (strLen src) 3) (&& (== (strByte src 0) 239) (&& (== (strByte src 1) 187) (== (strByte src 2) 191))))
+      3
+      0
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Name and byte helpers every phase needs.
@@ -153,68 +205,118 @@
 ; three names; a fourth had the escape table below.
 ; ------------------------------------------------------------------
 (pub :: bareOfFrom (-> String Int String))
+
 (pub fn (bareOfFrom s i)
   (if (< i 0)
-      s
-      (if (== (strByte s i) 36)
-          (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
-          (bareOfFrom s (- i 1)))))
+    s
+    (if (== (strByte s i) 36)
+      (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
+      (bareOfFrom s (- i 1))
+    )
+  )
+)
 
 (pub :: bareOf (-> String String))
+
 (pub fn (bareOf s) (bareOfFrom s (- (strLen s) 1)))
 
 ; The byte an escape sequence stands for; anything else stands for
 ; itself, which is what makes `\\` and `\"` fall through correctly.
 (pub :: unescByte (-> Int Int))
+
 (pub fn (unescByte c)
-  (if (== c 110) 10
-  (if (== c 116) 9
-  (if (== c 114) 13
-  (if (== c 48) 0
-  c)))))
+  (if (== c 110)
+    10
+    (if (== c 116)
+      9
+      (if (== c 114)
+        13
+        (if (== c 48)
+          0
+          c
+        )
+      )
+    )
+  )
+)
 
 ; A Vec of String, searched by value: membership, and the index of the
 ; FIRST match or -1. The evidence walks in the checker and the emitter
 ; each had a copy under a phase-prefixed name.
 (pub :: strVecHas (-> Int String Int))
+
 (pub fn (strVecHas xs n)
-  (let ((mut i 0) (mut found 0))
+  (let (
+    (mut i 0)
+    (mut found 0)
+  )
     {
       (while (< i (vecLen xs))
         {
-          (if (strEq (cast String (vecGet xs i)) n) (set found 1) 0)
+          (if (strEq
+            (cast String (vecGet xs i))            n
+          )
+            (set found 1)
+            0
+          )
           (set i (+ i 1))
         })
       found
-    }))
+    }
+  )
+)
 
 (pub :: strVecIdx (-> Int String Int))
+
 (pub fn (strVecIdx xs n)
-  (let ((mut i 0) (mut found (- 0 1)))
+  (let (
+    (mut i 0)
+    (mut found (- 0 1))
+  )
     {
       (while (< i (vecLen xs))
         {
-          (if (&& (== found (- 0 1)) (strEq (cast String (vecGet xs i)) n))
-              (set found i)
-              0)
+          (if (&&
+            (== found (- 0 1))            (strEq
+              (cast String (vecGet xs i))              n
+            )
+          )
+            (set found i)
+            0
+          )
           (set i (+ i 1))
         })
       found
-    }))
+    }
+  )
+)
 
 ; Append every element of `src` to `acc`, answering `acc`.
 (pub :: vecAppendFrom (-> Int Int Int Int))
+
 (pub fn (vecAppendFrom src acc i)
   (if (>= i (vecLen src))
-      acc
-      { (vecPush acc (vecGet src i)) (vecAppendFrom src acc (+ i 1)) }))
+    acc
+    {
+      (vecPush acc (vecGet src i))
+      (vecAppendFrom src acc (+ i 1))
+    }
+  )
+)
 
 ; The index of the newline at or after `i`, or the end of `s`. The
 ; `explain` renderer and the symbol lister each walked this loop.
 (pub :: lineEndFrom (-> String Int Int))
+
 (pub fn (lineEndFrom s i)
-  (let ((n (strLen s)) (mut j i))
+  (let (
+    (n (strLen s))
+    (mut j i)
+  )
     {
-      (while (&& (< j n) (!= (strByte s j) 10)) (set j (+ j 1)))
+      (while (&& (< j n) (!= (strByte s j) 10))
+        (set j (+ j 1)))
       j
-    }))
+    }
+  )
+)

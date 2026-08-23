@@ -19,15 +19,27 @@
 ; 30 + 7 + 5 = 42. Under the old rule the exit status was a pointer's
 ; low byte at best and a signal at worst.
 (import Str)
-(pub struct P (tag : Int) (name : String))
-(pub struct Q (name : String) (tag : Int))
+
+(pub struct P
+  (tag : Int)
+  (name : String))
+
+(pub struct Q
+  (name : String)
+  (tag : Int))
+
 (:: main Int)
+
 (fn (main)
-  (let ((p (P 0 "zz"))
-        (q (Q "defgh" 0)))
+  (let (
+    (p (P 0 "zz"))
+    (q (Q "defgh" 0))
+  )
     {
       (set p.tag 30)
       (set p.name "abc")
       (set q.tag 7)
       (+ (+ p.tag q.tag) (strLen q.name))
-    }))
+    }
+  )
+)

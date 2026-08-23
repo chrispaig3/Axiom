@@ -34,11 +34,11 @@
 ; specifier grammar inside the string. That keeps the format-string
 ; language to holes and braces, which is the whole of what AX3031
 ; has to explain.
-
 (import Fmt)
 
-(pub trait (Show a) where
-  (show :: (-> a String)))
+(pub trait (Show a) where (
+  show :: (-> a String)
+))
 
 ; The four instances the language's own literals produce. A program
 ; adds its own for its own types, and `stdlib/Pre.ax`'s `deriveShow`
@@ -47,19 +47,36 @@
 ;
 ;   (impl (Show Color) where ((show (lambda (c) (showColor c)))))
 ;
-(pub impl (Show String) where
-  ((show (lambda (s) s))))
+(pub impl (Show String) where (
+  (show
+    (lambda (s) s)
+  )
+))
 
-(pub impl (Show Int) where
-  ((show (lambda (n) (fmtInt n)))))
+(pub impl (Show Int) where (
+  (show
+    (lambda (n) (fmtInt n))
+  )
+))
 
-(pub impl (Show Bool) where
-  ((show (lambda (b) (if b "true" "false")))))
+(pub impl (Show Bool) where (
+  (show
+    (lambda (b)
+      (if b
+        "true"
+        "false"
+      )
+    )
+  )
+))
 
 ; `fmtFloat`'s own default precision, so `{x}` on a Float renders the
 ; way `fmtFloat` renders and the two cannot drift.
-(pub impl (Show Float) where
-  ((show (lambda (x) (fmtFloat x)))))
+(pub impl (Show Float) where (
+  (show
+    (lambda (x) (fmtFloat x))
+  )
+))
 
 ; `format` — a String, built at compile time from a literal's runs and
 ; holes, or `show` applied to anything else.

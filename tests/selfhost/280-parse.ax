@@ -1,10 +1,21 @@
 ; expect 42
 (import Str)
+
 (import Vec)
+
 (import Mem)
+
 (import lexer)
+
 (import parser)
+
 (:: main Int)
+
 (fn (main)
   (let ((pr (parseModule (lex "(fn (f) 1)"))))
-    (if (== (memGetWord pr 0) 0) 7 42)))
+    (if (== (memGetWord pr 0) 0)
+      7
+      42
+    )
+  )
+)

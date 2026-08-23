@@ -1,2 +1,10 @@
 (:: main Int)
-(fn (main) (let ((c 1)) { (set c 2) c }))
+
+(fn (main)
+  (let ((c 1))
+    {
+      (set c 2)
+      c
+    }
+  )
+)

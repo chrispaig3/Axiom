@@ -2,7 +2,16 @@
 ; A chain folds left - `o.i.v` reads `v` of the value at `o.i` - and
 ; the field TYPE travels: `v` is declared Float, so `(* o.i.v 4.0)` is
 ; an fmul on the loaded bits.
-(struct In2 (v : Float))
-(struct Out2 (i : In2))
+(struct In2
+  (v : Float))
+
+(struct Out2
+  (i : In2))
+
 (:: main Int)
-(fn (main) (let ((o (Out2 (In2 5.5)))) (__floatToInt (* o.i.v 4.0))))
+
+(fn (main)
+  (let ((o (Out2 (In2 5.5))))
+    (__floatToInt (* o.i.v 4.0))
+  )
+)

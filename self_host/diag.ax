@@ -17,11 +17,14 @@
 ; several. Quoted fields are Rust `{:?}` output.
 ;
 ; Dependencies: Mem, Str, Vec, Fmt, core (for Span).
-
 (import core)
+
 (import Mem)
+
 (import Str)
+
 (import Vec)
+
 (import Utf8)
 
 ; ------------------------------------------------------------------
@@ -37,24 +40,37 @@
 ; unsigned renderer is three lines and no dependency at all.
 ; ------------------------------------------------------------------
 (pub :: decStr (-> Int String))
+
 (pub fn (decStr n)
   (if (< n 10)
-      (strSlice "0123456789" n 1)
-      (strConcat (decStr (/ n 10)) (strSlice "0123456789" (% n 10) 1))))
+    (strSlice "0123456789" n 1)
+    (strConcat (decStr (/ n 10)) (strSlice "0123456789" (% n 10) 1))
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Severity. The sigil is the first byte of every AXDL line.
 ; ------------------------------------------------------------------
-(pub :: SEV_ERROR Int)   (pub fn (SEV_ERROR)   0)
-(pub :: SEV_WARNING Int) (pub fn (SEV_WARNING) 1)
+(pub :: SEV_ERROR Int)
+
+(pub fn (SEV_ERROR) 0)
+
+(pub :: SEV_WARNING Int)
+
+(pub fn (SEV_WARNING) 1)
 
 ; `String`, as the body always was: the signature said `Int` until
 ; the checker began comparing a `String` body against a declared
 ; return (2026-08-21), and the one caller pushes it into a parts
 ; vector that takes anything.
 (pub :: sevSigil (-> Int String))
+
 (pub fn (sevSigil sev)
-  (if (== sev SEV_ERROR) "E" "W"))
+  (if (== sev SEV_ERROR)
+    "E"
+    "W"
+  )
+)
 
 ; ------------------------------------------------------------------
 ; A diagnostic.
@@ -104,18 +120,31 @@
 ; exist because lsp.ax used to carry a second copy of the field list as
 ; a comment, which is the shape a layout drifts out of.
 (pub struct Diag
-  (sev : Int) (code : String) (slug : String) (span : Int)
-  (msg : String) (label : String) (unit : Int)
-  (secs : Int) (notes : Int) (helps : Int) (trace : Int))
+  (sev : Int)
+  (code : String)
+  (slug : String)
+  (span : Int)
+  (msg : String)
+  (label : String)
+  (unit : Int)
+  (secs : Int)
+  (notes : Int)
+  (helps : Int)
+  (trace : Int))
 
 ; A related location and the note that goes with it.
-(pub struct DLabel (span : Int) (msg : String))
+(pub struct DLabel
+  (span : Int)
+  (msg : String))
 
 ; One help. `fixSpan` non-zero makes it MACHINE-APPLICABLE: it names a
 ; span and the text to put there, and renders `?LOC:"msg"~>"repl"`
 ; rather than a bare `?"msg"` - the whole point of the form being that a
 ; tool can apply it without parsing the English.
-(pub struct DHelp (msg : String) (fixSpan : Int) (fixText : String))
+(pub struct DHelp
+  (msg : String)
+  (fixSpan : Int)
+  (fixText : String))
 
 ; One expansion frame: the macro's name, the span of its DECLARATION,
 ; and the unit that span indexes. `span` 0 means the frame carries a
@@ -123,92 +152,195 @@
 ; with a span and a reachable unit it renders `&file:LOC:"name"` - the
 ; file spelled out because, uniquely among the line's fields, this one
 ; points into a DIFFERENT source than the diagnostic's own unit.
-(pub struct DFrame (name : String) (span : Int) (unit : Int))
+(pub struct DFrame
+  (name : String)
+  (span : Int)
+  (unit : Int))
 
 (pub :: mkDiagBase (-> Int String String Int String Int))
+
 (pub fn (mkDiagBase sev code slug span msg)
   ; The absent label is the 0 sentinel, spelled with the cast the
   ; optional-string convention uses (MM-ALLOC-20).
-  (Diag sev code slug span msg (cast String 0) 0 0 0 0 0))
+  (Diag
+    sev    code    slug    span    msg    (cast String 0)    0    0    0    0    0
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Accessors.
 ; ------------------------------------------------------------------
-(pub :: diagSev   (-> Int Int)) (pub fn (diagSev   d) (memGetWord d 0))
-(pub :: diagCode  (-> Int String)) (pub fn (diagCode  d) (memGetWord d 1))
-(pub :: diagSlug  (-> Int String)) (pub fn (diagSlug  d) (memGetWord d 2))
-(pub :: diagSpan  (-> Int Int)) (pub fn (diagSpan  d) (memGetWord d 3))
-(pub :: diagMsg   (-> Int String)) (pub fn (diagMsg   d) (memGetWord d 4))
-(pub :: diagLabel (-> Int String)) (pub fn (diagLabel d) (memGetWord d 5))
-(pub :: diagUnit  (-> Int Int)) (pub fn (diagUnit  d) (memGetWord d 6))
+(pub :: diagSev (-> Int Int))
+
+(pub fn (diagSev d) (memGetWord d 0))
+
+(pub :: diagCode (-> Int String))
+
+(pub fn (diagCode d) (memGetWord d 1))
+
+(pub :: diagSlug (-> Int String))
+
+(pub fn (diagSlug d) (memGetWord d 2))
+
+(pub :: diagSpan (-> Int Int))
+
+(pub fn (diagSpan d) (memGetWord d 3))
+
+(pub :: diagMsg (-> Int String))
+
+(pub fn (diagMsg d) (memGetWord d 4))
+
+(pub :: diagLabel (-> Int String))
+
+(pub fn (diagLabel d) (memGetWord d 5))
+
+(pub :: diagUnit (-> Int Int))
+
+(pub fn (diagUnit d) (memGetWord d 6))
 
 ; Returns the diagnostic, so it wraps a constructor at an emission site
 ; without the site having to name a local.
 (pub :: diagSetLabel (-> Int String Int))
-(pub fn (diagSetLabel d s) { (memSetWord d 5 s) d })
+
+(pub fn (diagSetLabel d s)
+  {
+    (memSetWord d 5 s)
+    d
+  }
+)
 
 (pub :: diagSetUnit (-> Int Int Int))
+
 (pub fn (diagSetUnit d u) (memSetWord d 6 u))
 
 ; How many entries a lazily-allocated slot holds; 0 both when the slot
 ; was never touched and when its vector is empty.
 (pub :: diagCountAt (-> Int Int Int))
+
 (pub fn (diagCountAt d w)
   (let ((v (memGetWord d w)))
-    (if (== v 0) 0 (vecLen v))))
+    (if (== v 0)
+      0
+      (vecLen v)
+    )
+  )
+)
 
 ; The slot's vector, allocating it on first use.
 (pub :: diagVecAt (-> Int Int Int))
+
 (pub fn (diagVecAt d w)
   (let ((v (memGetWord d w)))
     (if (== v 0)
-        (let ((nv vecNew)) { (memSetWord d w nv) nv })
-        v)))
+      (let ((nv vecNew))
+        {
+          (memSetWord d w nv)
+          nv
+        }
+      )
+      v
+    )
+  )
+)
 
-(pub :: diagSecCount (-> Int Int)) (pub fn (diagSecCount d) (diagCountAt d 7))
-(pub :: diagSecSpan  (-> Int Int Int))
+(pub :: diagSecCount (-> Int Int))
+
+(pub fn (diagSecCount d) (diagCountAt d 7))
+
+(pub :: diagSecSpan (-> Int Int Int))
+
 (pub fn (diagSecSpan d i) (memGetWord (vecGet (memGetWord d 7) i) 0))
-(pub :: diagSecMsg   (-> Int Int String))
-(pub fn (diagSecMsg  d i) (memGetWord (vecGet (memGetWord d 7) i) 1))
 
-(pub :: diagNoteCount (-> Int Int)) (pub fn (diagNoteCount d) (diagCountAt d 8))
+(pub :: diagSecMsg (-> Int Int String))
+
+(pub fn (diagSecMsg d i) (memGetWord (vecGet (memGetWord d 7) i) 1))
+
+(pub :: diagNoteCount (-> Int Int))
+
+(pub fn (diagNoteCount d) (diagCountAt d 8))
+
 (pub :: diagNote (-> Int Int String))
+
 (pub fn (diagNote d i) (vecGet (memGetWord d 8) i))
 
-(pub :: diagHelpCount (-> Int Int)) (pub fn (diagHelpCount d) (diagCountAt d 9))
+(pub :: diagHelpCount (-> Int Int))
+
+(pub fn (diagHelpCount d) (diagCountAt d 9))
+
 (pub :: diagHelpMsg (-> Int Int String))
+
 (pub fn (diagHelpMsg d i) (memGetWord (vecGet (memGetWord d 9) i) 0))
+
 (pub :: diagHelpFixSpan (-> Int Int Int))
+
 (pub fn (diagHelpFixSpan d i) (memGetWord (vecGet (memGetWord d 9) i) 1))
+
 (pub :: diagHelpFixText (-> Int Int String))
+
 (pub fn (diagHelpFixText d i) (memGetWord (vecGet (memGetWord d 9) i) 2))
 
-(pub :: diagTraceCount (-> Int Int)) (pub fn (diagTraceCount d) (diagCountAt d 10))
+(pub :: diagTraceCount (-> Int Int))
+
+(pub fn (diagTraceCount d) (diagCountAt d 10))
+
 (pub :: diagTraceName (-> Int Int String))
+
 (pub fn (diagTraceName d i) (memGetWord (vecGet (memGetWord d 10) i) 0))
+
 (pub :: diagTraceSpan (-> Int Int Int))
+
 (pub fn (diagTraceSpan d i) (memGetWord (vecGet (memGetWord d 10) i) 1))
+
 (pub :: diagTraceUnit (-> Int Int Int))
+
 (pub fn (diagTraceUnit d i) (memGetWord (vecGet (memGetWord d 10) i) 2))
 
 ; ------------------------------------------------------------------
 ; Builders. Each returns the diagnostic, so they chain.
 ; ------------------------------------------------------------------
 (pub :: diagAddSecondary (-> Int Int String Int))
+
 (pub fn (diagAddSecondary d span msg)
-  { (vecPush (diagVecAt d 7) (cast Int (DLabel span msg))) d })
+  {
+    (vecPush
+      (diagVecAt d 7)      (cast Int (DLabel span msg))
+    )
+    d
+  }
+)
 
 (pub :: diagAddNote (-> Int String Int))
+
 (pub fn (diagAddNote d s)
-  { (vecPush (diagVecAt d 8) s) d })
+  {
+    (vecPush (diagVecAt d 8) s)
+    d
+  }
+)
 
 (pub :: diagAddHelp (-> Int String Int))
+
 (pub fn (diagAddHelp d s)
-  { (vecPush (diagVecAt d 9) (cast Int (DHelp s 0 (cast String 0)))) d })
+  {
+    (vecPush
+      (diagVecAt d 9)      (cast Int (DHelp
+        s        0        (cast String 0)
+      ))
+    )
+    d
+  }
+)
 
 (pub :: diagAddFixHelp (-> Int String Int String Int))
+
 (pub fn (diagAddFixHelp d msg fixSpan fixText)
-  { (vecPush (diagVecAt d 9) (cast Int (DHelp msg fixSpan fixText))) d })
+  {
+    (vecPush
+      (diagVecAt d 9)      (cast Int (DHelp msg fixSpan fixText))
+    )
+    d
+  }
+)
 
 ; Take the machine-applicable half off every help this diagnostic
 ; carries: the help TEXT survives, the span-and-replacement pair does
@@ -223,23 +355,35 @@
 ; which no source can even spell (MAC-HYG-3a), pasted over the macro
 ; call.
 (pub :: diagDisarmFixes (-> Int Int))
+
 (pub fn (diagDisarmFixes d)
   (let ((hs (memGetWord d 9)))
     (if (== hs 0)
-        0
-        (let ((mut i 0))
-          {
-            (while (< i (vecLen hs))
-              {
-                (memSetWord (vecGet hs i) 1 0)
-                (set i (+ i 1))
-              })
-            0
-          }))))
+      0
+      (let ((mut i 0))
+        {
+          (while (< i (vecLen hs))
+            {
+              (memSetWord (vecGet hs i) 1 0)
+              (set i (+ i 1))
+            })
+          0
+        }
+      )
+    )
+  )
+)
 
 (pub :: diagAddTrace (-> Int String Int Int Int))
+
 (pub fn (diagAddTrace d name span unit)
-  { (vecPush (diagVecAt d 10) (cast Int (DFrame name span unit))) d })
+  {
+    (vecPush
+      (diagVecAt d 10)      (cast Int (DFrame name span unit))
+    )
+    d
+  }
+)
 
 ; ------------------------------------------------------------------
 ; The three constructors every existing emission site calls, kept as
@@ -256,12 +400,16 @@
 ; with no re-bless is the check on it.
 ; ------------------------------------------------------------------
 (pub :: mkDiag (-> Int String String Int String Int a b Int))
-(pub fn (mkDiag sev code slug span msg relSpan relMsg help)
-  (mkDiagFix2 sev code slug span msg relSpan relMsg help 0 0 0))
+
+(pub fn (mkDiag sev code slug span msg relSpan relMsg help) (mkDiagFix2
+  sev  code  slug  span  msg  relSpan  relMsg  help  0  0  0
+))
 
 (pub :: mkDiagFix (-> Int String String Int String Int a b Int c Int))
-(pub fn (mkDiagFix sev code slug span msg relSpan relMsg help fixSpan fixText)
-  (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText 0))
+
+(pub fn (mkDiagFix sev code slug span msg relSpan relMsg help fixSpan fixText) (mkDiagFix2
+  sev  code  slug  span  msg  relSpan  relMsg  help  fixSpan  fixText  0
+))
 
 ; `mkDiag` plus one note. A NOTE is a fact about why the program is
 ; wrong; a HELP is an action that would make it right. The distinction
@@ -271,26 +419,57 @@
 ; renderer as separate lines, so the two never have to be crammed into
 ; one sentence.
 (pub :: mkDiagNote (-> Int String String Int String Int a b c Int))
+
 (pub fn (mkDiagNote sev code slug span msg relSpan relMsg help note)
-  (diagAddNote (mkDiag sev code slug span msg relSpan relMsg help) (cast String note)))
+  (diagAddNote
+    (mkDiag
+      sev      code      slug      span      msg      relSpan      relMsg      help
+    )    (cast String note)
+  )
+)
 
 (pub :: mkDiagFix2 (-> Int String String Int String Int a b Int c d Int))
+
 (pub fn (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText help2)
-  (let ((d (mkDiagBase sev code slug span msg)))
+  ; The optional strings arrive as TYPE VARIABLES - `0` means
+  ; absent, so the position genuinely carries both, and the cast
+  ; at consumption is the boundary marker MM-ALLOC-20's
+  ; convention asks for.
+  (let ((d (mkDiagBase
+    sev    code    slug    span    msg
+  )))
     {
-      ; The optional strings arrive as TYPE VARIABLES - `0` means
-      ; absent, so the position genuinely carries both, and the cast
-      ; at consumption is the boundary marker MM-ALLOC-20's
-      ; convention asks for.
-      (if (== relSpan 0) 0 (diagAddSecondary d relSpan (cast String relMsg)))
-      (if (== (cast Int help) 0)
-          0
-          (if (== fixSpan 0)
-              (diagAddHelp d (cast String help))
-              (diagAddFixHelp d (cast String help) fixSpan (cast String fixText))))
-      (if (== (cast Int help2) 0) 0 (diagAddHelp d (cast String help2)))
+      (if (== relSpan 0)
+        0
+        (diagAddSecondary
+          d          relSpan          (cast String relMsg)
+        )
+      )
+      (if (==
+        (cast Int help)        0
+      )
+        0
+        (if (== fixSpan 0)
+          (diagAddHelp
+            d            (cast String help)
+          )
+          (diagAddFixHelp
+            d            (cast String help)            fixSpan            (cast String fixText)
+          )
+        )
+      )
+      (if (==
+        (cast Int help2)        0
+      )
+        0
+        (diagAddHelp
+          d          (cast String help2)
+        )
+      )
       d
-    }))
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Source position mapping.
@@ -317,65 +496,90 @@
 ; ------------------------------------------------------------------
 ; Byte offset of the start of the line containing `off`.
 (pub :: lineStartOf (-> String Int Int))
-(pub fn (lineStartOf src off)
-  (lineStartScan src off 0 0))
+
+(pub fn (lineStartOf src off) (lineStartScan src off 0 0))
 
 (pub :: lineStartScan (-> String Int Int Int Int))
+
 (pub fn (lineStartScan src off i start)
   (if (>= i off)
-      start
-      (if (== (strByte src i) 10)
-          (lineStartScan src off (+ i 1) (+ i 1))
-          (lineStartScan src off (+ i 1) start))))
+    start
+    (if (== (strByte src i) 10)
+      (lineStartScan src off (+ i 1) (+ i 1))
+      (lineStartScan src off (+ i 1) start)
+    )
+  )
+)
 
 ; 1-based line number of byte offset `off`.
 (pub :: lineOf (-> String Int Int))
-(pub fn (lineOf src off)
-  (lineCount src off 0 1))
+
+(pub fn (lineOf src off) (lineCount src off 0 1))
 
 (pub :: lineCount (-> String Int Int Int Int))
+
 (pub fn (lineCount src off i acc)
   (if (>= i off)
-      acc
-      (if (== (strByte src i) 10)
-          (lineCount src off (+ i 1) (+ acc 1))
-          (lineCount src off (+ i 1) acc))))
+    acc
+    (if (== (strByte src i) 10)
+      (lineCount src off (+ i 1) (+ acc 1))
+      (lineCount src off (+ i 1) acc)
+    )
+  )
+)
 
 ; 1-based column of byte offset `off`, counted in characters. A byte
 ; order mark at the start of the text is not one of them (`pastBom`).
 (pub :: colOf (-> String Int Int))
-(pub fn (colOf src off)
-  (colCount src (pastBom src (lineStartOf src off)) off 1))
+
+(pub fn (colOf src off) (colCount src (pastBom src (lineStartOf src off)) off 1))
 
 (pub :: colCount (-> String Int Int Int Int))
+
 (pub fn (colCount src i off acc)
   (if (>= i off)
-      acc
-      (if (utf8IsCont (strByte src i))
-          (colCount src (+ i 1) off acc)
-          (colCount src (+ i 1) off (+ acc 1)))))
+    acc
+    (if (utf8IsCont (strByte src i))
+      (colCount src (+ i 1) off acc)
+      (colCount src (+ i 1) off (+ acc 1))
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; `line:col`, `line:col-col`, or `line:col-line:col`, exactly as
 ; stage0's `fmt_span` chooses between them.
 ; ------------------------------------------------------------------
 (pub :: fmtSpan (-> String Int String))
+
 (pub fn (fmtSpan src span)
-  (let ((s (spanStart span))
-        (e0 (spanEnd span)))
-    (let ((e (if (< e0 s) s e0)))
-      (let ((sl (lineOf src s))
-            (sc (colOf src s))
-            (el (lineOf src e))
-            (ec (colOf src e)))
+  (let (
+    (s (spanStart span))
+    (e0 (spanEnd span))
+  )
+    (let ((e 
+      (if (< e0 s)
+        s
+        e0
+      )
+    ))
+      (let (
+        (sl (lineOf src s))
+        (sc (colOf src s))
+        (el (lineOf src e))
+        (ec (colOf src e))
+      )
         (if (&& (== sl el) (== sc ec))
-            (strConcat (strConcat (decStr sl) ":") (decStr sc))
-        (if (== sl el)
-            (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-")
-                       (decStr ec))
-            (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat
-                         (decStr sl) ":") (decStr sc)) "-") (decStr el)) ":")
-                       (decStr ec))))))))
+          (strConcat (strConcat (decStr sl) ":") (decStr sc))
+          (if (== sl el)
+            (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-") (decStr ec))
+            (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-") (decStr el)) ":") (decStr ec))
+          )
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Rust `{:?}` for a string: wrap in quotes, escaping `\` and `"`.
@@ -417,45 +621,67 @@
 ; the form this comment named from the start.
 ; ------------------------------------------------------------------
 (pub :: quoteStr (-> String String))
-(pub fn (quoteStr s)
-  (strConcat (strConcat "\"" (quoteBody s 0 "")) "\""))
+
+(pub fn (quoteStr s) (strConcat (strConcat "\"" (quoteBody s 0 "")) "\""))
 
 (pub :: quoteBody (-> String Int String String))
+
 (pub fn (quoteBody s i acc)
   (if (>= i (strLen s))
-      acc
-      (let ((b (strByte s i)))
-        (if (== b 92)
-            (quoteBody s (+ i 1) (strConcat acc "\\\\"))
+    acc
+    (let ((b (strByte s i)))
+      (if (== b 92)
+        (quoteBody s (+ i 1) (strConcat acc "\\\\"))
         (if (== b 34)
-            (quoteBody s (+ i 1) (strConcat acc "\\\""))
-        (if (== b 10)
+          (quoteBody s (+ i 1) (strConcat acc "\\\""))
+          (if (== b 10)
             (quoteBody s (+ i 1) (strConcat acc "\\n"))
-        (if (== b 9)
-            (quoteBody s (+ i 1) (strConcat acc "\\t"))
-        (if (== b 13)
-            (quoteBody s (+ i 1) (strConcat acc "\\r"))
-        (if (|| (< b 32) (== b 127))
-            (quoteBody s (+ i 1) (strConcat acc (quoteUesc b)))
-            (quoteBody s (+ i 1) (strConcat acc (strSlice s i 1))))))))))))
+            (if (== b 9)
+              (quoteBody s (+ i 1) (strConcat acc "\\t"))
+              (if (== b 13)
+                (quoteBody s (+ i 1) (strConcat acc "\\r"))
+                (if (|| (< b 32) (== b 127))
+                  (quoteBody s (+ i 1) (strConcat acc (quoteUesc b)))
+                  (quoteBody s (+ i 1) (strConcat acc (strSlice s i 1)))
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 ; Rust Debug's `\u{..}`: lowercase hex, no leading zeros.
 (pub :: quoteUesc (-> Int String))
+
 (pub fn (quoteUesc b)
-  (strConcat (strConcat "\\u{"
-                        (if (< b 16)
-                            (quoteHexDigit b)
-                            (strConcat (quoteHexDigit (/ b 16))
-                                       (quoteHexDigit (% b 16)))))
-             "}"))
+  (strConcat
+    (strConcat
+      "\\u{"      (if (< b 16)
+        (quoteHexDigit b)
+        (strConcat (quoteHexDigit (/ b 16)) (quoteHexDigit (% b 16)))
+      )
+    )    "}"
+  )
+)
 
 (pub :: quoteHexDigit (-> Int String))
+
 (pub fn (quoteHexDigit n)
   (let ((s (strAlloc 1)))
     {
-      (__store8 (strData s) 0 (if (< n 10) (+ 48 n) (+ 87 n)))
+      (__store8
+        (strData s)        0        (if (< n 10)
+          (+ 48 n)
+          (+ 87 n)
+        )
+      )
       s
-    }))
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; One AXDL line, without its terminating newline.
@@ -465,10 +691,17 @@
 ; is a function rather than a block inside an `if` so the callers below
 ; read as one expression each.
 (pub :: pushQ (-> Int String String Int))
+
 (pub fn (pushQ parts pre s)
-  { (vecPush parts pre) (vecPush parts (quoteStr s)) 0 })
+  {
+    (vecPush parts pre)
+    (vecPush parts (quoteStr s))
+    0
+  }
+)
 
 (pub :: renderDiag (-> Int String String Int String))
+
 (pub fn (renderDiag d src file units)
   (let ((parts vecNew))
     {
@@ -482,18 +715,26 @@
       ; for None - and a span of 0 fed to fmtSpan would be read as
       ; address zero. AX5001 is the first spanless producer; every
       ; earlier diagnostic had a position by construction.
-      (vecPush parts (if (== (diagSpan d) 0) "-" (fmtSpan src (diagSpan d))))
+      (vecPush
+        parts        (if (== (diagSpan d) 0)
+          "-"
+          (fmtSpan src (diagSpan d))
+        )
+      )
       (vecPush parts " ")
       (vecPush parts (diagSlug d))
       (vecPush parts " ")
       (vecPush parts (quoteStr (diagMsg d)))
-
       ; The primary label. stage0 stored one and never printed it on an
       ; AXDL line - `#` is this compiler's field, added so the human
       ; renderer's label has a machine-readable counterpart to be
       ; checked against rather than only a golden.
-      (if (== (cast Int (diagLabel d)) 0) 0 (pushQ parts " #" (diagLabel d)))
-
+      (if (==
+        (cast Int (diagLabel d))        0
+      )
+        0
+        (pushQ parts " #" (diagLabel d))
+      )
       ; Then, in stage0's emission order: related spans, notes, helps,
       ; expansion frames. Each repeats.
       (let ((mut i 0))
@@ -504,10 +745,15 @@
             (vecPush parts ":")
             (vecPush parts (quoteStr (diagSecMsg d i)))
             (set i (+ i 1))
-          }))
+          })
+      )
       (let ((mut i 0))
         (while (< i (diagNoteCount d))
-          { (pushQ parts " !" (diagNote d i)) (set i (+ i 1)) }))
+          {
+            (pushQ parts " !" (diagNote d i))
+            (set i (+ i 1))
+          })
+      )
       (let ((mut i 0))
         (while (< i (diagHelpCount d))
           {
@@ -515,17 +761,19 @@
             ; replacement, plain `?"msg"` otherwise - the two shapes
             ; stage0's renderer chooses between.
             (if (== (diagHelpFixSpan d i) 0)
-                (pushQ parts " ?" (diagHelpMsg d i))
-                {
-                  (vecPush parts " ?")
-                  (vecPush parts (fmtSpan src (diagHelpFixSpan d i)))
-                  (vecPush parts ":")
-                  (vecPush parts (quoteStr (diagHelpMsg d i)))
-                  (vecPush parts "~>")
-                  (vecPush parts (quoteStr (diagHelpFixText d i)))
-                })
+              (pushQ parts " ?" (diagHelpMsg d i))
+              {
+                (vecPush parts " ?")
+                (vecPush parts (fmtSpan src (diagHelpFixSpan d i)))
+                (vecPush parts ":")
+                (vecPush parts (quoteStr (diagHelpMsg d i)))
+                (vecPush parts "~>")
+                (vecPush parts (quoteStr (diagHelpFixText d i)))
+              }
+            )
             (set i (+ i 1))
-          }))
+          })
+      )
       ; A frame's LOC carries its FILE, unlike every other field on
       ; the line: the span indexes the macro's own unit, not the
       ; diagnostic's. Span 0 - or no unit table to resolve against,
@@ -535,49 +783,66 @@
         (while (< i (diagTraceCount d))
           {
             (vecPush parts " &")
-            (let ((fs (diagTraceSpan d i))
-                  (fu (diagTraceUnit d i)))
-              (if (|| (== fs 0)
-                      (|| (== units 0) (>= fu (vecLen units))))
-                  0
-                  (let ((u (vecGet units fu)))
-                    {
-                      (vecPush parts (memGetWord u 0))
-                      (vecPush parts ":")
-                      (vecPush parts (fmtSpan (memGetWord u 1) fs))
-                      (vecPush parts ":")
-                    })))
+            (let (
+              (fs (diagTraceSpan d i))
+              (fu (diagTraceUnit d i))
+            )
+              (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
+                0
+                (let ((u (vecGet units fu)))
+                  {
+                    (vecPush parts (memGetWord u 0))
+                    (vecPush parts ":")
+                    (vecPush parts (fmtSpan (memGetWord u 1) fs))
+                    (vecPush parts ":")
+                  }
+                )
+              )
+            )
             (vecPush parts (quoteStr (diagTraceName d i)))
             (set i (+ i 1))
-          }))
-
+          })
+      )
       (catStrs parts)
-    }))
+    }
+  )
+)
 
 ; The multi-unit form. `units` is a Vec of CUnit records - one per
 ; source file that contributed declarations - and each diagnostic
 ; names the one its spans index.
-
 (pub :: renderDiagsUnits (-> Int Int String))
+
 (pub fn (renderDiagsUnits ds units)
   ; A linear join rather than the old recursive strConcat fold, whose
   ; peak was measured at 829 MiB RSS for a 2000-diagnostic file - the
   ; renderCG shape, one layer up.
-  (let ((blocks vecNew) (mut i 0))
+  (let (
+    (blocks vecNew)
+    (mut i 0)
+  )
     {
       (while (< i (vecLen ds))
         (let ((d (vecGet ds i)))
-          (let ((u (vecGet units (if (< (diagUnit d) (vecLen units))
-                                     (diagUnit d)
-                                     0))))
+          (let ((u 
+            (vecGet
+              units              (if (< (diagUnit d) (vecLen units))
+                (diagUnit d)
+                0
+              )
+            )
+          ))
             {
-              (vecPush blocks (renderDiag d (memGetWord u 1) (memGetWord u 0)
-                                          units))
+              (vecPush blocks (renderDiag d (memGetWord u 1) (memGetWord u 0) units))
               (vecPush blocks "\n")
               (set i (+ i 1))
-            })))
+            }
+          )
+        ))
       (catStrs blocks)
-    }))
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Linear concatenation of a Vec of Str: sum the lengths, allocate
@@ -589,15 +854,23 @@
 ; wrong, which is the worst moment to add an allocation storm.
 ; ------------------------------------------------------------------
 (pub :: catStrs (-> Int String))
+
 (pub fn (catStrs v)
-  (let ((n (vecLen v)) (mut total 0) (mut i 0))
+  (let (
+    (n (vecLen v))
+    (mut total 0)
+    (mut i 0)
+  )
     {
       (while (< i n)
         {
           (set total (+ total (strLen (vecGet v i))))
           (set i (+ i 1))
         })
-      (let ((out (strAlloc total)) (mut off 0))
+      (let (
+        (out (strAlloc total))
+        (mut off 0)
+      )
         {
           (set i 0)
           (while (< i n)
@@ -606,10 +879,14 @@
                 (memCopy (+ (strData out) off) (strData s) (strLen s))
                 (set off (+ off (strLen s)))
                 (set i (+ i 1))
-              }))
+              }
+            ))
           out
-        })
-    }))
+        }
+      )
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Render order: every warning before every error, each class in
@@ -621,26 +898,35 @@
 ; discovery order stays observable to anything that wants it.
 ; ------------------------------------------------------------------
 (pub :: orderDiags (-> Int Int))
+
 (pub fn (orderDiags ds)
-  (let ((out vecNew) (n (vecLen ds)) (mut i 0))
+  (let (
+    (out vecNew)
+    (n (vecLen ds))
+    (mut i 0)
+  )
     {
       (while (< i n)
         {
           (if (!= (diagSev (vecGet ds i)) SEV_ERROR)
-              (vecPush out (vecGet ds i))
-              0)
+            (vecPush out (vecGet ds i))
+            0
+          )
           (set i (+ i 1))
         })
       (set i 0)
       (while (< i n)
         {
           (if (== (diagSev (vecGet ds i)) SEV_ERROR)
-              (vecPush out (vecGet ds i))
-              0)
+            (vecPush out (vecGet ds i))
+            0
+          )
           (set i (+ i 1))
         })
       out
-    }))
+    }
+  )
+)
 
 ; How many of `ds` are hard errors. The Diag record's first word is
 ; the severity CODE - `SEV_ERROR` is 0 - and warnings inform without
@@ -649,13 +935,22 @@
 ; with only its own imports, so a shared helper in the entry file is
 ; a helper only the entry file can see.
 (pub :: countErrorDiags (-> Int Int))
+
 (pub fn (countErrorDiags ds)
-  (let ((mut i 0) (mut n 0))
+  (let (
+    (mut i 0)
+    (mut n 0)
+  )
     {
       (while (< i (vecLen ds))
         {
-          (if (== (diagSev (vecGet ds i)) SEV_ERROR) (set n (+ n 1)) 0)
+          (if (== (diagSev (vecGet ds i)) SEV_ERROR)
+            (set n (+ n 1))
+            0
+          )
           (set i (+ i 1))
         })
       n
-    }))
+    }
+  )
+)

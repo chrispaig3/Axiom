@@ -1,5 +1,11 @@
 ; expect 42
 (:: main Int)
+
 (fn (main)
   (let ((p (__alloc 16)))
-    { (__store64 p 0 42) (__load64 p 0) }))
+    {
+      (__store64 p 0 42)
+      (__load64 p 0)
+    }
+  )
+)

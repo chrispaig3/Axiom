@@ -31,7 +31,6 @@
 ; So these copy. A path is short and the copy is once per path, not
 ; once per byte of input.
 ; ------------------------------------------------------------------
-
 (import Str)
 
 ; The last `/` in `p`, or -1. Everything below is a decision about
@@ -41,16 +40,20 @@
 ; because the LAST separator is what splits a path and finding it
 ; forwards means finding all the others first.
 (pub :: pathLastSlash (-> String Int))
-(pub fn (pathLastSlash p)
-  (pathLastSlashFrom p (- (strLen p) 1)))
+
+(pub fn (pathLastSlash p) (pathLastSlashFrom p (- (strLen p) 1)))
 
 (:: pathLastSlashFrom (-> String Int Int))
+
 (fn (pathLastSlashFrom p i)
   (if (< i 0)
-      (- 0 1)
-      (if (== (strByte p i) 47)
-          i
-          (pathLastSlashFrom p (- i 1)))))
+    (- 0 1)
+    (if (== (strByte p i) 47)
+      i
+      (pathLastSlashFrom p (- i 1))
+    )
+  )
+)
 
 ; Everything up to and INCLUDING the last `/`, or "" when `p` names
 ; something in the working directory.
@@ -61,11 +64,15 @@
 ; `"x.ax"`, with no special case anywhere. This is the rule
 ; `codegen.ax`'s `dirOfPath` established and it does not change here.
 (pub :: pathDir (-> String String))
+
 (pub fn (pathDir p)
   (let ((i (pathLastSlash p)))
     (if (< i 0)
-        ""
-        (strDup (strSlice p 0 (+ i 1))))))
+      ""
+      (strDup (strSlice p 0 (+ i 1)))
+    )
+  )
+)
 
 ; Everything after the last `/` - the file name on its own, or `p`
 ; entire when there is no separator.
@@ -73,11 +80,15 @@
 ; A path ending in `/` has an EMPTY base, which is the honest answer:
 ; `"src/"` names a directory and no file within it.
 (pub :: pathBase (-> String String))
+
 (pub fn (pathBase p)
   (let ((i (pathLastSlash p)))
     (if (< i 0)
-        (strDup p)
-        (strDup (strSlice p (+ i 1) (- (strLen p) (+ i 1)))))))
+      (strDup p)
+      (strDup (strSlice p (+ i 1) (- (strLen p) (+ i 1))))
+    )
+  )
+)
 
 ; A directory name that ends in `/`, so concatenation forms a path.
 ;
@@ -86,12 +97,16 @@
 ; bytes, which shares storage and is not NUL-terminated; the answer
 ; always is.
 (pub :: pathWithSlash (-> String String))
+
 (pub fn (pathWithSlash d)
   (if (== (strLen d) 0)
-      ""
-      (if (== (strByte d (- (strLen d) 1)) 47)
-          (strDup d)
-          (strConcat d "/"))))
+    ""
+    (if (== (strByte d (- (strLen d) 1)) 47)
+      (strDup d)
+      (strConcat d "/")
+    )
+  )
+)
 
 ; `dir` and `name` as one path, with exactly one `/` between them.
 ;
@@ -101,12 +116,16 @@
 ; what keeps `(pathJoin d n)` safe to write over a whole directory
 ; listing without inspecting each name first.
 (pub :: pathJoin (-> String String String))
+
 (pub fn (pathJoin dir name)
   (if (== (strLen dir) 0)
+    (strDup name)
+    (if (== (strByte name 0) 47)
       (strDup name)
-      (if (== (strByte name 0) 47)
-          (strDup name)
-          (strConcat (pathWithSlash dir) name))))
+      (strConcat (pathWithSlash dir) name)
+    )
+  )
+)
 
 ; The index of the extension's `.` within `p`, or -1.
 ;
@@ -117,18 +136,29 @@
 ; directory component. Both are cases a naive "find the last dot" gets
 ; wrong, and both occur in this repository.
 (pub :: pathExtIndex (-> String Int))
+
 (pub fn (pathExtIndex p)
   (let ((slash (pathLastSlash p)))
     (let ((dot (pathLastDotFrom p (- (strLen p) 1) slash)))
-      (if (<= dot (+ slash 1)) (- 0 1) dot))))
+      (if (<= dot (+ slash 1))
+        (- 0 1)
+        dot
+      )
+    )
+  )
+)
 
 (:: pathLastDotFrom (-> String Int Int Int))
+
 (fn (pathLastDotFrom p i stop)
   (if (<= i stop)
-      (- 0 1)
-      (if (== (strByte p i) 46)
-          i
-          (pathLastDotFrom p (- i 1) stop))))
+    (- 0 1)
+    (if (== (strByte p i) 46)
+      i
+      (pathLastDotFrom p (- i 1) stop)
+    )
+  )
+)
 
 ; The extension INCLUDING its dot (`".ax"`), or "" when there is none.
 ;
@@ -137,20 +167,28 @@
 ; concatenated, and both are simpler when the separator travels with
 ; the part it separates.
 (pub :: pathExt (-> String String))
+
 (pub fn (pathExt p)
   (let ((i (pathExtIndex p)))
     (if (< i 0)
-        ""
-        (strDup (strSlice p i (- (strLen p) i))))))
+      ""
+      (strDup (strSlice p i (- (strLen p) i)))
+    )
+  )
+)
 
 ; The base name with its extension removed: `"src/main.ax"` is
 ; `"main"`. What a driver names an output after.
 (pub :: pathStem (-> String String))
+
 (pub fn (pathStem p)
   (let ((i (pathExtIndex p)))
     (if (< i 0)
-        (pathBase p)
-        (pathBase (strSlice p 0 i)))))
+      (pathBase p)
+      (pathBase (strSlice p 0 i))
+    )
+  )
+)
 
 ; `p` with its extension replaced by `ext`, which carries its own dot.
 ; `(pathReplaceExt "build/main.ax" ".ll")` is `"build/main.ll"`, and a
@@ -161,14 +199,18 @@
 ; for first, and the one that quietly writes its output to the
 ; working directory instead of beside its input.
 (pub :: pathReplaceExt (-> String String String))
+
 (pub fn (pathReplaceExt p ext)
   (let ((i (pathExtIndex p)))
     (if (< i 0)
-        (strConcat p ext)
-        (strConcat (strSlice p 0 i) ext))))
+      (strConcat p ext)
+      (strConcat (strSlice p 0 i) ext)
+    )
+  )
+)
 
 ; True when `p` starts at the root. A relative path is resolved
 ; against the working directory, which is why `Sys.sysGetCwd` exists.
 (pub :: pathIsAbsolute (-> String Bool))
-(pub fn (pathIsAbsolute p)
-  (== (strByte p 0) 47))
+
+(pub fn (pathIsAbsolute p) (== (strByte p 0) 47))

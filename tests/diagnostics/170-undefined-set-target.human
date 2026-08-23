@@ -1,7 +1,7 @@
 [1;31merror[AX3001][0m[1m: undefined variable `cound`[0m
- [1;34m--> [0m170-undefined-set-target.ax:4:12
+ [1;34m--> [0m170-undefined-set-target.ax:6:12
 [1;34m  |[0m
-[1;34m4 |[0m     { (set cound 2) count }))
+[1;34m6 |[0m       (set cound 2)
 [1;34m  |[0m            [1;31m^^^^^ no binding named `cound` in scope[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0ma similarly named binding `count` is in scope; did you mean this?[1;35m ~> count[0m

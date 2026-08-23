@@ -27,61 +27,41 @@
 ; is made: the emitted module holds `c"hi\0A\00"` as ONE constant, so
 ; `(println "hi")` is one `write` of one static literal.
 (import IO)
+
 (import Show)
+
 (import Str)
 
 (:: bit (-> Bool Int Int))
-(fn (bit b w) (if b w 0))
+
+(fn (bit b w)
+  (if b
+    w
+    0
+  )
+)
 
 (:: main Int)
+
 (fn (main)
-  (let ((n 42)
-        (neg (- 0 7))
-        (big 48879)
-        (pi 3.14159)
-        (s "ax")
-        (name "world")
-        (ok true))
-    (+ (bit (&& (strEq (format "Hello {name}") "Hello world")
-                (&& (strEq (format "{n} and {ok}") "42 and true")
-                    (strEq (format "{name}{name}") "worldworld")))
-            1)
-       (+ (bit (&& (strEq (format "{{n}} is not {n}") "{n} is not 42")
-                   (&& (strEq (format "}}{{") "}{")
-                       (&& (strEq (format "x\ty {n}") "x\ty 42")
-                           ; a literal this pass BUILT is not source:
-                           ; the inner format collapses `{{` to `{`,
-                           ; and the outer must print that verbatim
-                           ; rather than read it as a fresh hole
-                           (strEq (format (format "a{{b}}")) "a{b}"))))
-               2)
-          (+ (bit (&& (strEq (format "[{n:>8}]") "[      42]")
-                      (&& (strEq (format "[{n:8}]") "[      42]")
-                          (&& (strEq (format "[{s:<8}]") "[ax      ]")
-                              (strEq (format "[{s:^8}]") "[   ax   ]"))))
-                  4)
-             (+ (bit (&& (strEq (format "{n:06}") "000042")
-                         (strEq (format "{neg:06}") "-00007"))
-                     8)
-                (+ (bit (&& (strEq (format "{big:x}") "beef")
-                            (strEq (format "{big:X}") "BEEF"))
-                        16)
-                   (+ (bit (&& (strEq (format "{pi:.2}") "3.14")
-                               (strEq (format "{pi:.0}") "3"))
-                           32)
-                      (+ (bit (&& (strEq (format "{big:>10x}") "      beef")
-                                  (&& (strEq (format "{big:010X}") "000000BEEF")
-                                      (strEq (format "{pi:>10.3}") "     3.142")))
-                              64)
-                         (bit (&& (strEq (format "no holes") "no holes")
-                                  (&& (strEq (format "") "")
-                                      (&& (strEq (format "{n}") "42")
-                                          (&& (strEq (format "{n:}") "42")
-                                              ; a non-literal argument
-                                              ; is one `show`, which is
-                                              ; what keeps every
-                                              ; pre-macro `(println e)`
-                                              ; meaning what it meant
-                                              (&& (strEq (format n) "42")
-                                                  (strEq (format s) "ax"))))))
-                              128))))))))))
+  (let (
+    (n 42)
+    (neg (- 0 7))
+    (big 48879)
+    (pi 3.14159)
+    (s "ax")
+    (name "world")
+    (ok true)
+  )
+    (+ (bit (&& (strEq (format "Hello {name}") "Hello world") (&& (strEq (format "{n} and {ok}") "42 and true") (strEq (format "{name}{name}") "worldworld"))) 1) (+ (bit (&& (strEq (format "{{n}} is not {n}") "{n} is not 42") (&& (strEq (format "}}{{") "}{") (&& (strEq (format "x\ty {n}") "x\ty 42") (strEq (format (format "a{{b}}")) "a{b}")))) 2) (+ (bit (&& (strEq (format "[{n:>8}]") "[      42]") (&& (strEq (format "[{n:8}]") "[      42]") (&& (strEq (format "[{s:<8}]") "[ax      ]") (strEq (format "[{s:^8}]") "[   ax   ]")))) 4) (+ (bit (&& (strEq (format "{n:06}") "000042") (strEq (format "{neg:06}") "-00007")) 8) (+ (bit (&& (strEq (format "{big:x}") "beef") (strEq (format "{big:X}") "BEEF")) 16) (+ (bit (&& (strEq (format "{pi:.2}") "3.14") (strEq (format "{pi:.0}") "3")) 32) (+ (bit (&& (strEq (format "{big:>10x}") "      beef") (&& (strEq (format "{big:010X}") "000000BEEF") (strEq (format "{pi:>10.3}") "     3.142"))) 64) (bit (&& (strEq (format "no holes") "no holes") (&& (strEq (format "") "") (&& (strEq (format "{n}") "42") (&& (strEq (format "{n:}") "42") (&& (strEq (format n) "42") (strEq (format s) "ax")))))) 128))))))))
+  )
+)
+; a literal this pass BUILT is not source:
+; the inner format collapses `{{` to `{`,
+; and the outer must print that verbatim
+; rather than read it as a fresh hole
+; a non-literal argument
+; is one `show`, which is
+; what keeps every
+; pre-macro `(println e)`
+; meaning what it meant

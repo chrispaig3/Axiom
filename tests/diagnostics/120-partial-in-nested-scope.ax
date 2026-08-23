@@ -1,10 +1,21 @@
 (:: add (-> Int Int Int))
+
 (fn (add a b) (+ a b))
+
 (:: pick (-> Int Int))
+
 (fn (pick n)
-  (let ((add (lambda (z) z)))
-    (add n)))
+  (let ((add 
+    (lambda (z) z)
+  ))
+    (add n)
+  )
+)
+
 (:: main Int)
+
 (fn (main)
   (match (add 1)
-    (x x)))
+    (x x)
+  )
+)

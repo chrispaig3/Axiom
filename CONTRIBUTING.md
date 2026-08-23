@@ -164,10 +164,17 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
    project style. Read a few first: they are narrative, and they carry the
    measurement that justified the change.
 
-Do **not** run `axiom fmt` over the repository. The tree is not kept in
-the formatter's normal form, and the formatting gates check
-behaviour-preservation on a copy rather than fixed-point-ness of the
-tree.
+Run `axiom fmt` over anything you touch. The tree is kept in the
+formatter's normal form as of 2026-08-22 — 449 of the 451 `.ax` files
+are a fixed point of it, and `check-fmt-selfhost.sh` fails if more than
+60 stop being covered by `tests/fmt/corpus-fmt.golden`.
+
+Two files are deliberately NOT formatted, and formatting them breaks
+what they exist to test: `tests/fmt/syntax-zoo.ax` is the formatter's
+input fixture, whose transformation into `syntax-zoo.expected.ax` is
+the one golden that pins what the normal form looks like; and
+`tests/diagnostics/940-long-line.ax` puts a diagnostic at column 217 of
+a very long line, which is the renderer behaviour it pins.
 
 ### Where to make changes
 
@@ -330,12 +337,15 @@ The tests compile and **run** Axiom programs rather than only type-checking them
 
 ### Formatting
 
-- The repository is **not** kept in `axiom fmt`'s normal form, and running
-  the formatter over it is a mistake that buries real changes in churn.
-  The formatting gates check that formatting *preserves behaviour*, on a
-  copy — not that the tree is already a fixed point.
-- New files may be committed in hand style; the gates only need them to
-  round-trip.
+- The repository **is** kept in `axiom fmt`'s normal form, with the two
+  exceptions named above. It was not until 2026-08-22; the argument
+  against was that formatting buries real changes in churn, and the
+  answer is that it buries them once. `check-fmt.sh` still checks the
+  property that matters more — that formatting *preserves behaviour*,
+  by formatting a copy of the tree and re-running the suites against it.
+- Format a new file before committing it. The gates need it to
+  round-trip either way, but an unformatted file will show up as churn
+  in whichever commit next touches it.
 - Match the surrounding code. `self_host/` uses long explanatory comments
   above anything non-obvious, and they carry the measurement that
   justified the code. That convention is the project's main defence

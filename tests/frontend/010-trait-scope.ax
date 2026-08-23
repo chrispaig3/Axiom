@@ -3,19 +3,37 @@
 ; spelling, so a `let` binding and a function parameter both answered
 ; the implementation. Every consumer of the frontend has to agree that
 ; this program is accepted AND that it computes 42.
-(trait (Sz a) where
-  (sz :: (-> a Int)))
+(trait (Sz a) where (
+  sz :: (-> a Int)
+))
 
-(impl (Sz Int) where
-  ((sz (lambda (n) 111))))
+(impl (Sz Int) where (
+  (sz
+    (lambda (n) 111)
+  )
+))
 
 (:: viaParam (-> (-> Int Int) Int))
+
 (fn (viaParam sz) (sz 5))
 
 (:: main Int)
+
 (fn (main)
-  (if (== (+ (let ((sz (lambda (q) 7))) (sz 5))
-             (+ (viaParam (lambda (q) 7)) (sz 5)))
-          125)
-      42
-      1))
+  (if (==
+    (+
+      (let ((sz 
+        (lambda (q) 7)
+      ))
+        (sz 5)
+      )      (+
+        (viaParam
+          (lambda (q) 7)
+        )        (sz 5)
+      )
+    )    125
+  )
+    42
+    1
+  )
+)

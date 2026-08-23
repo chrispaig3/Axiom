@@ -1,8 +1,14 @@
 (import Q.Inner)
 
 (pub :: label (-> Int Int))
+
 (pub fn (label x) (+ x 200))
 
 ; A qualified call to another dotted module, made from inside a module.
 (pub :: viaInner (-> Int Int))
-(pub fn (viaInner x) (Q.Inner::label x))
+
+(pub fn (viaInner x)
+  (Q.Inner::label
+    x
+  )
+)

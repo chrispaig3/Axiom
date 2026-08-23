@@ -1,1 +1,1 @@
-E AX3004 420-declared-return.ax:2:11-12 type-mismatch "type mismatch: expected (Int -> Int), found Int" #"this has type `Int`, expected `(Int -> Int)`"
+E AX3004 420-declared-return.ax:3:11-12 type-mismatch "type mismatch: expected (Int -> Int), found Int" #"this has type `Int`, expected `(Int -> Int)`"

@@ -17,52 +17,72 @@
 ; The empty cases matter: a zero-length `Vec<i64>` crosses as a
 ; dangling pointer and length 0, which the free must treat as nothing.
 (import IO)
+
 (import Fmt)
+
 (import Str)
+
 (import Vec)
+
 (import Demo)
 
 ; `vecGet` answers a type variable; a signature pins the element to
 ; the String the wrapper pushed.
 (pub :: wordAt (-> Int Int String))
+
 (pub fn (wordAt v i) (vecGet v i))
 
 (pub :: sumVec (-> Int Int Int Int))
+
 (pub fn (sumVec v i acc)
   (if (>= i (vecLen v))
-      acc
-      (sumVec v (+ i 1) (+ acc (vecGet v i)))))
+    acc
+    (sumVec v (+ i 1) (+ acc (vecGet v i)))
+  )
+)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((r (rangeVec 5))
-        (none (rangeVec 0))
-        (ws (splitWords "hello  brave new world"))
-        (mine (vecNew)))
+  (let (
+    (r (rangeVec 5))
+    (none (rangeVec 0))
+    (ws (splitWords "hello  brave new world"))
+    (mine vecNew)
+  )
     {
       (vecPush mine 40)
       (vecPush mine 2)
-      (let ((rLen (vecLen r))
-            (rSum (sumVec r 0 0))
-            (rLast (vecGet r 4))
-            (noneLen (vecLen none))
-            (wLen (vecLen ws))
-            (w2 (wordAt ws 2))
-            (total (sumWords mine))
-            (back (sumWords r))
-            (empty (sumWords none)))
-        (if (&& (== rLen 5)
-            (&& (== rSum 10)
-            (&& (== rLast 4)
-            (&& (== noneLen 0)
-            (&& (== wLen 4)
-            (&& (strEq w2 "new")
-            (&& (== total 42)
-            (&& (== back 10)
-                (== empty 0)))))))))
-            { (println "vec: agree") 0 }
-            { (println (fmtInt rLen)) (println (fmtInt rSum)) (println (fmtInt rLast))
-              (println (fmtInt noneLen)) (println (fmtInt wLen)) (println w2)
-              (println (fmtInt total)) (println (fmtInt back)) (println (fmtInt empty)) 1 }))
-    }))
+      (let (
+        (rLen (vecLen r))
+        (rSum (sumVec r 0 0))
+        (rLast (vecGet r 4))
+        (noneLen (vecLen none))
+        (wLen (vecLen ws))
+        (w2 (wordAt ws 2))
+        (total (sumWords mine))
+        (back (sumWords r))
+        (empty (sumWords none))
+      )
+        (if (&& (== rLen 5) (&& (== rSum 10) (&& (== rLast 4) (&& (== noneLen 0) (&& (== wLen 4) (&& (strEq w2 "new") (&& (== total 42) (&& (== back 10) (== empty 0)))))))))
+          {
+            (println "vec: agree")
+            0
+          }
+          {
+            (println (fmtInt rLen))
+            (println (fmtInt rSum))
+            (println (fmtInt rLast))
+            (println (fmtInt noneLen))
+            (println (fmtInt wLen))
+            (println w2)
+            (println (fmtInt total))
+            (println (fmtInt back))
+            (println (fmtInt empty))
+            1
+          }
+        )
+      )
+    }
+  )
+)
 ; expect 0

@@ -1,15 +1,15 @@
 [1;31merror[AX3004][0m[1m: type mismatch: expected function type, found Int[0m
-  [1;34m--> [0m450-effect-op-arity.ax:22:12
+  [1;34m--> [0m450-effect-op-arity.ax:23:12
 [1;34m   |[0m
-[1;34m22 |[0m   (handle (two 3 4 5) (Two) (lambda (p) (lambda (q) (* p q)))))
+[1;34m23 |[0m   (handle (two 3 4 5) (Two) (lambda (p)
 [1;34m   |[0m            [1;31m^^^ this has type `Int`, expected `function type`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3013][0m[1m: partial application of `two`: it takes 2 argument(s) and 1 were supplied[0m
-  [1;34m--> [0m450-effect-op-arity.ax:26:12
+  [1;34m--> [0m450-effect-op-arity.ax:31:12
 [1;34m   |[0m
-[1;34m26 |[0m   (handle (two 3) (Two) (lambda (p) (lambda (q) (* p q)))))
+[1;34m31 |[0m   (handle (two 3) (Two) (lambda (p)
 [1;34m   |[0m            [1;31m^^^ `two` takes 2 argument(s); 1 more needed[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in

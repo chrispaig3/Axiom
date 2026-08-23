@@ -31,35 +31,51 @@
 ; collision between distinct keys is impossible). That is the case
 ; linear probing has to handle.
 (import IO)
+
 (import Map)
 
 ; `Bool` as a printable digit. There is no `printBool`, and adding one
 ; belongs in `IO`, not in a test.
 (pub :: mtBit (-> Bool Int))
+
 (pub fn (mtBit b)
-  (if b 1 0))
+  (if b
+    1
+    0
+  )
+)
 
 ; Insert `k -> k*10` for k in [lo, hi). Recursion, because there is no
 ; loop and no function value to fold with.
 (pub :: mtInsertRange (-> Int Int Int Int))
+
 (pub fn (mtInsertRange m lo hi)
   (if (>= lo hi)
-      m
-      {
-        (mapInsert m lo (* lo 10))
-        (mtInsertRange m (+ lo 1) hi)
-      }))
+    m
+    {
+      (mapInsert m lo (* lo 10))
+      (mtInsertRange m (+ lo 1) hi)
+    }
+  )
+)
 
 ; Check that every k in [lo, hi) still maps to k*10, returning the count
 ; of keys that do. A single number that must equal `hi - lo` is a
 ; stronger assertion than a handful of spot checks, and it localises
 ; nothing - which is why the spot checks are also kept.
 (pub :: mtCountIntact (-> Int Int Int Int))
+
 (pub fn (mtCountIntact m lo hi)
   (if (>= lo hi)
-      0
-      (+ (if (== (mapGet m lo (- 0 1)) (* lo 10)) 1 0)
-         (mtCountIntact m (+ lo 1) hi))))
+    0
+    (+
+      (if (== (mapGet m lo (- 0 1)) (* lo 10))
+        1
+        0
+      )      (mtCountIntact m (+ lo 1) hi)
+    )
+  )
+)
 
 ; Insert then immediately remove `key`, `n` times.
 ;
@@ -71,105 +87,141 @@
 ; hang, so the assertion after this runs is that lookups are still
 ; *right*, not merely that the program terminated.
 (pub :: mtChurn (-> Int Int Int Int))
+
 (pub fn (mtChurn m key n)
   (if (<= n 0)
-      m
-      {
-        (mapInsert m key 7)
-        (mapRemove m key)
-        (mtChurn m key (- n 1))
-      }))
+    m
+    {
+      (mapInsert m key 7)
+      (mapRemove m key)
+      (mtChurn m key (- n 1))
+    }
+  )
+)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((m (mapNew))
-        (c (mapWithCapacity 8))
-        (x (mapNew)))
+  ; --- a fresh Map is empty and total ---
+  (let (
+    (m mapNew)
+    (c (mapWithCapacity 8))
+    (x mapNew)
+  )
     {
-      ; --- a fresh Map is empty and total ---
-      (println (mapLen m))                       ; 0
-      (println (mapCap m))                       ; 8
-      (println (mapUsed m))                      ; 0
-      (println (mtBit (mapHas m 5)))             ; 0
-      (println (cast Int (mapGet m 5 (- 0 7))))             ; -7: default returned
-      (println (mapSumKeys m))                   ; 0
-      (println (mapSumVals m))                   ; 0
-
+      (println (mapLen m))  ; 0
+      (println (mapCap m))  ; 8
+      (println (mapUsed m))  ; 0
+      (println (mtBit (mapHas m 5)))  ; 0
+      (println
+        (cast Int (mapGet m 5 (- 0 7)))
+      )
+      ; -7: default returned
+      (println (mapSumKeys m))  ; 0
+      (println (mapSumVals m))  ; 0
       ; --- 40 keys through four rehashes: 8 -> 16 -> 32 -> 64 -> 128 ---
       (mtInsertRange m 1 41)
-      (println (mapLen m))                       ; 40
-      (println (mapCap m))                       ; 128
-      (println (mapUsed m))                      ; 40: no tombstones yet
-      (println (mtCountIntact m 1 41))           ; 40: nothing lost
-      (println (mapSumKeys m))                   ; 820 = 1+..+40
-      (println (mapSumVals m))                   ; 8200
-      (println (cast Int (mapGet m 1 (- 0 1))))             ; 10: first ever inserted
-      (println (cast Int (mapGet m 40 (- 0 1))))            ; 400: last inserted
-      (println (cast Int (mapGet m 20 (- 0 1))))            ; 200
-
+      (println (mapLen m))  ; 40
+      (println (mapCap m))  ; 128
+      (println (mapUsed m))  ; 40: no tombstones yet
+      (println (mtCountIntact m 1 41))  ; 40: nothing lost
+      (println (mapSumKeys m))  ; 820 = 1+..+40
+      (println (mapSumVals m))  ; 8200
+      (println
+        (cast Int (mapGet m 1 (- 0 1)))
+      )
+      ; 10: first ever inserted
+      (println
+        (cast Int (mapGet m 40 (- 0 1)))
+      )
+      ; 400: last inserted
+      (println
+        (cast Int (mapGet m 20 (- 0 1)))
+      )
+      ; 200
       ; --- a key that was never inserted ---
-      (println (mtBit (mapHas m 999)))           ; 0
-      (println (cast Int (mapGet m 999 (- 0 7))))           ; -7
-      (println (mtBit (mapHas m 0)))             ; 0: 0 is not special
-      (println (mtBit (mapHas m 41)))            ; 0: just past the range
-
+      (println (mtBit (mapHas m 999)))  ; 0
+      (println
+        (cast Int (mapGet m 999 (- 0 7)))
+      )
+      ; -7
+      (println (mtBit (mapHas m 0)))  ; 0: 0 is not special
+      (println (mtBit (mapHas m 41)))  ; 0: just past the range
       ; --- overwrite must not change the entry count ---
       (mapInsert m 7 12345)
-      (println (mapLen m))                       ; 40: unchanged
-      (println (mapUsed m))                      ; 40: unchanged
-      (println (mapCap m))                       ; 128: no growth
-      (println (cast Int (mapGet m 7 (- 0 1))))             ; 12345
-      (println (mapSumVals m))                   ; 8200 - 70 + 12345
+      (println (mapLen m))  ; 40: unchanged
+      (println (mapUsed m))  ; 40: unchanged
+      (println (mapCap m))  ; 128: no growth
+      (println
+        (cast Int (mapGet m 7 (- 0 1)))
+      )
+      ; 12345
+      (println (mapSumVals m))  ; 8200 - 70 + 12345
       (mapInsert m 7 70)
-      (println (mapLen m))                       ; 40
-      (println (mapSumVals m))                   ; 8200: restored
-
+      (println (mapLen m))  ; 40
+      (println (mapSumVals m))  ; 8200: restored
       ; --- three keys that collide on the table index ---
-      (println (mapCap c))                       ; 16
-      (println (mapSlotOf 30 16))                ; 0
-      (println (mapSlotOf 79 16))                ; 0
-      (println (mapSlotOf 85 16))                ; 0
+      (println (mapCap c))  ; 16
+      (println (mapSlotOf 30 16))  ; 0
+      (println (mapSlotOf 79 16))  ; 0
+      (println (mapSlotOf 85 16))  ; 0
       (mapInsert c 30 230)
       (mapInsert c 79 380)
       (mapInsert c 85 460)
-      (println (mapLen c))                       ; 3: three entries...
-      (println (mapCap c))                       ; 16: ...no rehash
-      (println (cast Int (mapGet c 30 (- 0 1))))            ; 230: home slot
-      (println (cast Int (mapGet c 79 (- 0 1))))            ; 380: one probe on
-      (println (cast Int (mapGet c 85 (- 0 1))))            ; 460: two probes on
-      (println (mapSumVals c))                   ; 1070
-
+      (println (mapLen c))  ; 3: three entries...
+      (println (mapCap c))  ; 16: ...no rehash
+      (println
+        (cast Int (mapGet c 30 (- 0 1)))
+      )
+      ; 230: home slot
+      (println
+        (cast Int (mapGet c 79 (- 0 1)))
+      )
+      ; 380: one probe on
+      (println
+        (cast Int (mapGet c 85 (- 0 1)))
+      )
+      ; 460: two probes on
+      (println (mapSumVals c))  ; 1070
       ; --- removing the middle of the probe run must not orphan the end
       (mapRemove c 79)
-      (println (mapLen c))                       ; 2
-      (println (mapUsed c))                      ; 3: tombstone still held
-      (println (mtBit (mapHas c 79)))            ; 0
-      (println (cast Int (mapGet c 30 (- 0 1))))            ; 230: before the hole
-      (println (cast Int (mapGet c 85 (- 0 1))))            ; 460: past the hole
-      (println (mapSumVals c))                   ; 690
-
+      (println (mapLen c))  ; 2
+      (println (mapUsed c))  ; 3: tombstone still held
+      (println (mtBit (mapHas c 79)))  ; 0
+      (println
+        (cast Int (mapGet c 30 (- 0 1)))
+      )
+      ; 230: before the hole
+      (println
+        (cast Int (mapGet c 85 (- 0 1)))
+      )
+      ; 460: past the hole
+      (println (mapSumVals c))  ; 690
       ; --- the tombstone is reused, not leaked ---
       (mapInsert c 79 381)
-      (println (mapLen c))                       ; 3
-      (println (mapUsed c))                      ; 3: reused, not grown
-      (println (cast Int (mapGet c 79 (- 0 1))))            ; 381
-      (println (cast Int (mapGet c 85 (- 0 1))))            ; 460: still reachable
-
+      (println (mapLen c))  ; 3
+      (println (mapUsed c))  ; 3: reused, not grown
+      (println
+        (cast Int (mapGet c 79 (- 0 1)))
+      )
+      ; 381
+      (println
+        (cast Int (mapGet c 85 (- 0 1)))
+      )
+      ; 460: still reachable
       ; --- removing an absent key changes nothing ---
       (mapRemove c 999)
-      (println (mapLen c))                       ; 3
-      (println (mapUsed c))                      ; 3
-
+      (println (mapLen c))  ; 3
+      (println (mapUsed c))  ; 3
       ; --- 200 insert/remove cycles on one key ---
       (mtInsertRange x 1 6)
       (mtChurn x 500 200)
-      (println (mapLen x))                       ; 5: churn key is gone
-      (println (mtBit (mapHas x 500)))           ; 0
-      (println (mtCountIntact x 1 6))            ; 5: survivors intact
-      (println (mapSumKeys x))                   ; 15
-      (println (mapSumVals x))                   ; 150
-
+      (println (mapLen x))  ; 5: churn key is gone
+      (println (mtBit (mapHas x 500)))  ; 0
+      (println (mtCountIntact x 1 6))  ; 5: survivors intact
+      (println (mapSumKeys x))  ; 15
+      (println (mapSumVals x))  ; 150
       ; --- the extremes of the signed range are ordinary keys ---
       ; The keys themselves are not printed: `Fmt.fmtInt` misformats
       ; -9223372036854775807 (it prints -9223372036854775808), so a
@@ -177,12 +229,20 @@
       (mapInsert x 9223372036854775807 111)
       (mapInsert x (- 0 9223372036854775807) 222)
       (mapInsert x (- 0 1) 333)
-      (println (mapLen x))                       ; 8
-      (println (cast Int (mapGet x 9223372036854775807 (- 0 1))))   ; 111
-      (println (cast Int (mapGet x (- 0 9223372036854775807) (- 0 1)))) ; 222
-      (println (cast Int (mapGet x (- 0 1) (- 0 1))))       ; 333
-      (println (mtBit (mapHas x (- 0 2))))       ; 0
-
+      (println (mapLen x))  ; 8
+      (println
+        (cast Int (mapGet x 9223372036854775807 (- 0 1)))
+      )
+      ; 111
+      (println
+        (cast Int (mapGet x (- 0 9223372036854775807) (- 0 1)))
+      )
+      ; 222
+      (println
+        (cast Int (mapGet x (- 0 1) (- 0 1)))
+      )
+      ; 333
+      (println (mtBit (mapHas x (- 0 2))))  ; 0
       ; --- a Map of Str values: the value position is a type variable,
       ; so the table that held Ints above holds a String here, and the
       ; get's default is the same variable as its return - so it must be
@@ -190,19 +250,23 @@
       (mapInsert x 1000 "interned")
       ; `cast String`: `mapGet` answers the VALUE type, a type
       ; variable, which selects no `Show` implementation (AX3025).
-      (println (cast String (mapGet x 1000 "")))    ; interned
-
+      (println
+        (cast String (mapGet x 1000 ""))
+      )
+      ; interned
       ; --- the hash is pinned against an independent fmix64 ---
       ; Values computed by a Python reimplementation working in
       ; unsigned 64-bit arithmetic, so a divergence in Axiom's signed
       ; shifts, masks or wrapping multiplication shows as a number
       ; here, not as a mysteriously slow table. Zero is fmix64's fixed
       ; point, so its pin really is 0.
-      (println (mapHash 0))                        ; 0
-      (println (mapHash 1))                        ; 3771409529372330796
-      (println (mapHash (- 0 1)))                  ; 7256831767414464289
-      (println (mapHash 12345))                    ; 1716623506685013753
-      (println (mapHash 9223372036854775807))      ; 3150617518162374122
-      (println (mapHash (- 0 9223372036854775807))) ; 7913832204677143650
+      (println (mapHash 0))  ; 0
+      (println (mapHash 1))  ; 3771409529372330796
+      (println (mapHash (- 0 1)))  ; 7256831767414464289
+      (println (mapHash 12345))  ; 1716623506685013753
+      (println (mapHash 9223372036854775807))  ; 3150617518162374122
+      (println (mapHash (- 0 9223372036854775807)))  ; 7913832204677143650
       0
-    }))
+    }
+  )
+)

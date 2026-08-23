@@ -2,10 +2,13 @@
 (import IO)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((a (memAlloc 8))
-        (b (memAlloc 8)))
+  (let (
+    (a (memAlloc 8))
+    (b (memAlloc 8))
+  )
     {
       (println (memGetByte a 0))
       (memPutByte a 0 65)
@@ -20,7 +23,13 @@
       (memSet a 0 8)
       (println (memGetByte a 1))
       (memSetWord a 0 123456789)
-      (println (cast Int (memGetWord a 0)))
-      (println (cast Int (memGetWord a 1)))
+      (println
+        (cast Int (memGetWord a 0))
+      )
+      (println
+        (cast Int (memGetWord a 1))
+      )
       0
-    }))
+    }
+  )
+)

@@ -9,8 +9,13 @@
 ; implementation MUST either give them widths or remove them." They
 ; are removed; the corpus population was zero.
 (:: d (-> Double Double))
+
 (fn (d x) x)
+
 (:: u (-> U8 Int))
+
 (fn (u x) 0)
+
 (:: main Int)
+
 (fn (main) 0)

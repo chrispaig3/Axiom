@@ -10,15 +10,18 @@
 ; and the trait `Tw` finds the function behind it through a different
 ; arm. One arm working and the other silent is the shape that hid
 ; this in the first place.
-(trait (Sz a) where
-  (sz :: (-> a Int)))
+(trait (Sz a) where (
+  sz :: (-> a Int)
+))
 
 (fn (sz n) 7)
 
 (fn (tw n) 1)
 
-(trait (Tw a) where
-  (tw :: (-> a Int)))
+(trait (Tw a) where (
+  tw :: (-> a Int)
+))
 
 (:: main Int)
+
 (fn (main) 0)

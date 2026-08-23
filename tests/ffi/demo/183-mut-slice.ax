@@ -9,37 +9,52 @@
 ; back as the same words, so the classifier refuses it and says to
 ; take `&[T]` and return a `Vec<T>`.
 (import IO)
+
 (import Fmt)
+
 (import Vec)
+
 (import Demo)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((xs (vecNew))
-        (none (vecNew)))
+  (let (
+    (xs vecNew)
+    (none vecNew)
+  )
     {
       (vecPush xs 1)
       (vecPush xs -2)
       (vecPush xs 30)
-      (let ((count (doubleInPlace xs))
-            (a (vecGet xs 0))
-            (b (vecGet xs 1))
-            (c (vecGet xs 2))
-            (len (vecLen xs))
-            (again (doubleInPlace xs))
-            (c2 (vecGet xs 2))
-            (zero (doubleInPlace none)))
-        (if (&& (== count 3)
-            (&& (== a 2)
-            (&& (== b -4)
-            (&& (== c 60)
-            (&& (== len 3)
-            (&& (== again 3)
-            (&& (== c2 120)
-                (== zero 0))))))))
-            { (println "mut slice: agree") 0 }
-            { (println (fmtInt count)) (println (fmtInt a)) (println (fmtInt b))
-              (println (fmtInt c)) (println (fmtInt len)) (println (fmtInt again))
-              (println (fmtInt c2)) (println (fmtInt zero)) 1 }))
-    }))
+      (let (
+        (count (doubleInPlace xs))
+        (a (vecGet xs 0))
+        (b (vecGet xs 1))
+        (c (vecGet xs 2))
+        (len (vecLen xs))
+        (again (doubleInPlace xs))
+        (c2 (vecGet xs 2))
+        (zero (doubleInPlace none))
+      )
+        (if (&& (== count 3) (&& (== a 2) (&& (== b -4) (&& (== c 60) (&& (== len 3) (&& (== again 3) (&& (== c2 120) (== zero 0))))))))
+          {
+            (println "mut slice: agree")
+            0
+          }
+          {
+            (println (fmtInt count))
+            (println (fmtInt a))
+            (println (fmtInt b))
+            (println (fmtInt c))
+            (println (fmtInt len))
+            (println (fmtInt again))
+            (println (fmtInt c2))
+            (println (fmtInt zero))
+            1
+          }
+        )
+      )
+    }
+  )
+)
 ; expect 0

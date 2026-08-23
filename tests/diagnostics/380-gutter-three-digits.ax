@@ -99,5 +99,7 @@
 ; 099 filler comment line to push the error past line 100
 ; 100 filler comment line to push the error past line 100
 (:: main Int)
+
 (fn (main) 0)
+
 (fn (main) 1)

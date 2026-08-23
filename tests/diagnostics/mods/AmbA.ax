@@ -1,2 +1,3 @@
 (pub :: dup (-> Int Int))
+
 (pub fn (dup n) n)

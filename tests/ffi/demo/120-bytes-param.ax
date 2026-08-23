@@ -12,15 +12,30 @@
 ; string differs from the character count - the proof that the shim
 ; saw bytes, not characters.
 (import IO)
+
 (import Fmt)
+
 (import Demo)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((ascii (byteLen "hello"))
-        (empty (byteLen ""))
-        (utf8 (byteLen "héllo")))
+  (let (
+    (ascii (byteLen "hello"))
+    (empty (byteLen ""))
+    (utf8 (byteLen "héllo"))
+  )
     (if (&& (== ascii 5) (&& (== empty 0) (== utf8 6)))
-        { (println "bytes param: agree") 0 }
-        { (println (fmtInt ascii)) (println (fmtInt empty)) (println (fmtInt utf8)) 1 })))
+      {
+        (println "bytes param: agree")
+        0
+      }
+      {
+        (println (fmtInt ascii))
+        (println (fmtInt empty))
+        (println (fmtInt utf8))
+        1
+      }
+    )
+  )
+)
 ; expect 0

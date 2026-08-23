@@ -2,11 +2,18 @@
 ; the arena; this case is the control that shows the arena still behaves
 ; when no foreign memory exists.
 (import IO)
+
 (import Vec)
+
 (import Fmt)
 
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((v (vecPush (vecPush vecNew 10) 32)))
-    { (println (fmtInt (+ (vecGet v 0) (vecGet v 1)))) 0 }))
+    {
+      (println (fmtInt (+ (vecGet v 0) (vecGet v 1))))
+      0
+    }
+  )
+)
 ; expect 0

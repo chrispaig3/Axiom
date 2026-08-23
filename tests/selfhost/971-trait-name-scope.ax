@@ -27,30 +27,62 @@
 ; diagnostic - is `tests/diagnostics/445-trait-method-duplicate.ax`.
 (import Str)
 
-(trait (Sz a) where
-  (sz :: (-> a Int)))
+(trait (Sz a) where (
+  sz :: (-> a Int)
+))
 
-(impl (Sz Int) where
-  ((sz (lambda (n) 111))))
+(impl (Sz Int) where (
+  (sz
+    (lambda (n) 111)
+  )
+))
 
-(impl (Sz Bool) where
-  ((sz (lambda (b) 222))))
+(impl (Sz Bool) where (
+  (sz
+    (lambda (b) 222)
+  )
+))
 
 ; A trait whose method is spelled like the `Str` function above.
-(trait (Len a) where
-  (strLen :: (-> a Int)))
+(trait (Len a) where (
+  strLen :: (-> a Int)
+))
 
-(impl (Len Bool) where
-  ((strLen (lambda (b) 999))))
+(impl (Len Bool) where (
+  (strLen
+    (lambda (b) 999)
+  )
+))
 
 (:: viaParam (-> (-> Int Int) Int))
+
 (fn (viaParam sz) (sz 5))
 
 (:: main Int)
+
 (fn (main)
-  (let ((a (let ((sz (lambda (q) 7))) (sz 5))))
-    (let ((b (viaParam (lambda (q) 7))))
+  (let ((a 
+    (let ((sz 
+      (lambda (q) 7)
+    ))
+      (sz 5)
+    )
+  ))
+    (let ((b 
+      (viaParam
+        (lambda (q) 7)
+      )
+    ))
       (let ((c (strLen "abcd")))
         (let ((d (sz 5)))
           (let ((e (sz true)))
-            (if (== (+ (+ (+ (+ a b) c) d) e) 351) 42 1)))))))
+            (if (== (+ (+ (+ (+ a b) c) d) e) 351)
+              42
+              1
+            )
+          )
+        )
+      )
+    )
+  )
+)

@@ -1,15 +1,15 @@
 [1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
-  [1;34m--> [0m994-string-return-int-body.ax:19:13
+  [1;34m--> [0m994-string-return-int-body.ax:20:13
 [1;34m   |[0m
-[1;34m19 |[0m (fn (bad n) n)
+[1;34m20 |[0m (fn (bad n) n)
 [1;34m   |[0m             [1;31m^ this has type `Int`, expected `String`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Int, found String[0m
-  [1;34m--> [0m994-string-return-int-body.ax:22:15
+  [1;34m--> [0m994-string-return-int-body.ax:24:15
 [1;34m   |[0m
-[1;34m22 |[0m (fn (worse s) s)
+[1;34m24 |[0m (fn (worse s) s)
 [1;34m   |[0m               [1;31m^ this has type `String`, expected `Int`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation

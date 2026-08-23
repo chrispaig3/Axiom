@@ -6,4 +6,10 @@
 (import Str)
 
 (:: main Int)
-(fn (main) (if (== (strLen "abcd") 4) 42 1))
+
+(fn (main)
+  (if (== (strLen "abcd") 4)
+    42
+    1
+  )
+)

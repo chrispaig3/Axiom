@@ -1,10 +1,10 @@
 [1;31merror[AX3006][0m[1m: duplicate definition `two`[0m
-  [1;34m--> [0m455-effect-op-collision.ax:14:6
+  [1;34m--> [0m455-effect-op-collision.ax:15:6
 [1;34m   |[0m
 [1;34m11 |[0m   (two :: (-> Int Int Int)))
 [1;34m   |[0m    [1;36m--- `two` first defined here[0m
 [1;34m...[0m
-[1;34m14 |[0m (fn (two n) 5)
+[1;34m15 |[0m (fn (two n) 5)
 [1;34m   |[0m      [1;31m^^^ `two` redefined here[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrename one of the definitions, or remove the duplicate

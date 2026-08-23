@@ -2,10 +2,13 @@
 (import IO)
 
 (pub :: main Int)
+
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((hello "hello")
-        (world "world"))
+  (let (
+    (hello "hello")
+    (world "world")
+  )
     {
       (println (strLen hello))
       (println (strLen ""))
@@ -27,4 +30,6 @@
       (println (strFindByte hello 122 0))
       (println (strDup hello))
       0
-    }))
+    }
+  )
+)

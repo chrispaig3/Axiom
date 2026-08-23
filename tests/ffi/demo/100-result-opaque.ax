@@ -10,31 +10,52 @@
 ; The `Err` branch never leaves a dangling handle: no value was boxed,
 ; so there is nothing to drop, and the wrapper builds no `Handle`.
 (import IO)
+
 (import Fmt)
+
 (import Str)
+
 (import Err)
+
 (import Demo)
 
 (pub :: valueOr (-> (Result Counter String) Int Int))
+
 (pub fn (valueOr r d)
   (match r
     ((Ok c) (counterValue c))
-    ((Err _) d)))
+    ((Err _) d)
+  )
+)
 
 (pub :: messageOf (-> (Result Counter String) String))
+
 (pub fn (messageOf r)
   (match r
     ((Ok _) "")
-    ((Err m) m)))
+    ((Err m) m)
+  )
+)
 
 ;@axiom:effect(io)
 (pub fn (main)
-  (let ((good (valueOr (counterTryNew 7) -1))
-        (bad (valueOr (counterTryNew -3) -1))
-        (msg (messageOf (counterTryNew -3))))
-    (if (&& (== good 7)
-        (&& (== bad -1)
-            (strEq msg "counter cannot start below zero (got -3)")))
-        { (println "result opaque: agree") 0 }
-        { (println (fmtInt good)) (println (fmtInt bad)) (println msg) 1 })))
+  (let (
+    (good (valueOr (counterTryNew 7) -1))
+    (bad (valueOr (counterTryNew -3) -1))
+    (msg (messageOf (counterTryNew -3)))
+  )
+    (if (&& (== good 7) (&& (== bad -1) (strEq msg "counter cannot start below zero (got -3)")))
+      {
+        (println "result opaque: agree")
+        0
+      }
+      {
+        (println (fmtInt good))
+        (println (fmtInt bad))
+        (println msg)
+        1
+      }
+    )
+  )
+)
 ; expect 0

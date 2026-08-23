@@ -24,22 +24,28 @@
 ; again, and it is the tail's tail that no arm leaves total. Note
 ; `(Nil)` is written parenthesised throughout - a bare `Nil` is a
 ; BINDER that matches anything, and an arm ending in one is total.
-(data List (a)
+(data List a
   (Nil)
   (Cons a (List a)))
 
 (:: firstTwo (-> (List Int) Int))
+
 (fn (firstTwo l)
   (match l
     ((Nil) 0)
-    ((Cons h (Cons h2 t)) (+ h h2))))
+    ((Cons h (Cons h2 t)) (+ h h2))
+  )
+)
 
 (:: deep (-> (List Int) Int))
+
 (fn (deep l)
   (match l
     ((Nil) 0)
     ((Cons h (Nil)) h)
-    ((Cons h (Cons h2 (Cons h3 t))) h3)))
+    ((Cons h (Cons h2 (Cons h3 t))) h3)
+  )
+)
 
 ; The CROSS-COLUMN case, and the reason the check is the real
 ; algorithm rather than a per-column merge. Each column of `pair`
@@ -48,14 +54,22 @@
 ; and `(Mk (R) (R))` would fall through. Specialization asks the
 ; question per COMBINATION, so it refuses this and accepts the
 ; four-arm version (tests/selfhost/745-nested-pattern-total.ax).
-(data C (R) (G))
-(data P (Mk C C))
+(data C
+  (R)
+  (G))
+
+(data P
+  (Mk C C))
 
 (:: pair (-> P Int))
+
 (fn (pair p)
   (match p
     ((Mk (R) (G)) 1)
-    ((Mk (G) (R)) 2)))
+    ((Mk (G) (R)) 2)
+  )
+)
 
 (:: main Int)
+
 (fn (main) 0)

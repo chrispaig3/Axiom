@@ -12,19 +12,32 @@
 ; columns, which exercises the `line:col-col` shape and the related-span
 ; field together.
 (import Str)
+
 (import Vec)
+
 (import Mem)
+
 (import core)
+
 (import diag)
+
 (:: main Int)
+
 (fn (main)
-  (let ((src "(:: main Int)\n(fn (main) 0)\n(fn (main) 1)\n")
-        (d (mkDiag SEV_ERROR "AX3006" "duplicate-definition"
-                   (mkSpan 33 37)
-                   "duplicate definition `main`"
-                   (mkSpan 19 23)
-                   "`main` first defined here"
-                   "rename one of the definitions, or remove the duplicate")))
-    (let ((got (renderDiag d src "dup.ax" 0))
-          (want "E AX3006 dup.ax:3:6-10 duplicate-definition \"duplicate definition `main`\" ^2:6-10:\"`main` first defined here\" ?\"rename one of the definitions, or remove the duplicate\""))
-      (if (strEq got want) 42 7))))
+  (let (
+    (src "(:: main Int)\n(fn (main) 0)\n(fn (main) 1)\n")
+    (d (mkDiag
+      SEV_ERROR      "AX3006"      "duplicate-definition"      (mkSpan 33 37)      "duplicate definition `main`"      (mkSpan 19 23)      "`main` first defined here"      "rename one of the definitions, or remove the duplicate"
+    ))
+  )
+    (let (
+      (got (renderDiag d src "dup.ax" 0))
+      (want "E AX3006 dup.ax:3:6-10 duplicate-definition \"duplicate definition `main`\" ^2:6-10:\"`main` first defined here\" ?\"rename one of the definitions, or remove the duplicate\"")
+    )
+      (if (strEq got want)
+        42
+        7
+      )
+    )
+  )
+)

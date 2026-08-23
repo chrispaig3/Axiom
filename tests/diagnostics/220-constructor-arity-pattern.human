@@ -1,19 +1,19 @@
 [1;31merror[AX3009][0m[1m: constructor `Green` expects 1 argument(s), found 0[0m
- [1;34m--> [0m220-constructor-arity-pattern.ax:5:7
+ [1;34m--> [0m220-constructor-arity-pattern.ax:9:7
 [1;34m  |[0m
-[1;34m5 |[0m     ((Green) 1)
+[1;34m9 |[0m     ((Green) 1)
 [1;34m  |[0m       [1;31m^^^^^ 0 argument(s) provided here[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mthis constructor takes exactly 1 field(s); add or remove arguments to match
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3009` for a full explanation
 
 [1;31merror[AX3009][0m[1m: constructor `Green` expects 1 argument(s), found 2[0m
- [1;34m--> [0m220-constructor-arity-pattern.ax:6:7
-[1;34m  |[0m
-[1;34m6 |[0m     ((Green a b) 2)
-[1;34m  |[0m       [1;31m^^^^^ 2 argument(s) provided here[0m
-[1;34m  |[0m
- [1;34m = [0m[1;32mhelp: [0mthis constructor takes exactly 1 field(s); add or remove arguments to match
- [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3009` for a full explanation
+  [1;34m--> [0m220-constructor-arity-pattern.ax:10:7
+[1;34m   |[0m
+[1;34m10 |[0m     ((Green a b) 2)
+[1;34m   |[0m       [1;31m^^^^^ 2 argument(s) provided here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mthis constructor takes exactly 1 field(s); add or remove arguments to match
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3009` for a full explanation
 
 compilation failed due to 2 previous errors

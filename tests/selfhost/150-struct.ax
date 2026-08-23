@@ -13,8 +13,20 @@
 ; case passed by not being checked. `cast` reinterprets the machine
 ; word without converting it, which is exactly the handle-to-address
 ; move this test wants to make.
-(struct P (x : Int) (y : Int))
+(struct P
+  (x : Int)
+  (y : Int))
+
 (:: main Int)
+
 (fn (main)
   (let ((p (P 40 2)))
-    (+ (__load64 (cast Int p) 0) (__load64 (cast Int p) 1))))
+    (+
+      (__load64
+        (cast Int p)        0
+      )      (__load64
+        (cast Int p)        1
+      )
+    )
+  )
+)

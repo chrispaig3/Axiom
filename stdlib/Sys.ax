@@ -17,32 +17,15 @@
 ; result (see `targetSyscallAsm` in `self_host/codegen.ax`, whose Darwin
 ; templates branch on carry and negate), so `sysFailed` is a
 ; single portable comparison rather than a per-OS special case.
-
 (import Sys.Platform)
 
 ; ------------------------------------------------------------------
 ; File descriptors
 ; ------------------------------------------------------------------
-
-(pub :: stdin Int)
-(pub fn (stdin) 0)
-
-(pub :: stdout Int)
-(pub fn (stdout) 1)
-
-(pub :: stderr Int)
-(pub fn (stderr) 2)
-
 ; ------------------------------------------------------------------
 ; Core operations
 ; ------------------------------------------------------------------
-
 ; write(fd, buf, count) -> bytes written, or a negative/errno result.
-(pub :: sysWriteFd (-> Int Int Int Int))
-;@axiom:effect(io)
-(pub fn (sysWriteFd fd buf count)
-  (__syscall3 sysWrite fd buf count))
-
 ; Write all `count` bytes at `buf` to `fd`: bytes written, or `-errno`.
 ;
 ; A single `write` is PERMITTED to transfer fewer bytes than asked - a
@@ -54,25 +37,10 @@
 ; single-shot.
 ;
 ; `done` is how many bytes are already out; callers pass 0.
-(pub :: sysWriteAllFd (-> Int Int Int Int Int))
-;@axiom:effect(io)
-(pub fn (sysWriteAllFd fd buf count done)
-  (if (>= done count)
-      done
-      (let ((n (sysWriteFd fd (+ buf done) (- count done))))
-        (if (< n 1)
-            ; A zero-byte write is not progress, and looping on it
-            ; spins forever; answer what got out and let the caller
-            ; compare it against what it asked for.
-            (if (< n 0) n done)
-            (sysWriteAllFd fd buf count (+ done n))))))
-
+; A zero-byte write is not progress, and looping on it
+; spins forever; answer what got out and let the caller
+; compare it against what it asked for.
 ; read(fd, buf, count) -> bytes read, 0 at end of file.
-(pub :: sysReadFd (-> Int Int Int Int))
-;@axiom:effect(io)
-(pub fn (sysReadFd fd buf count)
-  (__syscall3 sysRead fd buf count))
-
 ; open(path, flags) -> fd, or an error result.
 ;
 ; `path` is the address of NUL-terminated bytes - `(__addr "file.txt")`
@@ -82,68 +50,120 @@
 ; the flags contain `O_CREAT`, but passing 0 - as an earlier version did -
 ; creates files with *no* permissions at all, which then cannot be read
 ; back even by the process that just wrote them.
-(pub :: sysOpenPath (-> Int Int Int))
-;@axiom:effect(io)
-(pub fn (sysOpenPath path flags)
-  (sysOpenPathMode path flags 420))
-
 ; open(path, flags, mode), for callers that need a specific mode.
-(:: sysOpenPathMode (-> Int Int Int Int))
-;@axiom:effect(io)
-(fn (sysOpenPathMode path flags mode)
-  (if (== openNeedsDirFd 1)
-      (__syscall4 sysOpen atFdCwd path flags mode)
-      (__syscall3 sysOpen path flags mode)))
-
-(pub :: sysCloseFd (-> Int Int))
-;@axiom:effect(io)
-(pub fn (sysCloseFd fd)
-  (__syscall1 sysClose fd))
-
 ; lseek(fd, offset, whence) -> resulting absolute offset.
-(:: sysSeek (-> Int Int Int Int))
-;@axiom:effect(io)
-(fn (sysSeek fd offset whence)
-  (__syscall3 sysLseek fd offset whence))
-
 ; Terminate the process. Never returns; the `0` afterwards exists only
 ; because every Axiom expression has a value.
-(pub :: sysExitWith (-> Int Int))
-;@axiom:effect(io)
-(pub fn (sysExitWith code)
-  {
-    (__syscall1 sysExit code)
-    0
-  })
-
 ; ------------------------------------------------------------------
 ; Error handling
 ; ------------------------------------------------------------------
-
 ; True when a syscall result denotes failure.
 ;
 ; One comparison suffices on every platform: see the note at the top of
 ; this file about how Darwin's carry-flag convention is normalised in
 ; the backend. `-errno` is always negative, and no successful result of
 ; any syscall this library exposes ever is.
-(pub :: sysFailed (-> Int Bool))
-(pub fn (sysFailed result)
-  (< result 0))
-
 ; The errno behind a failed result, or 0 if it did not fail.
-(pub :: sysErrno (-> Int Int))
-(pub fn (sysErrno result)
-  (if (< result 0) (- 0 result) 0))
-
 ; ------------------------------------------------------------------
 ; File I/O utilities
 ; ------------------------------------------------------------------
-
 (import Str)
+
 (import Mem)
+
 ; `sysReadDir` answers a Vec of names. `Str` already imports `Vec` for
 ; `strSplit`, so this edge is not new - it is written down.
 (import Vec)
+
+(pub :: stdin Int)
+
+(pub fn (stdin) 0)
+
+(pub :: stdout Int)
+
+(pub fn (stdout) 1)
+
+(pub :: stderr Int)
+
+(pub fn (stderr) 2)
+
+(pub :: sysWriteFd (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysWriteFd fd buf count) (__syscall3 sysWrite fd buf count))
+
+(pub :: sysWriteAllFd (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysWriteAllFd fd buf count done)
+  (if (>= done count)
+    done
+    (let ((n (sysWriteFd fd (+ buf done) (- count done))))
+      (if (< n 1)
+        (if (< n 0)
+          n
+          done
+        )
+        (sysWriteAllFd fd buf count (+ done n))
+      )
+    )
+  )
+)
+
+(pub :: sysReadFd (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysReadFd fd buf count) (__syscall3 sysRead fd buf count))
+
+(pub :: sysOpenPath (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysOpenPath path flags) (sysOpenPathMode path flags 420))
+
+(:: sysOpenPathMode (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(fn (sysOpenPathMode path flags mode)
+  (if (== openNeedsDirFd 1)
+    (__syscall4
+      sysOpen      atFdCwd      path      flags      mode
+    )
+    (__syscall3 sysOpen path flags mode)
+  )
+)
+
+(pub :: sysCloseFd (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysCloseFd fd) (__syscall1 sysClose fd))
+
+(:: sysSeek (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(fn (sysSeek fd offset whence) (__syscall3 sysLseek fd offset whence))
+
+(pub :: sysExitWith (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysExitWith code)
+  {
+    (__syscall1 sysExit code)
+    0
+  }
+)
+
+(pub :: sysFailed (-> Int Bool))
+
+(pub fn (sysFailed result) (< result 0))
+
+(pub :: sysErrno (-> Int Int))
+
+(pub fn (sysErrno result)
+  (if (< result 0)
+    (- 0 result)
+    0
+  )
+)
 
 ; Open, read entire contents, close.  Returns an empty string on any
 ; error (missing file, permission, etc.).
@@ -167,15 +187,20 @@
 ; header's address as a char*, opened garbage, and reported every file
 ; as missing.
 (pub :: sysReadFile (-> Int String))
+
 (pub fn (sysReadFile path)
   (let ((fd (sysOpenPath path oRdonly)))
     (if (sysFailed fd)
-        ""
-        (let ((s (sysReadAll fd (strAlloc 65536) 0 65536)))
-          {
-            (sysCloseFd fd)
-            s
-          }))))
+      ""
+      (let ((s (sysReadAll fd (strAlloc 65536) 0 65536)))
+        {
+          (sysCloseFd fd)
+          s
+        }
+      )
+    )
+  )
+)
 
 ; Read `fd` to EOF into `buf`, doubling the buffer whenever it fills.
 ; `used` bytes hold data; `cap` is the buffer's capacity. A short read
@@ -184,32 +209,41 @@
 ; `used` is NUL because `strAlloc` reserves len+1 zeroed bytes and
 ; every growth copies into a fresh zeroed buffer.
 (:: sysReadAll (-> Int String Int Int String))
+
 (fn (sysReadAll fd buf used cap)
   (let ((n (sysReadFd fd (+ (strData buf) used) (- cap used))))
     (if (<= n 0)
-        (if (== used 0)
-            ""
-            ; The retain is the same rule `strSlice` follows and for
-            ; the same reason: this is a SECOND header naming `buf`'s
-            ; owner, so it must take a second share (memory-model.md
-            ; MM-VAL-7). Without it two headers claim one count, and
-            ; the day something releases a `Str` header - MM-LIFE-2e's
-            ; extension work - the first release frees a buffer the
-            ; other header still points into. It was inert when it was
-            ; written, which is the only reason it read as correct.
-            (let ((own (strOwner buf)))
-              {
-                (__retain own)
-                (strWrapOwned (strData buf) used own)
-              }))
-        (let ((used2 (+ used n)))
-          (if (< used2 cap)
-              (sysReadAll fd buf used2 cap)
-              (let ((big (strAlloc (* cap 2))))
-                {
-                  (memCopy (strData big) (strData buf) used2)
-                  (sysReadAll fd big used2 (* cap 2))
-                }))))))
+      (if (== used 0)
+        ""
+        ; The retain is the same rule `strSlice` follows and for
+        ; the same reason: this is a SECOND header naming `buf`'s
+        ; owner, so it must take a second share (memory-model.md
+        ; MM-VAL-7). Without it two headers claim one count, and
+        ; the day something releases a `Str` header - MM-LIFE-2e's
+        ; extension work - the first release frees a buffer the
+        ; other header still points into. It was inert when it was
+        ; written, which is the only reason it read as correct.
+        (let ((own (strOwner buf)))
+          {
+            (__retain own)
+            (strWrapOwned (strData buf) used own)
+          }
+        )
+      )
+      (let ((used2 (+ used n)))
+        (if (< used2 cap)
+          (sysReadAll fd buf used2 cap)
+          (let ((big (strAlloc (* cap 2))))
+            {
+              (memCopy (strData big) (strData buf) used2)
+              (sysReadAll fd big used2 (* cap 2))
+            }
+          )
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Command-line arguments.
@@ -220,20 +254,23 @@
 ; here, and an out-of-range index answers the empty string rather
 ; than whatever address sits past the vector.
 ; ------------------------------------------------------------------
-
 ; How many arguments the process received, including the program name.
 (pub :: sysArgc Int)
-(pub fn (sysArgc) (__argc))
+
+(pub fn (sysArgc) __argc)
 
 ; The i-th argument as a Str (0 is the program name), or "" when `i`
 ; is out of range. The bytes are the process's own argv storage -
 ; NUL-terminated, alive for the whole run, never freed or moved - so
 ; wrapping them without copying is sound.
 (pub :: sysArg (-> Int String))
+
 (pub fn (sysArg i)
-  (if (|| (< i 0) (>= i (__argc)))
-      ""
-      (strFromLit (__argv i))))
+  (if (|| (< i 0) (>= i __argc))
+    ""
+    (strFromLit (__argv i))
+  )
+)
 
 ; Write `s` to `path`, creating or truncating it. Answers the number of
 ; bytes written, or a negative errno from whichever step failed.
@@ -243,16 +280,21 @@
 ; and it could write to an already-open descriptor, but nothing put a
 ; string on disk under a name.
 (pub :: sysWriteFile (-> Int String Int))
+
 ;@axiom:effect(io)
 (pub fn (sysWriteFile path s)
   (let ((fd (sysOpenPath path oWronlyCreateTrunc)))
     (if (sysFailed fd)
-        fd
-        (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
-          {
-            (sysCloseFd fd)
-            n
-          }))))
+      fd
+      (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
+        {
+          (sysCloseFd fd)
+          n
+        }
+      )
+    )
+  )
+)
 
 ; Append `s` to `path`, creating it if it is not there. Answers the
 ; number of bytes written, or a negative errno.
@@ -268,16 +310,21 @@
 ; overwriting each other's last one. Opening for writing and seeking
 ; by hand does not have that property.
 (pub :: sysAppendFile (-> Int String Int))
+
 ;@axiom:effect(io)
 (pub fn (sysAppendFile path s)
   (let ((fd (sysOpenPath path oWronlyCreateAppend)))
     (if (sysFailed fd)
-        fd
-        (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
-          {
-            (sysCloseFd fd)
-            n
-          }))))
+      fd
+      (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
+        {
+          (sysCloseFd fd)
+          n
+        }
+      )
+    )
+  )
+)
 
 ; Rename `old` to `new`, answering 0 or `-errno`. Both are
 ; NUL-terminated char* - `strCStr`.
@@ -298,11 +345,16 @@
 ; branches on the existing `openNeedsDirFd` capability rather than
 ; growing a second one.
 (pub :: sysRename (-> Int Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysRename old new)
   (if (== openNeedsDirFd 1)
-      (__syscall4 sysRenameNum atFdCwd old atFdCwd new)
-      (__syscall2 sysRenameNum old new)))
+    (__syscall4
+      sysRenameNum      atFdCwd      old      atFdCwd      new
+    )
+    (__syscall2 sysRenameNum old new)
+  )
+)
 
 ; Remove `path`. Answers 0, or `-errno`.
 ;
@@ -310,11 +362,14 @@
 ; is the same shape as `open`/`openat`, so it branches on the same
 ; `openNeedsDirFd` capability rather than growing a second one.
 (pub :: sysUnlink (-> Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysUnlink path)
   (if (== openNeedsDirFd 1)
-      (__syscall3 sysUnlinkNum atFdCwd path 0)
-      (__syscall1 sysUnlinkNum path)))
+    (__syscall3 sysUnlinkNum atFdCwd path 0)
+    (__syscall1 sysUnlinkNum path)
+  )
+)
 
 ; Create directory `path` with `mode`. Answers 0, or `-errno` - which
 ; is `-17` (EEXIST) when it is already there, and callers usually want
@@ -324,15 +379,19 @@
 ; branches on the existing `openNeedsDirFd` capability rather than
 ; growing a second one. `path` must be NUL-terminated - `strCStr`.
 (pub :: sysMkdir (-> Int Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysMkdir path mode)
   (if (== openNeedsDirFd 1)
-      (__syscall3 sysMkdirNum atFdCwd path mode)
-      (__syscall2 sysMkdirNum path mode)))
+    (__syscall3 sysMkdirNum atFdCwd path mode)
+    (__syscall2 sysMkdirNum path mode)
+  )
+)
 
 ; 0755, the mode a directory usually wants. A nullary function because
 ; that is how this language spells a constant.
 (pub :: sysDirMode Int)
+
 (pub fn (sysDirMode) 493)
 
 ; Remove the empty directory `path`. Answers 0, or `-errno`.
@@ -341,11 +400,14 @@
 ; the only call AArch64 has for either job - remove a directory rather
 ; than refuse with EISDIR.
 (pub :: sysRmdir (-> Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysRmdir path)
   (if (== openNeedsDirFd 1)
-      (__syscall3 sysRmdirNum atFdCwd path 512)
-      (__syscall1 sysRmdirNum path)))
+    (__syscall3 sysRmdirNum atFdCwd path 512)
+    (__syscall1 sysRmdirNum path)
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Four questions about a file that need no new syscall.
@@ -357,7 +419,6 @@
 ; `read` and `lseek` answer all four with calls this module already
 ; makes, and the three targets nothing here can execute stay honest.
 ; ------------------------------------------------------------------
-
 ; 1 when `path` names something that can be opened for reading.
 ;
 ; This is what `sysRunSearch` has always done to test a candidate, and
@@ -365,12 +426,19 @@
 ; happened, "no such file" and "the child exited 127" are the same
 ; integer.
 (pub :: sysFileExists (-> Int Bool))
+
 ;@axiom:effect(io)
 (pub fn (sysFileExists path)
   (let ((fd (sysOpenPath path oRdonly)))
     (if (< fd 0)
-        false
-        { (sysCloseFd fd) true })))
+      false
+      {
+        (sysCloseFd fd)
+        true
+      }
+    )
+  )
+)
 
 ; The size of `path` in bytes, or `-errno`. Seeks to the end, which is
 ; what the size IS - no struct, no layout, no per-target record.
@@ -383,13 +451,21 @@
 ; over - a caller that must not be fooled asks two questions, and this
 ; one alone was never going to answer both.
 (pub :: sysFileSize (-> Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysFileSize path)
   (let ((fd (sysOpenPath path oRdonly)))
     (if (< fd 0)
-        fd
-        (let ((n (sysSeek fd 0 seekEnd)))
-          { (sysCloseFd fd) n }))))
+      fd
+      (let ((n (sysSeek fd 0 seekEnd)))
+        {
+          (sysCloseFd fd)
+          n
+        }
+      )
+    )
+  )
+)
 
 ; 0 when `path` can be opened AND read as a file, otherwise the errno
 ; saying why not.
@@ -407,17 +483,26 @@
 ; `main.ax` as `sourceReadErrno`, which is one program's private fix
 ; for a question every program reading a path has.
 (pub :: sysReadErrno (-> Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysReadErrno path)
   (let ((fd (sysOpenPath path oRdonly)))
     (if (sysFailed fd)
-        (sysErrno fd)
-        (let ((probe (strAlloc 1)))
-          (let ((n (sysReadFd fd (strData probe) 1)))
-            {
-              (sysCloseFd fd)
-              (if (< n 0) (sysErrno n) 0)
-            })))))
+      (sysErrno fd)
+      (let ((probe (strAlloc 1)))
+        (let ((n (sysReadFd fd (strData probe) 1)))
+          {
+            (sysCloseFd fd)
+            (if (< n 0)
+              (sysErrno n)
+              0
+            )
+          }
+        )
+      )
+    )
+  )
+)
 
 ; True when `path` names a directory.
 ;
@@ -428,9 +513,9 @@
 ; distinction `sysFileExists` cannot make and `sysFileSize` answers
 ; wrongly for.
 (pub :: sysIsDir (-> Int Bool))
+
 ;@axiom:effect(io)
-(pub fn (sysIsDir path)
-  (== (sysReadErrno path) eIsDir))
+(pub fn (sysIsDir path) (== (sysReadErrno path) eIsDir))
 
 ; ------------------------------------------------------------------
 ; Reading a directory.
@@ -460,11 +545,11 @@
 ; way to ask is better than a fast way that is sometimes silent about
 ; not knowing.
 ; ------------------------------------------------------------------
-
 ; Bytes per `getdents` call. Large enough that a directory of a few
 ; hundred entries comes back in one syscall (a Darwin record is 32
 ; bytes for a short name), and the loop below handles any number.
 (:: sysDirBufBytes Int)
+
 (fn (sysDirBufBytes) 32768)
 
 ; Every name in the directory `path`, as a Vec of owned `Str` - `.`
@@ -487,40 +572,57 @@
 ; bytes N times over - which is the kind of bug that looks like a
 ; filesystem returning duplicates.
 (pub :: sysReadDir (-> Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysReadDir path)
   (let ((out vecNew))
     (let ((fd (sysOpenPath path oRdonly)))
       (if (sysFailed fd)
-          out
-          (let ((buf (memAlloc sysDirBufBytes))
-                (pos (memAlloc 8)))
-            {
-              ; Darwin's fourth argument is an in/out scan cookie the
-              ; kernel starts from; zero is the beginning. Linux keeps
-              ; the position on the descriptor and never reads this.
-              (memSetWord pos 0 0)
-              (sysReadDirLoop fd buf pos out)
-              (sysCloseFd fd)
-              out
-            })))))
+        out
+        ; Darwin's fourth argument is an in/out scan cookie the
+        ; kernel starts from; zero is the beginning. Linux keeps
+        ; the position on the descriptor and never reads this.
+        (let (
+          (buf (memAlloc sysDirBufBytes))
+          (pos (memAlloc 8))
+        )
+          {
+            (memSetWord pos 0 0)
+            (sysReadDirLoop fd buf pos out)
+            (sysCloseFd fd)
+            out
+          }
+        )
+      )
+    )
+  )
+)
 
 ; One `getdents` per pass until the directory is exhausted (0) or the
 ; kernel refuses (negative). A refusal mid-way keeps the names already
 ; decoded rather than discarding them, which matches `sysReadAll`'s
 ; rule for a short read.
 (:: sysReadDirLoop (-> Int Int Int Int Int))
+
 ;@axiom:effect(io)
 (fn (sysReadDirLoop fd buf pos out)
-  (let ((n (if (== dirReadNeedsPosition 1)
-               (__syscall4 sysGetdentsNum fd buf sysDirBufBytes pos)
-               (__syscall3 sysGetdentsNum fd buf sysDirBufBytes))))
+  (let ((n 
+    (if (== dirReadNeedsPosition 1)
+      (__syscall4
+        sysGetdentsNum        fd        buf        sysDirBufBytes        pos
+      )
+      (__syscall3 sysGetdentsNum fd buf sysDirBufBytes)
+    )
+  ))
     (if (<= n 0)
-        n
-        {
-          (sysReadDirDecode buf 0 n out)
-          (sysReadDirLoop fd buf pos out)
-        })))
+      n
+      {
+        (sysReadDirDecode buf 0 n out)
+        (sysReadDirLoop fd buf pos out)
+      }
+    )
+  )
+)
 
 ; Walk the `n` bytes of packed records at `buf`, pushing one owned copy
 ; of each name.
@@ -533,28 +635,36 @@
 ; filename from it. Two conditions make it total: a record's header
 ; must fit, and the record must both fit and advance.
 (:: sysReadDirDecode (-> Int Int Int Int Int))
+
 (fn (sysReadDirDecode buf off n out)
   ; 18 is the last byte of `d_reclen` on both layouts; without room for
   ; it there is no length to read.
   (if (> (+ off 18) n)
-      0
-      (let ((p (+ buf off)))
-        ; d_reclen: a little-endian u16 at offset 16 on both layouts.
-        ; There is no `__load16`, and building it from two bytes is
-        ; correct on every target this compiler emits for - all of
-        ; them are little-endian, and a big-endian one would need a
-        ; capability here the way the name offset already has one.
-        (let ((reclen (+ (memGetByte p 16) (* (memGetByte p 17) 256))))
-          ; A record that does not advance would spin this loop
-          ; forever; one that runs past `n` would read a name out of
-          ; bytes the kernel did not write. Stopping loses the rest of
-          ; the buffer, which is strictly better than either.
-          (if (|| (<= reclen 0) (> (+ off reclen) n))
-              0
-              {
-                (vecPush out (cast Int (strDup (strFromLit (+ p direntNameOffset)))))
-                (sysReadDirDecode buf (+ off reclen) n out)
-              })))))
+    0
+    ; d_reclen: a little-endian u16 at offset 16 on both layouts.
+    ; There is no `__load16`, and building it from two bytes is
+    ; correct on every target this compiler emits for - all of
+    ; them are little-endian, and a big-endian one would need a
+    ; capability here the way the name offset already has one.
+    ; A record that does not advance would spin this loop
+    ; forever; one that runs past `n` would read a name out of
+    ; bytes the kernel did not write. Stopping loses the rest of
+    ; the buffer, which is strictly better than either.
+    (let ((p (+ buf off)))
+      (let ((reclen (+ (memGetByte p 16) (* (memGetByte p 17) 256))))
+        (if (|| (<= reclen 0) (> (+ off reclen) n))
+          0
+          {
+            (vecPush
+              out              (cast Int (strDup (strFromLit (+ p direntNameOffset))))
+            )
+            (sysReadDirDecode buf (+ off reclen) n out)
+          }
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; The working directory.
@@ -572,7 +682,6 @@
 ; has invalidated every relative path any other part of it is holding,
 ; and a setter with no caller is a syscall number nobody has run.
 ; ------------------------------------------------------------------
-
 ; The process's working directory as an absolute path, or "" if it
 ; cannot be determined.
 ;
@@ -581,6 +690,7 @@
 ; result means (Linux answers the length including the NUL, Darwin's
 ; `fcntl` answers 0) and the NUL is the one thing both write.
 (pub :: sysGetCwd String)
+
 ;@axiom:effect(io)
 (pub fn (sysGetCwd)
   ; PATH_MAX is 4096 on Linux and 1024 on Darwin; one buffer at the
@@ -588,16 +698,29 @@
   ; as "" (ERANGE) rather than truncated.
   (let ((buf (memAlloc 4097)))
     (if (== cwdUsesFcntlPath 1)
-        (let ((fd (sysOpenPath (__addr ".") 0)))
-          (if (sysFailed fd)
-              ""
-              (let ((rc (__syscall3 sysCwdNum fd fGetPath buf)))
-                {
-                  (sysCloseFd fd)
-                  (if (< rc 0) "" (strDup (strFromLit buf)))
-                })))
-        (let ((rc (__syscall2 sysCwdNum buf 4096)))
-          (if (< rc 0) "" (strDup (strFromLit buf)))))))
+      (let ((fd (sysOpenPath (__addr ".") 0)))
+        (if (sysFailed fd)
+          ""
+          (let ((rc (__syscall3 sysCwdNum fd fGetPath buf)))
+            {
+              (sysCloseFd fd)
+              (if (< rc 0)
+                ""
+                (strDup (strFromLit buf))
+              )
+            }
+          )
+        )
+      )
+      (let ((rc (__syscall2 sysCwdNum buf 4096)))
+        (if (< rc 0)
+          ""
+          (strDup (strFromLit buf))
+        )
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; The environment.
@@ -617,21 +740,24 @@
 ; which would have had to land in both compilers to keep the bootstrap
 ; building.
 ; ------------------------------------------------------------------
-
 ; The address of the i-th environment entry's bytes, or 0 past the end.
 (:: sysEnvSlot (-> Int Int))
-(fn (sysEnvSlot i)
-  (__argv (+ (+ (__argc) 1) i)))
+
+(fn (sysEnvSlot i) (__argv (+ (+ __argc 1) i)))
 
 ; How many entries the environment has.
 (:: sysEnvCount Int)
+
 (fn (sysEnvCount) (sysEnvCountFrom 0))
 
 (:: sysEnvCountFrom (-> Int Int))
+
 (fn (sysEnvCountFrom i)
   (if (== (sysEnvSlot i) 0)
-      i
-      (sysEnvCountFrom (+ i 1))))
+    i
+    (sysEnvCountFrom (+ i 1))
+  )
+)
 
 ; The value of the environment variable `name`, or "" when it is unset.
 ;
@@ -640,18 +766,24 @@
 ; Anything handing it to a syscall as a path must copy it first, which
 ; `strConcat` and `strDup` both do.
 (pub :: sysEnv (-> String String))
-(pub fn (sysEnv name)
-  (sysEnvLookup (strConcat name "=") 0))
+
+(pub fn (sysEnv name) (sysEnvLookup (strConcat name "=") 0))
 
 (:: sysEnvLookup (-> String Int String))
+
 (fn (sysEnvLookup prefix i)
   (let ((p (sysEnvSlot i)))
     (if (== p 0)
-        ""
-        (let ((e (strFromLit p)))
-          (if (strStartsWith e prefix)
-              (strSlice e (strLen prefix) (- (strLen e) (strLen prefix)))
-              (sysEnvLookup prefix (+ i 1)))))))
+      ""
+      (let ((e (strFromLit p)))
+        (if (strStartsWith e prefix)
+          (strSlice e (strLen prefix) (- (strLen e) (strLen prefix)))
+          (sysEnvLookup prefix (+ i 1))
+        )
+      )
+    )
+  )
+)
 
 ; A NULL-terminated copy of the process's own environment vector, in the
 ; form a child expects.
@@ -662,22 +794,29 @@
 ; empty one, which is rarely what a compiler driver wants - `cc` in
 ; particular resolves its toolchain through the environment.
 (pub :: sysEnvp Int)
+
 (pub fn (sysEnvp)
   (let ((n sysEnvCount))
     (let ((v (memAlloc (* (+ n 1) 8))))
       {
         (sysEnvpFill v 0 n)
         v
-      })))
+      }
+    )
+  )
+)
 
 (:: sysEnvpFill (-> Int Int Int Int))
+
 (fn (sysEnvpFill v i n)
   (if (>= i n)
-      (memSetWord v n 0)
-      {
-        (memSetWord v i (sysEnvSlot i))
-        (sysEnvpFill v (+ i 1) n)
-      }))
+    (memSetWord v n 0)
+    {
+      (memSetWord v i (sysEnvSlot i))
+      (sysEnvpFill v (+ i 1) n)
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Child processes.
@@ -695,7 +834,6 @@
 ; `Sys.Platform.spawnUsesPosixSpawn` is the capability selecting between
 ; them, in keeping with `openNeedsDirFd`: nothing here names an OS.
 ; ------------------------------------------------------------------
-
 ; Start `path` with argument vector `argv` and environment `envp`,
 ; answering the child's pid, or `-errno`.
 ;
@@ -705,85 +843,114 @@
 ; supply it. Neither vector is searched for on `PATH` - `sysRunPath`
 ; does that.
 (pub :: sysSpawn (-> Int Int Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysSpawn path argv envp)
   (if (== spawnUsesPosixSpawn 1)
-      (let ((pidbuf (memAlloc 8)))
+    (let ((pidbuf (memAlloc 8)))
+      {
+        (memSetWord pidbuf 0 0)
+        ; FIVE arguments, not libc's six: the kernel entry point fuses
+        ; the file actions and the attributes into one descriptor, so
+        ; `(pid, path, adesc, argv, envp)` is the shape. See the note
+        ; on `sysPosixSpawn` in the Darwin platform module for what the
+        ; six-argument spelling does instead, and why it is nearly
+        ; invisible.
+        (let ((rc (__syscall5
+          sysPosixSpawn          pidbuf          path          0          argv          envp
+        )))
+          (if (< rc 0)
+            rc
+            (memGetWord pidbuf 0)
+          )
+        )
+      }
+    )
+    ; The path is tested BEFORE the fork, and only this backend needs
+    ; the test. `posix_spawn` resolves the path in the PARENT and
+    ; answers `-ENOENT` without creating a process; here the fork
+    ; always succeeds, the failed `execve` is the CHILD's problem, and
+    ; the only thing the parent gets back is the exit status set
+    ; below - 127, a positive number indistinguishable from a tool
+    ; that ran and exited 127. Conflating those two is exactly what
+    ; `sysRun`'s contract says it does not do.
+    ;
+    ; `sysRunSearch` has its own test for the same reason and it is
+    ; not this one: that one skips a candidate on ANY open failure,
+    ; which is `execvp`'s rule for a PATH walk. This is the direct
+    ; path, where ENOENT ONLY is deliberate - a file that cannot be
+    ; opened can still be executable (mode 0711 is readable by nobody
+    ; and runnable by everyone), and `execve` is the only thing
+    ; entitled to decide that, so every other open failure still
+    ; forks and asks it.
+    (let ((probe (sysOpenPath path oRdonly)))
+      (if (== probe (- 0 2))
+        probe
         {
-          (memSetWord pidbuf 0 0)
-          ; FIVE arguments, not libc's six: the kernel entry point fuses
-          ; the file actions and the attributes into one descriptor, so
-          ; `(pid, path, adesc, argv, envp)` is the shape. See the note
-          ; on `sysPosixSpawn` in the Darwin platform module for what the
-          ; six-argument spelling does instead, and why it is nearly
-          ; invisible.
-          (let ((rc (__syscall5 sysPosixSpawn pidbuf path 0 argv envp)))
-            (if (< rc 0) rc (memGetWord pidbuf 0)))
-        })
-      ; The path is tested BEFORE the fork, and only this backend needs
-      ; the test. `posix_spawn` resolves the path in the PARENT and
-      ; answers `-ENOENT` without creating a process; here the fork
-      ; always succeeds, the failed `execve` is the CHILD's problem, and
-      ; the only thing the parent gets back is the exit status set
-      ; below - 127, a positive number indistinguishable from a tool
-      ; that ran and exited 127. Conflating those two is exactly what
-      ; `sysRun`'s contract says it does not do.
-      ;
-      ; `sysRunSearch` has its own test for the same reason and it is
-      ; not this one: that one skips a candidate on ANY open failure,
-      ; which is `execvp`'s rule for a PATH walk. This is the direct
-      ; path, where ENOENT ONLY is deliberate - a file that cannot be
-      ; opened can still be executable (mode 0711 is readable by nobody
-      ; and runnable by everyone), and `execve` is the only thing
-      ; entitled to decide that, so every other open failure still
-      ; forks and asks it.
-      (let ((probe (sysOpenPath path oRdonly)))
-        (if (== probe (- 0 2))
-            probe
-            {
-              (if (>= probe 0) (sysCloseFd probe) 0)
-              (let ((pid (__syscall5 sysFork sysForkArg 0 0 0 0)))
-                (if (< pid 0)
-                    pid
-                    (if (== pid 0)
-                        {
-                          ; The child. `execve` replaces this image, so
-                          ; reaching the next line means it failed - and
-                          ; the child must then die rather than return
-                          ; into the caller's code and become a second
-                          ; copy of the driver. 127 is the shell's
-                          ; convention for "command not found".
-                          (__syscall3 sysExecve path argv envp)
-                          (__syscall1 sysExit 127)
-                          0
-                        }
-                        pid)))
-            }))))
+          (if (>= probe 0)
+            (sysCloseFd probe)
+            0
+          )
+          (let ((pid (__syscall5
+            sysFork            sysForkArg            0            0            0            0
+          )))
+            (if (< pid 0)
+              pid
+              (if (== pid 0)
+                ; The child. `execve` replaces this image, so
+                ; reaching the next line means it failed - and
+                ; the child must then die rather than return
+                ; into the caller's code and become a second
+                ; copy of the driver. 127 is the shell's
+                ; convention for "command not found".
+                {
+                  (__syscall3 sysExecve path argv envp)
+                  (__syscall1 sysExit 127)
+                  0
+                }
+                pid
+              )
+            )
+          )
+        }
+      )
+    )
+  )
+)
 
 ; Wait for `pid` and answer the raw wait status, or `-errno`.
 (pub :: sysWaitPid (-> Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysWaitPid pid)
+  ; The kernel writes a 32-bit int into an 8-byte word, so the upper
+  ; half is whatever was there before. Zeroing first is what makes
+  ; the read below the status rather than the status plus garbage.
   (let ((statbuf (memAlloc 8)))
     {
-      ; The kernel writes a 32-bit int into an 8-byte word, so the upper
-      ; half is whatever was there before. Zeroing first is what makes
-      ; the read below the status rather than the status plus garbage.
       (memSetWord statbuf 0 0)
-      (let ((w (__syscall4 sysWait4 pid statbuf 0 0)))
-        (if (< w 0) w (memGetWord statbuf 0)))
-    }))
+      (let ((w (__syscall4
+        sysWait4        pid        statbuf        0        0
+      )))
+        (if (< w 0)
+          w
+          (memGetWord statbuf 0)
+        )
+      )
+    }
+  )
+)
 
 ; The exit code carried by a wait status, for a child that exited
 ; normally.
 (pub :: sysExitCode (-> Int Int))
-(pub fn (sysExitCode status)
-  (& (>> status 8) 255))
+
+(pub fn (sysExitCode status) (& (>> status 8) 255))
 
 ; The signal that killed a child, or 0 if it exited normally.
 (pub :: sysTermSignal (-> Int Int))
-(pub fn (sysTermSignal status)
-  (& status 127))
+
+(pub fn (sysTermSignal status) (& status 127))
 
 ; Run `path` to completion and answer its exit code.
 ;
@@ -792,17 +959,24 @@
 ; the module", two failures a driver must not report the same way. A
 ; child killed by a signal answers 128+signal, the shell's convention.
 (pub :: sysRun (-> Int Int Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysRun path argv envp)
   (let ((pid (sysSpawn path argv envp)))
     (if (< pid 0)
-        pid
-        (let ((st (sysWaitPid pid)))
-          (if (< st 0)
-              st
-              (if (!= (sysTermSignal st) 0)
-                  (+ 128 (sysTermSignal st))
-                  (sysExitCode st)))))))
+      pid
+      (let ((st (sysWaitPid pid)))
+        (if (< st 0)
+          st
+          (if (!= (sysTermSignal st) 0)
+            (+ 128 (sysTermSignal st))
+            (sysExitCode st)
+          )
+        )
+      )
+    )
+  )
+)
 
 ; Run `name`, searching `PATH` for it when it contains no slash.
 ;
@@ -859,47 +1033,83 @@
 ; With `PATH` unset or exhausted the answer is `-2` (ENOENT), which is
 ; what a caller distinguishing "not installed" from "failed" reads.
 (pub :: sysRunPath (-> String Int Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysRunPath name argv envp)
   (if (>= (strFindByte name 47 0) 0)
-      (sysRun (strCStr (strDup name)) argv envp)
-      (sysRunSearch name argv envp (sysEnv "PATH") 0)))
+    (sysRun (strCStr (strDup name)) argv envp)
+    (sysRunSearch
+      name      argv      envp      (sysEnv "PATH")      0
+    )
+  )
+)
 
 ; Try `name` in each `:`-separated entry of `path` starting at `from`.
 (:: sysRunSearch (-> String Int Int String Int Int))
+
 ;@axiom:effect(io)
 (fn (sysRunSearch name argv envp path from)
   (if (> from (strLen path))
-      (- 0 2)
-      (let ((colon (strFindByte path 58 from)))
-        (let ((end (if (< colon 0) (strLen path) colon)))
-          (let ((dir (strSlice path from (- end from))))
-            ; An empty entry means the working directory, as in the
-            ; shell. `strConcat` copies, so the candidate is
-            ; NUL-terminated even though `dir` - a slice sharing the
-            ; environment's bytes - is not.
-            (let ((cand (strConcat (strConcat (if (== (strLen dir) 0) "." dir) "/") name)))
-              (let ((cpath (strCStr cand)))
-                ; Does it exist? A candidate that cannot be opened cannot
-                ; be executed, and under fork+exec that is the ONLY point
-                ; at which the two are still distinguishable - once the
-                ; fork has happened, "no such file" and "the tool exited
-                ; 127" are the same integer.
-                (let ((fd (sysOpenPath cpath oRdonly)))
-                  (if (< fd 0)
-                      (sysRunSearch name argv envp path (+ end 1))
-                      {
-                        (sysCloseFd fd)
-                        (let ((rc (sysRun cpath argv envp)))
-                          (if (>= rc 0)
-                              rc
-                              (sysRunSearch name argv envp path (+ end 1))))
-                      })))))))))
+    (- 0 2)
+    ; An empty entry means the working directory, as in the
+    ; shell. `strConcat` copies, so the candidate is
+    ; NUL-terminated even though `dir` - a slice sharing the
+    ; environment's bytes - is not.
+    ; Does it exist? A candidate that cannot be opened cannot
+    ; be executed, and under fork+exec that is the ONLY point
+    ; at which the two are still distinguishable - once the
+    ; fork has happened, "no such file" and "the tool exited
+    ; 127" are the same integer.
+    (let ((colon (strFindByte path 58 from)))
+      (let ((end 
+        (if (< colon 0)
+          (strLen path)
+          colon
+        )
+      ))
+        (let ((dir (strSlice path from (- end from))))
+          (let ((cand 
+            (strConcat
+              (strConcat
+                (if (== (strLen dir) 0)
+                  "."
+                  dir
+                )                "/"
+              )              name
+            )
+          ))
+            (let ((cpath (strCStr cand)))
+              (let ((fd (sysOpenPath cpath oRdonly)))
+                (if (< fd 0)
+                  (sysRunSearch
+                    name                    argv                    envp                    path                    (+ end 1)
+                  )
+                  {
+                    (sysCloseFd fd)
+                    (let ((rc (sysRun cpath argv envp)))
+                      (if (>= rc 0)
+                        rc
+                        (sysRunSearch
+                          name                          argv                          envp                          path                          (+ end 1)
+                        )
+                      )
+                    )
+                  }
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
 ; The calling process's own id - the per-session suffix scratch
 ; files need so two concurrent processes cannot collide. The
 ; syscall takes no arguments; the unused ones are simply zero.
 (pub :: sysGetPid Int)
+
 ;@axiom:effect(io)
 (pub fn (sysGetPid) (__syscall3 sysGetPidNum 0 0 0))
 
@@ -910,16 +1120,21 @@
 ; nothing. tv_usec is 32-bit on Darwin with struct padding above it -
 ; masked, not trusted. A negative answer is the syscall's own error.
 (pub :: sysNowMicros (-> Int Int))
+
 ;@axiom:effect(io)
 (pub fn (sysNowMicros buf)
   (if (== clockIsGettimeofday 1)
-      (let ((r (__syscall3 sysClockNum buf 0 0)))
-        (if (< r 0)
-            r
-            (+ (* (memGetWord buf 0) 1000000)
-               (& (memGetWord buf 1) 4294967295))))
-      (let ((r (__syscall3 sysClockNum 1 buf 0)))
-        (if (< r 0)
-            r
-            (+ (* (memGetWord buf 0) 1000000)
-               (/ (memGetWord buf 1) 1000))))))
+    (let ((r (__syscall3 sysClockNum buf 0 0)))
+      (if (< r 0)
+        r
+        (+ (* (memGetWord buf 0) 1000000) (& (memGetWord buf 1) 4294967295))
+      )
+    )
+    (let ((r (__syscall3 sysClockNum 1 buf 0)))
+      (if (< r 0)
+        r
+        (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000))
+      )
+    )
+  )
+)
