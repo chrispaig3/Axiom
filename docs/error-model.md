@@ -286,7 +286,7 @@ MiB of stack, exactly. The safe shape completes **5,000,000**
 iterations with a flat stack. The same asymmetry killed the lexer once
 already, at a different scale: `lexTokens`/`dispatchChar` cost a frame
 pair per token and died between 96 KB and 146 KB of input
-(`docs/v1-roadmap.md` P4).
+(the roadmap's phase 4).
 
 The happy consequence is that the shape a propagation *form* has to
 generate — the continuation in the arm — is the shape that converts.
@@ -763,7 +763,7 @@ feature-then-`scripts/reseed.sh`, never as both at once.
 **ERR-ADOPT-3 (P). The LSP is the constraint on `ERR-MEM-4`.** A
 compiler process runs once and exits; 32 bytes per fallible call is
 noise. `self_host/lsp.ax` is the one long-lived Axiom program v1 ships,
-and it is already the case `docs/v1-roadmap.md` P2 measures. Migrating
+and it is already the case the roadmap's phase 2 measures. Migrating
 the compiler's phases to `Result` therefore **MUST** be re-measured
 against `scripts/check-lsp-selfhost.sh`'s per-edit figure, and
 `ERR-MEM-4` closed before the LSP's own request path migrates. Its

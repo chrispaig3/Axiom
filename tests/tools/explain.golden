@@ -532,7 +532,7 @@ Dispatch is by the STATIC type of the argument at the call site, and it
 is resolved at compile time: the call becomes a direct call to that
 implementation, with no table and no indirection. A type variable is
 not a type, so a function that is generic over the trait cannot yet
-call its methods - see docs/self-hosting.md 22.
+call its methods.
 
 ### explain AX3026
 AX3026 - a name the emitted runtime owns

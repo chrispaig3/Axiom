@@ -12,7 +12,7 @@
 ; (`:time` durations, `:llvm` IR that differs by design, compound
 ; results that print per-run heap addresses).
 ;
-; Deliberate divergences, recorded in docs/self-hosting.md:
+; Deliberate divergences, recorded in the self-hosting record:
 ;   * no rustyline: stage1 reads plain lines, so the interactive
 ;     affordances (editing, arrow-key history, the history file) do
 ;     not exist. The piped surface is identical; a TTY session is
@@ -275,7 +275,7 @@
 ;     property anything can check. The roadmap set this precedent when
 ;     it replaced phase 4's byte-identity criterion: a criterion that
 ;     asks stage1 to keep the retiring compiler's design choices is
-;     the wrong criterion (v1-roadmap.md P4).
+;     the wrong criterion (the roadmap's phase 4).
 ;   - The EVAL path already resolves and expands - `replCompile`
 ;     below - so the two halves of one prompt line disagreed about
 ;     what was in scope. The typing half ran first and rejected the
@@ -607,7 +607,7 @@
 ; running it through `sh -c "exec PROG > OUT"` - the one place a
 ; shell is borrowed, because the spawn primitive inherits stdio and
 ; Darwin's posix_spawn file_actions descriptor is not a documented
-; shape (docs/self-hosting.md, phase-5 notes).
+; shape (the self-hosting record, phase-5 notes).
 ; ------------------------------------------------------------------
 (pub :: replEval (-> String Int))
 

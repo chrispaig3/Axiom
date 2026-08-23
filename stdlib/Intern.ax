@@ -31,7 +31,7 @@
 ; WHY THIS DOES NOT REUSE `Map`. `Map`'s keys are `Int`s compared with
 ; `==`; interning needs keys compared with `strEq`, and Axiom cannot pass
 ; a comparison function as an argument - function values type-check and
-; then emit invalid LLVM (blocker B1 in docs/self-hosting.md). The
+; then emit invalid LLVM (blocker B1 in the self-hosting record). The
 ; alternative that does not need function values is `Map` from content
 ; hash to id, but that is wrong: two distinct strings with the same hash
 ; would be one `Map` key, and the second would silently get the first's

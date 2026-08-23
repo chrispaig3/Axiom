@@ -3,7 +3,7 @@
 ; This is type checking proper: the checker infers a type for every
 ; expression and compares them exactly where stage0 compares them,
 ; because Phase 3's acceptance criterion is byte-identical AXDL
-; against stage0 (docs/self-hosting.md), and the sweep in
+; against stage0 (the self-hosting record), and the sweep in
 ; scripts/check-diagnostics.sh requires total silence on the
 ; compiler's own source. Both constraints bind at once, so every rule
 ; here is either a probed/read stage0 behavior reproduced exactly, or
@@ -2480,7 +2480,7 @@
 ; vector to print an operation's real arrow; this collector took the
 ; parallel name-only vector and registered a silent wildcard with
 ; arity -1 instead. One site discarding a type the parser already
-; kept, which is the same sentence `docs/self-hosting.md` 29 writes
+; kept, which is the same sentence the self-hosting record writes
 ; about `parseSigDecl`.
 (pub :: tcCollectEffectOps (-> Int Int Int String a Int))
 

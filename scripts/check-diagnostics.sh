@@ -4,7 +4,7 @@
 # WHAT THIS USED TO PIN.  `golden == stage0 == stage1`, byte for byte,
 # over tests/diagnostics/*.{ax,axbad}: self-hosting phase 3's acceptance
 # criterion. Three-way, deliberately, because comparing the two
-# compilers alone cannot see the failure docs/self-hosting.md's risk
+# compilers alone cannot see the failure the self-hosting record's risk
 # table names first - a stage0 bug baked into stage1, where a wrong
 # compiler looks self-consistent because both sides moved together.
 #

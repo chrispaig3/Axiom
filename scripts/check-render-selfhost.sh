@@ -3,7 +3,7 @@
 #
 # WHAT THIS USED TO PIN AND NO LONGER CAN. The layout itself was never a
 # byte-differential against stage0, and that decision has a paper trail
-# (docs/self-hosting.md): stage0's human renderer was the third-party
+# (the self-hosting record): stage0's human renderer was the third-party
 # `ariadne` crate, whose per-character stream is an internal of a
 # compiler being retired rather than a design of Axiom's. But two checks
 # per case still reached for stage0 anyway - the exit status had to

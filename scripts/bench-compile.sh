@@ -4,7 +4,7 @@
 # This project has no compile-time profile and never has. The only
 # wall-clock figure anywhere in it is the `strConcat` fix - a self-compile
 # went 11.54s to 0.85s when a quadratic concatenation in code generation
-# was replaced (docs/self-hosting.md 7). The lesson recorded there is the
+# was replaced (the self-hosting record). The lesson recorded there is the
 # reason this script exists:
 #
 #   "The self-hosted compiler's dominant cost was not lexing, parsing,

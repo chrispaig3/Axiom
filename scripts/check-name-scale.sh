@@ -6,7 +6,7 @@
 # WHY THIS EXISTS, and it is the whole story. `8942644` indexed
 # `findFnEnt`, which had been three linear scans of a ~1,600-entry table
 # per name reference: `check self_host/main.ax` 0.89s -> 0.17s. Its own
-# note (docs/self-hosting.md 32.4) recorded what was left linear on
+# note (the self-hosting record) recorded what was left linear on
 # purpose - `findFnEntVisibleExact`/`Suffix`, "which only run when a
 # program declares something private", and then the sentence this gate
 # exists because of:
@@ -47,7 +47,7 @@
 #     (self_host/namespace.ax) is a linear scan of `bares` and is still
 #     quadratic in the declaration count - 55.7% of a check at N=8000.
 #     A doubling gate would therefore have passed on the broken code.
-#     That defect is real, is recorded in docs/self-hosting.md, and is
+#     That defect is real, is recorded in the self-hosting record, and is
 #     not this gate's subject; a ratio between two programs of the SAME
 #     size charges it to both sides, where it cancels.
 #

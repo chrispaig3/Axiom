@@ -106,22 +106,48 @@ gate_build_axc() {
 #
 # Three gates swept this list and each kept its own hand-written copy -
 # `check-tree-sitter.sh`, `check-tools-selfhost.sh` and, in a Python
-# heredoc, `check-doc-drift.sh`. They had already diverged: the first
-# two named `docs/macros.md` and the third named it plus
-# `docs/v1-roadmap.md` and `docs/error-model.md`, so `docs/ffi.md` and
-# `docs/diagnostics.md` were swept by none of them. A document outside
-# a sweep's list is invisible to it, which is the sentence
-# `check-tree-sitter.sh` already carried about a list that was missing
-# two entries.
+# heredoc, `check-doc-drift.sh`. They had already diverged: two of them
+# named a retired spelling of the macro document and the third named
+# that plus two more, so `docs/ffi.md` and `docs/diagnostics.md` were
+# swept by none of them. A document outside a sweep's list is invisible
+# to it, which is the sentence `check-tree-sitter.sh` already carried
+# about a list that was missing two entries.
+#
+# The list is hand-written on purpose - a sweep cannot discover a
+# document it was never told about - but a hand-written list drifts in
+# BOTH directions, and both are now checked by `check-doc-drift.sh`:
+# a name here that is not in the tree, and a document in the tree that
+# is not named here. The first direction is why that check exists. On
+# 2026-08-23 two documents were deleted and left in this list, and the
+# three gates that sweep it did not report drift - they died on a
+# Python traceback before reaching their own first assertion, in 11
+# seconds of CI, because a list entry is opened before it is checked.
 #
 # `gate_prose_docs` prints them repo-relative;
 # `gate_prose_docs_abs` fills the array `prose_docs` with `$repo_root`
 # prefixed - a function rather than `mapfile`, because the macOS runner
 # ships bash 3.2 and has no `mapfile`.
+# The list is checked here rather than by each caller, because the
+# caller is a Python heredoc that opens what it is given: a name with no
+# file behind it surfaces as a traceback from inside the sweep, which
+# reads as a broken gate and not as the drift it is. Three gates failed
+# that way on 2026-08-23 and the first of them took 11 seconds to say
+# nothing useful. A missing document is a one-line refusal now, from the
+# gate that noticed, naming the list it came from.
 gate_prose_docs_abs() {
-  local d
+  local d missing=0
   prose_docs=()
-  while IFS= read -r d; do prose_docs+=("$repo_root/$d"); done < <(gate_prose_docs)
+  while IFS= read -r d; do
+    if [[ ! -f "$repo_root/$d" ]]; then
+      echo "gate: \`gate_prose_docs\` names $d, which does not exist." >&2
+      echo "gate: a document was deleted without being removed from the list" >&2
+      echo "gate: in scripts/lib/gate.sh, which every prose sweep reads." >&2
+      missing=$((missing + 1))
+      continue
+    fi
+    prose_docs+=("$repo_root/$d")
+  done < <(gate_prose_docs)
+  (( missing == 0 )) || exit 1
 }
 
 gate_prose_docs() {
@@ -134,7 +160,5 @@ docs/error-model.md
 docs/ffi.md
 docs/macro-system.md
 docs/memory-model.md
-docs/self-hosting.md
-docs/v1-roadmap.md
 DOCS
 }

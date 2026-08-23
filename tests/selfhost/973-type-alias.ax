@@ -1,5 +1,5 @@
 ; expect 42
-; `docs/reference.md:808` promises that a `type` alias "does not create
+; `docs/reference.md` promises that a `type` alias "does not create
 ; a new type - `StringList` and `[String]` are interchangeable". The
 ; compiler answered two different ways depending on POSITION: an alias
 ; was nominal where an argument is checked and transparent where a

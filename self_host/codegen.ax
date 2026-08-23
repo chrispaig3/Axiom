@@ -350,7 +350,7 @@
 ; Both are APPENDED rather than inserted. Every reader of this record
 ; indexes by position, so a field that moves corrupts whatever now
 ; sits at its old index - which is exactly how the unit table broke
-; when `TC` grew (docs/self-hosting.md).
+; when `TC` grew (the self-hosting record).
 ; Field 34 = curModule (Str, the module whose declaration is being
 ;            emitted, or 0 for the entry file; `mangledFor` resolves a
 ;            bare reference to that module's own definition first)
@@ -3565,7 +3565,7 @@
 ; IR over 32,593 lines), with `/usr/bin/time -l`:
 ;
 ;   fold:  16,973,342,080 bytes peak footprint, 15.63 s
-;   join:  see docs/self-hosting.md - two orders of magnitude less
+;   join:  see the self-hosting record - two orders of magnitude less
 ;
 ; The law is peak ~= (bytes x lines) / 2, so the cost grew with the
 ; SQUARE of the compiler's own size: every module added to `self_host/`
@@ -6392,7 +6392,7 @@
       ; into a module that declared no `@putchar`; LLVM textual IR
       ; REQUIRES a declare for an undeclared callee, so `check`
       ; passed and `opt` then died with "use of undefined value"
-      ; two stages later (docs/self-hosting.md section 9.1).
+      ; two stages later (the self-hosting record).
       (renderCG (emitLine (emitExternDeclares decls (emitEffectGlobals (emitStringGlobals nextCg 0) 0) 0 vecNew) "attributes #0 = { \"no-builtins\" }"))
       (emitModuleTail decls nextCg (+ i 1))
     )
@@ -6574,7 +6574,7 @@
 ; function gets the merge scratch: an UNCONDITIONAL alloca grew
 ; every frame by sixteen bytes, and 320-effect-gc-roots' deep
 ; non-TCO recursion found the stack guard at raw `llc -O2` - the
-; growth mode self-hosting.md calls meeting a distant limit as an
+; growth mode the self-hosting record calls meeting a distant limit as an
 ; unrelated-looking failure, this time in frames rather than bytes.
 ; A missed tag here under-emits and llc refuses the undefined
 ; register LOUDLY; `cond` answers 1 unconditionally because its
@@ -6917,7 +6917,7 @@
   ; measurement.
   ;
   ; This is the second instance of the defect the strConcat fix
-  ; already recorded (docs/self-hosting.md 7: "the dominant cost
+  ; already recorded (the self-hosting record: "the dominant cost
   ; was not lexing, parsing, checking or lowering - it was the
   ; last line of code generation"). That one was fixed and the
   ; 0.85s it produced was written down; nothing re-measured

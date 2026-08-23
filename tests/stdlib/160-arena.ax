@@ -5,7 +5,7 @@
 ; the compiler cannot check: after a reset, nothing allocated since the
 ; matching mark may be read again. Nothing traces, copies, or keeps
 ; anything. A caller who cannot prove that precondition should not use
-; them - see docs/self-hosting.md §2.2 S1 for why the compiler does not
+; them - the self-hosting record's first slice covered why the compiler does not
 ; insert them on its own.
 ;
 ; Both were broken. `(__axiom_arena_mark)` is a bare variable reference

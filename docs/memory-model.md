@@ -4,12 +4,18 @@ The normative specification of how an Axiom program represents,
 allocates, mutates and reclaims memory, and of what a compiler author
 may assume while doing it.
 
-This document is the specification; [v1-roadmap.md §4.1](v1-roadmap.md)
-is the design sketch it expands, and
-[self-hosting.md](self-hosting.md) is the history that explains several
-of the decisions. Where they disagree with this document, this document
-is wrong until it is fixed: the roadmap is a plan and this is a
-contract.
+This document is the specification. The design sketch it expands and
+the history that explains several of its decisions were both retired
+into git on 2026-08-23, and are read with:
+
+```bash
+git show d7622c2:docs/v1-roadmap.md     # §4.1, the design sketch
+git show d7622c2:docs/self-hosting.md   # the self-hosting record
+```
+
+Where either disagrees with this document, this document is wrong until
+it is fixed: the roadmap was a plan and this is a contract. That
+ordering is why they could be retired and this could not.
 
 ---
 
@@ -78,7 +84,7 @@ A program's answer is observed as its **exit status**, which is the low
 and one entry point, `main`. Evaluation is the reduction of `main`'s
 body. There is no separate initialization phase: a top-level `fn` with
 no parameters is a *function*, not a constant, and every reference to it
-is a call (`self-hosting.md` S3).
+is a call (the self-hosting record).
 
 **MM-EXEC-2 (H).** Evaluation is **strict** and **call-by-value**.
 Every argument of an application is evaluated to a value before the
@@ -943,7 +949,7 @@ opt: aa.ll:242:12: error: invalid redefinition of function 'axiom_alloc'
 (Only the entry file could ever collide: a module's declaration is
 mangled to `Mod$axiom_alloc`, a different symbol.) The three documents
 that described the seam as working — `stdlib/Mem.ax`,
-`docs/reference.md`, `docs/self-hosting.md` — were corrected the same
+`docs/reference.md`, and the self-hosting record — were corrected the same
 day, each keeping the false claim as quoted history. What remains **P**
 is the rule's head: a real replacement seam, which under ARC interacts
 with `MM-LIFE-2e`'s release path and is re-decided there; building one
@@ -1091,7 +1097,7 @@ the same loop unbracketed.
 ### 3.4 The inferred arena model — withdrawn
 
 This section was the specification of the model
-[v1-roadmap.md §4.1](v1-roadmap.md) sketched: per-activation arenas
+The roadmap sketched per-activation arenas
 with escape promotion and a tail-call reset. **It is superseded by the
 reference-counting decision of `MM-LIFE-2a`** (the decision landed
 2026-08-11; these rules were marked withdrawn on 2026-08-14, when the
@@ -1203,10 +1209,10 @@ exists because a compiler-inserted copy has already been tried without
 it once — the `ArenaCompact` instruction, removed rather than finished,
 which misidentified a `Vec` header as a constructor cell, wrote past
 the end of its chunk, and could not see `Str` or `Vec` at all
-(`self-hosting.md`).
+(the self-hosting record).
 
 **MM-ALLOC-21 (W).** Mutation and arenas interact, and
-[v1-roadmap.md §4.1](v1-roadmap.md) does not account for it because it
+The roadmap did not account for it because it
 assumes Axiom's data is immutable — which is false (`MM-MUT-2`). A field
 store can install a reference to a *younger* value into an *older* one:
 
@@ -2384,7 +2390,7 @@ interior pointers.
 
 **MM-LIFE-3 (H, correcting the roadmap).** **Cycles in the heap graph
 are constructible**, so the justification
-[v1-roadmap.md §4.1](v1-roadmap.md) gave for not needing cycle
+the roadmap gave for not needing cycle
 collection — "Axiom's data is immutable and inductive, so cycles are not
 constructible" — is **false as written**; the roadmap has recorded the
 correction since 2026-08-14. Two independent routes,
@@ -2524,7 +2530,7 @@ argument words `@__axiom_argc` and `@__axiom_argv`, and one evidence
 slot per declared effect — is private after `fork` and fresh after
 `exec`.
 
-> [v1-roadmap.md §4.4](v1-roadmap.md) counts "all seven" as the five
+> The roadmap counted "all seven" as the five
 > allocator words plus the evidence slots. Measured, the seven are the
 > five plus argc/argv; evidence slots are additional, and a program with
 > no declared effects has exactly seven globals and no slots. The

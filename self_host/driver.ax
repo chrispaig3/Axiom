@@ -772,7 +772,7 @@
 ; `call i64 @putchar(...)` into a module that declared no `@putchar`;
 ; `check` answered OK and the program died two stages later inside
 ; `opt`, with a message about generated code and no span into the
-; source (docs/self-hosting.md 9.1). An `extern` naming a symbol that
+; source (the self-hosting record). An `extern` naming a symbol that
 ; does not exist is the same defect, and this refuses it BEFORE the
 ; toolchain runs - which is the whole difference between a compiler
 ; diagnostic and a linker error about a file the user never wrote.
@@ -2168,7 +2168,7 @@
 ;
 ; A silent downgrade of a memory-management request is exactly the
 ; failure its user cannot detect, so this refuses while the collector
-; does not exist. Recorded in docs/self-hosting.md section 8.4.
+; does not exist. Recorded in the self-hosting record.
 (pub :: flagUnimplemented (-> String Bool))
 
 (pub fn (flagUnimplemented a) (strEq a "--gc"))
@@ -2618,7 +2618,7 @@
               (if (< ar 0)
                 (usageError (cat3 "error: unrecognised flag `" name "`\n"))
                 (if (flagUnimplemented name)
-                  (usageError (cat3 "error: `" name "` is not supported by this compiler.\n       The tracing collector it selected belonged to the retired\n       Rust implementation; this compiler has only the bump\n       allocator. See docs/self-hosting.md section 8.4.\n"))
+                  (usageError (cat3 "error: `" name "` is not supported by this compiler.\n       The tracing collector it selected belonged to the retired\n       Rust implementation; this compiler has only the bump\n       allocator.\n"))
                   (if (&& (== ar 0) (flagHasValuePart a))
                     (usageError (cat2 (cat3 "error: `" name "` takes no value, but `") (cat2 (flagValuePart a) "` was given\n")))
                     (if (&&

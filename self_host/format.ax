@@ -905,7 +905,7 @@
 ; `fscanOperator`, because a lone `-` has to stay its own kind for the
 ; `-5` adjacency rule, and because `? ~ $` are operator bytes here and
 ; not identifier bytes at all. What that leaves is recorded in
-; docs/self-hosting.md §15.3 rather than guessed at.
+; the self-hosting record rather than guessed at.
 (pub :: fscanName (-> String Int Int Int Int))
 
 (pub fn (fscanName src p len toks)

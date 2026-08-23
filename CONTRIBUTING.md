@@ -87,8 +87,7 @@ axiom/
 │                       tools/ ffi/ docs/
 ├── scripts/            the gates, and lib/gate.sh, the preamble they share
 ├── docs/               reference.md, memory-model.md, macro-system.md,
-│                       diagnostics.md, error-model.md, ffi.md, self-hosting.md,
-│                       v1-roadmap.md
+│                       diagnostics.md, error-model.md, ffi.md
 └── README.md
 ```
 
@@ -496,7 +495,7 @@ What that means when you are changing the compiler:
 1. **Read the [README](README.md)** for the project overview.
 2. **Read [docs/reference.md](docs/reference.md)** for the language reference.
 3. **Read [docs/diagnostics.md](docs/diagnostics.md)** for the diagnostic and symbol notation system.
-4. **Read [docs/v1-roadmap.md](docs/v1-roadmap.md)** for what's planned and what blocks what.
+4. **Read the [Implementation Status](README.md#implementation-status) table** for what is done and what is not. The roadmap that used to answer "what blocks what" was retired once its ordering had been spent; see [README § Roadmap](README.md#roadmap) for how to read it.
 
 ### Submitting a PR
 
@@ -554,9 +553,17 @@ If you're unsure about how something works or where to make a change, open an is
 | [docs/error-model.md](docs/error-model.md) | How a program signals failure — `Result`, `Error`, `try!`, rules ERR-* |
 | [docs/diagnostics.md](docs/diagnostics.md) | AXDL, AXSYM, NID, AXTAG notation, the diagnostic-code ranges, and how to add a code |
 | [docs/ffi.md](docs/ffi.md) | The `extern` block, `axiom-bindgen`, and what may cross the boundary |
-| [docs/self-hosting.md](docs/self-hosting.md) | How the Rust compiler was replaced, stage by stage, and what pinned each one |
-| [docs/v1-roadmap.md](docs/v1-roadmap.md) | Roadmap to v1 — what's done, what's left |
 | [tree-sitter-axiom/](tree-sitter-axiom/) | Editor grammar for syntax highlighting |
+
+Two documents were retired on 2026-08-23, once what they recorded had
+either landed or moved into a specification that a gate asserts. They
+are history, not tree, and the compiler's comments still cite the second
+by name as *the self-hosting record*:
+
+```bash
+git show d7622c2:docs/v1-roadmap.md     # roadmap to v1 — what's done, what's left, what blocked what
+git show d7622c2:docs/self-hosting.md   # how the Rust compiler was replaced, stage by stage
+```
 
 ---
 

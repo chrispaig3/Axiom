@@ -236,7 +236,7 @@ can emit. Twelve of these characters used to pass `check` and then kill
 `opt`; `scripts/check-symbol-names.sh` now sweeps all 94 printable bytes
 in three positions and requires each to be either refused with a span or
 compiled and run. See
-[self-hosting.md §15.2](self-hosting.md).
+the self-hosting record.
 
 ### Keywords
 
@@ -370,7 +370,7 @@ carry (a type variable, a tuple, an arrow).
 | `Char` | A Unicode code point: `'A'` is 65, `'é'` is 233, `'世'` is 19990, `'😀'` is 128512 |
 | `String` | String (pointer) |
 | `()` | Unit (no value). A **type** only — `(:: main ())` and `(:: f (-> () Int))` are accepted, and `symbols` renders the empty tuple as `()`. There is no unit *value*: `()` in expression position is `AX2001 expected expression`, as it is in `[]` and `(set)`, and nothing in the language produces or consumes one |
-| `Unit` | A distinct type constructor spelled `Unit`, **not** a synonym for `()`: `symbols` renders `(:: a (-> () Int))` as `(() -> Int)` and `(:: b (-> Unit Int))` as `(Unit -> Int)`. `Unit` was missing from the parser's type-keyword set until 2026-08-10, so it was a bare unresolvable constructor that nothing asked about until signature types began to be resolved — see [self-hosting.md §30.2](self-hosting.md) |
+| `Unit` | A distinct type constructor spelled `Unit`, **not** a synonym for `()`: `symbols` renders `(:: a (-> () Int))` as `(() -> Int)` and `(:: b (-> Unit Int))` as `(Unit -> Int)`. `Unit` was missing from the parser's type-keyword set until 2026-08-10, so it was a bare unresolvable constructor that nothing asked about until signature types began to be resolved — see the self-hosting record |
 | `Void` | Void |
 | `Any` | Generic pointer |
 | `Foreign` | An opaque pointer into memory Axiom did not allocate and does not own, held as one word (see [ffi.md](ffi.md)). Distinct from `Int` on purpose: `tyCompat` matches named constructors by name, and the distinction is load-bearing rather than documentary — a `Foreign` field is left OUT of the ARC reference map (`docs/memory-model.md` MM-LIFE-2d), so `@axiom_release` never follows it. Measured on `(struct T (a : String) (b : Foreign) (c : String))`: the map is payload words `[0, 2]`. `(cast Foreign x)` is the explicit way in and out |
@@ -1393,7 +1393,7 @@ The `pub` keyword goes before the declaration keyword, inside the same parenthes
 
 `pub` controls **which names are visible outside the module**, not which declarations the program contains. A module's own bodies reach its own declarations whether or not they are `pub`, so a module with private helpers imports and behaves exactly like one without. Naming a declaration a module does not export is `AX3023`, which says which module it belongs to.
 
-Both halves matter, and until 2026-08-10 there was only one: a private declaration was *deleted* from the program by whatever imported it, which broke the module's own calls to it — and if the importing file happened to define the same name, those calls silently reached that definition instead. See [self-hosting.md §14](self-hosting.md).
+Both halves matter, and until 2026-08-10 there was only one: a private declaration was *deleted* from the program by whatever imported it, which broke the module's own calls to it — and if the importing file happened to define the same name, those calls silently reached that definition instead. See the self-hosting record.
 
 `macro` obeys `pub` like everything else since 2026-08-14: a macro without it is `AX3023` at the invocation, naming the module it belongs to, and a name list that asks for a private macro is refused at the import (`tests/diagnostics/485-qualified-private-macro.ax`, `tests/diagnostics/440-import-name-list.ax`). `effect` is the remaining exception and is exported unconditionally — an operation of an unmarked `effect` is callable from any importer, because an operation name carries no module.
 
@@ -1792,7 +1792,7 @@ on all four targets, so the questions it answers are `open`, `read`
 and `lseek` here instead. `chdir` exists on every target and is absent
 because nothing calls it: a process that changes directory has
 invalidated every relative path anything else is holding. See
-[self-hosting.md §47 and §49](self-hosting.md).
+the self-hosting record.
 
 ```scheme
 (import IO)
@@ -2018,7 +2018,7 @@ than driving a terminal. `:help`'s own text still advertises `?` and
 arrow keys; only a line beginning with `:` reaches the command
 dispatcher, so `?` is read as an expression and answered with a parse
 error. The editor-grade interface is the LSP's business
-([self-hosting.md](self-hosting.md)).
+(the self-hosting record).
 
 ---
 
@@ -2058,7 +2058,7 @@ The build is freestanding — it does not call libc.
 
 There is no tracing collector. The retired Rust compiler had one behind
 a `--gc` flag; it was not ported, and `--gc` is now refused by name
-rather than silently ignored (see `docs/self-hosting.md` §8.4). What
+rather than silently ignored (see the self-hosting record). What
 reclaims instead is reference counting: every heap block carries a
 count and a shape word, and a thousand build-and-drop iterations move
 the allocator's bump by 384 bytes where they moved it by 80,304
@@ -2145,7 +2145,7 @@ Source (.ax) → Lexer → Parser → Imports → Macro Expansion → Type Check
 There is no separate IR stage: `codegen.ax` writes LLVM IR text
 straight from the checked AST. The retired Rust compiler had a
 three-address IR crate between the two; it was not ported
-([self-hosting.md](self-hosting.md)).
+(the self-hosting record).
 
 ### Compiler Structure
 
@@ -2279,6 +2279,5 @@ Use `--opt 2` for anything that iterates over a large input.
 - [The Error Model](error-model.md) — `Result`, the `Error` record, and `stdlib/Err.ax`
 - [The Rust FFI](ffi.md) — `extern` blocks, `--emit-staticlib`, and what crosses the boundary
 - [Diagnostics & Agent Notations](diagnostics.md) — AXDL, AXSYM, NID, AXTAG reference
-- [Self-Hosting](self-hosting.md) — how the Rust compiler was replaced with one written in Axiom, and how a clean checkout builds it
-- [v1 Roadmap](v1-roadmap.md) — what is done, what is left, and what blocks what
+- [Contributing](../CONTRIBUTING.md) — the gates, the conventions, and the two documents retired into history
 - [README](../README.md) — project overview and installation guide

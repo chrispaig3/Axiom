@@ -42,7 +42,7 @@
 #   - Axiom allocates from a bump allocator and never frees, so it does
 #     no deallocation work at all, while Rust's `Drop` runs. There is no
 #     longer a collected variant to measure against: the Rust
-#     compiler's `--gc` was not ported (docs/self-hosting.md 8.4), so
+#     compiler's `--gc` was not ported (the self-hosting record), so
 #     this comparison is bump-allocator-versus-Drop and says so.
 #
 # Usage:
@@ -77,7 +77,7 @@ for arg in "$@"; do
     # allocator. Refused rather than quietly dropped: a benchmark that
     # answers a question it did not measure is worse than one that
     # declines to.
-    --gc)    echo "error: --gc was not ported to the self-hosted compiler; there is no collected variant to measure (docs/self-hosting.md 8.4)" >&2; exit 2 ;;
+    --gc)    echo "error: --gc was not ported to the self-hosted compiler; there is no collected variant to measure" >&2; exit 2 ;;
     --opt=*) opt="${arg#--opt=}" ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac

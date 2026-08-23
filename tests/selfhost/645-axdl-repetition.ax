@@ -15,7 +15,7 @@
 ;
 ; `&` is the expansion backtrace. It has NO producer and will not have
 ; one until macro expansion reports through diagnostics (the dependency
-; docs/v1-roadmap.md records against the macro work), so this test is
+; the roadmap recorded against the macro work), so this test is
 ; the only thing that renders it. That is the point: the field is ready,
 ; and "ready" is a claim someone has to check.
 ;

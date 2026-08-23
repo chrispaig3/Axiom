@@ -8,7 +8,7 @@ tools that read macro-generated code.
 This document is the specification, and since 2026-08-22 it is also the
 only measured status of the implementation: every rule carries its own
 marker and names the fixture that establishes it, so there is no second
-document to drift against this one. [v1-roadmap.md §4.2](v1-roadmap.md)
+document to drift against this one. the roadmap's §4.2
 records the design decision this expands. Where anything else in the
 repository disagrees with this document, this document is wrong until it
 is fixed.
@@ -189,7 +189,7 @@ type-grammar gap, not a macro one.
 file during compilation.** Expansion is a rewrite and nothing else.
 
 This is the tier decision of
-[v1-roadmap.md §4.2](v1-roadmap.md), made explicitly and restated here
+the roadmap's §4.2, made explicitly and restated here
 as a rule because everything else in this document is shaped by it:
 
 - **Tier 1, pattern-based** — a macro is a set of pattern/template
@@ -1290,7 +1290,7 @@ node with a poison value, as every other refusal in the pass does.
 the *shape* of its arguments: arity, literal heads, nesting, and
 repetition. This is what turns the current facility from
 *substitution* into *pattern-based rewriting*, which is what
-[v1-roadmap.md §4.2](v1-roadmap.md) means by tier 1.
+the roadmap's §4.2 means by tier 1.
 
 **Arity** and **nesting** hold (`MAC-LANG-15`, `MAC-LANG-18`), and so
 does dispatch on a literal argument's VALUE, which this list did not
@@ -1627,7 +1627,7 @@ take a string apart. Adding a query that could would be a
 string-processing language inside the template language. So the
 decomposition happens in compiler code, over a literal the compiler
 already holds. **This is not tier 2** and does not move the line
-[v1-roadmap.md §4.2](v1-roadmap.md) draws: no user code runs, the
+the roadmap's §4.2 draws: no user code runs, the
 input is a literal rather than a program, and the output is a tree the
 compiler builds — exactly as `syntax/constructors` reads a `data`
 declaration.
@@ -2228,7 +2228,7 @@ A guarded accumulator, showing hygiene doing its job — the template's
 ### 10.2 Deriving structural equality
 
 Under `MAC-CAP-5` and `MAC-CAP-8`. This is the acceptance criterion
-[v1-roadmap.md §4.2](v1-roadmap.md) states, written out — and since
+the roadmap's §4.2 states, written out — and since
 2026-08-14 the nullary form below is **measured, verbatim**:
 `tests/selfhost/374-derive-eq.ax` is this section's macro, data type
 and invocation, and it answers 101 from three `eqColor` probes on the

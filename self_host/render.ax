@@ -60,7 +60,7 @@
 ; ------------------------------------------------------------------
 ; Small string tools. `repByte` is a filled `strAlloc`, not a
 ; strConcat fold: the fold's peak is the sum of every intermediate
-; (the 16.9 GB lesson in docs/self-hosting.md), and a caret line for
+; (the 16.9 GB lesson in the self-hosting record), and a caret line for
 ; a wide span would pay it per character.
 ; ------------------------------------------------------------------
 (pub :: repByte (-> Int Int String))

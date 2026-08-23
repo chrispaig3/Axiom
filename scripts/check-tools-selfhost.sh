@@ -186,7 +186,7 @@ fi
 # on one CI runner, `Platform.linux-x86_64.ax` on another. Its symbols land
 # in the table with the resolved file's name AND its line numbers, so 34 of
 # the zoo's 99 rows are a statement about the host rather than about the
-# fixture - 22 of 89 until the filesystem verbs of self-hosting.md §49 added
+# fixture - 22 of 89 until the filesystem verbs the self-hosting record added
 # ten constants to every platform module. Blessed on darwin, the golden
 # could only ever match on darwin:
 #

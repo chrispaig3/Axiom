@@ -1,7 +1,7 @@
 ; diag.ax — diagnostics and their AXDL rendering, in Axiom.
 ;
 ; Phase 3's acceptance criterion is byte-identical AXDL between the two
-; compilers (docs/self-hosting.md), so this module's contract is not
+; compilers (the self-hosting record), so this module's contract is not
 ; "readable diagnostics" but "the same bytes stage0's
 ; `axiom-errors::render::render_ai` produces". Everything here is
 ; therefore written against that function rather than against taste.
@@ -848,7 +848,7 @@
 ; Linear concatenation of a Vec of Str: sum the lengths, allocate
 ; once, copy each piece. The naive alternative - folding strConcat -
 ; peaks at the SUM of every intermediate, which is the 16.9 GB shape
-; renderCG had (docs/self-hosting.md); measured on this very module's
+; renderCG had (the self-hosting record); measured on this very module's
 ; AXDL path, the fold reached 829 MiB peak RSS on a 2000-diagnostic
 ; file. Rendering is the code that runs when something is already
 ; wrong, which is the worst moment to add an allocation storm.

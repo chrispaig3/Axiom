@@ -7,7 +7,7 @@
 ; them back to the directory they came from.
 ;
 ; It also finishes a loose end this repository has been carrying since
-; the filesystem surface first grew (docs/self-hosting.md §47):
+; the filesystem surface first grew (the self-hosting record):
 ; `dirOfPath` and `withTrailingSlash` were private helpers in
 ; `self_host/codegen.ax` "because there was nowhere else to put them".
 ; There is now.

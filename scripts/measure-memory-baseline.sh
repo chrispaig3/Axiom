@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The measurement that drives the memory-model schedule (§2.2 of
-# docs/v1-roadmap.md, restored) - and, once reclamation lands, the
+# the roadmap, restored) - and, once reclamation lands, the
 # before/after evidence for it.
 #
 # The probe is a 24x24 Game of Life: one board (~10 KiB of Vec) live
@@ -47,7 +47,7 @@
 # chunks mapped after the mark (~320 KiB/iteration measured on a
 # chunk-crossing loop), and a compiler-inserted copy was tried
 # once before and removed for exactly the pointer-blindness reason
-# (the ArenaCompact story, docs/self-hosting.md). Those three are
+# (the ArenaCompact story, the self-hosting record). Those three are
 # the automation slice's named prerequisites.
 #
 # --gate: enforce the managed numbers (this is the P2 slice-1 exit

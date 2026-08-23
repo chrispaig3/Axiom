@@ -160,11 +160,12 @@ for r in complete:
 
 print("== every tests/ path named in the docs exists ==")
 named = set()
-# docs/self-hosting.md was NOT in this list, and the omission bit
-# immediately: a commit landed three sections naming three fixtures and
-# only one of them existed, and this gate passed. It is the document
-# that names the most fixtures, because every section ends by saying
-# what pins it.
+# The working-notes document was NOT in this list once, and the omission
+# bit immediately: a commit landed three sections naming three fixtures
+# and only one of them existed, and this gate passed. It was the
+# document that named the most fixtures, because every section ended by
+# saying what pinned it - which is also why the floor below moved when
+# it was retired.
 for doc in PROSE_DOCS:
     # The extension alternation needs the boundary: without it
     # `tests/fmt/parity/170-empty-tuple.axp` matched as `...ax` and was
@@ -172,8 +173,17 @@ for doc in PROSE_DOCS:
     # it drift. Caught on this gate's first run.
     named |= set(re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden)(?![\w])",
                             open(doc, encoding="utf-8").read()))
-if len(named) < 185:
-    print(f"FAIL paths: only {len(named)} tests/ paths named across the docs; floor is 185")
+# The floor is a population count, so it moves when the corpus moves -
+# and it has to be re-derived deliberately, because the failure it
+# guards against (a doc quietly stopping citing its fixtures) and the
+# reason it legitimately drops (a doc being retired) look identical
+# from here. It was 185 while the working-notes document was in
+# PROSE_DOCS; that document was deleted on 2026-08-23 and the eight
+# that remain name 153, all of which resolve. Lowering it to match is
+# correct ONLY because the drop was accounted for. A drop that is not
+# accounted for is the drift this number exists to catch.
+if len(named) < 153:
+    print(f"FAIL paths: only {len(named)} tests/ paths named across the docs; floor is 153")
     bad += 1
 missing = sorted(p for p in named if not os.path.exists(p))
 if missing:
@@ -275,8 +285,12 @@ for root, dirs, files in os.walk("."):
             continue
         for p in bare_pat.findall(text):
             bare_named.setdefault(p, []).append(path)
-if len(bare_named) < 82:
-    print(f"FAIL paths: only {len(bare_named)} bare fixture names found; floor is 82")
+# A population count, and it moves for the same reason and under the
+# same rule as the one above: 82 while the working-notes document was
+# in the tree, 79 after it was retired on 2026-08-23. Three bare names
+# went with it and all 79 that remain resolve.
+if len(bare_named) < 79:
+    print(f"FAIL paths: only {len(bare_named)} bare fixture names found; floor is 79")
     bad += 1
 bare_missing = sorted((p, fs) for p, fs in bare_named.items() if p not in tests_index)
 if bare_missing:
@@ -286,6 +300,96 @@ if bare_missing:
     bad += len(bare_missing)
 else:
     print(f"ok   all {len(bare_named)} bare fixture names resolve under tests/")
+
+# The same class one directory up, and the one that had no check at all
+# until 2026-08-23: a NORMATIVE DOCUMENT that is named but not there.
+# Every check above sweeps for `tests/`, so a document could be deleted
+# and leave 82 references behind it across 30 files - prose links in
+# README.md and CONTRIBUTING.md, provenance citations in the compiler's
+# own comments, and two strings the compiler PRINTS - and the only
+# thing that failed was three gates dying on a traceback, which reads
+# as a broken gate rather than as drift. It was drift. This is the
+# check that says so.
+#
+# Both directions, because a hand-written sweep list drifts both ways:
+#   - a document named anywhere in the tree must exist, and
+#   - a document that exists under `docs/` must be in `gate_prose_docs`,
+#     or it is swept by no gate and its code blocks are never compiled.
+# The second half is the older bug: it is the sentence `gate.sh` already
+# carried about two documents that were in the tree and in nobody's list.
+print("== every docs/ document named in the tree exists, and is swept ==")
+doc_named = {}
+for root, dirs, files in os.walk("."):
+    dirs[:] = [d for d in dirs
+               if d not in (".git", "target", "node_modules", ".axiom-bin")]
+    for fn in files:
+        if not fn.endswith((".ax", ".sh", ".py", ".md", ".yml")):
+            continue
+        path = os.path.join(root, fn).lstrip("./")
+        try:
+            text = open(path, encoding="utf-8", errors="ignore").read()
+        except OSError:
+            continue
+        # A retired document may still be NAMED - saying what was
+        # deleted and why is what a history section is for - provided
+        # the same file says how to read it. `docs/ffi.md` was already
+        # doing this before this check existed: it names a design note
+        # it deleted, in prose, and then gives the `git show` that
+        # retrieves it. That reference is not dangling; a reader can
+        # follow it. So the rule is not "never name a deleted file",
+        # which would delete the history along with the document - it
+        # is that a file naming one must also carry its retrieval.
+        retrievable = set(re.findall(
+            r"git show [0-9a-f]{7,40}\^?:(docs/[\w./-]+\.md)", text))
+        for d in re.findall(r"docs/[\w./-]+\.md(?![\w])", text):
+            if d in retrievable:
+                continue
+            doc_named.setdefault(d, []).append(path)
+        # A MARKDOWN LINK TARGET, resolved against the file that writes
+        # it. Inside `docs/` a sibling is spelled `memory-model.md`, not
+        # `docs/memory-model.md` - the relative form is the normal one
+        # there - so the absolute sweep above is blind to exactly the
+        # spelling those documents use on each other. Found the way
+        # these are always found: this gate passed with two dangling
+        # links to a retired document standing in `docs/reference.md`,
+        # because neither carried the prefix the pattern needed. This
+        # paragraph does not spell one out, for the same reason the
+        # sibling checks above do not name the fixtures they were
+        # written for: the example would resolve against `scripts/` and
+        # be reported as drift by the check it explains - which this
+        # one did, on its first run. Link targets are matched instead of bare
+        # filenames so that PROSE naming a document - and this
+        # paragraph does - is not read as a reference to it.
+        for tgt in re.findall(r"\]\(([\w./-]+\.md)(?:#[\w-]*)?\)", text):
+            if tgt.startswith("docs/") or tgt in retrievable:
+                continue
+            resolved = os.path.normpath(os.path.join(os.path.dirname(path), tgt))
+            if not os.path.exists(resolved):
+                doc_named.setdefault(resolved, []).append(path)
+doc_missing = sorted((d, fs) for d, fs in doc_named.items() if not os.path.exists(d))
+if doc_missing:
+    for d, fs in doc_missing:
+        for f in sorted(set(fs)):
+            print(f"FAIL docs: {f} names {d}, which does not exist")
+    bad += len(doc_missing)
+else:
+    print(f"ok   all {len(doc_named)} docs/ documents named in the tree exist")
+
+# `PROSE_DOCS` arrives from `gate_prose_docs`; compare it against the
+# tree rather than trusting it. A document under `docs/` that is not in
+# the list is compiled by nothing and cited-checked by nothing.
+on_disk = {os.path.join("docs", f)
+           for f in os.listdir("docs") if f.endswith(".md")}
+listed = {d for d in PROSE_DOCS if d.startswith("docs/")}
+unswept = sorted(on_disk - listed)
+phantom = sorted(listed - on_disk)
+for d in unswept:
+    print(f"FAIL docs: {d} exists but is in no gate's sweep list")
+for d in phantom:
+    print(f"FAIL docs: the sweep list names {d}, which does not exist")
+bad += len(unswept) + len(phantom)
+if not unswept and not phantom:
+    print(f"ok   the sweep list and docs/ agree, {len(listed)} documents")
 
 print("== the diagnostics the README showcases are re-rendered and diffed ==")
 # Every diagnostic block in the README is a `<!-- doc-gate:render NAME
