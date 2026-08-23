@@ -1,0 +1,93 @@
+# Symbols the `demo` crate's std dependency requires on Linux/glibc.
+#
+# Measured on the CI runner (ubuntu-latest, x86_64, glibc) by
+# `scripts/check-ffi.sh` itself: the gate reports every symbol a linked
+# case imports that the manifest does not permit, and this file is that
+# report, reviewed. Regenerate the same way - push, read the FAIL block,
+# and put the names here.
+#
+# WHY THIS FILE EXISTS SEPARATELY. `axiom-allow.txt` is the darwin
+# measurement and names `_NSGetArgv`, `_dyld_get_image_header`,
+# `_tlv_atexit`. Those symbols do not exist on Linux, and the ones below
+# do not exist on Darwin. One file cannot be both, and applying the
+# darwin list on Linux is why `FFI (linux-x86_64)` had never been green.
+#
+# WHAT IS NOT HERE, deliberately:
+#
+#   - the C runtime's own imports (`__libc_start_main`, `__cxa_finalize`,
+#     `__gmon_start__`, the two `_ITM_*` stubs). `crt1.o` puts those in
+#     every ELF executable including one whose `main` returns 0, so the
+#     gate measures them as a platform floor and subtracts them. They are
+#     not a door anything opened.
+#
+#   - `printf`, `fopen`, `system`, `popen`, `execve`, `posix_spawn` and
+#     the rest of `never_permitted`. Note that
+#     `posix_spawn_file_actions_addchdir` IS below and `posix_spawn` is
+#     NOT: std references the former without pulling the latter, and the
+#     ban still bites.
+#
+#   - the FFI symbols themselves. They are resolved from the archive and
+#     named by the program's own `extern` declarations, which is where
+#     the gate reads them from.
+#
+# ELF symbol versions are stripped before comparison, so a name is
+# written bare here: `_Unwind_Resume`, not `_Unwind_Resume@GCC_3.0`.
+#
+# Rebuilding against `no_std` + `panic = "abort"` empties this list, as
+# it does the darwin one. That remains the mode to prefer.
+
+_Unwind_FindEnclosingFunction
+__cxa_thread_atexit_impl
+__environ
+__errno_location
+__res_init
+__tls_get_addr
+__xpg_strerror_r
+accept4
+bcmp
+clock_nanosleep
+copy_file_range
+dl_iterate_phdr
+environ
+fdatasync
+fstat64
+fstatat64
+fsync
+ftruncate64
+futimens
+getauxval
+getrandom
+gettid
+gnu_get_libc_version
+lseek64
+lstat64
+mmap64
+open64
+openat64
+pidfd_getpid
+pidfd_spawnp
+pipe2
+posix_spawn_file_actions_addchdir
+posix_spawn_file_actions_addchdir_np
+pread64
+preadv
+pthread_attr_getguardsize
+pthread_attr_getstack
+pthread_getattr_np
+pthread_key_create
+pthread_key_delete
+pthread_setspecific
+pwrite64
+pwritev
+readdir64
+realpath
+recvmsg
+sched_getaffinity
+sendfile64
+sendmsg
+splice
+stat64
+statx
+syscall
+utimensat
+waitid
