@@ -29,8 +29,16 @@
 #
 # The seeds are REPRODUCIBLE - scripts/check-reproducible.sh is the gate
 # that says so - which means re-running this against an unchanged tree
-# leaves the files untouched and `git status` clean. If it does not, the
-# compiler has a nondeterminism bug and that is the thing to fix.
+# brings the four `.ll` files and `SHA256SUMS` back byte-identical. If
+# one of THOSE moves without the compiler moving, the compiler has a
+# nondeterminism bug and that is the thing to fix.
+#
+# `bootstrap/STAMP` is the exception and always moves: it records the
+# time, which is `bootstrap/README.md`'s point about it being the one
+# file there carrying no signal about the compiler. So `git status` is
+# NOT clean after a no-op reseed, and this comment used to say it was -
+# which turned the one file whose movement means nothing into the
+# evidence for a bug that had not happened.
 
 set -uo pipefail
 

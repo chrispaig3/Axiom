@@ -690,6 +690,7 @@
   (let (
     (entries (sysReadDir (strCStr (cat2 dir "axiom"))))
     (mut found "")
+    (mut n 0)
     (mut i 0)
   )
     {
@@ -703,19 +704,38 @@
             (cast String (vecGet entries i))
           ))
             (if (&& (> (strLen e) 3) (&& (strEq (strSlice e (- (strLen e) 3) 3) ".ax") (== (strFindByte e 46 0) (- (strLen e) 3))))
-              (if (== (strLen found) 0)
-                {
-                  (set found (strSlice e 0 (strFindByte e 46 0)))
+              {
+                (if (== (strLen found) 0)
+                  {
+                    (set found (strSlice e 0 (strFindByte e 46 0)))
+                    0
+                  }
                   0
-                }
+                )
+                (set n (+ n 1))
                 0
-              )
+              }
               0
             )
           )
           (set i (+ i 1))
         })
-      (if (> (strLen found) 0)
+      ; EXACTLY one, not the first of several. `sysReadDir` answers in
+      ; directory order, which is a filesystem fact rather than a
+      ; property of the crate: two `.ax` files under `axiom/` and the
+      ; module this crate is bound as depends on which one the kernel
+      ; happens to hand back first, so the same crate could bind
+      ; differently on two machines and the emitted binding would name
+      ; a different module. At one candidate there is nothing to choose
+      ; between and the order cannot matter; above one the answer no
+      ; longer depends on the listing at all, because the
+      ; package-derived name below does not read it.
+      ;
+      ; Sorting was the other option and it is deterministic-WRONG: it
+      ; still picks one file of several and still overwrites it, just
+      ; alphabetically, so a hand-written module beside a generated one
+      ; gets clobbered on every machine instead of on some of them.
+      (if (== n 1)
         found
         (camelOf
           (if (strStartsWith pkg "axiom-")
