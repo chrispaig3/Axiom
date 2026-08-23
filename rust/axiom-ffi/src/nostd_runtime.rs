@@ -16,9 +16,13 @@
 //! - `rust_eh_personality` and `_Unwind_Resume`, which the precompiled
 //!   sysroot `alloc` rlib references even under `panic = "abort"`
 //!   (the profile governs *our* crates, not the sysroot's);
-//! - `memcpy`, `memmove`, `memset`, `memcmp`, `bzero`, `strlen`, which
-//!   LLVM assumes exist on every target and `check-freestanding.sh`
-//!   forbids importing from libc;
+//! - `memcpy`, `memmove`, `memset`, `memcmp`, `bcmp`, `bzero`, `strlen`,
+//!   which LLVM assumes exist on every target and
+//!   `check-freestanding.sh` forbids importing from libc. `bcmp` is the
+//!   one that is target-shaped: LLVM lowers a small `memcmp` compared
+//!   only against zero straight to it on linux-x86_64 and not on
+//!   darwin-aarch64, so the tier's "imports nothing" promise held on
+//!   one platform and not the other until it was defined here;
 //! - raw `write` and `exit` syscalls for the four targets Axiom emits
 //!   for, so an abort can say why before it ends the process.
 //!
@@ -305,6 +309,19 @@ pub unsafe extern "C" fn memcmp(a: *const u8, b: *const u8, n: usize) -> i32 {
         i += 1;
     }
     0
+}
+
+/// `bcmp` is `memcmp`'s "equal or not" half: it may answer any non-zero
+/// value for a difference, so it needs no ordering and LLVM lowers a
+/// small `memcmp` whose result is only compared against zero straight
+/// to it. That lowering fires on linux-x86_64 and not on
+/// darwin-aarch64, which is why the freestanding tier imported exactly
+/// one symbol there and nothing here: `check-ffi.sh` tier 2 says a
+/// program bound to a no_std crate imports NOTHING, and one platform
+/// was quietly failing to keep that promise.
+#[no_mangle]
+pub unsafe extern "C" fn bcmp(a: *const u8, b: *const u8, n: usize) -> i32 {
+    memcmp(a, b, n)
 }
 
 #[no_mangle]
