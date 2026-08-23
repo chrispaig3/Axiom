@@ -1663,7 +1663,7 @@
   (if (>= i (vecLen allDecls))
     0
     (let ((d (vecGet allDecls i)))
-      (if (&& (!= (nodeModule d) 0) (&& (strEq (nodeModule d) modName) (strEq (bareOf (nodeA d)) n)))
+      (if (&& (!= (nodeModule d) 0) (&& (strEq (nodeModuleName d) modName) (strEq (bareOf (nodeA d)) n)))
         1
         (declaredInModule allDecls modName n (+ i 1))
       )
@@ -1677,7 +1677,7 @@
   (if (>= i (vecLen allDecls))
     0
     (let ((d (vecGet allDecls i)))
-      (if (&& (== (nodeVis d) 1) (&& (!= (nodeModule d) 0) (&& (strEq (nodeModule d) modName) (strEq (bareOf (nodeA d)) n))))
+      (if (&& (== (nodeVis d) 1) (&& (!= (nodeModule d) 0) (&& (strEq (nodeModuleName d) modName) (strEq (bareOf (nodeA d)) n))))
         1
         (exportedFromModule allDecls modName n (+ i 1))
       )
@@ -2401,7 +2401,7 @@
                         ; arm above records: slot b is the bare names, and
                         ; registering those would mean a silent wildcard at
                         ; arity -1 and no saturation checking at all.
-                        (tcCollectExternItems tc (nodeC d) 0 (nodeModule d))
+                        (tcCollectExternItems tc (nodeC d) 0 (nodeModuleName d))
                         (if (== tag TAG_D_MACRO)
                           ; The NODE, not the name: a macro its module does not
                           ; export is not a macro name HERE, and deciding that
@@ -3884,13 +3884,14 @@
 ; The name of the first type constructor in `t` that resolves to
 ; nothing, or 0. A known head with an unknown ARGUMENT is still a
 ; miss, so `(Box Nope)` reports `Nope`.
-; RAW: answers a type node or 0, read as either.
-;@axiom:raw
-(pub :: tyUnknownCon (-> Int Int a))
+; The name of the first unknown type constructor in `t`, as a word: the
+; name when there is one and 0 when the type is fully known.
+; `tyUnknownConName` is the String view.
+(pub :: tyUnknownCon (-> Int Int Int))
 
 (pub fn (tyUnknownCon tc t)
   (if (== t 0)
-    (cast a 0)
+    0
     (if (== (nodeTag t) TAG_T_CON)
       (if (== (tyConKnown tc (nodeA t)) 0)
         (nodeA t)
@@ -3914,6 +3915,16 @@
       )
     )
   )
+)
+
+; The String view of `tyUnknownCon`. Only ask it where the word is
+; known non-zero. The cast is here, at a return inside a signature that
+; carries the type - a cast at an argument root would classify the
+; name's evidence 0 and drop its release (MM-LIFE-2e).
+(pub :: tyUnknownConName (-> Int Int String))
+
+(pub fn (tyUnknownConName tc t)
+  (cast String (tyUnknownCon tc t))
 )
 
 (pub :: tyUnknownConVec (-> Int Int Int Int))
@@ -4205,8 +4216,8 @@
               (if (== (nodeSpan f) 0)
                 0
                 (emitDiag tc (diagSetLabel (mkDiag
-                  SEV_ERROR                  "AX3002"                  "undefined-type"                  (nodeSpan f)                  (strConcat (strConcat "undefined type `" bad) "`")                  0                  0                  "an `extern` item's type is the only description of the boundary the compiler has; declare the type, or use `Foreign` for an opaque handle"
-                ) (strConcat (strConcat "no type named `" bad) "` is visible here")))
+                  SEV_ERROR                  "AX3002"                  "undefined-type"                  (nodeSpan f)                  (strConcat (strConcat "undefined type `" (tyUnknownConName tc (nodeB f))) "`")                  0                  0                  "an `extern` item's type is the only description of the boundary the compiler has; declare the type, or use `Foreign` for an opaque handle"
+                ) (strConcat (strConcat "no type named `" (tyUnknownConName tc (nodeB f))) "` is visible here")))
               )
             )
           )
@@ -4450,8 +4461,8 @@
         (if (== (nodeSpan d) 0)
           0
           (emitDiag tc (diagSetLabel (mkDiag
-            SEV_ERROR            "AX3002"            "undefined-type"            (nodeSpan d)            (strConcat (strConcat "undefined type `" bad) "`")            0            0            "check for typos, or a missing `data`/`struct`/`type` declaration"
-          ) (strConcat (strConcat "no type named `" bad) "` is visible here")))
+            SEV_ERROR            "AX3002"            "undefined-type"            (nodeSpan d)            (strConcat (strConcat "undefined type `" (tyUnknownConName tc (nodeTy d))) "`")            0            0            "check for typos, or a missing `data`/`struct`/`type` declaration"
+          ) (strConcat (strConcat "no type named `" (tyUnknownConName tc (nodeTy d))) "` is visible here")))
         )
         (let ((ent (fnEntExact tc (nodeA d))))
           (if (== ent 0)
@@ -4905,7 +4916,7 @@
       ; to `Pre$when` - splits: bare part against the macro's name,
       ; module part against the declaration's module. MAC-LANG-12.
       (if (== (macroQualVisible
-        (tcMacros tc)        (bareOf n)        qm        (memGetWord tc 16)        (- (vecLen (tcMacros tc)) 1)
+        (tcMacros tc)        (bareOf n)        (modOfName n)        (memGetWord tc 16)        (- (vecLen (tcMacros tc)) 1)
       ) 0)
         0
         1
@@ -4947,7 +4958,7 @@
               (!=
                 (cast Int curMod)                0
               )              (strEq
-                (nodeModule m)                (cast String curMod)
+                (nodeModuleName m)                (cast String curMod)
               )
             )
           )
@@ -4969,7 +4980,7 @@
       (if (&&
         (strEq (nodeA m) bare)        (&&
           (!= (nodeModule m) 0)          (&&
-            (strEq (nodeModule m) qm)            (||
+            (strEq (nodeModuleName m) qm)            (||
               (== (nodeVis m) 1)              (&&
                 (!=
                   (cast Int curMod)                  0
@@ -5024,7 +5035,7 @@
 (pub fn (isMacroAnywhere tc n)
   (let ((qm (modOf n)))
     (if (!= qm 0)
-      (isMacroQualNamedIn (tcMacros tc) (bareOf n) qm 0)
+      (isMacroQualNamedIn (tcMacros tc) (bareOf n) (modOfName n) 0)
       (isMacroNamedIn (tcMacros tc) n 0)
     )
   )
@@ -5048,7 +5059,7 @@
   (if (>= i (vecLen ms))
     0
     (let ((m (vecGet ms i)))
-      (if (&& (strEq (nodeA m) bare) (&& (!= (nodeModule m) 0) (strEq (nodeModule m) qm)))
+      (if (&& (strEq (nodeA m) bare) (&& (!= (nodeModule m) 0) (strEq (nodeModuleName m) qm)))
         1
         (isMacroQualNamedIn ms bare qm (+ i 1))
       )
@@ -5635,7 +5646,7 @@
     0
     (let (
       (tag (nodeTag d))
-      (m (nodeModule d))
+      (m (nodeModuleName d))
     )
       (if (== tag TAG_D_FN)
         (ambRecord tc (bareOf (nodeA d)) m)
@@ -5905,7 +5916,7 @@
   {
     (if (!= span 0)
       (emitDiag tc (diagSetLabel (mkDiag
-        SEV_ERROR        "AX3023"        "private-name"        span        (strConcat (strConcat (strConcat (strConcat "`" (srcSpelling name)) "` is private to module `") (modOf declName)) "`")        0        0        "a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too"
+        SEV_ERROR        "AX3023"        "private-name"        span        (strConcat (strConcat (strConcat (strConcat "`" (srcSpelling name)) "` is private to module `") (modOfName declName)) "`")        0        0        "a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too"
       ) (strConcat (strConcat "`" (bareOf declName)) "` is not exported by its module")))
       0
     )
@@ -7630,7 +7641,7 @@
     {
       (let ((d (vecGet impls i)))
         (if (strEq (nodeA d) tname)
-          (let ((e (fnEntExact tc (traitImplName tname (nodeC d) method))))
+          (let ((e (fnEntExact tc (traitImplName tname (nodeCName d) method))))
             (if (== e 0)
               0
               (effUnion acc (memGetWord e 5) 0)
@@ -8422,7 +8433,7 @@
         (let ((fty 
           (if (== ent 0)
             (- 0 1)
-            (structFieldTy ent (nodeB e))
+            (structFieldTy ent (nodeBName e))
           )
         ))
           (if (!= fty (- 0 1))
@@ -8438,7 +8449,7 @@
             ; there and is reproduced here rather than tightened,
             ; because tightening it would refuse programs stage0
             ; accepts.
-            (let ((dty (dataFieldTy tc (nodeB e))))
+            (let ((dty (dataFieldTy tc (nodeBName e))))
               (if (!= dty 0)
                 ; The field exists on a DATA constructor - but a
                 ; type with a NULLARY constructor may hand this
@@ -8448,10 +8459,10 @@
                 ; SIGSEGV (MM-VAL-9a). A `match` emits the guard;
                 ; this form cannot, so on such a type it is
                 ; refused.
-                (let ((own (dataFieldOwner tc (nodeB e))))
+                (let ((own (dataFieldOwner tc (nodeBName e))))
                   (if (&& (!= own 0) (== (dataHasNullary own) 1))
                     {
-                      (emitFieldOnMixed tc (nodeB e) (memGetWord own 0) (nodeSpan e))
+                      (emitFieldOnMixed tc (nodeBName e) (memGetWord own 0) (nodeSpan e))
                       (mkNode TAG_T_ERR 0 0 0)
                     }
                     ; Stamped EMPTY: "not a struct field", so
@@ -8467,7 +8478,7 @@
                   )
                 )
                 {
-                  (emitFieldNotFound tc (nodeB e) (nodeA baseTy) (nodeSpan e))
+                  (emitFieldNotFound tc (nodeBName e) (nodeA baseTy) (nodeSpan e))
                   mkI64Ty
                 }
               )
@@ -8645,7 +8656,7 @@
           (let ((fty 
             (if (== ent 0)
               (- 0 1)
-              (structFieldTy ent (nodeB e))
+              (structFieldTy ent (nodeBName e))
             )
           ))
             (if (!= fty (- 0 1))
@@ -8665,7 +8676,7 @@
                   )
                 }
               )
-              (emitFieldNotFound tc (nodeB e) (nodeA baseTy) (nodeSpan e))
+              (emitFieldNotFound tc (nodeBName e) (nodeA baseTy) (nodeSpan e))
             )
           )
         )
@@ -10304,29 +10315,41 @@
   (let ((m (modOf s)))
     (if (== m 0)
       s
-      (strConcat (strConcat m "::") (bareOf s))
+      ; `modOfName` rather than a cast of `m`: `m` is a fresh
+      ; `strSlice`, and a cast at an argument root would classify its
+      ; evidence 0 and drop the release (MM-LIFE-2e). Re-derived only
+      ; on the qualified path, which is the rarer one.
+      (strConcat (strConcat (modOfName s) "::") (bareOf s))
     )
   )
 )
 
-; RAW: answers a module handle or 0.
-;@axiom:raw
-(pub :: modOf (-> String a))
+; The module prefix of a mangled `Mod$name`, as a word: the prefix when
+; there is one and 0 when there is not. Callers ask `(!= (modOf n) 0)`
+; first and `modOfName` second - the honest type is an option in a
+; machine word, the same shape `nodeModule` has.
+(pub :: modOf (-> String Int))
 
 (pub fn (modOf s) (modOfFrom s (- (strLen s) 1)))
 
-; RAW: see `modOf`.
-;@axiom:raw
-(pub :: modOfFrom (-> String Int a))
+(pub :: modOfFrom (-> String Int Int))
 
 (pub fn (modOfFrom s i)
   (if (< i 0)
-    (cast a 0)
+    0
     (if (== (strByte s i) 36)
-      (cast a (strSlice s 0 i))
+      (cast Int (strSlice s 0 i))
       (modOfFrom s (- i 1))
     )
   )
+)
+
+; The String view. Only ask it where the word is known non-zero. See
+; `nodeCName` for why the cast is here and not at the call sites.
+(pub :: modOfName (-> String String))
+
+(pub fn (modOfName s)
+  (cast String (modOf s))
 )
 
 ; Does a type or constructor named `declName`, declared by module
@@ -10358,7 +10381,7 @@
           (cast Int declMod)          0
         )        (&&
           (strEq
-            (cast String declMod)            m
+            (cast String declMod)            (modOfName ref)
           )          (strEq declName (bareOf ref))
         )
       )

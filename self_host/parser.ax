@@ -446,17 +446,32 @@
 
 (pub fn (nodeA n) (memGetWord n 1))
 
-; RAW: see `nodeA`.
-;@axiom:raw
-(pub :: nodeB (-> Int a))
+(pub :: nodeB (-> Int Int))
 
 (pub fn (nodeB n) (memGetWord n 2))
 
-; RAW: see `nodeA`.
-;@axiom:raw
-(pub :: nodeC (-> Int a))
+; The String view of word 2. See `nodeCName` for why the cast lives
+; here and not at the call sites.
+(pub :: nodeBName (-> Int String))
+
+(pub fn (nodeBName n)
+  (cast String (nodeB n))
+)
+
+(pub :: nodeC (-> Int Int))
 
 (pub fn (nodeC n) (memGetWord n 3))
+
+; The String view of word 3, for the node tags whose third field is a
+; name. The cast is HERE, at a return inside a signature that carries
+; the type, and not at the call sites - a cast at an argument root
+; classifies that value's evidence 0 and drops its retain or its
+; release (docs/memory-model.md MM-LIFE-2e, measured).
+(pub :: nodeCName (-> Int String))
+
+(pub fn (nodeCName n)
+  (cast String (nodeC n))
+)
 
 ; The AST's three payload words are the compiler's own instance of
 ; `Mem.memSetWord`'s problem, and they carry it at scale: `ASTNode`
@@ -503,11 +518,24 @@
 
 (pub fn (nodeSpan n) (memGetWord n 4))
 
-; RAW: see `nodeA`.
-;@axiom:raw
-(pub :: nodeModule (-> Int a))
+; The module word: a String when the declaration carries one, and 0
+; when it does not - which is why the word and its String view are
+; separate here. `(!= (nodeModule d) 0)` asks the first question,
+; `nodeModuleName` answers the second. The honest type is an option in
+; a machine word, and this split is as close as the language gets
+; until one exists.
+(pub :: nodeModule (-> Int Int))
 
 (pub fn (nodeModule n) (memGetWord n 8))
+
+; The String view. Only ask it where the word is known non-zero. The
+; cast is here, at a return inside a signature that carries the type -
+; see `nodeCName`.
+(pub :: nodeModuleName (-> Int String))
+
+(pub fn (nodeModuleName n)
+  (cast String (nodeModule n))
+)
 
 (pub :: nodeFieldNames (-> Int Int))
 

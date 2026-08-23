@@ -656,7 +656,7 @@
                                 (if (== (nodeModule d) 0)
                                   0
                                   (saPut2
-                                    (memGetWord sm 0)                                    (memGetWord sm 1)                                    (memGetWord sm 2)                                    (strConcat (strConcat (nodeModule d) "$") (nodeA f))                                    (nodeSpan f)                                    u
+                                    (memGetWord sm 0)                                    (memGetWord sm 1)                                    (memGetWord sm 2)                                    (strConcat (strConcat (nodeModuleName d) "$") (nodeA f))                                    (nodeSpan f)                                    u
                                   )
                                 )
                                 (set i (+ i 1))
@@ -679,7 +679,7 @@
                                   (saPut (memGetWord sm 18) (memGetWord sm 19) (nodeA f) (nodeB f))
                                   (if (== (nodeModule d) 0)
                                     0
-                                    (saPut (memGetWord sm 18) (memGetWord sm 19) (strConcat (strConcat (nodeModule d) "$") (nodeA f)) (nodeB f))
+                                    (saPut (memGetWord sm 18) (memGetWord sm 19) (strConcat (strConcat (nodeModuleName d) "$") (nodeA f)) (nodeB f))
                                   )
                                   (set i (+ i 1))
                                 }

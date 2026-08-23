@@ -376,32 +376,28 @@
                   0
                   {
                     (vecPush seen name)
-                    (let ((src (readModuleSrc name tcode entryDir)))
-                      (if (== src 0)
-                        {
-                          (set missing name)
-                          0
-                        }
+                    (let ((srcOpt (readModuleSrc name tcode entryDir)))
+                      (match srcOpt
+                        ((None)
+                          {
+                            (set missing name)
+                            0
+                          }
+                        )
                         ; The module reads. Its own imports are
                         ; the same question one level down; a
                         ; module that does not parse is not a
                         ; missing-import failure and is left for
                         ; the checker to report.
-                        (let ((pr 
-                          (parseModuleWith
-                            (lex
-                              (cast String src)
-                            )                            (scanAxtags
-                              (cast String src)
-                            )
-                          )
-                        ))
-                          (if (== (memGetWord pr 0) 0)
-                            0
-                            {
-                              (set missing (lspPreflight (memGetWord pr 1) tcode entryDir seen))
+                        ((Some src)
+                          (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+                            (if (== (memGetWord pr 0) 0)
                               0
-                            }
+                              {
+                                (set missing (lspPreflight (memGetWord pr 1) tcode entryDir seen))
+                                0
+                              }
+                            )
                           )
                         )
                       )

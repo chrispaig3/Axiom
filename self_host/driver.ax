@@ -1771,7 +1771,7 @@
     0
     (if (>= i (vecLen items))
       0
-      (if (strEq (nodeC (vecGet items i)) sym)
+      (if (strEq (nodeCName (vecGet items i)) sym)
         (vecGet items i)
         (findExternItemIn items sym (+ i 1))
       )

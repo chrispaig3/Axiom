@@ -205,7 +205,7 @@
       0
       {
         (let ((f (vecGet items i)))
-          (mangleRecord bares fulls (nodeA f) (nodeC f))
+          (mangleRecord bares fulls (nodeA f) (nodeCName f))
         )
         (mangleExternItems items (+ i 1) bares fulls)
       }

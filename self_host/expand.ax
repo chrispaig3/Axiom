@@ -286,17 +286,30 @@
 
 (pub fn (expDecls env) (memGetWord env 4))
 
-; RAW: answers a module handle or 0.
-;@axiom:raw
-(pub :: expMacMod (-> Int a))
+; The macro's module, as a word: a String when there is one and 0 when
+; there is not. `expMacModName` is the String view; see `nodeCName` in
+; parser.ax for why the cast lives in the accessor.
+(pub :: expMacMod (-> Int Int))
 
 (pub fn (expMacMod env) (memGetWord env 5))
 
-; RAW: answers a site handle or 0.
-;@axiom:raw
-(pub :: expQSite (-> Int a))
+(pub :: expMacModName (-> Int String))
+
+(pub fn (expMacModName env)
+  (cast String (expMacMod env))
+)
+
+; The quoting site, as a word: a String when there is one and 0 when
+; there is not.
+(pub :: expQSite (-> Int Int))
 
 (pub fn (expQSite env) (memGetWord env 17))
+
+(pub :: expQSiteName (-> Int String))
+
+(pub fn (expQSiteName env)
+  (cast String (expQSite env))
+)
 
 (pub :: expBares (-> Int Int))
 
@@ -405,12 +418,15 @@
 (pub :: expQualify (-> Int String String))
 
 (pub fn (expQualify env name)
+  ; `m` is the module WORD, so the guard reads it directly - the
+  ; `(cast Int m)` this replaced existed only because `expMacMod`
+  ; answered a type variable. The String view is re-derived on the
+  ; qualified path rather than cast from `m`: a cast at an argument
+  ; root classifies evidence 0 and drops the release (MM-LIFE-2e).
   (let ((m (expMacMod env)))
-    (if (==
-      (cast Int m)      0
-    )
+    (if (== m 0)
       name
-      (let ((q (strConcat (strConcat m "$") name)))
+      (let ((q (strConcat (strConcat (expMacModName env) "$") name)))
         (if (== (expDeclNamed (expDecls env) q 0) 1)
           q
           ; MAC-HYG-8's FOURTH hole. `MAC-HYG-7`'s rewrite tries
@@ -730,7 +746,7 @@
           ; own module, whose local names win there for the same
           ; reason. `isMacroName` in the checker applies the
           ; identical veto; the two have to agree.
-          (if (&& (!= (nodeModule mac) 0) (&& (== (expSameMod (nodeModule mac) site) 0) (== (expDeclNamed (expDecls env) name 0) 1)))
+          (if (&& (!= (nodeModule mac) 0) (&& (== (expSameMod (nodeModuleName mac) site) 0) (== (expDeclNamed (expDecls env) name 0) 1)))
             0
             mac
           )
@@ -751,7 +767,7 @@
       (if (&&
         (strEq (nodeA m) bare)        (&&
           (!= (nodeModule m) 0)          (&&
-            (strEq (nodeModule m) qm)            (||
+            (strEq (nodeModuleName m) qm)            (||
               (== (nodeVis m) 1)              (&&
                 (!=
                   (cast Int site)                  0
@@ -796,7 +812,7 @@
             (== (nodeModule m) 0)            (&&
               (!=
                 (cast Int site)                0
-              )              (strEq (nodeModule m) site)
+              )              (strEq (nodeModuleName m) site)
             )
           )
         )
@@ -1393,7 +1409,7 @@
       (let ((any (expFindDeclNamed env s 0)))
         (if (!= any 0)
           (expQueryErr
-            env            isp            (strConcat (strConcat (strConcat "`" s) "` is private to module `") (strConcat (nodeModule any) "`"))            "a query answers what an entry-file reference could name; mark the struct `pub`, or derive by hand inside its module"            (expMacMod env)
+            env            isp            (strConcat (strConcat (strConcat "`" s) "` is private to module `") (strConcat (nodeModuleName any) "`"))            "a query answers what an entry-file reference could name; mark the struct `pub`, or derive by hand inside its module"            (expMacMod env)
           )
           (expQueryErr
             env            isp            (strConcat (strConcat "no declaration named `" s) "` for syntax/fields to answer")            "the query reads the declaration list; check the spelling, and declare (or import) the struct before deriving over it"            (expMacMod env)
@@ -1441,7 +1457,7 @@
       (let ((any (expFindDeclNamed env t 0)))
         (if (!= any 0)
           (expQueryErr
-            env            isp            (strConcat (strConcat (strConcat "`" t) "` is private to module `") (strConcat (nodeModule any) "`"))            "a query answers what an entry-file reference could name; mark the type `pub`, or derive by hand inside its module"            (expMacMod env)
+            env            isp            (strConcat (strConcat (strConcat "`" t) "` is private to module `") (strConcat (nodeModuleName any) "`"))            "a query answers what an entry-file reference could name; mark the type `pub`, or derive by hand inside its module"            (expMacMod env)
           )
           (expQueryErr
             env            isp            (strConcat (strConcat "no declaration named `" t) "` for syntax/constructors to answer")            "the query reads the declaration list; check the spelling, and declare (or import) the type before deriving over it"            (expMacMod env)
@@ -3680,11 +3696,11 @@
                           (mkNodeAt
                             TAG_E_FIELD                            (substTpl
                               (nodeA tpl)                              params                              args                              ren                              env                              isp
-                            )                            (let ((fe (expForLookup env (nodeB tpl))))
+                            )                            (let ((fe (expForLookup env (nodeBName tpl))))
                               (if (==
                                 (cast Int fe)                                0
                               )
-                                (nodeB tpl)
+                                (nodeBName tpl)
                                 fe
                               )
                             )                            0                            isp
@@ -3693,11 +3709,11 @@
                             (mkNodeAt
                               TAG_E_SETF                              (substTpl
                                 (nodeA tpl)                                params                                args                                ren                                env                                isp
-                              )                              (let ((fe (expForLookup env (nodeB tpl))))
+                              )                              (let ((fe (expForLookup env (nodeBName tpl))))
                                 (if (==
                                   (cast Int fe)                                  0
                                 )
-                                  (nodeB tpl)
+                                  (nodeBName tpl)
                                   fe
                                 )
                               )                              (substTpl
@@ -6450,7 +6466,7 @@
             )
               0
               (let ((ty (expSubstName
-                (nodeC t)                params                args                env                isp
+                (nodeCName t)                params                args                env                isp
               )))
                 (if (==
                   (cast Int ty)                  0
@@ -7356,10 +7372,10 @@
       0
       (if (== (strLen sup) 0)
         0
-        (if (== (implExistsFor decls sup (nodeC d) 0) 1)
+        (if (== (implExistsFor decls sup (nodeCName d) 0) 1)
           0
           (implDiag
-            out            (nodeSpan d)            (strConcat (strConcat (strConcat (strConcat (strConcat "trait `" (nodeA tr)) "` requires `") sup) (strConcat (strConcat "`, and there is no `impl (" sup) (strConcat " " (nodeC d)))) ")`")            "implement the supertrait for this type first"            "a supertrait is a requirement on the implementation, not only on the declaration"
+            out            (nodeSpan d)            (strConcat (strConcat (strConcat (strConcat (strConcat "trait `" (nodeA tr)) "` requires `") sup) (strConcat (strConcat "`, and there is no `impl (" sup) (strConcat " " (nodeCName d)))) ")`")            "implement the supertrait for this type first"            "a supertrait is a requirement on the implementation, not only on the declaration"
           )
         )
       )
@@ -7373,7 +7389,7 @@
   (if (>= i (vecLen decls))
     0
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_IMPL) (&& (strEq (nodeA d) tname) (strEq (nodeC d) ty)))
+      (if (&& (== (nodeTag d) TAG_D_IMPL) (&& (strEq (nodeA d) tname) (strEq (nodeCName d) ty)))
         1
         (implExistsFor decls tname ty (+ i 1))
       )
@@ -7441,8 +7457,8 @@
   ; instead, because `(eq myNamedFunction)` is as legitimate as a
   ; lambda and applying it is what both shapes support.
   (let (
-    (ty (tySubstVar (nodeB decl) v (mkTCon (nodeC d) vecNew)))
-    (nm (traitImplName (nodeA tr) (nodeC d) (nodeA m)))
+    (ty (tySubstVar (nodeB decl) v (mkTCon (nodeCName d) vecNew)))
+    (nm (traitImplName (nodeA tr) (nodeCName d) (nodeA m)))
   )
     (let (
       (ar (arrowArity ty))

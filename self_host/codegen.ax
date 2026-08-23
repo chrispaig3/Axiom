@@ -569,7 +569,7 @@
             0
             (vecPush
               sigs              (cast Int (FSig
-                (nodeC f)                (strLen (nodeC f))                0                (nodeB f)                0                1                (arrowArity (nodeB f))                0                0
+                (nodeCName f)                (strLen (nodeCName f))                0                (nodeB f)                0                1                (arrowArity (nodeB f))                0                0
               ))
             )
           )
@@ -4025,7 +4025,7 @@
       ; `declSpellingOf` records for `main`, which is why that
       ; helper exists at all.
       (let ((f (vecGet items i)))
-        (if (&& (|| (strEq (nodeA f) name) (strEq (nodeC f) name)) (== (arrowArity (nodeB f)) 0))
+        (if (&& (|| (strEq (nodeA f) name) (strEq (nodeCName f) name)) (== (arrowArity (nodeB f)) 0))
           true
           (externHasNullary items name (+ i 1))
         )
@@ -4081,7 +4081,7 @@
         (if (== (nodeModule node) 0)
           0
           (vecPush
-            tbl            (cast Int (EffEnt (cat3 (nodeModule node) "$" (nodeA node)) slot isEntry))
+            tbl            (cast Int (EffEnt (cat3 (nodeModuleName node) "$" (nodeA node)) slot isEntry))
           )
         )
         (scanEffectOps
@@ -4143,7 +4143,7 @@
               (memGetWord cg 35)              (cast Int name)
             )
             (scanCtors
-              ctors              cg              0              (ctorsRep ctors (memGetWord cg 4))              (nodeModule node)
+              ctors              cg              0              (ctorsRep ctors (memGetWord cg 4))              (nodeModuleName node)
             )
           }
         )
@@ -4344,15 +4344,34 @@
 ; live in Axiom source rather than in a table inside the compiler.
 ; Without it the platform module resolves to nothing and every constant
 ; it defines - `sysWrite`, `oRdonly` - is an undefined symbol.
-; RAW: answers a source handle or 0.
-;@axiom:raw
-(pub :: readModuleSrc (-> String Int String a))
+; The module's source, or nothing when there is no such file.
+;
+; `Option` rather than the word-plus-view shape the hot readers took:
+; the view would have to RE-READ the file to answer, and casting the
+; bound word at the use site - which is what the callers did - drops
+; the source string's release (MM-LIFE-2e), a leak per module.
+;@axiom:effect(io)
+(pub :: readModuleSrc (-> String Int String (Option String)))
 
 (pub fn (readModuleSrc name tcode entryDir)
   (let ((p (moduleSrcPath name tcode entryDir)))
     (if (== (strLen p) 0)
-      (cast a 0)
-      (cast a (sysReadFile (strCStr p)))
+      None
+      (Some (sysReadFile (strCStr p)))
+    )
+  )
+)
+
+; The same read, defaulted - for a call site that needs a String
+; inline. One read, not two.
+(pub :: readModuleSrcOr (-> String Int String String String))
+
+;@axiom:effect(io)
+(pub fn (readModuleSrcOr name tcode entryDir dflt)
+  (let ((srcOpt (readModuleSrc name tcode entryDir)))
+    (match srcOpt
+      ((None) dflt)
+      ((Some s) s)
     )
   )
 )
@@ -4711,7 +4730,7 @@
   {
     (if (== (unitIndexOf units name 0) (- 0 1))
       (vecPush
-        units        (cast Int (CUnit2 (moduleSrcPath name tcode entryDir) (readModuleSrc name tcode entryDir) name))
+        units        (cast Int (CUnit2 (moduleSrcPath name tcode entryDir) (readModuleSrcOr name tcode entryDir "") name))
       )
       0
     )
@@ -4914,39 +4933,29 @@
 )
 
 (pub fn (parseModuleOrDie name tcode entryDir)
-  (let ((src (readModuleSrc name tcode entryDir)))
-    (if (== src 0)
-      (dieImportDiag name tcode entryDir)
+  (let ((srcOpt (readModuleSrc name tcode entryDir)))
+    (match srcOpt
+      ((None) (dieImportDiag name tcode entryDir))
       ; `parseModuleWith`, not `parseModule`: an imported module's
       ; AXTAGs have to attach to its declarations exactly as the
       ; entry file's do, or `symbols` prints `#effects=IO` beside a
       ; missing `#effect=io` claim and every tag check on imported
       ; code silently never runs.
-      (let ((toks 
-        (lex
-          (cast String src)
-        )
-      ))
-        (let ((lexD 
-          (lexErrDiag
-            toks            (cast String src)
-          )
-        ))
-          (let ((pr 
-            (if (== lexD 0)
-              (parseModuleWith
-                toks                (scanAxtags
-                  (cast String src)
+      ((Some src)
+        (let ((toks (lex src)))
+          (let ((lexD (lexErrDiag toks src)))
+            (let ((pr 
+              (if (== lexD 0)
+                (parseModuleWith toks (scanAxtags src))
+                (pErr 0)
+              )
+            ))
+              (if (|| (> lexD 0) (== (memGetWord pr 0) 0))
+                (dieModuleParse
+                  name                  src                  toks                  pr                  lexD                  tcode                  entryDir
                 )
+                (memGetWord pr 1)
               )
-              (pErr 0)
-            )
-          ))
-            (if (|| (> lexD 0) (== (memGetWord pr 0) 0))
-              (dieModuleParse
-                name                (cast String src)                toks                pr                lexD                tcode                entryDir
-              )
-              (memGetWord pr 1)
             )
           )
         )
@@ -5066,7 +5075,7 @@
       ; parser resolved (defaulting to the Axiom name).
       {
         (let ((f (vecGet items i)))
-          (mangleRecord bares fulls (nodeA f) (nodeC f))
+          (mangleRecord bares fulls (nodeA f) (nodeCName f))
         )
         (recordExternSyms bares fulls items (+ i 1))
       }
@@ -6431,7 +6440,7 @@
     (if (>= i (vecLen items))
       cg
       (let ((f (vecGet items i)))
-        (let ((sym (nodeC f)))
+        (let ((sym (nodeCName f)))
           (emitExternItems
             items            (if (|| (== (externSeen seen sym 0) 1) (== (linesCallSym (memGetWord cg 0) (llvmSym (strDup sym)) 0) 0))
               ; only a symbol the module CALLS is declared:
@@ -9784,7 +9793,7 @@
       (fi (resolveStructField (memGetWord cgB 3) node))
     )
       (if (== fi 0)
-        (dieCodegenDiag "unknown struct field: " (nodeB node))
+        (dieCodegenDiag "unknown struct field: " (nodeBName node))
         ; and the temporary's own share, if the value
         ; was an owned temporary that the retain above
         ; (not a MOVE) has just copied into the field
@@ -9867,9 +9876,9 @@
         ; field. Those live PAST THE TAG WORD, so the offset is
         ; index + 1 where a struct's is index - a struct carries no
         ; tag. stage0 searches every data type, first match winning.
-        (let ((di (findDataField (memGetWord cgB 3) (nodeB node))))
+        (let ((di (findDataField (memGetWord cgB 3) (nodeBName node))))
           (if (== di 0)
-            (dieCodegenDiag "unknown struct field: " (nodeB node))
+            (dieCodegenDiag "unknown struct field: " (nodeBName node))
             (let ((cgL (loadWordAt cgB base (+ (nodeA di) 1))))
               {
                 (memSetWord cgL 14 (nodeB di))
@@ -9949,7 +9958,7 @@
 
 (pub fn (resolveStructField types node)
   (if (== (nodeTy node) 0)
-    (findStructField types (nodeB node))
+    (findStructField types (nodeBName node))
     ; The empty stamp: the checker resolved the field as a DATA
     ; constructor's named field, and `emitField` must go straight
     ; to `findDataField` - the struct scan it used to try first
@@ -9967,7 +9976,7 @@
             0
             (if (!= (eKind e) TF_STRUCT)
               0
-              (structFieldOf e (nodeB node))
+              (structFieldOf e (nodeBName node))
             )
           )
         )
