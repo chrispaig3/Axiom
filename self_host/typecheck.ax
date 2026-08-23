@@ -11007,7 +11007,53 @@
           (builtinEff "Alloc")
           (if (== (strLen val) 0)
             ""
-            (customEff (canonicalEffectName tc val))
+            (axtagCustomOrBuiltinCI tc val)
+          )
+        )
+      )
+    )
+  )
+)
+
+; A value that is not one of the four lowercase built-in spellings, in
+; the order the two possibilities have to be tried.
+;
+; DECLARATIONS FIRST. `canonicalEffectName` already matches them
+; case-insensitively, which is what makes `effect(console)` validate
+; against `(effect Console ...)`. A program may declare `(effect Io
+; ...)` of its own, and `;@axiom:effect(Io)` on a body performing it
+; builds clean today; resolving the built-in first would swallow that
+; and report a missing `IO` the body never performs.
+;
+; ONLY THEN the built-in, case-folded. `;@axiom:effect(IO)` used to
+; become a CUSTOM effect named IO, which no declaration introduces and
+; the walk never produces, so the claim could not be satisfied by any
+; program - and it was reported as `claim unsupported: missing IO`,
+; a message textually identical to the built-in failure. The author saw
+; a claim about IO refused against a body that performs IO, with
+; nothing in the message naming the case as the reason. An agent
+; writing a tag is the likeliest author of that spelling, which is why
+; this is the direction the fix goes rather than a new diagnostic.
+;
+; The only inputs whose meaning changes are the ones that today resolve
+; to a custom effect NO declaration introduces - exactly the set that
+; produced the unsatisfiable claim.
+(pub :: axtagCustomOrBuiltinCI (-> Int String String))
+
+(pub fn (axtagCustomOrBuiltinCI tc val)
+  (let ((canon (canonicalEffectName tc val)))
+    (if (!= (findEffectDecl tc canon) 0)
+      (customEff canon)
+      (if (== (strEqCI val "io") 1)
+        (builtinEff "IO")
+        (if (== (strEqCI val "mut") 1)
+          (builtinEff "Mut")
+          (if (== (strEqCI val "div") 1)
+            (builtinEff "Div")
+            (if (== (strEqCI val "alloc") 1)
+              (builtinEff "Alloc")
+              (customEff canon)
+            )
           )
         )
       )
