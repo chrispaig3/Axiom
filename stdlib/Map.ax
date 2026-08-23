@@ -304,6 +304,8 @@
 
 (fn (mapKeyAt m i) (memGetWord (memGetWord m 2) i))
 
+; RAW: a `Map` carries no value type; see `vecGet`.
+;@axiom:raw
 (:: mapValAt (-> Int Int a))
 
 (fn (mapValAt m i) (memGetWord (memGetWord m 3) i))

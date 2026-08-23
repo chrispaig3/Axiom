@@ -298,7 +298,7 @@ scrutinee shape run as its ablation.
 
 **ERR-PROP-4 (P). The compiler SHOULD diagnose a self-recursive call in
 the scrutinee of a `match` on its own return type.** Proposed
-`AX3040`, `recursion-in-scrutinee`, a **warning**, with a help naming
+`AX3041`, `recursion-in-scrutinee`, a **warning**, with a help naming
 the arm-tail rewrite. Today nothing says anything: the program compiles,
 runs, and dies on an input large enough, which is the failure mode
 `ERR-PROP-3` exists to prevent and the one a programmer is least
@@ -509,29 +509,31 @@ stable code and a kebab-case slug, and has long-form text in
 compiler reports; the rule is here so a future contributor does not
 invent a second channel for "error-model errors".
 
-**ERR-DIAG-2 (P). Proposed codes.** Five times now this model has
+**ERR-DIAG-2 (P). Proposed codes.** Six times now this model has
 proposed a number and the compiler has spent it first. `AX3035` went on
 2026-08-16 to the expander defect that stood in this model's way
 (`macro-binder-target`, §7), `AX3036` went on 2026-08-22 to the FFI
 (`extern-type`, an `extern` item whose type cannot cross the boundary),
-and three went to the effect walk: `AX3037` on 2026-08-22
+three went to the effect walk: `AX3037` on 2026-08-22
 (`axtag-unverifiable`, a `pure` claim over a call the walk cannot
 resolve), then `AX3038` (`effect-unverifiable`, the same condition
 under a `handle`) and `AX3039` (`axtag-key-typo`, a key one edit from
-one the compiler checks) on 2026-08-23. The next free semantic number
-is therefore `AX3040` (`AX3032` is retired and **MUST NOT** be reused),
+one the compiler checks) on 2026-08-23; and `AX3040` the same day to
+the type system (`result-only-tyvar`, a signature returning a variable
+no parameter mentions). The next free semantic number is therefore
+`AX3041` (`AX3032` is retired and **MUST NOT** be reused),
 and a proposal renumbers again if something builds one before this
 model does — which is exactly why these are proposals and not
-allocations. Five renumberings is itself evidence: a table of reserved
+allocations. Six renumberings is itself evidence: a table of reserved
 numbers ages badly beside a compiler under active repair, and the only
 thing that keeps it honest is `check-doc-drift.sh` comparing
 constructed against listed in both directions.
 
 | Proposed | Slug | Condition |
 |---|---|---|
-| `AX3040` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
-| `AX3041` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
-| `AX3042` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
+| `AX3041` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
+| `AX3042` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
+| `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
@@ -690,7 +692,7 @@ match binder.
 | `ERR-PROP-1` | H | the language having no other mechanism |
 | `ERR-PROP-2` | H | `#pure` accepted on construct and inspect |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
-| `ERR-PROP-4` | P | — proposed `AX3040`, not constructed |
+| `ERR-PROP-4` | P | — proposed `AX3041`, not constructed |
 | `ERR-PROP-5` | H | effect inference, unchanged |
 | `ERR-MEM-1` | H | `fldClass`, `self_host/codegen.ax` |
 | `ERR-MEM-2` | **H, gated** | `370-error-propagation.ax` term 4 + ablation |
@@ -703,7 +705,7 @@ match binder.
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — `AX3040`–`AX3042` not constructed |
+| `ERR-DIAG-2`, `3` | P | — `AX3041`–`AX3043` not constructed |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |

@@ -4344,6 +4344,8 @@
 ; live in Axiom source rather than in a table inside the compiler.
 ; Without it the platform module resolves to nothing and every constant
 ; it defines - `sysWrite`, `oRdonly` - is an undefined symbol.
+; RAW: answers a source handle or 0.
+;@axiom:raw
 (pub :: readModuleSrc (-> String Int String a))
 
 (pub fn (readModuleSrc name tcode entryDir)

@@ -12,14 +12,29 @@
 ;
 ; The stage0 model, replicated:
 ;
-;   * Types are structural nodes (TAG_T_* in parser.ax). There is no
-;     unification and no substitution anywhere: `tyCompat` treats a
-;     type VARIABLE on either side, at any depth, as matching
-;     anything (the fiat that made `String` and `Int` mutually
-;     compatible was deleted 2026-08-15 - containers carry type
-;     variables now, so a string in a Vec types honestly), and the
-;     poison type TAG_T_ERR
-;     matches everything so one root cause never cascades.
+;   * Types are structural nodes (TAG_T_* in parser.ax). `tyCompat`
+;     treats a type VARIABLE on either side, at any depth, as matching
+;     anything, and the poison type TAG_T_ERR matches everything so one
+;     root cause never cascades.
+;
+;     This paragraph said "there is no unification and no substitution
+;     anywhere" until 2026-08-23, and it is not what the compiler does.
+;     A signature's variables are instantiated PER CALL SITE, so a
+;     variable repeated across parameters is checked:
+;
+;         (:: pick (-> a a Int))
+;         (pick "a string" 42)   -> AX3004, expected String, found Int
+;
+;     and the instantiation does not leak between call sites - `(+
+;     (pick "s" "t") (pick 1 2))` is accepted in either order, probed
+;     both ways. The `String`/`Int` fiat named here really was deleted
+;     on 2026-08-15; `(wantsInt "not an int")` is AX3004 today.
+;
+;     WHAT IS UNSOUND is narrower and is not this rule. A variable in
+;     RESULT position that no parameter mentions is chosen by the
+;     caller and witnessed by nothing, so the word comes back as
+;     whatever they name - see AX3040, and `;@axiom:raw` for the
+;     fourteen declarations here that are deliberately that.
 ;
 ;   * Function types come from signatures, authoritatively. A `fn`
 ;     with no signature gets a placeholder `_fn_N` type variable and
@@ -247,15 +262,21 @@
 (pub fn (mkUnitTy) (mkTTup vecNew))
 
 ; ------------------------------------------------------------------
-; Compatibility - stage0's `compatible_with`, the whole "unifier".
-; Rules in order: a type variable on EITHER side matches anything (no
-; substitution exists, so `Tree a` vs `Tree Int` must pass); poison
-; matches anything; `String` and `Int` are mutually compatible BY
-; NAME (argument lists ignored - the uniform-representation rule);
-; constructors need equal names, equal argument counts, and pairwise
-; compatibility; arrows, tuples, lists pairwise; pointers also need
-; EQUAL mutability. An absent type (0) matches anything - stage1's
-; spelling of "I kept no type here".
+; Compatibility - stage0's `compatible_with`. Rules in order: a type
+; variable on EITHER side matches anything, so `Tree a` vs `Tree Int`
+; passes; poison matches anything; constructors need equal names, equal
+; argument counts, and pairwise compatibility; arrows, tuples, lists
+; pairwise; pointers also need EQUAL mutability. An absent type (0)
+; matches anything - stage1's spelling of "I kept no type here".
+;
+; Two claims stood here until 2026-08-23 and both were stale. It said
+; `String` and `Int` are "mutually compatible BY NAME" - that fiat was
+; deleted on 2026-08-15 and the header paragraph says so, but this copy
+; was not swept; `(wantsInt "not an int")` is AX3004. And it called
+; this function "the whole unifier" and said "no substitution exists",
+; which sends a reader looking for a checker rewrite when the actual
+; unsoundness is one signature shape (AX3040). Instantiation happens
+; per call site above this function, not in it.
 ; ------------------------------------------------------------------
 (pub :: tyCompat (-> Int Int Int))
 
@@ -3863,6 +3884,8 @@
 ; The name of the first type constructor in `t` that resolves to
 ; nothing, or 0. A known head with an unknown ARGUMENT is still a
 ; miss, so `(Box Nope)` reports `Nope`.
+; RAW: answers a type node or 0, read as either.
+;@axiom:raw
 (pub :: tyUnknownCon (-> Int Int a))
 
 (pub fn (tyUnknownCon tc t)
@@ -4125,6 +4148,7 @@
         {
           (tcExpandSigAliases tc (vecGet decls i))
           (tcCheckSigTypeOf tc (vecGet decls i))
+          (tcCheckResultOnlyVars tc (vecGet decls i))
         }
         ; An `extern` item's type lives in the ITEM, not in the block
         ; node's `ty` slot, so the walk above cannot see it - and until
@@ -4296,6 +4320,122 @@
           )
         )
       }
+    )
+  )
+)
+
+; AX3040: a type variable that appears in the RESULT and in no
+; parameter.
+;
+; That is not parametric polymorphism. The CALLER picks the type,
+; nothing witnesses the choice, and the callee cannot have produced a
+; value of it - so the signature promises `forall a. ... -> a`, which
+; in a sound system is inhabited only by non-termination. Here it is
+; inhabited by a machine word, and the promise is an unchecked
+; coercion wearing a polymorphic spelling.
+;
+; It reaches memory unsafety, measured rather than argued:
+;
+;     (:: conjure (-> Int a))
+;     (fn (conjure n) (cast a n))
+;     (strWrap (conjure 42) 8)
+;
+; `check` answers OK and the binary exits 139 - 42 dereferenced as a
+; String. The same shape through `vecGet` does the same thing, which is
+; how a `Vec` holding an Int reads back as a String.
+;
+; Fourteen declarations in this tree have it, and every one is a raw
+; word read: `memGetWord`, `vecGet`, `nodeA`. They are the language's
+; unsafe layer. `;@axiom:raw` is how a declaration says so, and the
+; point of the tag is not permission - it is that the layer becomes
+; FINITE and greppable, `axiom symbols FILE --diagnostic-format ai |
+; grep '#raw'`, where before it was invisible.
+(pub :: tcCheckResultOnlyVars (-> Int Int Int))
+
+(pub fn (tcCheckResultOnlyVars tc d)
+  (if (== (declHasAxtag d "raw") 1)
+    0
+    (let (
+      (ps vecNew)
+      (rs vecNew)
+    )
+      {
+        (sigSplitVars (nodeTy d) ps rs)
+        (resultOnlyReport
+          tc          d          ps          rs          0
+        )
+      }
+    )
+  )
+)
+
+; Walk the arrow spine: every left side is a parameter, the last right
+; side is the result.
+(pub :: sigSplitVars (-> Int Int Int Int))
+
+(pub fn (sigSplitVars t ps rs)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_T_ARR)
+      {
+        (sigTyVarsInto (nodeA t) ps)
+        (sigSplitVars (nodeB t) ps rs)
+      }
+      (sigTyVarsInto t rs)
+    )
+  )
+)
+
+(pub :: resultOnlyReport (-> Int Int Int Int Int Int))
+
+(pub fn (resultOnlyReport tc d ps rs i)
+  (if (>= i (vecLen rs))
+    0
+    {
+      (if (==
+        (strVecHas
+          ps          (cast String (vecGet rs i))
+        )        1
+      )
+        0
+        (emitResultOnlyVar
+          tc          d          (cast String (vecGet rs i))
+        )
+      )
+      (resultOnlyReport
+        tc        d        ps        rs        (+ i 1)
+      )
+    }
+  )
+)
+
+(pub :: emitResultOnlyVar (-> Int Int String Int))
+
+(pub fn (emitResultOnlyVar tc d v)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_WARNING      "AX3040"      "result-only-tyvar"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeA d))) "` returns type variable `") v) "`, which no parameter mentions: the caller chooses it and nothing witnesses the choice")      0      0      "return a concrete word type and let callers write `cast`, or tag the declaration `;@axiom:raw` to declare it part of the unsafe layer"
+    ))
+  )
+)
+
+; Does this declaration carry `;@axiom:<key>` exactly?
+(pub :: declHasAxtag (-> Int String Int))
+
+(pub fn (declHasAxtag d key) (declHasAxtagFrom (memGetWord d 7) key 0))
+
+(pub :: declHasAxtagFrom (-> Int String Int Int))
+
+(pub fn (declHasAxtagFrom tags key i)
+  (if (== tags 0)
+    0
+    (if (>= i (vecLen tags))
+      0
+      (if (strEq (memGetWord (vecGet tags i) 1) key)
+        1
+        (declHasAxtagFrom tags key (+ i 1))
+      )
     )
   )
 )
@@ -10169,10 +10309,14 @@
   )
 )
 
+; RAW: answers a module handle or 0.
+;@axiom:raw
 (pub :: modOf (-> String a))
 
 (pub fn (modOf s) (modOfFrom s (- (strLen s) 1)))
 
+; RAW: see `modOf`.
+;@axiom:raw
 (pub :: modOfFrom (-> String Int a))
 
 (pub fn (modOfFrom s i)
@@ -10485,7 +10629,10 @@
     "pure"
     (if (== (axtagSlip key "effect") 1)
       "effect"
-      ""
+      (if (== (axtagSlip key "raw") 1)
+        "raw"
+        ""
+      )
     )
   )
 )

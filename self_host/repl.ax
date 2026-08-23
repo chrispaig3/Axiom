@@ -79,6 +79,8 @@
 ; (a Str is a pointer, so -1 is not one). A final unterminated line
 ; comes back as itself; the next call answers -1.
 ; ------------------------------------------------------------------
+; RAW: answers a line handle or 0.
+;@axiom:raw
 (pub :: replReadLine (-> Int a))
 
 ;@axiom:effect(io)

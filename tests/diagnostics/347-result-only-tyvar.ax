@@ -1,0 +1,48 @@
+; A signature returning a type variable no parameter mentions.
+;
+; `conjure` promises `forall a. Int -> a`. In a sound system that is
+; inhabited only by non-termination: the callee cannot have produced a
+; value of a type the CALLER picks. Here it is inhabited by a machine
+; word, so the promise is an unchecked coercion wearing a polymorphic
+; spelling - and the caller's choice is never witnessed by anything.
+;
+; It is not a theoretical gap. Measured on the compiler before this
+; diagnostic existed:
+;
+;     (strWrap (conjure 42) 8)
+;
+; `check` answered OK and the binary exited 139 - 42 dereferenced as a
+; String pointer. The same shape reaches through `vecGet`, because a
+; `Vec` carries no element type, which is how a Vec holding an Int
+; reads back as a String.
+;
+; `witnessed` is the control and must stay silent: `a` appears in a
+; PARAMETER, so the caller supplies a value of it and the choice is
+; witnessed by the argument. That is ordinary parametric polymorphism
+; and it is sound.
+;
+; `declared` is the other control. Fourteen declarations in this
+; repository really are raw word reads - `memGetWord`, `vecGet`,
+; `nodeA` - and `;@axiom:raw` is how one says so. The tag is not
+; permission and does not make the read safe; it makes the unsafe layer
+; finite and enumerable, which is what `#raw` in AXSYM is for.
+(:: conjure (-> Int a))
+
+(fn (conjure n)
+  (cast a n)
+)
+
+(:: witnessed (-> a a))
+
+(fn (witnessed x) x)
+
+;@axiom:raw
+(:: declared (-> Int a))
+
+(fn (declared n)
+  (cast a n)
+)
+
+(:: main Int)
+
+(fn (main) 0)

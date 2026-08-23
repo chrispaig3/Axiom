@@ -107,6 +107,9 @@
 ; process. A caller that stores 0 as a real element and needs to tell it
 ; from "absent" must check `vecLen` first; that is the honest cost of
 ; this choice, and it is stated rather than hidden.
+; RAW: a `Vec` carries no element type, so the word read back is
+; whatever was pushed and the caller names it.
+;@axiom:raw
 (pub :: vecGet (-> Int Int a))
 
 (pub fn (vecGet v i)

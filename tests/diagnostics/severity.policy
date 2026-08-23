@@ -57,3 +57,12 @@ AX3038
 #          that costs something, where a typo means the claim was
 #          never checked.
 AX3039
+# AX3040 - a signature returning a type variable no parameter mentions.
+#          It IS unsound - the result dereferences as whatever the
+#          caller names, and the probe exits 139 - so the case for an
+#          error is real. It informs because the fix is a migration:
+#          fourteen declarations in this tree have the shape and they
+#          have 3,980 call sites between them. `;@axiom:raw` marks the
+#          ones that are deliberately part of the unsafe layer, and the
+#          warning is what keeps a fifteenth from appearing unnoticed.
+AX3040

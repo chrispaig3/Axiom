@@ -1177,6 +1177,45 @@ The remaining honest gap: passing an effect-polymorphic function
 itself as a callback does not instantiate the callee's marks
 (higher-rank flows).
 
+### The Unsafe Layer
+
+A signature whose result names a type variable that **no parameter
+mentions** is not parametric polymorphism:
+
+```scheme
+(:: conjure (-> Int a))
+```
+
+The caller chooses what `a` is, nothing witnesses the choice, and the
+callee cannot have produced a value of it. `forall a. Int -> a` is
+inhabited only by non-termination in a sound system; here it is
+inhabited by a machine word, so the signature is an unchecked coercion
+wearing a polymorphic spelling. Measured: `(strWrap (conjure 42) 8)`
+type-checks `OK` and the binary exits **139** - 42 dereferenced as a
+String pointer. The same shape reaches through `vecGet`, because a
+`Vec` carries no element type, which is how a `Vec` holding an `Int`
+reads back as a `String`.
+
+Such a declaration draws `AX3040` unless it is tagged `;@axiom:raw`.
+The tag is **not permission and does not make the read safe**. What it
+buys is that the unsafe layer is finite and can be asked about:
+
+```
+axiom symbols FILE --diagnostic-format ai | grep '#raw'
+```
+
+Fourteen declarations in this repository carry it, and every one is a
+raw word read - `memGetWord`, `vecGet`, `nodeA`, `mapValAt`. Between
+them they have 3,980 call sites, which is why the diagnostic informs
+rather than refuses: the honest fix is to return a concrete word type
+and let callers write `cast`, and that is a migration rather than an
+edit. Before the tag existed there was no way to ask how large the
+unsafe surface was.
+
+Ordinary parametric polymorphism is unaffected. `(:: witnessed (-> a
+a))` is silent, because the argument supplies the value and witnesses
+the choice.
+
 ### Built-in Effects
 
 | Effect | Meaning |

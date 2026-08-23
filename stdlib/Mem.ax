@@ -190,6 +190,9 @@
 ; built on them - the `Str` header, `Buf`, and every `data` value the
 ; compiler boxes - are arrays of machine words.
 ; ------------------------------------------------------------------
+; RAW: the word at `index` is whatever was stored there. Nothing on
+; this layer knows what that was - that is what makes the layer unsafe.
+;@axiom:raw
 (pub :: memGetWord (-> Int Int a))
 
 (pub fn (memGetWord addr index)

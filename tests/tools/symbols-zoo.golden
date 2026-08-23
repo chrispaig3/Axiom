@@ -6,10 +6,10 @@ F memSet stdlib/Mem.ax:143:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814f
 F memSetFrom stdlib/Mem.ax:147:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178
 F memCmp stdlib/Mem.ax:164:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c
 F memCmpFrom stdlib/Mem.ax:168:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4
-F memGetWord stdlib/Mem.ax:193:9-19 "(Int -> (Int -> a))" @b5f8fe0f14e0113c
-F memSetWord stdlib/Mem.ax:223:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8
-F memGetByte stdlib/Mem.ax:235:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e
-F memPutByte stdlib/Mem.ax:239:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53
+F memGetWord stdlib/Mem.ax:196:9-19 "(Int -> (Int -> a))" @b5f8fe0f14e0113c #raw
+F memSetWord stdlib/Mem.ax:226:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8
+F memGetByte stdlib/Mem.ax:238:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e
+F memPutByte stdlib/Mem.ax:242:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53
 F sysRead stdlib/Sys/Platform.darwin.ax:20:9-16 "Int" @d99009b49c22cd84
 F sysWrite stdlib/Sys/Platform.darwin.ax:25:9-17 "Int" @74cf7b68f9a13d7f
 F sysOpen stdlib/Sys/Platform.darwin.ax:30:9-16 "Int" @48be4da44965be58

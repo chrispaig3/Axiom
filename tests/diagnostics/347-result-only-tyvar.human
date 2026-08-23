@@ -1,0 +1,9 @@
+[1;33mwarning[AX3040][0m[1m: `conjure` returns type variable `a`, which no parameter mentions: the caller chooses it and nothing witnesses the choice[0m
+  [1;34m--> [0m347-result-only-tyvar.ax:29:5
+[1;34m   |[0m
+[1;34m29 |[0m (:: conjure (-> Int a))
+[1;34m   |[0m     [1;33m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mreturn a concrete word type and let callers write `cast`, or tag the declaration `;@axiom:raw` to declare it part of the unsafe layer
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3040` for a full explanation
+

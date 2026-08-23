@@ -286,10 +286,14 @@
 
 (pub fn (expDecls env) (memGetWord env 4))
 
+; RAW: answers a module handle or 0.
+;@axiom:raw
 (pub :: expMacMod (-> Int a))
 
 (pub fn (expMacMod env) (memGetWord env 5))
 
+; RAW: answers a site handle or 0.
+;@axiom:raw
 (pub :: expQSite (-> Int a))
 
 (pub fn (expQSite env) (memGetWord env 17))

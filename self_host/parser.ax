@@ -439,14 +439,21 @@
 
 (pub fn (nodeTag n) (memGetWord n 0))
 
+; RAW: an ASTNode field is a machine word whose meaning is fixed by
+; the node TAG, which the type system does not model.
+;@axiom:raw
 (pub :: nodeA (-> Int a))
 
 (pub fn (nodeA n) (memGetWord n 1))
 
+; RAW: see `nodeA`.
+;@axiom:raw
 (pub :: nodeB (-> Int a))
 
 (pub fn (nodeB n) (memGetWord n 2))
 
+; RAW: see `nodeA`.
+;@axiom:raw
 (pub :: nodeC (-> Int a))
 
 (pub fn (nodeC n) (memGetWord n 3))
@@ -496,6 +503,8 @@
 
 (pub fn (nodeSpan n) (memGetWord n 4))
 
+; RAW: see `nodeA`.
+;@axiom:raw
 (pub :: nodeModule (-> Int a))
 
 (pub fn (nodeModule n) (memGetWord n 8))

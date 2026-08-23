@@ -52,6 +52,7 @@
   [93mAX3037[0m  an AXTAG claim the effect walk is not in a position to check  (axtag-unverifiable)
   [93mAX3038[0m  a handled-effects list the effect walk is not in a position to check  (effect-unverifiable)
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
+  [93mAX3040[0m  a type variable returned that no parameter mentions  (result-only-tyvar)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -943,6 +944,43 @@ anything.
 Fix the spelling - or, if the key really is your own metadata,
 namespace it so it cannot be mistaken for a claim.
 
+### explain AX3040
+AX3040 - a type variable returned that no parameter mentions
+
+    (:: conjure (-> Int a))
+
+This is not parametric polymorphism. `a` appears in the RESULT and in
+no parameter, so the CALLER chooses what it is, nothing witnesses the
+choice, and the callee cannot have produced a value of it. The
+signature promises `forall a. Int -> a`, which in a sound system is
+inhabited only by non-termination. Here it is inhabited by a machine
+word, and the promise is an unchecked coercion wearing a polymorphic
+spelling.
+
+It reaches memory unsafety, measured rather than argued:
+
+    (fn (conjure n) (cast a n))
+    (strWrap (conjure 42) 8)
+
+`check` answers OK and the binary exits 139 - 42 dereferenced as a
+String pointer. The same shape through `vecGet` is how a `Vec` holding
+an Int reads back as a String, because a `Vec` carries no element type.
+
+WHAT TO DO. Return a concrete word type and let callers write `cast`,
+which is the language's one documented reinterpretation and is visible
+where it happens. Or, if the declaration really is part of the unsafe
+layer - a raw word read whose meaning the type system does not model -
+tag it `;@axiom:raw`.
+
+The tag is not permission and it does not make the read safe. What it
+buys is that the unsafe layer becomes FINITE and enumerable:
+
+    axiom symbols FILE --diagnostic-format ai | grep '#raw'
+
+Fourteen declarations in this repository carry it, and every one is a
+raw word read - `memGetWord`, `vecGet`, `nodeA`. Before the tag there
+was no way to ask the question at all.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1108,6 +1146,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3037[0m  an AXTAG claim the effect walk is not in a position to check  (axtag-unverifiable)
   [93mAX3038[0m  a handled-effects list the effect walk is not in a position to check  (effect-unverifiable)
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
+  [93mAX3040[0m  a type variable returned that no parameter mentions  (result-only-tyvar)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
