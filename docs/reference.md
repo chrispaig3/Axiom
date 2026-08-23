@@ -958,7 +958,7 @@ parentheses — not on the struct:
 (type StringList () = [String])
 ```
 
-A type alias gives a name to an existing type. It does not create a new type — `StringList` and `[String]` are interchangeable: the alias is expanded in every signature position before checking, and its float flags are rewritten with it, so the checker and the emitter cannot disagree about a `(type Real = Float)`. A PARAMETERISED alias — `(type Pair a = ...)` — needs substitution and is not expanded; it behaves nominally. `tests/selfhost/973-type-alias.ax`
+A type alias gives a name to an existing type. It does not create a new type — `StringList` and `[String]` are interchangeable: the alias is expanded before checking in every position that names a type — a function signature, a struct field, and a `data` constructor's fields — and its float flags are rewritten with it, so the checker and the emitter cannot disagree about a `(type Real = Float)`. The two record positions were added on 2026-08-23: an alias there stayed nominal, so `(R 1 s)` drew `AX3004` against its own field, and behind that the emitter's `fldClass` could not classify the alias, forced the block to a leaf, and dropped the reference map that a `String` in the NEXT field needed — 80 bytes an iteration, on the field that was spelled correctly (`tests/stdlib/374-arc-alias-field.ax`). A PARAMETERISED alias — `(type Pair a = ...)` — needs substitution and is not expanded; it behaves nominally. `tests/selfhost/973-type-alias.ax`
 
 ---
 

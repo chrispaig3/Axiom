@@ -1,0 +1,127 @@
+; exit 0
+; A `type` alias in a STRUCT FIELD, and the reference map it used to
+; cost. Each line is the bytes the arena grew per iteration over
+; 10,000 iterations after a 1,000-iteration warm-up, and both must
+; read 0.
+;
+; `tests/selfhost/973-type-alias.ax` records the alias defect in
+; ARGUMENT position - nominal where an argument is checked, transparent
+; where a declared return is - and the fix expanded aliases over every
+; SIGNATURE. A struct field is a signature position and was not in that
+; sweep, so the alias stayed nominal there, and two things went wrong
+; at once:
+;
+;   (Aliased 1 s)   AX3004: expected NID, found Int
+;
+; which is loud, and behind it the quiet one. `fldClass` answers 1 -
+; unclassifiable - for a name that is neither a scalar nor a known
+; `data`/`struct`, and an alias is neither; ONE unclassifiable field
+; forces the whole block to a LEAF, and a leaf carries no map, so the
+; `String` beside it is never walked when the block dies. The field
+; that leaks is not the field that was misspelled - which is why this
+; fixture puts the alias on the `Int` and measures the `String`.
+;
+; Measured before the fix, on the shapes below - the alias reached
+; past AX3004 with a `cast`, since that is the only way to build one:
+; the aliased spelling grew 80 bytes per iteration where the plain one
+; grew 0, and the emitted shape word read 4 against 131076 - the same
+; two fields, one of them no longer named as a reference. 80 is the
+; same per-iteration figure the three shapes of `372` leaked before
+; events 2 and 3, and for the same reason: a header nothing walks.
+;
+; An address-difference probe reads this as 112, which is `372`'s
+; warning about the instrument arriving a second time - the 24-byte
+; mark cells come back off a free list once reclamation works, so the
+; addresses drift by an amount that is not the growth.
+;
+;   shape 0: a record whose FIRST field is spelled with an alias to
+;            `Int` and whose second is a String, built and dropped
+;   shape 1: the same record with the field spelled `Int` - the
+;            control, and the reading shape 0 has to match
+;
+; The instrument is `372-arc-owned-results.ax`'s: the mark cell's word
+; 0, the arena's bump, because a count-word read takes no share of its
+; own and two cells' ADDRESSES say nothing once reclamation works.
+; Word 2 is the chunk; a growth that crossed one answers 999999.
+(import IO)
+
+(import Str)
+
+(type NID = Int)
+
+(pub struct Aliased
+  (nid : NID)
+  (name : String))
+
+(pub struct Plain
+  (nid : Int)
+  (name : String))
+
+(:: t0 (-> Int Int))
+
+(fn (t0 i)
+  (let ((r (Aliased i (strConcat "nm-" (fmtInt i)))))
+    (strLen r.name)
+  )
+)
+
+(:: t1 (-> Int Int))
+
+(fn (t1 i)
+  (let ((r (Plain i (strConcat "nm-" (fmtInt i)))))
+    (strLen r.name)
+  )
+)
+
+(:: run (-> Int Int Int))
+
+(fn (run which n)
+  (let (
+    (mut i 0)
+    (mut acc 0)
+  )
+    {
+      (while (< i n)
+        {
+          (set acc (+ acc (if (== which 0) (t0 i) (t1 i))))
+          (set i (+ i 1))
+        })
+      acc
+    }
+  )
+)
+
+(:: measure (-> Int Int))
+
+(fn (measure which)
+  {
+    (run which 1000)
+    (let ((m0 __axiom_arena_mark))
+      {
+        (run which 10000)
+        (let ((m1 __axiom_arena_mark))
+          (if (!= (__load64 m1 2) (__load64 m0 2))
+            999999
+            (/ (- (__load64 m1 0) (__load64 m0 0)) 10000)
+          )
+        )
+      }
+    )
+  }
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((mut w 0))
+    {
+      (while (< w 2)
+        {
+          (println (measure w))
+          (set w (+ w 1))
+        })
+      0
+    }
+  )
+)

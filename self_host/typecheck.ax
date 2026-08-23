@@ -2171,6 +2171,15 @@
           ; rather than lazily because it is one pass over a list the
           ; caller is already holding.
           (memSetWord tc 28 (implIdxBuild allDecls vecNew 0))
+          ; Aliases first, then record fields, then everything else.
+          ; `tcCollect` precomputes each constructor's field vector AND
+          ; its arrow from the field types AS WRITTEN, so an expansion
+          ; that ran after it would leave those two readers holding the
+          ; unexpanded spelling - which is the shape of the defect this
+          ; fixes, one level up. Expanding before collection means there
+          ; is no second reader to keep in step.
+          (tcCollectAliasDecls tc allDecls 0)
+          (tcExpandFieldAliases tc allDecls 0)
           (tcCollect tc allDecls 0)
           ; Type constructors named in signatures, once collection has
           ; seen every `data`/`struct`/`type` - a signature may name a
@@ -2412,12 +2421,13 @@
                           ; fail in `opt` at exit 4 - the link failure this
                           ; repository twice records as the wrong trade.
                           (vecPush (tcMacros tc) d)
-                          (if (== tag TAG_D_ALIAS)
-                            (vecPush (tcAliases tc) d)
-                            (if (== tag TAG_D_TRAIT)
-                              (vecPush (tcTraits tc) d)
-                              0
-                            )
+                          ; `TAG_D_ALIAS` is collected by
+                          ; `tcCollectAliasDecls`, which runs before this
+                          ; pass so record fields can be expanded before
+                          ; anything reads one.
+                          (if (== tag TAG_D_TRAIT)
+                            (vecPush (tcTraits tc) d)
+                            0
                           )
                         )
                       )
@@ -3942,7 +3952,7 @@
 ; ------------------------------------------------------------------
 ; `type` aliases, expanded.
 ;
-; `docs/reference.md:808` says an alias "does not create a new type -
+; `docs/reference.md` says an alias "does not create a new type -
 ; `StringList` and `[String]` are interchangeable". The compiler
 ; answered two different ways depending on POSITION:
 ;
@@ -4141,6 +4151,144 @@
         }
       )
     )
+  )
+)
+
+; ------------------------------------------------------------------
+; The same expansion, over RECORD FIELDS.
+;
+; `tcExpandSigAliases` above expands a `type` alias everywhere a
+; SIGNATURE can name one. A struct field is a signature position too,
+; and it was not in that sweep, so an alias written there stayed
+; nominal - the exact defect `tests/selfhost/973-type-alias.ax` records
+; for argument position, surviving in the one position that fix did not
+; reach. Two things went wrong at once, and the quiet one is the
+; expensive one:
+;
+;   (type NID = Int)
+;   (pub struct Aliased (nid : NID) (name : String))
+;   (Aliased 1 s)            AX3004: expected NID, found Int
+;
+; and, once a `cast` gets past that, `fldClass` in the emitter answers
+; 1 - unclassifiable - for the alias name, because it is neither a
+; scalar nor a known `data`/`struct`. One unclassifiable field forces
+; the WHOLE block to a leaf, and a leaf carries no reference map, so
+; the `String` beside it is never walked when the block dies. Measured
+; on 1,000 build-and-drop iterations: the `Int` spelling moves the
+; allocator's bump 368 bytes, the `NID` spelling moves it 112,208.
+; The field that leaks is not the field that was misspelled.
+;
+; Expanding here rather than in `fldClass` keeps the emitter's rule
+; that a type name means what it says: by the time codegen runs there
+; is no alias left to resolve, which is the same reason the signature
+; half writes the node instead of teaching every reader about aliases.
+; The alias list, ahead of every other kind of collection. `tcCollect`
+; built it on the way past, which was fine while only signatures read
+; it - a signature is checked in a later pass either way - and is not
+; fine now that record fields are expanded before collection: a struct
+; declared ABOVE its alias would have been expanded against a list that
+; did not contain it yet. Declaration order in the source is not an
+; ordering constraint on the types it mentions, anywhere else in this
+; compiler, and it is not one here.
+(pub :: tcCollectAliasDecls (-> Int Int Int Int))
+
+(pub fn (tcCollectAliasDecls tc decls i)
+  (if (>= i (vecLen decls))
+    0
+    {
+      (let ((d (vecGet decls i)))
+        (if (== (nodeTag d) TAG_D_ALIAS)
+          (vecPush (tcAliases tc) d)
+          0
+        )
+      )
+      (tcCollectAliasDecls tc decls (+ i 1))
+    }
+  )
+)
+
+(pub :: tcExpandFieldAliases (-> Int Int Int Int))
+
+(pub fn (tcExpandFieldAliases tc decls i)
+  (if (>= i (vecLen decls))
+    0
+    {
+      (let ((d (vecGet decls i)))
+        (let ((tg (nodeTag d)))
+          ; A struct's fields are TAG_FIELD nodes carrying the type in
+          ; their `ty` slot; a `data`'s are one type VECTOR per
+          ; constructor, in the constructor node's. Two shapes, one
+          ; rule.
+          (if (== tg TAG_D_STRUCT)
+            (tcExpandFieldAliasesOf tc (nodeB d) 0)
+            (if (== tg TAG_D_DATA)
+              (tcExpandCtorAliases tc (nodeB d) 0)
+              0
+            )
+          )
+        )
+      )
+      (tcExpandFieldAliases tc decls (+ i 1))
+    }
+  )
+)
+
+(pub :: tcExpandCtorAliases (-> Int Int Int Int))
+
+(pub fn (tcExpandCtorAliases tc ctors i)
+  (if (>= i (vecLen ctors))
+    0
+    {
+      (let ((c (vecGet ctors i)))
+        (if (== (nodeTy c) 0)
+          0
+          (tcExpandTyVecAliases tc (nodeTy c) 0)
+        )
+      )
+      (tcExpandCtorAliases tc ctors (+ i 1))
+    }
+  )
+)
+
+; In place, because the vector a constructor node holds is the one
+; `tcCollectCtors` will hand to its `CtorEnt` and to `ctorArrowOf`.
+(pub :: tcExpandTyVecAliases (-> Int Int Int Int))
+
+(pub fn (tcExpandTyVecAliases tc tys i)
+  (if (>= i (vecLen tys))
+    0
+    {
+      (let ((t (vecGet tys i)))
+        (if (== t 0)
+          0
+          (if (== (tyHasAliasCon tc t) 0)
+            0
+            (vecSet tys i (tyExpandAliases tc t 0))
+          )
+        )
+      )
+      (tcExpandTyVecAliases tc tys (+ i 1))
+    }
+  )
+)
+
+(pub :: tcExpandFieldAliasesOf (-> Int Int Int Int))
+
+(pub fn (tcExpandFieldAliasesOf tc fields i)
+  (if (>= i (vecLen fields))
+    0
+    {
+      (let ((f (vecGet fields i)))
+        (if (== (nodeTy f) 0)
+          0
+          (if (== (tyHasAliasCon tc (nodeTy f)) 0)
+            0
+            (setNodeTy f (tyExpandAliases tc (nodeTy f) 0))
+          )
+        )
+      )
+      (tcExpandFieldAliasesOf tc fields (+ i 1))
+    }
   )
 )
 
