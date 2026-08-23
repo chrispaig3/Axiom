@@ -227,6 +227,23 @@ for crate_dir in rust/examples/*/; do
           fi
           echo "    nearest axffi_ names in the archive:"
           nm --defined-only "$lib" 2>/dev/null | awk '{print $NF}' | grep '^axffi_' | sort -u | head -12 | sed 's/^/      /'
+          # `blobDefines` requires the name NUL-delimited on BOTH sides -
+          # `\0name\0` - so print the bytes either side of every
+          # occurrence. If none is so delimited, that is the answer.
+          echo "    every occurrence, with the byte on each side:"
+          python3 - "$lib" "$want" <<'BYTES' | head -12 | sed 's/^/      /'
+import sys
+data = open(sys.argv[1], 'rb').read()
+name = sys.argv[2].encode()
+i = 0; n = 0
+while n < 10:
+    j = data.find(name, i)
+    if j < 0: break
+    before = data[j-1:j]; after = data[j+len(name):j+len(name)+1]
+    print(f'off={j} before={before!r} after={after!r} delimited={before==b"\x00" and after==b"\x00"}')
+    i = j + 1; n += 1
+if n == 0: print('the byte scan finds no occurrence at all')
+BYTES
         fi
       fi
       status=1; continue
