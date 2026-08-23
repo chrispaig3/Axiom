@@ -53,11 +53,57 @@ status=0
 # implements itself.
 never_permitted='printf|puts|fopen|fwrite|fread|system|popen|execv|execve|posix_spawn'
 
+# `-D` reads the DYNAMIC symbol table, which a relocatable object file
+# does not have - so on Linux the reader answered empty for every `.o`,
+# and the negative probe that exists to catch exactly that ("the symbol
+# reader does NOT see an undefined symbol") was the thing reporting it.
+# Fall back to the static table when the dynamic one is empty.
+#
+# The `@VERSION` suffix goes too. ELF symbol versioning is a property of
+# the LINKAGE - `_Unwind_Resume@GCC_3.0` and `_Unwind_Resume` are one
+# name - and a manifest enumerates names. Without this, no Linux symbol
+# could ever match a manifest entry, which is most of why this gate has
+# never been green on linux-x86_64.
 symbols_of() {
   case "$(uname -s)" in
     Darwin) nm -u "$1" 2>/dev/null | sed 's/^_//' | sort -u ;;
-    *)      nm -D --undefined-only "$1" 2>/dev/null | awk '{print $NF}' | sort -u ;;
+    *)
+      local dyn
+      dyn="$(nm -D --undefined-only "$1" 2>/dev/null | awk '{print $NF}')"
+      [[ -z "$dyn" ]] && dyn="$(nm --undefined-only "$1" 2>/dev/null | awk '{print $NF}')"
+      printf '%s\n' "$dyn" | grep . | sed 's/@.*$//' | sort -u
+      ;;
   esac
+}
+
+# What the platform's own C runtime puts in EVERY executable, measured
+# with the same `cc` the compiler shells out to - not a hardcoded list
+# and not a manifest entry.
+#
+# On Mach-O this is empty, which is why the gate's header could say "no
+# FFI -> nm -u -> 0 symbols" and mean it. On ELF it never is: `crt1.o`
+# brings `__libc_start_main`, `__cxa_finalize`, `__gmon_start__` and the
+# two `_ITM_*` transactional-memory stubs into a program that does
+# nothing at all. Those are not a door Axiom opened and no manifest
+# should have to list them.
+#
+# It cannot hide an FFI symbol: the floor is measured from a C program
+# that links no Axiom archive and no Rust crate, so a name only reaches
+# it by being what the linker adds unprompted.
+platform_floor() {
+  local c="$work/floor.c" exe="$work/floor.exe"
+  printf 'int main(void){return 0;}\n' > "$c"
+  cc "$c" -o "$exe" 2>/dev/null || return 0
+  symbols_of "$exe"
+}
+floor_file="$work/platform-floor.txt"
+platform_floor > "$floor_file" 2>/dev/null || : > "$floor_file"
+echo "ok   platform floor: $(grep -c . "$floor_file" || true) symbol(s) the C runtime adds to any executable"
+
+# `symbols_of` minus the floor.
+imports_of() {
+  symbols_of "$1" > "$work/imports.tmp"
+  comm -23 "$work/imports.tmp" "$floor_file" || true
 }
 
 # ---------------------------------------------------------------
@@ -78,9 +124,9 @@ for case_file in tests/ffi/no-extern/*.ax; do
     echo "FAIL $name: could not build"; sed 's/^/    /' "$work/t1-$name.log" | head -3
     status=1; continue
   fi
-  imports="$(symbols_of "$exe")"
+  imports="$(imports_of "$exe")"
   if [[ -n "$imports" ]]; then
-    echo "FAIL $name: a program with no \`extern\` imports symbols"
+    echo "FAIL $name: a program with no \`extern\` imports symbols beyond the platform floor"
     printf '%s\n' "$imports" | sed 's/^/    /' | head -10
     status=1; continue
   fi
@@ -101,7 +147,13 @@ echo "ok   $tier1 programs with no \`extern\` import nothing"
 for crate_dir in rust/examples/*/; do
   [[ -d "$crate_dir" ]] || continue
   crate="$(basename "$crate_dir")"
-  manifest="$crate_dir/axiom-allow.txt"
+  # A manifest is a MEASUREMENT of what a crate's dependencies require,
+  # and that differs by platform: the darwin list names `_NSGetArgv` and
+  # `_dyld_*`, the linux one names `__errno_location` and the libgcc
+  # unwinder. One file cannot be both, and applying the darwin one on
+  # linux is why every case here failed.
+  manifest="$crate_dir/axiom-allow.$(uname -s | tr '[:upper:]' '[:lower:]').txt"
+  [[ -f "$manifest" ]] || manifest="$crate_dir/axiom-allow.txt"
   [[ -f "$manifest" ]] || continue
   # `leaky` is the negative probe and is expected to FAIL; sweeping it
   # here would report its designed failure as a gate failure. It is
@@ -186,10 +238,12 @@ for crate_dir in rust/examples/*/; do
       status=1; continue
     fi
 
-    unexpected="$(comm -23 <(symbols_of "$exe") <(printf '%s\n' "$permitted" | grep . || true) || true)"
+    unexpected="$(comm -23 <(imports_of "$exe") <(printf '%s\n' "$permitted" | grep . || true) || true)"
     if [[ -n "$unexpected" ]]; then
       echo "FAIL $crate/$name: imports symbols no manifest permits:"
-      printf '%s\n' "$unexpected" | sed 's/^/    /' | head -20
+      # NOT truncated. A manifest is repaired by reading this list, and a
+      # `head -20` on a set of ninety turns one fix into five rounds.
+      printf '%s\n' "$unexpected" | sed 's/^/    /'
       echo "    (add them to $manifest if they are genuinely required)"
       status=1; continue
     fi
