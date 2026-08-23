@@ -34,7 +34,7 @@ Axiom is built for agents as first-class users. Three notations make this possib
 
 - **AXSYM** — A dense, one-line-per-symbol notation that tells an agent exactly what a file declares and the type of each symbol. Run `axiom --diagnostic-format=ai symbols` to see it; plain `axiom symbols` prints the same facts as an aligned table for a human reader. No re-reading files, no re-deriving signatures by eye.
 - **NID** — Stable node IDs: content-derived hashes of `(kind, name)` that survive edits and reformatting, unlike line numbers. Every named declaration gets one automatically.
-- **AXTAG** — Source-embedded agent metadata via `;@axiom:<key>(<value>)` comments above declarations. The compiler validates these (e.g., `effect(io)` claims are checked against the syscalls the body actually reaches), so agents can annotate intent and trust the compiler to verify it.
+- **AXTAG** — Source-embedded agent metadata via `;@axiom:<key>(<value>)` comments above declarations. The compiler validates the claims it knows — `effect(io)`/`pure` are checked against the syscalls the body actually reaches — so an agent can annotate intent and have it verified. The key namespace is otherwise open by design: a key the compiler does not know is recorded, re-emitted on the symbol line, and not checked.
 
 ---
 
@@ -691,7 +691,7 @@ Traits support:
 - **Type parameters** — `(trait (Eq a) ...)` binds `a` for all method signatures, and it is what an implementation is selected by
 - **Default methods** — `(ne :: (-> a a Bool) = (lambda (x y) (if (eq x y) false true)))`. An implementation that omits the method gets the default generated for its type, and the default's own calls to the trait's other methods dispatch normally
 - **Supertraits** — `(trait (Ord a) (Eq a) ...)` requires every type with an `Ord` implementation to have an `Eq` one, and says so if it does not
-- **Effects** — traits and methods can carry effect annotations
+- **Effects** — traits, impls and methods accept an effect list, and it is currently parsed and discarded: nothing checks an implementation against it (`self_host/parser.ax` skips the group). On a `trait` or `impl` header the first parenthesised group is read as the *supertrait* list, so an effect list written there is diagnosed as a missing supertrait
 
 Not yet: a function generic over a trait cannot call its methods, because
 dispatch needs a concrete type at the call site rather than a type
@@ -699,7 +699,14 @@ variable. Every unsupported shape is `AX3025` — run `axiom explain AX3025`.
 
 ### Effects
 
-Axiom tracks side effects at the type level. Effects are checked by the compiler, so you know exactly what a function does.
+Axiom infers each function's side effects transitively — a fixpoint over
+every body, so a syscall three calls down still counts. Effects do **not**
+appear in function types: `symbols` renders an I/O-performing function as a
+plain `(Int -> Int)` and carries the inferred set beside it as `#effects=IO`.
+The checking is opt-in — a `;@axiom:effect(...)`/`;@axiom:pure` claim is
+validated against what was inferred (`AX3010`, a warning); an untagged
+function is not policed. The one place an effect is *enforced* rather than
+reported is a `handle` boundary, below.
 
 Built-in effects:
 

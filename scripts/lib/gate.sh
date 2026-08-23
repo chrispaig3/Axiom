@@ -160,5 +160,6 @@ docs/error-model.md
 docs/ffi.md
 docs/macro-system.md
 docs/memory-model.md
+docs/agent-harness.md
 DOCS
 }

@@ -1001,7 +1001,7 @@ Traits define interfaces with typed methods — similar to type classes in Haske
 - **Type parameters** — `(trait (Eq a) ...)` binds `a` for all method signatures
 - **Supertraits** — `(trait (Ord a) (Eq a) ...)` requires `Eq` to be implemented too
 - **Default methods** — `(where (method :: type = default_body))`
-- **Effects** — traits and methods can carry effect annotations
+- **Effects** — traits, impls and methods accept an effect list, which is parsed and discarded; nothing is checked against it, and on a `trait`/`impl` header the first parenthesised group is the supertrait list
 
 ---
 
