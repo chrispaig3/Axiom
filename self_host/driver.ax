@@ -1206,28 +1206,74 @@
 (pub :: blobDefines (-> String String Bool))
 
 (pub fn (blobDefines blob name)
-  (if (>= (strFindSub blob (cat2 (strFromByte 0) (cat2 "_" name)) 0) 0)
-    (nulAfter blob (cat2 "_" name) 0)
-    (if (>= (strFindSub blob (cat2 (strFromByte 0) name) 0) 0)
-      (nulAfter blob name 0)
+  (if (nulAfter blob (cat2 "_" name) 0)
+    true
+    (nulAfter blob name 0)
+  )
+)
+
+; Some occurrence of `needle` that ENDS the string it sits in and does
+; not continue an identifier to its left.
+;
+; The left test used to demand a NUL, and that is a Mach-O fact rather
+; than a fact about archives. Measured on the linux-x86_64 runner, every
+; occurrence of `axffi_abi_probe` in `libaxiom_demo.a`:
+;
+;   off=10608   before=0xbe  after=0x00
+;   off=10624   before=0x00  after='_'
+;   off=277958  before='.'   after='_'
+;   off=278570  before='.'   after=0x00
+;
+; Not one is `\0name\0`. The first is the archive symbol index, where
+; the earliest name follows the binary offset table rather than a NUL -
+; and `axffi_abi_probe` sorts first among the crate's symbols, so it is
+; that name. The last is `.text.axffi_abi_probe`: with
+; `-ffunction-sections` the symbol's own `.strtab` entry is TAIL-SHARED
+; with the section name, which is exactly what tail merging is for and
+; means the standalone spelling never appears. `axffi_fnv1a` in the
+; nostd archive is the same story.
+;
+; So the symbol was defined, the archive said so, and the compiler
+; refused the program with AX4004 - on Linux only, since Mach-O writes
+; `\0_name\0` and satisfied the old test by accident of format.
+;
+; The trailing NUL is what carries the real check and is unchanged: it
+; is what keeps `axffi_trip` from grounding against `axffi_triple`, the
+; defect this function was tightened for on 2026-08-22. To its left, a
+; byte that cannot continue an identifier says the same thing portably -
+; a NUL, a `.`, or the last byte of an offset table all qualify, and
+; `e` in `axffi_triple` does not.
+;
+; Also: the old form COMMITTED to the underscore spelling the moment it
+; saw `\0_name` anywhere, and answered whatever that branch decided. It
+; tries both now.
+(pub :: nulAfter (-> String String Int Bool))
+
+(pub fn (nulAfter blob needle from)
+  (let ((at (strFindSub blob needle from)))
+    (if (< at 0)
       false
+      (let ((end (+ at (strLen needle))))
+        (if (&& (&& (< end (strLen blob)) (== (strByte blob end) 0)) (== (identByteAt blob (- at 1)) 0))
+          true
+          (nulAfter blob needle (+ at 1))
+        )
+      )
     )
   )
 )
 
-; Some occurrence of `\0needle` followed by a NUL - scanning every
-; occurrence, since the first may be a longer name's prefix.
-(pub :: nulAfter (-> String String Int Bool))
+; Is the byte at `i` one an identifier can be made of? Off the front of
+; the blob is not, which is what makes a name at offset 0 groundable.
+(pub :: identByteAt (-> String Int Int))
 
-(pub fn (nulAfter blob needle from)
-  (let ((at (strFindSub blob (cat2 (strFromByte 0) needle) from)))
-    (if (< at 0)
-      false
-      (let ((end (+ at (+ 1 (strLen needle)))))
-        (if (&& (< end (strLen blob)) (== (strByte blob end) 0))
-          true
-          (nulAfter blob needle (+ at 1))
-        )
+(pub fn (identByteAt blob i)
+  (if (< i 0)
+    0
+    (let ((b (strByte blob i)))
+      (if (|| (|| (&& (>= b 65) (<= b 90)) (&& (>= b 97) (<= b 122))) (|| (&& (>= b 48) (<= b 57)) (== b 95)))
+        1
+        0
       )
     )
   )
