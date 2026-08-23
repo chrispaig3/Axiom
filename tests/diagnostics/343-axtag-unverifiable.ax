@@ -1,0 +1,69 @@
+; A `pure` claim over a call the effect walk cannot resolve, in each of
+; the three shapes that reach it.
+;
+; The walk follows call edges and reference sites. A function value that
+; travels through MEMORY - into a struct field, into a data constructor,
+; into a `let` from either - arrives somewhere with no call edge behind
+; it, so the concrete effect set at the call comes back EMPTY. The
+; effects land on whoever NAMED the function; nothing carries them
+; across the store to the load.
+;
+; Empty used to be indistinguishable from pure. All three compiled
+; clean, ran, and reached `__syscall3`, while `symbols` printed `#pure`
+; with no `#effects=` beside it - the analysis asserting exactly what it
+; had failed to look at. The sentinel that records an unresolved call
+; had been in the source the whole time, skipped by two consumers and
+; produced by nobody since f6ddc2e removed its last producer along with
+; the completeness gate its own comment describes.
+;
+; A fourth shape is marked in `typecheck.ax` and is NOT tested here
+; because it cannot be written: a lambda's own parameter is opaque for
+; the same reason, but a called lambda parameter does not type-check
+; (`AX3004`, `expected function type, found _tN` - inference never gives
+; a lambda parameter a function type), so no well-typed program reaches
+; it. The marker is set anyway, because `-1` there would CLAIM the
+; binder was attributed somewhere, and it is not.
+(:: doIO (-> Int Int))
+
+(fn (doIO n) (__syscall3 1 1 n 0))
+
+(struct Box
+  (f : (-> Int Int)))
+
+(data Holder
+  (Wrap (-> Int Int)))
+
+(:: install Box)
+
+(fn (install) (Box doIO))
+
+(:: hold Holder)
+
+(fn (hold) (Wrap doIO))
+
+;@axiom:pure
+(:: viaField (-> Box Int))
+
+(fn (viaField b) (b.f 7))
+
+;@axiom:pure
+(:: viaLet (-> Box Int))
+
+(fn (viaLet b)
+  (let ((g b.f))
+    (g 7)
+  )
+)
+
+;@axiom:pure
+(:: viaPattern (-> Holder Int))
+
+(fn (viaPattern h)
+  (match h
+    ((Wrap f) (f 7))
+  )
+)
+
+(:: main Int)
+
+(fn (main) (+ (+ (viaField install) (viaLet install)) (viaPattern hold)))

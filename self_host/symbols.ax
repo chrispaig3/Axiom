@@ -1019,19 +1019,42 @@
                             (vecPush metas (strConcat "generated=" gm))
                           )
                         )
+                        ; The incompleteness sentinel rides in the same
+                        ; Vec and is NOT an effect: rendering it put
+                        ; `incomplete` in the middle of `#effects=IO,
+                        ; incomplete`, where it reads like an effect
+                        ; named "incomplete". It gets its own meta,
+                        ; because what it says is about the LIST rather
+                        ; than a member of it - `#effects=` is a lower
+                        ; bound, not the set. A function with nothing but
+                        ; the sentinel prints `#effects-incomplete` and no
+                        ; `#effects=` at all, which is the honest
+                        ; rendering of "the walk did not resolve a call
+                        ; and found nothing else".
                         (let ((effs (memGetWord e 5)))
-                          (if (&& (> (vecLen effs) 0) (== isB 0))
+                          (if (== isB 0)
                             (let (
                               (disp vecNew)
                               (mut k 0)
+                              (mut partial 0)
                             )
                               {
                                 (while (< k (vecLen effs))
                                   {
-                                    (vecPush disp (effRender (vecGet effs k)))
+                                    (if (strEq (vecGet effs k) effIncomplete)
+                                      (set partial 1)
+                                      (vecPush disp (effRender (vecGet effs k)))
+                                    )
                                     (set k (+ k 1))
                                   })
-                                (vecPush metas (strConcat "effects=" (saJoinComma (saSort disp))))
+                                (if (> (vecLen disp) 0)
+                                  (vecPush metas (strConcat "effects=" (saJoinComma (saSort disp))))
+                                  0
+                                )
+                                (if (== partial 1)
+                                  (vecPush metas "effects-incomplete")
+                                  0
+                                )
                               }
                             )
                             0

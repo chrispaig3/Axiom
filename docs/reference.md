@@ -1012,8 +1012,10 @@ over every function body, so a syscall three calls down still counts -
 and validates any `;@axiom:effect(...)`/`;@axiom:pure` claims against
 what it inferred (`AX3010`, a warning). Effects do not appear in
 function types, and untagged functions are not policed: the tags are
-opt-in claims, checked when made. `axiom symbols` reports the inferred
-set as `#effects=...` beside any declared tags.
+opt-in claims, checked when made. `axiom symbols --diagnostic-format
+ai` reports the inferred set as `#effects=...` beside any declared
+tags; the default `human` table has no metadata column and shows
+neither.
 
 ### Effect Polymorphism
 
@@ -1035,12 +1037,70 @@ all: nothing could ever supply it, so it warns regardless.
 
 Attribution is otherwise unchanged: a *reference* to a named function
 answers for that function's effects at the reference site, and a
-lambda literal answers for its body where the literal appears, which
-is what keeps function values that escape into structures sound. The
-remaining honest gaps: a function value returned from a call or loaded
-from a structure contributes nothing at its *invocation* site (its
-creation site was attributed); and passing an effect-polymorphic
-function itself as a callback does not instantiate the callee's marks
+lambda literal answers for its body where the literal appears.
+
+### When the Walk Cannot Answer
+
+A call whose head the walk cannot resolve to a function makes the
+inferred set a **lower bound** rather than the set. Three shapes reach
+it: a non-name head (`((b.f) x)`, an `if` or `match` in head
+position); a `let` bound to anything but a name or a lambda literal;
+and a pattern binder (`(match h ((Wrap f) (f 7)))`). They are the same
+route through memory wearing three spellings - a function value goes
+into a struct, a data constructor or a container in one place and is
+called in another, and no call edge runs between them.
+
+The walk records that, `symbols` prints it as `#effects-incomplete`,
+and claim checking splits on it:
+
+- a claim of ABSENCE (`;@axiom:pure`, `;@axiom:effect(pure)`) cannot be
+  validated against a lower bound, so it draws `AX3037`, a warning;
+- a claim of PRESENCE (`;@axiom:effect(io)`) is left alone, because an
+  unresolved call may be exactly where the effect comes from, and
+  reporting `missing IO` there would be a mis-report rather than an
+  omission.
+
+A lambda's own parameter is marked identically and is unreachable
+today: a called lambda parameter does not type-check (`AX3004`), so no
+well-typed program gets there. The marker is set anyway, because the
+alternative would record that the binder was attributed somewhere, and
+it is not.
+
+Until 2026-08-22 neither happened. The sentinel that records an
+unresolved call had been in the source, skipped by two consumers and
+produced by nobody since `f6ddc2e` removed its last producer, so an
+empty set read as an acquittal:
+
+```scheme
+(struct Box (f : (-> Int Int)))
+
+;@axiom:pure
+(fn (runner b) ((b.f) 7))   ; accepted, ran, wrote to stdout
+```
+
+`runner` compiled clean and `symbols` printed `#pure` with no
+`#effects=` beside it. The same shape under `;@axiom:effect(io)` drew
+a **false** `claim unsupported: missing IO`.
+
+The mark is deliberately conservative. An `if` or `match` head whose
+arms are all named functions *is* attributed by the reference-site
+rule and is still called incomplete, because the walk did not resolve
+the call; so is a lambda's own parameter, and so is a `let` bound to
+the result of a call that returned a closure the walk had already
+walked. Being loud about a limit is the same choice `AX3021` makes,
+and for the same reason: the alternative is a silence that reads as an
+answer.
+
+Five files in the 269 swept by `scripts/check-diagnostics.sh` carry a
+mark - `tests/stdlib/140-function-values.ax`,
+`tests/stdlib/280-function-application.ax`,
+`tests/selfhost/530-fn-in-ctor.ax`, `590-lambda-nested.ax` and
+`950-multi-param-lambda.ax`, seven marks between them. All five are
+the corpus's own function-value tests, none makes a claim, and no
+function in `self_host/` or `stdlib/` is marked at all.
+
+The remaining honest gap: passing an effect-polymorphic function
+itself as a callback does not instantiate the callee's marks
 (higher-rank flows).
 
 ### Built-in Effects

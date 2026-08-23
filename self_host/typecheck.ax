@@ -6990,7 +6990,10 @@
                       (bsWith
                         bound                        (nodeA e)                        (if (== (nodeTag (nodeB e)) TAG_E_VAR)
                           (bsParamAlias bound (nodeA (nodeB e)))
-                          (- 0 1)
+                          (if (== (nodeTag (nodeB e)) TAG_E_LAM)
+                            (- 0 1)
+                            bsOpaque
+                          )
                         )
                       )
                     ))
@@ -6998,7 +7001,7 @@
                     )
                   }
                   (if (== tag TAG_E_LAM)
-                    (walkEffects tc (nodeB e) (bsWithParams bound (nodeA e) 0) acc)
+                    (walkEffects tc (nodeB e) (bsWithParams bound (nodeA e) bsOpaque 0) acc)
                     (if (== tag TAG_E_IF)
                       {
                         (walkEffects tc (nodeA e) bound acc)
@@ -7199,7 +7202,28 @@
         (walkCallHead
           tc          (nodeA head)          args          bound          acc
         )
-        (walkEffects tc head bound acc)
+        ; A head that is not a name at all: a field holding a
+        ; function, the result of a call, a `let`-bound value. Walking
+        ; it attributes what EVALUATING the head performs and says
+        ; nothing whatever about what CALLING it performs, and that
+        ; difference is the whole of the hole `effIncomplete` was
+        ; declared to record. `((b.f) x)` under a `;@axiom:pure` claim
+        ; was ACCEPTED - not because the body was pure, but because
+        ; the set the claim was checked against came back empty - and
+        ; `symbols` then printed `#pure` with no `#effects=` beside
+        ; it, which is the analysis asserting exactly what it had
+        ; failed to look at.
+        ;
+        ; An immediately-applied lambda is the one shape here that IS
+        ; resolvable: `walkEffects` walks its body, so it is
+        ; attributed and must not be called incomplete.
+        {
+          (walkEffects tc head bound acc)
+          (if (== (nodeTag head) TAG_E_LAM)
+            0
+            (effAdd acc effIncomplete)
+          )
+        }
       )
     }
   )
@@ -7217,6 +7241,14 @@
     {
       (markEparam bound (bsParamAlias bound n))
       (escapeArgs bound args 0)
+      ; An OPAQUE local: the value came out of memory, so no call edge
+      ; carries what it performs and `markEparam` had no parameter to
+      ; mark. This is the `let`-shaped spelling of the same hole the
+      ; spine walk records for a non-name head.
+      (if (== (bsParamAlias bound n) bsOpaque)
+        (effAdd acc effIncomplete)
+        0
+      )
     }
     (if (== (isSyscallPrim n) 1)
       (effAdd acc (builtinEff "IO"))
@@ -7224,6 +7256,14 @@
         (if (== ent 0)
           ; An unresolved callee: treat it like a local, since
           ; what it does with its arguments is unknown.
+          ;
+          ; NOT incomplete, though the sentinel's own comment names
+          ; this case. `findFnEnt` answers 0 for every form that is
+          ; parsed as an application without being a function: `cast`
+          ; first of all, and with it every struct constructor. Marking
+          ; here put the sentinel on 2,116 of the compiler's 2,437
+          ; functions - `memGetWord` is `(cast a (__load64 ...))`, so
+          ; the mark reached everything that reads a word.
           (escapeArgs bound args 0)
           {
             (effUnion acc (memGetWord ent 5) 0)
@@ -7236,6 +7276,27 @@
     )
   )
 )
+
+; A binder's `pidx` is a THREE-way answer, not two:
+;
+;   >= 0  the index of the enclosing function's parameter this name
+;         aliases - the effect-transparent case, carried by `eparams`
+;         and instantiated at every call site;
+;    -1   bound to something ALREADY ATTRIBUTED where it was bound - a
+;         bare name (`effRefSite` unioned its effects) or a lambda
+;         literal (`walkEffects` walked its body);
+;    -2   OPAQUE: a function value whose identity the walk lost. A
+;         field load, a container read, a `match` binder. Calling it
+;         performs whatever was put there, and nothing on the path
+;         from there to here attributed it to anybody.
+;
+; The third answer is new. It used to be spelled -1 along with the
+; second, which is why `(let ((g (b.f))) (g 7))` under `;@axiom:pure`
+; was accepted in silence: the walk could not tell a name it had
+; followed from a word it had merely read.
+(pub :: bsOpaque Int)
+
+(pub fn (bsOpaque) (- 0 2))
 
 (pub :: escapeArgs (-> Int Int Int Int))
 
@@ -7314,6 +7375,14 @@
 (pub :: effIncomplete String)
 
 (pub fn (effIncomplete) "?:incomplete")
+
+; Did the walk meet a call it could not resolve? Then this set is a
+; LOWER BOUND on what the body performs, and every claim checked
+; against it has to answer for the difference rather than read an
+; absence as an acquittal.
+(pub :: effPartial (-> Int Int))
+
+(pub fn (effPartial v) (effIn v effIncomplete))
 
 ; The concrete effects, sorted by display name, joined with ", ".
 (pub :: effJoin (-> Int String))
@@ -7608,12 +7677,16 @@
 
 (pub fn (stripGrouping e) e)
 
-(pub :: bsWithParams (-> Int Int Int Int))
+; `pidx` is what every one of these binders records - see `bsOpaque`
+; for the three answers. It used to be hard-coded `-1`, which said
+; "already attributed where it was bound" about two kinds of binder
+; that are nothing of the sort.
+(pub :: bsWithParams (-> Int Int Int Int Int))
 
-(pub fn (bsWithParams b params i)
+(pub fn (bsWithParams b params pidx i)
   (if (>= i (vecLen params))
     b
-    (bsWithParams (bsWith b (vecGet params i) (- 0 1)) params (+ i 1))
+    (bsWithParams (bsWith b (vecGet params i) pidx) params pidx (+ i 1))
   )
 )
 
@@ -7625,7 +7698,7 @@
   (let ((v vecNew))
     {
       (patBinders pat v)
-      (bsWithParams b v 0)
+      (bsWithParams b v bsOpaque 0)
     }
   )
 )
@@ -10235,7 +10308,15 @@
 
 (pub fn (axtagContradicted tc d label eff)
   (if (== (vecLen (effSorted eff)) 0)
-    0
+    ; Nothing concrete contradicts the claim - which acquits it only
+    ; when the walk resolved every call it met. Where it did not, the
+    ; empty set is the analysis's silence and not the body's, and
+    ; reading one as the other is exactly how `((b.f) x)` passed as
+    ; `pure` while it wrote to stdout.
+    (if (== (effPartial eff) 1)
+      (emitAxtagUnverifiable tc d label)
+      0
+    )
     (emitAxtag tc d (strConcat (strConcat label " contradicted: body performs ") (effJoin eff)))
   )
 )
@@ -10259,7 +10340,13 @@
         ; something that exists. An effect no declaration
         ; introduces can never arrive that way, so the
         ; suppression must not swallow it.
-        (if (&& (> (vecLen eparams) 0) (== (axtagCouldExist tc want) 1))
+        ; ... and an UNRESOLVED call can supply it just as a callback
+        ; can. Before the sentinel had a producer this branch reported
+        ; `claim unsupported: missing IO` against a body that reached
+        ; IO through a field-held function - a mis-report rather than
+        ; an omission, which is the one failure this whole check is
+        ; documented as not permitted to make.
+        (if (&& (== (axtagCouldExist tc want) 1) (|| (> (vecLen eparams) 0) (== (effPartial eff) 1)))
           0
           (emitAxtag tc d (strConcat (strConcat (strConcat "`effect(" val) ")` claim unsupported: missing ") (effRender want)))
         )
@@ -10343,6 +10430,27 @@
     0
     (emitDiag tc (mkDiag
       SEV_WARNING      "AX3010"      "axtag-mismatch"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "AXTAG mismatch on `" (bareOf (nodeA d))) "`: ") msg) "")      0      0      0
+    ))
+  )
+)
+
+; AX3037: a claim the walk is not in a position to check. Distinct
+; from AX3010 on purpose - "your tag is wrong" and "your tag cannot be
+; checked here" are different facts, and a reader acting on them does
+; different things: correct the tag, or resolve the call. AX3033 took
+; a new code over sharing AX3020 for the same reason.
+;
+; A WARNING, like AX3010. What it reports is a limit of the analysis
+; and not a defect in the program, and the repository has one
+; diagnostic of that kind already (AX3021) whose text says so out
+; loud.
+(pub :: emitAxtagUnverifiable (-> Int Int String Int))
+
+(pub fn (emitAxtagUnverifiable tc d label)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_WARNING      "AX3037"      "axtag-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat "AXTAG unverifiable on `" (bareOf (nodeA d))) "`: ") (strConcat label " cannot be checked: the body calls a value the compiler could not resolve"))      0      0      "name the function at the call, or drop the claim: an unresolved call may perform anything"
     ))
   )
 )

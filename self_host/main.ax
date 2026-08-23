@@ -74,12 +74,20 @@
 ; when asked for something else.
 ;
 ; The Rust compiler had three renderers for it - an aligned human
-; table (its DEFAULT), one JSON object per line, and AXSYM - and this
-; compiler has only the third, which is also its default. That is a
-; deliberate divergence: AXSYM is the notation this language is
-; designed around, the human table is a strict subset of it (it drops
-; the nid and the metadata), and nothing in the repository consumes
-; either of the other two.
+; table (its DEFAULT), one JSON object per line, and AXSYM. This
+; compiler has the first and the third: the table under `human`, which
+; is the default, and AXSYM under `ai`. The table is DERIVED from the
+; AXSYM text, so the two cannot disagree about what the symbols are -
+; it only drops the nid and the metadata columns.
+;
+; This paragraph said "only the third, which is also its default" until
+; 2026-08-22, and `axiom help symbols` said "AXSYM is the only
+; rendering" beside it. Both were false, and the code twelve lines
+; below - "`human` and `ai` both render symbols now" - had said so
+; since the table was added. The user-visible cost of the stale help
+; was specific: `#effects=` is metadata, the table has no metadata
+; column, so a reader following the help saw no effect sets at all and
+; had no reason to look for a flag the help said did not apply.
 ;
 ; What was NOT acceptable is how it diverged. `--diagnostic-format`
 ; was read, used for diagnostics, and then ignored for the symbol

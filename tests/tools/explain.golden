@@ -49,6 +49,7 @@
   [93mAX3034[0m  an ellipsis used at the wrong depth  (macro-ellipsis)
   [93mAX3035[0m  a macro parameter used as a binder was given something that is not a variable  (macro-binder-target)
   [93mAX3036[0m  an `extern` item's type cannot cross the boundary  (extern-type)
+  [93mAX3037[0m  an AXTAG claim the effect walk is not in a position to check  (axtag-unverifiable)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -844,6 +845,57 @@ handle, and the ergonomic surface is the wrapper `axiom-bindgen` generates
 an opaque Rust type becomes a `Handle` inside a generated `data` type whose
 death runs the Rust destructor.
 
+### explain AX3037
+AX3037 - an AXTAG claim the effect walk is not in a position to check
+
+A `;@axiom:pure` or `;@axiom:effect(pure)` claim on a function whose
+body CALLS A VALUE the walk could not resolve. Three shapes reach it:
+a head that is not a name (`((b.f) x)`, an `if` or `match` in head
+position); a `let` bound to anything but a name or a lambda literal;
+and a pattern binder (`(match h ((Wrap f) (f 7)))`). They are one
+route wearing three spellings - a function value goes into memory in
+one place and is called in another, with no call edge in between for
+the walk to follow.
+
+A lambda's own parameter is marked the same way and is currently
+unreachable: a called lambda parameter does not type-check
+(`AX3004`, `expected function type, found _tN`), because inference
+never gives one a function type. The marker is set regardless, since
+the alternative spelling would CLAIM the binder was attributed
+somewhere, and it is not.
+
+This is not the claim being wrong. It is the claim being unCHECKABLE
+here, and the two need different answers - correct the tag, or resolve
+the call - which is why this is not AX3010.
+
+The silence it replaced was the worse half of a real hole. The effect
+walk answers a lower bound; a claim of ABSENCE cannot be validated
+against a lower bound, and `pure` is exactly that claim. So
+
+    (struct Box (f : (-> Int Int)))
+
+    ;@axiom:pure
+    (fn (runner b) ((b.f) 7))
+
+compiled clean, ran, and wrote to stdout, while `symbols` printed
+`#pure` with no `#effects=` beside it - the analysis asserting
+precisely what it had failed to look at. The sentinel that records an
+unresolved call (`effIncomplete`) had been in the source since the
+effect walk was written, skipped by two consumers and produced by
+nobody: `git log -S` puts its last producer's removal in f6ddc2e,
+where effect polymorphism replaced it and the completeness gate its
+own comment describes went with it.
+
+What to do: name the function at the call site so the walk can
+follow it, or drop the claim. A claim that cannot be checked is worth
+less than no claim, because a reader spends trust on it.
+
+The REVERSE direction is deliberately silent. `;@axiom:effect(io)`
+over an unresolved call is a claim of PRESENCE, and an unresolved
+call may well be where the IO comes from - reporting `missing IO`
+there is a mis-report rather than an omission, and this check is
+documented as not permitted to make one.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1006,6 +1058,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3034[0m  an ellipsis used at the wrong depth  (macro-ellipsis)
   [93mAX3035[0m  a macro parameter used as a binder was given something that is not a variable  (macro-binder-target)
   [93mAX3036[0m  an `extern` item's type cannot cross the boundary  (extern-type)
+  [93mAX3037[0m  an AXTAG claim the effect walk is not in a position to check  (axtag-unverifiable)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

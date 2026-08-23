@@ -34,3 +34,12 @@
 # AX3010 - an AXTAG that claims an effect the function does not have.
 #          A claim that is merely wrong about code that compiles.
 AX3010
+# AX3037 - an AXTAG claim the effect walk cannot check, because the
+#          body calls a value it could not resolve. A limit of the
+#          ANALYSIS rather than a defect in the program - the code
+#          compiles and may well be correct - so it informs and does
+#          not refuse. The same reasoning as AX3010 one line up, and
+#          the same standing risk: if this ever becomes the compiler's
+#          answer to a program that is actually wrong, it belongs in
+#          the other list.
+AX3037

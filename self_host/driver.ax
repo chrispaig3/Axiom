@@ -1955,7 +1955,7 @@
             (if (strEq c "explain")
               "axiom explain - describe a diagnostic code\n\nUSAGE:\n  axiom explain <CODE>\n  axiom explain --list\n\nCODE may be written `AX3001`, `3001` or `ax-3001`.\n\n  --list    list every known code instead\n"
               (if (strEq c "symbols")
-                "axiom symbols - list every top-level symbol, in AXSYM\n\nUSAGE:\n  axiom symbols <FILE> [--builtins]\n\n  --builtins   also list the always-in-scope operators\n\nAXSYM is the only rendering; --diagnostic-format applies to the\ndiagnostics on stderr, not to this output.\n"
+                "axiom symbols - list every top-level symbol, in AXSYM\n\nUSAGE:\n  axiom symbols <FILE> [--builtins]\n\n  --builtins   also list the always-in-scope operators\n\nTwo renderings, chosen by --diagnostic-format: `human` (the default)\nprints an aligned table of kind, name, type and location; `ai` prints\nAXSYM itself, which is the same facts plus each symbol's nid and its\nmetadata - `#effects=`, `#effect-params=`, `#effects-incomplete` and\nany AXTAG. `json` has no rendering of its own and falls back to AXSYM\nwith a note on stderr.\n"
                 (if (strEq c "repl")
                   "axiom repl - the interactive read-eval-print loop\n\nUSAGE:\n  axiom repl [--no-banner]\n\n  --no-banner   skip the startup banner\n\nType :help at the prompt for the meta-commands.\n"
                   (if (strEq c "lsp")

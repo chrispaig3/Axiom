@@ -298,7 +298,7 @@ scrutinee shape run as its ablation.
 
 **ERR-PROP-4 (P). The compiler SHOULD diagnose a self-recursive call in
 the scrutinee of a `match` on its own return type.** Proposed
-`AX3037`, `recursion-in-scrutinee`, a **warning**, with a help naming
+`AX3038`, `recursion-in-scrutinee`, a **warning**, with a help naming
 the arm-tail rewrite. Today nothing says anything: the program compiles,
 runs, and dies on an input large enough, which is the failure mode
 `ERR-PROP-3` exists to prevent and the one a programmer is least
@@ -509,21 +509,23 @@ stable code and a kebab-case slug, and has long-form text in
 compiler reports; the rule is here so a future contributor does not
 invent a second channel for "error-model errors".
 
-**ERR-DIAG-2 (P). Proposed codes.** Twice now this model has proposed a
-number and the compiler has spent it first. `AX3035` went on 2026-08-16
-to the expander defect that stood in this model's way
-(`macro-binder-target`, §7), and `AX3036` went on 2026-08-22 to the FFI
-(`extern-type`, an `extern` item whose type cannot cross the boundary).
-The next free semantic number is therefore `AX3037` (`AX3032` is
-retired and **MUST NOT** be reused), and a proposal renumbers again if
-something builds one before this model does — which is exactly why
-these are proposals and not allocations:
+**ERR-DIAG-2 (P). Proposed codes.** Three times now this model has
+proposed a number and the compiler has spent it first. `AX3035` went on
+2026-08-16 to the expander defect that stood in this model's way
+(`macro-binder-target`, §7), `AX3036` went on 2026-08-22 to the FFI
+(`extern-type`, an `extern` item whose type cannot cross the boundary),
+and `AX3037` went the same day to the effect walk (`axtag-unverifiable`,
+a `pure` claim over a call the walk cannot resolve). The next free
+semantic number is therefore `AX3038` (`AX3032` is retired and **MUST
+NOT** be reused), and a proposal renumbers again if something builds one
+before this model does — which is exactly why these are proposals and
+not allocations:
 
 | Proposed | Slug | Condition |
 |---|---|---|
-| `AX3037` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
-| `AX3038` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
-| `AX3039` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
+| `AX3038` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
+| `AX3039` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
+| `AX3040` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
@@ -682,7 +684,7 @@ match binder.
 | `ERR-PROP-1` | H | the language having no other mechanism |
 | `ERR-PROP-2` | H | `#pure` accepted on construct and inspect |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
-| `ERR-PROP-4` | P | — proposed `AX3037`, not constructed |
+| `ERR-PROP-4` | P | — proposed `AX3038`, not constructed |
 | `ERR-PROP-5` | H | effect inference, unchanged |
 | `ERR-MEM-1` | H | `fldClass`, `self_host/codegen.ax` |
 | `ERR-MEM-2` | **H, gated** | `370-error-propagation.ax` term 4 + ablation |
@@ -695,7 +697,7 @@ match binder.
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — `AX3037`–`AX3039` not constructed |
+| `ERR-DIAG-2`, `3` | P | — `AX3038`–`AX3040` not constructed |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
