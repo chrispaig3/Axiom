@@ -488,7 +488,7 @@ AX3024 - macro expansion produced more than the limit
 
 Expansion is a rewrite, so the program the compiler sees is the
 expanded one, and this expansion produced a tree too deep or too large
-to process. Two limits apply and the message says which was reached.
+to process. Three limits apply and the message says which was reached.
 
 DEPTH is 1024 forms, the same number the parser refuses source at
 (AX2005). It has to be checked separately because the parser measures
@@ -502,11 +502,21 @@ SIZE is 2,000,000 forms, and no depth limit can see what it catches:
 154 bytes of source and 2**26 forms. That took 41 seconds and the
 language server never answered.
 
-Both are far above any real macro - the whole of `stdlib/Pre.ax`
-expands to depth 1. Make the macro produce less, or write the repeated
-part as a function and let the macro expand to a call: a function is
-compiled once however many times it is called, which is the whole
-difference.
+DECLARATIONS is 10,000, and it is a separate axis because the other
+two are counted inside expression expansion while the DECLARATION
+phase runs first: a template that generates declarations reaches
+neither counter. Depth was covered there anyway - a declaration macro
+that regenerates its own invocation is AX3019 after 128 rounds - so
+what was missing was width. A template generating three invocations
+of itself per round reached 3.4 GB in one second and was killed by
+the operating system, with no diagnostic and no output at all.
+
+All three are far above any real macro - the whole of `stdlib/Pre.ax`
+expands to depth 1, and the largest generated declaration count in
+this repository is 80. Make the macro produce less, or write the
+repeated part as a function and let the macro expand to a call: a
+function is compiled once however many times it is called, which is
+the whole difference.
 
 ### explain AX3025
 AX3025 - a trait implementation the compiler cannot use

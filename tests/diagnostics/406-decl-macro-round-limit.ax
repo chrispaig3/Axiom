@@ -1,0 +1,23 @@
+; The declaration-phase DEPTH budget, which has existed since phase D
+; did and was pinned by nothing: before this file the only occurrence
+; of "declaration-macro expansion exceeded" anywhere in the tree was
+; the line in `expand.ax` that emits it.
+;
+; `loopD` regenerates exactly one invocation of itself, so it never
+; grows - it just never stops. `expDeclMacroRounds` stops it at 128
+; rounds with AX3019, the same code the expression side raises for the
+; same shape, and the message names rounds rather than forms because
+; that is the axis phase D counts.
+;
+; It sits beside `401-decl-macro-size-limit`, and the pair is the
+; point: one macro that recurses without growing and one that grows
+; without recursing deeply, so a budget covering only one axis leaves
+; a red gate behind rather than a silent hole.
+(macro loopD
+  ((loopD nm) (loopD nm)))
+
+(loopD z)
+
+(:: main Int)
+
+(fn (main) 0)

@@ -162,7 +162,8 @@
   (gens : Int)
   (callbs : Int)
   (seqbinds : Int)
-  (tplbinds : Int))
+  (tplbinds : Int)
+  (declnodes : Int))
 
 ; The two budgets on the OUTPUT, which the parser's
 ; own AX2005 guard cannot see: it measures the source,
@@ -346,6 +347,45 @@
 (pub :: expMaxNodes Int)
 
 (pub fn (expMaxNodes) 2000000)
+
+; The THIRD output budget, and the one the two above cannot see.
+;
+; They are incremented inside `expandExpr`, and `expandProgram` runs
+; the DECLARATION phase first - so for a declaration macro that fans
+; out, phase E never starts and neither counter is ever touched. The
+; depth axis was covered there: `expDeclMacroRounds` stops a template
+; that regenerates its own invocation, and it fires. The SIZE axis was
+; not, so a template that generates two invocations per round is
+; bounded only by memory. It does not draw a diagnostic, it is killed
+; by the operating system, at multi-gigabyte RSS, with no output - the
+; one failure shape a program compiling code it did not write cannot
+; defend against, since `check` had no lever to bound it.
+;
+; 10,000 against a measured ceiling: `axiom symbols` puts the whole
+; self-hosted compiler at 2,535 symbols, and the largest phase-D
+; consumer in the tree at 198. `stdlib/` and `self_host/` declare no
+; declaration macros at all, so nothing in this repository approaches
+; it - which is exactly the condition under which a floor rots, and is
+; why `tests/selfhost/395-decl-macro-width.ax` generates a few hundred
+; declarations on purpose: lowering this number into real code has to
+; turn a gate red.
+;
+; ONE THING THIS SURFACES AND DOES NOT FIX. The refusal it produces
+; carries 5,001 expansion frames - one AXDL line of 115 KB, almost all
+; of it the same macro name. `expInstantiateDecl` pushes a frame per
+; instantiation onto a Vec it shares with every other diagnostic and
+; never pops it, so the chain records instantiations PERFORMED rather
+; than nesting ENTERED. That is not new and is not caused by this
+; budget; it was unobservable while a fanning-out macro died of memory
+; before anything could print. Unwinding it means truncating a
+; structure sixteen goldens read - `490-expansion-backtrace` among
+; them - so it is its own change with its own evidence, not a rider on
+; this one. The expression side shows what the bound should look like:
+; `991-macro-recursion` carries 128 frames, which is its depth limit,
+; and means something.
+(pub :: expMaxDecls Int)
+
+(pub fn (expMaxDecls) 10000)
 
 (pub :: expBlown (-> Int Int))
 
@@ -5629,7 +5669,7 @@
 (pub fn (expandProgram entryDecls decls out frames units bares fulls mods)
   (let ((env 
     (cast Int (MEnv
-      (expCollectMacros decls vecNew 0)      out      0      0      decls      0      0      0      0      0      frames      0      units      vecNew      bares      fulls      mods      0      vecNew      0      vecNew      vecNew
+      (expCollectMacros decls vecNew 0)      out      0      0      decls      0      0      0      0      0      frames      0      units      vecNew      bares      fulls      mods      0      vecNew      0      vecNew      vecNew      0
     ))
   ))
     {
@@ -5884,6 +5924,23 @@
           (memSetWord env 17 0)
           (memSetWord env 11 prevDecl)
           (memSetWord env 13 prevFors)
+          ; The declarations this instantiation produced, against the
+          ; running total. `expBlow` sets the same word the expression
+          ; budgets set, so the two existing `expBlown` tests - the one
+          ; below and the one that stops the round fixpoint - carry the
+          ; refusal out with no new control flow.
+          (if (!= made 0)
+            (let ((tot (+ (memGetWord env 22) (vecLen made))))
+              {
+                (memSetWord env 22 tot)
+                (if (> tot expMaxDecls)
+                  (expBlow env isp (strConcat (strConcat "macro expansion produced more than the limit of " (expFmtInt expMaxDecls)) " declarations"))
+                  0
+                )
+              }
+            )
+            0
+          )
           (if (|| (== made 0) (== (expBlown env) 1))
             {
               (memSetWord d 3 1)

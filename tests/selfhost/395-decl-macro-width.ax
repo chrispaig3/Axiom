@@ -1,0 +1,75 @@
+; expect 40
+; The FLOOR under `expMaxDecls`, and the reason it is a file rather
+; than a number in a comment.
+;
+; `expand.ax`'s budget on phase-D output is 10,000 declarations, set
+; against a measured ceiling: the whole self-hosted compiler is 2,535
+; symbols and `stdlib/` and `self_host/` declare no declaration macros
+; at all, so nothing in this repository comes near it. That is exactly
+; the condition under which a floor rots - a limit no real code
+; approaches can be lowered into real code without anything going red,
+; and this repository has already recorded that lesson twice about
+; numbers in gates.
+;
+; So this generates a few hundred declarations on purpose. `pair` runs
+; a declaration-position `syntax/for` over a 40-constructor type and
+; emits a signature and a function for each, which is 80 generated
+; declarations from one invocation - legal, ordinary, and the shape a
+; real `derive` grows into. Lowering the budget under it turns this
+; case red instead of turning a user's program into a refusal.
+;
+; The probe sums nothing clever: `main` calls the generated function
+; for the last constructor, so the case fails if the iteration stops
+; early as well as if the budget refuses it.
+(data Wide
+  (K0)
+  (K1)
+  (K2)
+  (K3)
+  (K4)
+  (K5)
+  (K6)
+  (K7)
+  (K8)
+  (K9)
+  (K10)
+  (K11)
+  (K12)
+  (K13)
+  (K14)
+  (K15)
+  (K16)
+  (K17)
+  (K18)
+  (K19)
+  (K20)
+  (K21)
+  (K22)
+  (K23)
+  (K24)
+  (K25)
+  (K26)
+  (K27)
+  (K28)
+  (K29)
+  (K30)
+  (K31)
+  (K32)
+  (K33)
+  (K34)
+  (K35)
+  (K36)
+  (K37)
+  (K38)
+  (K39))
+
+(macro pair ((pair T)
+   (syntax/for (C (syntax/constructors T))
+     (:: (syntax/join idx C) (-> T Int))
+     (fn ((syntax/join idx C) v) 40))))
+
+(pair Wide)
+
+(:: main Int)
+
+(fn (main) (idxK39 K39))

@@ -1,0 +1,125 @@
+; A single declaration-macro instantiation that produces more than the
+; budget allows, and the refusal that used to be an out-of-memory kill.
+;
+; The three budgets `expand.ax` had were all reachable only from
+; `expandExpr`, and `expandProgram` runs the DECLARATION phase FIRST -
+; so for a template that generates declarations, phase E never starts
+; and none of them is ever touched. One axis was covered there anyway:
+; `expDeclMacroRounds` bounds DEPTH, and `406-decl-macro-round-limit`
+; is the case for it. The axis with nothing on it was SIZE.
+;
+; Measured before this budget existed, on a three-way fanning-out
+; template with an RSS poller as the only brake: 3.4 GB in ONE second,
+; then killed by the operating system, with no diagnostic and no
+; output at all. That is the shape a program compiling code it did not
+; write cannot defend against, because `check` had no lever to bound
+; it.
+;
+; WHY NESTED ITERATION RATHER THAN THAT FAN-OUT. The fan-out needs
+; about 5,000 instantiations to cross the budget, and phase D pushes
+; an expansion frame per instantiation onto a Vec that is read when
+; the diagnostic renders and is never popped - so the refusal came out
+; as one AXDL line of 115 KB carrying 5,001 copies of one macro's
+; name, and this file's golden was 225 KB of it. That accumulation is
+; NOT a defect to fix here: the frames are attached post-hoc by span
+; and module, so unwinding them empties the list before rendering and
+; takes ten backtrace goldens with it - measured, on the attempt.
+; 80 x 80 pairs from ONE invocation crosses the same budget with one
+; frame, which is what a reader of this golden actually needs.
+;
+; It is AX3024 and not a new code because the axis is the one AX3024
+; already names - what expansion PRODUCED against what the source
+; measured - and its help is already the right advice.
+(data Wide
+  (K0)
+  (K1)
+  (K2)
+  (K3)
+  (K4)
+  (K5)
+  (K6)
+  (K7)
+  (K8)
+  (K9)
+  (K10)
+  (K11)
+  (K12)
+  (K13)
+  (K14)
+  (K15)
+  (K16)
+  (K17)
+  (K18)
+  (K19)
+  (K20)
+  (K21)
+  (K22)
+  (K23)
+  (K24)
+  (K25)
+  (K26)
+  (K27)
+  (K28)
+  (K29)
+  (K30)
+  (K31)
+  (K32)
+  (K33)
+  (K34)
+  (K35)
+  (K36)
+  (K37)
+  (K38)
+  (K39)
+  (K40)
+  (K41)
+  (K42)
+  (K43)
+  (K44)
+  (K45)
+  (K46)
+  (K47)
+  (K48)
+  (K49)
+  (K50)
+  (K51)
+  (K52)
+  (K53)
+  (K54)
+  (K55)
+  (K56)
+  (K57)
+  (K58)
+  (K59)
+  (K60)
+  (K61)
+  (K62)
+  (K63)
+  (K64)
+  (K65)
+  (K66)
+  (K67)
+  (K68)
+  (K69)
+  (K70)
+  (K71)
+  (K72)
+  (K73)
+  (K74)
+  (K75)
+  (K76)
+  (K77)
+  (K78)
+  (K79))
+
+(macro boom ((boom T)
+   (syntax/for (C (syntax/constructors T))
+     (syntax/for (K (syntax/constructors T))
+       (:: (syntax/join (syntax/join f C) K) (-> T Int))
+       (fn ((syntax/join (syntax/join f C) K) v) 0)))))
+
+(boom Wide)
+
+(:: main Int)
+
+(fn (main) 0)

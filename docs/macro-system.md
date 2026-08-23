@@ -703,15 +703,29 @@ drop the surplus argument **without evaluating it**.
 
 ### 2.3 Termination
 
-**MAC-EXP-9 (H).** Expansion **MUST** terminate, and three independent
+**MAC-EXP-9 (H).** Expansion **MUST** terminate, and five independent
 budgets enforce it. Each replaces a hang or a crash, and each reports
 once rather than at every node after the first refusal.
 
-| Budget | Limit | Diagnostic | What it bounds |
-|---|---|---|---|
-| instantiation depth | 128 | `AX3019` `macro-recursion-limit` | a macro that rewrites to itself |
-| output tree depth | 1024 | `AX3024` `macro-expansion-limit` | nesting the parser would have refused in source |
-| output node count | 2,000,000 | `AX3024` `macro-expansion-limit` | fan-out, which no depth limit can see |
+| Budget | Limit | Phase | Diagnostic | What it bounds |
+|---|---|---|---|---|
+| instantiation depth | 128 | E | `AX3019` `macro-recursion-limit` | a macro that rewrites to itself |
+| output tree depth | 1024 | E | `AX3024` `macro-expansion-limit` | nesting the parser would have refused in source |
+| output node count | 2,000,000 | E | `AX3024` `macro-expansion-limit` | fan-out, which no depth limit can see |
+| declaration rounds | 128 | D | `AX3019` `macro-recursion-limit` | a declaration macro that regenerates its own invocation |
+| generated declarations | 10,000 | D | `AX3024` `macro-expansion-limit` | a declaration template that fans out |
+
+The **phase** column is the whole of why the last row exists. The first
+three are counted inside `expandExpr`, and `expandProgram` runs phase D
+first (`MAC-EXP-16`), so a template that generates declarations reaches
+none of them: phase E never starts. The depth axis was covered there
+anyway by the round budget, and it fires. The width axis was not, and
+what was under it was not a slow compile — a template generating three
+invocations of itself per round reached 3.4 GB in one second and was
+killed by the operating system, with no diagnostic and no output
+(`tests/diagnostics/401-decl-macro-size-limit.ax`, and
+`406-decl-macro-round-limit.ax` for the round budget, which until then
+was enforced by the compiler and pinned by nothing).
 
 **MAC-EXP-10 (H).** The last two exist because **the parser's own limits
 measure the source and expansion produces the program**. A template 500
@@ -1819,8 +1833,13 @@ which a template cannot produce today (`MAC-LANG-5`). Under
 validated by `AX3010` like any other.
 
 **MAC-SAFE-4 (H).** Expansion **MUST NOT** be able to hang or crash the
-compiler: `MAC-EXP-9`'s three budgets, and node handle 0 guarded
-everywhere the expander walks. `()` in a template is refused at the
+compiler: `MAC-EXP-9`'s five budgets, and node handle 0 guarded
+everywhere the expander walks. This rule was FALSE as written between
+phase D's arrival and 2026-08-23, and its own wording is why: it said
+three budgets while the phase that runs first was covered by one of
+them, so a fanning-out declaration template was killed by the operating
+system at multi-gigabyte RSS — a crash of the compiler, by this rule's
+own definition, with the rule claiming it could not happen. `()` in a template is refused at the
 macro's own line, before any invocation — one of the twenty-three
 positions of the empty form that `scripts/check-degenerate.sh` pins,
 seven of which used to kill `check` rather than the emitter.
