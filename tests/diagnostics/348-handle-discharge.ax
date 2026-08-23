@@ -1,0 +1,119 @@
+; A `handle` NAMES an effect and DISCHARGES a different set, and the
+; difference is the whole of this case.
+;
+; AX3011 asks whether the list names what the body performs, and it has
+; to be exhaustive: `320-unhandled-effect.ax` is the bank of refusals
+; for a list that omits something. That check makes the list a
+; description of the region rather than a wish, and it means a built-in
+; in the list is never an accident - the author had to write `(IO)` for
+; the form to compile at all.
+;
+; Propagation asks a different question: does the effect still happen
+; to the CALLER. For a declared effect the answer is no, because a
+; handler is installed and really does intercept the operations. For a
+; built-in there is no handler - `handleIsDynamic` installs evidence
+; only for a declared effect, and the form otherwise lowers to its body
+; alone - so the syscall runs and the answer is yes.
+;
+; Until 2026-08-23 both questions were answered by the same predicate,
+; so naming a built-in erased it from everything above the handle:
+;
+;   `launders` claims `pure`, acknowledges IO, and reported `#pure`
+;   while writing to stdout. The claim check saw nothing to contradict.
+;
+;   `caller` truthfully claims `effect(io)` - it calls a function that
+;   performs I/O - and drew the ONLY diagnostic in the file, for
+;   claiming an effect the erasure had removed. The honest one was
+;   warned and the lying one passed.
+;
+; The diagnostic is on `launders` now and `caller` is silent.
+;
+; `discharges` is the CONTROL, and it earns its place twice. Its
+; handler is real, so `Ask` genuinely does not reach its caller: a fix
+; that simply stopped subtracting everything would report a missing
+; `Ask` here and does not. And its claim is `effect(alloc)`, not
+; `pure`, because installing a handler ALLOCATES - the evidence record
+; is a real block - so the honest claim for a function that discharges
+; a declared effect names Alloc. That `discharges` draws nothing while
+; `launders` draws AX3010 is the whole distinction, stated as two
+; lines of one file.
+(effect Ask
+  (ask :: (-> Int Int)))
+
+(:: shout (-> Int Int))
+
+;@axiom:effect(io)
+(fn (shout n)
+  {
+    (__syscall3 1 n 0 0)
+    n
+  }
+)
+
+(:: asker (-> Int Int))
+
+(fn (asker n) (ask n))
+
+(:: launders (-> Int Int))
+
+;@axiom:pure
+(fn (launders n) (handle (shout n) (IO) 0))
+
+(:: discharges (-> Int Int))
+
+;@axiom:effect(alloc)
+(fn (discharges n) (handle (asker n) (Ask) (lambda (v) 0)))
+
+; Two shapes that are NOT about a false claim, and are the reason this
+; is a defect rather than a loophole for liars.
+;
+; `region` is the `(Pure)` boundary - the one effect construct in the
+; language that refuses to emit - defeated by a `handle` INSIDE it: the
+; inner form subtracted the IO before the outer one measured, so the
+; strongest primitive the language has could be switched off by the
+; code it was guarding. It is AX3011 now, an error, and no binary is
+; written.
+;
+; `run` is honest, and was corrupted anyway. `(Ask IO)` - a declared
+; effect beside a built-in the handler cannot intercept - is the shape
+; `docs/reference.md` documents, and it silently erased the IO.
+; Nothing here claims anything, so no diagnostic was possible and none
+; was missing: the machine-readable answer was simply wrong, which is
+; worse for a reader that is a program than a warning would be.
+;
+; That half is not visible in THIS file's goldens, and the reason is
+; worth stating: `region` above makes the file a refusal, and
+; `symbols` answers nothing for a file that does not check. Measured
+; on the same shape standing alone - a body doing `log` and `println`
+; under `(Ask IO)` - AXSYM read `#effects=Alloc` before and
+; `#effects=Alloc,IO` after. `run` stays here because it is the
+; propagation this fix changes, and because a reader comparing the two
+; halves of the file should see that the erasure never depended on
+; anyone lying.
+(:: region (-> Int Int))
+
+;@axiom:pure
+(fn (region n) (handle (handle (shout n) (IO) 0) (Pure) 0))
+
+(:: logger (-> Int Int))
+
+(fn (logger n)
+  {
+    (ask n)
+    (shout n)
+  }
+)
+
+(:: run (-> Int Int))
+
+(fn (run n) (handle (logger n) (Ask IO) (lambda (v) 0)))
+
+(:: caller (-> Int Int))
+
+;@axiom:effect(io)
+(fn (caller n) (launders n))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (+ (+ (caller 1) (discharges 2)) (+ (region 3) (run 4))))

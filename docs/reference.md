@@ -1289,16 +1289,45 @@ The compiler validates that the body actually performs the declared effects.
 
 ### Handling Effects
 
-`handle` plays two roles, decided per effect in its list. For built-in
-effects it is a *static* scope, exactly as before: listed effects are
-subtracted from what the body contributes to the enclosing function's
-inferred set, the handler expression is not evaluated, and the whole
-form lowers to its body.
+`handle` plays two roles, decided per effect in its list, and it NAMES
+a larger set than it DISCHARGES.
+
+Naming is exhaustive and is checked: an effect the body performs that
+the list omits is `AX3011`, an error. That is what makes the list a
+description of the region rather than a wish, and it means a built-in
+in the list is never an accident — the form does not compile without
+it.
+
+Discharging is narrower. For a *built-in* effect the handler
+expression is not evaluated and the whole form lowers to its body, so
+nothing intercepts anything: the syscall still runs, and the effect
+still reaches the caller. Naming `IO` acknowledges it; it does not
+remove it.
 
 ```scheme
-; The body's IO stops here for inference purposes
+; Names IO, which AX3011 requires. Does NOT discharge it: `IO` is still
+; in this function's inferred set, and a `;@axiom:pure` claim on the
+; enclosing function is contradicted.
 (handle (println "hello") (IO) 0)
 ```
+
+This is the rule the *declared*-effect section below already stated —
+"the list documents, the declaration decides what dispatches" — and
+until 2026-08-23 this section contradicted it and the compiler
+implemented this one. A named built-in *was* subtracted, and the
+erasure ran the wrong way in three shapes, all measured
+(`tests/diagnostics/348-handle-discharge.ax`):
+
+- a function could claim `;@axiom:pure`, acknowledge `IO` inside, be
+  reported `#pure`, and write to stdout — while the only diagnostic
+  landed on its honest caller, for truthfully declaring the I/O the
+  callee had hidden;
+- an inner `handle` subtracted before an outer `(Pure)` measured, so
+  the one construct in the language that refuses to emit could be
+  switched off by the code it was guarding;
+- and it did not need anyone to be lying: `(Console IO)`, the spelling
+  the section below documents, silently erased the I/O from an honest
+  function, which AXSYM then reported as `#effects=Alloc`.
 
 For a *declared* effect, `handle` installs its handler for the body's
 dynamic extent - evidence-passing, tail-resumptive: an operation

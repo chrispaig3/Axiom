@@ -7426,7 +7426,7 @@
 (pub fn (walkEffectsHandle tc e bound acc)
   (let ((inner (collectEffects tc (nodeA e) bound)))
     {
-      (effUnionUnhandled acc inner (nodeB e) 0)
+      (effUnionUnhandled tc acc inner (nodeB e) 0)
       (if (== (handleIsDynamic tc (nodeB e) 0) 1)
         (effAdd acc (builtinEff "Alloc"))
         0
@@ -7436,18 +7436,58 @@
   )
 )
 
-(pub :: effUnionUnhandled (-> Int Int Int Int Int))
+(pub :: effUnionUnhandled (-> Int Int Int Int Int Int))
 
-(pub fn (effUnionUnhandled acc inner effs i)
+(pub fn (effUnionUnhandled tc acc inner effs i)
   (if (>= i (vecLen inner))
     0
     {
-      (if (== (effHandledBy effs (vecGetStr inner i) 0) 1)
+      (if (== (effDischargedBy tc effs (vecGetStr inner i) 0) 1)
         0
         (effAdd acc (vecGetStr inner i))
       )
-      (effUnionUnhandled acc inner effs (+ i 1))
+      (effUnionUnhandled tc acc inner effs (+ i 1))
     }
+  )
+)
+
+; What a handle DISCHARGES, which is not what it NAMES.
+;
+; AX3011 asks whether the list names an effect, because the list has to
+; be exhaustive: a body performing an effect the list omits is refused,
+; and that is what makes the list a description of the region rather
+; than a wish. Propagation asks a different question - whether the
+; effect still happens to the CALLER - and for a built-in the answer is
+; yes. `handleIsDynamic` is the reason: a handler is installed only
+; when a name resolves to a declared effect, and for a built-in the
+; form lowers to its body alone. Nothing intercepts the syscall.
+;
+; So `(handle BODY (IO) 0)` used to erase IO from everything above it.
+; The author had to write `(IO)` for the form to compile at all, so it
+; was never an accident, but the erasure was: a function could claim
+; `;@axiom:pure`, acknowledge IO inside, and be reported `#pure` while
+; writing to stdout - and the only diagnostic landed on its HONEST
+; CALLER, for truthfully declaring the io the callee had hidden. A
+; policy reading that build learns the opposite of the truth about both
+; functions.
+;
+; A declared effect still discharges, because a handler really does
+; intercept its operations - that is the whole of what `handle` does
+; for the effects it can do it for.
+(pub :: effDischargedBy (-> Int Int String Int Int))
+
+(pub fn (effDischargedBy tc effs e i)
+  (if (>= i (vecLen effs))
+    0
+    (let ((n (nodeAName (vecGet effs i))))
+      (if (&& (== (isBuiltinEffect n) 0) (!= (findEffectDecl tc n) 0))
+        (if (strEq (customEff n) e)
+          1
+          (effDischargedBy tc effs e (+ i 1))
+        )
+        (effDischargedBy tc effs e (+ i 1))
+      )
+    )
   )
 )
 
