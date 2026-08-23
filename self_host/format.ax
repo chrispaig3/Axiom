@@ -1567,7 +1567,7 @@
     {
       (while (< i (vecLen v))
         {
-          (set total (+ total (strLen (vecGet v i))))
+          (set total (+ total (strLen (vecGetStr v i))))
           (set i (+ i 1))
         })
       (let (
@@ -1577,7 +1577,7 @@
       )
         {
           (while (< j (vecLen v))
-            (let ((f (vecGet v j)))
+            (let ((f (vecGetStr v j)))
               {
                 (memCopy (+ (strData out) off) (strData f) (strLen f))
                 (set off (+ off (strLen f)))
@@ -1844,7 +1844,7 @@
 
 (pub :: fpSrc (-> Int String))
 
-(pub fn (fpSrc p) (memGetWord p 0))
+(pub fn (fpSrc p) (memGetWordStr p 0))
 
 (pub :: fpStarts (-> Int Int))
 
@@ -5939,7 +5939,7 @@
 
 (pub :: fzText (-> Int String))
 
-(pub fn (fzText r) (memGetWord r 1))
+(pub fn (fzText r) (memGetWordStr r 1))
 
 (pub :: fmtOnce (-> String Int))
 
@@ -6046,7 +6046,7 @@
                     {
                       (while (< i (vecLen before))
                         {
-                          (if (strEq (vecGet before i) (vecGet after i))
+                          (if (strEq (vecGetStr before i) (vecGetStr after i))
                             0
                             (set same 0)
                           )

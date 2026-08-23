@@ -1204,26 +1204,38 @@ buys is that the unsafe layer is finite and can be asked about:
 axiom symbols FILE --diagnostic-format ai | grep '#raw'
 ```
 
-Thirteen declarations in this repository carry it, and every one is a
-raw word read - `memGetWord`, `vecGet`, `nodeA`. Before the tag existed
-there was no way to ask how large the unsafe surface was.
+**No declaration in this repository carries it any more.** Fourteen did
+when the tag was introduced on 2026-08-23; all fourteen were migrated
+the same day, and the tag remains as the guard against a fifteenth.
 
-**The obvious repair is wrong, and the compiler will not tell you.**
-Making all of them concrete produces 1,223 type errors, and writing
-`(cast T ...)` at each site would fix every one of them - while
+**The obvious repair was wrong, and the compiler would not have told
+you.** Making all fourteen concrete produces 1,223 type errors, and
+writing `(cast T ...)` at each site fixes every one of them - while
 classifying that value's evidence 0, which suppresses its retain where
 the parameter is a type variable and its release where it is concrete.
 Measured both ways in [memory-model.md](memory-model.md) MM-LIFE-2e.
-That trades a type-system unsoundness for a memory-model regression,
-1,223 times, in silence.
+That would have traded a type-system unsoundness for a memory-model
+regression, 1,223 times, in silence.
 
 The vehicle that works is a **typed accessor**: the cast goes at a
 RETURN, inside a function whose declared type carries the truth, so
 callers see that type and the evidence word is computed from it
-(MM-LIFE-2f). `mapValAt` was moved off the raw layer that way on
-2026-08-23 - by casting inside `mapGet`, where `a` is already witnessed
-by the `dflt` parameter - which is why the count here is thirteen and
-not fourteen.
+(MM-LIFE-2f). Each raw reader was split into the word and a view -
+`nodeA`/`nodeAName`, `memGetWord`/`memGetWordStr`,
+`vecGet`/`vecGetStr` - and the call sites renamed, driven by the
+compiler's own `AX3004`s and verified one flip at a time.
+
+Two readers got `(Option String)` instead, because a view has to
+re-derive its value and they cannot: `replReadLine` reads stdin and
+`readModuleSrc` reads a file. The hot readers deliberately did not -
+`nodeModule` and `modOf` are asked per declaration and per name, and
+boxing there would cost more than the question is worth.
+
+What this does NOT fix: a `Vec` still carries no element type, so
+`vecGetStr` is an unchecked reading of a word rather than a checked
+one. The difference is that it is now *said*, at the call, in one
+word - where before the type system agreed silently that a `Vec`
+holding an `Int` could be read as a `String`.
 
 Ordinary parametric polymorphism is unaffected. `(:: witnessed (-> a
 a))` is silent, because the argument supplies the value and witnesses

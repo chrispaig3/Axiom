@@ -25,7 +25,7 @@
 (pub :: px (-> Int Int Int))
 
 (pub fn (px v i)
-  (match (vecGet v i)
+  (match (cast Point (vecGet v i))
     ((Point x _) x)
   )
 )
@@ -33,7 +33,7 @@
 (pub :: py (-> Int Int Float))
 
 (pub fn (py v i)
-  (match (vecGet v i)
+  (match (cast Point (vecGet v i))
     ((Point _ y) y)
   )
 )

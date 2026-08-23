@@ -241,7 +241,7 @@
 (fn (jobSubmitArgv p argv)
   (if (== (vecLen argv) 0)
     (jobSubmit p (strCStr "") (jobArgvVector argv) sysEnvp)
-    (jobSubmit p (strCStr (strDup (vecGet argv 0))) (jobArgvVector argv) sysEnvp)
+    (jobSubmit p (strCStr (strDup (vecGetStr argv 0))) (jobArgvVector argv) sysEnvp)
   )
 )
 
@@ -267,7 +267,7 @@
       {
         (while (< i n)
           {
-            (memSetWord v i (strCStr (strDup (vecGet argv i))))
+            (memSetWord v i (strCStr (strDup (vecGetStr argv i))))
             (set i (+ i 1))
           })
         (memSetWord v n 0)

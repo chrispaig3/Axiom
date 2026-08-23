@@ -772,7 +772,7 @@ fn record_from_words_loop(r: &RecordTy) -> (String, String) {
 /// (:: __pointToWords (-> Int Int Int Int))
 /// (fn (__pointToWords __ps __w __i)
 ///   (if (>= __i (vecLen __ps)) __w
-///     (match (vecGet __ps __i)
+///     (match (cast Point (vecGet __ps __i))
 ///       ((Point __f0 __f1)
 ///         { (vecPush __w __f0) (vecPush __w __f1) (__pointToWords __ps __w (+ __i 1)) }))))
 /// ```
@@ -794,7 +794,15 @@ fn record_to_words_loop(r: &RecordTy) -> (String, String) {
         Box::new(app(vec![atom(">="), atom("__i"), app(vec![atom("vecLen"), atom("__ps")])])),
         Box::new(atom("__w")),
         Box::new(Ex::Match(
-            Box::new(app(vec![atom("vecGet"), atom("__ps"), atom("__i")])),
+            // `vecGet` answers the raw word: a `Vec` carries no element
+            // type, so the record type has to be named here. It used to
+            // answer a type variable, which matched the pattern's type
+            // silently and is the shape `AX3040` now refuses.
+            Box::new(app(vec![
+                atom("cast"),
+                atom(&r.name),
+                app(vec![atom("vecGet"), atom("__ps"), atom("__i")]),
+            ])),
             vec![(app(pat), Ex::Block(stmts))],
         )),
     );

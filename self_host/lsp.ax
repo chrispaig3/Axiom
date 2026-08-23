@@ -352,7 +352,7 @@
 (pub fn (lspSeenFrom seen name i)
   (if (>= i (vecLen seen))
     false
-    (if (strEq (vecGet seen i) name)
+    (if (strEq (vecGetStr seen i) name)
       true
       (lspSeenFrom seen name (+ i 1))
     )
@@ -371,7 +371,7 @@
         (let ((n (vecGet decls i)))
           {
             (if (== (nodeTag n) TAG_D_IMPORT)
-              (let ((name (memGetWord n 1)))
+              (let ((name (memGetWordStr n 1)))
                 (if (lspSeenHas seen name)
                   0
                   {
@@ -694,7 +694,7 @@
   (if (< i 0)
     0
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_MACRO) (&& (strEq (nodeA d) name) (!= (nodeSpan d) 0)))
+      (if (&& (== (nodeTag d) TAG_D_MACRO) (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0)))
         d
         (lspFindMacroDecl decls name (- i 1))
       )
@@ -854,8 +854,8 @@
                 ; spelling to the editor. Skipped: the expander is
                 ; what resolves or refuses it, and either way the
                 ; marker is not a name anyone can navigate to.
-                (if (&& (lspWantsSymbol (nodeTag n)) (&& (!= (nodeSpan n) 0) (== (expIsJoinMarker (nodeA n)) 0)))
-                  (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (nodeA n))) "kind" (jsonNum (lspSymKind (nodeTag n)))) "range" (lspRangeIx src ix (nodeSpan n))) "selectionRange" (lspRangeIx src ix (nodeSpan n))))
+                (if (&& (lspWantsSymbol (nodeTag n)) (&& (!= (nodeSpan n) 0) (== (expIsJoinMarker (nodeAName n)) 0)))
+                  (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (nodeAName n))) "kind" (jsonNum (lspSymKind (nodeTag n)))) "range" (lspRangeIx src ix (nodeSpan n))) "selectionRange" (lspRangeIx src ix (nodeSpan n))))
                   0
                 )
                 (set i (+ i 1))
@@ -934,7 +934,7 @@
 (pub fn (docFindFrom uris uri i)
   (if (>= i (vecLen uris))
     (- 0 1)
-    (if (strEq (vecGet uris i) uri)
+    (if (strEq (vecGetStr uris i) uri)
       i
       (docFindFrom uris uri (+ i 1))
     )
@@ -967,7 +967,7 @@
   (let ((i (docFind uris uri)))
     (if (< i 0)
       ""
-      (vecGet texts i)
+      (vecGetStr texts i)
     )
   )
 )
@@ -1023,7 +1023,7 @@
         (set total (+ head u))
         (while (< i n)
           {
-            (set total (+ total (+ (strLen (vecGet uris i)) (strLen (vecGet texts i)))))
+            (set total (+ total (+ (strLen (vecGetStr uris i)) (strLen (vecGetStr texts i)))))
             (set i (+ i 1))
           })
         (let (
@@ -1037,8 +1037,8 @@
             (memSetWord b 2 u)
             (while (< j n)
               {
-                (memSetWord b (+ 3 (* 2 j)) (strLen (vecGet uris j)))
-                (memSetWord b (+ 4 (* 2 j)) (strLen (vecGet texts j)))
+                (memSetWord b (+ 3 (* 2 j)) (strLen (vecGetStr uris j)))
+                (memSetWord b (+ 4 (* 2 j)) (strLen (vecGetStr texts j)))
                 (set j (+ j 1))
               })
             (memCopy (+ b at) (+ (strData (rdBuf r)) (rdConsumed r)) u)
@@ -1046,8 +1046,8 @@
             (set j 0)
             (while (< j n)
               (let (
-                (uu (vecGet uris j))
-                (tt (vecGet texts j))
+                (uu (vecGetStr uris j))
+                (tt (vecGetStr texts j))
               )
                 {
                   (memCopy (+ b at) (strData uu) (strLen uu))

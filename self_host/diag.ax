@@ -176,11 +176,11 @@
 
 (pub :: diagCode (-> Int String))
 
-(pub fn (diagCode d) (memGetWord d 1))
+(pub fn (diagCode d) (memGetWordStr d 1))
 
 (pub :: diagSlug (-> Int String))
 
-(pub fn (diagSlug d) (memGetWord d 2))
+(pub fn (diagSlug d) (memGetWordStr d 2))
 
 (pub :: diagSpan (-> Int Int))
 
@@ -188,11 +188,11 @@
 
 (pub :: diagMsg (-> Int String))
 
-(pub fn (diagMsg d) (memGetWord d 4))
+(pub fn (diagMsg d) (memGetWordStr d 4))
 
 (pub :: diagLabel (-> Int String))
 
-(pub fn (diagLabel d) (memGetWord d 5))
+(pub fn (diagLabel d) (memGetWordStr d 5))
 
 (pub :: diagUnit (-> Int Int))
 
@@ -253,7 +253,7 @@
 
 (pub :: diagSecMsg (-> Int Int String))
 
-(pub fn (diagSecMsg d i) (memGetWord (vecGet (memGetWord d 7) i) 1))
+(pub fn (diagSecMsg d i) (memGetWordStr (vecGet (memGetWord d 7) i) 1))
 
 (pub :: diagNoteCount (-> Int Int))
 
@@ -261,7 +261,7 @@
 
 (pub :: diagNote (-> Int Int String))
 
-(pub fn (diagNote d i) (vecGet (memGetWord d 8) i))
+(pub fn (diagNote d i) (vecGetStr (memGetWord d 8) i))
 
 (pub :: diagHelpCount (-> Int Int))
 
@@ -269,7 +269,7 @@
 
 (pub :: diagHelpMsg (-> Int Int String))
 
-(pub fn (diagHelpMsg d i) (memGetWord (vecGet (memGetWord d 9) i) 0))
+(pub fn (diagHelpMsg d i) (memGetWordStr (vecGet (memGetWord d 9) i) 0))
 
 (pub :: diagHelpFixSpan (-> Int Int Int))
 
@@ -277,7 +277,7 @@
 
 (pub :: diagHelpFixText (-> Int Int String))
 
-(pub fn (diagHelpFixText d i) (memGetWord (vecGet (memGetWord d 9) i) 2))
+(pub fn (diagHelpFixText d i) (memGetWordStr (vecGet (memGetWord d 9) i) 2))
 
 (pub :: diagTraceCount (-> Int Int))
 
@@ -285,7 +285,7 @@
 
 (pub :: diagTraceName (-> Int Int String))
 
-(pub fn (diagTraceName d i) (memGetWord (vecGet (memGetWord d 10) i) 0))
+(pub fn (diagTraceName d i) (memGetWordStr (vecGet (memGetWord d 10) i) 0))
 
 (pub :: diagTraceSpan (-> Int Int Int))
 
@@ -793,7 +793,7 @@
                   {
                     (vecPush parts (memGetWord u 0))
                     (vecPush parts ":")
-                    (vecPush parts (fmtSpan (memGetWord u 1) fs))
+                    (vecPush parts (fmtSpan (memGetWordStr u 1) fs))
                     (vecPush parts ":")
                   }
                 )
@@ -833,7 +833,7 @@
             )
           ))
             {
-              (vecPush blocks (renderDiag d (memGetWord u 1) (memGetWord u 0) units))
+              (vecPush blocks (renderDiag d (memGetWordStr u 1) (memGetWordStr u 0) units))
               (vecPush blocks "\n")
               (set i (+ i 1))
             }
@@ -864,7 +864,7 @@
     {
       (while (< i n)
         {
-          (set total (+ total (strLen (vecGet v i))))
+          (set total (+ total (strLen (vecGetStr v i))))
           (set i (+ i 1))
         })
       (let (
@@ -874,7 +874,7 @@
         {
           (set i 0)
           (while (< i n)
-            (let ((s (vecGet v i)))
+            (let ((s (vecGetStr v i)))
               {
                 (memCopy (+ (strData out) off) (strData s) (strLen s))
                 (set off (+ off (strLen s)))

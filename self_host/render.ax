@@ -641,11 +641,11 @@
 
 (pub :: rowMsg (-> Int String))
 
-(pub fn (rowMsg r) (memGetWord r 2))
+(pub fn (rowMsg r) (memGetWordStr r 2))
 
 (pub :: rowSgr (-> Int String))
 
-(pub fn (rowSgr r) (memGetWord r 3))
+(pub fn (rowSgr r) (memGetWordStr r 3))
 
 ; Insertion sort by span START. The code this replaces compared LINE
 ; numbers and put the related span first on a tie, which agreed with
@@ -782,7 +782,7 @@
       (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
         base
         (let ((u (vecGet units fu)))
-          (strConcat (strConcat (strConcat (strConcat (strConcat base " (") (memGetWord u 0)) ":") (fmtSpan (memGetWord u 1) fs)) ")")
+          (strConcat (strConcat (strConcat (strConcat (strConcat base " (") (memGetWordStr u 0)) ":") (fmtSpan (memGetWordStr u 1) fs)) ")")
         )
       )
     )
@@ -836,7 +836,7 @@
         {
           (if (== (traceResolvable d i units) 1)
             (let ((u (vecGet units (diagTraceUnit d i))))
-              (let ((n (rowsGutterWidth (memGetWord u 1) (traceRows d i))))
+              (let ((n (rowsGutterWidth (memGetWordStr u 1) (traceRows d i))))
                 (if (> n w)
                   (set w n)
                   0
@@ -868,7 +868,7 @@
               (rows (traceRows d i))
             )
               (let (
-                (fsrc (memGetWord u 1))
+                (fsrc (memGetWordStr u 1))
                 (ffile (memGetWord u 0))
                 (fs (diagTraceSpan d i))
               )
@@ -1047,7 +1047,7 @@
             )
           ))
             {
-              (vecPush blocks (renderDiagHuman d (memGetWord u 1) (memGetWord u 0) units))
+              (vecPush blocks (renderDiagHuman d (memGetWordStr u 1) (memGetWordStr u 0) units))
               (set i (+ i 1))
             }
           )
@@ -1211,7 +1211,7 @@
             0
           )
           (vecPush parts "\"")
-          (vecPush parts (jsonEsc (vecGet items i)))
+          (vecPush parts (jsonEsc (vecGetStr items i)))
           (vecPush parts "\"")
           (set i (+ i 1))
         })
@@ -1287,10 +1287,10 @@
             (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
               0
               (let ((u (vecGet units fu)))
-                (let ((fsrc (memGetWord u 1)))
+                (let ((fsrc (memGetWordStr u 1)))
                   {
                     (vecPush parts ",\"file\":\"")
-                    (vecPush parts (jsonEsc (memGetWord u 0)))
+                    (vecPush parts (jsonEsc (memGetWordStr u 0)))
                     (vecPush parts "\",\"line\":")
                     (vecPush parts (decStr (lineOf fsrc (spanStart fs))))
                     (vecPush parts ",\"col\":")
@@ -1396,7 +1396,7 @@
             )
           ))
             {
-              (vecPush blocks (renderDiagJson d (memGetWord u 1) (memGetWord u 0) units))
+              (vecPush blocks (renderDiagJson d (memGetWordStr u 1) (memGetWordStr u 0) units))
               (vecPush blocks "\n")
               (set i (+ i 1))
             }

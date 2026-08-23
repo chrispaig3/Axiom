@@ -149,13 +149,13 @@
       (if (== tag TAG_T_ERR)
         "{unknown}"
         (if (== tag TAG_T_VAR)
-          (nodeA t)
+          (nodeAName t)
           (if (== tag TAG_T_CON)
             (let ((args (nodeB t)))
               (if (|| (== args 0) (== (vecLen args) 0))
-                (nodeA t)
+                (nodeAName t)
                 (let (
-                  (mut s (nodeA t))
+                  (mut s (nodeAName t))
                   (mut i 0)
                 )
                   {
@@ -239,7 +239,7 @@
           0
           (while (< i (vecLen metas))
             {
-              (set s (strConcat s (strConcat " #" (vecGet metas i))))
+              (set s (strConcat s (strConcat " #" (vecGetStr metas i))))
               (set i (+ i 1))
             })
         )
@@ -270,7 +270,7 @@
     {
       (while (< i (vecLen names))
         {
-          (if (&& (< hit 0) (strEq (vecGet names i) key))
+          (if (&& (< hit 0) (strEq (vecGetStr names i) key))
             (set hit i)
             0
           )
@@ -405,7 +405,7 @@
       (while (< i (vecLen v))
         (let ((mut j i))
           {
-            (while (&& (> j 0) (strLtBytes (vecGet v j) (vecGet v (- j 1))))
+            (while (&& (> j 0) (strLtBytes (vecGetStr v j) (vecGetStr v (- j 1))))
               {
                 (let ((t (vecGet v j)))
                   {
@@ -437,7 +437,7 @@
             (set s (strConcat s ","))
             ""
           )
-          (set s (strConcat s (vecGet v i)))
+          (set s (strConcat s (vecGetStr v i)))
           (set i (+ i 1))
         })
       s
@@ -500,7 +500,7 @@
           {
             (if (&&
               (== hit 0)              (strEq
-                (memGetWord (vecGet units i) 2)                (cast String module)
+                (memGetWordStr (vecGet units i) 2)                (cast String module)
               )
             )
               (set hit i)
@@ -564,11 +564,11 @@
 (pub :: smCollect (-> Int Int Int Int))
 
 (pub fn (smCollect sm d units)
-  (if (smGenerated (nodeA d))
+  (if (smGenerated (nodeAName d))
     0
     (let (
       (tag (nodeTag d))
-      (name (nodeA d))
+      (name (nodeAName d))
       (u (saUnitOf units (nodeModule d)))
     )
       {
@@ -604,7 +604,7 @@
                     (let ((c (vecGet ctors i)))
                       {
                         (saPut2
-                          (memGetWord sm 9)                          (memGetWord sm 10)                          (memGetWord sm 11)                          (nodeA c)                          (nodeSpan c)                          u
+                          (memGetWord sm 9)                          (memGetWord sm 10)                          (memGetWord sm 11)                          (nodeAName c)                          (nodeSpan c)                          u
                         )
                         (set i (+ i 1))
                       }
@@ -650,13 +650,13 @@
                             (let ((f (vecGet items i)))
                               {
                                 (saPut2
-                                  (memGetWord sm 0)                                  (memGetWord sm 1)                                  (memGetWord sm 2)                                  (nodeA f)                                  (nodeSpan f)                                  u
+                                  (memGetWord sm 0)                                  (memGetWord sm 1)                                  (memGetWord sm 2)                                  (nodeAName f)                                  (nodeSpan f)                                  u
                                 )
-                                (smNid sm (nodeA f) "DExtern:")
+                                (smNid sm (nodeAName f) "DExtern:")
                                 (if (== (nodeModule d) 0)
                                   0
                                   (saPut2
-                                    (memGetWord sm 0)                                    (memGetWord sm 1)                                    (memGetWord sm 2)                                    (strConcat (strConcat (nodeModuleName d) "$") (nodeA f))                                    (nodeSpan f)                                    u
+                                    (memGetWord sm 0)                                    (memGetWord sm 1)                                    (memGetWord sm 2)                                    (strConcat (strConcat (nodeModuleName d) "$") (nodeAName f))                                    (nodeSpan f)                                    u
                                   )
                                 )
                                 (set i (+ i 1))
@@ -676,10 +676,10 @@
                             (while (< i (vecLen fields))
                               (let ((f (vecGet fields i)))
                                 {
-                                  (saPut (memGetWord sm 18) (memGetWord sm 19) (nodeA f) (nodeB f))
+                                  (saPut (memGetWord sm 18) (memGetWord sm 19) (nodeAName f) (nodeB f))
                                   (if (== (nodeModule d) 0)
                                     0
-                                    (saPut (memGetWord sm 18) (memGetWord sm 19) (strConcat (strConcat (nodeModuleName d) "$") (nodeA f)) (nodeB f))
+                                    (saPut (memGetWord sm 18) (memGetWord sm 19) (strConcat (strConcat (nodeModuleName d) "$") (nodeAName f)) (nodeB f))
                                   )
                                   (set i (+ i 1))
                                 }
@@ -753,7 +753,7 @@
         (if (== sp 0)
           ""
           (let ((unit (vecGet units (vecGet (memGetWord sm uIx) i))))
-            (strConcat (memGetWord unit 0) (strConcat ":" (fmtSpan (memGetWord unit 1) sp)))
+            (strConcat (memGetWordStr unit 0) (strConcat ":" (fmtSpan (memGetWordStr unit 1) sp)))
           )
         )
       )
@@ -769,7 +769,7 @@
   (let ((i (saIdx (memGetWord sm 12) key)))
     (if (< i 0)
       ""
-      (symNid (vecGet (memGetWord sm 13) i) (bareOf key))
+      (symNid (vecGetStr (memGetWord sm 13) i) (bareOf key))
     )
   )
 )
@@ -783,7 +783,7 @@
       (let ((mut i 0))
         (while (< i (vecLen tags))
           {
-            (vecPush metas (saAxMeta (memGetWord (vecGet tags i) 1)))
+            (vecPush metas (saAxMeta (memGetWordStr (vecGet tags i) 1)))
             (set i (+ i 1))
           })
       )
@@ -989,7 +989,7 @@
           (while (< i (vecLen fns))
             (let ((e (vecGet fns i)))
               (let (
-                (name (memGetWord e 0))
+                (name (memGetWordStr e 0))
                 (isB (memGetWord e 3))
                 (isOp (memGetWord e 4))
               )
@@ -1041,9 +1041,9 @@
                               {
                                 (while (< k (vecLen effs))
                                   {
-                                    (if (strEq (vecGet effs k) effIncomplete)
+                                    (if (strEq (vecGetStr effs k) effIncomplete)
                                       (set partial 1)
-                                      (vecPush disp (effRender (vecGet effs k)))
+                                      (vecPush disp (effRender (vecGetStr effs k)))
                                     )
                                     (set k (+ k 1))
                                   })
@@ -1073,7 +1073,7 @@
                                     {
                                       (vecPush
                                         pnames                                        (if (&& (!= params 0) (< pi (vecLen params)))
-                                          (vecGet params pi)
+                                          (vecGetStr params pi)
                                           (symsDigits pi)
                                         )
                                       )
@@ -1115,7 +1115,7 @@
           (while (< i (vecLen datas))
             (let ((d (vecGet datas i)))
               (let (
-                (name (memGetWord d 0))
+                (name (memGetWordStr d 0))
                 (ctors (memGetWord d 1))
               )
                 {
@@ -1127,7 +1127,7 @@
                     {
                       (while (< k (vecLen ctors))
                         {
-                          (vecPush cnames (bareOf (memGetWord (vecGet ctors k) 0)))
+                          (vecPush cnames (bareOf (memGetWordStr (vecGet ctors k) 0)))
                           (set k (+ k 1))
                         })
                       (if (> (vecLen cnames) 0)
@@ -1155,8 +1155,8 @@
                         {
                           (vecPush
                             lines                            (symLine
-                              "C"                              (bareOf (memGetWord c 0))                              (let ((loc (smLocReal
-                                sm                                9                                10                                11                                (memGetWord c 0)                                units
+                              "C"                              (bareOf (memGetWordStr c 0))                              (let ((loc (smLocReal
+                                sm                                9                                10                                11                                (memGetWordStr c 0)                                units
                               )))
                                 (if (== (strLen loc) 0)
                                   "-"
@@ -1187,7 +1187,7 @@
           (while (< i (vecLen sts))
             (let ((s (vecGet sts i)))
               (let (
-                (name (memGetWord s 0))
+                (name (memGetWordStr s 0))
                 (fields (memGetWord s 1))
               )
                 {
@@ -1200,7 +1200,7 @@
                       (while (< k (vecLen fields))
                         (let ((f (vecGet fields k)))
                           {
-                            (vecPush fparts (strConcat (nodeA f) (strConcat ":" (symTy (nodeTy f)))))
+                            (vecPush fparts (strConcat (nodeAName f) (strConcat ":" (symTy (nodeTy f)))))
                             (set k (+ k 1))
                           }
                         ))
@@ -1232,7 +1232,7 @@
         )
           (while (< i (vecLen als))
             (let ((d (vecGet als i)))
-              (let ((name (nodeA d)))
+              (let ((name (nodeAName d)))
                 {
                   (let (
                     (metas vecNew)
@@ -1270,7 +1270,7 @@
         )
           (while (< i (vecLen trs))
             (let ((d (vecGet trs i)))
-              (let ((name (nodeA d)))
+              (let ((name (nodeAName d)))
                 {
                   (let (
                     (metas vecNew)
@@ -1282,7 +1282,7 @@
                       (while (< k (vecLen methods))
                         (let ((m (vecGet methods k)))
                           {
-                            (vecPush mparts (strConcat (nodeA m) (strConcat ":" (symTy (nodeB m)))))
+                            (vecPush mparts (strConcat (nodeAName m) (strConcat ":" (symTy (nodeB m)))))
                             (set k (+ k 1))
                           }
                         ))
@@ -1315,7 +1315,7 @@
           {
             (while (< i (vecLen lines))
               {
-                (set total (+ total (strLen (vecGet lines i))))
+                (set total (+ total (strLen (vecGetStr lines i))))
                 (set i (+ i 1))
               })
             (let (
@@ -1325,7 +1325,7 @@
             )
               {
                 (while (< j (vecLen lines))
-                  (let ((f (vecGet lines j)))
+                  (let ((f (vecGetStr lines j)))
                     {
                       (memCopy (+ (strData out) off) (strData f) (strLen f))
                       (set off (+ off (strLen f)))

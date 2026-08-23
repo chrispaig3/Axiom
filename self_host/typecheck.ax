@@ -101,9 +101,9 @@
     "{unknown}"
     (let ((tag (nodeTag t)))
       (if (== tag TAG_T_VAR)
-        (nodeA t)
+        (nodeAName t)
         (if (== tag TAG_T_CON)
-          (tyRenderApp (nodeA t) (nodeB t) 0)
+          (tyRenderApp (nodeAName t) (nodeB t) 0)
           (if (== tag TAG_T_ARR)
             (strConcat (strConcat (strConcat (strConcat "(" (tyRender (nodeA t))) " -> ") (tyRender (nodeB t))) ")")
             (if (== tag TAG_T_TUP)
@@ -177,7 +177,7 @@
 (pub fn (tyIsSilentWild t)
   (if (== t 0)
     1
-    (if (&& (== (nodeTag t) TAG_T_VAR) (== (strLen (nodeA t)) 0))
+    (if (&& (== (nodeTag t) TAG_T_VAR) (== (strLen (nodeAName t)) 0))
       1
       0
     )
@@ -204,7 +204,7 @@
     0
     (if (!= (nodeTag t) TAG_T_CON)
       0
-      (if (strEq (nodeA t) "String")
+      (if (strEq (nodeAName t) "String")
         1
         0
       )
@@ -225,7 +225,7 @@
     0
     (if (!= (nodeTag t) TAG_T_CON)
       0
-      (if (strEq (nodeA t) "Float")
+      (if (strEq (nodeAName t) "Float")
         1
         0
       )
@@ -309,7 +309,7 @@
             ; string is a String now, everywhere, which is what
             ; MM-ALLOC-20's static half demanded and what MM-LIFE-2d's
             ; reference maps stand on.
-            (if (&& (strEq (nodeA a) (nodeA b)) (== (vecLen (nodeB a)) (vecLen (nodeB b))))
+            (if (&& (strEq (nodeAName a) (nodeAName b)) (== (vecLen (nodeB a)) (vecLen (nodeB b))))
               (tyCompatVec (nodeB a) (nodeB b) 0)
               0
             )
@@ -401,7 +401,7 @@
 (pub fn (tyVarCompat a b ta tb)
   (if (&& (== ta TAG_T_VAR) (== tb TAG_T_VAR))
     (if (&& (== (tyIsSrcVar a) 1) (== (tyIsSrcVar b) 1))
-      (if (strEq (nodeA a) (nodeA b))
+      (if (strEq (nodeAName a) (nodeAName b))
         1
         0
       )
@@ -495,10 +495,10 @@
       (if (== tg TAG_T_VAR)
         (if (== (tyIsSrcVar t) 0)
           t
-          (tyInstVar tc (nodeA t) env 0)
+          (tyInstVar tc (nodeAName t) env 0)
         )
         (if (== tg TAG_T_CON)
-          (mkTCon (nodeA t) (tyInstVec
+          (mkTCon (nodeAName t) (tyInstVec
             tc            (nodeB t)            env            vecNew            0
           ))
           (if (== tg TAG_T_ARR)
@@ -533,7 +533,7 @@
         fresh
       }
     )
-    (if (strEq (vecGet env i) name)
+    (if (strEq (vecGetStr env i) name)
       (vecGet env (+ i 1))
       (tyInstVar tc name env (+ i 2))
     )
@@ -587,7 +587,7 @@
     (let ((tg (nodeTag t)))
       (if (== tg TAG_T_VAR)
         (if (== (tyIsSrcVar t) 1)
-          (if (== (strVecHas acc (nodeA t)) 1)
+          (if (== (strVecHas acc (nodeAName t)) 1)
             0
             (vecPush
               acc              (cast Int (nodeA t))
@@ -710,7 +710,7 @@
     {
       (while (< i (vecLen ds))
         {
-          (if (strEq (memGetWord (vecGet ds i) 0) n)
+          (if (strEq (memGetWordStr (vecGet ds i) 0) n)
             (set found 1)
             0
           )
@@ -757,7 +757,7 @@
           (let ((sv (memGetWord tc 23)))
             (if (== sv 0)
               0
-              (let ((k (strVecIdx sv (nodeA t))))
+              (let ((k (strVecIdx sv (nodeAName t))))
                 (if (< k 0)
                   0
                   (+ 2 k)
@@ -784,7 +784,7 @@
             (if (== tg TAG_T_LIST)
               1
               (if (== tg TAG_T_CON)
-                (let ((n (nodeA t)))
+                (let ((n (nodeAName t)))
                   (if (== (evScalarName n) 1)
                     0
                     (if (|| (strEq n "String") (strEq n "Handle"))
@@ -905,7 +905,7 @@
               (let ((an (nodeB e)))
                 (let ((castArg 
                   (let ((ah (spineHead an)))
-                    (if (&& (== (nodeTag ah) TAG_E_VAR) (== (isCastLike (nodeA ah)) 1))
+                    (if (&& (== (nodeTag ah) TAG_E_VAR) (== (isCastLike (nodeAName ah)) 1))
                       1
                       0
                     )
@@ -935,7 +935,7 @@
           tc          st          pt          at          castArg
         )
         (if (== tg TAG_T_CON)
-          (if (&& (!= at 0) (&& (== (nodeTag at) TAG_T_CON) (strEq (nodeA pt) (nodeA at))))
+          (if (&& (!= at 0) (&& (== (nodeTag at) TAG_T_CON) (strEq (nodeAName pt) (nodeAName at))))
             (evWalkVec
               tc              st              (nodeB pt)              (nodeB at)              castArg
             )
@@ -1130,7 +1130,7 @@
   (if (>= k (vecLen v))
     (- 0 1)
     (let ((e (vecGet v k)))
-      (if (&& (< (memGetWord e 2) i) (&& (== (memGetWord e 1) ns) (strEq (memGetWord e 0) name)))
+      (if (&& (< (memGetWord e 2) i) (&& (== (memGetWord e 1) ns) (strEq (memGetWordStr e 0) name)))
         (memGetWord e 2)
         (firstDefinerScan
           v          i          ns          name          (+ k 1)
@@ -1186,7 +1186,7 @@
       (let ((ns (declNamespace (nodeTag d))))
         (if (== ns NS_NONE)
           0
-          (dupIdxPut bs (nodeA d) ns i)
+          (dupIdxPut bs (nodeAName d) ns i)
         )
       )
     )
@@ -1199,7 +1199,7 @@
   (if (>= k (vecLen fs))
     0
     {
-      (dupIdxPut bs (nodeA (vecGet fs k)) NS_VALUE i)
+      (dupIdxPut bs (nodeAName (vecGet fs k)) NS_VALUE i)
       (dupIdxAddFields bs fs i (+ k 1))
     }
   )
@@ -1308,7 +1308,7 @@
             (let ((ns (declNamespace (nodeTag d))))
               (if (== ns NS_NONE)
                 0
-                (let ((name (nodeA d)))
+                (let ((name (nodeAName d)))
                   (let ((j (firstDefiner bs i ns name)))
                     (if (< j 0)
                       0
@@ -1356,13 +1356,13 @@
     (let ((d (vecGet decls i)))
       {
         (if (== (nodeTag d) TAG_D_FN)
-          (if (strEq (nodeA d) "axiom_alloc")
+          (if (strEq (nodeAName d) "axiom_alloc")
             (vecPush out (diagSetLabel (mkDiagNote
               SEV_ERROR              "AX3026"              "reserved-runtime-name"              (nodeSpan d)              "`axiom_alloc` is the emitted runtime's allocator symbol; a program cannot define it"              0              0              "rename the function - the override seam does not exist (docs/memory-model.md MM-ALLOC-8)"              "the backend emits its own definition of `axiom_alloc` unconditionally; before this refusal the build died in `opt` as a duplicate symbol after `check` said OK"
             ) "this name belongs to the runtime"))
-            (if (|| (strEq (nodeA d) "axiom_retain") (strEq (nodeA d) "axiom_release"))
+            (if (|| (strEq (nodeAName d) "axiom_retain") (strEq (nodeAName d) "axiom_release"))
               (vecPush out (diagSetLabel (mkDiagNote
-                SEV_ERROR                "AX3026"                "reserved-runtime-name"                (nodeSpan d)                (strConcat (strConcat "`" (nodeA d)) "` is the emitted runtime's ownership primitive; a program cannot define it")                0                0                "rename the function - retain and release belong to the reference-counting runtime (docs/memory-model.md MM-LIFE-2b)"                "the backend emits its own definition unconditionally, exactly as it does `axiom_alloc`'s"
+                SEV_ERROR                "AX3026"                "reserved-runtime-name"                (nodeSpan d)                (strConcat (strConcat "`" (nodeAName d)) "` is the emitted runtime's ownership primitive; a program cannot define it")                0                0                "rename the function - retain and release belong to the reference-counting runtime (docs/memory-model.md MM-LIFE-2b)"                "the backend emits its own definition unconditionally, exactly as it does `axiom_alloc`'s"
               ) "this name belongs to the runtime"))
               0
             )
@@ -1382,11 +1382,11 @@
     0
     (let ((m (vecGet fields k)))
       {
-        (let ((j (firstDefiner bs i NS_VALUE (nodeA m))))
+        (let ((j (firstDefiner bs i NS_VALUE (nodeAName m))))
           (if (< j 0)
             0
             (dupDiag
-              decls              out              j              (nodeA m)              (nodeSpan m)
+              decls              out              j              (nodeAName m)              (nodeSpan m)
             )
           )
         )
@@ -1468,7 +1468,7 @@
 (pub fn (defIdxHas v name k)
   (if (>= k (vecLen v))
     0
-    (if (strEq (vecGet v k) name)
+    (if (strEq (vecGetStr v k) name)
       1
       (defIdxHas v name (+ k 1))
     )
@@ -1509,7 +1509,7 @@
           ; the `nodeVis` test the linear scan made, made once.
           (let ((d (vecGet allDecls i)))
             (if (&& (== (nodeTag d) TAG_D_FN) (== (nodeVis d) 1))
-              (defIdxAddKeys bs (nodeA d))
+              (defIdxAddKeys bs (nodeAName d))
               ; An `extern` block DEFINES every name in it, so a `::`
               ; written over one is answered rather than drawing a false
               ; AX3015. Without this arm the index holds only TAG_D_FN
@@ -1536,7 +1536,7 @@
     (if (>= i (vecLen names))
       0
       {
-        (defIdxAddKeys bs (vecGet names i))
+        (defIdxAddKeys bs (vecGetStr names i))
         (defIdxAddExternKeys bs names (+ i 1))
       }
     )
@@ -1612,7 +1612,7 @@
             (if (== names 0)
               0
               (checkImportNameList
-                (nodeA d)                names                (nodeSpan d)                allDecls                out                0
+                (nodeAName d)                names                (nodeSpan d)                allDecls                out                0
               )
             )
           )
@@ -1630,7 +1630,7 @@
   (if (>= i (vecLen names))
     0
     {
-      (let ((n (vecGet names i)))
+      (let ((n (vecGetStr names i)))
         (if (== (declaredInModule allDecls modName n 0) 1)
           (if (== (exportedFromModule allDecls modName n 0) 1)
             0
@@ -1663,7 +1663,7 @@
   (if (>= i (vecLen allDecls))
     0
     (let ((d (vecGet allDecls i)))
-      (if (&& (!= (nodeModule d) 0) (&& (strEq (nodeModuleName d) modName) (strEq (bareOf (nodeA d)) n)))
+      (if (&& (!= (nodeModule d) 0) (&& (strEq (nodeModuleName d) modName) (strEq (bareOf (nodeAName d)) n)))
         1
         (declaredInModule allDecls modName n (+ i 1))
       )
@@ -1677,7 +1677,7 @@
   (if (>= i (vecLen allDecls))
     0
     (let ((d (vecGet allDecls i)))
-      (if (&& (== (nodeVis d) 1) (&& (!= (nodeModule d) 0) (&& (strEq (nodeModuleName d) modName) (strEq (bareOf (nodeA d)) n))))
+      (if (&& (== (nodeVis d) 1) (&& (!= (nodeModule d) 0) (&& (strEq (nodeModuleName d) modName) (strEq (bareOf (nodeAName d)) n))))
         1
         (exportedFromModule allDecls modName n (+ i 1))
       )
@@ -1693,7 +1693,7 @@
     (let ((d (vecGet entryDecls i)))
       (if (!= (nodeTag d) TAG_D_SIG)
         (checkMissingDefs bs entryDecls out (+ i 1))
-        (let ((name (nodeA d)))
+        (let ((name (nodeAName d)))
           (if (== (isDefined bs name) 1)
             (checkMissingDefs bs entryDecls out (+ i 1))
             {
@@ -2022,8 +2022,8 @@
         (if (&& (== (nodeVis d) 0) (!= (nodeModule d) 0))
           (let ((k 
             (if (|| (== (nodeTag d) TAG_D_FN) (== (nodeTag d) TAG_D_SIG))
-              (nodeA d)
-              (privKey (nodeModule d) (nodeA d))
+              (nodeAName d)
+              (privKey (nodeModule d) (nodeAName d))
             )
           ))
             (if (== (privIdxHas seen k) 1)
@@ -2393,7 +2393,7 @@
                         ; `(two 3 4 5)` check clean and SIGSEGV and
                         ; `(two 3)` check clean and answer a heap address.
                         (tcCollectEffectOps
-                          tc                          (nodeC d)                          0                          (nodeA d)                          (nodeModule d)
+                          tc                          (nodeC d)                          0                          (nodeAName d)                          (nodeModule d)
                         )
                       }
                       (if (== tag TAG_D_EXTERN)
@@ -2491,7 +2491,7 @@
       0
       (let ((f (vecGet fields i)))
         {
-          (tcAddEffectOp tc (nodeA f) (nodeB f) effName)
+          (tcAddEffectOp tc (nodeAName f) (nodeB f) effName)
           (if (==
             (cast Int modName)            0
           )
@@ -2505,7 +2505,7 @@
               tc              (strConcat
                 (strConcat
                   (cast String modName)                  "$"
-                )                (nodeA f)
+                )                (nodeAName f)
               )              (nodeB f)              effName
             )
           )
@@ -2604,7 +2604,7 @@
       0
       (let ((f (vecGet fields i)))
         {
-          (tcAddExtern tc (nodeA f) (nodeB f))
+          (tcAddExtern tc (nodeAName f) (nodeB f))
           (if (==
             (cast Int modName)            0
           )
@@ -2613,7 +2613,7 @@
               tc              (strConcat
                 (strConcat
                   (cast String modName)                  "$"
-                )                (nodeA f)
+                )                (nodeAName f)
               )              (nodeB f)
             )
           )
@@ -2655,7 +2655,7 @@
   (if (>= i (vecLen src))
     0
     (let ((rest (effUnion acc src (+ i 1))))
-      (if (== (effIn acc (vecGet src i)) 1)
+      (if (== (effIn acc (vecGetStr src i)) 1)
         rest
         {
           (vecPush acc (vecGet src i))
@@ -2686,13 +2686,13 @@
       {
         (tvNamesToNodes tvs tvNodes 0)
         (let (
-          (resTy (mkTCon (nodeA d) tvNodes))
+          (resTy (mkTCon (nodeAName d) tvNodes))
           (ctors vecNew)
         )
           {
             (tcCollectCtors (nodeB d) resTy ctors 0)
             (vecPush
-              (tcDatas tc)              (cast Int (DataEnt (nodeA d) ctors (nodeModule d)))
+              (tcDatas tc)              (cast Int (DataEnt (nodeAName d) ctors (nodeModule d)))
             )
           }
         )
@@ -2709,7 +2709,7 @@
     (if (>= i (vecLen tvs))
       0
       {
-        (vecPush acc (mkTVar (vecGet tvs i)))
+        (vecPush acc (mkTVar (vecGetStr tvs i)))
         (tvNamesToNodes tvs acc (+ i 1))
       }
     )
@@ -2734,7 +2734,7 @@
         {
           (vecPush
             acc            (cast Int (CtorEnt
-              (nodeA c)              fieldTys              resTy              (ctorArrowOf fieldTys resTy (- (vecLen fieldTys) 1))              (nodeFieldNames c)
+              (nodeAName c)              fieldTys              resTy              (ctorArrowOf fieldTys resTy (- (vecLen fieldTys) 1))              (nodeFieldNames c)
             ))
           )
           (tcCollectCtors ctorNodes resTy acc (+ i 1))
@@ -2762,11 +2762,11 @@
       (nodeTy d)
     )
   ))
-    (let ((ent (fnEntExact tc (nodeA d))))
+    (let ((ent (fnEntExact tc (nodeAName d))))
       (if (== ent 0)
         (tcPushFn
           tc          (cast Int (FnEnt
-            (nodeA d)            ty            (- 0 1)            0            0            vecNew            vecNew
+            (nodeAName d)            ty            (- 0 1)            0            0            vecNew            vecNew
           ))
         )
         (memSetWord ent 1 ty)
@@ -2793,7 +2793,7 @@
 (pub :: tcCollectFn (-> Int Int Int))
 
 (pub fn (tcCollectFn tc d)
-  (let ((ent0 (fnEntExact tc (nodeA d))))
+  (let ((ent0 (fnEntExact tc (nodeAName d))))
     (let ((ent 
       (if (!= ent0 0)
         ent0
@@ -2802,7 +2802,7 @@
             (tcBumpCounter tc)
             (tcPushFn
               tc              (cast Int (FnEnt
-                (nodeA d)                ph                (- 0 1)                0                0                vecNew                vecNew
+                (nodeAName d)                ph                (- 0 1)                0                0                vecNew                vecNew
               ))
             )
           }
@@ -2827,7 +2827,7 @@
   (if (>= i (vecLen fns))
     0
     (let ((e (vecGet fns i)))
-      (if (strEq (memGetWord e 0) name)
+      (if (strEq (memGetWordStr e 0) name)
         e
         (findFnEntExact fns name (+ i 1))
       )
@@ -2841,7 +2841,7 @@
   (if (>= i (vecLen fns))
     0
     (let ((e (vecGet fns i)))
-      (if (== (nameMatches (memGetWord e 0) name) 1)
+      (if (== (nameMatches (memGetWordStr e 0) name) 1)
         e
         (findFnEntSuffix fns name (+ i 1))
       )
@@ -2983,7 +2983,7 @@
       {
         (while (< i (vecLen privs))
           {
-            (defIdxPut bs (vecGet privs i))
+            (defIdxPut bs (vecGetStr privs i))
             (set i (+ i 1))
           })
         bs
@@ -3018,8 +3018,8 @@
   (if (>= i (vecLen fns))
     0
     (let ((e (vecGet fns i)))
-      (if (strEq (memGetWord e 0) name)
-        (if (== (privBlocks privs (memGetWord e 0) curMod) 0)
+      (if (strEq (memGetWordStr e 0) name)
+        (if (== (privBlocks privs (memGetWordStr e 0) curMod) 0)
           e
           (findFnEntVisibleExactFrom
             privs            fns            name            curMod            (+ i 1)
@@ -3045,8 +3045,8 @@
   (if (>= i (vecLen fns))
     0
     (let ((e (vecGet fns i)))
-      (if (== (nameMatches (memGetWord e 0) name) 1)
-        (if (== (privBlocks privs (memGetWord e 0) curMod) 0)
+      (if (== (nameMatches (memGetWordStr e 0) name) 1)
+        (if (== (privBlocks privs (memGetWordStr e 0) curMod) 0)
           e
           (findFnEntVisibleSuffixFrom
             privs            fns            name            curMod            (+ i 1)
@@ -3078,7 +3078,7 @@
     (let ((local 
       (if (== m 0)
         0
-        (fnEntQual tc m name)
+        (fnEntQual tc (memGetWordStr tc 16) name)
       )
     ))
       (if (!= local 0)
@@ -3090,10 +3090,10 @@
               (fnEntSuffix tc name)
             )
           )
-          (let ((e (fnEntVisibleExact tc (memGetWord tc 27) name m)))
+          (let ((e (fnEntVisibleExact tc (memGetWord tc 27) name (memGetWordStr tc 16))))
             (if (!= e 0)
               e
-              (fnEntVisibleSuffix tc (memGetWord tc 27) name m)
+              (fnEntVisibleSuffix tc (memGetWord tc 27) name (memGetWordStr tc 16))
             )
           )
         )
@@ -3237,7 +3237,7 @@
 (pub :: fnIdxAdd (-> Int Int Int))
 
 (pub fn (fnIdxAdd bs ent)
-  (let ((b (% (fnIdxHash (memGetWord ent 0)) (vecLen bs))))
+  (let ((b (% (fnIdxHash (memGetWordStr ent 0)) (vecLen bs))))
     (if (== (vecGet bs b) 0)
       (let ((v vecNew))
         {
@@ -3268,7 +3268,7 @@
 (pub fn (fnIdxScan v name i)
   (if (>= i (vecLen v))
     0
-    (if (strEq (memGetWord (vecGet v i) 0) name)
+    (if (strEq (memGetWordStr (vecGet v i) 0) name)
       (vecGet v i)
       (fnIdxScan v name (+ i 1))
     )
@@ -3337,8 +3337,8 @@
   (if (>= i (vecLen v))
     0
     (let ((e (vecGet v i)))
-      (if (strEq (memGetWord e 0) name)
-        (if (== (privBlocks privs (memGetWord e 0) curMod) 0)
+      (if (strEq (memGetWordStr e 0) name)
+        (if (== (privBlocks privs (memGetWordStr e 0) curMod) 0)
           e
           (fnIdxScanVisible
             v            privs            name            curMod            (+ i 1)
@@ -3397,7 +3397,7 @@
   (if (>= i (vecLen v))
     0
     (let ((e (vecGet v i)))
-      (if (== (nameIsQual (memGetWord e 0) m name) 1)
+      (if (== (nameIsQual (memGetWordStr e 0) m name) 1)
         e
         (fnIdxScanQual v m name (+ i 1))
       )
@@ -3517,8 +3517,8 @@
 
 (pub fn (fnSufIdxAdd bs ent)
   {
-    (fnSufIdxPut bs (memGetWord ent 0) ent)
-    (fnSufIdxAddSuffixes bs (memGetWord ent 0) ent 1)
+    (fnSufIdxPut bs (memGetWordStr ent 0) ent)
+    (fnSufIdxAddSuffixes bs (memGetWordStr ent 0) ent 1)
   }
 )
 
@@ -3577,7 +3577,7 @@
   (if (>= i (vecLen v))
     0
     (let ((e (vecGet v i)))
-      (if (== (nameMatches (memGetWord e 0) name) 1)
+      (if (== (nameMatches (memGetWordStr e 0) name) 1)
         e
         (fnSufIdxScan v name (+ i 1))
       )
@@ -3604,8 +3604,8 @@
   (if (>= i (vecLen v))
     0
     (let ((e (vecGet v i)))
-      (if (== (nameMatches (memGetWord e 0) name) 1)
-        (if (== (privBlocks privs (memGetWord e 0) curMod) 0)
+      (if (== (nameMatches (memGetWordStr e 0) name) 1)
+        (if (== (privBlocks privs (memGetWordStr e 0) curMod) 0)
           e
           (fnSufIdxScanVisible
             v            privs            name            curMod            (+ i 1)
@@ -3652,7 +3652,7 @@
 (pub :: findCtor (-> Int String Int))
 
 (pub fn (findCtor tc name) (findCtorFrom
-  (tcDatas tc)  name  (memGetWord tc 27)  (memGetWord tc 16)  0
+  (tcDatas tc)  name  (memGetWord tc 27)  (memGetWordStr tc 16)  0
 ))
 
 (pub :: findCtorFrom (-> Int String Int String Int Int))
@@ -3661,11 +3661,11 @@
   (if (>= i (vecLen datas))
     0
     (let ((d (vecGet datas i)))
-      (if (&& (!= privs 0) (== (privBlocks privs (privKey (memGetWord d 2) (memGetWord d 0)) curMod) 1))
+      (if (&& (!= privs 0) (== (privBlocks privs (privKey (memGetWord d 2) (memGetWordStr d 0)) curMod) 1))
         (findCtorFrom
           datas          name          privs          curMod          (+ i 1)
         )
-        (let ((c (ctorInData (memGetWord d 1) (memGetWord d 2) name 0)))
+        (let ((c (ctorInData (memGetWord d 1) (memGetWordStr d 2) name 0)))
           (if (!= c 0)
             c
             (findCtorFrom
@@ -3684,7 +3684,7 @@
   (if (>= i (vecLen ctors))
     0
     (let ((c (vecGet ctors i)))
-      (if (== (declMatches declMod (memGetWord c 0) name) 1)
+      (if (== (declMatches declMod (memGetWordStr c 0) name) 1)
         c
         (ctorInData ctors declMod name (+ i 1))
       )
@@ -3698,7 +3698,7 @@
 (pub :: rfindCtor (-> Int String Int))
 
 (pub fn (rfindCtor tc name) (rfindCtorFrom
-  (tcDatas tc)  name  (memGetWord tc 27)  (memGetWord tc 16)  (- (vecLen (tcDatas tc)) 1)
+  (tcDatas tc)  name  (memGetWord tc 27)  (memGetWordStr tc 16)  (- (vecLen (tcDatas tc)) 1)
 ))
 
 (pub :: rfindCtorFrom (-> Int String Int String Int Int))
@@ -3707,11 +3707,11 @@
   (if (< i 0)
     0
     (let ((d (vecGet datas i)))
-      (if (&& (!= privs 0) (== (privBlocks privs (privKey (memGetWord d 2) (memGetWord d 0)) curMod) 1))
+      (if (&& (!= privs 0) (== (privBlocks privs (privKey (memGetWord d 2) (memGetWordStr d 0)) curMod) 1))
         (rfindCtorFrom
           datas          name          privs          curMod          (- i 1)
         )
-        (let ((c (rctorInData (memGetWord d 1) (memGetWord d 2) name (- (vecLen (memGetWord d 1)) 1))))
+        (let ((c (rctorInData (memGetWord d 1) (memGetWordStr d 2) name (- (vecLen (memGetWord d 1)) 1))))
           (if (!= c 0)
             c
             (rfindCtorFrom
@@ -3730,7 +3730,7 @@
   (if (< i 0)
     0
     (let ((c (vecGet ctors i)))
-      (if (== (declMatches declMod (memGetWord c 0) name) 1)
+      (if (== (declMatches declMod (memGetWordStr c 0) name) 1)
         c
         (rctorInData ctors declMod name (- i 1))
       )
@@ -3750,8 +3750,8 @@
   (if (>= i (vecLen structs))
     0
     (let ((s (vecGet structs i)))
-      (if (== (declMatches (memGetWord s 2) (memGetWord s 0) name) 1)
-        (if (|| (== privs 0) (== (privBlocks privs (privKey (memGetWord s 2) (memGetWord s 0)) curMod) 0))
+      (if (== (declMatches (memGetWord s 2) (memGetWordStr s 0) name) 1)
+        (if (|| (== privs 0) (== (privBlocks privs (privKey (memGetWord s 2) (memGetWordStr s 0)) curMod) 0))
           s
           (findStructFrom
             structs            name            privs            curMod            (+ i 1)
@@ -3777,8 +3777,8 @@
   (if (>= i (vecLen datas))
     0
     (let ((e (vecGet datas i)))
-      (if (== (nameMatches (memGetWord e 0) name) 1)
-        (if (|| (== privs 0) (== (privBlocks privs (privKey (memGetWord e 2) (memGetWord e 0)) curMod) 0))
+      (if (== (nameMatches (memGetWordStr e 0) name) 1)
+        (if (|| (== privs 0) (== (privBlocks privs (privKey (memGetWord e 2) (memGetWordStr e 0)) curMod) 0))
           e
           (findDataFrom
             datas            name            privs            curMod            (+ i 1)
@@ -3829,7 +3829,7 @@
 (pub fn (tcAliasFindFrom av name i)
   (if (>= i (vecLen av))
     0
-    (if (strEq (nodeA (vecGet av i)) name)
+    (if (strEq (nodeAName (vecGet av i)) name)
       (vecGet av i)
       (tcAliasFindFrom av name (+ i 1))
     )
@@ -3893,7 +3893,7 @@
   (if (== t 0)
     0
     (if (== (nodeTag t) TAG_T_CON)
-      (if (== (tyConKnown tc (nodeA t)) 0)
+      (if (== (tyConKnown tc (nodeAName t)) 0)
         (nodeA t)
         (tyUnknownConVec tc (nodeB t) 0)
       )
@@ -3991,7 +3991,7 @@
     0
     (let ((tg (nodeTag t)))
       (if (== tg TAG_T_CON)
-        (if (!= (tcAliasFind tc (nodeA t)) 0)
+        (if (!= (tcAliasFind tc (nodeAName t)) 0)
           1
           (tyHasAliasConVec tc (nodeB t) 0)
         )
@@ -4037,9 +4037,9 @@
       t
       (let ((tg (nodeTag t)))
         (if (== tg TAG_T_CON)
-          (let ((al (tcAliasFind tc (nodeA t))))
+          (let ((al (tcAliasFind tc (nodeAName t))))
             (if (== al 0)
-              (mkTCon (nodeA t) (tyExpandAliasesVec
+              (mkTCon (nodeAName t) (tyExpandAliasesVec
                 tc                (nodeB t)                depth                vecNew                0
               ))
               ; An alias's TARGET may itself name one, so the
@@ -4104,7 +4104,7 @@
       0
       (if (!= (vecLen (nodeB t)) 0)
         0
-        (if (strEq (nodeA t) "Float")
+        (if (strEq (nodeAName t) "Float")
           1
           0
         )
@@ -4247,7 +4247,7 @@
         (allIntArrow (nodeB t))
         0
       )
-      (if (&& (== (nodeTag t) TAG_T_CON) (&& (== (vecLen (nodeB t)) 0) (|| (strEq (nodeA t) "Int") (|| (strEq (nodeA t) "Float") (|| (strEq (nodeA t) "Bool") (strEq (nodeA t) "Char"))))))
+      (if (&& (== (nodeTag t) TAG_T_CON) (&& (== (vecLen (nodeB t)) 0) (|| (strEq (nodeAName t) "Int") (|| (strEq (nodeAName t) "Float") (|| (strEq (nodeAName t) "Bool") (strEq (nodeAName t) "Char"))))))
         1
         0
       )
@@ -4281,13 +4281,13 @@
           )
         )
         (if (== tg TAG_T_VAR)
-          (strConcat (strConcat "the type variable `" (nodeA t)) "`")
+          (strConcat (strConcat "the type variable `" (nodeAName t)) "`")
           (if (== tg TAG_T_TUP)
             "a tuple"
             (if (== tg TAG_T_LIST)
               "a list"
               (if (== tg TAG_T_CON)
-                (let ((n (nodeA t)))
+                (let ((n (nodeAName t)))
                   (if (|| (== (evScalarName n) 1) (|| (strEq n "String") (|| (strEq n "Foreign") (|| (strEq n "Char") (strEq n "Bool")))))
                     (if (== (vecLen (nodeB t)) 0)
                       (cast String 0)
@@ -4324,7 +4324,7 @@
           0
           (memSetWord d 2 (tyFloatFlags ex n))
         )
-        (let ((ent (fnEntExact tc (nodeA d))))
+        (let ((ent (fnEntExact tc (nodeAName d))))
           (if (== ent 0)
             0
             (memSetWord ent 1 ex)
@@ -4426,7 +4426,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3040"      "result-only-tyvar"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeA d))) "` returns type variable `") v) "`, which no parameter mentions: the caller chooses it and nothing witnesses the choice")      0      0      "return a concrete word type and let callers write `cast`, or tag the declaration `;@axiom:raw` to declare it part of the unsafe layer"
+      SEV_WARNING      "AX3040"      "result-only-tyvar"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` returns type variable `") v) "`, which no parameter mentions: the caller chooses it and nothing witnesses the choice")      0      0      "return a concrete word type and let callers write `cast`, or tag the declaration `;@axiom:raw` to declare it part of the unsafe layer"
     ))
   )
 )
@@ -4443,7 +4443,7 @@
     0
     (if (>= i (vecLen tags))
       0
-      (if (strEq (memGetWord (vecGet tags i) 1) key)
+      (if (strEq (memGetWordStr (vecGet tags i) 1) key)
         1
         (declHasAxtagFrom tags key (+ i 1))
       )
@@ -4464,7 +4464,7 @@
             SEV_ERROR            "AX3002"            "undefined-type"            (nodeSpan d)            (strConcat (strConcat "undefined type `" (tyUnknownConName tc (nodeTy d))) "`")            0            0            "check for typos, or a missing `data`/`struct`/`type` declaration"
           ) (strConcat (strConcat "no type named `" (tyUnknownConName tc (nodeTy d))) "` is visible here")))
         )
-        (let ((ent (fnEntExact tc (nodeA d))))
+        (let ((ent (fnEntExact tc (nodeAName d))))
           (if (== ent 0)
             0
             (memSetWord ent 1 (tyPoisonUnknown tc (nodeTy d)))
@@ -4499,9 +4499,9 @@
   (if (== t 0)
     0
     (if (== (nodeTag t) TAG_T_CON)
-      (if (== (tyConKnown tc (nodeA t)) 0)
+      (if (== (tyConKnown tc (nodeAName t)) 0)
         mkTErr
-        (mkTCon (nodeA t) (tyPoisonUnknownVec tc (nodeB t) vecNew 0))
+        (mkTCon (nodeAName t) (tyPoisonUnknownVec tc (nodeB t) vecNew 0))
       )
       (if (== (nodeTag t) TAG_T_ARR)
         (mkTArr (tyPoisonUnknown tc (nodeA t)) (tyPoisonUnknown tc (nodeB t)))
@@ -4544,7 +4544,7 @@
   (if (>= i (vecLen fields))
     (- 0 1)
     (let ((f (vecGet fields i)))
-      (if (strEq (nodeA f) fname)
+      (if (strEq (nodeAName f) fname)
         (if (== (nodeTy f) 0)
           mkSilentWild
           (nodeTy f)
@@ -4609,7 +4609,7 @@
 (pub fn (scopeFindIdxFrom scope name i)
   (if (< i 0)
     (- 0 1)
-    (if (strEq (memGetWord (vecGet scope i) 0) name)
+    (if (strEq (memGetWordStr (vecGet scope i) 0) name)
       i
       (scopeFindIdxFrom scope name (- i 1))
     )
@@ -4628,7 +4628,7 @@
 (pub fn (scopeFindFrameFrom scope name i base)
   (if (< i base)
     0
-    (if (strEq (memGetWord (vecGet scope i) 0) name)
+    (if (strEq (memGetWordStr (vecGet scope i) 0) name)
       (vecGet scope i)
       (scopeFindFrameFrom scope name (- i 1) base)
     )
@@ -4900,7 +4900,7 @@
 (pub fn (strInVec v n i)
   (if (>= i (vecLen v))
     0
-    (if (strEq (vecGet v i) n)
+    (if (strEq (vecGetStr v i) n)
       1
       (strInVec v n (+ i 1))
     )
@@ -4952,7 +4952,7 @@
     0
     (let ((m (vecGet ms i)))
       (if (&&
-        (strEq (nodeA m) n)        (||
+        (strEq (nodeAName m) n)        (||
           (== (nodeVis m) 1)          (||
             (== (nodeModule m) 0)            (&&
               (!=
@@ -4978,7 +4978,7 @@
     0
     (let ((m (vecGet ms i)))
       (if (&&
-        (strEq (nodeA m) bare)        (&&
+        (strEq (nodeAName m) bare)        (&&
           (!= (nodeModule m) 0)          (&&
             (strEq (nodeModuleName m) qm)            (||
               (== (nodeVis m) 1)              (&&
@@ -5046,7 +5046,7 @@
 (pub fn (isMacroNamedIn ms n i)
   (if (>= i (vecLen ms))
     0
-    (if (strEq (nodeA (vecGet ms i)) n)
+    (if (strEq (nodeAName (vecGet ms i)) n)
       1
       (isMacroNamedIn ms n (+ i 1))
     )
@@ -5059,7 +5059,7 @@
   (if (>= i (vecLen ms))
     0
     (let ((m (vecGet ms i)))
-      (if (&& (strEq (nodeA m) bare) (&& (!= (nodeModule m) 0) (strEq (nodeModuleName m) qm)))
+      (if (&& (strEq (nodeAName m) bare) (&& (!= (nodeModule m) 0) (strEq (nodeModuleName m) qm)))
         1
         (isMacroQualNamedIn ms bare qm (+ i 1))
       )
@@ -5088,7 +5088,7 @@
   (if (>= i (vecLen effs))
     0
     (let ((d (vecGet effs i)))
-      (if (strEq (nodeA d) n)
+      (if (strEq (nodeAName d) n)
         d
         (findEffectDeclFrom effs n (+ i 1))
       )
@@ -5539,7 +5539,7 @@
 (pub fn (ambFindIn v n i)
   (if (>= i (vecLen v))
     0
-    (if (strEq (memGetWord (vecGet v i) 0) n)
+    (if (strEq (memGetWordStr (vecGet v i) 0) n)
       (vecGet v i)
       (ambFindIn v n (+ i 1))
     )
@@ -5649,7 +5649,7 @@
       (m (nodeModuleName d))
     )
       (if (== tag TAG_D_FN)
-        (ambRecord tc (bareOf (nodeA d)) m)
+        (ambRecord tc (bareOf (nodeAName d)) m)
         (if (== tag TAG_D_EFFECT)
           (ambRecordAll tc (nodeB d) 0 m)
           (if (== tag TAG_D_DATA)
@@ -5673,7 +5673,7 @@
   (if (>= i (vecLen v))
     0
     {
-      (ambRecord tc (vecGet v i) m)
+      (ambRecord tc (vecGetStr v i) m)
       (ambRecordAll tc v (+ i 1) m)
     }
   )
@@ -5685,7 +5685,7 @@
   (if (>= i (vecLen ctors))
     0
     {
-      (ambRecord tc (bareOf (nodeA (vecGet ctors i))) m)
+      (ambRecord tc (bareOf (nodeAName (vecGet ctors i))) m)
       (ambRecordCtors tc ctors (+ i 1) m)
     }
   )
@@ -5720,7 +5720,7 @@
     0
     (if (== (memGetWord (vecGet units i) 2) 0)
       (unitIndexForFrom units m (+ i 1))
-      (if (strEq (memGetWord (vecGet units i) 2) m)
+      (if (strEq (memGetWordStr (vecGet units i) 2) m)
         i
         (unitIndexForFrom units m (+ i 1))
       )
@@ -5744,8 +5744,8 @@
     acc
     (joinModules
       v      (+ i 1)      (if (== i 0)
-        (vecGet v i)
-        (strConcat (strConcat acc ", ") (vecGet v i))
+        (vecGetStr v i)
+        (strConcat (strConcat acc ", ") (vecGetStr v i))
       )
     )
   )
@@ -5757,7 +5757,7 @@
   (if (>= i (vecLen v))
     acc
     (joinQualified
-      v      n      (+ i 1)      (let ((one (strConcat (strConcat (strConcat "`" (vecGet v i)) "::") (strConcat n "`"))))
+      v      n      (+ i 1)      (let ((one (strConcat (strConcat (strConcat "`" (vecGetStr v i)) "::") (strConcat n "`"))))
         (if (== i 0)
           one
           (strConcat (strConcat acc " or ") one)
@@ -5770,7 +5770,7 @@
 (pub :: checkVar (-> Int Int Int Int))
 
 (pub fn (checkVar tc e inHead)
-  (let ((name (nodeA e)))
+  (let ((name (nodeAName e)))
     (if (|| (strEq name "true") (strEq name "false"))
       mkBoolTy
       ; A reference a macro template produced resolves where the
@@ -5933,8 +5933,8 @@
       (findFnEntAnywhere tc name)
     )
   ))
-    (if (&& (!= hidden 0) (== (strInVec (memGetWord tc 19) (memGetWord hidden 0) 0) 1))
-      (emitPrivateVar tc name span (memGetWord hidden 0))
+    (if (&& (!= hidden 0) (== (strInVec (memGetWord tc 19) (memGetWordStr hidden 0) 0) 1))
+      (emitPrivateVar tc name span (memGetWordStr hidden 0))
       (if (== (isMacroAnywhere tc name) 1)
         (emitPrivateVar tc name span (privKey (macroModuleOf (tcMacros tc) name 0) (bareOf name)))
         (let ((cm (ctorHiddenModule tc name)))
@@ -5958,7 +5958,7 @@
   (if (== (memGetWord tc 19) 0)
     0
     (ctorHiddenIn
-      (tcDatas tc)      (memGetWord tc 27)      (memGetWord tc 16)      name      0
+      (tcDatas tc)      (memGetWord tc 27)      (memGetWordStr tc 16)      name      0
     )
   )
 )
@@ -5969,7 +5969,7 @@
   (if (>= i (vecLen datas))
     0
     (let ((d (vecGet datas i)))
-      (if (&& (== (privBlocks privs (privKey (memGetWord d 2) (memGetWord d 0)) curMod) 1) (!= (ctorInData (memGetWord d 1) (memGetWord d 2) name 0) 0))
+      (if (&& (== (privBlocks privs (privKey (memGetWord d 2) (memGetWordStr d 0)) curMod) 1) (!= (ctorInData (memGetWord d 1) (memGetWordStr d 2) name 0) 0))
         (memGetWord d 2)
         (ctorHiddenIn
           datas          privs          curMod          name          (+ i 1)
@@ -5992,7 +5992,7 @@
 (pub fn (macroModuleOfBare ms n i)
   (if (>= i (vecLen ms))
     0
-    (if (strEq (nodeA (vecGet ms i)) n)
+    (if (strEq (nodeAName (vecGet ms i)) n)
       (nodeModule (vecGet ms i))
       (macroModuleOfBare ms n (+ i 1))
     )
@@ -6016,7 +6016,7 @@
                   SEV_ERROR                  "AX3001"                  "undefined-variable"                  span                  msg                  0                  0                  "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
                 )
                 (mkDiagFix
-                  SEV_ERROR                  "AX3001"                  "undefined-variable"                  span                  msg                  0                  0                  (strConcat (strConcat "a similarly named binding `" (memGetWord best 0)) "` is in scope; did you mean this?")                  span                  (memGetWord best 0)
+                  SEV_ERROR                  "AX3001"                  "undefined-variable"                  span                  msg                  0                  0                  (strConcat (strConcat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")                  span                  (memGetWord best 0)
                 )
               )              (strConcat (strConcat "no binding named `" (srcSpelling name)) "` in scope")
             )
@@ -6060,6 +6060,10 @@
   ; `traitNameFree`. `checkSaturation`, twenty lines down, has
   ; asked `scopeFindFrame` first since it was written; this call
   ; was added later and asked nothing.
+  ; `hname` is a NAME; the non-variable head has none, and the
+  ; absent one is now spelled `""` rather than `0`. Every reader
+  ; below guards on `headIsVar` first, so neither is ever read -
+  ; but only one of them has the type the binding claims.
   (let ((head (spineHead e)))
     (let ((headIsVar 
       (if (== (nodeTag head) TAG_E_VAR)
@@ -6068,15 +6072,15 @@
       )
     ))
       (let ((_td 
-        (if (&& (== headIsVar 1) (&& (== inHead 0) (== (traitNameFree tc (nodeA head)) 1)))
-          (traitRewrite tc e head (nodeA head))
+        (if (&& (== headIsVar 1) (&& (== inHead 0) (== (traitNameFree tc (nodeAName head)) 1)))
+          (traitRewrite tc e head (nodeAName head))
           0
         )
       ))
         (let ((hname 
           (if (== headIsVar 1)
-            (nodeA head)
-            0
+            (nodeAName head)
+            ""
           )
         ))
           (if (&& (== inHead 0) (&& (== headIsVar 1) (== (checkSaturation tc e head hname) 1)))
@@ -6181,7 +6185,7 @@
             rest
           )
           (if (== pt TAG_T_CON)
-            (if (&& (== (nodeTag argTy) TAG_T_CON) (&& (strEq (nodeA param) (nodeA argTy)) (== (vecLen (nodeB param)) (vecLen (nodeB argTy)))))
+            (if (&& (== (nodeTag argTy) TAG_T_CON) (&& (strEq (nodeAName param) (nodeAName argTy)) (== (vecLen (nodeB param)) (vecLen (nodeB argTy)))))
               (pinShapeVec rest (nodeB param) (nodeB argTy) 0)
               rest
             )
@@ -6221,12 +6225,12 @@
     rest
     (if (!= (nodeTag param) TAG_T_VAR)
       rest
-      (if (|| (== (tyIsSrcVar param) 1) (== (strLen (nodeA param)) 0))
+      (if (|| (== (tyIsSrcVar param) 1) (== (strLen (nodeAName param)) 0))
         rest
         (let ((at (nodeTag argTy)))
           (if (|| (== at TAG_T_VAR) (== at TAG_T_ERR))
             rest
-            (tyPinVar rest (nodeA param) argTy)
+            (tyPinVar rest (nodeAName param) argTy)
           )
         )
       )
@@ -6243,12 +6247,12 @@
     0
     (let ((tg (nodeTag t)))
       (if (== tg TAG_T_VAR)
-        (if (strEq (nodeA t) name)
+        (if (strEq (nodeAName t) name)
           rep
           t
         )
         (if (== tg TAG_T_CON)
-          (mkTCon (nodeA t) (tyPinVarVec
+          (mkTCon (nodeAName t) (tyPinVarVec
             (nodeB t)            name            rep            vecNew            0
           ))
           (if (== tg TAG_T_ARR)
@@ -6351,7 +6355,7 @@
           (let ((di (traitDispatchIdx (nodeB decl) v 0)))
             (if (< di 0)
               (traitDiag
-                tc                (spanOf e)                (strConcat (strConcat (strConcat (strConcat "cannot tell which implementation of `" (nodeA tr)) "` `") hname) "` means: no parameter of it has the trait's own type")                "give the method a parameter of the trait's type; there is no return-type-directed dispatch"                "an implementation is selected by the type of an argument"
+                tc                (spanOf e)                (strConcat (strConcat (strConcat (strConcat "cannot tell which implementation of `" (nodeAName tr)) "` `") hname) "` means: no parameter of it has the trait's own type")                "give the method a parameter of the trait's type; there is no return-type-directed dispatch"                "an implementation is selected by the type of an argument"
               )
               (let ((args (spineArgVec e vecNew)))
                 (if (<= (vecLen args) di)
@@ -6411,7 +6415,7 @@
                           0
                           (traitDiag
                             tc                            (spanOf (vecGet args di))                            (strConcat
-                              (strConcat "cannot select an implementation of `" (nodeA tr))                              (if (== at 0)
+                              (strConcat "cannot select an implementation of `" (nodeAName tr))                              (if (== at 0)
                                 ; A fresh unification variable
                                 ; renders as `_t248`, which
                                 ; tells a reader nothing. Say
@@ -6444,7 +6448,7 @@
                             )                            "an implementation is keyed on a type NAME, so the dispatch argument needs a concrete one: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select one either"                            "a trait method is dispatched on the STATIC type of its argument, and a type variable is not a type"
                           )
                         )
-                        (let ((full (traitImplName (nodeA tr) tn hname)))
+                        (let ((full (traitImplName (nodeAName tr) tn hname)))
                           (if (!= (fnEntExact tc full) 0)
                             {
                               (memSetWord head 1 full)
@@ -6458,7 +6462,7 @@
                               0
                             }
                             (traitDiag
-                              tc                              (spanOf (vecGet args di))                              (strConcat (strConcat (strConcat (strConcat "no implementation of `" (nodeA tr)) "` for `") tn) "`")                              "write `(impl (Trait Type) where ((method ...)))` for it"                              "a trait method is dispatched on the type of its argument, and this type has no implementation"
+                              tc                              (spanOf (vecGet args di))                              (strConcat (strConcat (strConcat (strConcat "no implementation of `" (nodeAName tr)) "` for `") tn) "`")                              "write `(impl (Trait Type) where ((method ...)))` for it"                              "a trait method is dispatched on the type of its argument, and this type has no implementation"
                             )
                           )
                         )
@@ -6820,7 +6824,7 @@
   (if (== e 0)
     mkSilentWild
     (if (== (nodeTag e) TAG_E_VAR)
-      (typeNameToType (nodeA e))
+      (typeNameToType (nodeAName e))
       (if (== (nodeTag e) TAG_E_APP)
         (let ((head (spineHead e)))
           (if (!= (nodeTag head) TAG_E_VAR)
@@ -6831,12 +6835,12 @@
             )
               {
                 (exprsToTypes args tys 0)
-                (if (strEq (nodeA head) "*")
+                (if (strEq (nodeAName head) "*")
                   (if (== (vecLen tys) 1)
                     (mkTPtr (vecGet tys 0) 0)
                     mkSilentWild
                   )
-                  (mkTCon (nodeA head) tys)
+                  (mkTCon (nodeAName head) tys)
                 )
               }
             )
@@ -6980,7 +6984,7 @@
       {
         (if (!= span 0)
           (emitDiag
-            tc            (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat "struct `" (bareOf (memGetWord ent 0))) "` expects ") (decStr (vecLen fields))) " field(s), found ") (decStr (vecLen args)))))
+            tc            (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat "struct `" (bareOf (memGetWordStr ent 0))) "` expects ") (decStr (vecLen fields))) " field(s), found ") (decStr (vecLen args)))))
               (mkDiag
                 SEV_ERROR                "AX3008"                "semantic-error"                span                msg                0                0                0
               )
@@ -6992,7 +6996,7 @@
       }
       {
         (checkStructFields tc args fields 0)
-        (mkTCon (bareOf (memGetWord ent 0)) vecNew)
+        (mkTCon (bareOf (memGetWordStr ent 0)) vecNew)
       }
     )
   )
@@ -7096,7 +7100,7 @@
 (pub :: bodyScopeOf (-> Int Int Int))
 
 (pub fn (bodyScopeOf tc d)
-  (let ((ent (findFnEnt tc (nodeA d))))
+  (let ((ent (findFnEnt tc (nodeAName d))))
     (bsNew
       (nodeB d)      (paramCallablesOf
         (if (== ent 0)
@@ -7125,7 +7129,7 @@
           ; which is what keeps a function value's effects from
           ; escaping attribution entirely. Not a head, so a bound
           ; name here is an ordinary local read.
-          (effRefSite tc (nodeA e) bound acc)
+          (effRefSite tc (nodeAName e) bound acc)
           (if (== tag TAG_E_ALLOC)
             {
               (effAdd acc (builtinEff "Alloc"))
@@ -7148,8 +7152,8 @@
                     ; stage0's `param_alias_of` through `lookup_shadow`.
                     (let ((b2 
                       (bsWith
-                        bound                        (nodeA e)                        (if (== (nodeTag (nodeB e)) TAG_E_VAR)
-                          (bsParamAlias bound (nodeA (nodeB e)))
+                        bound                        (nodeAName e)                        (if (== (nodeTag (nodeB e)) TAG_E_VAR)
+                          (bsParamAlias bound (nodeAName (nodeB e)))
                           (if (== (nodeTag (nodeB e)) TAG_E_LAM)
                             (- 0 1)
                             bsOpaque
@@ -7290,9 +7294,9 @@
   (if (>= i (vecLen inner))
     0
     {
-      (if (== (effHandledBy effs (vecGet inner i) 0) 1)
+      (if (== (effHandledBy effs (vecGetStr inner i) 0) 1)
         0
-        (effAdd acc (vecGet inner i))
+        (effAdd acc (vecGetStr inner i))
       )
       (effUnionUnhandled acc inner effs (+ i 1))
     }
@@ -7307,7 +7311,7 @@
 (pub fn (effHandledBy effs e i)
   (if (>= i (vecLen effs))
     0
-    (let ((n (nodeA (vecGet effs i))))
+    (let ((n (nodeAName (vecGet effs i))))
       (if (strEq
         (if (== (isBuiltinEffect n) 1)
           (builtinEff
@@ -7334,7 +7338,7 @@
 (pub fn (handleIsDynamic tc effs i)
   (if (>= i (vecLen effs))
     0
-    (let ((n (nodeA (vecGet effs i))))
+    (let ((n (nodeAName (vecGet effs i))))
       (if (&& (== (isBuiltinEffect n) 0) (!= (findEffectDecl tc n) 0))
         1
         (handleIsDynamic tc effs (+ i 1))
@@ -7360,7 +7364,7 @@
       )
       (if (== (nodeTag head) TAG_E_VAR)
         (walkCallHead
-          tc          (nodeA head)          args          bound          acc
+          tc          (nodeAName head)          args          bound          acc
         )
         ; A head that is not a name at all: a field holding a
         ; function, the result of a call, a `let`-bound value. Walking
@@ -7625,7 +7629,7 @@
       0
       {
         (traitUnionImpls
-          tc          (memGetWord tc 28)          (nodeA tr)          (bareOf n)          acc          0
+          tc          (memGetWord tc 28)          (nodeAName tr)          (bareOf n)          acc          0
         )
         1
       }
@@ -7640,7 +7644,7 @@
     0
     {
       (let ((d (vecGet impls i)))
-        (if (strEq (nodeA d) tname)
+        (if (strEq (nodeAName d) tname)
           (let ((e (fnEntExact tc (traitImplName tname (nodeCName d) method))))
             (if (== e 0)
               0
@@ -7673,8 +7677,8 @@
     acc
     (effJoinFrom
       v      (+ i 1)      (if (== i 0)
-        (effRender (vecGet v i))
-        (strConcat (strConcat acc ", ") (effRender (vecGet v i)))
+        (effRender (vecGetStr v i))
+        (strConcat (strConcat acc ", ") (effRender (vecGetStr v i)))
       )
     )
   )
@@ -7700,7 +7704,7 @@
   (if (>= i (vecLen v))
     0
     {
-      (if (strEq (vecGet v i) effIncomplete)
+      (if (strEq (vecGetStr v i) effIncomplete)
         0
         (effInsertSorted out (vecGet v i))
       )
@@ -7725,7 +7729,7 @@
 (pub fn (effShiftDown out i)
   (if (<= i 0)
     0
-    (if (< (strCmp (effRender (vecGet out i)) (effRender (vecGet out (- i 1)))) 0)
+    (if (< (strCmp (effRender (vecGetStr out i)) (effRender (vecGetStr out (- i 1)))) 0)
       {
         (let ((tmp (vecGet out i)))
           {
@@ -7779,8 +7783,11 @@
 ; separate list so `param_index` can still find one, and a parameter
 ; masked as a shadow of itself would be invisible to the
 ; effect-transparency marks that are the whole point of tracking it.
+; `name` held a String all along and was declared `Int`, which
+; `memGetWord`'s old type variable made invisible: every read of it
+; matched whatever the reader wanted. It is a name.
 (pub struct BEnt
-  (name : Int)
+  (name : String)
   (pidx : Int))
 
 (pub struct BScope
@@ -7811,7 +7818,7 @@
 
 (pub fn (bsEparams b) (memGetWord b 3))
 
-(pub :: bsWith (-> Int Int Int Int))
+(pub :: bsWith (-> Int String Int Int))
 
 (pub fn (bsWith b n pidx)
   (let ((v vecNew))
@@ -7847,7 +7854,7 @@
 (pub fn (bsFindFrom names n i)
   (if (< i 0)
     0
-    (if (strEq (memGetWord (vecGet names i) 0) n)
+    (if (strEq (memGetWordStr (vecGet names i) 0) n)
       (vecGet names i)
       (bsFindFrom names n (- i 1))
     )
@@ -7859,7 +7866,7 @@
 (pub fn (nameIndexIn v n i)
   (if (>= i (vecLen v))
     (- 0 1)
-    (if (strEq (vecGet v i) n)
+    (if (strEq (vecGetStr v i) n)
       i
       (nameIndexIn v n (+ i 1))
     )
@@ -7959,7 +7966,7 @@
   (let ((inner (stripGrouping e)))
     (if (== (nodeTag inner) TAG_E_VAR)
       {
-        (markEparam b (bsParamAlias b (nodeA inner)))
+        (markEparam b (bsParamAlias b (nodeAName inner)))
         1
       }
       (if (== (nodeTag inner) TAG_E_LAM)
@@ -7997,7 +8004,7 @@
 (pub fn (bsWithParams b params pidx i)
   (if (>= i (vecLen params))
     b
-    (bsWithParams (bsWith b (vecGet params i) pidx) params pidx (+ i 1))
+    (bsWithParams (bsWith b (vecGetStr params i) pidx) params pidx (+ i 1))
   )
 )
 
@@ -8097,7 +8104,7 @@
         ; import carried a name list.
         (let (
           (_m (memSetWord tc 16 (nodeModule d)))
-          (ent (findFnEnt tc (nodeA d)))
+          (ent (findFnEnt tc (nodeAName d)))
         )
           (if (== ent 0)
             {
@@ -8235,11 +8242,11 @@
     ; it, and no file in the swept trees calls through a local
     ; inside a handle body, so only the probe bank saw it.
     {
-      (if (strEq (vecGet inner i) effIncomplete)
+      (if (strEq (vecGetStr inner i) effIncomplete)
         0
-        (if (&& (== (effHandledBy effs (vecGet inner i) 0) 0) (!= span 0))
+        (if (&& (== (effHandledBy effs (vecGetStr inner i) 0) 0) (!= span 0))
           (emitDiag tc (mkDiag
-            SEV_ERROR            "AX3011"            "effect-mismatch"            span            (strConcat (strConcat "effect mismatch: unhandled effect `" (effRender (vecGet inner i))) "`")            0            0            0
+            SEV_ERROR            "AX3011"            "effect-mismatch"            span            (strConcat (strConcat "effect mismatch: unhandled effect `" (effRender (vecGetStr inner i))) "`")            0            0            0
           ))
           0
         )
@@ -8272,7 +8279,7 @@
 (pub fn (seedFrameBinders b scope i)
   (if (>= i (vecLen scope))
     b
-    (let ((n (memGetWord (vecGet scope i) 0)))
+    (let ((n (memGetWordStr (vecGet scope i) 0)))
       (seedFrameBinders
         (if (>= (nameIndexIn (bsParams b) n 0) 0)
           b
@@ -8299,17 +8306,17 @@
       0
     )
     (let ((nm (vecGet effs i)))
-      (if (== (isBuiltinEffect (nodeA nm)) 1)
+      (if (== (isBuiltinEffect (nodeAName nm)) 1)
         (checkHandleEffects
           tc          effs          (+ i 1)          dynN          formSpan
         )
-        (let ((d (findEffectDecl tc (nodeA nm))))
+        (let ((d (findEffectDecl tc (nodeAName nm))))
           (if (== d 0)
             {
               (if (!= (nodeSpan nm) 0)
                 (emitDiag tc (diagSetLabel (mkDiag
-                  SEV_ERROR                  "AX3016"                  "unknown-effect"                  (nodeSpan nm)                  (strConcat (strConcat "unknown effect `" (nodeA nm)) "`")                  0                  0                  "declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling"
-                ) (strConcat (strConcat "no effect named `" (nodeA nm)) "` is declared")))
+                  SEV_ERROR                  "AX3016"                  "unknown-effect"                  (nodeSpan nm)                  (strConcat (strConcat "unknown effect `" (nodeAName nm)) "`")                  0                  0                  "declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling"
+                ) (strConcat (strConcat "no effect named `" (nodeAName nm)) "` is declared")))
                 0
               )
               (checkHandleEffects
@@ -8320,7 +8327,7 @@
               {
                 (if (!= (nodeSpan nm) 0)
                   (emitDiag tc (mkDiag
-                    SEV_ERROR                    "AX3017"                    "effect-handler-unsupported"                    (nodeSpan nm)                    (strConcat (strConcat (strConcat (strConcat "effect `" (nodeA nm)) "` declares ") (decStr (vecLen (nodeB d)))) " operations; a dynamic handler covers exactly one")                    0                    0                    0
+                    SEV_ERROR                    "AX3017"                    "effect-handler-unsupported"                    (nodeSpan nm)                    (strConcat (strConcat (strConcat (strConcat "effect `" (nodeAName nm)) "` declares ") (decStr (vecLen (nodeB d)))) " operations; a dynamic handler covers exactly one")                    0                    0                    0
                   ))
                   0
                 )
@@ -8351,13 +8358,13 @@
 (pub :: checkStructConNode (-> Int Int Int))
 
 (pub fn (checkStructConNode tc e)
-  (let ((ent (findStruct tc (nodeA e))))
+  (let ((ent (findStruct tc (nodeAName e))))
     (if (== ent 0)
       {
         (if (!= (nodeSpan e) 0)
           (emitDiag tc (diagSetLabel (mkDiag
-            SEV_ERROR            "AX3002"            "undefined-type"            (nodeSpan e)            (strConcat (strConcat "undefined type `" (nodeA e)) "`")            0            0            "check for typos, or a missing `data`/`struct`/`type` declaration"
-          ) (strConcat (strConcat "no type named `" (nodeA e)) "` is visible here")))
+            SEV_ERROR            "AX3002"            "undefined-type"            (nodeSpan e)            (strConcat (strConcat "undefined type `" (nodeAName e)) "`")            0            0            "check for typos, or a missing `data`/`struct`/`type` declaration"
+          ) (strConcat (strConcat "no type named `" (nodeAName e)) "` is visible here")))
           0
         )
         (mkNode TAG_T_ERR 0 0 0)
@@ -8429,7 +8436,7 @@
 (pub fn (checkField tc e)
   (let ((baseTy (checkExprH tc (nodeA e) 0)))
     (if (== (nodeTag baseTy) TAG_T_CON)
-      (let ((ent (findStruct tc (nodeA baseTy))))
+      (let ((ent (findStruct tc (nodeAName baseTy))))
         (let ((fty 
           (if (== ent 0)
             (- 0 1)
@@ -8462,7 +8469,7 @@
                 (let ((own (dataFieldOwner tc (nodeBName e))))
                   (if (&& (!= own 0) (== (dataHasNullary own) 1))
                     {
-                      (emitFieldOnMixed tc (nodeBName e) (memGetWord own 0) (nodeSpan e))
+                      (emitFieldOnMixed tc (nodeBName e) (memGetWordStr own 0) (nodeSpan e))
                       (mkNode TAG_T_ERR 0 0 0)
                     }
                     ; Stamped EMPTY: "not a struct field", so
@@ -8478,7 +8485,7 @@
                   )
                 )
                 {
-                  (emitFieldNotFound tc (nodeBName e) (nodeA baseTy) (nodeSpan e))
+                  (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
                   mkI64Ty
                 }
               )
@@ -8516,11 +8523,7 @@
     (setNodeTy
       e      (cast Int (if (== m 0)
         name
-        (strConcat
-          (strConcat
-            (cast String m)            "$"
-          )          name
-        )
+        (strConcat (strConcat (memGetWordStr ent 2) "$") name)
       ))
     )
   )
@@ -8625,7 +8628,7 @@
 (pub fn (declaredFieldIndex declared fname i)
   (if (>= i (vecLen declared))
     (- 0 1)
-    (if (strEq (vecGet declared i) fname)
+    (if (strEq (vecGetStr declared i) fname)
       i
       (declaredFieldIndex declared fname (+ i 1))
     )
@@ -8652,7 +8655,7 @@
   (let ((baseTy (checkExprH tc (nodeA e) 0)))
     {
       (if (== (nodeTag baseTy) TAG_T_CON)
-        (let ((ent (findStruct tc (nodeA baseTy))))
+        (let ((ent (findStruct tc (nodeAName baseTy))))
           (let ((fty 
             (if (== ent 0)
               (- 0 1)
@@ -8676,7 +8679,7 @@
                   )
                 }
               )
-              (emitFieldNotFound tc (nodeBName e) (nodeA baseTy) (nodeSpan e))
+              (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
             )
           )
         )
@@ -8705,7 +8708,7 @@
 
 (pub fn (checkSet tc e)
   (let ((valTy (checkExprH tc (nodeB e) 0)))
-    (let ((name (nodeA e)))
+    (let ((name (nodeAName e)))
       (let ((idx (scopeFindIdx (tcScope tc) name)))
         (if (>= idx 0)
           ; Mutable - but only assignable from the frame
@@ -8771,7 +8774,7 @@
                               SEV_ERROR                              "AX3001"                              "undefined-variable"                              (nodeSpan e)                              msg                              0                              0                              "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
                             )
                             (mkDiagFix
-                              SEV_ERROR                              "AX3001"                              "undefined-variable"                              (nodeSpan e)                              msg                              0                              0                              (strConcat (strConcat "a similarly named binding `" (memGetWord best 0)) "` is in scope; did you mean this?")                              (nodeSpan e)                              (memGetWord best 0)
+                              SEV_ERROR                              "AX3001"                              "undefined-variable"                              (nodeSpan e)                              msg                              0                              0                              (strConcat (strConcat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")                              (nodeSpan e)                              (memGetWord best 0)
                             )
                           )                          (strConcat (strConcat "no binding named `" (srcSpelling name)) "` in scope")
                         )
@@ -8813,7 +8816,7 @@
       (let ((tag (nodeTag d)))
         (if (&&
           (|| (== tag TAG_D_SIG) (== tag TAG_D_FN))          (&&
-            (== (nameMatches (nodeA d) name) 1)            (if (strEq (nodeA d) name)
+            (== (nameMatches (nodeAName d) name) 1)            (if (strEq (nodeAName d) name)
               false
               true
             )
@@ -8886,7 +8889,7 @@
           {
             (let ((ctorChecked 
               (if (&& (== (memGetWord catchall 0) 0) (!= exhTy 0))
-                (let ((dent (findData tc (nodeA exhTy))))
+                (let ((dent (findData tc (nodeAName exhTy))))
                   (if (== dent 0)
                     0
                     {
@@ -8991,11 +8994,11 @@
           (let ((p (nodeA (vecGet arms i))))
             (if (== (nodeTag p) TAG_E_VAR)
               {
-                (if (strEq (nodeA p) "true")
+                (if (strEq (nodeAName p) "true")
                   (set hasT 1)
                   0
                 )
-                (if (strEq (nodeA p) "false")
+                (if (strEq (nodeAName p) "false")
                   (set hasF 1)
                   0
                 )
@@ -9113,7 +9116,7 @@
           )
         )
         (if (== tag TAG_E_VAR)
-          (if (|| (strEq (nodeA pat) "true") (strEq (nodeA pat) "false"))
+          (if (|| (strEq (nodeAName pat) "true") (strEq (nodeAName pat) "false"))
             0
             {
               (memSetWord catchall 0 1)
@@ -9184,7 +9187,7 @@
 
 (pub fn (patIrrefutable pat)
   (if (== (nodeTag pat) TAG_E_VAR)
-    (if (|| (strEq (nodeA pat) "true") (strEq (nodeA pat) "false"))
+    (if (|| (strEq (nodeAName pat) "true") (strEq (nodeAName pat) "false"))
       0
       1
     )
@@ -9201,11 +9204,11 @@
 (pub fn (patCtorName pat)
   (let ((tag (nodeTag pat)))
     (if (|| (== tag TAG_P_CON0) (== tag TAG_P_CONNAMED))
-      (bareOf (nodeA pat))
+      (bareOf (nodeAName pat))
       (if (== tag TAG_E_APP)
         (let ((head (spineHead pat)))
           (if (== (nodeTag head) TAG_E_VAR)
-            (bareOf (nodeA head))
+            (bareOf (nodeAName head))
             ""
           )
         )
@@ -9226,14 +9229,14 @@
     (if (== tag TAG_E_APP)
       (spineArgVec pat vecNew)
       (if (== tag TAG_P_CONNAMED)
-        (let ((ctor (findCtor tc (nodeA pat))))
+        (let ((ctor (findCtor tc (nodeAName pat))))
           (if (== ctor 0)
             vecNew
             (let ((declared (memGetWord ctor 4)))
               (if (== declared 0)
                 vecNew
                 (spineArgVec (namedPatSpine
-                  (nodeA pat)                  declared                  (nodeB pat)                  (nodeC pat)                  (nodeSpan pat)
+                  (nodeAName pat)                  declared                  (nodeB pat)                  (nodeC pat)                  (nodeSpan pat)
                 ) vecNew)
               )
             )
@@ -9297,7 +9300,7 @@
   (if (>= i (vecLen ctors))
     acc
     {
-      (let ((cn (bareOf (memGetWord (vecGet ctors i) 0))))
+      (let ((cn (bareOf (memGetWordStr (vecGet ctors i) 0))))
         (if (== (colHasCtor matrix cn 0) 0)
           (vecPush acc cn)
           0
@@ -9347,7 +9350,7 @@
     0
     (if (!= (nodeTag t) TAG_T_CON)
       0
-      (if (strEq (nodeA t) "Bool")
+      (if (strEq (nodeAName t) "Bool")
         1
         0
       )
@@ -9362,7 +9365,7 @@
   (if (>= i (vecLen matrix))
     0
     (let ((p (vecGet (vecGet matrix i) 0)))
-      (if (&& (== (nodeTag p) TAG_E_VAR) (strEq (nodeA p) lit))
+      (if (&& (== (nodeTag p) TAG_E_VAR) (strEq (nodeAName p) lit))
         1
         (colHasBoolLit matrix lit (+ i 1))
       )
@@ -9380,7 +9383,7 @@
     {
       (let ((row (vecGet matrix i)))
         (let ((p (vecGet row 0)))
-          (if (|| (== (patIrrefutable p) 1) (&& (== (nodeTag p) TAG_E_VAR) (strEq (nodeA p) lit)))
+          (if (|| (== (patIrrefutable p) 1) (&& (== (nodeTag p) TAG_E_VAR) (strEq (nodeAName p) lit)))
             (vecPush acc (rowTail row))
             0
           )
@@ -9422,7 +9425,7 @@
     )
       (let ((dent 
         (if (== (nodeTag ty) TAG_T_CON)
-          (findData tc (nodeA ty))
+          (findData tc (nodeAName ty))
           0
         )
       ))
@@ -9516,7 +9519,7 @@
     (let ((c (vecGet ctors i)))
       (let ((fieldTys (tyEnvSubstVec (memGetWord c 1) (ctorPatEnv (memGetWord c 2) ty vecNew) vecNew 0)))
         (if (== (matExhaustive tc (matSpecialize
-          tc          matrix          (bareOf (memGetWord c 0))          (vecLen fieldTys)          vecNew          0
+          tc          matrix          (bareOf (memGetWordStr c 0))          (vecLen fieldTys)          vecNew          0
         ) (vecAppendFrom rest (vecAppendFrom fieldTys vecNew 0) 0) missOut) 0)
           0
           (matCtorsExh
@@ -9539,10 +9542,10 @@
       (if (== tg TAG_T_VAR)
         (if (== (tyIsSrcVar t) 0)
           t
-          (tyEnvSubstVar t (nodeA t) env 0)
+          (tyEnvSubstVar t (nodeAName t) env 0)
         )
         (if (== tg TAG_T_CON)
-          (mkTCon (nodeA t) (tyEnvSubstVec (nodeB t) env vecNew 0))
+          (mkTCon (nodeAName t) (tyEnvSubstVec (nodeB t) env vecNew 0))
           (if (== tg TAG_T_ARR)
             (mkTArr (tyEnvSubst (nodeA t) env) (tyEnvSubst (nodeB t) env))
             (if (== tg TAG_T_TUP)
@@ -9567,7 +9570,7 @@
 (pub fn (tyEnvSubstVar t name env i)
   (if (>= i (vecLen env))
     t
-    (if (strEq (vecGet env i) name)
+    (if (strEq (vecGetStr env i) name)
       (vecGet env (+ i 1))
       (tyEnvSubstVar t name env (+ i 2))
     )
@@ -9657,8 +9660,8 @@
     acc
     (joinComma
       xs      (+ i 1)      (if (== i 0)
-        (vecGet xs 0)
-        (strConcat (strConcat acc ", ") (vecGet xs i))
+        (vecGetStr xs 0)
+        (strConcat (strConcat acc ", ") (vecGetStr xs i))
       )
     )
   )
@@ -9685,9 +9688,9 @@
 (pub fn (checkPatternTyped tc pat scrutTy fitTy)
   (let ((tag (nodeTag pat)))
     (if (== tag TAG_E_VAR)
-      (if (|| (strEq (nodeA pat) "true") (strEq (nodeA pat) "false"))
+      (if (|| (strEq (nodeAName pat) "true") (strEq (nodeAName pat) "false"))
         0
-        (if (strEq (nodeA pat) "_")
+        (if (strEq (nodeAName pat) "_")
           0
           {
             (pushScope
@@ -9710,14 +9713,14 @@
         (checkLitPatternTy tc mkStringTy fitTy (nodeSpan pat))
         (if (== tag TAG_P_CON0)
           (checkCtorPattern
-            tc            (nodeA pat)            vecNew            (nodeSpan pat)            fitTy            scrutTy
+            tc            (nodeAName pat)            vecNew            (nodeSpan pat)            fitTy            scrutTy
           )
           (if (== tag TAG_E_APP)
             (let ((head (spineHead pat)))
               (if (!= (nodeTag head) TAG_E_VAR)
                 0
                 (checkCtorPattern
-                  tc                  (nodeA head)                  (spineArgVec pat vecNew)                  (nodeSpan head)                  fitTy                  scrutTy
+                  tc                  (nodeAName head)                  (spineArgVec pat vecNew)                  (nodeSpan head)                  fitTy                  scrutTy
                 )
               )
             )
@@ -9731,21 +9734,21 @@
             ; There is deliberately no arity check: stage0 fills an omitted
             ; field with a wildcard, so a partial named pattern is legal.
             (if (== tag TAG_P_CONNAMED)
-              (let ((ctor (findCtor tc (nodeA pat))))
+              (let ((ctor (findCtor tc (nodeAName pat))))
                 (if (== ctor 0)
                   (checkCtorPattern
-                    tc                    (nodeA pat)                    vecNew                    (nodeSpan pat)                    fitTy                    scrutTy
+                    tc                    (nodeAName pat)                    vecNew                    (nodeSpan pat)                    fitTy                    scrutTy
                   )
                   (let ((declared (memGetWord ctor 4)))
                     {
                       (checkNamedPatFields
-                        tc                        (nodeB pat)                        declared                        (bareOf (nodeA pat))                        0
+                        tc                        (nodeB pat)                        declared                        (bareOf (nodeAName pat))                        0
                       )
                       (if (== declared 0)
                         0
                         (checkCtorPattern
-                          tc                          (nodeA pat)                          (spineArgVec (namedPatSpine
-                            (nodeA pat)                            declared                            (nodeB pat)                            (nodeC pat)                            (nodeSpan pat)
+                          tc                          (nodeAName pat)                          (spineArgVec (namedPatSpine
+                            (nodeAName pat)                            declared                            (nodeB pat)                            (nodeC pat)                            (nodeSpan pat)
                           ) vecNew)                          (nodeSpan pat)                          fitTy                          scrutTy
                         )
                       )
@@ -9774,7 +9777,7 @@
     env
     (if (|| (!= (nodeTag resTy) TAG_T_CON) (!= (nodeTag scrutTy) TAG_T_CON))
       env
-      (if (if (strEq (nodeA resTy) (nodeA scrutTy))
+      (if (if (strEq (nodeAName resTy) (nodeAName scrutTy))
         (!= (vecLen (nodeB resTy)) (vecLen (nodeB scrutTy)))
         true
       )
@@ -9858,9 +9861,9 @@
           (if (!= (nodeTag resTy) TAG_T_CON)
             1
             (if (== st TAG_T_CON)
-              (if (strEq (nodeA scrutTy) (nodeA resTy))
+              (if (strEq (nodeAName scrutTy) (nodeAName resTy))
                 1
-                (if (!= (tcAliasFind tc (nodeA scrutTy)) 0)
+                (if (!= (tcAliasFind tc (nodeAName scrutTy)) 0)
                   1
                   0
                 )
@@ -9883,9 +9886,9 @@
     0
     {
       (let ((nm (vecGet names i)))
-        (if (== (declaredHasField declared (nodeA nm)) 1)
+        (if (== (declaredHasField declared (nodeAName nm)) 1)
           0
-          (emitFieldNotFound tc (nodeA nm) tyName (nodeSpan nm))
+          (emitFieldNotFound tc (nodeAName nm) tyName (nodeSpan nm))
         )
       )
       (checkNamedPatFields
@@ -10001,9 +10004,9 @@
 (pub fn (bindOnePatArg tc arg ty)
   (let ((tag (nodeTag arg)))
     (if (== tag TAG_E_VAR)
-      (if (|| (strEq (nodeA arg) "true") (strEq (nodeA arg) "false"))
+      (if (|| (strEq (nodeAName arg) "true") (strEq (nodeAName arg) "false"))
         0
-        (if (strEq (nodeA arg) "_")
+        (if (strEq (nodeAName arg) "_")
           0
           {
             (pushScope
@@ -10058,7 +10061,7 @@
                     SEV_ERROR                    "AX3003"                    "undefined-constructor"                    span                    msg                    0                    0                    "check the `data` declaration for the correct constructor name"
                   )
                   (mkDiagFix
-                    SEV_ERROR                    "AX3003"                    "undefined-constructor"                    span                    msg                    0                    0                    (strConcat (strConcat "a similarly named constructor `" (memGetWord best 0)) "` is visible; did you mean this?")                    span                    (memGetWord best 0)
+                    SEV_ERROR                    "AX3003"                    "undefined-constructor"                    span                    msg                    0                    0                    (strConcat (strConcat "a similarly named constructor `" (memGetWordStr best 0)) "` is visible; did you mean this?")                    span                    (memGetWord best 0)
                   )
                 )                (strConcat (strConcat "no constructor named `" cname) "` is visible here")
               )
@@ -10257,7 +10260,7 @@
   (if (>= i (vecLen scope))
     0
     {
-      (offerCandidate best name (memGetWord (vecGet scope i) 0))
+      (offerCandidate best name (memGetWordStr (vecGet scope i) 0))
       (offerScope best name scope (+ i 1))
     }
   )
@@ -10269,7 +10272,7 @@
   (if (>= i (vecLen fns))
     0
     {
-      (offerCandidate best name (bareOf (memGetWord (vecGet fns i) 0)))
+      (offerCandidate best name (bareOf (memGetWordStr (vecGet fns i) 0)))
       (offerFnEnts best name fns (+ i 1))
     }
   )
@@ -10293,7 +10296,7 @@
   (if (>= i (vecLen ctors))
     0
     {
-      (offerCandidate best name (bareOf (memGetWord (vecGet ctors i) 0)))
+      (offerCandidate best name (bareOf (memGetWordStr (vecGet ctors i) 0)))
       (offerCtorsOf best name ctors (+ i 1))
     }
   )
@@ -10459,7 +10462,7 @@
 (pub fn (checkAxtags tc d)
   (let (
     (own (memGetWord d 7))
-    (sig (sigAxtagsFor tc (nodeA d)))
+    (sig (sigAxtagsFor tc (nodeAName d)))
   )
     (if (&& (== own 0) (== sig 0))
       0
@@ -10553,7 +10556,7 @@
     (if (>= i (vecLen tagged))
       0
       (let ((d (vecGet tagged i)))
-        (if (== (nameMatches name (nodeA d)) 1)
+        (if (== (nameMatches name (nodeAName d)) 1)
           (memGetWord d 7)
           (sigAxtagsFrom tagged name (+ i 1))
         )
@@ -10569,7 +10572,7 @@
     0
     {
       (checkOneAxtag
-        tc        d        (memGetWord (vecGet tags i) 1)        eff        eparams
+        tc        d        (memGetWordStr (vecGet tags i) 1)        eff        eparams
       )
       (checkAxtagsFrom
         tc        d        tags        (+ i 1)        eff        eparams
@@ -10681,7 +10684,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "unrecognised AXTAG key `" key) "` on `") (bareOf (nodeA d))) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"
+      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "unrecognised AXTAG key `" key) "` on `") (bareOf (nodeAName d))) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"
     ))
   )
 )
@@ -10833,7 +10836,7 @@
       (let ((ci (findEffectDeclCI (tcEffects tc) val 0)))
         (if (== ci 0)
           val
-          (nodeA ci)
+          (nodeAName ci)
         )
       )
     )
@@ -10846,7 +10849,7 @@
   (if (>= i (vecLen effs))
     0
     (let ((dd (vecGet effs i)))
-      (if (== (strEqCI (nodeA dd) val) 1)
+      (if (== (strEqCI (nodeAName dd) val) 1)
         dd
         (findEffectDeclCI effs val (+ i 1))
       )
@@ -10860,7 +10863,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3010"      "axtag-mismatch"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "AXTAG mismatch on `" (bareOf (nodeA d))) "`: ") msg) "")      0      0      0
+      SEV_WARNING      "AX3010"      "axtag-mismatch"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "AXTAG mismatch on `" (bareOf (nodeAName d))) "`: ") msg) "")      0      0      0
     ))
   )
 )
@@ -10881,7 +10884,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3037"      "axtag-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat "AXTAG unverifiable on `" (bareOf (nodeA d))) "`: ") (strConcat label " cannot be checked: the body calls a value the compiler could not resolve"))      0      0      "name the function at the call, or drop the claim: an unresolved call may perform anything"
+      SEV_WARNING      "AX3037"      "axtag-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (strConcat label " cannot be checked: the body calls a value the compiler could not resolve"))      0      0      "name the function at the call, or drop the claim: an unresolved call may perform anything"
     ))
   )
 )
@@ -10894,7 +10897,7 @@
   ; body makes below resolves module-locally.
   (let (
     (_m (memSetWord tc 16 (nodeModule d)))
-    (ent (findFnEnt tc (nodeA d)))
+    (ent (findFnEnt tc (nodeAName d)))
     (params (nodeB d))
     (base (vecLen (tcScope tc)))
   )
@@ -11035,7 +11038,7 @@
             ;   (:: f (-> a b a))  (fn (f x y) y)   was accepted, answered y
             (if (== (nodeTag got) TAG_T_VAR)
               (if (== (tyIsSrcVar got) 1)
-                (if (strEq (nodeA want) (nodeA got))
+                (if (strEq (nodeAName want) (nodeAName got))
                   0
                   (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
                 )
@@ -11097,9 +11100,9 @@
     0
     (if (|| (!= (vecLen (nodeB want)) 0) (!= (vecLen (nodeB got)) 0))
       0
-      (if (strEq (nodeA want) (nodeA got))
+      (if (strEq (nodeAName want) (nodeAName got))
         0
-        (if (|| (tyIsReprScalar (nodeA want)) (tyIsReprScalar (nodeA got)))
+        (if (|| (tyIsReprScalar (nodeAName want)) (tyIsReprScalar (nodeAName got)))
           1
           0
         )

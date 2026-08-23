@@ -107,19 +107,36 @@
 ; process. A caller that stores 0 as a real element and needs to tell it
 ; from "absent" must check `vecLen` first; that is the honest cost of
 ; this choice, and it is stated rather than hidden.
-; RAW: a `Vec` carries no element type, so the word read back is
-; whatever was pushed and the caller names it.
-;@axiom:raw
-(pub :: vecGet (-> Int Int a))
+; The element at `i`, as a word, or 0 out of range.
+;
+; A `Vec` carries no element type - there is no `Vec a`, only a handle -
+; so this cannot answer better than "the word that was pushed". It used
+; to answer a type VARIABLE, which is a stronger claim than that and a
+; false one: the caller named any type it liked and got it, so
+; `(vecPush v 42)` followed by `(strWrap (vecGet v 0) 8)` type-checked
+; and dereferenced 42 as a String. See `AX3040`.
+;
+; Reading an element back at a reference type now goes through
+; `vecGetStr`, which is still unchecked - the Vec does not know what is
+; in it - but is at least SAID, at the call, in one word. The real fix
+; is an element type, and that is a container change rather than an
+; accessor.
+(pub :: vecGet (-> Int Int Int))
 
 (pub fn (vecGet v i)
   (if (< i 0)
-    (cast a 0)
+    0
     (if (>= i (vecLen v))
-      (cast a 0)
+      0
       (memGetWord (vecData v) i)
     )
   )
+)
+
+(pub :: vecGetStr (-> Int Int String))
+
+(pub fn (vecGetStr v i)
+  (cast String (vecGet v i))
 )
 
 ; Overwrite the element at `i`. Returns the handle.

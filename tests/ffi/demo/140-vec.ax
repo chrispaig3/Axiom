@@ -26,11 +26,11 @@
 
 (import Demo)
 
-; `vecGet` answers a type variable; a signature pins the element to
-; the String the wrapper pushed.
+; `vecGet` answers the raw word - a `Vec` carries no element type - so
+; reading the String the wrapper pushed is `vecGetStr`, which says so.
 (pub :: wordAt (-> Int Int String))
 
-(pub fn (wordAt v i) (vecGet v i))
+(pub fn (wordAt v i) (vecGetStr v i))
 
 (pub :: sumVec (-> Int Int Int Int))
 

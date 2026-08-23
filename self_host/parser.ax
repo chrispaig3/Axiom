@@ -439,12 +439,21 @@
 
 (pub fn (nodeTag n) (memGetWord n 0))
 
-; RAW: an ASTNode field is a machine word whose meaning is fixed by
-; the node TAG, which the type system does not model.
-;@axiom:raw
-(pub :: nodeA (-> Int a))
+; Word 1 of an ASTNode. What it MEANS is fixed by the node's tag, which
+; the type system does not model - so this answers the word, and
+; `nodeAName` answers the reading almost every tag gives it.
+(pub :: nodeA (-> Int Int))
 
 (pub fn (nodeA n) (memGetWord n 1))
+
+; The name in word 1: a declaration's name, a variable's spelling, a
+; constructor's. The cast is here, at a return inside a signature that
+; carries the type - see `nodeCName`.
+(pub :: nodeAName (-> Int String))
+
+(pub fn (nodeAName n)
+  (cast String (nodeA n))
+)
 
 (pub :: nodeB (-> Int Int))
 
@@ -734,11 +743,11 @@
 
 (pub :: pResExp (-> Int String))
 
-(pub fn (pResExp r) (memGetWord r 3))
+(pub fn (pResExp r) (memGetWordStr r 3))
 
 (pub :: pResCode (-> Int String))
 
-(pub fn (pResCode r) (memGetWord r 4))
+(pub fn (pResCode r) (memGetWordStr r 4))
 
 ; A keyword that USED to be Axiom. The point of keeping `union`,
 ; `region` and `foreign` reserved is that old source gets an
@@ -1278,7 +1287,7 @@
 ; imported declaration, so the reference and the definition meet.
 (pub :: mangledFromChain (-> Int String))
 
-(pub fn (mangledFromChain chain) (strConcat (strConcat (joinDotted chain 0 "") "$") (vecGet chain (- (vecLen chain) 1))))
+(pub fn (mangledFromChain chain) (strConcat (strConcat (joinDotted chain 0 "") "$") (vecGetStr chain (- (vecLen chain) 1))))
 
 (pub :: joinDotted (-> Int Int String String))
 
@@ -1287,8 +1296,8 @@
     acc
     (joinDotted
       chain      (+ i 1)      (if (== i 0)
-        (vecGet chain 0)
-        (strConcat (strConcat acc ".") (vecGet chain i))
+        (vecGetStr chain 0)
+        (strConcat (strConcat acc ".") (vecGetStr chain i))
       )
     )
   )
@@ -1353,7 +1362,7 @@
             (if (== (memGetWord rr 0) 0)
               rr
               (if (peekIs tokens (memGetWord rr 2) TK_RPAREN)
-                (pOk (strConcat (strConcat (strConcat "syntax/join " (memGetWord lr 1)) " ") (memGetWord rr 1)) (advance (memGetWord rr 2)))
+                (pOk (strConcat (strConcat (strConcat "syntax/join " (memGetWordStr lr 1)) " ") (memGetWordStr rr 1)) (advance (memGetWord rr 2)))
                 (pErrExp (memGetWord rr 2) ")")
               )
             )
@@ -1548,9 +1557,9 @@
 
 (pub fn (patSlotName p)
   (if (== (nodeTag p) TAG_E_VAR)
-    (if (strEq (nodeA p) "_")
+    (if (strEq (nodeAName p) "_")
       "syntax/pat"
-      (nodeA p)
+      (nodeAName p)
     )
     "syntax/pat"
   )
@@ -1815,7 +1824,7 @@
 
 (pub fn (parseIterBinder e)
   (if (== (nodeTag e) TAG_E_VAR)
-    (nodeA e)
+    (nodeAName e)
     (if (== (nodeTag e) TAG_E_APP)
       (parseIterBinder (nodeA e))
       ""
@@ -1911,7 +1920,7 @@
       ; operation's real arrow where the checker deliberately
       ; keeps a silent wildcard.
       (let (
-        (name (memGetWord nr 1))
+        (name (memGetWordStr nr 1))
         (nameSpan (tokenSpan (vecGet tokens pos)))
       )
         (let (
@@ -2047,7 +2056,7 @@
             (let ((tr (parseType tokens (advance (memGetWord nr 2)))))
               (if (== (memGetWord tr 0) 0)
                 tr
-                (let ((cr (parseExternClauses tokens (memGetWord tr 2) (memGetWord nr 1))))
+                (let ((cr (parseExternClauses tokens (memGetWord tr 2) (memGetWordStr nr 1))))
                   (if (== (memGetWord cr 0) 0)
                     cr
                     {
@@ -2063,7 +2072,7 @@
                 )
               )
             )
-            (pErrExp (memGetWord nr 2) (strConcat (strConcat "`:: type` after extern item `" (memGetWord nr 1)) "` (an extern item declares its type: `(name :: (-> Int Int) (symbol \"c_name\"))`)"))
+            (pErrExp (memGetWord nr 2) (strConcat (strConcat "`:: type` after extern item `" (memGetWordStr nr 1)) "` (an extern item declares its type: `(name :: (-> Int Int) (symbol \"c_name\"))`)"))
           )
         )
       )
@@ -2164,7 +2173,7 @@
         ; and every alias fell back to the inert skip. A tyvar
         ; must start with a lowercase LETTER.
         (let (
-          (name (memGetWord nr 1))
+          (name (memGetWordStr nr 1))
           (nameSpan (tokenSpan (vecGet tokens pos)))
           (tvs vecNew)
         )
@@ -2368,9 +2377,9 @@
   (if (== t 0)
     ""
     (if (== (nodeTag t) TAG_T_CON)
-      (nodeA t)
+      (nodeAName t)
       (if (== (nodeTag t) TAG_T_VAR)
-        (nodeA t)
+        (nodeAName t)
         ""
       )
     )
@@ -2769,7 +2778,7 @@
         (let ((mr (parseDeclName tokens (- pos 1))))
           (if (== (memGetWord mr 0) 0)
             mr
-            (pOk (mkTCon (memGetWord mr 1) vecNew) (memGetWord mr 2))
+            (pOk (mkTCon (memGetWordStr mr 1) vecNew) (memGetWord mr 2))
           )
         )
         (if (&&
@@ -2874,7 +2883,7 @@
       ; formatter, which refuses to rewrite either. This parser was
       ; the one implementation of the three that accepted them.
       (let (
-        (name (memGetWord nr 1))
+        (name (memGetWordStr nr 1))
         (typePos (memGetWord nr 2))
       )
         (let ((tr (parseType tokens typePos)))
@@ -2969,7 +2978,7 @@
   (let ((nr (parseIdentName tokens pos)))
     (if (== (memGetWord nr 0) 0)
       nr
-      (parseModPathRest tokens (memGetWord nr 2) (memGetWord nr 1))
+      (parseModPathRest tokens (memGetWord nr 2) (memGetWordStr nr 1))
     )
   )
 )
@@ -2981,7 +2990,7 @@
     (let ((nr (parseIdentName tokens (advance pos))))
       (if (== (memGetWord nr 0) 0)
         nr
-        (parseModPathRest tokens (memGetWord nr 2) (strConcat (strConcat acc ".") (memGetWord nr 1)))
+        (parseModPathRest tokens (memGetWord nr 2) (strConcat (strConcat acc ".") (memGetWordStr nr 1)))
       )
     )
     (pOk acc pos)
@@ -2998,7 +3007,7 @@
     (if (== (memGetWord mr 0) 0)
       mr
       (let (
-        (modName (memGetWord mr 1))
+        (modName (memGetWordStr mr 1))
         (impSpan (if (< pos (vecLen tokens))
           (tokenSpan (vecGet tokens pos))
           0
@@ -3050,7 +3059,7 @@
       ; argument COUNTS, so losing the tyvars would make the
       ; checker call `Tree` and `Tree a` different types.
       (let (
-        (name (memGetWord nr 1))
+        (name (memGetWordStr nr 1))
         (nextPos (memGetWord nr 2))
       )
         (let ((tvs vecNew))
@@ -3348,7 +3357,7 @@
     (if (== (memGetWord nr 0) 0)
       nr
       (let (
-        (name (memGetWord nr 1))
+        (name (memGetWordStr nr 1))
         (nextPos (memGetWord nr 2))
       )
         (parseFields
@@ -3534,7 +3543,7 @@
         ; The pattern's head must BE the macro's name -
         ; syntax-rules' convention, and what multi-rule dispatch
         ; hangs from.
-        (if (strEq (memGetWord nr 1) macName)
+        (if (strEq (memGetWordStr nr 1) macName)
           (let ((paramsR (parseMacroPatList
             tokens            (memGetWord nr 2)            vecNew            vecNew            vecNew            vecNew
           )))
@@ -3681,7 +3690,7 @@
           ; in its capabilities and published none.
           ; Consumes the head's closing paren too.
           (let (
-            (macName (memGetWord nr 1))
+            (macName (memGetWordStr nr 1))
             (macSpan (tokenSpan (vecGet tokens (advance pos))))
             (paramsR (parseIdentList tokens (memGetWord nr 2) vecNew))
           )
@@ -3725,7 +3734,7 @@
         (if (== (memGetWord nr 0) 0)
           nr
           (let (
-            (fnName (memGetWord nr 1))
+            (fnName (memGetWordStr nr 1))
             (afterName (memGetWord nr 2))
           )
             (let ((paramsR (parseIdentList tokens afterName vecNew)))
@@ -3779,7 +3788,7 @@
         (if (== (memGetWord nr 0) 0)
           nr
           (let (
-            (fnName (memGetWord nr 1))
+            (fnName (memGetWordStr nr 1))
             (bodyR (parseExpr
               tokens              (if (&& (peekIs tokens (memGetWord nr 2) TK_IDENT) (strEq (tokenLexeme (vecGet tokens (memGetWord nr 2))) "="))
                 (advance (memGetWord nr 2))
@@ -4164,7 +4173,7 @@
         ; A dotted target is a field store: the chain builds the
         ; base the same way expression-position access does, and
         ; the LAST segment names the field written.
-        (parseSetField tokens (memGetWord nr 2) (mkEVarAt (memGetWord nr 1) (tokenSpan (vecGet tokens pos))))
+        (parseSetField tokens (memGetWord nr 2) (mkEVarAt (memGetWordStr nr 1) (tokenSpan (vecGet tokens pos))))
         (let ((valR (parseExpr tokens (memGetWord nr 2))))
           (if (== (memGetWord valR 0) 0)
             valR
@@ -4490,7 +4499,7 @@
           ; `(mut i 0)` - the marker is the word `mut`, then the real
           ; name. Word c of the pair records mutability for foldLets.
           (let ((isMut 
-            (if (strEq (memGetWord nr 1) "mut")
+            (if (strEq (memGetWordStr nr 1) "mut")
               1
               0
             )
@@ -4503,7 +4512,7 @@
             ))
               (if (== (memGetWord nr2 0) 0)
                 nr2
-                (let ((name (memGetWord nr2 1)))
+                (let ((name (memGetWordStr nr2 1)))
                   (let ((valR (parseExpr tokens (memGetWord nr2 2))))
                     (if (== (memGetWord valR 0) 0)
                       valR
@@ -4546,7 +4555,7 @@
           (mkNodeAt
             TAG_E_LETM            (nodeA b)            (nodeB b)            body            (nodeSpan b)
           )
-          (mkELetAt (nodeA b) (nodeB b) body (nodeSpan b))
+          (mkELetAt (nodeAName b) (nodeB b) body (nodeSpan b))
         )        (- i 1)
       )
     )
@@ -4787,7 +4796,7 @@
 (pub fn (namedPatSpineFrom declared names pats i acc)
   (if (>= i (vecLen declared))
     acc
-    (let ((j (namedFieldIndex names (vecGet declared i) 0)))
+    (let ((j (namedFieldIndex names (vecGetStr declared i) 0)))
       (namedPatSpineFrom
         declared        names        pats        (+ i 1)        (mkEApp
           acc          (if (< j 0)
@@ -4807,7 +4816,7 @@
 (pub fn (namedFieldIndex names n i)
   (if (>= i (vecLen names))
     (- 0 1)
-    (if (strEq (nodeA (vecGet names i)) n)
+    (if (strEq (nodeAName (vecGet names i)) n)
       i
       (namedFieldIndex names n (+ i 1))
     )
@@ -4829,7 +4838,7 @@
 (pub fn (declaredHasFieldFrom declared n i)
   (if (>= i (vecLen declared))
     0
-    (if (strEq (vecGet declared i) n)
+    (if (strEq (vecGetStr declared i) n)
       1
       (declaredHasFieldFrom declared n (+ i 1))
     )
@@ -5017,7 +5026,7 @@
 (pub fn (unaryMinusToBinary e)
   (if (== (nodeTag e) TAG_E_APP)
     (let ((head (nodeA e)))
-      (if (&& (== (nodeTag head) TAG_E_VAR) (strEq (nodeA head) "-"))
+      (if (&& (== (nodeTag head) TAG_E_VAR) (strEq (nodeAName head) "-"))
         (mkEApp (mkEApp head (mkEInt 0)) (nodeB e))
         e
       )
@@ -5271,7 +5280,7 @@
   (if (>= i (vecLen decls))
     0
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_TRAIT) (strEq (nodeA d) name))
+      (if (&& (== (nodeTag d) TAG_D_TRAIT) (strEq (nodeAName d) name))
         d
         (findTraitDecl decls name (+ i 1))
       )
@@ -5284,7 +5293,7 @@
 (pub fn (findFieldNamed fields name i)
   (if (>= i (vecLen fields))
     0
-    (if (strEq (nodeA (vecGet fields i)) name)
+    (if (strEq (nodeAName (vecGet fields i)) name)
       (vecGet fields i)
       (findFieldNamed fields name (+ i 1))
     )
@@ -5300,7 +5309,7 @@
     ""
     (if (== (vecLen (nodeC d)) 0)
       ""
-      (vecGet (nodeC d) 0)
+      (vecGetStr (nodeC d) 0)
     )
   )
 )
@@ -5313,14 +5322,14 @@
     0
     (let ((tag (nodeTag t)))
       (if (== tag TAG_T_VAR)
-        (if (strEq (nodeA t) v)
+        (if (strEq (nodeAName t) v)
           ty
           t
         )
         (if (== tag TAG_T_ARR)
           (mkTArr (tySubstVar (nodeA t) v ty) (tySubstVar (nodeB t) v ty))
           (if (== tag TAG_T_CON)
-            (mkTCon (nodeA t) (tySubstVarVec
+            (mkTCon (nodeAName t) (tySubstVarVec
               (nodeB t)              v              ty              vecNew              0
             ))
             t
@@ -5352,7 +5361,7 @@
   (if (== t 0)
     ""
     (if (== (nodeTag t) TAG_T_CON)
-      (nodeA t)
+      (nodeAName t)
       ""
     )
   )
@@ -5369,7 +5378,7 @@
     (- 0 1)
     (if (!= (nodeTag t) TAG_T_ARR)
       (- 0 1)
-      (if (&& (== (nodeTag (nodeA t)) TAG_T_VAR) (strEq (nodeA (nodeA t)) v))
+      (if (&& (== (nodeTag (nodeA t)) TAG_T_VAR) (strEq (nodeAName (nodeA t)) v))
         i
         (traitDispatchIdx (nodeB t) v (+ i 1))
       )
@@ -5386,7 +5395,7 @@
 (pub fn (tyIsSrcVar t)
   (if (!= (nodeTag t) TAG_T_VAR)
     0
-    (let ((n (nodeA t)))
+    (let ((n (nodeAName t)))
       (if (== (strLen n) 0)
         0
         (if (== (strByte n 0) 95)

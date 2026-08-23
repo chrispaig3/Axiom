@@ -109,7 +109,7 @@
 
 (pub :: tokenLexeme (-> Int String))
 
-(pub fn (tokenLexeme t) (memGetWord t 1))
+(pub fn (tokenLexeme t) (memGetWordStr t 1))
 
 (pub :: tokenSpan (-> Int Int))
 

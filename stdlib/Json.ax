@@ -182,7 +182,7 @@
 
 (pub fn (jsonNumText v)
   (if (== (jsonTag v) JNUM)
-    (memGetWord v 2)
+    (memGetWordStr v 2)
     ""
   )
 )
@@ -191,7 +191,7 @@
 
 (pub fn (jsonStrVal v)
   (if (== (jsonTag v) JSTR)
-    (memGetWord v 1)
+    (memGetWordStr v 1)
     ""
   )
 )
@@ -243,7 +243,7 @@
 (fn (jsonObjKeyAt v i)
   (if (|| (< i 0) (>= i (jsonObjLen v)))
     ""
-    (vecGet (memGetWord v 1) i)
+    (vecGetStr (memGetWord v 1) i)
   )
 )
 
@@ -357,7 +357,7 @@
     {
       (while (< k (vecLen pieces))
         {
-          (set n (+ n (strLen (vecGet pieces k))))
+          (set n (+ n (strLen (vecGetStr pieces k))))
           (set k (+ k 1))
         })
       n
@@ -374,7 +374,7 @@
   )
     {
       (while (< k (vecLen pieces))
-        (let ((p (vecGet pieces k)))
+        (let ((p (vecGetStr pieces k)))
           {
             (memCopy (+ (strData out) off) (strData p) (strLen p))
             (set off (+ off (strLen p)))
@@ -572,7 +572,7 @@
           (if (== t JSTR)
             {
               (vecPush pieces "\"")
-              (vecPush pieces (jsonEscape (memGetWord v 1)))
+              (vecPush pieces (jsonEscape (memGetWordStr v 1)))
               (vecPush pieces "\"")
             }
             (if (== t JARR)
@@ -626,7 +626,7 @@
             0
           )
           (vecPush pieces "\"")
-          (vecPush pieces (jsonEscape (vecGet keys i)))
+          (vecPush pieces (jsonEscape (vecGetStr keys i)))
           (vecPush pieces "\":")
           (jsonWriteInto (vecGet vals i) pieces)
           (set i (+ i 1))

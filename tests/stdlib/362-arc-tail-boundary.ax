@@ -129,8 +129,8 @@
       (let ((v vecNew))
         {
           (hoard v (wide 0) 300)
-          (set acc (+ acc (* 16 (b2i (== (strLen (vecGet v 5)) 32)))))
-          (set acc (+ acc (* 8 (b2i (== (strLen (vecGet v 299)) 32)))))
+          (set acc (+ acc (* 16 (b2i (== (strLen (vecGetStr v 5)) 32)))))
+          (set acc (+ acc (* 8 (b2i (== (strLen (vecGetStr v 299)) 32)))))
           (set steps (+ steps 1))
         }
       )

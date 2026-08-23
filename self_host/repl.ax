@@ -724,13 +724,13 @@
   (let ((tr (typeExprAgainst declsSrc line)))
     (if (== (memGetWord tr 0) 0)
       0
-      (let ((tyStr (memGetWord tr 1)))
+      (let ((tyStr (memGetWordStr tr 1)))
         {
           (replOut (strConcat (strConcat "type : " tyStr) "\n"))
           (let ((cr (replCompile (replWrapper declsSrc line tyStr))))
             (if (== (memGetWord cr 0) 0)
               0
-              (replEval (memGetWord cr 1))
+              (replEval (memGetWordStr cr 1))
             )
           )
         }
@@ -761,9 +761,9 @@
             (let ((d (vecGet decls 0)))
               (let ((tag (nodeTag d)))
                 (if (|| (== tag TAG_D_FN) (== tag TAG_D_SIG))
-                  (replOut (strConcat (strConcat "OK: " (nodeA d)) " defined\n"))
+                  (replOut (strConcat (strConcat "OK: " (nodeAName d)) " defined\n"))
                   (if (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))
-                    (replOut (strConcat (strConcat "OK: data " (nodeA d)) " defined\n"))
+                    (replOut (strConcat (strConcat "OK: data " (nodeAName d)) " defined\n"))
                     (replOut "OK\n")
                   )
                 )
@@ -967,12 +967,12 @@
     (let ((tr (typeExprAgainst declsSrc arg)))
       (if (== (memGetWord tr 0) 0)
         0
-        (let ((cr (replCompile (replWrapper declsSrc arg (memGetWord tr 1)))))
+        (let ((cr (replCompile (replWrapper declsSrc arg (memGetWordStr tr 1)))))
           (if (== (memGetWord cr 0) 0)
             0
             {
               (replOut "Generated LLVM IR:\n")
-              (replOut (memGetWord cr 1))
+              (replOut (memGetWordStr cr 1))
               0
             }
           )
@@ -1123,7 +1123,7 @@
               (let ((d (vecGet decls i)))
                 {
                   (if (|| (== (nodeTag d) TAG_D_FN) (|| (== (nodeTag d) TAG_D_SIG) (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT))))
-                    (replOut (strConcat (strConcat "  " (nodeA d)) "\n"))
+                    (replOut (strConcat (strConcat "  " (nodeAName d)) "\n"))
                     0
                   )
                   (set i (+ i 1))

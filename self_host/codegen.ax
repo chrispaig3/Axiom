@@ -105,7 +105,7 @@
 ; along - so the entry carried its length twice and read it once.
 (pub :: eName (-> Int String))
 
-(pub fn (eName e) (memGetWord e 0))
+(pub fn (eName e) (memGetWordStr e 0))
 
 (pub :: addType (-> Int String Int Int Int Int Int Int))
 
@@ -195,11 +195,11 @@
 
 (pub :: effName (-> Int String))
 
-(pub fn (effName e) (memGetWord e 0))
+(pub fn (effName e) (memGetWordStr e 0))
 
 (pub :: effSlot (-> Int String))
 
-(pub fn (effSlot e) (memGetWord e 1))
+(pub fn (effSlot e) (memGetWordStr e 1))
 
 (pub :: effIsEntry (-> Int Int))
 
@@ -260,7 +260,7 @@
     (let ((local 
       (if (== m 0)
         0
-        (lookupEffIn tbl (cat3 m "$" name) 0 0)
+        (lookupEffIn tbl (cat3 (memGetWordStr cg 34) "$" name) 0 0)
       )
     ))
       (if (!= local 0)
@@ -532,7 +532,7 @@
         (if (== (nodeTag d) TAG_D_SIG)
           (vecPush
             sigs            (cast Int (FSig
-              (nodeA d)              (strLen (nodeA d))              (nodeB d)              (nodeTy d)              (cgTakesEvidence (nodeTy d))              1              (- 0 1)              0              0
+              (nodeAName d)              (strLen (nodeAName d))              (nodeB d)              (nodeTy d)              (cgTakesEvidence (nodeTy d))              1              (- 0 1)              0              0
             ))
           )
           ; an `extern` item is a signed global under its LINKER
@@ -594,7 +594,7 @@
   (if (>= i (vecLen sigs))
     0
     (let ((e (vecGet sigs i)))
-      (if (&& (== (memGetWord e 1) nl) (strEq (memGetWord e 0) name))
+      (if (&& (== (memGetWord e 1) nl) (strEq (memGetWordStr e 0) name))
         e
         (findFSigIn sigs name nl (+ i 1))
       )
@@ -624,7 +624,7 @@
         (while (< i (vecLen sigs))
           {
             (let ((e (vecGet sigs i)))
-              (let ((id (internIntern si (memGetWord e 0))))
+              (let ((id (internIntern si (memGetWordStr e 0))))
                 (if (== id (vecLen byId))
                   (vecPush byId e)
                   0
@@ -637,7 +637,7 @@
       (let ((mut j 0))
         (while (< j (vecLen bares))
           {
-            (let ((id (internIntern bi (vecGet bares j))))
+            (let ((id (internIntern bi (vecGetStr bares j))))
               (if (== id (vecLen first))
                 (vecPush first j)
                 0
@@ -683,7 +683,7 @@
       (mangledFor cg name)
       (if (strEq name "main")
         "__axiom_user_main"
-        (let ((m (memGetWord cg 34)))
+        (let ((m (memGetWordStr cg 34)))
           (let ((hit 
             (if (==
               (cast Int m)              0
@@ -697,7 +697,7 @@
               (let ((id (internFind bi name)))
                 (if (< id 0)
                   name
-                  (vecGet (memGetWord cg 13) (vecGet (memGetWord cg 40) id))
+                  (vecGetStr (memGetWord cg 13) (vecGet (memGetWord cg 40) id))
                 )
               )
             )
@@ -799,7 +799,7 @@
         (let (
           (_m (memSetWord cg 34 (nodeModule d)))
           (_d (memSetWord cg 36 d))
-          (e (findFSigCg cg (nodeA d)))
+          (e (findFSigCg cg (nodeAName d)))
         )
           (if (== e 0)
             (inferOwnershipPass cg decls (+ i 1) changed)
@@ -850,19 +850,19 @@
       (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (|| (== tg TAG_E_CHAR) (== tg TAG_E_LAM)))))
         1
         (if (== tg TAG_E_VAR)
-          (let ((k (envFlagOf env (nodeA e))))
+          (let ((k (envFlagOf env (nodeAName e))))
             (if (>= k 0)
               k
-              (if (>= (paramIndexIn params (nodeA e) 0) 0)
+              (if (>= (paramIndexIn params (nodeAName e) 0) 0)
                 0
                 ; a nullary constructor is an immediate: owned,
                 ; and releasing it is a no-op
-                (if (!= (lookupType (memGetWord cg 3) (nodeA e)) 0)
+                (if (!= (lookupType (memGetWord cg 3) (nodeAName e)) 0)
                   1
                   ; a bare global name: a nullary function's
                   ; answer, or a function value - the former by
                   ; its own flag, the latter a record of its own
-                  (fnResultOwned cg (nodeA e))
+                  (fnResultOwned cg (nodeAName e))
                 )
               )
             )
@@ -893,10 +893,10 @@
                         (tailOwned cg (vecGet (nodeA e) (- (vecLen (nodeA e)) 1)) params env)
                       )
                       (if (== tg TAG_E_LET)
-                        (tailOwned cg (nodeC e) params (envWith env (nodeA e) (tailOwned cg (nodeB e) params env)))
+                        (tailOwned cg (nodeC e) params (envWith env (nodeAName e) (tailOwned cg (nodeB e) params env)))
                         (if (== tg TAG_E_LETM)
                           ; a mutable slot may be reassigned to anything
-                          (tailOwned cg (nodeC e) params (envWith env (nodeA e) 0))
+                          (tailOwned cg (nodeC e) params (envWith env (nodeAName e) 0))
                           (if (== tg TAG_E_SET)
                             ; `(set k v)` evaluates to `v`, as owned as `v` is
                             (tailOwned cg (nodeB e) params env)
@@ -931,7 +931,7 @@
   (let ((hd (spineHead e)))
     (if (!= (nodeTag hd) TAG_E_VAR)
       0
-      (let ((n (nodeA hd)))
+      (let ((n (nodeAName hd)))
         (if (isCastName n)
           ; `(cast T v)`: v's ownership, v being the second
           ; argument of the flattened spine
@@ -1135,7 +1135,7 @@
           (let ((hd (spineHead pat)))
             (let ((entry 
               (if (== (nodeTag hd) TAG_E_VAR)
-                (lookupType (memGetWord cg 3) (nodeA hd))
+                (lookupType (memGetWord cg 3) (nodeAName hd))
                 0
               )
             ))
@@ -1288,7 +1288,7 @@
         (let (
           (_m (memSetWord cg 34 (nodeModule d)))
           (_d (memSetWord cg 36 d))
-          (e (findFSigCg cg (nodeA d)))
+          (e (findFSigCg cg (nodeAName d)))
         )
           (if (== e 0)
             (inferFlowsPass cg decls (+ i 1) changed)
@@ -1343,7 +1343,7 @@
 (pub :: tyvarSlotsMask (-> Int Int Int Int))
 
 (pub fn (tyvarSlotsMask cg e d)
-  (if (== (tailCallsSelf (nodeC d) (bareOf (nodeA d)) (vecLen (nodeB d))) 1)
+  (if (== (tailCallsSelf (nodeC d) (bareOf (nodeAName d)) (vecLen (nodeB d))) 1)
     (tyvarSlotsFrom cg (memGetWord e 3) (vecLen (nodeB d)) 0)
     0
   )
@@ -1537,10 +1537,10 @@
     0
     (let ((tg (nodeTag e)))
       (if (== tg TAG_E_VAR)
-        (let ((k (envFlagOf env (nodeA e))))
+        (let ((k (envFlagOf env (nodeAName e))))
           (if (>= k 0)
             (& k (- MUST_BIT 1))
-            (paramFlowBit cg params (paramIndexIn params (nodeA e) 0))
+            (paramFlowBit cg params (paramIndexIn params (nodeAName e) 0))
           )
         )
         (if (== tg TAG_E_FIELD)
@@ -1568,10 +1568,10 @@
                       (flowMask cg (vecGet (nodeA e) (- (vecLen (nodeA e)) 1)) params env)
                     )
                     (if (== tg TAG_E_LET)
-                      (flowMask cg (nodeC e) params (envWith env (nodeA e) (letFlag cg (nodeB e) params env)))
+                      (flowMask cg (nodeC e) params (envWith env (nodeAName e) (letFlag cg (nodeB e) params env)))
                       (if (== tg TAG_E_LETM)
-                        (flowMask cg (nodeC e) params (envWith env (nodeA e) (mutFlag
-                          cg                          (nodeA e)                          (nodeB e)                          (nodeC e)                          params                          env
+                        (flowMask cg (nodeC e) params (envWith env (nodeAName e) (mutFlag
+                          cg                          (nodeAName e)                          (nodeB e)                          (nodeC e)                          params                          env
                         )))
                         (if (== tg TAG_E_HANDLE)
                           ; the body's value, or the handler's
@@ -1617,7 +1617,7 @@
           )
         )
           (paramBit i)
-          (let ((e (findFSigCg cg (nodeA d))))
+          (let ((e (findFSigCg cg (nodeAName d))))
             (if (== e 0)
               (paramBit i)
               (if (== (fldClass cg (arrowParamTy (memGetWord e 3) i)) 0)
@@ -1650,7 +1650,7 @@
       ; `memGetWord s 0` and is a length, and MM-LIFE-2g names
       ; the four heads as the whole of how a reference becomes a
       ; word
-      (let ((n (nodeA hd)))
+      (let ((n (nodeAName hd)))
         (if (isCastName n)
           (if (>= n_ 2)
             (toWord (aliasFlow cg (spineArgAt e 1) params env))
@@ -1735,7 +1735,7 @@
         (let ((hd (spineHead e)))
           (if (!= (nodeTag hd) TAG_E_VAR)
             0
-            (let ((n (nodeA hd)))
+            (let ((n (nodeAName hd)))
               (if (|| (isCastName n) (|| (isPrimName n) (|| (isBinop n) (|| (isCmpOp n) (isAndOr n)))))
                 0
                 (if (|| (!= (lookupType (memGetWord cg 3) n) 0) (== (fnResultClass cg n) 2))
@@ -1808,7 +1808,7 @@
     (if (!= (nodeTag e) TAG_E_APP)
       (- 0 1)
       (let ((hd (spineHead e)))
-        (if (&& (== (nodeTag hd) TAG_E_VAR) (&& (strEq (nodeA hd) "-") (&& (== (spineArity e) 2) (== (nodeTag (spineArgAt e 1)) TAG_E_INT))))
+        (if (&& (== (nodeTag hd) TAG_E_VAR) (&& (strEq (nodeAName hd) "-") (&& (== (spineArity e) 2) (== (nodeTag (spineArgAt e 1)) TAG_E_INT))))
           (nodeA (spineArgAt e 1))
           (- 0 1)
         )
@@ -1828,7 +1828,7 @@
         ; length; word 0 of a struct is its first field, and a `let`
         ; alias, a `mut` slot or an `Int` parameter may hold an
         ; address computed by arithmetic, which points anywhere
-        (if (== (paramIsString cg params (paramIndexIn params (nodeA e) 0)) 1)
+        (if (== (paramIsString cg params (paramIndexIn params (nodeAName e) 0)) 1)
           1
           0
         )
@@ -1841,7 +1841,7 @@
             (let ((hd (spineHead e)))
               (if (!= (nodeTag hd) TAG_E_VAR)
                 0
-                (if (&& (isCastName (nodeA hd)) (== (spineArity e) 2))
+                (if (&& (isCastName (nodeAName hd)) (== (spineArity e) 2))
                   (if (== (isRefCallNode cg (spineArgAt e 1)) 1)
                     ; a reference-returning call's answer or
                     ; a construction is a handle: its header
@@ -1852,7 +1852,7 @@
                   ; `(- handle 16)`, `(- handle 8)`: the block's
                   ; own count or shape word, a number; any other
                   ; offset is somewhere else
-                  (if (&& (strEq (nodeA hd) "-") (&& (== (spineArity e) 2) (&& (== (nodeTag (spineArgAt e 1)) TAG_E_INT) (|| (== (nodeA (spineArgAt e 1)) 8) (== (nodeA (spineArgAt e 1)) 16)))))
+                  (if (&& (strEq (nodeAName hd) "-") (&& (== (spineArity e) 2) (&& (== (nodeTag (spineArgAt e 1)) TAG_E_INT) (|| (== (nodeA (spineArgAt e 1)) 8) (== (nodeA (spineArgAt e 1)) 16)))))
                     (addrIsHandle cg params (spineArgAt e 0))
                     0
                   )
@@ -2026,7 +2026,7 @@
                           cg                          (nodeB e)                          params                          env                          cell
                         )
                         (flowStashes
-                          cg                          (nodeC e)                          params                          (envWith env (nodeA e) (letFlag cg (nodeB e) params env))                          cell
+                          cg                          (nodeC e)                          params                          (envWith env (nodeAName e) (letFlag cg (nodeB e) params env))                          cell
                         )
                       }
                       (if (== tg TAG_E_LETM)
@@ -2041,8 +2041,8 @@
                             cg                            (nodeB e)                            params                            env                            cell
                           )
                           (flowStashes
-                            cg                            (nodeC e)                            params                            (envWith env (nodeA e) (mutFlag
-                              cg                              (nodeA e)                              (nodeB e)                              (nodeC e)                              params                              env
+                            cg                            (nodeC e)                            params                            (envWith env (nodeAName e) (mutFlag
+                              cg                              (nodeAName e)                              (nodeB e)                              (nodeC e)                              params                              env
                             ))                            cell
                           )
                         }
@@ -2084,7 +2084,7 @@
                                 ; aliases one takes none, and parks it
                                 (stashAdd cell (parkForms (lamCaptureMask cg (nodeB e) params env)))
                                 (if (== tg TAG_E_STRUCTCON)
-                                  (let ((entry (lookupType (memGetWord cg 3) (nodeA e))))
+                                  (let ((entry (lookupType (memGetWord cg 3) (nodeAName e))))
                                     {
                                       (flowStashesVec
                                         cg                                        (nodeB e)                                        params                                        env                                        cell                                        0
@@ -2188,20 +2188,20 @@
     0
     (let ((tg (nodeTag e)))
       (if (== tg TAG_E_VAR)
-        (let ((k (envFlagOf env (nodeA e))))
+        (let ((k (envFlagOf env (nodeAName e))))
           (if (>= k 0)
             (if (!= (& k MUST_BIT) 0)
               (& k (- MUST_BIT 1))
               0
             )
-            (paramFlowBit cg params (paramIndexIn params (nodeA e) 0))
+            (paramFlowBit cg params (paramIndexIn params (nodeAName e) 0))
           )
         )
         (if (== tg TAG_E_APP)
           (let ((hd (spineHead e)))
             (if (!= (nodeTag hd) TAG_E_VAR)
               0
-              (let ((n (nodeA hd)))
+              (let ((n (nodeAName hd)))
                 (if (&& (isCastName n) (== (spineArity e) 2))
                   (toWord (mustFlow cg (spineArgAt e 1) params env))
                   (if (&& (strEq n "__addr") (== (spineArity e) 1))
@@ -2270,7 +2270,7 @@
         0
         (if (== tg TAG_E_SET)
           (|
-            (if (strEq (nodeA e) name)
+            (if (strEq (nodeAName e) name)
               (flowMask cg (nodeB e) params env)
               0
             )            (setFlows
@@ -2292,14 +2292,14 @@
               (| (setFlows
                 cg                name                (nodeB e)                params                env
               ) (setFlows
-                cg                name                (nodeC e)                params                (envWith env (nodeA e) (letFlag cg (nodeB e) params env))
+                cg                name                (nodeC e)                params                (envWith env (nodeAName e) (letFlag cg (nodeB e) params env))
               ))
               (if (== tg TAG_E_LETM)
                 (| (setFlows
                   cg                  name                  (nodeB e)                  params                  env
                 ) (setFlows
-                  cg                  name                  (nodeC e)                  params                  (envWith env (nodeA e) (mutFlag
-                    cg                    (nodeA e)                    (nodeB e)                    (nodeC e)                    params                    env
+                  cg                  name                  (nodeC e)                  params                  (envWith env (nodeAName e) (mutFlag
+                    cg                    (nodeAName e)                    (nodeB e)                    (nodeC e)                    params                    env
                   ))
                 ))
                 (if (== tg TAG_E_SETF)
@@ -2569,7 +2569,7 @@
     (hd (spineHead e))
     (n_ (spineArity e))
   )
-    (if (&& (== (nodeTag hd) TAG_E_VAR) (isAndOr (nodeA hd)))
+    (if (&& (== (nodeTag hd) TAG_E_VAR) (isAndOr (nodeAName hd)))
       ; `&&`/`||`: the first operand always runs, every later one
       ; only sometimes - each of those is a region of its own, so a
       ; count in one licenses no park outside it
@@ -2595,7 +2595,7 @@
               cg              e              n_              params              env              0
             )))
           }
-          (let ((n (nodeA hd)))
+          (let ((n (nodeAName hd)))
             (if (|| (isCastName n) (|| (isBinop n) (|| (isCmpOp n) (isAndOr n))))
               0
               (if (isPrimName n)
@@ -2695,12 +2695,12 @@
   (let ((d (memGetWord cg 36)))
     (if (|| (== d 0) (!= (nodeTag hd) TAG_E_VAR))
       0
-      (if (if (strEq (mangledForCg cg (nodeA hd)) (nodeA d))
+      (if (if (strEq (mangledForCg cg (nodeAName hd)) (nodeAName d))
         false
         true
       )
         0
-        (let ((en (findFSigCg cg (nodeA d))))
+        (let ((en (findFSigCg cg (nodeAName d))))
           (if (== en 0)
             0
             (selfSlotParksFrom
@@ -2907,7 +2907,7 @@
       (let ((hd (spineHead e)))
         (if (!= (nodeTag hd) TAG_E_VAR)
           0
-          (let ((n (nodeA hd)))
+          (let ((n (nodeAName hd)))
             (if (|| (isCastName n) (|| (isPrimName n) (|| (isBinop n) (|| (isCmpOp n) (isAndOr n)))))
               0
               (if (!= (lookupType (memGetWord cg 3) n) 0)
@@ -2942,13 +2942,13 @@
           )
         )
           0
-          (let ((e (findFSigCg cg (nodeA d))))
+          (let ((e (findFSigCg cg (nodeAName d))))
             (if (== e 0)
               0
               (let ((t (arrowParamTy (memGetWord e 3) i)))
                 (if (== t 0)
                   0
-                  (if (&& (== (nodeTag t) TAG_T_CON) (strEq (nodeA t) "String"))
+                  (if (&& (== (nodeTag t) TAG_T_CON) (strEq (nodeAName t) "String"))
                     1
                     0
                   )
@@ -2970,7 +2970,7 @@
       2
       (if (!= (vecLen params) (vecLen (nodeB d)))
         2
-        (let ((e (findFSigCg cg (nodeA d))))
+        (let ((e (findFSigCg cg (nodeAName d))))
           (if (== e 0)
             2
             (fldClass cg (arrowParamTy (memGetWord e 3) i))
@@ -3044,8 +3044,8 @@
             ; a nullary constructor - `None`, `Nil` - is an immediate,
             ; a no-op to release, so `(if c (Some x) None)` is owned
             ; and the `Some` it builds is given back
-            (if (!= (lookupType (memGetWord cg 3) (nodeA e)) 0)
-              (if (isLocalValue cg (nodeA e))
+            (if (!= (lookupType (memGetWord cg 3) (nodeAName e)) 0)
+              (if (isLocalValue cg (nodeAName e))
                 0
                 1
               )
@@ -3058,7 +3058,7 @@
                   ; the indexed questions first - most arguments are
                   ; not calls to reference-returning globals, and the
                   ; constructor-table scan is the expensive one
-                  (let ((n (nodeA hd)))
+                  (let ((n (nodeAName hd)))
                     (if (!= (fnResultClass cg n) 2)
                       0
                       (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
@@ -3161,7 +3161,7 @@
     (let ((tg (nodeTag t)))
       (if (== tg TAG_T_VAR)
         (if (== (tyIsSrcVar t) 1)
-          (if (== (strVecHas acc (nodeA t)) 1)
+          (if (== (strVecHas acc (nodeAName t)) 1)
             0
             (vecPush
               acc              (cast Int (nodeA t))
@@ -3369,7 +3369,7 @@
           ))
             (let (
               (src (if (== hasSym 1)
-                (strDup (memGetWord cgR 2))
+                (strDup (memGetWordStr cgR 2))
                 ""
               ))
               (mut acc (constStr c))
@@ -3503,7 +3503,7 @@
 (pub fn (paramFloatIdx cg params name i)
   (if (>= i (vecLen params))
     0
-    (if (strEq (vecGet params i) name)
+    (if (strEq (vecGetStr params i) name)
       (paramIsFloat cg i)
       (paramFloatIdx cg params name (+ i 1))
     )
@@ -3594,7 +3594,7 @@
     {
       (while (< i (vecLen lines))
         {
-          (set n (+ n (+ (strLen (vecGet lines i)) 1)))
+          (set n (+ n (+ (strLen (vecGetStr lines i)) 1)))
           (set i (+ i 1))
         })
       n
@@ -3612,7 +3612,7 @@
   )
     {
       (while (< i (vecLen lines))
-        (let ((line (vecGet lines i)))
+        (let ((line (vecGetStr lines i)))
           {
             (memCopy (+ (strData out) off) (strData line) (strLen line))
             (set off (+ off (strLen line)))
@@ -3682,7 +3682,7 @@
 (pub fn (findString tbl s i)
   (if (>= i (vecLen tbl))
     (- 0 1)
-    (if (strEq (vecGet tbl i) s)
+    (if (strEq (vecGetStr tbl i) s)
       i
       (findString tbl s (+ i 1))
     )
@@ -3922,7 +3922,7 @@
   (let ((tbl (memGetWord cg 10)))
     (if (>= i (vecLen tbl))
       cg
-      (let ((lex (vecGet tbl i)))
+      (let ((lex (vecGetStr tbl i)))
         (let ((body (escBody lex 1 (- (strLen lex) 1))))
           (let ((n (+ (/ (strLen body) 3) 1)))
             {
@@ -3987,7 +3987,7 @@
   (if (>= i (vecLen decls))
     false
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeA d) name) (== (vecLen (nodeB d)) 0)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) name) (== (vecLen (nodeB d)) 0)))
         true
         ; A ZERO-ARITY `extern` item is a nullary function too, and
         ; this is the one place that decides so. Without this arm the
@@ -4025,7 +4025,7 @@
       ; `declSpellingOf` records for `main`, which is why that
       ; helper exists at all.
       (let ((f (vecGet items i)))
-        (if (&& (|| (strEq (nodeA f) name) (strEq (nodeCName f) name)) (== (arrowArity (nodeB f)) 0))
+        (if (&& (|| (strEq (nodeAName f) name) (strEq (nodeCName f) name)) (== (arrowArity (nodeB f)) 0))
           true
           (externHasNullary items name (+ i 1))
         )
@@ -4058,7 +4058,7 @@
 (pub fn (scanEffect node cg)
   (let (
     (tbl (memGetWord cg 32))
-    (slot (effSlotFor (nodeA node) (nodeModule node)))
+    (slot (effSlotFor (nodeAName node) (nodeModule node)))
     (isEntry (if (== (nodeModule node) 0)
       1
       0
@@ -4068,7 +4068,7 @@
       cg
       {
         (vecPush
-          tbl          (cast Int (EffEnt (nodeA node) slot isEntry))
+          tbl          (cast Int (EffEnt (nodeAName node) slot isEntry))
         )
         ; The effect's own name under its mangled spelling as well,
         ; for the same reason its operations get one: a `handle`
@@ -4081,7 +4081,7 @@
         (if (== (nodeModule node) 0)
           0
           (vecPush
-            tbl            (cast Int (EffEnt (cat3 (nodeModuleName node) "$" (nodeA node)) slot isEntry))
+            tbl            (cast Int (EffEnt (cat3 (nodeModuleName node) "$" (nodeAName node)) slot isEntry))
           )
         )
         (scanEffectOps
@@ -4106,7 +4106,7 @@
     0
     {
       (vecPush
-        tbl        (cast Int (EffEnt (vecGet ops i) slot isEntry))
+        tbl        (cast Int (EffEnt (vecGetStr ops i) slot isEntry))
       )
       (if (==
         (cast Int modName)        0
@@ -4115,7 +4115,7 @@
         (vecPush
           tbl          (cast Int (EffEnt
             (cat3
-              (cast String modName)              "$"              (vecGet ops i)
+              (cast String modName)              "$"              (vecGetStr ops i)
             )            slot            isEntry
           ))
         )
@@ -4135,7 +4135,7 @@
       (scanEffect node cg)
       (if (== tag TAG_D_DATA)
         (let (
-          (name (nodeA node))
+          (name (nodeAName node))
           (ctors (nodeB node))
         )
           {
@@ -4152,7 +4152,7 @@
           ; name and float flag) where a data constructor's holds
           ; float flags alone - the kind decides the reading.
           (let (
-            (name (nodeA node))
+            (name (nodeAName node))
             (fields (nodeB node))
             (types (memGetWord cg 3))
           )
@@ -4260,7 +4260,7 @@
     ; a stray character in the middle of an argument list.
     (let ((node (vecGet ctors i)))
       (let (
-        (n (nodeA node))
+        (n (nodeAName node))
         (a (nodeB node))
         (t (memGetWord cg 4))
         (types (memGetWord cg 3))
@@ -4493,7 +4493,7 @@
   (if (>= i (vecLen parts))
     0
     {
-      (let ((d (vecGet parts i)))
+      (let ((d (vecGetStr parts i)))
         (if (> (strLen d) 0)
           (vecPush
             v            (cast Int (pathWithSlash d))
@@ -4522,7 +4522,7 @@
 (pub fn (searchDirsFor dirs base i)
   (if (>= i (vecLen dirs))
     ""
-    (let ((cand (cat2 (vecGet dirs i) base)))
+    (let ((cand (cat2 (vecGetStr dirs i) base)))
       (if (!=
         (strLen
           (cast String (sysReadFile (strCStr cand)))
@@ -4745,7 +4745,7 @@
     (- 0 1)
     (if (== (memGetWord (vecGet units i) 2) 0)
       (unitIndexOf units name (+ i 1))
-      (if (strEq (memGetWord (vecGet units i) 2) name)
+      (if (strEq (memGetWordStr (vecGet units i) 2) name)
         i
         (unitIndexOf units name (+ i 1))
       )
@@ -5009,7 +5009,7 @@
   ; which would re-store whatever its two parameters happened to be.
   (if (strEq name "main")
     "__axiom_user_main"
-    (let ((m (memGetWord cg 34)))
+    (let ((m (memGetWordStr cg 34)))
       (if (==
         (cast Int m)        0
       )
@@ -5030,8 +5030,8 @@
 (pub fn (mangledForIn bares fulls name i)
   (if (>= i (vecLen bares))
     name
-    (if (strEq (vecGet bares i) name)
-      (vecGet fulls i)
+    (if (strEq (vecGetStr bares i) name)
+      (vecGetStr fulls i)
       (mangledForIn bares fulls name (+ i 1))
     )
   )
@@ -5047,7 +5047,7 @@
     {
       (let ((d (vecGet decls i)))
         (if (== (nodeTag d) TAG_D_FN)
-          (mangleRecord bares fulls (nodeA d) (nodeA d))
+          (mangleRecord bares fulls (nodeAName d) (nodeAName d))
           ; An `extern` item maps its AXIOM name to its LINKER SYMBOL,
           ; which is what makes the call site need no new code at all:
           ; `mangledFor` already resolves through these two vectors, so
@@ -5075,7 +5075,7 @@
       ; parser resolved (defaulting to the Axiom name).
       {
         (let ((f (vecGet items i)))
-          (mangleRecord bares fulls (nodeA f) (nodeCName f))
+          (mangleRecord bares fulls (nodeAName f) (nodeCName f))
         )
         (recordExternSyms bares fulls items (+ i 1))
       }
@@ -5141,7 +5141,7 @@
           (resolveDeclsPhase
             decls            acc            seen            (+ i 1)            modName            bares            fulls            mods            filter            tcode            entryDir            units            phase
           )
-          (let ((name (memGetWord first 1)))
+          (let ((name (memGetWordStr first 1)))
             (if (seenHas seen name)
               (resolveDeclsPhase
                 decls                acc                seen                (+ i 1)                modName                bares                fulls                mods                filter                tcode                entryDir                units                phase
@@ -5212,7 +5212,7 @@
           ; knows which module a declaration came from.
           (let ((exported 
             (if (&&
-              (filterKeeps filter (nodeA first))              (||
+              (filterKeeps filter (nodeAName first))              (||
                 (==
                   (cast Int modName)                  0
                 )                (== (nodeVis first) 1)
@@ -6424,7 +6424,7 @@
           ; comment the driver reads beside the declares: it is
           ; what lets `axiom build` link `-l<lib>` without being
           ; told, and name the block in a grounding diagnostic
-          (emitExternItems (nodeC d) (emitLine cg (cat2 "; axiom-extern-lib " (nodeA d))) 0 seen)
+          (emitExternItems (nodeC d) (emitLine cg (cat2 "; axiom-extern-lib " (nodeAName d))) 0 seen)
           cg
         )        (+ i 1)        seen
       )
@@ -6515,7 +6515,7 @@
 (pub fn (externSeen seen sym i)
   (if (>= i (vecLen seen))
     0
-    (if (strEq (vecGet seen i) sym)
+    (if (strEq (vecGetStr seen i) sym)
       1
       (externSeen seen sym (+ i 1))
     )
@@ -6946,9 +6946,9 @@
   ; tail-aware emission whenever a leaf needs event 2's
   ; retain, not only when a self call is to be rewritten
   (let (
-    (name (if (strEq (nodeA node) "main")
+    (name (if (strEq (nodeAName node) "main")
       "__axiom_user_main"
-      (nodeA node)
+      (nodeAName node)
     ))
     (params (nodeB node))
     (body (lowerConds (nodeC node)))
@@ -7002,7 +7002,7 @@
                 )
               ))
                 (let ((cg1b cg1))
-                  (let ((selfName (bareOf (nodeA node))))
+                  (let ((selfName (bareOf (nodeAName node))))
                     (let ((wantsTCO (tailCallsSelf body selfName (vecLen params))))
                       (let ((cg1p 
                         (if (&& (== wantsTCO 1) (== takesEv 1))
@@ -7066,7 +7066,7 @@
                                     cg2
                                   )
                                 ))
-                                  (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cgP 2)) "")))
+                                  (let ((ret (cat3 "  ret i64 " (strDup (memGetWordStr cgP 2)) "")))
                                     (emitLine (emitLine (closeAllocaMark cgP) ret) "}")
                                   )
                                 )
@@ -7145,7 +7145,7 @@
           }
           (if (== tg TAG_E_APP)
             (let ((hd (spineHead e)))
-              (if (&& (== (nodeTag hd) TAG_E_VAR) (strEq (mangledForCg cg (nodeA hd)) self))
+              (if (&& (== (nodeTag hd) TAG_E_VAR) (strEq (mangledForCg cg (nodeAName hd)) self))
                 0
                 (if (== (tailOwnedApp cg e params env) 1)
                   0
@@ -7187,11 +7187,11 @@
                     )
                     (if (== tg TAG_E_LET)
                       (collectTails
-                        cg                        (nodeC e)                        params                        (envWith env (nodeA e) (tailOwned cg (nodeB e) params env))                        self                        acc
+                        cg                        (nodeC e)                        params                        (envWith env (nodeAName e) (tailOwned cg (nodeB e) params env))                        self                        acc
                       )
                       (if (== tg TAG_E_LETM)
                         (collectTails
-                          cg                          (nodeC e)                          params                          (envWith env (nodeA e) 0)                          self                          acc
+                          cg                          (nodeC e)                          params                          (envWith env (nodeAName e) 0)                          self                          acc
                         )
                         (if (== tg TAG_E_SET)
                           ; `(set k v)` answers `v`: a leaf when `v` is borrowed
@@ -7326,7 +7326,7 @@
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       0
-      (let ((e (findFSig (memGetWord cg 15) (nodeA d))))
+      (let ((e (findFSig (memGetWord cg 15) (nodeAName d))))
         (if (== e 0)
           0
           (if (== (fldClass cg (arrowParamTy (memGetWord e 3) i)) 2)
@@ -7351,7 +7351,7 @@
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       (- 0 1)
-      (let ((e (findFSig (memGetWord cg 15) (nodeA d))))
+      (let ((e (findFSig (memGetWord cg 15) (nodeAName d))))
         (if (== e 0)
           (- 0 1)
           (if (== (memGetWord e 4) 0)
@@ -7364,7 +7364,7 @@
                   (let ((vars vecNew))
                     {
                       (cgSigVarsInto (memGetWord e 3) vars)
-                      (strVecIdx vars (nodeA tn))
+                      (strVecIdx vars (nodeAName tn))
                     }
                   )
                 )
@@ -7390,11 +7390,11 @@
     ; call arrived with
     (let ((cg1 
       (if (== (curParamRefClass cg i) 1)
-        (emitRetainOf cg (cat2 "%" (llvmSym (strDup (vecGet params i)))))
+        (emitRetainOf cg (cat2 "%" (llvmSym (strDup (vecGetStr params i)))))
         (let ((k (curParamEvBit cg i)))
           (if (< k 0)
             cg
-            (emitRetainIfEvBit cg (cat2 "%" (llvmSym (strDup (vecGet params i)))) k)
+            (emitRetainIfEvBit cg (cat2 "%" (llvmSym (strDup (vecGetStr params i)))) k)
           )
         )
       )
@@ -7431,7 +7431,7 @@
     0
     ; `%s.N`, not `%aN`: a parameter named `a1` is `%a1` already
     (let (
-      (pname (vecGet params i))
+      (pname (vecGetStr params i))
       (an (allocReg cg))
     )
       (let ((ar (cat2 "%s." (fmtInt an))))
@@ -7503,9 +7503,9 @@
           (>= (lookupSymKind cg "__evw.") 1)
         )
           (let ((cgO (emitEvwRead cg)))
-            (let ((oldW (strDup (memGetWord cgO 2))))
+            (let ((oldW (strDup (memGetWordStr cgO 2))))
               (let ((cgV (emitEvWordVal cgO stamp)))
-                (let ((newW (strDup (memGetWord cgV 2))))
+                (let ((newW (strDup (memGetWordStr cgV 2))))
                   {
                     (emitLine
                       cgV                      (cat4
@@ -7584,7 +7584,7 @@
       ; their scope ends are past the jump and will not be reached on
       ; this path; the values the slots keep were retained above
       (releasePending cg (memGetWord cg 42) 0)
-      (emitLine cg (cat2 "  br label %" (memGetWord cg 29)))
+      (emitLine cg (cat2 "  br label %" (memGetWordStr cg 29)))
       (memSetWord cg 31 1)
       (memSetWord cg 2 "0")
       cg
@@ -7603,7 +7603,7 @@
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       0
-      (let ((e (findFSigCg cg (nodeA d))))
+      (let ((e (findFSigCg cg (nodeAName d))))
         (if (== e 0)
           0
           (memGetWord e 7)
@@ -7619,7 +7619,7 @@
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       0
-      (let ((e (findFSigCg cg (nodeA d))))
+      (let ((e (findFSigCg cg (nodeAName d))))
         (if (== e 0)
           0
           (memGetWord e 8)
@@ -7669,7 +7669,7 @@
         (if (== owned 0)
           cg
           (if (== (curParamRefClass cg i) 1)
-            (emitReleaseOf cg (vecGet vals i))
+            (emitReleaseOf cg (vecGetStr vals i))
             (let ((k (curParamEvBit cg i)))
               (if (< k 0)
                 cg
@@ -7696,7 +7696,7 @@
 
 (pub fn (releaseRefParamSlots cg)
   (let (
-    (v (strDup (memGetWord cg 2)))
+    (v (strDup (memGetWordStr cg 2)))
     (fl (memGetWord cg 14))
     (slots (memGetWord cg 28))
   )
@@ -7723,18 +7723,18 @@
       ; 2), and the slot's share goes back
       (releaseRefParamSlotsFrom cg slots (+ i 1))
       (if (== (curParamRefClass cg i) 1)
-        (let ((cgL (loadFromSlot cg (vecGet slots i))))
-          (releaseRefParamSlotsFrom (emitReleaseOf cgL (strDup (memGetWord cgL 2))) slots (+ i 1))
+        (let ((cgL (loadFromSlot cg (vecGetStr slots i))))
+          (releaseRefParamSlotsFrom (emitReleaseOf cgL (strDup (memGetWordStr cgL 2))) slots (+ i 1))
         )
         (let ((k (curParamEvBit cg i)))
           (if (< k 0)
             (releaseRefParamSlotsFrom cg slots (+ i 1))
             ; a type-variable slot: by the word current for it
-            (let ((cgL (loadFromSlot cg (vecGet slots i))))
-              (let ((v (strDup (memGetWord cgL 2))))
+            (let ((cgL (loadFromSlot cg (vecGetStr slots i))))
+              (let ((v (strDup (memGetWordStr cgL 2))))
                 (let ((cgW (emitEvwRead cgL)))
                   (releaseRefParamSlotsFrom (emitRcIfBitOf
-                    cgW                    v                    k                    (strDup (memGetWord cgW 2))                    0
+                    cgW                    v                    k                    (strDup (memGetWordStr cgW 2))                    0
                   ) slots (+ i 1))
                 )
               )
@@ -7755,7 +7755,7 @@
       (if (== (vecGet same i) 1)
         cg
         (if (== (curParamRefClass cg i) 1)
-          (emitRetainOf cg (vecGet vals i))
+          (emitRetainOf cg (vecGetStr vals i))
           (let ((k (curParamEvBit cg i)))
             (if (< k 0)
               cg
@@ -7786,11 +7786,11 @@
         (vecPush
           out          (if (!= (nodeTag a) TAG_E_VAR)
             0
-            (let ((r (lookupSym cg (nodeA a))))
+            (let ((r (lookupSym cg (nodeAName a))))
               (if (== r 0)
                 0
                 (if (strEq
-                  (cast String r)                  (vecGet slots i)
+                  (cast String r)                  (vecGetStr slots i)
                 )
                   1
                   0
@@ -7815,8 +7815,8 @@
     {
       (if (|| (== (curParamRefClass cg i) 1) (>= (curParamEvBit cg i) 0))
         {
-          (loadFromSlot cg (vecGet slots i))
-          (vecPush olds (strDup (memGetWord cg 2)))
+          (loadFromSlot cg (vecGetStr slots i))
+          (vecPush olds (strDup (memGetWordStr cg 2)))
         }
         (vecPush olds "")
       )
@@ -7837,7 +7837,7 @@
       (if (|| (== (vecGet same i) 1) (!= (& (curFnStashMask cg) (| (paramBit i) (ownerBit i))) 0))
         cg
         (if (== (curParamRefClass cg i) 1)
-          (emitReleaseOf cg (vecGet olds i))
+          (emitReleaseOf cg (vecGetStr olds i))
           (let ((k (curParamEvBit cg i)))
             (if (< k 0)
               cg
@@ -7880,7 +7880,7 @@
     0
     {
       (emitExpr (vecGet args i) cg)
-      (vecPush vals (strDup (memGetWord cg 2)))
+      (vecPush vals (strDup (memGetWordStr cg 2)))
       (evalTailArgs args vals cg (+ i 1))
     }
   )
@@ -7892,7 +7892,7 @@
   (if (>= i (vecLen slots))
     0
     {
-      (emitLine cg (cat4 "  store i64 " (vecGet vals i) ", ptr " (vecGet slots i)))
+      (emitLine cg (cat4 "  store i64 " (vecGetStr vals i) ", ptr " (vecGetStr slots i)))
       (storeTailSlots slots vals cg (+ i 1))
     }
   )
@@ -7938,7 +7938,7 @@
           (if (== tag TAG_E_MATCH)
             (armsCallSelf (nodeB e) name arity 0)
             (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
-              (if (strEq (nodeA e) name)
+              (if (strEq (nodeAName e) name)
                 0
                 (tailCallsSelf (nodeC e) name arity)
               )
@@ -7987,7 +7987,7 @@
   (if (== (nodeTag e) TAG_E_APP)
     (spineHeadName (nodeA e))
     (if (== (nodeTag e) TAG_E_VAR)
-      (nodeA e)
+      (nodeAName e)
       ""
     )
   )
@@ -8054,7 +8054,7 @@
         (let ((cg1 (emitExpr e cg)))
           (let ((cg2 
             (if (== (valueOwnedRef cg1 e) 1)
-              (emitReleaseOf cg1 (strDup (memGetWord cg1 2)))
+              (emitReleaseOf cg1 (strDup (memGetWordStr cg1 2)))
               cg1
             )
           ))
@@ -8085,7 +8085,7 @@
     (ff (memAlloc 8))
     (_0 (memSetWord ff 0 (- 0 1)))
     (cg1 (emitExpr scrutExpr cg))
-    (sv (strDup (memGetWord cg1 2)))
+    (sv (strDup (memGetWordStr cg1 2)))
     (cn (allocReg cg1))
     (cell (regStr cn))
     (_1 (emitLine cg1 (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" "")))
@@ -8156,7 +8156,7 @@
               (if (== termd 1)
                 0
                 {
-                  (storeWordAt cgB cell 0 (strDup (memGetWord cgB 2)))
+                  (storeWordAt cgB cell 0 (strDup (memGetWordStr cgB 2)))
                   (emitLine cgB (cat2 "  br label %" mergeB))
                   0
                 }
@@ -8188,7 +8188,7 @@
     (thenExpr (nodeB node))
     (elseExpr (nodeC node))
     (cg1 (emitExpr testExpr cg))
-    (testReg (strDup (memGetWord cg1 2)))
+    (testReg (strDup (memGetWordStr cg1 2)))
     (cmpN (allocReg cg1))
     (thenLbl (allocReg cg1))
     (elseLbl (allocReg cg1))
@@ -8202,9 +8202,9 @@
     (_3 (emitLabel cg1 thenB))
     (cg2 (emitExprTail thenExpr cg1))
     (thenTerm (memGetWord cg2 31))
-    (thenVal (strDup (memGetWord cg2 2)))
+    (thenVal (strDup (memGetWordStr cg2 2)))
     (thenFlag (memGetWord cg2 14))
-    (thenPred (strDup (memGetWord cg2 11)))
+    (thenPred (strDup (memGetWordStr cg2 11)))
     (_4 (if (== thenTerm 1)
       0
       (emitLine cg2 (cat2 "  br label %" mergeB))
@@ -8213,8 +8213,8 @@
     (_5 (emitLabel cg2 elseB))
     (cg3 (emitExprTail elseExpr cg2))
     (elseTerm (memGetWord cg3 31))
-    (elseVal (strDup (memGetWord cg3 2)))
-    (elsePred (strDup (memGetWord cg3 11)))
+    (elseVal (strDup (memGetWordStr cg3 2)))
+    (elsePred (strDup (memGetWordStr cg3 11)))
     (_6 (if (== elseTerm 1)
       0
       (emitLine cg3 (cat2 "  br label %" mergeB))
@@ -8272,7 +8272,7 @@
   (if (>= i (vecLen params))
     ""
     (let (
-      (pname (vecGet params i))
+      (pname (vecGetStr params i))
       (rest (emitParams params cg (+ i 1)))
     )
       (if (== (strLen rest) 0)
@@ -8340,7 +8340,7 @@
     (if (>= i (vecLen src))
       0
       {
-        (let ((name (vecGet src i)))
+        (let ((name (vecGetStr src i)))
           (if (>= (strIndexIn lparams name) 0)
             0
             (if (>= (strIndexIn out name) 0)
@@ -8374,7 +8374,7 @@
 (pub fn (strIndexFrom v name i)
   (if (>= i (vecLen v))
     (- 0 1)
-    (if (strEq (vecGet v i) name)
+    (if (strEq (vecGetStr v i) name)
       i
       (strIndexFrom v name (+ i 1))
     )
@@ -8389,9 +8389,9 @@
 (pub fn (capValues cg capNames capRegs capFloats i)
   (if (>= i (vecLen capNames))
     cg
-    (let ((cg1 (emitVar (mkEVar (vecGet capNames i)) cg)))
+    (let ((cg1 (emitVar (mkEVar (vecGetStr capNames i)) cg)))
       {
-        (vecPush capRegs (strDup (memGetWord cg1 2)))
+        (vecPush capRegs (strDup (memGetWordStr cg1 2)))
         (vecPush capFloats (memGetWord cg1 14))
         (capValues
           cg1          capNames          capRegs          capFloats          (+ i 1)
@@ -8516,7 +8516,7 @@
 (pub fn (lamShapeBits cg capNames i)
   (if (>= i (vecLen capNames))
     0
-    (let ((pi (curParamIndex cg (vecGet capNames i))))
+    (let ((pi (curParamIndex cg (vecGetStr capNames i))))
       (+
         (if (if (< pi 0)
           false
@@ -8546,13 +8546,13 @@
 (pub fn (retainParamCaps cg capNames capRegs i)
   (if (>= i (vecLen capNames))
     cg
-    (let ((pi (curParamIndex cg (vecGet capNames i))))
+    (let ((pi (curParamIndex cg (vecGetStr capNames i))))
       (let ((cg1 
         (if (if (< pi 0)
           false
           (== (curParamRefClass cg pi) 1)
         )
-          (emitRetainOf cg (vecGet capRegs i))
+          (emitRetainOf cg (vecGetStr capRegs i))
           cg
         )
       ))
@@ -8567,7 +8567,7 @@
 (pub fn (storeCaps cg base capRegs i)
   (if (>= i (vecLen capRegs))
     cg
-    (storeCaps (storeWordAt cg base (+ 1 i) (vecGet capRegs i)) base capRegs (+ i 1))
+    (storeCaps (storeWordAt cg base (+ 1 i) (vecGetStr capRegs i)) base capRegs (+ i 1))
   )
 )
 
@@ -8596,7 +8596,7 @@
   ; already scanned once by `emitResolved`, and nothing clears
   ; the types table between bodies.
   (let (
-    (lname (memGetWord d 0))
+    (lname (memGetWordStr d 0))
     (lparams (memGetWord d 1))
     (body (memGetWord d 2))
     (capNames (memGetWord d 3))
@@ -8635,7 +8635,7 @@
           (let ((cg1b cg1))
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
               (let ((cg2 (emitExpr body cg1c)))
-                (let ((ret (cat3 "  ret i64 " (strDup (memGetWord cg2 2)) "")))
+                (let ((ret (cat3 "  ret i64 " (strDup (memGetWordStr cg2 2)) "")))
                   (emitLine (emitLine (closeAllocaMark cg2) ret) "}")
                 )
               )
@@ -8655,7 +8655,7 @@
     (let ((cg1 (loadWordAt cg "%_env" (+ 1 i))))
       {
         (bindSym
-          cg1          (vecGet capNames i)          (strDup (memGetWord cg1 2))          (vecGet capFloats i)          0
+          cg1          (vecGetStr capNames i)          (strDup (memGetWordStr cg1 2))          (vecGet capFloats i)          0
         )
         (bindCaps cg1 capNames capFloats (+ i 1))
       }
@@ -8692,7 +8692,7 @@
   (if (>= i (vecLen decls))
     0
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeA d) full))
+      (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeAName d) full))
         (vecLen (nodeB d))
         (fnArityIn decls full (+ i 1))
       )
@@ -8725,7 +8725,7 @@
   ; sentence is unreachable under this type system, and
   ; memory-model.md now says so.
   (let (
-    (full (vecGet (memGetWord cg 23) i))
+    (full (vecGetStr (memGetWord cg 23) i))
     (ar (vecGet (memGetWord cg 24) i))
   )
     (let ((cg1 (emitLine cg (strConcat (cat4 "define i64 @_thunk_" (fmtInt i) "(i64 %_env" (thunkParamStr ar 0)) ") #0 {"))))
@@ -8867,7 +8867,7 @@
     (ff (memAlloc 8))
     (_0 (memSetWord ff 0 (- 0 1)))
     (cg1 (emitExpr scrutExpr cg))
-    (sv (strDup (memGetWord cg1 2)))
+    (sv (strDup (memGetWordStr cg1 2)))
     (cn (allocReg cg1))
     (cell (regStr cn))
     (_1 (emitLine cg1 (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" "")))
@@ -8925,7 +8925,7 @@
 
 (pub fn (releaseScrutinee sv cg)
   (let (
-    (v (strDup (memGetWord cg 2)))
+    (v (strDup (memGetWordStr cg 2)))
     (fl (memGetWord cg 14))
   )
     (let ((cgR (emitReleaseOf cg sv)))
@@ -8975,7 +8975,7 @@
             (memSetWord ff 0 (memGetWord cgB 14))
             0
           ))
-          (bv (strDup (memGetWord cgB 2)))
+          (bv (strDup (memGetWordStr cgB 2)))
           (_d (storeWordAt cgB cell 0 bv))
           (_e (emitLine cgB (cat2 "  br label %" mergeB)))
           (_f (emitLabel cgB nextB))
@@ -9045,7 +9045,7 @@
             ; AX3004 (`checkPatternTyped`). tests/selfhost/996 pins the
             ; agreement of the two.
             (let ((cgS (emitStrExpr pat cg)))
-              (emitPatStrTest (strDup (memGetWord cgS 2)) vr failB cgS)
+              (emitPatStrTest (strDup (memGetWordStr cgS 2)) vr failB cgS)
             )
             (if (== tag TAG_E_VAR)
               ; `true`/`false` are literal tests. Every OTHER bare name - a
@@ -9053,12 +9053,12 @@
               ; identifier in pattern position as a variable pattern, and
               ; only the parenthesised `(Nil)` (TAG_P_CON0 below) tests a
               ; tag. `_` is just a name nobody references.
-              (if (strEq (nodeA pat) "true")
+              (if (strEq (nodeAName pat) "true")
                 (emitPatTest (constStr 1) vr failB cg)
-                (if (strEq (nodeA pat) "false")
+                (if (strEq (nodeAName pat) "false")
                   (emitPatTest (constStr 0) vr failB cg)
                   (bindSym
-                    cg                    (nodeA pat)                    (strDup vr)                    isFloat                    0
+                    cg                    (nodeAName pat)                    (strDup vr)                    isFloat                    0
                   )
                 )
               )
@@ -9069,15 +9069,15 @@
                 ; small immediate tag, so the arm just fails. Only a nullary
                 ; constructor of a non-unboxing type is still a one-word block
                 ; whose tag loads from word 0.
-                (let ((entry (lookupType (memGetWord cg 3) (nodeA pat))))
+                (let ((entry (lookupType (memGetWord cg 3) (nodeAName pat))))
                   (if (== entry 0)
                     (bindSym
-                      cg                      (nodeA pat)                      (strDup vr)                      isFloat                      0
+                      cg                      (nodeAName pat)                      (strDup vr)                      isFloat                      0
                     )
                     (if (!= (eRep entry) 0)
                       (emitPatTest (constStr (eTag entry)) vr failB cg)
                       (let ((cgL (loadWordAt cg vr 0)))
-                        (emitPatTest (constStr (eTag entry)) (strDup (memGetWord cgL 2)) failB cgL)
+                        (emitPatTest (constStr (eTag entry)) (strDup (memGetWordStr cgL 2)) failB cgL)
                       )
                     )
                   )
@@ -9090,12 +9090,12 @@
                 ; rather than binding by position, which would be a silent wrong
                 ; answer.
                 (if (== tag TAG_P_CONNAMED)
-                  (let ((ent (lookupType (memGetWord cg 3) (nodeA pat))))
+                  (let ((ent (lookupType (memGetWord cg 3) (nodeAName pat))))
                     (if (|| (== ent 0) (== (eFieldNames ent) 0))
                       cg
                       (emitPatMatch
                         (namedPatSpine
-                          (nodeA pat)                          (eFieldNames ent)                          (nodeB pat)                          (nodeC pat)                          (nodeSpan pat)
+                          (nodeAName pat)                          (eFieldNames ent)                          (nodeB pat)                          (nodeC pat)                          (nodeSpan pat)
                         )                        vr                        failB                        cg                        isFloat
                       )
                     )
@@ -9126,7 +9126,7 @@
                               (loadWordAt cg vr 0)
                             )
                           ))
-                            (let ((cgT (emitPatTest (constStr (eTag entry)) (strDup (memGetWord cgL 2)) failB cgL)))
+                            (let ((cgT (emitPatTest (constStr (eTag entry)) (strDup (memGetWordStr cgL 2)) failB cgL)))
                               (emitPatFields
                                 (patArgs pat vecNew)                                (eFieldFlags entry)                                vr                                failB                                cgT                                0
                               )
@@ -9179,7 +9179,7 @@
                 (let ((cg6 (emitLine cg5 (cat2 "  br label %" mergeB))))
                   (let ((cg7 (emitLabel cg6 boxB)))
                     (let ((cg8 (loadWordAt cg7 vr 0)))
-                      (let ((cg9 (storeWordAt cg8 cell 0 (strDup (memGetWord cg8 2)))))
+                      (let ((cg9 (storeWordAt cg8 cell 0 (strDup (memGetWordStr cg8 2)))))
                         (let ((cg10 (emitLine cg9 (cat2 "  br label %" mergeB))))
                           (let ((cg11 (emitLabel cg10 mergeB)))
                             (loadWordAt cg11 cell 0)
@@ -9244,7 +9244,7 @@
     cg
     (let ((cgL (loadWordAt cg vr (+ i 1))))
       (let (
-        (fr (strDup (memGetWord cgL 2)))
+        (fr (strDup (memGetWordStr cgL 2)))
         (fl (if (== flags 0)
           0
           (if (< i (vecLen flags))
@@ -9307,7 +9307,7 @@
         cg
         (if (== (nodeInVec tr node 0) 1)
           (let (
-            (v (strDup (memGetWord cg 2)))
+            (v (strDup (memGetWordStr cg 2)))
             (fl (memGetWord cg 14))
           )
             (let ((cgR (emitRetainOf cg v)))
@@ -9448,7 +9448,7 @@
 (pub fn (handleEffectEntFrom effs cg i)
   (if (>= i (vecLen effs))
     0
-    (let ((e (lookupEffFor cg (memGetWord cg 32) (nodeA (vecGet effs i)))))
+    (let ((e (lookupEffFor cg (memGetWord cg 32) (nodeAName (vecGet effs i)))))
       (if (!= e 0)
         e
         (handleEffectEntFrom effs cg (+ i 1))
@@ -9502,7 +9502,7 @@
   (let ((_0 (memSetWord cg 30 0)))
     (let ((cgH (emitExpr (nodeC node) cg)))
       (let (
-        (hval (strDup (memGetWord cgH 2)))
+        (hval (strDup (memGetWordStr cgH 2)))
         (recN (allocReg cgH))
         (oldN (allocReg cgH))
       )
@@ -9527,7 +9527,7 @@
           )
             (let ((cgB (emitExpr (nodeA node) cgH)))
               (let (
-                (res (strDup (memGetWord cgB 2)))
+                (res (strDup (memGetWordStr cgB 2)))
                 (flag (memGetWord cgB 14))
               )
                 {
@@ -9608,12 +9608,12 @@
             (_7 (emitLabel cgA goB))
           )
             (let ((cgL (loadWordAt cgA rec 0)))
-              (let ((handler (strDup (memGetWord cgL 2))))
+              (let ((handler (strDup (memGetWordStr cgL 2))))
                 (let ((cgP (loadWordAt cgL rec 1)))
-                  (let ((prev (strDup (memGetWord cgP 2))))
+                  (let ((prev (strDup (memGetWordStr cgP 2))))
                     (let ((_8 (emitLine cgP (cat4 "  store i64 " prev ", ptr @" slot))))
                       (let ((cgR (emitApplyRegs regs cgP handler 0)))
-                        (let ((res (strDup (memGetWord cgR 2))))
+                        (let ((res (strDup (memGetWordStr cgR 2))))
                           {
                             (emitLine cgR (cat4 "  store i64 " rec ", ptr @" slot))
                             (memSetWord cgR 2 res)
@@ -9643,7 +9643,7 @@
     cg
     (let ((cgA (emitExpr (vecGet args i) cg)))
       {
-        (vecPush out (strDup (memGetWord cgA 2)))
+        (vecPush out (strDup (memGetWordStr cgA 2)))
         (emitArgRegs args cgA out (+ i 1))
       }
     )
@@ -9664,8 +9664,8 @@
       (memSetWord cg 14 0)
       cg
     }
-    (let ((cgR (applyOneArg cg rec (vecGet regs i))))
-      (emitApplyRegs regs cgR (strDup (memGetWord cgR 2)) (+ i 1))
+    (let ((cgR (applyOneArg cg rec (vecGetStr regs i))))
+      (emitApplyRegs regs cgR (strDup (memGetWordStr cgR 2)) (+ i 1))
     )
   )
 )
@@ -9750,7 +9750,7 @@
     (types (memGetWord cg 3))
     (args (nodeB node))
   )
-    (let ((entry (lookupType types (nodeA node))))
+    (let ((entry (lookupType types (nodeAName node))))
       (if (== entry 0)
         {
           (memSetWord cg 2 (constStr 0))
@@ -9789,7 +9789,7 @@
 (pub fn (emitSetF node cg)
   (let ((cgB (emitExpr (nodeA node) cg)))
     (let (
-      (base (strDup (memGetWord cgB 2)))
+      (base (strDup (memGetWordStr cgB 2)))
       (fi (resolveStructField (memGetWord cgB 3) node))
     )
       (if (== fi 0)
@@ -9806,12 +9806,12 @@
           ))
             (let ((old 
               (if owns
-                (strDup (memGetWord cgL 2))
+                (strDup (memGetWordStr cgL 2))
                 ""
               )
             ))
               (let ((cgV (emitExpr (nodeC node) cgL)))
-                (let ((v (strDup (memGetWord cgV 2))))
+                (let ((v (strDup (memGetWordStr cgV 2))))
                   (let ((cgR 
                     (if (&& owns (!= (argIsDirectCon cgV (nodeC node)) 1))
                       (emitRetainOf cgV v)
@@ -9868,7 +9868,7 @@
 (pub fn (emitField node cg)
   (let ((cgB (emitExpr (nodeA node) cg)))
     (let (
-      (base (strDup (memGetWord cgB 2)))
+      (base (strDup (memGetWordStr cgB 2)))
       (fi (resolveStructField (memGetWord cgB 3) node))
     )
       (if (== fi 0)
@@ -9933,7 +9933,7 @@
 (pub fn (dataFieldIndexIn names fname i)
   (if (>= i (vecLen names))
     (- 0 1)
-    (if (strEq (vecGet names i) fname)
+    (if (strEq (vecGetStr names i) fname)
       i
       (dataFieldIndexIn names fname (+ i 1))
     )
@@ -10032,7 +10032,7 @@
 (pub fn (fieldIndexIn fields name i)
   (if (>= i (vecLen fields))
     (- 0 1)
-    (if (strEq (nodeA (vecGet fields i)) name)
+    (if (strEq (nodeAName (vecGet fields i)) name)
       i
       (fieldIndexIn fields name (+ i 1))
     )
@@ -10091,7 +10091,7 @@
   ; primitive, and calls it "the only one that could go wrong".
   ; Both are nullary and neither is polymorphic, so the stamp a
   ; bare reference cannot carry is the constant 0 here.
-  (let ((name (nodeA node)))
+  (let ((name (nodeAName node)))
     (if (|| (strEq name "__argc") (strEq name "__axiom_arena_mark"))
       (zeroFloat (emitPrim name vecNew cg 0))
       ; Same rule as `checkVar`: a reference a macro template produced
@@ -10262,7 +10262,7 @@
 (pub fn (paramIndexIn params name i)
   (if (>= i (vecLen params))
     (- 0 1)
-    (if (strEq (vecGet params i) name)
+    (if (strEq (vecGetStr params i) name)
       i
       (paramIndexIn params name (+ i 1))
     )
@@ -10284,7 +10284,7 @@
   (if (>= i (vecLen decls))
     false
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeA d) name) (> (vecLen (nodeB d)) 0)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) name) (> (vecLen (nodeB d)) 0)))
         true
         (isDefinedFnIn decls name (+ i 1))
       )
@@ -10305,7 +10305,7 @@
 (pub fn (lookupSymFloatIn syms flags name i)
   (if (< i 0)
     0
-    (if (strEq (vecGet syms i) name)
+    (if (strEq (vecGetStr syms i) name)
       (if (< i (vecLen flags))
         (vecGet flags i)
         0
@@ -10331,7 +10331,7 @@
 (pub fn (lookupSymIn syms regs name i)
   (if (< i 0)
     0
-    (if (strEq (vecGet syms i) name)
+    (if (strEq (vecGetStr syms i) name)
       (vecGet regs i)
       (lookupSymIn syms regs name (- i 1))
     )
@@ -10364,7 +10364,7 @@
         ; declaration being emitted, and threaded as a parameter - a
         ; CG-stash read later would be clobbered by any nested
         ; polymorphic call in an argument (MM-LIFE-2d)
-        (dispatchCall (nodeA fnNode) (evStampOk cg (memGetWord fnNode 6)) cg (nodeDefScope fnNode))
+        (dispatchCall (nodeAName fnNode) (evStampOk cg (memGetWord fnNode 6)) cg (nodeDefScope fnNode))
         (if (== (nodeTag fnNode) TAG_E_APP)
           (walkAppChain fnNode cg)
           ; A head that is neither a name nor another application - a
@@ -10388,7 +10388,7 @@
             {
               (memSetWord cg 30 0)
               (let ((cgH (emitExpr fnNode cg)))
-                (emitApplyChain args cgH (strDup (memGetWord cgH 2)) 0)
+                (emitApplyChain args cgH (strDup (memGetWordStr cgH 2)) 0)
               )
             }
           )
@@ -10450,7 +10450,7 @@
               (memSetWord
                 cgc                14                (if (>= n 2)
                   (let ((tyNode (vecGet args 0)))
-                    (if (&& (== (nodeTag tyNode) TAG_E_VAR) (strEq (nodeA tyNode) "Float"))
+                    (if (&& (== (nodeTag tyNode) TAG_E_VAR) (strEq (nodeAName tyNode) "Float"))
                       1
                       0
                     )
@@ -10463,7 +10463,7 @@
                 ; the surplus applies one argument at a time from
                 ; position 2 - each application may yield another
                 ; closure, which is exactly the curried case.
-                (emitApplyChain args cgc (strDup (memGetWord cgc 2)) 2)
+                (emitApplyChain args cgc (strDup (memGetWordStr cgc 2)) 2)
                 cgc
               )
             }
@@ -10517,7 +10517,7 @@
                       ; claimed the call above, and rewriting it as a jump to
                       ; the function would be an infinite loop where the
                       ; correct answer is a value.
-                      (if (&& (== isTail 1) (&& (!= (memGetWord cg 27) 0) (&& (strEq fnName (memGetWord cg 27)) (== (vecLen args) (vecLen (memGetWord cg 28))))))
+                      (if (&& (== isTail 1) (&& (!= (memGetWord cg 27) 0) (&& (strEq fnName (memGetWordStr cg 27)) (== (vecLen args) (vecLen (memGetWord cg 28))))))
                         (emitTailJump args stamp cg)
                         (emitOverApplied fnName args stamp cg)
                       )
@@ -10560,7 +10560,7 @@
 
 (pub fn (emitIndirectCall fnName args cg)
   (let ((cgH (emitVar (mkEVar fnName) cg)))
-    (emitApplyChain args cgH (strDup (memGetWord cgH 2)) 0)
+    (emitApplyChain args cgH (strDup (memGetWordStr cgH 2)) 0)
   )
 )
 
@@ -10574,9 +10574,9 @@
       cg
     }
     (let ((cgA (emitExpr (vecGet args i) cg)))
-      (let ((a (strDup (memGetWord cgA 2))))
+      (let ((a (strDup (memGetWordStr cgA 2))))
         (let ((cgR (applyOneArg cgA rec a)))
-          (emitApplyChain args cgR (strDup (memGetWord cgR 2)) (+ i 1))
+          (emitApplyChain args cgR (strDup (memGetWordStr cgR 2)) (+ i 1))
         )
       )
     )
@@ -10597,7 +10597,7 @@
 (pub fn (applyOneArg cg rec a)
   (let ((cgL (loadWordAt cg rec 0)))
     (let (
-      (cp (strDup (memGetWord cgL 2)))
+      (cp (strDup (memGetWordStr cgL 2)))
       (fpn (allocReg cgL))
       (rn (allocReg cgL))
     )
@@ -10774,10 +10774,10 @@
 
 (pub fn (emitPrimCallWord args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
-    (let ((fnv (strDup (memGetWord cg1 2))))
+    (let ((fnv (strDup (memGetWordStr cg1 2))))
       (let ((cg2 (emitExpr (vecGet args 1) cg1)))
         (let (
-          (av (strDup (memGetWord cg2 2)))
+          (av (strDup (memGetWordStr cg2 2)))
           (pn (allocReg cg2))
           (rn (allocReg cg2))
         )
@@ -10808,7 +10808,7 @@
 
 (pub fn (emitPrimRetRel args cg sym)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
-    (let ((h (strDup (memGetWord cg1 2))))
+    (let ((h (strDup (memGetWordStr cg1 2))))
       {
         (emitLine cg1 (cat4 "  call void " sym "(i64 " (cat2 h ")")))
         (memSetWord cg1 2 "0")
@@ -10841,7 +10841,7 @@
 (pub fn (emitPrimRetainRef args cg stamp)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
-      (v (strDup (memGetWord cg1 2)))
+      (v (strDup (memGetWordStr cg1 2)))
       (wv (if (== stamp 0)
         0
         (if (== (vecLen (nodeB stamp)) 0)
@@ -10880,10 +10880,10 @@
 
 (pub fn (emitPrimStrEq args cg want)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
-    (let ((a (strDup (memGetWord cg1 2))))
+    (let ((a (strDup (memGetWordStr cg1 2))))
       (let ((cg2 (emitExpr (vecGet args 1) cg1)))
         (let (
-          (b (strDup (memGetWord cg2 2)))
+          (b (strDup (memGetWordStr cg2 2)))
           (r (regStr (allocReg cg2)))
         )
           (let ((cg3 (emitLine cg2 (cat4 (cat2 "  " r) " = call i64 @__axiom_str_eq(i64 " a (cat3 ", i64 " b ")")))))
@@ -10930,7 +10930,7 @@
 
 (pub fn (emitPrimArenaReset args cg)
   (let ((cg0 (emitExpr (vecGet args 0) cg)))
-    (let ((cell (strDup (memGetWord cg0 2))))
+    (let ((cell (strDup (memGetWordStr cg0 2))))
       (let ((r (regStr (allocReg cg0))))
         (let ((cg1 (emitLine cg0 (cat4 (cat2 "  " r) " = call i64 @__axiom_arena_reset_fn(i64 " cell ")"))))
           {
@@ -10950,11 +10950,11 @@
 
 (pub fn (emitPrimArenaResetKeeping args cg)
   (let ((cg0 (emitExpr (vecGet args 0) cg)))
-    (let ((cell (strDup (memGetWord cg0 2))))
+    (let ((cell (strDup (memGetWordStr cg0 2))))
       (let ((cg1 (emitExpr (vecGet args 1) cg0)))
-        (let ((src (strDup (memGetWord cg1 2))))
+        (let ((src (strDup (memGetWordStr cg1 2))))
           (let ((cg2 (emitExpr (vecGet args 2) cg1)))
-            (let ((n (strDup (memGetWord cg2 2))))
+            (let ((n (strDup (memGetWordStr cg2 2))))
               (let ((r (regStr (allocReg cg2))))
                 (let ((cg3 (emitLine cg2 (strConcat (cat4 (cat2 "  " r) " = call i64 @__axiom_arena_reset_keeping_fn(i64 " cell ", i64 ") (cat4 src ", i64 " n ")")))))
                   {
@@ -10994,7 +10994,7 @@
 (pub fn (emitPrimArgv args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
-      (i (strDup (memGetWord cg1 2)))
+      (i (strDup (memGetWordStr cg1 2)))
       (bn (allocReg cg1))
       (pn (allocReg cg1))
       (gn (allocReg cg1))
@@ -11027,7 +11027,7 @@
 (pub fn (emitPrimIntToFloat args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
-      (v (strDup (memGetWord cg1 2)))
+      (v (strDup (memGetWordStr cg1 2)))
       (dn (allocReg cg1))
       (rn (allocReg cg1))
     )
@@ -11052,7 +11052,7 @@
 (pub fn (emitPrimFloatToInt args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
-      (v (strDup (memGetWord cg1 2)))
+      (v (strDup (memGetWordStr cg1 2)))
       (dn (allocReg cg1))
       (rn (allocReg cg1))
     )
@@ -11079,7 +11079,7 @@
 (pub fn (emitPrimSyscall args cg)
   (let (
     (cg1 (emitArgsList args cg 0))
-    (at (memGetWord cg1 9))
+    (at (memGetWordStr cg1 9))
     (pad (padZeros (- 7 (vecLen args)) ""))
     (rn (allocReg cg1))
   )
@@ -11107,7 +11107,7 @@
 (pub fn (emitPrimAlloc args cg)
   (let (
     (cg1 (emitExpr (vecGet args 0) cg))
-    (n (strDup (memGetWord cg1 2)))
+    (n (strDup (memGetWordStr cg1 2)))
     (rn (allocReg cg1))
   )
     (let ((r (regStr rn)))
@@ -11137,9 +11137,9 @@
 (pub fn (emitPrimLoad args cg width)
   (let (
     (cg1 (emitExpr (vecGet args 0) cg))
-    (base (strDup (memGetWord cg1 2)))
+    (base (strDup (memGetWordStr cg1 2)))
     (cg2 (emitExpr (vecGet args 1) cg1))
-    (idx (strDup (memGetWord cg2 2)))
+    (idx (strDup (memGetWordStr cg2 2)))
     (ty (elemTy width))
     (pn (allocReg cg2))
   )
@@ -11184,11 +11184,11 @@
   ; takes it as it stands.
   (let (
     (cg1 (emitExpr (vecGet args 0) cg))
-    (base (strDup (memGetWord cg1 2)))
+    (base (strDup (memGetWordStr cg1 2)))
     (cg2 (emitExpr (vecGet args 1) cg1))
-    (idx (strDup (memGetWord cg2 2)))
+    (idx (strDup (memGetWordStr cg2 2)))
     (cg3 (emitExpr (vecGet args 2) cg2))
-    (val (strDup (memGetWord cg3 2)))
+    (val (strDup (memGetWordStr cg3 2)))
     (ty (elemTy width))
     (pn (allocReg cg3))
   )
@@ -11240,7 +11240,7 @@
     (if (!= (nodeTag node) TAG_E_STR)
       (emitExpr node cg)
       (let (
-        (id (internString cg (nodeA node)))
+        (id (internString cg (nodeAName node)))
         (rn (allocReg cg))
       )
         (let ((r (regStr rn)))
@@ -11295,7 +11295,7 @@
         (if (|| (<= (vecLen args) ar) (== ar 0))
           (emitCall fnName args stamp cg)
           (let ((cgD (emitCall fnName (takeVec args ar) stamp cg)))
-            (emitApplyChain (dropVec args ar) cgD (strDup (memGetWord cgD 2)) 0)
+            (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0)
           )
         )
       )
@@ -11361,12 +11361,12 @@
 (pub fn (emitBinop2 fnName args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
-      (a (strDup (memGetWord cg1 2)))
+      (a (strDup (memGetWordStr cg1 2)))
       (af (memGetWord cg1 14))
     )
       (let ((cg2 (emitExpr (vecGet args 1) cg1)))
         (let (
-          (b (strDup (memGetWord cg2 2)))
+          (b (strDup (memGetWordStr cg2 2)))
           (bf (memGetWord cg2 14))
         )
           (if (|| (== af 1) (== bf 1))
@@ -11479,12 +11479,12 @@
 (pub fn (emitCmp2 fnName args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
-      (a (strDup (memGetWord cg1 2)))
+      (a (strDup (memGetWordStr cg1 2)))
       (af (memGetWord cg1 14))
     )
       (let ((cg2 (emitExpr (vecGet args 1) cg1)))
         (let (
-          (b (strDup (memGetWord cg2 2)))
+          (b (strDup (memGetWordStr cg2 2)))
           (bf (memGetWord cg2 14))
         )
           (if (|| (== af 1) (== bf 1))
@@ -11564,7 +11564,7 @@
   (let ((argRegs vecNew))
     (let ((argStrCg (emitArgsRegs args cg argRegs 0)))
       (let (
-        (argStrT (strDup (memGetWord argStrCg 9)))
+        (argStrT (strDup (memGetWordStr argStrCg 9)))
         (full (mangledFor argStrCg fnName))
       )
         (let ((takesEv (fnTakesEvw argStrCg full)))
@@ -11576,7 +11576,7 @@
           ))
             (let ((evStr 
               (if (== takesEv 1)
-                (cat2 ", i64 " (strDup (memGetWord cgE 2)))
+                (cat2 ", i64 " (strDup (memGetWordStr cgE 2)))
                 ""
               )
             ))
@@ -11618,15 +11618,15 @@
     }
     (let ((node (vecGet args i)))
       (let ((cg1 (emitExpr node cg)))
-        (let ((reg (strDup (memGetWord cg1 2))))
+        (let ((reg (strDup (memGetWordStr cg1 2))))
           {
             (vecPush
               regs              (cast Int reg)
             )
             (let ((restCg (emitArgsRegs args cg1 regs (+ i 1))))
               (let (
-                (rest (memGetWord restCg 2))
-                (restT (memGetWord restCg 9))
+                (rest (memGetWordStr restCg 2))
+                (restT (memGetWordStr restCg 9))
               )
                 (if (== (strLen rest) 0)
                   {
@@ -11691,7 +11691,7 @@
   (if (== e 0)
     0
     (if (== (nodeTag e) TAG_E_VAR)
-      (if (!= (lookupType (memGetWord cg 3) (nodeA e)) 0)
+      (if (!= (lookupType (memGetWord cg 3) (nodeAName e)) 0)
         1
         0
       )
@@ -11733,7 +11733,7 @@
   (let (
     (isAnd (strEq op "&&"))
     (cg1 (emitExpr (vecGet args 0) cg))
-    (ra (strDup (memGetWord cg1 2)))
+    (ra (strDup (memGetWordStr cg1 2)))
     (cn (allocReg cg1))
     (rhsL (allocReg cg1))
     (shortL (allocReg cg1))
@@ -11754,14 +11754,14 @@
     (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cr ", label %") tgtT (cat2 ", label %" tgtF) "")))
     (_3 (emitLabel cg1 rhsB))
     (cg2 (emitExpr (vecGet args 1) cg1))
-    (rb (strDup (memGetWord cg2 2)))
+    (rb (strDup (memGetWordStr cg2 2)))
     (bn (allocReg cg2))
     (bcr (regStr bn))
     (_4 (emitLine cg2 (cat4 (cat2 "  " bcr) " = icmp ne i64 " rb ", 0")))
     (zn (allocReg cg2))
     (zr (regStr zn))
     (_5 (emitLine cg2 (cat4 (cat2 "  " zr) " = zext i1 " bcr " to i64")))
-    (rhsPred (strDup (memGetWord cg2 11)))
+    (rhsPred (strDup (memGetWordStr cg2 11)))
     (_6 (emitLine cg2 (cat2 "  br label %" mergeB)))
     (_7 (emitLabel cg2 shortB))
     (_8 (emitLine cg2 (cat2 "  br label %" mergeB)))
@@ -11961,11 +11961,11 @@
     }
     (let ((node (vecGet args i)))
       (let ((cg1 (emitExpr node cg)))
-        (let ((reg (strDup (memGetWord cg1 2))))
+        (let ((reg (strDup (memGetWordStr cg1 2))))
           (let ((restCg (emitArgsList args cg1 (+ i 1))))
             (let (
-              (rest (memGetWord restCg 2))
-              (restT (memGetWord restCg 9))
+              (rest (memGetWordStr restCg 2))
+              (restT (memGetWordStr restCg 9))
             )
               (if (== (strLen rest) 0)
                 {
@@ -12262,7 +12262,7 @@
 (pub fn (emitRetainIfEvBit cg v k)
   (let ((cgR (emitEvwRead cg)))
     (emitRcIfBitOf
-      cgR      v      k      (strDup (memGetWord cgR 2))      1
+      cgR      v      k      (strDup (memGetWordStr cgR 2))      1
     )
   )
 )
@@ -12384,7 +12384,7 @@
                         (let ((tn (vecGet ftys j)))
                           (if (== (tyIsSrcVar tn) 1)
                             (if (!= stamp 0)
-                              (let ((vi (strVecIdx vars (nodeA tn))))
+                              (let ((vi (strVecIdx vars (nodeAName tn))))
                                 (if (if (< vi 0)
                                   true
                                   (>= vi (vecLen (nodeB stamp)))
@@ -12428,7 +12428,7 @@
                       (storeShapeAt cg ptr (+ (* cnt 2) stat))
                       (let ((cgR (emitEvwRead cg)))
                         (let (
-                          (src (strDup (memGetWord cgR 2)))
+                          (src (strDup (memGetWordStr cgR 2)))
                           (mut acc (constStr (+ (* cnt 2) stat)))
                           (mut cgX cgR)
                           (mut q 0)
@@ -12621,7 +12621,7 @@
           (let ((h (spineHead an)))
             (if (!= (nodeTag h) TAG_E_VAR)
               0
-              (if (!= (lookupType (memGetWord cg 3) (nodeA h)) 0)
+              (if (!= (lookupType (memGetWord cg 3) (nodeAName h)) 0)
                 1
                 0
               )
@@ -12672,7 +12672,7 @@
                   (cgSigVarsVec (eFieldTys entry) vars)
                   0
                 )
-                (let ((vi (strVecIdx vars (nodeA tn))))
+                (let ((vi (strVecIdx vars (nodeAName tn))))
                   (if (if (< vi 0)
                     true
                     (>= vi (vecLen (nodeB stamp)))
@@ -12715,7 +12715,7 @@
     ; MOVED, and answered rc -1 above)
     (let ((argNode (vecGet args i)))
       (let ((cg1 (emitExpr argNode cg)))
-        (let ((reg (strDup (memGetWord cg1 2))))
+        (let ((reg (strDup (memGetWordStr cg1 2))))
           (let ((rc 
             (if (== (argIsDirectCon cg1 argNode) 1)
               (- 0 1)
@@ -12770,13 +12770,13 @@
   ; does not dominate later uses - kept resolving the name after
   ; the `let` was over.
   (let (
-    (name (nodeA node))
+    (name (nodeAName node))
     (valExpr (nodeB node))
     (body (nodeC node))
   )
     (let ((cg1 (emitExpr valExpr cg)))
       (let (
-        (valReg (strDup (memGetWord cg1 2)))
+        (valReg (strDup (memGetWordStr cg1 2)))
         (valFlag (memGetWord cg1 14))
         (mark (symMark cg1))
       )
@@ -12841,7 +12841,7 @@
                         ; not LLVM.
                         (if (&& (== releasable 1) (!= (memGetWord cgB 31) 1))
                           (let (
-                            (res (strDup (memGetWord cgB 2)))
+                            (res (strDup (memGetWordStr cgB 2)))
                             (cgR (emitReleaseOf cgB valReg))
                           )
                             {
@@ -12981,7 +12981,7 @@
       (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
         0
         (if (== tg TAG_E_VAR)
-          (if (strEq (nodeA e) name)
+          (if (strEq (nodeAName e) name)
             vp
             0
           )
@@ -13129,7 +13129,7 @@
                             1
                             (if (== (mayAlias cg name (nodeB e) root) 1)
                               (escapes
-                                cg                                (nodeA e)                                (nodeC e)                                vp                                root
+                                cg                                (nodeAName e)                                (nodeC e)                                vp                                root
                               )
                               0
                             )
@@ -13278,7 +13278,7 @@
   (if (>= i (vecLen names))
     0
     (if (== (escapes
-      cg      (vecGet names i)      body      vp      root
+      cg      (vecGetStr names i)      body      vp      root
     ) 1)
       1
       (escapesAny
@@ -13375,7 +13375,7 @@
   )
     (if (!= (nodeTag hd) TAG_E_VAR)
       (mentionsArgs name e n_ 0)
-      (let ((n (nodeA hd)))
+      (let ((n (nodeAName hd)))
         (if (strEq n name)
           (mentions name e)
           (if (|| (isBinop n) (|| (isCmpOp n) (isAndOr n)))
@@ -13437,7 +13437,7 @@
 (pub fn (passesValueHead h)
   (if (!= (nodeTag h) TAG_E_VAR)
     0
-    (if (|| (isBinop (nodeA h)) (|| (isAndOr (nodeA h)) (|| (strEq (nodeA h) "__load64") (strEq (nodeA h) "memGetWord"))))
+    (if (|| (isBinop (nodeAName h)) (|| (isAndOr (nodeAName h)) (|| (strEq (nodeAName h) "__load64") (strEq (nodeAName h) "memGetWord"))))
       ; a 64-bit load answers a word of what its address aliases
       1
       0
@@ -13549,7 +13549,7 @@
       (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (|| (== tg TAG_E_CHAR) (== tg TAG_E_VAR)))))
         0
         (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
-          (if (strEq (nodeA e) name)
+          (if (strEq (nodeAName e) name)
             1
             (if (== (boundWithin name (nodeB e)) 1)
               1
@@ -13775,7 +13775,7 @@
       (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
         0
         (if (== tg TAG_E_VAR)
-          (if (strEq (nodeA e) name)
+          (if (strEq (nodeAName e) name)
             1
             0
           )
@@ -13885,7 +13885,7 @@
 (pub fn (wordTakingHead h)
   (if (!= (nodeTag h) TAG_E_VAR)
     0
-    (if (|| (strEq (nodeA h) "cast") (|| (strEq (nodeA h) "__addr") (|| (strEq (nodeA h) "strData") (strEq (nodeA h) "strOwner"))))
+    (if (|| (strEq (nodeAName h) "cast") (|| (strEq (nodeAName h) "__addr") (|| (strEq (nodeAName h) "strData") (strEq (nodeAName h) "strOwner"))))
       1
       0
     )
@@ -14018,13 +14018,13 @@
 
 (pub fn (emitLetMAt node cg tail)
   (let (
-    (name (nodeA node))
+    (name (nodeAName node))
     (valExpr (nodeB node))
     (body (nodeC node))
   )
     (let ((cg1 (emitExpr valExpr cg)))
       (let (
-        (valReg (strDup (memGetWord cg1 2)))
+        (valReg (strDup (memGetWordStr cg1 2)))
         (valFlag (memGetWord cg1 14))
         (mark (symMark cg1))
         (an (allocReg cg1))
@@ -14062,7 +14062,7 @@
 
 (pub fn (emitSet node cg)
   (let (
-    (name (nodeA node))
+    (name (nodeAName node))
     (valExpr (nodeB node))
   )
     (let ((storage (lookupSym cg name)))
@@ -14071,7 +14071,7 @@
         (if (!= (lookupSymKind cg name) 1)
           (dieCodegenDiag "set target is not a mut binding: " name)
           (let ((cg1 (emitExpr valExpr cg)))
-            (let ((v (strDup (memGetWord cg1 2))))
+            (let ((v (strDup (memGetWordStr cg1 2))))
               {
                 (emitLine
                   cg1                  (cat4
@@ -14113,7 +14113,7 @@
         (_1 (emitLine cg (cat2 "  br label %" hdrB)))
         (_2 (emitLabel cg hdrB))
         (cgC (emitExpr cnd cg))
-        (cr (strDup (memGetWord cgC 2)))
+        (cr (strDup (memGetWordStr cgC 2)))
         (tn (allocReg cgC))
       )
         (let ((tr (regStr tn)))
@@ -14152,7 +14152,7 @@
     (thenExpr (nodeB node))
     (elseExpr (nodeC node))
     (cg1 (emitExpr testExpr cg))
-    (testReg (strDup (memGetWord cg1 2)))
+    (testReg (strDup (memGetWordStr cg1 2)))
     (cmpN (allocReg cg1))
     (thenLbl (allocReg cg1))
     (elseLbl (allocReg cg1))
@@ -14165,14 +14165,14 @@
     (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cmpR ", label %") thenB (cat2 ", label %" elseB) "")))
     (_3 (emitLabel cg1 thenB))
     (cg2 (emitExpr thenExpr cg1))
-    (thenVal (strDup (memGetWord cg2 2)))
+    (thenVal (strDup (memGetWordStr cg2 2)))
     (thenFlag (memGetWord cg2 14))
-    (thenPred (strDup (memGetWord cg2 11)))
+    (thenPred (strDup (memGetWordStr cg2 11)))
     (_4 (emitLine cg2 (cat2 "  br label %" mergeB)))
     (_5 (emitLabel cg2 elseB))
     (cg3 (emitExpr elseExpr cg2))
-    (elseVal (strDup (memGetWord cg3 2)))
-    (elsePred (strDup (memGetWord cg3 11)))
+    (elseVal (strDup (memGetWordStr cg3 2)))
+    (elsePred (strDup (memGetWordStr cg3 11)))
     (_6 (emitLine cg3 (cat2 "  br label %" mergeB)))
     (_7 (emitLabel cg3 mergeB))
     (phiN (allocReg cg3))
@@ -14227,7 +14227,7 @@
             false
             (== (valueOwnedRef cg1 e) 1)
           )
-            (emitReleaseOf cg1 (strDup (memGetWord cg1 2)))
+            (emitReleaseOf cg1 (strDup (memGetWordStr cg1 2)))
             cg1
           )
         ))
@@ -14252,7 +14252,7 @@
   ; count/shape words physically at handle-16 like every heap
   ; block's.
   (let (
-    (id (internString cg (nodeA node)))
+    (id (internString cg (nodeAName node)))
     (rn (allocReg cg))
   )
     (let ((r (regStr rn)))

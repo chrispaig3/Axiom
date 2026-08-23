@@ -186,7 +186,7 @@ fn nested_fixture_shape() {
     assert!(fresh.contains("(:: __pixelToWords (-> Int Int Int Int))"));
     assert!(fresh.contains(
         "(fn (__pixelToWords __ps __w __i)\n  (if (>= __i (vecLen __ps))\n    __w\n    \
-         (match (vecGet __ps __i)\n      ((Pixel __f0 __f1 __f2)\n        {\n          \
+         (match (cast Pixel (vecGet __ps __i))\n      ((Pixel __f0 __f1 __f2)\n        {\n          \
          (vecPush __w __f0)\n          (vecPush __w __f1)\n          (vecPush __w __f2)\n          \
          (__pixelToWords __ps __w (+ __i 1))"
     ));

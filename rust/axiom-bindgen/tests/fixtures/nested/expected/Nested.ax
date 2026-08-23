@@ -127,7 +127,7 @@
 (fn (__pixelToWords __ps __w __i)
   (if (>= __i (vecLen __ps))
     __w
-    (match (vecGet __ps __i)
+    (match (cast Pixel (vecGet __ps __i))
       ((Pixel __f0 __f1 __f2)
         {
           (vecPush __w __f0)

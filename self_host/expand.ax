@@ -495,13 +495,13 @@
         (== (nodeTag d) TAG_D_FN)        (&&
           (!=
             (cast Int (nodeModule d))            0
-          )          (&& (== (nodeVis d) 1) (== (expMangledIs (nodeA d) name) 1))
+          )          (&& (== (nodeVis d) 1) (== (expMangledIs (nodeAName d) name) 1))
         )
       )
         (if (==
           (cast Int found)          0
         )
-          (expUniqueModuleFrom decls name (+ i 1) (nodeA d))
+          (expUniqueModuleFrom decls name (+ i 1) (nodeAName d))
           ; a second module declares it: ambiguous, leave bare
           (cast String 0)
         )
@@ -557,7 +557,7 @@
   (if (>= i (vecLen decls))
     0
     (let ((d (vecGet decls i)))
-      (if (&& (|| (== (nodeTag d) TAG_D_FN) (== (nodeTag d) TAG_D_SIG)) (strEq (nodeA d) name))
+      (if (&& (|| (== (nodeTag d) TAG_D_FN) (== (nodeTag d) TAG_D_SIG)) (strEq (nodeAName d) name))
         1
         (expDeclNamed decls name (+ i 1))
       )
@@ -724,7 +724,7 @@
 
 (pub fn (expFindMacro env name)
   (let (
-    (site (memGetWord env 9))
+    (site (memGetWordStr env 9))
     (qm (expModOf name))
   )
     (if (!=
@@ -765,7 +765,7 @@
     0
     (let ((m (vecGet ms i)))
       (if (&&
-        (strEq (nodeA m) bare)        (&&
+        (strEq (nodeAName m) bare)        (&&
           (!= (nodeModule m) 0)          (&&
             (strEq (nodeModuleName m) qm)            (||
               (== (nodeVis m) 1)              (&&
@@ -807,7 +807,7 @@
     0
     (let ((m (vecGet ms i)))
       (if (&&
-        (strEq (nodeA m) name)        (||
+        (strEq (nodeAName m) name)        (||
           (== (nodeVis m) 1)          (||
             (== (nodeModule m) 0)            (&&
               (!=
@@ -842,7 +842,7 @@
 (pub fn (expBoundFrom bs name i)
   (if (< i 0)
     0
-    (if (strEq (vecGet bs i) name)
+    (if (strEq (vecGetStr bs i) name)
       1
       (expBoundFrom bs name (- i 1))
     )
@@ -874,8 +874,8 @@
 (pub fn (expRenLookupFrom ren name i)
   (if (< i 0)
     (cast String 0)
-    (if (strEq (vecGet ren i) name)
-      (vecGet ren (+ i 1))
+    (if (strEq (vecGetStr ren i) name)
+      (vecGetStr ren (+ i 1))
       (expRenLookupFrom ren name (- i 2))
     )
   )
@@ -905,7 +905,7 @@
 (pub fn (expParamIndexFrom params name i)
   (if (< i 0)
     (- 0 1)
-    (if (strEq (vecGet params i) name)
+    (if (strEq (vecGetStr params i) name)
       i
       (expParamIndexFrom params name (- i 1))
     )
@@ -961,7 +961,7 @@
       (cast String 0)
       (let ((a (vecGet args idx)))
         (if (== (nodeTag a) TAG_E_VAR)
-          (nodeA a)
+          (nodeAName a)
           {
             (expEmit env (mkDiagNote
               SEV_ERROR              "AX3035"              "macro-binder-target"              isp              "a macro parameter used as a binder was given something that is not a variable"              0              0              "pass a variable name for this parameter, or rewrite the template so the parameter is not a binder"              "a `let`, `lambda` or pattern binder is a NAME, so a parameter standing in one can only be given a name - this is the same rule `set` targets follow (AX3022)"
@@ -1025,23 +1025,23 @@
         ; why `(Nil)` needs the parentheses - so renaming it is
         ; correct and is what the `(macro (m x) (match x ((Nil) 0)))`
         ; hygiene case depends on.
-        (if (|| (strEq (nodeA p) "true") (|| (strEq (nodeA p) "false") (strEq (nodeA p) "_")))
-          (mkEVarAt (nodeA p) isp)
+        (if (|| (strEq (nodeAName p) "true") (|| (strEq (nodeAName p) "false") (strEq (nodeAName p) "_")))
+          (mkEVarAt (nodeAName p) isp)
           ; A pattern binder that is a macro PARAMETER takes the
           ; caller's name and is not renamed - the arm's body may
           ; be another parameter's syntax, which spells that name
           ; and must bind to it. This is the `try!` case, and the
           ; one that made a propagation form writable at all.
           (let ((pb (expBinderParam
-            (nodeA p)            params            args            env            isp
+            (nodeAName p)            params            args            env            isp
           )))
             (if (!=
               (cast Int pb)              0
             )
               (mkEVarAt pb isp)
-              (let ((new (expFresh env (nodeA p))))
+              (let ((new (expFresh env (nodeAName p))))
                 {
-                  (expRenPush ren (nodeA p) new)
+                  (expRenPush ren (nodeAName p) new)
                   (mkEVarAt new isp)
                 }
               )
@@ -1164,8 +1164,8 @@
   (if (< i 0)
     (cast String 0)
     (let ((b (vecGet fs i)))
-      (if (strEq (memGetWord b 0) name)
-        (memGetWord b 1)
+      (if (strEq (memGetWordStr b 0) name)
+        (memGetWordStr b 1)
         (expForLookupFrom fs name (- i 1))
       )
     )
@@ -1300,7 +1300,7 @@
           s
           (let ((a (vecGet args idx)))
             (if (== (nodeTag a) TAG_E_VAR)
-              (nodeA a)
+              (nodeAName a)
               (cast String (expQueryErr
                 env                isp                (strConcat (strConcat "a syntax/* query's argument must be a bare identifier; `" s) "` was given an expression")                "pass a plain name in this argument position"                (expMacMod env)
               ))
@@ -1329,14 +1329,14 @@
 (pub fn (expQueryArgName env a params args isp)
   (if (== (nodeTag a) TAG_E_VAR)
     (expResolveQueryName
-      env      (nodeA a)      params      args      isp
+      env      (nodeAName a)      params      args      isp
     )
     (if (== (nodeTag a) TAG_E_APP)
       (let (
         (h (spineHead a))
         (ps (spineArgVec a vecNew))
       )
-        (if (&& (== (nodeTag h) TAG_E_VAR) (&& (strEq (nodeA h) "syntax/join") (== (vecLen ps) 2)))
+        (if (&& (== (nodeTag h) TAG_E_VAR) (&& (strEq (nodeAName h) "syntax/join") (== (vecLen ps) 2)))
           (let ((l (expQueryArgName
             env            (vecGet ps 0)            params            args            isp
           )))
@@ -1501,7 +1501,7 @@
   (if (>= i (vecLen decls))
     0
     (let ((d (vecGet decls i)))
-      (if (&& (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT)) (&& (strEq (nodeA d) t) (|| (== visibleOnly 0) (|| (== (expModEq (nodeModule d) 0) 1) (|| (== (expModEq (nodeModule d) site) 1) (== (nodeVis d) 1))))))
+      (if (&& (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT)) (&& (strEq (nodeAName d) t) (|| (== visibleOnly 0) (|| (== (expModEq (nodeModule d) 0) 1) (|| (== (expModEq (nodeModule d) site) 1) (== (nodeVis d) 1))))))
         d
         (expFindDeclNamedFrom
           decls          t          visibleOnly          site          (+ i 1)
@@ -1589,7 +1589,7 @@
 (pub fn (expFindCtorIn cs c i)
   (if (>= i (vecLen cs))
     0
-    (if (strEq (nodeA (vecGet cs i)) c)
+    (if (strEq (nodeAName (vecGet cs i)) c)
       (vecGet cs i)
       (expFindCtorIn cs c (+ i 1))
     )
@@ -1652,9 +1652,9 @@
           isp
         )        "syntax/for's sequence must be a query spine"        "write the sequence as `(syntax/constructors T)`, `(syntax/fields S)`, or `(syntax/binders C p)`"        (expMacMod env)
       )
-      (if (&& (strEq (nodeA head) "syntax/constructors") (&& (== (vecLen qargs) 1) (== (nodeTag (vecGet qargs 0)) TAG_E_VAR)))
+      (if (&& (strEq (nodeAName head) "syntax/constructors") (&& (== (vecLen qargs) 1) (== (nodeTag (vecGet qargs 0)) TAG_E_VAR)))
         (let ((t (expResolveQueryName
-          env          (nodeA (vecGet qargs 0))          params          args          isp
+          env          (nodeAName (vecGet qargs 0))          params          args          isp
         )))
           (if (==
             (cast Int t)            0
@@ -1663,9 +1663,9 @@
             (expConstructorsOf env t isp)
           )
         )
-        (if (&& (strEq (nodeA head) "syntax/fields") (&& (== (vecLen qargs) 1) (== (nodeTag (vecGet qargs 0)) TAG_E_VAR)))
+        (if (&& (strEq (nodeAName head) "syntax/fields") (&& (== (vecLen qargs) 1) (== (nodeTag (vecGet qargs 0)) TAG_E_VAR)))
           (let ((s (expResolveQueryName
-            env            (nodeA (vecGet qargs 0))            params            args            isp
+            env            (nodeAName (vecGet qargs 0))            params            args            isp
           )))
             (if (==
               (cast Int s)              0
@@ -1674,16 +1674,16 @@
               (expFieldsOf env s isp)
             )
           )
-          (if (&& (strEq (nodeA head) "syntax/binders") (&& (== (vecLen qargs) 2) (&& (== (nodeTag (vecGet qargs 0)) TAG_E_VAR) (== (nodeTag (vecGet qargs 1)) TAG_E_VAR))))
+          (if (&& (strEq (nodeAName head) "syntax/binders") (&& (== (vecLen qargs) 2) (&& (== (nodeTag (vecGet qargs 0)) TAG_E_VAR) (== (nodeTag (vecGet qargs 1)) TAG_E_VAR))))
             (let ((c (expResolveQueryName
-              env              (nodeA (vecGet qargs 0))              params              args              isp
+              env              (nodeAName (vecGet qargs 0))              params              args              isp
             )))
               (if (==
                 (cast Int c)                0
               )
                 0
                 (let ((p (expResolveQueryName
-                  env                  (nodeA (vecGet qargs 1))                  params                  args                  isp
+                  env                  (nodeAName (vecGet qargs 1))                  params                  args                  isp
                 )))
                   (if (==
                     (cast Int p)                    0
@@ -1698,7 +1698,7 @@
               env              (if (!= (nodeSpan seq) 0)
                 (nodeSpan seq)
                 isp
-              )              (strConcat (strConcat "`" (nodeA head)) "` is not an iteration sequence this vocabulary answers, or its arguments are not bare identifiers")              "sequences are `(syntax/constructors T)`, `(syntax/fields S)`, and `(syntax/binders C p)`; several of them zip in one iteration as `((x xs) (y ys))`"              (expMacMod env)
+              )              (strConcat (strConcat "`" (nodeAName head)) "` is not an iteration sequence this vocabulary answers, or its arguments are not bare identifiers")              "sequences are `(syntax/constructors T)`, `(syntax/fields S)`, and `(syntax/binders C p)`; several of them zip in one iteration as `((x xs) (y ys))`"              (expMacMod env)
             )
           )
         )
@@ -1728,7 +1728,7 @@
     p
     (let ((tag (nodeTag p)))
       (if (== tag TAG_P_CON0)
-        (let ((e (expForLookup env (nodeA p))))
+        (let ((e (expForLookup env (nodeAName p))))
           (if (==
             (cast Int e)            0
           )
@@ -1739,12 +1739,12 @@
           )
         )
         (if (== tag TAG_P_CONNAMED)
-          (let ((e (expForLookup env (nodeA p))))
+          (let ((e (expForLookup env (nodeAName p))))
             (mkNodeAt
               TAG_P_CONNAMED              (if (==
                 (cast Int e)                0
               )
-                (nodeA p)
+                (nodeAName p)
                 e
               )              (nodeB p)              (expSubstPatForVec
                 (nodeC p)                params                args                env                isp
@@ -1772,7 +1772,7 @@
   )
     (let (
       (newHead (if (== (nodeTag head) TAG_E_VAR)
-        (let ((e (expForLookup env (nodeA head))))
+        (let ((e (expForLookup env (nodeAName head))))
           (if (==
             (cast Int e)            0
           )
@@ -1791,7 +1791,7 @@
             {
               (if (&&
                 (== (nodeTag a) TAG_E_APP)                (let ((ah (spineHead a)))
-                  (&& (== (nodeTag ah) TAG_E_VAR) (strEq (nodeA ah) "syntax/binders"))
+                  (&& (== (nodeTag ah) TAG_E_VAR) (strEq (nodeAName ah) "syntax/binders"))
                 )
               )
                 (let ((sr (expEvalSeq
@@ -1844,7 +1844,7 @@
   (if (>= i (vecLen names))
     0
     {
-      (vecPush out (mkEVarAt (vecGet names i) isp))
+      (vecPush out (mkEVarAt (vecGetStr names i) isp))
       (expPushBinderVars out names isp (+ i 1))
     }
   )
@@ -1886,7 +1886,7 @@
   (if (< i 0)
     0
     (let ((b (vecGet fs i)))
-      (if (strEq (memGetWord b 0) name)
+      (if (strEq (memGetWordStr b 0) name)
         b
         (expForBindOfFrom fs name (- i 1))
       )
@@ -1924,15 +1924,15 @@
           (mkEInt 0)
         }
         (let (
-          (ba (expForBindOf env (nodeA an)))
-          (bb (expForBindOf env (nodeA bn)))
+          (ba (expForBindOf env (nodeAName an)))
+          (bb (expForBindOf env (nodeAName bn)))
         )
           (if (|| (== ba 0) (== bb 0))
             {
               (expQueryErr
                 env                isp                (strConcat
                   (strConcat
-                    "`"                    (nodeA
+                    "`"                    (nodeAName
                       (if (== ba 0)
                         an
                         bn
@@ -1943,14 +1943,14 @@
               )
               (mkEInt 0)
             }
-            (if (strEq (memGetWord ba 2) (memGetWord bb 2))
+            (if (strEq (memGetWordStr ba 2) (memGetWordStr bb 2))
               (if (== (memGetWord ba 3) (memGetWord bb 3))
                 (mkEVarAt "true" isp)
                 (mkEVarAt "false" isp)
               )
               {
                 (expQueryErr
-                  env                  isp                  (strConcat (strConcat (strConcat (strConcat "`" (nodeA an)) "` ranges over `") (strConcat (strConcat (memGetWord ba 2) "` and `") (nodeA bn))) (strConcat (strConcat "` over `" (memGetWord bb 2)) "`"))                  "syntax/same compares positions within ONE sequence; iterate both variables over the same query"                  (expMacMod env)
+                  env                  isp                  (strConcat (strConcat (strConcat (strConcat "`" (nodeAName an)) "` ranges over `") (strConcat (strConcat (memGetWordStr ba 2) "` and `") (nodeAName bn))) (strConcat (strConcat "` over `" (memGetWordStr bb 2)) "`"))                  "syntax/same compares positions within ONE sequence; iterate both variables over the same query"                  (expMacMod env)
                 )
                 (mkEInt 0)
               }
@@ -2637,7 +2637,7 @@
 (pub fn (expFmtArgNode a params args)
   (if (!= (nodeTag a) TAG_E_VAR)
     a
-    (let ((idx (expParamIndex params (nodeA a))))
+    (let ((idx (expParamIndex params (nodeAName a))))
       (if (< idx 0)
         a
         (vecGet args idx)
@@ -2669,7 +2669,7 @@
   ; invocation's, and then every caret is the invocation -
   ; degraded, never wrong.
   (let (
-    (lex (nodeA lit))
+    (lex (nodeAName lit))
     (lsp (if (!= (nodeSpan lit) 0)
       (nodeSpan lit)
       isp
@@ -2837,9 +2837,9 @@
     (let ((h (spineHead c)))
       (if (!= (nodeTag h) TAG_E_VAR)
         ""
-        (if (strEq (nodeA h) "syntax/same")
+        (if (strEq (nodeAName h) "syntax/same")
           "syntax/same"
-          (if (strEq (nodeA h) "syntax/defined")
+          (if (strEq (nodeAName h) "syntax/defined")
             "syntax/defined"
             ""
           )
@@ -2908,7 +2908,7 @@
 
 (pub fn (expIsForSpine e)
   (let ((h (spineHead e)))
-    (if (&& (== (nodeTag h) TAG_E_VAR) (strEq (nodeA h) "syntax/for"))
+    (if (&& (== (nodeTag h) TAG_E_VAR) (strEq (nodeAName h) "syntax/for"))
       1
       0
     )
@@ -3171,7 +3171,7 @@
     (let ((t (vecGet seqs j)))
       {
         (vecPush
-          (expForStack env)          (cast Int (ForBind (vecGet t 0) (vecGet (vecGet t 1) idx) (vecGet t 2) idx))
+          (expForStack env)          (cast Int (ForBind (vecGetStr t 0) (vecGetStr (vecGet t 1) idx) (vecGetStr t 2) idx))
         )
         (expIterPush env seqs idx (+ j 1))
       }
@@ -3263,34 +3263,34 @@
     (head (spineHead tpl))
     (qargs (spineArgVec tpl vecNew))
   )
-    (if (&& (== (nodeTag head) TAG_E_VAR) (strStartsWith (nodeA head) "syntax/"))
-      (if (strEq (nodeA head) "syntax/same")
+    (if (&& (== (nodeTag head) TAG_E_VAR) (strStartsWith (nodeAName head) "syntax/"))
+      (if (strEq (nodeAName head) "syntax/same")
         (expEvalSame env qargs isp)
-        (if (strEq (nodeA head) "syntax/fold")
+        (if (strEq (nodeAName head) "syntax/fold")
           (expEvalFold
             env            qargs            params            args            ren            isp
           )
-          (if (strEq (nodeA head) "syntax/name")
+          (if (strEq (nodeAName head) "syntax/name")
             (expEvalName
               env              qargs              params              args              isp
             )
-            (if (strEq (nodeA head) "syntax/arity")
+            (if (strEq (nodeAName head) "syntax/arity")
               (expEvalArity
                 env                qargs                params                args                isp
               )
-              (if (strEq (nodeA head) "syntax/defined")
+              (if (strEq (nodeAName head) "syntax/defined")
                 (expEvalDefined
                   env                  qargs                  params                  args                  isp
                 )
-                (if (strEq (nodeA head) "syntax/format")
+                (if (strEq (nodeAName head) "syntax/format")
                   (expEvalFormat
                     env                    qargs                    params                    args                    isp                    0
                   )
-                  (if (strEq (nodeA head) "syntax/formatln")
+                  (if (strEq (nodeAName head) "syntax/formatln")
                     (expEvalFormat
                       env                      qargs                      params                      args                      isp                      1
                     )
-                    (if (strEq (nodeA head) "syntax/join")
+                    (if (strEq (nodeAName head) "syntax/join")
                       ; A join in EXPRESSION position is a REFERENCE to the
                       ; declaration a join in name position generates -
                       ; `((syntax/join show T) x)` calls `showColor`. Spines are
@@ -3303,23 +3303,23 @@
                       (expEvalJoinRef
                         env                        qargs                        params                        args                        ren                        isp
                       )
-                      (if (strEq (nodeA head) "syntax/for")
+                      (if (strEq (nodeAName head) "syntax/for")
                         {
                           (expQueryErr
                             env                            isp                            "syntax/for stands where several results can splice - a match arm, a template declaration, an argument - not where ONE value is needed"                            "iterate with syntax/for in arm, declaration, or argument position, or reduce with syntax/fold; a scalar position has no room for a sequence"                            (expMacMod env)
                           )
                           (mkEInt 0)
                         }
-                        (if (|| (strEq (nodeA head) "syntax/constructors") (|| (strEq (nodeA head) "syntax/fields") (strEq (nodeA head) "syntax/binders")))
+                        (if (|| (strEq (nodeAName head) "syntax/constructors") (|| (strEq (nodeAName head) "syntax/fields") (strEq (nodeAName head) "syntax/binders")))
                           {
                             (expQueryErr
-                              env                              isp                              (strConcat (strConcat "`" (nodeA head)) "` answers a SEQUENCE, and this position needs one value")                              "sequence queries stand in a syntax/for's sequence slot or a syntax/fold's binding"                              (expMacMod env)
+                              env                              isp                              (strConcat (strConcat "`" (nodeAName head)) "` answers a SEQUENCE, and this position needs one value")                              "sequence queries stand in a syntax/for's sequence slot or a syntax/fold's binding"                              (expMacMod env)
                             )
                             (mkEInt 0)
                           }
                           {
                             (expQueryErr
-                              env                              isp                              (strConcat (strConcat "`" (nodeA head)) "` is not a query this position answers")                              "the applied queries are syntax/same, syntax/fold, syntax/name, syntax/arity, syntax/defined, syntax/format and syntax/formatln here, and syntax/constructors / syntax/fields / syntax/binders in an iteration's sequence slot"                              (expMacMod env)
+                              env                              isp                              (strConcat (strConcat "`" (nodeAName head)) "` is not a query this position answers")                              "the applied queries are syntax/same, syntax/fold, syntax/name, syntax/arity, syntax/defined, syntax/format and syntax/formatln here, and syntax/constructors / syntax/fields / syntax/binders in an iteration's sequence slot"                              (expMacMod env)
                             )
                             (mkEInt 0)
                           }
@@ -3353,11 +3353,11 @@
                   (if (== (expEllipsisAt env qargs i) 1)
                     {
                       (expSpliceSeq
-                        env                        (expSeqLookup (expSeqBinds env) (nodeA a))                        params                        args                        ren                        isp                        out                        0
+                        env                        (expSeqLookup (expSeqBinds env) (nodeAName a))                        params                        args                        ren                        isp                        out                        0
                       )
                       (set i (+ i 1))
                     }
-                    (if (&& (== (nodeTag a) TAG_E_VAR) (strEq (nodeA a) "..."))
+                    (if (&& (== (nodeTag a) TAG_E_VAR) (strEq (nodeAName a) "..."))
                       {
                         (expEllipsisDiag
                           env                          "..."                          "follows nothing that repeats"                          "put `...` directly after the name of a repeating element, or drop it"                          isp
@@ -3399,7 +3399,7 @@
 (pub fn (expTplBoundIn tb name i)
   (if (>= i (vecLen tb))
     0
-    (if (strEq (vecGet tb i) name)
+    (if (strEq (vecGetStr tb i) name)
       1
       (expTplBoundIn tb name (+ i 1))
     )
@@ -3420,7 +3420,7 @@
       (a (vecGet qargs i))
       (n (vecGet qargs (+ i 1)))
     )
-      (if (&& (== (nodeTag a) TAG_E_VAR) (&& (== (nodeTag n) TAG_E_VAR) (&& (strEq (nodeA n) "...") (!= (expSeqLookup (expSeqBinds env) (nodeA a)) 0))))
+      (if (&& (== (nodeTag a) TAG_E_VAR) (&& (== (nodeTag n) TAG_E_VAR) (&& (strEq (nodeAName n) "...") (!= (expSeqLookup (expSeqBinds env) (nodeAName a)) 0))))
         1
         0
       )
@@ -3468,12 +3468,12 @@
         ; --- a name: a rename, a for-binding, a parameter, or ------
         ; --- itself, in that order ---------------------------------
         (if (== tag TAG_E_VAR)
-          (let ((r (expRenLookup ren (nodeA tpl))))
+          (let ((r (expRenLookup ren (nodeAName tpl))))
             (if (!=
               (cast Int r)              0
             )
               (mkEVarAt r isp)
-              (let ((fe (expForLookup env (nodeA tpl))))
+              (let ((fe (expForLookup env (nodeAName tpl))))
                 (if (!=
                   (cast Int fe)                  0
                 )
@@ -3493,7 +3493,7 @@
                       )                      isp
                     )
                   )
-                  (let ((idx (expParamIndex params (nodeA tpl))))
+                  (let ((idx (expParamIndex params (nodeAName tpl))))
                     (if (< idx 0)
                       ; A `syntax/`-spelled name that survived
                       ; the lookups above is a query this
@@ -3504,10 +3504,10 @@
                       ; instead of drifting into expQualify
                       ; and dying later as an undefined
                       ; variable that blames the wrong thing.
-                      (if (strStartsWith (nodeA tpl) "syntax/")
+                      (if (strStartsWith (nodeAName tpl) "syntax/")
                         {
                           (expQueryErr
-                            env                            isp                            (strConcat (strConcat "`" (nodeA tpl)) "` is not a query this position answers")                            "every query is APPLIED - `(syntax/name x)`, `(syntax/constructors T)` - so a bare `syntax/` name is a query missing its arguments, or a spelling the vocabulary does not answer"                            (expMacMod env)
+                            env                            isp                            (strConcat (strConcat "`" (nodeAName tpl)) "` is not a query this position answers")                            "every query is APPLIED - `(syntax/name x)`, `(syntax/constructors T)` - so a bare `syntax/` name is a query missing its arguments, or a spelling the vocabulary does not answer"                            (expMacMod env)
                           )
                           (mkEInt 0)
                         }
@@ -3518,10 +3518,10 @@
                         ; free-identifier arm below and die as
                         ; `AX3001 undefined variable`, blaming
                         ; the name rather than the missing `...`.
-                        (if (!= (expSeqLookup (expSeqBinds env) (nodeA tpl)) 0)
+                        (if (!= (expSeqLookup (expSeqBinds env) (nodeAName tpl)) 0)
                           {
                             (expEllipsisDiag
-                              env                              (nodeA tpl)                              "repeats, and this position takes one form"                              "write `... ` after it to splice every form it took, or match it with a non-repeating element"                              isp
+                              env                              (nodeAName tpl)                              "repeats, and this position takes one form"                              "write `... ` after it to splice every form it took, or match it with a non-repeating element"                              isp
                             )
                             (mkEInt 0)
                           }
@@ -3538,8 +3538,8 @@
                           ; word 10 says "top level" even when
                           ; nothing can, which is the entry-file
                           ; case qualification never reached.
-                          (let ((v (mkEVarAt (expQualify env (nodeA tpl)) isp)))
-                            (if (== (expTplBound env (nodeA tpl)) 1)
+                          (let ((v (mkEVarAt (expQualify env (nodeAName tpl)) isp)))
+                            (if (== (expTplBound env (nodeAName tpl)) 1)
                               v
                               (setNodeDefScope v)
                             )
@@ -3579,11 +3579,11 @@
                       )
                     )
                   ))
-                    (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeA v) "true"))
+                    (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeAName v) "true"))
                       (substTpl
                         (nodeB tpl)                        params                        args                        ren                        env                        isp
                       )
-                      (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeA v) "false"))
+                      (if (&& (== (nodeTag v) TAG_E_VAR) (strEq (nodeAName v) "false"))
                         (substTpl
                           (nodeC tpl)                          params                          args                          ren                          env                          isp
                         )
@@ -3614,7 +3614,7 @@
                   ))
                   (mark (vecLen ren))
                   (pb (expBinderParam
-                    (nodeA tpl)                    params                    args                    env                    isp
+                    (nodeAName tpl)                    params                    args                    env                    isp
                   ))
                 )
                   (let ((new 
@@ -3622,14 +3622,14 @@
                       (cast Int pb)                      0
                     )
                       pb
-                      (expFresh env (nodeA tpl))
+                      (expFresh env (nodeAName tpl))
                     )
                   ))
                     {
                       (if (==
                         (cast Int pb)                        0
                       )
-                        (expRenPush ren (nodeA tpl) new)
+                        (expRenPush ren (nodeAName tpl) new)
                         ren
                       )
                       (let ((body (substTpl
@@ -3681,7 +3681,7 @@
                       (if (== tag TAG_E_SET)
                         (mkNodeAt
                           TAG_E_SET                          (substName
-                            (nodeA tpl)                            params                            args                            ren                            env                            isp
+                            (nodeAName tpl)                            params                            args                            ren                            env                            isp
                           )                          (substTpl
                             (nodeB tpl)                            params                            args                            ren                            env                            isp
                           )                          0                          isp
@@ -3809,7 +3809,7 @@
   (if (>= i (vecLen ps))
     acc
     (let ((pb (expBinderParam
-      (vecGet ps i)      params      args      env      isp
+      (vecGetStr ps i)      params      args      env      isp
     )))
       (if (!=
         (cast Int pb)        0
@@ -3817,9 +3817,9 @@
         (substLamParamsIn
           ps          params          args          ren          env          isp          (vecPush acc pb)          (+ i 1)
         )
-        (let ((new (expFresh env (vecGet ps i))))
+        (let ((new (expFresh env (vecGetStr ps i))))
           {
-            (expRenPush ren (vecGet ps i) new)
+            (expRenPush ren (vecGetStr ps i) new)
             (substLamParamsIn
               ps              params              args              ren              env              isp              (vecPush acc new)              (+ i 1)
             )
@@ -3850,7 +3850,7 @@
           (expQualify env name)
           (let ((a (vecGet args idx)))
             (if (== (nodeTag a) TAG_E_VAR)
-              (nodeA a)
+              (nodeAName a)
               {
                 (expEmit env (mkDiagNote
                   SEV_ERROR                  "AX3022"                  "macro-set-target"                  isp                  "a macro parameter used as the target of `set` was given something that is not a variable"                  0                  0                  "pass a variable name for this parameter, or rewrite the template so the parameter is not a `set` target"                  "`set` assigns to a binding, so its target has to be a name; the argument here is an expression"
@@ -4357,22 +4357,22 @@
 (pub :: expandVarRef (-> Int Int Int Int))
 
 (pub fn (expandVarRef e env bs)
-  (if (== (expBound bs (nodeA e)) 1)
+  (if (== (expBound bs (nodeAName e)) 1)
     e
-    (let ((mac (expFindMacro env (nodeA e))))
+    (let ((mac (expFindMacro env (nodeAName e))))
       (if (== mac 0)
         e
         (if (!= (memGetWord mac 9) 0)
           {
             (expEmit env (expMarkUnit env (mkDiagNote
-              SEV_ERROR              "AX3027"              "declaration-macro"              (nodeSpan e)              (strConcat (strConcat "declaration macro `" (expSrcSpelling (nodeA e))) "` referenced in expression position")              0              0              "a rule-form macro's template is declarations; invoke it at top level"              "the two template kinds are disjoint (macro-system.md MAC-CAP-8)"
+              SEV_ERROR              "AX3027"              "declaration-macro"              (nodeSpan e)              (strConcat (strConcat "declaration macro `" (expSrcSpelling (nodeAName e))) "` referenced in expression position")              0              0              "a rule-form macro's template is declarations; invoke it at top level"              "the two template kinds are disjoint (macro-system.md MAC-CAP-8)"
             ) (memGetWord env 11)))
             (mkEInt 0)
           }
           (if (> (vecLen (nodeB mac)) 0)
             {
               (expArityDiag
-                env                (expSrcSpelling (nodeA e))                (vecLen (nodeB mac))                0                (nodeSpan e)
+                env                (expSrcSpelling (nodeAName e))                (vecLen (nodeB mac))                0                (nodeSpan e)
               )
               (mkEInt 0)
             }
@@ -4395,9 +4395,9 @@
   (let ((head (spineHead e)))
     (if (!= (nodeTag head) TAG_E_VAR)
       (expandAppPlain e env bs)
-      (if (== (expBound bs (nodeA head)) 1)
+      (if (== (expBound bs (nodeAName head)) 1)
         (expandAppPlain e env bs)
-        (let ((mac (expFindMacro env (nodeA head))))
+        (let ((mac (expFindMacro env (nodeAName head))))
           (if (== mac 0)
             (expandAppPlain e env bs)
             (expandMacroApp
@@ -4432,14 +4432,14 @@
     (if (!= (memGetWord mac 9) 0)
       {
         (expEmit env (expMarkUnit env (mkDiagNote
-          SEV_ERROR          "AX3027"          "declaration-macro"          isp          (strConcat (strConcat "declaration macro `" (expSrcSpelling (nodeA head))) "` invoked in expression position")          0          0          "a rule-form macro's template is declarations; invoke it at top level"          "the two template kinds are disjoint: an expression position needs a value, and this macro generates declarations (macro-system.md MAC-CAP-8)"
+          SEV_ERROR          "AX3027"          "declaration-macro"          isp          (strConcat (strConcat "declaration macro `" (expSrcSpelling (nodeAName head))) "` invoked in expression position")          0          0          "a rule-form macro's template is declarations; invoke it at top level"          "the two template kinds are disjoint: an expression position needs a value, and this macro generates declarations (macro-system.md MAC-CAP-8)"
         ) (memGetWord env 11)))
         (mkEInt 0)
       }
       (if (< (vecLen args) (vecLen params))
         {
           (expArityDiag
-            env            (expSrcSpelling (nodeA head))            (vecLen params)            (vecLen args)            isp
+            env            (expSrcSpelling (nodeAName head))            (vecLen params)            (vecLen args)            isp
           )
           (mkEInt 0)
         }
@@ -4497,7 +4497,7 @@
     (if (> d expDepthLimit)
       {
         (expEmit env (mkDiagNote
-          SEV_ERROR          "AX3019"          "macro-recursion-limit"          isp          (strConcat (strConcat "expanding `" (nodeA mac)) "` exceeded the macro expansion depth limit")          0          0          "check whether this macro, directly or through another, invokes itself with no case that stops"          "expansion is a rewrite, so a macro that always rewrites to itself never terminates; the limit is 128"
+          SEV_ERROR          "AX3019"          "macro-recursion-limit"          isp          (strConcat (strConcat "expanding `" (nodeAName mac)) "` exceeded the macro expansion depth limit")          0          0          "check whether this macro, directly or through another, invokes itself with no case that stops"          "expansion is a rewrite, so a macro that always rewrites to itself never terminates; the limit is 128"
         ))
         (mkEInt 0)
       }
@@ -4523,7 +4523,7 @@
         (prevFors (memGetWord env 13))
         (_frame (vecPush
           (memGetWord env 10)          (cast Int (ExpFrame
-            (memGetWord env 11)            isp            (nodeA mac)            (nodeSpan mac)            (nodeModule mac)
+            (memGetWord env 11)            isp            (nodeAName mac)            (nodeSpan mac)            (nodeModule mac)
           ))
         ))
         (_setmod (expSetMacMod env (nodeModule mac)))
@@ -4803,14 +4803,14 @@
               (!= (nodeTag (vecGet (expRulePats (vecGet rules i)) k)) TAG_E_VAR)
             )
               (expEmit env (mkDiagNote
-                SEV_ERROR                "AX3034"                "macro-ellipsis"                (nodeSpan mac)                (strConcat (strConcat "macro `" (nodeA mac)) "` repeats something that is not a plain name")                0                0                "repeat a bare binder - `(m T v ...)` - and take the shape apart in the template"                "v1 of MAC-LANG-16 binds ONE name to the forms a repeat absorbs. A repeated PATTERN binds each of its binders to a sequence of its own, in lockstep, which is a second thing and is not built"
+                SEV_ERROR                "AX3034"                "macro-ellipsis"                (nodeSpan mac)                (strConcat (strConcat "macro `" (nodeAName mac)) "` repeats something that is not a plain name")                0                0                "repeat a bare binder - `(m T v ...)` - and take the shape apart in the template"                "v1 of MAC-LANG-16 binds ONE name to the forms a repeat absorbs. A repeated PATTERN binds each of its binders to a sequence of its own, in lockstep, which is a second thing and is not built"
               ))
               0
             )
           )
           (if (> (expRepCount (expRuleReps (vecGet rules i)) 0 0) 1)
             (expEmit env (mkDiagNote
-              SEV_ERROR              "AX3034"              "macro-ellipsis"              (nodeSpan mac)              (strConcat (strConcat "macro `" (nodeA mac)) "` has a rule with more than one `...`")              0              0              "keep one repeating element per rule; the arguments a second one would take are the ones the first already took"              "a repeating element absorbs every argument left after the fixed ones (macro-system.md MAC-LANG-16), so a second has nothing defined to absorb and where the split fell would be the expander's guess"
+              SEV_ERROR              "AX3034"              "macro-ellipsis"              (nodeSpan mac)              (strConcat (strConcat "macro `" (nodeAName mac)) "` has a rule with more than one `...`")              0              0              "keep one repeating element per rule; the arguments a second one would take are the ones the first already took"              "a repeating element absorbs every argument left after the fixed ones (macro-system.md MAC-LANG-16), so a second has nothing defined to absorb and where the split fell would be the expander's guess"
             ))
             0
           )
@@ -4848,7 +4848,7 @@
           (let ((j (expShadowingRule rules i 0)))
             (if (>= j 0)
               (expEmit env (mkDiagNote
-                SEV_ERROR                "AX3033"                "macro-unreachable-rule"                (nodeSpan mac)                (strConcat (strConcat (strConcat (strConcat "macro `" (nodeA mac)) "` has a rule that can never match: rule ") (strConcat (expFmtInt (+ i 1)) " is shadowed by rule ")) (expFmtInt (+ j 1)))                0                0                "give the earlier rule a pattern that can FAIL - a literal, or a parenthesised shape of two or more elements - or delete this one. A one-element `(p)` is the bare binder `p`: the parentheses are the same ones an argument loses, so it still matches everything"                "rules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18); an earlier rule of the same arity whose elements are all plain binders matches every invocation of that arity, so nothing of that arity after it is reachable"
+                SEV_ERROR                "AX3033"                "macro-unreachable-rule"                (nodeSpan mac)                (strConcat (strConcat (strConcat (strConcat "macro `" (nodeAName mac)) "` has a rule that can never match: rule ") (strConcat (expFmtInt (+ i 1)) " is shadowed by rule ")) (expFmtInt (+ j 1)))                0                0                "give the earlier rule a pattern that can FAIL - a literal, or a parenthesised shape of two or more elements - or delete this one. A one-element `(p)` is the bare binder `p`: the parentheses are the same ones an argument loses, so it still matches everything"                "rules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18); an earlier rule of the same arity whose elements are all plain binders matches every invocation of that arity, so nothing of that arity after it is reachable"
               ))
               ; Its OWN code since 2026-08-16. This shared
               ; `AX3020` while the refusal was "two rules of
@@ -5026,7 +5026,7 @@
       ; `_` matches anything and binds nothing - which is also why
       ; several `_` in one rule are legal where two of any other
       ; name are not.
-      (if (strEq (nodeA p) "_")
+      (if (strEq (nodeAName p) "_")
         1
         {
           (vecPush names (nodeA p))
@@ -5078,7 +5078,7 @@
               ; identically-spelled argument took this one. Decoding here
               ; rather than changing the node keeps that design and makes
               ; the five arms agree.
-              (if (&& (== (nodeTag a) TAG_E_STR) (== (expStrLitEq (nodeA a) (nodeA p)) 1))
+              (if (&& (== (nodeTag a) TAG_E_STR) (== (expStrLitEq (nodeAName a) (nodeAName p)) 1))
                 1
                 0
               )
@@ -5272,7 +5272,7 @@
         0
         {
           (vecPush
-            seqs            (cast Int (SeqBind (nodeA (vecGet ps k)) (expTailFrom args k vecNew)))
+            seqs            (cast Int (SeqBind (nodeAName (vecGet ps k)) (expTailFrom args k vecNew)))
           )
           1
         }
@@ -5331,7 +5331,7 @@
   (if (>= i (vecLen seqs))
     0
     (let ((b (vecGet seqs i)))
-      (if (strEq (memGetWord b 0) name)
+      (if (strEq (memGetWordStr b 0) name)
         (memGetWord b 1)
         (expSeqLookupFrom seqs name (+ i 1))
       )
@@ -5388,7 +5388,7 @@
 (pub fn (expShapeElems spells i acc)
   (if (>= i (vecLen spells))
     acc
-    (expShapeElems spells (+ i 1) (strConcat (strConcat acc " ") (vecGet spells i)))
+    (expShapeElems spells (+ i 1) (strConcat (strConcat acc " ") (vecGetStr spells i)))
   )
 )
 
@@ -5418,7 +5418,7 @@
 
 (pub fn (expRuleBindersOf p acc)
   (if (== (nodeTag p) TAG_E_VAR)
-    (if (strEq (nodeA p) "_")
+    (if (strEq (nodeAName p) "_")
       acc
       {
         (vecPush acc (nodeA p))
@@ -5467,7 +5467,7 @@
             SEV_ERROR            "AX3021"            "macro-template-unsupported"            (if (== (nodeSpan t) 0)
               (nodeSpan mac)
               (nodeSpan t)
-            )            (strConcat (strConcat "macro `" (nodeA mac)) "`'s template may generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")            0            0            "generate the declaration by hand, or split it out of the template"            "trait, import and nested macro templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule"
+            )            (strConcat (strConcat "macro `" (nodeAName mac)) "`'s template may generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")            0            0            "generate the declaration by hand, or split it out of the template"            "trait, import and nested macro templates refuse here, at the macro's own line, rather than passing through silently (MAC-CAP-2). An import inside a template would reopen resolution ordering and a nested macro the phase-D fixpoint, which is why those two are refusals by decision rather than by schedule"
           )          (nodeModule mac)
         )
       )
@@ -5524,11 +5524,11 @@
             ; constructors of a `data` are checked with it.
             (if (|| (== tag TAG_D_FN) (|| (== tag TAG_D_SIG) (|| (== tag TAG_D_MACRO) (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT)))))
               {
-                (if (strStartsWith (nodeA d) "syntax/")
+                (if (strStartsWith (nodeAName d) "syntax/")
                   (expQueryErr
-                    env                    (nodeSpan d)                    (if (== (expIsJoinMarker (nodeA d)) 1)
+                    env                    (nodeSpan d)                    (if (== (expIsJoinMarker (nodeAName d)) 1)
                       "a `(syntax/join ...)` name stands in a declaration macro's template, not in ordinary code"
-                      (strConcat (strConcat "`" (nodeA d)) "` declares a name in the reserved `syntax/` prefix")
+                      (strConcat (strConcat "`" (nodeAName d)) "` declares a name in the reserved `syntax/` prefix")
                     )                    "the syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template"                    (nodeModule d)
                   )
                   0
@@ -5558,14 +5558,14 @@
     0
     {
       (let ((c (vecGet cs i)))
-        (if (strStartsWith (nodeA c) "syntax/")
+        (if (strStartsWith (nodeAName c) "syntax/")
           (expQueryErr
             env            (if (== (nodeSpan c) 0)
               (nodeSpan d)
               (nodeSpan c)
-            )            (if (== (expIsJoinMarker (nodeA c)) 1)
+            )            (if (== (expIsJoinMarker (nodeAName c)) 1)
               "a `(syntax/join ...)` constructor name stands in a declaration macro's template, not in ordinary code"
-              (strConcat (strConcat "`" (nodeA c)) "` declares a constructor in the reserved `syntax/` prefix")
+              (strConcat (strConcat "`" (nodeAName c)) "` declares a constructor in the reserved `syntax/` prefix")
             )            "the syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template"            (nodeModule d)
           )
           0
@@ -5598,9 +5598,9 @@
     (if (>= i (vecLen ps))
       0
       {
-        (if (!= (expParamIndex ps (vecGet ps i)) i)
+        (if (!= (expParamIndex ps (vecGetStr ps i)) i)
           (expEmit env (mkDiagNote
-            SEV_ERROR            "AX3020"            "macro-duplicate-parameter"            (nodeSpan mac)            (strConcat (strConcat (strConcat "macro `" (nodeA mac)) "` declares the parameter `") (strConcat (vecGet ps i) "` more than once"))            0            0            "give each parameter a distinct name"            "every reference to a repeated parameter resolves to the LAST argument, so the earlier ones are silently discarded"
+            SEV_ERROR            "AX3020"            "macro-duplicate-parameter"            (nodeSpan mac)            (strConcat (strConcat (strConcat "macro `" (nodeAName mac)) "` declares the parameter `") (strConcat (vecGetStr ps i) "` more than once"))            0            0            "give each parameter a distinct name"            "every reference to a repeated parameter resolves to the LAST argument, so the earlier ones are silently discarded"
           ))
           0
         )
@@ -5802,19 +5802,19 @@
       (_s (memSetWord env 9 (nodeModule d)))
     )
       (let ((r 
-        (let ((mac (expFindMacro env (nodeA d))))
+        (let ((mac (expFindMacro env (nodeAName d))))
           (if (== mac 0)
             (expDeclCallErr
-              env              d              (strConcat (strConcat "`" (expSrcSpelling (nodeA d))) "` is neither a declaration keyword nor a visible macro")              "a top-level form is a declaration - fn, ::, data, struct, type, trait, impl, effect, import, macro - or an invocation of a declaration macro"              "this used to be a bare `syntax error` that also stopped the parse at the first unknown head, hiding every later diagnostic in the file"
+              env              d              (strConcat (strConcat "`" (expSrcSpelling (nodeAName d))) "` is neither a declaration keyword nor a visible macro")              "a top-level form is a declaration - fn, ::, data, struct, type, trait, impl, effect, import, macro - or an invocation of a declaration macro"              "this used to be a bare `syntax error` that also stopped the parse at the first unknown head, hiding every later diagnostic in the file"
             )
             (if (== (memGetWord mac 9) 0)
               (expDeclCallErr
-                env                d                (strConcat (strConcat "macro `" (expSrcSpelling (nodeA d))) "` has an expression template and cannot stand in declaration position")                "give it a rule form - `(macro name ((name args ...) (fn ...) ...))` - whose template is declarations"                "an expression macro's template is one expression; a declaration position needs declarations (macro-system.md MAC-CAP-8)"
+                env                d                (strConcat (strConcat "macro `" (expSrcSpelling (nodeAName d))) "` has an expression template and cannot stand in declaration position")                "give it a rule form - `(macro name ((name args ...) (fn ...) ...))` - whose template is declarations"                "an expression macro's template is one expression; a declaration position needs declarations (macro-system.md MAC-CAP-8)"
               )
               (let ((m (expRuleForForms (memGetWord mac 9) (nodeB d) 0)))
                 (if (== m 0)
                   {
-                    (expNoRuleDiag env (expSrcSpelling (nodeA d)) (expRuleShapes (memGetWord mac 9) (expSrcSpelling (nodeA d)) 0 "") (nodeSpan d))
+                    (expNoRuleDiag env (expSrcSpelling (nodeAName d)) (expRuleShapes (memGetWord mac 9) (expSrcSpelling (nodeAName d)) 0 "") (nodeSpan d))
                     (memSetWord d 3 1)
                     0
                   }
@@ -5871,7 +5871,7 @@
       ; read its site from the declaration being expanded.
       (vecPush
         (memGetWord env 10)        (cast Int (ExpFrame
-          (nodeModule d)          isp          (nodeA mac)          (nodeSpan mac)          (nodeModule mac)
+          (nodeModule d)          isp          (nodeAName mac)          (nodeSpan mac)          (nodeModule mac)
         ))
       )
       (let ((made (expBuildDecls
@@ -5897,7 +5897,7 @@
                   (expCopyDeclInto d (vecGet made 0))
                   (expAppendRest entryDecls decls made 1)
                   (expGiveTags d made tags)
-                  (expRecordGens env made (nodeA mac) 0)
+                  (expRecordGens env made (nodeAName mac) 0)
                   ; The entry file wins the bare slot, generated
                   ; declarations included - `recordEntryFns` does
                   ; this for the ones the parser produced, before
@@ -5919,7 +5919,7 @@
                     (memSetWord d 8 mod)
                     (expAppendRestMod decls made 1)
                     (expGiveTags d made tags)
-                    (expRecordGens env made (nodeA mac) 0)
+                    (expRecordGens env made (nodeAName mac) 0)
                     1
                   }
                 )
@@ -6056,7 +6056,7 @@
             s
             (let ((a (vecGet args idx)))
               (if (== (nodeTag a) TAG_E_VAR)
-                (nodeA a)
+                (nodeAName a)
                 {
                   (expEmit env (mkDiagNote
                     SEV_ERROR                    "AX3027"                    "declaration-macro"                    isp                    (strConcat (strConcat "a generated declaration's name must be a bare identifier; `" s) "` was given an expression")                    0                    0                    "pass a plain name in this argument position"                    "the parameter stands in a NAME position of the template - a declaration head or a parameter list - and only an identifier can be a name"
@@ -6084,7 +6084,7 @@
   (if (>= i (vecLen ss))
     acc
     (let ((n (expSubstName
-      (vecGet ss i)      params      args      env      isp
+      (vecGetStr ss i)      params      args      env      isp
     )))
       (if (==
         (cast Int n)        0
@@ -6121,7 +6121,7 @@
     (let ((tag (nodeTag t)))
       (if (&&
         (== tag TAG_T_CON)        (&&
-          (strEq (nodeA t) "syntax/join")          (if (== (nodeB t) 0)
+          (strEq (nodeAName t) "syntax/join")          (if (== (nodeB t) 0)
             false
             (== (vecLen (nodeB t)) 2)
           )
@@ -6153,7 +6153,7 @@
         )
         (if (== tag TAG_T_CON)
           (let ((n (expSubstName
-            (nodeA t)            params            args            env            isp
+            (nodeAName t)            params            args            env            isp
           )))
             (if (==
               (cast Int n)              0
@@ -6169,7 +6169,7 @@
           )
           (if (== tag TAG_T_VAR)
             (let ((n (expSubstName
-              (nodeA t)              params              args              env              isp
+              (nodeAName t)              params              args              env              isp
             )))
               (if (==
                 (cast Int n)                0
@@ -6224,14 +6224,14 @@
       (== (vecLen (nodeB t)) 0)
     )
       (expSubstName
-        (nodeA t)        params        args        env        isp
+        (nodeAName t)        params        args        env        isp
       )
       (let ((sub (expSubstTy
         t        params        args        env        isp
       )))
         (if (== (nodeTag sub) TAG_T_ERR)
           (cast String 0)
-          (nodeA sub)
+          (nodeAName sub)
         )
       )
     )
@@ -6298,7 +6298,7 @@
 (pub fn (expTyIsFloatCon t)
   (if (== t 0)
     0
-    (if (&& (== (nodeTag t) TAG_T_CON) (strEq (nodeA t) "Float"))
+    (if (&& (== (nodeTag t) TAG_T_CON) (strEq (nodeAName t) "Float"))
       1
       0
     )
@@ -6379,9 +6379,9 @@
   (let ((tag (nodeTag t)))
     (if (== tag TAG_D_FN)
       (let (
-        (nsp (expNameSpan (nodeA t) params args))
+        (nsp (expNameSpan (nodeAName t) params args))
         (nm (expSubstName
-          (nodeA t)          params          args          env          isp
+          (nodeAName t)          params          args          env          isp
         ))
       )
         (if (==
@@ -6417,9 +6417,9 @@
       )
       (if (== tag TAG_D_SIG)
         (let (
-          (nsp (expNameSpan (nodeA t) params args))
+          (nsp (expNameSpan (nodeAName t) params args))
           (nm (expSubstName
-            (nodeA t)            params            args            env            isp
+            (nodeAName t)            params            args            env            isp
           ))
         )
           (if (==
@@ -6459,7 +6459,7 @@
           ; derived instance BE an instance for a containing type's
           ; derive to dispatch to (MAC-INT-4, macro-system.md §10.2).
           (let ((tn (expSubstName
-            (nodeA t)            params            args            env            isp
+            (nodeAName t)            params            args            env            isp
           )))
             (if (==
               (cast Int tn)              0
@@ -6502,9 +6502,9 @@
             ; a binder a macro introduces into the type namespace, and
             ; nothing in MAC-HYG-* renames those yet.
             (let (
-              (nsp (expNameSpan (nodeA t) params args))
+              (nsp (expNameSpan (nodeAName t) params args))
               (nm (expSubstName
-                (nodeA t)                params                args                env                isp
+                (nodeAName t)                params                args                env                isp
               ))
             )
               (if (==
@@ -6534,9 +6534,9 @@
               ; everything else, so `(syntax/for (f (syntax/fields S)) ...)`
               ; can build one struct out of another's fields.
               (let (
-                (nsp (expNameSpan (nodeA t) params args))
+                (nsp (expNameSpan (nodeAName t) params args))
                 (nm (expSubstName
-                  (nodeA t)                  params                  args                  env                  isp
+                  (nodeAName t)                  params                  args                  env                  isp
                 ))
               )
                 (if (==
@@ -6570,9 +6570,9 @@
                 ; which is what MAC-EXP-17 says and what makes this arm four
                 ; lines rather than a pass.
                 (let (
-                  (nsp (expNameSpan (nodeA t) params args))
+                  (nsp (expNameSpan (nodeAName t) params args))
                   (nm (expSubstName
-                    (nodeA t)                    params                    args                    env                    isp
+                    (nodeAName t)                    params                    args                    env                    isp
                   ))
                 )
                   (if (==
@@ -6606,9 +6606,9 @@
                   ; disagreeing would read one operation's name beside another's
                   ; arrow.
                   (let (
-                    (nsp (expNameSpan (nodeA t) params args))
+                    (nsp (expNameSpan (nodeAName t) params args))
                     (nm (expSubstName
-                      (nodeA t)                      params                      args                      env                      isp
+                      (nodeAName t)                      params                      args                      env                      isp
                     ))
                   )
                     (if (==
@@ -6637,7 +6637,7 @@
                   )
                   (if (== tag TAG_D_MACROCALL)
                     (let ((hd (expSubstName
-                      (nodeA t)                      params                      args                      env                      isp
+                      (nodeAName t)                      params                      args                      env                      isp
                     )))
                       (if (==
                         (cast Int hd)                        0
@@ -6677,7 +6677,7 @@
   (if (>= i (vecLen ops))
     1
     (let ((nm (expSubstName
-      (vecGet ops i)      params      args      env      isp
+      (vecGetStr ops i)      params      args      env      isp
     )))
       (if (==
         (cast Int nm)        0
@@ -6734,7 +6734,7 @@
     acc
     (let ((c (vecGet cs i)))
       (let ((cn (expSubstName
-        (nodeA c)        params        args        env        isp
+        (nodeAName c)        params        args        env        isp
       )))
         (if (==
           (cast Int cn)          0
@@ -6757,7 +6757,7 @@
             )
           ))
             (let ((g (mkNodeAt
-              TAG_CTOR              cn              (vecLen ftys)              (expCtorFlags ftys)              (expNameSpan (nodeA c) params args)
+              TAG_CTOR              cn              (vecLen ftys)              (expCtorFlags ftys)              (expNameSpan (nodeAName c) params args)
             )))
               {
                 (setNodeTy g ftys)
@@ -6808,7 +6808,7 @@
     acc
     (let ((f (vecGet fs i)))
       (let ((fn0 (expSubstName
-        (nodeA f)        params        args        env        isp
+        (nodeAName f)        params        args        env        isp
       )))
         (if (==
           (cast Int fn0)          0
@@ -6819,7 +6819,7 @@
           )))
             (expBuildStructFieldsIn
               fs              params              args              env              isp              (vecPush acc (mkNodeAt
-                TAG_FIELD                fn0                ty                0                (expNameSpan (nodeA f) params args)
+                TAG_FIELD                fn0                ty                0                (expNameSpan (nodeAName f) params args)
               ))              (+ i 1)
             )
           )
@@ -6850,7 +6850,7 @@
     acc
     (let ((m (vecGet ms i)))
       (let ((nm (expSubstName
-        (nodeA m)        params        args        env        isp
+        (nodeAName m)        params        args        env        isp
       )))
         (if (==
           (cast Int nm)          0
@@ -6954,7 +6954,7 @@
     vis0
     (let ((g (vecGet made i)))
       (let ((exported 
-        (if (&& (== (nodeVis g) 1) (filterKeeps filter (nodeA g)))
+        (if (&& (== (nodeVis g) 1) (filterKeeps filter (nodeAName g)))
           1
           0
         )
@@ -7052,7 +7052,7 @@
       0
       {
         (if (== (nodeTag (vecGet made i)) TAG_D_FN)
-          (mangleRecordEntry (expBares env) (expFulls env) (nodeA (vecGet made i)))
+          (mangleRecordEntry (expBares env) (expFulls env) (nodeAName (vecGet made i)))
           0
         )
         (expClaimEntryNames made env (+ i 1))
@@ -7269,7 +7269,7 @@
     (let ((e (vecGet table j)))
       {
         (if (&& (== (diagSpan d) (memGetWord e 1)) (== (expModEq (memGetWord e 0) dmod) 1))
-          (diagAddTrace d (memGetWord e 2) (memGetWord e 3) (expUnitOfMod units (memGetWord e 4)))
+          (diagAddTrace d (memGetWordStr e 2) (memGetWord e 3) (expUnitOfMod units (memGetWord e 4)))
           0
         )
         (expAttachTo
@@ -7335,15 +7335,15 @@
 (pub :: lowerOneImpl (-> Int Int Int Int))
 
 (pub fn (lowerOneImpl decls d out)
-  (let ((tr (findTraitDecl decls (nodeA d) 0)))
+  (let ((tr (findTraitDecl decls (nodeAName d) 0)))
     (if (== tr 0)
       (implDiag
-        out        (nodeSpan d)        (strConcat (strConcat "no trait named `" (nodeA d)) "` is in scope")        "declare the trait, or import the module that declares it"        "an `impl` names the trait it implements; this one names nothing"
+        out        (nodeSpan d)        (strConcat (strConcat "no trait named `" (nodeAName d)) "` is in scope")        "declare the trait, or import the module that declares it"        "an `impl` names the trait it implements; this one names nothing"
       )
       (let ((v (traitTyvar tr)))
         (if (== (strLen v) 0)
           (implDiag
-            out            (nodeSpan d)            (strConcat (strConcat "trait `" (nodeA d)) "` declares no type parameter, so it cannot be implemented for a type")            "give the trait a parameter: `(trait (Name a) where ...)`"            "an implementation is keyed on (trait, type), and this trait has no type to key on"
+            out            (nodeSpan d)            (strConcat (strConcat "trait `" (nodeAName d)) "` declares no type parameter, so it cannot be implemented for a type")            "give the trait a parameter: `(trait (Name a) where ...)`"            "an implementation is keyed on (trait, type), and this trait has no type to key on"
           )
           {
             (checkSupertrait decls tr d out)
@@ -7370,12 +7370,12 @@
   (let ((sup (memGetWord tr 6)))
     (if (== sup 0)
       0
-      (if (== (strLen sup) 0)
+      (if (== (strLen (memGetWordStr tr 6)) 0)
         0
-        (if (== (implExistsFor decls sup (nodeCName d) 0) 1)
+        (if (== (implExistsFor decls (memGetWordStr tr 6) (nodeCName d) 0) 1)
           0
           (implDiag
-            out            (nodeSpan d)            (strConcat (strConcat (strConcat (strConcat (strConcat "trait `" (nodeA tr)) "` requires `") sup) (strConcat (strConcat "`, and there is no `impl (" sup) (strConcat " " (nodeCName d)))) ")`")            "implement the supertrait for this type first"            "a supertrait is a requirement on the implementation, not only on the declaration"
+            out            (nodeSpan d)            (strConcat (strConcat (strConcat (strConcat (strConcat "trait `" (nodeAName tr)) "` requires `") (memGetWordStr tr 6)) (strConcat (strConcat "`, and there is no `impl (" (memGetWordStr tr 6)) (strConcat " " (nodeCName d)))) ")`")            "implement the supertrait for this type first"            "a supertrait is a requirement on the implementation, not only on the declaration"
           )
         )
       )
@@ -7389,7 +7389,7 @@
   (if (>= i (vecLen decls))
     0
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_IMPL) (&& (strEq (nodeA d) tname) (strEq (nodeCName d) ty)))
+      (if (&& (== (nodeTag d) TAG_D_IMPL) (&& (strEq (nodeAName d) tname) (strEq (nodeCName d) ty)))
         1
         (implExistsFor decls tname ty (+ i 1))
       )
@@ -7415,10 +7415,10 @@
     0
     (let ((m (vecGet methods i)))
       {
-        (let ((decl (findFieldNamed (nodeB tr) (nodeA m) 0)))
+        (let ((decl (findFieldNamed (nodeB tr) (nodeAName m) 0)))
           (if (== decl 0)
             (implDiag
-              out              (nodeSpan m)              (strConcat (strConcat (strConcat (strConcat "trait `" (nodeA tr)) "` declares no method `") (nodeA m)) "`")              "check the spelling against the trait's `where` list"              "an implementation may only define methods the trait declares"
+              out              (nodeSpan m)              (strConcat (strConcat (strConcat (strConcat "trait `" (nodeAName tr)) "` declares no method `") (nodeAName m)) "`")              "check the spelling against the trait's `where` list"              "an implementation may only define methods the trait declares"
             )
             (lowerEmit
               decls              tr              d              m              decl              v
@@ -7458,7 +7458,7 @@
   ; lambda and applying it is what both shapes support.
   (let (
     (ty (tySubstVar (nodeB decl) v (mkTCon (nodeCName d) vecNew)))
-    (nm (traitImplName (nodeA tr) (nodeCName d) (nodeA m)))
+    (nm (traitImplName (nodeAName tr) (nodeCName d) (nodeAName m)))
   )
     (let (
       (ar (arrowArity ty))
@@ -7544,7 +7544,7 @@
 (pub fn (etaApply f ps i)
   (if (>= i (vecLen ps))
     f
-    (etaApply (mkEApp f (mkEVar (vecGet ps i))) ps (+ i 1))
+    (etaApply (mkEApp f (mkEVar (vecGetStr ps i))) ps (+ i 1))
   )
 )
 
@@ -7560,7 +7560,7 @@
     0
     (let ((want (vecGet (nodeB tr) i)))
       {
-        (if (== (findFieldNamed methods (nodeA want) 0) 0)
+        (if (== (findFieldNamed methods (nodeAName want) 0) 0)
           (if (!= (nodeC want) 0)
             (lowerEmit
               decls              tr              d              (mkNodeAt
@@ -7568,7 +7568,7 @@
               )              want              v
             )
             (implDiag
-              out              (nodeSpan d)              (strConcat (strConcat (strConcat (strConcat "this implementation of `" (nodeA tr)) "` does not define `") (nodeA want)) "`")              "define it, or give the trait method a default body with `= <expr>`"              "a trait method with no implementation and no default has nothing to dispatch to"
+              out              (nodeSpan d)              (strConcat (strConcat (strConcat (strConcat "this implementation of `" (nodeAName tr)) "` does not define `") (nodeAName want)) "`")              "define it, or give the trait method a default body with `= <expr>`"              "a trait method with no implementation and no default has nothing to dispatch to"
             )
           )
           0

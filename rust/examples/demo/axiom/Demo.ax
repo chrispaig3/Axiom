@@ -104,7 +104,7 @@
 (fn (__pointToWords __ps __w __i)
   (if (>= __i (vecLen __ps))
     __w
-    (match (vecGet __ps __i)
+    (match (cast Point (vecGet __ps __i))
       ((Point __f0 __f1)
         {
           (vecPush __w __f0)

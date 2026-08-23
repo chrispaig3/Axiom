@@ -190,13 +190,27 @@
 ; built on them - the `Str` header, `Buf`, and every `data` value the
 ; compiler boxes - are arrays of machine words.
 ; ------------------------------------------------------------------
-; RAW: the word at `index` is whatever was stored there. Nothing on
-; this layer knows what that was - that is what makes the layer unsafe.
-;@axiom:raw
-(pub :: memGetWord (-> Int Int a))
+; The word at `index`. A word is what it is: an integer, or a handle,
+; or a reference whose type this layer does not know. It answers `Int`
+; because that is the truth about a machine word - it used to answer a
+; type variable, which let the CALLER name any type at all and get it,
+; including a reference, which then dereferenced. See `AX3040`.
+(pub :: memGetWord (-> Int Int Int))
 
-(pub fn (memGetWord addr index)
-  (cast a (__load64 addr index))
+(pub fn (memGetWord addr index) (__load64 addr index))
+
+; The String view, for the typed accessors built on this layer -
+; `tokenLexeme`, `diagCode`, and the several dozen others whose own
+; signature says `String` and whose body is one word read.
+;
+; The cast is HERE, at a return inside a signature that carries the
+; type, and deliberately not at those call sites: a cast at an argument
+; root classifies the value's evidence 0 and drops its retain or its
+; release (docs/memory-model.md MM-LIFE-2e, measured).
+(pub :: memGetWordStr (-> Int Int String))
+
+(pub fn (memGetWordStr addr index)
+  (cast String (memGetWord addr index))
 )
 
 ; Storing a word here is the moment a value can leave the type

@@ -237,7 +237,7 @@
   (if (>= i (vecLen ds))
     false
     (let ((d (vecGet ds i)))
-      (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeA d) "main"))
+      (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeAName d) "main"))
         true
         (declsHaveMainFrom ds (+ i 1))
       )

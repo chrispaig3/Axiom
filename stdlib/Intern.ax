@@ -238,7 +238,7 @@
     (strAlloc 0)
     (if (>= id (internCount it))
       (strAlloc 0)
-      (vecGet (internStrs it) id)
+      (vecGetStr (internStrs it) id)
     )
   )
 )
@@ -273,7 +273,7 @@
     (let ((cell (memGetWord (internTable it) i)))
       (if (== cell 0)
         (- 0 1)
-        (if (strEq (vecGet (internStrs it) (- cell 1)) s)
+        (if (strEq (vecGetStr (internStrs it) (- cell 1)) s)
           (- cell 1)
           (internFindFrom it s (mapNextSlot i (internCap it)) (- left 1))
         )
@@ -388,7 +388,7 @@
   (if (>= id (internCount it))
     it
     {
-      (internPlace it id (internSlotOf (vecGet (internStrs it) id) (internCap it)) (internCap it))
+      (internPlace it id (internSlotOf (vecGetStr (internStrs it) id) (internCap it)) (internCap it))
       (internReplaceFrom it (+ id 1))
     }
   )

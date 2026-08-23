@@ -119,7 +119,7 @@
     ; Every element is copied, because a Str produced by slicing
     ; shares its bytes with a larger string and stops at no NUL.
     {
-      (memSetWord v (+ i 1) (strCStr (strDup (vecGet args i))))
+      (memSetWord v (+ i 1) (strCStr (strDup (vecGetStr args i))))
       (fillArgv v args (+ i 1) n)
     }
   )
@@ -1622,7 +1622,7 @@
     (if (== (nodeTag t) TAG_T_ARR)
       "c"
       (if (== (nodeTag t) TAG_T_CON)
-        (let ((n (nodeA t)))
+        (let ((n (nodeAName t)))
           (if (strEq n "Float")
             "f"
             (if (strEq n "String")
@@ -1786,7 +1786,7 @@
     ""
     (let ((d (vecGet decls i)))
       (if (&& (== (nodeTag d) TAG_D_EXTERN) (!= (findExternItemIn (nodeC d) sym 0) 0))
-        (nodeA d)
+        (nodeAName d)
         (findExternLib decls sym (+ i 1))
       )
     )
@@ -2468,7 +2468,7 @@
 (pub fn (nearestSubcommandFrom w v i)
   (if (>= i (vecLen v))
     ""
-    (let ((c (vecGet v i)))
+    (let ((c (vecGetStr v i)))
       (if (<= (editDistance w c) 2)
         c
         (nearestSubcommandFrom w v (+ i 1))

@@ -25,7 +25,7 @@
 
 (:: segEq (-> String Int Int String Bool))
 
-(fn (segEq s b i want) (strEq (vecGet (strSplit s b) i) want))
+(fn (segEq s b i want) (strEq (vecGetStr (strSplit s b) i) want))
 
 ; Counted, not `&&`-chained and not nested: the answer says HOW MANY
 ; of the nine checks held, so a fixture that stopped exercising one of

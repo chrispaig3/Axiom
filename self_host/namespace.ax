@@ -96,7 +96,7 @@
 (pub fn (mangleIndexOf bares name i)
   (if (>= i (vecLen bares))
     (- 0 1)
-    (if (strEq (vecGet bares i) name)
+    (if (strEq (vecGetStr bares i) name)
       i
       (mangleIndexOf bares name (+ i 1))
     )
@@ -108,7 +108,7 @@
 (pub fn (mangleHasIn bares bare i)
   (if (>= i (vecLen bares))
     false
-    (if (strEq (vecGet bares i) bare)
+    (if (strEq (vecGetStr bares i) bare)
       true
       (mangleHasIn bares bare (+ i 1))
     )
@@ -139,7 +139,7 @@
   )
     0
     (if (== (nodeTag node) TAG_D_FN)
-      (let ((bare (nodeA node)))
+      (let ((bare (nodeAName node)))
         (let ((full 
           (strConcat
             (strConcat
@@ -166,7 +166,7 @@
                 (strDup
                   (cast String modName)
                 )                "$"
-              )              (strDup (nodeA node))
+              )              (strDup (nodeAName node))
             )
           )
           0
@@ -205,7 +205,7 @@
       0
       {
         (let ((f (vecGet items i)))
-          (mangleRecord bares fulls (nodeA f) (nodeCName f))
+          (mangleRecord bares fulls (nodeAName f) (nodeCName f))
         )
         (mangleExternItems items (+ i 1) bares fulls)
       }
@@ -238,7 +238,7 @@
 (pub fn (seenHasIn seen name i)
   (if (>= i (vecLen seen))
     false
-    (if (strEq (vecGet seen i) name)
+    (if (strEq (vecGetStr seen i) name)
       true
       (seenHasIn seen name (+ i 1))
     )

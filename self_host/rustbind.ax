@@ -138,7 +138,7 @@
       (while (< i (vecLen decls))
         {
           (let ((d (vecGet decls i)))
-            (if (&& (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT)) (strEq (nodeA d) name))
+            (if (&& (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT)) (strEq (nodeAName d) name))
               {
                 (set found d)
                 0
@@ -158,7 +158,7 @@
 
 (pub fn (rbIsWordLeaf t)
   (if (&& (!= t 0) (&& (== (nodeTag t) TAG_T_CON) (== (vecLen (nodeB t)) 0)))
-    (let ((n (nodeA t)))
+    (let ((n (nodeAName t)))
       (if (|| (strEq n "Int") (|| (strEq n "Float") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Handle") (strEq n "Foreign"))))))
         1
         0
@@ -171,7 +171,7 @@
 (pub :: rbIsString (-> Int Int))
 
 (pub fn (rbIsString t)
-  (if (&& (!= t 0) (&& (== (nodeTag t) TAG_T_CON) (&& (== (vecLen (nodeB t)) 0) (strEq (nodeA t) "String"))))
+  (if (&& (!= t 0) (&& (== (nodeTag t) TAG_T_CON) (&& (== (vecLen (nodeB t)) 0) (strEq (nodeAName t) "String"))))
     1
     0
   )
@@ -183,7 +183,7 @@
 
 (pub fn (rbIsData decls t)
   (if (&& (!= t 0) (== (nodeTag t) TAG_T_CON))
-    (let ((n (nodeA t)))
+    (let ((n (nodeAName t)))
       (if (|| (strEq n "Option") (strEq n "Result"))
         1
         (if (== (rbDataDecl decls n) 0)
@@ -203,7 +203,7 @@
 
 (pub fn (rbCtorsOf decls t)
   (let (
-    (n (nodeA t))
+    (n (nodeAName t))
     (args (nodeB t))
     (out vecNew)
   )
@@ -264,7 +264,7 @@
                       {
                         (let ((c (vecGet cs i)))
                           (vecPush
-                            out                            (cast Int (rbCtor (nodeA c) (rbSubstAll (nodeTy c) vars args) (nodeFieldNames c)))
+                            out                            (cast Int (rbCtor (nodeAName c) (rbSubstAll (nodeTy c) vars args) (nodeFieldNames c)))
                           )
                         )
                         (set i (+ i 1))
@@ -332,7 +332,7 @@
     0
     (let ((tag (nodeTag t)))
       (if (== tag TAG_T_VAR)
-        (let ((k (rbIndexOfName vars (nodeA t))))
+        (let ((k (rbIndexOfName vars (nodeAName t))))
           (if (&& (>= k 0) (< k (vecLen args)))
             (vecGet args k)
             t
@@ -475,7 +475,7 @@
     "_"
     (if (== (nodeTag t) TAG_T_CON)
       (let (
-        (mut s (nodeA t))
+        (mut s (nodeAName t))
         (args (nodeB t))
         (mut i 0)
       )
@@ -507,8 +507,8 @@
       (while (< i (vecLen decls))
         {
           (let ((d (vecGet decls i)))
-            (if (&& (== (nodeTag d) TAG_D_FN) (rbNamed pubNames (nodeA d)))
-              (let ((sigd (rbFindSig decls (nodeA d) 0)))
+            (if (&& (== (nodeTag d) TAG_D_FN) (rbNamed pubNames (nodeAName d)))
+              (let ((sigd (rbFindSig decls (nodeAName d) 0)))
                 (if (== sigd 0)
                   0
                   (rbCollectInst decls (nodeTy sigd) insts seen)
@@ -674,7 +674,7 @@
 (pub :: rbIsStructType (-> Int Int Int))
 
 (pub fn (rbIsStructType decls t)
-  (let ((d (rbDataDecl decls (nodeA t))))
+  (let ((d (rbDataDecl decls (nodeAName t))))
     (if (== d 0)
       0
       (if (== (nodeTag d) TAG_D_STRUCT)
@@ -768,7 +768,7 @@
       (while (< i (vecLen decls))
         {
           (let ((d (vecGet decls i)))
-            (if (&& (== (nodeTag d) TAG_D_FN) (|| (rbNamed pubNames (nodeA d)) (strStartsWith (nodeA d) "axh_")))
+            (if (&& (== (nodeTag d) TAG_D_FN) (|| (rbNamed pubNames (nodeAName d)) (strStartsWith (nodeAName d) "axh_")))
               (rbOneFn
                 decls                d                raws                wraps                notes
               )
@@ -831,8 +831,8 @@
 
 (pub fn (rbOneFn decls f raws wraps notes)
   (let (
-    (name (nodeA f))
-    (sigd (rbFindSig decls (nodeA f) 0))
+    (name (nodeAName f))
+    (sigd (rbFindSig decls (nodeAName f) 0))
   )
     (let ((ty 
       (if (== sigd 0)
@@ -901,7 +901,7 @@
   (if (>= i (vecLen decls))
     0
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_SIG) (strEq (nodeA d) name))
+      (if (&& (== (nodeTag d) TAG_D_SIG) (strEq (nodeAName d) name))
         d
         (rbFindSig decls name (+ i 1))
       )
@@ -931,7 +931,7 @@
   (if (== t 0)
     ""
     (if (== (rbIsWordLeaf t) 1)
-      (let ((n (nodeA t)))
+      (let ((n (nodeAName t)))
         (if (strEq n "Int")
           "i64"
           (if (strEq n "Float")
@@ -976,7 +976,7 @@
 (pub :: rbRustDataName (-> Int Int String))
 
 (pub fn (rbRustDataName decls t)
-  (let ((n (nodeA t)))
+  (let ((n (nodeAName t)))
     (if (strEq n "Option")
       (cat3 "Option<" (rbRustType decls (vecGet (nodeB t) 0) 2) ">")
       (if (strEq n "Result")
@@ -1052,7 +1052,7 @@
     )
   ))
     (if (== (rbIsWordLeaf t) 1)
-      (let ((n (nodeA t)))
+      (let ((n (nodeAName t)))
         (if (strEq n "Float")
           (cat3 "(" (cat2 deref e) ").to_bits() as i64")
           (if (|| (strEq n "Bool") (strEq n "Char"))
@@ -1091,7 +1091,7 @@
 
 (pub fn (rbFromWord t w)
   (if (== (rbIsWordLeaf t) 1)
-    (let ((n (nodeA t)))
+    (let ((n (nodeAName t)))
       (if (strEq n "Float")
         (cat3 "f64::from_bits(" w " as u64)")
         (if (strEq n "Bool")
@@ -1139,7 +1139,7 @@
 (pub fn (rbTypeFor decls t)
   (let (
     (m (rbMangle t))
-    (n (nodeA t))
+    (n (nodeAName t))
     (cs (rbCtorsOf decls t))
     (rn (rbRustDataName decls t))
   )
@@ -1299,7 +1299,7 @@
 (pub fn (rbFromFn decls t cs rn)
   (let (
     (m (rbMangle t))
-    (n (nodeA t))
+    (n (nodeAName t))
     (mut out "")
     (mut j 0)
   )
@@ -1370,7 +1370,7 @@
 
 (pub fn (rbCtorExpr decls t c rn args)
   (let (
-    (n (nodeA t))
+    (n (nodeAName t))
     (cn (rbCtorName c))
     (cs (rbCtorsOf decls t))
   )
@@ -1398,7 +1398,7 @@
 (pub fn (rbToFn decls t cs rn)
   (let (
     (m (rbMangle t))
-    (n (nodeA t))
+    (n (nodeAName t))
     (mut out "")
     (mut j 0)
   )
@@ -1482,7 +1482,7 @@
 
 (pub fn (rbCtorPat decls t c rn pat)
   (let (
-    (n (nodeA t))
+    (n (nodeAName t))
     (cn (rbCtorName c))
     (cs (rbCtorsOf decls t))
   )
@@ -1692,11 +1692,11 @@
     (let ((tag (nodeTag t)))
       (if (== tag TAG_T_CON)
         (if (== (vecLen (nodeB t)) 0)
-          (nodeA t)
-          (cat3 "(" (cat2 (nodeA t) (rbSpellEach (nodeB t) 0)) ")")
+          (nodeAName t)
+          (cat3 "(" (cat2 (nodeAName t) (rbSpellEach (nodeB t) 0)) ")")
         )
         (if (== tag TAG_T_VAR)
-          (nodeA t)
+          (nodeAName t)
           (if (== tag TAG_T_ARR)
             (cat3 "(->" (rbSpellSpine t) ")")
             (if (== tag TAG_T_LIST)
