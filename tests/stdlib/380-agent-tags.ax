@@ -1,0 +1,87 @@
+; exit 0
+; `Agent.Tags` against real AXSYM bytes.
+;
+; Every line in `stream` below was produced by
+; `axiom --diagnostic-format=ai symbols` and is pasted verbatim,
+; because a parser tested against lines its own author invented tests
+; the author's memory of the grammar rather than the grammar. The
+; shapes chosen are the ones the grammar makes awkward:
+;
+;   - a metadata VALUE containing spaces (`#methods=show:(a -> String)`)
+;     which is one token, so the section cannot be split on spaces;
+;   - a bare flag (`#pure`) with no `=`, which must be distinguishable
+;     from an absent key and not from a key whose value is empty;
+;   - the `-` in place of `FILE:LOC`, which `Option` always carries
+;     because a file's own code names it and it has no source span;
+;   - an `agent:*` key, which the compiler records and does not check;
+;   - two `#` tokens either side of a nid, so the nid's right edge is
+;     the space and not the end of the line;
+;   - a line that is not AXSYM at all - the `compilation failed`
+;     trailer shares the stream - which must be skipped, not guessed.
+;
+; The last term is the one that matters for a policy: `quiet` claims
+; `;@axiom:pure` and the checker derived no effect row, so
+; `symDerivedPure` is true - and that is a statement about the
+; ANALYSIS, not about the program. `shout` carries BOTH the author's
+; `#effect=io` claim and the checker's `#effects=IO` derivation, and a
+; policy is the comparison of the two.
+(import IO)
+
+(import Str)
+
+(import Vec)
+
+(import Agent.Tags)
+
+(:: stream String)
+
+(fn (stream)
+  (strConcat
+    (strConcat
+      (strConcat
+        "F shout specimen.ax:11:5-10 \"(Int -> Int)\" @cc70b00d8093fca4 #effect=io #agent:readonly #effects=IO\n"
+        "F quiet specimen.ax:16:5-10 \"(Int -> Int)\" @67cbf1247deb9229 #pure\n"
+      )
+      (strConcat
+        "D Option - \"data Option\" #ctors=Some,None\n"
+        "T Show /p/Show.ax:39:13-17 \"trait Show\" @8318f82fa5e17568 #methods=show:(a -> String)\n"
+      )
+    )
+    "compilation failed due to 1 previous error\n"
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((syms (axsymParse (stream))))
+    {
+      (println (show (vecLen syms)))
+      (let ((sh (cast Sym (vecGet syms 0))))
+        {
+          (println sh.name)
+          (println (symEffects sh))
+          (println (symTag sh "effect"))
+          (println (show (symHasAgentTag sh "readonly")))
+          (println (show (symDerivedPure sh)))
+          (println sh.nid)
+          (println sh.ty)
+        })
+      (let ((q (cast Sym (vecGet syms 1))))
+        {
+          (println (show (symHasTag q "pure")))
+          (println (show (strLen (symTag q "pure"))))
+          (println (show (symDerivedPure q)))
+        })
+      (let ((o (cast Sym (vecGet syms 2))))
+        {
+          (println o.loc)
+          (println (symTag o "ctors"))
+        })
+      (let ((t (cast Sym (vecGet syms 3))))
+        (println (symTag t "methods")))
+      0
+    }
+  )
+)

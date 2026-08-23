@@ -1,0 +1,341 @@
+; Agent.Tags — reading what the compiler already says about a program.
+;
+; `axiom symbols --diagnostic-format=ai` prints one AXSYM line per
+; declaration, and that line already carries everything an agent has to
+; know to decide whether a declaration may be touched: the kind, the
+; name, the span, the type, the stable NID, the effect row the checker
+; DERIVED, and every AXTAG the author wrote - including the open
+; `agent:*` namespace, which the compiler records and re-emits without
+; checking. AXSYM re-emits the tags of IMPORTED modules too, so one
+; command yields a whole-program view.
+;
+; So the first agent-facing module is a READER, not a new compiler
+; surface. Nothing here asks the compiler for anything it does not
+; already print. That is the point: the notation is the ABI, and it is
+; gated by `check-tools-selfhost.sh` against a golden, which is a
+; stronger contract than a library boundary this file could invent.
+;
+; WHAT THIS IS NOT. It is not a policy. `symEffects` answers what the
+; checker derived and `symTag` answers what the author claimed, and a
+; policy is the comparison of the two - which belongs in a gate, beside
+; `check-ffi.sh`'s allowlist, not in a library that a program under
+; inspection could link against itself.
+;
+; A CAUTION THE GRAMMAR FORCES. A metadata VALUE may contain spaces:
+; `#methods=show:(a -> String)` is one token. So the metadata section
+; cannot be split on spaces, and this parser starts a new token only at
+; a `#` that follows a space. `#` is not part of Axiom's type syntax,
+; which is what makes that boundary safe to rely on.
+(import Str)
+
+(import Vec)
+
+; One `#key` or `#key=value`. A bare flag - `#pure` - has `val` empty,
+; which `symHasTag` distinguishes from an absent key.
+(pub struct Meta
+  (key : String)
+  (val : String))
+
+; One AXSYM line, parsed.
+;
+;   <KIND> <NAME> <FILE>:<LOC>|- "<TYPE>" [@<NID>] [#<key>=<value>]*
+;
+; `loc` keeps the `-` verbatim for a name with no span - the built-in
+; operators and primitives, and `Option` - rather than inventing a
+; sentinel the caller would have to know about. `nid` is empty for the
+; same declarations, since a name with no span has no node id either.
+(pub struct Sym
+  (kind : Int)
+  (name : String)
+  (loc : String)
+  (ty : String)
+  (nid : String)
+  (meta : Int))
+
+(pub :: axsymSpace Int)
+
+(pub fn (axsymSpace) 32)
+
+(pub :: axsymQuote Int)
+
+(pub fn (axsymQuote) 34)
+
+(pub :: axsymHash Int)
+
+(pub fn (axsymHash) 35)
+
+(pub :: axsymAt Int)
+
+(pub fn (axsymAt) 64)
+
+(pub :: axsymEquals Int)
+
+(pub fn (axsymEquals) 61)
+
+(pub :: axsymNewline Int)
+
+(pub fn (axsymNewline) 10)
+
+; The six KIND letters, and deliberately only those: they are disjoint
+; from AXDL's `E`/`W`/`N`/`H` severity sigils, so a line's first byte
+; says which notation produced it even in a concatenated stream. A
+; seventh kind added to the compiler must be added here, and a line
+; whose first byte is unknown is answered `None` rather than guessed
+; at - a reader that guesses turns a compiler change into silently
+; wrong data.
+(pub :: axsymIsKind (-> Int Bool))
+
+(pub fn (axsymIsKind b)
+  (if (== b 70)
+    true
+    (if (== b 68)
+      true
+      (if (== b 67)
+        true
+        (if (== b 83)
+          true
+          (if (== b 65)
+            true
+            (== b 84)
+          )
+        )
+      )
+    )
+  )
+)
+
+; Trailing spaces off the end of a slice. The head field is taken as
+; the bytes before the opening quote, which includes the space that
+; separated the location from it.
+(pub :: axsymTrimEnd (-> String String))
+
+(pub fn (axsymTrimEnd s)
+  (let ((n (strLen s)))
+    (if (== n 0)
+      s
+      (if (== (strByte s (- n 1)) (axsymSpace))
+        (axsymTrimEnd (strSlice s 0 (- n 1)))
+        s
+      )
+    )
+  )
+)
+
+; `#key=value` or a bare `#key`, with the leading `#` already dropped.
+(pub :: axsymMeta (-> String Meta))
+
+(pub fn (axsymMeta tok)
+  (let ((cut (strFindByte tok (axsymEquals) 0)))
+    (if (< cut 0)
+      (Meta tok "")
+      (Meta
+        (strSlice tok 0 cut)
+        (strSlice tok (+ cut 1) (- (strLen tok) (+ cut 1)))
+      )
+    )
+  )
+)
+
+; The metadata section, from `at` to the end of the line. A token opens
+; at a `#` whose previous byte is a space, and runs to the byte before
+; the next such `#`. `i` walks; `start` is the open token's first byte,
+; or -1 before the first `#` is seen.
+(pub :: axsymMetaScan (-> String Int Int Int Int))
+
+(pub fn (axsymMetaScan s i start out)
+  (if (>= i (strLen s))
+    {
+      (if (>= start 0)
+        (vecPush out (cast Int (axsymMeta (strSlice s start (- (strLen s) start)))))
+        0
+      )
+      out
+    }
+    (if (if (== (strByte s i) (axsymHash))
+      (if (== i 0)
+        true
+        (== (strByte s (- i 1)) (axsymSpace))
+      )
+      false
+    )
+      {
+        (if (>= start 0)
+          (vecPush out (cast Int (axsymMeta (axsymTrimEnd (strSlice s start (- i start))))))
+          0
+        )
+        (axsymMetaScan s (+ i 1) (+ i 1) out)
+      }
+      (axsymMetaScan s (+ i 1) start out)
+    )
+  )
+)
+
+; One line. `None` for a blank line, for a line whose first byte is not
+; a KIND letter, and for a line with no quoted type - which together
+; are every non-AXSYM line a caller might feed in, including the
+; `compilation failed` trailer and AXDL diagnostics on the same stream.
+(pub :: axsymLine (-> String (Option Sym)))
+
+(pub fn (axsymLine ln)
+  (if (< (strLen ln) 4)
+    None
+    (if (axsymIsKind (strByte ln 0))
+      (if (!= (strByte ln 1) (axsymSpace))
+        None
+        (let ((q1 (strFindByte ln (axsymQuote) 0)))
+          (if (< q1 0)
+            None
+            (let ((q2 (strFindByte ln (axsymQuote) (+ q1 1))))
+              (if (< q2 0)
+                None
+                (axsymBuild ln q1 q2)
+              )
+            )
+          )
+        )
+      )
+      None
+    )
+  )
+)
+
+; The three fields either side of the quoted type, once its bounds are
+; known. Split out because the arms above are a refusal ladder and this
+; is the one path that answers a symbol.
+(pub :: axsymBuild (-> String Int Int (Option Sym)))
+
+(pub fn (axsymBuild ln q1 q2)
+  (let ((head (axsymTrimEnd (strSlice ln 2 (- q1 2)))))
+    (let ((cut (strFindByte head (axsymSpace) 0)))
+      (if (< cut 0)
+        None
+        (let (
+          (rest (strSlice ln (+ q2 1) (- (strLen ln) (+ q2 1))))
+        )
+          (Some (Sym
+            (strByte ln 0)
+            (strSlice head 0 cut)
+            (axsymTrimEnd (strSlice head (+ cut 1) (- (strLen head) (+ cut 1))))
+            (strSlice ln (+ q1 1) (- q2 (+ q1 1)))
+            (axsymNid rest)
+            (axsymMetaScan rest 0 (- 0 1) vecNew)
+          ))
+        )
+      )
+    )
+  )
+)
+
+; The `@<nid>` between the type and the metadata, empty when absent.
+; It is bounded by the next space rather than by the end, because the
+; metadata follows it on the same line.
+(pub :: axsymNid (-> String String))
+
+(pub fn (axsymNid rest)
+  (let ((at (strFindByte rest (axsymAt) 0)))
+    (if (< at 0)
+      ""
+      (let ((sp (strFindByte rest (axsymSpace) (+ at 1))))
+        (if (< sp 0)
+          (strSlice rest (+ at 1) (- (strLen rest) (+ at 1)))
+          (strSlice rest (+ at 1) (- sp (+ at 1)))
+        )
+      )
+    )
+  )
+)
+
+; A whole AXSYM stream. Lines that are not AXSYM are skipped, so the
+; caller may pass the compiler's output unfiltered.
+(pub :: axsymParse (-> String Int))
+
+(pub fn (axsymParse text)
+  (let ((lines (strSplit text (axsymNewline))))
+    (axsymParseFrom lines 0 vecNew)
+  )
+)
+
+(pub :: axsymParseFrom (-> Int Int Int Int))
+
+(pub fn (axsymParseFrom lines i out)
+  (if (>= i (vecLen lines))
+    out
+    {
+      (match (axsymLine (vecGetStr lines i))
+        ((Some s) (vecPush out (cast Int s)))
+        ((None) 0)
+      )
+      (axsymParseFrom lines (+ i 1) out)
+    }
+  )
+)
+
+; The value of `#key`, or empty. Empty is also what a bare flag
+; answers, so a caller distinguishing "absent" from "present with no
+; value" wants `symHasTag`.
+(pub :: symTag (-> Sym String String))
+
+(pub fn (symTag s key) (symTagFrom s.meta key 0))
+
+(pub :: symTagFrom (-> Int String Int String))
+
+(pub fn (symTagFrom meta key i)
+  (if (>= i (vecLen meta))
+    ""
+    (let ((m (cast Meta (vecGet meta i))))
+      (if (strEq m.key key)
+        m.val
+        (symTagFrom meta key (+ i 1))
+      )
+    )
+  )
+)
+
+(pub :: symHasTag (-> Sym String Bool))
+
+(pub fn (symHasTag s key) (symHasTagFrom s.meta key 0))
+
+(pub :: symHasTagFrom (-> Int String Int Bool))
+
+(pub fn (symHasTagFrom meta key i)
+  (if (>= i (vecLen meta))
+    false
+    (let ((m (cast Meta (vecGet meta i))))
+      (if (strEq m.key key)
+        true
+        (symHasTagFrom meta key (+ i 1))
+      )
+    )
+  )
+)
+
+; The effect row the CHECKER derived - not what the author claimed.
+; Empty when the declaration performs none.
+(pub :: symEffects (-> Sym String))
+
+(pub fn (symEffects s) (symTag s "effects"))
+
+; True when the checker derived no effects at all. This is a statement
+; about the ANALYSIS, not a guarantee about the program: an effect
+; reached through a function value in memory is not in the row, and a
+; built-in effect named by an enclosing `handle` is subtracted from it.
+; A policy that treats this as proof of purity is reading a lower
+; bound as an upper one.
+(pub :: symDerivedPure (-> Sym Bool))
+
+(pub fn (symDerivedPure s)
+  (if (symHasTag s "effects")
+    false
+    (== (strLen (symTag s "effects")) 0)
+  )
+)
+
+; The `agent:*` namespace, which the compiler records and does not
+; check. `(symAgentTag s "rewrite")` reads `#agent:rewrite`.
+(pub :: symAgentTag (-> Sym String String))
+
+(pub fn (symAgentTag s k) (symTag s (strConcat "agent:" k)))
+
+(pub :: symHasAgentTag (-> Sym String Bool))
+
+(pub fn (symHasAgentTag s k) (symHasTag s (strConcat "agent:" k)))

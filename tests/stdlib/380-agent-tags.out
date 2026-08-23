@@ -1,0 +1,14 @@
+4
+shout
+IO
+io
+true
+false
+cc70b00d8093fca4
+(Int -> Int)
+true
+0
+true
+-
+Some,None
+show:(a -> String)
