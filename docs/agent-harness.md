@@ -340,25 +340,66 @@ in-language access-control lever, and works today.
 
 ## 5. Ordering, by what blocks what
 
-1. **Close the `handle` laundering hole.** Everything `Agent.Safe` and
-   `Agent.Policy` claim is advisory until this lands. Nothing else in
-   this document is blocked by it, so it can go first and alone.
-2. **`Agent.AST` façade + `Agent.Tags` reader.** Both are pure library
-   work over surfaces that already ship. Unblocked as of the alias fix.
-3. **`Agent.Policy` gate + allowlist + negative probe.** Needs (1) to
-   mean anything and (2) to have something to read.
+1. ~~**Close the `handle` laundering hole.**~~ **Done, 2026-08-23.**
+   Everything `Agent.Safe` and `Agent.Policy` claim was advisory until
+   this landed, which is why it went first and alone
+   (`tests/diagnostics/348-handle-discharge.ax`).
+2. **`Agent.AST` façade** — still owed. **`Agent.Tags` reader — done**,
+   `stdlib/Agent/Tags.ax`, over the AXSYM stream rather than the
+   compiler's internals (§4 gives the size argument).
+3. ~~**`Agent.Policy` gate + allowlist + negative probe.**~~ **Done**,
+   `scripts/check-agent-policy.sh` against
+   `tests/agent/stdlib-effects.allow`. It found two standard-library
+   functions performing I/O without claiming it on its first run.
 4. **Promote the `agent:*` checks.** New diagnostics in the `AX30xx`
    band, `explain` entries, and a `severity.policy` decision made
-   deliberately rather than inherited.
-5. **Bound declaration-macro expansion.** Prerequisite for any harness
-   that compiles code it did not write.
-6. **`Agent.Macro`**, over `syntax/*`, after 5.
+   deliberately rather than inherited. Read §6's `AX3010` entry before
+   starting: the neighbouring promotion turned out to be wrong twice
+   over, and for reasons that apply here too.
+5. ~~**Bound declaration-macro expansion.**~~ **Done** — the size axis
+   phase D never had (`tests/diagnostics/401-decl-macro-size-limit.ax`).
+   It was the prerequisite for any harness that compiles code it did not
+   write.
+6. **`Agent.Macro`**, over `syntax/*`, after 5 — now unblocked, and
+   still gated on the three hygiene defects §3.6 lists.
 
 `Agent.IR` does not appear. Neither does `--agent-harness`.
+
+What is left is (2)'s façade, (4), and (6). The effect rows those rest
+on are honest now in a way they were not when this was written: the
+laundering is closed, and `Alloc` names the primitive that allocates
+rather than a keyword that does not (`docs/memory-model.md` MM-EXEC-9a,
+whose table lost that row on 2026-08-23).
 
 ---
 
 ## 6. What is refused, and why
+
+- **Promoting `AX3010` to an error.** The obvious next step after making
+  the effect rows honest is to make a contradicted claim refuse the
+  build, and it is wrong twice over — measured both times.
+
+  The code carries two shapes. "`effect(io)` claim unsupported: missing
+  IO" is the one that looks undecidable and is not: it already consults
+  `effPartial` and suppresses itself whenever the walk hit a lower bound
+  or the function has effect-transparent parameters. The one that looks
+  decidable is not: "`pure` claim contradicted: body performs IO" fires
+  on a function that merely NAMES an effectful function without calling
+  it — `(fn (handoff k) shout)` is reported as performing IO and carries
+  `#effects=IO`. Promoting that shape refuses correct programs.
+
+  And the cost lands in exactly the wrong place. `symbols` folds every
+  failure into exit 1 and prints no table, so making the claim an error
+  deletes the AXSYM surface for the files that carry a wrong tag — eight
+  files in this repository's own corpus, one of them 196 symbol lines —
+  which is the moment an agent most needs to read what the body actually
+  does. `check-tools-selfhost.sh` cannot see it, because its cross-check
+  is the equivalence "symbols exits 0 iff check exits 0" and the change
+  moves both sides at once.
+
+  So the severity stays, and the gate does the refusing:
+  `check-agent-policy.sh` is where a violated policy stops a build,
+  which is §3.4's argument arriving a second time.
 
 - **`--agent-harness` as a build mode.** Determinism is already
   unconditional; strictness already has an artifact; a mode is a new axis

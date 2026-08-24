@@ -223,6 +223,18 @@ jobs:
       - name: explain and symbols against their goldens
         run: ./scripts/check-tools-selfhost.sh
 
+      # The standard library performs exactly the effects it declares,
+      # and the set of declarations performing any is the one on file.
+      # `docs/agent-harness.md` §3.4's Agent.Policy, and a GATE rather
+      # than a compiler mode for the reason that document gives: the
+      # only boundary policy that has ever worked here is `check-ffi.sh`
+      # comparing a binary's symbols against a checked-in manifest with
+      # a negative probe, and this is that shape over the AXSYM stream.
+      # It found two stdlib functions performing I/O without claiming it
+      # on its first run.
+      - name: The standard library declares what it performs
+        run: ./scripts/check-agent-policy.sh
+
       # The native human and JSON diagnostic renderers, pinned without a
       # second compiler: checked-in goldens, cross-checked against the
       # AXDL goldens, exit statuses DERIVED from the golden's own

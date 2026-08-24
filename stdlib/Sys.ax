@@ -188,6 +188,7 @@
 ; as missing.
 (pub :: sysReadFile (-> Int String))
 
+;@axiom:effect(io)
 (pub fn (sysReadFile path)
   (let ((fd (sysOpenPath path oRdonly)))
     (if (sysFailed fd)
@@ -210,6 +211,7 @@
 ; every growth copies into a fresh zeroed buffer.
 (:: sysReadAll (-> Int String Int Int String))
 
+;@axiom:effect(io)
 (fn (sysReadAll fd buf used cap)
   (let ((n (sysReadFd fd (+ (strData buf) used) (- cap used))))
     (if (<= n 0)

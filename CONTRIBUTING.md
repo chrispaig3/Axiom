@@ -271,6 +271,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-repl-selfhost.sh` | the REPL, piped session by piped session |
 | `check-lsp-selfhost.sh` | the language server's framed session bytes, and every published position converted into LSP's 0-based UTF-16 |
 | `check-doc-drift.sh` | this file and its eight siblings against the tree: every stated count recomputed, and every fixture a doc or a comment names must exist |
+| `check-agent-policy.sh` | the standard library performs exactly the effects it declares, and the set of declarations performing any is the one in `tests/agent/stdlib-effects.allow` — `docs/agent-harness.md` §3.4's policy, as a gate over AXSYM rather than a compiler mode, on `check-ffi.sh`'s allowlist model |
 | `check-frontend-parity.sh` | the frontend's five consumers agree — on the value, not only on the verdict |
 | `check-memory-baseline.sh` | the managed Life probe holds RSS flat over 2000 generations where its unmanaged twin grows linearly |
 | `check-cross-targets.sh` | every target's IR assembles from one host, at every `--opt` level, with no non-position-independent object |
