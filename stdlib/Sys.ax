@@ -1246,3 +1246,153 @@
     )
   )
 )
+
+; ------------------------------------------------------------------
+; Sockets
+;
+; The thinnest portable layer over the numbers `Sys.Platform` carries,
+; and the only place in the standard library that knows a socket from
+; a file. Everything here answers the way the rest of this file does:
+; a non-negative result, or the syscall's own `-errno`.
+;
+; TWO PLATFORM DIFFERENCES REACH THIS FAR and both are branched on a
+; capability rather than assumed. `sockaddrHasLenByte` decides whether
+; an address opens with a length byte, because Darwin's `sin_family` is
+; one byte at offset 1 and Linux's is two bytes at offset 0 - layouts
+; that cannot share a builder. `eAgain` decides what "nothing to take
+; yet" looks like, because it is 35 on Darwin and 11 on Linux, so a
+; caller comparing against a literal is right on one target and quietly
+; wrong on the other.
+;
+; There is no `netClose`: `sysCloseFd` already closes any descriptor and
+; a socket is one, so a second name for it would be two ways to spell
+; the same call and one of them would drift.
+;
+; NUMERIC ADDRESSES ONLY, and that is structural rather than an
+; omission. Resolving a name means `getaddrinfo`, which lives in libc,
+; and linking libc costs the property `scripts/check-freestanding.sh`
+; exists to hold. A resolver has to arrive as its own decision.
+; ------------------------------------------------------------------
+; A TCP socket, or a negative errno.
+(pub :: netSocketTcp Int)
+
+;@axiom:effect(io)
+(pub fn (netSocketTcp) (__syscall3 sysSocketNum afInet sockStream 0))
+
+; Write an IPv4 `sockaddr_in` into `buf`, which must hold 16 bytes, and
+; answer `buf`. The four octets are given in reading order, so
+; 127.0.0.1 is `127 0 0 1`.
+;
+; `port` IS WRITTEN BIG-ENDIAN, which is the opposite of everything else
+; this file stores and the reason it is two `memPutByte`s rather than a
+; word write: the wire order for `sin_port` and `sin_addr` is network
+; order, while all four targets this compiler emits for are
+; little-endian machines. Port 8080 is 0x1F90 and goes down as 0x1F
+; then 0x90.
+(pub :: netAddr4 (-> Int Int Int Int Int Int Int))
+
+(pub fn (netAddr4 buf port a b c d)
+  {
+    (memSet buf 0 16)
+    (if (== sockaddrHasLenByte 1)
+      {
+        (memPutByte buf 0 16)
+        (memPutByte buf 1 afInet)
+      }
+      {
+        (memPutByte buf 0 afInet)
+        (memPutByte buf 1 0)
+      }
+    )
+    (memPutByte buf 2 (& (>> port 8) 255))
+    (memPutByte buf 3 (& port 255))
+    (memPutByte buf 4 a)
+    (memPutByte buf 5 b)
+    (memPutByte buf 6 c)
+    (memPutByte buf 7 d)
+    buf
+  }
+)
+
+; Bind a socket to an address built by `netAddr4`. THE LENGTH IS EXACTLY
+; 16 and is not a parameter: 0, 4, 8, 12, 20, 24 and 28 were each probed
+; on Darwin and every one answered -22 EINVAL, so a caller who could
+; pass the wrong one would only ever pass this one correctly.
+(pub :: netBind (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netBind fd addr) (__syscall3 sysBindNum fd addr 16))
+
+(pub :: netListen (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netListen fd backlog) (__syscall3 sysListenNum fd backlog 0))
+
+; Accept a connection, answering the new socket or a negative errno. The
+; peer address is not reported: nothing in the tree wants it yet, and a
+; caller that does can call `getsockname`'s sibling itself rather than
+; pay for a buffer on every accept.
+;
+; THE FOURTH ARGUMENT IS ZERO ON PURPOSE. Linux's call is `accept4` and
+; reads it as flags; Darwin's is `accept` and never looks at it. Passing
+; it unconditionally is the same shape `sysGetPid` uses to call a
+; no-argument syscall through `__syscall3`.
+(pub :: netAccept (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (netAccept fd) (__syscall4
+  sysAcceptNum  fd  0  0  0
+))
+
+(pub :: netConnect (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netConnect fd addr) (__syscall3 sysConnectNum fd addr 16))
+
+(pub :: netShutdown (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netShutdown fd how) (__syscall3 sysShutdownNum fd how 0))
+
+; Set an integer-valued socket option. The value crosses as four bytes
+; in the host's own order, which is what the kernel reads an `int`
+; option as - unlike an address, this one is NOT network order.
+(pub :: netSetOptInt (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netSetOptInt fd level name value)
+  (let ((v (memAlloc 4)))
+    {
+      (memPutByte v 0 (& value 255))
+      (memPutByte v 1 (& (>> value 8) 255))
+      (memPutByte v 2 (& (>> value 16) 255))
+      (memPutByte v 3 (& (>> value 24) 255))
+      (__syscall5
+        sysSetSockOptNum        fd        level        name        v        4
+      )
+    }
+  )
+)
+
+; Put a descriptor into non-blocking mode, preserving the flags it
+; already carries - a bare `F_SETFL` of the one flag would clear the
+; access mode with it.
+(pub :: netSetNonBlocking (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (netSetNonBlocking fd)
+  (let ((fl (__syscall3 sysFcntlNum fd fGetFl 0)))
+    (if (< fl 0)
+      fl
+      (__syscall3 sysFcntlNum fd fSetFl (| fl oNonblock))
+    )
+  )
+)
+
+; Whether a negative answer means "nothing to take yet" rather than a
+; broken socket. This is the whole reason `eAgain` is a capability: the
+; number is 35 on Darwin and 11 on Linux, so an event loop written
+; against a literal runs correctly on the machine it was written on.
+(pub :: netWouldBlock (-> Int Bool))
+
+(pub fn (netWouldBlock r) (== r (- 0 eAgain)))

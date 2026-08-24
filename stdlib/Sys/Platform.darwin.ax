@@ -295,3 +295,155 @@
 (pub :: clockHasMonotonic Int)
 
 (pub fn (clockHasMonotonic) 0)
+
+; --------------------------------------------------------------------
+; Sockets
+;
+; Every number below is BSD `n` encoded as `0x2000000 | n`, the same way
+; the rest of this file spells one. All of them were EXECUTED on this
+; host on 2026-08-24, not read off a header and hoped for: a listener
+; was built end to end - socket, bind, listen, accept - and answered a
+; real connection from `nc`, and a non-blocking `accept` with nothing
+; pending answered -35.
+;
+; DARWIN'S TWO ARCHITECTURES DO NOT DIVERGE HERE, which is why one file
+; still serves both. `sys/syscall.h` carries no architecture conditional
+; at all, and the same offsetof/sizeof probe compiled `-arch arm64` and
+; `-arch x86_64` gives byte-identical layouts for every struct named
+; below; the syscall suite was then run natively and again under Rosetta
+; with the same answers. That is the measured version of the claim this
+; file's header already makes.
+; --------------------------------------------------------------------
+; socket(domain, type, protocol) - BSD 97.
+(pub :: sysSocketNum Int)
+
+(pub fn (sysSocketNum) 33554529)
+
+; bind(fd, addr, addrlen) - BSD 104. THE ADDRLEN IS EXACT: 0, 4, 8, 12,
+; 20, 24 and 28 were each probed and every one answered -22 EINVAL; only
+; 16 - the size of `sockaddr_in` - returned 0.
+(pub :: sysBindNum Int)
+
+(pub fn (sysBindNum) 33554536)
+
+; listen(fd, backlog) - BSD 106.
+(pub :: sysListenNum Int)
+
+(pub fn (sysListenNum) 33554538)
+
+; accept(fd, addr, addrlen) - BSD 30.
+;
+; `accept4` DOES NOT EXIST ON DARWIN - a sweep of the whole SDK include
+; tree finds no `accept4`, no `SOCK_NONBLOCK` and no `SOCK_CLOEXEC` - so
+; a non-blocking accepted socket is two calls here and one on Linux.
+; `Sys.ax` passes a fourth argument of 0 regardless, which Linux reads
+; as `accept4`'s flags and Darwin ignores, the way `sysGetPid` already
+; passes zeros a syscall does not read.
+(pub :: sysAcceptNum Int)
+
+(pub fn (sysAcceptNum) 33554462)
+
+; connect(fd, addr, addrlen) - BSD 98. On a non-blocking socket this
+; answers -36 EINPROGRESS rather than failing; probed.
+(pub :: sysConnectNum Int)
+
+(pub fn (sysConnectNum) 33554530)
+
+; setsockopt(fd, level, name, val, len) - BSD 105.
+(pub :: sysSetSockOptNum Int)
+
+(pub fn (sysSetSockOptNum) 33554537)
+
+; getsockopt(fd, level, name, val, lenptr) - BSD 118.
+(pub :: sysGetSockOptNum Int)
+
+(pub fn (sysGetSockOptNum) 33554550)
+
+; shutdown(fd, how) - BSD 134.
+(pub :: sysShutdownNum Int)
+
+(pub fn (sysShutdownNum) 33554566)
+
+; fcntl(fd, cmd, arg) - BSD 92, and the number `sysCwdNum` above also
+; holds. They are NOT merged: `sysCwdNum` names "the call that answers
+; the working directory", which is `fcntl(F_GETPATH)` here and `getcwd`
+; on Linux, and a socket has no business reading that name.
+(pub :: sysFcntlNum Int)
+
+(pub fn (sysFcntlNum) 33554524)
+
+; The address family and socket type. `AF_INET` is 2 on both systems -
+; and that agreement is a trap, because `AF_INET6` is 30 here against
+; Linux's 10, so nothing else in this group may be assumed to match.
+(pub :: afInet Int)
+
+(pub fn (afInet) 2)
+
+(pub :: sockStream Int)
+
+(pub fn (sockStream) 1)
+
+; THE SOCKET-OPTION NUMBERS ARE WHERE DARWIN AND LINUX PART COMPANY, and
+; they part completely. `SOL_SOCKET` is 0xffff here and 1 on Linux;
+; Darwin's `SO_*` are BSD bitmask-style constants where Linux's are
+; small sequential integers. Not one of the four below shares a value
+; with its Linux twin, so reusing a Linux number here does not fail - it
+; sets some other option.
+(pub :: solSocket Int)
+
+(pub fn (solSocket) 65535)
+
+(pub :: soReuseAddr Int)
+
+(pub fn (soReuseAddr) 4)
+
+(pub :: soReusePort Int)
+
+(pub fn (soReusePort) 512)
+
+(pub :: soError Int)
+
+(pub fn (soError) 4103)
+
+; fcntl's file-status commands, and the flag a non-blocking socket sets.
+; `O_NONBLOCK` is 4 here and 2048 on Linux.
+(pub :: fGetFl Int)
+
+(pub fn (fGetFl) 3)
+
+(pub :: fSetFl Int)
+
+(pub fn (fSetFl) 4)
+
+(pub :: oNonblock Int)
+
+(pub fn (oNonblock) 4)
+
+; EAGAIN, which a non-blocking `accept` or `read` answers negated when
+; there is nothing to take yet. 35 here, 11 on Linux - so a caller that
+; compares against a literal is correct on one target and silently wrong
+; on the other, which is the reason this is a name.
+(pub :: eAgain Int)
+
+(pub fn (eAgain) 35)
+
+; WHETHER `sockaddr_in` OPENS WITH A LENGTH BYTE. It does here and does
+; not on Linux, and the two layouts cannot share a builder:
+;
+;   Darwin   0:1 sin_len=16 | 1:1 sin_family=2 | 2:2 sin_port (BE)
+;   Linux    0:2 sin_family=2 (host order)     | 2:2 sin_port (BE)
+;
+; so `sin_family` is ONE byte at offset 1 here and TWO bytes at offset 0
+; there. Writing a 16-bit family at offset 0 on Darwin destroys sin_len
+; and sin_family together; writing one at offset 1 clobbers the high
+; byte of the port. Both remaining fields agree, and `sin_port` and
+; `sin_addr` are BIG-endian on every target - the opposite of everything
+; else this file records, since all four targets are little-endian
+; machines.
+;
+; The kernel does not enforce sin_len on input - bind succeeded with 0,
+; 8 and 28 in it - but it WRITES 16 there on output, so `Sys.ax` writes
+; 16 and does not rely on the tolerance.
+(pub :: sockaddrHasLenByte Int)
+
+(pub fn (sockaddrHasLenByte) 1)

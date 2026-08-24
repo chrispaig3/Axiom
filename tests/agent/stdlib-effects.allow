@@ -97,6 +97,14 @@ mapRehash Map.ax Alloc
 mapWithCapacity Map.ax Alloc
 memAlloc Mem.ax Alloc
 memAllocMapped Mem.ax Alloc
+netAccept Sys.ax IO
+netBind Sys.ax IO
+netConnect Sys.ax IO
+netListen Sys.ax IO
+netSetNonBlocking Sys.ax IO
+netSetOptInt Sys.ax Alloc,IO
+netShutdown Sys.ax IO
+netSocketTcp Sys.ax IO
 pathBase Path.ax Alloc
 pathDir Path.ax Alloc
 pathExt Path.ax Alloc

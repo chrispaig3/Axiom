@@ -199,3 +199,115 @@
 (pub :: clockHasMonotonic Int)
 
 (pub fn (clockHasMonotonic) 1)
+
+; --------------------------------------------------------------------
+; Sockets
+;
+; x86_64 keeps its own legacy syscall table, so every number here
+; differs from the aarch64 file beside it - the same reason `read` is 0
+; here and 63 there. THE NEAR-MISSES ARE THE HAZARD: `fcntl` is 72 here
+; and 25 on aarch64, where 72 is `pselect6`; `socket` is 41 here and 198
+; there. A number copied from the wrong file calls something else and
+; answers something plausible rather than -ENOSYS.
+;
+; Verified against the vendored `libc` crate's x86_64 tables and
+; cross-checked against `linux-raw-sys`'s kernel-generated constants.
+; Not executed here; `scripts/check-cross-targets.sh` proves this file
+; compiles and CI on Linux is what runs it.
+; --------------------------------------------------------------------
+; socket(domain, type, protocol) - 41.
+(pub :: sysSocketNum Int)
+
+(pub fn (sysSocketNum) 41)
+
+; bind(fd, addr, addrlen) - 49. addrlen is 16 for `sockaddr_in`.
+(pub :: sysBindNum Int)
+
+(pub fn (sysBindNum) 49)
+
+; listen(fd, backlog) - 50.
+(pub :: sysListenNum Int)
+
+(pub fn (sysListenNum) 50)
+
+; accept4(fd, addr, addrlen, flags) - 288. `Sys.ax` passes flags 0,
+; which makes it exactly `accept`.
+(pub :: sysAcceptNum Int)
+
+(pub fn (sysAcceptNum) 288)
+
+; connect(fd, addr, addrlen) - 42.
+(pub :: sysConnectNum Int)
+
+(pub fn (sysConnectNum) 42)
+
+; setsockopt(fd, level, name, val, len) - 54.
+(pub :: sysSetSockOptNum Int)
+
+(pub fn (sysSetSockOptNum) 54)
+
+; getsockopt(fd, level, name, val, lenptr) - 55.
+(pub :: sysGetSockOptNum Int)
+
+(pub fn (sysGetSockOptNum) 55)
+
+; shutdown(fd, how) - 48.
+(pub :: sysShutdownNum Int)
+
+(pub fn (sysShutdownNum) 48)
+
+; fcntl(fd, cmd, arg) - 72. Distinct from `sysCwdNum`, which is `getcwd`
+; on this platform and `fcntl(F_GETPATH)` on Darwin.
+(pub :: sysFcntlNum Int)
+
+(pub fn (sysFcntlNum) 72)
+
+(pub :: afInet Int)
+
+(pub fn (afInet) 2)
+
+(pub :: sockStream Int)
+
+(pub fn (sockStream) 1)
+
+; Linux's socket options are small sequential integers where Darwin's
+; are BSD bitmasks. `solSocket` is 1 here against 65535 there.
+(pub :: solSocket Int)
+
+(pub fn (solSocket) 1)
+
+(pub :: soReuseAddr Int)
+
+(pub fn (soReuseAddr) 2)
+
+(pub :: soReusePort Int)
+
+(pub fn (soReusePort) 15)
+
+(pub :: soError Int)
+
+(pub fn (soError) 4)
+
+(pub :: fGetFl Int)
+
+(pub fn (fGetFl) 3)
+
+(pub :: fSetFl Int)
+
+(pub fn (fSetFl) 4)
+
+; O_NONBLOCK is 0o4000 here against Darwin's 4.
+(pub :: oNonblock Int)
+
+(pub fn (oNonblock) 2048)
+
+; EAGAIN, 11 here against Darwin's 35.
+(pub :: eAgain Int)
+
+(pub fn (eAgain) 11)
+
+; Linux's `sockaddr_in` has NO length byte: `sin_family` is a two-byte
+; host-order field at offset 0. The Darwin file carries both layouts.
+(pub :: sockaddrHasLenByte Int)
+
+(pub fn (sockaddrHasLenByte) 0)

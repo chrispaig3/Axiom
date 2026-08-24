@@ -55,6 +55,28 @@ libc_names="$libc_names"'|wait|waitpid|wait3|wait4|system|popen|pclose|getenv|se
 # `exit`/`write`/`read` there is no replacement code to flag.
 libc_names="$libc_names"'|memset|memcpy|memmove|memcmp|memchr|bzero|bcopy'
 libc_names="$libc_names"'|strcpy|strncpy|strcat|strncat|strncmp|strchr|strrchr|strstr|strdup'
+# The socket family, added 2026-08-24 when `Sys` learned to open one -
+# the same reason and the same moment the process-control family above
+# was added when it learned to spawn. A capability that reaches the
+# network is the other place where reaching for libc is tempting, and
+# `getaddrinfo` is the specific temptation: it is the only way to
+# resolve a NAME, it lives in libc, and it is why `Sys.ax`'s socket
+# section says numeric addresses only.
+#
+# None of these can be tripped by the code as written - a `__syscallN`
+# emits inline asm, not a call to a named symbol - so this list is not
+# guarding today's implementation. It guards the next one: a backend
+# that started lowering something to `@socket`, or a contributor who
+# reached for the easy answer, is invisible to every other gate.
+#
+# The `sysXxx`/`netXxx` prefix convention is load-bearing here. The IR
+# pattern is anchored by `@` and `(` but is NOT word-anchored inside, so
+# an Axiom function named plainly `bind`, `send`, `accept`, `connect` or
+# `poll` would emit `@bind(` and be flagged by its own name. `netBind`
+# and `netAccept` cannot be.
+libc_names="$libc_names"'|socket|socketpair|bind|listen|accept|accept4|connect|shutdown'
+libc_names="$libc_names"'|setsockopt|getsockopt|getaddrinfo|freeaddrinfo|gethostbyname'
+libc_names="$libc_names"'|kqueue|kevent|epoll_create|epoll_create1|epoll_ctl|epoll_wait|select'
 
 status=0
 
@@ -201,8 +223,14 @@ fi
 # `@axiom_alloc` is Axiom's own, and the substring hazard is real:
 # `free` sits inside a name like `freelist` and `wait` inside `awaited`,
 # so this is what would notice the alternation losing its anchors.
+# The `net*` names below are the socket family's half of the same
+# hazard, and they are here because the prefix convention is what makes
+# them safe rather than luck: `bind`, `accept`, `connect` and `socket`
+# all went onto the list above, and `@netBind(` must not match `@bind(`.
+# If someone ever drops the prefix, this probe is what says so.
 kept=""
-for ok_name in axiom_alloc freelist awaited printfmt __syscall1; do
+for ok_name in axiom_alloc freelist awaited printfmt __syscall1 \
+               netBind netAccept netConnect netSocketTcp netListen; do
   grep -qE "call[^\"]*@($libc_names)\(" <<< "  %r = call i64 @$ok_name(i64 0)" \
     && kept="$kept $ok_name"
 done
@@ -227,7 +255,13 @@ for bad_line in \
   '  %r = call i64 @memcpy(i64 0, i64 0, i64 8)' \
   '  %r = call i64 @strlen(i64 0)' \
   '  %r = call i64 @malloc(i64 8)' \
-  '  %r = call i64 @posix_spawn(i64 0)' ; do
+  '  %r = call i64 @posix_spawn(i64 0)' \
+  '  %r = call i64 @socket(i64 2, i64 1, i64 0)' \
+  '  %r = call i64 @bind(i64 3, i64 0, i64 16)' \
+  '  %r = call i64 @accept(i64 3, i64 0, i64 0)' \
+  '  %r = call i64 @getaddrinfo(i64 0, i64 0, i64 0, i64 0)' \
+  '  %r = call i64 @epoll_wait(i64 4, i64 0, i64 8, i64 0)' \
+  '  %r = call i64 @kevent(i64 4, i64 0, i64 1, i64 0, i64 1, i64 0)' ; do
   grep -qE "call[^\"]*@($libc_names)\(" <<< "$bad_line" \
     || missed="$missed ${bad_line##*@}"
 done

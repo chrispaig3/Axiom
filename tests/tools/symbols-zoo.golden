@@ -46,6 +46,26 @@ F sysGetPidNum stdlib/Sys/Platform.darwin.ax:251:9-21 "Int" @8dd97b36f3b03217
 F sysClockNum stdlib/Sys/Platform.darwin.ax:259:9-20 "Int" @338b1a845ae4c6ae
 F clockIsGettimeofday stdlib/Sys/Platform.darwin.ax:263:9-28 "Int" @48d4af426412da35
 F clockHasMonotonic stdlib/Sys/Platform.darwin.ax:295:9-26 "Int" @9718b6249aa77bff
+F sysSocketNum stdlib/Sys/Platform.darwin.ax:318:9-21 "Int" @d42ebb17e38c1a17
+F sysBindNum stdlib/Sys/Platform.darwin.ax:325:9-19 "Int" @fac8fabade48ff55
+F sysListenNum stdlib/Sys/Platform.darwin.ax:330:9-21 "Int" @2270bc9aee4f5729
+F sysAcceptNum stdlib/Sys/Platform.darwin.ax:342:9-21 "Int" @ec78a2fc609b0378
+F sysConnectNum stdlib/Sys/Platform.darwin.ax:348:9-22 "Int" @6d5f94b6d491b24e
+F sysSetSockOptNum stdlib/Sys/Platform.darwin.ax:353:9-25 "Int" @15fecfbd37170e5f
+F sysGetSockOptNum stdlib/Sys/Platform.darwin.ax:358:9-25 "Int" @9c1f4360d9bbdd5b
+F sysShutdownNum stdlib/Sys/Platform.darwin.ax:363:9-23 "Int" @0af83866f8239352
+F sysFcntlNum stdlib/Sys/Platform.darwin.ax:371:9-20 "Int" @5756ae47a61687bd
+F afInet stdlib/Sys/Platform.darwin.ax:378:9-15 "Int" @d27a836ebaf1ed16
+F sockStream stdlib/Sys/Platform.darwin.ax:382:9-19 "Int" @bfebe0265f896953
+F solSocket stdlib/Sys/Platform.darwin.ax:392:9-18 "Int" @dc009c67cc64ce6a
+F soReuseAddr stdlib/Sys/Platform.darwin.ax:396:9-20 "Int" @2eb918fe7c42780c
+F soReusePort stdlib/Sys/Platform.darwin.ax:400:9-20 "Int" @d5633181720e0e8c
+F soError stdlib/Sys/Platform.darwin.ax:404:9-16 "Int" @6c2e10dec509dfd1
+F fGetFl stdlib/Sys/Platform.darwin.ax:410:9-15 "Int" @586088fc3a85778b
+F fSetFl stdlib/Sys/Platform.darwin.ax:414:9-15 "Int" @b22030a3ced82cc7
+F oNonblock stdlib/Sys/Platform.darwin.ax:418:9-18 "Int" @e28c97fa7ca01710
+F eAgain stdlib/Sys/Platform.darwin.ax:426:9-15 "Int" @e069fc6f4f9b397a
+F sockaddrHasLenByte stdlib/Sys/Platform.darwin.ax:447:9-27 "Int" @ef72f44767bfc769
 F apply tests/fmt/syntax-zoo.ax:78:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:82:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:92:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure

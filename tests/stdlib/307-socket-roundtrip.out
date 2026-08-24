@@ -1,0 +1,12 @@
+ok   socket() answers a descriptor
+ok   setsockopt(SO_REUSEADDR) is accepted
+ok   the address family lands where this platform keeps it
+ok   the port is written big-endian
+ok   bind() accepts a 16-byte address
+ok   listen() is accepted
+ok   the listener goes non-blocking
+ok   accept with nothing pending would block
+ok   connect() to our own listener is accepted
+ok   accept() answers the connected socket
+ok   shutdown() closes both directions
+ok   the listener closes
