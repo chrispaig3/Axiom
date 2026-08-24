@@ -792,6 +792,76 @@ LC_ALL=C grep -q '^E AX1001 midbom.ax:2:12' midbom.axdl \
   && ok "a mark that is not leading is still AX1001" \
   || bad "mid-file BOM: $(head -c 60 midbom.axdl)"
 
+# ---------------------------------------------------------------
+# THE VERSION IS WRITTEN DOWN FIFTEEN TIMES AND NOTHING COMPARED THEM.
+#
+# `version prints a version` above greps for the word `axiom` and would
+# pass on `axiom 9.9.9`. The number itself lives in
+# `self_host/main.ax`, `self_host/repl.ax` and `self_host/lsp.ax` as
+# three independent string literals, in `rust/Cargo.toml` four more
+# times, and in eight `tests/lsp/*.golden` files that pin what the
+# language server reports over the wire. They agree today. Nothing was
+# keeping them that way, and the first one to drift would be the LSP's
+# `serverInfo`, because it is the only one a human never reads.
+#
+# There is no single-sourcing available here: an Axiom string literal
+# and a TOML key cannot be the same object, so agreement IS the
+# property, and a gate is the only thing that can hold it.
+#
+# THE DRIVER'S NUMBER IS TAKEN FROM WHAT THE BINARY PRINTS rather than
+# from its source, for the same reason `check-platform-constants.sh`
+# reads emitted IR: the source is one more copy, and the copy that
+# matters is the one a user sees.
+# ---------------------------------------------------------------
+ver_from_binary="$("$s1" version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+if [[ -z "$ver_from_binary" ]]; then
+  bad "version: the binary prints no semver at all, so nothing can be compared to it"
+else
+  ok "version: the binary prints $ver_from_binary"
+  ver_bad=0
+  ver_seen=0
+  ver_check() {  # name, file, extracted value
+    ver_seen=$((ver_seen + 1))
+    if [[ -z "$3" ]]; then
+      bad "version: found no version in $2 - the pattern this gate greps with has stopped matching, which is how a count gate dies without saying so"
+      ver_bad=$((ver_bad + 1))
+    elif [[ "$3" != "$ver_from_binary" ]]; then
+      bad "version: $1 says $3, the binary prints $ver_from_binary ($2)"
+      ver_bad=$((ver_bad + 1))
+    fi
+  }
+  ver_check "the REPL banner" "self_host/repl.ax" \
+    "$(grep -oE 'axiom \(self-hosted\) [0-9]+\.[0-9]+\.[0-9]+' "$repo_root/self_host/repl.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  ver_check "the LSP serverInfo" "self_host/lsp.ax" \
+    "$(grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"' "$repo_root/self_host/lsp.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  ver_check "the crate version" "rust/Cargo.toml" \
+    "$(awk '/^\[(workspace\.)?package\]/{p=1;next} /^\[/{p=0} p&&/^version *=/{print;exit}' "$repo_root/rust/Cargo.toml" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+
+  # The eight LSP goldens are what the server actually answered when
+  # they were blessed, so they are evidence rather than another copy -
+  # and they are the reason a drifted `serverInfo` would be caught
+  # twice. Counted, so a golden that stops carrying a version is a
+  # failure and not a silently smaller sweep.
+  lsp_goldens=0
+  for gfile in "$repo_root"/tests/lsp/*.golden; do
+    [[ -f "$gfile" ]] || continue
+    gv="$(grep -oE '"version":"[0-9]+\.[0-9]+\.[0-9]+"' "$gfile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    [[ -z "$gv" ]] && continue
+    lsp_goldens=$((lsp_goldens + 1))
+    if [[ "$gv" != "$ver_from_binary" ]]; then
+      bad "version: $(basename "$gfile") pins $gv, the binary prints $ver_from_binary"
+      ver_bad=$((ver_bad + 1))
+    fi
+  done
+  if [[ "$lsp_goldens" -lt 8 ]]; then
+    bad "version: only $lsp_goldens LSP goldens carry a version; 8 did when this gate landed - either the server stopped reporting one or the sweep stopped finding it"
+    ver_bad=$((ver_bad + 1))
+  fi
+  [[ "$ver_bad" == 0 ]] \
+    && ok "version: $ver_seen source(s) and $lsp_goldens LSP golden(s) all agree on $ver_from_binary"
+fi
+
+
 echo
 echo "$passed passed, $failed failed"
 [[ "$failed" == 0 ]]
