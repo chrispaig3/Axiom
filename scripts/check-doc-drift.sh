@@ -26,11 +26,17 @@
 #      fixture escapes it, and AX4001 sat in the table with no
 #      construction site for months.
 #
-#   2  EVERY COUNT IS RECOMPUTED. A claim whose phrase this gate
-#      cannot find is a FAILURE, not a skip - a reworded sentence must
-#      not silently stop being checked, which is this repository's
-#      standing rule about a sweep that reads fewer files than it
-#      should.
+#   2  EVERY COUNT IS RECOMPUTED, IN EVERY PROSE DOCUMENT. A claim
+#      whose phrase this gate cannot find is a FAILURE, not a skip - a
+#      reworded sentence must not silently stop being checked, which is
+#      this repository's standing rule about a sweep that reads fewer
+#      files than it should. This half of the gate WAS such a sweep
+#      until 2026-08-24: `claim()` opened README.md and nothing else,
+#      while sections 3, 4 and 5 below already read the nine documents
+#      `gate_prose_docs` names. The cost was standing in the tree -
+#      CONTRIBUTING.md said "449 of the 451 `.ax` files", README.md
+#      said 479, the tree had 479, and the gate was green. It reads
+#      the same nine documents now, and reports the file and line.
 #
 #   3  EVERY **Complete** ROW NAMES A FIXTURE, and the fixture exists.
 #      This is the cheapest possible implementation of the
@@ -61,6 +67,13 @@
 #      compiles the source and diffs the output. Documentation of what a
 #      program prints is a golden test with worse ergonomics; this gives
 #      it the ergonomics.
+#
+#   6  NO TWO CASES IN A TEST DIRECTORY SHARE A NUMERIC PREFIX. Check 4
+#      resolves a fixture by bare basename, so a duplicate number
+#      resolves happily and is invisible - `tests/stdlib/` carried two
+#      `310-` cases for five days with every gate green. The number is
+#      the corpus's identity, so two files answering to it means every
+#      sentence citing it has two referents.
 # ---------------------------------------------------------------------
 set -uo pipefail
 
@@ -113,30 +126,62 @@ bad = 0
 readme = open("README.md", encoding="utf-8").read()
 
 def claim(label, pattern, actual):
-    """A numeric claim in the prose, recomputed. A pattern that no
-    longer matches is a failure: the sentence was reworded and the
-    check quietly stopped applying, which reads exactly like success."""
+    """A numeric claim in the prose, recomputed - in every document
+    `gate_prose_docs` names, which is the list every other prose sweep
+    in this repository reads and was already this file's list for the
+    fixture-path checks below.
+
+    It read README.md alone until 2026-08-24, and the drift standing in
+    the tree the day it was widened is exactly what that cost:
+    CONTRIBUTING.md said "449 of the 451 `.ax` files" while README.md,
+    checked by this helper, said 479 and passed. One claim, two
+    documents, 28 files apart, in the gate whose subject is that class
+    of sentence - and it was green. A count restated in a second
+    document is the same claim, so it is checked in every document it
+    appears in, and each report names the file and the line.
+
+    A pattern that matches in NO document is still a failure, for the
+    reason it always was: a reworded sentence must not silently stop
+    being checked, which reads exactly like success."""
     global bad
-    m = re.search(pattern, readme)
-    if not m:
+    seen = 0
+    for doc in PROSE_DOCS:
+        text = open(doc, encoding="utf-8").read()
+        for m in re.finditer(pattern, text):
+            seen += 1
+            stated = int(m.group(1))
+            line = text.count("\n", 0, m.start()) + 1
+            if stated != actual:
+                print(f"FAIL counts: {doc}:{line} says {stated} {label}, "
+                      f"measured {actual}")
+                bad += 1
+            else:
+                print(f"ok   {label}: {actual} ({doc}:{line})")
+    if not seen:
         print(f"FAIL counts: the claim about {label} is not where this gate looks "
-              f"(pattern {pattern!r}) - reword the gate with the sentence")
+              f"(pattern {pattern!r} matches none of the {len(PROSE_DOCS)} prose "
+              f"documents) - reword the gate with the sentence")
         bad += 1
-        return
-    stated = int(m.group(1))
-    if stated != actual:
-        print(f"FAIL counts: README says {stated} {label}, measured {actual}")
-        bad += 1
-    else:
-        print(f"ok   {label}: {actual}")
 
 ax_files = len([p for p in glob.glob("**/*.ax", recursive=True)])
 corpus_cases = sum(
     sum(1 for line in open(p, encoding="utf-8") if line.startswith("==="))
     for p in glob.glob("tree-sitter-axiom/test/corpus/*.txt")) // 2
 
-print("== counts: every number the README states is recomputed ==")
-claim("`.ax` files in the repo", r"gated against all (\d+) `\.ax` files", ax_files)
+print("== counts: every number the prose documents state is recomputed ==")
+# The patterns are the SENTENCE's numeral and its unit, not one
+# document's phrasing around it. README.md writes "gated against all 479
+# `.ax` files in the repo" and CONTRIBUTING.md writes "the 479 `.ax`
+# files in the repository"; anchoring on the README's lead-in, as this
+# did, would have kept the second sentence outside the sweep even after
+# the sweep learned to open the second file.
+#
+# Which cuts the other way too, deliberately: a sentence counting `.ax`
+# files in ONE DIRECTORY now fails here against the repository total.
+# That is the failure this gate prefers - loud and wrong over quiet and
+# absent - and the fix for it is to scope THAT claim, not to narrow the
+# pattern back until it matches one document's wording again.
+claim("`.ax` files in the repo", r"(\d+) `\.ax` files", ax_files)
 claim("tree-shape corpus cases", r"(\d+)-case tree-shape corpus", corpus_cases)
 
 print("== status table: every **Complete** row names a fixture that exists ==")
@@ -443,10 +488,140 @@ sys.exit(1 if bad else 0)
 PY
 [[ $? -eq 0 ]] || failed=$((failed+1))
 
+# ---------------------------------------------------------------
+# 6. ONE NUMBER, ONE CASE, within a test directory.
+#
+# Check 4 resolves the fixture a comment names by BARE BASENAME, and
+# that is precisely why this went unseen: on 2026-08-24 `tests/stdlib/`
+# held `310-effect-unhandled.ax` alongside a second case numbered 310 -
+# the signal-in-poll fixture, added five days later - and every name in
+# every document still resolved. No gate was red, and check 4 could not
+# have gone red, because both basenames were real files and it asks
+# nothing else. But the numeric prefix is this corpus's identity -
+# drivers, goldens and prose all reach for a case as "310" and expect
+# one file back - so a repeated prefix makes every sentence
+# about that number ambiguous and leaves the reader to guess which of
+# the two it meant. The newer of that pair is `315-signal-in-poll.ax`
+# as of this commit; the check below is what would have caught it on
+# the day it landed.
+#
+# THE TEN PAIRS BELOW PREDATE THE RULE, across four directories, and
+# their numbers are already load-bearing in goldens and documents that
+# this change does not own - renumbering them is a separate change with
+# its own blast radius. They are grandfathered by exact MEMBERSHIP
+# rather than by number, which is what stops the list from being a hole
+# in the check: a THIRD file landing on an allowlisted number changes
+# that entry's membership and still fails. An entry whose collision has
+# been resolved fails as stale, so the list can only shrink, and it
+# cannot quietly stop applying - a frozen allowlist nobody is forced to
+# revisit is how a gate keeps passing after its premise has moved.
+#
+# The entries below are also checked by check 4, for free and from the
+# other side: they are bare `NNN-name.ax` spellings in a swept source,
+# so a grandfathered file that is renamed or deleted is reported there
+# as a name that resolves to nothing. Observed while probing this
+# section - two invented names in this list failed check 4 immediately.
+# ---------------------------------------------------------------
+echo "== corpus: no two cases in a test directory share a numeric prefix =="
+dupwork="$work/prefix"
+mkdir -p "$dupwork"
+# Every "ok" in this gate has to mean the whole section passed. Comparing
+# only the KEYS here printed "no unaccounted collisions" underneath a
+# membership failure it had just reported, which is the shape of message
+# a reader trusts and skips.
+dup_before=$failed
+
+# The prefix is the literal run of leading digits. Every test directory
+# that numbers its cases pads to three today - diagnostics, frontend,
+# lsp, selfhost and stdlib are all width 3 - so literal and numeric
+# agree; a `10-` landing beside `010-` is padding drift, which this
+# does not claim to catch.
+for d in "$repo_root"/tests/*/; do
+  [[ -d "$d" ]] || continue
+  rel="tests/$(basename "$d")"
+  for f in "$d"*.ax; do
+    [[ -e "$f" ]] || continue
+    b="$(basename "$f")"
+    [[ "$b" =~ ^([0-9]+)- ]] || continue
+    printf '%s:%s %s\n' "$rel" "${BASH_REMATCH[1]}" "$b"
+  done
+done | LC_ALL=C sort > "$dupwork/all"
+
+# `dir:NNN member member ...`, one line per number that repeats.
+awk '{
+  if ($1 == prev) { members = members " " $2; n++ }
+  else { if (n > 1) print prev " " members; prev = $1; members = $2; n = 1 }
+} END { if (n > 1) print prev " " members }' "$dupwork/all" \
+  | LC_ALL=C sort > "$dupwork/observed"
+
+LC_ALL=C sort > "$dupwork/grandfathered" <<'DUPS'
+tests/diagnostics:340 340-axtag-pure-io.ax 340-effect-op-value.ax
+tests/diagnostics:370 370-mixed-warning-error.ax 370-private-name.ax
+tests/diagnostics:380 380-gutter-three-digits.ax 380-private-name-filtered.ax
+tests/frontend:070 070-derive-macro.ax 070-import.ax
+tests/selfhost:380 380-literal-patterns.ax 380-syntax-scalar-queries.ax
+tests/selfhost:390 390-multi-rule-macro.ax 390-nested-patterns.ax
+tests/selfhost:993 993-filesystem-verbs.ax 993-let-body-tail-call.ax
+tests/selfhost:994 994-deep-release-first-field.ax 994-directory-listing.ax
+tests/stdlib:210 210-flags-across-syscall.ax 210-struct-variants.ax
+tests/stdlib:300 300-effect-handlers.ax 300-process.ax
+DUPS
+
+awk '{print $1}' "$dupwork/observed" | LC_ALL=C sort > "$dupwork/keys.observed"
+awk '{print $1}' "$dupwork/grandfathered" | LC_ALL=C sort > "$dupwork/keys.grandfathered"
+
+# Name every colliding file by the path a reader can open.
+dup_report() {
+  local key="$1" table="$2" line dir b
+  dir="${key%%:*}"
+  line="$(grep -m1 "^$key " "$table")"
+  for b in ${line#* }; do echo "     $dir/$b"; done
+}
+
+while read -r key; do
+  [[ -n "$key" ]] || continue
+  echo "FAIL prefix: ${key%%:*} has more than one case numbered ${key##*:}:"
+  dup_report "$key" "$dupwork/observed"
+  echo "     renumber the newer one to a free number in that directory"
+  failed=$((failed+1))
+done < <(LC_ALL=C comm -23 "$dupwork/keys.observed" "$dupwork/keys.grandfathered")
+
+while read -r key; do
+  [[ -n "$key" ]] || continue
+  echo "FAIL prefix: the grandfathered collision $key is stale - ${key%%:*} no longer"
+  echo "     has two cases numbered ${key##*:}. Delete its line from this gate;"
+  echo "     the allowlist is only allowed to shrink."
+  failed=$((failed+1))
+done < <(LC_ALL=C comm -13 "$dupwork/keys.observed" "$dupwork/keys.grandfathered")
+
+while read -r key; do
+  [[ -n "$key" ]] || continue
+  obs="$(grep -m1 "^$key " "$dupwork/observed")"
+  old="$(grep -m1 "^$key " "$dupwork/grandfathered")"
+  if [[ "$obs" != "$old" ]]; then
+    echo "FAIL prefix: the collision at $key is no longer the pair that was grandfathered:"
+    dup_report "$key" "$dupwork/observed"
+    echo "     grandfathered as: ${old#* }"
+    failed=$((failed+1))
+  fi
+done < <(LC_ALL=C comm -12 "$dupwork/keys.observed" "$dupwork/keys.grandfathered")
+
+numbered="$(wc -l <"$dupwork/all" | tr -d ' ')"
+grand="$(wc -l <"$dupwork/grandfathered" | tr -d ' ')"
+# A glob that stops matching reports a clean tree, which reads exactly
+# like success - the same trap rule 2 states for the prose claims.
+if (( numbered < 300 )); then
+  echo "FAIL prefix: only $numbered numbered .ax cases found; the floor is 300 (354 today)"
+  failed=$((failed+1))
+fi
+if (( failed == dup_before )); then
+  echo "ok   $numbered numbered cases, no unaccounted collisions ($grand grandfathered)"
+fi
+
 echo
 if (( failed )); then
   echo "check-doc-drift: $failed section(s) failed"
   exit 1
 fi
-echo "check-doc-drift: registry, counts, status rows, fixture paths and the"
-echo "                 diagnostic showcase all agree with the tree"
+echo "check-doc-drift: registry, counts, status rows, fixture paths, case"
+echo "                 numbering and the diagnostic showcase all agree with the tree"

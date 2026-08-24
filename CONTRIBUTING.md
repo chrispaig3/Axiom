@@ -164,9 +164,28 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
    measurement that justified the change.
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
-formatter's normal form as of 2026-08-22 — 449 of the 451 `.ax` files
-are a fixed point of it, and `check-fmt-selfhost.sh` fails if more than
-60 stop being covered by `tests/fmt/corpus-fmt.golden`.
+formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
+the 479 `.ax` files in the repository apart from the two named below,
+and, measured 2026-08-24, six more that were committed unformatted;
+`axiom fmt --check` over every `.ax` file names them. No gate does:
+`check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
+formatting changes MEANING, not when a committed file has drifted out
+of the normal form — and it fails if more than 60 files stop being
+covered by `tests/fmt/corpus-fmt.golden`.
+
+That 479 is recomputed, and recomputing it is why this paragraph was
+rewritten. `check-doc-drift.sh` checks every count the normative
+documents state, but until 2026-08-24 its `claim()` helper opened
+README.md and nothing else — so the sentence above stood 28 files
+stale while the README stated the right total four lines of gate away
+and passed. Same claim, same class, one file swept. The helper reads
+all nine documents `gate_prose_docs` lists now, this one among them,
+and a count that goes stale here fails exactly as it fails there.
+Which is also why the stale number is not spelled out in this
+paragraph: the pattern it matches on is the numeral and its unit, not
+one document's phrasing around it, so quoting the old sentence would
+reintroduce the drift it describes — the same trap the gate's own
+comments avoid by not naming the fixtures they were written for.
 
 Two files are deliberately NOT formatted, and formatting them breaks
 what they exist to test: `tests/fmt/syntax-zoo.ax` is the formatter's
