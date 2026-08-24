@@ -16,16 +16,20 @@
 ; it.
 ;
 ; WHY NESTED ITERATION RATHER THAN THAT FAN-OUT. The fan-out needs
-; about 5,000 instantiations to cross the budget, and phase D pushes
-; an expansion frame per instantiation onto a Vec that is read when
-; the diagnostic renders and is never popped - so the refusal came out
-; as one AXDL line of 115 KB carrying 5,001 copies of one macro's
-; name, and this file's golden was 225 KB of it. That accumulation is
-; NOT a defect to fix here: the frames are attached post-hoc by span
-; and module, so unwinding them empties the list before rendering and
-; takes ten backtrace goldens with it - measured, on the attempt.
-; 80 x 80 pairs from ONE invocation crosses the same budget with one
+; about 5,000 instantiations to cross the budget, and phase D appends
+; an expansion frame per instantiation to a table that is read when a
+; diagnostic renders and is never popped - so the refusal came out as
+; one AXDL line of 115 KB carrying 5,001 copies of one macro's name,
+; and this file's golden was 225 KB of it. `expMaxFrames` bounds what
+; one diagnostic carries now, so that shape is 3.5 KB rather than 115,
+; but 128 identical frames is still 128 repetitions of one fact.
+; 80 x 80 pairs from ONE invocation crosses the same budget with ONE
 ; frame, which is what a reader of this golden actually needs.
+;
+; The accumulation itself is still there and is still not a defect to
+; fix here: the frames are attached post-hoc by span and module, so
+; unwinding them empties the table before anything renders and takes
+; ten backtrace goldens with it - measured, on the attempt.
 ;
 ; It is AX3024 and not a new code because the axis is the one AX3024
 ; already names - what expansion PRODUCED against what the source

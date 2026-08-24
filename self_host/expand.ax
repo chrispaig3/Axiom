@@ -7318,21 +7318,60 @@
   )
 )
 
+; How many expansion frames one diagnostic will carry.
+;
+; The frame table is appended to per instantiation and never popped, so
+; the chain a diagnostic acquires records instantiations PERFORMED
+; rather than nesting ENTERED. For an expression macro those are the
+; same number and it is bounded by `expDepthLimit`; for a declaration
+; macro that fans out they are not, and the refusal for one came out as
+; a single AXDL line of 115 KB carrying 5,001 copies of one macro's
+; name.
+;
+; Popping the frames is not the fix and was measured: they are attached
+; post-hoc by span and module, so unwinding empties the table before
+; anything renders and takes ten backtrace goldens with it. Bounding
+; what one diagnostic CARRIES leaves the table alone and leaves the
+; grammar alone - the overflow is reported as an ordinary note, which
+; AXDL already has - and 128 is chosen because it is the depth limit,
+; so the two cases that legitimately reach it (`991-macro-recursion`
+; and `406-decl-macro-round-limit`, both exactly 128) are untouched and
+; no golden moves.
+(pub :: expMaxFrames Int)
+
+(pub fn (expMaxFrames) 128)
+
 (pub :: expAttachTo (-> Int Int Int Int Int Int))
 
 (pub fn (expAttachTo d table units dmod j)
+  (let ((n (expAttachFrom d table units dmod j 0)))
+    (if (> n expMaxFrames)
+      (diagAddNote d (strConcat (strConcat "expansion reached this through " (expFmtInt n)) " frames; the first 128 are shown"))
+      0
+    )
+  )
+)
+
+; Answers how many frames MATCHED, having added at most `expMaxFrames`
+; of them. The count keeps rising after the cap so the note can say
+; what it left out - a truncation nobody counts is how a reader stops
+; being able to trust the ones that are shown.
+(pub :: expAttachFrom (-> Int Int Int Int Int Int Int))
+
+(pub fn (expAttachFrom d table units dmod j seen)
   (if (>= j (vecLen table))
-    0
+    seen
     (let ((e (vecGet table j)))
-      {
-        (if (&& (== (diagSpan d) (memGetWord e 1)) (== (expModEq (memGetWord e 0) dmod) 1))
-          (diagAddTrace d (memGetWordStr e 2) (memGetWord e 3) (expUnitOfMod units (memGetWord e 4)))
-          0
-        )
-        (expAttachTo
-          d          table          units          dmod          (+ j 1)
-        )
-      }
+      (if (&& (== (diagSpan d) (memGetWord e 1)) (== (expModEq (memGetWord e 0) dmod) 1))
+        {
+          (if (< seen expMaxFrames)
+            (diagAddTrace d (memGetWordStr e 2) (memGetWord e 3) (expUnitOfMod units (memGetWord e 4)))
+            0
+          )
+          (expAttachFrom d table units dmod (+ j 1) (+ seen 1))
+        }
+        (expAttachFrom d table units dmod (+ j 1) seen)
+      )
     )
   )
 )
