@@ -4422,11 +4422,11 @@
 ; commit destroys the ability to bisect the only gates that watch
 ; stage1. They are history, not the rule.
 ;
-; `sysArg 0` is argv[0] rather than a real `current_exe`, so a compiler
-; invoked by a bare name found on PATH resolves the exe-relative
-; entries against the working directory instead. That degrades to the
-; old behaviour rather than to something wrong, and `AXIOM_STDLIB`
-; overrides it.
+; `sysArg 0` is argv[0] rather than a real `current_exe`. When the
+; shell finds the compiler on `PATH` it passes the BARE NAME, so
+; `(pathDir (sysArg 0))` is `""` and the exe-relative entries below
+; would resolve against the working directory. `pushExeRelStdlib`
+; handles that case rather than degrading into it; see its comment.
 (pub :: moduleSearchDirs (-> String Int))
 
 (pub fn (moduleSearchDirs entryDir)
@@ -4464,16 +4464,7 @@
           (vecPush
             v            (cast Int (pathWithSlash sl))
           )
-          (let ((exe (pathDir (sysArg 0))))
-            {
-              (vecPush
-                v                (cast Int (cat2 exe "../stdlib/"))
-              )
-              (vecPush
-                v                (cast Int (cat2 exe "../../stdlib/"))
-              )
-            }
-          )
+          (pushExeRelStdlib v (pathDir (sysArg 0)))
         )
       )
       (vecPush
@@ -4483,6 +4474,106 @@
         v        (cast Int "stdlib/")
       )
       v
+    }
+  )
+)
+
+; The standard library, located relative to the compiler binary.
+;
+; `<exe>/../stdlib` is the installed layout and `<exe>/../../stdlib`
+; the build tree, both formed from `exe` = `(pathDir (sysArg 0))`.
+;
+; When `exe` is EMPTY the shell found the compiler on `PATH` and handed
+; it a bare name, and those two entries read against the WORKING
+; DIRECTORY instead. That is not a corner: it is exactly what
+; `scripts/install.sh` and the README tell a new user to set up -
+; `export PATH="$HOME/.axiom/bin:$PATH"`, then type `axiom` - so the
+; first program they write that imports anything answered `AX5001
+; cannot resolve import IO` on a completely correct installation.
+; Measured from a real release archive before this existed: the same
+; compiler, same program, built by absolute path and refused by bare
+; name.
+;
+; So resolve the bare name the way the shell just did: walk `PATH` and
+; take the FIRST entry holding a file of that name. That is one
+; directory, not every directory - and the difference is not
+; cosmetic. The first version of this pushed `<entry>/../stdlib/` for
+; every `PATH` entry, and its own negative probe caught what that
+; means: on a machine with a second Axiom checkout on `PATH`, an
+; installed `axiom` whose `stdlib/` had been deleted kept working,
+; silently compiling against the OTHER installation's standard
+; library. A compiler that answers with a stdlib the user did not
+; install is worse than one that refuses.
+;
+; The two working-directory entries are still pushed afterwards, so
+; nothing that resolved before this resolves differently now - the
+; resolved root is added AHEAD of them, never in place of them.
+(pub :: pushExeRelStdlib (-> Int String Int))
+
+;@axiom:effect(io)
+(pub fn (pushExeRelStdlib v exe)
+  {
+    (if (> (strLen exe) 0)
+      0
+      (let ((found (pathOfCommand (sysArg 0))))
+        (if (> (strLen found) 0)
+          {
+            (vecPush
+              v              (cast Int (cat2 found "../stdlib/"))
+            )
+            (vecPush
+              v              (cast Int (cat2 found "../../stdlib/"))
+            )
+          }
+          0
+        )
+      )
+    )
+    (vecPush
+      v      (cast Int (cat2 exe "../stdlib/"))
+    )
+    (vecPush
+      v      (cast Int (cat2 exe "../../stdlib/"))
+    )
+  }
+)
+
+; The first `PATH` entry holding a file named `name`, slash-terminated,
+; or `""` when no entry does.
+;
+; `sysFileExists` rather than an executable-bit test, which is the same
+; choice `Sys.sysRunSearch` makes for its own `PATH` walk: the question
+; here is which directory the name came from, and a candidate that
+; cannot be opened is one this has no business selecting.
+(pub :: pathOfCommand (-> String String))
+
+;@axiom:effect(io)
+(pub fn (pathOfCommand name)
+  (let (
+    (parts (strSplit (sysEnv "PATH") 58))
+    (mut i 0)
+    (mut found "")
+  )
+    {
+      (while (&& (< i (vecLen parts)) (== (strLen found) 0))
+        {
+          (let ((d (vecGetStr parts i)))
+            (if (> (strLen d) 0)
+              (let ((dir (pathWithSlash d)))
+                (if (sysFileExists (strCStr (cat2 dir name)))
+                  {
+                    (set found dir)
+                    0
+                  }
+                  0
+                )
+              )
+              0
+            )
+          )
+          (set i (+ i 1))
+        })
+      found
     }
   )
 )

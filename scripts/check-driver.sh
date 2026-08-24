@@ -861,6 +861,81 @@ else
     && ok "version: $ver_seen source(s) and $lsp_goldens LSP golden(s) all agree on $ver_from_binary"
 fi
 
+# ---------------------------------------------------------------
+# AN INSTALLED LAYOUT, FOUND ON PATH.
+#
+# Every other case in this file invokes the compiler by a path -
+# `"$s1"` is absolute - and so did `scripts/install.sh`'s own
+# post-install check and `release.yml`'s archive check. That is the ONE
+# invocation form in which locating the standard library cannot fail,
+# which is why the form a user actually adopts was broken and no gate
+# said so.
+#
+# What a user does is what `install.sh` prints: put `<prefix>/bin` on
+# PATH and type `axiom`. The shell then passes the BARE NAME as argv[0],
+# `(pathDir (sysArg 0))` is empty, and `<exe>/../stdlib` degenerated
+# into a working-directory-relative `../stdlib`. On a completely
+# correct installation the first program importing anything answered
+# `AX5001 cannot resolve import IO`.
+#
+# Both directions are asserted, because only the pair is evidence: the
+# positive is an installed layout resolving its own stdlib through a
+# bare-name invocation, and the NEGATIVE is the same invocation with
+# the stdlib removed, which must still fail. Without the negative this
+# case would pass on a compiler that found some other stdlib - the
+# repository's own, four directories up - and report the property it
+# was written to check while not checking it.
+#
+# `AXIOM_STDLIB` is unset throughout. It is the documented override and
+# it makes every case here pass vacuously.
+# ---------------------------------------------------------------
+inst="$work/inst"
+mkdir -p "$inst/bin"
+cp "$s1" "$inst/bin/axiom"
+cp -R "$repo_root/stdlib" "$inst/stdlib"
+
+mkdir -p "$work/away"
+cat >"$work/away/useio.ax" <<'EOF'
+(import IO (writeStr))
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) { (writeStr 1 "installed-ok\n") 42 })
+EOF
+
+# The probe directory must not itself supply a stdlib, or the
+# compiler's last-resort working-directory entry answers instead.
+if [[ -e "$work/away/stdlib" || -e "$work/stdlib" ]]; then
+  bad "installed layout: the probe directory has a stdlib of its own, so this case cannot mean anything"
+else
+  (
+    cd "$work/away"
+    unset AXIOM_STDLIB AXIOM_PATH
+    PATH="$inst/bin:$PATH" axiom build --input useio.ax --output useio
+  ) >"$work/inst.log" 2>&1
+  if [[ $? -eq 0 && -x "$work/away/useio" ]] \
+    && [[ "$("$work/away/useio")" == "installed-ok" ]]; then
+    ok "installed layout: bin/ + stdlib/ resolves through a bare-name PATH invocation"
+  else
+    bad "installed layout: \`axiom\` found on PATH could not build a program that imports IO"
+    sed 's/^/     /' "$work/inst.log" | head -8
+  fi
+
+  # The negative. Same compiler, same program, same invocation, with
+  # the archive's stdlib taken away: this MUST fail, or the positive
+  # above was resolving something other than the installation.
+  rm -rf "$inst/stdlib" "$work/away/useio"
+  (
+    cd "$work/away"
+    unset AXIOM_STDLIB AXIOM_PATH
+    PATH="$inst/bin:$PATH" axiom build --input useio.ax --output useio
+  ) >"$work/inst-neg.log" 2>&1
+  if [[ $? -ne 0 ]] && grep -q 'AX5001' "$work/inst-neg.log"; then
+    ok "installed layout: removing stdlib/ makes the same invocation fail (AX5001)"
+  else
+    bad "installed layout: the compiler built a stdlib-importing program with NO stdlib installed - the positive case above proves nothing"
+    sed 's/^/     /' "$work/inst-neg.log" | head -8
+  fi
+fi
 
 echo
 echo "$passed passed, $failed failed"
