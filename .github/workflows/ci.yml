@@ -198,6 +198,14 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
+    # Eighteen of the gates below build the compiler under test from
+    # `self_host/`, each producing a byte-identical artifact. One step
+    # builds it; `gate_build_axc` reuses it while the tree's source
+    # stamp matches and rebuilds when it does not, so an ablation of
+    # `self_host/` stays visible to every one of them.
+    # `scripts/check-gate-lib.sh` is the probe that proves that.
+    env:
+      AXIOM_AXC: ${{ github.workspace }}/.axiom-shared/axc
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -206,6 +214,19 @@ jobs:
       # same package and is what the cross-target gate uses to reject
       # non-position-independent objects.
       - uses: ./.github/actions/provision
+
+      # Before anything that needs it. A failure here is a compiler that
+      # does not build from the tree, which every gate below would
+      # otherwise report one at a time and more slowly.
+      - name: Build the compiler under test once
+        run: ./scripts/build-shared-axc.sh "$AXIOM_AXC"
+
+      # And immediately, the probe that the sharing above cannot hide a
+      # change to `self_host/`. It plants a builder that CANNOT BUILD,
+      # so "the cache was used" and "the cache was not" are the only two
+      # outcomes and each is read directly rather than inferred.
+      - name: The shared artifact cannot hide a source change
+        run: ./scripts/check-gate-lib.sh
 
       # These cases were also run by the deleted Rust test suite, as
       # `stdlib_golden`. This script is now their only runner, which is

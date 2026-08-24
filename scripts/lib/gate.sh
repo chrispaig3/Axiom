@@ -78,6 +78,51 @@ gate_init() {
   trap 'rm -rf "$work"' EXIT
 }
 
+# gate_source_stamp
+#
+# A hash of everything the compiler-under-test is built FROM: every
+# `.ax` the build reads - `self_host/` and the stdlib modules it
+# imports, 43 files and 2.5 MB today - plus the builder binary itself.
+# 0.04s to compute, against ~100s to build.
+#
+# This exists so `gate_build_axc`'s cache can be content-addressed. It
+# is the whole safety argument, so it must stay a SUPERSET of the
+# build's real inputs: a file the build reads and this does not hash is
+# a file whose ablation the cache would hide.
+gate_source_stamp() {
+  local list f
+  # The PATH LIST first, then every byte. Contents alone would miss a
+  # file added empty or renamed; paths alone would miss an edit.
+  #
+  # `find` rather than a glob, because a glob matching nothing is a
+  # `cat` failure and under `set -euo pipefail` that ends the GATE
+  # rather than the stamp - measured while writing this, and it
+  # presented as a gate that printed its first heading and stopped.
+  #
+  # Relative paths and `LC_ALL=C sort`: the stamp is a property of the
+  # tree, not of where it was checked out or of the runner's locale.
+  list="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f 2>/dev/null \
+             | LC_ALL=C sort )"
+  {
+    printf '%s\n' "$list"
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && cat "$repo_root/$f"
+    done <<< "$list"
+    gate_sha "$axiom"
+  } | gate_sha
+}
+
+# `sha256sum` on Linux, `shasum -a 256` on macOS - the same fallback
+# `bootstrap-from-seed.sh` already carries, because the runner ships
+# one or the other and not both.
+gate_sha() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$@" | cut -d' ' -f1
+  else
+    shasum -a 256 "$@" | cut -d' ' -f1
+  fi
+}
+
 # gate_build_axc <varname> [output-path]
 #
 # Builds the compiler under test from the CURRENT `self_host/` sources
@@ -89,16 +134,46 @@ gate_init() {
 # first - which is also what makes an ablation of `self_host/` visible
 # to that gate rather than invisible.
 #
+# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Seventeen gates
+# call this, each rebuilding the same 60,881 lines at ~1m40s - about
+# 28 minutes per matrix leg, 85 across the three, for a byte-identical
+# artifact every time. `$AXIOM_AXC` lets one CI step build it once.
+#
+# An env var naming a prebuilt compiler is exactly how this function's
+# own reason for existing gets deleted, so the cache is CONTENT-
+# ADDRESSED rather than trusted: the artifact is used only when
+# `$AXIOM_AXC.stamp` equals `gate_source_stamp` for the tree as it is
+# right now. Change a byte anywhere the build reads and the stamp
+# moves, the cache misses, and a fresh compiler is built - so an
+# ablation of `self_host/` is visible BY CONSTRUCTION, not by anyone
+# remembering to invalidate anything. A stale artifact, a seed
+# compiler, or one with no stamp beside it are all simply ignored.
+#
+# `scripts/check-gate-lib.sh` is the negative probe: it plants a
+# builder that cannot build and asserts the cache is used when the
+# stamp matches and NOT used when it does not.
+#
 # The build log is kept at `$work/<varname>.build.log` and its first
 # twenty lines are printed on failure.
 gate_build_axc() {
   local var="$1" out="${2:-$work/$1}" log="$work/$1.build.log"
+  local stamp; stamp="$(gate_source_stamp)"
+
+  if [[ -n "${AXIOM_AXC:-}" && -x "${AXIOM_AXC:-}" && -f "${AXIOM_AXC}.stamp" ]] &&
+     [[ "$(cat "${AXIOM_AXC}.stamp")" == "$stamp" ]]; then
+    echo "== reusing the compiler under test (source stamp ${stamp:0:12}) =="
+    cp "$AXIOM_AXC" "$out"
+    printf -v "$var" '%s' "$out"
+    return 0
+  fi
+
   echo "== building the compiler under test from self_host/ =="
   if ! "$axiom" build --input self_host/main.ax --output "$out" >"$log" 2>&1; then
     echo "FAIL: could not build the compiler under test from self_host/" >&2
     sed 's/^/    /' "$log" | head -20 >&2
     exit 1
   fi
+  printf '%s\n' "$stamp" > "$out.stamp"
   printf -v "$var" '%s' "$out"
 }
 
