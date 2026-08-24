@@ -77,7 +77,10 @@
   ; sharing property: a listener that did NOT survive
   ; the fork fails to register right here, and the
   ; parent sees the code rather than a count.
-  (let ((rec (memAlloc 64)))
+  (let (
+    (rec (memAlloc 64))
+    (ts (memAlloc 16))
+  )
     (let ((setbuf (memAlloc 8)))
       (let ((scratch (memAlloc 256)))
         (let ((buf (memAlloc (netPollBufBytes 8))))
@@ -95,7 +98,9 @@
                     ; here beside the socket.
                     (let ((sh (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf)))
                       (while (== running 1)
-                        (let ((n (netPollWait pfd buf 8 5000)))
+                        (let ((n (netPollWait
+                          pfd                          buf                          8                          5000                          ts
+                        )))
                           (if (< n 1)
                             ; The timeout is a safety net and not the
                             ; mechanism: if the parent died without saying
@@ -158,11 +163,16 @@
   (let ((port (+ 20000 (% sysGetPid 9000))))
     (let ((addr (memAlloc 16)))
       (let ((byte (memAlloc 8)))
-        (let ((setbuf (memAlloc 8)))
+        (let (
+          (setbuf (memAlloc 8))
+          (optb (memAlloc 4))
+        )
           (let ((pids vecNew))
             (let ((lsn netSocketTcp))
               {
-                (netSetOptInt lsn solSocket soReuseAddr 1)
+                (netSetOptInt
+                  lsn                  solSocket                  soReuseAddr                  1                  optb
+                )
                 (netAddr4
                   addr                  port                  127                  0                  0                  1
                 )

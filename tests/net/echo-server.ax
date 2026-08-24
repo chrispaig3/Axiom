@@ -1,0 +1,247 @@
+; The echo server `scripts/check-net.sh` drives, and the first program
+; in this tree whose memory is the thing being measured rather than its
+; answer.
+;
+; It is a pre-forked pool: one listening socket created before the fork
+; and inherited by every worker, each worker waiting on a readiness
+; descriptor that carries both the listener and SIGTERM. That much is
+; `tests/stdlib/311-preforked-server.ax` at scale.
+;
+; WHAT IS NEW HERE IS THE ARENA, AND IT IS A FLAG SO THE GATE CAN RUN
+; BOTH WAYS. Every connection does real allocating work - it builds a
+; kilobyte response by repeated `strConcat`, which is the quadratic
+; shape `render.ax`'s `ctlEsc` was, so one connection allocates about
+; 16 KiB and none of it is reachable once the socket closes. Under a
+; bump allocator that never frees, ten thousand of those is a hundred
+; and sixty megabytes of watermark. With `__axiom_arena_mark` before
+; the work and `__axiom_arena_reset` after it, the watermark rewinds
+; every connection and the worker holds flat.
+;
+; That is the plan's whole bet about backend services stated as a
+; program: a request handler is an arena scope, and the memory model
+; does not need reference counting to be finished before a stateless
+; service can run. `measure-memory-baseline.sh`'s own header names
+; "every compiler pass, request handler and macro expansion" as the
+; same shape; this is the request handler.
+;
+; ARGV: <port> <workers> <arena 0|1>
+;
+; The parent prints one line - `pids p1 p2 ...` - and then waits. The
+; driver reads that line to know whom to measure and whom to stop.
+(import IO)
+
+(import Sys)
+
+(import Mem)
+
+(import Str)
+
+; A decimal Int from a String. There is no parser in the standard
+; library and this needs three numbers off the command line, so it
+; carries its own: digits only, no sign, no overflow check, because the
+; only caller is the gate beside it.
+(:: parseInt (-> String Int))
+
+(fn (parseInt s)
+  (let ((mut i 0))
+    (let ((mut v 0))
+      {
+        (while (< i (strLen s))
+          {
+            (let ((c (strByte s i)))
+              (if (if (>= c 48)
+                (<= c 57)
+                false
+              )
+                (set v (+ (* v 10) (- c 48)))
+                0
+              )
+            )
+            (set i (+ i 1))
+          })
+        v
+      }
+    )
+  )
+)
+
+; The per-connection work, and the reason this file exists. The response
+; is built by repeated concatenation, so the intermediates are garbage
+; the instant the next one is made - about 16 KiB of it per call, none
+; reachable after the write.
+(:: respond (-> Int Int Int))
+
+(fn (respond con byte)
+  (let ((mut s ""))
+    (let ((mut i 0))
+      {
+        (while (< i 32)
+          {
+            (set s (strConcat s "0123456789abcdef0123456789abcdef"))
+            (set i (+ i 1))
+          })
+        ; The response the client checks is the byte it sent. The
+        ; kilobyte above is not written anywhere: it is the ALLOCATION
+        ; this case exists to measure, and writing it would measure the
+        ; socket instead. `strLen` is what keeps it from being dead.
+        (if (> (strLen s) 0)
+          (sysWriteFd con byte 1)
+          0
+        )
+      }
+    )
+  )
+)
+
+(:: serve (-> Int Int Int))
+
+(fn (serve lsn arenaOn)
+  (let (
+    (rec (memAlloc 64))
+    (ts (memAlloc 16))
+  )
+    (let ((setbuf (memAlloc 8)))
+      (let ((scratch (memAlloc 256)))
+        (let ((buf (memAlloc (netPollBufBytes 64))))
+          (let ((byte (memAlloc 8)))
+            (let ((pfd netPollCreate))
+              (let ((mut served 0))
+                (let ((mut running 1))
+                  {
+                    (if (< (netPollAddRead pfd lsn rec) 0)
+                      (sysExitWith 255)
+                      0
+                    )
+                    (let ((sh (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf)))
+                      (while (== running 1)
+                        (let ((n (netPollWait
+                          pfd                          buf                          64                          10000                          ts
+                        )))
+                          (if (< n 1)
+                            (set running 0)
+                            (let ((mut e 0))
+                              (while (< e n)
+                                {
+                                  (if (>= (netPollSignalAt buf e sh scratch) 0)
+                                    (set running 0)
+                                    (let ((con (netAccept lsn)))
+                                      (if (< con 0)
+                                        0
+                                        ; EVERYTHING THE CONNECTION
+                                        ; ALLOCATES IS ABOVE THIS MARK.
+                                        ; The poll buffers and the
+                                        ; listener were allocated
+                                        ; before it and survive the
+                                        ; reset; nothing built while
+                                        ; answering does.
+                                        {
+                                          (let ((m __axiom_arena_mark))
+                                            {
+                                              (netSetBlocking con)
+                                              (if (== (sysReadFd con byte 1) 1)
+                                                (respond con byte)
+                                                0
+                                              )
+                                              (sysCloseFd con)
+                                              (if (== arenaOn 1)
+                                                (__axiom_arena_reset m)
+                                                0
+                                              )
+                                            }
+                                          )
+                                          (set served (+ served 1))
+                                        }
+                                      )
+                                    )
+                                  )
+                                  (set e (+ e 1))
+                                })
+                            )
+                          )
+                        ))
+                    )
+                    (sysCloseFd pfd)
+                    served
+                  }
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((port (parseInt (sysArg 1))))
+    (let ((nworkers (parseInt (sysArg 2))))
+      (let ((arenaOn (parseInt (sysArg 3))))
+        (let ((addr (memAlloc 16)))
+          (let (
+            (setbuf (memAlloc 8))
+            (optb (memAlloc 4))
+          )
+            (let ((pids vecNew))
+              (let ((lsn netSocketTcp))
+                {
+                  (netSetOptInt
+                    lsn                    solSocket                    soReuseAddr                    1                    optb
+                  )
+                  (netAddr4
+                    addr                    port                    127                    0                    0                    1
+                  )
+                  (if (!= (netBind lsn addr) 0)
+                    (sysExitWith 2)
+                    0
+                  )
+                  (netListen lsn 512)
+                  (netSetNonBlocking lsn)
+                  (sysSignalBlock (sysSigBit sigTerm) setbuf)
+                  (let ((mut w 0))
+                    (while (< w nworkers)
+                      {
+                        (let ((pid sysForkProcess))
+                          (if (== pid 0)
+                            (sysExitWith (serve lsn arenaOn))
+                            (vecPush pids pid)
+                          )
+                        )
+                        (set w (+ w 1))
+                      })
+                  )
+                  ; One line the driver parses, then this process does
+                  ; nothing but reap - it holds no connection and its own
+                  ; RSS is not the measurement.
+                  (let ((mut s "pids"))
+                    (let ((mut k 0))
+                      {
+                        (while (< k (vecLen pids))
+                          {
+                            (set s (strConcat s (strConcat " " (fmtInt (vecGet pids k)))))
+                            (set k (+ k 1))
+                          })
+                        (printlnLit (strCStr s))
+                      }
+                    )
+                  )
+                  (sysCloseFd lsn)
+                  (let ((mut r 0))
+                    (while (< r (vecLen pids))
+                      {
+                        (sysWaitPid (vecGet pids r))
+                        (set r (+ r 1))
+                      })
+                  )
+                  0
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

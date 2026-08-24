@@ -105,10 +105,10 @@ netPollAddRead Sys.ax IO
 netPollCreate Sys.ax IO
 netPollDelRead Sys.ax IO
 netPollSignalAt Sys.ax IO
-netPollWait Sys.ax Alloc,IO
+netPollWait Sys.ax IO
 netSetBlocking Sys.ax IO
 netSetNonBlocking Sys.ax IO
-netSetOptInt Sys.ax Alloc,IO
+netSetOptInt Sys.ax IO
 netShutdown Sys.ax IO
 netSignalOpen Sys.ax IO
 netSocketTcp Sys.ax IO

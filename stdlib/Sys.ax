@@ -1412,21 +1412,19 @@
 ; Set an integer-valued socket option. The value crosses as four bytes
 ; in the host's own order, which is what the kernel reads an `int`
 ; option as - unlike an address, this one is NOT network order.
-(pub :: netSetOptInt (-> Int Int Int Int Int))
+(pub :: netSetOptInt (-> Int Int Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (netSetOptInt fd level name value)
-  (let ((v (memAlloc 4)))
-    {
-      (memPutByte v 0 (& value 255))
-      (memPutByte v 1 (& (>> value 8) 255))
-      (memPutByte v 2 (& (>> value 16) 255))
-      (memPutByte v 3 (& (>> value 24) 255))
-      (__syscall5
-        sysSetSockOptNum        fd        level        name        v        4
-      )
-    }
-  )
+(pub fn (netSetOptInt fd level name value v)
+  {
+    (memPutByte v 0 (& value 255))
+    (memPutByte v 1 (& (>> value 8) 255))
+    (memPutByte v 2 (& (>> value 16) 255))
+    (memPutByte v 3 (& (>> value 24) 255))
+    (__syscall5
+      sysSetSockOptNum      fd      level      name      v      4
+    )
+  }
 )
 
 ; Put a descriptor into non-blocking mode, preserving the flags it
@@ -1587,24 +1585,22 @@
 ; takes milliseconds in a register, kqueue takes a POINTER to a
 ; `timespec` and reads NULL as "no timeout". So the millisecond argument
 ; is this layer's, and the timespec is built here.
-(pub :: netPollWait (-> Int Int Int Int Int))
+(pub :: netPollWait (-> Int Int Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (netPollWait pfd buf maxEvents timeoutMs)
+(pub fn (netPollWait pfd buf maxEvents timeoutMs ts)
   (if (== pollUsesKqueue 1)
     (if (< timeoutMs 0)
       (__syscall6
         sysPollWaitNum        pfd        0        0        buf        maxEvents        0
       )
-      (let ((ts (memAlloc 16)))
-        {
-          (netPutWord ts 0 (/ timeoutMs 1000))
-          (netPutWord ts 8 (* (% timeoutMs 1000) 1000000))
-          (__syscall6
-            sysPollWaitNum            pfd            0            0            buf            maxEvents            ts
-          )
-        }
-      )
+      {
+        (netPutWord ts 0 (/ timeoutMs 1000))
+        (netPutWord ts 8 (* (% timeoutMs 1000) 1000000))
+        (__syscall6
+          sysPollWaitNum          pfd          0          0          buf          maxEvents          ts
+        )
+      }
     )
     ; epoll_pwait's fifth argument is a signal mask this layer does not
     ; use, and its sixth is that mask's size, which the kernel checks

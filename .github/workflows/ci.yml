@@ -213,6 +213,18 @@ jobs:
       - name: Standard-library golden tests
         run: ./scripts/run-stdlib-tests.sh
 
+      # The acceptance measurement for the socket work, and the only gate
+      # here whose subject is MEMORY rather than an answer: a pre-forked
+      # server must hold its heap flat across ten thousand connections
+      # when the request handler is an arena scope. It earns a place in
+      # CI despite driving twenty thousand real loopback connections
+      # because it takes about four seconds - the criterion is a RATIO
+      # against the same binary with the arena switched off, so it is not
+      # sensitive to how fast the runner is, only to whether the
+      # allocator still reclaims.
+      - name: Server memory holds across ten thousand connections
+        run: ./scripts/check-net.sh
+
       - name: Freestanding check
         run: ./scripts/check-freestanding.sh
 

@@ -40,14 +40,16 @@
 )
 
 ; A bound, listening, non-blocking socket on `port`, or a negative.
-(:: listenOn (-> Int Int Int))
+(:: listenOn (-> Int Int Int Int))
 
-(fn (listenOn addr port)
+(fn (listenOn addr optb port)
   (let ((fd netSocketTcp))
     (if (< fd 0)
       fd
       {
-        (netSetOptInt fd solSocket soReuseAddr 1)
+        (netSetOptInt
+          fd          solSocket          soReuseAddr          1          optb
+        )
         (netAddr4
           addr          port          127          0          0          1
         )
@@ -92,10 +94,14 @@
 (fn (main)
   (let ((base (+ 20000 (% sysGetPid 9000))))
     (let ((addr (memAlloc 16)))
-      (let ((rec (memAlloc 64)))
+      (let (
+        (rec (memAlloc 64))
+        (ts (memAlloc 16))
+        (optb (memAlloc 4))
+      )
         (let ((buf (memAlloc (netPollBufBytes 8))))
-          (let ((la (listenOn addr base)))
-            (let ((lb (listenOn addr (+ base 1))))
+          (let ((la (listenOn addr optb base)))
+            (let ((lb (listenOn addr optb (+ base 1))))
               (let ((pfd netPollCreate))
                 {
                   (say
@@ -125,7 +131,9 @@
                   ; Nothing has connected, so a zero timeout must answer
                   ; zero events rather than blocking or erroring.
                   (say
-                    (if (== (netPollWait pfd buf 8 0) 0)
+                    (if (== (netPollWait
+                      pfd                      buf                      8                      0                      ts
+                    ) 0)
                       1
                       0
                     )                    "polling with nothing pending answers no events"
@@ -139,7 +147,9 @@
                         addr                        base                        127                        0                        0                        1
                       )
                       (netConnect ca addr)
-                      (let ((n (netPollWait pfd buf 8 2000)))
+                      (let ((n (netPollWait
+                        pfd                        buf                        8                        2000                        ts
+                      )))
                         {
                           (say
                             (if (== n 1)
@@ -193,7 +203,9 @@
                               addr                              (+ base 1)                              127                              0                              0                              1
                             )
                             (netConnect cc addr)
-                            (let ((n2 (netPollWait pfd buf 8 2000)))
+                            (let ((n2 (netPollWait
+                              pfd                              buf                              8                              2000                              ts
+                            )))
                               {
                                 (say
                                   (if (== n2 2)
