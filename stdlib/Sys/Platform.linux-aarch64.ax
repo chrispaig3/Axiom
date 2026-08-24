@@ -323,3 +323,80 @@
 (pub :: sockaddrHasLenByte Int)
 
 (pub fn (sockaddrHasLenByte) 0)
+
+; --------------------------------------------------------------------
+; Readiness
+;
+; Linux's mechanism is epoll, which needs two calls where kqueue needs
+; one: `epoll_ctl` registers interest and `epoll_pwait` collects. See
+; the Darwin file for the shape of the other side.
+;
+; THE WAIT CALL IS `epoll_pwait`, NOT `epoll_wait`, AND THAT IS NOT A
+; PREFERENCE: aarch64's generic syscall table has no `epoll_wait` at
+; all, so it is the only spelling that exists on both arches. Its first
+; four arguments are exactly `epoll_wait`'s, and the two extra are a
+; signal mask and that mask's size. `Sys.ax` passes a NULL mask and a
+; size of 8.
+; --------------------------------------------------------------------
+(pub :: pollUsesKqueue Int)
+
+(pub fn (pollUsesKqueue) 0)
+
+; epoll_create1(flags) - 20.
+(pub :: sysPollCreateNum Int)
+
+(pub fn (sysPollCreateNum) 20)
+
+; epoll_pwait(epfd, events, maxevents, timeout_ms, sigmask, sigsetsize) - 22.
+(pub :: sysPollWaitNum Int)
+
+(pub fn (sysPollWaitNum) 22)
+
+; epoll_ctl(epfd, op, fd, event) - 21.
+(pub :: sysPollCtlNum Int)
+
+(pub fn (sysPollCtlNum) 21)
+
+; `struct epoll_event` is not packed on aarch64, so 16 bytes with four bytes of padding after the events word.
+;
+;   layout here:  0:4 events (u32) | 8:8 data (u64)
+;
+; THE TWO ARCHES DISAGREE AND NEITHER ERRORS IF YOU USE THE OTHER'S
+; NUMBERS. A 16-byte stride on x86_64 reads every event after the first
+; from the middle of the one before it, and registers a descriptor the
+; kernel took from whatever sat at offset 8; a 12-byte stride on aarch64
+; writes the descriptor into the padding hole. Both dispatch on garbage
+; with no syscall error and no crash.
+(pub :: pollEventSize Int)
+
+(pub fn (pollEventSize) 16)
+
+(pub :: pollEventFdOffset Int)
+
+(pub fn (pollEventFdOffset) 8)
+
+; EPOLLIN. A positive bitmask, where kqueue's EVFILT_READ is -1.
+(pub :: pollReadFilter Int)
+
+(pub fn (pollReadFilter) 1)
+
+; EPOLL_CTL_ADD and EPOLL_CTL_DEL, which coincide with kqueue's EV_ADD
+; and EV_DELETE at 1 and 2.
+(pub :: pollAddOp Int)
+
+(pub fn (pollAddOp) 1)
+
+(pub :: pollDelOp Int)
+
+(pub fn (pollDelOp) 2)
+
+; epoll_pwait's sixth argument. IT MUST BE EXACTLY 8 - the kernel's
+; `sigset_t` is one 64-bit word and it rejects any other size with
+; EINVAL. glibc's `sigset_t` is 128 bytes and is the wrong number to
+; hand a raw syscall; Axiom links no libc, so that type never appears
+; here. Passing it explicitly rather than leaving the register undefined
+; costs one write and does not depend on the kernel skipping the check
+; when the mask is NULL.
+(pub :: pollSigsetSize Int)
+
+(pub fn (pollSigsetSize) 8)

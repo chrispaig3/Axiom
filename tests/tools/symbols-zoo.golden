@@ -66,6 +66,16 @@ F fSetFl stdlib/Sys/Platform.darwin.ax:414:9-15 "Int" @b22030a3ced82cc7
 F oNonblock stdlib/Sys/Platform.darwin.ax:418:9-18 "Int" @e28c97fa7ca01710
 F eAgain stdlib/Sys/Platform.darwin.ax:426:9-15 "Int" @e069fc6f4f9b397a
 F sockaddrHasLenByte stdlib/Sys/Platform.darwin.ax:447:9-27 "Int" @ef72f44767bfc769
+F pollUsesKqueue stdlib/Sys/Platform.darwin.ax:467:9-23 "Int" @1908ec81ed6473d2
+F sysPollCreateNum stdlib/Sys/Platform.darwin.ax:472:9-25 "Int" @dc35fd57ec1f5d83
+F sysPollWaitNum stdlib/Sys/Platform.darwin.ax:479:9-23 "Int" @9ede20211dc34918
+F sysPollCtlNum stdlib/Sys/Platform.darwin.ax:483:9-22 "Int" @242bc4ea898a397a
+F pollEventSize stdlib/Sys/Platform.darwin.ax:497:9-22 "Int" @918d2641eec8e977
+F pollEventFdOffset stdlib/Sys/Platform.darwin.ax:501:9-26 "Int" @a82e65073201e547
+F pollReadFilter stdlib/Sys/Platform.darwin.ax:510:9-23 "Int" @2a42e21130434f1c
+F pollAddOp stdlib/Sys/Platform.darwin.ax:517:9-18 "Int" @8ded25e2f48c404e
+F pollDelOp stdlib/Sys/Platform.darwin.ax:521:9-18 "Int" @b9dceb68276454ac
+F pollSigsetSize stdlib/Sys/Platform.darwin.ax:528:9-23 "Int" @a184d63c46ffcbc0
 F apply tests/fmt/syntax-zoo.ax:78:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:82:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:92:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure

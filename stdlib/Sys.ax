@@ -1396,3 +1396,176 @@
 (pub :: netWouldBlock (-> Int Bool))
 
 (pub fn (netWouldBlock r) (== r (- 0 eAgain)))
+
+; ------------------------------------------------------------------
+; Readiness
+;
+; One descriptor that answers which of many others can be read without
+; blocking - kqueue on Darwin, epoll on Linux - behind one set of names.
+;
+; THE TWO MECHANISMS DIFFER IN SHAPE, NOT ONLY IN NUMBERS, which is why
+; this is a branch and not a table. kqueue registers and collects with
+; ONE call; epoll needs `epoll_ctl` to register and `epoll_pwait` to
+; collect. The event records disagree too: kqueue's is 32 bytes with the
+; descriptor first, epoll's is 12 bytes on x86_64 and 16 on aarch64 with
+; the descriptor at 4 or 8. `Sys.Platform` carries all three sizes and
+; offsets; nothing here hardcodes one.
+;
+; THE CALLER OWNS THE EVENT BUFFER, sized by `netPollBufBytes`. That
+; keeps a wait loop allocation-free, which is the whole point of having
+; a readiness call at all: a server that allocated per poll would grow
+; without bound under an allocator that does not free.
+; ------------------------------------------------------------------
+; Store a 64-bit value as eight little-endian bytes. NOT `memSetWord`:
+; that takes a SHARE of a reference (`__retainref`, MM-LIFE-2d) because
+; it is written for payload words that may be handles, and an ABI record
+; is raw bytes the kernel wrote a meaning onto. Retaining one would be
+; retaining whatever integer the kernel happened to put there.
+(:: netPutWord (-> Int Int Int Int))
+
+(fn (netPutWord buf off v)
+  {
+    (memPutByte buf off (& v 255))
+    (memPutByte buf (+ off 1) (& (>> v 8) 255))
+    (memPutByte buf (+ off 2) (& (>> v 16) 255))
+    (memPutByte buf (+ off 3) (& (>> v 24) 255))
+    (memPutByte buf (+ off 4) (& (>> v 32) 255))
+    (memPutByte buf (+ off 5) (& (>> v 40) 255))
+    (memPutByte buf (+ off 6) (& (>> v 48) 255))
+    (memPutByte buf (+ off 7) (& (>> v 56) 255))
+    buf
+  }
+)
+
+; The same, read back. Byte-wise rather than `memGetWord` because the
+; offset is not always word-aligned: epoll's data word sits at byte 4 on
+; x86_64, where the struct is packed.
+(:: netGetWord (-> Int Int Int))
+
+(fn (netGetWord buf off) (+ (memGetByte buf off) (+ (<< (memGetByte buf (+ off 1)) 8) (+ (<< (memGetByte buf (+ off 2)) 16) (+ (<< (memGetByte buf (+ off 3)) 24) (+ (<< (memGetByte buf (+ off 4)) 32) (+ (<< (memGetByte buf (+ off 5)) 40) (+ (<< (memGetByte buf (+ off 6)) 48) (<< (memGetByte buf (+ off 7)) 56)))))))))
+
+; How many bytes an event buffer for `n` events needs on this platform.
+(pub :: netPollBufBytes (-> Int Int))
+
+(pub fn (netPollBufBytes n) (* n pollEventSize))
+
+; A readiness descriptor, or a negative errno.
+(pub :: netPollCreate Int)
+
+;@axiom:effect(io)
+(pub fn (netPollCreate) (__syscall3 sysPollCreateNum 0 0 0))
+
+; Write one registration record for `fd` into `rec`, which must hold
+; `pollEventSize` bytes, and answer `rec`. Shared by add and delete
+; because the two differ only in the operation word.
+(:: netPollRec (-> Int Int Int Int))
+
+(fn (netPollRec rec fd op)
+  {
+    (memSet rec 0 pollEventSize)
+    (if (== pollUsesKqueue 1)
+      ; struct kevent: ident, then a SIGNED 16-bit filter, then flags.
+      {
+        (netPutWord rec 0 fd)
+        (memPutByte rec 8 (& pollReadFilter 255))
+        (memPutByte rec 9 (& (>> pollReadFilter 8) 255))
+        (memPutByte rec 10 (& op 255))
+        (memPutByte rec 11 (& (>> op 8) 255))
+      }
+      ; struct epoll_event: the interest mask, then the token the
+      ; kernel hands back - which is the descriptor itself here, so a
+      ; woken event needs no side table to say what it was.
+      {
+        (netPutWord rec 0 pollReadFilter)
+        (netPutWord rec pollEventFdOffset fd)
+      }
+    )
+    rec
+  }
+)
+
+; Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes.
+;
+; On Darwin this is `kevent` with a changelist of one and an eventlist
+; of none, which registers without collecting; on Linux it is
+; `epoll_ctl`. The argument orders do not correspond, which is why the
+; branch is here rather than in the numbers.
+(pub :: netPollAddRead (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netPollAddRead pfd fd rec)
+  {
+    (netPollRec rec fd pollAddOp)
+    (if (== pollUsesKqueue 1)
+      (__syscall6
+        sysPollWaitNum        pfd        rec        1        0        0        0
+      )
+      (__syscall4
+        sysPollCtlNum        pfd        pollAddOp        fd        rec
+      )
+    )
+  }
+)
+
+(pub :: netPollDelRead (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netPollDelRead pfd fd rec)
+  {
+    (netPollRec rec fd pollDelOp)
+    (if (== pollUsesKqueue 1)
+      (__syscall6
+        sysPollWaitNum        pfd        rec        1        0        0        0
+      )
+      (__syscall4
+        sysPollCtlNum        pfd        pollDelOp        fd        rec
+      )
+    )
+  }
+)
+
+; Wait for readiness, answering how many events landed in `buf` or a
+; negative errno. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is
+; what a server's accept loop wants; zero polls and returns at once.
+;
+; The two calls spell the timeout differently and neither converts: epoll
+; takes milliseconds in a register, kqueue takes a POINTER to a
+; `timespec` and reads NULL as "no timeout". So the millisecond argument
+; is this layer's, and the timespec is built here.
+(pub :: netPollWait (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netPollWait pfd buf maxEvents timeoutMs)
+  (if (== pollUsesKqueue 1)
+    (if (< timeoutMs 0)
+      (__syscall6
+        sysPollWaitNum        pfd        0        0        buf        maxEvents        0
+      )
+      (let ((ts (memAlloc 16)))
+        {
+          (netPutWord ts 0 (/ timeoutMs 1000))
+          (netPutWord ts 8 (* (% timeoutMs 1000) 1000000))
+          (__syscall6
+            sysPollWaitNum            pfd            0            0            buf            maxEvents            ts
+          )
+        }
+      )
+    )
+    ; epoll_pwait's fifth argument is a signal mask this layer does not
+    ; use, and its sixth is that mask's size, which the kernel checks
+    ; against its own `sigset_t` and rejects unless it is exactly 8.
+    (__syscall6
+      sysPollWaitNum      pfd      buf      maxEvents      timeoutMs      0      pollSigsetSize
+    )
+  )
+)
+
+; The descriptor named by event `i` of a buffer `netPollWait` filled.
+;
+; Reading it is the one place the three layouts are all visible at once:
+; the field is kqueue's `ident` at 0, epoll's `data` at 4 on x86_64 and
+; at 8 on aarch64, and the record stride is 32, 12 or 16. Both come from
+; `Sys.Platform`; a literal here would be right on one target.
+(pub :: netPollFdAt (-> Int Int Int))
+
+(pub fn (netPollFdAt buf i) (netGetWord buf (+ (* i pollEventSize) pollEventFdOffset)))

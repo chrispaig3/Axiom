@@ -101,6 +101,10 @@ netAccept Sys.ax IO
 netBind Sys.ax IO
 netConnect Sys.ax IO
 netListen Sys.ax IO
+netPollAddRead Sys.ax IO
+netPollCreate Sys.ax IO
+netPollDelRead Sys.ax IO
+netPollWait Sys.ax Alloc,IO
 netSetNonBlocking Sys.ax IO
 netSetOptInt Sys.ax Alloc,IO
 netShutdown Sys.ax IO

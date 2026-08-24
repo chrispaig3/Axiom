@@ -1,0 +1,147 @@
+; Readiness, end to end, through whichever mechanism the target has.
+;
+; This is the case that says a server can wait on many descriptors at
+; once instead of blocking on one. It runs against kqueue on Darwin and
+; epoll on Linux without knowing which, because that is the property
+; `Sys.ax`'s poll layer claims.
+;
+; TWO LISTENERS, NOT ONE, AND THAT IS THE POINT OF THE CASE. A single
+; event only proves the OFFSET the descriptor sits at. The STRIDE
+; between records is a separate number and is the one that diverges most
+; dangerously: `struct epoll_event` is declared packed on x86_64 and not
+; on aarch64, so it is 12 bytes there and 16 here, and `struct kevent`
+; is 32. An implementation that used the wrong stride reads every event
+; after the first out of the middle of the one before it - and answers a
+; plausible descriptor rather than failing, so nothing but a second
+; event catches it.
+;
+; NO EXTERNAL CLIENT: the process connects to its own listeners, the way
+; `307-socket-roundtrip.ax` does, so there is no second process to flake
+; on and no port coordination beyond the pid.
+;
+; THE GOLDEN IS PLATFORM-INDEPENDENT, which forbids printing any of the
+; three numbers underneath - `pollEventSize`, `pollEventFdOffset` and
+; `pollReadFilter` all differ by target. What is asserted is that a
+; descriptor put in comes back out, which is true on every target and
+; false for every wrong layout.
+(import IO)
+(import Sys)
+(import Mem)
+
+(:: say (-> Int String Int))
+
+(fn (say okFlag label)
+  (if (== okFlag 1)
+    (printlnLit (strCStr (strConcat "ok   " label)))
+    (printlnLit (strCStr (strConcat "FAIL " label)))
+  )
+)
+
+; A bound, listening, non-blocking socket on `port`, or a negative.
+(:: listenOn (-> Int Int Int))
+
+(fn (listenOn addr port)
+  (let ((fd netSocketTcp))
+    (if (< fd 0)
+      fd
+      {
+        (netSetOptInt fd solSocket soReuseAddr 1)
+        (netAddr4 addr port 127 0 0 1)
+        (if (!= (netBind fd addr) 0)
+          (- 0 1)
+          (if (!= (netListen fd 16) 0)
+            (- 0 1)
+            {
+              (netSetNonBlocking fd)
+              fd
+            }
+          )
+        )
+      }
+    )
+  )
+)
+
+; Whether `fd` is among the `n` events in `buf`.
+(:: hasFd (-> Int Int Int Int))
+
+(fn (hasFd buf n fd)
+  (let ((mut i 0))
+    (let ((mut found 0))
+      {
+        (while (< i n)
+          {
+            (if (== (netPollFdAt buf i) fd) (set found 1) 0)
+            (set i (+ i 1))
+          })
+        found
+      }
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((base (+ 20000 (% sysGetPid 9000))))
+    (let ((addr (memAlloc 16)))
+      (let ((rec (memAlloc 64)))
+        (let ((buf (memAlloc (netPollBufBytes 8))))
+          (let ((la (listenOn addr base)))
+            (let ((lb (listenOn addr (+ base 1))))
+              (let ((pfd netPollCreate))
+                {
+                  (say (if (> la 2) (if (> lb 2) 1 0) 0) "two listeners are bound")
+                  (say (if (> pfd 2) 1 0) "the readiness descriptor is created")
+                  (say
+                    (if (>= (netPollAddRead pfd la rec) 0)
+                      (if (>= (netPollAddRead pfd lb rec) 0) 1 0)
+                      0
+                    )
+                    "both listeners are registered for read")
+                  ; Nothing has connected, so a zero timeout must answer
+                  ; zero events rather than blocking or erroring.
+                  (say
+                    (if (== (netPollWait pfd buf 8 0) 0) 1 0)
+                    "polling with nothing pending answers no events")
+                  ; Connect to the FIRST listener only, so the event that
+                  ; comes back has to name that one and not merely "a
+                  ; descriptor we registered".
+                  (let ((ca netSocketTcp))
+                    {
+                      (netAddr4 addr base 127 0 0 1)
+                      (netConnect ca addr)
+                      (let ((n (netPollWait pfd buf 8 2000)))
+                        {
+                          (say (if (== n 1) 1 0) "one connection wakes exactly one event")
+                          (say
+                            (if (== (netPollFdAt buf 0) la) 1 0)
+                            "the event names the listener that was connected to")
+                        })
+                      ; Now the second, so BOTH are ready at once and the
+                      ; record stride is exercised. A wrong stride reads
+                      ; event 1 from inside event 0 and answers a
+                      ; descriptor that is not lb.
+                      (let ((cb netSocketTcp))
+                        {
+                          (netAddr4 addr (+ base 1) 127 0 0 1)
+                          (netConnect cb addr)
+                          (let ((n2 (netPollWait pfd buf 8 2000)))
+                            {
+                              (say (if (>= n2 1) 1 0) "the second connection wakes an event")
+                              (say
+                                (if (== (hasFd buf n2 lb) 1) 1 0)
+                                "the second event decodes at the right stride")
+                            })
+                          (sysCloseFd cb)
+                        })
+                      (sysCloseFd ca)
+                    })
+                  (say
+                    (if (>= (netPollDelRead pfd la rec) 0) 1 0)
+                    "a listener can be unregistered")
+                  (sysCloseFd la)
+                  (sysCloseFd lb)
+                  (say (if (== (sysCloseFd pfd) 0) 1 0) "the readiness descriptor closes")
+                  0
+                }))))))))

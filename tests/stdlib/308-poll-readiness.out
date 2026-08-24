@@ -1,0 +1,10 @@
+ok   two listeners are bound
+ok   the readiness descriptor is created
+ok   both listeners are registered for read
+ok   polling with nothing pending answers no events
+ok   one connection wakes exactly one event
+ok   the event names the listener that was connected to
+ok   the second connection wakes an event
+ok   the second event decodes at the right stride
+ok   a listener can be unregistered
+ok   the readiness descriptor closes

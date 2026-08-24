@@ -447,3 +447,84 @@
 (pub :: sockaddrHasLenByte Int)
 
 (pub fn (sockaddrHasLenByte) 1)
+
+; --------------------------------------------------------------------
+; Readiness
+;
+; Darwin's mechanism is kqueue, and it differs from Linux's epoll in
+; shape rather than only in numbers: one call both registers interest
+; and collects events, where epoll needs two. `Sys.ax` branches on
+; `pollUsesKqueue` and the names below are chosen so that everything
+; which CAN agree does - `pollAddOp` and `pollDelOp` happen to be 1 and
+; 2 on both systems - leaving exactly one genuine divergence, the filter
+; selector, and one layout.
+;
+; `kqueue` and `kevent` were executed on this host on 2026-08-24: a
+; listening socket was registered for read, `kevent` blocked, and it
+; returned 1 with the listening descriptor in `ident` when a connection
+; arrived.
+; --------------------------------------------------------------------
+(pub :: pollUsesKqueue Int)
+
+(pub fn (pollUsesKqueue) 1)
+
+; kqueue() - BSD 362. Takes no arguments.
+(pub :: sysPollCreateNum Int)
+
+(pub fn (sysPollCreateNum) 33554794)
+
+; kevent(kq, changelist, nchanges, eventlist, nevents, timeout) - BSD
+; 363, and it is BOTH of epoll's calls: `sysPollCtlNum` names the same
+; number because registering is this call with an eventlist of nothing.
+(pub :: sysPollWaitNum Int)
+
+(pub fn (sysPollWaitNum) 33554795)
+
+(pub :: sysPollCtlNum Int)
+
+(pub fn (sysPollCtlNum) 33554795)
+
+; `struct kevent` is 32 bytes on both 64-bit Darwin arches:
+;
+;   0:8 ident (uintptr) | 8:2 filter (int16) | 10:2 flags (uint16)
+;   12:4 fflags (uint32) | 16:8 data (intptr) | 24:8 udata (ptr)
+;
+; The descriptor an event names is `ident`, at offset 0. The
+; declaration sits inside `#pragma pack(4)`, which on 64-bit moves no
+; field and changes no size - it only drops the struct's alignment to 4 -
+; so these offsets are safe to hardcode. An array of them still wants an
+; 8-aligned address, which `memAlloc` gives.
+(pub :: pollEventSize Int)
+
+(pub fn (pollEventSize) 32)
+
+(pub :: pollEventFdOffset Int)
+
+(pub fn (pollEventFdOffset) 0)
+
+; EVFILT_READ. THE ONE VALUE THAT GENUINELY DIVERGES: kqueue's filters
+; are NEGATIVE small integers naming a kind of event, where epoll's are
+; a positive bitmask. -1 here, EPOLLIN = 1 there. It is written into a
+; SIGNED 16-BIT field, so `Sys.ax` masks it to two bytes rather than
+; storing a word.
+(pub :: pollReadFilter Int)
+
+(pub fn (pollReadFilter) (- 0 1))
+
+; EV_ADD and EV_DELETE, which coincide with EPOLL_CTL_ADD and
+; EPOLL_CTL_DEL at 1 and 2. The agreement is luck rather than design, so
+; both are named on both platforms instead of being assumed.
+(pub :: pollAddOp Int)
+
+(pub fn (pollAddOp) 1)
+
+(pub :: pollDelOp Int)
+
+(pub fn (pollDelOp) 2)
+
+; The size of the mask argument epoll_pwait takes and kevent does not.
+; Zero here because nothing reads it; see the Linux files for why it
+; must be exactly 8 there.
+(pub :: pollSigsetSize Int)
+
+(pub fn (pollSigsetSize) 0)
