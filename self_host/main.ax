@@ -988,7 +988,10 @@
                                                         tc                                                        (if (hasFlagAnywhere cmd "--builtins")
                                                           1
                                                           0
-                                                        )                                                        gens
+                                                        )                                                        gens                                                        (if (hasFlagAnywhere cmd "--calls")
+                                                          1
+                                                          0
+                                                        )
                                                       )
                                                     ))
                                                       (replOut

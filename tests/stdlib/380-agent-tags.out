@@ -1,4 +1,4 @@
-4
+5
 shout
 IO
 io
@@ -12,3 +12,6 @@ true
 -
 Some,None
 show:(a -> String)
+IO$exit,Show#Int#show,Str$strConcat
+Alloc,IO
+io

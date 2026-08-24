@@ -17,7 +17,14 @@
 ;   - two `#` tokens either side of a nid, so the nid's right edge is
 ;     the space and not the end of the line;
 ;   - a line that is not AXSYM at all - the `compilation failed`
-;     trailer shares the stream - which must be skipped, not guessed.
+;     trailer shares the stream - which must be skipped, not guessed;
+;   - a metadata VALUE CONTAINING THE DELIMITER BYTE. `#calls=` names
+;     the resolved callee, and a trait implementation's entry is
+;     `Trait#Type#method`, so the value carries `#` three times. The
+;     section boundary is a `#` that FOLLOWS A SPACE, which is what
+;     keeps that value one token - and `#effects=` sits to its left on
+;     the same row, so a reader that split on a bare `#` would report
+;     the effect row of a key that does not exist.
 ;
 ; The last term is the one that matters for a policy: `quiet` claims
 ; `;@axiom:pure` and the checker derived no effect row, so
@@ -47,7 +54,10 @@
         "T Show /p/Show.ax:39:13-17 \"trait Show\" @8318f82fa5e17568 #methods=show:(a -> String)\n"
       )
     )
-    "compilation failed due to 1 previous error\n"
+    (strConcat
+      "F die /p/IO.ax:458:9-12 \"(String -> (Int -> Int))\" @52fb9ccad9feab1b #effect=io #effects=Alloc,IO #calls=IO$exit,Show#Int#show,Str$strConcat\n"
+      "compilation failed due to 1 previous error\n"
+    )
   )
 )
 
@@ -81,6 +91,14 @@
         })
       (let ((t (cast Sym (vecGet syms 3))))
         (println (symTag t "methods")))
+      ; The delimiter-carrying value, both directions: the whole value
+      ; reads back, AND the key to its left is not shadowed by it.
+      (let ((d (cast Sym (vecGet syms 4))))
+        {
+          (println (symTag d "calls"))
+          (println (symEffects d))
+          (println (symTag d "effect"))
+        })
       0
     }
   )

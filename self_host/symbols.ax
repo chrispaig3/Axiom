@@ -1083,9 +1083,9 @@
 ; and the macro's own name, which is what tells a reader why a symbol
 ; has no visible definition (MAC-TOOL-4). 0 means "no table", which is
 ; every caller that did not expand.
-(pub :: symbolsRenderGens (-> Int Int Int String))
+(pub :: symbolsRenderGens (-> Int Int Int Int String))
 
-(pub fn (symbolsRenderGens tc builtins gens)
+(pub fn (symbolsRenderGens tc builtins gens calls)
   ; --- functions --------------------------------------------
   (let (
     (units (memGetWord tc 13))
@@ -1165,6 +1165,53 @@
                                 )
                                 (if (== partial 1)
                                   (vecPush metas "effects-incomplete")
+                                  0
+                                )
+                              }
+                            )
+                            0
+                          )
+                        )
+                        ; The edges the effect walk resolved to build
+                        ; the row above, opt-in behind `--calls`.
+                        ;
+                        ; OFF BY DEFAULT, and that is the whole reason
+                        ; it is a flag. `tests/tools/symbols-zoo.golden`
+                        ; pins 147 rows and `check-tools-selfhost`
+                        ; compares them byte for byte, so a key on every
+                        ; row would put an edge list into the diff of
+                        ; every future stdlib edit - the noise that made
+                        ; `ac95e2b` a separate commit. `--builtins` is
+                        ; the precedent: content selection on this
+                        ; subcommand, not a new axis on the build.
+                        ;
+                        ; UNFILTERED, deliberately. An operator is a
+                        ; `FnEnt` in this language, so `+` and `==` are
+                        ; call edges and hiding them would make this key
+                        ; disagree with what the checker calls a call.
+                        ; `__alloc` is the load-bearing case: it is a
+                        ; builtin AND it is what puts `Alloc` in the row
+                        ; beside this one, so a graph that dropped
+                        ; builtins could not explain its own effect set.
+                        ;
+                        ; Sorted into a COPY. `saSort` sorts in place,
+                        ; and the vec here is the checker's live entry
+                        ; word - a renderer that reordered it would be
+                        ; mutating analysis state to print it.
+                        (let ((cls (memGetWord e 7)))
+                          (if (&& (== calls 1) (== isB 0))
+                            (let (
+                              (cv vecNew)
+                              (mut k 0)
+                            )
+                              {
+                                (while (< k (vecLen cls))
+                                  {
+                                    (vecPush cv (vecGetStr cls k))
+                                    (set k (+ k 1))
+                                  })
+                                (if (> (vecLen cv) 0)
+                                  (vecPush metas (strConcat "calls=" (saJoinComma (saSort cv))))
                                   0
                                 )
                               }

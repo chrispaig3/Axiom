@@ -381,6 +381,17 @@ jobs:
       - name: The standard library declares what it performs
         run: ./scripts/check-agent-policy.sh
 
+      # The other half of the same walk. `inferEffects` resolves a call
+      # edge for every effect it attributes and used to drop it, so a
+      # row could say `#effects=IO` and not which call put it there.
+      # `symbols --calls` prints the edge; this asserts the graph and
+      # the effect rows are two views of one walk - no callee effect
+      # escapes its caller, every inferred effect has an edge, and every
+      # IO reaches a syscall or an extern. Opt-in, so the symbols golden
+      # does not move.
+      - name: The call graph explains the effect rows
+        run: ./scripts/check-agent-calls.sh
+
       # Syscall numbers are written down TWICE in this repository - once
       # in `self_host/codegen.ax` for the runtime the compiler emits
       # (the allocator's mmap, and the exit and write of three abort

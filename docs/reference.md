@@ -2150,7 +2150,18 @@ axiom symbols source.ax
 
 # Also include built-in operators
 axiom symbols source.ax --builtins
+
+# Also print each function's resolved call edges as `#calls=`
+axiom symbols source.ax --diagnostic-format=ai --calls
 ```
+
+`--calls` prints the graph the effect fixpoint already walks: the edges
+`inferEffects` resolved in order to derive each `#effects=` row. It is
+opt-in because it would otherwise appear on every row of every symbols
+golden. `scripts/check-agent-calls.sh` gates the relationship between
+the two keys - no callee's effect escapes its caller, every inferred
+effect has an edge accounting for it, and every IO reaches a syscall or
+an `extern`. See [agent-harness.md](agent-harness.md) §3.5.
 
 The default rendering is an aligned human table. `--diagnostic-format=ai`
 gives AXSYM instead, one line per symbol; `--diagnostic-format=json`

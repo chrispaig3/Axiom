@@ -78,8 +78,18 @@ signatures carry effect constraints is proposing a new type system.
 
 **No IR exists.** `self_host/codegen.ax` is an LLVM *text* emitter -
 `(pub :: emitModule (-> Int String String))`, declarations in, assembly
-text out. There is no intermediate representation, no block, no CFG.
-`Agent.IR` as proposed has no referent in this compiler.
+text out. `emitExpr` is `(-> Int Int Int)` and an expression's *value*
+is a **String** in `CG` field 2; block state is `curBlock`, one String,
+and `terminated`, one bit. There is no intermediate representation, no
+block, no CFG. `Agent.IR` as proposed has no referent in this compiler.
+
+The honest sharpening, since it decided what shipped instead: the
+**AST is the IR**, annotated in place. The typechecker fills each node's
+`ty` word, `resolveDecls` stamps its `module`, and `expandProgram` ->
+`lowerImpls` -> `lowerConds` rewrite it in sequence. What was missing
+was never a representation. It was that nothing *published* one - see
+§3.5, where the graph the effect fixpoint already walks is now printed
+rather than dropped.
 
 **The AST is untyped.** A node is a flat 11-word record - tag, a, b, c,
 span, vis, ty, axtags, module, fieldNames, defscope - every word an `Int`,
@@ -256,23 +266,106 @@ against a checked-in allowlist — for three reasons, each measured:
 which is path-free. A policy artifact built from AXSYM is not portable
 between checkouts until that is normalised.
 
-### 3.5 `Agent.IR` — refused
+### 3.5 `Agent.IR` — still refused; the graph it was reaching for shipped
 
-There is no IR. What the proposal wants from it — a deterministic
-artifact an analysis can be run against and compared across runs — is
-already served by two things that exist:
+**The proposal stays refused, and the refusal was re-derived rather than
+inherited.** `self_host/codegen.ax` is a one-pass syntax-directed text
+emitter. `emitExpr` is `(-> Int Int Int)` — node and context in, the
+same context out — and an expression's *value* is a **string** in `CG`
+field 2, an LLVM register name like `"%t7"`, with a float bit beside it
+in field 14. Block structure is two scalars: `curBlock`, one String,
+written in exactly one place and read in five, all five filling a phi
+predecessor; and `terminated`, one bit. In 14,406 lines the file defines
+four structs and one constructor, and that constructor holds AST
+pointers. There is no instruction, no block, no CFG and no def-use edge
+as data anywhere in it.
 
-- `emit-llvm` output, which is byte-deterministic for a fixed input,
-  ordered by *source* position, free of paths, filenames and timestamps,
-  and identical at every `--opt` level;
-- the AXSYM stream, which is the structural view.
+So there is nothing to snapshot, and building something to snapshot
+means re-architecting the emitter — on which the ARC evidence ordering,
+the TCO rewrite and the arena discipline all currently ride *in emission
+order*. That is not a harness feature.
 
-Specifying a third would mean building an IR in order to snapshot it.
+**But the refusal used to end one sentence too early.** It said AXSYM is
+"the structural view" and left it there, and that is not true: AXSYM
+stops at the **declaration boundary**. Measured on a 13-line,
+three-function program — AXSYM gives three lines carrying kind, name,
+span, type, NID and effects, and *nothing whatever about a body*;
+`emit-llvm` gives 5,514 lines and 303 defines with **zero** debug
+locations, so it is faithful and unmappable at once. Between them there
+was nothing. An agent could not ask what `main` calls.
 
-**Caveat, measured:** emitted IR is not a function of (source, target)
-alone. Module resolution searches the input file's own directory ahead of
-`$AXIOM_STDLIB`, so a stray file beside the input changes the output. A
-reproducible harness must pin its module path.
+**What was missing was never an IR. It was the graph** — and the
+compiler had already computed it. `inferEffects` (`typecheck.ax`) is a
+monotone fixpoint over the call graph: it walks every body, resolves
+every reference site to a `FnEnt`, folds that entry's effect row into
+the caller's, and then dropped the edge it had just resolved. That is
+how `#effects=IO` reaches `main` through `greet` from `writeStr` — and
+why the row could not say so.
+
+**shipped.** `tcNoteCall` records the edge the walk already resolved,
+on a `calls` word beside `effects` on the same `FnEnt`; `symbols
+--calls` prints it as `#calls=`:
+
+```console
+F twice p.ax:3:5-10 "(Int -> Int)" @852e07f… #calls=*
+F greet p.ax:6:5-10 "(String -> Int)" @194c3b2… #effects=IO #calls=IO$writeStr,Str$strEq
+F main  p.ax:12:5-9 "Int" @6159d36… #effects=IO #calls=greet
+```
+
+Four properties, each gated by `scripts/check-agent-calls.sh`:
+
+- **containment** — no callee's effect escapes its caller's row, so
+  `#calls=` and `#effects=` are two views of one walk (595 stdlib rows,
+  0 violations);
+- **totality** — every *inferred* effect row carries an edge accounting
+  for it. The only exemption is `stdlib/Ffi.ax`, whose rows are
+  **constructed** by `tcAddExtern` rather than walked;
+- **grounding** — every one of the 90 IO-performing library rows reaches
+  a `__syscallN` or an `extern` transitively. A syscall is recorded as
+  an edge for exactly this reason: it short-circuits above `findFnEnt`,
+  so without it the bottom of every IO chain was an effect from nowhere;
+- **silence** — without `--calls` the stream is byte-identical to
+  before. `tests/tools/symbols-zoo.golden` pins 147 rows, and a key on
+  every row would put an edge list in the diff of every future stdlib
+  edit. `--builtins` is the precedent: content selection on `symbols`,
+  not a build mode. `tests/tools/symbols-zoo-calls.golden` pins the
+  edges themselves, and the two goldens are cross-checked by stripping
+  the key from one and comparing bytes with the other.
+
+**It runs with `--builtins`, and that is not tidiness.** An operator is
+a `FnEnt` in this language, so `+` and `==` are real edges; and
+`__alloc` is a builtin *and* is what puts `Alloc` in the row beside it,
+so a graph that dropped builtins could not explain its own effect set.
+
+**What the graph made visible, which is the point of having one.** A
+trait-method call cannot be resolved by this fixpoint — selecting an
+implementation needs the dispatch argument's type — so `walkCallHead`
+unions *every* implementation, and every one is now an edge. Those edges
+name `Trait#Type#method`, and `symbols` prints no row for a generated
+name. So the stream now **names** the gap `check-agent-policy.sh` has
+been describing in prose — "an impl METHOD BODY gets no AXSYM row at
+all … that is a real gap in this gate's input and it is `symbols.ax`'s
+to close". It is still open. The difference is that there are now four
+edges pointing at it and a gate that fails if that number grows.
+
+**Two caveats, both measured.**
+
+`#calls=` names the **resolved** entry, `Mod$name` where the checker
+mangled it, not the spelling at the reference site — so an edge says
+*which* `writeStr`, which the bare `F` rows cannot. It is also the
+symbol codegen emits, so the two cross-check.
+
+A bare **reference** is an edge, not only a call. `(Box direct)` puts
+`direct` in the row's `#calls=`, because the effect walk attributes a
+reference exactly as it attributes a call, and a graph that disagreed
+with the effect row about what counts would break containment by
+construction.
+
+**Still refused, separately:** emitted IR is not a function of (source,
+target) alone. Module resolution searches the input file's own directory
+ahead of `$AXIOM_STDLIB`, so a stray file beside the input changes the
+output — silently, at exit 0. A reproducible harness must pin its module
+path.
 
 ### 3.6 `Agent.Macro` — deferred, with the reason
 
@@ -365,7 +458,14 @@ in-language access-control lever, and works today.
 6. **`Agent.Macro`**, over `syntax/*`, after 5 — now unblocked, and
    still gated on the three hygiene defects §3.6 lists.
 
-`Agent.IR` does not appear. Neither does `--agent-harness`.
+`Agent.IR` does not appear as proposed, and neither does
+`--agent-harness`. What did land under that heading is a **printer, not
+a stage**: `symbols --calls` emits the call graph `inferEffects` already
+resolves and used to drop, gated by `scripts/check-agent-calls.sh`
+(§3.5). It needed no IR, and it is the answer to the question the
+proposal was actually asking - "what does this function reach?" - which
+AXSYM could not answer at all, because it stops at the declaration
+boundary.
 
 What is left is (2)'s façade, (4), and (6). The effect rows those rest
 on are honest now in a way they were not when this was written: the
@@ -406,7 +506,9 @@ whose table lost that row on 2026-08-23).
 - **`--agent-harness` as a build mode.** Determinism is already
   unconditional; strictness already has an artifact; a mode is a new axis
   on every gate. §3.4.
-- **`Agent.IR`.** No IR exists to snapshot. §3.5.
+- **`Agent.IR`** as a new lowering stage. No IR exists to snapshot, and
+  the emitter's correctness rides on emission order. The graph it was
+  reaching for shipped without one. §3.5.
 - **Runtime telemetry.** `check-freestanding.sh` asserts at two levels
   that generated code contains no libc call and the linked executable
   imports no libc symbol. Telemetry out of emitted code fails that gate
@@ -430,3 +532,5 @@ Following the convention that a claim without a gate is a comment:
 | `agent:*` tags survive `fmt`, AXSYM and import | fixture in `tests/tools/`, since `fmt --check` already refuses a non-canonical payload |
 | the policy allowlist can go red | negative probe, on `check-ffi.sh`'s model |
 | declaration-macro expansion is bounded | fixture that today is SIGKILLed |
+| the call graph explains the effect rows it sits beside | **`scripts/check-agent-calls.sh`** — containment, totality, grounding, and silence, each with a negative probe |
+| the edges themselves do not change unnoticed | **`tests/tools/symbols-zoo-calls.golden`**, cross-checked against the plain golden by stripping the key |

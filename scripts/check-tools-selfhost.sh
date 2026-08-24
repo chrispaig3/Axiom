@@ -231,6 +231,54 @@ else
 fi
 
 # ---------------------------------------------------------------
+# The same zoo with `--calls`, which is the only place the edge lists
+# are pinned as VALUES rather than as a property.
+#
+# `check-agent-calls.sh` asserts the graph's INVARIANTS - containment,
+# totality, grounding - over the standard library, and an invariant is
+# satisfied by a graph that is merely consistent. It would not notice
+# an edge quietly disappearing from every row at once, because a graph
+# with fewer edges still contains its callees' effects. This golden is
+# the other half: it says which edges, for a fixed input.
+#
+# It also pins the SILENCE the feature promises. The AXSYM golden above
+# is produced by the same binary on the same file without `--calls`,
+# so if the key ever leaks into the default stream, that golden moves
+# and this one stops being the only place it appears.
+# ---------------------------------------------------------------
+echo "== symbols: the zoo's call graph, against the golden =="
+calls_golden="tests/tools/symbols-zoo-calls.golden"
+(cd "$neutral" && "$work/axc" --target="$zoo_target" --diagnostic-format=ai symbols \
+   --calls "$repo_root/tests/fmt/syntax-zoo.ax" 2>/dev/null) | norm >"$work/zoo.calls"
+if [[ "${AXIOM_BLESS:-0}" == 1 ]]; then
+  cp "$work/zoo.calls" "$repo_root/$calls_golden"
+  echo "blessed $calls_golden"
+fi
+[[ -f "$calls_golden" ]] || { echo "FAIL: $calls_golden is missing; run with AXIOM_BLESS=1"; exit 1; }
+if ! cmp -s "$calls_golden" "$work/zoo.calls"; then
+  echo "FAIL symbols: the zoo's call graph differs from $calls_golden"
+  diff "$calls_golden" "$work/zoo.calls" | head -10 | sed 's/^/     /'
+  failed=$((failed + 1))
+else
+  echo "ok   the zoo's call graph matches the golden ($(grep -c '#calls=' "$calls_golden" || true) rows carry edges)"
+fi
+
+# The two streams differ ONLY by the key. Stripping every `#calls=`
+# field from the `--calls` run must reproduce the plain run byte for
+# byte - which is what "opt-in" has to mean for a golden to be worth
+# pinning, and is stronger than grepping the plain stream for the key:
+# it also catches the key displacing, reordering or truncating a field
+# that was already there.
+sed -E 's/ #calls=[^ ]*//' "$work/zoo.calls" > "$work/zoo.stripped"
+if ! cmp -s "$work/zoo.stripped" "$work/zoo.out"; then
+  echo "FAIL symbols: --calls changed the stream by more than the key it adds"
+  diff "$work/zoo.out" "$work/zoo.stripped" | head -10 | sed 's/^/     /'
+  failed=$((failed + 1))
+else
+  echo "ok   --calls adds the key and disturbs nothing else"
+fi
+
+# ---------------------------------------------------------------
 # The human table, and the half a re-bless of ITS golden cannot satisfy.
 #
 # `symbols` printed AXSYM under every format until the table landed;

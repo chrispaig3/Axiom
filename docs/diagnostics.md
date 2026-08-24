@@ -406,6 +406,7 @@ Metadata keys actually emitted today:
 | `effects` | `F` | The effect row the checker derived, sorted and comma-separated, e.g. `#effects=IO`; absent when the function performs none. An `extern` item carries `#effects=IO` |
 | `effect-params` | `F` | For an effect-polymorphic signature, the parameters the row varies in, by their declared names |
 | `generated` | `F` | The declaration macro that wrote this declaration, for a name no line of the file spells |
+| `calls` | `F` | **Only with `--calls`.** The call edges the effect walk resolved to derive the `#effects=` row beside it, sorted and comma-separated. Names the *resolved* entry - `Mod$name` where the checker mangled it, which is also the symbol codegen emits - so an edge says which `writeStr`. A bare reference is an edge too, because the effect walk attributes one exactly as it attributes a call. Absent by default: it would otherwise land on every row of every golden. See [agent-harness.md](agent-harness.md) §3.5 |
 
 AXTAG keys (`#effect=io`, `#pure`, ...) join these on `F`, `D`, `S`,
 `A` and `T`; see the AXTAG section below.

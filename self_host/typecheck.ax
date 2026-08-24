@@ -1747,7 +1747,8 @@
   (isBuiltin : Int)
   (isEffectOp : Int)
   (effects : Int)
-  (eparams : Int))
+  (eparams : Int)
+  (calls : Int))
 
 ; `fieldNames` is the constructor's declared field names when it was
 ; written as a struct variant, and 0 otherwise. A NAMED pattern is
@@ -1806,7 +1807,8 @@
   (sigTags : Int)
   (fnSufIdx : Int)
   (privIdx : Int)
-  (implIdx : Int))
+  (implIdx : Int)
+  (curCalls : Int))
 
 ; The module whose body is being checked, or 0 for the
 ; entry file. A bare reference inside it resolves to
@@ -1941,7 +1943,7 @@
 (pub fn (regFn fns name ty)
   (vecPush
     fns    (cast Int (FnEnt
-      name      ty      (- 0 1)      1      0      vecNew      vecNew
+      name      ty      (- 0 1)      1      0      vecNew      vecNew      vecNew
     ))
   )
 )
@@ -1971,7 +1973,7 @@
       (vecPush effs (cast Int eff))
       (vecPush
         fns        (cast Int (FnEnt
-          name          ty          (- 0 1)          1          0          effs          vecNew
+          name          ty          (- 0 1)          1          0          effs          vecNew          vecNew
         ))
       )
     }
@@ -2184,7 +2186,7 @@
       ; collection itself looks a name up per declaration.
       (let ((tc 
         (cast Int (TC
-          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0
+          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0
         ))
       ))
         {
@@ -2585,7 +2587,7 @@
           (vecPush v (customEff effName))
           v
         }
-      )      vecNew
+      )      vecNew      vecNew
     ))
   )
 )
@@ -2629,7 +2631,7 @@
           (vecPush v (builtinEff "IO"))
           v
         }
-      )      vecNew
+      )      vecNew      vecNew
     ))
   )
 )
@@ -2808,7 +2810,7 @@
       (if (== ent 0)
         (tcPushFn
           tc          (cast Int (FnEnt
-            (nodeAName d)            ty            (- 0 1)            0            0            vecNew            vecNew
+            (nodeAName d)            ty            (- 0 1)            0            0            vecNew            vecNew            vecNew
           ))
         )
         (memSetWord ent 1 ty)
@@ -2844,7 +2846,7 @@
             (tcBumpCounter tc)
             (tcPushFn
               tc              (cast Int (FnEnt
-                (nodeAName d)                ph                (- 0 1)                0                0                vecNew                vecNew
+                (nodeAName d)                ph                (- 0 1)                0                0                vecNew                vecNew                vecNew
               ))
             )
           }
@@ -7635,7 +7637,16 @@
       )
     }
     (if (== (isSyscallPrim n) 1)
-      (effAdd acc (builtinEff "IO"))
+      ; The syscall is an EDGE as well as an effect. It short-circuits
+      ; above `findFnEnt` - deliberately, `isSyscallPrim` is a literal
+      ; seven-way match - so without this the bottom of every IO chain
+      ; in the library carried `#effects=IO` and no edge explaining it,
+      ; and a reader could not tell a syscall leaf from an `extern`
+      ; whose row is constructed rather than walked.
+      {
+        (tcNoteCall tc n)
+        (effAdd acc (builtinEff "IO"))
+      }
       (let ((ent (findFnEnt tc n)))
         (if (== ent 0)
           ; A TRAIT METHOD first. Its FnEnt does not exist under the
@@ -7682,6 +7693,7 @@
             0
           )
           {
+            (tcNoteCall tc (memGetWordStr ent 0))
             (effUnion acc (memGetWord ent 5) 0)
             ; Instantiate the callee's transparent positions
             ; with what this call passes there.
@@ -7759,6 +7771,53 @@
   )
 )
 
+; ------------------------------------------------------------------
+; The call graph the effect fixpoint already walks.
+;
+; `inferEffects` resolves every reference site to a `FnEnt` and folds
+; that entry's effect row into the caller's - `effRefSite` for a bare
+; name, `walkCallHead` for an application head. The EDGE it resolved to
+; get there was then dropped on the floor, which is why AXSYM could say
+; `#effects=IO` and not which call put the IO there.
+;
+; This records it. The accumulator is a word on `tc` rather than a
+; parameter threaded through the walk for the same reason the current
+; module is (word 16): the walk is fifteen mutually recursive functions
+; and a sixteenth parameter on every one of them would be a large
+; diff to carry one fact that is constant for a whole declaration.
+; Word 29 is 0 everywhere except inside `inferEffectsPass`, so the
+; other `collectEffects` callers - `checkHandle`'s discharge check -
+; record nothing, which is right: they are asking what an EXPRESSION
+; performs, and an expression has no entry to hang an edge on.
+;
+; The name recorded is the RESOLVED entry's, not the spelling at the
+; reference site: `(memGetWordStr ent 0)` is `Mod$name` where the
+; checker mangled it, so an edge names which `writeStr` was meant
+; rather than repeating an ambiguity AXSYM's bare `F` rows already
+; have. It is also exactly the symbol codegen emits, so `#calls=` and
+; the emitted `@Mod$name` cross-check.
+;
+; Deduplicated on the way in, because the fixpoint re-walks every body
+; once per round until nothing grows - four rounds over this compiler -
+; and an edge list that grew per round would be a set rendered as a
+; multiset.
+(pub :: tcNoteCall (-> Int String Int))
+
+(pub fn (tcNoteCall tc name)
+  (let ((acc (memGetWord tc 29)))
+    (if (== acc 0)
+      0
+      (if (== (strInVec acc name 0) 1)
+        0
+        {
+          (vecPush acc name)
+          1
+        }
+      )
+    )
+  )
+)
+
 ; What naming `n` contributes when it is NOT a call head: stage0's
 ; reference-site rule, which is what keeps a function value's effects
 ; from escaping attribution entirely. A lexically bound name
@@ -7770,11 +7829,17 @@
   (if (== (bsIsLocal bound n) 1)
     0
     (if (== (isSyscallPrim n) 1)
-      (effAdd acc (builtinEff "IO"))
+      {
+        (tcNoteCall tc n)
+        (effAdd acc (builtinEff "IO"))
+      }
       (let ((ent (findFnEnt tc n)))
         (if (== ent 0)
           0
-          (effUnion acc (memGetWord ent 5) 0)
+          {
+            (tcNoteCall tc (memGetWordStr ent 0))
+            (effUnion acc (memGetWord ent 5) 0)
+          }
         )
       )
     )
@@ -7868,7 +7933,17 @@
           (let ((e (fnEntExact tc (traitImplName tname (nodeCName d) method))))
             (if (== e 0)
               0
-              (effUnion acc (memGetWord e 5) 0)
+              ; Every implementation is an edge, for the same reason
+              ; every implementation is an effect: a dynamically
+              ; dispatched call can reach any of them. Recording only
+              ; the method name would name something that has no
+              ; `FnEnt` and therefore no row of its own, and recording
+              ; nothing would leave the caller's `#effects=` claiming
+              ; an IO no edge accounts for.
+              {
+                (tcNoteCall tc (memGetWordStr e 0))
+                (effUnion acc (memGetWord e 5) 0)
+              }
             )
           )
           0
@@ -8331,9 +8406,23 @@
               (memSetWord tc 16 0)
               rest
             }
+            ; Word 29 is live for exactly this walk, so
+            ; `tcNoteCall` has somewhere to put an edge and every
+            ; other `collectEffects` caller records nothing.
+            ;
+            ; The edge set does NOT need the fixpoint's changed
+            ; signal below. `findFnEnt` reads a table that is
+            ; complete before `inferEffects` starts, and a body's
+            ; syntax does not move between rounds, so round 1
+            ; resolves every edge this walk will ever resolve;
+            ; rounds 2..n re-derive the same set and `tcNoteCall`
+            ; dedups them away. Only the effect ROWS grow, which
+            ; is what `g1`/`g2` measure.
             (let ((sc (bodyScopeOf tc d)))
               (let (
+                (_c (memSetWord tc 29 (memGetWord ent 7)))
                 (got (collectEffects tc (nodeC d) sc))
+                (_c0 (memSetWord tc 29 0))
                 (_m0 (memSetWord tc 16 0))
               )
                 (let (
