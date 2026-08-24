@@ -275,6 +275,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-tree-sitter.sh` | the checked-in grammar parses every `.ax` file in the repository, and the documentation's Axiom blocks balance their delimiters (compiling them is `check-tools-selfhost.sh`) |
 | `run-stdlib-tests.sh` | every case in `tests/stdlib` compiles, runs, prints its `.out` and exits as its `.exit` says |
 | `check-freestanding.sh` | generated code needs no C library |
+| `check-platform-constants.sh` | the syscall numbers the backend emits and the ones `stdlib/Sys/Platform.*.ax` declares are the same numbers, on all four targets - they disagreed silently once |
 | `check-self-host.sh` | every case in `tests/selfhost` compiles, assembles, runs and exits as the fixture says — the only gate that drives the compiler end to end |
 | `check-driver.sh` | `axiom build`: the command-line surface, and that a failing `llc` fails the build while a missing `opt` does not |
 | `check-stdlib-selfhost.sh` | both corpora compiled *and run* through the identical `llc`/`cc` pipeline at `-O0` and `-O2` |
@@ -531,6 +532,7 @@ What that means when you are changing the compiler:
    ./scripts/check-self-host.sh
    ./scripts/check-diagnostics.sh
    ./scripts/check-freestanding.sh
+   ./scripts/check-platform-constants.sh
    ./scripts/check-cross-targets.sh
    ./scripts/check-reproducible.sh
    ```

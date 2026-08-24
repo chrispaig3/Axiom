@@ -215,7 +215,7 @@ for af in $(find "$orig" -name '*.ax' | sort); do
 done
 echo "     $swept files swept, $refused refused"
 if [[ $swept -lt 420 ]]; then
-  echo "FAIL: the sweep read $swept files; the floor is 420 (451 today) - a tree is missing from the find"
+  echo "FAIL: the sweep read $swept files; the floor is 420 (476 today) - a tree is missing from the find"
   failed=$((failed + 1))
 fi
 failed=$((failed + nonidem + dirty_after + wrote_on_refusal))

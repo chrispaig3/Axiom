@@ -381,6 +381,29 @@ jobs:
       - name: The standard library declares what it performs
         run: ./scripts/check-agent-policy.sh
 
+      # Syscall numbers are written down TWICE in this repository - once
+      # in `self_host/codegen.ax` for the runtime the compiler emits
+      # (the allocator's mmap, and the exit and write of three abort
+      # paths), once in `stdlib/Sys/Platform.*.ax` for the standard
+      # library - and nothing compared them. They had already
+      # disagreed: the emitted abort paths exited through Linux `exit`
+      # (93/60) while the platform modules use `exit_group` (94/231),
+      # and `Platform.linux-aarch64.ax` said "exit_group (94), not exit
+      # (93)" while the compiler emitted 93. Latent only until one of
+      # these programs has a second thread, at which point the abort
+      # ends a thread and the process stays alive.
+      #
+      # It runs in the matrix like its neighbours but is not really a
+      # per-runner check - it reads all four targets from whichever
+      # host it is on, out of `emit-llvm` rather than out of the
+      # sources, so darwin-x86_64 (which has no runner anywhere in this
+      # file) is covered three times over rather than never. About
+      # eight seconds, almost all of it building the compiler under
+      # test, which it must: the codegen table is half of what it
+      # compares.
+      - name: The two tables of syscall numbers agree
+        run: ./scripts/check-platform-constants.sh
+
       # The native human and JSON diagnostic renderers, pinned without a
       # second compiler: checked-in goldens, cross-checked against the
       # AXDL goldens, exit statuses DERIVED from the golden's own

@@ -1562,6 +1562,8 @@ what CI runs. The ones you will reach for most:
 ./scripts/check-self-host.sh         # conformance suite under the Axiom compiler
 ./scripts/check-bootstrap.sh         # the same ladder, driven by the compiler itself
 ./scripts/check-freestanding.sh      # no libc in the IR or the binary
+./scripts/check-platform-constants.sh # the emitted runtime and Sys.Platform
+                                     # agree on every syscall number
 ./scripts/check-cross-targets.sh     # every target assembles, at -O0 and -O2,
                                      # with no PIE-hostile relocations
 ./scripts/check-reproducible.sh      # two runs produce identical IR
