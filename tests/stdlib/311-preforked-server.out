@@ -1,0 +1,5 @@
+ok   four workers were forked
+ok   every connection was echoed correctly
+ok   the workers served every connection between them
+ok   every worker registered the inherited listener
+ok   every worker shut down on the signal

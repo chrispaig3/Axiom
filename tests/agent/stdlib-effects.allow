@@ -106,6 +106,7 @@ netPollCreate Sys.ax IO
 netPollDelRead Sys.ax IO
 netPollSignalAt Sys.ax IO
 netPollWait Sys.ax Alloc,IO
+netSetBlocking Sys.ax IO
 netSetNonBlocking Sys.ax IO
 netSetOptInt Sys.ax Alloc,IO
 netShutdown Sys.ax IO
@@ -154,6 +155,7 @@ sysEnvp Sys.ax Alloc
 sysExitWith Sys.ax IO
 sysFileExists Sys.ax IO
 sysFileSize Sys.ax IO
+sysForkProcess Sys.ax IO
 sysGetCwd Sys.ax Alloc,IO
 sysGetPid Sys.ax IO
 sysIsDir Sys.ax Alloc,IO

@@ -486,3 +486,18 @@
 (pub :: sigInt Int)
 
 (pub fn (sigInt) 2)
+
+; Linux answers 0 in the child and the child's pid in the parent, which
+; is the POSIX convention, so `sysForkProcess` passes the result
+; through. Darwin does not; its file carries the measurement.
+(pub :: forkChildIsZero Int)
+
+(pub fn (forkChildIsZero) 1)
+
+; SOCK_NONBLOCK, which `accept4` takes directly, so the accepted socket
+; arrives non-blocking with no second syscall. Linux does NOT inherit
+; the listener's `O_NONBLOCK` the way Darwin does; see the Darwin file
+; for the measurement of that divergence.
+(pub :: acceptNonblockFlag Int)
+
+(pub fn (acceptNonblockFlag) 2048)

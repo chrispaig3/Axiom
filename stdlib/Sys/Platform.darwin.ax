@@ -130,12 +130,24 @@
 
 (pub fn (sysWait4) 33554439)
 
-; Unused on Darwin (see `spawnUsesPosixSpawn`), but defined so that
-; `Sys.ax` type-checks against every platform module - the same reason
-; `atFdCwd` is defined here.
+; fork() - BSD 2. `sysSpawn` does not reach it, because
+; `spawnUsesPosixSpawn` selects `posix_spawn` here - but `sysForkProcess`
+; does, and this used to be a placeholder 0 for that reason.
+;
+; DARWIN'S `fork` ANSWERS TWO REGISTERS AND `__syscallN` READS ONE. The
+; child pid comes back in x0 for BOTH processes, and it is x1 - which no
+; primitive here can see - that says which one you are. That is why this
+; number sat unused and why `posix_spawn` was reached for instead.
+;
+; It is usable anyway, and measured on this host 2026-08-24: the child's
+; x0 equals ITS OWN pid, while the parent's does not equal the parent's.
+; So `getpid` after the fork distinguishes them with no second register
+; and no compiler change - parent saw `fork->81242 mypid=81241`, child
+; saw `fork->81242 mypid=81242`. `forkChildIsZero` records that this
+; normalisation is needed here and not on Linux.
 (pub :: sysFork Int)
 
-(pub fn (sysFork) 0)
+(pub fn (sysFork) 33554434)
 
 (pub :: sysForkArg Int)
 
@@ -634,3 +646,25 @@
 (pub :: sigInt Int)
 
 (pub fn (sigInt) 2)
+
+; Whether `fork` answers 0 in the child, which is the POSIX convention
+; and what Linux does. Darwin answers the child's pid to both, so
+; `sysForkProcess` normalises; see `sysFork` above for the measurement.
+(pub :: forkChildIsZero Int)
+
+(pub fn (forkChildIsZero) 0)
+
+; The flag `netAccept` passes to make the accepted socket non-blocking.
+; Darwin's `accept` HAS no such flag - it has no `accept4` at all - so
+; this is 0 and `Sys.ax` reaches for `fcntl` afterwards instead.
+;
+; IT MUST, because Darwin and Linux disagree about what an accepted
+; socket inherits and the disagreement is silent. Measured on this host
+; 2026-08-24: a listener with `O_NONBLOCK` set answered `F_GETFL` 6, and
+; the socket accepted from it ALSO answered 6 - the flag was inherited.
+; Linux's accepted socket does not inherit it. A server that accepted
+; and then read would get -EAGAIN here and block there, from the same
+; source, with nothing to say which had happened.
+(pub :: acceptNonblockFlag Int)
+
+(pub fn (acceptNonblockFlag) 0)

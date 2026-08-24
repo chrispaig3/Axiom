@@ -906,9 +906,15 @@
             (sysCloseFd probe)
             0
           )
-          (let ((pid (__syscall5
-            sysFork            sysForkArg            0            0            0            0
-          )))
+          ; Through `sysForkProcess` rather than the raw syscall, because
+          ; the test below is `pid == 0` and that is only the child on a
+          ; platform where `fork` answers 0 to one of them. Darwin does
+          ; not, so while this branch is unreachable there today -
+          ; `spawnUsesPosixSpawn` sends it elsewhere - a raw fork here
+          ; would have the CHILD fall through to `pid` and return into
+          ; the caller as a second copy of the driver, which is the one
+          ; failure the comment below is guarding against.
+          (let ((pid sysForkProcess))
             (if (< pid 0)
               pid
               (if (== pid 0)
@@ -1333,16 +1339,65 @@
 ; caller that does can call `getsockname`'s sibling itself rather than
 ; pay for a buffer on every accept.
 ;
-; THE FOURTH ARGUMENT IS ZERO ON PURPOSE. Linux's call is `accept4` and
-; reads it as flags; Darwin's is `accept` and never looks at it. Passing
-; it unconditionally is the same shape `sysGetPid` uses to call a
-; no-argument syscall through `__syscall3`.
+; THE ACCEPTED SOCKET IS ALWAYS NON-BLOCKING, and that is a contract
+; this layer DEFINES rather than a platform behaviour it reports.
+;
+; The two systems disagree, and silently. Measured 2026-08-24: a Darwin
+; listener with `O_NONBLOCK` set answers `F_GETFL` 6, and the socket
+; accepted from it answers 6 as well - the flag is INHERITED. Linux's
+; accepted socket does not inherit it. So the same code accepts a
+; non-blocking socket on one target and a blocking one on the other, and
+; a read on it answers -EAGAIN here and waits there, with nothing in the
+; result to say which happened.
+;
+; That is the defect this function exists to remove, and it cost this
+; tree a fixture before it was found: `311-preforked-server.ax` reported
+; every connection served and NONE echoed, because each worker's read
+; met a socket in a state it had not chosen.
+;
+; Linux reaches it for free - `SOCK_NONBLOCK` is `accept4`'s fourth
+; argument, which Darwin's `accept` does not read at all. Darwin pays
+; one `fcntl`, unconditionally, because what it would otherwise inherit
+; is the LISTENER's state and this function does not get to assume that.
+;
+; A caller that handles one connection at a time - a worker in a
+; pre-forked pool - asks `netSetBlocking` for the other mode and gets a
+; defined answer on both.
 (pub :: netAccept (-> Int Int))
 
 ;@axiom:effect(io)
-(pub fn (netAccept fd) (__syscall4
-  sysAcceptNum  fd  0  0  0
-))
+(pub fn (netAccept fd)
+  (let ((c (__syscall4
+    sysAcceptNum    fd    0    0    acceptNonblockFlag
+  )))
+    (if (< c 0)
+      c
+      (if (== acceptNonblockFlag 0)
+        {
+          (netSetNonBlocking c)
+          c
+        }
+        c
+      )
+    )
+  )
+)
+
+; Take a descriptor OUT of non-blocking mode, preserving the other flags
+; it carries. The counterpart of `netSetNonBlocking`, and what a caller
+; that handles one connection synchronously wants from `netAccept`'s
+; result.
+(pub :: netSetBlocking (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (netSetBlocking fd)
+  (let ((fl (__syscall3 sysFcntlNum fd fGetFl 0)))
+    (if (< fl 0)
+      fl
+      (__syscall3 sysFcntlNum fd fSetFl (& fl (^ oNonblock (- 0 1))))
+    )
+  )
+)
 
 (pub :: netConnect (-> Int Int Int))
 
@@ -1790,3 +1845,48 @@
 
 ;@axiom:effect(io)
 (pub fn (sysKill pid signo) (__syscall3 sysKillNum pid signo 0))
+
+; ------------------------------------------------------------------
+; Duplicating this process
+;
+; `sysSpawn` starts a DIFFERENT program; this starts another copy of
+; THIS one, which is what a pre-forked server needs and what `Job`'s
+; pool has never wanted.
+;
+; It answers the POSIX convention on every target - 0 in the child, the
+; child's pid in the parent, a negative errno on failure - and one
+; platform has to be normalised to reach it. Darwin's `fork` hands the
+; child pid back to BOTH processes and distinguishes them in x1, which
+; no primitive here reads; the child's answer equals its own pid and the
+; parent's does not, so one `getpid` separates them. `forkChildIsZero`
+; is which platform needs that.
+;
+; WHY THIS IS SAFE WHERE `posix_spawn` WAS CHOSEN INSTEAD: `sysSpawn`
+; needs the child to become another program, and a fork whose child
+; cannot tell it is the child would run the parent's code twice. That is
+; the whole hazard, and the comparison below removes it.
+;
+; MM-PAR-3 is what makes the result usable without any further work:
+; every process-wide mutable global - the five allocator words, the
+; size-class heads, argc/argv, and one evidence slot per effect - is
+; private after a fork. A worker inherits the parent's heap as it stood
+; and can never corrupt a sibling's.
+(pub :: sysForkProcess Int)
+
+;@axiom:effect(io)
+(pub fn (sysForkProcess)
+  (let ((r (__syscall5
+    sysFork    sysForkArg    0    0    0    0
+  )))
+    (if (< r 0)
+      r
+      (if (== forkChildIsZero 1)
+        r
+        (if (== r (__syscall3 sysGetPidNum 0 0 0))
+          0
+          r
+        )
+      )
+    )
+  )
+)
