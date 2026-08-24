@@ -5924,23 +5924,39 @@
           (memSetWord env 17 0)
           (memSetWord env 11 prevDecl)
           (memSetWord env 13 prevFors)
-          ; The declarations this instantiation produced, against the
-          ; running total. `expBlow` sets the same word the expression
-          ; budgets set, so the two existing `expBlown` tests - the one
-          ; below and the one that stops the round fixpoint - carry the
-          ; refusal out with no new control flow.
-          (if (!= made 0)
-            (let ((tot (+ (memGetWord env 22) (vecLen made))))
-              {
-                (memSetWord env 22 tot)
-                (if (> tot expMaxDecls)
-                  (expBlow env isp (strConcat (strConcat "macro expansion produced more than the limit of " (expFmtInt expMaxDecls)) " declarations"))
-                  0
-                )
-              }
-            )
-            0
-          )
+          ; The width budget is NOT counted here any more, and the
+          ; reason is that counting it here could only ever refuse an
+          ; instantiation that had ALREADY been built in full. The
+          ; total moved once per INSTANTIATION, so a single one was
+          ; unbounded - and a declaration-position `syntax/for` nests,
+          ; so what one invocation builds is a PRODUCT the limit never
+          ; saw until the product was in memory. The allocator is a
+          ; bump allocator with no free, so that is not a slow compile.
+          ;
+          ; Measured on this tree before the count moved, `axiom check`
+          ; only, on a two-level declaration-position `syntax/for`
+          ; whose product is exact - 2 declarations per cell:
+          ;
+          ;    12,000 decls  0.04 s    11 MB   AX3024 after the fact
+          ;    40,000 decls  0.04 s    32 MB   AX3024 after the fact
+          ;   200,000 decls  0.10 s   153 MB   AX3024 after the fact
+          ;   800,000 decls  0.39 s   604 MB   AX3024 after the fact
+          ; 3,200,000 decls  1.27 s  2003 MB   KILLED at the cap, no
+          ;                                    diagnostic, no output
+          ;
+          ; Peak memory tracked the PRODUCT across three orders of
+          ; magnitude while the message read "more than the limit of
+          ; 10000" - the limit named a number it was not enforcing.
+          ; The 3.2 M row is the failure AX3024's long form says this
+          ; budget exists to prevent, reproduced with the budget in
+          ; place. `expBuildDecls` counts each declaration as it pushes
+          ; it now, so the same nest stops at 10,001 declarations: all
+          ; five rows above became 0.04 s and 10-11 MB.
+          ;
+          ; `expBlow` still sets the same word the expression budgets
+          ; set, so the `expBlown` test just below and the one that
+          ; stops the round fixpoint carry the refusal out with no new
+          ; control flow here.
           (if (|| (== made 0) (== (expBlown env) 1))
             {
               (memSetWord d 3 1)
@@ -6016,8 +6032,35 @@
             0
             {
               (vecPush acc g)
-              (expBuildDecls
-                tpl                params                args                env                isp                acc                (+ i 1)
+              ; ONE declaration, counted the moment it exists. This is
+              ; the per-node discipline `expandExpr` has always used on
+              ; the expression axis (word 7 against `expMaxNodes`), and
+              ; it is what makes `expMaxDecls` a bound rather than a
+              ; report: every declaration a nest produces passes
+              ; through this push, at every level, so the running total
+              ; crosses the limit at declaration 10,001 instead of at
+              ; whatever the product happened to be. A nest that
+              ; reached 2 GB and an operating-system kill in 1.27 s
+              ; refuses here in 0.04 s and 10 MB.
+              ;
+              ; The span is the INVOCATION's, threaded down unchanged
+              ; from `expInstantiateDecl`, so the refusal points where
+              ; it always did and carries the same expansion frames -
+              ; `401-decl-macro-size-limit`'s golden is unchanged by
+              ; the move.
+              (let ((tot (+ (memGetWord env 22) 1)))
+                {
+                  (memSetWord env 22 tot)
+                  (if (> tot expMaxDecls)
+                    {
+                      (expBlow env isp (strConcat (strConcat "macro expansion produced more than the limit of " (expFmtInt expMaxDecls)) " declarations"))
+                      0
+                    }
+                    (expBuildDecls
+                      tpl                      params                      args                      env                      isp                      acc                      (+ i 1)
+                    )
+                  )
+                }
               )
             }
           )
@@ -6052,23 +6095,36 @@
 (pub fn (expBuildForElems f params args env isp acc seqs n j)
   (if (>= j n)
     1
-    (let ((mark (vecLen (expForStack env))))
-      {
-        (expIterPush env seqs j 0)
-        (let ((r (expBuildDecls
-          (nodeC f)          params          args          env          isp          acc          0
-        )))
-          {
-            (expTrunc (expForStack env) mark)
-            (if (== r 0)
-              0
-              (expBuildForElems
-                f                params                args                env                isp                acc                seqs                n                (+ j 1)
+    ; The per-ELEMENT half of the same budget. The push site above
+    ; refuses the element that crosses the limit, but an element costs
+    ; more than the declarations it yields - `expBuildForDecls`
+    ; re-evaluates the sequence and pushes a for-stack frame per
+    ; element, and on a nest the OUTER loop keeps stepping through
+    ; elements whose bodies are entire inner iterations. Testing the
+    ; blown flag here stops the whole nest at the crossing element
+    ; rather than letting each surviving outer element pay for another
+    ; inner sweep; on the 3,200,000-declaration probe that is the
+    ; difference between 0.04 s and never returning.
+    (if (== (expBlown env) 1)
+      0
+      (let ((mark (vecLen (expForStack env))))
+        {
+          (expIterPush env seqs j 0)
+          (let ((r (expBuildDecls
+            (nodeC f)            params            args            env            isp            acc            0
+          )))
+            {
+              (expTrunc (expForStack env) mark)
+              (if (== r 0)
+                0
+                (expBuildForElems
+                  f                  params                  args                  env                  isp                  acc                  seqs                  n                  (+ j 1)
+                )
               )
-            )
-          }
-        )
-      }
+            }
+          )
+        }
+      )
     )
   )
 )

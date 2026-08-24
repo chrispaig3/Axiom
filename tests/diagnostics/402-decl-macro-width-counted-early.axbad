@@ -1,0 +1,141 @@
+; WHEN the declaration width budget is counted, pinned by a case whose
+; answer changes with it.
+;
+; `401-decl-macro-size-limit` pins THAT `expMaxDecls` refuses. It could
+; not see when, because it crosses the limit and stops either way. This
+; case crosses the same limit in the same shape and then asks the
+; template for one more declaration that cannot be built - so the two
+; orders give two different diagnostics, and the golden is the answer.
+;
+; `expInstantiateDecl` used to add `(vecLen made)` to the running total
+; AFTER `expBuildDecls` returned, which is two defects in one line.
+;
+;   * The count moved once per INSTANTIATION, so nothing bounded what a
+;     single one built. A declaration-position `syntax/for` NESTS
+;     (macro-system.md: "nested iterations compose"), so one invocation
+;     builds a PRODUCT, and the allocator is a bump allocator with no
+;     free. Measured on this tree with `axiom check`, on a two-level
+;     nest whose product is exact: 12,000 declarations reached 11 MB,
+;     40,000 reached 32 MB, 200,000 reached 153 MB, 800,000 reached
+;     604 MB - each of them printing "more than the limit of 10000"
+;     only after the whole product was in memory - and 3,200,000
+;     reached 2 GB in 1.27 s and was killed by the cap with no
+;     diagnostic and no output at all. A three-level nest of 200x200x200
+;     is 16,000,000 declarations and died the same way in 1.96 s. That
+;     is the failure AX3024's long form says this number exists to
+;     prevent, reproduced with the number in place. Counted per push,
+;     every one of those refuses in 0.04 s and under 12 MB.
+;
+;   * `(vecLen made)` was reached only `(if (!= made 0))`, and a
+;     template that REFUSES answers 0 - so a fan-out followed by any
+;     refusing form was never counted at all. That is what this file
+;     is. `nm` is bound to the literal `7`, and a generated
+;     declaration's name must be a bare identifier (AX3027), so the
+;     6,400 pairs above it went to the allocator and contributed
+;     nothing to a budget that had already been passed by 2,800.
+;
+; So the golden here READ `AX3027` before the count moved inside the
+; build, and reads `AX3024` after it: the budget is crossed at
+; declaration 10,001, and the form that cannot be built is never
+; reached. Revert the counting site and this file says AX3027 again.
+;
+; 80 x 80 pairs is 401's size and for 401's reason - it crosses 10,000
+; from ONE invocation, so the refusal carries one expansion frame
+; rather than thousands. It is deliberately NOT sized to the millions
+; measured above: a fixture that only fails by exhausting the machine
+; is a gate that takes the machine with it.
+(data Wide
+  (K0)
+  (K1)
+  (K2)
+  (K3)
+  (K4)
+  (K5)
+  (K6)
+  (K7)
+  (K8)
+  (K9)
+  (K10)
+  (K11)
+  (K12)
+  (K13)
+  (K14)
+  (K15)
+  (K16)
+  (K17)
+  (K18)
+  (K19)
+  (K20)
+  (K21)
+  (K22)
+  (K23)
+  (K24)
+  (K25)
+  (K26)
+  (K27)
+  (K28)
+  (K29)
+  (K30)
+  (K31)
+  (K32)
+  (K33)
+  (K34)
+  (K35)
+  (K36)
+  (K37)
+  (K38)
+  (K39)
+  (K40)
+  (K41)
+  (K42)
+  (K43)
+  (K44)
+  (K45)
+  (K46)
+  (K47)
+  (K48)
+  (K49)
+  (K50)
+  (K51)
+  (K52)
+  (K53)
+  (K54)
+  (K55)
+  (K56)
+  (K57)
+  (K58)
+  (K59)
+  (K60)
+  (K61)
+  (K62)
+  (K63)
+  (K64)
+  (K65)
+  (K66)
+  (K67)
+  (K68)
+  (K69)
+  (K70)
+  (K71)
+  (K72)
+  (K73)
+  (K74)
+  (K75)
+  (K76)
+  (K77)
+  (K78)
+  (K79))
+
+(macro boom ((boom T nm)
+   (syntax/for (C (syntax/constructors T))
+     (syntax/for (K (syntax/constructors T))
+       (:: (syntax/join (syntax/join f C) K) (-> T Int))
+       (fn ((syntax/join (syntax/join f C) K) v) 0)))
+   (:: nm (-> T Int))
+   (fn (nm v) 0)))
+
+(boom Wide 7)
+
+(:: main Int)
+
+(fn (main) 0)

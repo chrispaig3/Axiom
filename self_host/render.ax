@@ -122,6 +122,14 @@
 )
 
 ; Characters (non-continuation bytes) in [a, b).
+;
+; No longer on any hot path: the JSON surface's `char_start`/`char_end`
+; used to call it as `charsBetween src 0 off`, a scan from byte 0 per
+; span, and now calls `charsToIx` (diag.ax) instead. It is kept because
+; it is the DEFINITION those counts are checked against -
+; `tests/diagnostics/verify-json.py` names it as the semantics its
+; derivation reproduces - and because a character count over an
+; arbitrary byte range has no other spelling here.
 (pub :: charsBetween (-> String Int Int Int))
 
 (pub fn (charsBetween src a b)
@@ -255,11 +263,14 @@
 ; The 1-based display column of byte offset `off` within its own line.
 ; A byte order mark at the start of the text draws nothing, and is not
 ; counted (`pastBom`) - the same rule `colOf` follows.
-(pub :: dispColAt (-> String Int Int))
+; `ix` is `src`'s line index (diag.ax): the line start it begins at
+; used to be a rescan from byte 0, which made every caret position
+; O(offset) and the whole render O(diagnostics x file size).
+(pub :: dispColAt (-> String Int Int Int))
 
-(pub fn (dispColAt src off)
+(pub fn (dispColAt src ix off)
   (let (
-    (mut i (pastBom src (lineStartOf src off)))
+    (mut i (pastBom src (lineStartOfIx ix off)))
     (mut col 0)
   )
     {
@@ -410,17 +421,17 @@
 ; byte - `^` for the primary span, `-` for the related one. The run
 ; covers the span clamped to its own line and to the quoted window, and
 ; is never shorter than one column even for an empty span.
-(pub :: labelBlock (-> String Int Int Int Int String String String))
+(pub :: labelBlock (-> String Int Int Int Int Int String String String))
 
-(pub fn (labelBlock src gw start end ch msg sgr)
+(pub fn (labelBlock src ix gw start end ch msg sgr)
   ; Clamp the underline to the window it is drawn in.
   (let (
-    (ls (lineStartOf src start))
+    (ls (lineStartOfIx ix start))
     (le (lineEndOf src start))
-    (ln (lineOf src start))
+    (ln (lineOfIx ix start))
   )
     (let (
-      (dcol (dispColAt src start))
+      (dcol (dispColAt src ix start))
       (dw (dispWidthLine src ls le))
       (m (if (==
         (cast Int msg)        0
@@ -431,7 +442,7 @@
     )
       (let (
         (dend (dispColAt
-          src          (if (< end le)
+          src          ix          (if (< end le)
             end
             le
           )
@@ -557,6 +568,47 @@
 ; only the human surface showed, because it is the only one that walks
 ; a label unconditionally. Answer the null back and let the existing
 ; tests keep deciding what an absent label prints as.
+;
+; PERFORMANCE, 2026-08-24, after an audit reproduced it: this used to
+; rebuild the whole answer on every input byte -
+; `(set acc (strConcat acc (strSlice s i 1)))` - allocating a fresh
+; buffer of length i+1 per byte. The allocator is a bump allocator with
+; NO FREE, so no intermediate is ever reclaimed and a string of length
+; n costs sum(i+1) = n^2/2 bytes allocated as well as n^2/2 bytes
+; copied.
+;
+; That length is chosen by the source file, not by this compiler:
+; AX3001's message is "undefined variable `<ident>`" with the
+; identifier copied VERBATIM, so one long identifier sets it. Measured
+; on `axiom check` over a file whose only error is one undefined
+; identifier of length n:
+;
+;     n = 16 KB   0.146s    263 MB peak RSS
+;     n = 32 KB   0.494s   1040 MB peak RSS
+;     n = 64 KB   1.931s   4142 MB peak RSS
+;
+; - 4x per doubling in both, the signature of the n^2, and the memory
+; is the worse half. The same 64 KB identifier costs 0.035s and 2.3 MB
+; when it is DEFINED and so produces no diagnostic, which is what
+; proves the renderer is the cost and not the lexer.
+;
+; After, same three points: 0.039s / 2.4 MB, 0.054s / 2.8 MB, 0.055s /
+; 4.0 MB - flat where it was quadrupling. It is linear from there on,
+; which the old shape could not have reached at all: 1 MB costs 0.322s
+; and 35 MB, 4 MB costs 1.157s and 134 MB.
+;
+; It now accumulates escape-free RUNS as slices - `strSlice` is a
+; header over the original bytes, no copy - and joins once with
+; `catStrs`, the single linear join this module already uses
+; everywhere else. An escape-free string is answered back unchanged and
+; touches the allocator not at all, the way `stdlib/Json.ax`'s
+; `jsonEscape` answers its own; the worst case is one escape per byte,
+; O(n).
+;
+; The output is byte for byte what it was: the escape tests below are
+; in the original order and produce the same bytes, and `run` reaching
+; the end unmoved means no byte needed escaping, so answering `s` is
+; answering the copy the old code would have built.
 (pub :: ctlEsc (-> String String))
 
 (pub fn (ctlEsc s)
@@ -564,32 +616,53 @@
     (cast Int s)    0
   )
     s
+    ; Start of the current escape-free run, and doubling as the "has
+    ; anything been escaped at all" flag: any escape moves it past 0.
     (let (
       (n (strLen s))
+      (parts vecNew)
       (mut i 0)
-      (mut acc "")
+      (mut run 0)
     )
       {
         (while (< i n)
           (let ((b (strByte s i)))
             {
-              (set acc (if (== b 10)
-                (strConcat acc "\\n")
-                (if (== b 9)
-                  (strConcat acc "\\t")
-                  (if (== b 13)
-                    (strConcat acc "\\r")
-                    (if (|| (< b 32) (== b 127))
-                      (strConcat acc (quoteUesc b))
-                      (strConcat acc (strSlice s i 1))
+              (if (|| (< b 32) (== b 127))
+                {
+                  (if (> i run)
+                    (vecPush parts (strSlice s run (- i run)))
+                    0
+                  )
+                  (vecPush
+                    parts                    (if (== b 10)
+                      "\\n"
+                      (if (== b 9)
+                        "\\t"
+                        (if (== b 13)
+                          "\\r"
+                          (quoteUesc b)
+                        )
+                      )
                     )
                   )
-                )
-              ))
+                  (set run (+ i 1))
+                }
+                0
+              )
               (set i (+ i 1))
             }
           ))
-        acc
+        (if (== run 0)
+          s
+          {
+            (if (> n run)
+              (vecPush parts (strSlice s run (- n run)))
+              0
+            )
+            (catStrs parts)
+          }
+        )
       }
     )
   )
@@ -710,16 +783,16 @@
 )
 
 ; Width of the widest line number any row will print.
-(pub :: rowsGutterWidth (-> String Int Int))
+(pub :: rowsGutterWidth (-> String Int Int Int))
 
-(pub fn (rowsGutterWidth src rows)
+(pub fn (rowsGutterWidth src ix rows)
   (let (
     (mut i 0)
     (mut w 1)
   )
     {
       (while (< i (vecLen rows))
-        (let ((n (strLen (decStr (lineOf src (spanStart (rowSpan (vecGet rows i))))))))
+        (let ((n (strLen (decStr (lineOfIx ix (spanStart (rowSpan (vecGet rows i))))))))
           {
             (if (> n w)
               (set w n)
@@ -735,9 +808,9 @@
 
 ; The labeled blocks, in order, with a `...` row wherever two adjacent
 ; rows are more than one line apart.
-(pub :: snipBody (-> String Int Int String))
+(pub :: snipBody (-> String Int Int Int String))
 
-(pub fn (snipBody src gw rows)
+(pub fn (snipBody src ix gw rows)
   (let (
     (out vecNew)
     (mut i 0)
@@ -746,14 +819,14 @@
     {
       (while (< i (vecLen rows))
         (let ((r (vecGet rows i)))
-          (let ((ln (lineOf src (spanStart (rowSpan r)))))
+          (let ((ln (lineOfIx ix (spanStart (rowSpan r)))))
             {
               (if (&& (> i 0) (> (- ln prev) 1))
                 (vecPush out (strConcat (paint SGR_GUT "...") "\n"))
                 0
               )
               (vecPush out (labelBlock
-                src                gw                (spanStart (rowSpan r))                (spanEnd (rowSpan r))                (rowCh r)                (rowMsg r)                (rowSgr r)
+                src                ix                gw                (spanStart (rowSpan r))                (spanEnd (rowSpan r))                (rowCh r)                (rowMsg r)                (rowSgr r)
               ))
               (set prev ln)
               (set i (+ i 1))
@@ -771,9 +844,9 @@
 ; `&` field's name and LOC - three spellings, one decision. The
 ; parenthetical repeats fmtSpan's exact text, so the derivation is a
 ; concatenation and not a re-parse.
-(pub :: traceNoteText (-> Int Int Int String))
+(pub :: traceNoteText (-> Int Int Int Int String))
 
-(pub fn (traceNoteText d i units)
+(pub fn (traceNoteText d i units ixs)
   (let ((base (strConcat (strConcat "in this expansion of `" (diagTraceName d i)) "`")))
     (let (
       (fs (diagTraceSpan d i))
@@ -782,7 +855,7 @@
       (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
         base
         (let ((u (vecGet units fu)))
-          (strConcat (strConcat (strConcat (strConcat (strConcat base " (") (memGetWordStr u 0)) ":") (fmtSpan (memGetWordStr u 1) fs)) ")")
+          (strConcat (strConcat (strConcat (strConcat (strConcat base " (") (memGetWordStr u 0)) ":") (fmtSpanIx (memGetWordStr u 1) (vecGet ixs fu) fs)) ")")
         )
       )
     )
@@ -824,9 +897,9 @@
 ; The gutter is one width for the whole report: a frame's line number
 ; can be wider than the primary's, and two blocks whose bars do not
 ; line up read as two reports.
-(pub :: traceGutterWidth (-> Int Int Int Int))
+(pub :: traceGutterWidth (-> Int Int Int Int Int))
 
-(pub fn (traceGutterWidth d units w0)
+(pub fn (traceGutterWidth d units ixs w0)
   (let (
     (mut i 0)
     (mut w w0)
@@ -836,7 +909,7 @@
         {
           (if (== (traceResolvable d i units) 1)
             (let ((u (vecGet units (diagTraceUnit d i))))
-              (let ((n (rowsGutterWidth (memGetWordStr u 1) (traceRows d i))))
+              (let ((n (rowsGutterWidth (memGetWordStr u 1) (vecGet ixs (diagTraceUnit d i)) (traceRows d i))))
                 (if (> n w)
                   (set w n)
                   0
@@ -852,9 +925,9 @@
   )
 )
 
-(pub :: traceBlocks (-> Int Int Int String))
+(pub :: traceBlocks (-> Int Int Int Int String))
 
-(pub fn (traceBlocks d units gw)
+(pub fn (traceBlocks d units ixs gw)
   (let (
     (out vecNew)
     (mut i 0)
@@ -863,12 +936,15 @@
       (while (< i (diagTraceCount d))
         {
           (if (== (traceResolvable d i units) 1)
+            ; The FRAME's index, not the diagnostic's: this block
+            ; is drawn against the macro's own source.
             (let (
               (u (vecGet units (diagTraceUnit d i)))
               (rows (traceRows d i))
             )
               (let (
                 (fsrc (memGetWordStr u 1))
+                (fix (vecGet ixs (diagTraceUnit d i)))
                 (ffile (memGetWord u 0))
                 (fs (diagTraceSpan d i))
               )
@@ -881,14 +957,14 @@
                             (strConcat
                               (strConcat
                                 (cast String ffile)                                ":"
-                              )                              (decStr (lineOf fsrc (spanStart fs)))
+                              )                              (decStr (lineOfIx fix (spanStart fs)))
                             )                            ":"
-                          )                          (strConcat (decStr (colOf fsrc (spanStart fs))) "\n")
+                          )                          (strConcat (decStr (colOfIx fsrc fix (spanStart fs))) "\n")
                         )
                       )
                     )
                     (vecPush out bar)
-                    (vecPush out (snipBody fsrc gw rows))
+                    (vecPush out (snipBody fsrc fix gw rows))
                     (vecPush out bar)
                   }
                 )
@@ -903,9 +979,11 @@
   )
 )
 
-(pub :: renderDiagHuman (-> Int String String Int String))
+; `ix` is `src`'s line index and `ixs` the whole unit table's, both
+; built once per render by the caller - see THE LINE INDEX in diag.ax.
+(pub :: renderDiagHuman (-> Int String String Int Int Int String))
 
-(pub fn (renderDiagHuman d src file units)
+(pub fn (renderDiagHuman d src file units ix ixs)
   ; A span that starts AT the end of the source is the
   ; end-of-file diagnostic - an unclosed `(` is the commonest
   ; syntax error there is - and it used to render spanless,
@@ -950,9 +1028,9 @@
       ))
         (let ((gw 
           (traceGutterWidth
-            d            units            (if spanless
+            d            units            ixs            (if spanless
               1
-              (rowsGutterWidth src rows)
+              (rowsGutterWidth src ix rows)
             )
           )
         ))
@@ -960,7 +1038,7 @@
             (loc (strConcat
               (strConcat (spacesN gw) (paint SGR_GUT "--> "))              (if spanless
                 (strConcat file "\n")
-                (strConcat (strConcat (strConcat (strConcat file ":") (decStr (lineOf src (spanStart span)))) ":") (strConcat (decStr (colOf src (spanStart span))) "\n"))
+                (strConcat (strConcat (strConcat (strConcat file ":") (decStr (lineOfIx ix (spanStart span)))) ":") (strConcat (decStr (colOfIx src ix (spanStart span))) "\n"))
               )
             ))
             (bar (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) "\n"))
@@ -969,8 +1047,8 @@
               (snippet (strConcat
                 (if spanless
                   ""
-                  (strConcat (strConcat bar (snipBody src gw rows)) bar)
-                )                (traceBlocks d units gw)
+                  (strConcat (strConcat bar (snipBody src ix gw rows)) bar)
+                )                (traceBlocks d units ixs gw)
               ))
               (notes (let (
                 (acc vecNew)
@@ -987,7 +1065,7 @@
                     {
                       (if (== (traceResolvable d i units) 1)
                         0
-                        (vecPush acc (noteLine gw (traceNoteText d i units)))
+                        (vecPush acc (noteLine gw (traceNoteText d i units ixs)))
                       )
                       (set i (+ i 1))
                     })
@@ -1031,8 +1109,17 @@
 (pub :: renderDiagsHumanUnits (-> Int Int String))
 
 (pub fn (renderDiagsHumanUnits ds units)
+  ; ONE index per unit for the whole report. The number of
+  ; diagnostics is uncapped and each used to rescan its source from
+  ; byte 0 for the primary span, every secondary row and every
+  ; expansion frame, which made this O(diagnostics x file size):
+  ; 1000 AXTAG warnings cost 0.218s, 2000 cost 0.790s, 4000 cost
+  ; 3.146s - 4x per doubling - and the audit's 16,000 cost 49.788s.
+  ; They now cost 0.037s, 0.051s, 0.095s and 0.635s. See THE LINE
+  ; INDEX in diag.ax for the whole measurement.
   (let (
     (blocks vecNew)
+    (ixs (unitIndexes units))
     (mut i 0)
   )
     {
@@ -1047,7 +1134,9 @@
             )
           ))
             {
-              (vecPush blocks (renderDiagHuman d (memGetWordStr u 1) (memGetWordStr u 0) units))
+              (vecPush blocks (renderDiagHuman
+                d                (memGetWordStr u 1)                (memGetWordStr u 0)                units                (indexForUnit ixs (diagUnit d))                ixs
+              ))
               (set i (+ i 1))
             }
           )
@@ -1131,54 +1220,94 @@
 ; common cases stay readable in a log; the rest take `\u00XX`. Bytes
 ; at or above 0x20 are copied as-is, which keeps UTF-8 sequences
 ; intact - JSON strings carry them literally.
+;
+; PERFORMANCE, 2026-08-24: this carried `ctlEsc`'s quadratic shape
+; exactly - a fresh buffer of length i+1 per input byte, never
+; reclaimed - and the JSON surface is reached by the same untrusted
+; spelling, so it measured the same. `axiom check
+; --diagnostic-format=json` over one undefined identifier of length n:
+;
+;     n = 16 KB   0.144s    263 MB peak RSS
+;     n = 32 KB   0.492s   1039 MB peak RSS
+;     n = 64 KB   1.861s   4142 MB peak RSS
+;
+; After: 0.030s / 2.2 MB, 0.041s / 2.6 MB, 0.044s / 3.3 MB, and a 1 MB
+; identifier costs 0.324s / 25 MB. Same run-and-join rewrite as
+; `ctlEsc` above, and the escape tests are in their original order, so
+; the bytes are unchanged. Note the set differs from `ctlEsc`'s: `"`
+; and `\` are escaped because this IS quoted, and DEL is not, per the
+; comment above.
 (pub :: jsonEsc (-> String String))
 
 (pub fn (jsonEsc s)
   (let (
     (n (strLen s))
+    (parts vecNew)
     (mut i 0)
-    (mut acc "")
+    (mut run 0)
   )
     {
       (while (< i n)
         (let ((b (strByte s i)))
           {
-            (set acc (if (== b 34)
-              (strConcat acc "\\\"")
-              (if (== b 92)
-                (strConcat acc "\\\\")
-                (if (== b 10)
-                  (strConcat acc "\\n")
-                  (if (== b 9)
-                    (strConcat acc "\\t")
-                    (if (== b 13)
-                      (strConcat acc "\\r")
-                      (if (== b 8)
-                        (strConcat acc "\\b")
-                        (if (== b 12)
-                          (strConcat acc "\\f")
-                          (if (< b 32)
-                            (strConcat acc (jsonUesc b))
-                            (strConcat acc (strSlice s i 1))
+            (if (|| (< b 32) (|| (== b 34) (== b 92)))
+              {
+                (if (> i run)
+                  (vecPush parts (strSlice s run (- i run)))
+                  0
+                )
+                (vecPush
+                  parts                  (if (== b 34)
+                    "\\\""
+                    (if (== b 92)
+                      "\\\\"
+                      (if (== b 10)
+                        "\\n"
+                        (if (== b 9)
+                          "\\t"
+                          (if (== b 13)
+                            "\\r"
+                            (if (== b 8)
+                              "\\b"
+                              (if (== b 12)
+                                "\\f"
+                                (jsonUesc b)
+                              )
+                            )
                           )
                         )
                       )
                     )
                   )
                 )
-              )
-            ))
+                (set run (+ i 1))
+              }
+              0
+            )
             (set i (+ i 1))
           }
         ))
-      acc
+      (if (== run 0)
+        s
+        {
+          (if (> n run)
+            (vecPush parts (strSlice s run (- n run)))
+            0
+          )
+          (catStrs parts)
+        }
+      )
     }
   )
 )
 
-(pub :: jsonSpan (-> String Int String))
+; Six position queries per span, and `char_start`/`char_end` used to be
+; counts from byte 0 on top of the four line/column scans - the widest
+; of the three surfaces and the one that paid most. All six now read
+; the index; `charsToIx` walks only the span's own line.
+(pub :: jsonSpan (-> String Int Int String))
 
-(pub fn (jsonSpan src span)
+(pub fn (jsonSpan src ix span)
   (let (
     (s (spanStart span))
     (e0 (spanEnd span))
@@ -1189,7 +1318,7 @@
         e0
       )
     ))
-      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "{\"start\":{\"line\":" (decStr (lineOf src s))) ",\"col\":") (decStr (colOf src s))) "},\"end\":{\"line\":") (decStr (lineOf src e))) ",\"col\":") (decStr (colOf src e))) "},\"char_start\":") (decStr (charsBetween src 0 s))) (strConcat (strConcat ",\"char_end\":" (decStr (charsBetween src 0 e))) "}"))
+      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "{\"start\":{\"line\":" (decStr (lineOfIx ix s))) ",\"col\":") (decStr (colOfIx src ix s))) "},\"end\":{\"line\":") (decStr (lineOfIx ix e))) ",\"col\":") (decStr (colOfIx src ix e))) "},\"char_start\":") (decStr (charsToIx src ix s))) (strConcat (strConcat ",\"char_end\":" (decStr (charsToIx src ix e))) "}"))
     )
   )
 )
@@ -1262,9 +1391,9 @@
 ; ITS OWN unit - when the frame carries a span the unit table can
 ; resolve. The numbers are the same ones the AXDL LOC prints, which is
 ; what lets verify-json.py derive this array from that field.
-(pub :: jsonTraceArray (-> Int Int String))
+(pub :: jsonTraceArray (-> Int Int Int String))
 
-(pub fn (jsonTraceArray d units)
+(pub fn (jsonTraceArray d units ixs)
   (let (
     (parts vecNew)
     (mut i 0)
@@ -1287,14 +1416,17 @@
             (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
               0
               (let ((u (vecGet units fu)))
-                (let ((fsrc (memGetWordStr u 1)))
+                (let (
+                  (fsrc (memGetWordStr u 1))
+                  (fix (vecGet ixs fu))
+                )
                   {
                     (vecPush parts ",\"file\":\"")
                     (vecPush parts (jsonEsc (memGetWordStr u 0)))
                     (vecPush parts "\",\"line\":")
-                    (vecPush parts (decStr (lineOf fsrc (spanStart fs))))
+                    (vecPush parts (decStr (lineOfIx fix (spanStart fs))))
                     (vecPush parts ",\"col\":")
-                    (vecPush parts (decStr (colOf fsrc (spanStart fs))))
+                    (vecPush parts (decStr (colOfIx fsrc fix (spanStart fs))))
                   }
                 )
               )
@@ -1309,9 +1441,9 @@
   )
 )
 
-(pub :: jsonRelatedArray (-> Int String String))
+(pub :: jsonRelatedArray (-> Int String Int String))
 
-(pub fn (jsonRelatedArray d src)
+(pub fn (jsonRelatedArray d src ix)
   (let (
     (parts vecNew)
     (mut i 0)
@@ -1325,7 +1457,7 @@
             0
           )
           (vecPush parts "{\"span\":")
-          (vecPush parts (jsonSpan src (diagSecSpan d i)))
+          (vecPush parts (jsonSpan src ix (diagSecSpan d i)))
           (vecPush parts ",\"label\":\"")
           (vecPush
             parts            (jsonEsc
@@ -1346,9 +1478,9 @@
   )
 )
 
-(pub :: renderDiagJson (-> Int String String Int String))
+(pub :: renderDiagJson (-> Int String String Int Int Int String))
 
-(pub fn (renderDiagJson d src file units)
+(pub fn (renderDiagJson d src file units ix ixs)
   (let (
     (sev (diagSev d))
     (code (diagCode d))
@@ -1368,11 +1500,11 @@
           (strConcat
             (strConcat (strConcat (strConcat (strConcat (strConcat "{\"severity\":\"" (sevWord sev)) "\",") (strConcat (strConcat (strConcat (strConcat "\"code\":\"" code) "\",\"slug\":\"") slug) "\",")) (strConcat (strConcat "\"message\":\"" (jsonEsc msg)) "\",")) (strConcat (strConcat "\"file\":\"" (jsonEsc file)) "\","))            (if (== span 0)
               ""
-              (strConcat (strConcat (strConcat (strConcat "\"span\":" (jsonSpan src span)) ",\"label\":\"") (jsonEsc label)) "\",")
+              (strConcat (strConcat (strConcat (strConcat "\"span\":" (jsonSpan src ix span)) ",\"label\":\"") (jsonEsc label)) "\",")
             )
-          )          (strConcat (strConcat "\"related\":" (jsonRelatedArray d src)) ",")
+          )          (strConcat (strConcat "\"related\":" (jsonRelatedArray d src ix)) ",")
         )        (strConcat (strConcat "\"notes\":" (jsonNoteArray d)) ",")
-      )      (strConcat (strConcat (strConcat (strConcat "\"help\":" (jsonHelpArray d)) ",\"expansion\":") (jsonTraceArray d units)) "}")
+      )      (strConcat (strConcat (strConcat (strConcat "\"help\":" (jsonHelpArray d)) ",\"expansion\":") (jsonTraceArray d units ixs)) "}")
     )
   )
 )
@@ -1380,8 +1512,11 @@
 (pub :: renderDiagsJsonUnits (-> Int Int String))
 
 (pub fn (renderDiagsJsonUnits ds units)
+  ; One index per unit for the whole report, as the other two
+  ; surfaces build.
   (let (
     (blocks vecNew)
+    (ixs (unitIndexes units))
     (mut i 0)
   )
     {
@@ -1396,7 +1531,9 @@
             )
           ))
             {
-              (vecPush blocks (renderDiagJson d (memGetWordStr u 1) (memGetWordStr u 0) units))
+              (vecPush blocks (renderDiagJson
+                d                (memGetWordStr u 1)                (memGetWordStr u 0)                units                (indexForUnit ixs (diagUnit d))                ixs
+              ))
               (vecPush blocks "\n")
               (set i (+ i 1))
             }

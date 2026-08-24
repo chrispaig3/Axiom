@@ -534,6 +534,212 @@
 
 (pub fn (colOf src off) (colCount src (pastBom src (lineStartOf src off)) off 1))
 
+; ------------------------------------------------------------------
+; THE LINE INDEX, and why the three scanners above are no longer what
+; the renderers call.
+;
+; `lineOf` counts newlines from byte 0 and `lineStartOf` rescans from
+; byte 0, so both are O(offset). Every span pays: the primary one, each
+; secondary row, each expansion frame, and the JSON surface asks twice
+; over plus a character count from 0. The number of diagnostics is
+; UNCAPPED, so `axiom check` was O(diagnostics x file size) - and both
+; factors are set by the file being checked.
+;
+; Measured on this machine, a file of k functions each carrying an
+; AXTAG the body does not support, so k is both the warning count and
+; (times a constant) the file size:
+;
+;     k = 1000    human 0.218s    ai 0.126s    json 0.154s
+;     k = 2000    human 0.790s    ai 0.426s    json 0.546s
+;     k = 4000    human 3.146s    ai 1.651s    json 2.054s
+;
+; - 4x per doubling on all three surfaces. The audit's own case,
+; 16,000 AXTAG lines in a 1.0 MB file, measured 49.788s human and
+; 25.962s ai.
+;
+; After, the same k, and now linear:
+;
+;     k = 1000    human 0.037s    ai 0.035s    json 0.038s
+;     k = 2000    human 0.051s    ai 0.045s    json 0.048s
+;     k = 4000    human 0.095s    ai 0.095s    json 0.129s
+;     k = 16000   human 0.635s    ai 0.572s    json 0.632s
+;
+; - 78x and 45x at the audit's size, and the growth is now the file
+; size alone rather than its product with the diagnostic count. Peak
+; RSS is unchanged to within a few per cent: this was never an
+; allocation problem, it was the same walk repeated.
+;
+; The index is built ONCE per unit per render and answers a line in
+; O(log lines): `starts` holds the byte offset of each line's first
+; byte (line 0 starts at 0), `chars` holds how many CHARACTERS precede
+; that offset, so the JSON surface's `char_start` stops being a scan
+; from 0 as well. The algorithm is `lspLineIndex`/`lspLineOfIx` from
+; lsp.ax, which had already solved exactly this for the editor path;
+; it is copied rather than shared because lsp.ax imports this module
+; and not the other way round. lsp.ax should later be pointed at these
+; instead of keeping the second copy.
+;
+; The scanning versions stay, and stay `pub`: `symbols.ax` calls
+; `fmtSpan` and lsp.ax calls `lineOf`/`lineStartOf`, neither of which
+; is this finding, and neither of which is a file this change owns.
+; ------------------------------------------------------------------
+(pub struct SrcIx
+  (starts : Int)
+  (chars : Int))
+
+(pub :: srcIxStarts (-> Int Int))
+
+(pub fn (srcIxStarts x) (memGetWord x 0))
+
+(pub :: srcIxChars (-> Int Int))
+
+(pub fn (srcIxChars x) (memGetWord x 1))
+
+; A `while`, not a recursion: its depth would be the line count, and
+; this backend eliminates only self tail calls.
+;
+; A null source answers an index over the empty text rather than
+; reading `strLen` off a null handle - the unit table is allowed to
+; carry one, and the renderers below test for it at the source rather
+; than here.
+(pub :: srcLineIndex (-> String Int))
+
+(pub fn (srcLineIndex src)
+  (let (
+    (starts vecNew)
+    (chars vecNew)
+    (n (if (==
+      (cast Int src)      0
+    )
+      0
+      (strLen src)
+    ))
+    (mut i 0)
+    (mut nc 0)
+  )
+    {
+      (vecPush starts 0)
+      (vecPush chars 0)
+      (while (< i n)
+        (let ((b (strByte src i)))
+          {
+            ; Characters, not bytes: a continuation byte is not the
+            ; start of one. The same test `colCount` makes.
+            (if (utf8IsCont b)
+              0
+              (set nc (+ nc 1))
+            )
+            (if (== b 10)
+              {
+                (vecPush starts (+ i 1))
+                (vecPush chars nc)
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      (SrcIx starts chars)
+    }
+  )
+)
+
+; The 0-based line of `off`: the largest k with `starts[k] <= off`. An
+; offset at a newline BYTE is still on the line that newline ends, which
+; is what `lineCount` answers too - it counts newlines strictly before
+; `off`. An offset past the end answers the last line rather than
+; walking off the buffer.
+(pub :: ixLineK (-> Int Int Int))
+
+(pub fn (ixLineK starts off)
+  (let (
+    (mut lo 0)
+    (mut hi (- (vecLen starts) 1))
+  )
+    {
+      (while (< lo hi)
+        (let ((mid (+ lo (/ (+ (- hi lo) 1) 2))))
+          (if (<= (vecGet starts mid) off)
+            (set lo mid)
+            (set hi (- mid 1))
+          )
+        ))
+      lo
+    }
+  )
+)
+
+; `lineOf` through the index. 1-based, as AXDL prints it.
+(pub :: lineOfIx (-> Int Int Int))
+
+(pub fn (lineOfIx ix off) (+ (ixLineK (srcIxStarts ix) off) 1))
+
+; `lineStartOf` through the index.
+(pub :: lineStartOfIx (-> Int Int Int))
+
+(pub fn (lineStartOfIx ix off)
+  (let ((starts (srcIxStarts ix)))
+    (vecGet starts (ixLineK starts off))
+  )
+)
+
+; `colOf` through the index. The walk from the line start is unchanged
+; and stays a byte walk: only the line start it begins at stopped being
+; a scan from 0. A column is at most one line long, so this is O(line),
+; not O(offset).
+(pub :: colOfIx (-> String Int Int Int))
+
+(pub fn (colOfIx src ix off) (colCount src (pastBom src (lineStartOfIx ix off)) off 1))
+
+; The number of CHARACTERS before `off`, which the JSON surface reports
+; as `char_start`/`char_end`. `chars[k]` is the count at the start of
+; line k, so only the current line is ever walked.
+(pub :: charsToIx (-> String Int Int Int))
+
+(pub fn (charsToIx src ix off)
+  (let ((starts (srcIxStarts ix)))
+    (let ((k (ixLineK starts off)))
+      (colCount src (vecGet starts k) off (vecGet (srcIxChars ix) k))
+    )
+  )
+)
+
+; One index per unit, positionally parallel to the unit table, built
+; once at the top of a render. Eager rather than lazy: the cost is one
+; more pass over source already read from disk, and every renderer
+; below needs an arbitrary unit's index anyway - an expansion frame
+; renders against a DIFFERENT source than the diagnostic's own.
+(pub :: unitIndexes (-> Int Int))
+
+(pub fn (unitIndexes units)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen units))
+        {
+          (vecPush out (srcLineIndex (memGetWordStr (vecGet units i) 1)))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; The index for a diagnostic's own unit, with the same out-of-range
+; fallback to unit 0 the renderers apply to the unit table itself.
+(pub :: indexForUnit (-> Int Int Int))
+
+(pub fn (indexForUnit ixs u)
+  (vecGet
+    ixs    (if (< u (vecLen ixs))
+      u
+      0
+    )
+  )
+)
+
 (pub :: colCount (-> String Int Int Int Int))
 
 (pub fn (colCount src i off acc)
@@ -550,6 +756,28 @@
 ; `line:col`, `line:col-col`, or `line:col-line:col`, exactly as
 ; stage0's `fmt_span` chooses between them.
 ; ------------------------------------------------------------------
+; The choice between the three spellings, given the four numbers. One
+; copy, because `check-render-selfhost.sh` derives the human surface's
+; parenthetical from this exact text - two copies would be two
+; decisions.
+(pub :: fmtSpanParts (-> Int Int Int Int String))
+
+(pub fn (fmtSpanParts sl sc el ec)
+  (if (&& (== sl el) (== sc ec))
+    (strConcat (strConcat (decStr sl) ":") (decStr sc))
+    (if (== sl el)
+      (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-") (decStr ec))
+      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-") (decStr el)) ":") (decStr ec))
+    )
+  )
+)
+
+; The scanning spelling. `symbols.ax` calls this - one span per symbol,
+; against a source it holds - and it is deliberately left scanning: it
+; allocates nothing, and giving it a per-call index would trade four
+; O(offset) walks for an O(lines) Vec built and thrown away per symbol.
+; The renderers below use `fmtSpanIx` instead, because they ask
+; thousands of times against the same text.
 (pub :: fmtSpan (-> String Int String))
 
 (pub fn (fmtSpan src span)
@@ -563,20 +791,26 @@
         e0
       )
     ))
-      (let (
-        (sl (lineOf src s))
-        (sc (colOf src s))
-        (el (lineOf src e))
-        (ec (colOf src e))
+      (fmtSpanParts (lineOf src s) (colOf src s) (lineOf src e) (colOf src e))
+    )
+  )
+)
+
+; The same three spellings, off a line index built once per render.
+(pub :: fmtSpanIx (-> String Int Int String))
+
+(pub fn (fmtSpanIx src ix span)
+  (let (
+    (s (spanStart span))
+    (e0 (spanEnd span))
+  )
+    (let ((e 
+      (if (< e0 s)
+        s
+        e0
       )
-        (if (&& (== sl el) (== sc ec))
-          (strConcat (strConcat (decStr sl) ":") (decStr sc))
-          (if (== sl el)
-            (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-") (decStr ec))
-            (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-") (decStr el)) ":") (decStr ec))
-          )
-        )
-      )
+    ))
+      (fmtSpanParts (lineOfIx ix s) (colOfIx src ix s) (lineOfIx ix e) (colOfIx src ix e))
     )
   )
 )
@@ -624,32 +858,83 @@
 
 (pub fn (quoteStr s) (strConcat (strConcat "\"" (quoteBody s 0 "")) "\""))
 
+; PERFORMANCE, 2026-08-24: the same quadratic shape `ctlEsc` and
+; `jsonEsc` carried in render.ax, reached by the same untrusted
+; spelling. Every recursive step built `(strConcat acc <one byte>)`, a
+; fresh buffer of length i+1 that the bump allocator never reclaims, so
+; quoting a string of length n allocated n^2/2 bytes. Measured on
+; `axiom check --diagnostic-format=ai` over one undefined identifier of
+; length n:
+;
+;     n = 16 KB   0.137s     18 MB peak RSS
+;     n = 32 KB   0.436s     67 MB peak RSS
+;     n = 64 KB   1.645s    264 MB peak RSS
+;
+; - 4x per doubling in both. After: 0.045s / 2.1 MB, 0.047s / 2.2 MB,
+; 0.053s / 2.9 MB, and a 1 MB identifier costs 0.340s / 19 MB.
+;
+; The signature is unchanged - it still appends the escaped tail of `s`
+; from `i` onto `acc` - because that is the contract `quoteStr` calls
+; by. `acc` is simply the first piece of the join. The escape tests are
+; in their original order, so every byte produced is the byte produced
+; before; only the number of allocations moved, from n to one.
+;
+; A `while`, not the recursion it replaces: the recursion's depth was
+; the string's length, and it survived only because the backend
+; eliminates self tail calls (see `lspLineIndex` in lsp.ax, which says
+; the same about its own loop).
 (pub :: quoteBody (-> String Int String String))
 
 (pub fn (quoteBody s i acc)
-  (if (>= i (strLen s))
-    acc
-    (let ((b (strByte s i)))
-      (if (== b 92)
-        (quoteBody s (+ i 1) (strConcat acc "\\\\"))
-        (if (== b 34)
-          (quoteBody s (+ i 1) (strConcat acc "\\\""))
-          (if (== b 10)
-            (quoteBody s (+ i 1) (strConcat acc "\\n"))
-            (if (== b 9)
-              (quoteBody s (+ i 1) (strConcat acc "\\t"))
-              (if (== b 13)
-                (quoteBody s (+ i 1) (strConcat acc "\\r"))
-                (if (|| (< b 32) (== b 127))
-                  (quoteBody s (+ i 1) (strConcat acc (quoteUesc b)))
-                  (quoteBody s (+ i 1) (strConcat acc (strSlice s i 1)))
+  ; Start of the current escape-free run of bytes.
+  (let (
+    (n (strLen s))
+    (parts vecNew)
+    (mut k i)
+    (mut run i)
+  )
+    {
+      (vecPush parts acc)
+      (while (< k n)
+        (let ((b (strByte s k)))
+          {
+            (if (|| (< b 32) (|| (== b 34) (|| (== b 92) (== b 127))))
+              {
+                (if (> k run)
+                  (vecPush parts (strSlice s run (- k run)))
+                  0
                 )
-              )
+                (vecPush
+                  parts                  (if (== b 92)
+                    "\\\\"
+                    (if (== b 34)
+                      "\\\""
+                      (if (== b 10)
+                        "\\n"
+                        (if (== b 9)
+                          "\\t"
+                          (if (== b 13)
+                            "\\r"
+                            (quoteUesc b)
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+                (set run (+ k 1))
+              }
+              0
             )
-          )
-        )
+            (set k (+ k 1))
+          }
+        ))
+      (if (> n run)
+        (vecPush parts (strSlice s run (- n run)))
+        0
       )
-    )
+      (catStrs parts)
+    }
   )
 )
 
@@ -700,9 +985,30 @@
   }
 )
 
+; The single-diagnostic form, at the arity it has always had, because
+; two checked-in fixtures call it - `tests/selfhost/640-axdl-render.ax`
+; and `645-axdl-repetition.ax`, both on the single-unit path with
+; `units` 0 - and neither is a file this change owns. It builds the
+; index for its one diagnostic, which for ONE diagnostic is the same
+; O(file) the scans it replaces cost. The report loop below calls
+; `renderDiagIx` and builds one index for the whole run instead.
 (pub :: renderDiag (-> Int String String Int String))
 
 (pub fn (renderDiag d src file units)
+  (renderDiagIx
+    d    src    file    units    (srcLineIndex src)    (if (== units 0)
+      0
+      (unitIndexes units)
+    )
+  )
+)
+
+; `ix` is `src`'s line index and `ixs` the whole unit table's, both
+; built once per render - see THE LINE INDEX above. `ixs` is 0 exactly
+; when `units` is, on the single-unit path.
+(pub :: renderDiagIx (-> Int String String Int Int Int String))
+
+(pub fn (renderDiagIx d src file units ix ixs)
   (let ((parts vecNew))
     {
       (vecPush parts (sevSigil (diagSev d)))
@@ -718,7 +1024,7 @@
       (vecPush
         parts        (if (== (diagSpan d) 0)
           "-"
-          (fmtSpan src (diagSpan d))
+          (fmtSpanIx src ix (diagSpan d))
         )
       )
       (vecPush parts " ")
@@ -741,7 +1047,7 @@
         (while (< i (diagSecCount d))
           {
             (vecPush parts " ^")
-            (vecPush parts (fmtSpan src (diagSecSpan d i)))
+            (vecPush parts (fmtSpanIx src ix (diagSecSpan d i)))
             (vecPush parts ":")
             (vecPush parts (quoteStr (diagSecMsg d i)))
             (set i (+ i 1))
@@ -764,7 +1070,7 @@
               (pushQ parts " ?" (diagHelpMsg d i))
               {
                 (vecPush parts " ?")
-                (vecPush parts (fmtSpan src (diagHelpFixSpan d i)))
+                (vecPush parts (fmtSpanIx src ix (diagHelpFixSpan d i)))
                 (vecPush parts ":")
                 (vecPush parts (quoteStr (diagHelpMsg d i)))
                 (vecPush parts "~>")
@@ -787,13 +1093,16 @@
               (fs (diagTraceSpan d i))
               (fu (diagTraceUnit d i))
             )
-              (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
+              (if (|| (== fs 0) (|| (== units 0) (|| (== ixs 0) (>= fu (vecLen units)))))
                 0
                 (let ((u (vecGet units fu)))
                   {
                     (vecPush parts (memGetWord u 0))
                     (vecPush parts ":")
-                    (vecPush parts (fmtSpan (memGetWordStr u 1) fs))
+                    ; The frame's own unit's index, not the
+                    ; diagnostic's: this is the one field on the line
+                    ; whose span points into a different source.
+                    (vecPush parts (fmtSpanIx (memGetWordStr u 1) (vecGet ixs fu) fs))
                     (vecPush parts ":")
                   }
                 )
@@ -817,8 +1126,12 @@
   ; A linear join rather than the old recursive strConcat fold, whose
   ; peak was measured at 829 MiB RSS for a 2000-diagnostic file - the
   ; renderCG shape, one layer up.
+  ; ONE index per unit for the whole run, not one per diagnostic:
+  ; building it per diagnostic would keep the entire cost it exists
+  ; to remove.
   (let (
     (blocks vecNew)
+    (ixs (unitIndexes units))
     (mut i 0)
   )
     {
@@ -833,7 +1146,9 @@
             )
           ))
             {
-              (vecPush blocks (renderDiag d (memGetWordStr u 1) (memGetWordStr u 0) units))
+              (vecPush blocks (renderDiagIx
+                d                (memGetWordStr u 1)                (memGetWordStr u 0)                units                (indexForUnit ixs (diagUnit d))                ixs
+              ))
               (vecPush blocks "\n")
               (set i (+ i 1))
             }

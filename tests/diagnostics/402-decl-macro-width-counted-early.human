@@ -1,0 +1,16 @@
+[1;31merror[AX3024][0m[1m: macro expansion produced more than the limit of 10000 declarations[0m
+   [1;34m--> [0m402-decl-macro-width-counted-early.ax:137:2
+[1;34m    |[0m
+[1;34m137 |[0m (boom Wide 7)
+[1;34m    |[0m  [1;31m^^^^[0m
+[1;34m    |[0m
+   [1;34m--> [0m402-decl-macro-width-counted-early.ax:129:8
+[1;34m    |[0m
+[1;34m129 |[0m (macro boom ((boom T nm)
+[1;34m    |[0m        [1;36m^^^^ in this expansion of `boom`[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0mthe parser's own nesting limit measures the SOURCE, and this limit measures what expansion produced from it
+   [1;34m = [0m[1;32mhelp: [0mexpansion is a rewrite, so the program the compiler sees is the expanded one; make the macro produce less, or write the repeated part as a function and let the macro expand to a call
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3024` for a full explanation
+
+compilation failed due to 1 previous error
