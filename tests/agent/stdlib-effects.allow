@@ -98,6 +98,12 @@ mapWithCapacity Map.ax Alloc
 memAlloc Mem.ax Alloc
 memAllocMapped Mem.ax Alloc
 netAccept Sys.ax IO
+netAcceptFinish Sys.ax IO
+netAcceptFrom Sys.ax IO
+netAddrText Sys.ax Alloc
+netAddrText4 Sys.ax Alloc
+netAddrText6 Sys.ax Alloc
+netAddrTextPort Sys.ax Alloc
 netBind Sys.ax IO
 netConnect Sys.ax IO
 netListen Sys.ax IO
@@ -112,6 +118,7 @@ netSetOptInt Sys.ax IO
 netShutdown Sys.ax IO
 netSignalOpen Sys.ax IO
 netSocketTcp Sys.ax IO
+netSocketTcp6 Sys.ax IO
 pathBase Path.ax Alloc
 pathDir Path.ax Alloc
 pathExt Path.ax Alloc

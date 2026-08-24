@@ -1,0 +1,364 @@
+; `accept` hands back who connected, and this case is the one that
+; proves it - in both families, in one process, with the peer's address
+; chosen by the test rather than by the kernel.
+;
+; THE CLIENT BINDS ITS SOURCE PORT BEFORE IT CONNECTS. That is the
+; whole trick: a connection made without one gets an ephemeral port
+; nobody knows, so a server reporting the peer could return anything
+; from the right family and look correct. Binding it makes the expected
+; answer a number this file already holds, which is what turns "a call
+; returned an address" into "it returned THE address".
+;
+; NO EXTERNAL CLIENT, for the reason `307-socket-roundtrip.ax` gives:
+; a loopback connect lands in the accept queue whether or not it has
+; completed, so one process can be both ends and a case with no second
+; process cannot flake on one.
+;
+; WHAT `netAccept` CANNOT DO IS THE POINT. It passes NULL for `accept`'s
+; two out-parameters, so the peer is gone by the time it returns and no
+; caller can recover it - no access log, no per-IP limit, no per-peer
+; accounting. `netAcceptFrom` takes the buffer instead, and the last
+; check here is `netAccept` still answering a working socket, because
+; keeping the cheap form working is half of why the new one is separate.
+;
+; THE PORTS COME FROM THE PID so parallel cases do not fight over one
+; number, and the golden prints no number at all: the addresses are
+; asserted against what this file asked for, and `afInet6` differs by
+; target anyway.
+(import IO)
+
+(import Sys)
+
+(import Mem)
+
+(:: say (-> Int String Int))
+
+(fn (say okFlag label)
+  (if (== okFlag 1)
+    (printlnLit (strCStr (strConcat "ok   " label)))
+    (printlnLit (strCStr (strConcat "FAIL " label)))
+  )
+)
+
+; Accept with the peer, allowing for the connection not having reached
+; the queue yet - the bounded retry `307` measured the need for, over
+; `netWouldBlock` so that "not yet" and "broken" stay distinct.
+(:: acceptFromSoon (-> Int Int Int Int Int))
+
+(fn (acceptFromSoon lsn peer lenb tries)
+  (let ((c (netAcceptFrom lsn peer netAddrMaxBytes lenb)))
+    (if (>= c 0)
+      c
+      (if (netWouldBlock c)
+        (if (> tries 0)
+          (acceptFromSoon lsn peer lenb (- tries 1))
+          c
+        )
+        c
+      )
+    )
+  )
+)
+
+; The same, with the capacity as a parameter, for the case below that
+; hands `netAcceptFrom` a buffer too small for the address it is about
+; to be given. `acceptFromSoon` passes `netAddrMaxBytes` because that
+; is what a caller should pass; this one exists to be wrong on purpose.
+(:: acceptFromCapSoon (-> Int Int Int Int Int Int))
+
+(fn (acceptFromCapSoon lsn peer cap lenb tries)
+  (let ((c (netAcceptFrom lsn peer cap lenb)))
+    (if (>= c 0)
+      c
+      (if (netWouldBlock c)
+        (if (> tries 0)
+          (acceptFromCapSoon
+            lsn            peer            cap            lenb            (- tries 1)
+          )
+          c
+        )
+        c
+      )
+    )
+  )
+)
+
+(:: acceptSoon (-> Int Int Int))
+
+(fn (acceptSoon lsn tries)
+  (let ((c (netAccept lsn)))
+    (if (>= c 0)
+      c
+      (if (netWouldBlock c)
+        (if (> tries 0)
+          (acceptSoon lsn (- tries 1))
+          c
+        )
+        c
+      )
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  ; ------------------------------------------------------- IPv4
+  (let ((base (+ 40000 (% sysGetPid 20000))))
+    (let (
+      (srvAddr (memAlloc 32))
+      (cliAddr (memAlloc 32))
+      (peer (memAlloc 32))
+      (lenb (memAlloc 8))
+      (optb (memAlloc 4))
+    )
+      {
+        (let ((lsn netSocketTcp))
+          {
+            (netSetOptInt
+              lsn              solSocket              soReuseAddr              1              optb
+            )
+            (netAddr4
+              srvAddr              base              127              0              0              1
+            )
+            (say
+              (if (== (netBind lsn srvAddr) 0)
+                1
+                0
+              )              "a v4 listener binds with the length its family asks for"
+            )
+            (netListen lsn 16)
+            (netSetNonBlocking lsn)
+            (let ((cli netSocketTcp))
+              {
+                (netSetOptInt
+                  cli                  solSocket                  soReuseAddr                  1                  optb
+                )
+                (netAddr4
+                  cliAddr                  (+ base 1)                  127                  0                  0                  1
+                )
+                (say
+                  (if (== (netBind cli cliAddr) 0)
+                    1
+                    0
+                  )                  "the client binds a source port this case chose"
+                )
+                (netConnect cli srvAddr)
+                ; ZERO, AND THE VALUE MATTERS. The point is to catch a
+                ; `netAcceptFrom` that never wrote the capacity in, and
+                ; only a sentinel BELOW the real length can: the kernel
+                ; writes the true size back whatever it finds, and it
+                ; clamps its copy to what it was given. Seeded with
+                ; 0xFF this case passed against a `netAcceptFrom` with
+                ; the value-result write deleted - 0xFFFFFFFF is more
+                ; than 28, so nothing was clamped and every assertion
+                ; below still held. Seeded with 0 the kernel is told
+                ; the buffer holds nothing, copies nothing, and the
+                ; peer reads back `af=0`.
+                (memSet lenb 0 8)
+                (let ((con (acceptFromSoon lsn peer lenb 1000)))
+                  {
+                    (say
+                      (if (> con 2)
+                        1
+                        0
+                      )                      "netAcceptFrom answers the connected socket"
+                    )
+                    (say
+                      (if (== (netAddrLenRead lenb) netAddr4Bytes)
+                        1
+                        0
+                      )                      "the kernel wrote sockaddr_in's length back into the cell"
+                    )
+                    (say
+                      (if (== (netAddrFamily peer) afInet)
+                        1
+                        0
+                      )                      "the peer's family is afInet"
+                    )
+                    (say
+                      (if (strEq (netAddrText peer) "127.0.0.1")
+                        1
+                        0
+                      )                      "the peer's address is 127.0.0.1"
+                    )
+                    (say
+                      (if (== (netAddrPort peer) (+ base 1))
+                        1
+                        0
+                      )                      "the peer's port is the source port the client bound"
+                    )
+                    (sysCloseFd con)
+                  }
+                )
+                (sysCloseFd cli)
+              }
+            )
+            ; `netAccept` still works, and still tells nobody who it
+            ; was. Same listener, second connection.
+            (let ((cli2 netSocketTcp))
+              {
+                (netConnect cli2 srvAddr)
+                (let ((con2 (acceptSoon lsn 1000)))
+                  {
+                    (say
+                      (if (> con2 2)
+                        1
+                        0
+                      )                      "netAccept still answers a socket with no buffer at all"
+                    )
+                    (sysCloseFd con2)
+                  }
+                )
+                (sysCloseFd cli2)
+              }
+            )
+            (sysCloseFd lsn)
+          }
+        )
+        ; ------------------------------------------------------- IPv6
+        (let ((lsn6 netSocketTcp6))
+          {
+            (say
+              (if (> lsn6 2)
+                1
+                0
+              )              "socket(afInet6) answers a descriptor"
+            )
+            (netSetOptInt
+              lsn6              solSocket              soReuseAddr              1              optb
+            )
+            (netAddr6
+              srvAddr              (+ base 2)              0              0              0              0              0              0              0              1
+            )
+            ; This is the bind that a literal 16 answered -22 EINVAL
+            ; for. It is the length coming off the family that makes it
+            ; a 0.
+            (say
+              (if (== (netBind lsn6 srvAddr) 0)
+                1
+                0
+              )              "a v6 listener binds ::1 with sockaddr_in6's 28 bytes"
+            )
+            (netListen lsn6 16)
+            (netSetNonBlocking lsn6)
+            (let ((cli6 netSocketTcp6))
+              {
+                (netSetOptInt
+                  cli6                  solSocket                  soReuseAddr                  1                  optb
+                )
+                (netAddr6
+                  cliAddr                  (+ base 3)                  0                  0                  0                  0                  0                  0                  0                  1
+                )
+                (say
+                  (if (== (netBind cli6 cliAddr) 0)
+                    1
+                    0
+                  )                  "the v6 client binds a source port this case chose"
+                )
+                (netConnect cli6 srvAddr)
+                (memSet lenb 0 8)
+                (let ((con6 (acceptFromSoon lsn6 peer lenb 1000)))
+                  {
+                    (say
+                      (if (> con6 2)
+                        1
+                        0
+                      )                      "netAcceptFrom answers the connected v6 socket"
+                    )
+                    (say
+                      (if (== (netAddrLenRead lenb) netAddr6Bytes)
+                        1
+                        0
+                      )                      "the kernel wrote sockaddr_in6's 28 back into the cell"
+                    )
+                    (say
+                      (if (== (netAddrFamily peer) afInet6)
+                        1
+                        0
+                      )                      "the peer's family is afInet6"
+                    )
+                    (say
+                      (if (strEq (netAddrText peer) "::1")
+                        1
+                        0
+                      )                      "the peer's address is ::1"
+                    )
+                    (say
+                      (if (strEq (netAddrTextPort peer) (strConcat "[::1]:" (fmtInt (+ base 3))))
+                        1
+                        0
+                      )                      "and reads back as [::1]:<source port>"
+                    )
+                    (sysCloseFd con6)
+                  }
+                )
+                (sysCloseFd cli6)
+              }
+            )
+            ; ------------------------------ a buffer too small
+            ; A v6 peer needs 28 bytes. Given 16, the kernel copies
+            ; what fits and reports the real length - and the rest of
+            ; the address field is left exactly as it was.
+            ;
+            ; THIS BUFFER HAS BEEN USED BEFORE, which is what makes the
+            ; case sharp. The accept above filled it with `::1`, so
+            ; without the repair the second accept reads `::1` straight
+            ; back out of the stale bytes: the right answer, arrived at
+            ; by accident, and the wrong answer the moment two peers
+            ; differ. A freshly allocated buffer shows the same defect
+            ; as `::` instead. Neither is distinguishable from a true
+            ; answer by the caller.
+            ;
+            ; So both are asserted against. `af=0` is the honest
+            ; nothing; `::` is checked separately because it is a real
+            ; address a socket can carry, and a reader has to be able
+            ; to tell "I could not store this" from "the peer was the
+            ; unspecified address".
+            (let ((cli6b netSocketTcp6))
+              {
+                (netSetOptInt
+                  cli6b                  solSocket                  soReuseAddr                  1                  optb
+                )
+                (netAddr6
+                  cliAddr                  (+ base 4)                  0                  0                  0                  0                  0                  0                  0                  1
+                )
+                (netBind cli6b cliAddr)
+                (netConnect cli6b srvAddr)
+                (memSet lenb 0 8)
+                (let ((con6b (acceptFromCapSoon
+                  lsn6                  peer                  netAddr4Bytes                  lenb                  1000
+                )))
+                  {
+                    (say
+                      (if (== (netAddrLenRead lenb) netAddr6Bytes)
+                        1
+                        0
+                      )                      "a short buffer still learns the address's real length"
+                    )
+                    (say
+                      (if (strEq (netAddrText peer) "af=0")
+                        1
+                        0
+                      )                      "an address that did not fit is withdrawn, not truncated"
+                    )
+                    (say
+                      (if (strEq (netAddrText peer) "::")
+                        0
+                        1
+                      )                      "and is not a stale or unspecified address"
+                    )
+                    (sysCloseFd con6b)
+                  }
+                )
+                (sysCloseFd cli6b)
+              }
+            )
+            (sysCloseFd lsn6)
+          }
+        )
+        0
+      }
+    )
+  )
+)

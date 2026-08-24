@@ -24,7 +24,18 @@
 ; "every compiler pass, request handler and macro expansion" as the
 ; same shape; this is the request handler.
 ;
-; ARGV: <port> <workers> <arena 0|1>
+; ARGV: <port> <workers> <arena 0|1> <varied 0|1>
+;
+; ENV: AXIOM_NET_LISTEN6=1 listens on `::1` instead of 127.0.0.1
+;      AXIOM_NET_PEER=1    prints `peer <address>:<port>` per connection
+;
+; THOSE TWO ARE ENVIRONMENT AND NOT ARGUMENTS, and the split is the
+; same one the gate makes. The four positional arguments are what a
+; worker pool IS - which port, how many workers, whether the handler is
+; a scope, how the load varies - and they are the axes the memory
+; measurement moves along. The two above are which of the address arms
+; is being run, and putting them in the same list would put a
+; measurement's switches beside the thing being measured.
 ;
 ; The parent prints one line - `pids p1 p2 ...` - and then waits. The
 ; driver reads that line to know whom to measure and whom to stop.
@@ -65,6 +76,14 @@
   )
 )
 
+; Whether an environment variable is set to exactly "1". `sysEnv`
+; answers "" for a variable that is not set, so an unset name and a
+; name set to anything else both read as off - the gate sets these to
+; "1" or does not set them at all.
+(:: envOn (-> String Bool))
+
+(fn (envOn name) (strEq (sysEnv name) "1"))
+
 ; The per-connection work, and the reason this file exists. The response
 ; is built by repeated concatenation, so the intermediates are garbage
 ; the instant the next one is made - about 16 KiB of it per call, none
@@ -93,12 +112,19 @@
   )
 )
 
-(:: serve (-> Int Int Int Int))
+; `reportPeer` costs an address buffer and a `socklen_t` cell per
+; WORKER, allocated here beside the poll buffers and therefore above
+; every arena mark - so the peer arm does not add anything the reset
+; has to rewind, and the memory arms measure the same handler whether
+; it is on or off.
+(:: serve (-> Int Int Int Bool Int))
 
-(fn (serve lsn arenaOn varied)
+(fn (serve lsn arenaOn varied reportPeer)
   (let (
     (rec (memAlloc 64))
     (ts (memAlloc 16))
+    (peer (memAlloc netAddrMaxBytes))
+    (lenb (memAlloc 8))
   )
     (let ((setbuf (memAlloc 8)))
       (let ((scratch (memAlloc 256)))
@@ -124,7 +150,12 @@
                                 {
                                   (if (>= (netPollSignalAt buf e sh scratch) 0)
                                     (set running 0)
-                                    (let ((con (netAccept lsn)))
+                                    (let ((con 
+                                      (if reportPeer
+                                        (netAcceptFrom lsn peer netAddrMaxBytes lenb)
+                                        (netAccept lsn)
+                                      )
+                                    ))
                                       (if (< con 0)
                                         0
                                         ; EVERYTHING THE CONNECTION
@@ -138,6 +169,20 @@
                                           (let ((m __axiom_arena_mark))
                                             {
                                               (netSetBlocking con)
+                                              ; INSIDE THE MARK, so the
+                                              ; rendering is garbage
+                                              ; the reset takes with
+                                              ; everything else the
+                                              ; connection allocated.
+                                              ; The address itself was
+                                              ; written into `peer` by
+                                              ; the accept above, which
+                                              ; is memory the worker
+                                              ; owns.
+                                              (if reportPeer
+                                                (printlnLit (strCStr (strConcat "peer " (netAddrTextPort peer))))
+                                                0
+                                              )
                                               (if (== (sysReadFd con byte 1) 1)
                                                 (respond
                                                   con                                                  byte                                                  (if (== varied 1)
@@ -185,64 +230,93 @@
     (let ((nworkers (parseInt (sysArg 2))))
       (let ((arenaOn (parseInt (sysArg 3))))
         (let ((varied (parseInt (sysArg 4))))
-          (let ((addr (memAlloc 16)))
+          (let ((addr (memAlloc netAddrMaxBytes)))
             (let (
               (setbuf (memAlloc 8))
               (optb (memAlloc 4))
             )
               (let ((pids vecNew))
-                (let ((lsn netSocketTcp))
-                  {
-                    (netSetOptInt
-                      lsn                      solSocket                      soReuseAddr                      1                      optb
+                (let ((v6 (envOn "AXIOM_NET_LISTEN6")))
+                  (let ((lsn 
+                    (if v6
+                      netSocketTcp6
+                      netSocketTcp
                     )
-                    (netAddr4
-                      addr                      port                      127                      0                      0                      1
-                    )
-                    (if (!= (netBind lsn addr) 0)
-                      (sysExitWith 2)
-                      0
-                    )
-                    (netListen lsn 512)
-                    (netSetNonBlocking lsn)
-                    (sysSignalBlock (sysSigBit sigTerm) setbuf)
-                    (let ((mut w 0))
-                      (while (< w nworkers)
-                        {
-                          (let ((pid sysForkProcess))
-                            (if (== pid 0)
-                              (sysExitWith (serve lsn arenaOn varied))
-                              (vecPush pids pid)
-                            )
-                          )
-                          (set w (+ w 1))
-                        })
-                    )
-                    ; One line the driver parses, then this process does
-                    ; nothing but reap - it holds no connection and its own
-                    ; RSS is not the measurement.
-                    (let ((mut s "pids"))
-                      (let ((mut k 0))
-                        {
-                          (while (< k (vecLen pids))
-                            {
-                              (set s (strConcat s (strConcat " " (fmtInt (vecGet pids k)))))
-                              (set k (+ k 1))
-                            })
-                          (printlnLit (strCStr s))
-                        }
+                  ))
+                    {
+                      (netSetOptInt
+                        lsn                        solSocket                        soReuseAddr                        1                        optb
                       )
-                    )
-                    (sysCloseFd lsn)
-                    (let ((mut r 0))
-                      (while (< r (vecLen pids))
-                        {
-                          (sysWaitPid (vecGet pids r))
-                          (set r (+ r 1))
-                        })
-                    )
-                    0
-                  }
+                      ; The address decides the length `netBind` passes,
+                      ; so the only thing that changes between the two
+                      ; families here is which builder writes the buffer.
+                      (if v6
+                        (netAddr6
+                          addr                          port                          0                          0                          0                          0                          0                          0                          0                          1
+                        )
+                        (netAddr4
+                          addr                          port                          127                          0                          0                          1
+                        )
+                      )
+                      ; A FAILED BIND USED TO EXIT SILENTLY, and the
+                      ; only thing the gate could then say was that no
+                      ; `pids` line ever appeared - true of a wrong
+                      ; address family, a wrong address length, a port
+                      ; already taken and a listener that was never
+                      ; created. All four now name themselves here: a
+                      ; negative `socket` means the family was refused
+                      ; at `socket`, and `rc` with the address and the
+                      ; length it asked for distinguishes the rest.
+                      (let ((rc (netBind lsn addr)))
+                        (if (!= rc 0)
+                          {
+                            (printlnLit (strCStr (strConcat (strConcat "bind failed: rc " (fmtInt rc)) (strConcat (strConcat " socket " (fmtInt lsn)) (strConcat (strConcat " addr " (netAddrText addr)) (strConcat " len " (fmtInt (netAddrSize addr))))))))
+                            (sysExitWith 2)
+                          }
+                          0
+                        )
+                      )
+                      (netListen lsn 512)
+                      (netSetNonBlocking lsn)
+                      (sysSignalBlock (sysSigBit sigTerm) setbuf)
+                      (let ((mut w 0))
+                        (while (< w nworkers)
+                          {
+                            (let ((pid sysForkProcess))
+                              (if (== pid 0)
+                                (sysExitWith (serve lsn arenaOn varied (envOn "AXIOM_NET_PEER")))
+                                (vecPush pids pid)
+                              )
+                            )
+                            (set w (+ w 1))
+                          })
+                      )
+                      ; One line the driver parses, then this process does
+                      ; nothing but reap - it holds no connection and its own
+                      ; RSS is not the measurement.
+                      (let ((mut s "pids"))
+                        (let ((mut k 0))
+                          {
+                            (while (< k (vecLen pids))
+                              {
+                                (set s (strConcat s (strConcat " " (fmtInt (vecGet pids k)))))
+                                (set k (+ k 1))
+                              })
+                            (printlnLit (strCStr s))
+                          }
+                        )
+                      )
+                      (sysCloseFd lsn)
+                      (let ((mut r 0))
+                        (while (< r (vecLen pids))
+                          {
+                            (sysWaitPid (vecGet pids r))
+                            (set r (+ r 1))
+                          })
+                      )
+                      0
+                    }
+                  )
                 )
               )
             )

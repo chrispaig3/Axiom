@@ -75,6 +75,13 @@
 ; `strSplit`, so this edge is not new - it is written down.
 (import Vec)
 
+; `netAddrText` renders an address as decimal octets and hexadecimal
+; groups, both of which `Fmt` already does; a second `fmtInt` living
+; here would be the drift this library keeps refusing elsewhere. The
+; edge adds no cycle - `Fmt` imports `Mem` and `Str` and nothing else,
+; and both are above this line.
+(import Fmt)
+
 (pub :: stdin Int)
 
 (pub fn (stdin) 0)
@@ -1278,12 +1285,66 @@
 ; omission. Resolving a name means `getaddrinfo`, which lives in libc,
 ; and linking libc costs the property `scripts/check-freestanding.sh`
 ; exists to hold. A resolver has to arrive as its own decision.
+;
+; TWO ADDRESS FAMILIES, AND AN ADDRESS CARRIES ITS OWN. `netAddr4` and
+; `netAddr6` write the family into the `sockaddr` they build, and
+; `netBind`, `netConnect`, `netAddrSize` and `netAddrText` read it back
+; out - so one buffer decides its own length and its own rendering and
+; no caller passes either. Both lengths were a literal 16 until
+; 2026-08-24, which is what made this layer v4-only: measured on
+; Darwin, `bind` of a correct `::1` answers -22 EINVAL at length 16 and
+; 0 at 28.
+;
+; NOTHING HERE PARSES ADDRESS TEXT. `netAddrText` renders and has no
+; inverse, because the only caller that has wanted one is a test that
+; can compare the rendering instead.
 ; ------------------------------------------------------------------
 ; A TCP socket, or a negative errno.
 (pub :: netSocketTcp Int)
 
 ;@axiom:effect(io)
 (pub fn (netSocketTcp) (__syscall3 sysSocketNum afInet sockStream 0))
+
+; The same over IPv6. Its own name rather than a family parameter,
+; because the family is not a runtime choice at this layer: a caller
+; already picked a builder when it made the address, and a socket whose
+; family disagrees with the address it is given fails at `bind` and not
+; here.
+;
+; `afInet6` IS THE CONSTANT IN THAT GROUP THAT DOES NOT AGREE - 30 on
+; Darwin against Linux's 10, where `afInet` is 2 on both. Measured on
+; Darwin 2026-08-24, `socket(10, SOCK_STREAM, 0)` answers -47
+; EAFNOSUPPORT, so a cross-copied number dies at this call rather than
+; three functions later. `scripts/check-net.sh`'s IPv6 arm runs on all
+; three targets and is what holds the number to its platform.
+(pub :: netSocketTcp6 Int)
+
+;@axiom:effect(io)
+(pub fn (netSocketTcp6) (__syscall3 sysSocketNum afInet6 sockStream 0))
+
+; How many bytes an address of each family occupies, and how big a
+; buffer that must take either has to be.
+;
+; THESE ARE SIZES, NOT PLATFORM NUMBERS. `sockaddr_in` is 16 and
+; `sockaddr_in6` is 28 on all three targets, and they agree for a
+; reason rather than by luck: Darwin spends its first byte on a length
+; and one on the family where Linux spends two on the family, so the
+; divergence `sockaddrHasLenByte` names is inside the first four bytes
+; and the totals land together. That is why they live here and not in
+; `Sys.Platform`.
+(pub :: netAddr4Bytes Int)
+
+(pub fn (netAddr4Bytes) 16)
+
+(pub :: netAddr6Bytes Int)
+
+(pub fn (netAddr6Bytes) 28)
+
+; What `netAcceptFrom` wants, which is the larger of the two: a caller
+; does not get to know the peer's family until it has the peer.
+(pub :: netAddrMaxBytes Int)
+
+(pub fn (netAddrMaxBytes) 28)
 
 ; Write an IPv4 `sockaddr_in` into `buf`, which must hold 16 bytes, and
 ; answer `buf`. The four octets are given in reading order, so
@@ -1320,24 +1381,150 @@
   }
 )
 
-; Bind a socket to an address built by `netAddr4`. THE LENGTH IS EXACTLY
-; 16 and is not a parameter: 0, 4, 8, 12, 20, 24 and 28 were each probed
-; on Darwin and every one answered -22 EINVAL, so a caller who could
-; pass the wrong one would only ever pass this one correctly.
+; Write an IPv6 `sockaddr_in6` into `buf`, which must hold
+; `netAddr6Bytes`, and answer `buf`.
+;
+; THE EIGHT GROUPS ARE GIVEN IN READING ORDER, each the 16-bit number
+; its text form spells: `::1` is `0 0 0 0 0 0 0 1`, `::` is eight
+; zeroes, and `2001:db8::1` is `8193 3512 0 0 0 0 0 1`. That is
+; `netAddr4`'s contract - octets in reading order - one field width up,
+; and it is groups rather than sixteen octets because the text form a
+; caller is transcribing from is groups.
+;
+; THE FAMILY IS WRITTEN AS TWO BYTES ON LINUX and one on Darwin, the
+; same split `netAddr4` makes, but the high byte is computed rather
+; than written as a literal zero: `sin6_family` is a 16-bit field and
+; both numbers fitting in a byte is a property of 30 and 10, not of the
+; layout.
+;
+; `flowinfo` (bytes 4:4) AND `scope_id` (24:4) ARE LEFT ZERO by the
+; `memSet` and are not parameters. flowinfo is not read for a stream
+; socket on either kernel; scope_id means something only for a
+; link-local address, where it is an interface index - which is
+; `if_nametoindex`, which is libc, which is the property
+; `scripts/check-freestanding.sh` exists to hold. A link-local listener
+; arrives as its own decision, the same way a resolver does.
+(pub :: netAddr6 (-> Int Int Int Int Int Int Int Int Int Int Int))
+
+(pub fn (netAddr6 buf port g0 g1 g2 g3 g4 g5 g6 g7)
+  {
+    (memSet buf 0 netAddr6Bytes)
+    (if (== sockaddrHasLenByte 1)
+      {
+        (memPutByte buf 0 netAddr6Bytes)
+        (memPutByte buf 1 afInet6)
+      }
+      {
+        (memPutByte buf 0 (& afInet6 255))
+        (memPutByte buf 1 (& (>> afInet6 8) 255))
+      }
+    )
+    (memPutByte buf 2 (& (>> port 8) 255))
+    (memPutByte buf 3 (& port 255))
+    (netPutGroup buf 0 g0)
+    (netPutGroup buf 1 g1)
+    (netPutGroup buf 2 g2)
+    (netPutGroup buf 3 g3)
+    (netPutGroup buf 4 g4)
+    (netPutGroup buf 5 g5)
+    (netPutGroup buf 6 g6)
+    (netPutGroup buf 7 g7)
+    buf
+  }
+)
+
+; The `i`th 16-bit group of a `sockaddr_in6` address, written
+; big-endian at byte 8 + 2i. Network order, like `sin_port` and
+; `sin_addr` and unlike everything else this file stores.
+(:: netPutGroup (-> Int Int Int Int))
+
+(fn (netPutGroup buf i g)
+  {
+    (memPutByte buf (+ 8 (* i 2)) (& (>> g 8) 255))
+    (memPutByte buf (+ 9 (* i 2)) (& g 255))
+    buf
+  }
+)
+
+; The `i`th group read back, which is what `netAddrText` renders and
+; what decides where a `::` may go.
+(:: netGetGroup (-> Int Int Int))
+
+(fn (netGetGroup addr i) (+ (<< (memGetByte addr (+ 8 (* i 2))) 8) (memGetByte addr (+ 9 (* i 2)))))
+
+; The address family in a `sockaddr` - `afInet`, `afInet6`, or whatever
+; else the kernel wrote there.
+;
+; THE ONLY FUNCTION THAT KNOWS WHERE THE FAMILY LIVES, and that is the
+; point of it existing: one byte at offset 1 on Darwin, two host-order
+; bytes at offset 0 on Linux. A caller that read the byte itself would
+; be right on the machine it was written on and silently wrong on the
+; other, which is the whole shape `sockaddrHasLenByte` was added to
+; stop.
+(pub :: netAddrFamily (-> Int Int))
+
+(pub fn (netAddrFamily addr)
+  (if (== sockaddrHasLenByte 1)
+    (memGetByte addr 1)
+    (+ (memGetByte addr 0) (<< (memGetByte addr 1) 8))
+  )
+)
+
+; The port in a `sockaddr`, decoded from network order. This one does
+; NOT branch on the platform or the family: both layouts diverge in the
+; four bytes before it and agree from byte 2 on, so `sin_port` and
+; `sin6_port` are the same two bytes in the same place.
+(pub :: netAddrPort (-> Int Int))
+
+(pub fn (netAddrPort addr) (+ (<< (memGetByte addr 2) 8) (memGetByte addr 3)))
+
+; How many bytes of `addr` a syscall must be given, read off the family
+; the buffer carries. This is what `netBind` and `netConnect` pass, and
+; the reason neither of them takes a length.
+;
+; ANYTHING THAT IS NOT v6 TAKES 16, a buffer holding some other family
+; included, and that is safe rather than lucky because the kernel
+; checks the family before the length. Measured on Darwin 2026-08-24
+; against a socket made by `netSocketTcp6`: an address carrying
+; `afInet` with a length of 28 answers -47 EAFNOSUPPORT, and a correct
+; `::1` with a length of 16 answers -22 EINVAL. Family first, then
+; length - so a wrong family is never reported as a wrong size.
+(pub :: netAddrSize (-> Int Int))
+
+(pub fn (netAddrSize addr)
+  (if (== (netAddrFamily addr) afInet6)
+    netAddr6Bytes
+    netAddr4Bytes
+  )
+)
+
+; Bind a socket to an address built by `netAddr4` or `netAddr6`.
+;
+; THE LENGTH IS STILL NOT A PARAMETER, AND IS NO LONGER A LITERAL. It
+; comes from `netAddrSize`, which reads the family out of the buffer,
+; because the two families need different lengths and the address is
+; the only thing that knows which it is.
+;
+; It was a literal 16 until 2026-08-24 and the measurement that put it
+; there still holds for a v4 address: 0, 4, 8, 12, 20, 24 and 28 were
+; each probed on Darwin and every one answered -22 EINVAL. The same
+; probe against a correct `::1` answers -22 at 16 and 0 at 28. So there
+; is exactly one right length per address - which is precisely why a
+; caller must not be the one supplying it.
 (pub :: netBind (-> Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (netBind fd addr) (__syscall3 sysBindNum fd addr 16))
+(pub fn (netBind fd addr) (__syscall3 sysBindNum fd addr (netAddrSize addr)))
 
 (pub :: netListen (-> Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (netListen fd backlog) (__syscall3 sysListenNum fd backlog 0))
 
-; Accept a connection, answering the new socket or a negative errno. The
-; peer address is not reported: nothing in the tree wants it yet, and a
-; caller that does can call `getsockname`'s sibling itself rather than
-; pay for a buffer on every accept.
+; Accept a connection, answering the new socket or a negative errno,
+; and throw the peer's address away. `netAcceptFrom` below keeps it;
+; this is the form for a caller that does not want the buffer, and it
+; passes NULL for both of `accept`'s out-parameters.
 ;
 ; THE ACCEPTED SOCKET IS ALWAYS NON-BLOCKING, and that is a contract
 ; this layer DEFINES rather than a platform behaviour it reports.
@@ -1366,20 +1553,279 @@
 (pub :: netAccept (-> Int Int))
 
 ;@axiom:effect(io)
-(pub fn (netAccept fd)
-  (let ((c (__syscall4
-    sysAcceptNum    fd    0    0    acceptNonblockFlag
-  )))
-    (if (< c 0)
-      c
-      (if (== acceptNonblockFlag 0)
-        {
-          (netSetNonBlocking c)
-          c
-        }
+(pub fn (netAccept fd) (netAcceptFinish (__syscall4
+  sysAcceptNum  fd  0  0  acceptNonblockFlag
+)))
+
+; The half of an accept that is not the syscall: put the accepted
+; socket into the non-blocking state this layer promises, on the target
+; where the kernel did not.
+;
+; SHARED BY `netAccept` AND `netAcceptFrom` rather than written twice.
+; The paragraphs above are a CONTRACT this layer defines, and two
+; copies of the code behind it is two places for it to stop being the
+; same contract - which is the failure `311-preforked-server.ax` cost
+; this tree once already.
+(:: netAcceptFinish (-> Int Int))
+
+;@axiom:effect(io)
+(fn (netAcceptFinish c)
+  (if (< c 0)
+    c
+    (if (== acceptNonblockFlag 0)
+      {
+        (netSetNonBlocking c)
         c
+      }
+      c
+    )
+  )
+)
+
+; Accept a connection AND KEEP THE PEER'S ADDRESS. Answers the new
+; socket or a negative errno, exactly as `netAccept` does, and fills
+; `addr` with the peer's `sockaddr`, which `netAddrFamily`,
+; `netAddrPort` and `netAddrText` read.
+;
+; THE KERNEL ALREADY HAS THIS ADDRESS. `netAccept` passed NULL for the
+; two out-parameters that would have received it, and once it has
+; returned the information is gone: an access log, a per-IP rate limit
+; and per-peer accounting cannot be added by a caller afterwards. That
+; is the whole reason this exists.
+;
+; `cap` IS THE CALLER'S BUFFER SIZE because it is the caller's buffer.
+; Pass `netAddrMaxBytes` unless there is a reason not to.
+;
+; A BUFFER TOO SMALL FOR THE ADDRESS ANSWERS NOTHING RATHER THAN
+; SOMETHING WRONG, and that is worth the comparison it costs.
+;
+; A v6 peer needs 28 bytes. Given 16, the kernel copies what fits and
+; writes the REAL length back, so the buffer holds a family, a port,
+; the flowinfo and the first EIGHT bytes of the address - and the
+; remaining bytes of the address field ARE NOT WRITTEN BY THIS CALL AT
+; ALL. That is the whole defect, and it is worse than truncation,
+; because what a reader gets back depends on what was in the buffer
+; before:
+;
+;   a buffer used for a previous accept renders THAT PEER's address,
+;     which is a live, plausible, wrong answer - the case measured
+;     here, where a second accept into the same buffer read `::1`
+;     back out of the bytes the first one left;
+;   a freshly allocated buffer renders `::`, the unspecified address,
+;     which is also a real address a socket can carry.
+;
+; Neither is distinguishable from a true answer by the caller. An
+; access log that prints a wrong address is worse than one that prints
+; an honest nothing, which is this section's rule everywhere else, so
+; the family is cleared whenever the kernel's length exceeds `cap` and
+; `netAddrText` then answers `af=0`.
+;
+; FOUND BY ATTACKING THE LAYER, NOT BY WRITING IT, and the comment
+; here used to bless it: "truncates the address to its first four
+; bytes with nothing in the result to say so". It is eight bytes, the
+; rest is whatever was already there, and it was never a truncation.
+;
+; `lenbuf` IS A VALUE-RESULT CELL: four bytes, host order, written on
+; the way in and overwritten on the way out. The kernel reads `cap` out
+; of it and writes the address's real length back, which is what
+; `netAddrLenRead` answers. Measured on Darwin 2026-08-24, given 28 and
+; a loopback v4 peer: `accept` answered 16 and left
+; `16 2 150 211 127 0 0 1` in the buffer - the length byte, the family,
+; the port big-endian, then the four octets. Writing the capacity in is
+; not optional; a cell left holding whatever was there before is how a
+; caller reads a truncated address, or one larger than `cap` is how it
+; smashes the memory past the buffer.
+;
+; It shares `netAcceptFinish` with `netAccept`, so the non-blocking
+; contract above is this function's too and is not re-solved here.
+(pub :: netAcceptFrom (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netAcceptFrom fd addr cap lenbuf)
+  {
+    (memSet addr 0 cap)
+    (netPutInt32 lenbuf 0 cap)
+    ; The accept SUCCEEDED - the descriptor is real and the caller
+    ; owns it. Only the address is unusable, so only the address is
+    ; withdrawn: clearing the family byte is what makes
+    ; `netAddrFamily` answer 0 and `netAddrText` answer `af=0`.
+    (let ((fd2 (netAcceptFinish (__syscall4
+      sysAcceptNum      fd      addr      lenbuf      acceptNonblockFlag
+    ))))
+      {
+        (if (&& (>= fd2 0) (> (netAddrLenRead lenbuf) cap))
+          (memSet addr 0 cap)
+          0
+        )
+        fd2
+      }
+    )
+  }
+)
+
+; The length the kernel wrote back into a `netAcceptFrom` cell - 16 for
+; a v4 peer, 28 for a v6 one. It is the REAL length of the peer's
+; address, which is not necessarily how much of it arrived: the kernel
+; copies what fits and reports the whole size either way, so a value
+; larger than the `cap` that went in means the address was cut short.
+; `netAcceptFrom` acts on that itself; a caller reads this to log the
+; family it could not store.
+;
+; IT CANNOT CONFIRM THE VALUE-RESULT ROUND TRIP, and this comment used
+; to claim it could. The kernel writes the true length whatever was in
+; the cell, so a `netAcceptFrom` that never wrote `cap` in still leaves
+; the right number here - which is exactly why the sentinel in
+; `317-peer-address.ax` is 0 and not 0xFF.
+(pub :: netAddrLenRead (-> Int Int))
+
+(pub fn (netAddrLenRead lenbuf) (netGetInt32 lenbuf 0))
+
+; A four-byte integer in the HOST's order, which is what the kernel
+; reads a `socklen_t` and an `int` socket option as - unlike an
+; address, whose port and octets are network order. Both spellings were
+; written out twice before `netAcceptFrom` needed a third.
+(:: netPutInt32 (-> Int Int Int Int))
+
+(fn (netPutInt32 buf off v)
+  {
+    (memPutByte buf off (& v 255))
+    (memPutByte buf (+ off 1) (& (>> v 8) 255))
+    (memPutByte buf (+ off 2) (& (>> v 16) 255))
+    (memPutByte buf (+ off 3) (& (>> v 24) 255))
+    buf
+  }
+)
+
+(:: netGetInt32 (-> Int Int Int))
+
+(fn (netGetInt32 buf off) (+ (memGetByte buf off) (+ (<< (memGetByte buf (+ off 1)) 8) (+ (<< (memGetByte buf (+ off 2)) 16) (<< (memGetByte buf (+ off 3)) 24)))))
+
+; Render an address as text: a dotted quad for `afInet`, RFC 5952 form
+; for `afInet6`.
+;
+; THE FAMILY IN THE BUFFER DECIDES, so a v4 address cannot come back
+; looking like a v6 one. That is the failure worth guarding rather than
+; a hypothetical: the two layouts share their first four bytes, so a
+; renderer that guessed v6 for a v4 address would read the port as the
+; first group and the octets as the second.
+;
+; A family this layer does not build renders as `af=<n>` and not as a
+; dotted quad of whatever was at byte 4. An access log that prints a
+; wrong address is worse than one that prints an honest nothing.
+;
+; THIS ALLOCATES, and it is the only function in this section that
+; does - which is why it is a separate call and not part of
+; `netAcceptFrom`. It is made when a line is written, not on every
+; accept.
+(pub :: netAddrText (-> Int String))
+
+(pub fn (netAddrText addr)
+  (let ((fam (netAddrFamily addr)))
+    (if (== fam afInet6)
+      (netAddrText6 addr 0 (netAddrZeroRunStart addr 0 (- 0 1) 1) "")
+      (if (== fam afInet)
+        (netAddrText4 addr)
+        (strConcat "af=" (fmtInt fam))
       )
     )
+  )
+)
+
+(:: netAddrText4 (-> Int String))
+
+(fn (netAddrText4 addr) (strConcat (strConcat (strConcat (fmtInt (memGetByte addr 4)) ".") (strConcat (fmtInt (memGetByte addr 5)) ".")) (strConcat (strConcat (fmtInt (memGetByte addr 6)) ".") (fmtInt (memGetByte addr 7)))))
+
+; How many groups from `i` are zero. The run this answers is what a
+; `::` stands for.
+(:: netAddrZeroRun (-> Int Int Int))
+
+(fn (netAddrZeroRun addr i)
+  (if (>= i 8)
+    0
+    (if (== (netGetGroup addr i) 0)
+      (+ 1 (netAddrZeroRun addr (+ i 1)))
+      0
+    )
+  )
+)
+
+; Where the `::` goes, or -1 for an address that gets none.
+;
+; RFC 5952 §4.2 IS TWO RULES AND BOTH ARE HERE. A single zero group is
+; NOT shortened - `best` starts at 1, so a run of 1 never wins the `>`
+; below - because `1:0:2:3:4:5:6:7` and `1::2:3:4:5:6:7` are the same
+; length and one of them is ambiguous. And where two runs tie, the
+; leftmost wins, which is what a strict `>` gives.
+(:: netAddrZeroRunStart (-> Int Int Int Int Int))
+
+(fn (netAddrZeroRunStart addr i best bestLen)
+  (if (>= i 8)
+    best
+    (let ((n (netAddrZeroRun addr i)))
+      (if (> n bestLen)
+        (netAddrZeroRunStart addr (+ i n) i n)
+        (netAddrZeroRunStart
+          addr          (+
+            i            (if (> n 0)
+              n
+              1
+            )
+          )          best          bestLen
+        )
+      )
+    )
+  )
+)
+
+; The groups joined, lowercase and without leading zeroes - RFC 5952
+; §4.1 and §4.3 - with the run beginning at `zs` collapsed to `::`.
+;
+; THE TWO EDGES ARE THE ENDS. A run that starts at group 0 leaves `acc`
+; empty and contributes the FIRST of the two colons, the next group
+; supplying the second; a run that reaches group 8 has no next group to
+; do that, so it writes both. `::` itself is the second case with
+; nothing before it.
+(:: netAddrText6 (-> Int Int Int String String))
+
+(fn (netAddrText6 addr i zs acc)
+  (if (>= i 8)
+    acc
+    (if (== i zs)
+      (let ((n (netAddrZeroRun addr i)))
+        (netAddrText6
+          addr          (+ i n)          zs          (strConcat
+            acc            (if (== (+ i n) 8)
+              "::"
+              ":"
+            )
+          )
+        )
+      )
+      (netAddrText6
+        addr        (+ i 1)        zs        (strConcat
+          (if (== i 0)
+            acc
+            (strConcat acc ":")
+          )          (fmtHex (netGetGroup addr i))
+        )
+      )
+    )
+  )
+)
+
+; The same, with the port, in the form a URL authority uses:
+; `127.0.0.1:80` and `[::1]:80`.
+;
+; THE BRACKETS ARE NOT DECORATION. A v6 address contains colons, so
+; `::1:80` cannot be split back into an address and a port; RFC 3986
+; §3.2.2 resolves that with the brackets, and a caller writing an
+; access log should not have to know which family needs them.
+(pub :: netAddrTextPort (-> Int String))
+
+(pub fn (netAddrTextPort addr)
+  (if (== (netAddrFamily addr) afInet6)
+    (strConcat (strConcat "[" (netAddrText addr)) (strConcat "]:" (fmtInt (netAddrPort addr))))
+    (strConcat (netAddrText addr) (strConcat ":" (fmtInt (netAddrPort addr))))
   )
 )
 
@@ -1399,10 +1845,13 @@
   )
 )
 
+; Connect to an address built by `netAddr4` or `netAddr6`. The length
+; comes off the family in the buffer for the same reason `netBind`'s
+; does, and was the same literal 16.
 (pub :: netConnect (-> Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (netConnect fd addr) (__syscall3 sysConnectNum fd addr 16))
+(pub fn (netConnect fd addr) (__syscall3 sysConnectNum fd addr (netAddrSize addr)))
 
 (pub :: netShutdown (-> Int Int Int))
 
@@ -1411,16 +1860,15 @@
 
 ; Set an integer-valued socket option. The value crosses as four bytes
 ; in the host's own order, which is what the kernel reads an `int`
-; option as - unlike an address, this one is NOT network order.
+; option as - unlike an address, this one is NOT network order. That is
+; `netPutInt32`, which `netAcceptFrom`'s `socklen_t` cell needs for the
+; same reason.
 (pub :: netSetOptInt (-> Int Int Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (netSetOptInt fd level name value v)
   {
-    (memPutByte v 0 (& value 255))
-    (memPutByte v 1 (& (>> value 8) 255))
-    (memPutByte v 2 (& (>> value 16) 255))
-    (memPutByte v 3 (& (>> value 24) 255))
+    (netPutInt32 v 0 value)
     (__syscall5
       sysSetSockOptNum      fd      level      name      v      4
     )

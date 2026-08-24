@@ -266,6 +266,21 @@
 
 (pub fn (afInet) 2)
 
+; AF_INET6 - 10 here against Darwin's 30, and the one constant in this
+; group that does NOT agree. `afInet` is 2 on both systems; the Darwin
+; file calls that agreement a trap and this is what it was warning
+; about.
+;
+; Measured on Darwin 2026-08-24: `socket(10, SOCK_STREAM, 0)` there
+; answers -47 EAFNOSUPPORT, which is the shape a cross-copied 30 takes
+; here. `scripts/check-net.sh`'s IPv6 arm is the probe, and `ci.yml`
+; runs it on this target as well as Darwin: it opens a listener on
+; `::1` and round-trips a connection, so a wrong number here cannot be
+; green.
+(pub :: afInet6 Int)
+
+(pub fn (afInet6) 10)
+
 (pub :: sockStream Int)
 
 (pub fn (sockStream) 1)
@@ -308,6 +323,12 @@
 
 ; Linux's `sockaddr_in` has NO length byte: `sin_family` is a two-byte
 ; host-order field at offset 0. The Darwin file carries both layouts.
+;
+; `sockaddr_in6` asks the same question and takes the same answer here:
+; `sin6_family` is two host-order bytes at offset 0, then the port
+; big-endian at 2, flowinfo at 4, the sixteen address bytes at 8 and
+; scope_id at 24 - 28 bytes, the same size Darwin's is. So this one
+; capability covers both families and the 28 is not a platform number.
 (pub :: sockaddrHasLenByte Int)
 
 (pub fn (sockaddrHasLenByte) 0)

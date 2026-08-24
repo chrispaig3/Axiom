@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 480 `.ax` files in the repository apart from the two named below,
+the 482 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -173,7 +173,7 @@ formatting changes MEANING, not when a committed file has drifted out
 of the normal form — and it fails if more than 60 files stop being
 covered by `tests/fmt/corpus-fmt.golden`.
 
-That 480 is recomputed, and recomputing it is why this paragraph was
+That 482 is recomputed, and recomputing it is why this paragraph was
 rewritten. `check-doc-drift.sh` checks every count the normative
 documents state, but until 2026-08-24 its `claim()` helper opened
 README.md and nothing else — so the sentence above stood 28 files

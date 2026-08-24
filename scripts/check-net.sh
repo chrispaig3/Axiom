@@ -77,10 +77,45 @@
 # workload. That is a planned item retired by measurement rather than
 # built.
 #
+# ---------------------------------------------------------------------
+# THE ADDRESS ARMS, WHICH MEASURE NOTHING. Everything above is one
+# claim about memory. The two arms at the bottom are a different
+# claim - that the socket layer can say WHO connected, and can do it
+# over both address families - and they are here rather than in
+# `tests/stdlib/` because they need a real second process on the other
+# end of the connection. `tests/stdlib/317-peer-address.ax` is the same
+# property with one process being both ends; this is the one where the
+# client is not us.
+#
+# THE ASSERTION IS THE ADDRESS, NOT THAT A CALL RETURNED. That
+# distinction is this script's own, one layer up: the memory arms
+# compare two runs to each other rather than to a constant, because a
+# constant can be met by a measurement that reads nothing. An address
+# arm has the same hole - a server that answered `127.0.0.1` to
+# everything would pass any check that only looked at the address - so
+# the driver BINDS ITS SOURCE PORT, to a number derived from this
+# script's pid at run time, and a different one per connection. The
+# expected lines are therefore three distinct endpoints that no fixed
+# answer, no reuse of the previous peer, and no report of the
+# LISTENER's own address can produce.
+#
+# THE IPv6 ARM PROVES THREE THINGS AT ONCE and cannot separate them,
+# which is the point of running it as one round trip: `afInet6` has to
+# be this platform's number or `socket` answers -47/-97 EAFNOSUPPORT;
+# the length has to come off the family or `bind` answers -22 EINVAL,
+# because `sockaddr_in6` is 28 bytes and the literal 16 that used to be
+# there is refused; and the address has to be built into the right
+# sixteen bytes or the connection goes somewhere else. The server exits
+# 2 on a failed bind and never prints its `pids` line, so any of the
+# three shows up as this arm timing out on that line rather than as a
+# wrong address.
+#
 # WHAT THIS STILL DOES NOT TEST: nothing here keeps per-connection
 # state, so this is the STATELESS case the plan scoped to and not
 # keep-alive, where the live set outlives the request and the arena
-# boundary stops being free.
+# boundary stops being free. And both address arms are LOOPBACK: they
+# establish that the peer the kernel reports is the peer that
+# connected, not that a globally routed address survives anything.
 
 set -uo pipefail
 
@@ -122,6 +157,94 @@ for i in range(n):
         pass
 print(ok)
 PY
+
+# The address driver. Every connection binds its source port before it
+# connects, which is what makes the peer the server reports a number
+# this script already knows - see the header. Sequential and tiny: this
+# arm asserts three strings, not a rate.
+cat > "$work/drive-addr.py" <<'PY'
+import socket, sys
+port, host, src, n = int(sys.argv[1]), sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+fam = socket.AF_INET6 if ":" in host else socket.AF_INET
+ok = 0
+for i in range(n):
+    try:
+        s = socket.socket(fam, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((host, src + i))
+        s.settimeout(10)
+        s.connect((host, port))
+        s.sendall(bytes([i % 251]))
+        if s.recv(1) == bytes([i % 251]):
+            ok += 1
+        s.close()
+    except OSError as e:
+        print("client:", e, file=sys.stderr)
+print(ok)
+PY
+
+# run_peer_server <port> <host> <v6 0|1> <source base> <connections>
+#
+# Runs ONE worker with the peer report on, drives `n` connections from
+# `n` consecutive bound source ports, and leaves the server's own
+# output in `$work/peer.<port>.out`. Echoes "<echoed>".
+run_peer_server() {
+  local port="$1" host="$2" v6="$3" src="$4" n="$5"
+  local out="$work/peer.$port.out"
+
+  AXIOM_NET_PEER=1 AXIOM_NET_LISTEN6="$v6" \
+    "$srv" "$port" 1 1 0 >"$out" 2>&1 &
+  local srv_pid=$!
+
+  local waited=0 pids=""
+  while [[ -z "$pids" && "$waited" -lt 100 ]]; do
+    pids="$(sed -n 's/^pids //p' "$out" 2>/dev/null)"
+    [[ -n "$pids" ]] && break
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  if [[ -z "$pids" ]]; then
+    # A listener that could not be created or could not be bound exits
+    # before this line, so this is where a wrong `afInet6` or a wrong
+    # address length surfaces.
+    echo "FAIL: the server never announced its worker on $host port $port" >&2
+    sed 's/^/    /' "$out" >&2
+    kill "$srv_pid" 2>/dev/null
+    return 1
+  fi
+
+  local echoed
+  echoed="$(python3 "$work/drive-addr.py" "$port" "$host" "$src" "$n")"
+
+  for p in $pids; do kill -TERM "$p" 2>/dev/null; done
+  wait "$srv_pid" 2>/dev/null
+  echo "$echoed"
+}
+
+# check_peers <port> <host> <bracketed host> <source base> <connections>
+#
+# Compares the `peer` lines the server printed against the endpoints the
+# driver actually connected from, and prints the difference when they
+# are not the same.
+check_peers() {
+  local port="$1" host="$2" shown="$3" src="$4" n="$5" what="$6"
+  local out="$work/peer.$port.out" i expected actual
+
+  expected=""
+  for ((i = 0; i < n; i++)); do
+    expected+="peer $shown:$((src + i))"$'\n'
+  done
+  actual="$(grep '^peer ' "$out" || true)"
+
+  if [[ "$actual" != "${expected%$'\n'}" ]]; then
+    echo "FAIL: $what - the addresses reported are not the ones that connected"
+    diff <(printf '%s' "$expected") <(printf '%s\n' "$actual") | sed 's/^/    /' || true
+    return 1
+  fi
+  echo "ok   $what: $n connections, each reported as the endpoint it came from"
+  echo "     $(printf '%s' "$expected" | tr '\n' ' ')"
+  return 0
+}
 
 # run <arena 0|1> <port> <connections>  ->  echoes "<echoed> <peakRssKiB>"
 run_server() {
@@ -239,6 +362,39 @@ else
   echo "ok   varied sizes held within 2x (${v_small_rss} -> ${v_large_rss} KiB) over $(( conns_large / conns_small ))x the connections"
 fi
 
+# ---------------------------------------------------------------
+# The peer address. `netAccept` passed NULL for `accept`'s two
+# out-parameters and the peer was gone by the time it returned;
+# `netAcceptFrom` takes a buffer instead. Nothing in this script could
+# tell the difference before - `grep -c peer` over it answered 0.
+# ---------------------------------------------------------------
+echo "== the server reports the address each connection came from =="
+addr_src=$(( 25000 + ($$ % 3000) ))
+peer_conns=3
+
+peer_ok="$(run_peer_server $((base_port + 6)) 127.0.0.1 0 "$addr_src" "$peer_conns")" || status=1
+if [[ "${peer_ok:-0}" != "$peer_conns" ]]; then
+  echo "FAIL: the v4 peer arm echoed ${peer_ok:-0} of $peer_conns"; status=1
+fi
+check_peers $((base_port + 6)) 127.0.0.1 127.0.0.1 "$addr_src" "$peer_conns" \
+  "IPv4" || status=1
+
+# ---------------------------------------------------------------
+# IPv6. One round trip that cannot pass unless `afInet6` is this
+# platform's number, the address length came off the family rather than
+# the literal 16, and `netAddr6` wrote `::1` into the right sixteen
+# bytes.
+# ---------------------------------------------------------------
+echo "== a v6 listener on ::1 round-trips and reports v6 peers =="
+v6_src=$(( addr_src + 100 ))
+
+v6_ok="$(run_peer_server $((base_port + 7)) ::1 1 "$v6_src" "$peer_conns")" || status=1
+if [[ "${v6_ok:-0}" != "$peer_conns" ]]; then
+  echo "FAIL: the v6 arm echoed ${v6_ok:-0} of $peer_conns"; status=1
+fi
+check_peers $((base_port + 7)) ::1 '[::1]' "$v6_src" "$peer_conns" \
+  "IPv6" || status=1
+
 if (( ratio < 50 )); then
   echo "FAIL: scoped (${a_large_rss} KiB) is only ${ratio}x below unscoped (${n_large_rss} KiB)."
   echo "     The handler's garbage is outliving the connection - either the reset is"
@@ -253,6 +409,8 @@ if (( status == 0 )); then
   echo "check-net: a pre-forked server holds its memory flat across"
   echo "           $conns_large connections when the handler is an arena scope,"
   echo "           holds it when the request sizes vary by three orders of"
-  echo "           magnitude, and this measurement can see it when it does not"
+  echo "           magnitude, and this measurement can see it when it does not;"
+  echo "           and it can name the peer of every connection it served,"
+  echo "           over IPv4 and over IPv6, on this platform's own afInet6"
 fi
 exit "$status"

@@ -1,0 +1,260 @@
+; An address knows its own family, its own length and its own text -
+; both families, and the ends of both.
+;
+; `tests/stdlib/307-socket-roundtrip.ax` walks the syscalls; this case
+; walks the BUFFER, which is the half that has no syscall to fail
+; against. Every number in a `sockaddr` is written by hand here and
+; read back by the accessors, so a builder that put the family in the
+; wrong byte or a renderer that read the port as an address group is
+; caught by a golden rather than by a service six months later.
+;
+; WHY THE TEXT IS PRINTED AND THE FAMILY IS NOT. The rendering is
+; platform-independent - `::1` is `::1` on all three targets - so it can
+; be a golden and a wrong character shows up as a diff naming both
+; strings. The family value is not: `afInet6` is 30 on Darwin and 10 on
+; Linux, and `sockaddrHasLenByte` moves the byte it lives in. Those are
+; asserted against the constants and reported as `ok` or `FAIL`, the
+; same division `307` makes.
+;
+; THE BOUNDARIES ARE THE POINT. `0.0.0.0` and `255.255.255.255` are the
+; ends of the v4 space, `::` and `::1` the interesting end of the v6
+; one, and `1:0:2:3:4:5:6:7` is the case RFC 5952 §4.2.2 forbids
+; shortening - a single zero group is not a `::`, because the two
+; spellings are the same length and one of them is ambiguous. The last
+; check is a v4 address proving it does NOT render as a v6 one, which
+; is the failure the shared first four bytes make possible.
+(import IO)
+
+(import Sys)
+
+(import Mem)
+
+(:: say (-> Int String Int))
+
+(fn (say okFlag label)
+  (if (== okFlag 1)
+    (printlnLit (strCStr (strConcat "ok   " label)))
+    (printlnLit (strCStr (strConcat "FAIL " label)))
+  )
+)
+
+(:: shows (-> String String Int))
+
+(fn (shows label text) (printlnLit (strCStr (strConcat (strConcat label " -> ") text))))
+
+; Whether a rendering contains a colon, which is how "this v4 address
+; did not come back as a v6 one" is stated as a property rather than as
+; a comparison against one expected string.
+(:: hasColon (-> String Int Int))
+
+(fn (hasColon s i)
+  (if (>= i (strLen s))
+    0
+    (if (== (strByte s i) 58)
+      1
+      (hasColon s (+ i 1))
+    )
+  )
+)
+
+; The family byte, checked where this platform keeps it. Darwin holds a
+; one-byte length then a one-byte family; Linux holds two host-order
+; family bytes at offset 0. Neither number reaches stdout.
+(:: familyLands (-> Int Int Int Int))
+
+(fn (familyLands buf fam size)
+  (if (== sockaddrHasLenByte 1)
+    (if (== (memGetByte buf 0) size)
+      (if (== (memGetByte buf 1) fam)
+        1
+        0
+      )
+      0
+    )
+    (if (== (memGetByte buf 0) (& fam 255))
+      (if (== (memGetByte buf 1) (& (>> fam 8) 255))
+        1
+        0
+      )
+      0
+    )
+  )
+)
+
+; Every byte of a `sockaddr_in6` that is not the family, the port or
+; the address must be zero: `flowinfo` at 4:4 and `scope_id` at 24:4
+; are fields `sockaddr_in` does not have, and `netAddr6` leaves them
+; cleared rather than uninitialised.
+(:: zeroFrom (-> Int Int Int Int))
+
+(fn (zeroFrom buf at n)
+  (if (== n 0)
+    1
+    (if (== (memGetByte buf at) 0)
+      (zeroFrom buf (+ at 1) (- n 1))
+      0
+    )
+  )
+)
+
+(:: groupAt (-> Int Int Int))
+
+(fn (groupAt buf i) (+ (<< (memGetByte buf (+ 8 (* i 2))) 8) (memGetByte buf (+ 9 (* i 2)))))
+
+(:: main Int)
+
+(fn (main)
+  ; ---------------------------------------------------------- v4
+  (let (
+    (a (memAlloc 32))
+    (b (memAlloc 32))
+  )
+    {
+      (netAddr4
+        a        0        0        0        0        0
+      )
+      (shows "0.0.0.0:0" (netAddrText a))
+      (say
+        (if (== (netAddrFamily a) afInet)
+          1
+          0
+        )        "netAddrFamily reads afInet back out of a v4 address"
+      )
+      (say
+        (if (== (netAddrSize a) 16)
+          1
+          0
+        )        "a v4 address asks for 16 bytes"
+      )
+      (say
+        (if (== (netAddrSize a) netAddr4Bytes)
+          1
+          0
+        )        "netAddr4Bytes is that same 16"
+      )
+      (say (familyLands a afInet 16) "the v4 family lands where this platform keeps it")
+      (say
+        (if (== (netAddrPort a) 0)
+          1
+          0
+        )        "port 0 reads back as 0"
+      )
+      (netAddr4
+        a        65535        255        255        255        255
+      )
+      (shows "255.255.255.255:65535" (netAddrText a))
+      (say
+        (if (== (netAddrPort a) 65535)
+          1
+          0
+        )        "port 65535 survives the big-endian round trip"
+      )
+      (netAddr4
+        a        8080        127        0        0        1
+      )
+      (shows "127.0.0.1:8080" (netAddrTextPort a))
+      ; THE CASE THE TWO LAYOUTS MAKE POSSIBLE. `sockaddr_in` and
+      ; `sockaddr_in6` share their first four bytes, so a renderer that
+      ; guessed v6 would read this address's port as its first group
+      ; and answer something with colons in it. It must not.
+      (say
+        (if (== (hasColon (netAddrText a) 0) 0)
+          1
+          0
+        )        "a v4 address does not render as a v6 one"
+      )
+      ; ---------------------------------------------------------- v6
+      (netAddr6
+        b        0        0        0        0        0        0        0        0        0
+      )
+      (shows ":: (all zero)" (netAddrText b))
+      (say
+        (if (== (netAddrFamily b) afInet6)
+          1
+          0
+        )        "netAddrFamily reads afInet6 back out of a v6 address"
+      )
+      (say
+        (if (== (netAddrSize b) 28)
+          1
+          0
+        )        "a v6 address asks for 28 bytes"
+      )
+      (say
+        (if (== (netAddrSize b) netAddr6Bytes)
+          1
+          0
+        )        "netAddr6Bytes is that same 28"
+      )
+      (say
+        (if (== netAddrMaxBytes netAddr6Bytes)
+          1
+          0
+        )        "netAddrMaxBytes is the larger of the two"
+      )
+      (say (familyLands b afInet6 28) "the v6 family lands where this platform keeps it")
+      (netAddr6
+        b        8080        0        0        0        0        0        0        0        1
+      )
+      (shows "::1:8080" (netAddrTextPort b))
+      (say
+        (if (== (netAddrPort b) 8080)
+          1
+          0
+        )        "a v6 port is the same two bytes in the same place"
+      )
+      (say (zeroFrom b 4 4) "flowinfo is left zero")
+      (say (zeroFrom b 24 4) "scope_id is left zero")
+      (say
+        (if (== (groupAt b 7) 1)
+          1
+          0
+        )        "the last group lands at byte 22, big-endian"
+      )
+      (netAddr6
+        b        0        8193        3512        0        0        0        0        0        1
+      )
+      (shows "2001:db8::1" (netAddrText b))
+      (netAddr6
+        b        0        65535        65535        65535        65535        65535        65535        65535        65535
+      )
+      (shows "all ones" (netAddrText b))
+      ; RFC 5952 §4.2.2: one zero group is written `0`, never `::`.
+      (netAddr6
+        b        0        1        0        2        3        4        5        6        7
+      )
+      (shows "one zero group" (netAddrText b))
+      ; §4.2.3: the LONGEST run wins, even when a shorter one is to its
+      ; left. Two groups at the front, five at the back.
+      (netAddr6
+        b        0        0        0        1        0        0        0        0        0
+      )
+      (shows "short run then long run" (netAddrText b))
+      ; §4.2.3 again, the other half: where two runs tie, the leftmost
+      ; is the one that collapses.
+      (netAddr6
+        b        0        1        0        0        2        0        0        3        4
+      )
+      (shows "two runs of two" (netAddrText b))
+      ; A run that reaches the last group has no group after it to
+      ; supply the second colon, so it writes both itself.
+      (netAddr6
+        b        0        1        0        0        0        0        0        0        0
+      )
+      (shows "trailing run" (netAddrText b))
+      ; ------------------------------------------------- neither family
+      ; A buffer the kernel never filled. Rendering it as a dotted quad
+      ; would be four bytes of nothing presented as an address, so it
+      ; says what it actually has.
+      (memSet b 0 28)
+      (shows "a zeroed buffer" (netAddrText b))
+      (say
+        (if (== (netAddrSize b) 16)
+          1
+          0
+        )        "an unknown family takes sockaddr_in's length"
+      )
+      0
+    }
+  )
+)

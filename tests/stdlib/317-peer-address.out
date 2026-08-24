@@ -1,0 +1,19 @@
+ok   a v4 listener binds with the length its family asks for
+ok   the client binds a source port this case chose
+ok   netAcceptFrom answers the connected socket
+ok   the kernel wrote sockaddr_in's length back into the cell
+ok   the peer's family is afInet
+ok   the peer's address is 127.0.0.1
+ok   the peer's port is the source port the client bound
+ok   netAccept still answers a socket with no buffer at all
+ok   socket(afInet6) answers a descriptor
+ok   a v6 listener binds ::1 with sockaddr_in6's 28 bytes
+ok   the v6 client binds a source port this case chose
+ok   netAcceptFrom answers the connected v6 socket
+ok   the kernel wrote sockaddr_in6's 28 back into the cell
+ok   the peer's family is afInet6
+ok   the peer's address is ::1
+ok   and reads back as [::1]:<source port>
+ok   a short buffer still learns the address's real length
+ok   an address that did not fit is withdrawn, not truncated
+ok   and is not a stale or unspecified address

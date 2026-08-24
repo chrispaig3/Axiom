@@ -391,6 +391,25 @@
 
 (pub fn (afInet) 2)
 
+; AF_INET6, AND THIS IS THE DIVERGENCE THE PARAGRAPH ABOVE WARNED
+; ABOUT: 30 here against Linux's 10.
+;
+; Measured on this host 2026-08-24. `socket(30, SOCK_STREAM, 0)`
+; answers a descriptor; `socket(10, SOCK_STREAM, 0)` - Linux's number -
+; answers -47 EAFNOSUPPORT, and so does `bind` given a `sockaddr_in6`
+; with `afInet` in its family byte. So a cross-copied number fails
+; loudly at the first call rather than half-working, which is the one
+; mercy in this group. What is NOT loud is `afInet` itself: it is 2 on
+; both systems, and a reader who generalises from that agreement writes
+; the bug this constant exists to prevent.
+;
+; `scripts/check-net.sh`'s IPv6 arm is the probe. It runs on all three
+; targets in `ci.yml`, opens a listener on `::1` and round-trips a
+; connection through it, so a wrong number here cannot be green.
+(pub :: afInet6 Int)
+
+(pub fn (afInet6) 30)
+
 (pub :: sockStream Int)
 
 (pub fn (sockStream) 1)
@@ -455,7 +474,25 @@
 ;
 ; The kernel does not enforce sin_len on input - bind succeeded with 0,
 ; 8 and 28 in it - but it WRITES 16 there on output, so `Sys.ax` writes
-; 16 and does not rely on the tolerance.
+; 16 and does not rely on the tolerance. Measured 2026-08-24: the
+; address `accept` filled in for a loopback peer opened `16 2 ...`, so
+; the length byte comes back as well as going in.
+;
+; `sockaddr_in6` IS THE SAME QUESTION AGAIN, and the same answer:
+;
+;   Darwin   0:1 sin6_len=28 | 1:1 sin6_family=30 | 2:2 sin6_port (BE)
+;   Linux    0:2 sin6_family=10 (host order)      | 2:2 sin6_port (BE)
+;
+; and after those four bytes both agree - 4:4 flowinfo, 8:16 address in
+; network order, 24:4 scope_id, 28 bytes in all on either system. So
+; this one capability covers both families and `Sys.ax` branches on it
+; once per builder rather than once per family.
+;
+; THE 28 IS NOT INTERCHANGEABLE WITH THE 16. Measured on this host
+; 2026-08-24: `bind` of a correct `::1` address answered 0 at length 28
+; and -22 EINVAL at length 16, which is why `netBind` and `netConnect`
+; now read the length off the family in the buffer instead of passing
+; the literal that only ever suited one family.
 (pub :: sockaddrHasLenByte Int)
 
 (pub fn (sockaddrHasLenByte) 1)
