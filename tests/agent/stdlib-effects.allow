@@ -104,10 +104,12 @@ netListen Sys.ax IO
 netPollAddRead Sys.ax IO
 netPollCreate Sys.ax IO
 netPollDelRead Sys.ax IO
+netPollSignalAt Sys.ax IO
 netPollWait Sys.ax Alloc,IO
 netSetNonBlocking Sys.ax IO
 netSetOptInt Sys.ax Alloc,IO
 netShutdown Sys.ax IO
+netSignalOpen Sys.ax IO
 netSocketTcp Sys.ax IO
 pathBase Path.ax Alloc
 pathDir Path.ax Alloc
@@ -155,6 +157,7 @@ sysFileSize Sys.ax IO
 sysGetCwd Sys.ax Alloc,IO
 sysGetPid Sys.ax IO
 sysIsDir Sys.ax Alloc,IO
+sysKill Sys.ax IO
 sysMkdir Sys.ax IO
 sysNowMicros Sys.ax IO
 sysNowMonotonic Sys.ax IO
@@ -174,6 +177,7 @@ sysRun Sys.ax Alloc,IO
 sysRunPath Sys.ax Alloc,IO
 sysRunSearch Sys.ax Alloc,IO
 sysSeek Sys.ax IO
+sysSignalBlock Sys.ax IO
 sysSpawn Sys.ax Alloc,IO
 sysUnlink Sys.ax IO
 sysWaitPid Sys.ax Alloc,IO

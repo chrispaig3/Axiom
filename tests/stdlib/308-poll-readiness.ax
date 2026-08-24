@@ -25,7 +25,9 @@
 ; descriptor put in comes back out, which is true on every target and
 ; false for every wrong layout.
 (import IO)
+
 (import Sys)
+
 (import Mem)
 
 (:: say (-> Int String Int))
@@ -46,7 +48,9 @@
       fd
       {
         (netSetOptInt fd solSocket soReuseAddr 1)
-        (netAddr4 addr port 127 0 0 1)
+        (netAddr4
+          addr          port          127          0          0          1
+        )
         (if (!= (netBind fd addr) 0)
           (- 0 1)
           (if (!= (netListen fd 16) 0)
@@ -71,7 +75,10 @@
       {
         (while (< i n)
           {
-            (if (== (netPollFdAt buf i) fd) (set found 1) 0)
+            (if (== (netPollFdAt buf i) fd)
+              (set found 1)
+              0
+            )
             (set i (+ i 1))
           })
         found
@@ -91,57 +98,149 @@
             (let ((lb (listenOn addr (+ base 1))))
               (let ((pfd netPollCreate))
                 {
-                  (say (if (> la 2) (if (> lb 2) 1 0) 0) "two listeners are bound")
-                  (say (if (> pfd 2) 1 0) "the readiness descriptor is created")
+                  (say
+                    (if (> la 2)
+                      (if (> lb 2)
+                        1
+                        0
+                      )
+                      0
+                    )                    "two listeners are bound"
+                  )
+                  (say
+                    (if (> pfd 2)
+                      1
+                      0
+                    )                    "the readiness descriptor is created"
+                  )
                   (say
                     (if (>= (netPollAddRead pfd la rec) 0)
-                      (if (>= (netPollAddRead pfd lb rec) 0) 1 0)
+                      (if (>= (netPollAddRead pfd lb rec) 0)
+                        1
+                        0
+                      )
                       0
-                    )
-                    "both listeners are registered for read")
+                    )                    "both listeners are registered for read"
+                  )
                   ; Nothing has connected, so a zero timeout must answer
                   ; zero events rather than blocking or erroring.
                   (say
-                    (if (== (netPollWait pfd buf 8 0) 0) 1 0)
-                    "polling with nothing pending answers no events")
+                    (if (== (netPollWait pfd buf 8 0) 0)
+                      1
+                      0
+                    )                    "polling with nothing pending answers no events"
+                  )
                   ; Connect to the FIRST listener only, so the event that
                   ; comes back has to name that one and not merely "a
                   ; descriptor we registered".
                   (let ((ca netSocketTcp))
                     {
-                      (netAddr4 addr base 127 0 0 1)
+                      (netAddr4
+                        addr                        base                        127                        0                        0                        1
+                      )
                       (netConnect ca addr)
                       (let ((n (netPollWait pfd buf 8 2000)))
                         {
-                          (say (if (== n 1) 1 0) "one connection wakes exactly one event")
                           (say
-                            (if (== (netPollFdAt buf 0) la) 1 0)
-                            "the event names the listener that was connected to")
-                        })
-                      ; Now the second, so BOTH are ready at once and the
-                      ; record stride is exercised. A wrong stride reads
-                      ; event 1 from inside event 0 and answers a
-                      ; descriptor that is not lb.
+                            (if (== n 1)
+                              1
+                              0
+                            )                            "one connection wakes exactly one event"
+                          )
+                          (say
+                            (if (== (netPollFdAt buf 0) la)
+                              1
+                              0
+                            )                            "the event names the listener that was connected to"
+                          )
+                        }
+                      )
+                      ; TAKE THE CONNECTION BEFORE GOING ON. A listening
+                      ; socket stays readable until its pending
+                      ; connection is accepted, and this case was
+                      ; FLAKY for exactly that reason before it was
+                      ; written this way: it connected to the second
+                      ; listener and waited again while the FIRST was
+                      ; still ready, so the wait returned at once with
+                      ; the stale event and the second connection had
+                      ; not necessarily landed. It passed under light
+                      ; load and failed under the full battery, which is
+                      ; the worst way for a gate to be wrong.
+                      (let ((acc (netAccept la)))
+                        (sysCloseFd acc)
+                      )
+                      ; NOW BOTH AT ONCE, and this is the shape the
+                      ; stride needs. Both connects complete before the
+                      ; wait - a loopback connect returns once the
+                      ; listener has the connection - so two descriptors
+                      ; are ready and the wait answers two events
+                      ; deterministically rather than racing.
+                      ;
+                      ; One event only exercises the OFFSET a descriptor
+                      ; sits at. The STRIDE between records is a
+                      ; separate number, and reading event 1 out of the
+                      ; middle of event 0 answers a plausible descriptor
+                      ; rather than failing - so only a second event
+                      ; catches it.
                       (let ((cb netSocketTcp))
-                        {
-                          (netAddr4 addr (+ base 1) 127 0 0 1)
-                          (netConnect cb addr)
-                          (let ((n2 (netPollWait pfd buf 8 2000)))
-                            {
-                              (say (if (>= n2 1) 1 0) "the second connection wakes an event")
-                              (say
-                                (if (== (hasFd buf n2 lb) 1) 1 0)
-                                "the second event decodes at the right stride")
-                            })
-                          (sysCloseFd cb)
-                        })
+                        (let ((cc netSocketTcp))
+                          {
+                            (netAddr4
+                              addr                              base                              127                              0                              0                              1
+                            )
+                            (netConnect cb addr)
+                            (netAddr4
+                              addr                              (+ base 1)                              127                              0                              0                              1
+                            )
+                            (netConnect cc addr)
+                            (let ((n2 (netPollWait pfd buf 8 2000)))
+                              {
+                                (say
+                                  (if (== n2 2)
+                                    1
+                                    0
+                                  )                                  "two ready listeners wake two events"
+                                )
+                                (say
+                                  (if (== (hasFd buf n2 la) 1)
+                                    (if (== (hasFd buf n2 lb) 1)
+                                      1
+                                      0
+                                    )
+                                    0
+                                  )                                  "both events decode at the right stride"
+                                )
+                              }
+                            )
+                            (sysCloseFd cc)
+                            (sysCloseFd cb)
+                          }
+                        )
+                      )
                       (sysCloseFd ca)
-                    })
+                    }
+                  )
                   (say
-                    (if (>= (netPollDelRead pfd la rec) 0) 1 0)
-                    "a listener can be unregistered")
+                    (if (>= (netPollDelRead pfd la rec) 0)
+                      1
+                      0
+                    )                    "a listener can be unregistered"
+                  )
                   (sysCloseFd la)
                   (sysCloseFd lb)
-                  (say (if (== (sysCloseFd pfd) 0) 1 0) "the readiness descriptor closes")
+                  (say
+                    (if (== (sysCloseFd pfd) 0)
+                      1
+                      0
+                    )                    "the readiness descriptor closes"
+                  )
                   0
-                }))))))))
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

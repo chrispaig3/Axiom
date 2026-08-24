@@ -83,6 +83,14 @@ libc_names="$libc_names"'|kqueue|kevent|epoll_create|epoll_create1|epoll_ctl|epo
 # reaching for it would cost the freestanding property while looking
 # like an improvement. `sysRandomBytes` goes to the syscall.
 libc_names="$libc_names"'|getentropy|getrandom|arc4random|arc4random_buf|rand|srand|random'
+# Signals, added when `Sys` learned to hear one. `signal` and
+# `sigaction` are the temptation here and they are worse than the
+# others: reaching for them does not merely link libc, it needs a
+# callback with the shape `void(int, siginfo_t*, void*)`, which no Axiom
+# function can have. A gate that catches the attempt is cheaper than
+# discovering that at the ABI.
+libc_names="$libc_names"'|signal|sigaction|sigprocmask|pthread_sigmask|sigemptyset|sigaddset'
+libc_names="$libc_names"'|kill|raise|signalfd|sigwait|sigwaitinfo|sigsuspend|alarm'
 
 status=0
 
@@ -237,7 +245,8 @@ fi
 kept=""
 for ok_name in axiom_alloc freelist awaited printfmt __syscall1 \
                netBind netAccept netConnect netSocketTcp netListen \
-               netPollCreate netPollWait sysRandomBytes randomMaxChunk; do
+               netPollCreate netPollWait sysRandomBytes randomMaxChunk \
+               sysKill sysSignalBlock netSignalOpen signalUsesSignalFd; do
   grep -qE "call[^\"]*@($libc_names)\(" <<< "  %r = call i64 @$ok_name(i64 0)" \
     && kept="$kept $ok_name"
 done
@@ -271,7 +280,10 @@ for bad_line in \
   '  %r = call i64 @kevent(i64 4, i64 0, i64 1, i64 0, i64 1, i64 0)' \
   '  %r = call i64 @getentropy(i64 0, i64 32)' \
   '  %r = call i64 @getrandom(i64 0, i64 32, i64 0)' \
-  '  %r = call i64 @arc4random_buf(i64 0, i64 32)' ; do
+  '  %r = call i64 @arc4random_buf(i64 0, i64 32)' \
+  '  %r = call i64 @sigaction(i64 15, i64 0, i64 0)' \
+  '  %r = call i64 @kill(i64 1, i64 15)' \
+  '  %r = call i64 @signalfd(i64 -1, i64 0, i64 0)' ; do
   grep -qE "call[^\"]*@($libc_names)\(" <<< "$bad_line" \
     || missed="$missed ${bad_line##*@}"
 done

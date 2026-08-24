@@ -1,0 +1,114 @@
+; A signal and a socket, on ONE event loop.
+;
+; This is the case that says a server can shut down cleanly: it hears
+; SIGTERM the same way it hears a connection, in the same wait, and can
+; tell the two apart. Without it a service either polls with a timeout
+; and hopes, or installs a handler - and a handler is not available,
+; because an Axiom function is `i64(i64...)` and cannot have the shape
+; `void(int, siginfo_t*, void*)` that a signal handler needs.
+;
+; THE TWO PLATFORMS DELIVER A SIGNAL DIFFERENTLY AND THIS CASE RUNS
+; AGAINST BOTH WITHOUT KNOWING WHICH. Darwin registers `EVFILT_SIGNAL`
+; on the same readiness descriptor as the sockets, and the event carries
+; the signal number in `ident`. Linux makes the signal a readable
+; descriptor of its own, adds that to the epoll set, and answers a
+; 128-byte record when it is read. `netPollSignalAt` is the one function
+; that knows the difference, so it is the one under test.
+;
+; BOTH DIRECTIONS ARE ASSERTED, and the negative one is the half that is
+; easy to leave out: a SOCKET event must be reported as NOT a signal.
+; An implementation that answered "signal" for everything would satisfy
+; the positive case alone, and a server built on it would shut down on
+; its first connection.
+;
+; THE CONNECTION IS ACCEPTED BEFORE THE SIGNAL IS RAISED. A listening
+; socket stays readable until its pending connection is taken, so
+; leaving it would make the next wait answer two events and the case
+; would be asserting something other than what it says.
+;
+; The golden is platform-independent: every number underneath differs or
+; is unused by target - `pollSignalFilter`, `sigInfoSize`,
+; `signalUsesSignalFd`, `sigBlockHow`, `sigsetBytes` - and none reaches
+; stdout. SIGTERM is named rather than written as 15 because only it and
+; SIGINT agree across all four targets; SIGUSR1 is 30 on Darwin and 10
+; on Linux.
+(import IO)
+(import Sys)
+(import Mem)
+
+(:: say (-> Int String Int))
+
+(fn (say okFlag label)
+  (if (== okFlag 1)
+    (printlnLit (strCStr (strConcat "ok   " label)))
+    (printlnLit (strCStr (strConcat "FAIL " label)))
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((port (+ 20000 (% sysGetPid 9000))))
+    (let ((addr (memAlloc 16)))
+      (let ((rec (memAlloc 64)))
+        (let ((setbuf (memAlloc 8)))
+          (let ((scratch (memAlloc 256)))
+            (let ((buf (memAlloc (netPollBufBytes 8))))
+              {
+                ; Block first, or the default disposition kills us before
+                ; anything can observe the signal.
+                (say
+                  (if (== (sysSignalBlock (sysSigBit sigTerm) setbuf) 0) 1 0)
+                  "SIGTERM is blocked")
+                (let ((pfd netPollCreate))
+                  (let ((lsn netSocketTcp))
+                    {
+                      (netSetOptInt lsn solSocket soReuseAddr 1)
+                      (netAddr4 addr port 127 0 0 1)
+                      (netBind lsn addr)
+                      (netListen lsn 16)
+                      (netSetNonBlocking lsn)
+                      (say (if (>= (netPollAddRead pfd lsn rec) 0) 1 0) "the listener is watched")
+                      (let ((sh (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf)))
+                        {
+                          (say (if (>= sh 0) 1 0) "SIGTERM is watched on the same descriptor")
+                          (say
+                            (if (== (netPollWait pfd buf 8 0) 0) 1 0)
+                            "nothing pending wakes nothing")
+                          ; A CONNECTION. It must arrive as a socket
+                          ; event and must NOT be read as a signal.
+                          (let ((cli netSocketTcp))
+                            {
+                              (netConnect cli addr)
+                              (let ((n (netPollWait pfd buf 8 2000)))
+                                {
+                                  (say (if (== n 1) 1 0) "a connection wakes one event")
+                                  (say
+                                    (if (== (netPollFdAt buf 0) lsn) 1 0)
+                                    "the event names the listener")
+                                  (say
+                                    (if (< (netPollSignalAt buf 0 sh scratch) 0) 1 0)
+                                    "a socket event is NOT reported as a signal")
+                                })
+                              ; Take the connection, or the listener stays
+                              ; readable and the next wait sees two events.
+                              (let ((con (netAccept lsn)))
+                                (sysCloseFd con))
+                              (sysCloseFd cli)
+                            })
+                          ; A SIGNAL, to ourselves, through the same loop.
+                          (say (if (== (sysKill sysGetPid sigTerm) 0) 1 0) "SIGTERM is raised")
+                          (let ((n2 (netPollWait pfd buf 8 2000)))
+                            {
+                              (say (if (== n2 1) 1 0) "the signal wakes one event")
+                              (say
+                                (if (== (netPollSignalAt buf 0 sh scratch) sigTerm) 1 0)
+                                "the event decodes as SIGTERM")
+                            })
+                          (if (> sh 0) (sysCloseFd sh) 0)
+                        })
+                      (sysCloseFd lsn)
+                      (sysCloseFd pfd)
+                    }))
+                0
+              })))))))

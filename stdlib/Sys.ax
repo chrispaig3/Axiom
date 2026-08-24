@@ -1631,3 +1631,162 @@
     )
   )
 )
+
+; ------------------------------------------------------------------
+; Signals
+;
+; A server has to hear SIGTERM to shut down cleanly, and NEITHER
+; PLATFORM DOES IT WITH A HANDLER HERE. That is a design decision and
+; not a gap: an Axiom function is `i64(i64...)` and cannot take the
+; shape `void(int, siginfo_t*, void*)` a handler needs, and routing a
+; signal into the event loop instead removes the handler ABI, async-
+; signal-safety and re-entrancy against a bump allocator in one move.
+;
+; THE TWO PLATFORMS DELIVER IT DIFFERENTLY AND THE SEAM IS VISIBLE.
+; Darwin registers `EVFILT_SIGNAL` on the SAME readiness descriptor the
+; sockets are on, and the event carries the signal number in `ident`.
+; Linux makes the signal a readable descriptor of its own, adds THAT to
+; the epoll set, and answers a 128-byte record when it is read. So a
+; woken event names a signal on one platform and a descriptor on the
+; other, and `netPollSignalAt` is the one function that knows which.
+;
+; BLOCK BEFORE WATCHING, on both. An unblocked signal takes its default
+; disposition, and for SIGTERM that is death before anything observes it.
+; ------------------------------------------------------------------
+; The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one
+; that is easy to write the other way and yields the neighbouring
+; signal's mask rather than an error.
+(pub :: sysSigBit (-> Int Int))
+
+(pub fn (sysSigBit signo) (<< 1 (- signo 1)))
+
+; Block the signals in `mask` so they become observable instead of
+; fatal. `setbuf` is caller scratch of at least 8 bytes.
+(pub :: sysSignalBlock (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysSignalBlock mask setbuf)
+  {
+    (netPutWord setbuf 0 mask)
+    ; Darwin's `sigprocmask` takes three arguments and Linux's
+    ; `rt_sigprocmask` takes a fourth, the mask's size, which it checks
+    ; exactly. Passing it unconditionally is the shape `netAccept`
+    ; already uses for `accept` against `accept4`.
+    (__syscall4
+      sysSigProcMaskNum      sigBlockHow      setbuf      0      sigsetBytes
+    )
+  }
+)
+
+; Watch the signals in `mask` on the readiness descriptor `pfd`, and
+; answer a HANDLE to pass back to `netPollSignalAt` - the signal
+; descriptor on Linux, and 0 on Darwin, which needs none.
+;
+; `rec` is scratch of `pollEventSize` bytes and `setbuf` of at least 8.
+(pub :: netSignalOpen (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netSignalOpen pfd mask rec setbuf)
+  (if (== signalUsesSignalFd 1)
+    {
+      (netPutWord setbuf 0 mask)
+      ; signalfd4(-1, mask, sizemask, 0): -1 creates a descriptor rather
+      ; than updating one.
+      (let ((sfd (__syscall4
+        sysSignalFdNum        (- 0 1)        setbuf        sigsetBytes        0
+      )))
+        (if (< sfd 0)
+          sfd
+          {
+            (netPollRec rec sfd pollAddOp)
+            (let ((r (__syscall4
+              sysPollCtlNum              pfd              pollAddOp              sfd              rec
+            )))
+              (if (< r 0)
+                r
+                sfd
+              )
+            )
+          }
+        )
+      )
+    }
+    ; Darwin has no signal descriptor: each signal is its own filter
+    ; registration on the readiness descriptor, so the mask is walked a
+    ; bit at a time. Signals are 1..31; bit N-1 is signal N.
+    (let ((mut signo 1))
+      (let ((mut rc 0))
+        {
+          (while (< signo 32)
+            {
+              (if (!= (& mask (sysSigBit signo)) 0)
+                {
+                  (memSet rec 0 pollEventSize)
+                  (netPutWord rec 0 signo)
+                  (memPutByte rec 8 (& pollSignalFilter 255))
+                  (memPutByte rec 9 (& (>> pollSignalFilter 8) 255))
+                  (memPutByte rec 10 (& pollAddOp 255))
+                  (memPutByte rec 11 0)
+                  (let ((r (__syscall6
+                    sysPollWaitNum                    pfd                    rec                    1                    0                    0                    0
+                  )))
+                    (if (< r 0)
+                      (set rc r)
+                      0
+                    )
+                  )
+                }
+                0
+              )
+              (set signo (+ signo 1))
+            })
+          rc
+        }
+      )
+    )
+  )
+)
+
+; The signal named by event `i`, or a negative when that event is not a
+; signal at all. `sigHandle` is what `netSignalOpen` answered and
+; `scratch` is caller scratch of at least `sigInfoSize` bytes.
+;
+; THIS IS THE ONE FUNCTION THAT KNOWS THE SEAM. On Darwin the event's
+; own filter says it is a signal and its `ident` IS the signal number,
+; so nothing is read. On Linux the event names the signal descriptor and
+; the number has to be read out of it - four bytes at offset 0 of a
+; 128-byte record, and FOUR rather than eight, because eight would fold
+; `ssi_errno` into the answer.
+(pub :: netPollSignalAt (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (netPollSignalAt buf i sigHandle scratch)
+  (if (== signalUsesSignalFd 1)
+    (if (!= (netPollFdAt buf i) sigHandle)
+      (- 0 1)
+      (let ((n (__syscall3 sysRead sigHandle scratch sigInfoSize)))
+        (if (< n sigInfoSize)
+          (- 0 1)
+          (+ (memGetByte scratch 0) (+ (<< (memGetByte scratch 1) 8) (+ (<< (memGetByte scratch 2) 16) (<< (memGetByte scratch 3) 24))))
+        )
+      )
+    )
+    ; Darwin: compare the record's own 16-bit filter field, byte for
+    ; byte, rather than sign-extending it back to an Int.
+    (let ((off (* i pollEventSize)))
+      (if (== (memGetByte buf (+ off 8)) (& pollSignalFilter 255))
+        (if (== (memGetByte buf (+ off 9)) (& (>> pollSignalFilter 8) 255))
+          (netPollFdAt buf i)
+          (- 0 1)
+        )
+        (- 0 1)
+      )
+    )
+  )
+)
+
+; Send a signal, which is how a test raises one against itself.
+(pub :: sysKill (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysKill pid signo) (__syscall3 sysKillNum pid signo 0))

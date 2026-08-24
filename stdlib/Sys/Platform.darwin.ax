@@ -555,3 +555,82 @@
 (pub :: randomMaxChunk Int)
 
 (pub fn (randomMaxChunk) 256)
+
+; --------------------------------------------------------------------
+; Signals
+;
+; A SIGNAL IS DELIVERED THROUGH THE SAME KQUEUE AS A SOCKET HERE, which
+; is the single largest shape difference between the two platforms in
+; this file. Darwin registers `EVFILT_SIGNAL` on the readiness
+; descriptor and the event carries the SIGNAL NUMBER in `ident`; Linux
+; has no such filter and instead makes a signal readable as a descriptor
+; of its own, which is then added to the epoll set and read for a
+; 128-byte record. `signalUsesSignalFd` selects.
+;
+; Measured on this host 2026-08-24, end to end: `sigprocmask` blocked
+; SIGUSR1, `kevent` registered `EVFILT_SIGNAL` for it, `kill` to self
+; answered 0, and the wait returned one event with `ident` 30 - the
+; signal number - and the low byte of -6 in `filter`.
+;
+; NEITHER PLATFORM USES A HANDLER, and that is deliberate rather than a
+; limitation. An Axiom function is `i64(i64...)` and cannot have the
+; shape `void(int, siginfo_t*, void*)` a handler needs; routing the
+; signal into the event loop instead removes the handler ABI, async-
+; signal-safety, and re-entrancy against a bump allocator all at once.
+; --------------------------------------------------------------------
+(pub :: signalUsesSignalFd Int)
+
+(pub fn (signalUsesSignalFd) 0)
+
+; sigprocmask(how, set, oset) - BSD 48.
+(pub :: sysSigProcMaskNum Int)
+
+(pub fn (sysSigProcMaskNum) 33554480)
+
+; SIG_BLOCK, which is 1 HERE AND 0 ON LINUX. The values are not shared
+; and the wrong one is `SIG_UNBLOCK` on Darwin - it would unblock the
+; signal it was asked to block, and the process would take the default
+; disposition and die.
+(pub :: sigBlockHow Int)
+
+(pub fn (sigBlockHow) 1)
+
+; Darwin's `sigset_t` is a single `__uint32_t` - FOUR bytes, against
+; Linux's kernel `sigset_t` of eight. Nothing reads a size argument
+; here, but the buffer's width is what the kernel copies.
+(pub :: sigsetBytes Int)
+
+(pub fn (sigsetBytes) 4)
+
+; EVFILT_SIGNAL, the filter that marks an event as a signal rather than
+; a readable socket. Unused on Linux, where the distinction is which
+; descriptor woke instead.
+(pub :: pollSignalFilter Int)
+
+(pub fn (pollSignalFilter) (- 0 6))
+
+; Unused on Darwin (see `signalUsesSignalFd`), but defined so that
+; `Sys.ax` type-checks against every platform module.
+(pub :: sysSignalFdNum Int)
+
+(pub fn (sysSignalFdNum) 0)
+
+(pub :: sigInfoSize Int)
+
+(pub fn (sigInfoSize) 0)
+
+; kill(pid, sig) - BSD 37.
+(pub :: sysKillNum Int)
+
+(pub fn (sysKillNum) 33554469)
+
+; SIGTERM and SIGINT AGREE on all four targets, which is worth naming
+; rather than assuming because most of their neighbours do not - SIGUSR1
+; is 30 here and 10 on Linux.
+(pub :: sigTerm Int)
+
+(pub fn (sigTerm) 15)
+
+(pub :: sigInt Int)
+
+(pub fn (sigInt) 2)

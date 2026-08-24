@@ -1,0 +1,10 @@
+ok   SIGTERM is blocked
+ok   the listener is watched
+ok   SIGTERM is watched on the same descriptor
+ok   nothing pending wakes nothing
+ok   a connection wakes one event
+ok   the event names the listener
+ok   a socket event is NOT reported as a signal
+ok   SIGTERM is raised
+ok   the signal wakes one event
+ok   the event decodes as SIGTERM

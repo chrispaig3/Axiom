@@ -79,6 +79,16 @@ F pollSigsetSize stdlib/Sys/Platform.darwin.ax:528:9-23 "Int" @a184d63c46ffcbc0
 F sysRandomNum stdlib/Sys/Platform.darwin.ax:547:9-21 "Int" @41dc832f2b0bd645
 F randomIsGetentropy stdlib/Sys/Platform.darwin.ax:551:9-27 "Int" @e644f15320868f39
 F randomMaxChunk stdlib/Sys/Platform.darwin.ax:555:9-23 "Int" @671fe1e243b8cebf
+F signalUsesSignalFd stdlib/Sys/Platform.darwin.ax:581:9-27 "Int" @e3835b13a0c96f39
+F sysSigProcMaskNum stdlib/Sys/Platform.darwin.ax:586:9-26 "Int" @82b597fafe8fd6ab
+F sigBlockHow stdlib/Sys/Platform.darwin.ax:594:9-20 "Int" @00f00dc0489ed3fd
+F sigsetBytes stdlib/Sys/Platform.darwin.ax:601:9-20 "Int" @5d5a22f9ed6b6af7
+F pollSignalFilter stdlib/Sys/Platform.darwin.ax:608:9-25 "Int" @505ea806bac66894
+F sysSignalFdNum stdlib/Sys/Platform.darwin.ax:614:9-23 "Int" @3df0630ac7abf0ae
+F sigInfoSize stdlib/Sys/Platform.darwin.ax:618:9-20 "Int" @b495ce207db60ed1
+F sysKillNum stdlib/Sys/Platform.darwin.ax:623:9-19 "Int" @6302c2903fe03690
+F sigTerm stdlib/Sys/Platform.darwin.ax:630:9-16 "Int" @2b81ae936de3a146
+F sigInt stdlib/Sys/Platform.darwin.ax:634:9-15 "Int" @a8fba5915b585705
 F apply tests/fmt/syntax-zoo.ax:78:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:82:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:92:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure

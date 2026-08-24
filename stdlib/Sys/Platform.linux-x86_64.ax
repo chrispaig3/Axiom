@@ -414,3 +414,75 @@
 (pub :: randomMaxChunk Int)
 
 (pub fn (randomMaxChunk) 256)
+
+; --------------------------------------------------------------------
+; Signals
+;
+; A SIGNAL BECOMES A READABLE DESCRIPTOR HERE, where Darwin delivers it
+; through the readiness descriptor itself. `signalfd4` makes an fd that
+; is readable whenever one of the masked signals is pending; that fd is
+; then added to the epoll set like any socket, and reading it yields a
+; 128-byte `signalfd_siginfo` whose first four bytes are the signal
+; number. `signalUsesSignalFd` selects between the two shapes.
+;
+; The signals must be BLOCKED first on both platforms, or the default
+; disposition kills the process before anything can observe them.
+; --------------------------------------------------------------------
+(pub :: signalUsesSignalFd Int)
+
+(pub fn (signalUsesSignalFd) 1)
+
+; rt_sigprocmask(how, set, oset, sigsetsize) - 14. The fourth
+; argument is the mask's size and MUST BE EXACTLY 8; see
+; `pollSigsetSize` above for why glibc's 128 is the wrong number.
+(pub :: sysSigProcMaskNum Int)
+
+(pub fn (sysSigProcMaskNum) 14)
+
+; SIG_BLOCK, 0 here and 1 on Darwin.
+(pub :: sigBlockHow Int)
+
+(pub fn (sigBlockHow) 0)
+
+; The kernel's `sigset_t` is one 64-bit word. Signal N occupies bit
+; N-1, so SIGTERM (15) is bit 14 - an off-by-one that is easy to write
+; the other way and produces a mask for the neighbouring signal.
+(pub :: sigsetBytes Int)
+
+(pub fn (sigsetBytes) 8)
+
+; signalfd4(fd, mask, sizemask, flags) - 289. An `fd` of -1 creates
+; one; passing an existing descriptor updates its mask instead.
+(pub :: sysSignalFdNum Int)
+
+(pub fn (sysSignalFdNum) 289)
+
+; `struct signalfd_siginfo` is 128 bytes and `read` answers whole
+; records, so a buffer that is not a multiple of this is EINVAL and a
+; loop that assumes one record per read drops signals that arrived
+; together. `ssi_signo` is a FOUR-byte field at offset 0 - reading
+; eight there would fold `ssi_errno` into the answer.
+(pub :: sigInfoSize Int)
+
+(pub fn (sigInfoSize) 128)
+
+; Unused on Linux (see `signalUsesSignalFd`), but defined so that
+; `Sys.ax` type-checks against every platform module.
+(pub :: pollSignalFilter Int)
+
+(pub fn (pollSignalFilter) 0)
+
+; kill(pid, sig) - 62.
+(pub :: sysKillNum Int)
+
+(pub fn (sysKillNum) 62)
+
+; SIGTERM and SIGINT agree with Darwin's; SIGUSR1 does not (10 here, 30
+; there), which is why these two are named and that one is not.
+(pub :: sigTerm Int)
+
+(pub fn (sigTerm) 15)
+
+(pub :: sigInt Int)
+
+(pub fn (sigInt) 2)
