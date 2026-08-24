@@ -1,3 +1,3 @@
-W AX3010 348-handle-discharge.ax:60:6-14 axtag-mismatch "AXTAG mismatch on `launders`: `pure` claim contradicted: body performs IO"
-W AX3010 348-handle-discharge.ax:96:6-12 axtag-mismatch "AXTAG mismatch on `region`: `pure` claim contradicted: body performs IO"
-E AX3011 348-handle-discharge.ax:96:33-38 effect-mismatch "effect mismatch: unhandled effect `IO`"
+W AX3010 348-handle-discharge.ax:61:6-14 axtag-mismatch "AXTAG mismatch on `launders`: `pure` claim contradicted: body performs IO"
+W AX3010 348-handle-discharge.ax:108:6-13 axtag-mismatch "AXTAG mismatch on `guarded`: `pure` claim contradicted: body performs IO"
+E AX3011 348-handle-discharge.ax:109:20-25 effect-mismatch "effect mismatch: unhandled effect `IO`"

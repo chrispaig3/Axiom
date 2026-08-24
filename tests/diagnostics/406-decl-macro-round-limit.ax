@@ -13,8 +13,7 @@
 ; point: one macro that recurses without growing and one that grows
 ; without recursing deeply, so a budget covering only one axis leaves
 ; a red gate behind rather than a silent hole.
-(macro loopD
-  ((loopD nm) (loopD nm)))
+(macro loopD ((loopD nm) (loopD nm)))
 
 (loopD z)
 

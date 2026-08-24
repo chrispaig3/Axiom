@@ -4,7 +4,8 @@
 ; AX3011 asks whether the list names what the body performs, and it has
 ; to be exhaustive: `320-unhandled-effect.ax` is the bank of refusals
 ; for a list that omits something. That check makes the list a
-; description of the region rather than a wish, and it means a built-in
+; description of the region rather than a wish, and it means a
+; built-in
 ; in the list is never an accident - the author had to write `(IO)` for
 ; the form to compile at all.
 ;
@@ -57,17 +58,28 @@
 (:: launders (-> Int Int))
 
 ;@axiom:pure
-(fn (launders n) (handle (shout n) (IO) 0))
+(fn (launders n)
+  (handle (shout n) (IO) 0)
+)
 
 (:: discharges (-> Int Int))
 
 ;@axiom:effect(alloc)
-(fn (discharges n) (handle (asker n) (Ask) (lambda (v) 0)))
+(fn (discharges n)
+  (handle (asker n) (Ask) (lambda (v) 0))
+)
 
 ; Two shapes that are NOT about a false claim, and are the reason this
 ; is a defect rather than a loophole for liars.
 ;
-; `region` is the `(Pure)` boundary - the one effect construct in the
+; `guarded` is named that and not `region` because `region` is a
+; REMOVED keyword the formatter still knows: `check` accepts it as an
+; ordinary name and `fmt` refuses the whole file, which is how
+; `check-fmt.sh` reported this fixture's first draft. The compiler and
+; its formatter disagree about what is an identifier, and that is worth
+; a note here rather than a silent rename.
+;
+; `guarded` is the `(Pure)` boundary - the one effect construct in the
 ; language that refuses to emit - defeated by a `handle` INSIDE it: the
 ; inner form subtracted the IO before the outer one measured, so the
 ; strongest primitive the language has could be switched off by the
@@ -82,7 +94,7 @@
 ; worse for a reader that is a program than a warning would be.
 ;
 ; That half is not visible in THIS file's goldens, and the reason is
-; worth stating: `region` above makes the file a refusal, and
+; worth stating: `guarded` above makes the file a refusal, and
 ; `symbols` answers nothing for a file that does not check. Measured
 ; on the same shape standing alone - a body doing `log` and `println`
 ; under `(Ask IO)` - AXSYM read `#effects=Alloc` before and
@@ -90,10 +102,12 @@
 ; propagation this fix changes, and because a reader comparing the two
 ; halves of the file should see that the erasure never depended on
 ; anyone lying.
-(:: region (-> Int Int))
+(:: guarded (-> Int Int))
 
 ;@axiom:pure
-(fn (region n) (handle (handle (shout n) (IO) 0) (Pure) 0))
+(fn (guarded n)
+  (handle (handle (shout n) (IO) 0) (Pure) 0)
+)
 
 (:: logger (-> Int Int))
 
@@ -106,7 +120,9 @@
 
 (:: run (-> Int Int))
 
-(fn (run n) (handle (logger n) (Ask IO) (lambda (v) 0)))
+(fn (run n)
+  (handle (logger n) (Ask IO) (lambda (v) 0))
+)
 
 (:: caller (-> Int Int))
 
@@ -116,4 +132,4 @@
 (:: main Int)
 
 ;@axiom:effect(io)
-(fn (main) (+ (+ (caller 1) (discharges 2)) (+ (region 3) (run 4))))
+(fn (main) (+ (+ (caller 1) (discharges 2)) (+ (guarded 3) (run 4))))

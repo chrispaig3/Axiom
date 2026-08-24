@@ -1,0 +1,651 @@
+[1;31merror[AX3019][0m[1m: declaration-macro expansion exceeded 128 rounds[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:18:2
+[1;34m   |[0m
+[1;34m18 |[0m (loopD z)
+[1;34m   |[0m  [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m--> [0m406-decl-macro-round-limit.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m (macro loopD ((loopD nm) (loopD nm)))
+[1;34m   |[0m        [1;36m^^^^^ in this expansion of `loopD`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0meach round resolves every declaration-position invocation the previous round generated; a template that always generates another invocation never terminates
+  [1;34m = [0m[1;32mhelp: [0mcheck whether a declaration macro, directly or through another, generates an invocation of itself with no case that stops
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3019` for a full explanation
+
+compilation failed due to 1 previous error

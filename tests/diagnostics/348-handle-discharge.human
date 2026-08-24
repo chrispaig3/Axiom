@@ -1,0 +1,25 @@
+[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `launders`: `pure` claim contradicted: body performs IO[0m
+  [1;34m--> [0m348-handle-discharge.ax:61:6
+[1;34m   |[0m
+[1;34m61 |[0m (fn (launders n)
+[1;34m   |[0m      [1;33m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `guarded`: `pure` claim contradicted: body performs IO[0m
+   [1;34m--> [0m348-handle-discharge.ax:108:6
+[1;34m    |[0m
+[1;34m108 |[0m (fn (guarded n)
+[1;34m    |[0m      [1;33m^^^^^^^[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+[1;31merror[AX3011][0m[1m: effect mismatch: unhandled effect `IO`[0m
+   [1;34m--> [0m348-handle-discharge.ax:109:20
+[1;34m    |[0m
+[1;34m109 |[0m   (handle (handle (shout n) (IO) 0) (Pure) 0)
+[1;34m    |[0m                    [1;31m^^^^^[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3011` for a full explanation
+
+compilation failed due to 1 previous error
