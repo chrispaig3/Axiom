@@ -180,11 +180,35 @@
                         (sysCloseFd acc)
                       )
                       ; NOW BOTH AT ONCE, and this is the shape the
-                      ; stride needs. Both connects complete before the
-                      ; wait - a loopback connect returns once the
-                      ; listener has the connection - so two descriptors
-                      ; are ready and the wait answers two events
-                      ; deterministically rather than racing.
+                      ; stride needs.
+                      ;
+                      ; THIS USED TO CLAIM DETERMINISM AND THE CLAIM WAS
+                      ; FALSE. It read: "a loopback connect returns once
+                      ; the listener has the connection - so two
+                      ; descriptors are ready and the wait answers two
+                      ; events deterministically rather than racing."
+                      ; Measured 2026-08-24: both assertions below
+                      ; failed together during a battery run, and passed
+                      ; 8 times out of 8 alone. A connect returning says
+                      ; the connection is QUEUED on the listener; it
+                      ; does not say the poll set has already been
+                      ; updated, and nothing makes one wake carry both.
+                      ; The comment two paragraphs up already records
+                      ; the FIRST race here being found the same way -
+                      ; "it passed under light load and failed under the
+                      ; full battery, which is the worst way for a gate
+                      ; to be wrong" - and this is the second one,
+                      ; asserted away in prose rather than removed.
+                      ;
+                      ; The retry is sound rather than a weakening, and
+                      ; the reason is level-triggering: neither backend
+                      ; asks for EV_CLEAR or EPOLLET, and NEITHER
+                      ; CONNECTION IS ACCEPTED here, so both listeners
+                      ; STAY readable and a repeated wait converges on
+                      ; two. What the gate asserts is unchanged - two
+                      ; events in ONE buffer, which is the only thing
+                      ; that exercises the stride - and it no longer
+                      ; depends on the kernel coalescing them.
                       ;
                       ; One event only exercises the OFFSET a descriptor
                       ; sits at. The STRIDE between records is a
@@ -203,10 +227,20 @@
                               addr                              (+ base 1)                              127                              0                              0                              1
                             )
                             (netConnect cc addr)
-                            (let ((n2 (netPollWait
-                              pfd                              buf                              8                              2000                              ts
-                            )))
+                            (let (
+                              (mut n2 (netPollWait
+                                pfd                                buf                                8                                2000                                ts
+                              ))
+                              (mut tries 0)
+                            )
                               {
+                                (while (&& (< n2 2) (< tries 50))
+                                  {
+                                    (set n2 (netPollWait
+                                      pfd                                      buf                                      8                                      2000                                      ts
+                                    ))
+                                    (set tries (+ tries 1))
+                                  })
                                 (say
                                   (if (== n2 2)
                                     1
