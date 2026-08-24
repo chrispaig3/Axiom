@@ -1,0 +1,77 @@
+; AX3040 conflates two shapes, and only one of them is unsound.
+;
+; `347-result-only-tyvar.ax` is the unsound one: a body that CASTS a
+; machine word out through a result type the caller picks. This file is
+; the other one, and it is a CORRECT PROGRAM.
+;
+; `panic` promises `forall a. String -> a`. That signature is inhabited
+; only by non-termination - `explain AX3040` says so in those words -
+; and `panic` is exactly that inhabitant: every path through it reaches
+; `exit`, so it never returns and never produces a value of the type
+; the caller named. Nothing is coerced, nothing is dereferenced, and no
+; caller can observe a wrong answer, because no caller is resumed.
+;
+; It is a shape a real program wants. A checked accessor, an assertion,
+; an unrecoverable configuration error - each is a function whose type
+; is honestly `forall a`, called in a position that expects an `Int` or
+; a `String` and simply never gets there.
+;
+; MEASURED 2026-08-24, both paths, on the compiler that reports this:
+;
+;     (pick 7)        -> exits 7,  `panic` never entered
+;     (pick (- 0 1))  -> writes "negative" to fd 2 and exits 70
+;
+; so the program is right on the path that returns AND on the path that
+; does not.
+;
+; WHY THIS FIXTURE EXISTS. `tests/diagnostics/severity.policy` used to
+; keep AX3040 a warning because promoting it needed a migration of
+; fourteen declarations. That migration finished on 2026-08-23, and a
+; sweep of 479 files on 2026-08-24 found exactly one AX3040 in the whole
+; tree - 347's, constructed on purpose. So the recorded blocker was
+; gone, and promoting the code looked free.
+;
+; It is not free, and this file is why: promotion would refuse the
+; program below, and the help text would tell its author to tag a
+; diverging function `;@axiom:raw`. That tag means "a raw word read
+; whose meaning the type system does not model", which this is not, and
+; its whole value is that the layer it enumerates is exact. A check
+; whose suggested fix makes the program less correct is the wrong
+; check.
+;
+; What promotion needs first is a way to tell divergence from a cast: a
+; spelling for "does not return", or a walk proving every path exits.
+; Until one exists, this file is the control that keeps the shape
+; visible - if it ever stops drawing AX3040, something learned the
+; difference and `severity.policy` should be re-read.
+;
+; `sound` is the control in the other direction and must stay silent:
+; `a` appears in a PARAMETER, so the caller supplies a value of it and
+; the choice is witnessed by the argument.
+(import IO)
+
+(:: panic (-> String a))
+
+(fn (panic msg)
+  {
+    (writeStr 2 msg)
+    (cast a (exit 70))
+  }
+)
+
+(:: sound (-> a a))
+
+(fn (sound x) x)
+
+(:: pick (-> Int Int))
+
+(fn (pick n)
+  (if (< n 0)
+    (panic "negative\n")
+    n
+  )
+)
+
+(:: main Int)
+
+(fn (main) (pick 7))

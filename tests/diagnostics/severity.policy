@@ -58,11 +58,43 @@ AX3038
 #          never checked.
 AX3039
 # AX3040 - a signature returning a type variable no parameter mentions.
-#          It IS unsound - the result dereferences as whatever the
-#          caller names, and the probe exits 139 - so the case for an
-#          error is real. It informs because the fix is a migration:
-#          fourteen declarations in this tree have the shape and they
-#          have 3,980 call sites between them. `;@axiom:raw` marks the
-#          ones that are deliberately part of the unsafe layer, and the
-#          warning is what keeps a fifteenth from appearing unnoticed.
+#          It IS unsound in the shape it was written for - the result
+#          dereferences as whatever the caller names, and the probe
+#          exits 139 - so the case for an error is real.
+#
+#          THE MIGRATION THIS USED TO DEFER TO IS DONE, and the old
+#          text is left below the line so the next reader can see what
+#          was believed. It said the fix was a migration of "fourteen
+#          declarations ... 3,980 call sites between them". All
+#          fourteen were migrated on 2026-08-23 (`explain.ax`: "No
+#          declaration in this repository carries it any more"), and
+#          `;@axiom:raw` marks ZERO declarations today. Swept
+#          2026-08-24: 479 files, ONE AX3040 hit, and it is
+#          `tests/diagnostics/347-result-only-tyvar.ax`, the fixture
+#          that constructs it on purpose.
+#
+#          SO IT STAYS A WARNING FOR A DIFFERENT REASON, and this one
+#          is not a migration - it is that the code conflates two
+#          shapes and only one of them is unsound:
+#
+#            (:: conjure (-> Int a))     ; body CASTS a word out
+#            (:: panic   (-> String a))  ; body NEVER RETURNS
+#
+#          The second is a correct program. `forall a. String -> a` is
+#          the honest type of a diverging function, and this code's own
+#          `explain` text conceeds it - "which in a sound system is
+#          inhabited only by non-termination". Measured 2026-08-24:
+#          `tests/diagnostics/348-diverging-tyvar.ax` checks, runs, and
+#          answers 7 on its returning path and 70 on its diverging one.
+#          Promoting AX3040 today would refuse it, and the help text
+#          would tell the author to tag a diverging function
+#          `;@axiom:raw` - which is not a raw word read, and which
+#          pollutes the one enumeration the tag exists to keep exact.
+#
+#          A check whose suggested fix makes the program less correct
+#          is the wrong check. What promotion needs first is a way to
+#          tell divergence from a cast - a spelling for "does not
+#          return", or a walk that proves every path exits. Until then
+#          the warning is what keeps a fifteenth unsound one from
+#          appearing unnoticed, which is what it was always doing.
 AX3040
