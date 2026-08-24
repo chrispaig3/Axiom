@@ -52,12 +52,22 @@ not exist yet. Every rule therefore carries one of:
 | **H** | **Holds today.** The implementation conforms, and the rule names the probe or source that shows it. |
 | **P** | **Planned.** Normative for a conforming implementation; the current one does not conform. The rule states what happens *today* instead, so nobody mistakes the specification for a description. |
 | **R** | **Refused.** The rule states something the language deliberately does not provide, and why. |
-| **W** | **Withdrawn.** The rule was normative and was superseded before it was implemented. It keeps its number and its text (§0.1), and the marker names what superseded it — a withdrawn rule that vanished would leave its citations dangling and its lesson unlearned. |
+| **W** | **Withdrawn.** The rule was normative and is no longer to be implemented. It keeps its number and its text (§0.1), and the marker names what superseded it — a withdrawn rule that vanished would leave its citations dangling and its lesson unlearned. |
 
 An **H** rule with no evidence is a bug in this document. A **P** rule
 that does not say what happens today is the failure mode
 [macro-system.md](macro-system.md) calls *documented-but-inert*: a reader builds on
 a sentence and the compiler disagrees.
+
+**Withdrawal has two kinds, and the difference is whether there is code
+behind it.** Every **W** rule in §3.4 was superseded *before it was
+implemented*, and withdrawing one cost a paragraph and nothing else.
+`MM-LIFE-2a` is the first of the other kind — **abandoned in place**:
+part of it emits today, other rules were built on the half that landed,
+and no edit to this document takes it back out. A rule withdrawn that
+way **MUST** say what the landed half still costs, in §9.0 beside the
+defects, because that cost has stopped belonging to anybody's plan and
+is therefore the cost nobody is watching.
 
 ### 0.4 Reproducing the measurements
 
@@ -442,13 +452,23 @@ runtime and **MUST NOT** be reused by a program as a normal result:
 
 | Status | Raised by | Evidence |
 |---|---|---|
-| 70 | allocator out of memory (`mmap` failed) | the `oom:` block; not reproduced here |
+| 70 | allocator out of memory (`mmap` failed) | measured: `tests/stdlib/314-out-of-memory.ax` asks for 2^47 bytes, the run prints `axiom: out of memory (mmap failed)` to fd 2 and exits 70 |
 | 71 | operation performed with no handler in extent | measured (`MM-EXEC-10`) |
 | 72 | division by zero | measured: `(fn (main) (/ 10 0))` — `check` says `OK`, the run prints `axiom: division by zero` to fd 2 and exits 72 |
 
-Each writes nothing to stdout. I/O is unbuffered — `println` is a direct
-`write` loop with no flush — so output produced before one of these
-aborts is still visible.
+Each writes nothing to **stdout**. What each writes to **fd 2** is not
+uniform, and the row above is the place to say so rather than leave it
+to be discovered by whoever is reading a supervisor's log: 70 writes 35
+bytes and 72 writes 24, both a single sentence ending in a newline
+(`emitOomTrap`, `emitDivTrap`), and **71 writes nothing at all** — a
+bare `exit(71)` in `emitUnhandledTrap`, so an unhandled operation is the
+one reserved status that still vanishes silently. 70 was in that
+condition until `emitOomTrap` gave it `emitDivTrap`'s shape; 71 has not
+been given it, and `tests/stdlib/310-effect-unhandled.ax` pins the
+status with no `.err` beside it because there is nothing to pin.
+
+I/O is unbuffered — `println` is a direct `write` loop with no flush —
+so output produced before one of these aborts is still visible.
 
 **MM-EXEC-17 (H).** There are **no finalizers, no destructors and no
 atexit hooks.** A process's memory is reclaimed by the operating system
@@ -485,6 +505,12 @@ track float-ness statically (`MM-VAL-4`).
 and truncate toward zero (`(/ -7 2)` = −3, `(% -7 2)` = −1).
 Comparisons are signed, `>>` is arithmetic, `<<` is a plain shift.
 
+The wrap is the operators' definition and does not change. Where a
+program cannot afford it there is now a remedy in the library rather
+than only a warning here: `stdlib/Err.ax`'s `addChecked`, `subChecked`
+and `mulChecked` answer `(Result Int Error)` and report `errOverflow`
+instead (`MM-VAL-3b`).
+
 **MM-VAL-3a (H).** Division or remainder **by zero is a guarded trap**,
 not undefined: the compiler emits a zero test even for a literal zero
 divisor, and the trap writes `axiom: division by zero` to fd 2 and exits
@@ -504,6 +530,25 @@ answer that changes with `--opt`:
 Shift amounts of 64 or more, and negative shift amounts, are undefined;
 no masking is emitted. A conforming implementation **SHOULD** guard the
 first and define the rest.
+
+**The remedy exists in the library, and the link is deliberately
+two-way.** This rule pointed at no way out for as long as there was
+none; `stdlib/Err.ax` now ships `addChecked`, `subChecked` and
+`mulChecked` for the wrapping operators of `MM-VAL-3`, beside
+`divChecked` and `shlChecked` for the cases in the table above.
+`mulChecked` excludes `intMin * -1` **before** the division that would
+otherwise ask for this rule's first row, in both operand orders, so the
+implementation never performs the undefined operation — removing that
+guard was tried and the fixture still passed, because the undefined
+division happens to answer something usable at every level this compiler
+emits, and a checked operator whose correctness rests on what undefined
+behaviour happens to do is not a checked operator.
+`tests/stdlib/312-checked-arithmetic.ax` cites `MM-VAL-3b` by name and
+pins byte-identical stdout at `--opt` 0, 1, 2 and 3 — which is exactly
+the property the table above says the raw operators cannot claim. A
+reader who arrives here at the undefined behaviour should find the
+remedy, and the fixture that arrives at the remedy already names this
+rule; a one-way citation is how the two drift apart.
 
 **MM-VAL-3c (H).** The sized integer types — `I8`…`I128`, `U8`…`U128`,
 `Isize`, `Usize` — are **refused** (`AX3002`), the "remove them" arm of
@@ -877,6 +922,28 @@ several free 1 MiB chunks can never serve one 2 MiB request. When a
 request does not fit the current chunk, that chunk's remaining tail is
 abandoned.
 
+*That mechanism is a hazard with a measured bound, not a standing one.*
+It read as unbounded here because nothing had measured it.
+`scripts/check-net.sh`'s third measurement is the workload built to make
+it ratchet: a request handler whose response size cycles from 8 to 488
+concatenations — about 1 KiB to 3.8 MiB of intermediates per connection
+— so free chunks of many sizes are produced and reused, and the 1 MiB
+chunk boundary is crossed in both directions on every cycle. Peak worker
+RSS reads **3,968 / 4,192 / 4,864 KiB at 1,000 / 5,000 / 20,000
+connections**. It does **not** ratchet: it starts at the working set of
+the largest single connection, which is the honest cost of serving one,
+and then grows about 47 bytes per connection — the same per-connection
+process baseline that gate establishes with a zero-allocation control,
+and not the Axiom heap. The gate asserts the plateau (a run 100× longer
+must stay within 2× of the short one) rather than a ceiling, because a
+ceiling would pin the kernel's socket accounting.
+
+Carry the gate's own scoping with the number: **this is the stateless
+case**, where nothing keeps per-connection state and the live set at
+each reset is empty. Keep-alive, where the live set outlives the request
+and the arena boundary stops being free, is outside that measurement and
+outside this paragraph's claim.
+
 **MM-ALLOC-5 (H).** `mmap` returns chunks in **no particular address
 order**. No rule in this document may assume that a later chunk has a
 higher address; `MM-ALLOC-13` depends on this being stated.
@@ -927,9 +994,33 @@ inheriting the kernel's zeroes. It held for free until a reset first
 handed the same bytes out twice, at which point `strAlloc 3` produced a
 string whose `cstrLen` measured 17.
 
-**MM-ALLOC-7 (H).** Allocation failure exits the process with status 70.
-There is no recoverable out-of-memory condition and no way for a program
-to observe one.
+**MM-ALLOC-7 (H, amended 2026-08-24).** Allocation failure writes
+`axiom: out of memory (mmap failed)` — 35 bytes — to fd 2 and exits the
+process with status 70. There is no recoverable out-of-memory condition
+and no way for a program to observe one.
+
+**The message is half of the rule and this rule did not record it.**
+`emitOomTrap`'s own comment names the gap in those terms:
+"`MM-ALLOC-7` records the status; it did not record that the status
+arrives alone." Both `oom:` labels ended in a bare `exit(70)`, so a
+program that ran out of memory vanished with a number and no output —
+survivable for a compiler an operator is watching, not for a worker in a
+pre-forked pool that disappears while the supervisor respawns it and
+nothing anywhere says why. 70 now has the shape `emitDivTrap` already
+had for 72 (`MM-EXEC-16`).
+
+Pinned by `tests/stdlib/314-out-of-memory.ax`, which asks for 2^47
+bytes: macOS overcommits, so a request for a terabyte SUCCEEDS and the
+failure path is never reached, and 2^47 is past the user address space
+on every target this compiler emits for, so the mapping is refused
+rather than merely unbacked. The sentence is pinned in that case's
+`.err` and the status in its `.exit`, neither checked by the other — a
+program that printed the right sentence and exited 0 fails on the
+status, and one that exited 70 in silence, which is what this tree did
+until the trap was written, fails on the stderr. Its tail is
+deliberately not a numeral, which is also the tripwire for this rule's
+second sentence: the day the allocator ANSWERS instead of exiting, that
+line runs, stdout gains a line, and the golden says so.
 
 **MM-ALLOC-8 (P; three documents described the seam as working until
 2026-08-14, when all three were corrected).** The
@@ -961,8 +1052,9 @@ mangled to `Mod$axiom_alloc`, a different symbol.) The three documents
 that described the seam as working — `stdlib/Mem.ax`,
 `docs/reference.md`, and the self-hosting record — were corrected the same
 day, each keeping the false claim as quoted history. What remains **P**
-is the rule's head: a real replacement seam, which under ARC interacts
-with `MM-LIFE-2e`'s release path and is re-decided there; building one
+is the rule's head: a real replacement seam, which interacts with the
+release path `MM-LIFE-2e` left behind and would be re-decided against
+it; building one
 means emitting the runtime allocator only when no declaration named
 `axiom_alloc` is in scope, and specifying the required signature
 `Int -> Int` returning 16-byte-aligned zeroed memory, with failure
@@ -1021,6 +1113,56 @@ aggregate, closure or string is ever stack-allocated, and therefore no
 value can dangle by outliving a frame.
 
 ### 3.3 Explicit reclamation
+
+**MM-ALLOC-22 (H, 2026-08-24). The arena scope IS the reclamation
+strategy, not a bridge to one.** A conforming implementation **MUST
+NOT** refuse `__axiom_arena_mark`, `__axiom_arena_reset` or
+`__axiom_arena_reset_keeping`, and **MUST NOT** condition their
+availability on any automatic strategy. This is a new number rather than
+an edit in place (§0.1) because it retires a `MUST` that pointed the
+other way: `MM-LIFE-2e` ordered all three refused when ARC landed, and
+`MM-LIFE-2a`'s ARC is withdrawn (§5, §9).
+
+*One refusal survives and is not this one.* `MM-ALLOC-8`'s replacement
+seam still refuses the three inside a program that defines its own
+`axiom_alloc`, because they move the position of an allocator that is no
+longer there — a refusal keyed to the allocator being replaced, not to a
+reclamation strategy arriving. That seam does not exist today (the name
+is `AX3026` at `check`), so no program can currently be in the state it
+describes.
+
+*The evidence is a workload rather than an argument, and it is gated.*
+`scripts/check-net.sh` builds one pre-forked server
+(`tests/net/echo-server.ax`) and runs it twice against the same load,
+differing only in whether the request handler is bracketed by a mark and
+a reset. Each connection builds its response by repeated `strConcat` —
+about 16 KiB of unreachable intermediates, so there is something real to
+reclaim. Peak worker RSS:
+
+| connections | handler scoped | handler unscoped |
+|---|---|---|
+| 1,000 | **192 KiB** | 19,136 KiB |
+| 10,000 | **608 KiB** | 190,128 KiB |
+
+**271× at a thousand connections, 313× at ten thousand.** The gate
+asserts a floor of 50× — far enough under the measurement to survive a
+slower machine, far enough over 1 to catch an arena that stopped
+rewinding — and it carries the negative probe without which the flat
+column would mean nothing: the unscoped run **MUST** grow past 2×
+between the two lengths, because a measurement that reads the wrong pid,
+samples after the workers died, or reads nothing at all also reads flat.
+The same pair holds the language server at **840 bytes per edit**
+against **193,247** with the boundary removed (`MM-LIFE-2e`).
+
+*What the target workload is, stated rather than implied.* A stateless
+request/response service is the shape this reclamation fits exactly: the
+live set at the reset is empty by construction, so the boundary costs a
+waterline restore and gives back everything the request touched.
+`MM-ALLOC-16`'s program obligation is what a caller pays for that and is
+unchanged — nothing verifies it, and the compiler still never inserts
+these calls itself. Keep-alive, where per-connection state outlives the
+request, is outside the measurement and outside this rule's claim
+(`MM-ALLOC-4b`).
 
 **MM-ALLOC-12 (H).** Three primitives move the allocator's position:
 
@@ -1113,7 +1255,17 @@ reference-counting decision of `MM-LIFE-2a`** (the decision landed
 2026-08-11; these rules were marked withdrawn on 2026-08-14, when the
 choice was fleshed out into `MM-LIFE-2b`–`2f`) — §10
 records why — and its rules are kept under §0.1's convention:
-withdrawn, numbered, cited, never deleted. Two survive with their
+withdrawn, numbered, cited, never deleted.
+
+**`MM-LIFE-2a` was itself withdrawn on 2026-08-24** in favour of
+`MM-ALLOC-22`'s arena scope, and a rule superseded by a rule that is
+later withdrawn does **not** revive: this section lost on its own
+measurements — `MM-ALLOC-19`'s tail-call reset could be discharged only
+by a copy, a linearity proof, or region inference, and the copy was
+built, gated and measured corrupting (§10) — and none of those
+measurements moved. What replaced it is an arena a PROGRAM brackets,
+not one a compiler infers, which is the half of this design that was
+already built and gated when it was written down. Two survive with their
 content intact: `MM-ALLOC-20` is the prerequisite for *any* automatic
 strategy and is not withdrawn, and `MM-ALLOC-21`'s write-barrier
 obligation lives on as the field-store event of `MM-LIFE-2c`.
@@ -1373,7 +1525,13 @@ its size class and is handed out again (`MM-LIFE-2b`, `2e`). What has
 not changed is the DEFAULT: a value nobody releases still lives as long
 as the process, because most of the events are not emitted yet.
 
-**MM-LIFE-2a (P) — the chosen strategy: reference counting.**
+**MM-LIFE-2a (W, 2026-08-24) — the chosen strategy: reference counting.**
+
+*Withdrawn: superseded by `MM-ALLOC-22`, and withdrawn in §0.3's second
+sense — **abandoned in place**, not superseded before implementation.
+The paragraph at the end of this rule is what that costs; read it before
+reading anything below as a plan.*
+
 Automatic reclamation **SHALL** be automatic reference counting. Every
 heap block gains a count; the compiler emits a retain where a reference
 is copied into a longer-lived place and a release where one dies; a
@@ -1455,11 +1613,53 @@ Two things remain, and they are the reason this is not finished:
 
 What the strategy requires of the machine — a count word, the ownership
 events, a reference map, a release path in the allocator, and a stated
-cycle obligation — is `MM-LIFE-2b`–`MM-LIFE-2f`. Each is **P**, each
-says what happens today, and together they are the specification the
-one-paragraph decision above was not.
+cycle obligation — is `MM-LIFE-2b`–`MM-LIFE-2f`. Each says what happens
+today, and together they are the specification the one-paragraph
+decision above was not. Each was **P** until 2026-08-24 and each is now
+**W** with this rule, for the reason below and in the same sense.
 
-**MM-LIFE-2b (P). The count word.** Every counted block **SHALL** carry
+**Withdrawn 2026-08-24. What that means, and what it does not.** The
+project's target workload is stateless request/response service, and the
+reclamation for it is the arena scope: `MM-ALLOC-22` measures a request
+handler bracketed by a mark and a reset at **271–313× less memory** than
+the same binary unscoped, gated with a negative probe, with the language
+server's 840 bytes per edit against 193,247 beside it. The arena is the
+strategy, not a bridge to this one. Reference counting is no longer
+scheduled, and no rule in this document may cite `MM-LIFE-2a` as
+something that is coming.
+
+**The machinery that landed is not withdrawn, because it cannot be.**
+"Retire ARC" means "stop finishing it", and the half that shipped emits
+on every build today: `MM-LIFE-2b`'s 16-byte header is on both
+allocation paths, **all seven** of `MM-LIFE-2c`'s ownership events emit
+(`tests/stdlib/355-arc-events.ax`, `361-arc-field-store.ax`,
+`362-arc-tail-boundary.ax`, `364-arc-frame-release.ax`,
+`372-arc-owned-results.ax`), `MM-LIFE-2d`'s monomorphic, evidence and
+`Str` halves hold, `MM-LIFE-2g`'s `__retainref` is on the hottest store
+in the compiler, and `MM-LIFE-2e`'s release path files dead blocks onto
+`@__axiom_slabs`. Taking any of that out is a compiler change carrying
+its own measurements — the self-compile that this machinery took from
+2.93 s to 1.94 s and 314 MiB to 248 is the same machinery — and not a
+documentation edit. This document will not write about it in the past
+tense.
+
+**The half-finished state carries a permanent per-request cost, and
+nothing measures it.** `__axiom_arena_reset_fn` scrubs **4,097** slab
+heads on every reset — 4,097 stores on the exact path `MM-ALLOC-22`'s
+workload takes once per request — and it does that **precisely
+because** releases file blocks into those heads: a head left dangling
+across a reset double-issues storage on the next same-class allocation.
+Counting bought that scrub and the arena pays it, once per request,
+forever, on a strategy nobody is finishing. `check-net.sh` measures
+memory and not time, and no gate compares a reset with the scrub against
+one without it, so the cost is read off the emitted code and priced at
+*unknown* rather than at zero. §9.0 carries it as a defect for exactly
+that reason: an unfinished strategy's residue is a cost that has stopped
+belonging to a plan, and a cost nobody owns is a cost nobody measures.
+
+**MM-LIFE-2b (W 2026-08-24, abandoned in place —
+see `MM-LIFE-2a`; what already emits is recorded below and stays).
+The count word.** Every counted block **SHALL** carry
 a 16-byte header immediately below its address: word −2 the reference
 count, word −1 the shape word of `MM-LIFE-2d` — which carries the
 block's word count as well as its reference map, because release needs
@@ -1507,7 +1707,9 @@ map writers, as each of those rules records. This rule amends
 block still does not know its own size or type, only its count and
 which of its words are references.
 
-**MM-LIFE-2c (P). Ownership.** The events, exactly — each is a place
+**MM-LIFE-2c (W 2026-08-24, abandoned in place —
+see `MM-LIFE-2a`; what already emits is recorded below and stays).
+Ownership.** The events, exactly — each is a place
 the compiler **SHALL** emit a retain (+1), a release (−1, reclaiming at
 zero), or deliberately neither:
 
@@ -1998,19 +2200,20 @@ closure-outlives-frame dangle stays a recorded program obligation
 beside `MM-VAL-15`'s price sentence for every other capture. **The evidence
 record's two words stopped being in that sentence on 2026-08-15**,
 when its map landed and its retains became legal
-(`MM-LIFE-2d`, `tests/stdlib/360-arc-evidence-map.ax`). The §3.3 primitives remain LEGAL through this interim -
-ARC has not landed until the acceptance measurements pass, and
-until then the arenas remain the only whole-program reclamation
-there is. An earlier revision of this sentence said the refusal
+(`MM-LIFE-2d`, `tests/stdlib/360-arc-evidence-map.ax`). The §3.3 primitives are LEGAL, permanently -
+this sentence said "through this interim", and there is no interim:
+ARC is withdrawn and the arenas are the reclamation
+(`MM-ALLOC-22`, `MM-LIFE-2a`). An earlier revision said the refusal
 "ships with the container rung"; that was a schedule written before
-the measurement, and `MM-LIFE-2e` now records what the measurement
-says instead. Composing the
-two in the meantime is guarded at the runtime: an arena reset
+the measurement, and the measurement went the other way. Composing the
+two is not a temporary arrangement either, and it is guarded at the runtime: an arena reset
 scrubs the slab heads first, because a release-to-zero inside an
 arena extent files a block the reset would otherwise leave dangling
 into re-issuable memory.
 
-**MM-LIFE-2d (P, prerequisite). The reference map.** Release at count
+**MM-LIFE-2d (W 2026-08-24, abandoned in place —
+see `MM-LIFE-2a`; what already emits is recorded below and stays).
+The reference map.** Release at count
 zero must release the dead block's own reference fields, and nothing at
 runtime can name them: a word carries no tag (`MM-VAL-2`), a struct
 block carries no header at all (`MM-VAL-10`), and assuming otherwise is
@@ -2204,7 +2407,9 @@ their binders are, and codegen's symbol table records a name, a
 register, a float flag and a slot kind, and no type. That is the
 binder-class stamp `MM-LIFE-2c` names.
 
-**MM-LIFE-2e (P). The release path.** A bump pointer cannot reuse an
+**MM-LIFE-2e (W 2026-08-24, abandoned in place —
+see `MM-LIFE-2a`; what already emits is recorded below and stays).
+The release path.** A bump pointer cannot reuse an
 interior free. Release at zero **SHALL** hand the block — header
 included — to a size-class free list that `axiom_alloc` consults before
 bumping. Everything §3.1 promises survives unchanged: alignment
@@ -2215,18 +2420,44 @@ bytes — `MM-ALLOC-5a`'s safe direction doing its job; freestanding
 emitted runtime functions under the same `no-builtins` attribute
 (`MM-ALLOC-8c`); and chunks are still never unmapped (`MM-ALLOC-4a`).
 
-The explicit primitives of §3.3 do not compose with this. A reset
-reclaims without releasing, so a compiler-emitted release after one
-would walk a header the allocator has already re-issued — a write into
-someone else's block. When ARC lands, `__axiom_arena_mark`,
+The explicit primitives of §3.3 do not compose with this for free. A
+reset reclaims without releasing, so a compiler-emitted release after
+one would walk a header the allocator has already re-issued — a write
+into someone else's block.
+
+**The refusal this paragraph ordered is retired, and its text is kept
+because a dropped `MUST` that leaves no trace is a change a reader
+cannot audit.** It read: *"When ARC lands, `__axiom_arena_mark`,
 `__axiom_arena_reset` and `__axiom_arena_reset_keeping` **MUST** be
 refused under it with a diagnostic; until it lands they remain the only
-reclamation there is, and every rule in §3.3 stays load-bearing.
+reclamation there is, and every rule in §3.3 stays load-bearing."* ARC
+is not landing (`MM-LIFE-2a`, withdrawn), the three primitives are the
+reclamation rather than the interim (`MM-ALLOC-22`), and the clause's
+own second half turned out to be the argument against its first: they
+remain the only whole-program reclamation there is, so refusing them
+takes a stateless service from 608 KiB at ten thousand connections to
+190,128 and the language server from 840 bytes per edit to 193,247.
+
+What replaced the refusal is a runtime guard, and it shipped before the
+decision did: an arena reset scrubs the 4,097 slab heads first, because
+a release-to-zero inside an arena extent files a block the reset would
+otherwise leave dangling into re-issuable memory. That is the
+composition hazard paid for at run time instead of forbidden at compile
+time, and `MM-LIFE-2a` prices what it costs — 4,097 stores per reset,
+measured by nothing.
 
 **The acceptance measurement is written twice, and on 2026-08-15 both
 halves were run rather than quoted.** Neither passes, and the reason
-is the same one in both — which is what makes it a prerequisite rather
+is the same one in both — which is what made it a prerequisite rather
 than a schedule.
+
+*Both are KEPT as recorded numbers and neither is a blocker any more.*
+They were the gate on ARC's arrival and ARC is withdrawn
+(`MM-LIFE-2a`), so nothing is waiting on them. They are kept because
+they are measurements and this document does not delete those, and
+because the second of them is now evidence for the opposite conclusion:
+the LSP figure below is half of `MM-ALLOC-22`'s case for the arena.
+§9.1 records what they measure now.
 
 *The unmanaged column* of `scripts/measure-memory-baseline.sh` **MUST**
 go flat with no bracket in the source. It reads **33,568 KiB at 2000
@@ -2268,13 +2499,29 @@ reclaiming is per-message AST garbage — the class `MM-LIFE-2c`'s two
 probes show counting cannot see, because `ASTNode` declares all ten of
 its fields `Int`.
 
-**The consequence for the §3.3 refusal, stated as a decision rather
-than left implicit: it does not ship yet, and shipping it on schedule
-would be a regression.** Refusing `__axiom_arena_mark` and its pair
-today takes the language server from 840 bytes per edit to 193 KB per
-edit, because nothing else reclaims what it reclaims. The refusal is
-gated on the acceptance measurements, exactly as this rule already
-says. What the measurements are gated on was recorded here as the
+**The consequence for the §3.3 refusal, written here as a schedule and
+settled on 2026-08-24 as a withdrawal.** This paragraph said the refusal
+"does not ship yet, and shipping it on schedule would be a regression",
+and argued it from ONE workload: refusing `__axiom_arena_mark` and its
+pair takes the language server from 840 bytes per edit to 193 KB per
+edit, because nothing else reclaims what it reclaims. The argument was
+right and it was too narrow — one long-lived program reads as a special
+case, and a special case is what a schedule survives.
+
+It has a second workload now and a larger one. A pre-forked server's
+request handler, bracketed by the same pair, is **271× at a thousand
+connections and 313× at ten thousand** — 192 KiB against 19,136 and 608
+against 190,128 — gated with a negative probe in `scripts/check-net.sh`
+and stated as a rule in `MM-ALLOC-22`. That is not a program with an
+unusual memory profile; it is the shape the project has committed to as
+its target. The refusal is not deferred to a later rung. It is
+withdrawn, with the strategy that ordered it.
+
+What the rest of this paragraph recorded about the acceptance
+measurements is kept, because the blocked-on story is still the true
+account of why the events never reached the compiler's own data.
+
+What the measurements were gated on was recorded here as the
 container-and-AST typing campaign, and **that was superseded the same
 day**: the declared type is discarded in exactly two places, both a
 `cast Int` inside a polymorphic function, and `MM-LIFE-2g` closes them
@@ -2285,18 +2532,22 @@ ownership events: `MM-LIFE-2c`'s events 2 and 3 shipped 2026-08-21
 still blocked on what blocked them above — the compiler's own containers
 and AST declare their handles `Int`, so no type-directed ownership event
 can fire on them, and neither figure moves until they carry a type the
-checker can see. Recording the order that way is still the point: twice
-now the rung that looked next was not the one that unblocks this, and
-was not the one that landed either.
+checker can see. Recording the order that way is still the point, and
+it is most of the reason the strategy is withdrawn rather than
+rescheduled: twice the rung that looked next was not the one that
+unblocked this and was not the one that landed either, and the thing
+that finally moved the numbers was a workload the arena already served
+(`MM-ALLOC-22`).
 
 One allocation class the events of `MM-LIFE-2c` deliberately do not
 reach: the emitter's own one-word cells — a `match`'s result cell, a
 mixed-representation tag read (`MM-ALLOC-9`). Counting them would put a
-header and a release on every `match` in the program. Under ARC they
-**SHALL** stop being heap allocations at all — the idiom becomes a
-register or an `alloca`, amending `MM-ALLOC-9` and `I10` in the commit
-that lands it — because the alternative, with §3.3 refused, is a
-sixteen-byte leak per `match` executed. *Held since 2026-08-15*
+header and a release on every `match` in the program. They **SHALL**
+stop being heap allocations at all — the idiom becomes a register or an
+`alloca`, amending `MM-ALLOC-9` and `I10` in the commit that lands it —
+because the alternative, when §3.3 was to be refused, was a sixteen-byte
+leak per `match` executed. That obligation outlived the refusal that
+motivated it, and is discharged. *Held since 2026-08-15*
 (`tests/stdlib/356-match-no-heap.ax`, 3): one scratch `alloca` per
 function serves every merge cell, the bump pointer no longer moves
 across a thousand-iteration match loop, and the fall-through zero is
@@ -2353,19 +2604,20 @@ table is the new ceiling stated as a measurement rather than a
 constant: a 64 KiB payload plus its NUL plus the header lands above
 it, and above the ceiling nothing is pooled.
 
-What remains of this rule: blocks above 64 KiB (recorded, with the
-measurement that says they are one-shot in every workload here — two
-source files rarely share a size, so exact-size pooling could not
-reuse them anyway), the acceptance measurements (which need the
-compiler's own container and AST handles to carry a type the checker
-can see, and the container element maps under them), and the §3.3
-refusal. The
+What remains of this rule is now what will not be built rather than
+what is next: blocks above 64 KiB (recorded, with the measurement that
+says they are one-shot in every workload here — two source files rarely
+share a size, so exact-size pooling could not reuse them anyway), and
+the acceptance measurements (which would need the compiler's own
+container and AST handles to carry a type the checker can see, and the
+container element maps under them). The §3.3 refusal is not on that
+list at all: it is withdrawn (`MM-ALLOC-22`). The
 match-cell amendment is done - those cells are not allocations any more
 (`MM-ALLOC-9`, `tests/stdlib/356-match-no-heap.ax`).
 The free list of `MM-ALLOC-4b` still holds whole chunks, unchanged and
 separate.
 
-**MM-LIFE-2f (P, program obligation). Cycles under counting.** An
+**MM-LIFE-2f (W 2026-08-24, abandoned in place — see `MM-LIFE-2a`; program obligation). Cycles under counting.** An
 unreachable cycle is never reclaimed — `MM-LIFE-3` measures both
 construction routes — and that is the cost `MM-LIFE-2a` accepts. A
 program that builds a knot and needs the memory back **MUST** break the
@@ -2521,17 +2773,71 @@ is an accepted tag with no meaning.
 
 ## 6. Parallelism
 
-**MM-PAR-1 (H).** Axiom has **no language-level concurrency**: no
-threads, no tasks, no async, no scheduler, and no atomics. Nothing in
-this section is a compiler feature.
+**MM-PAR-1 (H, its reason amended 2026-08-24).** Axiom has **no
+language-level concurrency**: no threads, no tasks, no async, no
+scheduler, and no atomics. Nothing in this section is a compiler
+feature.
 
-**MM-PAR-2 (H).** The unit of parallelism is the **process**, provided
-by `stdlib/Job.ax` over `sysSpawn`/`sysWaitPid`. This is forced rather
-than chosen: on macOS a freestanding binary cannot create OS threads —
-thread creation needs `bsdthread_register`, and Mach-O has no local-exec
-TLS, so `__thread` lowers to `tlv_get_addr` — both of which live in
-libSystem, and the language has no construct that can name an external
-symbol (`MM-FFI-1`).
+**The conclusion is unchanged and the argument for it was false.** It
+was carried in `MM-PAR-2`'s sentence rather than here: thread creation
+on macOS needs `bsdthread_register`, Mach-O has no local-exec TLS so
+`__thread` lowers to `tlv_get_addr`, both live in libSystem — "and the
+language has no construct that can name an external symbol
+(`MM-FFI-1`)". **That last clause is no longer true.** `MM-FFI-1` was
+amended when the `extern` block landed: an `extern` item makes the
+emitter write a `declare`, so the language names external symbols by
+design, and `rust/examples/demo/axiom-allow.txt` already enumerates
+`_tlv_bootstrap` and `_tlv_atexit` — the exact machinery the old
+argument said was unreachable — among the 188 a `std` link pulls in.
+Threads are therefore **chosen against, not forced against**. A rule
+that keeps something out of scope on a false premise is the dangerous
+kind: nobody re-examines an impossibility, and this one had stopped
+being one.
+
+The conclusion stands on price, and the price is two things this
+document sells elsewhere:
+
+- **The freestanding property.** A program with no `extern` links
+  **0** undefined symbols, and so does one calling a `no_std` crate; a
+  `std` link is **188**, 18 of them forbidden libc names (`MM-FFI-1`'s
+  table, gated by `scripts/check-ffi.sh`). Creating a thread means
+  naming a libSystem symbol — `bsdthread_register`, or the
+  `pthread_create` that allowlist already carries — so it puts every
+  program that wants one in the third tier permanently, where
+  `MM-ALLOC-1` and the whole of §3 stop being unconditional.
+- **The whole of `MM-PAR-3`.** Every process-wide mutable global is
+  private after `fork` **by construction**. Threads share them, so the
+  five allocator words, the 4,097 size-class heads, argc/argv and every
+  evidence slot would need atomics or thread-local storage — which is
+  exactly `MM-PAR-6`'s obligation, and it already records that a shared
+  bump pointer is the one thing this allocator's design cannot absorb.
+
+Neither price is prohibitive by nature and neither is being paid. That
+is the honest shape of a refusal: a cost named, and declined.
+
+**MM-PAR-2 (H, amended 2026-08-24).** The unit of parallelism is the
+**process**. `stdlib/Job.ax` over `sysSpawn`/`sysWaitPid` is one route
+to it and was the only one when this rule was written; it is not the
+only one now, and the difference decides what can be parallelised at
+all. **`Job` cannot run an Axiom closure** — it execs an external
+program and answers what that program wrote, so the work has to be a
+binary on the filesystem.
+
+`stdlib/Sys.ax`'s `sysForkProcess` is the other route, and it leaves
+the child running **this** program's code. It answers the POSIX
+convention on every target — 0 in the child, the child's pid in the
+parent, a negative errno on failure — and one platform is normalised to
+reach it: Darwin's `fork` hands the child pid to both processes and
+distinguishes them in a register no primitive here reads, so one
+`getpid` separates them. `tests/net/echo-server.ax` is the case that
+needs it: a pre-forked pool whose workers inherit one listening socket
+created before the fork and then run an Axiom request handler, driven
+under CI by `scripts/check-net.sh`, with
+`tests/stdlib/311-preforked-server.ax` the same shape in the stdlib
+corpus. `MM-ALLOC-22`'s measurement is taken on those workers.
+
+Why forking needs no compiler support at all is unchanged, and it is
+`MM-PAR-3`.
 
 **MM-PAR-3 (H).** **Memory safety across processes is by construction,
 not by discipline.** *Every* process-wide mutable global — the five
@@ -2751,7 +3057,7 @@ breaks if it is violated, because that is the useful half.
 | **I12** | Compilation is deterministic and reproducible | `MM-EXEC-13` | `check-reproducible.sh` |
 | **I13** | The compiler executes no user code | `MM-EXEC-14` | the threat model |
 | **I14** | The heap graph **may** contain cycles | `MM-LIFE-3` | the chosen ARC leaks them by stated cost (`MM-LIFE-2f`); any future cycle collector must trace them, with the maps `MM-LIFE-2d` specifies |
-| **I15** | Nothing is reclaimed except by §3.3 or process exit | `MM-LIFE-1` | — |
+| **I15** | Nothing is reclaimed except by §3.3, by process exit, or by the ownership events that emit today | `MM-LIFE-1` | — |
 
 **Two invariants are narrower than their one-line form**, and the
 narrowing is stated here rather than left to careful reading:
@@ -2767,10 +3073,17 @@ narrowing is stated here rather than left to careful reading:
   initialises it, and the padding up to the 16-byte rounding holds
   whatever was there. Memory that reaches a program by that route has
   not been zeroed.
-- **I15** is the status quo `MM-LIFE-2a` exists to end. It holds until
-  `MM-LIFE-2e`'s release path ships, and every rule in §3 may assume it
-  until then; the day it stops holding, this row changes in the same
-  commit.
+- **I15** was written as the status quo `MM-LIFE-2a` existed to end,
+  and it stopped holding in that form the day `MM-LIFE-2e`'s release
+  path shipped: dead blocks do reach a size-class free list, and
+  `MM-LIFE-2c`'s seven events do release. The row is amended rather
+  than deleted, because what §3 may assume is still nearly all of it —
+  the DEFAULT is unchanged (`MM-LIFE-1`), a value nobody releases lives
+  as long as the process, and the compiler's own containers and AST
+  declare their handles `Int`, so no type-directed ownership event
+  fires on them. With `MM-LIFE-2a` withdrawn (§9) this is the permanent
+  shape of the invariant and not a waypoint on the way to a stronger
+  one.
 
 ---
 
@@ -2784,14 +3097,36 @@ that rule's status, which is the failure this table exists to prevent.
 |---|---|---|---|---|
 | Execution | EXEC-1…6d, 8…13, 15…17 | — | — | EXEC-7, EXEC-14 |
 | Representation | VAL-1…11, 14…20 | — | — | VAL-12, VAL-13 |
-| Allocation | ALLOC-1…7, 8a…16b | ALLOC-8, ALLOC-20 | ALLOC-17…19, ALLOC-21 | — |
+| Allocation | ALLOC-1…7, 8a…16b, ALLOC-22 | ALLOC-8, ALLOC-20 | ALLOC-17…19, ALLOC-21 | — |
 | Mutation | MUT-1…5 | — | — | MUT-6 |
-| Lifetimes | LIFE-1, 3, 4, 6, 2g | LIFE-2a…2f (all seven of 2c's events emit, the last two since 2026-08-21; what 2a…2f still want is 2e's acceptance measurements), LIFE-5, LIFE-7 | — | LIFE-2 |
+| Lifetimes | LIFE-1, 3, 4, 6, 2g | LIFE-5, LIFE-7 | LIFE-2a…2f (2026-08-24, superseded by ALLOC-22) | LIFE-2 |
 | Parallelism | PAR-1…5 | PAR-6 | — | — |
 | Foreign | FFI-2…4 | FFI-5 | — | FFI-1 |
 
 `MM-VAL-21` appears in no column: it is neither held, planned nor
 refused, but **defective** — see §9.0.
+
+**The Lifetimes row's Withdrawn column is §0.3's second kind, and the
+column heading alone would misreport it.** `LIFE-2a…2f` were withdrawn
+*after* most of the machinery shipped, not before it was implemented:
+all seven of `LIFE-2c`'s events emit, `LIFE-2b`'s header is on both
+allocation paths, `LIFE-2d`'s monomorphic, evidence and `Str` halves
+hold, and `LIFE-2e`'s release path files dead blocks. None of that
+comes out, `LIFE-2g` is **H** in the first column for exactly that
+reason, and §9.0 carries the standing cost the half-finished state
+leaves behind. Read the column as *no longer being finished*, never as
+*not there*.
+
+**Two identifiers in this document are used twice**, and the Lifetimes
+row means §5's rules only. §3.5 states a second `MM-LIFE-2e` (`cast`
+degrades the evidence word) and a second `MM-LIFE-2f` (the typed
+accessor is the safe vehicle), both **H**, both about the evidence word
+rather than about counting, and both appear in no column of this table.
+A duplicate identifier is a §0.1 violation. It is recorded here rather
+than repaired by renaming, because every citation in this document and
+in `self_host/` resolves by number and a rename silently redirects
+whichever side it does not touch; repairing it is a decision about which
+pair keeps the number, not a typo fix.
 
 ### 9.0 Defects this specification records
 
@@ -2804,10 +3139,12 @@ document.
 |---|---|
 | `MM-ALLOC-8b` | `(__alloc 0)` returns an unadvanced bump pointer — address 0 before any chunk exists |
 | `MM-VAL-4c` | `(!= NaN NaN)` is `false`; `Fmt.fmtFloat` cannot render inf or NaN |
-| `MM-VAL-3b` | `INT_MIN / -1` and shifts ≥ 64 are undefined and answer differently per `--opt` |
+| `MM-VAL-3b` | `INT_MIN / -1` and shifts ≥ 64 are undefined and answer differently per `--opt`. The operators are unchanged; what closed is the absence of an alternative — `stdlib/Err.ax`'s checked arithmetic, `tests/stdlib/312-checked-arithmetic.ax` |
 | `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc` |
 | `MM-EXEC-9a` | effect inference is an under-approximation in five measured ways, including across trait dispatch (the `__alloc` row closed on 2026-08-23) |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so a function of either name is definable but uncallable |
+| `MM-EXEC-16` | status **72** is division by zero here and, in `docs/ffi.md` C7, the exit a `no_std` crate's panic handler takes — an Axiom division and a Rust panic are indistinguishable to a supervisor reading a status, and the two documents each reserve it without knowing the other does |
+| `MM-LIFE-2a` | the withdrawn strategy's landed half charges every arena reset **4,097** slab-head stores — on the once-per-request path of `MM-ALLOC-22`'s workload — because releases file blocks into those heads. No gate measures it, and with the strategy withdrawn the cost belongs to no plan |
 
 Seven rows left this table on 2026-08-14, each fixed and pinned by
 the fixture its rule names: `MM-ALLOC-8`'s silent duplicate symbol
@@ -2858,6 +3195,9 @@ equivalent honesty for this one.
 | `tests/diagnostics/480-field-on-mixed-data.ax` + `tests/stdlib/210-struct-variants.ax` | VAL-9a — the refusal and the still-legal all-fieldful half |
 | `tests/diagnostics/495-widthless-types.ax` | VAL-3c, VAL-4b — the removed names refuse |
 | `tests/selfhost/371-main-recursive.ax` | EXEC-15a — 5, where the unfixed compiler exits 4 |
+| `tests/stdlib/314-out-of-memory.ax` | EXEC-16's status 70 and ALLOC-7 — the sentence in `.err`, the status in `.exit`, neither checked by the other, reached deterministically at 2^47 bytes |
+| `tests/stdlib/312-checked-arithmetic.ax` | VAL-3b's remedy — `addChecked`/`subChecked`/`mulChecked` at every boundary they have, byte-identical stdout at `--opt` 0, 1, 2 and 3 |
+| `scripts/check-net.sh` | ALLOC-22 (a request handler scoped as an arena, 271–313× under the same binary unscoped, with the negative probe that makes the flat column mean something) and ALLOC-4b (request sizes varying across three orders of magnitude do not ratchet the watermark) |
 
 **Incidentally covered, which is not the same as pinned.** Several rules
 are *exercised* by fixtures written for another purpose, so a regression
@@ -2870,6 +3210,20 @@ fixtures build cycle-shaped structures (`MM-LIFE-3`) tens of thousands of
 times without ever asking whether a cycle is constructible. Reading those
 as coverage is the mistake this section exists to prevent.
 
+**`MM-LIFE-2e`'s two acceptance measurements now measure a withdrawn
+strategy**, and this section is where that has to be said, because a
+criterion nobody can fail is the same drift class as a **Complete** row
+with no fixture. They were the gate on ARC's arrival — the unmanaged
+Life column at **33,568 KiB / 16 KiB per generation**, and the LSP's
+**193,247 bytes per edit against 840** with the boundary removed — and
+`MM-LIFE-2a` is withdrawn, so nothing is waiting on either. Neither is
+dead weight: the LSP pair is half the evidence for `MM-ALLOC-22`, and
+the Life column is still the contrast
+`scripts/measure-memory-baseline.sh --gate` measures its managed variant
+against. What changed is that failing them now blocks nothing, and a
+number labelled *acceptance* with nothing behind the label is a sentence
+this section exists to catch.
+
 Everything else is pinned by nothing, and the probes quoted inline are
 the only evidence. In this repository's terms those rules are
 documentation, not specification, until a fixture exists. The
@@ -2879,10 +3233,19 @@ aliases, `MM-EXEC-6b`'s self-TCO (which `reference.md` misattributed to
 LLVM until 2026-08-14 — a fixture would keep it from drifting back),
 and `MM-LIFE-3`'s cycles stated *as* a property.
 
-Two of `MM-EXEC-16`'s three exit statuses are already gated — 71 by
-`tests/stdlib/310-effect-unhandled.ax` and 72 by the division fixtures —
-so only 70 is unpinned, and it is the one no fixture can reach without
-exhausting memory.
+**All three of `MM-EXEC-16`'s exit statuses are gated**: 71 by
+`tests/stdlib/310-effect-unhandled.ax`, 72 by the division fixtures, and
+70 by `tests/stdlib/314-out-of-memory.ax`. This paragraph said 70 was
+"the one no fixture can reach without exhausting memory", which was
+false in the strong direction: `314` reaches it **deterministically and
+without exhausting anything**, by asking for 2^47 bytes — past the user
+address space, so the kernel refuses the mapping outright and macOS's
+overcommit cannot swallow the request the way it swallows a terabyte.
+The message is pinned in the case's `.err` and the status in its
+`.exit`, neither checked by the other (`MM-ALLOC-7`). The sentence is
+worth more than its correction, and it is corrected here rather than
+quietly, because of the *shape* of the claim rather than its subject —
+the last three paragraphs of this section are what that shape costs.
 
 **This document is read by `check-doc-drift.sh`** — both specifications
 joined the gate's fixed list in the commit that landed them, so every
@@ -2898,6 +3261,46 @@ sentence is false, which is how the README's Macros row stayed
 **Complete** for a season of being wrong — the arbitration recorded in
 [macro-system.md](macro-system.md)'s preamble.
 
+**There is a sharper version of that, and the exit-status correction
+above is an instance of it.** `check-doc-drift.sh` proves reference
+INTEGRITY — every fixture a document names exists — and integrity is not
+truth. Its strongest check reads a sentence, extracts a `tests/` path,
+and asks the filesystem whether the file is there. A sentence asserting
+that a fixture is **absent** — "70 … is the one no fixture can reach
+without exhausting memory" — names no path, so there is nothing for the
+gate to resolve. It is the exact dual of what the gate checks, and it is
+structurally invisible to it: the sentence was false for as long as it
+took a person to notice, with every gate green.
+
+The class is much larger than the one sentence. **Every claim of the
+form "no X exists", "X is the only Y", or "X cannot be reached" is
+unfalsifiable by the current design** — and this repository writes them
+constantly, because a specification's most useful sentences are often
+about what is absent. Three were false at once on 2026-08-24 and not one
+of them failed anything: this one; `error-model.md`'s `ERR-ADOPT-3`
+calling `self_host/lsp.ax` "the one long-lived Axiom program v1 ships",
+with a pre-forked server running under CI; and `MM-PAR-2`'s "the
+language has no construct that can name an external symbol", with
+`extern` blocks shipped and two `_tlv_*` symbols already enumerated in
+a reviewed allowlist. A gate cannot enumerate what does not exist, so it
+can check none of them, and the population only grows.
+
+**The remedy is a documentation rule rather than a bigger gate**, and
+this section proposes it: *a normative sentence asserting a negative
+**MUST** name the probe that would fail if the negative became true.*
+"70 is the one no fixture can reach" names nothing. "70 is unpinned, and
+`tests/stdlib/314-out-of-memory.ax` is the fixture that would exist if
+it were not" names a path — and once the sentence carries a path, the
+gate that already exists checks it in the direction that matters: the
+day the fixture lands, the sentence claiming it cannot exist is standing
+next to it, and rule 4 resolves the name that proves the sentence wrong.
+That converts an unfalsifiable claim into a claim about a file, which is
+the only kind of claim this repository has ever managed to keep honest.
+The rule is not gated: a gate for it would sweep the prose docs for
+negative and uniqueness phrasings and require a `tests/` path inside the
+sentence, and writing it down here is the first half of asking for
+one.
+
 ---
 
 ## 10. Rationale
@@ -2911,7 +3314,22 @@ deleted along with the backend that emitted it. Stating `MM-ALLOC-20` as
 a *prerequisite* is worth more than shipping a collector that
 misidentifies a `Vec` header — which has already happened once.
 
-**Why reference counting — and why the reversal is written down.** An
+**Why reference counting was chosen and then not finished.** This
+paragraph and the next are kept as the record of a decision that has
+since been withdrawn (`MM-LIFE-2a`, 2026-08-24), and they are worth
+reading in that light rather than deleted: three of the four reasons
+below are still true, and the strategy still lost. What beat it was not
+a counter-argument but a workload — a stateless request handler
+bracketed by an arena mark and reset, measured at 271–313× less memory
+than the same binary unscoped and gated with a negative probe
+(`MM-ALLOC-22`). Reason 2 below is the one that dissolved: the loop that
+never returns was ARC's decisive case, and a request handler is not that
+loop. It is an activation that DOES return, at a boundary the program
+already knows, which is the one shape a watermark serves for free. The
+counting machinery that landed stays; §9.0 records what it still costs
+per reset.
+
+An
 earlier revision of this paragraph was titled *Why not reference
 counting* and called ARC "unsound for Axiom as specified", because
 `MM-LIFE-3` measures cycles as constructible. That argument mistook
@@ -2962,15 +3380,18 @@ may fire, not which arena a value belongs in — and turns
 the compiler can derive is one that will eventually disagree with the
 compiler, silently.
 
-**Why explicit primitives exist anyway.** `MM-ALLOC-12`–`MM-ALLOC-16`
-are what a programmer uses until `MM-LIFE-2a`'s ARC lands, and they are
-the only reclamation the language has today — the LSP's flat memory is
-built on them. They are also the machinery whose gates proved the
-allocator could be trusted at all. Building the automation over
-primitives that are already gated is the difference between a plan and
-a schedule; that the automation chosen no longer *inserts* them
-(`MM-LIFE-2e` refuses them under ARC instead) does not return the
-lesson.
+**Why explicit primitives are the strategy.** This paragraph read "why
+explicit primitives exist anyway", and called `MM-ALLOC-12`–`MM-ALLOC-16`
+what a programmer uses *until* ARC lands. They are what a programmer
+uses. `MM-ALLOC-22` is the rule and `scripts/check-net.sh` is the
+measurement: a request handler scoped as an arena, 271–313× under the
+same binary unscoped, with the LSP's 840 bytes per edit beside it. They
+are also the machinery whose gates proved the allocator could be trusted
+at all, which is why the automation was going to be built over them
+rather than beside them — and the automation that was chosen ended up
+refusing them (`MM-LIFE-2e`'s retired clause) rather than inserting
+them, which is a fair summary of how far that plan drifted from the one
+thing already known to work.
 
 **Why the unsafe layer is named rather than hidden.** `Mem` hands out
 addresses as plain `Int`s and says so in its own header: it is the layer
@@ -2988,11 +3409,13 @@ library.
 
 ### 11.1 A loop with flat memory, today
 
-The contract of `MM-ALLOC-16`, written the way a program must write it
-until the ARC of `MM-LIFE-2a`–`2f` lands — at which point the bracket
-disappears from the source instead of being inserted by the compiler,
-and this script's *unmanaged* column is the acceptance measurement
-(`MM-LIFE-2e`).
+The contract of `MM-ALLOC-16`, written the way a program writes it. The
+bracket does not disappear later: `MM-LIFE-2a`'s ARC is withdrawn, so
+nothing is going to insert these calls, and this script's *unmanaged*
+column is a recorded measurement rather than an acceptance criterion
+(`MM-LIFE-2e`, §9.1). What a server writes instead of this loop is
+`MM-ALLOC-22`'s shape — mark, handle the request, reset — where the live
+set at the boundary is empty and no copy is needed at all.
 
 This is the "managed" variant `scripts/measure-memory-baseline.sh`
 gates, verbatim in shape: mark once, then per iteration **copy up,

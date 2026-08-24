@@ -21,9 +21,9 @@
 ; the backend defers to it". It does not defer - the backend emits its
 ; definition unconditionally, and a program defining `axiom_alloc` is
 ; refused outright, AX3026; it used to pass `check` and die in `opt`
-; as a duplicate symbol. docs/memory-model.md MM-ALLOC-8; the chosen
-; long-running answer is reference counting, MM-LIFE-2a, with the
-; explicit arena primitives the reclamation until it lands.)
+; as a duplicate symbol. docs/memory-model.md MM-ALLOC-8; the explicit
+; arena primitives ARE the reclamation, MM-ALLOC-22 - reference
+; counting, MM-LIFE-2a, was withdrawn, and this line used to promise it.)
 ;
 ; ZEROED IS A PROMISE, not an artefact of where the memory came from,
 ; and this comment used to be describing the artefact. Fresh pages

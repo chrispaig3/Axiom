@@ -413,8 +413,9 @@ narrowly is the point of re-measuring.
 
 A conforming implementation **MUST** reclaim it. Until then the cost is
 linear in fallible calls, which is survivable for a compiler that runs
-once and is not survivable for the LSP, and `ERR-ADOPT-3` says what to
-do about that.
+once and is not survivable for either program that does not — the LSP
+per keystroke, the pre-forked server per request — and `ERR-ADOPT-3`
+says what to do about that.
 
 `370-error-propagation.ax` term 8 asserts the **control** — the same
 loop with no `Result` allocates nothing — rather than the leak. A
@@ -760,14 +761,36 @@ touches the seed until one has to, and the one that does — a built-in
 `Result` under `ERR-TYPE-2`, if it is ever justified — lands as
 feature-then-`scripts/reseed.sh`, never as both at once.
 
-**ERR-ADOPT-3 (P). The LSP is the constraint on `ERR-MEM-4`.** A
-compiler process runs once and exits; 32 bytes per fallible call is
-noise. `self_host/lsp.ax` is the one long-lived Axiom program v1 ships,
-and it is already the case the roadmap's phase 2 measures. Migrating
-the compiler's phases to `Result` therefore **MUST** be re-measured
-against `scripts/check-lsp-selfhost.sh`'s per-edit figure, and
-`ERR-MEM-4` closed before the LSP's own request path migrates. Its
-cause is now named narrowly enough to cost one walk rather than one
+**ERR-ADOPT-3 (P, amended 2026-08-24). The long-lived programs are the
+constraint on `ERR-MEM-4`, and there are two of them.** A compiler
+process runs once and exits; 32 bytes per fallible call is noise.
+
+This rule said `self_host/lsp.ax` was "the one long-lived Axiom program
+v1 ships". That stopped being true when the socket work landed:
+`tests/net/echo-server.ax` is a pre-forked server whose workers run
+until they are signalled, driven under CI by `scripts/check-net.sh`, and
+it is the larger of the two constraints — its per-request budget is a
+request handler's rather than a keystroke's, and the gate drives ten
+thousand connections through it. (The sentence was a uniqueness claim
+with no probe behind it, which is the class `docs/memory-model.md` §9.1
+records as structurally invisible to `check-doc-drift.sh`: the gate
+resolves the fixtures a document NAMES and can say nothing about one it
+asserts does not exist.)
+
+Both programs hold their memory flat by the same mechanism — a
+`__axiom_arena_mark` / `__axiom_arena_reset` bracket around the unit of
+work, which `docs/memory-model.md`'s `MM-ALLOC-22` states as the
+reclamation strategy rather than as an interim one — so a `Result`
+allocated inside the bracket is reclaimed at the boundary and one that
+escapes it is not. That is the whole of what `ERR-MEM-4` has to be
+measured against, and it is why the 32 bytes are a per-*call* figure and
+not a per-*process* one.
+
+Migrating the compiler's phases to `Result` therefore **MUST** be
+re-measured against `scripts/check-lsp-selfhost.sh`'s per-edit figure
+**and** `scripts/check-net.sh`'s scoped-against-unscoped ratio, and
+`ERR-MEM-4` closed before either program's own request path migrates.
+Its cause is now named narrowly enough to cost one walk rather than one
 analysis, which moves it from a blocker to a task.
 
 ---
