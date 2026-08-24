@@ -1,0 +1,11 @@
+ok   an empty vector has nothing at 0
+ok   a negative index is nothing
+ok   a stored zero reads back as Some 0
+ok   a stored value reads back
+ok   one past the end is nothing
+ok   far past the end is nothing
+ok   a negative index is still nothing once there are elements
+ok   vecGet answers the same for a stored zero and a missing element
+ok   vecTry tells those two apart
+ok   what was past the end is readable once pushed
+ok   the end moved with it

@@ -1,0 +1,98 @@
+; `vecTry`, and the one thing `vecGet` structurally cannot tell you.
+;
+; `vecGet` answers 0 for an index past the end. 0 IS ALSO A VALUE A
+; CALLER MAY HAVE PUSHED, so the two cases arrive identically and
+; nothing in the answer says which happened. That is not a crash - it is
+; a wrong answer that keeps going, which on a parser fed by a peer is
+; the worse of the two failure modes.
+;
+; THE LOAD-BEARING TERM IS THE DISCRIMINATION ONE. Any single assertion
+; here can be satisfied by an accessor that is wrong in an interesting
+; way: one that always answers `None` passes every out-of-range term,
+; one that always answers `Some` passes every in-range term. What
+; neither can do is tell a stored zero from a missing element WHILE
+; `vecGet` answers the same for both - so that pair is asserted
+; together, on the same vector, in the same breath.
+;
+; `vecGet` is deliberately unchanged and is still the right call where
+; the index is known good. This is not a deprecation; it is the second
+; accessor for the case the first cannot describe.
+(import IO)
+
+(import Vec)
+
+(:: say (-> Int String Int))
+
+(fn (say okFlag label)
+  (if (== okFlag 1)
+    (printlnLit (strCStr (strConcat "ok   " label)))
+    (printlnLit (strCStr (strConcat "FAIL " label)))
+  )
+)
+
+(:: isNone (-> (Option Int) Int))
+
+(fn (isNone o)
+  (match o
+    ((Some x) 0)
+    ((None) 1)
+  )
+)
+
+(:: someIs (-> (Option Int) Int Int))
+
+(fn (someIs o want)
+  (match o
+    ((Some x)
+      (if (== x want)
+        1
+        0
+      )
+    )
+    ((None) 0)
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((v vecNew))
+    {
+      (say (isNone (vecTry v 0)) "an empty vector has nothing at 0")
+      (say (isNone (vecTry v (- 0 1))) "a negative index is nothing")
+      (vecPush v 0)
+      (vecPush v 7)
+      (say (someIs (vecTry v 0) 0) "a stored zero reads back as Some 0")
+      (say (someIs (vecTry v 1) 7) "a stored value reads back")
+      (say (isNone (vecTry v 2)) "one past the end is nothing")
+      (say (isNone (vecTry v 99)) "far past the end is nothing")
+      (say (isNone (vecTry v (- 0 1))) "a negative index is still nothing once there are elements")
+      ; THE TERM THIS FILE EXISTS FOR. Element 0 holds a stored zero and
+      ; element 2 does not exist. `vecGet` answers 0 for both - that is
+      ; asserted here, not assumed, because if `vecGet` ever started
+      ; distinguishing them this file should say so rather than quietly
+      ; keep passing. `vecTry` answers Some 0 and None.
+      (say
+        (if (== (vecGet v 0) (vecGet v 2))
+          1
+          0
+        )        "vecGet answers the same for a stored zero and a missing element"
+      )
+      (say
+        (if (== (someIs (vecTry v 0) 0) 1)
+          (if (== (isNone (vecTry v 2)) 1)
+            1
+            0
+          )
+          0
+        )        "vecTry tells those two apart"
+      )
+      ; And it keeps up as the vector grows, so the bound is read rather
+      ; than remembered from when the accessor was written.
+      (vecPush v 9)
+      (say (someIs (vecTry v 2) 9) "what was past the end is readable once pushed")
+      (say (isNone (vecTry v 3)) "the end moved with it")
+      0
+    }
+  )
+)
