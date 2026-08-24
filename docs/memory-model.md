@@ -459,13 +459,16 @@ runtime and **MUST NOT** be reused by a program as a normal result:
 Each writes nothing to **stdout**. What each writes to **fd 2** is not
 uniform, and the row above is the place to say so rather than leave it
 to be discovered by whoever is reading a supervisor's log: 70 writes 35
-bytes and 72 writes 24, both a single sentence ending in a newline
-(`emitOomTrap`, `emitDivTrap`), and **71 writes nothing at all** — a
-bare `exit(71)` in `emitUnhandledTrap`, so an unhandled operation is the
-one reserved status that still vanishes silently. 70 was in that
-condition until `emitOomTrap` gave it `emitDivTrap`'s shape; 71 has not
-been given it, and `tests/stdlib/310-effect-unhandled.ax` pins the
-status with no `.err` beside it because there is nothing to pin.
+bytes, 72 writes 24 and 71 writes 24, each a single sentence ending in
+a newline (`emitOomTrap`, `emitDivTrap`, `emitUnhandledTrap`). All
+three now say something; 71 was the last to, on 2026-08-24, and
+`tests/stdlib/310-effect-unhandled.err` pins its sentence beside the
+`.exit` that had pinned the status alone since the case was written.
+
+That `.err` is the whole reason the silence lasted: `run-stdlib-tests.sh`
+compares stderr only when a `NAME.err` exists and discards it
+otherwise, so a fixture with `.exit` 71 and no `.err` was green over a
+program that printed nothing at all.
 
 I/O is unbuffered — `println` is a direct `write` loop with no flush —
 so output produced before one of these aborts is still visible.
@@ -3031,8 +3034,8 @@ The implementation obligations:
 - `ffiHandleClose` is the early close: it runs the destructor now,
   zeroes word 1, and answers 0; a second close is a no-op, and the
   block's own later death calls nothing. A shim borrowing a closed
-  handle aborts (``axiom-ffi: `f`: handle is closed``, exit 72) rather
-  than dereference 0.
+  handle aborts (``axiom-ffi: `f`: handle is closed``, exit 73 — the
+  FFI's own status, not `MM-EXEC-16`'s 72) rather than dereference 0.
 - Re-entrancy is permitted: the destructor **MAY** call `axiom_release`
   (a Rust `Drop` returning shares the shim took under docs/ffi.md C1).
   Each invocation of `@axiom_release` keeps its dead list in a local and
@@ -3159,7 +3162,7 @@ document.
 | `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc` |
 | `MM-EXEC-9a` | effect inference is an under-approximation in five measured ways, including across trait dispatch (the `__alloc` row closed on 2026-08-23) |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so a function of either name is definable but uncallable |
-| `MM-EXEC-16` | status **72** is division by zero here and, in `docs/ffi.md` C7, the exit a `no_std` crate's panic handler takes — an Axiom division and a Rust panic are indistinguishable to a supervisor reading a status, and the two documents each reserve it without knowing the other does |
+| ~~`MM-EXEC-16`~~ | **CLOSED 2026-08-24.** Status **72** was division by zero here *and*, in `docs/ffi.md` C7, the exit a `no_std` crate's panic handler took — an Axiom division and a Rust panic were indistinguishable to a supervisor reading a status. The FFI side moved to **73**, which `MM-EXEC-16` does not reserve, and the path is gated by `tests/ffi/demo/115-abort-status.ax`. Worth recording why it survived: all 35 FFI cases carried `; expect 0`, so the abort had never been executed by anything and any status whatever would have passed |
 | `MM-LIFE-2a` | the withdrawn strategy's landed half charges every arena reset **4,097** slab-head stores — on the once-per-request path of `MM-ALLOC-22`'s workload — because releases file blocks into those heads. No gate measures it, and with the strategy withdrawn the cost belongs to no plan |
 
 Seven rows left this table on 2026-08-14, each fixed and pinned by

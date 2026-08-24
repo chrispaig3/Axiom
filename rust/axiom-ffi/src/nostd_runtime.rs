@@ -12,7 +12,9 @@
 //! - a [`GlobalAlloc`] that forwards to `axiom_alloc`, so `alloc`
 //!   (`Box`, `Vec`, `String`) works without `malloc`;
 //! - the `#[panic_handler]`, which writes the panic message to fd 2 and
-//!   exits 72, the status Axiom's own runtime traps use;
+//!   exits 73 - the status for "the Rust side gave up", kept distinct
+//!   from `MM-EXEC-16`'s 70/71/72, which belong to traps the Axiom
+//!   compiler emitted (see `ffi::abort`);
 //! - `rust_eh_personality` and `_Unwind_Resume`, which the precompiled
 //!   sysroot `alloc` rlib references even under `panic = "abort"`
 //!   (the profile governs *our* crates, not the sysroot's);
@@ -229,7 +231,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     let mut out = Stderr { buf: [0; 256], len: 0 };
     let _ = write!(out, "axiom-ffi: panic: {info}\n");
     out.flush();
-    exit(72)
+    exit(73)
 }
 
 /// The personality routine the precompiled `alloc` rlib references.
@@ -247,7 +249,7 @@ pub extern "C" fn rust_eh_personality() {}
 /// Unreachable: nothing unwinds. See [`rust_eh_personality`].
 #[no_mangle]
 pub extern "C" fn _Unwind_Resume() -> ! {
-    exit(72)
+    exit(73)
 }
 
 // ---------------------------------------------------------------------

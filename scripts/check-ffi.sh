@@ -266,7 +266,12 @@ BYTES
       printf '%s\n' "$out" | sed 's/^/    /' | head -5
       status=1; continue
     fi
-    if grep -q 'agree' "$case_file" && ! printf '%s\n' "$out" | grep -q 'agree'; then
+    # `agree` is looked for in the CODE, not in the comments. A case
+    # whose prose merely discusses the word was required to print it,
+    # which cost a real half-hour on 2026-08-24: 115-abort-status.ax
+    # exited with exactly the status it declared and failed anyway,
+    # because a sentence about the status used the word.
+    if sed 's/;.*//' "$case_file" | grep -q 'agree' && ! printf '%s\n' "$out" | grep -q 'agree'; then
       echo "FAIL $crate/$name: ran to exit $got but never printed its \`agree\` line"
       printf '%s\n' "$out" | sed 's/^/    /' | head -5
       status=1; continue

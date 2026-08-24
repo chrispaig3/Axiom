@@ -240,19 +240,33 @@ pub mod __private {
     }
 
     /// End the process with a message: `axiom-ffi: <message>` on fd 2,
-    /// exit status 72 like Axiom's own runtime traps.
+    /// exit status 73.
+    ///
+    /// 73 AND NOT 72, AND THE DIFFERENCE IS THE POINT. Until 2026-08-24
+    /// this exited 72 on the stated ground that it was "the status
+    /// Axiom's own runtime traps use" - which made it
+    /// indistinguishable from one of them. `MM-EXEC-16` reserves 70 for
+    /// allocation failure, 71 for an unhandled operation and 72 for
+    /// division by zero, all three raised by code the Axiom compiler
+    /// emitted. This is the other side of the boundary: a Rust
+    /// precondition the caller violated, or a panic. A supervisor
+    /// reading 72 could not tell "your peer sent a length that does not
+    /// fit a u32" from "you divided by zero", and those have nothing to
+    /// do with each other.
+    ///
+    /// The message already says which; the status now agrees with it.
     #[cold]
     pub fn abort(args: Arguments<'_>) -> ! {
         #[cfg(feature = "std")]
         {
             std::eprintln!("axiom-ffi: {args}");
-            std::process::exit(72)
+            std::process::exit(73)
         }
         #[cfg(all(not(feature = "std"), feature = "nostd-runtime"))]
         {
             let msg = alloc::format!("axiom-ffi: {args}\n");
             super::nostd_runtime::write_stderr(msg.as_bytes());
-            super::nostd_runtime::exit(72)
+            super::nostd_runtime::exit(73)
         }
         #[cfg(all(not(feature = "std"), not(feature = "nostd-runtime")))]
         {

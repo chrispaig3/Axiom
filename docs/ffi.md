@@ -279,7 +279,8 @@ has no channel for an error and the alternative is a silent wrong answer:
 
 - a **narrow integer** out of range aborts:
   ``axiom-ffi: `byte_plus`: argument 1 (`b`: u8) is out of range: 256``
-  (measured: `(bytePlus 256 1)` prints that on fd 2 and exits 72);
+  (measured and gated: `tests/ffi/demo/115-abort-status.ax` runs
+  `(bytePlus 256 1)`, prints that on fd 2 and exits 73);
 - a **`&str` that is not UTF-8** aborts in an infallible shim
   (``argument 1 of `parse_int` is not valid UTF-8`` is the text), comes
   back as `Err` of that text from a `Result` shim (measured), and is
@@ -288,8 +289,24 @@ has no channel for an error and the alternative is a silent wrong answer:
   Take `&[u8]` when the bytes are not text (`120-bytes-param.ax`);
 - a **closed handle** aborts (§6).
 
-Exit status 72 is what Axiom's own runtime traps use; the message is
-prefixed `axiom-ffi:` on fd 2.
+Exit status **73**, and the message is prefixed `axiom-ffi:` on fd 2.
+
+**73 rather than 72, since 2026-08-24.** It was 72 on the stated ground
+that 72 "is what Axiom's own runtime traps use" — which is precisely
+what made it useless. `MM-EXEC-16` reserves 70 for allocation failure,
+71 for an operation performed with no handler, and 72 for division by
+zero; all three are raised by code the Axiom compiler emitted. A
+boundary abort is raised on the other side of that boundary, by a Rust
+precondition the caller violated. A supervisor reading 72 in a log
+could not tell *a peer sent a length that does not fit a `u32`* from
+*you divided by zero*, and those two have no remedy in common. The
+message always named which; the status now matches it.
+
+**And until that day nothing executed this path at all.** Every one of
+the 35 FFI cases carried `; expect 0`, so a shim that never aborted, or
+aborted with any status whatever, passed every gate in this repository.
+`tests/ffi/demo/115-abort-status.ax` is the probe; reverting the status
+to 72 fails it with `exit 72, expected 73`.
 
 ### 5.2 Bytes (the out-cell)
 
@@ -433,7 +450,7 @@ declaration. `axiom-bindgen` refuses the same case from its side.
 
 A returning shim boxes the value and answers its address; a borrowing
 shim (`&T`, `&mut T`) reads the word, **aborts if it is 0** —
-``axiom-ffi: `counter_value`: handle is closed`` (measured, exit 72) —
+``axiom-ffi: `counter_value`: handle is closed`` (measured, exit 73) —
 and otherwise borrows for the call. Axiom has no threads (`MM-PAR-1`),
 so the only way to alias a `&mut` is to pass one handle twice in one
 call; that is a program obligation.
@@ -930,8 +947,9 @@ C2).
   an `invoke` or a landing pad, and `extern "C"` aborts on unwind (Rust
   1.81+). The workspace and the examples build with `panic = "abort"`;
   a `no_std` crate's panic handler writes the message to fd 2 and exits
-  72. A panic that reaches the boundary ends the process, with a
-  message; it never returns a status.
+  73 — the same status as every other boundary abort (§5.1), and
+  deliberately not one of `MM-EXEC-16`'s. A panic that reaches the
+  boundary ends the process, with a message; it never returns a status.
 - **C8 — The wire has a version.** `axffi_abi_version` answers **2**
   and is bumped on any change to a wire representation (the word, the
   `Str` layout, the cell, the statuses); `tests/ffi/demo/310-abi-version.ax`
@@ -1048,7 +1066,7 @@ form.
 On the Rust side, every refusal is a compile error at the offending
 type or key, with the accepted set in the message (§4), and the
 runtime refusals — out of range, not UTF-8, closed handle — abort with
-`axiom-ffi: ...` on fd 2 and exit 72 (§5.1, §6). `axiom-bindgen`
+`axiom-ffi: ...` on fd 2 and exit 73 (§5.1, §6). `axiom-bindgen`
 refuses an unmarked opaque type, a camelCase collision (``Axiom name
 `fooBar` is generated twice: for ... and for ...; rename one (camelCase
 folds `foo_bar` and `fooBar` together, and wrapped items also claim
@@ -1139,7 +1157,7 @@ and `#![no_std]` with `extern crate alloc;` in the crate
 (`rust/examples/nostd/src/lib.rs` is under fifty lines). The `nostd-runtime`
 feature (`rust/axiom-ffi/src/nostd_runtime.rs`) supplies what such a
 crate otherwise pastes by hand: a `GlobalAlloc` over `axiom_alloc`, the
-panic handler (message to fd 2, exit 72), `rust_eh_personality` and
+panic handler (message to fd 2, exit 73), `rust_eh_personality` and
 `_Unwind_Resume` (the precompiled sysroot `alloc` rlib references them
 even under `panic = "abort"` — the profile governs your crates, not the
 sysroot's), the six memory intrinsics (`memcpy`, `memmove`, `memset`,

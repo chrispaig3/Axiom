@@ -1,0 +1,46 @@
+; The FFI abort path, which was documented in four places and executed
+; by nothing.
+;
+; `110-narrow-ints.ax` describes this abort in detail and then says why
+; it cannot observe it: "the abort is a process-ending event, and a
+; fixture that expects 0 cannot observe it". True of that fixture. Not
+; true of the corpus - `check-ffi.sh` reads a `; expect N` trailer, and
+; every one of the 35 cases said 0, so the whole abort path was prose.
+; A shim that never aborted at all, or aborted with the wrong status,
+; passed every gate in this repository.
+;
+; 256 DOES NOT FIT IN A `u8`. `byte_plus(b: u8, delta: i64)` takes its
+; first argument through `TryFrom`, and an infallible call has no
+; channel to report the failure through - so the boundary ends the
+; process rather than truncating, because truncation was the measured
+; silent-wrong-answer case (`narrow(4294967297)` on a `u32` printed 1).
+;
+; THE STATUS IS 73 AND THAT IS THE POINT OF THIS CASE. It was 72 until
+; 2026-08-24, chosen because 72 "is what Axiom's own runtime traps
+; use" - which is exactly what made it useless. `MM-EXEC-16` reserves
+; 70 for allocation failure, 71 for an unhandled operation and 72 for
+; division by zero, all three raised by code the Axiom compiler
+; emitted. This one is raised on the other side of the boundary. A
+; supervisor reading 72 in a log could not tell a peer's out-of-range
+; length from a division by zero, and the remedies have nothing in
+; common.
+;
+; The message on fd 2 always named the function and the argument. The
+; status now matches it.
+(import IO)
+
+(import Demo)
+
+;@axiom:effect(io)
+(pub fn (main)
+  ; NOT REACHED. `bytePlus` ends the process here, and the trailer
+  ; below is the assertion - if the boundary ever starts answering
+  ; instead of aborting, this line runs, the case exits 0, and the
+  ; expected 73 says so.
+  {
+    (println "UNREACHABLE: the boundary accepted 256 as a u8")
+    (bytePlus 256 1)
+    0
+  }
+)
+; expect 73
