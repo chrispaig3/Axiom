@@ -1,0 +1,137 @@
+; PATH search: an empty `PATH`, and an empty entry inside one.
+;
+; Both must answer -2, and neither can be seen from a process whose
+; environment the harness chose - `run-stdlib-tests.sh` runs every case
+; with its own `PATH` set and gives a case no way to change it. So this
+; one builds the environment it wants and RUNS ITSELF IN IT: `sysRun`
+; takes the `envp` its caller supplies, and the child reads it back
+; through the same `argv[argc + 1]` derivation `sysEnv` uses in any
+; other process.
+;
+; THE TRAP IS BAITED BY CONSTRUCTION, which is the point of the case.
+; The runner gives every case its own directory and runs the binary from
+; inside it, so an executable with this program's name is sitting in the
+; working directory - which is exactly the file the walk used to find
+; and run when it had no `PATH` entry to look in. The name comes from
+; `sysArg 0` rather than a literal, so renaming the case cannot quietly
+; unbait it.
+;
+; THREE cases and not one, because the three refusals in `Sys` do not
+; cover them the same way, and both ablations were run to find out which
+; covers which:
+;
+;   - Restoring `(if (== (strLen dir) 0) "." dir)` in `sysRunSearch`
+;     alone moves the THIRD child only: it prints "RAN FROM THE WORKING
+;     DIRECTORY" and answers 9. A leading empty entry has nothing else
+;     standing in front of it.
+;   - The first two do not move under that, because each is refused
+;     twice: an unset `PATH` by `sysRunPath` declining an empty one and
+;     by the walk stopping at `(>= from (strLen path))`, and a TRAILING
+;     empty entry by that same `>=`, which ends the walk at the last
+;     byte rather than one entry past it.
+;   - Restoring all three - the rewrite, the `sysRunPath` refusal, and
+;     `>` for `>=` - moves every child to 9.
+(import IO)
+
+(import Sys)
+
+(import Str)
+
+(import Mem)
+
+(import Vec)
+
+; A NULL-terminated argv of two elements. Both pointers must be to
+; NUL-terminated bytes, so both are copied through `strDup` - a slice of
+; a larger string shares storage and stops at no NUL.
+(pub :: argv2 (-> String String Int))
+
+(pub fn (argv2 a b)
+  (let ((v (memAlloc 24)))
+    {
+      (memSetWord v 0 (strCStr (strDup a)))
+      (memSetWord v 1 (strCStr (strDup b)))
+      (memSetWord v 2 0)
+      v
+    }
+  )
+)
+
+; A NULL-terminated environment holding the single entry `e`, or holding
+; nothing at all when `e` is "" - which is how a child gets a `PATH`
+; that is unset rather than empty.
+(pub :: envp1 (-> String Int))
+
+(pub fn (envp1 e)
+  (let ((v (memAlloc 16)))
+    (if (== (strLen e) 0)
+      {
+        (memSetWord v 0 0)
+        v
+      }
+      {
+        (memSetWord v 0 (strCStr (strDup e)))
+        (memSetWord v 1 0)
+        v
+      }
+    )
+  )
+)
+
+; This program's own name with any directory prefix removed - the bare
+; name a search takes, naming the file the search would find.
+(pub :: selfName String)
+
+(pub fn (selfName)
+  (let ((parts (strSplit (sysArg 0) 47)))
+    (vecGetStr parts (- (vecLen parts) 1))
+  )
+)
+
+; Run one child under an environment of this case's choosing and let it
+; report. The label goes out first and stays first: `println` is a
+; `write` on the descriptor with no buffer in front of it, and `sysRun`
+; waits, so the parent's line and the child's cannot cross.
+(pub :: probe (-> String String Int))
+
+;@axiom:effect(io)
+(pub fn (probe label env)
+  {
+    (println label)
+    (sysRun (strCStr (strDup (sysArg 0))) (argv2 selfName "search") (envp1 env))
+  }
+)
+
+(pub :: main Int)
+
+;@axiom:effect(io)
+(pub fn (main)
+  (if (< sysArgc 2)
+    {
+      (probe "PATH unset" "")
+      (probe "PATH with a trailing empty entry" "PATH=/nonexistent-dir:")
+      (probe "PATH with a leading empty entry" "PATH=:/nonexistent-dir")
+      0
+    }
+    (if (strEq (sysArg 1) "search")
+      ; The environment's length is printed with the answer, because a
+      ; child that answered -2 because `envp` never reached it would
+      ; otherwise look exactly like a child that answered -2 because the
+      ; search refused - the vacuous pass this whole case exists to
+      ; avoid.
+      (let ((n (strLen (sysEnv "PATH"))))
+        (let ((rc (sysRunPath selfName (argv2 selfName "victim") 0)))
+          {
+            (println "  PATH length {n}, sysRunPath answered {rc}")
+            0
+          }
+        )
+      )
+      {
+        (println "  RAN FROM THE WORKING DIRECTORY")
+        (exit 9)
+        0
+      }
+    )
+  )
+)

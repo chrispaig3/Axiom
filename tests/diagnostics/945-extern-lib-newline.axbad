@@ -1,0 +1,12 @@
+; The library name holds a real line break, and the byte after it
+; opens an LLVM global. Before AX3041 this compiled: `emit-llvm` put
+; `@AX_INJECTED_GLOBAL` and `@axiom_injected_fn` into the module
+; verbatim on the two lines following the `; axiom-extern-lib`
+; comment the name had just ended, `axiom build` exited 0, and `nm`
+; on the executable listed both symbols.
+(extern "m
+@AX_INJECTED_GLOBAL = global i64 4242
+define i64 @axiom_injected_fn() { ret i64 99 }
+" (cosx :: (-> Int Int) (symbol "cos")))
+(:: main Int)
+(fn (main) (cosx 1))

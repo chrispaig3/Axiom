@@ -1,0 +1,11 @@
+[1;31merror[AX2006][0m[1m: `/etc/passwd` is a file path, not a module-path segment[0m
+ [1;34m--> [0m955-import-absolute-path.ax:7:9
+[1;34m  |[0m
+[1;34m7 |[0m (import /etc/passwd)
+[1;34m  |[0m         [1;31m^^^^^^^^^^^ a module-path segment is a name: `/` is not part of one[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0ma segment carrying `/` re-anchors the search directory it is concatenated onto, so the import resolves outside the project
+ [1;34m = [0m[1;32mhelp: [0mwrite the module's dotted name - `Sys.Platform`, not `Sys/Platform` - and put the directory holding it on `AXIOM_PATH` or beside the entry file; a module name is resolved against the search directories, never used as a path of its own
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2006` for a full explanation
+
+compilation failed due to 1 previous error

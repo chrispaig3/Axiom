@@ -1,0 +1,6 @@
+PATH unset
+  PATH length 0, sysRunPath answered -2
+PATH with a trailing empty entry
+  PATH length 17, sysRunPath answered -2
+PATH with a leading empty entry
+  PATH length 17, sysRunPath answered -2

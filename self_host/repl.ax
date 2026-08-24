@@ -594,107 +594,187 @@
 )
 
 ; ------------------------------------------------------------------
-; Assemble, link, run, capture. Scratch files are flat in /tmp,
-; suffixed by pid so two sessions cannot collide.
+; Where the session's scratch files go: `$TMPDIR` when the environment
+; names one that is safe to use here, `/tmp` otherwise.
 ;
-; That suffix was a lie until 2026-08-08. It used `driver$fmtIntStr`,
-; which renders 0, 1, 2, 3 and answers "1" for everything else - its
-; own comment says so, because it exists to spell the `n` in `-O<n>`
-; and nothing else. Every REPL on the machine therefore wrote
-; `/tmp/axiom-repl-1.{ll,o,out}`, and two sessions collided on exactly
-; the files this comment promised they would not. `diag$decStr`
-; renders any non-negative integer and is already imported here. The child's stdout is captured by
-; running it through `sh -c "exec PROG > OUT"` - the one place a
-; shell is borrowed, because the spawn primitive inherits stdio and
-; Darwin's posix_spawn file_actions descriptor is not a documented
-; shape (the self-hosting record, phase-5 notes).
+; Reading the environment at all is what makes this shared temp
+; directory not hard-coded, which is the point on a machine where
+; every user can write `/tmp`. It also lets a hostile environment
+; choose bytes this file later hands to `/bin/sh`, so TMPDIR is
+; checked, not trusted, and two cases fall back:
+;
+;   * a RELATIVE TMPDIR. `pathJoin` answers `name` alone when `dir` is
+;     empty, so an unset or relative TMPDIR would put the scratch
+;     directory in the working directory - somewhere the caller did
+;     not choose and the REPL then writes an executable into.
+;   * a TMPDIR containing `'` (byte 39). The capture below is
+;     `sh -c "exec '<exe>' > '<out>'"`, single-quoted; a quote in the
+;     path closes the quoting, so `TMPDIR=/tmp/x'; id #` would run
+;     `id`. Nothing else in this file reaches a shell.
+;
+; Darwin's per-user TMPDIR (`/var/folders/.../T/`) passes both, its
+; trailing slash included - `pathJoin` collapses it.
+; ------------------------------------------------------------------
+(:: replTmpRoot String)
+
+(fn (replTmpRoot)
+  (let ((t (sysEnv "TMPDIR")))
+    (if (&& (pathIsAbsolute t) (< (strFindByte t 39 0) 0))
+      t
+      "/tmp"
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; Assemble, link, run, capture. The four scratch files live INSIDE a
+; directory this process creates and owns - `<tmp>/axiom-repl-<pid>.d`
+; with mode 0700 - not as four sibling names in a directory everyone
+; can write.
+;
+; Two different bugs have been closed here and they are easy to mix
+; up, so both are written down.
+;
+; DISTINCTNESS, fixed 2026-08-08. The pid suffix was a lie: it used
+; `driver$fmtIntStr`, which renders 0, 1, 2, 3 and answers "1" for
+; everything else - its own comment says so, because it exists to
+; spell the `n` in `-O<n>` and nothing else. Every REPL on the machine
+; therefore wrote `/tmp/axiom-repl-1.{ll,o,out}`, and two sessions
+; collided on exactly the files the suffix promised they would not.
+; `diag$decStr` renders any non-negative integer and is already
+; imported here.
+;
+; PREDICTABILITY, fixed 2026-08-23, and NOT the same property.
+; `decStr` made the names distinct between processes and left them
+; derivable by anyone who can read the process table. `sysWriteFile`
+; opens with `oWronlyCreateTrunc` - no `O_EXCL`, no `O_NOFOLLOW` - so
+; a symlink already sitting at the name is followed and its target
+; truncated and rewritten. Measured on this tree before the fix: with
+; `/tmp/axiom-repl-<pid>.ll` and `.out` symlinked at a 29-byte file,
+; one `(+ 1 2)` left that file 2 bytes long holding the evaluated `3`,
+; having passed through the generated IR on the way. The `.o` and the
+; bare executable name are the same shape, and the executable is the
+; one this function then RUNS.
+;
+; One private directory closes all four at once: nothing can be
+; planted inside a directory that does not exist until this process
+; makes it. `sysMkdir` answers `-17` (EEXIST) rather than opening what
+; is already there, so the create is exclusive and this is not a
+; check-then-use race - anything already at that name, whether a
+; directory someone else made, a symlink or a file, makes this refuse
+; and evaluate nothing. Adding `O_EXCL`/`O_NOFOLLOW` to the write
+; instead would need a flag `Sys` does not export and would still
+; leave `cc -o <exe>` and the shell's `> <out>` uncovered; neither of
+; those goes through `sysWriteFile`, so neither would ever see it.
+;
+; 448 is 0700: this process, and nothing else, may put a name in the
+; directory or read what is in it. Any non-zero answer from `sysMkdir`
+; is a refusal to evaluate, not a warning.
+;
+; The directory is made and removed per EVALUATION - the same lifetime
+; the four flat files already had - so a session accumulates nothing,
+; and a later REPL that draws a recycled pid is not blocked by a
+; corpse left by an earlier one.
+;
+; The child's stdout is captured by running it through
+; `sh -c "exec PROG > OUT"` - the one place a shell is borrowed,
+; because the spawn primitive inherits stdio and Darwin's
+; posix_spawn file_actions descriptor is not a documented shape (the
+; self-hosting record, phase-5 notes).
 ; ------------------------------------------------------------------
 (pub :: replEval (-> String Int))
 
 ;@axiom:effect(io)
 (pub fn (replEval ir)
   (let ((pid sysGetPid))
-    (let ((base (strConcat "/tmp/axiom-repl-" (decStr pid))))
-      (let (
-        (ll (strConcat base ".ll"))
-        (obj (strConcat base ".o"))
-        (exe base)
-        (outf (strConcat base ".out"))
-      )
-        {
-          (if (< (sysWriteFile (strCStr ll) ir) 0)
-            (replOut "Error: could not write the generated IR\n")
-            (let ((lrc 
-              (runTool
-                "llc"                (let ((v vecNew))
-                  {
-                    (vecPush
-                      v                      (cast Int ll)
-                    )
-                    (vecPush
-                      v                      (cast Int "-relocation-model=pic")
-                    )
-                    (vecPush
-                      v                      (cast Int "-filetype=obj")
-                    )
-                    (vecPush
-                      v                      (cast Int "-o")
-                    )
-                    (vecPush
-                      v                      (cast Int obj)
-                    )
-                    v
-                  }
-                )
-              )
-            ))
-              (if (!= lrc 0)
-                (replOut "Error: llc rejected the generated code\n")
-                (let ((crc 
-                  (runTool
-                    "cc"                    (let ((v vecNew))
-                      {
-                        (vecPush
-                          v                          (cast Int obj)
-                        )
-                        (vecPush
-                          v                          (cast Int "-o")
-                        )
-                        (vecPush
-                          v                          (cast Int exe)
-                        )
-                        v
-                      }
-                    )
-                  )
-                ))
-                  (if (!= crc 0)
-                    (replOut "Error: linking failed\n")
-                    (let ((cmd 
-                      (catStrs
-                        (let ((v vecNew))
-                          {
-                            (vecPush v "exec '")
-                            (vecPush v exe)
-                            (vecPush v "' > '")
-                            (vecPush v outf)
-                            (vecPush v "'")
-                            v
-                          }
-                        )
+    (let ((leaf (strConcat (strConcat "axiom-repl-" (decStr pid)) ".d")))
+      (let ((dir (pathJoin replTmpRoot leaf)))
+        (if (!= (sysMkdir (strCStr dir) 448) 0)
+          (replOut "Error: could not create a private scratch directory\n")
+          (let ((base (pathJoin dir "expr")))
+            (let (
+              (ll (strConcat base ".ll"))
+              (obj (strConcat base ".o"))
+              (exe base)
+              (outf (strConcat base ".out"))
+            )
+              {
+                (if (< (sysWriteFile (strCStr ll) ir) 0)
+                  (replOut "Error: could not write the generated IR\n")
+                  (let ((lrc 
+                    (runTool
+                      "llc"                      (let ((v vecNew))
+                        {
+                          (vecPush
+                            v                            (cast Int ll)
+                          )
+                          (vecPush
+                            v                            (cast Int "-relocation-model=pic")
+                          )
+                          (vecPush
+                            v                            (cast Int "-filetype=obj")
+                          )
+                          (vecPush
+                            v                            (cast Int "-o")
+                          )
+                          (vecPush
+                            v                            (cast Int obj)
+                          )
+                          v
+                        }
                       )
-                    ))
-                      (let ((rc (runTool "/bin/sh" (argsOf3 "-c" cmd ""))))
-                        (let ((printed (replTrim (sysReadFile (strData outf)))))
-                          (if (> (strLen printed) 0)
-                            (replOut (strConcat (strConcat "result " printed) "\n"))
-                            (if (< rc 0)
-                              (replOut "Error: the program was terminated by a signal\n")
-                              ; `decStr`, not `fmtIntStr`: an
-                              ; exit status is any byte, and
-                              ; `fmtIntStr` reported every one
-                              ; of them above 3 as `1`.
-                              (replOut (strConcat (strConcat "result " (decStr rc)) "\n"))
+                    )
+                  ))
+                    (if (!= lrc 0)
+                      (replOut "Error: llc rejected the generated code\n")
+                      (let ((crc 
+                        (runTool
+                          "cc"                          (let ((v vecNew))
+                            {
+                              (vecPush
+                                v                                (cast Int obj)
+                              )
+                              (vecPush
+                                v                                (cast Int "-o")
+                              )
+                              (vecPush
+                                v                                (cast Int exe)
+                              )
+                              v
+                            }
+                          )
+                        )
+                      ))
+                        (if (!= crc 0)
+                          (replOut "Error: linking failed\n")
+                          (let ((cmd 
+                            (catStrs
+                              (let ((v vecNew))
+                                {
+                                  (vecPush v "exec '")
+                                  (vecPush v exe)
+                                  (vecPush v "' > '")
+                                  (vecPush v outf)
+                                  (vecPush v "'")
+                                  v
+                                }
+                              )
+                            )
+                          ))
+                            (let ((rc (runTool "/bin/sh" (argsOf3 "-c" cmd ""))))
+                              (let ((printed (replTrim (sysReadFile (strData outf)))))
+                                (if (> (strLen printed) 0)
+                                  (replOut (strConcat (strConcat "result " printed) "\n"))
+                                  (if (< rc 0)
+                                    (replOut "Error: the program was terminated by a signal\n")
+                                    ; `decStr`, not `fmtIntStr`: an
+                                    ; exit status is any byte, and
+                                    ; `fmtIntStr` reported every one
+                                    ; of them above 3 as `1`.
+                                    (replOut (strConcat (strConcat "result " (decStr rc)) "\n"))
+                                  )
+                                )
+                              )
                             )
                           )
                         )
@@ -702,15 +782,20 @@
                     )
                   )
                 )
-              )
+                (sysUnlink (strCStr ll))
+                (sysUnlink (strCStr obj))
+                (sysUnlink (strCStr exe))
+                (sysUnlink (strCStr outf))
+                ; The directory goes with the files it held. `sysRmdir`
+                ; only removes an EMPTY one, so a name this function did
+                ; not create and did not empty survives, and the four
+                ; unlinks above are what earn the removal.
+                (sysRmdir (strCStr dir))
+                0
+              }
             )
           )
-          (sysUnlink (strCStr ll))
-          (sysUnlink (strCStr obj))
-          (sysUnlink (strCStr exe))
-          (sysUnlink (strCStr outf))
-          0
-        }
+        )
       )
     )
   )

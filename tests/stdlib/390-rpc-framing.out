@@ -1,0 +1,7 @@
+ordinary: len=5 consumed=26 avail=0 body=hello
+int64-max: len=0 consumed=0 avail=41 body=
+wraps-to-five: len=0 consumed=0 avail=45 body=
+overflow-then-real: len=0 consumed=0 avail=55 body=
+garbage-then-real: len=5 consumed=47 avail=0 body=hello
+leading-zeros: len=5 consumed=41 avail=0 body=hello
+large-legal: len=200000 consumed=200026 avail=0 body=<long>

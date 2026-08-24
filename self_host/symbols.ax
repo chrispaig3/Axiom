@@ -445,9 +445,98 @@
   )
 )
 
+; A byte AXSYM's own grammar reads, and therefore one an AXTAG may not
+; put into a meta token unescaped: space and every control byte
+; (`< 33`), `"`, `#`, `%` - the escape introducer, which has to be
+; escaped too or the encoding would not be reversible - and DEL. A
+; byte at or above 128 passes through, which keeps a UTF-8 tag value
+; intact.
+(pub :: saAxStructural (-> Int Bool))
+
+(pub fn (saAxStructural b) (|| (< b 33) (|| (== b 34) (|| (== b 35) (|| (== b 37) (== b 127))))))
+
+; Named apart from render.ax's `jsonHexDigit` and codegen's `hexDigit`
+; because imports join one flat top-level namespace.
+(pub :: saHexDigit (-> Int Int))
+
+(pub fn (saHexDigit n)
+  (if (< n 10)
+    (+ 48 n)
+    (+ 55 n)
+  )
+)
+
+; An AXTAG's own bytes, made safe to put on an AXSYM line: every
+; structural byte as `%XX`, everything else verbatim.
+;
+; WHY THIS EXISTS. `symLine` prints each meta as ` #meta` and
+; `axsymMetaScan` (stdlib/Agent/Tags.ax) opens a NEW token at any `#`
+; that follows a space, so an AXTAG whose value carried one used to
+; forge as many metadata fields as it liked. Measured on a three-line
+; file:
+;
+;   ;@axiom:agent:note(ok #effect=io #effects=Alloc #agent:allowed=all)
+;   (fn (fB n) (+ n 1))
+;
+; `check` printed OK and exited 0, and the row read
+;
+;   F fB tags.ax:2:6-8 "(Int -> Int)" @4de8a934d7defbcf
+;     #agent:note=ok #effect=io #effects=Alloc #agent:allowed=all
+;
+; of which exactly ONE field - `#agent:note=ok` - was a tag anyone
+; wrote. On a function that really performs IO the same shape put
+; `#effects=Alloc` in front of the compiler's own `#effects=IO`, and
+; `symEffects`, which answered the FIRST match, said `Alloc`. The
+; `agent:*` namespace is the perfect carrier because AX3039 never
+; fires on a key containing `:`, so the forgery drew no diagnostic at
+; all. `docs/agent-harness.md` §3.4 has `Agent.Policy` reading exactly
+; those two fields off this line, so what the hole bought was a policy
+; gate reporting whatever the file under inspection asked it to.
+;
+; ESCAPED RATHER THAN REJECTED. This runs off the checker's tables,
+; long after the parse, with no span to point a diagnostic at - so a
+; rejection here could only drop the value in silence, and a row that
+; silently drops what the source says is a second way for AXSYM to
+; stop being an injective rendering of what the compiler knows. `%XX`
+; keeps it injective, and `axsymUnpct` hands the author's exact bytes
+; back, so `agent:*` tags still survive fmt, AXSYM and import
+; (docs/agent-harness.md §7) unchanged. The KEY is escaped as well as
+; the value: `scanAxtags` takes everything from `;@axiom:` to the
+; newline, so `;@axiom:a #effects=IO` is a key with a space in it and
+; forges the same field one byte earlier.
+;
+; Measured over this repository: no AXTAG in stdlib/, self_host/ or
+; tests/ contains a byte this escapes, so the whole corpus renders
+; identically and neither AXSYM golden moves.
+(pub :: saAxSafe (-> String String))
+
+(pub fn (saAxSafe s)
+  (let (
+    (n (strLen s))
+    (mut i 0)
+    (mut acc "")
+  )
+    {
+      (while (< i n)
+        (let ((b (strByte s i)))
+          {
+            (if (saAxStructural b)
+              (set acc (strConcat acc (strConcat "%" (strConcat (strFromByte (saHexDigit (/ b 16))) (strFromByte (saHexDigit (% b 16)))))))
+              (set acc (strConcat acc (strSlice s i 1)))
+            )
+            (set i (+ i 1))
+          }
+        ))
+      acc
+    }
+  )
+)
+
 ; An AXTAG's content as its AXSYM meta: `effect(io)` is `effect=io`,
 ; a bare or empty-parens tag is its key alone - the value runs from
-; the first `(` to the LAST `)`, exactly stage0's parse.
+; the first `(` to the LAST `)`, exactly stage0's parse. Both halves
+; go through `saAxSafe`; the `=` between them is the compiler's, not
+; the author's, and is the only structural byte the token can carry.
 (pub :: saAxMeta (-> String String))
 
 (pub fn (saAxMeta content)
@@ -466,14 +555,14 @@
           (set i (+ i 1))
         })
       (if (< paren 0)
-        content
+        (saAxSafe content)
         (let ((mut close (- n 1)))
           {
             (while (&& (> close paren) (!= (strByte content close) 41))
               (set close (- close 1)))
             (if (<= (- close paren) 1)
-              (strSlice content 0 paren)
-              (strConcat (strSlice content 0 paren) (strConcat "=" (strSlice content (+ paren 1) (- close (+ paren 1)))))
+              (saAxSafe (strSlice content 0 paren))
+              (strConcat (saAxSafe (strSlice content 0 paren)) (strConcat "=" (saAxSafe (strSlice content (+ paren 1) (- close (+ paren 1))))))
             )
           }
         )
@@ -774,6 +863,29 @@
   )
 )
 
+; The AXTAG metas for `key`, pushed in source order.
+;
+; EVERY CALLER PUSHES THESE FIRST, and the compiler's own derived keys
+; - `effects=`, `effect-params=`, `generated=`, `ctors=`, `fields=`,
+; `tyvars=`, `methods=` - after them. That ordering is the second half
+; of the forgery fix `saAxSafe` opens, and it is the half that still
+; holds if a future escape misses a byte: `symTagFrom`
+; (stdlib/Agent/Tags.ax) answers the LAST `#key` on the line, so a
+; compiler-owned key can no longer be shadowed by anything a file
+; contains, whether the collision arrives through a value (` #effects=`
+; inside an AXTAG value) or through the key itself.
+;
+; The key collision is real and is NOT what `saAxSafe` closes:
+;
+;   ;@axiom:effects(Alloc)
+;   (fn (leak n) { (println "io") n })
+;
+; is a legal, well-formed AXTAG. It draws AX3039 - a WARNING, exit 0 -
+; and used to render `#effects=Alloc #effects=IO`, first match `Alloc`,
+; on a function that writes to stdout. Four of these seven derived keys
+; were emitted BEFORE the author's tags until this change (`D`, `S`,
+; `A`, `T`), which is why the ordering is stated here rather than left
+; to whichever site is read first.
 (pub :: smTagMetas (-> Int String Int Int))
 
 (pub fn (smTagMetas sm key metas)
@@ -1130,11 +1242,13 @@
                           (vecPush cnames (bareOf (memGetWordStr (vecGet ctors k) 0)))
                           (set k (+ k 1))
                         })
+                      ; Author tags first, derived keys after: see
+                      ; `smTagMetas`.
+                      (smTagMetas sm name metas)
                       (if (> (vecLen cnames) 0)
                         (vecPush metas (strConcat "ctors=" (saJoinComma cnames)))
                         0
                       )
-                      (smTagMetas sm name metas)
                       (vecPush
                         lines                        (symLine
                           "D"                          (bareOf name)                          (let ((loc (smLocReal
@@ -1204,8 +1318,10 @@
                             (set k (+ k 1))
                           }
                         ))
-                      (vecPush metas (strConcat "fields=" (saJoinComma fparts)))
+                      ; Author tags first, derived keys after: see
+                      ; `smTagMetas`.
                       (smTagMetas sm name metas)
+                      (vecPush metas (strConcat "fields=" (saJoinComma fparts)))
                       (vecPush
                         lines                        (symLine
                           "S"                          (bareOf name)                          (let ((loc (smLocReal
@@ -1234,16 +1350,18 @@
             (let ((d (vecGet als i)))
               (let ((name (nodeAName d)))
                 {
+                  ; Author tags first, derived keys after: see
+                  ; `smTagMetas`.
                   (let (
                     (metas vecNew)
                     (tvs (nodeC d))
                   )
                     {
+                      (smTagMetas sm name metas)
                       (if (&& (!= tvs 0) (> (vecLen tvs) 0))
                         (vecPush metas (strConcat "tyvars=" (saJoinComma tvs)))
                         0
                       )
-                      (smTagMetas sm name metas)
                       (vecPush
                         lines                        (symLine
                           "A"                          (bareOf name)                          (let ((loc (smLocReal
@@ -1286,8 +1404,10 @@
                             (set k (+ k 1))
                           }
                         ))
-                      (vecPush metas (strConcat "methods=" (saJoinComma mparts)))
+                      ; Author tags first, derived keys after: see
+                      ; `smTagMetas`.
                       (smTagMetas sm name metas)
+                      (vecPush metas (strConcat "methods=" (saJoinComma mparts)))
                       (vecPush
                         lines                        (symLine
                           "T"                          (bareOf name)                          (let ((loc (smLocReal

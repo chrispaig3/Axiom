@@ -631,11 +631,23 @@
 ;
 ; TOTAL ON ANY BYTES, which matters because these are not this
 ; program's bytes. A conforming kernel returns whole records and `off`
-; lands exactly on `n`, so neither refusal below can fire - and the
-; decoder does not get to assume that, because the cost of being wrong
-; is reading a length out of uninitialised buffer and inventing a
-; filename from it. Two conditions make it total: a record's header
-; must fit, and the record must both fit and advance.
+; lands exactly on `n`, so no refusal below can fire - and the decoder
+; does not get to assume that, because the cost of being wrong is
+; reading a length out of uninitialised buffer and inventing a filename
+; from it. THREE conditions make it total: the header must fit, the
+; record must fit, and the record must be long enough to hold the name
+; field - which is also what makes it advance.
+;
+; The third was missing until 2026-08-23, and the two that were here
+; said nothing about where the NAME starts. `direntNameOffset` is 21 on
+; Darwin and 19 on Linux, so a `d_reclen` of 1 through 18 satisfied both
+; of them - `off + 18 <= n` and `off + reclen <= n` - and the NUL scan
+; then began at `off + 21`, past the last byte the kernel wrote, and ran
+; on through whatever the buffer happened to hold until it met a zero.
+; `reclen > direntNameOffset` in place of `reclen > 0` puts the name's
+; first byte inside the record, which the fit test has already put
+; inside `n`; the shortest record either kernel emits is 24 bytes, so
+; nothing a conforming one returns is refused by it.
 (:: sysReadDirDecode (-> Int Int Int Int Int))
 
 (fn (sysReadDirDecode buf off n out)
@@ -649,12 +661,13 @@
     ; them are little-endian, and a big-endian one would need a
     ; capability here the way the name offset already has one.
     ; A record that does not advance would spin this loop
-    ; forever; one that runs past `n` would read a name out of
-    ; bytes the kernel did not write. Stopping loses the rest of
-    ; the buffer, which is strictly better than either.
+    ; forever; one that runs past `n`, or one too short to
+    ; reach its own name field, would read a name out of bytes
+    ; the kernel did not write. Stopping loses the rest of the
+    ; buffer, which is strictly better than any of the three.
     (let ((p (+ buf off)))
       (let ((reclen (+ (memGetByte p 16) (* (memGetByte p 17) 256))))
-        (if (|| (<= reclen 0) (> (+ off reclen) n))
+        (if (|| (<= reclen direntNameOffset) (> (+ off reclen) n))
           0
           {
             (vecPush
@@ -1034,34 +1047,79 @@
 ;
 ; With `PATH` unset or exhausted the answer is `-2` (ENOENT), which is
 ; what a caller distinguishing "not installed" from "failed" reads.
+;
+; AN EMPTY `PATH` IS REFUSED HERE and never reaches the walk, because
+; the sentence above was not true of it. `sysEnv` answers "" both for a
+; variable that is unset and for one set to nothing, and an empty `path`
+; used to be SEARCHED: the walk stops on `(> from (strLen path))`, which
+; for the empty string is `0 > 0` and false, so its body ran once on an
+; empty entry, and the rule that read an empty entry as "." made the one
+; candidate `./name`.
+;
+; Measured on this host, 2026-08-23: a directory holding an executable
+; `probe`, and `env -i ./probe` in it. `(sysRunPath "probe" ...)`
+; answered 9 - the exit code of the copy in the WORKING DIRECTORY, which
+; had run - where this comment promises -2. It answers -2 now. That
+; matters because this is the lookup a compiler driver resolves `llc`
+; and `cc` through, so `axiom build` inside a source tree it did not
+; write, with no PATH in the environment, ran that tree's `./llc`.
+;
+; The other way to make the code agree with the comment is `execvp`'s
+; own: fall back to a built-in `/usr/bin:/bin` when the variable is
+; unset. It is not taken, because -2 is what the paragraph above
+; promises and what the driver already reads as "not installed", and
+; because a default would have this library guess at a host layout it is
+; told nothing else about - a guess that is wrong on any target whose
+; toolchain lives elsewhere, and wrong silently.
 (pub :: sysRunPath (-> String Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (sysRunPath name argv envp)
   (if (>= (strFindByte name 47 0) 0)
     (sysRun (strCStr (strDup name)) argv envp)
-    (sysRunSearch
-      name      argv      envp      (sysEnv "PATH")      0
+    (let ((path (sysEnv "PATH")))
+      (if (== (strLen path) 0)
+        (- 0 2)
+        (sysRunSearch
+          name          argv          envp          path          0
+        )
+      )
     )
   )
 )
 
 ; Try `name` in each `:`-separated entry of `path` starting at `from`.
+;
+; `from` past the LAST BYTE ends the walk, and `>=` is what says so: at
+; `from == strLen path` there is no entry left to read, only the empty
+; slice that `>` let through - the one `sysRunPath`'s note above is
+; about. The caller refuses an empty `path` as well; both guards are
+; here because either alone leaves this function unable to state its own
+; termination.
 (:: sysRunSearch (-> String Int Int String Int Int))
 
 ;@axiom:effect(io)
 (fn (sysRunSearch name argv envp path from)
-  (if (> from (strLen path))
+  (if (>= from (strLen path))
     (- 0 2)
-    ; An empty entry means the working directory, as in the
-    ; shell. `strConcat` copies, so the candidate is
-    ; NUL-terminated even though `dir` - a slice sharing the
-    ; environment's bytes - is not.
-    ; Does it exist? A candidate that cannot be opened cannot
-    ; be executed, and under fork+exec that is the ONLY point
-    ; at which the two are still distinguishable - once the
-    ; fork has happened, "no such file" and "the tool exited
-    ; 127" are the same integer.
+    ; AN EMPTY ENTRY IS SKIPPED rather than read as the
+    ; working directory. POSIX does give `PATH=/usr/bin:`
+    ; and `PATH=:/usr/bin` a `.` entry and the shell
+    ; honours it, so this is a deliberate divergence and
+    ; not a bug fix: no caller in this library or above it
+    ; wants it. What comes through here are `llc`, `cc`
+    ; and `sh`, and a file of one of those names sitting
+    ; in whatever directory the compiler happened to be
+    ; invoked from is never the one meant - it is the
+    ; classic way a build in an untrusted tree runs that
+    ; tree's code. Measured 2026-08-23:
+    ; `env -i PATH=/nonexistent-dir: ./probe` ran `./probe`
+    ; and answered its exit code, 9; it answers -2 now.
+    ;
+    ; A caller that does mean a program beside it has the
+    ; spelling for one, and it is unambiguous: a name with
+    ; a slash in it. `sysRunPath` hands `./llc` straight to
+    ; `sysRun` and never comes here.
     (let ((colon (strFindByte path 58 from)))
       (let ((end 
         (if (< colon 0)
@@ -1070,33 +1128,38 @@
         )
       ))
         (let ((dir (strSlice path from (- end from))))
-          (let ((cand 
-            (strConcat
-              (strConcat
-                (if (== (strLen dir) 0)
-                  "."
-                  dir
-                )                "/"
-              )              name
+          (if (== (strLen dir) 0)
+            (sysRunSearch
+              name              argv              envp              path              (+ end 1)
             )
-          ))
-            (let ((cpath (strCStr cand)))
-              (let ((fd (sysOpenPath cpath oRdonly)))
-                (if (< fd 0)
-                  (sysRunSearch
-                    name                    argv                    envp                    path                    (+ end 1)
-                  )
-                  {
-                    (sysCloseFd fd)
-                    (let ((rc (sysRun cpath argv envp)))
-                      (if (>= rc 0)
-                        rc
-                        (sysRunSearch
-                          name                          argv                          envp                          path                          (+ end 1)
+            ; `strConcat` copies, so the candidate is
+            ; NUL-terminated even though `dir` - a slice sharing
+            ; the environment's bytes - is not.
+            ; Does it exist? A candidate that cannot be opened
+            ; cannot be executed, and under fork+exec that is
+            ; the ONLY point at which the two are still
+            ; distinguishable - once the fork has happened, "no
+            ; such file" and "the tool exited 127" are the same
+            ; integer.
+            (let ((cand (strConcat (strConcat dir "/") name)))
+              (let ((cpath (strCStr cand)))
+                (let ((fd (sysOpenPath cpath oRdonly)))
+                  (if (< fd 0)
+                    (sysRunSearch
+                      name                      argv                      envp                      path                      (+ end 1)
+                    )
+                    {
+                      (sysCloseFd fd)
+                      (let ((rc (sysRun cpath argv envp)))
+                        (if (>= rc 0)
+                          rc
+                          (sysRunSearch
+                            name                            argv                            envp                            path                            (+ end 1)
+                          )
                         )
                       )
-                    )
-                  }
+                    }
+                  )
                 )
               )
             )

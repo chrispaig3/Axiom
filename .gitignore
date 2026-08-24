@@ -6,12 +6,21 @@
 # Editor and tooling backups.
 **/*.bak
 
-# tree-sitter build artifacts and the locally installed CLI
+# tree-sitter build artifacts and the locally installed CLI. The
+# lockfile is NOT one of them and is committed - it used to be listed
+# below `*.dll` here, and that line was half of why the grammar job
+# had nothing pinning anything. The other half was `--no-save` on the
+# install line in ci.yml, which stops a lockfile being written at all;
+# between them, no run of the job that gates every other job resolved
+# the CLI or any transitive dependency against a recorded hash. Measured
+# 2026-08-23: `npm install --prefix tree-sitter-axiom --no-save
+# tree-sitter-cli` installed 0.26.13 - the `latest` dist-tag - while
+# package.json asked for ^0.26.12, and wrote no lockfile. A lockfile is
+# a source input, and `npm ci` cannot run without one.
 tree-sitter-axiom/node_modules/
 tree-sitter-axiom/*.dylib
 tree-sitter-axiom/*.so
 tree-sitter-axiom/*.dll
-tree-sitter-axiom/package-lock.json
 
 # The compiler a gate provisions for itself from `bootstrap/`, via
 # `scripts/bootstrap-from-seed.sh --install`. Built, not committed -

@@ -18,7 +18,7 @@
 ; *because* the comma vanishes. `scanAxtags` is the precedent - a second
 ; pass beside the tokenizer rather than inside it.
 ;
-; Dependencies: core.ax, Mem, Str, Vec, Utf8.
+; Dependencies: core.ax, Mem, Str, Vec, Utf8, lexer, parser.
 (import Mem)
 
 (import Str)
@@ -35,6 +35,14 @@
 
 ; `pastBom`: a byte order mark is formatted around, not through.
 (import core)
+
+; For `parseMaxDepth` alone. The formatter reads none of the parser's
+; tokens and none of its nodes - that is this module's whole premise -
+; but the depth at which it refuses has to be the depth at which
+; `parseModuleWith` refuses, or `fmt` and `check` disagree about which
+; files exist. Importing the number is the only way that agreement
+; survives someone editing one of the two.
+(import parser)
 
 ; ------------------------------------------------------------------
 ; Token kinds.
@@ -1242,12 +1250,155 @@
   )
 )
 
+; ------------------------------------------------------------------
+; The nesting cap.
+;
+; `readForm` below recurses once per level of tree DEPTH - `readGroup`
+; for a delimiter, `readForm` again for a prefix token - and `fmtPrint`
+; walks the finished tree the same way. Neither has a loop to fall
+; back on, so the depth of the input is the depth of the machine
+; stack.
+;
+; This file used to say that needed no guard, on the grounds that a
+; source nested a thousand deep "would be unreadable long before it
+; were a stack problem". Unreadable is not unreachable. Measured
+; 2026-08-23 at `ulimit -s 8192` against a stage1 built from HEAD, on
+; a one-line `(fn (main) ((((...))))`: at 40,000 delimiters
+; `fmt --check` still answered, at 48,000, 56,000 and 64,000 it died
+; of SIGNAL 11. Brackets, braces and 200,000 unbalanced `(` crash the
+; same way at 60,000, and so does `x` followed by 100,000 `.a`
+; postfixes. `axiom check` answered every one of those inputs in the
+; ordinary way - `error[AX2005]: nesting is too deep (limit is 1024)`
+; - because `parseModuleWith` runs `nestOverflowTok` before
+; `parseDecls`. The crash was the formatter's alone, and what is
+; restored here is that the two subcommands refuse the same file.
+;
+; The LIMIT is imported rather than restated: `parseMaxDepth` is the
+; one number, and a second 1024 written down here is a number that
+; drifts. The WALK is restated, because `nestOverflowTok` reads the
+; shared lexer's `TK_*` kinds and this module deliberately produces
+; none of those - see the module header. `fsToks` is already in hand
+; at the one place that reads forms, so the guard costs one pass over
+; a vector that has just been built.
+;
+; Three token shapes add a level of tree, and counting only the first
+; would leave two of the measured crashes open:
+;
+;   `(` `[` `{`    a `readGroup` frame, given back by its closer
+;   `'` `,@`       `readForm`'s prefix arm - quote, backtick, comma
+;                  and comma-at are one frame each and have no closer
+;   `.name`        the FN_FIELD/FN_QUAL chain `readPostfix` builds:
+;                  a loop in the reader, but a 100,000-link tree for
+;                  the printer to recurse over
+;
+; Prefix and postfix levels are added to the running depth and given
+; back only when the enclosing group closes, so what is counted at a
+; delimiter level is their SUM rather than the longest path through
+; them. That over-counts, and the over-count was measured before it
+; was accepted: over all 463 `.ax` files under `stdlib/`,
+; `self_host/` and `tests/` this walk reaches exactly the same
+; maximum as a delimiter-only walk - 501 in
+; `tests/diagnostics/405-macro-depth-limit.ax`, 57 in the deepest
+; compiler source - so at a limit of 1024 the over-count costs the
+; corpus nothing.
+;
+; The shape it does over-count was probed rather than argued about:
+; `(g x.a x.a ...)` with N bare field accesses as direct siblings is
+; the only way to make the sum exceed the longest path. `fmt` flips
+; from rewriting to refusing at N=1023, and `check` flips from AX3007
+; to AX3024 (`macro expansion nested deeper than the limit of 1024
+; forms`) at N=1023 as well - the expander's cap lands on the same
+; input - so the over-count does not make `fmt` stricter than `check`
+; even where it over-counts.
+; ------------------------------------------------------------------
+; True when the `.` or `::` at `i` opens a POSTFIX, by the same
+; three-part test `readPostfix` applies: it touches the token before
+; it, it touches the token after it, and that token is a name. The
+; touching is what keeps the corpus out of this: `(pub :: f (-> Int))`
+; has spaces around its `::` and adds no depth.
+;
+; `i` is never the last index when the kind matches, because `fscan`
+; ends every token vector with an `FT_EOF`, so reading `(+ i 1)` is in
+; range whenever it is reached.
+(pub :: fIsPostfixAt (-> Int Int Bool))
+
+(pub fn (fIsPostfixAt toks i)
+  (let ((k (ftKind (vecGet toks i))))
+    (if (&& (> i 0) (|| (== k FT_DOT) (== k FT_DCOLON)))
+      (let (
+        (t (vecGet toks i))
+        (prev (vecGet toks (- i 1)))
+        (next (vecGet toks (+ i 1)))
+      )
+        (&& (== (ftKind next) FT_IDENT) (&& (== (ftStart t) (ftEnd prev)) (== (ftEnd t) (ftStart next))))
+      )
+      false
+    )
+  )
+)
+
+; The index of the token that first takes tree depth past `limit`, or
+; -1 when nothing does. One walk answers both of the questions the
+; guard asks, as `nestOverflowTok` does.
+;
+; The saved depths are a stack rather than a counter because a closer
+; has to give back the prefix and postfix levels opened inside its
+; group as well as the group's own, and a single `(- d 1)` gives back
+; only the group's. Without that, `(a.b c.d e.f)` would leak a level
+; per field access to every enclosing form.
+;
+; A closer with nothing on the stack is unbalanced input, which the
+; reader reports on its own terms; depth is floored at 0 here rather
+; than allowed to go negative, so a stray `)` early in a file cannot
+; mask real depth after it.
+(pub :: fNestOverflow (-> Int Int Int))
+
+(pub fn (fNestOverflow toks limit)
+  (let (
+    (mut i 0)
+    (mut d 0)
+    (mut hit (- 0 1))
+    (st vecNew)
+    (n (vecLen toks))
+  )
+    {
+      (while (&& (< i n) (< hit 0))
+        {
+          (let ((k (ftKind (vecGet toks i))))
+            (if (|| (== k FT_LPAREN) (|| (== k FT_LBRACK) (== k FT_LBRACE)))
+              {
+                (vecPush st d)
+                (set d (+ d 1))
+              }
+              (if (isCloser k)
+                (if (> (vecLen st) 0)
+                  (set d (vecPop st))
+                  (set d 0)
+                )
+                (if (|| (isPrefixTok k) (fIsPostfixAt toks i))
+                  (set d (+ d 1))
+                  0
+                )
+              )
+            )
+          )
+          (if (> d limit)
+            (set hit i)
+            0
+          )
+          (set i (+ i 1))
+        })
+      hit
+    }
+  )
+)
+
 ; Read one form at token position `pos`.
 ;
 ; Recursion here is over the DEPTH of the tree, not the size of the
-; file, so it needs no loop: a source nested a thousand deep would be
-; unreadable long before it were a stack problem, and the file-sized
-; walks in this module are all loops already.
+; file, so it needs no loop - but it does need a bound, and the bound
+; is `fNestOverflow` above, applied by `fmtOnce` before this function
+; is ever entered. Nothing here re-checks it.
 (pub :: readForm (-> String Int Int Int))
 
 (pub fn (readForm src toks pos)
@@ -5949,13 +6100,22 @@
       (cast Int (FRes 0 ""))
       (if (== (fscanCovers src sc) 0)
         (cast Int (FRes 0 ""))
-        (let ((forms (readForms src (fsToks sc))))
-          (if (== forms 0)
-            (cast Int (FRes 0 ""))
-            (let ((out (fmtPrint src forms (fsComs sc) (lineStarts src))))
-              (if (== (foBad out) 1)
-                (cast Int (FRes 0 ""))
-                (cast Int (FRes 1 (foFinish out)))
+        ; The depth check runs BEFORE `readForms`, because the failure it
+        ; prevents is that call exhausting the stack - the same placement
+        ; and the same reason as `parseModuleWith`'s. It routes into the
+        ; refusal this function already has for every input it cannot
+        ; print, so a file too deep to format is left untouched and
+        ; exits 1, where it used to take the process down with SIGNAL 11.
+        (if (>= (fNestOverflow (fsToks sc) parseMaxDepth) 0)
+          (cast Int (FRes 0 ""))
+          (let ((forms (readForms src (fsToks sc))))
+            (if (== forms 0)
+              (cast Int (FRes 0 ""))
+              (let ((out (fmtPrint src forms (fsComs sc) (lineStarts src))))
+                (if (== (foBad out) 1)
+                  (cast Int (FRes 0 ""))
+                  (cast Int (FRes 1 (foFinish out)))
+                )
               )
             )
           )

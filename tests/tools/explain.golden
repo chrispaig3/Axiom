@@ -14,6 +14,7 @@
   [93mAX2003[0m  syntax error  (syntax-error)
   [93mAX2004[0m  removed language construct  (removed-construct)
   [93mAX2005[0m  nesting too deep  (recursion-limit)
+  [93mAX2006[0m  a module-path segment that is a file path  (module-path-segment)
   [93mAX3001[0m  undefined variable  (undefined-variable)
   [93mAX3002[0m  undefined type  (undefined-type)
   [93mAX3003[0m  undefined constructor  (undefined-constructor)
@@ -53,6 +54,7 @@
   [93mAX3038[0m  a handled-effects list the effect walk is not in a position to check  (effect-unverifiable)
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX3040[0m  a type variable returned that no parameter mentions  (result-only-tyvar)
+  [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -177,6 +179,31 @@ Hand-written code effectively never reaches the limit. Generated code
 can: a long chain built by folding a binary operator over a list nests
 once per element. Emit a `let` chain, a `{}` block, or a balanced tree
 instead of one deeply nested form.
+
+### explain AX2006
+AX2006 - a module-path segment that is a file path
+
+An `(import M)` names a MODULE, and the compiler resolves that name
+against its search directories: the entry file's own directory first,
+then each `AXIOM_PATH` entry, then the standard library. A dot
+separates the parts of a nested name - `Sys.Platform` is the module in
+`Sys/Platform.ax` - and rewriting that `.` into a `/` is the
+resolver's job, not the author's.
+
+A `/` inside a segment is refused because it defeats that resolution
+entirely. A candidate file is formed by concatenating a search
+directory onto the name, and a name that is already a path simply
+re-anchors it: `(import /etc/x)` reads `/etc/x.ax` and
+`(import ../../x)` climbs out of the project. Neither is an import of
+a module, and both used to be accepted with `check` printing `OK`.
+
+Write the dotted name, and put the directory that holds the module on
+`AXIOM_PATH` or beside the entry file.
+
+`/` remains an ordinary identifier character everywhere else, because
+the compiler's own `syntax/format` and `syntax/join` are spelled with
+one. Only a module path is constrained, and only a module path is
+turned into a filename.
 
 ### explain AX3001
 AX3001 - undefined variable
@@ -991,6 +1018,33 @@ Fourteen declarations in this repository carry it, and every one is a
 raw word read - `memGetWord`, `vecGet`, `nodeA`. Before the tag there
 was no way to ask the question at all.
 
+### explain AX3041
+AX3041 - an `extern` block's library name that is not one
+
+The string an `extern` block opens with is a LINKER LIBRARY NAME: the
+stem of `lib<name>.a`, which is what `-l` takes. It may hold only
+`A-Z`, `a-z`, `0-9`, `.`, `_`, `+` and `-`, and it may not be empty.
+`axiom_demo`, `m` and `c++abi` are names; a path, a flag, or anything
+carrying whitespace is not.
+
+The limit exists because that one string reaches two consumers
+verbatim. The driver passes it to the linker as `-l<name>`, and the
+emitter writes it into the module beside the block's `declare` lines
+as `; axiom-extern-lib <name>`, which is how `axiom build` knows what
+to link without being told.
+
+An LLVM `;` comment ends at the newline. So a library name carrying
+one used to end that comment and turn every following line into live
+module-level IR - a global, or a `define` with a body, or a
+`@llvm.global_ctors` entry, which runs before `main`. It landed after
+the type checker, the effect system and the freestanding gate had all
+run, and the grounding pass that checks external symbols reads
+`declare` lines only, so nothing downstream looked at it.
+
+Name only the library here. A directory belongs in `--link-search DIR`
+or `AXIOM_LINK_SEARCH`, and the symbol on the other side of the
+boundary belongs in the item's own `(symbol "...")` clause.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1118,6 +1172,7 @@ run `axiom explain --list` to see all known codes
   [93mAX2003[0m  syntax error  (syntax-error)
   [93mAX2004[0m  removed language construct  (removed-construct)
   [93mAX2005[0m  nesting too deep  (recursion-limit)
+  [93mAX2006[0m  a module-path segment that is a file path  (module-path-segment)
   [93mAX3001[0m  undefined variable  (undefined-variable)
   [93mAX3002[0m  undefined type  (undefined-type)
   [93mAX3003[0m  undefined constructor  (undefined-constructor)
@@ -1157,6 +1212,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3038[0m  a handled-effects list the effect walk is not in a position to check  (effect-unverifiable)
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX3040[0m  a type variable returned that no parameter mentions  (result-only-tyvar)
+  [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

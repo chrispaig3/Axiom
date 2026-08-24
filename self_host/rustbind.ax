@@ -43,7 +43,17 @@
 ; signature names a type variable, a tuple, an arrow, a list type, or
 ; a `data` whose fields reach one of those, or a `pub fn` with no
 ; `(pub :: name Type)` signature, is a `//` comment at the end of the
-; file naming the function and the type. The generated file is laid
+; file naming the function and the type.
+;
+; A NAME the Rust side cannot spell goes the same way. Axiom names are
+; much wider than Rust's - `isIdentChar` (lexer.ax) admits
+; `- ! * + / < > = % & | ' ^` - and every one of those bytes used to
+; reach the generated file verbatim, `/*` and `*/` included, so a
+; module could comment out a span of this generator's own output.
+; `rbIsRustIdent` is the one place that is decided now, and a function,
+; parameter, type, constructor or field whose name is not
+; `[A-Za-z_][A-Za-z0-9_]*` is a note rather than a declaration. The
+; generated file is laid
 ; out as `rustfmt` would lay it out, so a checked-in copy stays
 ; byte-identical to a fresh generation (`scripts/check-ffi.sh`
 ; regenerates rust/examples/host/src/hostlib.rs and diffs).
@@ -411,6 +421,191 @@
   )
 )
 
+; ------------------------------------------------------------------
+; What the Rust side can spell
+; ------------------------------------------------------------------
+; A Rust identifier and nothing else: `[A-Za-z_][A-Za-z0-9_]*`.
+;
+; This is the same line the RUST side of the boundary already draws.
+; `is_c_ident` (rust/axiom-ffi-classify/src/lib.rs) gates
+; `#[axiom_export(symbol = "...")]` with exactly this predicate, and it
+; refuses for exactly this reason: a name that is not an identifier is
+; not a name a linker or a Rust parser can be handed.
+;
+; It is far narrower than `isIdentChar` (lexer.ax), which admits
+; `- ! * + / < > = % & | ' ^` in an Axiom name, and that gap is what
+; this predicate exists to close. Measured on a stage1 of this tree: a
+; module declaring
+;
+;   (pub :: xy/* (-> Int Int))
+;   (pub :: mid (-> String Int))
+;   (pub :: */ (-> Int Int))
+;
+; built with `--emit-staticlib --emit-rust-binding` exited 0, said
+; "Rust binding written", and wrote an `extern "C"` block reading
+;
+;   pub fn xy/*(a0: i64) -> i64;
+;   pub fn mid(a0: i64) -> i64;
+;   pub fn */(a0: i64) -> i64;
+;
+; where `/*` OPENS a Rust block comment and the next name's `*/` closes
+; it. rustc reads that block as the single declaration `pub fn xy(a0:
+; i64) -> i64;` - `mid` is gone, from a file that still parses. The
+; span an attacker chooses that way is not inert text: the
+; `axiom_release` calls `rbArgRels` emits and the `// SAFETY:` lines
+; that justify every `unsafe` block live inside it. The mundane case is
+; as bad for availability - `safe-one` produced `pub fn safe-one`,
+; which is not a Rust identifier either and which rustc rejects
+; outright, so a hyphen in an exported name has never once produced a
+; binding that compiles.
+;
+; Refusing here rather than mangling is deliberate. `rbSnake` is not a
+; mangling that could be made total without either colliding (`a-b`,
+; `aB` and `a_b` already all become `a_b`) or becoming unreadable, and
+; the archive symbol stays the RAW Axiom name in either case - so
+; `safe-one` would still not be a name a C host could write, and
+; `--emit-staticlib` promises exactly that it is. The corpus agrees:
+; of the 2649 `pub fn` names in this tree, zero are not already Rust
+; identifiers.
+(pub :: rbIsRustIdent (-> String Bool))
+
+(pub fn (rbIsRustIdent s)
+  (if (== (strLen s) 0)
+    false
+    (let ((b0 (strByte s 0)))
+      (if (|| (isAlpha b0) (== b0 95))
+        (let (
+          (mut i 1)
+          (mut ok true)
+        )
+          {
+            (while (< i (strLen s))
+              {
+                (let ((b (strByte s i)))
+                  (if (|| (isAlpha b) (|| (isDigit b) (== b 95)))
+                    0
+                    {
+                      (set ok false)
+                      0
+                    }
+                  )
+                )
+                (set i (+ i 1))
+              })
+            ok
+          }
+        )
+        false
+      )
+    )
+  )
+)
+
+; 1 when every name the Rust side would have to WRITE for the data
+; type `t` is a Rust identifier: the type's own name (it becomes a
+; `struct` or an `enum`, and half of every `axh_*` symbol), each
+; constructor's name (a variant, and the other half of those symbols),
+; and each named field of a `struct`. Nothing else about `t` is asked
+; here - whether the binding carries its FIELDS is `rbCarried`'s
+; question.
+;
+; The `pub fn` name is not the only opener. Measured on the same
+; stage1: `(pub data P*/q (C/*d Int Int))` and
+; `(pub struct S/*t (f/*g : Int) (h : Int))` reached the generated file
+; as `pub struct P*/q { .. }`, `raw::axh_P*/q_C/*d_0(word)`,
+; `S/*t { f/*g: __f0, h: __f1 }` and `fn __to_S/*t(v: &S/*t)` - four
+; more sites, none of them the one the audit started from. Answering 0
+; here takes all of them out at once: `rbCollectInst` will not collect
+; the instance, so no `axh_*` shim is synthesised for it and
+; `rbTypesBlock` writes no `struct`/`enum`; `rbRustType` answers "",
+; so every `pub fn` mentioning the type becomes a `//` note instead of
+; a wrapper.
+(pub :: rbTypeNamesSpellable (-> Int Int Int))
+
+(pub fn (rbTypeNamesSpellable decls t)
+  (if (rbIsRustIdent (nodeAName t))
+    (let (
+      (cs (rbCtorsOf decls t))
+      (mut ok 1)
+      (mut i 0)
+    )
+      {
+        (while (< i (vecLen cs))
+          {
+            (let ((c (vecGet cs i)))
+              {
+                (if (rbIsRustIdent (rbCtorName c))
+                  0
+                  {
+                    (set ok 0)
+                    0
+                  }
+                )
+                (let ((fnames (rbCtorNames c)))
+                  (if (== fnames 0)
+                    0
+                    (let ((mut k 0))
+                      {
+                        (while (< k (vecLen fnames))
+                          {
+                            (if (rbIsRustIdent
+                              (cast String (vecGet fnames k))
+                            )
+                              0
+                              {
+                                (set ok 0)
+                                0
+                              }
+                            )
+                            (set k (+ k 1))
+                          })
+                        0
+                      }
+                    )
+                  )
+                )
+              }
+            )
+            (set i (+ i 1))
+          })
+        ok
+      }
+    )
+    0
+  )
+)
+
+; The first name in `names` (a Vec of String) that is not a Rust
+; identifier, or "" when every one of them is. A binder name is never
+; empty, so "" is unambiguous.
+(pub :: rbFirstUnspellable (-> Int String))
+
+(pub fn (rbFirstUnspellable names)
+  (let (
+    (mut i 0)
+    (mut bad "")
+  )
+    {
+      (while (&& (< i (vecLen names)) (== (strLen bad) 0))
+        {
+          (let ((n 
+            (cast String (vecGet names i))
+          ))
+            (if (rbIsRustIdent n)
+              0
+              {
+                (set bad n)
+                0
+              }
+            )
+          )
+          (set i (+ i 1))
+        })
+      bad
+    }
+  )
+)
+
 ; Does the binding carry `t`? Words, String, and a data type whose
 ; every field it carries. A recursive type is carried coinductively:
 ; a name already being examined is assumed carried (`visiting`).
@@ -424,38 +619,45 @@
       (if (== (rbIsString t) 1)
         1
         (if (== (rbIsData decls t) 1)
-          (let ((m (rbMangle t)))
-            (if (rbNamed visiting m)
-              1
-              (let (
-                (cs (rbCtorsOf decls t))
-                (mut ok 1)
-                (mut i 0)
-              )
-                {
-                  (vecPush
-                    visiting                    (cast Int m)
-                  )
-                  (while (< i (vecLen cs))
-                    {
-                      (let (
-                        (tys (rbCtorTys (vecGet cs i)))
-                        (mut k 0)
-                      )
-                        (while (< k (vecLen tys))
-                          {
-                            (if (== (rbCarried decls (vecGet tys k) visiting) 0)
-                              (set ok 0)
-                              0
-                            )
-                            (set k (+ k 1))
-                          })
-                      )
-                      (set i (+ i 1))
-                    })
-                  (vecPop visiting)
-                  ok
-                }
+          ; A type the Rust side cannot NAME is not carried, whatever
+          ; its fields are, and the test comes before the `visiting`
+          ; one so a recursive type is not waved through by its own
+          ; coinductive assumption.
+          (if (== (rbTypeNamesSpellable decls t) 0)
+            0
+            (let ((m (rbMangle t)))
+              (if (rbNamed visiting m)
+                1
+                (let (
+                  (cs (rbCtorsOf decls t))
+                  (mut ok 1)
+                  (mut i 0)
+                )
+                  {
+                    (vecPush
+                      visiting                      (cast Int m)
+                    )
+                    (while (< i (vecLen cs))
+                      {
+                        (let (
+                          (tys (rbCtorTys (vecGet cs i)))
+                          (mut k 0)
+                        )
+                          (while (< k (vecLen tys))
+                            {
+                              (if (== (rbCarried decls (vecGet tys k) visiting) 0)
+                                (set ok 0)
+                                0
+                              )
+                              (set k (+ k 1))
+                            })
+                        )
+                        (set i (+ i 1))
+                      })
+                    (vecPop visiting)
+                    ok
+                  }
+                )
               )
             )
           )
@@ -782,9 +984,53 @@
   )
 )
 
+; `s` with every control byte replaced by `?`, so it cannot end the
+; `//!` line it is written on.
+;
+; The header is the one place the binding interpolates something that
+; is NOT an Axiom identifier: the input file's base name. `//!` is a
+; line comment, so `/*` and `*/` are inert in it and `pathBase` has
+; already cut everything up to the last `/` - a byte 10 or 13 is the
+; only way out. Measured on a stage1 of this tree, building a file
+; whose name was `nl<LF>use std::process;<LF>.ax`:
+;
+;   //! GENERATED by `axiom build --emit-rust-binding` from nl
+;   use std::process;
+;   .ax. Do not edit.
+;
+; - the second line is not a comment, and a repo that ships such a
+; file and a build script that globs `*.ax` chooses that line. Bytes
+; at or above 128 are left alone: a UTF-8 file name is legal in a Rust
+; comment and is not an escape.
+(pub :: rbCommentSafe (-> String String))
+
+(pub fn (rbCommentSafe s)
+  (let (
+    (n (strLen s))
+    (out (strAlloc (strLen s)))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (let ((b (strByte s i)))
+            (__store8
+              (strData out)              i              (if (|| (< b 32) (== b 127))
+                63
+                b
+              )
+            )
+          )
+          (set i (+ i 1))
+        })
+      (strSlice out 0 n)
+    }
+  )
+)
+
 (pub :: rbHeader (-> String String))
 
-(pub fn (rbHeader fileName) (cat4 (cat3 "//! GENERATED by `axiom build --emit-rust-binding` from " (pathBase fileName) ". Do not edit.\n") "//!\n//! Link the archive `--emit-staticlib` wrote beside this file; every\n//! function below is a `pub fn` of that module, a C symbol under its own\n//! name. Arguments are borrowed for the call (a callee that keeps one\n//! retains it); every result is an owned share the wrapper adopts or\n//! releases. `String` arguments are built with the archive's own\n//! `Str$strAlloc`; a `data` value is built and read through the `axh_*`\n//! accessors the same build synthesised into the archive.\n" "#![allow(non_snake_case, non_camel_case_types, dead_code, unused_imports, unused_unsafe, clippy::all)]\n\n" "use axiom_ffi::host::AxString;\nuse axiom_ffi::{axiom_release, AxWord};\n\n"))
+(pub fn (rbHeader fileName) (cat4 (cat3 "//! GENERATED by `axiom build --emit-rust-binding` from " (rbCommentSafe (pathBase fileName)) ". Do not edit.\n") "//!\n//! Link the archive `--emit-staticlib` wrote beside this file; every\n//! function below is a `pub fn` of that module, a C symbol under its own\n//! name. Arguments are borrowed for the call (a callee that keeps one\n//! retains it); every result is an owned share the wrapper adopts or\n//! releases. `String` arguments are built with the archive's own\n//! `Str$strAlloc`; a `data` value is built and read through the `axh_*`\n//! accessors the same build synthesised into the archive.\n" "#![allow(non_snake_case, non_camel_case_types, dead_code, unused_imports, unused_unsafe, clippy::all)]\n\n" "use axiom_ffi::host::AxString;\nuse axiom_ffi::{axiom_release, AxWord};\n\n"))
 
 (pub :: rbRawBlock (-> Int String))
 
@@ -796,6 +1042,14 @@
 
 (pub fn (rbVecBuf) "/// An Axiom `Vec` of words, built and read through the archive's own `Vec`.\n/// A signature spells a `Vec` as `Int`, so pass `as_word()` where one is taken\n/// and wrap a returned word with `from_owned`.\npub struct AxVecBuf(AxWord);\n\nimpl AxVecBuf {\n    pub fn from_words(words: &[AxWord]) -> AxVecBuf {\n        // SAFETY: the archive's `vecNew`/`vecPush`, answering an owned share.\n        let v = unsafe { raw::axh_vec_new() };\n        for w in words {\n            unsafe { raw::axh_vec_push(v, *w) };\n        }\n        AxVecBuf(v)\n    }\n\n    /// Adopt a `Vec` word a function answered (an owned share).\n    pub unsafe fn from_owned(word: AxWord) -> AxVecBuf {\n        AxVecBuf(word)\n    }\n\n    pub fn as_word(&self) -> AxWord {\n        self.0\n    }\n\n    pub fn len(&self) -> usize {\n        unsafe { raw::axh_vec_len(self.0) as usize }\n    }\n\n    pub fn words(&self) -> Vec<AxWord> {\n        (0..self.len()).map(|i| unsafe { raw::axh_vec_get(self.0, i as AxWord) }).collect()\n    }\n}\n\nimpl Drop for AxVecBuf {\n    fn drop(&mut self) {\n        unsafe { axiom_release(self.0) }\n    }\n}\n\n")
 
+; A note names the Axiom function and, often, an Axiom type - raw, as
+; the source spelled them, which is the whole point of a note. That is
+; safe ONLY because every line here is a `//` line comment: Rust's `//`
+; runs to the end of the line and a `/*` inside one does not open
+; anything, and `isIdentChar` (lexer.ax) admits no byte 10 or 13, so a
+; name cannot end the line early. Do not turn these into `/* */`
+; comments, and do not wrap a group of them in one: that would hand
+; back exactly the opener `rbIsRustIdent` was added to take away.
 (pub :: rbNotes (-> Int String))
 
 (pub fn (rbNotes notes)
@@ -827,6 +1081,20 @@
 
 ; One `pub fn`: the raw declaration and the wrapper, or a note. A
 ; synthesised `axh_*` shim gets the raw declaration only.
+;
+; The name is checked FIRST, before the signature is even looked for.
+; It is interpolated into three Rust CODE positions and one doc line -
+; `rbRawDecl` writes `pub fn <name>` inside `extern "C"`, `rbWrapper`
+; writes `raw::<name>(..)` and, through `rbSnake`, the wrapper's own
+; `pub fn <name>` - and `rbSnake` mangles only the third of those. A
+; name that is not a Rust identifier therefore has to be refused here,
+; once, rather than repaired at each site: see `rbIsRustIdent` for the
+; module that opened a block comment across the generated file's
+; `axiom_release` calls by being called `xy/*`.
+;
+; This also covers the synthesised `axh_*` shims below, whose names
+; embed a type's and a constructor's, though `rbTypeNamesSpellable`
+; has already stopped a poisoned type reaching `rbShimSource` at all.
 (pub :: rbOneFn (-> Int Int Int Int Int Int))
 
 (pub fn (rbOneFn decls f raws wraps notes)
@@ -840,56 +1108,81 @@
         (nodeTy sigd)
       )
     ))
-      (if (== ty 0)
-        {
-          (vecPush
-            notes            (cast Int (cat3 "// `" name "`: no `(pub :: name Type)` signature to bind it by\n"))
+      (if (rbIsRustIdent name)
+        (if (== ty 0)
+          {
+            (vecPush
+              notes              (cast Int (cat3 "// `" name "`: no `(pub :: name Type)` signature to bind it by\n"))
+            )
+            0
+          }
+          (let (
+            (params (rbParamTypes ty vecNew))
+            (res (sigResultOf ty))
+            (names (nodeB f))
           )
-          0
-        }
-        (let (
-          (params (rbParamTypes ty vecNew))
-          (res (sigResultOf ty))
-          (names (nodeB f))
-        )
-          (if (strStartsWith name "axh_")
-            {
-              (vecPush
-                raws                (cast Int (rbRawDecl name params))
-              )
-              0
-            }
-            (let ((bad (rbFirstUnsupported decls params res)))
-              (if (> (strLen bad) 0)
-                {
-                  (vecPush
-                    notes                    (cast Int (cat4 "// `" name "`: `" (cat3 (rbSpellType ty) "` names " (cat2 bad "\n"))))
+            (if (strStartsWith name "axh_")
+              {
+                (vecPush
+                  raws                  (cast Int (rbRawDecl name params))
+                )
+                0
+              }
+              (let ((bad (rbFirstUnsupported decls params res)))
+                (if (> (strLen bad) 0)
+                  {
+                    (vecPush
+                      notes                      (cast Int (cat4 "// `" name "`: `" (cat3 (rbSpellType ty) "` names " (cat2 bad "\n"))))
+                    )
+                    0
+                  }
+                  (if (!= (vecLen params) (vecLen names))
+                    {
+                      (vecPush
+                        notes                        (cast Int (cat3 "// `" name "`: the signature and the definition disagree on arity\n"))
+                      )
+                      0
+                    }
+                    ; The BINDERS are interpolated too, and by the same
+                    ; `rbSnake` that let the function's own name through:
+                    ; `(pub fn (badParam n/*z) ..)` reached the generated
+                    ; file as `pub fn bad_param(n/*z: i64)` and
+                    ; `raw::badParam(n/*z)`. `rbSigLine`, `rbArgLets`,
+                    ; `rbArgRels` and `rbArgList` all spell them, so the
+                    ; check is here, where the wrapper is decided on.
+                    (let ((badParam (rbFirstUnspellable names)))
+                      (if (> (strLen badParam) 0)
+                        {
+                          (vecPush
+                            notes                            (cast Int (cat4 "// `" name "`: its parameter `" (cat2 badParam "` is not a Rust identifier\n")))
+                          )
+                          0
+                        }
+                        {
+                          (vecPush
+                            raws                            (cast Int (rbRawDecl name params))
+                          )
+                          (vecPush
+                            wraps                            (cast Int (rbWrapper
+                              decls                              name                              ty                              params                              res                              names
+                            ))
+                          )
+                          0
+                        }
+                      )
+                    )
                   )
-                  0
-                }
-                (if (!= (vecLen params) (vecLen names))
-                  {
-                    (vecPush
-                      notes                      (cast Int (cat3 "// `" name "`: the signature and the definition disagree on arity\n"))
-                    )
-                    0
-                  }
-                  {
-                    (vecPush
-                      raws                      (cast Int (rbRawDecl name params))
-                    )
-                    (vecPush
-                      wraps                      (cast Int (rbWrapper
-                        decls                        name                        ty                        params                        res                        names
-                      ))
-                    )
-                    0
-                  }
                 )
               )
             )
           )
         )
+        {
+          (vecPush
+            notes            (cast Int (cat3 "// `" name "`: not a Rust identifier, so no `extern \"C\"` declaration can name it\n"))
+          )
+          0
+        }
       )
     )
   )
@@ -1001,7 +1294,7 @@
         {
           (if (== (strLen (rbRustType decls (vecGet params i) 0)) 0)
             {
-              (set bad (cat3 "`" (rbSpellType (vecGet params i)) "`, which the binding does not carry"))
+              (set bad (rbUncarriedPhrase decls (vecGet params i)))
               0
             }
             0
@@ -1009,10 +1302,28 @@
           (set i (+ i 1))
         })
       (if (&& (== (strLen bad) 0) (== (strLen (rbRustType decls res 1)) 0))
-        (cat3 "`" (rbSpellType res) "`, which the binding does not carry")
+        (rbUncarriedPhrase decls res)
         bad
       )
     }
+  )
+)
+
+; Why `t` did not reach the binding, spelled for the note. The two
+; reasons read very differently to whoever has to act on them: "does
+; not carry" is about the SHAPE and is answered by changing the type,
+; while a name `rbTypeNamesSpellable` refused is about the SPELLING and
+; is answered by renaming. Without the split, `(pub data P*/q (C/*d Int
+; Int))` was reported as a type the binding does not carry, which is
+; false - it carries a two-field product perfectly well.
+(pub :: rbUncarriedPhrase (-> Int Int String))
+
+(pub fn (rbUncarriedPhrase decls t)
+  (cat3
+    "`"    (rbSpellType t)    (if (&& (== (rbIsData decls t) 1) (== (rbTypeNamesSpellable decls t) 0))
+      "`, whose name is not a Rust identifier"
+      "`, which the binding does not carry"
+    )
   )
 )
 
@@ -1627,6 +1938,25 @@
 
 ; `addTwo` -> `add_two`; `a-b` -> `a_b`; a Rust keyword gets a trailing
 ; underscore (`type_`).
+;
+; PRECONDITION: `s` is already a Rust identifier (`rbIsRustIdent`), so
+; the `-` arm is unreachable today and the else arm is the identity.
+; This is NOT a sanitiser and must not be used as one: every byte it
+; does not recognise falls through that arm VERBATIM, which is how
+; `a/*evil` became `pub fn a/*evil` in a generated file. All three call
+; sites are gated instead - `rbOneFn` refuses a function name and a
+; binder name that is not an identifier, `rbTypeNamesSpellable` refuses
+; a struct field name that is not - and a fourth call site needs the
+; same gate in front of it.
+;
+; Widening it to admit the rest of `isIdentChar` is not the repair it
+; looks like. It is already non-injective on the bytes it DOES handle:
+; `addTwo`, `add-two` and `add_two` all answer `add_two`, so three
+; distinct exports would become one `pub fn`. Carrying `-` through
+; needs `#[link_name = "<raw>"]` on the `extern "C"` declaration (the
+; archive symbol stays the raw Axiom name) AND a collision check across
+; the emitted set, neither of which exists yet; the `-` arm is left
+; here as the start of that work, not as a licence to open the gate.
 (pub :: rbSnake (-> String String))
 
 (pub fn (rbSnake s)

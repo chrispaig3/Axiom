@@ -771,6 +771,28 @@
   0  0  p  ""  c
 ))
 
+; A module-path segment carrying `/`. `exp` carries the SEGMENT, the way
+; `pErrRemoved` carries the keyword, because the diagnostic quotes what
+; was written: the whole point of AX2006 is that the reader sees the
+; path they typed and not a noun.
+(pub :: pErrModSeg (-> Int String Int))
+
+(pub fn (pErrModSeg p seg) (PResult
+  0  0  p  seg  "AX2006"
+))
+
+; An `extern` block's library name that is not one. `exp` carries the
+; ONE offending byte as a one-byte string, and `""` means the name was
+; empty - the two shapes AX3041 has. The offending byte rather than the
+; whole name because the name is attacker-controlled and arbitrarily
+; long: a message that quoted it would put the payload in the report,
+; and the caret already shows the literal.
+(pub :: pErrExternLib (-> Int String Int))
+
+(pub fn (pErrExternLib p ch) (PResult
+  0  0  p  ch  "AX3041"
+))
+
 ; The diagnostic for a failed parse, from the failure's token position.
 ;
 ; Before this, a parse failure was a bare `parse failed` on stderr and
@@ -817,6 +839,82 @@
   )
 )
 
+; AX2006, at the offending SEGMENT's own token.
+;
+; The help names the two legal shapes rather than restating the ban,
+; because the mistake this catches has two different causes: a path
+; typed where a module name belongs (`(import /tmp/x/secret)`), and a
+; directory-shaped module reached with the wrong separator
+; (`(import Sys/Platform)` for `Sys.Platform`). The note records what
+; the acceptance used to cost, which is the fact that decides whether
+; anyone may relax this later.
+(pub :: ax2006Diag (-> Int Int String Int))
+
+(pub fn (ax2006Diag tokens pos seg)
+  (let ((tok (vecGet tokens pos)))
+    (let ((d (mkDiag
+      SEV_ERROR      "AX2006"      "module-path-segment"      (tokenSpan tok)      (strConcat (strConcat "`" seg) "` is a file path, not a module-path segment")      0      ""      (strConcat "write the module's dotted name - `Sys.Platform`, not `Sys/Platform` - and put the directory holding it on " "`AXIOM_PATH` or beside the entry file; a module name is resolved against the search directories, never used as a path of its own")
+    )))
+      {
+        (diagSetLabel d "a module-path segment is a name: `/` is not part of one")
+        ; Why the ban is here and not in the resolver: `modPathToFile`
+        ; rewrites `.` to `/` and leaves an existing `/` alone, and
+        ; `searchDirsFor` prefixes a search directory with a bare
+        ; `strConcat`, which an already-absolute name re-anchors. So the
+        ; search root confines nothing once a segment carries a slash -
+        ; measured 2026-08-23, `(import /tmp/axtrav/secret)` compiled a
+        ; file outside the project and `check` printed OK.
+        (diagAddNote d (strConcat "a segment carrying `/` re-anchors the search directory it is concatenated onto, so the import " "resolves outside the project"))
+        d
+      }
+    )
+  )
+)
+
+; AX3041, at the library literal's own span.
+;
+; The code is in the AX3xxx band although the refusal happens in the
+; parser, and that is deliberate: nothing about the TOKEN is malformed -
+; it is a well-formed string literal - what is wrong is what the string
+; MEANS to the linker and to the emitted module. The same reading is why
+; the check is not in the lexer: `scanStringEnd` treats a line break
+; inside a literal as an ordinary character on purpose, and banning it
+; there would be a change to every string in the language.
+(pub :: ax3041Diag (-> Int Int String Int))
+
+(pub fn (ax3041Diag tokens pos ch)
+  (let ((tok (vecGet tokens pos)))
+    (let ((d 
+      (mkDiag
+        SEV_ERROR        "AX3041"        "extern-library-name"        (tokenSpan tok)        (if (== (strLen ch) 0)
+          "an `extern` block's library name is empty"
+          (strConcat (strConcat "`" ch) "` cannot appear in an `extern` block's library name")
+        )        0        ""        (strConcat "a library name is the stem of `lib<name>.a`, so it is `[A-Za-z0-9._+-]` and nothing else - `axiom_demo`, `m`, `c++abi`; " "pass a directory with `--link-search DIR` rather than encoding one here, and name the boundary symbol in the item's own `(symbol \"...\")` clause")
+      )
+    ))
+      {
+        (diagSetLabel d "this name is written into the emitted module and passed to the linker as `-l<name>`")
+        ; The byte set is not tidiness. The name is emitted verbatim as
+        ; `; axiom-extern-lib <name>` beside the declares, and a `;`
+        ; comment ends at the newline - so until 2026-08-23 a library
+        ; name holding one made every following line LIVE module-level
+        ; IR. Measured: `(extern "m<LF>@AX_INJECTED_GLOBAL = global i64
+        ; 4242<LF>define i64 @axiom_injected_fn() { ret i64 99 }<LF>"
+        ; ...)` put both lines into the module, `axiom build` succeeded,
+        ; and `nm` on the executable showed `_AX_INJECTED_GLOBAL` and
+        ; `_axiom_injected_fn`. That lands AFTER the type checker, the
+        ; effect system and the freestanding gate, and the driver's
+        ; grounding pass reads `declare` lines only, so a `define` with
+        ; a body or a `@llvm.global_ctors` entry - code that runs before
+        ; `main` - passed every check the compiler has.
+        ; `tests/diagnostics/945-extern-lib-newline.axbad` pins it.
+        (diagAddNote d (strConcat "the name is emitted verbatim into the module beside the block's declares, where a `;` comment " "ends at the first newline"))
+        d
+      }
+    )
+  )
+)
+
 (pub :: parseErrDiag (-> Int Int String Int))
 
 (pub fn (parseErrDiag tokens r src)
@@ -830,49 +928,59 @@
   )
     (if (strEq (pResCode r) "AX2005")
       (ax2005Diag tokens pos)
-      ; AX2002 is NOT "the position is at EOF" - stage0 emits it from
-      ; exactly one routine, the one that demands a SPECIFIC token kind
-      ; (`expect(RParen)` and friends), and reports AX2001 with a found
-      ; text of `EOF` from every site that wanted a CATEGORY. So the
-      ; distinction is already carried here: a site that named its
-      ; expectation gets AX2001 wherever it failed, and a site that did
-      ; not is the specific-token case, which at EOF is AX2002.
-      (if (&& (== (strLen exp) 0) (|| (>= pos (vecLen tokens)) (== (kindInt (tokenKind (vecGet tokens pos))) (kindInt TK_EOF))))
-        (diagSetLabel (mkDiag
-          SEV_ERROR          "AX2002"          "unexpected-eof"          (mkSpan (strLen src) (strLen src))          "unexpected end of file"          0          ""          (strConcat "count `(`/`[`/`{` against `)`/`]`/`}` " "working backward from the end of the file")
-        ) "file ends here while a form is still open")
-        (let ((tok (vecGet tokens pos)))
-          (if (strEq (pResCode r) "AX2004")
-            (diagSetLabel
-              (mkDiag
-                SEV_ERROR                "AX2004"                "removed-construct"                (tokenSpan tok)                (if (strEq exp "deriving")
-                  ; `deriving` gets its own verb: union/foreign/
-                  ; region once WORKED and were removed, but the
-                  ; deriving clause never derived anything - saying
-                  ; "no longer part of Axiom" about it would claim
-                  ; a history it does not have.
-                  "`deriving` parsed and derived nothing, and is now refused"
-                  (strConcat (strConcat "`" exp) "` is no longer part of Axiom")
-                )                0                ""                (removedHelp exp)
-              )              (removedRationale exp)
-            )
-            ; NO LABEL, deliberately, and the same for AX3008, AX3011,
-            ; AX3017 and AX3010. stage0 set a primary label on all
-            ; twenty-seven of its diagnostics, but for these five the
-            ; label WAS the heading - `message.clone()` at the call site -
-            ; and ariadne fell back to the heading anyway when a label was
-            ; empty, so its output always printed something under the
-            ; caret, sometimes the same sentence twice. Printing nothing
-            ; when there is nothing further to say is the better half of
-            ; that behaviour, and it keeps `#` out of the AXDL line rather
-            ; than putting a redundant field in it.
-            (if (== (strLen exp) 0)
-              (mkDiag
-                SEV_ERROR                "AX2003"                "syntax-error"                (tokenSpan tok)                "syntax error"                0                ""                0
+      ; AX2006 is tested before the EOF branch for the same reason
+      ; AX2005 is: the refusal happens at a real identifier token, so
+      ; every test below would step over it and report AX2001 with an
+      ; expectation the site never made.
+      (if (strEq (pResCode r) "AX2006")
+        (ax2006Diag tokens pos exp)
+        (if (strEq (pResCode r) "AX3041")
+          (ax3041Diag tokens pos exp)
+          ; AX2002 is NOT "the position is at EOF" - stage0 emits it from
+          ; exactly one routine, the one that demands a SPECIFIC token kind
+          ; (`expect(RParen)` and friends), and reports AX2001 with a found
+          ; text of `EOF` from every site that wanted a CATEGORY. So the
+          ; distinction is already carried here: a site that named its
+          ; expectation gets AX2001 wherever it failed, and a site that did
+          ; not is the specific-token case, which at EOF is AX2002.
+          (if (&& (== (strLen exp) 0) (|| (>= pos (vecLen tokens)) (== (kindInt (tokenKind (vecGet tokens pos))) (kindInt TK_EOF))))
+            (diagSetLabel (mkDiag
+              SEV_ERROR              "AX2002"              "unexpected-eof"              (mkSpan (strLen src) (strLen src))              "unexpected end of file"              0              ""              (strConcat "count `(`/`[`/`{` against `)`/`]`/`}` " "working backward from the end of the file")
+            ) "file ends here while a form is still open")
+            (let ((tok (vecGet tokens pos)))
+              (if (strEq (pResCode r) "AX2004")
+                (diagSetLabel
+                  (mkDiag
+                    SEV_ERROR                    "AX2004"                    "removed-construct"                    (tokenSpan tok)                    (if (strEq exp "deriving")
+                      ; `deriving` gets its own verb: union/foreign/
+                      ; region once WORKED and were removed, but the
+                      ; deriving clause never derived anything - saying
+                      ; "no longer part of Axiom" about it would claim
+                      ; a history it does not have.
+                      "`deriving` parsed and derived nothing, and is now refused"
+                      (strConcat (strConcat "`" exp) "` is no longer part of Axiom")
+                    )                    0                    ""                    (removedHelp exp)
+                  )                  (removedRationale exp)
+                )
+                ; NO LABEL, deliberately, and the same for AX3008, AX3011,
+                ; AX3017 and AX3010. stage0 set a primary label on all
+                ; twenty-seven of its diagnostics, but for these five the
+                ; label WAS the heading - `message.clone()` at the call site -
+                ; and ariadne fell back to the heading anyway when a label was
+                ; empty, so its output always printed something under the
+                ; caret, sometimes the same sentence twice. Printing nothing
+                ; when there is nothing further to say is the better half of
+                ; that behaviour, and it keeps `#` out of the AXDL line rather
+                ; than putting a redundant field in it.
+                (if (== (strLen exp) 0)
+                  (mkDiag
+                    SEV_ERROR                    "AX2003"                    "syntax-error"                    (tokenSpan tok)                    "syntax error"                    0                    ""                    0
+                  )
+                  (diagSetLabel (mkDiag
+                    SEV_ERROR                    "AX2001"                    "unexpected-token"                    (tokenSpan tok)                    (strConcat (strConcat "expected " exp) (strConcat ", found `" (strConcat (foundText tok) "`")))                    0                    ""                    (strConcat (strConcat "Axiom expected " exp) " at this position")
+                  ) (strConcat (strConcat "found `" (foundText tok)) "` here"))
+                )
               )
-              (diagSetLabel (mkDiag
-                SEV_ERROR                "AX2001"                "unexpected-token"                (tokenSpan tok)                (strConcat (strConcat "expected " exp) (strConcat ", found `" (strConcat (foundText tok) "`")))                0                ""                (strConcat (strConcat "Axiom expected " exp) " at this position")
-              ) (strConcat (strConcat "found `" (foundText tok)) "` here"))
             )
           )
         )
@@ -2009,22 +2117,89 @@
 ; AX3015 on every single item, because `defIdxBuild` indexes only
 ; TAG_D_FN nodes with `nodeVis == 1`.
 ; ------------------------------------------------------------------
+; A byte a library name may hold: `[A-Za-z0-9._+-]`, which is the set a
+; `lib<name>.a` stem is drawn from and nothing wider.
+;
+; Deliberately NOT `isIdentChar`: that set admits `/` (so that
+; `syntax/format` lexes) and the operator bytes, and a library name is
+; not an Axiom identifier - it is an argv element and a linker input.
+; `+` and `-` are in because real archives are named with them
+; (`libc++abi`, `libgcc_s`); `/` is out because a name is a name and a
+; directory is `--link-search`'s business.
+(pub :: externLibByte (-> Int Bool))
+
+(pub fn (externLibByte c)
+  (if (&& (>= c 97) (<= c 122))
+    true
+    (if (&& (>= c 65) (<= c 90))
+      true
+      (if (&& (>= c 48) (<= c 57))
+        true
+        (if (== c 46)
+          true
+          (if (== c 95)
+            true
+            (if (== c 43)
+              true
+              (if (== c 45)
+                true
+                false
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The index of the first byte `externLibByte` refuses, or -1.
+(pub :: externLibBadAt (-> String Int Int))
+
+(pub fn (externLibBadAt s i)
+  (if (>= i (strLen s))
+    (- 0 1)
+    (if (externLibByte (strByte s i))
+      (externLibBadAt s (+ i 1))
+      i
+    )
+  )
+)
+
 (pub :: parseExternDecl (-> Int Int Int))
 
 (pub fn (parseExternDecl tokens pos)
   (if (peekIs tokens pos TK_STRING)
+    ; The library name is validated HERE, at the front end, and not
+    ; at the emitter that used to trust it. Two consumers read this
+    ; one string - `emitExternDeclares` writes it into the module as
+    ; a `;` comment, and the driver's `effectiveLinkArgs` hands it
+    ; to the linker as `-l<name>` - so one constraint at the parse
+    ; is worth two escapes downstream, and the emitter's comment is
+    ; the only place a `-l` argv element can be recovered from.
+    ; `strUnquoteLit` strips the quotes and leaves every interior
+    ; byte alone, including a line break, which the lexer admits on
+    ; purpose; see `ax3041Diag` for what that used to buy.
     (let ((libTok (vecGet tokens pos)))
       (let (
         (lib (strUnquoteLit (tokenLexeme libTok)))
         (names vecNew)
         (items vecNew)
       )
-        (let ((r (parseExternItems tokens (advance pos) names items)))
-          (if (== (memGetWord r 0) 0)
-            r
-            (pOk (mkNodeAt
-              TAG_D_EXTERN              lib              names              items              (tokenSpan libTok)
-            ) (memGetWord r 2))
+        (let ((bad (externLibBadAt lib 0)))
+          (if (>= bad 0)
+            (pErrExternLib pos (strSlice lib bad 1))
+            (if (== (strLen lib) 0)
+              (pErrExternLib pos "")
+              (let ((r (parseExternItems tokens (advance pos) names items)))
+                (if (== (memGetWord r 0) 0)
+                  r
+                  (pOk (mkNodeAt
+                    TAG_D_EXTERN                    lib                    names                    items                    (tokenSpan libTok)
+                  ) (memGetWord r 2))
+                )
+              )
+            )
           )
         )
       )
@@ -2971,6 +3146,28 @@
 ; The dotted form is preserved verbatim in the returned Str (`Sys.Platform`
 ; stays `Sys.Platform`); translating it to a file path is the resolver's
 ; job, not the parser's.
+;
+; A SEGMENT MAY NOT CONTAIN `/`, and that is AX2006. `/` is byte 47 and
+; `isIdentStart`/`isIdentChar` admit it, because the compiler's own
+; `syntax/format` and `syntax/join` are ordinary identifiers with a
+; slash in them - so `/tmp/x/secret` lexes as ONE identifier and used to
+; reach `modPathToFile`, which rewrites `.` to `/` and leaves an
+; existing `/` alone, and then `searchDirsFor`, which forms its
+; candidate with a bare `strConcat` that an already-absolute name simply
+; re-anchors. Measured 2026-08-23: with `/tmp/axtrav/secret.ax` written
+; outside the project and `(import /tmp/axtrav/secret)` in the entry
+; file, `axiom check` printed `OK` and compiled that file's
+; declarations into the program. An import is not a filesystem path.
+;
+; Refused HERE rather than in the resolver because the resolver is
+; reached by two spellings of the same string and the parser by one:
+; this is also what stops `(import ../../etc/x)` and a name whose only
+; slash is trailing, neither of which a search-directory prefix can
+; confine once the concatenation has happened. `syntax/format` and its
+; siblings are unaffected - they stand in EXPRESSION position and never
+; reach a module path - and `tests/selfhost/380-syntax-scalar-queries.ax`
+; is the fixture that says so.
+; `tests/diagnostics/955-import-absolute-path.axbad` pins the refusal.
 ; ------------------------------------------------------------------
 (pub :: parseModPath (-> Int Int Int))
 
@@ -2978,7 +3175,10 @@
   (let ((nr (parseIdentName tokens pos)))
     (if (== (memGetWord nr 0) 0)
       nr
-      (parseModPathRest tokens (memGetWord nr 2) (memGetWordStr nr 1))
+      (if (>= (strFindByte (memGetWordStr nr 1) 47 0) 0)
+        (pErrModSeg pos (memGetWordStr nr 1))
+        (parseModPathRest tokens (memGetWord nr 2) (memGetWordStr nr 1))
+      )
     )
   )
 )
@@ -2990,7 +3190,13 @@
     (let ((nr (parseIdentName tokens (advance pos))))
       (if (== (memGetWord nr 0) 0)
         nr
-        (parseModPathRest tokens (memGetWord nr 2) (strConcat (strConcat acc ".") (memGetWordStr nr 1)))
+        ; The dotted tail is checked too, not only the head: `Sys./etc/x`
+        ; is one `.` away from the head case and reaches the same
+        ; `strConcat`.
+        (if (>= (strFindByte (memGetWordStr nr 1) 47 0) 0)
+          (pErrModSeg (advance pos) (memGetWordStr nr 1))
+          (parseModPathRest tokens (memGetWord nr 2) (strConcat (strConcat acc ".") (memGetWordStr nr 1)))
+        )
       )
     )
     (pOk acc pos)

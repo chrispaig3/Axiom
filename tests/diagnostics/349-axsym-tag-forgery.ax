@@ -1,0 +1,68 @@
+; A source comment forging fields in the AXSYM stream.
+;
+; This is the negative probe `docs/agent-harness.md` §7 owes the row
+; "`agent:*` tags survive `fmt`, AXSYM and import": they must survive
+; it, and they must not be able to ADD to it.
+;
+; `symLine` prints every meta as ` #meta` and `axsymMetaScan` opens a
+; new token at any `#` that follows a space, so an AXTAG VALUE carrying
+; one used to become extra metadata fields indistinguishable from the
+; compiler's own. `forged` carries three. Measured on this file, before
+; the fix, at exit 0 and drawing no diagnostic against `forged` at all:
+;
+;   F forged <this file> "(Int -> Int)" @5c96a0952ee0796a
+;     #agent:note=ok #effect=io #effects=Alloc #agent:allowed=all
+;     #effects=IO
+;
+; Four fields, of which one was a tag - and `symEffects`, reading the
+; first `#effects=`, answered `Alloc` for a function that writes to fd
+; 1. The `agent:*` namespace is the perfect carrier because AX3039
+; never fires on a key containing `:`. The row now reads
+;
+;   #agent:note=ok%20%23effect=io%20%23effects=Alloc%20%23agent:allowed=all
+;   #effects=IO
+;
+; - one author token with `%XX` where the structural bytes were, and
+; the compiler's own row beside it. `axsymUnpct` hands a reader the
+; author's exact bytes back.
+;
+; `spaced` is the same hole through the KEY. `scanAxtags` takes
+; everything from `;@axiom:` to the newline, so a key may carry a space
+; just as a value may, and the forged field lands one byte earlier.
+;
+; `collided` is the half escaping cannot close, and is why the fix has
+; a second half. `effects` is a legal AXTAG key, so this row genuinely
+; carries the author's `#effects=Alloc` AND the checker's
+; `#effects=IO`; nothing is being smuggled. The compiler now emits its
+; derived keys AFTER the author's tags and `symTagFrom` answers the
+; LAST match, so a policy reading the row is told `IO` about a function
+; that writes to fd 1. It is also the only declaration here that
+; diagnoses anything - AX3039, a warning, exit 0 - which is the point
+; of the file: three of these four forgeries are silent.
+;
+; `Held` pins the ordering for the kinds whose derived key was emitted
+; BEFORE the author's tags until this change: `D`, `S`, `A` and `T`.
+; Its row was `#fields=n:Int #agent:note=held` and is now
+; `#agent:note=held #fields=n:Int`.
+;@axiom:agent:note(ok #effect=io #effects=Alloc #agent:allowed=all)
+(:: forged (-> Int Int))
+
+(fn (forged n) (__syscall3 1 1 n 0))
+
+;@axiom:agent:x #effects=Alloc
+(:: spaced (-> Int Int))
+
+(fn (spaced n) n)
+
+;@axiom:effects(Alloc)
+(:: collided (-> Int Int))
+
+(fn (collided n) (__syscall3 1 1 n 0))
+
+;@axiom:agent:note(held)
+(struct Held
+  (n : Int))
+
+(:: main Int)
+
+(fn (main) 0)

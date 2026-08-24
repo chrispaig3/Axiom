@@ -65,6 +65,41 @@ not list it. It is a *different* mistake from `AX3001`, which is a name
 that is defined nowhere, and it did not exist before a module could
 have a private declaration at all.
 
+Two codes constrain a string the source hands straight to something
+outside the compiler, and both are constructed in `self_host/parser.ax`
+even though only one of them numbers as a syntax error.
+
+`AX2006` refuses a module-path segment containing `/`. `(import M)`
+names a module, and the resolver turns that name into a filename by
+concatenating each search directory onto it in turn — so a segment that
+is already a path re-anchors the concatenation and reads a file the
+search directories never offered. Measured on 2026-08-23:
+`(import /tmp/axtrav/secret)` compiled a file outside the project and
+`axiom check` printed `OK`. `/` stays an ordinary identifier byte
+everywhere else, because `syntax/format` and `syntax/join` are spelled
+with one; only a module path is constrained, and only a module path
+becomes a filename
+(`tests/diagnostics/955-import-absolute-path.axbad`).
+
+`AX3041` refuses an `extern` block's library name that is not one. That
+string is the stem of `lib<name>.a`, so it is `[A-Za-z0-9._+-]` and may
+not be empty, and it has two verbatim consumers: the driver passes it to
+the linker as `-l<name>`, and the emitter writes it beside the block's
+`declare` lines as `; axiom-extern-lib <name>`. An LLVM `;` comment ends
+at the newline, so a name carrying one used to close that comment and
+leave every following line as live module-level IR — measured on
+2026-08-23, a global and a `define` with a body reached the executable
+and `nm` listed both. The injection lands after the type checker, the
+effect system and the freestanding gate, and the driver's grounding pass
+reads `declare` lines only, so nothing downstream saw it
+(`tests/diagnostics/945-extern-lib-newline.axbad`). It is numbered as a
+semantic refusal rather than a syntactic one because the token is a
+perfectly well-formed string literal; what is refused is what the string
+means to the linker. The lexer is deliberately not the place for it: a
+line break inside a string literal is an ordinary character by decision,
+and that decision belongs to the language rather than to one consumer of
+one string.
+
 Codes are stable across wording changes, so you can grep for them in CI,
 pattern-match on them in editor tooling, or look them up directly:
 

@@ -1,0 +1,127 @@
+; The LSP base-protocol framer against a peer that lies in the
+; `Content-Length` header.
+;
+; WHY THIS CASE EXISTS. `stdlib/Rpc.ax` frames the bytes on `axiom
+; lsp`'s stdin, so every byte of the header block is supplied by
+; whatever is on the other end of the pipe, and nothing else in the
+; test corpus reads a header this module did not itself write -
+; `check-lsp-selfhost.sh` drives well-formed sessions only, and passed
+; green over every failure below.
+;
+; What it pins is the reader's own invariant, stated at the top of
+; Rpc.ax: `consumed` never runs past `filled`, so `filled - consumed`
+; is never negative. Measured on the shipped binary before the fix,
+; `Content-Length: 9223372036854775800` with a two-byte body made
+; `rpcRead` answer 65,497 bytes of the reader's OWN UNINITIALISED
+; BUFFER as the message body, and left `consumed` at
+; -9223372036854775777 and `filled - consumed` at
+; -9223372036854775798; every later read then scanned a negative bound,
+; so the server framed nothing again. Printing the cursor and the
+; available count after each case is therefore the assertion - a
+; refusal that leaves them at 0 and the whole file is a refusal that
+; cost the stream nothing.
+;
+; The last three cases are the ones that must NOT change: a length
+; with leading zeros is still a length, a large-but-legal body is
+; still delivered, and an UNPARSEABLE first `Content-Length` still
+; falls through to a second one. Only an OVERFLOWING one stops the
+; scan, because letting that fall through would let a peer hide the
+; length it means behind one it does not.
+(import IO)
+
+(import Rpc)
+
+(import Str)
+
+; `s` doubled until it covers `n` bytes, then cut to exactly `n`.
+; Repeated `strConcat` of a fixed chunk would be quadratic, and this
+; case wants 200,000 bytes.
+(:: repeatTo (-> String Int String))
+
+(fn (repeatTo s n)
+  (if (>= (strLen s) n)
+    (strSlice s 0 n)
+    (repeatTo (strConcat s s) n)
+  )
+)
+
+; Write `Content-Length: <header>\r\n\r\n<body>` to a scratch file,
+; frame ONE message out of it, and print what came back together with
+; the reader's cursor. `header` is spelled by the caller rather than
+; computed, which is the whole point: a peer is under no obligation to
+; make it agree with the bytes that follow.
+(:: frameOne (-> String String String Int))
+
+;@axiom:effect(io)
+(fn (frameOne label header body)
+  (let ((path (__addr "axiom-rpc-framing.tmp")))
+    {
+      (sysWriteFile path (strConcat (strConcat (strConcat "Content-Length: " header) "\r\n\r\n") body))
+      (let ((fd (sysOpenPath path oRdonly)))
+        (if (sysFailed fd)
+          (die "open for read failed" 1)
+          (let ((r (rdNew fd)))
+            (let ((got (rpcRead r)))
+              (let (
+                (n (strLen got))
+                (c (rdConsumed r))
+                (a (- (rdFilled r) (rdConsumed r)))
+                (shown (if (> (strLen got) 32)
+                  "<long>"
+                  got
+                ))
+              )
+                {
+                  (sysCloseFd fd)
+                  (println "{label}: len={n} consumed={c} avail={a} body={shown}")
+                  0
+                }
+              )
+            )
+          )
+        )
+      )
+    }
+  )
+)
+
+(pub :: main Int)
+
+;@axiom:effect(io)
+(pub fn (main)
+  ; Case by case. The first is the ordinary path, and the shape every
+  ; other one is measured against.
+  {
+    (frameOne "ordinary" "5" "hello")
+    ; THE FINDING. 9223372036854775800 + 21 overflows i64 and the sum
+    ; the reader used to form went negative, so the wait-for-body test
+    ; was false on its first evaluation. Refused now, and the cursor
+    ; has not moved.
+    (frameOne "int64-max" "9223372036854775800" "{}")
+    ; Worse than a crash, because nothing failed: 2^64 + 5 wraps to
+    ; exactly 5, so the framer used to accept this and hand back
+    ; "hello" under a header that says otherwise.
+    (frameOne "wraps-to-five" "18446744073709551621" "hello")
+    ; The ceiling stops the SCAN, not just this field: a second
+    ; `Content-Length` behind an overflowing one must not be the one
+    ; that gets used, or a peer could hide the length it means behind
+    ; one it does not. This case refused on the old code too, for the
+    ; unrelated reason that 99,999,999,999 bytes never arrive; it is
+    ; here to refuse a WRONG FIX - one that stops accumulating and
+    ; then carries on looking for another field.
+    (frameOne "overflow-then-real" "99999999999\r\nContent-Length: 5" "hello")
+    ; Unchanged: a first field that holds no digits at all is still
+    ; skipped, and the second one still answers.
+    (frameOne "garbage-then-real" "abc\r\nContent-Length: 5" "hello")
+    ; Unchanged: the ceiling is on the VALUE, so a length padded with
+    ; sixteen zeros is still 5. A cap on the digit count would have
+    ; refused this.
+    (frameOne "leading-zeros" "0000000000000005" "hello")
+    ; Unchanged: a body far larger than `rdCap`'s 65,536 still
+    ; arrives, over the buffer growth that `rdCompact` does. This is
+    ; the case a ceiling set too low would break.
+    (frameOne "large-legal" "200000" (repeatTo "abcdefgh" 200000))
+    (removeFile "axiom-rpc-framing.tmp")
+    0
+  }
+)

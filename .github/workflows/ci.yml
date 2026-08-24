@@ -27,6 +27,36 @@ on:
 # reproducibility property the old block claimed is gated for real by
 # `scripts/check-reproducible.sh`.
 
+# The token every job runs with. There was no `permissions:` block
+# anywhere in this file, which does not mean "no permissions" - it means
+# each job holds whatever the repository default grants, and for a
+# repository created before GitHub changed that default it is
+# read/write on `contents`. That token sat in the environment of the
+# `grammar` job below while it ran an unpinned npm package's install
+# script, on every pull request, before any other job started.
+#
+# `contents: read` is enough for all seven jobs, checked rather than
+# assumed: every one of them checks the tree out, provisions a compiler
+# from `bootstrap/`, and runs a script under `scripts/`. None pushes,
+# opens a comment, cuts a release, uploads an artifact or reads a
+# secret - `grep -nE 'GITHUB_TOKEN|secrets\.|upload-artifact|id-token|
+# packages:'` over this file and .github/actions/provision/action.yml
+# matches nothing. Adding a job that needs more should raise the scope
+# on THAT job, not here.
+permissions:
+  contents: read
+
+# Third-party and first-party actions alike are pinned to a commit SHA
+# with the version in a trailing comment, because a tag is a mutable ref
+# on GitHub: `v4` is deliberately re-pointed at every v4.x release, and
+# even a full `v4.4.0` can be force-moved by whoever holds the
+# repository. The 2025 tj-actions/changed-files compromise was exactly
+# that - every version tag moved to one malicious commit - so a tag pin
+# would not have helped and a SHA pin would have. `dtolnay/rust-toolchain`
+# is worse than a tag: `stable` is a BRANCH, force-pushed on every Rust
+# release, so `@stable` was running whatever it pointed at that morning.
+# Update these by editing both the SHA and the comment together.
+
 jobs:
   # The cheap gate that fails first. It used to be `cargo fmt` and
   # `cargo clippy` over the Rust compiler; with that compiler deleted,
@@ -38,14 +68,118 @@ jobs:
     name: Tree-sitter grammar
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
+
       # The grammar has to accept every `.ax` file in the repository.
       # Nothing here compiles anything: the check parses checked-in
       # sources, so only the tree-sitter CLI is needed.
-      - run: npm install --prefix tree-sitter-axiom --no-save tree-sitter-cli
+      #
+      # This was `npm install --prefix tree-sitter-axiom --no-save
+      # tree-sitter-cli`, and it was three missing pins in one line, in
+      # the job that gates every other job, on every pull request.
+      # Measured 2026-08-23: no version on the command line, so npm
+      # resolved the `latest` dist-tag and installed 0.26.13 rather than
+      # the ^0.26.12 the manifest asked for; `--no-save` plus a
+      # `.gitignore` entry for the lockfile meant nothing was pinned by
+      # hash on any run; and the install script it then ran fetched
+      # tree-sitter-macos-arm64.gz from a GitHub release and unpacked a
+      # 20 MB executable that the next step runs.
+      #
+      # `npm ci` installs exactly what package-lock.json says, verifies
+      # every tarball against the lockfile's integrity hash, and REFUSES
+      # if the lockfile and the manifest disagree - which is what makes
+      # it the right verb in CI and `npm install` the wrong one, because
+      # `install` silently rewrites the lockfile to whatever it resolved.
+      - name: Install the CLI's npm wrapper, exactly as locked
+        run: npm ci --prefix tree-sitter-axiom --ignore-scripts
+
+      # `--ignore-scripts` above suppresses the download, so the wrapper
+      # `npm ci` just installed - node_modules/.bin/tree-sitter, which is
+      # a four-line cli.js that spawns `./tree-sitter` beside itself -
+      # has nothing to spawn. This step puts the binary there, which is
+      # the same path install.js would have written, so
+      # scripts/check-tree-sitter.sh finds it by its existing
+      # project-local lookup and needs no change.
+      #
+      # WHY BOTH HALVES ARE NEEDED. The lockfile pins the npm tarball,
+      # but that tarball is 21 KB of JavaScript - `npm view
+      # tree-sitter-cli@0.26.12 dist.unpackedSize` is 21855 - and the
+      # binary is not in it and has no npm integrity hash anywhere.
+      # There are no per-platform binary packages to depend on either
+      # (`optionalDependencies` is null). So the executable that does
+      # all the work is the one thing npm cannot pin, and a GitHub
+      # release asset is mutable: it can be deleted and re-uploaded at
+      # the same URL by anyone holding that repository. Hence a checked-in
+      # SHA256, verified BEFORE the bytes are decompressed or made
+      # executable, in the shape scripts/bootstrap-from-seed.sh already
+      # uses for bootstrap/SHA256SUMS.
+      #
+      # The version is read from the package npm just installed - the
+      # same expression install.js uses - so the binary can never be a
+      # different version from the wrapper. Bumping the CLI therefore
+      # fails HERE, on an unrecorded hash, until the table below is
+      # updated too. That is the intended way to find out.
+      - name: Install the tree-sitter binary it execs, against a recorded hash
+        run: |
+          set -euo pipefail
+          cli=tree-sitter-axiom/node_modules/tree-sitter-cli
+          version="$(node -p "require('./$cli/package.json').version")"
+
+          case "$(uname -s)/$(uname -m)" in
+            Linux/x86_64)  asset=tree-sitter-linux-x64.gz   ;;
+            Linux/aarch64) asset=tree-sitter-linux-arm64.gz ;;
+            Darwin/arm64)  asset=tree-sitter-macos-arm64.gz ;;
+            Darwin/x86_64) asset=tree-sitter-macos-x64.gz   ;;
+            *) echo "no recorded hash for $(uname -s)/$(uname -m)" >&2; exit 1 ;;
+          esac
+
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+
+          # sha256(1) of the release assets as served, for v0.26.12.
+          # All four are recorded, not just the linux-x64 this job runs
+          # on, so moving the job to another runner is an edit to
+          # `runs-on` and not to the trust story - the same reason
+          # bootstrap/SHA256SUMS carries four seeds to run one.
+          cat > "$work/RECORDED" <<'SUMS'
+          d00ac0daefc4bf8c4b57842a5c0509927232faad1d83157b64fbad4e2e8d9a8b  tree-sitter-linux-x64.gz
+          cfbf3d9aad8e326878ab1846885a9c2b782a0333273591616f34bf556d525586  tree-sitter-linux-arm64.gz
+          a7ddeff2507391ebdfd0b8fa0dfe91babed291ea00d86426cb0e6cfade891697  tree-sitter-macos-arm64.gz
+          6827b218bce4d5403cb76ae3c269bc836d3124b75bb3477197ee9a8c8f6e79dc  tree-sitter-macos-x64.gz
+          SUMS
+
+          # Only the line for this platform, so a missing entry is an
+          # error rather than a check that passes over nothing. `-c`
+          # with a file naming three absent assets succeeds on GNU
+          # coreutils with --ignore-missing and fails without it; a
+          # one-line file needs neither and behaves the same under
+          # BSD/perl shasum, which has no such flag.
+          grep "  $asset\$" "$work/RECORDED" > "$work/SHA256SUMS" \
+            || { echo "no recorded hash for $asset at v$version" >&2; exit 1; }
+
+          curl --fail --silent --show-error --location \
+               --proto '=https' --tlsv1.2 \
+               -o "$work/$asset" \
+               "https://github.com/tree-sitter/tree-sitter/releases/download/v$version/$asset"
+
+          # Same fallback as scripts/bootstrap-from-seed.sh: sha256sum
+          # is coreutils and absent from macOS, shasum is perl and
+          # present on both.
+          if command -v sha256sum > /dev/null; then
+            sumcheck() { sha256sum -c SHA256SUMS; }
+          else
+            sumcheck() { shasum -a 256 -c SHA256SUMS; }
+          fi
+          ( cd "$work" && sumcheck ) \
+            || { echo "the tree-sitter $version binary does not match its recorded hash" >&2; exit 1; }
+
+          gunzip -c "$work/$asset" > "$cli/tree-sitter"
+          chmod +x "$cli/tree-sitter"
+          "$cli/tree-sitter" --version
+
       - name: Every .ax file parses under the checked-in grammar
         run: ./scripts/check-tree-sitter.sh
 
@@ -65,7 +199,7 @@ jobs:
             os: macos-14
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # `llc` is not on the default PATH on either runner image, and the
       # compiler shells out to it by name. `llvm-readobj` comes from the
@@ -326,8 +460,20 @@ jobs:
             os: macos-14
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # `toolchain: stable` is spelled out because the ref no longer
+      # says it. This action's only branches ARE toolchain names -
+      # `@stable` selected the toolchain and the code in one ref - and
+      # `stable` is force-pushed on every Rust release, so pinning the
+      # SHA freezes six-monthly-moving action code at a reviewed commit.
+      # The input defaults to `stable` at this SHA and the action reads
+      # `inputs.toolchain` alone, never `github.action_ref`, so the pin
+      # does not change which Rust gets installed - but naming it keeps
+      # that true if the default ever changes, and tells the next reader
+      # what the hex was for.
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        with:
+          toolchain: stable
       - uses: ./.github/actions/provision
 
       # The three tiers the gate prices, the generated binding diffed
@@ -348,7 +494,7 @@ jobs:
     needs: grammar
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/provision
 
       # Every target's IR must at least assemble from a single host: the
@@ -364,7 +510,7 @@ jobs:
     needs: grammar
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/provision
 
       # `stage2 == stage3` is the criterion the whole self-hosting effort
@@ -380,7 +526,7 @@ jobs:
     needs: grammar
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/provision
 
       - name: Byte-identical output from two independent runs
@@ -417,7 +563,7 @@ jobs:
             os: macos-14
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Not `./.github/actions/provision`: that action ends by INSTALLING
       # the result, and what this job tests is the build itself, on the
       # two architectures where nothing else builds a seed from scratch.

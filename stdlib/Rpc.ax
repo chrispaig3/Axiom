@@ -46,6 +46,48 @@
 
 (fn (rdCap) 65536)
 
+; The largest `Content-Length` this framer will accept, in bytes. A
+; header naming more than this is refused, and refused exactly the way
+; a missing or unparseable one is.
+;
+; WHY THERE IS A CEILING AT ALL. The header block is peer-supplied
+; bytes arriving on `axiom lsp`'s stdin, and `rdContentLength`
+; accumulates the value with `(+ (* v 10) ...)`, which the backend
+; emits as plain `mul`/`add` - no `nsw`, no trap - so accumulation is
+; silent two's-complement wraparound and a peer can spell ANY i64.
+; Measured, both as the second message of an otherwise ordinary
+; session - the reader half is tests/stdlib/390-rpc-framing.ax, the
+; whole-server half was `axiom lsp` on a pipe:
+;
+;   Content-Length: 9223372036854775800  followed by `{}`
+;     `rpcRead` answered 65,497 bytes of the reader's OWN
+;     UNINITIALISED BUFFER as the message body - a heap disclosure
+;     straight back to the peer - and left `consumed` at
+;     -9223372036854775777, after which `filled - consumed` was
+;     negative for the life of the process. Driven through the server
+;     it died at the next `memAlloc` with exit 70 and never answered
+;     the `shutdown` queued behind it.
+;
+;   Content-Length: 18446744073709551621  followed by a 5-byte body
+;     Worse, because nothing failed: 2^64 + 5 wraps to exactly 5 and
+;     the framer accepted the message. A length field a peer can make
+;     mean a different number than it says is a framing bug whether or
+;     not anything crashes.
+;
+; WHY THIS NUMBER. 64 MiB. The largest `textDocument/didOpen` this
+; repository can generate is its own biggest source file,
+; self_host/codegen.ax at 503,809 bytes, which JSON-escapes into a
+; 521,218-byte body - so the ceiling is 128x the largest legal message
+; anyone here has ever sent, and a real editor document is three orders
+; of magnitude under it. It is also small enough that the in-loop test
+; cannot itself wrap: `v` is at most 67,108,864 when the test runs, so
+; the next `v * 10 + 9` is at most 671,088,649, ten orders of magnitude
+; short of i64. Raising this is safe up to about 9e17; lowering it
+; below ~1 MiB would start refusing this compiler's own sources.
+(:: rdMaxBody Int)
+
+(fn (rdMaxBody) 67108864)
+
 (pub :: rdNew (-> Int Int))
 
 (pub fn (rdNew fd)
@@ -234,8 +276,15 @@
 
 ; The `Content-Length` value in the header block, which runs from the
 ; consume point to `hdrRel` bytes past it, or -1 when the header is
-; absent or unparseable. A message with no Content-Length is not a
-; message. `hdrRel` is relative, for the reason above.
+; absent, unparseable, or names more than `rdMaxBody` bytes. A message
+; with no Content-Length is not a message, and neither is one whose
+; length field a peer wrote to overflow the accumulator. `hdrRel` is
+; relative, for the reason above.
+;
+; The three refusals answer the SAME -1 on purpose. `rpcRead` turns -1
+; into "" and the server treats "" as the client having gone away; if
+; an over-long header answered anything else, a peer could tell the
+; ceiling from a typo and probe for it.
 (:: rdContentLength (-> Int Int Int))
 
 (fn (rdContentLength r hdrRel)
@@ -244,10 +293,11 @@
     (base (rdConsumed r))
     (mut i 0)
     (mut len (- 0 1))
+    (mut over 0)
   )
     (let ((end (+ base hdrRel)))
       {
-        (while (&& (< len 0) (< i hdrRel))
+        (while (&& (== over 0) (&& (< len 0) (< i hdrRel)))
           {
             (if (rdMatchCI r (+ base i) "content-length:" 0)
               (let (
@@ -258,13 +308,27 @@
                 {
                   (while (&& (< p end) (== (strByte buf p) 32))
                     (set p (+ p 1)))
-                  (while (&& (< p end) (&& (>= (strByte buf p) 48) (<= (strByte buf p) 57)))
+                  ; The ceiling is tested HERE, after each digit, and
+                  ; deliberately not on the finished value: by then the
+                  ; total is the thing that wrapped, so its sign says
+                  ; nothing - `9223372036854775800` is positive and
+                  ; `18446744073709551621` reads back as 5. Testing per
+                  ; digit also means the length of the digit run needs
+                  ; no separate cap (a header carrying a thousand nines
+                  ; stops as soon as `v` passes `rdMaxBody`) while
+                  ; `Content-Length: 0000000000000005` stays legal,
+                  ; which a digit-count cap would have broken.
+                  (while (&& (== over 0) (&& (< p end) (&& (>= (strByte buf p) 48) (<= (strByte buf p) 57))))
                     {
                       (set v (+ (* v 10) (- (strByte buf p) 48)))
                       (set digits (+ digits 1))
                       (set p (+ p 1))
+                      (if (> v rdMaxBody)
+                        (set over 1)
+                        0
+                      )
                     })
-                  (if (> digits 0)
+                  (if (&& (== over 0) (> digits 0))
                     (set len v)
                     0
                   )
@@ -274,6 +338,12 @@
             )
             (set i (+ i 1))
           })
+        ; `len` is assigned only where `over` stayed 0, and `over`
+        ; stops the outer scan too, so an over-long field falls out of
+        ; here still holding the -1 a missing one answers. It must NOT
+        ; fall through to a later `content-length:` in the same block -
+        ; that would let a peer hide a real length behind an
+        ; overflowing one and pick which of the two the framer used.
         len
       }
     )
@@ -314,9 +384,33 @@
             ; buffer must still arrive. Every offset below is
             ; re-derived from `rdConsumed` AFTER the fills,
             ; because a fill may have compacted.
+            ;
+            ; AND NOTHING BELOW MAY FORM `bodyRel + n`. `n` is the
+            ; peer's number and `bodyRel` is the framer's, so their sum
+            ; is the one quantity here an attacker can push past i64;
+            ; formed once, it wraps NEGATIVE, and a negative sum makes
+            ; the wait-for-body test false on its first evaluation - so
+            ; the reader slices a body that never arrived (measured:
+            ; 65,497 bytes of uninitialised buffer, handed to the peer)
+            ; and then stores the wrapped sum into `consumed`, after
+            ; which `rdAvail` is negative for the life of the process
+            ; and `rdFindHeaderEnd` scans a negative bound forever. Both
+            ; sites below therefore keep `n` alone on one side.
+            ; `(- (rdAvail r) bodyRel)` cannot go negative:
+            ; `rdFindHeaderEnd` located the terminator inside the
+            ; unconsumed region, so avail is at least `hdr + 4`. The
+            ; consume cursor is likewise associated
+            ; `(consumed + bodyRel) + n` and never
+            ; `consumed + (bodyRel + n)`, which is the same sum a
+            ; second time; the wait loop only falls through once
+            ; avail - bodyRel >= n, so that total is at most `filled`.
+            ; This shape is safe for ANY `n`, which is why it and not
+            ; `rdMaxBody` is what closes the hole - the ceiling only
+            ; turns a wait for a body that can never arrive into an
+            ; immediate refusal.
             (let ((bodyRel (+ hdr 4)))
               {
-                (while (&& (< (rdAvail r) (+ bodyRel n)) (== dead 0))
+                (while (&& (< (- (rdAvail r) bodyRel) n) (== dead 0))
                   (if (< (rdFill r) 1)
                     (set dead 1)
                     0
@@ -332,7 +426,7 @@
                   ; nothing next to the parse that follows it.
                   (let ((body (strDup (strSlice (rdBuf r) (+ (rdConsumed r) bodyRel) n))))
                     {
-                      (memSetWord r 3 (+ (rdConsumed r) (+ bodyRel n)))
+                      (memSetWord r 3 (+ (+ (rdConsumed r) bodyRel) n))
                       body
                     }
                   )

@@ -4430,10 +4430,28 @@
 (pub :: moduleSearchDirs (-> String Int))
 
 (pub fn (moduleSearchDirs entryDir)
+  ; The entry directory is pushed WITH ITS SLASH, the way every
+  ; other root here already is (`pushPathList` and the `AXIOM_STDLIB`
+  ; arm both run through `pathWithSlash`). `searchDirsFor` forms its
+  ; candidate as a bare `(cat2 dir base)`, so a root that does not
+  ; end in a separator would fuse with the module name; the caller
+  ; passes `(pathDir path)`, which already ends in one or is empty,
+  ; so this is a no-op today and a guard against a future caller
+  ; that hands over `src` instead of `src/`.
+  ;
+  ; The EMPTY case is not normalised here, and that is deliberate.
+  ; `""` is the honest answer for a file named with no directory
+  ; (`axiom check trav.ax`), and `Path.ax` maps `""` to `""` on
+  ; purpose so that `(strConcat (pathDir p) (pathBase p))` is `p`.
+  ; Prefixing `./` instead would confine the concatenation, but it
+  ; also lands in every diagnostic about a same-directory imported
+  ; module - `./TagPure.ax` where five goldens say `TagPure.ax` -
+  ; which is a worse report for no gain over refusing the escaping
+  ; stem outright. That refusal is in `searchDirsFor`.
   (let ((v vecNew))
     {
       (vecPush
-        v        (cast Int entryDir)
+        v        (cast Int (pathWithSlash entryDir))
       )
       (pushPathList v (sysEnv "AXIOM_PATH"))
       ; `--crate DIR`: the crate's generated binding module lives in
@@ -4517,10 +4535,57 @@
 ; predecessor did too - `sysReadFile` answers "" for both - and is
 ; recorded rather than fixed, because an empty module contributes no
 ; declarations and so fails identically one step later.
+; A module stem that would leave whatever directory it is prefixed onto,
+; and so cannot be looked up in a search directory at all.
+;
+; Two shapes, both of which `(cat2 dir base)` silently accepts. An
+; ABSOLUTE stem re-anchors the concatenation outright - `"" + /etc/x.ax`
+; and `stdlib/` + `/etc/x.ax` name the same file, and neither is in
+; `stdlib/`. A `..` COMPONENT climbs out of it. An empty stem is refused
+; with them because a directory is not a module.
+;
+; This is the second half of the 2026-08-23 import-traversal fix and not
+; the load-bearing one: `AX2006` in `parser.ax` refuses a `/` inside a
+; module-path segment, so no name the grammar admits can reach here
+; absolute, and no segment can be `.` or `..` either, because a `.` lexes
+; as `TK_DOT` and `parseIdentName` demands a `TK_IDENT` after it. Both
+; shapes are unreachable through the parser TODAY. The check is here
+; because this is the line that decides which file gets opened, and
+; because `modPathToFile` rewrites `.` into `/` on the way - so what
+; arrives is a path-shaped string whichever grammar produced it, and
+; every future caller of this function inherits the confinement instead
+; of having to re-derive it.
+(pub :: stemEscapes (-> String Bool))
+
+(pub fn (stemEscapes s)
+  (if (== (strLen s) 0)
+    true
+    (if (== (strByte s 0) 47)
+      true
+      (stemDotDotAt s 0)
+    )
+  )
+)
+
+; A `..` standing as a whole component of `s`: it begins the string or
+; follows a `/`, and it ends the string or is followed by a `/`.
+; `..ax`, `a..b` and `x/foo..` are all ordinary names and stay legal.
+(pub :: stemDotDotAt (-> String Int Bool))
+
+(pub fn (stemDotDotAt s i)
+  (if (> (+ i 2) (strLen s))
+    false
+    (if (&& (|| (== i 0) (== (strByte s (- i 1)) 47)) (&& (&& (== (strByte s i) 46) (== (strByte s (+ i 1)) 46)) (|| (== (+ i 2) (strLen s)) (== (strByte s (+ i 2)) 47))))
+      true
+      (stemDotDotAt s (+ i 1))
+    )
+  )
+)
+
 (pub :: searchDirsFor (-> Int String Int String))
 
 (pub fn (searchDirsFor dirs base i)
-  (if (>= i (vecLen dirs))
+  (if (|| (stemEscapes base) (>= i (vecLen dirs)))
     ""
     (let ((cand (cat2 (vecGetStr dirs i) base)))
       (if (!=

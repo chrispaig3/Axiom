@@ -1,0 +1,11 @@
+[1;31merror[AX3041][0m[1m: `\n` cannot appear in an `extern` block's library name[0m
+ [1;34m--> [0m945-extern-lib-newline.ax:7:9
+[1;34m  |[0m
+[1;34m7 |[0m (extern "m
+[1;34m  |[0m         [1;31m^^ this name is written into the emitted module and passed to the linker as `-l<name>`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthe name is emitted verbatim into the module beside the block's declares, where a `;` comment ends at the first newline
+ [1;34m = [0m[1;32mhelp: [0ma library name is the stem of `lib<name>.a`, so it is `[A-Za-z0-9._+-]` and nothing else - `axiom_demo`, `m`, `c++abi`; pass a directory with `--link-search DIR` rather than encoding one here, and name the boundary symbol in the item's own `(symbol "...")` clause
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3041` for a full explanation
+
+compilation failed due to 1 previous error

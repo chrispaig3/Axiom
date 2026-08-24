@@ -26,6 +26,19 @@
 ; cannot be split on spaces, and this parser starts a new token only at
 ; a `#` that follows a space. `#` is not part of Axiom's type syntax,
 ; which is what makes that boundary safe to rely on.
+;
+; THAT BOUNDARY IS ONLY SAFE FOR VALUES THE COMPILER BUILT. An AXTAG's
+; value is the author's bytes, and one containing ` #effects=Alloc`
+; used to render as an extra metadata field indistinguishable from the
+; compiler's own - reproduced on a three-line file that `check`
+; accepted at exit 0, and the row it produced carried four fields of
+; which one was a tag. `saAxMeta` (self_host/symbols.ax) now writes a
+; structural byte in an AXTAG as `%XX`, and `axsymUnpct` below turns it
+; back, so a value is exactly one token and reads back byte for byte.
+; The reader does not TRUST that, though: `symTagFrom` answers the LAST
+; `#key`, and the compiler emits its derived keys after the author's
+; tags, so a shadowed `#effects=` loses to the real one even if a byte
+; ever escapes the escaper.
 (import Str)
 
 (import Vec)
@@ -76,6 +89,10 @@
 
 (pub fn (axsymNewline) 10)
 
+(pub :: axsymPercent Int)
+
+(pub fn (axsymPercent) 37)
+
 ; The six KIND letters, and deliberately only those: they are disjoint
 ; from AXDL's `E`/`W`/`N`/`H` severity sigils, so a line's first byte
 ; says which notation produced it even in a concatenated stream. A
@@ -113,7 +130,7 @@
   (let ((n (strLen s)))
     (if (== n 0)
       s
-      (if (== (strByte s (- n 1)) (axsymSpace))
+      (if (== (strByte s (- n 1)) axsymSpace)
         (axsymTrimEnd (strSlice s 0 (- n 1)))
         s
       )
@@ -121,17 +138,101 @@
   )
 )
 
+; The bytes `saAxMeta` escapes on the way out, restated here because
+; this is the other end of the same wire: space and every control byte
+; (`< 33`), `"`, `#`, `%` and DEL. Anything else is left alone, so a
+; UTF-8 tag value survives.
+(pub :: axsymEscapable (-> Int Bool))
+
+(pub fn (axsymEscapable b) (|| (< b 33) (|| (== b 34) (|| (== b 35) (|| (== b 37) (== b 127))))))
+
+; One hex digit's value, or -1. Both cases are accepted: the emitter
+; writes upper, and a reader that took only what one emitter happens to
+; write is pinned to that emitter rather than to the notation.
+(pub :: axsymHexVal (-> Int Int))
+
+(pub fn (axsymHexVal b)
+  (if (&& (>= b 48) (<= b 57))
+    (- b 48)
+    (if (&& (>= b 65) (<= b 70))
+      (- b 55)
+      (if (&& (>= b 97) (<= b 102))
+        (- b 87)
+        (- 0 1)
+      )
+    )
+  )
+)
+
+; The byte a `%XX` at `i` stands for, or -1 where there is no complete
+; escape. STRICT, and that is the point: only the bytes `saAxSafe`
+; escapes decode, so a literal `%` standing in a value the COMPILER
+; built - a rendered type, a generated `Trait#Type#method` name - is
+; never mistaken for an escape. `%41` stays `%41`.
+(pub :: axsymPctAt (-> String Int Int))
+
+(pub fn (axsymPctAt s i)
+  (if (!= (strByte s i) axsymPercent)
+    (- 0 1)
+    (if (>= (+ i 2) (strLen s))
+      (- 0 1)
+      (let (
+        (hi (axsymHexVal (strByte s (+ i 1))))
+        (lo (axsymHexVal (strByte s (+ i 2))))
+      )
+        (if (|| (< hi 0) (< lo 0))
+          (- 0 1)
+          (let ((b (+ (* hi 16) lo)))
+            (if (axsymEscapable b)
+              b
+              (- 0 1)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; A meta key or value with its escapes undone. The `strFindByte` guard
+; is not an optimisation for its own sake: no AXTAG in this repository
+; contains a byte that is escaped, so every token on every line in the
+; corpus takes the first arm and is returned as it arrived, allocating
+; nothing and copying nothing.
+(pub :: axsymUnpct (-> String String))
+
+(pub fn (axsymUnpct s)
+  (if (< (strFindByte s axsymPercent 0) 0)
+    s
+    (axsymUnpctFrom s 0 "")
+  )
+)
+
+(pub :: axsymUnpctFrom (-> String Int String String))
+
+(pub fn (axsymUnpctFrom s i acc)
+  (if (>= i (strLen s))
+    acc
+    (let ((b (axsymPctAt s i)))
+      (if (< b 0)
+        (axsymUnpctFrom s (+ i 1) (strConcat acc (strSlice s i 1)))
+        (axsymUnpctFrom s (+ i 3) (strConcat acc (strFromByte b)))
+      )
+    )
+  )
+)
+
 ; `#key=value` or a bare `#key`, with the leading `#` already dropped.
+; Both halves are unescaped, because `saAxMeta` escapes both: an AXTAG
+; key is everything from `;@axiom:` to the newline, so a key can carry
+; a space or a `#` just as a value can.
 (pub :: axsymMeta (-> String Meta))
 
 (pub fn (axsymMeta tok)
-  (let ((cut (strFindByte tok (axsymEquals) 0)))
+  (let ((cut (strFindByte tok axsymEquals 0)))
     (if (< cut 0)
-      (Meta tok "")
-      (Meta
-        (strSlice tok 0 cut)
-        (strSlice tok (+ cut 1) (- (strLen tok) (+ cut 1)))
-      )
+      (Meta (axsymUnpct tok) "")
+      (Meta (axsymUnpct (strSlice tok 0 cut)) (axsymUnpct (strSlice tok (+ cut 1) (- (strLen tok) (+ cut 1)))))
     )
   )
 )
@@ -146,21 +247,25 @@
   (if (>= i (strLen s))
     {
       (if (>= start 0)
-        (vecPush out (cast Int (axsymMeta (strSlice s start (- (strLen s) start)))))
+        (vecPush
+          out          (cast Int (axsymMeta (strSlice s start (- (strLen s) start))))
+        )
         0
       )
       out
     }
-    (if (if (== (strByte s i) (axsymHash))
+    (if (if (== (strByte s i) axsymHash)
       (if (== i 0)
         true
-        (== (strByte s (- i 1)) (axsymSpace))
+        (== (strByte s (- i 1)) axsymSpace)
       )
       false
     )
       {
         (if (>= start 0)
-          (vecPush out (cast Int (axsymMeta (axsymTrimEnd (strSlice s start (- i start))))))
+          (vecPush
+            out            (cast Int (axsymMeta (axsymTrimEnd (strSlice s start (- i start)))))
+          )
           0
         )
         (axsymMetaScan s (+ i 1) (+ i 1) out)
@@ -180,12 +285,12 @@
   (if (< (strLen ln) 4)
     None
     (if (axsymIsKind (strByte ln 0))
-      (if (!= (strByte ln 1) (axsymSpace))
+      (if (!= (strByte ln 1) axsymSpace)
         None
-        (let ((q1 (strFindByte ln (axsymQuote) 0)))
+        (let ((q1 (strFindByte ln axsymQuote 0)))
           (if (< q1 0)
             None
-            (let ((q2 (strFindByte ln (axsymQuote) (+ q1 1))))
+            (let ((q2 (strFindByte ln axsymQuote (+ q1 1))))
               (if (< q2 0)
                 None
                 (axsymBuild ln q1 q2)
@@ -206,19 +311,12 @@
 
 (pub fn (axsymBuild ln q1 q2)
   (let ((head (axsymTrimEnd (strSlice ln 2 (- q1 2)))))
-    (let ((cut (strFindByte head (axsymSpace) 0)))
+    (let ((cut (strFindByte head axsymSpace 0)))
       (if (< cut 0)
         None
-        (let (
-          (rest (strSlice ln (+ q2 1) (- (strLen ln) (+ q2 1))))
-        )
+        (let ((rest (strSlice ln (+ q2 1) (- (strLen ln) (+ q2 1)))))
           (Some (Sym
-            (strByte ln 0)
-            (strSlice head 0 cut)
-            (axsymTrimEnd (strSlice head (+ cut 1) (- (strLen head) (+ cut 1))))
-            (strSlice ln (+ q1 1) (- q2 (+ q1 1)))
-            (axsymNid rest)
-            (axsymMetaScan rest 0 (- 0 1) vecNew)
+            (strByte ln 0)            (strSlice head 0 cut)            (axsymTrimEnd (strSlice head (+ cut 1) (- (strLen head) (+ cut 1))))            (strSlice ln (+ q1 1) (- q2 (+ q1 1)))            (axsymNid rest)            (axsymMetaScan rest 0 (- 0 1) vecNew)
           ))
         )
       )
@@ -232,10 +330,10 @@
 (pub :: axsymNid (-> String String))
 
 (pub fn (axsymNid rest)
-  (let ((at (strFindByte rest (axsymAt) 0)))
+  (let ((at (strFindByte rest axsymAt 0)))
     (if (< at 0)
       ""
-      (let ((sp (strFindByte rest (axsymSpace) (+ at 1))))
+      (let ((sp (strFindByte rest axsymSpace (+ at 1))))
         (if (< sp 0)
           (strSlice rest (+ at 1) (- (strLen rest) (+ at 1)))
           (strSlice rest (+ at 1) (- sp (+ at 1)))
@@ -250,7 +348,7 @@
 (pub :: axsymParse (-> String Int))
 
 (pub fn (axsymParse text)
-  (let ((lines (strSplit text (axsymNewline))))
+  (let ((lines (strSplit text axsymNewline)))
     (axsymParseFrom lines 0 vecNew)
   )
 )
@@ -262,7 +360,11 @@
     out
     {
       (match (axsymLine (vecGetStr lines i))
-        ((Some s) (vecPush out (cast Int s)))
+        ((Some s)
+          (vecPush
+            out            (cast Int s)
+          )
+        )
         ((None) 0)
       )
       (axsymParseFrom lines (+ i 1) out)
@@ -270,9 +372,21 @@
   )
 )
 
-; The value of `#key`, or empty. Empty is also what a bare flag
-; answers, so a caller distinguishing "absent" from "present with no
-; value" wants `symHasTag`.
+; The value of the LAST `#key` on the line, or empty. Empty is also
+; what a bare flag answers, so a caller distinguishing "absent" from
+; "present with no value" wants `symHasTag`.
+;
+; THE LAST, NOT THE FIRST, and this is a security property rather than
+; a taste. `symLine` emits the AXTAGs an author wrote and then the keys
+; the compiler DERIVED, so on any line that carries the same key twice
+; the compiler's own is the later one. Answering the first match let a
+; declaration shadow its own effect row: `;@axiom:effects(Alloc)` on a
+; body that calls `println` rendered `#effects=Alloc #effects=IO` and
+; this function said `Alloc`, at exit 0 with only an AX3039 warning -
+; and `docs/agent-harness.md` §3.4 has `Agent.Policy` deciding what a
+; declaration is allowed to do from exactly that answer. Duplicate keys
+; are still possible on the author's side alone (two tags with one
+; key); last wins there too, which is no more arbitrary than first was.
 (pub :: symTag (-> Sym String String))
 
 (pub fn (symTag s key) (symTagFrom s.meta key 0))
@@ -280,12 +394,35 @@
 (pub :: symTagFrom (-> Int String Int String))
 
 (pub fn (symTagFrom meta key i)
-  (if (>= i (vecLen meta))
-    ""
-    (let ((m (cast Meta (vecGet meta i))))
-      (if (strEq m.key key)
+  (let ((hit (symTagLastIdx meta key i (- 0 1))))
+    (if (< hit 0)
+      ""
+      (let ((m 
+        (cast Meta (vecGet meta hit))
+      ))
         m.val
-        (symTagFrom meta key (+ i 1))
+      )
+    )
+  )
+)
+
+; The index of the last `#key` at or after `i`, or -1. Carried in an
+; accumulator rather than compared on the way out of the recursion,
+; because a bare flag's value is empty and "" cannot tell a later match
+; from no match at all.
+(pub :: symTagLastIdx (-> Int String Int Int Int))
+
+(pub fn (symTagLastIdx meta key i best)
+  (if (>= i (vecLen meta))
+    best
+    (let ((m 
+      (cast Meta (vecGet meta i))
+    ))
+      (symTagLastIdx
+        meta        key        (+ i 1)        (if (strEq m.key key)
+          i
+          best
+        )
       )
     )
   )
@@ -300,7 +437,9 @@
 (pub fn (symHasTagFrom meta key i)
   (if (>= i (vecLen meta))
     false
-    (let ((m (cast Meta (vecGet meta i))))
+    (let ((m 
+      (cast Meta (vecGet meta i))
+    ))
       (if (strEq m.key key)
         true
         (symHasTagFrom meta key (+ i 1))

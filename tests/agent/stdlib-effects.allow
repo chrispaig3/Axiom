@@ -7,6 +7,8 @@ axsymNid Tags.ax Alloc
 axsymParse Tags.ax Alloc
 axsymParseFrom Tags.ax Alloc
 axsymTrimEnd Tags.ax Alloc
+axsymUnpct Tags.ax Alloc
+axsymUnpctFrom Tags.ax Alloc
 copyFile IO.ax Alloc,IO
 cwd IO.ax Alloc,IO
 die IO.ax Alloc,IO

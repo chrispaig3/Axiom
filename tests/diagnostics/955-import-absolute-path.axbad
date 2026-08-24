@@ -1,0 +1,10 @@
+; `/etc/passwd` names nothing this repository owns, and that is the
+; point: the import is refused for its SHAPE, before any file is
+; looked for. Before AX2006 an absolute module name was concatenated
+; onto each search directory in turn, which an absolute path simply
+; re-anchors - `axiom check` on a file importing one outside the
+; project printed OK and compiled that file into the program.
+(import /etc/passwd)
+
+(:: main Int)
+(fn (main) 0)
