@@ -2,8 +2,15 @@
 # Compile, run, and check every standard-library golden case in
 # tests/stdlib.
 #
-# Each case is `NAME.ax` with an expected stdout in `NAME.out` and an
-# optional expected exit status in `NAME.exit` (default 0). This is the
+# Each case is `NAME.ax` with an expected stdout in `NAME.out`, an
+# optional expected exit status in `NAME.exit` (default 0), and an
+# optional expected STDERR in `NAME.err`. Stderr is discarded unless
+# that third file exists, because almost every case writes none and a
+# runner that compared it everywhere would turn a stray warning into
+# fifty failures. Where the file IS present the comparison is exact -
+# it exists for the cases whose whole subject is what they said on the
+# way out, like a program that dies of an allocation it could not make.
+# This is the
 # same set of cases the deleted Rust test suite ran as `stdlib_golden`
 # covers; the script exists so that a contributor can run one case, see
 # the actual diff, and keep the compiled binary around to poke at -
@@ -49,10 +56,25 @@ for case_file in tests/stdlib/*.ax; do
     continue
   fi
 
+  expected_err="tests/stdlib/$name.err"
+
   set +e
-  actual_out="$(cd "$case_dir" && "./$name" 2>/dev/null)"
+  if [[ -f "$expected_err" ]]; then
+    actual_out="$(cd "$case_dir" && "./$name" 2>"$case_dir/$name.stderr")"
+  else
+    actual_out="$(cd "$case_dir" && "./$name" 2>/dev/null)"
+  fi
   actual_exit=$?
   set -e
+
+  if [[ -f "$expected_err" ]]; then
+    if [[ "$(cat "$case_dir/$name.stderr")" != "$(cat "$expected_err")" ]]; then
+      echo "FAIL $name (stderr)"
+      diff "$expected_err" "$case_dir/$name.stderr" | sed 's/^/    /' || true
+      failed=$((failed + 1))
+      continue
+    fi
+  fi
 
   if [[ "$actual_out" != "$(cat "$expected_out")" ]]; then
     echo "FAIL $name (stdout)"

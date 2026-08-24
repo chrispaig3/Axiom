@@ -1,0 +1,53 @@
+; exit 70 (see .exit)
+; An allocation the kernel refuses, and the sentence the program says on
+; its way out.
+;
+; `MM-ALLOC-7` records that allocation failure exits 70 and that there is
+; no recoverable out-of-memory condition. What it did not record - and
+; what this case exists to pin - is that the status used to arrive ALONE.
+; Both `oom:` labels in the emitted allocator ended in a bare `exit(70)`,
+; so a program that ran out of memory vanished with a number and no
+; output at all.
+;
+; For a compiler that is survivable: the operator is watching it run. For
+; the long-lived programs this language is now used to write it is not.
+; A worker in a pre-forked pool disappears, the supervisor respawns it,
+; and nothing anywhere says why - which is the difference between a
+; production incident somebody can diagnose and one they cannot.
+;
+; THE SIZE IS 2^47 AND THAT IS NOT ARBITRARY. macOS overcommits: a
+; request for 1 TiB SUCCEEDS here and the failure path is never reached,
+; so a smaller number would make this case pass by not testing anything.
+; 2^47 is past the user address space on the targets this compiler emits
+; for, so the mapping is refused rather than merely unbacked.
+;
+; The message is pinned in `314-out-of-memory.err` and the status in
+; `.exit`. Neither is checked by the other: a program that printed the
+; right sentence and exited 0 would fail on the status, and one that
+; exited 70 in silence - which is what this tree did until now - fails
+; on the stderr.
+(import IO)
+
+(import Mem)
+
+(:: main Int)
+
+(fn (main)
+  {
+    (printlnLit (strCStr "asking for more than the address space holds"))
+    (memAlloc 140737488355328)
+    ; NOT REACHED, and this line is deliberately the TAIL of `main`.
+    ; `verify-stdlib-out.py` models a case's exit status from that tail
+    ; when it is a bare numeral, so a `0` there is a claim that this
+    ; program returns 0 - which it does not, because it never returns at
+    ; all. A non-literal tail is how a case says "my status does not come
+    ; from my last expression", and that is the truth here: it comes from
+    ; the allocator, and `.exit` is where it is written down.
+    ;
+    ; It is also the tripwire for the other half of MM-ALLOC-7. If the
+    ; allocator ever starts ANSWERING instead of exiting - which needs a
+    ; primitive and therefore a moved seed - this line runs, stdout gains
+    ; a line, and the golden says so.
+    (printlnLit (strCStr "UNREACHABLE: the allocation was satisfied"))
+  }
+)

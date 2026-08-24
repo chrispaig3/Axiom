@@ -5780,7 +5780,7 @@
     (emitLine cg "  %user = add i64 %hb, 16")
     (emitLine cg "  ret i64 %user")
     (emitLine cg "oom:")
-    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)"))
+    (emitLine cg "  call i64 @__axiom_out_of_memory()")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     (emitLine cg "")
@@ -5990,6 +5990,7 @@
     (emitLine cg "")
     (emitArenaHelpers cg)
     (emitDivTrap cg)
+    (emitOomTrap cg)
     (emitStrEqHelper cg)
     cg
   }
@@ -6100,6 +6101,40 @@
 ; when the program declares an effect - so every program that divided
 ; and had no effects reached `opt` with a call to a symbol nothing
 ; defined. Caught by the first probe after the change.
+; The allocator's out-of-memory path, as a function rather than two
+; copies of an exit.
+;
+; IT USED TO SAY NOTHING. `axiom_alloc` and `axiom_alloc_mapped` each
+; ended their `oom:` label with a bare `exit(70)`, so a program that ran
+; out of memory vanished with a status and no output at all. For a
+; compiler that is survivable - the operator is watching it run. For the
+; long-lived programs this language is now used to write it is not: a
+; worker in a pre-forked pool disappears, the supervisor respawns it,
+; and nothing anywhere says why. `MM-ALLOC-7` records the status; it did
+; not record that the status arrives alone.
+;
+; This is the shape `emitDivTrap` already had for status 72, and 70 gets
+; it for the same reason. It does NOT make the failure recoverable -
+; that needs the allocator to answer rather than exit, which needs a way
+; for Axiom code to arm it, which needs a primitive, which needs the
+; committed seed to move. This is the half that costs nothing: emitted
+; text only, so the fixpoint holds with no reseed.
+(pub :: emitOomTrap (-> Int Int))
+
+(pub fn (emitOomTrap cg)
+  {
+    (emitLine cg "@__axiom_oom_msg = private unnamed_addr constant [35 x i8] c\"axiom: out of memory (mmap failed)\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_out_of_memory() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %oomp = ptrtoint ptr @__axiom_oom_msg to i64")
+    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %oomp, i64 35, i64 0, i64 0, i64 0)"))
+    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)"))
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  }
+)
+
 (pub :: emitDivTrap (-> Int Int))
 
 (pub fn (emitDivTrap cg)
@@ -6312,7 +6347,7 @@
     (emitLine cg "done:")
     (emitLine cg "  ret i64 %dst")
     (emitLine cg "oom:")
-    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)"))
+    (emitLine cg "  call i64 @__axiom_out_of_memory()")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     (emitLine cg "")

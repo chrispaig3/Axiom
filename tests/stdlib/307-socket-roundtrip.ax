@@ -41,6 +41,36 @@
   )
 )
 
+; Accept, allowing for the connection not having landed on the queue
+; yet. A loopback `connect` on a BLOCKING socket returns once the kernel
+; has taken it, which is not quite the same instant as the connection
+; becoming visible to a NON-BLOCKING `accept` on the listener - so a
+; single try answers -EAGAIN sometimes. Measured on this case before it
+; was written this way: two failures in twenty-five runs, always the two
+; terms after the connect.
+;
+; The retry is bounded rather than a `while` on success, because a case
+; that hangs on a broken accept is worse than one that fails, and it is
+; expressed with `netWouldBlock` on purpose: "not yet" and "broken" are
+; exactly the distinction that function exists to make, and this is the
+; loop every server built on this API will write.
+(:: acceptSoon (-> Int Int Int))
+
+(fn (acceptSoon lsn tries)
+  (let ((c (netAccept lsn)))
+    (if (>= c 0)
+      c
+      (if (netWouldBlock c)
+        (if (> tries 0)
+          (acceptSoon lsn (- tries 1))
+          c
+        )
+        c
+      )
+    )
+  )
+)
+
 (:: main Int)
 
 (fn (main)
@@ -137,7 +167,7 @@
                     0
                   )                  "connect() to our own listener is accepted"
                 )
-                (let ((con (netAccept lsn)))
+                (let ((con (acceptSoon lsn 1000)))
                   {
                     (say
                       (if (> con 2)
