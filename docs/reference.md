@@ -1085,9 +1085,12 @@ checked against a lower bound either, so a `handle` whose body contains
 an unresolved call draws `AX3038` - a warning, where `AX3011` (the same
 question *answered*) is an error. That gap was not cosmetic: an effect
 operation reached with no handler installed aborts the process with
-status 71 and no message, so a handle whose body reached an effect
-through a struct field turned a compile-time refusal into a runtime
-trap.
+status 71, and until 2026-08-24 with no message at all, so a handle
+whose body reached an effect through a struct field turned a
+compile-time refusal into a runtime trap. The trap now prints `axiom:
+unhandled effect` on stderr - which makes the fault legible without
+making it any less a runtime fault, and is why `AX3038` is still worth
+having.
 
 ### Trait Methods
 

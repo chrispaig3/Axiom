@@ -9821,13 +9821,42 @@
   )
 )
 
+; The trap an effect operation falls into when its evidence slot reads
+; zero - no handler in dynamic extent - as a function rather than a
+; copy of an exit at every operation site.
+;
+; IT USED TO SAY NOTHING. The body was the exit syscall and
+; `unreachable`, so a program that performed an unhandled effect
+; vanished with status 71 and no output at all. Status 70 had exactly
+; this defect until `emitOomTrap` was given a message, and the argument
+; recorded there transfers unchanged: a worker in a pre-forked pool
+; disappears, the supervisor respawns it, and nothing anywhere says
+; why. Axiom now HAS such a pool - tests/net/echo-server.ax - and an
+; operation that escaped its `handle` is precisely the fault a respawn
+; hides, because the surviving worker is the one that did not perform
+; it.
+;
+; This is the third member of the family `emitDivTrap` opened for 72
+; and `emitOomTrap` joined for 70, emitted the same way: a private
+; constant, a write to fd 2, then the exit. The length in the array
+; type is the message's byte count EXACTLY - 24, counting the trailing
+; newline - because llc believes the declared length, and a wrong one
+; truncates the sentence or writes bytes past it.
+;
+; `tests/stdlib/310-effect-unhandled` pins both halves. Its `.exit` has
+; carried 71 since the case was written; the silence was invisible
+; because `run-stdlib-tests.sh` discards stderr unless `NAME.err`
+; exists, and it did not. It does now, and it holds this sentence.
 (pub :: emitUnhandledTrap (-> Int Int))
 
 (pub fn (emitUnhandledTrap cg)
   {
     (emitLine cg "")
+    (emitLine cg "@__axiom_unhandled_msg = private unnamed_addr constant [24 x i8] c\"axiom: unhandled effect\\0A\"")
     (emitLine cg "define internal i64 @__axiom_unhandled_effect() #0 {")
     (emitLine cg "entry:")
+    (emitLine cg "  %uep = ptrtoint ptr @__axiom_unhandled_msg to i64")
+    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %uep, i64 24, i64 0, i64 0, i64 0)"))
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 71, i64 0, i64 0, i64 0, i64 0, i64 0)"))
     (emitLine cg "  unreachable")
     (emitLine cg "}")

@@ -222,8 +222,10 @@ Two further holes bound what `Agent.Safe` can promise, both measured:
   `let`-bound local — escapes both the `;@axiom:pure` claim and the
   `(Pure)` boundary. `AX3037`/`AX3038` now report it, as warnings.
 - An effect operation reached with no handler anywhere compiles clean and
-  the process aborts at run time with status 71 and no message. There is
-  no whole-program discharge check.
+  the process aborts at run time with status 71, printing `axiom:
+  unhandled effect` on stderr. There is no whole-program discharge
+  check, so this remains a runtime failure - one that now says which
+  kind it is, rather than a bare status.
 
 ### 3.4 `Agent.Policy` — a gate, not a build mode
 
