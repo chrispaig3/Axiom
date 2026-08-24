@@ -1,0 +1,9 @@
+ok   a zero-length request succeeds
+ok   a zero-length request wrote nothing
+ok   a short request succeeds
+ok   a short request filled its buffer
+ok   a request spanning four chunks succeeds
+ok   the first chunk is filled
+ok   the region past the first chunk is filled too
+ok   the last chunk is filled
+ok   two draws differ

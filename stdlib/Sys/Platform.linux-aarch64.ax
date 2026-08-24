@@ -400,3 +400,29 @@
 (pub :: pollSigsetSize Int)
 
 (pub fn (pollSigsetSize) 8)
+
+; --------------------------------------------------------------------
+; Entropy
+;
+; getrandom(buf, len, flags) - 278. Answers the NUMBER OF BYTES it wrote,
+; which MAY BE FEWER THAN ASKED when a signal interrupts it, so the loop
+; over this call advances by the answer rather than by the request. That
+; is the difference from Darwin's `getentropy`, which fills completely
+; or fails, and it is what `randomIsGetentropy` selects between.
+;
+; `randomMaxChunk` is not a kernel limit here - `getrandom` has none
+; worth naming - but the same 256 is used so both platforms walk the
+; buffer the same way and the chunk size is not a second thing that
+; differs by target.
+; --------------------------------------------------------------------
+(pub :: sysRandomNum Int)
+
+(pub fn (sysRandomNum) 278)
+
+(pub :: randomIsGetentropy Int)
+
+(pub fn (randomIsGetentropy) 0)
+
+(pub :: randomMaxChunk Int)
+
+(pub fn (randomMaxChunk) 256)

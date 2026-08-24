@@ -1569,3 +1569,65 @@
 (pub :: netPollFdAt (-> Int Int Int))
 
 (pub fn (netPollFdAt buf i) (netGetWord buf (+ (* i pollEventSize) pollEventFdOffset)))
+
+; ------------------------------------------------------------------
+; Entropy
+;
+; Cryptographically strong random bytes from the kernel, which is the
+; only source there is: Axiom links no libc, so there is no `arc4random`
+; and no seeded generator to fall back to, and a PRNG written here would
+; be a PRNG with no seed.
+;
+; THE TWO CALLS DIFFER IN THEIR FAILURE SHAPE, not just their number.
+; Darwin's `getentropy` fills the buffer completely or answers -errno,
+; and refuses more than 256 bytes at a time - measured, a 257-byte
+; request answers -22. Linux's `getrandom` answers the COUNT it wrote
+; and may write fewer than asked when a signal interrupts it. So the
+; loop below advances by the request on one platform and by the answer
+; on the other, and `randomIsGetentropy` is which.
+; ------------------------------------------------------------------
+; Fill `n` bytes at `buf` with kernel entropy. Answers 0, or a negative
+; errno with the buffer's contents unspecified.
+;
+; A ZERO-BYTE REQUEST IS 0 AND MAKES NO SYSCALL, so a caller computing a
+; length does not have to special-case an empty one.
+(pub :: sysRandomBytes (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysRandomBytes buf n)
+  (let ((mut off 0))
+    (let ((mut rc 0))
+      {
+        (while (&& (< off n) (== rc 0))
+          (let ((want 
+            (if (> (- n off) randomMaxChunk)
+              randomMaxChunk
+              (- n off)
+            )
+          ))
+            (let ((r (__syscall3 sysRandomNum (+ buf off) want 0)))
+              (if (< r 0)
+                (set rc r)
+                (if (== randomIsGetentropy 1)
+                  ; getentropy filled `want` or it failed; there is no
+                  ; partial answer to advance by.
+                  (set off (+ off want))
+                  ; getrandom answers a count. A zero would be neither a
+                  ; failure nor progress, and looping on it would spin,
+                  ; so it is treated as a failure the caller can see.
+                  (if (== r 0)
+                    (set rc (- 0 1))
+                    (set off (+ off r))
+                  )
+                )
+              )
+            )
+          ))
+        (if (< rc 0)
+          rc
+          0
+        )
+      }
+    )
+  )
+)

@@ -77,6 +77,12 @@ libc_names="$libc_names"'|strcpy|strncpy|strcat|strncat|strncmp|strchr|strrchr|s
 libc_names="$libc_names"'|socket|socketpair|bind|listen|accept|accept4|connect|shutdown'
 libc_names="$libc_names"'|setsockopt|getsockopt|getaddrinfo|freeaddrinfo|gethostbyname'
 libc_names="$libc_names"'|kqueue|kevent|epoll_create|epoll_create1|epoll_ctl|epoll_wait|select'
+# Entropy, added when `Sys` learned to ask the kernel for random bytes.
+# `arc4random` is the specific temptation here the way `getaddrinfo` is
+# for sockets: it is the convenient spelling, it lives in libc, and
+# reaching for it would cost the freestanding property while looking
+# like an improvement. `sysRandomBytes` goes to the syscall.
+libc_names="$libc_names"'|getentropy|getrandom|arc4random|arc4random_buf|rand|srand|random'
 
 status=0
 
@@ -230,7 +236,8 @@ fi
 # If someone ever drops the prefix, this probe is what says so.
 kept=""
 for ok_name in axiom_alloc freelist awaited printfmt __syscall1 \
-               netBind netAccept netConnect netSocketTcp netListen; do
+               netBind netAccept netConnect netSocketTcp netListen \
+               netPollCreate netPollWait sysRandomBytes randomMaxChunk; do
   grep -qE "call[^\"]*@($libc_names)\(" <<< "  %r = call i64 @$ok_name(i64 0)" \
     && kept="$kept $ok_name"
 done
@@ -261,7 +268,10 @@ for bad_line in \
   '  %r = call i64 @accept(i64 3, i64 0, i64 0)' \
   '  %r = call i64 @getaddrinfo(i64 0, i64 0, i64 0, i64 0)' \
   '  %r = call i64 @epoll_wait(i64 4, i64 0, i64 8, i64 0)' \
-  '  %r = call i64 @kevent(i64 4, i64 0, i64 1, i64 0, i64 1, i64 0)' ; do
+  '  %r = call i64 @kevent(i64 4, i64 0, i64 1, i64 0, i64 1, i64 0)' \
+  '  %r = call i64 @getentropy(i64 0, i64 32)' \
+  '  %r = call i64 @getrandom(i64 0, i64 32, i64 0)' \
+  '  %r = call i64 @arc4random_buf(i64 0, i64 32)' ; do
   grep -qE "call[^\"]*@($libc_names)\(" <<< "$bad_line" \
     || missed="$missed ${bad_line##*@}"
 done

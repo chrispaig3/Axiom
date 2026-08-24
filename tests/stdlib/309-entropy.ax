@@ -1,0 +1,100 @@
+; Kernel entropy, and the chunk boundary that is easy to get wrong.
+;
+; `sysRandomBytes` sits over two calls that fail differently. Darwin's
+; `getentropy` fills its buffer completely or answers -errno, and
+; REFUSES MORE THAN 256 BYTES AT A TIME - measured on 2026-08-24, a
+; 257-byte request answers -22 EINVAL. Linux's `getrandom` answers the
+; COUNT it wrote and may write fewer than asked when a signal interrupts
+; it. So the loop advances by the request on one platform and by the
+; answer on the other.
+;
+; THE LOAD-BEARING CASE IS THE ONE THAT CROSSES 256. A single call under
+; the cap works with no loop at all, so it proves nothing about the
+; chunking; a request that spans several chunks is what says the loop
+; advances, does not stall, and does not stop early leaving a tail of
+; zeroes. That is the assertion this file exists for.
+;
+; THE GOLDEN IS PLATFORM-INDEPENDENT and, more than that, it cannot
+; contain the values: they are random. So every assertion is a property
+; - the call succeeded, the region is not still zero, two draws differ -
+; and the bytes themselves are never printed.
+;
+; "Not still zero" is the right property rather than any test of
+; QUALITY. `memAlloc` promises zeroed memory, so an unfilled buffer is
+; all zeroes and that is exactly what a broken loop leaves behind. The
+; chance of 744 genuinely random bytes all being zero is not a number
+; worth writing down.
+(import IO)
+(import Sys)
+(import Mem)
+
+(:: say (-> Int String Int))
+
+(fn (say okFlag label)
+  (if (== okFlag 1)
+    (printlnLit (strCStr (strConcat "ok   " label)))
+    (printlnLit (strCStr (strConcat "FAIL " label)))
+  )
+)
+
+; How many bytes in [from, to) are non-zero.
+(:: nonZero (-> Int Int Int Int))
+
+(fn (nonZero buf from to)
+  (let ((mut i from))
+    (let ((mut n 0))
+      {
+        (while (< i to)
+          {
+            (if (!= (memGetByte buf i) 0) (set n (+ n 1)) 0)
+            (set i (+ i 1))
+          })
+        n
+      }
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((a (memAlloc 1000)))
+    (let ((b (memAlloc 64)))
+      {
+        ; A zero-length request is 0 and makes no syscall, so a caller
+        ; computing a length need not special-case an empty one.
+        (say (if (== (sysRandomBytes a 0) 0) 1 0) "a zero-length request succeeds")
+        (say
+          (if (== (nonZero a 0 1000) 0) 1 0)
+          "a zero-length request wrote nothing")
+        ; One chunk, comfortably under the cap.
+        (say (if (== (sysRandomBytes b 32) 0) 1 0) "a short request succeeds")
+        (say (if (> (nonZero b 0 32) 0) 1 0) "a short request filled its buffer")
+        ; THE CASE THIS FILE IS FOR: 1000 bytes is four chunks on both
+        ; platforms, so it only succeeds if the loop advances correctly.
+        (say (if (== (sysRandomBytes a 1000) 0) 1 0) "a request spanning four chunks succeeds")
+        (say
+          (if (> (nonZero a 0 256) 0) 1 0)
+          "the first chunk is filled")
+        ; The tail is the half a broken loop leaves behind: a loop that
+        ; stalls, or that stops after one call, gets this far and no
+        ; further, and `memAlloc`'s zeroing promise makes that visible.
+        (say
+          (if (> (nonZero a 256 1000) 0) 1 0)
+          "the region past the first chunk is filled too")
+        (say
+          (if (> (nonZero a 768 1000) 0) 1 0)
+          "the last chunk is filled")
+        ; And it is not a constant. Two draws into the same buffer must
+        ; differ somewhere; if they do not, the call is answering
+        ; something fixed and every assertion above would still pass.
+        (let ((c (memAlloc 64)))
+          {
+            (sysRandomBytes b 64)
+            (sysRandomBytes c 64)
+            (say
+              (if (!= (memCmp b c 64) 0) 1 0)
+              "two draws differ")
+          })
+        0
+      })))

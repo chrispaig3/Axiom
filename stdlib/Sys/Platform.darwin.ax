@@ -528,3 +528,30 @@
 (pub :: pollSigsetSize Int)
 
 (pub fn (pollSigsetSize) 0)
+
+; --------------------------------------------------------------------
+; Entropy
+;
+; getentropy(buf, len) - BSD 500. Answers 0 or -errno, and fills the
+; buffer completely or not at all - there is no short answer to handle.
+;
+; LEN IS CAPPED AT 256 AND THE KERNEL ENFORCES IT: probed on this host
+; 2026-08-24, a request for 257 bytes answered -22 EINVAL while 32
+; answered 0 with the buffer visibly filled. So `sysRandomBytes` chunks,
+; and the chunking is a requirement rather than caution.
+;
+; Linux's call is `getrandom`, which has a third argument, no small cap,
+; and MAY ANSWER SHORT - a different loop, selected by
+; `randomIsGetentropy`.
+; --------------------------------------------------------------------
+(pub :: sysRandomNum Int)
+
+(pub fn (sysRandomNum) 33554932)
+
+(pub :: randomIsGetentropy Int)
+
+(pub fn (randomIsGetentropy) 1)
+
+(pub :: randomMaxChunk Int)
+
+(pub fn (randomMaxChunk) 256)
