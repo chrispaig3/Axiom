@@ -222,23 +222,33 @@ warning. An untagged function is not policed.
 **MM-EXEC-9a (H).** **The inferred effect set is an
 under-approximation, and a specification must say so.** A conforming
 implementation **SHOULD** make it an over-approximation; today it is
-not, in six measured ways:
+not, in five measured ways:
 
 | A function that... | is inferred |
 |---|---|
 | calls `__store8`/`__store64` — writes arbitrary memory | effect-free |
-| calls `__alloc`, or any `Vec`/`Map`/`Str` operation | effect-free (`Alloc` comes only from the `(alloc T)` keyword and from installing a dynamic handler, neither of which allocates much) |
 | reads `__argc`/`__argv` — the process command line | effect-free |
 | calls the arena primitives | effect-free |
 | calls a **trait method** whose implementation does I/O | effect-free, and so are its callers — inference runs before trait dispatch is resolved |
 | calls through a local, a parameter, or an unresolved name | contributes nothing but a transparency mark |
 
+The `__alloc` row left this table on 2026-08-23. It was the inverted
+one: `Alloc` fired for the `(alloc T)` keyword, a form that allocates
+nothing and that `MM-LIFE-7` records as definable-but-uncallable, and
+never for the primitive the whole heap goes through — so the effect
+existed, was spellable, was checkable, and was attached to the wrong
+thing. `__alloc` is registered with it now, which is what this rule's
+SHOULD asks for, and the reach is what a reader would expect: `memAlloc`,
+`vecPush` and `strConcat` carry `Alloc`; `vecGet` and `strEq` do not.
+192 of the standard library's 358 arrow-typed declarations are still
+effect-free, so it discriminates rather than blankets, and
+`scripts/check-agent-policy.sh` pins the whole population.
+
 `IO` is introduced by a **direct** call to `__syscall0`–`__syscall6` and
 by nothing else. Measured — `axiom symbols` reports no `#effects=` at
-all for any of these three:
+all for either of these two:
 
 ```scheme
-(fn (allocs n)    (memAlloc n))       ; allocates
 (fn (writes a)    (__store64 a 0 42)) ; writes arbitrary memory
 (fn (readsArgs n) (__argc))           ; reads the command line
 ```
@@ -2796,7 +2806,7 @@ document.
 | `MM-VAL-4c` | `(!= NaN NaN)` is `false`; `Fmt.fmtFloat` cannot render inf or NaN |
 | `MM-VAL-3b` | `INT_MIN / -1` and shifts ≥ 64 are undefined and answer differently per `--opt` |
 | `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc` |
-| `MM-EXEC-9a` | effect inference is an under-approximation in six measured ways, including across trait dispatch |
+| `MM-EXEC-9a` | effect inference is an under-approximation in five measured ways, including across trait dispatch (the `__alloc` row closed on 2026-08-23) |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so a function of either name is definable but uncallable |
 
 Seven rows left this table on 2026-08-14, each fixed and pinned by

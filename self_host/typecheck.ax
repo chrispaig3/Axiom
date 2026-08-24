@@ -1946,6 +1946,38 @@
   )
 )
 
+; A primitive that PERFORMS something, registered with the effect it
+; performs rather than with the empty set every other one gets.
+;
+; `MM-EXEC-9a` records that the inferred effect set is an
+; UNDER-approximation and says a conforming implementation SHOULD make
+; it an over-approximation, then lists six measured ways it is not. The
+; second row is this one: a function that "calls `__alloc`, or any
+; `Vec`/`Map`/`Str` operation" was inferred effect-free, because
+; `__alloc` was registered like `__load64` - a primitive that computes.
+;
+; The inversion is the part worth naming. `Alloc` fired only for the
+; `(alloc T)` keyword, a form that allocates nothing and that
+; `MM-LIFE-7` records as definable-but-uncallable, and never for the
+; operation the whole heap goes through. So the effect existed, was
+; spellable, was checkable, and was attached to the wrong thing.
+; Registering it here is not adding noise to the analysis; it is
+; removing a lie from it.
+(pub :: regFnEff (-> Int String Int String Int))
+
+(pub fn (regFnEff fns name ty eff)
+  (let ((effs vecNew))
+    {
+      (vecPush effs (cast Int eff))
+      (vecPush
+        fns        (cast Int (FnEnt
+          name          ty          (- 0 1)          1          0          effs          vecNew
+        ))
+      )
+    }
+  )
+)
+
 ; ------------------------------------------------------------------
 ; Registration: stage0's TypeChecker::new(), in its order - the order
 ; is observable through suggestion tie-breaking. Arithmetic and
@@ -2084,7 +2116,7 @@
       ; the same call when such a block dies
       (regFn fns "__call_word" (mkIntArrow 2))
       (regFn fns "__store64" (mkIntArrow 3))
-      (regFn fns "__alloc" (mkIntArrow 1))
+      (regFnEff fns "__alloc" (mkIntArrow 1) (builtinEff "Alloc"))
       (regFn fns "__retain" (mkIntArrow 1))
       (regFn fns "__release" (mkIntArrow 1))
       ; `__retainref` is `__retain`'s TYPE-DIRECTED twin, and the only
