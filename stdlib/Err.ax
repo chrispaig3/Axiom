@@ -219,6 +219,95 @@
 
 (pub fn (intMin) (- (- 0 9223372036854775807) 1))
 
+; ------------------------------------------------------------------
+; The three that WRAP.
+;
+; `+`, `-` and `*` emit plain `add`/`sub`/`mul` with no `nsw`, so
+; overflow is silent two's-complement wraparound. That is the safer of
+; the two wrong answers - without `nsw`, LLVM cannot treat overflow as
+; undefined and start deleting the branches around it - but it is still
+; a wrong answer, and it is the one an attacker reaches for.
+;
+; THIS IS NOT HYPOTHETICAL IN THIS REPOSITORY. `stdlib/Rpc.ax` carries
+; the measurement: a peer's `Content-Length` added to the framer's own
+; offset is "the one quantity here an attacker can push past i64;
+; formed once, it wraps NEGATIVE", the wait-for-body test then passes
+; on its first evaluation, and the reader slices a body that never
+; arrived - 65,497 bytes of uninitialised buffer, handed to the peer.
+;
+; That site was fixed by hand, by never forming the sum. THE HAND-FIX
+; DOES NOT GENERALISE AND THESE DO: every parser that adds a length it
+; was told to an offset it computed has the same shape, and the fix is
+; the same three lines each time. Written once here, they are a
+; `try!` away instead.
+;
+; The tests are the standard sign tests rather than a wider type,
+; because there is no wider type: `Int` is the only integer this
+; language has, so a checked operator cannot compute in i128 and
+; compare. `addChecked` asks whether the operands agreed in sign and
+; the answer did not, which is the only way an addition can overflow;
+; `subChecked` asks whether they DISAGREED and the answer differs from
+; the first; `mulChecked` divides the answer back out, which is exact
+; whenever the multiplication did not wrap.
+(pub :: addChecked (-> Int Int (Result Int Error)))
+
+(pub fn (addChecked a b)
+  ; Both operands on the same side of zero, the answer on the other:
+  ; the sign bit of `(a ^ s) & (b ^ s)` is set exactly then.
+  (let ((s (+ a b)))
+    (if (< (& (^ a s) (^ b s)) 0)
+      (Err (mkError errOverflow "sum is not representable"))
+      (Ok s)
+    )
+  )
+)
+
+(pub :: subChecked (-> Int Int (Result Int Error)))
+
+(pub fn (subChecked a b)
+  ; A subtraction can only overflow when the operands disagree in
+  ; sign, and then only if the answer disagrees with the first.
+  (let ((s (- a b)))
+    (if (< (& (^ a b) (^ a s)) 0)
+      (Err (mkError errOverflow "difference is not representable"))
+      (Ok s)
+    )
+  )
+)
+
+(pub :: mulChecked (-> Int Int (Result Int Error)))
+
+(pub fn (mulChecked a b)
+  (if (|| (== a 0) (== b 0))
+    ; Answered before the division below, which would otherwise be by
+    ; zero - and a zero product cannot have wrapped.
+    (Ok 0)
+    ; `intMin * -1` is excluded HERE so the division below is never
+    ; asked to compute `intMin / -1`, which is undefined and answers
+    ; differently per `--opt` (MM-VAL-3b). Both operand orders are
+    ; excluded, because it is the same overflow written the other way.
+    ;
+    ; THIS GUARD IS NOT OBSERVABLE IN THE ANSWER, and that is worth
+    ; saying rather than implying a test covers it. Removing it was
+    ; tried: `312-checked-arithmetic.ax` still passes, because the
+    ; undefined division happens to answer something other than `b` at
+    ; every level this compiler emits. The guard is here so the
+    ; implementation never PERFORMS the undefined operation, not
+    ; because the wrong answer would otherwise escape - a checked
+    ; operator whose correctness rests on what UB happens to do is not
+    ; a checked operator.
+    (if (|| (&& (== a intMin) (== b (- 0 1))) (&& (== b intMin) (== a (- 0 1))))
+      (Err (mkError errOverflow "product is not representable"))
+      (let ((p (* a b)))
+        (if (!= (/ p a) b)
+          (Err (mkError errOverflow "product is not representable"))
+          (Ok p)
+        )
+      )
+    )
+  )
+)
+
 (pub :: divChecked (-> Int Int (Result Int Error)))
 
 (pub fn (divChecked a b)

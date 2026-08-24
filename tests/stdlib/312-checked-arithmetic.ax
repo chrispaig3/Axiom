@@ -1,0 +1,145 @@
+; `addChecked`, `subChecked` and `mulChecked` at every boundary they
+; have, because for an arithmetic operator the boundaries ARE the
+; feature. Everything in the middle works by construction; what a
+; checked operator is for is the four values where `+`, `-` and `*`
+; stop telling the truth.
+;
+; WHY THESE EXIST AT ALL. The three emit plain `add`/`sub`/`mul` with no
+; `nsw`, so overflow wraps silently. `stdlib/Rpc.ax` carries the
+; measurement of what that costs on a security boundary: a peer's
+; `Content-Length` added to the framer's own offset is "the one quantity
+; here an attacker can push past i64; formed once, it wraps NEGATIVE",
+; the wait-for-body test then passes on its first evaluation, and the
+; reader slices a body that never arrived - 65,497 bytes of
+; uninitialised buffer, handed to the peer. That site was repaired by
+; hand, by never forming the sum. The repair does not generalise; these
+; do, and the last term below is that exact shape asked as a question.
+;
+; `intMin` IS THE VALUE THAT BREAKS EVERY RULE, and it gets its own
+; terms in all three. It has no positive counterpart, so negating it
+; overflows, subtracting it from zero overflows, and multiplying it by
+; -1 overflows - and that last one is the case `mulChecked`'s division
+; test structurally CANNOT see, because the wrapped product is `intMin`
+; again and dividing it by -1 is itself undefined (MM-VAL-3b). It is
+; excluded before the division rather than caught after it, and both
+; operand orders are excluded, because `(* -1 intMin)` is the same
+; overflow written the other way round.
+;
+; AND THE WHOLE FILE ANSWERS THE SAME AT EVERY `--opt` LEVEL, which is
+; the property the raw operators cannot claim: `MM-VAL-3b` records
+; `INT_MIN / -1` and shifts of 64 or more answering differently at 0
+; and 1. Measured here at 0, 1, 2 and 3 - byte-identical stdout at all
+; four. That is what a checked operator is FOR, and it is the reason
+; `mulChecked` excludes the undefined division rather than relying on
+; what it happens to return.
+(import IO)
+
+(import Err)
+
+(:: say (-> Int String Int))
+
+(fn (say okFlag label)
+  (if (== okFlag 1)
+    (printlnLit (strCStr (strConcat "ok   " label)))
+    (printlnLit (strCStr (strConcat "FAIL " label)))
+  )
+)
+
+; A `match` binder over a polymorphic scrutinee does not carry its
+; instantiated type - reading `e.code` in an arm of a `(Result a Error)`
+; match is AX3004 - so the binder is handed to a function whose
+; parameter is DECLARED `Error`. `371-err-module.ax` pins the same
+; workaround; this file would stop compiling if it stopped being needed,
+; which is the good direction to fail in.
+(:: codeOf (-> (Result Int Error) Int))
+
+(fn (codeOf r)
+  (match r
+    ((Ok x) 0)
+    ((Err e) (errCode e))
+  )
+)
+
+(:: valueOr (-> (Result Int Error) Int Int))
+
+(fn (valueOr r d)
+  (match r
+    ((Ok x) x)
+    ((Err e) d)
+  )
+)
+
+; Overflowed, specifically - not merely failed. A checked operator that
+; answered `errDivideByZero` for a sum would satisfy `isErr` and be
+; wrong, so every refusal below is asked for its code.
+(:: overflowed (-> (Result Int Error) Int))
+
+(fn (overflowed r)
+  (if (== (codeOf r) errOverflow)
+    1
+    0
+  )
+)
+
+(:: gave (-> (Result Int Error) Int Int))
+
+(fn (gave r want)
+  (if (isOk r)
+    (if (== (valueOr r 0) want)
+      1
+      0
+    )
+    0
+  )
+)
+
+(:: intMax Int)
+
+(fn (intMax) 9223372036854775807)
+
+(:: main Int)
+
+(fn (main)
+  ; --- addition ---------------------------------------------------
+  {
+    (say (overflowed (addChecked intMax 1)) "intMax + 1 overflows")
+    (say (overflowed (addChecked intMin (- 0 1))) "intMin + -1 overflows")
+    (say (overflowed (addChecked intMax intMax)) "intMax + intMax overflows")
+    (say (gave (addChecked intMax (- 0 1)) (- intMax 1)) "intMax + -1 is exact")
+    (say (gave (addChecked intMin 1) (+ intMin 1)) "intMin + 1 is exact")
+    (say (gave (addChecked 0 0) 0) "0 + 0 is exact")
+    ; Operands of opposite sign can never overflow, however large, and
+    ; a check that flagged them would be as wrong as one that missed a
+    ; real overflow.
+    (say (gave (addChecked intMax intMin) (- 0 1)) "intMax + intMin is exact, not a refusal")
+    ; --- subtraction ------------------------------------------------
+    (say (overflowed (subChecked intMin 1)) "intMin - 1 overflows")
+    (say (overflowed (subChecked intMax (- 0 1))) "intMax - -1 overflows")
+    (say (overflowed (subChecked 0 intMin)) "0 - intMin overflows, because intMin has no negation")
+    (say (gave (subChecked intMin (- 0 1)) (+ intMin 1)) "intMin - -1 is exact")
+    (say (gave (subChecked 5 3) 2) "5 - 3 is exact")
+    (say (gave (subChecked intMin intMin) 0) "intMin - intMin is exact, not a refusal")
+    ; --- multiplication ---------------------------------------------
+    ; The two orders of the case the division test cannot see.
+    (say (overflowed (mulChecked intMin (- 0 1))) "intMin * -1 overflows")
+    (say (overflowed (mulChecked (- 0 1) intMin)) "-1 * intMin overflows, in either order")
+    (say (overflowed (mulChecked intMax 2)) "intMax * 2 overflows")
+    (say (overflowed (mulChecked intMin 2)) "intMin * 2 overflows")
+    (say (overflowed (mulChecked 4294967296 4294967296)) "2^32 * 2^32 overflows")
+    ; Zero is answered before the division, which would otherwise be by
+    ; zero - and it must be answered for BOTH operands.
+    (say (gave (mulChecked 0 intMin) 0) "0 * intMin is exact")
+    (say (gave (mulChecked intMin 0) 0) "intMin * 0 is exact")
+    (say (gave (mulChecked intMin 1) intMin) "intMin * 1 is exact")
+    (say (gave (mulChecked intMax 1) intMax) "intMax * 1 is exact")
+    (say (gave (mulChecked (- 0 1) (- 0 1)) 1) "-1 * -1 is exact")
+    (say (gave (mulChecked 3 5) 15) "3 * 5 is exact")
+    ; --- the shape the repository already measured ------------------
+    ; `bodyRel + n`, where `n` is the peer's number. Unchecked this
+    ; wraps negative and the framer slices a body that never arrived.
+    ; Asked as a question it is a refusal, and the refusal is a value
+    ; the caller can act on rather than a wrong length it cannot see.
+    (say (overflowed (addChecked 64 (- intMax 8))) "a framer offset plus a peer's length refuses instead of wrapping")
+    0
+  }
+)

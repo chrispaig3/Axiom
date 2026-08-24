@@ -1,0 +1,25 @@
+ok   intMax + 1 overflows
+ok   intMin + -1 overflows
+ok   intMax + intMax overflows
+ok   intMax + -1 is exact
+ok   intMin + 1 is exact
+ok   0 + 0 is exact
+ok   intMax + intMin is exact, not a refusal
+ok   intMin - 1 overflows
+ok   intMax - -1 overflows
+ok   0 - intMin overflows, because intMin has no negation
+ok   intMin - -1 is exact
+ok   5 - 3 is exact
+ok   intMin - intMin is exact, not a refusal
+ok   intMin * -1 overflows
+ok   -1 * intMin overflows, in either order
+ok   intMax * 2 overflows
+ok   intMin * 2 overflows
+ok   2^32 * 2^32 overflows
+ok   0 * intMin is exact
+ok   intMin * 0 is exact
+ok   intMin * 1 is exact
+ok   intMax * 1 is exact
+ok   -1 * -1 is exact
+ok   3 * 5 is exact
+ok   a framer offset plus a peer's length refuses instead of wrapping
