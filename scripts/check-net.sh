@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Assert that a pre-forked Axiom server holds its memory flat across ten
-# thousand connections, and that this script could tell if it did not.
+# thousand connections - whether their sizes are uniform or vary by
+# three orders of magnitude - and that this script could tell if it did
+# not.
 #
 # This is the acceptance measurement for the socket work, and it is the
 # first thing in this tree that tests the MEMORY PLAN rather than a
@@ -57,12 +59,28 @@
 # version of this gate asserted "within 2x of a small run" and failed on
 # that baseline while the allocator was behaving perfectly.
 #
-# WHAT THIS DOES NOT TEST, said plainly. The connections are uniform and
-# short-lived, so `MM-ALLOC-4b`'s fragmentation - free chunks are never
-# split and never coalesced - is not exercised; that needs varied
-# request sizes and is what worker recycling exists to bound. Nothing
-# here keeps per-connection state, so this is the STATELESS case the
-# plan scoped to, not keep-alive.
+# FRAGMENTATION IS TESTED TOO, AND IT DOES NOT RATCHET. `MM-ALLOC-4b`
+# says free chunks are never split and never coalesced, and first fit
+# runs over the whole mapping - so a workload whose request sizes VARY
+# was expected to climb even with the arena, one un-reusable chunk at a
+# time. The third measurement below is that workload: response sizes
+# cycle from 8 to 488 concatenations, about 1 KiB to 3.8 MiB of
+# intermediates per connection, which crosses the 1 MiB chunk boundary
+# in both directions on every cycle.
+#
+# It plateaus. Measured 3,968 / 4,192 / 4,864 KiB at 1,000 / 5,000 /
+# 20,000 connections - it starts at the peak working set of the LARGEST
+# single connection, which is the honest cost of serving one, and then
+# grows 47 bytes per connection after that, which is the same process
+# baseline the control below establishes. So the arena reclaims across
+# chunk boundaries, and worker recycling is not needed to bound this
+# workload. That is a planned item retired by measurement rather than
+# built.
+#
+# WHAT THIS STILL DOES NOT TEST: nothing here keeps per-connection
+# state, so this is the STATELESS case the plan scoped to and not
+# keep-alive, where the live set outlives the request and the arena
+# boundary stops being free.
 
 set -uo pipefail
 
@@ -107,10 +125,10 @@ PY
 
 # run <arena 0|1> <port> <connections>  ->  echoes "<echoed> <peakRssKiB>"
 run_server() {
-  local arena="$1" port="$2" n="$3"
+  local arena="$1" port="$2" n="$3" varied="${4:-0}"
   local out="$work/srv.$port.out"
 
-  "$srv" "$port" "$workers" "$arena" >"$out" 2>&1 &
+  "$srv" "$port" "$workers" "$arena" "$varied" >"$out" 2>&1 &
   local srv_pid=$!
 
   # Wait for the pids line rather than sleeping a guess.
@@ -198,6 +216,29 @@ fi
 # far enough below to survive a slower machine and far enough above to
 # catch an arena that stopped reclaiming.
 ratio=$(( n_large_rss / (a_large_rss > 0 ? a_large_rss : 1) ))
+# ---------------------------------------------------------------
+# Fragmentation. Same binary, same arena, but the response size cycles
+# across three orders of magnitude, so free chunks of many sizes are
+# produced and reused. `MM-ALLOC-4b` is the reason to expect a ratchet.
+# ---------------------------------------------------------------
+echo "== varying the request size must not ratchet the watermark =="
+read -r v_small_ok v_small_rss < <(run_server 1 $((base_port + 4)) "$conns_small" 1) || status=1
+read -r v_large_ok v_large_rss < <(run_server 1 $((base_port + 5)) "$conns_large" 1) || status=1
+
+if [[ "${v_large_ok:-0}" != "$conns_large" ]]; then
+  echo "FAIL: varied-size run echoed $v_large_ok of $conns_large"; status=1
+fi
+# The floor is the largest single connection's working set, which is
+# real work and not growth, so the comparison is between two runs of the
+# SAME shape at different lengths.
+if (( v_large_rss > v_small_rss * 2 )); then
+  echo "FAIL: with varying request sizes RSS went ${v_small_rss} -> ${v_large_rss} KiB."
+  echo "     Free chunks are not being reused across sizes - MM-ALLOC-4b ratcheting."
+  status=1
+else
+  echo "ok   varied sizes held within 2x (${v_small_rss} -> ${v_large_rss} KiB) over $(( conns_large / conns_small ))x the connections"
+fi
+
 if (( ratio < 50 )); then
   echo "FAIL: scoped (${a_large_rss} KiB) is only ${ratio}x below unscoped (${n_large_rss} KiB)."
   echo "     The handler's garbage is outliving the connection - either the reset is"
@@ -211,6 +252,7 @@ if (( status == 0 )); then
   echo
   echo "check-net: a pre-forked server holds its memory flat across"
   echo "           $conns_large connections when the handler is an arena scope,"
-  echo "           and this measurement can see it when it is not"
+  echo "           holds it when the request sizes vary by three orders of"
+  echo "           magnitude, and this measurement can see it when it does not"
 fi
 exit "$status"

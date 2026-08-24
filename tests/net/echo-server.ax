@@ -69,13 +69,13 @@
 ; is built by repeated concatenation, so the intermediates are garbage
 ; the instant the next one is made - about 16 KiB of it per call, none
 ; reachable after the write.
-(:: respond (-> Int Int Int))
+(:: respond (-> Int Int Int Int))
 
-(fn (respond con byte)
+(fn (respond con byte reps)
   (let ((mut s ""))
     (let ((mut i 0))
       {
-        (while (< i 32)
+        (while (< i reps)
           {
             (set s (strConcat s "0123456789abcdef0123456789abcdef"))
             (set i (+ i 1))
@@ -93,9 +93,9 @@
   )
 )
 
-(:: serve (-> Int Int Int))
+(:: serve (-> Int Int Int Int))
 
-(fn (serve lsn arenaOn)
+(fn (serve lsn arenaOn varied)
   (let (
     (rec (memAlloc 64))
     (ts (memAlloc 16))
@@ -139,7 +139,12 @@
                                             {
                                               (netSetBlocking con)
                                               (if (== (sysReadFd con byte 1) 1)
-                                                (respond con byte)
+                                                (respond
+                                                  con                                                  byte                                                  (if (== varied 1)
+                                                    (+ 8 (* 32 (% served 16)))
+                                                    32
+                                                  )
+                                                )
                                                 0
                                               )
                                               (sysCloseFd con)
@@ -179,64 +184,66 @@
   (let ((port (parseInt (sysArg 1))))
     (let ((nworkers (parseInt (sysArg 2))))
       (let ((arenaOn (parseInt (sysArg 3))))
-        (let ((addr (memAlloc 16)))
-          (let (
-            (setbuf (memAlloc 8))
-            (optb (memAlloc 4))
-          )
-            (let ((pids vecNew))
-              (let ((lsn netSocketTcp))
-                {
-                  (netSetOptInt
-                    lsn                    solSocket                    soReuseAddr                    1                    optb
-                  )
-                  (netAddr4
-                    addr                    port                    127                    0                    0                    1
-                  )
-                  (if (!= (netBind lsn addr) 0)
-                    (sysExitWith 2)
-                    0
-                  )
-                  (netListen lsn 512)
-                  (netSetNonBlocking lsn)
-                  (sysSignalBlock (sysSigBit sigTerm) setbuf)
-                  (let ((mut w 0))
-                    (while (< w nworkers)
-                      {
-                        (let ((pid sysForkProcess))
-                          (if (== pid 0)
-                            (sysExitWith (serve lsn arenaOn))
-                            (vecPush pids pid)
-                          )
-                        )
-                        (set w (+ w 1))
-                      })
-                  )
-                  ; One line the driver parses, then this process does
-                  ; nothing but reap - it holds no connection and its own
-                  ; RSS is not the measurement.
-                  (let ((mut s "pids"))
-                    (let ((mut k 0))
-                      {
-                        (while (< k (vecLen pids))
-                          {
-                            (set s (strConcat s (strConcat " " (fmtInt (vecGet pids k)))))
-                            (set k (+ k 1))
-                          })
-                        (printlnLit (strCStr s))
-                      }
+        (let ((varied (parseInt (sysArg 4))))
+          (let ((addr (memAlloc 16)))
+            (let (
+              (setbuf (memAlloc 8))
+              (optb (memAlloc 4))
+            )
+              (let ((pids vecNew))
+                (let ((lsn netSocketTcp))
+                  {
+                    (netSetOptInt
+                      lsn                      solSocket                      soReuseAddr                      1                      optb
                     )
-                  )
-                  (sysCloseFd lsn)
-                  (let ((mut r 0))
-                    (while (< r (vecLen pids))
-                      {
-                        (sysWaitPid (vecGet pids r))
-                        (set r (+ r 1))
-                      })
-                  )
-                  0
-                }
+                    (netAddr4
+                      addr                      port                      127                      0                      0                      1
+                    )
+                    (if (!= (netBind lsn addr) 0)
+                      (sysExitWith 2)
+                      0
+                    )
+                    (netListen lsn 512)
+                    (netSetNonBlocking lsn)
+                    (sysSignalBlock (sysSigBit sigTerm) setbuf)
+                    (let ((mut w 0))
+                      (while (< w nworkers)
+                        {
+                          (let ((pid sysForkProcess))
+                            (if (== pid 0)
+                              (sysExitWith (serve lsn arenaOn varied))
+                              (vecPush pids pid)
+                            )
+                          )
+                          (set w (+ w 1))
+                        })
+                    )
+                    ; One line the driver parses, then this process does
+                    ; nothing but reap - it holds no connection and its own
+                    ; RSS is not the measurement.
+                    (let ((mut s "pids"))
+                      (let ((mut k 0))
+                        {
+                          (while (< k (vecLen pids))
+                            {
+                              (set s (strConcat s (strConcat " " (fmtInt (vecGet pids k)))))
+                              (set k (+ k 1))
+                            })
+                          (printlnLit (strCStr s))
+                        }
+                      )
+                    )
+                    (sysCloseFd lsn)
+                    (let ((mut r 0))
+                      (while (< r (vecLen pids))
+                        {
+                          (sysWaitPid (vecGet pids r))
+                          (set r (+ r 1))
+                        })
+                    )
+                    0
+                  }
+                )
               )
             )
           )
