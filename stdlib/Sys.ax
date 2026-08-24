@@ -1181,6 +1181,16 @@
 ; Microseconds now, from the platform's cheapest correct clock: Darwin
 ; answers gettimeofday's timeval (realtime; Darwin's syscall table has
 ; no clock_gettime), Linux answers CLOCK_MONOTONIC via clock_gettime.
+;
+; SO ITS CLOCK CLASS DIFFERS BY PLATFORM, and that is a hazard rather
+; than a detail. A duration computed from two of these is monotonic on
+; Linux and steppable by `ntpd` on Darwin, so a timeout written against
+; it is correct on one target and can go negative on the other, with
+; nothing in the type or the name to say which you got. This function
+; stays as it is - the REPL's `:time` is its only caller and reads it
+; as elapsed wall time, which is what it wants - but a caller that
+; needs a DURATION should ask `sysNowMonotonic` below and handle its
+; refusal, rather than take whichever clock the target happened to have.
 ; The 16-byte buffer is caller-supplied so a timing loop allocates
 ; nothing. tv_usec is 32-bit on Darwin with struct padding above it -
 ; masked, not trusted. A negative answer is the syscall's own error.
@@ -1195,6 +1205,39 @@
         (+ (* (memGetWord buf 0) 1000000) (& (memGetWord buf 1) 4294967295))
       )
     )
+    (let ((r (__syscall3 sysClockNum 1 buf 0)))
+      (if (< r 0)
+        r
+        (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000))
+      )
+    )
+  )
+)
+
+; Microseconds from a clock that NEVER steps backwards, or a negative
+; when this platform has none. The 16-byte buffer is the caller's, as
+; above, so a timing loop allocates nothing.
+;
+; This is the clock a timeout, a rate limiter, a retry backoff or a
+; latency histogram wants. `sysNowMicros` is not: on Darwin it is the
+; realtime clock and `ntpd` may step it, so a duration taken across the
+; step is wrong and can be negative.
+;
+; A NEGATIVE ANSWER IS NOT AN ERROR TO RETRY - on Darwin it is -ENOSYS
+; and it is what this platform will answer every time, until the arm64
+; `CNTVCT_EL0` read that `Sys/Platform.darwin.ax` describes lands as a
+; codegen primitive. Ask `clockHasMonotonic` ONCE at startup rather than
+; per call, and let the program decide: refuse to start, fall back to
+; `sysNowMicros` with the hazard accepted deliberately, or run the
+; affected work only where the clock exists. What it must not do is
+; take the fallback silently, which is the bug this pair exists to make
+; impossible to write by accident.
+(pub :: sysNowMonotonic (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysNowMonotonic buf)
+  (if (== clockHasMonotonic 0)
+    (- 0 78)
     (let ((r (__syscall3 sysClockNum 1 buf 0)))
       (if (< r 0)
         r

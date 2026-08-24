@@ -145,6 +145,7 @@ sysGetPid Sys.ax IO
 sysIsDir Sys.ax Alloc,IO
 sysMkdir Sys.ax IO
 sysNowMicros Sys.ax IO
+sysNowMonotonic Sys.ax IO
 sysOpenPath Sys.ax IO
 sysOpenPathMode Sys.ax IO
 sysReadAll Sys.ax Alloc,IO

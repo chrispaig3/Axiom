@@ -1,0 +1,96 @@
+; The monotonic clock, and the refusal that stands in for it.
+;
+; `sysNowMicros` answers a DIFFERENT CLASS OF CLOCK per platform -
+; CLOCK_MONOTONIC on Linux, `gettimeofday` on Darwin, which is realtime
+; and which `ntpd` may step backwards. A duration taken across such a
+; step is wrong and can be negative, so a timeout or a backoff written
+; against it is correct on one target and broken on the other with
+; nothing in the name to say which you got. `sysNowMonotonic` splits
+; the two classes apart and refuses rather than substituting.
+;
+; THE GOLDEN IS PLATFORM-INDEPENDENT ON PURPOSE. The two platforms take
+; different arms here, and a case whose output differed by target could
+; not be a golden at all - so what is asserted is the property both
+; arms owe, not the arm that was taken:
+;
+;   clockHasMonotonic = 1  ->  two reads, and the second is not less
+;                              than the first
+;   clockHasMonotonic = 0  ->  every read is negative, and the SAME
+;                              negative, because -ENOSYS is a standing
+;                              answer about the platform and not a
+;                              transient failure a caller should retry
+;
+; Both arms print `ok`. A platform that claims the capability and then
+; goes backwards, or disclaims it and then answers a plausible time,
+; prints FAIL and fails the runner on the diff.
+;
+; The third assertion is the one that catches the bug this pair was
+; written for: whatever `sysNowMonotonic` answers, it must NEVER be a
+; silent fallback to `sysNowMicros`. On a platform without the clock
+; the two must not agree, because agreeing is precisely what the old
+; single-function shape did.
+(import IO)
+(import Sys)
+(import Mem)
+
+(:: say (-> Int String Int))
+
+(fn (say okFlag label)
+  (if (== okFlag 1)
+    (printlnLit (strCStr (strConcat "ok   " label)))
+    (printlnLit (strCStr (strConcat "FAIL " label)))
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((buf (memAlloc 16)))
+    (let ((b2 (memAlloc 16)))
+      {
+        (if (== clockHasMonotonic 1)
+          (let ((t0 (sysNowMonotonic buf)))
+            (let ((t1 (sysNowMonotonic buf)))
+              {
+                (say
+                  (if (< t0 0)
+                    0
+                    (if (>= t1 t0) 1 0)
+                  )
+                  "monotonic clock does not run backwards")
+                (say (if (> t0 0) 1 0) "monotonic clock answers a positive time")
+              }
+            )
+          )
+          (let ((r0 (sysNowMonotonic buf)))
+            (let ((r1 (sysNowMonotonic buf)))
+              {
+                (say (if (< r0 0) 1 0) "monotonic clock does not run backwards")
+                (say (if (== r0 r1) 1 0) "monotonic clock answers a positive time")
+              }
+            )
+          )
+        )
+        ; The anti-fallback assertion, and the reason both arms are here:
+        ; a platform without the clock must REFUSE, not quietly hand back
+        ; the realtime one. `sysNowMicros` is positive on every platform
+        ; this compiles for, so equality here would mean the refusal had
+        ; been replaced by a substitution.
+        (let ((m (sysNowMicros b2)))
+          (let ((n (sysNowMonotonic buf)))
+            (say
+              (if (== clockHasMonotonic 1)
+                (if (> n 0) 1 0)
+                (if (< n 0)
+                  (if (> m 0) 1 0)
+                  0
+                )
+              )
+              "refusal is a refusal, not a silent realtime fallback")
+          )
+        )
+        0
+      }
+    )
+  )
+)

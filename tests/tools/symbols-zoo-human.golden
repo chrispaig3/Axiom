@@ -45,6 +45,7 @@ Fn       eIsDir               Int                                      [stdlib/S
 Fn       sysGetPidNum         Int                                      [stdlib/Sys/Platform.darwin.ax:251:9-21]
 Fn       sysClockNum          Int                                      [stdlib/Sys/Platform.darwin.ax:259:9-20]
 Fn       clockIsGettimeofday  Int                                      [stdlib/Sys/Platform.darwin.ax:263:9-28]
+Fn       clockHasMonotonic    Int                                      [stdlib/Sys/Platform.darwin.ax:295:9-26]
 Fn       apply                ((Int -> Int) -> (Int -> Int))           [tests/fmt/syntax-zoo.ax:78:9-14]
 Fn       literals             (Int -> Int)                             [tests/fmt/syntax-zoo.ax:82:5-13]
 Fn       control              (Int -> Int)                             [tests/fmt/syntax-zoo.ax:92:5-12]

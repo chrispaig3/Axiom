@@ -1014,9 +1014,12 @@ buys is that the unsafe layer becomes FINITE and enumerable:
 
     axiom symbols FILE --diagnostic-format ai | grep '#raw'
 
-Fourteen declarations in this repository carry it, and every one is a
-raw word read - `memGetWord`, `vecGet`, `nodeA`. Before the tag there
-was no way to ask the question at all.
+No declaration in this repository carries it any more. Fourteen did
+when the tag was introduced on 2026-08-23 - `memGetWord`, `vecGet`,
+`nodeA` and the rest of the raw word reads - and all fourteen were
+migrated the same day to accessors whose declared result says what the
+word is, so the enumerable unsafe layer is currently empty. Before the
+tag there was no way to ask the question at all.
 
 ### explain AX3041
 AX3041 - an `extern` block's library name that is not one

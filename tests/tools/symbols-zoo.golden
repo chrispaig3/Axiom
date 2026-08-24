@@ -45,6 +45,7 @@ F eIsDir stdlib/Sys/Platform.darwin.ax:246:9-15 "Int" @6b013530d7d877b5
 F sysGetPidNum stdlib/Sys/Platform.darwin.ax:251:9-21 "Int" @8dd97b36f3b03217
 F sysClockNum stdlib/Sys/Platform.darwin.ax:259:9-20 "Int" @338b1a845ae4c6ae
 F clockIsGettimeofday stdlib/Sys/Platform.darwin.ax:263:9-28 "Int" @48d4af426412da35
+F clockHasMonotonic stdlib/Sys/Platform.darwin.ax:295:9-26 "Int" @9718b6249aa77bff
 F apply tests/fmt/syntax-zoo.ax:78:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:82:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:92:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure

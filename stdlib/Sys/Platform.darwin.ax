@@ -263,3 +263,35 @@
 (pub :: clockIsGettimeofday Int)
 
 (pub fn (clockIsGettimeofday) 1)
+
+; Whether this platform can answer a MONOTONIC clock - one that never
+; steps backwards - through a syscall. Darwin cannot, and that is the
+; whole reason this capability exists rather than being assumed.
+;
+; `gettimeofday` above is REALTIME. It is the right clock for "what
+; time is it" and the wrong one for every timeout, rate limiter and
+; retry backoff, because `ntpd` may step it backwards at any moment and
+; a duration computed across that step is negative. The comment above
+; records 400,000 reads with zero backwards steps; that measured the
+; absence of a step during the test, not the absence of the hazard.
+;
+; Darwin's BSD table has no `clock_gettime`: libSystem's is built over
+; the commpage, not a syscall, so reaching it costs the freestanding
+; property `check-freestanding.sh` exists to hold (0 undefined symbols).
+;
+; The fix that keeps that property is available and is NOT a syscall.
+; On arm64 the monotonic counter and its frequency are readable from
+; user space as system registers - `mrs x0, CNTVCT_EL0` and `mrs x0,
+; CNTFRQ_EL0` - which is what `mach_absolute_time` reads underneath.
+; That needs a codegen primitive to emit the `mrs`, and a primitive
+; cannot be spelled here until the committed seed knows it, so it lands
+; as a compiler change plus `scripts/reseed.sh` rather than as a line in
+; this file. darwin-x86_64 is harder and separate: `rdtsc` needs the
+; commpage's scaling factors and is not invariant on all hardware.
+;
+; Until then `sysNowMonotonic` answers -ENOSYS here rather than
+; substituting the realtime clock, so a caller that needs a duration
+; finds out instead of being handed one that can run backwards.
+(pub :: clockHasMonotonic Int)
+
+(pub fn (clockHasMonotonic) 0)

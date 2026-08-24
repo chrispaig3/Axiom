@@ -1,0 +1,3 @@
+ok   monotonic clock does not run backwards
+ok   monotonic clock answers a positive time
+ok   refusal is a refusal, not a silent realtime fallback

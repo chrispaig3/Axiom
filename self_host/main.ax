@@ -1100,11 +1100,33 @@
                             ; intermediates already track `--output`, so two builds
                             ; collide only when they were asked for the same output,
                             ; which collides on the executable regardless.
+                            ;
+                            ; The optimisation level is `optLevelArg`, the same one
+                            ; `build` passes. It was the literal `1` until 2026-08-24,
+                            ; so `--opt` was accepted here, validated here, and then
+                            ; discarded - `axiom run --opt 0 p.ax` and `--opt 3` both
+                            ; built at `-O1`. Two documents said otherwise: OPTIONS
+                            ; lists `--opt <0-3>` against "build, run", and `axiom
+                            ; help run` prints it as a flag of this command.
+                            ;
+                            ; Measured on the one shape the level is known to move,
+                            ; MM-EXEC-6c's mutual tail call, which is flattened only
+                            ; at `--opt 1` and above: two functions calling each other
+                            ; 2,000,000 deep. Before, `--opt 0` and `--opt 3` both
+                            ; exited 1 - the answer - because both were `-O1`. After,
+                            ; `--opt 0` exits 139 on a stack it really did overflow
+                            ; and `--opt 3` still exits 1. The flag now selects
+                            ; something rather than being validated and dropped.
+                            ;
+                            ; `--target` is deliberately NOT threaded through: the
+                            ; next thing this command does is execute what it built,
+                            ; and a foreign binary does not run here. `build` is where
+                            ; a cross-target artefact is asked for.
                             (let ((ir (compileFile f hostTarget 1 1)))
                               (let ((base (cat2 "axiom_temp_output." (decStr sysGetPid))))
                                 (let ((exe (cat2 "./" base)))
                                   (let ((rc (buildToExecutable
-                                    ir                                    base                                    1                                    0                                    (effectiveLinkArgs ir linkArgsOf)
+                                    ir                                    base                                    optLevelArg                                    0                                    (effectiveLinkArgs ir linkArgsOf)
                                   )))
                                     (if (!= rc 0)
                                       (die "" rc)

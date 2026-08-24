@@ -195,3 +195,11 @@
 (pub :: clockIsGettimeofday Int)
 
 (pub fn (clockIsGettimeofday) 0)
+
+; Linux reaches CLOCK_MONOTONIC through the same `clock_gettime` above,
+; so `sysNowMonotonic` is answerable here and `sysNowMicros` was already
+; monotonic on this platform. Darwin's copy of this file explains why
+; the capability is not simply assumed.
+(pub :: clockHasMonotonic Int)
+
+(pub fn (clockHasMonotonic) 1)
