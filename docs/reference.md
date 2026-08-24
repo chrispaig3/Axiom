@@ -1247,9 +1247,9 @@ the choice.
 |---|---|
 | `IO` | Reaches the outside world through a `__syscallN` |
 | `Pure` | No side effects |
-| `Alloc` | Heap allocation (`alloc`) |
+| `Alloc` | Heap allocation: a call reaching the `__alloc` primitive — every `Vec`/`Map`/`Str` growth, every `memAlloc`. The `(alloc T)` keyword contributes it too and was the only contributor until 2026-08-23, which had it exactly inverted (`memory-model.md` MM-EXEC-9a) |
 | `Mut` | Mutable heap state: `(set base.field v)`. Plain `set` on a `mut` local is deliberately *not* `Mut` - a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
-| `Div` | Divergence (infinite loops) |
+| `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is always reported unsupported, even over a body that plainly does not terminate. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
 
 ### Declaring an Effect Type
 

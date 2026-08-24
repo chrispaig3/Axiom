@@ -714,14 +714,15 @@ Built-in effects:
 |---|---|
 | `IO` | Reaches the outside world — a `__syscallN` |
 | `Pure` | No side effects |
-| `Alloc` | Heap allocation (`alloc`) |
+| `Alloc` | Heap allocation: a call reaching the `__alloc` primitive, which is every `Vec`/`Map`/`Str` growth and every `memAlloc`. The `(alloc T)` keyword also contributes it and is the reason it used to be the *only* contributor — a form that allocates nothing, while the primitive the heap goes through contributed nothing (`docs/memory-model.md` MM-EXEC-9a, whose table lost that row on 2026-08-23) |
 | `Mut` | Mutable heap state: `(set base.field v)`. A plain `set` on a `mut` **local** is deliberately not `Mut` — a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
-| `Div` | Divergence (infinite loops) |
+| `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is always reported unsupported, even over a body that plainly does not terminate. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
 
 `Err` is accepted as a sixth built-in effect name — a handle list may
 write it and it is not a `Custom` effect — but nothing in the compiler
 infers it today, so an `effect(err)` claim is always reported as
-unsupported.
+unsupported. `Div` is in the same position and the table above says so:
+two of the six names can be written and cannot be satisfied.
 
 Declare an effect type:
 
