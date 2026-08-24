@@ -1778,6 +1778,7 @@ not loud at all. Scope sets (`MAC-HYG-9`) are what close this; until
 they land it is pinned by `tests/selfhost/383-format-capture.ax`, so
 the fix has a test to flip rather than a paragraph to re-read.
 
+<!-- doc-gate:negative-exempt narrative: this says what the corpus DOES contain - two shapes with no named type - which the AX3025 fixtures witness directly. It is a positive population claim wearing a negative clause. -->
 **MAC-CAP-10.6 — the dispatch cliff, and the two compiler bugs it
 exposed.** A hole becomes a *call*, and which instance it reaches is
 decided from the argument's **static type**. Where there is no named

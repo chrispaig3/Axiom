@@ -857,6 +857,7 @@ unimplemented:
   against a `;@axiom:pure` claim. A form that allocates nothing reports
   that it allocates.
 
+<!-- doc-gate:negative-exempt a population count, not an existence claim. What falsifies it is any .ax file spelling the form, and the MUST in this same paragraph is what such a file would violate. The honest probe is a corpus counter, which this gate does not have yet. -->
 This is a documented form with no semantics, at a shape whose corpus
 population is zero — the failure class this repository names
 *the corpus is the specification*.
@@ -1643,19 +1644,33 @@ its own measurements — the self-compile that this machinery took from
 documentation edit. This document will not write about it in the past
 tense.
 
-**The half-finished state carries a permanent per-request cost, and
-nothing measures it.** `__axiom_arena_reset_fn` scrubs **4,097** slab
+**The half-finished state carries a permanent per-request cost, and it
+is under one percent.** `__axiom_arena_reset_fn` scrubs **4,097** slab
 heads on every reset — 4,097 stores on the exact path `MM-ALLOC-22`'s
 workload takes once per request — and it does that **precisely
 because** releases file blocks into those heads: a head left dangling
 across a reset double-issues storage on the next same-class allocation.
 Counting bought that scrub and the arena pays it, once per request,
-forever, on a strategy nobody is finishing. `check-net.sh` measures
-memory and not time, and no gate compares a reset with the scrub against
-one without it, so the cost is read off the emitted code and priced at
-*unknown* rather than at zero. §9.0 carries it as a defect for exactly
-that reason: an unfinished strategy's residue is a cost that has stopped
-belonging to a plan, and a cost nobody owns is a cost nobody measures.
+forever, on a strategy nobody is finishing.
+
+It was priced at *unknown* here until 2026-08-24, on the correct ground
+that nobody had run it, and the number turned out to be small. Two
+workers, 5,000 loopback connections, the same binary either side of its
+arena flag: **12,864 and 12,986 conn/s scoped against 13,282 and 13,032
+unscoped** — runs that overlap. 32 KiB of stores costs about 0.6 µs
+against a per-connection budget near 77 µs, which is where the
+sub-one-percent figure comes from rather than from the ratio directly.
+
+Both halves of that are worth keeping. The residue is real — it is the
+price of composing §3.3 with counting at all, and it does not go away
+while `MM-LIFE-2a` stays abandoned in place. And it is noise, which is
+why it does not argue the strategy back onto the schedule. What it does
+argue is narrower and still open: `check-net.sh` measures memory and
+not time, so this figure comes from a bench and not from a gate, and no
+gate anywhere in this repository compares a reset carrying the scrub
+against one without it. §9.0 keeps it as a defect on that ground alone
+— not that the cost is unknown, but that nothing would notice it
+changing.
 
 **MM-LIFE-2b (W 2026-08-24, abandoned in place —
 see `MM-LIFE-2a`; what already emits is recorded below and stays).
@@ -1938,6 +1953,7 @@ share forever. The pair is sound and cheap once the emitter can tell
 the three cases apart, and it can, by three fixpoints over the call
 graph (`inferOwnership`, `inferFlows` in codegen.ax):
 
+<!-- doc-gate:negative-exempt narrative: a definition of the ownership lattice. The negative quantifier belongs to the BORROWED arm and has nothing to do with the test corpus. -->
 - **Who owns a result.** A signed global's result is OWNED when every
   tail the body can answer is a construction, a literal (statics are
   immortal), a lambda, or a call to a reference-returning global —
@@ -3224,6 +3240,7 @@ against. What changed is that failing them now blocks nothing, and a
 number labelled *acceptance* with nothing behind the label is a sentence
 this section exists to catch.
 
+<!-- doc-gate:negative-exempt an inventory of gaps, which is the safe direction - it claims rules are UNGATED. A false version of this paragraph under-claims coverage; the defect this rule exists for over-claims it. -->
 Everything else is pinned by nothing, and the probes quoted inline are
 the only evidence. In this repository's terms those rules are
 documentation, not specification, until a fixture exists. The
@@ -3261,6 +3278,7 @@ sentence is false, which is how the README's Macros row stayed
 **Complete** for a season of being wrong — the arbitration recorded in
 [macro-system.md](macro-system.md)'s preamble.
 
+<!-- doc-gate:negative-exempt this paragraph is the rule's own statement and worked example; the quoted negative is the specimen being condemned, not a claim the document makes. -->
 **There is a sharper version of that, and the exit-status correction
 above is an instance of it.** `check-doc-drift.sh` proves reference
 INTEGRITY — every fixture a document names exists — and integrity is not

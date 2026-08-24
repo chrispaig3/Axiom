@@ -484,6 +484,117 @@ try:
 finally:
     shutil.rmtree(work, ignore_errors=True)
 
+# ---------------------------------------------------------------
+# 5b. A NEGATIVE CLAIM ABOUT THE CORPUS MUST NAME ITS PROBE.
+#
+# `docs/memory-model.md` section 9.1 states this as a documentation
+# rule. This is the gate that makes it one, and the reason it is worth
+# having is that every check above proves reference INTEGRITY - the
+# fixtures a document NAMES all exist - which is the exact dual of what
+# went wrong. `memory-model.md` said status 70 was "the one no fixture
+# can reach without exhausting memory" while
+# `tests/stdlib/314-out-of-memory.ax` reached it deterministically. A
+# sentence asserting a NON-existence names no path, so there is nothing
+# for check 4 to resolve, and it sailed through green.
+#
+# It was demonstrated rather than argued, on 2026-08-24: a document
+# edited to say the opposite of what three of its own fixtures prove
+# passed both this gate and `check-tree-sitter.sh`, exit 0 from each.
+#
+# THE ENFORCEMENT IS THE CHEAP PART, and it is why the rule is spelled
+# this way: a negative claim that NAMES a path stops being a negative
+# claim as far as this gate is concerned - it becomes an ordinary path
+# reference, and check 4 above already resolves it. The rule does not
+# need a new verifier, only a new refusal.
+#
+# THE POPULATION IS WHY IT LANDS NOW. The tree holds four sentences of
+# this shape and three are narrative about this very defect. A rule
+# demanding annotation on 145 sentences would be argued with and then
+# switched off; at four it costs nothing to adopt, and it is the last
+# moment that is true. The ceiling below is what keeps that from
+# rotting: exemptions cannot grow silently.
+# ---------------------------------------------------------------
+NEG_MARK = re.compile(r"<!--\s*doc-gate:negative\s+(\S+)\s*-->")
+NEG_EXEMPT = re.compile(r"<!--\s*doc-gate:negative-exempt\s+(.+?)\s*-->")
+
+# A negative quantifier and a corpus noun in one sentence. Deliberately
+# narrow: it is the class that produced the defect, and it is the class
+# a gate can do something about, because the remedy is a path.
+#
+# TUNED AGAINST THE TREE RATHER THAN GUESSED. A bare `gate` is not in
+# the noun list: this repository calls the driver's error path a gate
+# and a policy region a gate, and including the word matched eleven
+# paragraphs of which six were about neither fixtures nor tests. The
+# window is 60 characters rather than 160 for the same reason - at 160
+# a `no` at the head of a sentence reached a `corpus` at its tail with
+# a whole clause in between, which is a coincidence and not a claim.
+# Five paragraphs match at these settings and all five were read.
+NEG_CORPUS = re.compile(
+    r"\b(?:no|No|nothing|Nothing|never|Never|cannot|only|Only)\b"
+    r"[^.\n]{0,60}?"
+    r"\b(?:fixture|fixtures|probe|probes|test case|test cases|corpus)\b",
+)
+# A path is the remedy the rule names, so any of these satisfies it.
+HAS_PATH = re.compile(r"\b(?:tests|scripts)/[A-Za-z0-9_./-]+")
+
+EXEMPT_CEILING = 5
+exemptions = 0
+neg_checked = 0
+neg_bad = 0
+
+for doc in PROSE_DOCS:
+    text = open(doc, encoding="utf-8").read()
+    lines = text.split("\n")
+    # Paragraph-wise, because a claim wraps across lines in these files
+    # and a line-wise sweep would cut sentences in half.
+    start = 0
+    for para in re.split(r"\n\s*\n", text):
+        nl = text.count("\n", 0, start)
+        start += len(para) + 2
+        if not para.strip():
+            continue
+        if NEG_EXEMPT.search(para):
+            reason = NEG_EXEMPT.search(para).group(1).strip()
+            if len(reason) < 12:
+                print(f"FAIL negative: {doc} carries a doc-gate:negative-exempt with no real reason")
+                print(f"  an exemption is a claim that the sentence is narrative rather than normative,")
+                print(f"  and it has to say why in words a reader can disagree with")
+                bad += 1
+            exemptions += 1
+            continue
+        if not NEG_CORPUS.search(para):
+            continue
+        neg_checked += 1
+        if HAS_PATH.search(para) or NEG_MARK.search(para):
+            m = NEG_MARK.search(para)
+            if m:
+                named = m.group(1)
+                if not os.path.exists(named):
+                    print(f"FAIL negative: {doc} marks a negative claim with the probe {named},")
+                    print(f"  which does not exist - the marker is the whole point and it names nothing")
+                    bad += 1
+            continue
+        first = " ".join(para.split())[:150]
+        line_no = nl + 1
+        print(f"FAIL negative: {doc}:{line_no} asserts a negative about the corpus and names no probe")
+        print(f"  | {first}")
+        print(f"  A sentence saying a fixture does NOT exist is invisible to every other check in")
+        print(f"  this gate, because they resolve the paths a document names and this names none.")
+        print(f"  Name the tests/ path that would exist if the negative became false, or mark it")
+        print(f"  <!-- doc-gate:negative-exempt <why this is narrative, not a standing claim> -->")
+        neg_bad += 1
+        bad += 1
+
+if exemptions > EXEMPT_CEILING:
+    print(f"FAIL negative: {exemptions} exemptions, ceiling {EXEMPT_CEILING}")
+    print(f"  An exemption silences the rule for one paragraph. Five is the number the tree had")
+    print(f"  when the rule landed, and each one was read and its reason written by hand.")
+    print(f"  Growth means the rule is being routed around - raise the ceiling deliberately,")
+    print(f"  in a commit that says which claim needed it and why it could not name a path.")
+    bad += 1
+elif neg_bad == 0:
+    print(f"ok   negative claims about the corpus: {neg_checked} checked, {exemptions}/{EXEMPT_CEILING} exempt")
+
 sys.exit(1 if bad else 0)
 PY
 [[ $? -eq 0 ]] || failed=$((failed+1))
