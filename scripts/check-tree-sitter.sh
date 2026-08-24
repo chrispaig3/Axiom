@@ -89,7 +89,46 @@ else
 fi
 
 echo "using $ts"
+
+# THE GENERATED PARSER IS CHECKED IN, AND `generate` OVERWRITES IT.
+#
+# Until this block that overwrite was silent: the gate regenerated
+# `src/parser.c` from `grammar.js`, tested the result, and reported
+# success on a parser nobody had committed. A grammar edit landing
+# without its regenerated parser passed here and shipped a `src/` that
+# no longer corresponded to the `grammar.js` beside it - and `src/` is
+# what every consumer of this grammar compiles, because the CLI is not
+# a build dependency of the published package.
+#
+# It also carries the VERSION. `tree-sitter generate` writes
+# `.major_version` / `.minor_version` / `.patch_version` into
+# `parser.c` from `tree-sitter.json`'s `metadata.version`, which is one
+# of the sites `scripts/check-version.sh` holds to `VERSION`. So this
+# comparison is what connects that gated number to the generated file
+# it ends up in; without it the release could bump `tree-sitter.json`
+# and ship a `parser.c` still claiming the previous minor.
+#
+# The comparison is against a copy taken here rather than against
+# `git diff`, deliberately: `git diff` would call an uncommitted -
+# and correct - working tree a failure, which is exactly the state this
+# gate runs in on a developer's machine and in a release commit.
+pre_gen="$(mktemp -d)"
+trap 'rm -rf "$pre_gen"' EXIT
+cp -R src "$pre_gen/src"
+
 "$ts" generate
+
+if diff -r -q "$pre_gen/src" src >/dev/null 2>&1; then
+  echo "ok   the checked-in src/ is what generate produces from grammar.js"
+else
+  echo "FAIL: regenerating changed the checked-in parser." >&2
+  echo "      grammar.js and src/ have diverged - run" >&2
+  echo "        (cd tree-sitter-axiom && ./node_modules/.bin/tree-sitter generate)" >&2
+  echo "      and commit src/ alongside the grammar change." >&2
+  diff -r -q "$pre_gen/src" src >&2 || true
+  exit 1
+fi
+
 "$ts" build
 
 echo

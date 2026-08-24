@@ -1,0 +1,201 @@
+# Cut a release when a `v*` tag is pushed.
+#
+# `ci.yml` deliberately does none of this. Its header says so: no job
+# there "pushes, opens a comment, cuts a release, uploads an artifact or
+# reads a secret", and it runs with `permissions: contents: read`. That
+# is the right posture for a workflow that runs on every pull request
+# from anywhere, and it is why releasing lives in its own file with its
+# own, narrower trigger.
+#
+# THE TAG IS NOT TRUSTED. A tag is a string a human typed, and the one
+# thing that must never ship is a binary whose `--version` disagrees
+# with the archive it came in. So the first job asserts the tag equals
+# `VERSION` equals what the built compiler prints, and nothing is
+# uploaded until it passes. `scripts/check-version.sh` is the same gate
+# CI already runs, invoked here for the same reason.
+#
+# WHAT IS SHIPPED, AND WHAT IS NOT. Three targets are built and
+# attached. `darwin-x86_64` is NOT, and that is deliberate rather than
+# an oversight: no runner for it exists anywhere in this repository, so
+# it is assembled and byte-compared but has never been executed. An
+# untested binary with a release attached to it reads as a supported
+# platform. It is not one, and `check-cross-targets.sh` says so in its
+# own words - "Running the result still needs the real hardware."
+#
+# The seed remains the supported way to build from source on any host,
+# including that one.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  # Nothing builds until the number agrees with itself.
+  verify:
+    name: The tag, VERSION and the binary agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/provision
+
+      - name: The tag matches VERSION
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          want="$(tr -d '[:space:]' < VERSION)"
+          if [[ "$tag" != "$want" ]]; then
+            echo "FAIL: tag is 'v$tag' but VERSION says '$want'."
+            echo "      A release whose tag and contents disagree is the one"
+            echo "      thing this workflow exists to prevent."
+            exit 1
+          fi
+          echo "ok   tag v$tag == VERSION $want"
+
+      # Every site, plus the compiler that actually gets built.
+      - name: Every site states it, including the built compiler
+        run: ./scripts/check-version.sh
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: verify
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+          - name: darwin-aarch64
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/provision
+
+      # From the SEED, not from `.axiom-bin/`. This is the path a
+      # consumer takes, so it is the path the artifact should come out
+      # of: seed -> stage1 -> stage2 -> stage3, with stage2 and stage3
+      # required byte-identical, and stage3 is what ships.
+      - name: Bootstrap from the committed seed
+        run: ./scripts/bootstrap-from-seed.sh --install "$RUNNER_TEMP/out"
+
+      - name: The shipped binary reports the release version
+        run: |
+          got="$("$RUNNER_TEMP/out/axiom" version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          want="$(tr -d '[:space:]' < VERSION)"
+          [[ "$got" == "$want" ]] || { echo "FAIL: binary says $got, VERSION says $want"; exit 1; }
+          echo "ok   axiom version -> $got"
+
+      # The stdlib travels with the compiler. `axiom` resolves modules
+      # relative to its own location, so an archive holding only the
+      # binary produces "cannot resolve import IO" on first use.
+      - name: Assemble the archive
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          d="axiom-$v-${{ matrix.name }}"
+          mkdir -p "$d/bin"
+          cp "$RUNNER_TEMP/out/axiom" "$d/bin/axiom"
+          cp -R stdlib "$d/stdlib"
+          cp LICENSE README.md CHANGELOG.md "$d/"
+          tar -czf "$d.tar.gz" "$d"
+          # `sha256sum` on the Linux images, `shasum` on macOS. Picking
+          # one and hoping is how a matrix leg fails at the last step;
+          # `scripts/install.sh` chooses between the same two names on
+          # the consuming side and this mirrors it, so the file it
+          # writes is the file that script knows how to read.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$d.tar.gz" > "$d.tar.gz.sha256"
+          else
+            shasum -a 256 "$d.tar.gz" > "$d.tar.gz.sha256"
+          fi
+          cat "$d.tar.gz.sha256"
+          echo "ARCHIVE=$d.tar.gz" >> "$GITHUB_ENV"
+
+      # A tarball that unpacks to a compiler that cannot compile is
+      # worse than no tarball. This is the same anti-vacuousness rule
+      # `bootstrap-from-seed.sh` applies to its own output.
+      #
+      # AND IT HAS TO BE THE RIGHT PROGRAM, RUN FROM THE RIGHT PLACE.
+      # This step used to compile `(fn (main) 42)`, which imports
+      # nothing, so it could not fail for an archive that shipped no
+      # `stdlib/` - reproduced against a real archive with `stdlib/`
+      # deleted: it still built and still exited 42. Adding an import
+      # was not enough on its own either: a `run:` block's working
+      # directory is the CHECKOUT, which has a `stdlib/` of its own,
+      # and the compiler's last-resort search entry is a
+      # working-directory-relative `stdlib/`. The stdlib-less archive
+      # passed again, borrowing the repository's. So the probe imports
+      # a module AND runs from a directory that has no `stdlib/`.
+      #
+      # It also invokes the compiler by BARE NAME on PATH, because that
+      # is what `scripts/install.sh` prints and what a user therefore
+      # does; the absolute-path form this used to test is the one form
+      # that resolves the stdlib even when the PATH form cannot.
+      - name: The archive works when unpacked somewhere else
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          d="axiom-$v-${{ matrix.name }}"
+          mkdir -p "$RUNNER_TEMP/unpack" && tar -xzf "$d.tar.gz" -C "$RUNNER_TEMP/unpack"
+          test -d "$RUNNER_TEMP/unpack/$d/stdlib" \
+            || { echo "FAIL: the archive holds no stdlib/"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/probe"
+          printf '%s\n' \
+            '(import IO (writeStr))' \
+            '' \
+            '(:: main Int)' \
+            '' \
+            ';@axiom:effect(io)' \
+            '(fn (main)' \
+            '  {' \
+            '    (writeStr 1 "the standard library travelled with the compiler\n")' \
+            '    42' \
+            '  }' \
+            ')' > "$RUNNER_TEMP/probe/probe.ax"
+          cd "$RUNNER_TEMP/probe"
+          test ! -e stdlib || { echo "FAIL: the probe directory has a stdlib/ of its own"; exit 1; }
+          unset AXIOM_STDLIB AXIOM_PATH
+          PATH="$RUNNER_TEMP/unpack/$d/bin:$PATH" axiom build --input probe.ax --output probe
+          set +e; ./probe; rc=$?; set -e
+          [[ $rc -eq 42 ]] || { echo "FAIL: unpacked compiler produced exit $rc, wanted 42"; exit 1; }
+          echo "ok   the archive's own stdlib resolves through a bare-name PATH invocation"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    # The one job in this repository that may write, scoped to the one
+    # job that needs to.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Axiom $v" \
+            --notes-file CHANGELOG.md \
+            --verify-tag

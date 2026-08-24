@@ -706,7 +706,7 @@
     )
     (if (|| (strEq cmd "version") (|| (strEq cmd "--version") (strEq cmd "-V")))
       {
-        (replOut "axiom (self-hosted) 0.1.0\n")
+        (replOut "axiom (self-hosted) 0.2.0\n")
         0
       }
       (if (strEq cmd "check")

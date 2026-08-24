@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Eighteen of the gates below build the compiler under test from
+    # Nineteen of the gates below build the compiler under test from
     # `self_host/`, each producing a byte-identical artifact. One step
     # builds it; `gate_build_axc` reuses it while the tree's source
     # stamp matches and rebuilds when it does not, so an ablation of
@@ -227,6 +227,16 @@ jobs:
       # outcomes and each is read directly rather than inferred.
       - name: The shared artifact cannot hide a source change
         run: ./scripts/check-gate-lib.sh
+
+      # One number. The version is a bare literal in eleven places
+      # across five file formats, and nothing held them to a source of
+      # truth outside the compiler - `check-driver.sh` compares them to
+      # what the BINARY prints, which a tree agreeing on `9.9.9` passes.
+      # `VERSION` is what the tag, the archive name and the installer
+      # read, so it is what the literals must match. That matters more
+      # now that a tag makes those numbers something a stranger reads.
+      - name: Every site states the same version
+        run: ./scripts/check-version.sh
 
       # These cases were also run by the deleted Rust test suite, as
       # `stdlib_golden`. This script is now their only runner, which is

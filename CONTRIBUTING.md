@@ -298,15 +298,23 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the nineteen gates that call `gate_build_axc` reuse it while the stamp matches the tree |
+| `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
+| `check-version.sh` | every place the project states its own version says what `VERSION` says, counted per site, and the built compiler prints it too |
+| `check-net.sh` | a request handler bracketed as an arena scope holds worker RSS flat across ten thousand connections, against a floor of 50x over the same binary unscoped |
+| `check-agent-calls.sh` | `symbols --calls`: no callee's effect escapes its caller, every inferred effect row carries a call edge, and every `IO` reaches a syscall or an `extern` |
+| `check-ffi.sh` | every FFI tier and the symbols each one imports, priced against a per-crate `axiom-allow.txt`; the one MM-FFI-5 requires. Runs in its own CI job, on linux-x86_64 and darwin-aarch64, because it is the only gate that needs `cargo` |
+| `check-name-scale.sh` | resolving a module's private names costs no more than resolving its public ones - a ratio rather than a wall-clock bound, so it is not flaky on a shared runner |
 
 The rest of `scripts/` is not a CI step. `ci.yml` is the authority on
 which scripts run there — read it rather than this table; what follows
-was true on 2026-08-22:
+was re-derived against it on 2026-08-24. The two entries that used to
+sit here, `check-ffi.sh` and `check-name-scale.sh`, are CI steps and
+have moved up: the table said otherwise for two days because it was
+written by hand and nothing compared it to the workflow.
 
 | Script | Why it is not a CI step |
 |---|---|
-| `check-ffi.sh` | a real gate, and the one MM-FFI-5 requires: every FFI tier, and the symbols each one imports, priced against a per-crate `axiom-allow.txt`. It is also the only script here that needs `cargo`, which nothing else in the build path does. Run it before touching `extern`, `rust/` or the freestanding claim |
-| `check-name-scale.sh` | a real gate: resolving a module's private names must cost no more than resolving its public ones. It asserts a ratio rather than a wall-clock bound, so it is not flaky on a shared runner. Run it before touching name resolution |
 | `bench-compile.sh` | prints where a compile spends its time. A profile, not an assertion |
 | `bench-datastructures.sh` | prints `Vec`, `Map` and `Intern` against the Rust equivalents. `--check` enforces the roadmap's "within 2×" criterion; unconditionally, a wall-clock threshold on a shared runner is a flaky test |
 | `measure-memory-baseline.sh` | prints the before/after numbers the memory-model schedule is driven by |
@@ -350,6 +358,51 @@ branch.
 ### What the CI tests actually do
 
 The tests compile and **run** Axiom programs rather than only type-checking them. This catches a class of bugs that a type-check-only CI would miss — for example, a syscall lowering that assembles correctly but returns the wrong value.
+
+### Cutting a release
+
+Releases are a **second workflow**, `.github/workflows/release.yml`,
+triggered by pushing a `v*` tag and by nothing else. It is separate
+from `ci.yml` on purpose: `ci.yml` runs on every pull request from
+anywhere and holds `permissions: contents: read`, and cutting a release
+needs a token that can write. Keeping the two apart is what lets the
+everyday workflow stay read-only.
+
+`ci.yml` does **not** trigger on tags. That is deliberate and it puts
+one obligation on whoever cuts the release, because nothing enforces
+it:
+
+1. **Land the release commit on `trunk` and let CI go green.** The tag
+   is a pointer to a commit; the gates run on the push, not on the tag.
+   Tagging a commit whose CI is red or still running publishes a
+   compiler nothing checked.
+2. **Update `VERSION`, and the sites that must agree with it, in that
+   same commit.** `./scripts/check-version.sh` names all eleven sites
+   and their counts, and fails if any disagrees or if a site stops
+   stating a version at all. Run it locally first; it is cheap.
+3. **Write the `CHANGELOG.md` entry.** `release.yml` passes this file
+   to `gh release create --notes-file`, so it *is* the release notes.
+   It is swept by `check-doc-drift.sh` like every other prose document.
+4. **Tag and push:**
+
+   ```bash
+   git tag -a v0.2.0 -m "Axiom 0.2.0"
+   git push origin v0.2.0
+   ```
+
+The workflow then refuses to build anything until the tag, `VERSION`
+and the number the freshly built compiler prints are the same string.
+It builds three targets **from the committed seed** rather than from
+`.axiom-bin/`, so the artifact comes out of the path a consumer takes,
+and it unpacks each archive somewhere else and compiles a program that
+imports the standard library through a bare-name `PATH` invocation
+before uploading it.
+
+There is deliberately **no `darwin-x86_64` artifact**. It is assembled
+and byte-compared by `check-cross-targets.sh` and executed by no runner
+anywhere, so publishing a binary for it would imply a support level
+that does not exist. `scripts/install.sh` says so and points at the
+seed, which is supported there.
 
 ---
 

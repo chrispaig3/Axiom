@@ -2,7 +2,7 @@
 # Build the compiler-under-test ONCE, and stamp it so the gates will
 # trust it.
 #
-# Eighteen gates call `gate_build_axc`, and each one rebuilt the same
+# Nineteen gates call `gate_build_axc`, and each one rebuilt the same
 # 60,881 lines into a byte-identical artifact. Measured 2026-08-24:
 # 13s per build on a quiet developer machine, and the repository's own
 # note for `check-repl-selfhost.sh` records ~1m40s on the machine it

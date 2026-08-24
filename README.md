@@ -45,10 +45,18 @@ Axiom is built for agents as first-class users. Three notations make this possib
 - **LLVM** — `llc` must be on your PATH (for code generation)
 - **A C compiler** — `cc`, `clang`, or `gcc` on your PATH (for final linking)
 
-That is the whole list. Axiom's compiler is written in Axiom, so there
-is no other language's toolchain to install first. (Rust's is needed
-only if you use the FFI: `axiom build --crate DIR` runs `cargo` over the
-crate on the far side — see [docs/ffi.md](docs/ffi.md).)
+That is the whole list **to build and use the compiler**. Axiom's
+compiler is written in Axiom, so there is no other language's toolchain
+to install first. (Rust's is needed only if you use the FFI: `axiom
+build --crate DIR` runs `cargo` over the crate on the far side — see
+[docs/ffi.md](docs/ffi.md).)
+
+Running the *gate battery* needs more, and the difference is worth
+stating because the sentence above is otherwise read as covering it:
+**`python3`** drives fifteen of the gates, **Node 22** builds the
+tree-sitter grammar, and **`cargo`** is needed by the FFI gate
+(`scripts/check-ffi.sh`) and by the `rust/` workspace's own suites.
+None of the three is needed to compile a program.
 
 On macOS:
 ```bash
@@ -60,10 +68,47 @@ On Ubuntu/Debian:
 sudo apt install llvm clang
 ```
 
-### Build the compiler
+### Install a release
 
 ```bash
-git clone https://github.com/chrispaig3/Axiom
+curl -fsSL https://raw.githubusercontent.com/chrispaig3/axiom/trunk/scripts/install.sh | bash
+export PATH="$HOME/.axiom/bin:$PATH"
+```
+
+Downloads the archive for your platform, **verifies its SHA-256**, and
+then builds and runs a program that *imports a standard-library module*
+— by the bare name `axiom` found on `PATH`, which is the invocation the
+line above sets up — before reporting success. A check that compiled a
+program importing nothing would pass on an archive that shipped no
+`stdlib/` at all, which is how the first version of it behaved.
+
+Piping into `bash` passes no arguments, so the knobs are environment
+variables: `AXIOM_VERSION=0.2.0` picks a release and
+`AXIOM_PREFIX=/opt/axiom` picks where it goes. Run the script as a file
+and `--version` / `--prefix` do the same. It refuses to install into a
+directory it does not own — `/usr/local`, `$HOME`, or a git checkout —
+because it removes `$prefix/bin` and `$prefix/stdlib` before installing.
+
+The compiler finds its standard library relative to **the directory it
+was found in** — the installed layout is `bin/axiom` beside `stdlib/`,
+so keep the two together. `AXIOM_STDLIB` overrides it. Both halves are
+gated by `scripts/check-driver.sh`, which installs a layout, resolves
+through it by bare name, and then requires the same invocation to fail
+once `stdlib/` is removed.
+
+**There is no release binary for `darwin-x86_64`, deliberately.** It is
+assembled and byte-compared in CI, but no runner for it exists, so it
+has never been executed - and publishing a binary implies a support
+level that does not exist. Build it from the seed below, which is
+supported. The installer says this rather than handing over something
+untested.
+
+### Build the compiler from source
+
+Always supported, on every target, and what a contributor uses.
+
+```bash
+git clone https://github.com/chrispaig3/axiom
 cd axiom
 ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 ```
@@ -1246,6 +1291,11 @@ axiom --diagnostic-format=ai symbols source.ax
 # Same, but also include the always-in-scope built-in operators and
 # primitives (omitted by default to keep output minimal)
 axiom --diagnostic-format=ai symbols source.ax --builtins
+
+# Also print the call graph the effect fixpoint already resolves, as a
+# `#calls=` field beside `#effects=` — so an agent can see WHY a
+# function carries an effect, not only that it does
+axiom --diagnostic-format=ai symbols source.ax --calls
 ```
 
 See [`docs/diagnostics.md`](docs/diagnostics.md) for the full agent-facing
@@ -1282,11 +1332,14 @@ neither exists. `?` is read as an expression and does not parse.
 ### Example session
 
 The banner is two lines, there is no prompt, and every line of output
-goes to stdout — the surface `scripts/check-repl-selfhost.sh` drives
-and pins:
+goes to stdout. The session below is pinned by
+`scripts/check-repl-selfhost.sh` — except the banner itself, which that
+gate never sees, because it drives the REPL as `repl --no-banner`. The
+version in it is held instead by `scripts/check-version.sh`, which
+names this file as one of its sites:
 
 ```
-axiom (self-hosted) 0.1.0 - Axiom REPL
+axiom (self-hosted) 0.2.0 - Axiom REPL
 Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))
@@ -1386,9 +1439,9 @@ the pipeline above is a module you can read in the language it compiles.
 | fn keyword | **Complete** | Modern alias for `define`. `tests/selfhost/020-call.ax` |
 | FFI | **Functional** | The FFI is the `extern` BLOCK, and Rust is the language on the other side (`docs/ffi.md`). `(pub extern "lib" (add :: (-> Int Int Int) (symbol "axffi_add")))` emits `declare i64 @axffi_add(i64, i64) #0` for every item the program calls, and a call compiles to the same `call i64 @sym(...)` an internal call does - Axiom has no VM, so there is no trampoline and nothing to marshal for a scalar. On the Rust side `#[axiom_export]` writes the all-`i64` shim and `#[axiom_opaque]` the destructor; `axiom-bindgen` writes the Axiom module (a `String` result is copied, a `Result`/`Option` comes back through a status word and an out-cell, an opaque type is a `data` cell around a `Handle`), and `axiom build --crate DIR` is the whole build line: the driver runs `axiom-bindgen` and `cargo build` itself when the module or the archive is stale or missing, and the block's library links by itself. A callback crosses as `AxFn1`/`AxFn2`/`AxFn3` on the Rust side and `(-> Int Int)`, `(-> Int Int Int)`, `(-> Int Int Int Int)` on the Axiom side (`tests/ffi/demo/130`); a `Vec<T>` result and a `&[T]` parameter cross as a `Vec` for every word scalar `T` (`char` and `u64` included), `Vec<String>` out and `&[&str]` in likewise, `Vec<Vec<T>>` and `&[&[T]]` one level down, `&mut [i64]` in place (`140`, `160`, `170`, `180`–`184`); a `#[axiom_record]` struct crosses by value as its fields, one word each, and is a `data` type on the Axiom side, alone or in a `Vec` (`150`, `181`); `Result<Option<T>,E>` and `Option<Result<T,E>>` nest through the three statuses (`184`); every shim carries a descriptor (`axffi_add__sig_ii_i`) and a declaration of another shape is `AX4005` at the item before any tool runs. The other direction is `--emit-staticlib`: an Axiom module archived without `main`, every `pub fn` a C symbol, and `--emit-rust-binding` writes the Rust module that calls them in Rust's own types (`i64`, `f64`, `bool`, `char`, `&str` in, `AxString` out, and a `struct`/`enum` per `data` type, `Option<T>`, `Result<T,E>`, a user `List`, an `AxVecBuf` for a `Vec` — through accessor shims the same build synthesises into the archive), which `rust/examples/host` checks in and the gate regenerates, diffs and runs ten thousand round trips through. A `Handle` is a counted block of the FOREIGN FORM whose death runs the Rust `Drop` (`MM-FFI-6`): `tests/ffi/demo/060` builds 200 `Counter`s and lets them go, and Rust counts 200 drops. Calling an extern contributes `IO` and propagates transitively (`MM-FFI-5` requirement 3); `Foreign` is a compiler-known word outside the reference map (requirements 1 and 2); an item's signature is one word each way or `AX3036`; a symbol no linked archive defines is `AX4004` at the item, read from the archives' symbol tables, with the nearest `axffi_*` name. `foreign` is NOT this feature under a new name and stays reserved at `AX2004`. Freestanding is tiered and measured: a program with no `extern` imports **0** symbols, one bound to a `no_std` Rust crate (the facade's `nostd-runtime` feature) also imports **0**, and one bound to a `std` crate imports 188 - gated by `scripts/check-ffi.sh`, which runs every fixture and enumerates permitted symbols instead of forbidding all of them. Fixtures in `tests/ffi/`; the Rust support crates and their tests in `rust/` |
 | Standard library | **Functional** | Eighteen modules — `Pre`, `Mem`, `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `Path`, `IO`, `Show`, `Err`, `Json`, `Rpc`, `Job`, `Ffi`, `Agent.Tags` — written in Axiom over the syscall primitives; see [Modules](#modules). `Vec`/`Map`/`Intern` are golden-tested and validated at 10⁵ elements; against Rust at 10⁶, `Intern` is *faster* (0.73×), `Vec` is 3.4×, and `Map` is 1.80× — the cause was an affine hash, not the allocator, and the self-hosting record records the theories that were measured and rejected first. `scripts/bench-datastructures.sh` |
-| Error handling | **Functional; not yet adopted** | `tests/stdlib/371-err-module.ax`, `tests/stdlib/370-error-propagation.ax`. `stdlib/Err.ax` ships `Result`, an `Error` record, `mapErr`/`andThen`/`mapOk`/`okOr`/`toOption`/`withContext`, checked `divChecked`/`remChecked`/`shlChecked`/`shrChecked` for the traps that otherwise exit 72, and the `try!` propagation form. `Result` is an ordinary declaration rather than a built-in beside `Option`, because a user-declared two-parameter ADT already checks, is pure to construct and inspect, and is reclaimed at a release boundary — a built-in would have cost a seed rebuild for none of that. Two measured rules decide how it is written and both are gated: the recursion in a propagating loop MUST be a match ARM's answer, never the scrutinee (the scrutinee shape costs 32 bytes of stack per call and dies at 262,144 where the arm shape runs 5,000,000 flat), and an error value crossing a tail-call boundary MUST be `let`-bound (288,176 bytes leaked over 2000 iterations otherwise, against 176). What is NOT done is adoption: the standard library still signals failure with `-errno` and `-1` sentinels at 65 sites over 12 files, and a fallible call still leaks the 32-byte block it returns. `MM-LIFE-2c` events 2 and 3 shipped on 2026-08-21 and did **not** close that leak — the block a call answers into a `match` scrutinee or a `let` is not released — so `ERR-MEM-4` stays open on its own account. [docs/error-model.md](docs/error-model.md) marks every rule H/P/R and says which |
+| Error handling | **Functional; not yet adopted** | `tests/stdlib/371-err-module.ax`, `tests/stdlib/370-error-propagation.ax`. `stdlib/Err.ax` ships `Result`, an `Error` record, `mapErr`/`andThen`/`mapOk`/`okOr`/`toOption`/`withContext`, checked `divChecked`/`remChecked`/`shlChecked`/`shrChecked` for the traps that otherwise exit 72, and the `try!` propagation form. `Result` is an ordinary declaration rather than a built-in beside `Option`, because a user-declared two-parameter ADT already checks, is pure to construct and inspect, and is reclaimed at a release boundary — a built-in would have cost a seed rebuild for none of that. Two measured rules decide how it is written and both are gated: the recursion in a propagating loop MUST be a match ARM's answer, never the scrutinee (the scrutinee shape costs 32 bytes of stack per call and dies at 262,144 where the arm shape runs 5,000,000 flat), and an error value crossing a tail-call boundary MUST be `let`-bound (288,176 bytes leaked over 2000 iterations otherwise, against 176). What is NOT done is adoption: the standard library still signals failure with `-errno` and `-1` sentinels at 84 sites over 12 files, and a fallible call still leaks the 32-byte block it returns. `MM-LIFE-2c` events 2 and 3 shipped on 2026-08-21 and did **not** close that leak — the block a call answers into a `match` scrutinee or a `let` is not released — so `ERR-MEM-4` stays open on its own account. [docs/error-model.md](docs/error-model.md) marks every rule H/P/R and says which |
 | Syscalls | **Complete** | `tests/selfhost/230-syscall.ax`. `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
-| Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend. (Defining `axiom_alloc` yourself does *not* override it — the name is refused outright, `AX3026`, because the override seam does not exist — [docs/memory-model.md](docs/memory-model.md) MM-ALLOC-8.) There is no manual `free`; every heap block carries a reference count and a shape word, and a block whose count reaches zero joins a size class and is handed out again — walking its reference map on the way, so a dead value takes what it owned with it: a discarded constructor cell holding a string frees the string's header *and* the string's bytes, and a thousand build-and-drop iterations move the allocator's bump by 384 bytes where they used to move it by 80,304 (`tests/stdlib/359-arc-str-bytes.ax`). **The self tail call is a release boundary since 2026-08-15** (MM-LIFE-2c event 4), which is the shape the strategy exists for - the activation that never returns: a loop allocating a fresh string per iteration and dropping the previous one moves the bump **480 bytes over 2000 iterations** where it used to move **224,304** (`tests/stdlib/362-arc-tail-boundary.ax`). What unblocked it was making the invisible stores visible: `Mem.memSetWord` and the AST's `mkNode` each `cast Int` a value out of the type system's sight, and both now take a share through `__retainref`, a type-directed retain that emits nothing at all when the stored word is an integer. **Events 2 and 3 shipped on 2026-08-21**, with owned temporaries: a reference a function answers is one share the caller holds and hands back, so the shapes they cover reclaim everything they build - every measured line of `tests/stdlib/372-arc-owned-results.ax` reads 0 bytes per iteration where three of them leaked 80. All seven of MM-LIFE-2c's events emit. **The arena scope IS the reclamation strategy as of 2026-08-24** (`MM-ALLOC-22`): `__axiom_arena_mark`/`__axiom_arena_reset` are what a request handler reclaims with, measured at 271–313× less memory than the same binary unscoped (`scripts/check-net.sh`), and reference counting — `MM-LIFE-2a` — is **abandoned in place** rather than pending. What already emits stays and is not being finished; the residue it charges is 4,097 slab-head stores per reset, measured at under one percent of throughput. No tracing collector — the Rust compiler's `--gc` was not ported and the flag is now refused (the self-hosting record). See the memory model specification, [docs/memory-model.md](docs/memory-model.md) |
+| Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend. (Defining `axiom_alloc` yourself does *not* override it — the name is refused outright, `AX3026`, because the override seam does not exist — [docs/memory-model.md](docs/memory-model.md) MM-ALLOC-8.) There is no manual `free`; every heap block carries a reference count and a shape word, and a block whose count reaches zero joins a size class and is handed out again — walking its reference map on the way, so a dead value takes what it owned with it: a discarded constructor cell holding a string frees the string's header *and* the string's bytes, and a thousand build-and-drop iterations move the allocator's bump by 384 bytes where they used to move it by 80,304 (`tests/stdlib/359-arc-str-bytes.ax`). **The self tail call is a release boundary since 2026-08-15** (MM-LIFE-2c event 4), which is the shape the strategy exists for - the activation that never returns: a loop allocating a fresh string per iteration and dropping the previous one moves the bump **480 bytes over 2000 iterations** where it used to move **224,304** (`tests/stdlib/362-arc-tail-boundary.ax`). What unblocked it was making the invisible stores visible: `Mem.memSetWord` and the AST's `mkNode` each `cast Int` a value out of the type system's sight, and both now take a share through `__retainref`, a type-directed retain that emits nothing at all when the stored word is an integer. **Events 2 and 3 shipped on 2026-08-21**, with owned temporaries: a reference a function answers is one share the caller holds and hands back, so the shapes they cover reclaim everything they build - every measured line of `tests/stdlib/372-arc-owned-results.ax` reads 0 bytes per iteration where three of them leaked 80. All seven of MM-LIFE-2c's events emit. **The arena scope IS the reclamation strategy as of 2026-08-24** (`MM-ALLOC-22`): `__axiom_arena_mark`/`__axiom_arena_reset` are what a request handler reclaims with, measured at 291× less memory than the same binary unscoped at ten thousand connections (`scripts/check-net.sh`, run 2026-08-24: 512 KiB scoped against 149,328 KiB; the exact ratio moves with the machine, so the gate asserts a floor of 50× rather than a number), and reference counting — `MM-LIFE-2a` — is **abandoned in place** rather than pending. What already emits stays and is not being finished; the residue it charges is 4,097 slab-head stores per reset, measured at under one percent of throughput. No tracing collector — the Rust compiler's `--gc` was not ported and the flag is now refused (the self-hosting record). See the memory model specification, [docs/memory-model.md](docs/memory-model.md) |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |
 | Self-hosting | **Done** | Axiom's compiler is written in Axiom. It compiles itself and reproduces itself byte-for-byte (`stage2 == stage3`, as objects and as IR), and a clean checkout builds it from `bootstrap/` with nothing but `llc` and a C linker. The Rust implementation it replaced has been removed. See the self-hosting record |
 | ADTs / data types | **Complete** | `tests/selfhost/140-data.ax`, `tests/selfhost/400-mixed-nullary.ax`, `tests/stdlib/270-nullary-unboxed.ax`. A constructor with fields is a heap-boxed tagged value; a nullary constructor *is* its tag, in a mixed type as well as an all-nullary one, and a match over a mixed type reads the tag through a runtime `< 4096` immediate-vs-pointer guard. Recursive types like `List`/`Tree` need no special case. See [Algebraic data types](#algebraic-data-types-how-they-actually-run) |

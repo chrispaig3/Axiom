@@ -225,10 +225,16 @@ gate_prose_docs_abs() {
   (( missing == 0 )) || exit 1
 }
 
+# `CHANGELOG.md` is here because `release.yml` passes it to
+# `gh release create --notes-file`: it is the first document a stranger
+# reads, and it was the ONE prose file in the tree that no sweep
+# opened - while opening with the claim that every claim in it carries
+# the gate that establishes it.
 gate_prose_docs() {
   cat <<'DOCS'
 README.md
 CONTRIBUTING.md
+CHANGELOG.md
 docs/reference.md
 docs/diagnostics.md
 docs/error-model.md

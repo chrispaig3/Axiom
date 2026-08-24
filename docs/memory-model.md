@@ -1148,7 +1148,7 @@ reclaim. Peak worker RSS:
 | 1,000 | **192 KiB** | 19,136 KiB |
 | 10,000 | **608 KiB** | 190,128 KiB |
 
-**271× at a thousand connections, 313× at ten thousand.** The gate
+**100× at a thousand connections, 313× at ten thousand.** The gate
 asserts a floor of 50× — far enough under the measurement to survive a
 slower machine, far enough over 1 to catch an arena that stopped
 rewinding — and it carries the negative probe without which the flat
@@ -1625,7 +1625,7 @@ decision above was not. Each was **P** until 2026-08-24 and each is now
 **Withdrawn 2026-08-24. What that means, and what it does not.** The
 project's target workload is stateless request/response service, and the
 reclamation for it is the arena scope: `MM-ALLOC-22` measures a request
-handler bracketed by a mark and a reset at **271–313× less memory** than
+handler bracketed by a mark and a reset at **100–313× less memory** than
 the same binary unscoped, gated with a negative probe, with the language
 server's 840 bytes per edit against 193,247 beside it. The arena is the
 strategy, not a bridge to this one. Reference counting is no longer
@@ -2528,7 +2528,7 @@ right and it was too narrow — one long-lived program reads as a special
 case, and a special case is what a schedule survives.
 
 It has a second workload now and a larger one. A pre-forked server's
-request handler, bracketed by the same pair, is **271× at a thousand
+request handler, bracketed by the same pair, is **100× at a thousand
 connections and 313× at ten thousand** — 192 KiB against 19,136 and 608
 against 190,128 — gated with a negative probe in `scripts/check-net.sh`
 and stated as a rule in `MM-ALLOC-22`. That is not a program with an
@@ -3216,7 +3216,7 @@ equivalent honesty for this one.
 | `tests/selfhost/371-main-recursive.ax` | EXEC-15a — 5, where the unfixed compiler exits 4 |
 | `tests/stdlib/314-out-of-memory.ax` | EXEC-16's status 70 and ALLOC-7 — the sentence in `.err`, the status in `.exit`, neither checked by the other, reached deterministically at 2^47 bytes |
 | `tests/stdlib/312-checked-arithmetic.ax` | VAL-3b's remedy — `addChecked`/`subChecked`/`mulChecked` at every boundary they have, byte-identical stdout at `--opt` 0, 1, 2 and 3 |
-| `scripts/check-net.sh` | ALLOC-22 (a request handler scoped as an arena, 271–313× under the same binary unscoped, with the negative probe that makes the flat column mean something) and ALLOC-4b (request sizes varying across three orders of magnitude do not ratchet the watermark) |
+| `scripts/check-net.sh` | ALLOC-22 (a request handler scoped as an arena, 100–313× under the same binary unscoped, with the negative probe that makes the flat column mean something) and ALLOC-4b (request sizes varying across three orders of magnitude do not ratchet the watermark) |
 
 **Incidentally covered, which is not the same as pinned.** Several rules
 are *exercised* by fixtures written for another purpose, so a regression
@@ -3341,7 +3341,7 @@ since been withdrawn (`MM-LIFE-2a`, 2026-08-24), and they are worth
 reading in that light rather than deleted: three of the four reasons
 below are still true, and the strategy still lost. What beat it was not
 a counter-argument but a workload — a stateless request handler
-bracketed by an arena mark and reset, measured at 271–313× less memory
+bracketed by an arena mark and reset, measured at 100–313× less memory
 than the same binary unscoped and gated with a negative probe
 (`MM-ALLOC-22`). Reason 2 below is the one that dissolved: the loop that
 never returns was ARC's decisive case, and a request handler is not that
@@ -3405,7 +3405,7 @@ compiler, silently.
 explicit primitives exist anyway", and called `MM-ALLOC-12`–`MM-ALLOC-16`
 what a programmer uses *until* ARC lands. They are what a programmer
 uses. `MM-ALLOC-22` is the rule and `scripts/check-net.sh` is the
-measurement: a request handler scoped as an arena, 271–313× under the
+measurement: a request handler scoped as an arena, 100–313× under the
 same binary unscoped, with the LSP's 840 bytes per edit beside it. They
 are also the machinery whose gates proved the allocator could be trusted
 at all, which is why the automation was going to be built over them
