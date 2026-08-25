@@ -32,11 +32,11 @@
 #      this repository's standing rule about a sweep that reads fewer
 #      files than it should. This half of the gate WAS such a sweep
 #      until 2026-08-24: `claim()` opened README.md and nothing else,
-#      while sections 3, 4 and 5 below already read the nine documents
+#      while sections 3, 4 and 5 below already read the ten documents
 #      `gate_prose_docs` names. The cost was standing in the tree -
 #      CONTRIBUTING.md said "449 of the 451 `.ax` files", README.md
 #      said 479, the tree had 479, and the gate was green. It reads
-#      the same nine documents now, and reports the file and line.
+#      the same ten documents now, and reports the file and line.
 #
 #   3  EVERY **Complete** ROW NAMES A FIXTURE, and the fixture exists.
 #      This is the cheapest possible implementation of the

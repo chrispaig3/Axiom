@@ -89,12 +89,36 @@ done
   > bootstrap/SHA256SUMS
 echo "wrote bootstrap/SHA256SUMS"
 
-cat > bootstrap/STAMP <<STAMP
-Generated from commit: $(git rev-parse HEAD 2>/dev/null || echo "unknown")
-Generated on:          $(date -u +%Y-%m-%dT%H:%M:%SZ)
-Regenerate with:       scripts/reseed.sh
-Verified by:           scripts/bootstrap-from-seed.sh
-STAMP
+# THE STAMP RECORDS A HASH, NOT A COMMIT, and that is a correction
+# rather than a preference. This wrote `git rev-parse HEAD`, and the
+# routine reason to run `reseed.sh` is that `self_host/` has just
+# changed - so the tree is DIRTY here by construction, and HEAD is the
+# commit before the one that will carry the seed. The recorded commit
+# was therefore wrong every time, and nothing read it, so nothing said
+# so: measured 2026-08-25, it named `ee0e4e1` while the seed was
+# `93a74e5`'s emission, differing by 1,532 lines.
+#
+# A hash of the bytes that were actually read cannot have that failure
+# mode. `scripts/check-seed-provenance.sh` resolves the commit the
+# other way - the one that last touched `bootstrap/` - and requires its
+# sources to hash to this line before regenerating from them.
+stamp="$(gate_seed_source_stamp "$repo_root")"
+nfiles="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f | wc -l | tr -d ' ' )"
+{
+  printf 'Source stamp:          %s\n' "$stamp"
+  printf 'Source files:          %s\n' "$nfiles"
+  printf 'Generated on:          %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'Regenerate with:       scripts/reseed.sh\n'
+  printf 'Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh\n'
+  printf '\n'
+  printf 'The source stamp is `gate_seed_source_stamp` (scripts/lib/gate.sh) over\n'
+  printf 'the `self_host/**.ax` and `stdlib/**.ax` bytes these seeds were\n'
+  printf 'generated from: the path list, then every byte, hashed. It is the\n'
+  printf 'CHECKABLE claim here, and `scripts/check-seed-provenance.sh` checks it -\n'
+  printf 'it finds the commit that last touched `bootstrap/`, requires that\n'
+  printf "commit's sources to hash to this line, and then regenerates all four\n"
+  printf 'seeds from them and requires the result to be byte-identical.\n'
+} > bootstrap/STAMP
 cat bootstrap/STAMP
 
 echo

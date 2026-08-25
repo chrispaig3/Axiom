@@ -179,7 +179,7 @@ documents state, but until 2026-08-24 its `claim()` helper opened
 README.md and nothing else — so the sentence above stood 28 files
 stale while the README stated the right total four lines of gate away
 and passed. Same claim, same class, one file swept. The helper reads
-all nine documents `gate_prose_docs` lists now, this one among them,
+all ten documents `gate_prose_docs` lists now, this one among them,
 and a count that goes stale here fails exactly as it fails there.
 Which is also why the stale number is not spelled out in this
 paragraph: the pattern it matches on is the numeral and its unit, not
@@ -291,11 +291,12 @@ be a framework a reader had to learn before reading a single gate.
 | `check-render-selfhost.sh` | the human and JSON renderers, cross-checked against the AXDL goldens and against the palette `self_host/style.ax` declares |
 | `check-repl-selfhost.sh` | the REPL, piped session by piped session |
 | `check-lsp-selfhost.sh` | the language server's framed session bytes, and every published position converted into LSP's 0-based UTF-16 |
-| `check-doc-drift.sh` | this file and its eight siblings against the tree: every stated count recomputed, and every fixture a doc or a comment names must exist |
+| `check-doc-drift.sh` | this file and its nine siblings against the tree: every stated count recomputed, and every fixture a doc or a comment names must exist |
 | `check-agent-policy.sh` | the standard library performs exactly the effects it declares, and the set of declarations performing any is the one in `tests/agent/stdlib-effects.allow` — `docs/agent-harness.md` §3.4's policy, as a gate over AXSYM rather than a compiler mode, on `check-ffi.sh`'s allowlist model |
 | `check-frontend-parity.sh` | the frontend's five consumers agree — on the value, not only on the verdict |
 | `check-memory-baseline.sh` | the managed Life probe holds RSS flat over 2000 generations where its unmanaged twin grows linearly |
 | `check-cross-targets.sh` | every target's IR assembles from one host, at every `--opt` level, with no non-position-independent object |
+| `check-seed-provenance.sh` | the other half of the seed's story: it IS the emission of source in this history. All four seeds are regenerated from the commit that last wrote `bootstrap/` and must come back byte-identical, after that commit's sources are required to hash to `bootstrap/STAMP`. Its own CI job, because it needs `fetch-depth: 0` and about five minutes |
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |

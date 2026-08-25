@@ -9,7 +9,7 @@ axiom-darwin-x86_64.ll
 axiom-linux-aarch64.ll
 axiom-linux-x86_64.ll
 SHA256SUMS                what each of them should hash to
-STAMP                     which commit they were generated from, and when
+STAMP                     the hash of the source they were generated from
 ```
 
 `scripts/bootstrap-from-seed.sh` picks the file matching the host, runs
@@ -64,19 +64,48 @@ Measured, so the arrangement is not merely asserted: a seed generated
 from the *previous commit's* compiler builds the current tree to a
 byte-identical `stage2 == stage3`.
 
-## What this does and does not prove
+Lagging the tree is not the same as corresponding to nothing, and the
+distinction is the whole of the next section. The seed is not the IR of
+the source *beside* it; it is the IR of the source at the commit that
+last wrote this directory, and since 2026-08-25 that is asserted by
+regenerating it (`scripts/check-seed-provenance.sh`). The lag is a lag
+in TIME, not a gap in provenance.
 
-A tampered seed would have to compile the whole compiler from source,
-have its output compile the compiler again to a byte-identical
-fixpoint, and have that build and run a working program. Ken
-Thompson's *Reflections on Trusting Trust* still applies here, as it
-does to every bootstrapped compiler, and no checked-in artifact can
-answer it. Everything short of it is answered.
+## What this does and does not prove
 
 `SHA256SUMS` is a corruption check, not a trust check: a hash and a
 file committed together move together. It exists so that a damaged
 seed is reported here, by name, instead of as a link error three steps
 downstream.
+
+**The trust check is `scripts/check-seed-provenance.sh`**, added
+2026-08-25. It regenerates all four of these files from the source at
+the commit that last wrote this directory and requires the result to be
+byte-identical - so the seed is not an artifact you have to take on
+trust, it is a build product of `.ax` files you can read, and the
+regeneration is the proof. Until that gate existed nothing in this
+repository related the seed to any source in either direction, and the
+one file that claimed a provenance fact was wrong: `STAMP` recorded
+`git rev-parse HEAD` at the moment `reseed.sh` ran, which is the commit
+BEFORE the one that carries the seed, because the tree is dirty by
+construction when you reseed. Measured 2026-08-25: it named `ee0e4e1`,
+and regenerating from `ee0e4e1` differs from the committed seed by
+1,532 lines. It now records a hash of the source bytes instead, which
+cannot be wrong at the moment it is written, and the gate resolves the
+commit the other way round.
+
+What that still does not answer is Ken Thompson's *Reflections on
+Trusting Trust*, and no checked-in artifact can. A tampered seed would
+have to compile the whole compiler from source, have its output compile
+the compiler again to a byte-identical fixpoint, have that build and
+run a working program, AND have the source it claims to come from
+regenerate it exactly - but the compiler doing the regenerating is
+itself descended from this seed, so a compiler that reproduces a
+backdoor in its own output reproduces it here too. Answering that needs
+a second implementation to cross-compile against, and this repository
+deliberately deleted the one it had (`430a138`, 2026-08-08, 28,082
+lines of Rust) with the cost stated in its own commit message.
+Everything short of it is answered.
 
 ## Regenerating
 
@@ -101,5 +130,7 @@ otherwise show up first as a seed that moves on its own. If a `.ll`
 here moves without the compiler moving, that determinism has broken,
 and the bug is the thing to fix rather than the diff to commit.
 
-`STAMP` does move on every run: it records the time. It is the one
-file here that carries no signal about the compiler.
+`STAMP` moves on every run: it records the time as well as the source
+hash. Both halves are read - the hash by
+`scripts/check-seed-provenance.sh`, which will not regenerate anything
+until the commit it found hashes to it.

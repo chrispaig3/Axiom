@@ -18,6 +18,35 @@ its changelog too.
 
 ### Added
 
+- **The seed is the emission of source in this history, and here is the
+  regeneration that says so.** `scripts/check-seed-provenance.sh`
+  resolves the commit that last wrote `bootstrap/`, requires that
+  commit's `self_host/**.ax` and `stdlib/**.ax` to hash to
+  `bootstrap/STAMP`, and then regenerates all four seeds from them and
+  requires byte-identity: **139,638 lines each, on all four targets**.
+  Until this, nothing in the repository related the 5 MB under
+  `bootstrap/` to any source in either direction — `SHA256SUMS` is a
+  hash and a file committed together, which is a corruption check by
+  its own README's words, and `check-bootstrap.sh` asks only whether
+  the seed can BUILD this source.
+
+  It found that `bootstrap/STAMP` was **wrong, by construction rather
+  than by accident**. It recorded `git rev-parse HEAD` from inside
+  `reseed.sh`, and the routine reason to reseed is that `self_host/`
+  has just changed — so the tree is dirty when it runs, and HEAD is the
+  commit *before* the one that carries the seed. It named `ee0e4e1`;
+  the seed is `93a74e5`'s emission, and regenerating from `ee0e4e1`
+  differs by **1,532 lines** — the seed defines `parser$nodeBName` and
+  `parser$nodeCName`, which that commit's source does not declare.
+  Nothing read the line, so nothing said so. `STAMP` now records a hash
+  of the source bytes, which cannot be wrong at the moment it is
+  written, and the gate derives the commit the other way round.
+
+  This does **not** answer Ken Thompson, and `bootstrap/README.md` says
+  why at length: the compiler doing the regenerating is itself
+  seed-descended. What it converts is a 5 MB artifact you had to trust
+  into a build product of `.ax` files you can read.
+
 - **`axiom test`, and assertions to write tests with.** A test is a
   top-level function whose name begins with `test` and which takes no
   parameters; the runner appends a `main` to the file's own bytes and

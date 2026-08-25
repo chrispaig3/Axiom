@@ -90,7 +90,27 @@ gate_init() {
 # build's real inputs: a file the build reads and this does not hash is
 # a file whose ablation the cache would hide.
 gate_source_stamp() {
-  local list f
+  {
+    gate_seed_source_stamp "$repo_root"
+    gate_sha "$axiom"
+  } | gate_sha
+}
+
+# gate_seed_source_stamp <root>
+#
+# The same hash WITHOUT the builder: a pure function of the `.ax` bytes
+# under `<root>/self_host` and `<root>/stdlib`, and of their paths.
+#
+# It takes a root rather than reading `$repo_root` because its second
+# caller is `check-seed-provenance.sh`, which computes it over a tree
+# extracted from git at another commit and compares the two. That is
+# the whole point of splitting it out: "which sources is this?" is a
+# question about a tree, and "which compiler would this cache serve?"
+# is a question about a tree AND the binary that built it. Answering
+# the first with the second would make the seed's recorded provenance
+# depend on whichever compiler happened to be on the machine.
+gate_seed_source_stamp() {
+  local root="$1" list f
   # The PATH LIST first, then every byte. Contents alone would miss a
   # file added empty or renamed; paths alone would miss an edit.
   #
@@ -101,14 +121,13 @@ gate_source_stamp() {
   #
   # Relative paths and `LC_ALL=C sort`: the stamp is a property of the
   # tree, not of where it was checked out or of the runner's locale.
-  list="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f 2>/dev/null \
+  list="$( cd "$root" && find self_host stdlib -name '*.ax' -type f 2>/dev/null \
              | LC_ALL=C sort )"
   {
     printf '%s\n' "$list"
     while IFS= read -r f; do
-      [[ -n "$f" ]] && cat "$repo_root/$f"
+      [[ -n "$f" ]] && cat "$root/$f"
     done <<< "$list"
-    gate_sha "$axiom"
   } | gate_sha
 }
 

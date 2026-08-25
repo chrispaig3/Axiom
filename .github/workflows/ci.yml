@@ -699,6 +699,33 @@ jobs:
       - name: stage2 and stage3 are byte-identical
         run: ./scripts/check-bootstrap.sh
 
+  # The other half of the seed's story, and the half nothing checked
+  # until 2026-08-25. `bootstrap` above proves the seed can BUILD this
+  # source. This proves the seed IS the output of source in this
+  # repository's history, by regenerating all four files from the
+  # commit that last wrote `bootstrap/` and requiring byte-identity.
+  #
+  # ITS OWN JOB, for two reasons that are both about the checkout. It
+  # needs `fetch-depth: 0`: the default shallow clone has one commit,
+  # and `git log -- bootstrap/` on it cannot find the commit that wrote
+  # a directory it never fetched - the gate would report "no commit
+  # touches bootstrap/" rather than a wrong answer, but it would report
+  # it on every run. And it costs a compiler build plus four
+  # whole-compiler emissions, about five minutes, which is a poor
+  # neighbour for the `test` job's fifty steps.
+  seed-provenance:
+    name: The seed is its source's emission
+    needs: grammar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/provision
+
+      - name: Regenerate all four seeds from the source they came from
+        run: ./scripts/check-seed-provenance.sh
+
   reproducible:
     name: Reproducible build
     needs: grammar
