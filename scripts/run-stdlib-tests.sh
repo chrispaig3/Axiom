@@ -67,6 +67,23 @@ filter="${1:-}"
 passed=0
 failed=0
 
+report_context() {
+  local name="$1" ec="$2" out="$3" dir="$4"
+  echo "    --- exit status: $ec"
+  if [[ -n "$out" ]]; then
+    echo "    --- stdout (first 10 lines):"
+    printf '%s\n' "$out" | head -10 | sed 's/^/        /'
+  else
+    echo "    --- stdout: empty"
+  fi
+  if [[ -s "$dir/$name.stderr" ]]; then
+    echo "    --- stderr in full (first 10 lines):"
+    head -10 "$dir/$name.stderr" | sed 's/^/        /'
+  else
+    echo "    --- stderr: empty"
+  fi
+}
+
 for case_file in tests/stdlib/*.ax; do
   name="$(basename "$case_file" .ax)"
   if [[ -n "$filter" && "$name" != "$filter"* ]]; then
@@ -81,6 +98,9 @@ for case_file in tests/stdlib/*.ax; do
 
   # Each case gets its own directory: some of them create files, and a
   # leftover from a previous case would make a failure look like a pass.
+# What a failing case ALSO knows: the status it exited with, what it
+# wrote to stdout, and the whole of its stderr. Bounded, because a case
+# that loops printing would otherwise bury the diff above it.
   case_dir="$work/$name"
   mkdir -p "$case_dir"
 
@@ -108,6 +128,14 @@ for case_file in tests/stdlib/*.ax; do
     if [[ "$(cat "$case_dir/$name.stderr.cmp")" != "$(cat "$expected_err")" ]]; then
       echo "FAIL $name (stderr)"
       diff "$expected_err" "$case_dir/$name.stderr.cmp" | sed 's/^/    /' || true
+      # AND THE TWO FACTS THAT SAY WHICH FAILURE THIS IS. A stderr diff
+      # alone cannot tell "the program printed the wrong sentence" from
+      # "the program never got there", and those want opposite fixes.
+      # It cost a CI round trip to find that out on a linux-aarch64-only
+      # failure whose whole report was two missing lines: the exit
+      # status and the stdout were both captured, three lines above,
+      # and neither was printed.
+      report_context "$name" "$actual_exit" "$actual_out" "$case_dir"
       failed=$((failed + 1))
       continue
     fi

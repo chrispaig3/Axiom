@@ -306,19 +306,23 @@ done
 #    at zero: run against a compiler that could not build these
 #    probes, every arm above went red and this one still printed
 #    "ok   vec_mapped holds 0 KiB at n=20000, inside the 4096 KiB
-#    ceiling" - a line that reads as evidence and was not. 512 KiB is
-#    below the 1 MiB chunk the allocator maps before it hands out a
-#    byte, so nothing that ran can be under it.
+#    ceiling" - a line that reads as evidence and was not.
+#
+#    64 KiB, and not the 512 the first draft carried, for the reason
+#    `check-steady-state.sh` records at its own floor: 512 was a darwin
+#    measurement standing in for a portable bound, and a Linux binary
+#    is freestanding with no dyld behind it. What a floor can honestly
+#    assert is that the instrument answered at all.
 for k in vec_mapped chain_freed; do
   r="$(rssof "${k}_${large}")"
-  if [[ "$r" -lt 512 ]]; then
-    echo "FAIL: $k measured ${r} KiB at n=$large, under the 512 KiB floor - that is not a running program"
+  if [[ "$r" -lt 64 ]]; then
+    echo "FAIL: $k measured ${r} KiB at n=$large, under the 64 KiB floor - that is not a running program"
     failed=1
   elif [[ "$r" -gt 4096 ]]; then
     echo "FAIL: $k holds ${r} KiB at n=$large, past the 4096 KiB ceiling"
     failed=1
   else
-    echo "ok   $k holds ${r} KiB at n=$large, inside 512..4096 KiB"
+    echo "ok   $k holds ${r} KiB at n=$large, inside 64..4096 KiB"
   fi
 done
 

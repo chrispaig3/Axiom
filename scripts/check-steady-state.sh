@@ -273,22 +273,32 @@ done
 
 # ------------------------------------------------------------------
 # 3. A FLOOR AND A CEILING, so that "flat" cannot mean "flat at zero"
-#    or "flat at 300 MB". 512 KiB is below the 1 MiB chunk the
-#    allocator maps before it hands out a byte; 4096 KiB is
-#    `check-container-reclaim.sh`'s ceiling, against the same
+#    or "flat at 300 MB". 4096 KiB is `check-container-reclaim.sh`'s
+#    ceiling, and `check-memory-baseline.sh`'s, against the same
 #    quantisation.
+#    A FLOOR AS WELL, because a ceiling alone is happiest at zero. It is
+#    64 KiB and not the 512 the first draft carried: 512 was a DARWIN
+#    MEASUREMENT being used as a portable bound, and a Linux binary is
+#    freestanding with no dyld and no libSystem behind it, so its
+#    baseline is smaller by an amount nothing here has measured. What a
+#    floor can honestly assert is that the instrument returned something
+#    rather than nothing - which two stronger checks above already do
+#    (a measurement of <= 0 is a hard fail, and the printed ANSWER says
+#    the work happened). 64 KiB is below any process that mapped a
+#    1 MiB arena and wrote a line to stdout, and far above the zero this
+#    exists to refuse.
 # ------------------------------------------------------------------
 for pair in "cache evicting" "aggregate owning"; do
   set -- $pair
   r="$(rssof "${1}_${2}_$large")"
-  if (( r < 512 )); then
-    echo "FAIL: $1/$2 measured ${r} KiB at n=$large, under the 512 KiB floor - that is not a running program"
+  if (( r < 64 )); then
+    echo "FAIL: $1/$2 measured ${r} KiB at n=$large, under the 64 KiB floor - that is not a running program"
     failed=1
   elif (( r > 4096 )); then
     echo "FAIL: $1/$2 holds ${r} KiB at n=$large, past the 4096 KiB ceiling"
     failed=1
   else
-    echo "ok   $1/$2 holds ${r} KiB at n=$large, inside 512..4096 KiB"
+    echo "ok   $1/$2 holds ${r} KiB at n=$large, inside 64..4096 KiB"
   fi
 done
 
