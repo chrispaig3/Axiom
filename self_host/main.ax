@@ -105,6 +105,44 @@
 ; A notice, rather than a refusal, because the flag is global: a
 ; script that sets it once for a run of mixed subcommands should not
 ; fail on this one.
+; The AXSYM table for `tc`, rendered and written to stdout.
+;
+; ONE renderer, called from both arms of the symbols command, because
+; the arms differ in what they say about the file and not in what the
+; symbols are. It was written out in the success arm only, which is how
+; the failure arm came to print nothing at all.
+;
+; AXSYM under `ai`, the aligned table under `human`, which is the
+; default - stage0's split, and the last of the three divergences the
+; self-hosting record kept OPEN. The table is derived from the AXSYM
+; text, so the two cannot disagree about what the symbols are.
+(pub :: symbolsEmit (-> Int Int String Int Int))
+
+(pub fn (symbolsEmit tc gens cmd dfmt)
+  {
+    symbolsFormatNotice
+    (let ((axsym 
+      (symbolsRenderGens
+        tc        (if (hasFlagAnywhere cmd "--builtins")
+          1
+          0
+        )        gens        (if (hasFlagAnywhere cmd "--calls")
+          1
+          0
+        )
+      )
+    ))
+      (replOut
+        (if (== dfmt FMT_HUMAN)
+          (symbolsHumanTable axsym)
+          axsym
+        )
+      )
+    )
+    0
+  }
+)
+
 (pub :: symbolsFormatNotice Int)
 
 ;@axiom:effect(io)
@@ -1369,7 +1407,37 @@
                                             (let ((tc (checkModuleTc decls allDecls units)))
                                               (let ((ds (orderDiags (expMergeInto eds (attachTcFrames tc ftbl units)))))
                                                 (if (> (countErrorDiags ds) 0)
+                                                  ; A SYMBOL TABLE IS A FACT ABOUT THE
+                                                  ; SOURCE, so it is printed here too.
+                                                  ;
+                                                  ; This used to print the diagnostics
+                                                  ; and exit with stdout EMPTY, which is
+                                                  ; the moment a reader most needs to see
+                                                  ; what the declarations are: the file is
+                                                  ; wrong and they are working out why.
+                                                  ; Every language server answers
+                                                  ; `documentSymbol` for a file that does
+                                                  ; not compile, and `tc` is already built
+                                                  ; by the line above - the table was
+                                                  ; being thrown away, not spared.
+                                                  ;
+                                                  ; `docs/agent-harness.md` §6 names this
+                                                  ; as the second of two reasons `AX3010`
+                                                  ; cannot be promoted to an error:
+                                                  ; making a wrong tag fatal would delete
+                                                  ; the AXSYM surface for exactly the
+                                                  ; files carrying one. It does not any
+                                                  ; more.
+                                                  ;
+                                                  ; THE EXIT STATUS DOES NOT MOVE. It is
+                                                  ; still 1, so
+                                                  ; `check-tools-selfhost.sh`'s
+                                                  ; equivalence - symbols exits 0 for
+                                                  ; exactly the files check exits 0 for -
+                                                  ; is untouched. What changed is stdout,
+                                                  ; which that check reads separately.
                                                   {
+                                                    (symbolsEmit tc gens cmd dfmt)
                                                     (writeStderrStr (renderDiagsFormat dfmt ds units))
                                                     (sysExitWith 1)
                                                     1
@@ -1379,34 +1447,7 @@
                                                       (writeStderrStr (renderDiagsFormat dfmt ds units))
                                                       0
                                                     )
-                                                    symbolsFormatNotice
-                                                    ; AXSYM under `ai`, the aligned
-                                                    ; table under `human`, which is
-                                                    ; the default - stage0's split,
-                                                    ; and the last of the three
-                                                    ; divergences the self-hosting
-                                                    ; recorded OPEN. The table is
-                                                    ; derived from the AXSYM text, so
-                                                    ; the two cannot disagree about
-                                                    ; what the symbols are.
-                                                    (let ((axsym 
-                                                      (symbolsRenderGens
-                                                        tc                                                        (if (hasFlagAnywhere cmd "--builtins")
-                                                          1
-                                                          0
-                                                        )                                                        gens                                                        (if (hasFlagAnywhere cmd "--calls")
-                                                          1
-                                                          0
-                                                        )
-                                                      )
-                                                    ))
-                                                      (replOut
-                                                        (if (== dfmt FMT_HUMAN)
-                                                          (symbolsHumanTable axsym)
-                                                          axsym
-                                                        )
-                                                      )
-                                                    )
+                                                    (symbolsEmit tc gens cmd dfmt)
                                                     0
                                                   }
                                                 )

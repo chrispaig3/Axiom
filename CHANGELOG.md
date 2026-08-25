@@ -18,6 +18,35 @@ its changelog too.
 
 ### Added
 
+- **`symbols` answers for a file that does not compile.** It printed
+  the diagnostics and exited with stdout **empty**, which is the moment
+  a reader most needs the declarations: the file is wrong and they are
+  working out why. `tc` is built by the line above the branch that
+  exited, so the table was being *thrown away*, not spared — and every
+  language server answers `documentSymbol` for a file that does not
+  compile.
+
+  Measured: a file with an undefined variable answered **0** symbol rows
+  and answers **3**. **The exit status does not move** — still 1 — so
+  `check-tools-selfhost.sh`'s equivalence (`symbols` exits 0 for exactly
+  the files `check` exits 0 for) is untouched; what changed is stdout,
+  which that sweep reads separately. A healthy file's output is
+  byte-identical.
+
+  One renderer serves both arms now (`symbolsEmit`). It was written out
+  in the success arm only, which is how the failure arm came to print
+  nothing at all.
+
+  **This was the second of the two reasons `docs/agent-harness.md` §6
+  gave for not promoting `AX3010` to an error** — "making the claim an
+  error deletes the AXSYM surface for the files that carry a wrong tag,
+  eight files in this repository's own corpus, one of them 196 symbol
+  lines". With the first closed earlier in this release, neither
+  objection stands, and promotion is a decision rather than a blocked
+  one. §6 records what it would buy and what it would not: it makes a
+  FALSE tag fatal; it does not make effects *checked*, because a tag is
+  opt-in and an untagged function performing IO still draws nothing.
+
 - **One of the two measured reasons `AX3010` could not become an error
   is gone.** `docs/agent-harness.md` §6 refused promotion on two
   grounds, and the first was that *"`pure` claim contradicted"* fires on

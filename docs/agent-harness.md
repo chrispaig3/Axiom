@@ -545,17 +545,29 @@ remains, a call the compiler cannot resolve, and it announces itself as
   is the equivalence "symbols exits 0 iff check exits 0" and the change
   moves both sides at once.
 
-  **What is left is the second reason alone**, and it is about tooling
-  rather than about the analysis. The way to remove it is to make
-  `symbols` emit its table alongside diagnostics rather than instead of
-  them: a symbol table is a fact about the SOURCE, every language server
-  answers `documentSymbol` for a file that does not compile, and this
-  one empties stdout. The exit status would not move, so
-  `check-tools-selfhost.sh`'s equivalence still holds. That is a change
-  to `main.ax`'s symbols path, not to the effect walk, and it is not
-  made here.
+  **The second reason closed the same day.** `symbols` emits its table
+  alongside the diagnostics now rather than instead of them: a symbol
+  table is a fact about the SOURCE, every language server answers
+  `documentSymbol` for a file that does not compile, and `tc` is built
+  before the branch that used to exit — the table was being thrown
+  away, not spared. The exit status did not move, so this section's own
+  equivalence (`symbols` exits 0 for exactly the files `check` does)
+  and the `check-tools-selfhost.sh` sweep that asserts it are both
+  untouched; what changed is stdout, which that sweep reads separately.
+  Measured: a file with an undefined variable answered **0** symbol
+  rows and answers **3**, at exit 1 either way, and a healthy file's
+  output is byte-identical.
 
-  Until then the severity stays, and the gate does the refusing:
+  **So neither recorded objection stands, and promoting `AX3010` is now
+  a decision rather than a blocked one.** What promotion would and would
+  not buy, stated plainly so the decision is made with it: it makes a
+  FALSE tag fatal. It does not make effects checked, because a tag is
+  opt-in and an untagged function performing IO still draws nothing.
+  The gap that leaves is the one **Effect rows in signatures** below
+  names, and this section's judgement on that is unchanged.
+
+  Until that decision is taken the severity stays, and the gate does
+  the refusing:
   `check-agent-policy.sh` is where a violated policy stops a build,
   which is §3.4's argument arriving a second time.
 
