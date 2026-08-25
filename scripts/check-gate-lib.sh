@@ -2,7 +2,7 @@
 # Assert that `gate_build_axc`'s cache cannot hide a change to the tree.
 #
 # WHY THIS GATE EXISTS AT ALL. `scripts/lib/gate.sh` is not a gate; it
-# is the preamble twenty-seven gates share, and `gate_build_axc` is the
+# is the preamble twenty-eight gates share, and `gate_build_axc` is the
 # line in it that makes those twenty-six test the compiler in the
 # WORKING TREE rather than whatever binary happens to be on disk. Its
 # own comment says so: building from `self_host/` "is also what makes
@@ -13,7 +13,7 @@
 # 60,881 lines was about sixteen minutes of every CI run, measured on
 # all three legs. An environment variable naming a prebuilt compiler is
 # EXACTLY the shape that deletes the property above, silently, in every
-# one of those twenty-seven gates at once - and the failure would look like
+# one of those twenty-eight gates at once - and the failure would look like
 # green CI, which is the worst way for a gate to be wrong.
 #
 # So the cache is content-addressed: `$AXIOM_AXC` is used only when
@@ -335,9 +335,19 @@ done
 # comment you are reading spelled a stale count out as an example, and
 # the check refused the file it lives in. A gate that catches its own
 # author is a gate that can fail.
+#
+# THE SWEEP COVERS `word_for`'s WHOLE DOMAIN, and until 2026-08-25 it
+# covered `fifteen`..`twenty` while the live word was `twenty-seven`.
+# So the arm that exists to refuse a stale count could not refuse the
+# stale counts that were actually reachable - every spelling from
+# `twenty-one` up was invisible to it, which is the range the last four
+# count moves have all been in. A check whose domain excludes the cases
+# it is for is this repository's most common defect, standing in the
+# file whose subject is that defect.
 for site in "${count_sites[@]}" scripts/bootstrap-from-seed.sh; do
   [[ -f "$repo_root/$site" ]] || continue
-  for w in fifteen sixteen seventeen eighteen nineteen twenty; do
+  for n in $(seq 15 30); do
+    w="$(word_for "$n")"
     [[ "$w" == "$want" ]] && continue
     checks=$((checks + 1))
     if grep -qiE "\b$w (of the )?gates" "$repo_root/$site"; then
@@ -355,6 +365,6 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-gate-lib: $checks checks - the shared artifact is used only when it"
-echo "                was built from the tree as it stands, so twenty-seven gates"
+echo "                was built from the tree as it stands, so twenty-eight gates"
 echo "                still see an ablation of self_host/, and a path that names"
 echo "                no build product is refused rather than ignored"

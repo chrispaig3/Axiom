@@ -560,6 +560,16 @@ and a recovery point is not a substitute for one: `ERR-REC-5`'s
 obligation applies to a status recovered here exactly as it does to an
 `Err` arriving at a `match`.
 
+**Its first consumer is `axiom test`.** A test runner needs exactly
+what this mechanism gives and nothing more: one failure ends one unit
+of work and the process carries on. So `axiom test` arms one recovery
+point per test and reports the status it answers with — 70, 71 or 72 —
+and `stdlib/Test.ax` makes a failed assertion an unhandled operation of
+an `Assert` effect, which is 71 by the row above rather than by any new
+machinery. Measured on `tests/testrunner/mixed-tests.ax`: a suite that
+fails in three of these ways still reports the test declared after all
+three (`scripts/check-test-runner.sh`).
+
 **A program that never arms one pays nothing.** The mechanism's only
 mutable state is a single global that the arm site alone writes, so with
 no arm site anywhere `opt` folds the load in the abort to the

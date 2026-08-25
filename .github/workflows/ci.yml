@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Twenty-seven of the gates below build the compiler under test from
+    # Twenty-eight of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -245,6 +245,21 @@ jobs:
       # the reason it was kept alive alongside that suite for so long.
       - name: Standard-library golden tests
         run: ./scripts/run-stdlib-tests.sh
+
+      # `axiom test` - the runner and the assertions a stranger writes
+      # their own tests with. It sits beside the goldens above rather
+      # than replacing them: the goldens pin a whole program's output
+      # byte for byte, which is the right shape for a fixture whose
+      # subject IS what it printed, and no assertion library replaces
+      # that. What this adds is the shape those goldens cannot express -
+      # a failure that names itself, and a run that carries on past one.
+      #
+      # Its negative probe is the part worth the cycles: every
+      # `assertEq` in the passing fixture is mutated in turn and each
+      # mutant must exit 1 with a FAIL line. A test runner whose tests
+      # cannot fail is the exact defect a test runner is for.
+      - name: The test runner, its assertions and their isolation
+        run: ./scripts/check-test-runner.sh
 
       # The acceptance measurement for the socket work, and the only gate
       # here whose subject is MEMORY rather than an answer: a pre-forked

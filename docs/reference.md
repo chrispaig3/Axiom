@@ -1769,7 +1769,7 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 | `Map` | `mapNew`, `mapNewRefVals`, `mapWithCapacity`, `mapWithCapacityRefVals`, `mapFree`, `mapHas`, `mapGet`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapUsed` (open-addressing `Int→Int` hash map) |
 | `Fmt` | `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth` — the functions a format specifier selects |
 | `Show` | the `Show` trait and its `show` method (`Int`, `String`, `Bool`, `Float`), and the `format` macro |
-| `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try`, `toOption`, `withContext`, and the checked arithmetic `divChecked`, `remChecked`, `shlChecked`, `shrChecked` ([error-model.md](error-model.md) is the specification) |
+| `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try!`, `toOption`, `withContext`, and the checked arithmetic `divChecked`, `remChecked`, `shlChecked`, `shrChecked` ([error-model.md](error-model.md) is the specification) |
 | `Intern` | `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
 | `Sys` | `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`; the filesystem (below); and the process layer `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros` |
 | `Path` | `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute`, `pathLastSlash`, `pathExtIndex` — decisions about bytes, no syscalls |
@@ -1778,6 +1778,7 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them — written for JSON-RPC |
 | `Rpc` | the LSP base protocol's framing over a file descriptor: `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled` |
 | `Job` | `jobRunAll` — a bounded pool of child processes, joined in submit order |
+| `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs — what `axiom test` discovers and isolates ([error-model.md](error-model.md) ERR-REC-6) |
 | `Agent.Tags` | `axsymParse`, `axsymLine`, and the accessors over one parsed line: `symTag`, `symHasTag`, `symEffects`, `symDerivedPure`, `symAgentTag`, `symHasAgentTag`. Reads the AXSYM stream rather than the compiler's internals ([agent-harness.md](agent-harness.md) §3.2) |
 
 ### The Filesystem

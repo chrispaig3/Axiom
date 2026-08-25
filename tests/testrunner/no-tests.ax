@@ -1,0 +1,8 @@
+; A file with no test in it. `axiom test` must FAIL here rather than
+; report an empty success: a suite that runs nothing and says nothing
+; is the failure mode a runner exists to prevent.
+(import Str)
+
+(:: helper (-> Int Int))
+
+(pub fn (helper x) (+ x 1))

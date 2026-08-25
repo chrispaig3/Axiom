@@ -1,0 +1,13 @@
+; A `test`-named function that takes a parameter. `axiom test` must
+; REFUSE this file by name rather than skip the function: a skipped
+; test reads exactly like a passing one.
+(import Test)
+
+(:: testFixture (-> Int Int))
+
+(fn (testFixture n) (* n 2))
+
+(:: testUsesTheFixture Int)
+
+;@axiom:effect(io)
+(fn (testUsesTheFixture) (assertEq "doubled" 8 (testFixture 4)))

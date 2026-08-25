@@ -1,4 +1,9 @@
 appendFile IO.ax Alloc,IO
+assertEq Test.ax Alloc,Assert,IO
+assertFalse Test.ax Alloc,Assert,IO
+assertNe Test.ax Alloc,Assert,IO
+assertStrEq Test.ax Alloc,Assert,IO
+assertTrue Test.ax Alloc,Assert,IO
 axsymBuild Tags.ax Alloc
 axsymLine Tags.ax Alloc
 axsymMeta Tags.ax Alloc
@@ -196,6 +201,7 @@ sysWaitPid Sys.ax Alloc,IO
 sysWriteAllFd Sys.ax IO
 sysWriteFd Sys.ax IO
 sysWriteFile Sys.ax IO
+testFail Test.ax Alloc,Assert,IO
 utf8FromChar Utf8.ax Alloc
 utf8Slice Utf8.ax Alloc
 vecBuild Vec.ax Alloc

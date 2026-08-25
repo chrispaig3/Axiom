@@ -1,0 +1,48 @@
+; The suite that proves ISOLATION: each of the four ways an Axiom
+; program can stop without returning ends ONE test, and the tests
+; declared after it still run.
+;
+; Read the golden beside this file as the claim. Three of these five
+; fail, and the two that pass are the first and the LAST - so a
+; runner that stopped at the first failure, or that let a trap take
+; the process, would lose the fifth line rather than merely reorder
+; the report.
+(import Test)
+
+(:: testTheFirstOnePasses Int)
+
+;@axiom:effect(io)
+(fn (testTheFirstOnePasses) (assertEq "arithmetic" 4 (+ 2 2)))
+
+; A failed assertion is an unhandled `Assert` operation: status 71,
+; and nothing after it in this function runs. `testFail` below it
+; would print a line of its own if it did.
+(:: testAFailedAssertionEndsTheTest Int)
+
+;@axiom:effect(io)
+(fn (testAFailedAssertionEndsTheTest)
+  {
+    (assertEq "deliberate" 3 4)
+    (testFail "unreachable: the assertion above ends this test")
+  }
+)
+
+; A division by zero is the trap ERR-REC-6 gives status 72.
+(:: testADivisionByZeroIsContained Int)
+
+(fn (testADivisionByZeroIsContained) (/ 1 (- 1 1)))
+
+; An effect the program declares itself, performed with no handler in
+; dynamic extent: status 71, by the same mechanism a failed assertion
+; uses and with no `Assert` anywhere near it.
+(effect Console
+  (say :: (-> String Int)))
+
+(:: testAnUnhandledEffectIsContained Int)
+
+(fn (testAnUnhandledEffectIsContained) (say "nobody is listening"))
+
+(:: testTheLastOneStillRuns Int)
+
+;@axiom:effect(io)
+(fn (testTheLastOneStillRuns) (assertTrue "the run continued" true))

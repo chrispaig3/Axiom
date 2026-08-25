@@ -1,0 +1,168 @@
+; Test - assertions, and the effect an assertion failure raises.
+;
+; WHAT AN ASSERTION IS HERE. A failing assertion is programmer error,
+; which `docs/error-model.md` puts in exactly one of its three classes:
+; not expected failure (that is `Result`, `ERR-TYPE-1`), and not a
+; memory-safety fault (no language contains one). Programmer error is
+; the only class an in-process abort can serve, and since 2026-08-24
+; there is a mechanism for it - `ERR-REC-6`'s recovery point. So a
+; failing assertion does not set a flag, does not return a status the
+; caller has to thread, and does not exit: it PERFORMS an operation of
+; the `Assert` effect, and with no handler in dynamic extent that is
+; the unhandled-effect trap, which answers the nearest recovery point
+; with 71 and stops the program when there is none.
+;
+; That single decision is what makes `axiom test` a runner rather than
+; a convention:
+;
+;   - Inside a test, the first failed assertion ENDS the test. Nothing
+;     after it runs, so a test cannot report a second, derived failure
+;     that only exists because the first one left the world wrong.
+;   - The runner arms one recovery point per test (`main` as `axiom
+;     test` generates it), so one failing test does not end the run.
+;   - A test that traps for any OTHER reason - out of memory, a
+;     division by zero - lands in the same place with a different
+;     status, so the runner reports it as a failure rather than dying.
+;     Measured while this module was written: a test whose body is
+;     `(/ 1 (- 1 1))` is reported `FAIL ... (status 72)` and the three
+;     tests around it still run.
+;   - Outside a runner an assertion is still live. `axiom run` on a
+;     file with a bare failing assertion prints the detail, then
+;     `axiom: unhandled effect` on fd 2, and exits 71.
+;
+; The detail line is printed BEFORE the operation is performed, and on
+; stdout rather than stderr. Before, because the abort does not return
+; and nothing runs on the way out (`ERR-REC-6`) - a detail printed
+; "after" would never be printed at all. On stdout, because the
+; runner's own `ok`/`FAIL` lines are there and a reader wants one
+; ordered stream rather than two that a pipe may interleave.
+;
+; WHY EVERY ASSERTION TAKES A LABEL. `(assertEq want got)` with the
+; expression text recovered from the source is what a macro would give
+; in a language whose macros can stringify an arbitrary form. Axiom's
+; cannot - `syntax/name` names an identifier, and there is no
+; `syntax/text` (`macro-system.md` MAC-CAP-7) - so the choice is an
+; explicit label or a failure that says only "want 3, got 4" with
+; nothing to say WHERE. The label is the honest half.
+;
+; WHY THE COMPARISONS ARE MONOMORPHIC. `(:: assertEq (-> String a a
+; Int))` would type-check and could not print its operands: `println`
+; is a macro over `show`, whose implementation is keyed on a type NAME
+; (`AX3025`), so a type variable has no instance to select. One
+; function per printable type is the same trade `Show` already makes.
+(import IO)
+
+(import Str)
+
+; The effect a failed assertion performs.
+;
+; Declared without `pub` because an `effect` is exported
+; unconditionally - it is the one exception to the `pub` rule
+; (reference.md, Modules). An importer calls `assertFail` without
+; naming it in an import list, which is what makes the assertions
+; below usable from a test file that imports only `Test`.
+;
+; The operation answers `Int` and no handler here ever returns one.
+; A program MAY install a handler - `(handle BODY (Assert) (lambda (s)
+; 0))` turns every failed assertion into a value and lets the test
+; carry on - and that is a deliberate escape for a test whose whole
+; subject is a failing assertion. `tests/tools/` uses it.
+(effect Assert
+  (assertFail :: (-> String Int)))
+
+; ------------------------------------------------------------------
+; The assertions
+; ------------------------------------------------------------------
+; `want` and `got` are in that order in every one of these, and the
+; message says which is which, because the commonest way to misread a
+; failure is to read the two numbers the wrong way round.
+; Two `Int`s are equal.
+(pub :: assertEq (-> String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (assertEq label want got)
+  (if (== want got)
+    0
+    {
+      (println "     {label}: want {want}, got {got}")
+      (assertFail label)
+    }
+  )
+)
+
+; Two `Int`s are not equal - for the property that a value CHANGED,
+; where naming what it changed to would pin something the test does
+; not mean to pin.
+(pub :: assertNe (-> String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (assertNe label unwanted got)
+  (if (!= unwanted got)
+    0
+    {
+      (println "     {label}: want anything but {unwanted}, got it")
+      (assertFail label)
+    }
+  )
+)
+
+; Two `String`s are equal, by bytes.
+(pub :: assertStrEq (-> String String String Int))
+
+;@axiom:effect(io)
+(pub fn (assertStrEq label want got)
+  (if (strEq want got)
+    0
+    {
+      (println "     {label}: want \"{want}\", got \"{got}\"")
+      (assertFail label)
+    }
+  )
+)
+
+; A `Bool` is true.
+(pub :: assertTrue (-> String Bool Int))
+
+;@axiom:effect(io)
+(pub fn (assertTrue label b)
+  (if b
+    0
+    {
+      (println "     {label}: want true, got false")
+      (assertFail label)
+    }
+  )
+)
+
+; A `Bool` is false. Not `(assertTrue label (! b))`, because Axiom has
+; no `!` and `(== b false)` at the call site is what this exists to
+; keep out of the test.
+(pub :: assertFalse (-> String Bool Int))
+
+;@axiom:effect(io)
+(pub fn (assertFalse label b)
+  (if b
+    {
+      (println "     {label}: want false, got true")
+      (assertFail label)
+    }
+    0
+  )
+)
+
+; Fail unconditionally: the branch that must not be reached, and the
+; case a test has not written yet. `(testFail "todo: the empty input")`
+; reads as a failure rather than as a passing test with nothing in it,
+; which is what an empty test body is.
+;
+; Spelled `testFail` and not `fail` because `fail` is a name a test
+; file is likely to want for its own subject.
+(pub :: testFail (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (testFail label)
+  {
+    (println "     {label}")
+    (assertFail label)
+  }
+)

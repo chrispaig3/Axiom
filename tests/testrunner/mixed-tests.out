@@ -1,0 +1,8 @@
+ok   testTheFirstOnePasses
+     deliberate: want 3, got 4
+FAIL testAFailedAssertionEndsTheTest - a failed assertion, or an unhandled effect (status 71)
+FAIL testADivisionByZeroIsContained - division by zero (status 72)
+FAIL testAnUnhandledEffectIsContained - a failed assertion, or an unhandled effect (status 71)
+ok   testTheLastOneStillRuns
+
+5 test(s), 3 failed

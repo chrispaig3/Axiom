@@ -18,6 +18,34 @@ its changelog too.
 
 ### Added
 
+- **`axiom test`, and assertions to write tests with.** A test is a
+  top-level function whose name begins with `test` and which takes no
+  parameters; the runner appends a `main` to the file's own bytes and
+  arms one recovery point per test, so a failed assertion, an unhandled
+  effect, an allocation failure and a division by zero each end ONE
+  test and answer with a status (`docs/error-model.md` `ERR-REC-6` —
+  this is that mechanism's first consumer, and it needed no new
+  machinery). `stdlib/Test.ax` is the assertion surface: `assertEq`,
+  `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`,
+  and the `Assert` effect a failed one performs.
+
+  Nothing is skipped in silence, which is a runner's characteristic
+  defect: a file that declares no test is a failure rather than an
+  empty success, and a `test`-named function that takes parameters is
+  refused by name rather than passed over. The `;@axiom:test` AXTAG was
+  tried first and refused for the same reason — a tag above the `::`
+  signature is dropped when the `fn` carries one of its own, so
+  `symbols` reports `#effect=io` and no `#test` at all (probed
+  2026-08-25), and a test that vanishes because its tag sat one
+  declaration too high reads exactly like a passing one.
+
+  `scripts/check-test-runner.sh` is the gate, and its negative probe is
+  the part worth the cycles: every `assertEq` in the passing fixture is
+  mutated in turn and each mutant must exit 1 with a `FAIL` line — five
+  observed red. It also checks the report against a list `grep` derives
+  from the fixture's own bytes, so a runner that ran four of five tests
+  fails against a source outside the compiler.
+
 - **The containers own what they hold, and can be freed.** The shape
   word gained an **array form** — one bit saying every payload word of a
   block is a handle — which is the only encoding that can describe an
@@ -181,7 +209,7 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty-seven gates
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty-eight gates
   rebuild the same compiler; now one step builds it, and builds it
   twice to measure that the artifact emits the same IR as a fresh
   build. (Not the same *bytes*: the macOS linker stamps a UUID into
@@ -252,7 +280,8 @@ These are measured, not suspected. They are why this is `0.2.0`.
   §1.2 says to count them: `grep -cE "errno|sentinel|\(- 0 1\)"` across
   `stdlib/*.ax`.
 - **No `axiom test`.** There is no test runner a consumer can use
-  outside this repository.
+  outside this repository. (True of `0.2.0`, and closed after it — see
+  Unreleased.)
 - **No package management.** Dependencies are `$AXIOM_PATH`, a
   colon-separated environment variable. No manifest, lockfile or
   registry.

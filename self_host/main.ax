@@ -13,6 +13,11 @@
 
 (import Path)
 
+; Only these two. `IO` also exports `die`, and `main.ax` declares its
+; own - a whole-module import would make the name ambiguous in the
+; one file that uses it most.
+(import IO (listDir isDir))
+
 (import lexer)
 
 (import parser)
@@ -657,6 +662,391 @@
 ; the filesystem: a first operand that cannot be read AND is within one
 ; edit of a subcommand is a typo, not a file. A name that is neither
 ; keeps the old answer, which for the legacy grammar is the right one.
+; ------------------------------------------------------------------
+; `axiom test`
+; ------------------------------------------------------------------
+; WHAT A TEST IS. A top-level function whose name begins with `test`
+; and which takes no parameters. Nothing else - no attribute, no
+; registration call, no manifest.
+;
+; THE AXTAG SPELLING WAS TRIED FIRST AND REFUSED, and the reason is
+; measured rather than argued. `;@axiom:test` is already a valid,
+; silent, `fmt`-stable annotation that `axiom symbols` renders as
+; `#test`, so it looked like the mechanism this repository would
+; reach for. But an AXTAG attaches to the declaration group, and a
+; test is normally two of them - a `::` signature and a `fn` - each
+; with its own tag set. `symbols.ax`'s `smTags` keeps the LAST
+; NON-EMPTY set, so
+;
+;     ;@axiom:test
+;     (:: testOne Int)
+;
+;     ;@axiom:effect(io)
+;     (fn (testOne) ...)
+;
+; reports `#effect=io` and no `#test` at all - probed on 2026-08-25,
+; both spellings, and the tag is present only when the two are
+; stacked above the `fn`. A test that vanishes because its tag sits
+; one declaration too high is a silently skipped test, which reads
+; exactly like a passing one. A name cannot be attached to the wrong
+; half of anything.
+;
+; SO NOTHING IS SKIPPED IN SILENCE. The one way the name rule could
+; skip something is a `test`-named function that takes parameters -
+; a fixture builder called `testData`, say - and that is REFUSED,
+; naming the function and its arity, rather than passed over. The
+; runner's other half of the same rule is that a file with no tests
+; is a failure, not an empty success.
+;
+; HOW A TEST IS ISOLATED. `axiom test` appends a `main` to the file's
+; own bytes and compiles the result. That `main` arms one recovery
+; point per test (`docs/error-model.md` ERR-REC-6), so every way an
+; Axiom program can stop without returning - a failed assertion,
+; which is an unhandled `Assert` operation; an unhandled effect of
+; the program's own; an allocation that failed; a division by zero -
+; ends ONE test and answers the runner with a status. Measured while
+; this was written: a test whose body is `(/ 1 (- 1 1))` reports
+; `FAIL ... (status 72)` and the tests on either side of it still
+; run.
+;
+; The generated text is APPENDED, never inserted, so every line and
+; column in the file keeps its number and a diagnostic from the build
+; points where it would have pointed. What appending cannot keep is
+; the file NAME, so the file is CHECKED first, under its own path,
+; and the generated driver is built only for a file that has already
+; checked clean. The cost is that a file carrying a warning reports
+; it twice - once from the check that gives it the right path, once
+; from the build - and that is the trade taken deliberately: a
+; warning printed twice is a nuisance, an error pointing at a file
+; the author never wrote is a bug report.
+; Does `hay` contain `needle`? `Str` has no `strContains` and this is
+; the only caller in the tree, so it lives here rather than widening
+; a standard-library surface three documents would have to describe.
+(pub :: testContains (-> String String Bool))
+
+(pub fn (testContains hay needle)
+  (let (
+    (n (strLen hay))
+    (m (strLen needle))
+  )
+    (if (== m 0)
+      true
+      ; The match ends the loop by moving the index past its own
+      ; bound rather than by negating `found`: Axiom has no `!`,
+      ; and `(== found false)` is a comparison of `Bool` against
+      ; `Bool` where `==` wants `Int`.
+      (let (
+        (mut i 0)
+        (mut found false)
+      )
+        {
+          (while (<= (+ i m) n)
+            {
+              (if (strEq (strSlice hay i m) needle)
+                {
+                  (set found true)
+                  (set i n)
+                }
+                0
+              )
+              (set i (+ i 1))
+            })
+          found
+        }
+      )
+    )
+  )
+)
+
+; How many parameters a declaration takes, where a `fn` with none has
+; an empty list and a node that is not a `fn` has no list at all.
+(pub :: testArity (-> Int Int))
+
+(pub fn (testArity d)
+  (let ((p (nodeB d)))
+    (if (== p 0)
+      0
+      (vecLen p)
+    )
+  )
+)
+
+; The tests in `decls`, in declaration order, refusing a `test`-named
+; function that takes parameters.
+;
+; Declaration order rather than sorted, because a file is read top to
+; bottom and a report that reorders makes the reader find each test
+; twice.
+(pub :: testCollect (-> Int String String Int))
+
+;@axiom:effect(io)
+(pub fn (testCollect decls file filter)
+  (let (
+    (out vecNew)
+    (n (vecLen decls))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            (if (&& (== (nodeTag d) TAG_D_FN) (strStartsWith (nodeAName d) "test"))
+              (if (> (testArity d) 0)
+                (die (cat4 (cat3 "error: " file " declares `") (nodeAName d) (cat3 "`, which begins with `test` and takes " (decStr (testArity d)) " parameter(s).\n") "       A test takes none, so this one would never be run. Rename it,\n       or give it no parameters.\n") 1)
+                (if (testContains (nodeAName d) filter)
+                  (vecPush
+                    out                    (cast Int (nodeAName d))
+                  )
+                  0
+                )
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; One `set failed ...` line per test: the report of running it inside
+; its own recovery point.
+;
+; THE BRACES ARE NOT ESCAPED HERE, and that is worth stating because
+; the first version of this escaped them all. A `{` is a HOLE only in
+; a string that reaches `println` or `format`; these literals reach
+; `strConcat`, so their bytes are data and a brace is a brace.
+; Doubling them compiled, ran, and printed `ok   {name}` five times -
+; the generated program was emitting the hole syntax instead of
+; interpolating it.
+(pub :: testCallLines (-> Int String))
+
+(pub fn (testCallLines names)
+  (let (
+    (n (vecLen names))
+    (mut out "")
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((name (vecGetStr names i)))
+          {
+            (set out (cat4 out "      (set failed (+ failed (axiomTestReport \"" name (cat3 "\" (__axiom_recover __axiom_arena_mark (lambda (__axiomTestArg) { " name " 0 })))))\n")))
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; The source `axiom test` compiles: the file's own bytes, then a
+; `main` that runs each test inside its own recovery point.
+;
+; `axiomTestWhy` translates the status the recovery point answers
+; with. The three numbers are ERR-REC-6's, spelled out here rather
+; than imported, because the generated module must import nothing the
+; file under test does not already have - `IO` is the one exception,
+; and importing a module twice is not an error.
+(pub :: testDriverText (-> String Int String))
+
+(pub fn (testDriverText src names) (cat4 src "\n; -----------------------------------------------------------------\n; Generated by `axiom test`. Everything above this line is the file\n; under test, byte for byte, so every line number is its own.\n; -----------------------------------------------------------------\n(import IO)\n\n(:: axiomTestWhy (-> Int String))\n\n(fn (axiomTestWhy status)\n  (if (== status 70)\n    \"out of memory\"\n    (if (== status 71)\n      \"a failed assertion, or an unhandled effect\"\n      (if (== status 72)\n        \"division by zero\"\n        \"an abort\"\n      )\n    )\n  )\n)\n\n(:: axiomTestReport (-> String Int Int))\n\n;@axiom:effect(io)\n(fn (axiomTestReport name status)\n  (if (== status 0)\n    {\n      (println \"ok   {name}\")\n      0\n    }\n    (let ((why (axiomTestWhy status)))\n      {\n        (println \"FAIL {name} - {why} (status {status})\")\n        1\n      }\n    )\n  )\n)\n\n(:: main Int)\n\n;@axiom:effect(io)\n(fn (main)\n  (let ((mut failed 0))\n    {\n" (testCallLines names) (cat3 "      (println \"\")\n      (println \"" (decStr (vecLen names)) " test(s), {failed} failed\")\n      (if (> failed 0)\n        1\n        0\n      )\n    }\n  )\n)\n")))
+
+; argv for the test program: its own name and nothing else. `test`
+; forwards nothing, because its operand may be a DIRECTORY and there
+; would be no one program to forward to.
+;
+; A RAW BLOCK, not a `Vec`, because that is what `sysRunPath` passes
+; to `execve`: a NUL-terminated array of C string addresses. Built as
+; a `Vec` of `Str` handles first, this compiled, type-checked and ran
+; - and `execve` read the vector header as its first argument
+; pointer, failed, and `test` exited 4 with nothing on either stream.
+; `runArgv` beside it has the shape this must have.
+(pub :: testArgv (-> String Int))
+
+(pub fn (testArgv name)
+  (let ((v (memAlloc (* 2 8))))
+    {
+      (memSetWord v 0 (strCStr (strDup name)))
+      (memSetWord v 1 0)
+      v
+    }
+  )
+)
+
+; Run one file's tests, answering the number of failures - or 1 for a
+; file that declares none, which is a failure and not an empty pass.
+;
+; The generated driver is written BESIDE the file under test, because
+; an `(import M)` in it resolves against the entry file's own
+; directory first (README, Modules): a driver compiled from a scratch
+; directory could not find a module the file next to it imports. The
+; name carries this process's pid for the reason `run` and `replEval`
+; carry theirs - so two concurrent runs cannot collide - and it is
+; unlinked on every path out, including the one where the build
+; fails.
+(pub :: testRunFile (-> String String Int))
+
+;@axiom:effect(io)
+(pub fn (testRunFile file filter)
+  (let ((rerr (sourceReadErrno file)))
+    (if (!= rerr 0)
+      {
+        (die (readFailMsg file rerr) 1)
+        1
+      }
+      ; The check comes first so a diagnostic names the file the
+      ; author wrote. It exits on any error, exactly as `check` does.
+      (let (
+        (_chk (compileFile file (targetArg hostTarget) 0 0))
+        (src (sysReadFile (strData file)))
+      )
+        (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+          (if (== (memGetWord pr 0) 0)
+            {
+              (die "compilation failed due to a syntax error\n" 1)
+              1
+            }
+            (let ((names (testCollect (memGetWord pr 1) file filter)))
+              (if (== (vecLen names) 0)
+                {
+                  (writeStderrStr (cat3 "axiom test: " file " declares no test\n"))
+                  1
+                }
+                (let (
+                  (gen (pathJoin (pathDir file) (cat3 ".axiom-test." (decStr sysGetPid) ".ax")))
+                  (text (testDriverText src names))
+                )
+                  (if (< (sysWriteFile (strCStr gen) text) 0)
+                    {
+                      (die (cat3 "error: could not write the generated test driver to '" gen "'\n") 4)
+                      1
+                    }
+                    (let ((ir (compileFile gen hostTarget 1 1)))
+                      (let ((base (cat2 "axiom_test_output." (decStr sysGetPid))))
+                        (let ((exe (cat2 "./" base)))
+                          (let ((rc (buildToExecutable
+                            ir                            base                            optLevelArg                            0                            (effectiveLinkArgs ir linkArgsOf)
+                          )))
+                            {
+                              (sysUnlink (strCStr gen))
+                              (if (!= rc 0)
+                                {
+                                  (die "" rc)
+                                  1
+                                }
+                                (let ((code (sysRunPath exe (testArgv exe) sysEnvp)))
+                                  {
+                                    (sysUnlink (strCStr exe))
+                                    (if (< code 0)
+                                      4
+                                      code
+                                    )
+                                  }
+                                )
+                              )
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Every `.ax` file directly inside `dir`, in `listDir`'s order, which
+; is sorted - so a directory run reports the same order everywhere,
+; and the generated drivers a previous run left behind are skipped by
+; name rather than compiled as tests of their own.
+(pub :: testFilesIn (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (testFilesIn dir)
+  (let (
+    (entries (listDir dir))
+    (out vecNew)
+    (n (vecLen entries))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((name (vecGetStr entries i)))
+          {
+            (if (&&
+              (strEq (pathExt name) ".ax")              (if (strStartsWith name ".axiom-test.")
+                false
+                true
+              )
+            )
+              (vecPush
+                out                (cast Int (pathJoin dir name))
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; The subcommand: one file, or every `.ax` file directly inside one
+; directory.
+(pub :: testMain Int)
+
+;@axiom:effect(io)
+(pub fn (testMain)
+  (let (
+    (target (positionalFrom operandStart))
+    (filter (flagValue "--filter" 1))
+  )
+    (if (== (strLen target) 0)
+      (die "error: test needs a file or a directory\n" 1)
+      (if (isDir target)
+        (let ((files (testFilesIn target)))
+          (if (== (vecLen files) 0)
+            (die (cat3 "error: no `.ax` file in " target "\n") 1)
+            (let (
+              (n (vecLen files))
+              (mut i 0)
+              (mut bad 0)
+            )
+              {
+                (while (< i n)
+                  (let ((f (vecGetStr files i)))
+                    {
+                      (replOut (cat3 "== " f " ==\n"))
+                      (if (!= (testRunFile f filter) 0)
+                        (set bad (+ bad 1))
+                        0
+                      )
+                      (set i (+ i 1))
+                    }
+                  ))
+                (replOut (cat4 "\n" (decStr n) " file(s), " (cat3 (decStr bad) " with a failing test" "\n")))
+                (if (> bad 0)
+                  1
+                  0
+                )
+              }
+            )
+          )
+        )
+        (testRunFile target filter)
+      )
+    )
+  )
+)
+
 (pub :: rejectTypoedSubcommand Int)
 
 ;@axiom:effect(io)
@@ -1152,7 +1542,14 @@
                             )
                           )
                         )
-                        (die "error: unknown subcommand\n" 1)
+                        (if (strEq cmd "test")
+                          ; `test` sits beside `run` because it is one:
+                          ; it compiles a program and executes it. What
+                          ; it does not share is `run`'s argument
+                          ; forwarding - see `testArgv`.
+                          testMain
+                          (die "error: unknown subcommand\n" 1)
+                        )
                       )
                     )
                   )

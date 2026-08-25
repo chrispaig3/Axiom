@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 494 `.ax` files in the repository apart from the two named below,
+the 499 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -299,7 +299,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the twenty-seven gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim twenty-seven gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the twenty-eight gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim twenty-eight gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-version.sh` | every place the project states its own version says what `VERSION` says, counted per site, and the built compiler prints it too |
 | `check-net.sh` | a request handler bracketed as an arena scope holds worker RSS flat across ten thousand connections, against a floor of 50x over the same binary unscoped |
@@ -309,6 +309,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-type-namespace.sh` | a type name means what its own module says it means, whatever the import order - and finding out which declaration that is costs a bucket rather than a scan, which is why the semantics and the index landed together |
 | `check-recover.sh` | each of the three traps recovers inside a recovery point and still stops the process outside one, at four optimisation levels, and 100,000 aborts do not grow memory - paired with an ablated twin that must grow, and with a `handle` inside every aborted extent because the retain it abandons is the one thing the arena's wholesale reclaim does not cover |
 | `check-container-reclaim.sh` | the reset-FREE half of the memory story: containers built and dropped in a loop must not grow. Each probe ships in two spellings one word apart and the gate asserts they DISAGREE by more than 5x, so it cannot pass on a broken instrument |
+| `check-test-runner.sh` | `axiom test`: that a passing suite passes, that every test declared is a test reported - against a list `grep` derives from the fixture's own bytes - and that one failure ends one test and no other. Its negative probe mutates every `assertEq` in the passing fixture in turn and requires each mutant to exit 1 with a `FAIL` line, because a test runner whose tests cannot fail is the defect a test runner exists to prevent |
 | `check-steady-state.sh` | the acceptance measurement above that one, and P3 stated so it can be falsified: a bounded LIVE SET has bounded memory in a process that frees no container and resets no arena. Three magnitudes, because a plateau is what tells steady state from a slope |
 
 The rest of `scripts/` is not a CI step. `ci.yml` is the authority on
@@ -516,7 +517,12 @@ primitives. When adding a new stdlib function:
    `foreign` is not that feature under an old name and stays refused at
    `AX2004`.
 6. **Add a golden test** in `tests/stdlib/` with the `.ax` source and
-   `.out` expected output.
+   `.out` expected output — or a `test`-named function `axiom test`
+   discovers, if what you want to assert is a value rather than a
+   program's whole output. The two are for different things and both
+   are gated: a golden pins every byte a program wrote, and an
+   assertion names the one fact that was wrong. See
+   [Testing](README.md#testing).
 7. **Update the module table** in `README.md` and `docs/reference.md`.
 
 ### Example: adding a new IO function

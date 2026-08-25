@@ -514,7 +514,7 @@ fi
 
 # ---------------------------------------------------------------
 # Help, from anywhere, on stdout, exit 0.
-for c in build check run emit-llvm fmt explain symbols repl lsp; do
+for c in build check run test emit-llvm fmt explain symbols repl lsp; do
   "$s1" $c --help >h.out 2>h.err; rc=$?
   if [[ $rc == 0 ]] && grep -q "axiom $c" h.out; then
     ok "\`$c --help\` prints $c's help"
@@ -545,10 +545,10 @@ done
 "$s1" --help >full-help.txt 2>&1
 missing=""
 for f in --input --output -o --target --opt --emit-llvm --check --builtins \
-         --list --no-banner --diagnostic-format --help --version; do
+         --list --no-banner --filter --diagnostic-format --help --version; do
   grep -q -- "$f" full-help.txt || missing="$missing $f"
 done
-for c in build check run emit-llvm fmt explain symbols repl lsp version help; do
+for c in build check run test emit-llvm fmt explain symbols repl lsp version help; do
   grep -q -- "  $c" full-help.txt || missing="$missing cmd:$c"
 done
 [[ -z "$missing" ]] && ok "every accepted flag and command appears in --help" \
