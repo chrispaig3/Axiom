@@ -18,6 +18,49 @@ its changelog too.
 
 ### Added
 
+- **What an arena reset costs, gated — and the number the memory model
+  stated was wrong.** `MM-LIFE-2a` sat in `docs/memory-model.md`'s
+  open-issue table with its own diagnosis: every arena reset charges
+  4,097 slab-head stores on the once-per-request path, "no gate
+  measures it, and with the strategy withdrawn the cost belongs to no
+  plan". The document went further at §5: "no gate anywhere in this
+  repository compares a reset carrying the scrub against one without
+  it ... not that the cost is unknown, but that nothing would notice it
+  changing."
+
+  That is the roadmap's **P8**, and it was ungated for a reason worth
+  restating: every timing gate here asserts a RATIO, deliberately, so
+  that a slow runner cannot fail it — and a rate is not a ratio. The
+  way out is to make the rate a ratio anyway.
+  `scripts/check-arena-reset-rate.sh` runs ONE program in three
+  spellings a word apart — mark and reset, mark only, neither — so the
+  cost is **attributed** rather than merely observed, and all three
+  must answer the same number or they are not the same workload.
+
+  Measured: a reset is **about 1.35 µs** and a mark under 10 ns, at
+  `--opt 1` (what `axiom build` defaults to, and what `check-net.sh`
+  builds the echo server at). Against the document's own 77 µs
+  per-connection budget that is **1.7–1.8%**, not the "under one
+  percent" it claimed — that figure was an ESTIMATE from a bench which
+  ablates the whole reset rather than the scrub and whose two arms
+  overlap. Both numbers are corrected in place.
+
+  Two halves that are not a clock. The emitted IR is asserted directly
+  — one store per iteration, bounded at 4,097, over a `[4097 x i64]`
+  array — so the gate pins the *cause* and not only the symptom. And
+  the negative probe deletes the `slabclear` block from the emitted IR
+  and rebuilds with the same `llc` and `cc`, so the two binaries differ
+  in the scrub and nothing else: the cost falls by **42×**, which is
+  what makes "live is 45× noreset" a fact about the scrub rather than
+  about two programs.
+
+  The obvious design was refused, and the reason is worth recording: an
+  "the reset is O(1) in live allocations" gate is **inverted**. 64
+  allocations against 1 gives a ratio of 1.27 with the scrub and 11.69
+  without — the 4,097 stores are the constant that makes the ratio flat,
+  so that gate would go GREEN the moment the cost it defends was
+  deleted.
+
 - **`AX3040` is an error, and the compiler can now tell a diverging
   function from a cast.** It shipped as a WARNING on a stated ground:
   the rule conflated two signatures and only one of them is unsound.
@@ -472,7 +515,7 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — thirty-three gates
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — thirty-four gates
   rebuild the same compiler; now one step builds it, and builds it
   twice to measure that the artifact emits the same IR as a fresh
   build. (Not the same *bytes*: the macOS linker stamps a UUID into

@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Thirty-three of the gates below build the compiler under test from
+    # Thirty-four of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -516,6 +516,18 @@ jobs:
       # file green across it, the container gate included.
       - name: A bounded live set has bounded memory
         run: ./scripts/check-steady-state.sh
+
+      # And what a reset COSTS, which is the roadmap's P8 and the one
+      # thing no gate here measured: every timing gate asserts a ratio,
+      # deliberately, so a slow runner cannot fail it - which left rate
+      # uncovered. This makes the rate a ratio anyway, by running one
+      # program in three spellings a word apart. Its negative probe
+      # deletes the scrub from the EMITTED IR and rebuilds, so the two
+      # binaries differ in the scrub and nothing else.
+      #
+      # About five seconds: three builds and twenty short runs.
+      - name: What an arena reset costs, and that the scrub is what costs it
+        run: ./scripts/check-arena-reset-rate.sh
 
       # Two `axiom run`s in one directory must not corrupt each other.
       # The scratch name was a fixed literal in the working directory,
