@@ -259,8 +259,23 @@ if ! "$axiom" build --input self_host/main.ax --output "$ccwork/stage1" >"$ccwor
 fi
 for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
   "$axiom" --target="$target" emit-llvm "$ccwork/cc.ax" -o "$ccwork/s0.ll" >/dev/null 2>&1
-  asms="$(grep -c 'asm sideeffect' "$ccwork/s0.ll" || true)"
-  bare="$(grep 'asm sideeffect' "$ccwork/s0.ll" | grep -vc '~{cc}' || true)"
+  # SYSCALL templates, not every inline-asm site. The emitted runtime
+  # also carries `targetFrameAsm` - one instruction reading x29 or
+  # %rbp for the backtracer - which makes no syscall, passes no
+  # arguments and sets no flags, so `~{cc}` on it would be a clobber
+  # for a condition register it cannot touch. Requiring it there would
+  # be requiring a false statement.
+  #
+  # The discriminator is the instruction, which is what this section is
+  # about in the first place: `svc` on AArch64, `syscall` on x86-64.
+  # It is the same string the template comparison below greps for, so
+  # the two halves of this section now agree on what a syscall
+  # template IS. Before this they did not, and the frame read - added
+  # the day the backtracer landed - was counted as a syscall template
+  # missing its clobber on all four targets.
+  syscall_asm() { grep 'asm sideeffect' "$1" | grep -E '"[^"]*(svc|syscall)[^"]*"'; }
+  asms="$(syscall_asm "$ccwork/s0.ll" | grep -c . || true)"
+  bare="$(syscall_asm "$ccwork/s0.ll" | grep -vc '~{cc}' || true)"
   if [[ "$asms" -lt 1 ]]; then
     echo "FAIL [$target]: the probe emitted no inline-asm syscall at all (the assertion checked nothing)"
     status=1
