@@ -18,6 +18,72 @@ its changelog too.
 
 ### Added
 
+- **The FFI boundary is a C ABI, and now something says so.**
+  `docs/ffi.md` has always described it as one machine word per argument
+  and one word back — `extern "C" fn(i64, ...) -> i64` — and the emitter
+  writes an ordinary `declare i64 @sym(i64, ...)`. Nothing about that is
+  Rust. But every FFI fixture here is a Rust crate, and `check-ffi.sh`
+  mentions cargo or Rust **46** times against **2** mentions of a C
+  compiler, so the boundary was tested only through one client of it.
+
+  Measured before writing any gate: a three-function C archive built
+  with `cc -c` and `ar rcs`, bound with an ordinary `extern` block and
+  `--link-lib`/`--link-search`, compiled and ran and answered on the
+  first attempt. No cargo, no `#[axiom_export]`, no `axiom-bindgen`, no
+  crate. Then a `String` crossed and plain C read it through the
+  documented two-word header — word 0 the byte length, word 1 the
+  NUL-terminated bytes — with no helper on the C side.
+
+  So the capability was already there, untested, undocumented for C
+  users and one refactor from breaking silently.
+  `scripts/check-c-abi.sh` is **thirty-five gates**' worth of the same
+  discipline applied to it: 8 checks, three arities, two `String` reads,
+  the emitted `; axiom-extern-lib` comment and the
+  `declare i64 @axc_add(i64, i64)` asserted directly rather than
+  inferred from an exit status, and two negative probes — an ungrounded
+  symbol must be `AX4004` rather than a linker error, and dropping
+  `--link-search` must fail, so the first assertion cannot be passing
+  for another reason. Drilled by making the C function return `a + b + 1`
+  and watching it go red. **It runs no cargo**, deliberately: the ABI
+  now keeps a test that survives the Rust workspace being changed,
+  moved or removed.
+
+- **A changelog is not a statement about the present, and
+  `check-gate-lib.sh` was reading it as one.** That gate holds six
+  documents to the number of gates calling `gate_build_axc`. Five state
+  the live count. The sixth is `CHANGELOG.md`, whose `0.2.0` entry
+  states the count as it stood on 2026-08-24, one lower than today's,
+  in a sentence about what that release contained.
+  Both arms read whole files, so when the count moved to thirty-five one
+  arm demanded the changelog state the new number and the other refused
+  it for stating the old one, and the only way to satisfy both was to
+  edit a shipped release note into something that did not happen.
+
+  This paragraph originally quoted that entry's exact words, and the
+  fixed gate refused *it* — a stale spelling is stale wherever it stands
+  in the Unreleased section, quotation marks included. A gate that
+  catches its own author is a gate that can fail, which the arm's own
+  comment already said about a different draft.
+
+  It now reads a changelog from `## Unreleased` to the next `## ` and
+  nowhere else: a released section is history and is left alone. The
+  stale-spelling sweep also had `word_for`'s domain at `15..34` while
+  the live word became `thirty-five` — the same defect its own comment
+  describes, one number later — so the domain follows the table.
+
+  **And scoping the read exposed a third thing, in the shell.** Both
+  arms used `grep -q`, which exits at the *first* match — sending
+  SIGPIPE to whatever is still writing. Under this script's own
+  `set -o pipefail` that makes the pipeline report failure for a search
+  that **succeeded**. It is invisible while the producer is a `cat` of a
+  short file that finishes first, and it bit the moment the producer
+  became an `awk` with 800 lines left to write: `CHANGELOG.md` matched
+  by hand and the gate said it did not. Both arms redirect to
+  `/dev/null` instead, so grep reads all of its input and the exit
+  status is about the search. Same shape as the stray `set -e` in
+  `check-diverging-tyvar.sh` earlier in this release — a shell subtlety
+  making a check answer about something other than its subject.
+
 - **`linear` and `consume` are refused, not reserved-and-inert.** Both
   parsed; neither did anything. `linear T` built the nominal type
   `Linear T` — a real barrier against `T` (`AX3004`) and nothing more —

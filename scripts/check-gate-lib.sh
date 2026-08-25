@@ -2,7 +2,7 @@
 # Assert that `gate_build_axc`'s cache cannot hide a change to the tree.
 #
 # WHY THIS GATE EXISTS AT ALL. `scripts/lib/gate.sh` is not a gate; it
-# is the preamble thirty-four gates share, and `gate_build_axc` is the
+# is the preamble thirty-five gates share, and `gate_build_axc` is the
 # line in it that makes those twenty-six test the compiler in the
 # WORKING TREE rather than whatever binary happens to be on disk. Its
 # own comment says so: building from `self_host/` "is also what makes
@@ -13,7 +13,7 @@
 # 60,881 lines was about sixteen minutes of every CI run, measured on
 # all three legs. An environment variable naming a prebuilt compiler is
 # EXACTLY the shape that deletes the property above, silently, in every
-# one of those thirty-four gates at once - and the failure would look like
+# one of those thirty-five gates at once - and the failure would look like
 # green CI, which is the worst way for a gate to be wrong.
 #
 # So the cache is content-addressed: `$AXIOM_AXC` is used only when
@@ -249,7 +249,7 @@ word_for() {
     27) echo "twenty-seven" ;; 28) echo "twenty-eight" ;; 29) echo "twenty-nine" ;;
     30) echo thirty ;;    31) echo "thirty-one" ;;
     32) echo "thirty-two" ;;   33) echo "thirty-three" ;;
-    34) echo "thirty-four" ;;
+    34) echo "thirty-four" ;;   35) echo "thirty-five" ;;
     *)  echo "" ;;
   esac
 }
@@ -269,7 +269,8 @@ for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
             "23 twenty-three" "24 twenty-four" "25 twenty-five" \
             "26 twenty-six" "27 twenty-seven" "28 twenty-eight" \
             "29 twenty-nine" "30 thirty" "31 thirty-one" \
-            "32 thirty-two" "33 thirty-three" "34 thirty-four"; do
+            "32 thirty-two" "33 thirty-three" "34 thirty-four" \
+            "35 thirty-five"; do
   set -- $pair
   got="$(word_for "$1")"
   if [[ "$got" != "$2" ]]; then
@@ -278,7 +279,7 @@ for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
   fi
 done
 if (( table_ok )); then
-  echo "ok   word_for answers its own 20 arms"
+  echo "ok   word_for answers its own 21 arms"
 else
   failed=$((failed + 1))
 fi
@@ -305,6 +306,30 @@ count_sites=(
   CHANGELOG.md
 )
 
+# ONE OF THE SIX IS NOT A STATEMENT ABOUT THE PRESENT, and treating it
+# as one made this check demand a falsehood. `CHANGELOG.md` records
+# what each RELEASE contained: the `0.2.0` entry says "thirty-four
+# gates rebuild the same compiler", and on 2026-08-24 that was true.
+# Both arms below read whole files, so when the count moved to
+# thirty-five the first arm demanded the changelog state the new number
+# and the second refused it for stating the old one - and the only way
+# to satisfy both was to edit a shipped release note into something
+# that did not happen.
+#
+# So a changelog is read from its `## Unreleased` heading to the next
+# `## `, and nowhere else. A released section is history and is left
+# alone; the Unreleased section is a claim about the tree, which is
+# what every other site here is. Found 2026-08-25, by a count move
+# that could not be landed honestly without it.
+site_text() {  # <path> -> the text this check may read, on stdout
+  case "$1" in
+    CHANGELOG.md)
+      awk '/^## Unreleased/{u=1;next} u&&/^## /{exit} u' "$repo_root/$1"
+      ;;
+    *) cat "$repo_root/$1" ;;
+  esac
+}
+
 for site in "${count_sites[@]}"; do
   checks=$((checks + 1))
   if [[ ! -f "$repo_root/$site" ]]; then
@@ -317,7 +342,16 @@ for site in "${count_sites[@]}"; do
   # an example, because an example here is a literal this check would
   # then find in its own source and refuse - which it did, the first
   # time the count moved.
-  if grep -qiE "\b$want (of the )?gates" "$repo_root/$site"; then
+  # `grep -iE ... >/dev/null` and NOT `grep -q`. This script runs under
+  # `set -o pipefail`, and `grep -q` exits at the FIRST match - which
+  # sends SIGPIPE to whatever is still writing, so the pipeline reports
+  # failure for a search that succeeded. It is invisible when the
+  # producer is a `cat` of a short file and finishes first, and it bites
+  # the moment the producer is the `awk` above with 800 lines still to
+  # write: measured 2026-08-25, `CHANGELOG.md` matched by hand and the
+  # gate said it did not. Redirecting instead makes grep read all of its
+  # input, so the exit status is about the search and nothing else.
+  if site_text "$site" | grep -iE "\b$want (of the )?gates" >/dev/null; then
     echo "ok   $site states \"$want\""
   else
     echo "FAIL: $site does not state \"$want gates\" anywhere."
@@ -349,13 +383,13 @@ done
 # file whose subject is that defect.
 for site in "${count_sites[@]}" scripts/bootstrap-from-seed.sh; do
   [[ -f "$repo_root/$site" ]] || continue
-  for n in $(seq 15 34); do
+  for n in $(seq 15 35); do
     w="$(word_for "$n")"
     [[ "$w" == "$want" ]] && continue
     checks=$((checks + 1))
-    if grep -qiE "\b$w (of the )?gates" "$repo_root/$site"; then
+    if site_text "$site" | grep -iE "\b$w (of the )?gates" >/dev/null; then
       echo "FAIL: $site says \"$w gates\", and $n_axc gates call gate_build_axc."
-      grep -niE "\b$w (of the )?gates" "$repo_root/$site" | sed 's/^/       /'
+      site_text "$site" | grep -niE "\b$w (of the )?gates" | sed 's/^/       /'
       failed=$((failed + 1))
     fi
   done
@@ -368,6 +402,6 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-gate-lib: $checks checks - the shared artifact is used only when it"
-echo "                was built from the tree as it stands, so thirty-four gates"
+echo "                was built from the tree as it stands, so thirty-five gates"
 echo "                still see an ablation of self_host/, and a path that names"
 echo "                no build product is refused rather than ignored"
