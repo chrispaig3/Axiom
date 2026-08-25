@@ -93,6 +93,27 @@ libc_names="$libc_names"'|getentropy|getrandom|arc4random|arc4random_buf|rand|sr
 libc_names="$libc_names"'|signal|sigaction|sigprocmask|pthread_sigmask|sigemptyset|sigaddset'
 libc_names="$libc_names"'|kill|raise|signalfd|sigwait|sigwaitinfo|sigsuspend|alarm'
 
+# The undefined symbols an executable imports, as bare names, on either
+# platform. ONE COPY, because the negative probe below runs the same
+# function the sweep does - a probe against a second copy of a pipeline
+# proves the copy works and nothing else.
+#
+# `sed 's/@.*//'` IS THE ELF HALF OF THE COMPARISON, and without it this
+# check could not fail on Linux. GNU `nm -D --undefined-only` prints a
+# versioned import as `malloc@GLIBC_2.2.5`, and the test below is
+# anchored - `grep -qE "^($libc_names)$"` - so `malloc` never matched
+# `malloc@GLIBC_2.2.5` and a program that really did import libc
+# passed. Mach-O has no version suffix and needs its leading underscore
+# stripped instead; each platform gets the one edit its own convention
+# requires, which is the lesson `check-backtrace.sh` records after
+# applying Mach-O's to ELF.
+imports_of() {
+  case "$(uname -s)" in
+    Darwin) nm -u "$1" 2>/dev/null | sed 's/^_//' || true ;;
+    *)      nm -D --undefined-only "$1" 2>/dev/null | awk '{print $NF}' | sed 's/@.*//' || true ;;
+  esac
+}
+
 status=0
 
 for case_file in tests/stdlib/*.ax; do
@@ -125,10 +146,7 @@ for case_file in tests/stdlib/*.ax; do
   exe="$work/$name.bin"
   "$axc" build --input "$case_file" --output "$exe" > /dev/null
 
-  case "$(uname -s)" in
-    Darwin) imports="$(nm -u "$exe" 2>/dev/null | sed 's/^_//' || true)" ;;
-    *)      imports="$(nm -D --undefined-only "$exe" 2>/dev/null | awk '{print $NF}' || true)" ;;
-  esac
+  imports="$(imports_of "$exe")"
 
   if printf '%s\n' "$imports" | grep -qE "^($libc_names)$"; then
     echo "FAIL $name: executable imports libc symbols"
@@ -308,6 +326,48 @@ elif ! grep -q 'AX2004' <<< "$ffi_out"; then
   status=1
 else
   echo "ok   negative probe: \`foreign\` is refused as a removed construct (AX2004)"
+fi
+
+# ------------------------------------------------------------------
+# THE NEGATIVE PROBE THE IMPORTS CHECK NEVER HAD.
+#
+# This file's header calls the executable-imports check "the stronger
+# claim" of its two, and until 2026-08-25 every negative probe above
+# tested the OTHER one - the IR grep. The stronger claim had never been
+# observed red on either platform, which is this repository's most
+# common defect shape sitting in the check that exists to catch a libc
+# dependency the IR does not name.
+#
+# It is deliberately not an Axiom program. Axiom cannot easily be made
+# to import libc without an `extern` and an archive, which is
+# `check-ffi.sh`'s subject and needs cargo; what wants proving here is
+# that the INSTRUMENT can see a violation, not that the language can
+# commit one. A three-line C file linked by the same `cc` the driver
+# shells out to imports `malloc` and `memset` on every platform this
+# repository builds for, and it goes through `imports_of` - the same
+# function the sweep above uses, not a second copy of it.
+#
+# It is also what would have caught the ELF version suffix: on Linux
+# this probe's `malloc` arrives from `nm -D` as `malloc@GLIBC_2.2.5`
+# and, before `imports_of` learned to strip it, matched nothing.
+# ------------------------------------------------------------------
+printf '#include <stdlib.h>\n#include <string.h>\nint main(void) { void *p = malloc(16); memset(p, 0, 16); return p != 0; }\n' \
+  > "$work/libcuser.c"
+if ! cc -o "$work/libcuser" "$work/libcuser.c" >"$work/libcuser.log" 2>&1; then
+  echo "FAIL negative probe: could not build the C program that imports libc"
+  sed 's/^/    /' "$work/libcuser.log" | head -5
+  status=1
+else
+  probe_imports="$(imports_of "$work/libcuser")"
+  probe_hits="$(printf '%s\n' "$probe_imports" | grep -E "^($libc_names)$" | sort -u | tr '\n' ' ')"
+  if [[ -z "$probe_hits" ]]; then
+    echo "FAIL negative probe: the imports check does NOT catch a program that imports libc"
+    echo "     it read $(printf '%s\n' "$probe_imports" | grep -c . || true) undefined symbol(s) and matched none of them:"
+    printf '%s\n' "$probe_imports" | head -8 | sed 's/^/        /'
+    status=1
+  else
+    echo "ok   negative probe: the imports check catches a C program importing ${probe_hits% }"
+  fi
 fi
 
 exit "$status"
