@@ -18,6 +18,71 @@ its changelog too.
 
 ### Added
 
+- **`linear` and `consume` are refused, not reserved-and-inert.** Both
+  parsed; neither did anything. `linear T` built the nominal type
+  `Linear T` — a real barrier against `T` (`AX3004`) and nothing more —
+  and counted no uses, so a value could be consumed twice or never.
+  `(consume e)` was a parse-time **identity** that kept the wrapper: the
+  checker typed it as its operand, the IR lowered it to its operand, and
+  the form reclaimed nothing.
+
+  `docs/reference.md` said so plainly — "Parsed only", "Nothing enforces
+  it today" — which made it honest documentation of a spelling that
+  still reads, at the call site, like an ownership guarantee. That is
+  the ground `deriving` was refused on here, in this repository's own
+  words: *"a clause that does nothing is worse than one that does not
+  parse"*.
+
+  They join `union`, `region`, `foreign` and `deriving` as reserved
+  words reporting `AX2004` with migration advice, so old source gets an
+  explanation instead of an `AX3002` about an unknown type named
+  `linear`. They get the **`deriving` verb** — "parsed and enforced
+  nothing, and is now refused" — rather than "is no longer part of
+  Axiom", because union, region and foreign once worked and these never
+  did.
+
+  **The removal found a justification resting on them.** `union`'s
+  rationale — in `parser.ax`, in `explain.ax` and in `docs/reference.md`
+  — read *"C interoperability is no longer a goal, and an untagged union
+  has no meaning under linear types."* The second clause appealed to a
+  feature that enforced nothing, to explain a removal that does not need
+  it: an untagged union cannot be pattern-matched safely because its
+  variants are not distinguishable at run time. All three copies are
+  corrected, each recording what it used to say.
+
+  Gone with them: the parse sites and `parseConsumeExpr`; the
+  `linear_type` and `consume_expression` grammar rules and their
+  highlight entries (`src/` regenerated and checked in);
+  `docs/reference.md` §23, now two entries under Removed Features; and
+  `ERR-MEM-6`, which said the *model* does not use linear types and now
+  records that the *language* does not either.
+  `tests/diagnostics/941`, `942` are the refusals.
+
+- **Two gates swept 5,809 files, and this repository has 506.**
+  `check-fmt.sh` copies the tree and formats every `.ax`;
+  `check-tree-sitter.sh` parses every `.ax` with the grammar. The other
+  5,303 were under `.claude/worktrees/` — **eleven abandoned agent
+  worktrees, 494 MB**, each a full checkout of this repository at
+  whatever commit its run started from, months apart. They are in
+  `.gitignore`; `find` does not read `.gitignore`, and neither does
+  `tar`.
+
+  It is not only slow, though `check-fmt.sh` spent most of its 238
+  seconds formatting ten stale copies of the tree. **A gate that sweeps
+  "every file in the repository" and reaches files that are not in the
+  repository goes red for a change that is correct here and stale
+  there** — which is exactly how this surfaced: removing `linear` from
+  the grammar made `check-tree-sitter.sh` report 22 parse failures,
+  every one in a worktree carrying pre-change source.
+
+  The two counts had also disagreed with each other unnoticed, because
+  different gates print them: `check-doc-drift.sh` counts with Python's
+  `glob('**/*.ax')`, which does not descend into a dotted directory, so
+  it has always said 506 — the right number, by an accident of which
+  tool it reached for. Both sweeps now exclude `.claude/`. The rule:
+  whatever a sweep means by "the repository", it must not mean "whatever
+  is under this directory".
+
 - **`mapGet` answers `Int`, and a default argument no longer names the
   type of a value it did not supply.** Found by writing the program
   rather than reading the code, which is §1b's own rule:

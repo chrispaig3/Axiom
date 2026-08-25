@@ -111,7 +111,7 @@ Fn       handled              (Int -> Int)                             [tests/fm
 Fn       scoped               (Int -> Int)                             [tests/fmt/syntax-zoo.ax:170:5-11]
 Fn       aBox                 Box Int                                  [tests/fmt/syntax-zoo.ax:191:5-9]
 Fn       store                (Box Int -> Int)                         [builtin]
-Fn       interiors            (*Box Int -> ([Box Int] -> (Linear Box Int -> Int))) [tests/fmt/syntax-zoo.ax:235:5-14]
+Fn       interiors            (*Box Int -> ([Box Int] -> (Box Int -> Int))) [tests/fmt/syntax-zoo.ax:235:5-14]
 Fn       typed_exprs          (Int -> Int)                             [tests/fmt/syntax-zoo.ax:238:5-16]
 Fn       helperD              (Int -> Int)                             [tests/fmt/syntax-zoo.ax:283:5-12]
 Fn       zeroParam            Int                                      [tests/fmt/syntax-zoo.ax:286:5-14]

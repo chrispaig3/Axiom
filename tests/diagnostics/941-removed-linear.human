@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `linear` parsed and enforced nothing, and is now refused[0m
+ [1;34m--> [0m941-removed-linear.ax:1:16
+[1;34m  |[0m
+[1;34m1 |[0m (:: takes (-> (linear Int) Int))
+[1;34m  |[0m                [1;31m^^^^^^ `linear` was refused rather than implemented: it built the nominal type `Linear T` and enforced nothing else - no use was counted, so a value could be consumed twice or never, and the marker read as an ownership guarantee it did not supply[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mdelete the marker and use the type itself: reclamation is the reference counting every heap block carries, and `__axiom_arena_mark`/`__axiom_arena_reset_keeping` is the explicit fallback for a program that wants to choose the point
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error

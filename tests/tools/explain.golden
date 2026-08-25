@@ -127,10 +127,29 @@ The keyword is still reserved so that old source gets this explanation
 instead of being silently reinterpreted as an ordinary identifier.
 
 `union` is gone because C interoperability is no longer a goal of the
-language. An untagged union cannot be pattern-matched safely and has no
-meaning under linear typing, where every value has exactly one owner and
-one type. Use `data` for a tagged sum, whose variants the compiler can
-check for exhaustiveness, or `struct` for a product.
+language, and an untagged union cannot be pattern-matched safely - its
+variants are not distinguishable at run time. Use `data` for a tagged
+sum, whose variants the compiler can check for exhaustiveness, or
+`struct` for a product.
+
+(That paragraph used to end "and has no meaning under linear typing,
+where every value has exactly one owner and one type". Linear typing
+was removed on 2026-08-25 for enforcing exactly none of that, so the
+justification was resting on a feature the language does not have.)
+
+`linear` and `consume` are refused rather than removed, the way
+`deriving` is: they parsed and did nothing. `linear T` built the
+nominal type `Linear T` - a real barrier against `T` and nothing more -
+and counted no uses, so a value could be consumed twice or never.
+`(consume e)` was a parse-time identity that kept the wrapper: the
+checker typed it as its operand, the IR lowered it to its operand, and
+the form reclaimed nothing. A marker that reads as an ownership
+guarantee and supplies none is worse than no marker, because a reader
+spends trust on it.
+
+Delete them. Reclamation is the reference counting every heap block
+carries, and `__axiom_arena_mark`/`__axiom_arena_reset_keeping` is the
+explicit fallback for a program that wants to choose the point.
 
 `foreign` is gone because it never worked: a binding emitted a call to
 a symbol the module never declared, so a program that used one passed

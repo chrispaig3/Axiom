@@ -1846,10 +1846,6 @@
         },
         {
           "type": "SYMBOL",
-          "name": "linear_type"
-        },
-        {
-          "type": "SYMBOL",
           "name": "effect_type"
         },
         {
@@ -2136,31 +2132,6 @@
               "type": "BLANK"
             }
           ]
-        },
-        {
-          "type": "FIELD",
-          "name": "target",
-          "content": {
-            "type": "SYMBOL",
-            "name": "_type"
-          }
-        },
-        {
-          "type": "STRING",
-          "value": ")"
-        }
-      ]
-    },
-    "linear_type": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "("
-        },
-        {
-          "type": "STRING",
-          "value": "linear"
         },
         {
           "type": "FIELD",
@@ -2577,10 +2548,6 @@
         {
           "type": "SYMBOL",
           "name": "handle_expression"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "consume_expression"
         },
         {
           "type": "SYMBOL",
@@ -3310,31 +3277,6 @@
               "type": "SYMBOL",
               "name": "effect"
             }
-          }
-        },
-        {
-          "type": "STRING",
-          "value": ")"
-        }
-      ]
-    },
-    "consume_expression": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "("
-        },
-        {
-          "type": "STRING",
-          "value": "consume"
-        },
-        {
-          "type": "FIELD",
-          "name": "operand",
-          "content": {
-            "type": "SYMBOL",
-            "name": "_expression"
           }
         },
         {

@@ -147,7 +147,6 @@
 [
   "let"
   "handle"
-  "consume"
   "where"
   "pub"
   "import"
@@ -158,7 +157,6 @@
   "sizeof"
   "alignof"
   "cast"
-  "linear"
   "mut"
 ] @keyword.modifier
 

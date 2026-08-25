@@ -6,14 +6,18 @@
 ; drew two, since its type name landed where an argument goes.
 ;
 ;   (struct Name field...)  construction, distinct from `(Name ...)`
-;   (consume e)             transparent: stage0's checker, IR and
-;                           `Expr::span()` all see through to `e`
 ;   (alloc Type [count])    types `*mut Type` and evaluates to 0 -
 ;                           stage0's IR generator has NO case for it,
 ;                           so it reaches the generator's catch-all
 ;
 ; The `alloc` term is the load-bearing one: it contributes 0, so this
 ; case fails if stage1 ever "improves" on stage0 by allocating.
+;
+; A THIRD FORM used to be here and is gone: `(consume e)`, which stage0
+; and stage1 both parsed as a transparent identity - every consumer saw
+; through it to `e`. It was refused on 2026-08-25 (`AX2004`), because a
+; form that reads as a reclamation and reclaims nothing is worse than no
+; form at all. `p.y` below is what it always meant.
 (struct P
   (x : Int)
   (y : Int))
@@ -27,7 +31,7 @@
   )
     (+
       (+
-        p.x        (consume p.y)
+        p.x        p.y
       )      z
     )
   )

@@ -1,0 +1,1 @@
+(:: takes (-> (linear Int) Int))

@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `consume` parsed and reclaimed nothing, and is now refused[0m
+ [1;34m--> [0m942-removed-consume.ax:1:12
+[1;34m  |[0m
+[1;34m1 |[0m (fn (f x) (consume x))
+[1;34m  |[0m            [1;31m^^^^^^^ `consume` was refused rather than implemented: it was a parse-time IDENTITY that kept the `Linear` wrapper, so consuming twice was accepted and the form reclaimed nothing[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mdelete the wrapper and keep its argument - `(consume e)` always meant `e`, and a block is freed when its count reaches zero
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error

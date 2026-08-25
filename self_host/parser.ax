@@ -952,13 +952,22 @@
                 (diagSetLabel
                   (mkDiag
                     SEV_ERROR                    "AX2004"                    "removed-construct"                    (tokenSpan tok)                    (if (strEq exp "deriving")
-                      ; `deriving` gets its own verb: union/foreign/
-                      ; region once WORKED and were removed, but the
-                      ; deriving clause never derived anything - saying
-                      ; "no longer part of Axiom" about it would claim
-                      ; a history it does not have.
+                      ; Three of the six get their own verb:
+                      ; union/foreign/region once WORKED and were
+                      ; removed, but `deriving` never derived anything,
+                      ; `linear` never counted a use and `consume` never
+                      ; reclaimed a byte. Saying "no longer part of
+                      ; Axiom" about those three would claim a history
+                      ; they do not have, and the difference is the
+                      ; whole reason a reader is being told anything.
                       "`deriving` parsed and derived nothing, and is now refused"
-                      (strConcat (strConcat "`" exp) "` is no longer part of Axiom")
+                      (if (strEq exp "linear")
+                        "`linear` parsed and enforced nothing, and is now refused"
+                        (if (strEq exp "consume")
+                          "`consume` parsed and reclaimed nothing, and is now refused"
+                          (strConcat (strConcat "`" exp) "` is no longer part of Axiom")
+                        )
+                      )
                     )                    0                    ""                    (removedHelp exp)
                   )                  (removedRationale exp)
                 )
@@ -1094,12 +1103,18 @@
 
 (pub fn (removedRationale kw)
   (if (strEq kw "union")
-    (strConcat "`union` was removed: C interoperability is no longer a goal, " "and an untagged union has no meaning under linear types")
+    (strConcat "`union` was removed: C interoperability is no longer a goal, " "and an untagged union cannot be pattern-matched safely - its variants are not distinguishable at run time")
+    (if (strEq kw "linear")
+      (strConcat (strConcat "`linear` was refused rather than implemented: it built the nominal " "type `Linear T` and enforced nothing else - no use was counted, so a ") "value could be consumed twice or never, and the marker read as an ownership guarantee it did not supply")
+      (if (strEq kw "consume")
+        (strConcat (strConcat "`consume` was refused rather than implemented: it was a parse-time " "IDENTITY that kept the `Linear` wrapper, so consuming twice was ") "accepted and the form reclaimed nothing")
     (if (strEq kw "foreign")
       (strConcat (strConcat "`foreign` was removed because it never worked: it emitted a call " "to a symbol the module never declared, so a program using one ") "passed `check` and died in `opt`. The FFI is the `extern` block")
       (if (strEq kw "deriving")
         (strConcat "`deriving` was refused rather than implemented: the clause parsed and was silently discarded - " "no instance was ever derived from it, and a clause that does nothing is worse than one that does not parse")
         (strConcat "`region` was removed: allocation lifetime is inferred from " "where a value is created and how far it escapes, not written by hand")
+      )
+    )
       )
     )
   )
@@ -1108,11 +1123,17 @@
 (pub fn (removedHelp kw)
   (if (strEq kw "union")
     (strConcat "use `data` for a tagged sum whose variants the compiler can check " "for exhaustiveness, or `struct` for a product of fields")
+    (if (strEq kw "linear")
+      (strConcat (strConcat "delete the marker and use the type itself: reclamation is the " "reference counting every heap block carries, and ") "`__axiom_arena_mark`/`__axiom_arena_reset_keeping` is the explicit fallback for a program that wants to choose the point")
+      (if (strEq kw "consume")
+        (strConcat "delete the wrapper and keep its argument - `(consume e)` always " "meant `e`, and a block is freed when its count reaches zero")
     (if (strEq kw "foreign")
       (strConcat (strConcat "write an `extern` block instead - `(extern \"lib\" (name :: " "(-> Int Int) (symbol \"sym\")))` - and build with ") (strConcat "`--link-lib`/`--link-search`; or reach the kernel through the " "standard library's `__syscall0`-`__syscall6`, which needs no FFI"))
       (if (strEq kw "deriving")
         (strConcat "derive instances explicitly, where you want them: " "`(deriveEq T)` is an ordinary declaration macro (docs/macro-system.md MAC-CAP-9)")
         (strConcat "delete the `region` wrapper and keep its body; values are dropped " "deterministically at the end of the arena they belong to")
+      )
+    )
       )
     )
   )
@@ -2856,22 +2877,18 @@
               (pOk (mkTPtr (memGetWord r 1) 0) (memGetWord r 2))
             )
           )
+          ; `linear` is RESERVED, not parsed. It used to build the
+          ; nominal type constructor `Linear T`, which was a real
+          ; barrier - `AX3004` against `T` - and enforced nothing else:
+          ; no use was counted, and a value could be consumed twice or
+          ; never. A marker that reads as an ownership guarantee and
+          ; supplies none is worse than no marker, because a reader
+          ; spends trust on it; that is the same ground `deriving` was
+          ; refused on. The keyword stays reserved so old source gets
+          ; the explanation rather than an `AX3002` about an unknown
+          ; type named `linear`.
           (if (strEq s "linear")
-            (let ((r (parseTypeAtom tokens (advance pos))))
-              (if (== (memGetWord r 0) 0)
-                r
-                (pOk
-                  (mkTCon
-                    "Linear"                    (let ((v vecNew))
-                      {
-                        (vecPush v (memGetWord r 1))
-                        v
-                      }
-                    )
-                  )                  (memGetWord r 2)
-                )
-              )
-            )
+            (pErrRemoved pos "linear")
             (let ((canon (typeKeywordCanon s)))
               (if (!=
                 (cast Int canon)                0
@@ -4097,8 +4114,13 @@
                           ; since its type name landed where an argument goes.
                           (if (kwEq name kwStruct)
                             (parseStructConExpr tokens (advance pos))
+                            ; `consume` is RESERVED, not parsed. It was a
+                            ; parse-time IDENTITY that kept the `Linear`
+                            ; wrapper: consuming twice was accepted and the
+                            ; form reclaimed nothing. What reclaims is the
+                            ; reference counting every heap block carries.
                             (if (kwEq name "consume")
-                              (parseConsumeExpr tokens (advance pos))
+                              (pErrRemoved pos "consume")
                               (if (kwEq name "alloc")
                                 (parseAllocExpr tokens (advance pos) (tokenSpan kw))
                                 (if (kwEq name "handle")
@@ -4246,28 +4268,6 @@
     (pErr pos)
   )
 )
-
-; ------------------------------------------------------------------
-; (consume e) - stage0 keeps an EConsume node, but every consumer
-; sees through it: the checker types it as its operand, the IR
-; generator lowers it to its operand, and `Expr::span()` answers the
-; OPERAND's span. Collapsing it here is therefore exactly equivalent
-; and costs no node - `(consume 42)` runs to 42 under stage0, probed.
-; ------------------------------------------------------------------
-(pub :: parseConsumeExpr (-> Int Int Int))
-
-(pub fn (parseConsumeExpr tokens pos)
-  (let ((r (parseExpr tokens pos)))
-    (if (== (memGetWord r 0) 0)
-      r
-      (if (peekIs tokens (memGetWord r 2) TK_RPAREN)
-        (pOk (memGetWord r 1) (advance (memGetWord r 2)))
-        (pErr (memGetWord r 2))
-      )
-    )
-  )
-)
-
 ; ------------------------------------------------------------------
 ; (alloc Type) / (alloc Type count) - the count is optional, and both
 ; shapes type as `*mut Type`. Nothing evaluates: stage0's IR generator

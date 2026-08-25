@@ -2,7 +2,7 @@
  [1;34m--> [0m930-removed-union.ax:1:2
 [1;34m  |[0m
 [1;34m1 |[0m (union Foo (A) (B))
-[1;34m  |[0m  [1;31m^^^^^ `union` was removed: C interoperability is no longer a goal, and an untagged union has no meaning under linear types[0m
+[1;34m  |[0m  [1;31m^^^^^ `union` was removed: C interoperability is no longer a goal, and an untagged union cannot be pattern-matched safely - its variants are not distinguishable at run time[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0muse `data` for a tagged sum whose variants the compiler can check for exhaustiveness, or `struct` for a product of fields
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation

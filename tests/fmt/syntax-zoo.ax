@@ -138,14 +138,14 @@
 ; `Rec 1 true 1.5 "s"` - no keyword, no parens - until a conformance
 ; case first asked the formatter to render one: output that either
 ; failed to parse or re-parsed as an application and dropped its
-; arguments on the second pass. `consume` and `alloc` ride along, the
+; arguments on the second pass. `alloc` rides along, the
 ; two other forms whose only corpus use is this file.
 (:: keyword_forms (-> Int Int))
 (fn (keyword_forms n)
   (let ((r (struct Rec 1 0 true 1.5 "s"))
         (p (alloc Int 8))
         (q (alloc Bool)))
-    (+ (consume r.n) n)))
+    (+ r.n n)))
 
 ; --- qualified names ------------------------------------------------
 (:: qualified (-> Int Int))
@@ -232,7 +232,7 @@
 ; editor grammar's `tuple_type` demands commas, which the parser
 ; refuses ("expected type, found `,`"), so a real one cannot go in a
 ; file `check-tree-sitter.sh` must accept.
-(:: interiors (-> (* (Box Int)) [(Box Int)] (linear (Box Int)) Int))
+(:: interiors (-> (* (Box Int)) [(Box Int)] (Box Int) Int))
 (fn (interiors p l n) 0)
 
 (:: typed_exprs (-> Int Int))

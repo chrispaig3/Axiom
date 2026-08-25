@@ -28,7 +28,6 @@ A friendly, comprehensive guide to the Axiom programming language — a function
 20. [Memory Primitives](#memory-primitives)
 21. [Standard Library](#standard-library)
 22. [AXTAG Metadata](#axtag-metadata)
-23. [Linear Types and Consume](#linear-types-and-consume)
 24. [Removed Features](#removed-features)
 25. [The REPL](#the-repl)
 26. [CLI Commands](#cli-commands)
@@ -270,8 +269,8 @@ to. Shadowing one is legal and a bad idea.
 | `where` | Trait method bodies |
 | `effect` | Declare an effect type |
 | `handle` | Handle effects |
-| `linear` | Linear type marker |
-| `consume` | Consume a linear value |
+| `linear` | **Reserved** — removed 2026-08-25, reports `AX2004` |
+| `consume` | **Reserved** — removed 2026-08-25, reports `AX2004` |
 | `alloc` | Allocate memory |
 | `sizeof` | Size of a type |
 | `alignof` | Alignment of a type |
@@ -1987,35 +1986,37 @@ The compiler validates `effect(io)` claims against what the body actually perfor
 
 ---
 
-## Linear Types and Consume
-
-Axiom parses linear type syntax — intended for types where values have exactly one owner and cannot be duplicated or discarded. Nothing enforces it today.
-
-### Linear Type Marker
-
-```scheme
-(linear T)
-```
-
-**Parsed only.** `linear T` parses to the nominal type constructor `Linear T`, and nothing counts uses: a value used twice, or zero times, is accepted and runs. The memory model no longer depends on this — deterministic reclamation is the chosen reference counting, obtained without linear types (`docs/memory-model.md` MM-LIFE-2a); what linearity would still buy is retain/release-free moves and early drops (MM-LIFE-7). The enforcement is not written.
-
-### Consume
-
-```scheme
-(consume expr)
-```
-
-**Parsed only.** `consume` is a parse-time identity that keeps the `Linear` wrapper; consuming twice is accepted, and the form itself reclaims nothing. What reclaims is the reference counting every heap block carries: a block whose count reaches zero is freed and re-issued, with nothing written in the source (`docs/memory-model.md` MM-LIFE-2b/2c). `__axiom_arena_mark` / `__axiom_arena_reset_keeping` remain the explicit fallback for a program that wants to choose the point.
-
----
-
 ## Removed Features
 
 These features existed in earlier versions of Axiom but have been removed. Each word keeps a grammar rule whose only job is to report `AX2004` and say what to write instead.
 
 ### `union` — Removed
 
-C interoperability is no longer a goal, and an untagged union has no meaning under linear types. Use `data` for a tagged sum or `struct` for a product.
+C interoperability is no longer a goal, and an untagged union cannot be pattern-matched safely — its variants are not distinguishable at run time. Use `data` for a tagged sum or `struct` for a product.
+
+(This sentence used to end "has no meaning under linear types". Linear types were removed on 2026-08-25 for enforcing nothing, so the justification was resting on a feature the language does not have.)
+
+### `linear` — Removed
+
+**Refused rather than implemented.** `linear T` parsed to the nominal type
+constructor `Linear T` and enforced nothing else: no use was counted, so a value
+could be consumed twice or never, and `Linear T` was a real barrier against `T`
+(`AX3004`) and nothing more. A marker that reads as an ownership guarantee and
+supplies none is worse than no marker, because a reader spends trust on it —
+the same ground `deriving` was refused on.
+
+Delete the marker and use the type. Reclamation is the reference counting every
+heap block carries (`docs/memory-model.md` `MM-LIFE-2b`/`2c`), and
+`__axiom_arena_mark` / `__axiom_arena_reset_keeping` is the explicit fallback
+for a program that wants to choose the point.
+
+### `consume` — Removed
+
+**Refused rather than implemented.** `(consume e)` was a parse-time identity
+that kept the `Linear` wrapper: the checker typed it as its operand, the IR
+lowered it to its operand, and consuming twice was accepted. The form reclaimed
+nothing. Delete the wrapper and keep its argument — `(consume e)` always meant
+`e`.
 
 ### `region` — Removed
 

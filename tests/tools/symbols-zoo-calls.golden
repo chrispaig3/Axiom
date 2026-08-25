@@ -111,7 +111,7 @@ F handled tests/fmt/syntax-zoo.ax:166:5-12 "(Int -> Int)" @8aed8da9c866693b #eff
 F scoped tests/fmt/syntax-zoo.ax:170:5-11 "(Int -> Int)" @456a949d82a7c7bf
 F aBox tests/fmt/syntax-zoo.ax:191:5-9 "Box Int" @06331c8640b36edb
 F store - "(Box Int -> Int)" #effects=Boxes
-F interiors tests/fmt/syntax-zoo.ax:235:5-14 "(*Box Int -> ([Box Int] -> (Linear Box Int -> Int)))" @9ab1e7805f0e9380
+F interiors tests/fmt/syntax-zoo.ax:235:5-14 "(*Box Int -> ([Box Int] -> (Box Int -> Int)))" @9ab1e7805f0e9380
 F typed_exprs tests/fmt/syntax-zoo.ax:238:5-16 "(Int -> Int)" @81369cab7bd3cafe #effects=Alloc #calls=+
 F helperD tests/fmt/syntax-zoo.ax:283:5-12 "(Int -> Int)" @882707b1b1adf681
 F zeroParam tests/fmt/syntax-zoo.ax:286:5-14 "Int" @3beac987ddf32d0a

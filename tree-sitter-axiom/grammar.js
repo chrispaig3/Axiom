@@ -629,7 +629,6 @@ module.exports = grammar({
       $.list_type,
       $.tuple_type,
       $.pointer_type,
-      $.linear_type,
       $.effect_type,
       // `(syntax/join a b)` where a TYPE stands - a `type` template
       // names its alias with a join, and the signature beside it has
@@ -657,7 +656,7 @@ module.exports = grammar({
     // There is no general "parenthesised type" rule, and that is not an
     // omission: `parseType` in `self_host/parser.ax` accepts a
     // parenthesised group in type position only when it is headed by `->`,
-    // `*`, `linear`, a comma-separated tuple, `()`, or a *capitalised*
+    // `*`, a comma-separated tuple, `()`, or a *capitalised*
     // name. `(a)` for a lowercase type variable is not valid Axiom, so it
     // is not valid here.
     //
@@ -685,8 +684,6 @@ module.exports = grammar({
 
     // `(* T)` or `(* mut T)`
     pointer_type: $ => seq('(', '*', optional('mut'), field('target', $._type), ')'),
-
-    linear_type: $ => seq('(', 'linear', field('target', $._type), ')'),
 
     effect_type: $ => seq(
       '(', field('target', $._type), '!', repeat(field('effect', $.effect)), ')',
@@ -798,7 +795,6 @@ module.exports = grammar({
       $.cond_expression,
       $.match_expression,
       $.handle_expression,
-      $.consume_expression,
       $.alloc_expression,
       $.sizeof_expression,
       $.alignof_expression,
@@ -959,8 +955,6 @@ module.exports = grammar({
     // The remaining ambiguity, `(foo)` as a one-element effect list versus
     // an application, is declared as a conflict below.
     effect_list: $ => seq('(', repeat1(field('effect', $.effect)), ')'),
-
-    consume_expression: $ => seq('(', 'consume', field('operand', $._expression), ')'),
 
     alloc_expression: $ => seq(
       '(', 'alloc', field('type', $._type), optional(field('count', $._expression)), ')',

@@ -436,12 +436,17 @@ for an error record — the widest declaration in this repository, the
 compiler's own `CG`, sits at 45 — and the rule exists so a future
 cause-chain does not walk into it.
 
-**ERR-MEM-6 (R). The model does not use linear types.** `linear` and
-`consume` parse and enforce nothing: no use is counted, a linear value
-may be used twice or not at all. `Linear T` *is* a real nominal barrier
-(`AX3004` against `T`), which is enough to keep a wrapper honest in a
-signature and not enough to build ownership on. Every rule above is
-correct without linearity.
+**ERR-MEM-6 (R). The model does not use linear types, and as of
+2026-08-25 neither does the language.** `linear` and `consume` parsed
+and enforced nothing: no use was counted, so a value could be used twice
+or not at all. `Linear T` *was* a real nominal barrier (`AX3004` against
+`T`), which was enough to keep a wrapper honest in a signature and not
+enough to build ownership on. Every rule above is correct without
+linearity — which is why the keywords were **refused** rather than left
+reserved-and-inert: they now report `AX2004` with migration advice,
+alongside `union`, `region`, `foreign` and `deriving`. A marker that
+reads as an ownership guarantee and supplies none is worse than no
+marker.
 
 `MM-LIFE-7`, if it lands, would add two things to this model and change
 none of its rules: an error value could **move** into a callee without
