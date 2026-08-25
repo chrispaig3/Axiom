@@ -9239,6 +9239,22 @@
 ; from escaping attribution entirely. A lexically bound name
 ; contributes nothing - its initialiser was walked where it was
 ; bound.
+; Does this type take an argument? `TAG_T_ARR` is the only shape that
+; does, and a `FnEnt`'s `paramCount` cannot answer it: every primitive
+; is registered with -1 there, so `__argc` and `__syscall3` would be
+; indistinguishable.
+(pub :: tyIsArrow (-> Int Int))
+
+(pub fn (tyIsArrow t)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_T_ARR)
+      1
+      0
+    )
+  )
+)
+
 (pub :: effRefSite (-> Int String Int Int Int))
 
 (pub fn (effRefSite tc n bound acc)
@@ -9254,7 +9270,42 @@
           0
           {
             (tcNoteCall tc (memGetWordStr ent 0))
-            (effUnion acc (memGetWord ent 5) 0)
+            ; NULLARY OR NOT is the whole question, and it is the
+            ; difference between naming a function and calling one.
+            ;
+            ; This language has no argument list on a nullary call:
+            ; `vecNew`, `sysArgc` and `__argc` are INVOKED by writing
+            ; their name, so a bare reference to one is a call and its
+            ; effects are this body's. That is why this rule unions
+            ; them, and for a nullary referent it is exact.
+            ;
+            ; A referent that takes arguments is a different thing. A
+            ; bare `shout` where `shout` is `(-> Int Int)` is a VALUE -
+            ; nothing is performed, and unioning its effects reported
+            ; `(fn (handoff k) shout)` as performing IO. That shape is
+            ; the one `docs/agent-harness.md` §6 names as the reason
+            ; `AX3010` cannot be promoted to an error: "promoting that
+            ; shape refuses correct programs".
+            ;
+            ; So an arrow-typed referent contributes `effIncomplete`
+            ; instead. That is the honest claim: the value escaped, the
+            ; walk cannot bound what is done with it, and the row is a
+            ; LOWER bound rather than a wrong one. A `pure` claim over
+            ; it draws `AX3037` - cannot be checked - which is the
+            ; diagnostic that was always right for it.
+            ;
+            ; Measured over `stdlib/` and `self_host/`: ZERO rows lose
+            ; an effect and ZERO become incomplete. Nothing in this
+            ; repository names an arrow-typed function without calling
+            ; it, which is why the over-report went unnoticed - and why
+            ; correcting it costs nothing.
+            {
+              (effUnion acc (memGetWord ent 5) 0)
+              (if (== (tyIsArrow (memGetWord ent 1)) 1)
+                (effAdd acc effByRef)
+                0
+              )
+            }
           }
         )
       )
@@ -9372,6 +9423,42 @@
   )
 )
 
+; Set when a row's effects include some contributed by NAMING a
+; function that takes arguments, rather than by calling one.
+;
+; `effIncomplete` says the row is a LOWER bound. This says the opposite:
+; the row may be an UPPER one. Both are departures from "these are
+; exactly the effects", and they have to be separate words because the
+; two consumers want opposite things from them.
+(pub :: effByRef String)
+
+(pub fn (effByRef) "?:byref")
+
+; Is this entry a MARKER rather than an effect?
+;
+; Markers ride the same Vec as effects, tagged `?:` where a builtin is
+; `b:` and a custom one `c:`. The rule every consumer has to follow is
+; in `checkUnhandled`'s own comment - "every consumer that renders an
+; effect has to skip it" - and it was written when there was one marker
+; and one place to forget it. There are two now, so the test is a
+; function: a consumer that renders or handles an effect asks this, and
+; a consumer that cares WHICH marker asks for that one by name.
+(pub :: effIsMarker (-> String Int))
+
+(pub fn (effIsMarker e)
+  (if (strEq e effIncomplete)
+    1
+    (if (strEq e effByRef)
+      1
+      0
+    )
+  )
+)
+
+(pub :: effOverApprox (-> Int Int))
+
+(pub fn (effOverApprox v) (effIn v effByRef))
+
 (pub :: effPartial (-> Int Int))
 
 (pub fn (effPartial v) (effIn v effIncomplete))
@@ -9415,7 +9502,7 @@
   (if (>= i (vecLen v))
     0
     {
-      (if (strEq (vecGetStr v i) effIncomplete)
+      (if (== (effIsMarker (vecGetStr v i)) 1)
         0
         (effInsertSorted out (vecGet v i))
       )
@@ -10033,7 +10120,7 @@
     ; it, and no file in the swept trees calls through a local
     ; inside a handle body, so only the probe bank saw it.
     {
-      (if (strEq (vecGetStr inner i) effIncomplete)
+      (if (== (effIsMarker (vecGetStr inner i)) 1)
         0
         (if (&& (== (effHandledBy effs (vecGetStr inner i) 0) 0) (!= span 0))
           (emitDiag tc (mkDiag
@@ -12540,17 +12627,41 @@
 (pub :: axtagContradicted (-> Int Int String Int Int))
 
 (pub fn (axtagContradicted tc d label eff)
-  (if (== (vecLen (effSorted eff)) 0)
-    ; Nothing concrete contradicts the claim - which acquits it only
-    ; when the walk resolved every call it met. Where it did not, the
-    ; empty set is the analysis's silence and not the body's, and
-    ; reading one as the other is exactly how `((b.f) x)` passed as
-    ; `pure` while it wrote to stdout.
-    (if (== (effPartial eff) 1)
-      (emitAxtagUnverifiable tc d label)
-      0
+  ; AN OVER-APPROXIMATED ROW CANNOT CONTRADICT ANYTHING, and this is
+  ; the arm `docs/agent-harness.md` §6 named as the reason `AX3010`
+  ; could not be promoted: it fired on `(fn (handoff k) shout)`, which
+  ; performs nothing and merely hands `shout` back.
+  ;
+  ; `effRefSite` unions a referent's effects, which is EXACT for a
+  ; nullary referent - this language invokes `vecNew` and `__argc` by
+  ; writing their names - and an over-approximation for one that takes
+  ; arguments, where a bare name is a value. That over-approximation is
+  ; load-bearing and is NOT removed: `AX3011` needs it, because a
+  ; `handle` list must name every effect the body can reach and
+  ; `(handle (apply ask 1) (IO) ...)` reaches `Ask` only through the
+  ; bare `ask`. Measured - dropping it turned that hard error into an
+  ; `AX3038` warning, which is the wrong direction for a check whose
+  ; whole job is refusing an inexhaustive list.
+  ;
+  ; So the two consumers get different answers from the same walk.
+  ; `AX3011` keeps the upper bound. This arm, which accuses the AUTHOR
+  ; of writing a false claim, declines to do so on evidence that may be
+  ; the analysis's rather than the body's, and says `AX3037` instead -
+  ; the diagnostic that already means "cannot be checked".
+  (if (== (effOverApprox eff) 1)
+    (emitAxtagUnverifiable tc d label)
+    (if (== (vecLen (effSorted eff)) 0)
+      ; Nothing concrete contradicts the claim - which acquits it only
+      ; when the walk resolved every call it met. Where it did not, the
+      ; empty set is the analysis's silence and not the body's, and
+      ; reading one as the other is exactly how `((b.f) x)` passed as
+      ; `pure` while it wrote to stdout.
+      (if (== (effPartial eff) 1)
+        (emitAxtagUnverifiable tc d label)
+        0
+      )
+      (emitAxtag tc d (strConcat (strConcat label " contradicted: body performs ") (effJoin eff)))
     )
-    (emitAxtag tc d (strConcat (strConcat label " contradicted: body performs ") (effJoin eff)))
   )
 )
 

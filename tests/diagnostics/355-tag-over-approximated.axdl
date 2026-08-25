@@ -1,0 +1,4 @@
+W AX3037 355-tag-over-approximated.ax:44:6-13 axtag-unverifiable "AXTAG unverifiable on `handoff`: `pure` claim cannot be checked: the body calls a value the compiler could not resolve" ?"name the function at the call, or drop the claim: an unresolved call may perform anything"
+W AX3037 355-tag-over-approximated.ax:44:6-13 axtag-unverifiable "AXTAG unverifiable on `handoff`: `pure` claim cannot be checked: the body calls a value the compiler could not resolve" ?"name the function at the call, or drop the claim: an unresolved call may perform anything"
+W AX3010 355-tag-over-approximated.ax:50:6-10 axtag-mismatch "AXTAG mismatch on `liar`: `pure` claim contradicted: body performs IO"
+W AX3010 355-tag-over-approximated.ax:50:6-10 axtag-mismatch "AXTAG mismatch on `liar`: `pure` claim contradicted: body performs IO"

@@ -1149,13 +1149,17 @@
                               (disp vecNew)
                               (mut k 0)
                               (mut partial 0)
+                              (mut overapprox 0)
                             )
                               {
                                 (while (< k (vecLen effs))
                                   {
                                     (if (strEq (vecGetStr effs k) effIncomplete)
                                       (set partial 1)
-                                      (vecPush disp (effRender (vecGetStr effs k)))
+                                      (if (strEq (vecGetStr effs k) effByRef)
+                                        (set overapprox 1)
+                                        (vecPush disp (effRender (vecGetStr effs k)))
+                                      )
                                     )
                                     (set k (+ k 1))
                                   })
@@ -1165,6 +1169,19 @@
                                 )
                                 (if (== partial 1)
                                   (vecPush metas "effects-incomplete")
+                                  0
+                                )
+                                ; The opposite admission. `-incomplete`
+                                ; says the row is a LOWER bound; this
+                                ; says it may be an UPPER one, because
+                                ; some of it was contributed by NAMING
+                                ; a function rather than calling one.
+                                ; Without it a reader sees
+                                ; `#effects=IO` on `(fn (handoff k)
+                                ; shout)` and believes a body that does
+                                ; no IO performs some.
+                                (if (== overapprox 1)
+                                  (vecPush metas "effects-overapprox")
                                   0
                                 )
                               }

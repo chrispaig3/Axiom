@@ -1,0 +1,34 @@
+[1;33mwarning[AX3037][0m[1m: AXTAG unverifiable on `handoff`: `pure` claim cannot be checked: the body calls a value the compiler could not resolve[0m
+  [1;34m--> [0m355-tag-over-approximated.ax:44:6
+[1;34m   |[0m
+[1;34m44 |[0m (fn (handoff k) shout)
+[1;34m   |[0m      [1;33m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mname the function at the call, or drop the claim: an unresolved call may perform anything
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3037` for a full explanation
+
+[1;33mwarning[AX3037][0m[1m: AXTAG unverifiable on `handoff`: `pure` claim cannot be checked: the body calls a value the compiler could not resolve[0m
+  [1;34m--> [0m355-tag-over-approximated.ax:44:6
+[1;34m   |[0m
+[1;34m44 |[0m (fn (handoff k) shout)
+[1;34m   |[0m      [1;33m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mname the function at the call, or drop the claim: an unresolved call may perform anything
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3037` for a full explanation
+
+[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `liar`: `pure` claim contradicted: body performs IO[0m
+  [1;34m--> [0m355-tag-over-approximated.ax:50:6
+[1;34m   |[0m
+[1;34m50 |[0m (fn (liar n)
+[1;34m   |[0m      [1;33m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `liar`: `pure` claim contradicted: body performs IO[0m
+  [1;34m--> [0m355-tag-over-approximated.ax:50:6
+[1;34m   |[0m
+[1;34m50 |[0m (fn (liar n)
+[1;34m   |[0m      [1;33m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+

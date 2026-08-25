@@ -18,6 +18,68 @@ its changelog too.
 
 ### Added
 
+- **One of the two measured reasons `AX3010` could not become an error
+  is gone.** `docs/agent-harness.md` §6 refused promotion on two
+  grounds, and the first was that *"`pure` claim contradicted"* fires on
+  a function that merely **names** an effectful function without calling
+  it — `(fn (handoff k) shout)` reported `#effects=IO` and was accused
+  of performing IO it does not perform. "Promoting that shape refuses
+  correct programs."
+
+  The cause is the reference-site rule unioning a referent's effects,
+  and it is **exact for a nullary referent**: this language invokes
+  `vecNew`, `sysArgc` and `__argc` by writing their names, so naming one
+  *is* calling it. It is an over-approximation only for a referent that
+  takes arguments, where a bare name is a value.
+
+  **Deleting the over-approximation was tried first, and measured
+  wrong.** `tests/diagnostics/340-effect-op-value.ax` is
+  `(handle (apply ask 1) (IO) ...)`, which reaches `Ask` only through
+  the bare `ask`; without the union its `AX3011` — a hard error for an
+  inexhaustive `handle` list — became an `AX3038` **warning**. Weakening
+  the one effect check that is already an error is the wrong direction
+  for this work, so the union stays.
+
+  **The two consumers get different answers from the same walk
+  instead.** A contribution made by naming an arrow-typed function now
+  also sets `?:byref`, a marker beside `?:incomplete` and its exact
+  opposite — `?:incomplete` says the row is a *lower* bound, `?:byref`
+  says it may be an *upper* one. `AX3011` keeps the upper bound and is
+  unchanged. The `contradicted` arm, the one that accuses an author of
+  writing a false claim, declines to do so on evidence that may be the
+  analysis's rather than the body's, and emits `AX3037` *cannot be
+  checked* instead. `handoff` draws that; a function that really
+  performs IO under a `pure` tag still draws `AX3010`.
+
+  **And the row says so.** `#effects-overapprox` joins
+  `#effects-incomplete` in AXSYM, because a reader who sees
+  `#effects=IO` on `handoff` and nothing else has been told the same
+  falsehood the diagnostic used to tell. `handoff` reads
+  `#pure #effects=IO #effects-overapprox`.
+
+  Two things this cost, both found by running it. A marker riding the
+  effects Vec is invisible until a consumer treats it as an effect:
+  `AX3011` emitted a **second** *unhandled effect* diagnostic naming the
+  marker, and AXSYM rendered `#effects=IO,byref`. `checkUnhandled`'s own
+  comment had already warned about exactly this — *"every consumer that
+  renders an effect has to skip it"* — written when there was one marker
+  and one place to forget it. The test is a function now,
+  `effIsMarker`, so a third marker cannot be forgotten in the same way.
+
+  Measured across `stdlib/` and `self_host/`: **zero** of 3,034 effect
+  rows changed, and no other fixture's diagnostics moved.
+  `tests/diagnostics/355-tag-over-approximated.ax` pins both directions,
+  `handoff` beside `liar`, because a check that went quiet on the second
+  would have traded one wrong answer for another.
+
+  **What is still open**, and it is now the only thing: `symbols` folds
+  every failure into exit 1 and prints no table, so promoting `AX3010`
+  would delete the AXSYM surface for exactly the files carrying a wrong
+  tag. A symbol table is a fact about the *source* — every language
+  server answers `documentSymbol` for a file that does not compile — and
+  fixing it moves no exit status, so `check-tools-selfhost.sh`'s
+  equivalence still holds.
+
 - **`Vec` can sort.** It could not, which is a strange thing for a
   language to ship: `Vec` was `new`/`push`/`pop`/`get`/`set`/`len`/
   `cap`/`sum`/`hash`, so every program that needed ordering wrote its

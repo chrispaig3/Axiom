@@ -1,0 +1,59 @@
+; A `pure` claim over a row the analysis OVER-approximated.
+;
+; `handoff` performs nothing. It hands `shout` back, and `shout` is the
+; caller's to call or not. Until 2026-08-25 the reference-site rule
+; unioned a referent's effects unconditionally, so this drew
+; `AX3010 pure claim contradicted: body performs IO` - an accusation
+; about a body that does no IO at all. `docs/agent-harness.md` §6 named
+; exactly this shape as the reason `AX3010` could not be promoted to an
+; error: "promoting that shape refuses correct programs".
+;
+; WHY THE UNION IS STILL THERE. It is exact for a NULLARY referent -
+; this language invokes `vecNew`, `sysArgc` and `__argc` by writing
+; their names, so naming one is calling it - and `AX3011` needs the
+; upper bound it gives for the rest: `340-effect-op-value.ax` reaches
+; `Ask` only through a bare `ask`, and removing the union turned that
+; hard error into an `AX3038` warning. Measured, both directions.
+;
+; So the walk marks the contribution instead. `?:byref` sits beside
+; `?:incomplete` and means its opposite - a lower bound versus a
+; possible upper one - and only the arm that accuses the AUTHOR reads
+; it. `handoff` draws `AX3037`, which is the diagnostic that already
+; means "cannot be checked", and that is the truth: whether this
+; program performs IO depends on what a caller does with what it got.
+;
+; `liar` is the control and must still be an `AX3010`. It calls
+; `writeStr` itself, no reference involved, and a check that went quiet
+; on it would have traded one wrong answer for another.
+(import IO)
+
+(:: shout (-> Int Int))
+
+;@axiom:effect(io)
+(fn (shout n)
+  {
+    (writeStr 1 "!\n")
+    n
+  }
+)
+
+;@axiom:pure
+(:: handoff (-> Int Int Int))
+
+;@axiom:pure
+(fn (handoff k) shout)
+
+;@axiom:pure
+(:: liar (-> Int Int))
+
+;@axiom:pure
+(fn (liar n)
+  {
+    (writeStr 1 "!\n")
+    n
+  }
+)
+
+(:: main Int)
+
+(fn (main) 0)

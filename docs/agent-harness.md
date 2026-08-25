@@ -505,8 +505,36 @@ remains, a call the compiler cannot resolve, and it announces itself as
   or the function has effect-transparent parameters. The one that looks
   decidable is not: "`pure` claim contradicted: body performs IO" fires
   on a function that merely NAMES an effectful function without calling
-  it — `(fn (handoff k) shout)` is reported as performing IO and carries
-  `#effects=IO`. Promoting that shape refuses correct programs.
+  it — `(fn (handoff k) shout)` was reported as performing IO and
+  carried `#effects=IO`. Promoting that shape refuses correct programs.
+
+  **That half is closed as of 2026-08-25.** The cause is the
+  reference-site rule unioning a referent's effects, which is EXACT for
+  a nullary referent — this language invokes `vecNew`, `sysArgc` and
+  `__argc` by writing their names, so naming one *is* calling it — and
+  an over-approximation for one that takes arguments, where a bare name
+  is a value.
+
+  The over-approximation is **not** removed, because a second consumer
+  needs it. Deleting it was tried first and measured:
+  `tests/diagnostics/340-effect-op-value.ax` is
+  `(handle (apply ask 1) (IO) ...)`, which reaches `Ask` only through
+  the bare `ask`, and without the union its `AX3011` — a hard error for
+  an inexhaustive `handle` list — became an `AX3038` warning. That is
+  the wrong direction for a check whose whole job is refusing a list
+  that does not name what the body can reach.
+
+  So the same walk answers its two consumers differently. A
+  contribution made by NAMING an arrow-typed function now also sets
+  `?:byref`, a marker beside `?:incomplete` and its opposite:
+  `?:incomplete` says the row is a lower bound, `?:byref` says it may be
+  an upper one. `AX3011` keeps the upper bound and is unchanged. The
+  `contradicted` arm — the one that accuses an author of writing a false
+  claim — declines to do so on evidence that may be the analysis's
+  rather than the body's, and emits `AX3037` *cannot be checked*
+  instead. `handoff` draws that; a function that really performs IO
+  under a `pure` tag still draws `AX3010`. Measured across `stdlib/`
+  and `self_host/`: **zero** of 3,034 effect rows changed.
 
   And the cost lands in exactly the wrong place. `symbols` folds every
   failure into exit 1 and prints no table, so making the claim an error
@@ -517,7 +545,17 @@ remains, a call the compiler cannot resolve, and it announces itself as
   is the equivalence "symbols exits 0 iff check exits 0" and the change
   moves both sides at once.
 
-  So the severity stays, and the gate does the refusing:
+  **What is left is the second reason alone**, and it is about tooling
+  rather than about the analysis. The way to remove it is to make
+  `symbols` emit its table alongside diagnostics rather than instead of
+  them: a symbol table is a fact about the SOURCE, every language server
+  answers `documentSymbol` for a file that does not compile, and this
+  one empties stdout. The exit status would not move, so
+  `check-tools-selfhost.sh`'s equivalence still holds. That is a change
+  to `main.ax`'s symbols path, not to the effect walk, and it is not
+  made here.
+
+  Until then the severity stays, and the gate does the refusing:
   `check-agent-policy.sh` is where a violated policy stops a build,
   which is §3.4's argument arriving a second time.
 
