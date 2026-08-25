@@ -394,14 +394,42 @@ echo "ok   every stdlib declaration performing an effect also claims it"
 echo
 echo "== completeness: no effect row is only a lower bound =="
 # Declarations allowed to carry `#effects-incomplete`, one `<name>
-# <file>` per line with the reason beside it. The list is EMPTY, and
-# that is the finding this assertion was written for: on 2026-08-23 no
-# stdlib declaration carried the sentinel, so refusing it outright cost
-# the library nothing and buys the property that assertions 1 and 2 are
-# upper bounds. An entry here is a declaration whose effects the
-# compiler admits it cannot enumerate; it must say why that is
-# acceptable, and "it looks fine" is not a reason.
-: > "$work/incomplete.exempt"
+# <file>` per line with the reason beside it. An entry here is a
+# declaration whose effects the compiler admits it cannot enumerate; it
+# must say why that is acceptable, and "it looks fine" is not a reason.
+#
+# THE LIST WAS EMPTY UNTIL 2026-08-25, and that emptiness was the
+# finding this assertion was written for: on 2026-08-23 no stdlib
+# declaration carried the sentinel, so refusing it outright cost the
+# library nothing and bought the property that assertions 1 and 2 are
+# upper bounds rather than lower ones.
+#
+# It cost nothing because the library had no HIGHER-ORDER function that
+# calls its argument. `vecSortBy` is the first, and it did not squeak
+# past this check - it was refused by it, on the first run, which is
+# what the check is for. The entries below are that refusal, examined
+# and accepted rather than routed around.
+#
+# The property those two assertions have for the rest of the library is
+# unchanged. What is lost is exactly this: for these two declarations,
+# `#effects=Mut` means "at least Mut", because the comparator a caller
+# supplies may perform anything at all. That is not a defect in the
+# inference (`docs/memory-model.md` MM-EXEC-9a's one remaining row) and
+# it is not fixable by naming a function at the call site - the call
+# site's whole purpose is that the function is the caller's. A sort
+# that could only order words its author anticipated would not be a
+# sort.
+#
+# The row still ANNOUNCES itself: `#effects-incomplete` is on it and a
+# `;@axiom:pure` claim over it would draw `AX3037`. A reader is handed
+# a lower bound labelled as one, which is the honest half of the
+# arrangement and the reason an entry here is acceptable at all.
+# `<name> <file>  <reason>` - one line each, the reason being everything
+# after the second field, so it has room to say something.
+cat > "$work/incomplete.exempt" <<'INCOMPLETE'
+vecSortBy     Vec.ax  calls the comparator the CALLER supplies, so its row is a lower bound by construction; the first higher-order function in this library and the first entry here
+vecSiftDownBy Vec.ax  the same call one frame down, `vecSortBy`'s own helper
+INCOMPLETE
 awk 'NF { print $1, $2 }' "$work/incomplete.exempt" | LC_ALL=C sort -u > "$work/incomplete.exempted"
 grep -F '#effects-incomplete' "$work/rows" | axsym_name_file > "$work/incomplete" || true
 comm -23 "$work/incomplete" "$work/incomplete.exempted" > "$work/incomplete.unexempt"
@@ -416,7 +444,7 @@ if [[ -s "$work/incomplete.unexempt" ]]; then
   echo '     exempt list in this gate WITH THE REASON.'
   exit 1
 fi
-echo "ok   no stdlib declaration carries #effects-incomplete"
+echo "ok   the only #effects-incomplete rows are the $(awk 'NF{print $1}' "$work/incomplete.exempt" | LC_ALL=C sort -u | grep -c .) exempted by name"
 
 echo
 echo "== the checker's own doubt is this gate's failure =="
@@ -638,5 +666,5 @@ fi
 echo
 echo "check-agent-policy: the standard library performs what it declares,"
 echo "                    the set that performs anything is the one on file,"
-echo "                    and nothing in it carries an effect row the checker"
-echo "                    could not finish"
+echo "                    and the only rows the checker could not finish are"
+echo "                    the two higher-order ones it is told about by name"

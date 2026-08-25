@@ -255,6 +255,11 @@ vecPush Vec.ax Alloc,Mut
 vecReserve Vec.ax Alloc,Mut
 vecReserveExactly Vec.ax Alloc,Mut
 vecSet Vec.ax Mut
+vecSiftDown Vec.ax Mut
+vecSiftDownBy Vec.ax Mut
+vecSort Vec.ax Mut
+vecSortBy Vec.ax Mut
+vecSwapWords Vec.ax Mut
 vecWithCapacity Vec.ax Alloc,Mut
 vecWithCapacityRef Vec.ax Alloc,Mut
 writeFile IO.ax Alloc,IO,Mut

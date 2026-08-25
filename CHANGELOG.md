@@ -18,6 +18,79 @@ its changelog too.
 
 ### Added
 
+- **`Vec` can sort.** It could not, which is a strange thing for a
+  language to ship: `Vec` was `new`/`push`/`pop`/`get`/`set`/`len`/
+  `cap`/`sum`/`hash`, so every program that needed ordering wrote its
+  own. `vecSort` orders ascending by machine word and `vecSortBy` takes
+  a comparator, both in place, both answering the vector.
+
+  **Heapsort, and the reasons are the container's.** It is in place, it
+  has no recursion to grow a stack with, and its worst case is its
+  average case — where quicksort's worst case is a sorted input, which
+  is the input a caller most often has, and a merge sort's extra array
+  is expensive in exactly the way a bump allocator with no `free` makes
+  it.
+
+  **The swap does not go through `vecSet`, and that is the whole
+  correctness argument.** A sort is a *permutation*. `vecSet` releases
+  the element it displaces on a `vecNewRef` vector — right for a write,
+  wrong for a swap, because the two halves displace each other, so the
+  pair would release both shares and retain them back, and a count that
+  touches zero between the two hands the block to the next same-size
+  allocation while this vector still addresses it. Moving the raw words
+  takes no share and gives none back; a permutation changes no
+  element's count. `tests/stdlib/405-vec-sort.ax` is what would catch
+  the other choice: four heap `String`s sorted and then all four read
+  back, since a freed element reads as whatever was allocated over it.
+
+  The fixture also carries the shapes a heapsort gets wrong when its
+  bounds are off — empty, one element (`n/2 - 1` is `-1`, so the
+  heapify loop must not run), already sorted, exactly reversed,
+  duplicates, and negatives, which a comparison written with unsigned
+  intent orders wrong and nothing else would show. 5,000 elements are
+  checked ordered rather than printed, and `vecSort` and `vecSortBy`
+  sort one input both ways and must agree, which is what keeps two
+  implementations of thirty near-identical lines from diverging.
+  Drilled: making the sift pick the smaller child turns it red.
+
+  Measured 160,000 elements in **0.016s**, and the curve is flat —
+  1.01×, 1.84×, 1.11× per doubling.
+
+  **And the first higher-order function in this library made the effect
+  system admit a lower bound, on its first run.**
+  `check-agent-policy.sh` has an exempt list for declarations carrying
+  `#effects-incomplete`, and the list was **empty** — the comment above
+  it says that emptiness *was* the finding the assertion was written
+  for. It was empty because nothing in the library called a function it
+  was handed. `vecSortBy` does, by definition, so its `#effects=Mut` is
+  *at least* `Mut`: the comparator a caller supplies may perform
+  anything.
+
+  It did not squeak past the check — it was refused by it, which is what
+  the check is for, and the two entries are that refusal examined and
+  accepted rather than routed around. This is `MM-EXEC-9a`'s one
+  remaining row meeting real code, and it is not fixable by naming the
+  function at the call site: the call site's whole purpose is that the
+  function is the caller's. A sort that could only order words its
+  author anticipated would not be a sort. The row still *announces*
+  itself — `#effects-incomplete` is on it and a `;@axiom:pure` claim
+  over it draws `AX3037` — so a reader gets a lower bound labelled as
+  one, which is what makes the entry acceptable at all.
+
+  The gate's own summary said *"nothing in it carries an effect row the
+  checker could not finish"*, which stopped being true the moment the
+  list stopped being empty; it now names the count and reads it from
+  the list rather than asserting it.
+
+  Two things the API reference caught rather than a reviewer.
+  `vecSortBy`'s documentation was written above the private helper
+  instead of above the public declaration, so the generated reference
+  printed the name with an **empty summary**. And its first draft
+  documented `(vecSortBy v strCmp)`, which does not compile: a
+  top-level function is not a value here, because a partial
+  application has no closure record to hold what it was not given
+  (`AX3013`). The spelling in the comment is the one that works.
+
 - **Effect inference was quadratic in the depth of a call chain, and the
   losing declaration order is the one people write.** A round of
   `inferEffects` propagates an effect **one call edge** when it meets the

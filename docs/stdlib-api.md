@@ -561,7 +561,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Vec`
 
-`stdlib/Vec.ax` — 18 public names
+`stdlib/Vec.ax` — 20 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -583,4 +583,6 @@ See [reference.md](reference.md) for the language, and
 | `vecClear` | value | `(-> Int Int)` | `Mut` | Drop every element, keeping the capacity. Returns the handle. |
 | `vecSum` | value | `(-> Int Int)` |  | The sum of every element. |
 | `vecHash` | value | `(-> Int Int)` |  | A position-sensitive digest of the whole vector. |
+| `vecSort` | value | `(-> Int Int)` | `Mut` | Sort ascending, in place, by machine word. Answers the vector. |
+| `vecSortBy` | value | `(-> Int (-> Int Int Int) Int)` | `Mut` | The same, ordered by a caller's comparison rather than by the word. |
 

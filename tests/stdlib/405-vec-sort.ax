@@ -1,0 +1,194 @@
+; `vecSort` and `vecSortBy`, and the swap that is not a `vecSet`.
+;
+; A sort is a PERMUTATION, and that is the whole reason these move
+; words through `memGetWord`/`memSetWord` rather than through `vecSet`.
+; `vecSet` releases the element it displaces on a `vecNewRef` vector,
+; which is right for a write and wrong for a swap: the two halves
+; displace each other, so the pair would release both shares and retain
+; them back, and a count that touches zero between the two hands the
+; block to the next same-size allocation while this vector still
+; addresses it. The `owned` term below is what would catch that - four
+; heap Strings, sorted, then all four READ BACK. A freed element reads
+; as whatever was allocated over it.
+;
+; The shapes a heapsort gets wrong if its bounds are off, each here:
+; empty (no iterations at all), one element (`n/2 - 1` is -1, so the
+; heapify loop must not run), already sorted, exactly reversed,
+; duplicates, and negatives - a comparison written with unsigned
+; intent orders those wrong and nothing else in this file would show
+; it.
+;
+; `agree` is the cross-check that keeps the two implementations from
+; diverging: `vecSortBy` duplicates `vecSort`'s thirty lines with one
+; expression changed, and the two sort the SAME input here and must
+; answer the same order.
+;
+; EVERY LINE COMES FROM ONE `println`, and no `writeStr` builds a line
+; in pieces. `check-stdlib-selfhost.sh` derives a model of what each
+; fixture prints from the fixture's own source, and a line assembled
+; from several `writeStr` calls is a line that model cannot attribute -
+; measured, it reported "claims '', and no such line remains".
+(import Vec)
+
+(import IO)
+
+(import Fmt)
+
+(import Str)
+
+(:: joined (-> Int Int String String))
+
+(fn (joined v i acc)
+  (if (>= i (vecLen v))
+    acc
+    (joined v (+ i 1) (strConcat (strConcat acc (fmtInt (vecGet v i))) " "))
+  )
+)
+
+(:: push4 (-> Int Int Int Int Int Int))
+
+(fn (push4 v a b c d)
+  {
+    (vecPush v a)
+    (vecPush v b)
+    (vecPush v c)
+    (vecPush v d)
+    v
+  }
+)
+
+(:: fill (-> Int Int Int Int))
+
+(fn (fill v i n)
+  (if (>= i n)
+    0
+    {
+      (vecPush v (% (* i 7919) 1000))
+      (fill v (+ i 1) n)
+    }
+  )
+)
+
+(:: ordered (-> Int Int Int))
+
+(fn (ordered v i)
+  (if (>= (+ i 1) (vecLen v))
+    1
+    (if (> (vecGet v i) (vecGet v (+ i 1)))
+      0
+      (ordered v (+ i 1))
+    )
+  )
+)
+
+(:: same (-> Int Int Int Int))
+
+(fn (same a b i)
+  (if (>= i (vecLen a))
+    1
+    (if (!= (vecGet a i) (vecGet b i))
+      0
+      (same a b (+ i 1))
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  ; the bounds cases: empty, one, already sorted, exactly reversed
+  {
+    (let ((e vecNew))
+      {
+        (vecSort e)
+        (println (fmtInt (vecLen e)))
+      }
+    )
+    (let ((o vecNew))
+      {
+        (vecPush o 7)
+        (vecSort o)
+        (println (joined o 0 ""))
+      }
+    )
+    (let ((s vecNew))
+      {
+        (push4
+          s          1          2          3          4
+        )
+        (vecSort s)
+        (println (joined s 0 ""))
+      }
+    )
+    (let ((r vecNew))
+      {
+        (push4
+          r          4          3          2          1
+        )
+        (vecSort r)
+        (println (joined r 0 ""))
+      }
+    )
+    ; duplicates and negatives together
+    (let ((m vecNew))
+      {
+        (push4
+          m          5          (- 0 8)          3          42
+        )
+        (push4
+          m          3          0          9          (- 0 8)
+        )
+        (vecSort m)
+        (println (joined m 0 ""))
+      }
+    )
+    ; 5,000 elements, checked ordered rather than printed
+    (let ((big vecNew))
+      {
+        (fill big 0 5000)
+        (vecSort big)
+        (println (fmtInt (ordered big 0)))
+      }
+    )
+    ; the two implementations agree on one input
+    (let (
+      (p vecNew)
+      (q vecNew)
+    )
+      {
+        (push4
+          p          9          2          7          2
+        )
+        (push4
+          q          9          2          7          2
+        )
+        (vecSort p)
+        (vecSortBy
+          q          (lambda (a b) (- a b))
+        )
+        (println (fmtInt (same p q 0)))
+      }
+    )
+    ; a REF-OWNING vector: every element read back after the sort
+    (let ((owned vecNewRef))
+      {
+        (vecPush owned (strConcat "pe" "ar"))
+        (vecPush owned (strConcat "fi" "g"))
+        (vecPush owned (strConcat "ap" "ple"))
+        (vecPush owned (strConcat "da" "te"))
+        (vecSortBy
+          owned          (lambda (a b)
+            (strCmp
+              (cast String a)              (cast String b)
+            )
+          )
+        )
+        (println (vecGetStr owned 0))
+        (println (vecGetStr owned 1))
+        (println (vecGetStr owned 2))
+        (println (vecGetStr owned 3))
+      }
+    )
+    0
+  }
+)

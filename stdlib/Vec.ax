@@ -497,3 +497,197 @@
     (vecHashFrom v (+ i 1) (% (+ (* h 31) (vecGet v i)) 1000000007))
   )
 )
+
+; ------------------------------------------------------------------
+; Ordering
+; ------------------------------------------------------------------
+; A sort is a PERMUTATION, and that is why these move words through
+; `memGetWord`/`memSetWord` on the data buffer rather than through
+; `vecSet`.
+;
+; `vecSet` releases the element it displaces on a `vecNewRef` vector,
+; which is right for a write and wrong for a swap: the two halves of a
+; swap displace each other, so the pair would release both shares and
+; retain them back, and a count that touches zero between the two is a
+; block handed to the next same-size allocation while this vector still
+; addresses it. Moving the raw words takes no share and gives none back
+; - a permutation changes no element's count, which is the whole reason
+; it is safe to bypass the accessor here.
+;
+; HEAPSORT, not quicksort: it is in place, it has no recursion to grow
+; a stack with, and its worst case is its average case. A bump allocator
+; with no `free` makes an out-of-place merge sort expensive in exactly
+; the way this container exists to avoid, and quicksort's worst case is
+; a sorted input, which is the input a caller most often has.
+(:: vecSwapWords (-> Int Int Int Int))
+
+(fn (vecSwapWords d i j)
+  (let ((t (memGetWord d i)))
+    {
+      (memSetWord d i (memGetWord d j))
+      (memSetWord d j t)
+      0
+    }
+  )
+)
+
+; Restore the heap property at `root`, over the first `n` words.
+(:: vecSiftDown (-> Int Int Int Int))
+
+(fn (vecSiftDown d root n)
+  (let (
+    (mut r root)
+    (mut go 1)
+  )
+    {
+      (while (== go 1)
+        (let ((c (+ (* 2 r) 1)))
+          (if (>= c n)
+            (set go 0)
+            (let ((mut k c))
+              {
+                (if (< (+ c 1) n)
+                  (if (> (memGetWord d (+ c 1)) (memGetWord d c))
+                    (set k (+ c 1))
+                    0
+                  )
+                  0
+                )
+                (if (>= (memGetWord d r) (memGetWord d k))
+                  (set go 0)
+                  {
+                    (vecSwapWords d r k)
+                    (set r k)
+                  }
+                )
+              }
+            )
+          )
+        ))
+      0
+    }
+  )
+)
+
+; Sort ascending, in place, by machine word. Answers the vector.
+;
+; BY WORD is the honest description: a `Vec` carries no element type,
+; so this orders the words it holds. For a vector of `Int` that is the
+; numeric order a caller wants. For a vector of `String` the word is a
+; handle and its order is an allocation order, which is stable within a
+; run and means nothing across runs - use `vecSortBy` with `strCmp`.
+(pub :: vecSort (-> Int Int))
+
+(pub fn (vecSort v)
+  (let (
+    (n (vecLen v))
+    (d (vecData v))
+  )
+    {
+      (let ((mut i (- (/ n 2) 1)))
+        (while (>= i 0)
+          {
+            (vecSiftDown d i n)
+            (set i (- i 1))
+          })
+      )
+      (let ((mut e (- n 1)))
+        (while (> e 0)
+          {
+            (vecSwapWords d 0 e)
+            (vecSiftDown d 0 e)
+            (set e (- e 1))
+          })
+      )
+      v
+    }
+  )
+)
+
+(:: vecSiftDownBy (-> Int Int Int (-> Int Int Int) Int))
+
+(fn (vecSiftDownBy d root n cmp)
+  (let (
+    (mut r root)
+    (mut go 1)
+  )
+    {
+      (while (== go 1)
+        (let ((c (+ (* 2 r) 1)))
+          (if (>= c n)
+            (set go 0)
+            (let ((mut k c))
+              {
+                (if (< (+ c 1) n)
+                  (if (> (cmp (memGetWord d (+ c 1)) (memGetWord d c)) 0)
+                    (set k (+ c 1))
+                    0
+                  )
+                  0
+                )
+                (if (>= (cmp (memGetWord d r) (memGetWord d k)) 0)
+                  (set go 0)
+                  {
+                    (vecSwapWords d r k)
+                    (set r k)
+                  }
+                )
+              }
+            )
+          )
+        ))
+      0
+    }
+  )
+)
+
+; The same, ordered by a caller's comparison rather than by the word.
+;
+; `cmp` answers negative, zero or positive the way `strCmp` does, and
+; it takes the WORDS the vector holds, because a `Vec` carries no
+; element type. Ordering a vector of `String` by its bytes - which is
+; what `vecSort` cannot do, since the word it holds for a `String` is
+; an address - is therefore:
+;
+;   (vecSortBy v (lambda (a b) (strCmp (cast String a) (cast String b))))
+;
+; and not `(vecSortBy v strCmp)`: a top-level function is not a value
+; in this language, because a partial application has no closure record
+; to hold the arguments it was not given (`AX3013`). The `cast` is the
+; caller saying what the word is, which is the same claim `vecGetStr`
+; makes at the same boundary.
+;
+; SPELLED OUT RATHER THAN SHARED WITH `vecSort`. The two differ in one
+; expression each, and folding them together means either `vecSort`
+; pays an indirect call per comparison - about 60,000 of them for 5,000
+; elements - or `vecSortBy` grows a branch per comparison to ask which
+; it is. The duplication is thirty lines that say the same thing twice
+; and never diverge in behaviour, because the fixture below sorts one
+; input both ways and requires the same answer.
+(pub :: vecSortBy (-> Int (-> Int Int Int) Int))
+
+(pub fn (vecSortBy v cmp)
+  (let (
+    (n (vecLen v))
+    (d (vecData v))
+  )
+    {
+      (let ((mut i (- (/ n 2) 1)))
+        (while (>= i 0)
+          {
+            (vecSiftDownBy d i n cmp)
+            (set i (- i 1))
+          })
+      )
+      (let ((mut e (- n 1)))
+        (while (> e 0)
+          {
+            (vecSwapWords d 0 e)
+            (vecSiftDownBy d 0 e cmp)
+            (set e (- e 1))
+          })
+      )
+      v
+    }
+  )
+)
