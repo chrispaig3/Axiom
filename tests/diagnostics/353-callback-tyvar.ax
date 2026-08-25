@@ -1,0 +1,96 @@
+; The same unsoundness one level in: a type variable in a FUNCTION-TYPED
+; parameter, where the callee still chooses the type.
+;
+; `347-result-only-tyvar.ax` has the shape everyone sees first - the
+; variable is the RESULT, and the rule that catches it asks whether any
+; parameter mentions it. That question has a wrong answer here.
+; `demand`'s `a` is inside a parameter, so a rule reading sides files it
+; under "witnessed" and reports nothing at all. Measured on the compiler
+; before this fixture existed: `check` answered OK and
+;
+;     (demand strLen)
+;
+; exited 139 - 42 handed to `strLen` as a String pointer, the same
+; dereference `conjure` reaches by the obvious route.
+;
+; What separates them is VARIANCE, not side. A parameter is a position
+; the CALLER fills; the left of an arrow INSIDE that parameter flips
+; back, and is a position the CALLEE fills. `a` is one of those: to call
+; `f` at all, `demand` must produce an `a`, and nothing the caller hands
+; over says what one is. There are the same two ways to make one - a
+; `cast` or a call to something that casts - and no third.
+;
+; THE DIVERGING READING IS NOT AVAILABLE HERE, which is why this arm has
+; no fixpoint behind it. `(:: panic (-> String a))` is honest because a
+; function that never returns never produced the `a` it promised.
+; `demand` returns an `Int` perfectly well; it fabricates on the way,
+; and a body that also looped forever would fabricate just the same.
+;
+; `witnessed` is the control that matters most, because it is the shape
+; ordinary higher-order code is written in. `b` appears on the RIGHT of
+; the callback's arrow - the caller's function produces it - and `a` on
+; its left is also the second parameter, which the caller supplies. Both
+; are witnessed, both must stay silent, and a rule that reported either
+; would refuse `map`.
+;
+; `alsoResult` is the shape the two arms could double-report: `a` is
+; inside the callback AND is the result. It draws exactly one
+; diagnostic, from the returned-variable arm, because that arm is the
+; one the divergence fixpoint can still answer.
+;
+; `divDemand` is that same overlap with the fixpoint's answer flipped,
+; and it is why the arms DECIDE the overlap rather than subtract it.
+; Its result variable is excused - it never returns, so `for all a` is
+; the honest type - but it hands `f` a fabricated `a` on the way to not
+; returning, and a divergence that happens afterwards does not unmake
+; the call. The first version of this analysis subtracted the result's
+; variables from the demanded set, which reads as "the other arm has
+; it"; the other arm was silent, and this checked OK and exited 139.
+; Measured 2026-08-25, and it is the second 139 in this file.
+(:: demand (-> (-> a Int) Int))
+
+(fn (demand f)
+  (f
+    (cast a 42)
+  )
+)
+
+(:: witnessed (-> (-> a b) a b))
+
+(fn (witnessed f x) (f x))
+
+;@axiom:raw
+(:: declared (-> (-> a Int) Int))
+
+(fn (declared f)
+  (f
+    (cast a 42)
+  )
+)
+
+(:: alsoResult (-> (-> a Int) a))
+
+(fn (alsoResult f)
+  (cast a 42)
+)
+
+(:: divDemand (-> (-> a Int) a))
+
+(fn (divDemand f)
+  {
+    (f
+      (cast a 42)
+    )
+    (let ((mut i 0))
+      {
+        (while true
+          (set i (+ i 1)))
+        (cast a i)
+      }
+    )
+  }
+)
+
+(:: main Int)
+
+(fn (main) 0)

@@ -18,6 +18,38 @@ its changelog too.
 
 ### Added
 
+- **Two documents restated a fact and went stale, and one gate reported
+  less the worse things got.** All three surfaced while closing
+  `AX3040`'s second shape, and none of them is about types.
+
+  `docs/error-model.md` reserved `AX3041` for `recursion-in-scrutinee`
+  and called it "the next free semantic number". The parser has been
+  emitting `AX3041` as `extern-library-name` since 2026-08-22, and
+  `AX3044` is spent too. The sentence that was supposed to prevent this
+  named the wrong comparison — "`check-doc-drift.sh` comparing
+  constructed against listed" is a statement about `explain.ax` and
+  reads that document not at all. Renumbered to `AX3045`; the gate now
+  compares constructed against **proposed** as well, in the one
+  direction that can fail, and the negative probe plants a spent number
+  and watches it go red.
+
+  `docs/agent-harness.md` called `tests/diagnostics/severity.policy` "an
+  allowlist of the only five codes permitted to render as warnings" and
+  named `AX3040` among them — one day after `AX3040` became an error and
+  left that file. The `claim()` sweep recomputes *numbers* a document
+  states and this one spells its number as a word; a count is the weaker
+  half regardless, so the **set** is compared now, both directions,
+  against the paragraph that quotes it.
+
+  And `scripts/check-diverging-tyvar.sh` ran under `set -e` that it never
+  asked for: `check_of` closed with `set -e` while the script's own
+  header is `set -uo pipefail`, deliberately without `-e`, because every
+  check reports and carries on. `set +e` was a no-op and `set -e` was
+  not. Green, it cost nothing. Ablated — the variance flip removed — the
+  gate found **13** failures, printed **2**, and died on a bare `grep`
+  whose only job was to dump context for a failure it had already
+  reported; 10 checks after it never ran. It reports all 13 of 27 now.
+
 - **What an arena reset costs, gated — and the number the memory model
   stated was wrong.** `MM-LIFE-2a` sat in `docs/memory-model.md`'s
   open-issue table with its own diagnosis: every arena reset charges
@@ -101,17 +133,92 @@ its changelog too.
   other two would have been the exact failure this promotion waited to
   avoid.
 
-  **What it still does not catch**, measured while writing it and
-  recorded rather than left to be found: the rule asks whether the
+  **The second shape, closed the same day.** The rule asked whether the
   variable appears in a PARAMETER, and every left side of the arrow
-  spine counts as one — including inside a function-typed parameter,
+  spine counted as one — including inside a function-typed parameter,
   where the callee still chooses the type. `(:: apply1 (-> (-> a Int)
-  Int))` with `(fn (apply1 f) (f (cast a 42)))` draws **no diagnostic
-  at all**, checks OK, and exits **139**. Closing that means splitting
-  the spine by variance rather than by side, which is a larger change
-  and is not made here. `axiom explain AX3040` says so too.
+  Int))` with `(fn (apply1 f) (f (cast a 42)))` drew **no diagnostic at
+  all**, checked OK, and exited **139** — the same dereference through
+  a positive occurrence one level in.
 
-  `scripts/check-diverging-tyvar.sh`, 16 checks. The probe that makes
+  The spine is split by **variance** now rather than by side
+  (`sigSplitPolar`): a parameter is a position the caller fills, the
+  left of an arrow *inside* it flips back to one the callee fills, and
+  a variable with a produced position and no supplied one is
+  unwitnessed wherever it sits. That arm has no fixpoint behind it,
+  deliberately — `panic` is honest because a function that never
+  returns never produced the `a` it promised, and `apply1` returns an
+  `Int` perfectly well while fabricating on the way.
+
+  **The two arms decide their overlap rather than subtract it, and the
+  first version got that wrong.** A variable can be a callback's *and*
+  the result's — `(-> (-> a Int) a)` — and the obvious way to keep one
+  declaration from drawing two diagnostics is to subtract the result's
+  variables from the demanded set. That reads as "the other arm has
+  it", and the other arm does not always speak:
+
+  ```scheme
+  (:: divDemand (-> (-> a Int) a))
+  (fn (divDemand f) { (f (cast a 42)) (cast a (exit 70)) })
+  (divDemand strLen)
+  ```
+
+  `divDemand` **diverges**, so the returned-variable arm is honestly
+  silent — `for all a` is the true type of a function that never
+  returns. It hands `f` a fabricated `a` on the way to not returning,
+  and a divergence that happens afterwards does not unmake the call.
+  Measured: `check` OK, exit **139**, a second time in the same session
+  and for a different reason than the first. The demanded arm now
+  yields only when the arm above *actually reported the same variable*,
+  which is two conditions and both are load-bearing:
+  `(-> (-> a Int) b)` fabricates two different variables and draws two
+  diagnostics.
+
+  The corpus does not move: 19 signatures in this tree nest an arrow,
+  the four with type variables in one — `(-> (-> a b) a b)` and
+  `(-> (-> a a) a a)` — mention every variable on both sides, and a
+  diagnostic differential over every `.ax` in the tree reports zero
+  differences. Two shapes DO change, neither of which occurs here:
+  `(-> (-> a Int) a)` is newly refused, and — with `Holder` a
+  parameterised `data`, because an arrow may not be a type argument to
+  anything else here — `(-> Int (Holder (-> a Int)))` is newly
+  **silent**, which was a false positive: `a` is witnessed by whoever
+  calls the callback `g` hands back. Both were run against the compiler
+  before the change to confirm they were not already what they are now. What it over-approximates is asserted
+  rather than left to be found: the rule reads the SIGNATURE, so
+  `(fn (apply1 f) 0)`, which never calls its callback, is refused for a
+  value it does not make. `axiom explain AX3040` says all of this too.
+
+  Two arms could report one declaration twice, and do not: the demanded
+  set subtracts the result's variables, so `(-> (-> a Int) a)` draws one
+  diagnostic. They were also two sweeps, which made a file holding one
+  of each report the LATER declaration first — nothing sorts
+  diagnostics after the fact in this compiler — so they are one
+  declaration-ordered sweep (`tyvarEmit`).
+
+  **The first version cost 76% of a self-check; the shipped one saves
+  17%.** Asking every signature about both arms is cheap — two walks
+  over one type tree. Asking `rawTagged` or `findFnBody` about every
+  signature is not: both reach `findFnDecl`, which scans the
+  declaration list, so a pass that asks one of them per signature is
+  O(n²) over ~2,400 declarations. `findFnBody` was the outer test,
+  behind no guard: **0.852s → 1.352s** per `check` of
+  `self_host/main.ax` (median of 7 interleaved runs).
+
+  Putting the cheap test first lands at **0.560s** — *34% below the
+  0.852s it started at* — and the reason is a second instance of the
+  same mistake, which was already there. `&&` short-circuits (measured:
+  a call in its right operand does not run), so the guard this replaced,
+  `(&& (== (nodeTag d) TAG_D_SIG) (&& (== (rawTagged decls d) 0) ...))`,
+  was asking `rawTagged` of every *signature* in the program before
+  knowing whether there was anything to ask about — and `rawTagged`
+  reaches `findFnDecl` too. About 2,400 scans of a 2,400-entry list, for
+  an answer that is `no` for every declaration in this repository. A
+  diagnostic differential over every `.ax` in the tree reports zero
+  differences against the compiler before any of this, so the 34% is
+  free.
+
+  `scripts/check-diverging-tyvar.sh`, 26 checks. The probe that makes
   the acceptances worth anything changes ONE WORD in the accepted
   program — the `(exit 70)` a cast wraps becomes the literal `70` —
   and requires it to be refused. The diverging control moved out of the diagnostics corpus

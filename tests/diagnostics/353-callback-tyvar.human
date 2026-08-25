@@ -1,0 +1,28 @@
+[1;31merror[AX3040][0m[1m: `demand` must produce a value of type variable `a`, which no parameter supplies: it occurs inside a function-typed parameter, on the side this function fills in, so the caller chooses the type and a `cast` fabricates the value[0m
+  [1;34m--> [0m353-callback-tyvar.ax:50:5
+[1;34m   |[0m
+[1;34m50 |[0m (:: demand (-> (-> a Int) Int))
+[1;34m   |[0m     [1;31m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mmaking the function diverge does not answer this one - the value is fabricated before it returns, or fails to; name a concrete word type in the callback's parameter and let callers write `cast`, or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3040` for a full explanation
+
+[1;31merror[AX3040][0m[1m: `alsoResult` returns type variable `a`, which no parameter mentions, and its body produces that result rather than never returning: the caller chooses the type and a `cast` fabricates the value[0m
+  [1;34m--> [0m353-callback-tyvar.ax:71:5
+[1;34m   |[0m
+[1;34m71 |[0m (:: alsoResult (-> (-> a Int) a))
+[1;34m   |[0m     [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mthree ways out: return a concrete word type and let callers write `cast`; or make it DIVERGE, so every path ends in a call that never returns, which is what makes `for all a` honest; or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3040` for a full explanation
+
+[1;31merror[AX3040][0m[1m: `divDemand` must produce a value of type variable `a`, which no parameter supplies: it occurs inside a function-typed parameter, on the side this function fills in, so the caller chooses the type and a `cast` fabricates the value[0m
+  [1;34m--> [0m353-callback-tyvar.ax:77:5
+[1;34m   |[0m
+[1;34m77 |[0m (:: divDemand (-> (-> a Int) a))
+[1;34m   |[0m     [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mmaking the function diverge does not answer this one - the value is fabricated before it returns, or fails to; name a concrete word type in the callback's parameter and let callers write `cast`, or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3040` for a full explanation
+
+compilation failed due to 3 previous errors

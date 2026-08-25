@@ -101,10 +101,16 @@ segfaults: everything is `Int`, so the checker protects nothing.
 **Every AXTAG claim is a warning.** A false `;@axiom:pure` on a body that
 performs I/O is `AX3010`, exit 0, a 60 KB executable, and the I/O happens
 at run time. `tests/diagnostics/severity.policy` is a hand-maintained
-allowlist of the only five codes permitted to render as warnings, and all
-five - `AX3010`, `AX3037`, `AX3038`, `AX3039`, `AX3040` - are in this
-family. The non-blocking-ness is a decision with a gate behind it, not an
-oversight.
+allowlist of the codes permitted to render as warnings, and every one of
+them is in this family: `AX3010`, `AX3037`, `AX3038` and `AX3039`. The
+non-blocking-ness is a decision with a gate behind it, not an oversight.
+
+`AX3040` was a fifth entry until 2026-08-25, when the compiler learned to
+tell a function that never returns from one that fabricates a value and
+it became an **error**. This paragraph said five, and named it, for a day
+after it stopped being true - which is why the list is now compared
+against the file by `scripts/check-doc-drift.sh` rather than restated
+here from memory.
 
 **There is no strictness flag.** No `-Werror`, no `--deny`, no
 `--agent-harness`; the driver's flag table is closed and an unknown flag

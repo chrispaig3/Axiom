@@ -1,7 +1,7 @@
 # axiom explain, every code and every spelling.
 # AX1001-AX5001 were materialized from the Rust compiler at commit 1041f11 on
-# 2026-08-08; AX3018-AX3025 (macro expansion, module visibility, limits, traits)
-# postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured. AX2004 was REWRITTEN on 2026-08-18 when the `extern` FFI landed: its captured text said generated code links no C library, which stopped being true for a program that binds a std Rust crate. It is the one code in the AX1001-AX5001 range that is no longer the 2026-08-08 byte.
+# 2026-08-08; AX3018 and above (macros, visibility, limits, traits, effects, the
+# FFI boundary, type soundness) postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured. AX2004 was REWRITTEN on 2026-08-18 when the `extern` FFI landed: its captured text said generated code links no C library, which stopped being true for a program that binds a std Rust crate. It is the one code in the AX1001-AX5001 range that is no longer the 2026-08-08 byte.
 ### explain --list
 [1;96mKnown Axiom diagnostic codes:[0m
   [93mAX1001[0m  unexpected character  (unexpected-char)
@@ -53,7 +53,7 @@
   [93mAX3037[0m  an AXTAG claim the effect walk is not in a position to check  (axtag-unverifiable)
   [93mAX3038[0m  a handled-effects list the effect walk is not in a position to check  (effect-unverifiable)
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
-  [93mAX3040[0m  a type variable returned that no parameter mentions  (result-only-tyvar)
+  [93mAX3040[0m  a type variable the caller chooses and the callee produces  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX4001[0m  no `main` function  (missing-main)
@@ -983,7 +983,7 @@ Fix the spelling - or, if the key really is your own metadata,
 namespace it so it cannot be mistaken for a claim.
 
 ### explain AX3040
-AX3040 - a type variable returned that no parameter mentions
+AX3040 - a type variable the caller chooses and the callee produces
 
     (:: conjure (-> Int a))
 
@@ -1033,20 +1033,51 @@ anything whose every tail reaches it inherits that (which is how
 `IO.exit` and `IO.die` qualify), and a `cast` whose ARGUMENT never
 returns never returns either - the coercion is unreachable.
 
-WHAT IT STILL DOES NOT CATCH, measured 2026-08-25 and recorded here
-rather than left to be found. The rule asks whether the variable
-appears in a PARAMETER, and `sigSplitVars` counts every left side of
-the arrow spine as one - including inside a function-typed parameter,
-where the callee still chooses the type:
+THE SECOND SHAPE, and why the rule is about VARIANCE rather than
+sides. Until 2026-08-25 this check asked whether the variable appears
+in a PARAMETER, counting every left side of the arrow spine as one.
+That question has a wrong answer as soon as a parameter is itself a
+function:
 
     (:: apply1 (-> (-> a Int) Int))
     (fn (apply1 f) (f (cast a 42)))
     (apply1 strLen)
 
-That draws no diagnostic at all, checks OK, and exits 139 - the same
-unsoundness through a positive occurrence one level in. Closing it
-means splitting the spine by VARIANCE rather than by side, which is a
-larger change than this one and is not made here.
+`a` is on a left side, so the old rule filed it under "witnessed" and
+said nothing at all; `check` answered OK and the binary exited 139 -
+42 handed to `strLen` as a String pointer, the same dereference
+`conjure` reaches by the obvious route.
+
+What separates them is who CHOOSES the type and who has to PRODUCE a
+value of it. A parameter is a position the caller fills. The left of
+an arrow INSIDE that parameter flips back, and is a position the
+CALLEE fills: to call `f` at all, `apply1` must make an `a`, and
+nothing the caller hands over says what one is. So the spine is now
+split by variance - a variable with a position the callee produces and
+none the caller supplies is unwitnessed, wherever it sits.
+
+The diverging reading is NOT available on this shape, and that stays
+true even for a signature that has one. `panic` is honest because a
+function that never returns never produced the `a` it promised.
+`apply1` returns an `Int` perfectly well and fabricates on the way.
+And this is both at once:
+
+    (:: divDemand (-> (-> a Int) a))
+    (fn (divDemand f) { (f (cast a 42)) (cast a (exit 70)) })
+
+Its RESULT variable is excused, because it really does never return.
+The `a` it hands to `f` is fabricated anyway, and a divergence that
+happens after that call does not unmake it. So the two questions are
+decided separately rather than one subtracted from the other - and
+the arm that asks about a callback's own variable never consults the
+fixpoint at all.
+
+What it over-approximates, stated rather than left to be found: the
+rule reads the SIGNATURE, so a body that never calls its callback at
+all - `(fn (apply1 f) 0)` - is refused for a value it does not make.
+No declaration in this repository has that shape; 19 signatures nest
+an arrow and the four with variables in one mention every variable on
+both sides.
 
 WHAT TO DO. Three ways out, in the order to prefer them. Return a
 concrete word type and let callers write `cast`, which is the
@@ -1305,7 +1336,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3037[0m  an AXTAG claim the effect walk is not in a position to check  (axtag-unverifiable)
   [93mAX3038[0m  a handled-effects list the effect walk is not in a position to check  (effect-unverifiable)
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
-  [93mAX3040[0m  a type variable returned that no parameter mentions  (result-only-tyvar)
+  [93mAX3040[0m  a type variable the caller chooses and the callee produces  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX4001[0m  no `main` function  (missing-main)

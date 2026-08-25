@@ -1199,6 +1199,31 @@ String pointer. The same shape reaches through `vecGet`, because a
 `Vec` carries no element type, which is how a `Vec` holding an `Int`
 reads back as a `String`.
 
+The same unsoundness reaches one level in, through a **function-typed
+parameter**, where the callee still chooses the type:
+
+```scheme
+(:: apply1 (-> (-> a Int) Int))
+(fn (apply1 f) (f (cast a 42)))
+(apply1 strLen)
+```
+
+`a` is on a left side, so a rule reading SIDES calls it witnessed. It is
+not: a parameter is a position the caller fills, and the left of an
+arrow *inside* that parameter flips back to one the **callee** fills -
+`apply1` has to make an `a` to call `f` at all, and nothing the caller
+hands over says what one is. Until 2026-08-25 that drew nothing, checked
+`OK` and exited **139**. The spine is split by variance now, so a
+variable with a position the callee produces and none the caller
+supplies is refused wherever it sits.
+
+Two shapes follow from reading variance rather than sides.
+`(-> (-> Int a) Int)` is **accepted** - the caller's own function
+produces the `a`, which is the shape all ordinary higher-order code has,
+and `(-> (-> a b) a b)` is witnessed on both counts. And the rule reads
+the *signature*, so `(fn (apply1 f) 0)` - a body that never calls its
+callback and therefore never fabricates anything - is refused too.
+
 Such a declaration draws `AX3040` unless it is tagged `;@axiom:raw`.
 The tag is **not permission and does not make the read safe**. What it
 buys is that the unsafe layer is finite and can be asked about:

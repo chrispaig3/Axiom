@@ -586,15 +586,7 @@
     0
     (let ((tg (nodeTag t)))
       (if (== tg TAG_T_VAR)
-        (if (== (tyIsSrcVar t) 1)
-          (if (== (strVecHas acc (nodeAName t)) 1)
-            0
-            (vecPush
-              acc              (cast Int (nodeA t))
-            )
-          )
-          0
-        )
+        (sigTyVarPush acc t)
         (if (== tg TAG_T_CON)
           (sigTyVarsVec (nodeB t) acc)
           (if (== tg TAG_T_ARR)
@@ -5196,51 +5188,70 @@
 ; counts as struck out for everyone else's fixpoint - so a function
 ; that gets its `a` by delegating to the unsafe layer is refused
 ; rather than inheriting the exemption.
-(pub :: tcCheckResultOnlyVars (-> Int Int Int))
-
-(pub fn (tcCheckResultOnlyVars tc d)
-  (if (== (declHasAxtag d "raw") 1)
-    0
-    (let (
-      (ps vecNew)
-      (rs vecNew)
-    )
-      {
-        (sigSplitVars (nodeTy d) ps rs)
-        (resultOnlyReport
-          tc          d          ps          rs          0
-        )
-      }
-    )
-  )
-)
-
+;
+; THE SECOND SHAPE, closed 2026-08-25. Everything above asks about the
+; RESULT, and that question misses the same unsoundness one level in:
+;
+;     (:: apply1 (-> (-> a Int) Int))
+;     (fn (apply1 f) (f (cast a 42)))
+;
+; `a` is on a left side, so the rule called it witnessed and reported
+; nothing; `check` answered OK and the binary exited 139. The fix is
+; `sigSplitPolar` below - the spine split by VARIANCE rather than by
+; side - and it feeds a second arm with no fixpoint behind it, because
+; a function that fabricates on its way to returning an `Int` has no
+; diverging reading to appeal to. Both arms are emitted by `tyvarEmit`
+; in declaration order.
 ; The first result-only type variable of `d`'s signature, or "".
+;
+; The subtraction is the NEGATIVE set rather than "every variable on a
+; left side" (`sigSplitPolar`, below). The two differ on exactly the
+; shapes where a left side does not mean the caller supplies a value:
+;
+;   (:: f (-> (-> a Int) a))   ; `a` is on a left side and STILL
+;                              ; unwitnessed - now reported
+;   (:: g (-> Int (Holder (-> a Int))))
+;                              ; `a` is in the result and witnessed by
+;                              ; whoever calls the callback `g` hands
+;                              ; back - a false positive, now silent.
+;                              ; Spelled with a parameterised `data`
+;                              ; because an arrow may not appear as a
+;                              ; type ARGUMENT to anything else here
+;
+; Neither shape occurs in this tree, so the corpus does not move.
 (pub :: resultOnlyVarOf (-> Int String))
 
 (pub fn (resultOnlyVarOf d)
   (let (
+    (pos vecNew)
+    (neg vecNew)
     (ps vecNew)
     (rs vecNew)
   )
     {
+      (sigSplitPolar (nodeTy d) 1 pos neg)
       (sigSplitVars (nodeTy d) ps rs)
-      (firstResultOnly ps rs 0)
+      (firstResultOnly neg rs 0)
     }
   )
 )
 
+; Spelled `neg` and not `ps`: what is subtracted here has not been "the
+; type variables of the parameters" since the spine was split by
+; variance. A variable on a left side can still be one the CALLEE
+; produces, and one in the result can be witnessed by a function this
+; signature hands back.
 (pub :: firstResultOnly (-> Int Int Int String))
 
-(pub fn (firstResultOnly ps rs i)
+(pub fn (firstResultOnly neg rs i)
   (if (>= i (vecLen rs))
     ""
     (if (==
       (strVecHas
-        ps        (cast String (vecGet rs i))
+        neg        (cast String (vecGet rs i))
       )      1
     )
-      (firstResultOnly ps rs (+ i 1))
+      (firstResultOnly neg rs (+ i 1))
       (cast String (vecGet rs i))
     )
   )
@@ -5568,14 +5579,16 @@
 (pub :: tcCheckResultOnly (-> Int Int Int))
 
 (pub fn (tcCheckResultOnly tc decls)
+  ; No early return on an empty candidate list. There used to be one,
+  ; and it was correct while the returned-variable arm was the only
+  ; arm; with a second arm that has no candidates of its own it would
+  ; have skipped the whole pass in exactly the file this closes -
+  ; one whose only unsoundness is a callback parameter. `divFixpoint`
+  ; of nothing is nothing, so the guard bought a comparison and cost
+  ; a check.
   (let ((cands (resultOnlyCandidates decls vecNew 0)))
-    (if (== (vecLen cands) 0)
-      0
-      (let ((div (divFixpoint decls (candNames cands vecNew 0))))
-        (resultOnlyEmit
-          tc          decls          cands          div          0
-        )
-      )
+    (let ((div (divFixpoint decls (candNames cands vecNew 0))))
+      (tyvarEmit tc decls div 0)
     )
   )
 )
@@ -5587,11 +5600,26 @@
 (pub fn (resultOnlyCandidates decls out i)
   (if (>= i (vecLen decls))
     out
+    ; ORDER, not nesting: `&&` short-circuits (measured - a call in
+    ; its right operand does not run), so what matters is which
+    ; question comes first. This chain used to ask `rawTagged`
+    ; before `resultOnlyVarOf`, which scans `decls` once per
+    ; signature - about 2,400 scans for an answer that is `no` for
+    ; every declaration in this repository. Asking the type walk
+    ; first costs nothing and skips the scan. Written as nested
+    ; `if`s because the order is the point and a flat `&&` chain
+    ; hides it.
     (let ((d (vecGet decls i)))
       {
-        (if (&& (== (nodeTag d) TAG_D_SIG) (&& (== (rawTagged decls d) 0) (> (strLen (resultOnlyVarOf d)) 0)))
-          (vecPush
-            out            (cast Int d)
+        (if (== (nodeTag d) TAG_D_SIG)
+          (if (> (strLen (resultOnlyVarOf d)) 0)
+            (if (== (rawTagged decls d) 0)
+              (vecPush
+                out                (cast Int d)
+              )
+              0
+            )
+            0
           )
           0
         )
@@ -5615,32 +5643,106 @@
   )
 )
 
-(pub :: resultOnlyEmit (-> Int Int Int Int Int Int))
+; ONE sweep, in DECLARATION order, over both arms.
+;
+; The two arms were two sweeps until they were written: the returned
+; variables first, then the demanded ones. Both were internally
+; ordered and the concatenation was not, so a file holding one of
+; each reported the later declaration first - `353-callback-tyvar.ax`
+; showed line 57 above line 40. Nothing sorts diagnostics after the
+; fact in this compiler; emission order IS report order, which is why
+; the merge happens here rather than in the printer.
+(pub :: tyvarEmit (-> Int Int Int Int Int))
 
-(pub fn (resultOnlyEmit tc decls cands div i)
-  (if (>= i (vecLen cands))
+(pub fn (tyvarEmit tc decls div i)
+  (if (>= i (vecLen decls))
     0
-    (let ((d (vecGet cands i)))
+    (let ((d (vecGet decls i)))
       {
-        (if (== (strInVec div (bareOf (nodeAName d)) 0) 1)
-          ; It diverges. `for all a` is honest here and there is
-          ; nothing to report.
+        (if (== (nodeTag d) TAG_D_SIG)
+          (emitTyvarFor tc decls div d)
           0
-          ; A signature with NO definition is `AX3015`, which says the
-          ; real thing. Reporting this one too would be a cascade from
-          ; one mistake, which the diagnostics document forbids.
-          (if (== (findFnBody decls (bareOf (nodeAName d))) 0)
-            0
+        )
+        (tyvarEmit tc decls div (+ i 1))
+      }
+    )
+  )
+)
+
+; Both arms of one declaration. They are separate `if`s rather than an
+; else-chain because a signature can hold one of each -
+; `(:: f (-> (-> a Int) b))` fabricates an `a` for the callback AND a
+; `b` for its caller - and those are two mistakes, not one seen twice.
+; The sets are disjoint by construction (`firstDemanded` subtracts the
+; result's variables), so the common shapes still draw exactly one.
+(pub :: emitTyvarFor (-> Int Int Int Int Int))
+
+(pub fn (emitTyvarFor tc decls div d)
+  ; THE CHEAP TEST FIRST, and it is a performance rule rather than a
+  ; style one. Both lookups below - `rawTagged` and `findFnBody` -
+  ; reach `findFnDecl`, which scans `decls` linearly, and this
+  ; function is called for every signature in the program. `findFnBody`
+  ; used to be the OUTER test here, behind no guard at all, which made
+  ; the pass O(n^2) over a tree with ~2,400 declarations: measured
+  ; 2026-08-25, 0.852s -> 1.352s per self-check, spent asking about
+  ; declarations with nothing to report. The two walks above are over
+  ; one type tree each and cost nothing beside a scan of the program.
+  ;
+  ; No declaration in this repository reaches past this line.
+  (let (
+    (rv (resultOnlyVarOf d))
+    (dv (demandedVarOf d))
+  )
+    (if (== (+ (strLen rv) (strLen dv)) 0)
+      0
+      (if (== (rawTagged decls d) 1)
+        0
+        ; A signature with NO definition is `AX3015`, which says the
+        ; real thing. Reporting this one too would be a cascade from
+        ; one mistake, which the diagnostics document forbids.
+        (if (== (findFnBody decls (bareOf (nodeAName d))) 0)
+          0
+          (let ((diverges (strInVec div (bareOf (nodeAName d)) 0)))
             {
-              (memSetWord tc 16 (nodeModule d))
-              (emitResultOnlyVar tc d (resultOnlyVarOf d))
+              (if (> (strLen rv) 0)
+                ; It diverges. `for all a` is honest here and there is
+                ; nothing to report.
+                (if (== diverges 1)
+                  0
+                  {
+                    (memSetWord tc 16 (nodeModule d))
+                    (emitResultOnlyVar tc d rv)
+                  }
+                )
+                0
+              )
+              ; THE DEMANDED ARM YIELDS ONLY WHEN THE ARM ABOVE
+              ; ACTUALLY SPOKE, AND ABOUT THE SAME VARIABLE. Two
+              ; conditions, and both are load-bearing:
+              ;
+              ;   same variable - `(-> (-> a Int) b)` fabricates an `a`
+              ;   for the callback and a `b` for its caller, which are
+              ;   two mistakes and draw two diagnostics;
+              ;
+              ;   actually spoke - if the result arm went silent
+              ;   because the function DIVERGES, nothing has been said
+              ;   about the `a` handed to the callback, and a
+              ;   divergence that happens after the call does not
+              ;   unmake it.
+              (if (> (strLen dv) 0)
+                (if (&& (strEq dv rv) (== diverges 0))
+                  0
+                  {
+                    (memSetWord tc 16 (nodeModule d))
+                    (emitDemandedVar tc d dv)
+                  }
+                )
+                0
+              )
             }
           )
         )
-        (resultOnlyEmit
-          tc          decls          cands          div          (+ i 1)
-        )
-      }
+      )
     )
   )
 )
@@ -5662,26 +5764,201 @@
   )
 )
 
-(pub :: resultOnlyReport (-> Int Int Int Int Int Int))
+; ------------------------------------------------------------------
+; THE SAME SIGNATURE, SPLIT BY VARIANCE.
+;
+; `sigSplitVars` above answers "which side of the spine is this
+; variable on", and that is not the question. The question is who
+; CHOOSES the type and who has to PRODUCE a value of it, and those
+; two come apart the moment a parameter is itself a function:
+;
+;     (:: apply1 (-> (-> a Int) Int))
+;     (fn (apply1 f) (f (cast a 42)))
+;     (apply1 strLen)
+;
+; `a` is on a left side, so `sigSplitVars` files it under "parameter"
+; and the result set comes out empty. Nothing was reported, `check`
+; answered OK, and the binary exited 139 - 42 handed to `strLen` as a
+; String pointer. Measured 2026-08-25 and recorded in `explain.ax` as
+; what the rule did not catch; this is the walk that catches it.
+;
+; `pol` is 1 where the CALLEE must produce a value of the type and 0
+; where the CALLER supplies one. A signature starts at 1 - a function
+; produces its result. The LEFT of an arrow flips it, the right keeps
+; it, and every other constructor carries it through. So in `apply1`
+; the parameter `(-> a Int)` sits at 0, and `a`, on ITS left, flips
+; back to 1: the callee produces it after all, one level in.
+;
+; The rule that falls out is one sentence. A type variable with a
+; position at `pol` 1 and none at `pol` 0 is UNWITNESSED - nothing the
+; caller hands over decides what it is, and the only ways to make one
+; are a `cast` or a call to something that does the same.
+;
+; It is strictly a refinement, not a different rule. Every variable
+; `sigSplitVars` called witnessed by a direct parameter is still at
+; `pol` 0 here, and the corpus measures the difference at zero: 19
+; signatures in this tree nest an arrow, and the four with variables
+; in one - `(-> (-> a b) a b)` and `(-> (-> a a) a a)` and their
+; copies - mention every variable on both sides and are untouched.
+(pub :: sigSplitPolar (-> Int Int Int Int Int))
 
-(pub fn (resultOnlyReport tc d ps rs i)
-  (if (>= i (vecLen rs))
+(pub fn (sigSplitPolar t pol pos neg)
+  (if (== t 0)
     0
-    {
-      (if (==
-        (strVecHas
-          ps          (cast String (vecGet rs i))
-        )        1
-      )
-        0
-        (emitResultOnlyVar
-          tc          d          (cast String (vecGet rs i))
+    (let ((tg (nodeTag t)))
+      (if (== tg TAG_T_ARR)
+        {
+          (sigSplitPolar (nodeA t) (- 1 pol) pos neg)
+          (sigSplitPolar (nodeB t) pol pos neg)
+        }
+        (if (== tg TAG_T_VAR)
+          (if (== pol 1)
+            (sigTyVarPush pos t)
+            (sigTyVarPush neg t)
+          )
+          (if (== tg TAG_T_CON)
+            (sigSplitPolarVec (nodeB t) pol pos neg)
+            (if (== tg TAG_T_TUP)
+              (sigSplitPolarVec (nodeA t) pol pos neg)
+              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+                (sigSplitPolar (nodeA t) pol pos neg)
+                0
+              )
+            )
+          )
         )
       )
-      (resultOnlyReport
-        tc        d        ps        rs        (+ i 1)
+    )
+  )
+)
+
+(pub :: sigSplitPolarVec (-> Int Int Int Int Int))
+
+(pub fn (sigSplitPolarVec xs pol pos neg)
+  (if (== xs 0)
+    0
+    (let ((mut i 0))
+      {
+        (while (< i (vecLen xs))
+          {
+            (sigSplitPolar (vecGet xs i) pol pos neg)
+            (set i (+ i 1))
+          })
+        0
+      }
+    )
+  )
+)
+
+; One source-written variable into one bucket, deduplicated. The same
+; three lines `sigTyVarsInto` spells inline; shared so the two walks
+; cannot disagree about what counts as a variable.
+(pub :: sigTyVarPush (-> Int Int Int))
+
+(pub fn (sigTyVarPush acc t)
+  (if (== (tyIsSrcVar t) 1)
+    (if (== (strVecHas acc (nodeAName t)) 1)
+      0
+      (vecPush
+        acc        (cast Int (nodeA t))
       )
+    )
+    0
+  )
+)
+
+; The first UNWITNESSED variable that is not the result's, or "".
+;
+; Two sets are subtracted, and the second is what keeps this arm and
+; the returned-variable arm from reporting one declaration twice: a
+; variable in the result is `resultOnlyVarOf`'s, decided by the
+; divergence fixpoint, because a function that never returns never
+; produced it. That reading is not available here. `apply1` returns
+; an `Int` perfectly well; it fabricates on the way, and a body that
+; also looped forever would fabricate just the same.
+(pub :: firstDemanded (-> Int Int Int String))
+
+(pub fn (firstDemanded pos neg i)
+  (if (>= i (vecLen pos))
+    ""
+    (let ((v 
+      (cast String (vecGet pos i))
+    ))
+      (if (== (strVecHas neg v) 1)
+        (firstDemanded pos neg (+ i 1))
+        v
+      )
+    )
+  )
+)
+
+; The positive positions reachable through a PARAMETER: what this
+; function must PRODUCE in order to use something it was handed.
+;
+; It is `sigSplitPolar` started at 0 on each top-level left side, and
+; it deliberately does not look at the spine's TAIL. The tail's
+; positives are the result, which is the other arm's question and the
+; one a divergence fixpoint can answer; these are not.
+;
+; THE TWO SETS OVERLAP AND THAT OVERLAP IS A DECISION, NOT A
+; SUBTRACTION. `(:: f (-> (-> a Int) a))` has `a` in both. The first
+; version of this subtracted the result's variables here, which reads
+; as "the other arm has it" - and left a hole, because the other arm
+; does not always speak:
+;
+;     (:: divDemand (-> (-> a Int) a))
+;     (fn (divDemand f) { (f (cast a 42)) (cast a (exit 70)) })
+;     (divDemand strLen)
+;
+; That DIVERGES, so the result arm is honestly silent - `for all a` is
+; the true type of a function that never returns. It still fabricates
+; an `a` for `f` on the way there. Measured 2026-08-25: `check` OK,
+; exit 139. `emitTyvarFor` decides the overlap instead, and yields only
+; when the arm above actually reported the same variable.
+(pub :: sigParamPos (-> Int Int Int Int))
+
+(pub fn (sigParamPos t pos neg)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_T_ARR)
+      {
+        (sigSplitPolar (nodeA t) 0 pos neg)
+        (sigParamPos (nodeB t) pos neg)
+      }
+      0
+    )
+  )
+)
+
+(pub :: demandedVarOf (-> Int String))
+
+(pub fn (demandedVarOf d)
+  (let (
+    (ppos vecNew)
+    (pneg vecNew)
+    (pos vecNew)
+    (neg vecNew)
+  )
+    {
+      (sigParamPos (nodeTy d) ppos pneg)
+      ; `pneg` is discarded: the authoritative negative set is the
+      ; whole signature's, and it is a superset of the parameters'.
+      ; A variable the RESULT supplies negatively is witnessed just as
+      ; well as one a parameter does.
+      (sigSplitPolar (nodeTy d) 1 pos neg)
+      (firstDemanded ppos neg 0)
     }
+  )
+)
+
+(pub :: emitDemandedVar (-> Int Int String Int))
+
+(pub fn (emitDemandedVar tc d v)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR      "AX3040"      "result-only-tyvar"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` must produce a value of type variable `") v) "`, which no parameter supplies: it occurs inside a function-typed parameter, on the side this function fills in, so the caller chooses the type and a `cast` fabricates the value")      0      0      "making the function diverge does not answer this one - the value is fabricated before it returns, or fails to; name a concrete word type in the callback's parameter and let callers write `cast`, or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose"
+    ))
   )
 )
 

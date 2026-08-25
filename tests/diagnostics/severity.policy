@@ -93,3 +93,17 @@ AX3039
 #          moved to the corpus that can hold a fixture with no
 #          diagnostic. `352-tyvar-delegation.ax` keeps the silent
 #          controls here, beside three errors.
+#
+#          The code grew a SECOND ARM the same day, and it is an error
+#          from the start rather than a warning that waited: the rule
+#          asked whether the variable appears in a PARAMETER, which
+#          files a variable inside a function-typed parameter under
+#          "witnessed" and reported nothing at all for
+#          `(:: apply1 (-> (-> a Int) Int))` - measured, check OK, exit
+#          139. The spine is split by VARIANCE now, and there is no
+#          warning stage for it because the question that made the
+#          first arm wait does not arise: `apply1` returns an `Int`
+#          perfectly well and fabricates on the way, so there is no
+#          diverging reading to confuse with a cast.
+#          `353-callback-tyvar.ax` is that arm's fixture, with the
+#          higher-order control every ordinary callback has.

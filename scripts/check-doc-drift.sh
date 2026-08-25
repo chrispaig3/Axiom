@@ -112,6 +112,90 @@ fi
 [[ -z "${orphan// /}${unreach// /}" ]] && echo "ok   $nc constructed, $nl explained, sets equal"
 
 # ---------------------------------------------------------------
+# 1b. the RESERVED numbers, against the same constructed set
+# ---------------------------------------------------------------
+# `docs/error-model.md` keeps a table of codes it PROPOSES and has not
+# built. Eight times the compiler has spent a proposed number first, and
+# the eighth sat in the table for two days: `AX3041` went to the parser
+# as `extern-library-name` while the table still proposed it for
+# `recursion-in-scrutinee`, and the paragraph above the table still
+# called `AX3041` the next free number.
+#
+# Nothing caught it, and the document said something WAS catching it -
+# "the only thing that keeps it honest is check-doc-drift.sh comparing
+# constructed against listed in both directions". That comparison is
+# check 1 above, it is a statement about `explain.ax`, and it does not
+# read this document at all. A reserved number is invisible to it by
+# construction, because a reserved number is one nobody has built.
+#
+# ONE DIRECTION ONLY, and deliberately. "Proposed and already spent" is
+# a contradiction and fails here. "Constructed and not proposed" is the
+# normal case for all 58 codes and means nothing. There is no floor on
+# the table's size either: it is allowed to empty out as proposals get
+# built, and a floor would turn that into a failure.
+echo "== registry: no reserved number is already spent =="
+model="docs/error-model.md"
+[[ -f "$model" ]] || { echo "FAIL: $model is missing"; exit 1; }
+# The table rows only - `| \`AXNNNN\` | \`slug\` | ...` - never the
+# prose around them, which quotes spent numbers on purpose while
+# explaining that they are spent.
+proposed="$(grep -ohE '^\| `AX[0-9]{4}` \| `[a-z-]+` \|' "$model" \
+              | grep -ohE 'AX[0-9]{4}' | sort -u)"
+np="$(printf '%s\n' "$proposed" | grep -c .)"
+collide="$(comm -12 <(printf '%s\n' "$proposed") <(printf '%s\n' "$constructed") | tr '\n' ' ')"
+if [[ -n "${collide// /}" ]]; then
+  echo "FAIL registry: $model proposes numbers the compiler has already built: $collide"
+  echo "     renumber the row and the paragraph naming the next free number."
+  failed=$((failed+1))
+else
+  echo "ok   $np reserved number(s) in $model, none of them constructed"
+fi
+
+# ---------------------------------------------------------------
+# 1c. the WARNING allowlist, against the document that restates it
+# ---------------------------------------------------------------
+# `tests/diagnostics/severity.policy` decides which codes may render as
+# warnings, and `docs/agent-harness.md` names them in prose - which is a
+# restatement, and restatements go stale. This one did: `AX3040` was
+# promoted to an error on 2026-08-25 and left the policy file the same
+# day, and the document went on saying "the only five codes permitted to
+# render as warnings" and listing it among them.
+#
+# Nothing caught it. The `claim()` sweep below recomputes NUMBERS a
+# document states, and this sentence spells its number as a word; even
+# had it been a numeral, a count is the weaker half of the claim. The
+# SET is what matters, so the set is what is compared, in both
+# directions.
+echo "== registry: the warning allowlist, against the document that quotes it =="
+if ! python3 - "tests/diagnostics/severity.policy" "docs/agent-harness.md" <<'PY'
+import re, sys
+policy, doc = sys.argv[1], sys.argv[2]
+allowed = {l.strip() for l in open(policy, encoding="utf-8")
+           if l.strip() and not l.lstrip().startswith("#")}
+if not allowed:
+    print(f"FAIL warnings: {policy} lists no codes at all - a policy that permits "
+          f"nothing would make every comparison below vacuous")
+    sys.exit(1)
+text = open(doc, encoding="utf-8").read()
+# ONE PARAGRAPH, not the whole document: the document also discusses
+# codes that used to be on this list and must be free to, which a
+# document-wide scan would read as a claim.
+paras = [p for p in text.split("\n\n") if "permitted to render as warnings" in p]
+if len(paras) != 1:
+    print(f"FAIL warnings: {len(paras)} paragraphs of {doc} claim to quote the "
+          f"allowlist; this gate reads exactly one - if the sentence moved or was "
+          f"reworded, reword the gate with it rather than narrowing this")
+    sys.exit(1)
+quoted = set(re.findall(r"AX\d{4}", paras[0]))
+if quoted != allowed:
+    print(f"FAIL warnings: {doc} quotes {sorted(quoted) or 'nothing'}; "
+          f"{policy} permits {sorted(allowed)}")
+    sys.exit(1)
+print(f"ok   {doc} quotes exactly the {len(allowed)} codes {policy} permits")
+PY
+then failed=$((failed+1)); fi
+
+# ---------------------------------------------------------------
 # 2, 3, 4, 5 - the documents themselves
 # ---------------------------------------------------------------
 # The prose documents come from `gate_prose_docs`, so this gate,

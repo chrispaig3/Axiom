@@ -46,11 +46,23 @@ checks=0
 ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
+# NO `set +e`/`set -e` PAIR HERE, AND THAT IS THE FIX RATHER THAN THE
+# OMISSION. This script runs under `set -uo pipefail` and deliberately
+# NOT under `-e`: every check reports and carries on, which is the whole
+# point of counting them. The pair that used to wrap this body therefore
+# turned `-e` ON - `set +e` was a no-op, `set -e` was not - and from the
+# first call onward the gate ran with a mode nobody asked for.
+#
+# It cost nothing while the gate was green and everything when it was
+# not. Measured 2026-08-25, ablating the variance flip: the gate found
+# 7 failures, printed 2 of them, and died on a bare `grep` whose only
+# job was to dump context for a failure it had already reported - 10
+# checks after it never ran at all. A gate that reports less the worse
+# things are is the failure mode this repository names most often, and
+# it was in the gate, not in the compiler.
 check_of() {  # <file> -> exit status, output on $work/out
-  set +e
   ( cd "$work" && "$axc" check "$1" ) >"$work/out" 2>&1
   local rc=$?
-  set -e
   printf '%s' "$rc"
 }
 
@@ -112,10 +124,8 @@ fi
 # two gates agree about this number by construction.
 want="$(sed -n '1s/^; expect \([0-9]*\).*/\1/p' "$src")"
 [[ -n "$want" ]] || { echo "FAIL: $src has no '; expect N' first line"; exit 1; }
-set +e
 ( cd "$work" && "$axc" run 976.ax ) >/dev/null 2>&1
 rc=$?
-set -e
 if [[ "$rc" == "$want" ]]; then
   ok "it runs and answers $rc on the returning path"
 else
@@ -129,10 +139,8 @@ sed 's/(fn (main) (pick 7))/(fn (main) (pick (- 0 1)))/' "$src" > "$work/976neg.
 if cmp -s "$src" "$work/976neg.ax"; then
   bad "the diverging-path probe changed nothing - its anchor has moved"
 else
-  set +e
   ( cd "$work" && "$axc" run 976neg.ax ) >"$work/negout" 2>&1
   rc=$?
-  set -e
   if (( rc == 70 )) && grep -q negative "$work/negout"; then
     ok "and stops at $rc on the path that does not return, having said so"
   else
@@ -297,11 +305,204 @@ else
   sed 's/^/     /' "$work/out" | head -6
 fi
 
+# --------------------------------------------------------------------
+echo
+echo "== the same unsoundness one level in: a callback's own parameter =="
+# --------------------------------------------------------------------
+# Everything above asks about the RESULT. Until 2026-08-25 that was the
+# whole rule, and it missed the identical dereference through a
+# function-typed parameter, because a rule that reads SIDES files a
+# variable inside a callback under "the caller supplies it":
+#
+#     (:: demand (-> (-> a Int) Int))
+#     (fn (demand f) (f (cast a 42)))
+#     (demand strLen)
+#
+# Measured on the compiler before the fix: `check` answered OK and the
+# binary exited 139. `explain AX3040` recorded it as what the rule did
+# not catch; the spine is split by VARIANCE now and it does.
+cp "$repo_root/tests/diagnostics/353-callback-tyvar.ax" "$work/353.ax"
+rc="$(check_of 353.ax)"
+got="$(grep -oE '`[a-zA-Z]+` (must produce|returns)' "$work/out" | grep -oE '^`[a-zA-Z]+`' | tr -d '`' | sort -u | tr '\n' ' ' || true)"
+if (( rc == 1 )) && [[ "$got" == "alsoResult demand divDemand " ]]; then
+  ok "353-callback-tyvar.ax: exactly demand, alsoResult and divDemand are refused"
+else
+  bad "353 exited $rc and refused: ${got:-nothing}"
+  echo "     wanted exactly: alsoResult demand divDemand"
+fi
+# `divDemand` DIVERGES, so the returned-variable arm is honestly silent
+# about it - `for all a` is the true type of a function that never
+# returns. What must not be silent is the `a` it fabricates for its
+# callback on the way there. This is the one case that distinguishes
+# "the arms subtract" from "the arms decide", and subtracting is what
+# the first version did: measured, check OK, exit 139.
+if grep -q '`divDemand` must produce' "$work/out" \
+   && ! grep -q '`divDemand` returns type variable' "$work/out"; then
+  ok "divDemand: the diverging result is excused, the fabricated argument is not"
+else
+  bad "divDemand came from the wrong arm, or from both"
+  { grep '`divDemand`' "$work/out" || true; } | sed 's/^/     /' | head -4
+fi
+# The controls. `witnessed` is the shape all ordinary higher-order code
+# has - `b` on the RIGHT of the callback's arrow, `a` also a parameter -
+# and a rule that reported it would refuse `map`. `declared` is the
+# escape hatch on this arm.
+for name in witnessed declared; do
+  if grep -q "\`$name\`" "$work/out"; then
+    bad "353: $name was diagnosed, and it is a control"
+  else
+    ok "353: $name draws nothing"
+  fi
+done
+# `alsoResult` has its variable in the callback AND in the result, so
+# both arms could claim it. It must draw ONE diagnostic - the arms
+# subtract, they do not overlap - and it must be the returned-variable
+# one, because that is the arm a divergence fixpoint can still answer.
+n="$(grep -c 'error\[AX3040\]' "$work/out" || true)"
+a="$(grep -c '`alsoResult`' "$work/out" || true)"
+if (( n == 3 )) && (( a == 1 )) && grep -q '`alsoResult` returns type variable' "$work/out"; then
+  ok "alsoResult draws one diagnostic, from the returned-variable arm"
+else
+  bad "353 drew $n AX3040s (wanted 3) and $a for alsoResult (wanted 1)"
+fi
+# Emission order IS report order in this compiler - nothing sorts
+# diagnostics afterwards - so two arms sweeping separately reported the
+# later declaration first. They are one declaration-ordered sweep.
+first="$(grep -oE '`(demand|alsoResult)`' "$work/out" | head -1)"
+if [[ "$first" == '`demand`' ]]; then
+  ok "the two arms report in declaration order, not arm order"
+else
+  bad "the first diagnostic named $first; demand is declared first"
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== negative probe: the side of the inner arrow, and nothing else =="
+# --------------------------------------------------------------------
+# The sharpest form this probe has. Two files with the SAME body, the
+# same nesting depth and the same one type variable; the only
+# difference is which side of the callback's arrow it sits on. Left is
+# a value this function must produce and cannot; right is one the
+# caller's own function produces. If the analysis were counting nesting
+# rather than variance, both would answer the same and every check
+# above would be describing a rule that does not exist.
+printf '(:: demand (-> (-> a Int) Int))\n\n(fn (demand f) 0)\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/varL.ax"
+printf '(:: demand (-> (-> Int a) Int))\n\n(fn (demand f) 0)\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/varR.ax"
+rcL="$(check_of varL.ax)"
+rcR="$(check_of varR.ax)"
+if (( rcL == 1 )) && (( rcR == 0 )); then
+  ok "\`(-> a Int)\` is refused and \`(-> Int a)\` is accepted, same body"
+else
+  bad "the variance probe answered $rcL / $rcR (wanted 1 / 0)"
+fi
+# THE OVER-APPROXIMATION, ASSERTED RATHER THAN LEFT TO BE FOUND. Those
+# two bodies are `0`: neither calls its callback, so neither actually
+# fabricates anything, and the left one is refused for a value it does
+# not make. The rule reads the signature. `explain AX3040` says so, and
+# this is the check that keeps that sentence true - if the analysis
+# ever grows a body walk, this goes red and the sentence comes out.
+if (( rcL == 1 )); then
+  ok "and the rule reads the SIGNATURE: a body that never calls f is refused too"
+fi
+# The witness, added as one parameter. Same callback, same call, and
+# now the caller hands over the value that decides what `a` is - so it
+# is accepted, and it RUNS, which is the half acceptance is worth
+# anything for.
+printf '(import Str)\n\n(:: demand (-> (-> a Int) a Int))\n\n(fn (demand f x) (f x))\n\n(:: main Int)\n\n(fn (main) (demand strLen "hello"))\n' > "$work/wit.ax"
+rc="$(check_of wit.ax)"
+( cd "$work" && "$axc" run wit.ax ) >/dev/null 2>&1
+run=$?
+if (( rc == 0 )) && (( run == 5 )); then
+  ok "one parameter of type \`a\` witnesses the choice: accepted, and answers $run"
+else
+  bad "the witnessed spelling exited $rc and ran to $run (wanted 0 and 5)"
+fi
+# The change reads BOTH ways, and this is the half a rule that only
+# tightened would not have. An arrow nested inside a type ARGUMENT in
+# the RESULT puts its variable on a left side - the callee does not
+# produce it, whoever calls the returned callback does - and the old
+# side-reading rule refused it. Measured against the compiler before
+# this change: `AX3040`, a false positive. `Holder` is a parameterised
+# `data` because an arrow may not be a type argument to anything else
+# in this language.
+cat > "$work/lenient.ax" <<'AX'
+(data Holder a
+  (H a))
+
+(:: mk (-> Int (Holder (-> a Int))))
+
+(fn (mk n) (H bump))
+
+(:: bump (-> Int Int))
+
+(fn (bump x) x)
+
+(:: main Int)
+
+(fn (main) 0)
+AX
+rc="$(check_of lenient.ax)"
+if (( rc == 0 )); then
+  ok "a callback in the RESULT is witnessed by its own caller: accepted"
+else
+  bad "the lenient direction exited $rc"; sed 's/^/     /' "$work/out" | head -6
+fi
+
+# And ordinary polymorphic higher-order code, at two DIFFERENT types in
+# one program, compiles and runs. This is the population the rule could
+# most easily have broken.
+cat > "$work/hof.ax" <<'AX'
+(import Str)
+
+(:: applyf (-> (-> a b) a b))
+
+(fn (applyf f x) (f x))
+
+(:: bump (-> Int Int))
+
+(fn (bump n) (+ n 1))
+
+(:: main Int)
+
+(fn (main) (+ (applyf bump 6) (applyf strLen "hello")))
+AX
+rc="$(check_of hof.ax)"
+( cd "$work" && "$axc" run hof.ax ) >/dev/null 2>&1
+run=$?
+if (( rc == 0 )) && (( run == 12 )); then
+  ok "\`(-> (-> a b) a b)\` at two types: accepted, and answers $run"
+else
+  bad "the higher-order control exited $rc and ran to $run (wanted 0 and 12)"
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== what the diagnostic is guarding, run rather than argued =="
+# --------------------------------------------------------------------
+# `;@axiom:raw` exempts the declaration from the REPORT and changes no
+# code, so the exempted program is exactly what used to compile. It is
+# built and RUN here, and it dies - which is the whole claim. A gate
+# that only asserted "a diagnostic appears" would pass just as well
+# against a rule that refused correct programs for a made-up reason.
+printf '(import Str)\n\n;@axiom:raw\n(:: demand (-> (-> a Int) Int))\n\n(fn (demand f) (f (cast a 42)))\n\n(:: main Int)\n\n(fn (main) (demand strLen))\n' > "$work/boom.ax"
+rc="$(check_of boom.ax)"
+( cd "$work" && "$axc" run boom.ax ) >/dev/null 2>&1
+run=$?
+# `>= 128` rather than `== 139` because the number is the SIGNAL, and
+# only the fact that one arrived is portable. It was 139 (SIGSEGV) on
+# darwin-aarch64 on 2026-08-25 - 42 dereferenced as a String pointer.
+if (( rc == 0 )) && (( run >= 128 )); then
+  ok "the exempted program checks clean, builds, and is killed by a signal ($run)"
+else
+  bad "the exempted program checked $rc and ran to $run (wanted 0, then a signal)"
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-diverging-tyvar: $failed of $((checks + failed)) checks failed"
   exit 1
 fi
-echo "check-diverging-tyvar: $checks checks - a fabricated value is refused, a"
-echo "                       function that never returns is not, and one word"
-echo "                       between them flips the answer"
+echo "check-diverging-tyvar: $checks checks - a fabricated value is refused"
+echo "                       wherever the callee must produce it, a function"
+echo "                       that never returns is not, and one word between"
+echo "                       them flips the answer"

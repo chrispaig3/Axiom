@@ -301,7 +301,7 @@ scrutinee shape run as its ablation.
 
 **ERR-PROP-4 (P). The compiler SHOULD diagnose a self-recursive call in
 the scrutinee of a `match` on its own return type.** Proposed
-`AX3041`, `recursion-in-scrutinee`, a **warning**, with a help naming
+`AX3045`, `recursion-in-scrutinee`, a **warning**, with a help naming
 the arm-tail rewrite. Today nothing says anything: the program compiles,
 runs, and dies on an input large enough, which is the failure mode
 `ERR-PROP-3` exists to prevent and the one a programmer is least
@@ -598,7 +598,7 @@ stable code and a kebab-case slug, and has long-form text in
 compiler reports; the rule is here so a future contributor does not
 invent a second channel for "error-model errors".
 
-**ERR-DIAG-2 (P). Proposed codes.** Six times now this model has
+**ERR-DIAG-2 (P). Proposed codes.** Eight times now this model has
 proposed a number and the compiler has spent it first. `AX3035` went on
 2026-08-16 to the expander defect that stood in this model's way
 (`macro-binder-target`, §7), `AX3036` went on 2026-08-22 to the FFI
@@ -608,21 +608,40 @@ three went to the effect walk: `AX3037` on 2026-08-22
 resolve), then `AX3038` (`effect-unverifiable`, the same condition
 under a `handle`) and `AX3039` (`axtag-key-typo`, a key one edit from
 one the compiler checks) on 2026-08-23; and `AX3040` the same day to
-the type system (`result-only-tyvar`, a signature returning a variable
-no parameter mentions). The next free semantic number is therefore
-`AX3041` (`AX3032` is retired and **MUST NOT** be reused),
-and a proposal renumbers again if something builds one before this
-model does — which is exactly why these are proposals and not
-allocations. Six renumberings is itself evidence: a table of reserved
-numbers ages badly beside a compiler under active repair, and the only
-thing that keeps it honest is `check-doc-drift.sh` comparing
-constructed against listed in both directions.
+the type system (`result-only-tyvar`, a type variable the caller chooses
+and the callee produces - the slug names the shape it was built for and
+is kept as the machine key; the rule covers a function-typed parameter's
+own variable since 2026-08-25).
+
+**Then it happened to a number this table had already written down, and
+this table did not notice for two days.** `AX3041` went to the parser on
+2026-08-22 (`extern-library-name`, an `extern` block's library name that
+is not one) and `AX3044` to the namespace pass (`ambiguous-type`) - and
+the row below still proposed `AX3041` for `recursion-in-scrutinee`,
+while the paragraph above still called `AX3041` the next free number.
+Both were false the moment the parser was built, and the sentence that
+was supposed to catch it named the wrong comparison: `check-doc-drift.sh`
+compared **constructed against explained**, which is a statement about
+`explain.ax`, and looked at this document not at all. It compares
+constructed against **proposed** now as well, in the one direction that
+can fail - a proposal whose number is already spent - so the next
+collision is a red gate rather than a paragraph nobody re-read. Found
+2026-08-25 while closing `AX3040`'s second shape.
+
+The next free semantic number is therefore `AX3045`: `AX3042` and
+`AX3043` are still unspent and stay where they are, `AX3044` is the
+namespace pass's, and `AX3032` is retired and **MUST NOT** be reused. A
+proposal renumbers again if something builds one before this model does,
+which is exactly why these are proposals and not allocations. Eight
+renumberings is itself the evidence: a table of reserved numbers ages
+badly beside a compiler under active repair, and prose saying so is not
+what keeps it honest.
 
 | Proposed | Slug | Condition |
 |---|---|---|
-| `AX3041` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
 | `AX3042` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
 | `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
+| `AX3045` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
@@ -781,7 +800,7 @@ match binder.
 | `ERR-PROP-1` | H | the language having no other mechanism |
 | `ERR-PROP-2` | H | `#pure` accepted on construct and inspect |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
-| `ERR-PROP-4` | P | — proposed `AX3041`, not constructed |
+| `ERR-PROP-4` | P | — proposed `AX3045`, not constructed (`AX3041` was spent by the parser) |
 | `ERR-PROP-5` | H | effect inference, unchanged |
 | `ERR-MEM-1` | H | `fldClass`, `self_host/codegen.ax` |
 | `ERR-MEM-2` | **H, gated** | `370-error-propagation.ax` term 4 + ablation |
@@ -794,7 +813,7 @@ match binder.
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — `AX3041`–`AX3043` not constructed |
+| `ERR-DIAG-2`, `3` | P | — `AX3042`, `AX3043`, `AX3045` not constructed; gated against collision |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
