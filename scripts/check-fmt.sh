@@ -52,8 +52,23 @@ mkdir -p "$copy"
 # copying a `target/` is gigabytes. `./target` was the deleted Rust
 # compiler's build directory; the live ones are `rust/target`, the
 # per-example targets under `rust/examples/*/target`, and `.axiom-bin`.
+#
+# `.claude/` IS EXCLUDED AND THAT IS NOT A CONVENIENCE. Agent worktrees
+# land at `.claude/worktrees/<run>-<n>/`, each a full checkout of this
+# repository at whatever commit that run started from. They are in
+# `.gitignore`, and `find` does not read `.gitignore`. Measured
+# 2026-08-25: eleven abandoned worktrees, 494 MB, and this sweep was
+# formatting **5,809** `.ax` files where the repository has **506** -
+# ten copies of the tree, most of them months of commits stale.
+#
+# It is not only slow. A gate that sweeps "every file in the
+# repository" and reaches files that are NOT in the repository will go
+# red for a change that is correct here and stale there, which is
+# exactly what a grammar change did. Whatever a sweep means by "the
+# repository", it must not mean "whatever is under this directory".
 tar --exclude=./.git --exclude=./rust/target --exclude=./.axiom-bin \
     --exclude='./rust/examples/*/target' --exclude=./node_modules \
+    --exclude=./.claude/worktrees \
     --exclude=./tree-sitter-axiom/node_modules -cf - . | (cd "$copy" && tar -xf -)
 
 total=0

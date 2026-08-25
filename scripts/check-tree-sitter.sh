@@ -146,7 +146,13 @@ sources=()
 while IFS= read -r path; do
   sources+=("$path")
 done < <(
+  # `-not -path './.claude/*'`: agent worktrees live there, each a full
+  # stale checkout of this repository, gitignored and therefore
+  # invisible to `.gitignore` but not to `find`. Measured 2026-08-25 -
+  # 5,809 files swept against 506 in the tree - and a correct grammar
+  # change went red against a months-old copy of the corpus.
   cd "$repo_root" && find . -name '*.ax' -not -path './target/*' \
+    -not -path './.claude/*' \
     | sed 's|^\./|../|' | sort
 )
 
