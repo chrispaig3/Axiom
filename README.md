@@ -749,9 +749,11 @@ every body, so a syscall three calls down still counts. Effects do **not**
 appear in function types: `symbols` renders an I/O-performing function as a
 plain `(Int -> Int)` and carries the inferred set beside it as `#effects=IO`.
 The checking is opt-in — a `;@axiom:effect(...)`/`;@axiom:pure` claim is
-validated against what was inferred (`AX3010`, a warning); an untagged
-function is not policed. The one place an effect is *enforced* rather than
-reported is a `handle` boundary, below.
+validated against what was inferred, and a claim the compiler can
+refute is an **error** (`AX3010`); a claim it is not in a position to
+check is a warning (`AX3037`). An untagged function is not policed. So
+an effect is *enforced* in two places: a claim you wrote, and a `handle`
+boundary, below.
 
 Built-in effects:
 

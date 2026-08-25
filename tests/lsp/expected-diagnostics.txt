@@ -63,9 +63,9 @@
 # fixture                  severity  code    anchor                        message first line
 030-utf16-columns.ax       E         AX3001  zzz                           undefined variable `%N`
 020-undefined.ax           E         AX3001  nosuch                        undefined variable `%N`
-070-warning-only.ax        W         AX3010  2@pure                        AXTAG mismatch on `%N`: `effect(io)` claim unsupported: missing IO
+070-warning-only.ax        W         AX3039  2@pure                        AXTAG key typo on `%N`: unrecognised key `pur`; did you mean `%N`?
 040-missing-import.ax      E         AX5001  <spanless>NoSuchModuleAtAll   cannot resolve import `%N`
 050-unparseable.axbad      E         AX2001  <eof>                         expected expression, found `EOF`
-080-many-diagnostics.ax    W         AX3010  2@pure                        AXTAG mismatch on `%N`: `effect(io)` claim unsupported: missing IO
+080-many-diagnostics.ax    W         AX3039  2@pure                        AXTAG key typo on `%N`: unrecognised key `pur`; did you mean `%N`?
 080-many-diagnostics.ax    E         AX3001  missingOne                    undefined variable `%N`
 080-many-diagnostics.ax    E         AX3001  missingTwo                    undefined variable `%N`

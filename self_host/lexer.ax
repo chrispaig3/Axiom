@@ -927,7 +927,9 @@
             ; Measured on this repository's own AXTAG fixture: prepending
             ; the single line `(fn (poison' n) n)` to
             ; `tests/diagnostics/330-axtag-mismatch.ax` takes it from five
-            ; `AX3010` warnings to `OK` with none. AXTAGs are
+            ; `AX3010`s to `OK` with none - and since 2026-08-25 those
+            ; are ERRORS, so one apostrophe turns a refused build into a
+            ; clean one. AXTAGs are
             ; compiler-checked metadata - a `pure` claim, an `effect(io)`
             ; claim - so what one apostrophe deletes is the checking, in
             ; silence, with `fmt` still preserving both the name and the

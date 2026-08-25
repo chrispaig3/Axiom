@@ -1,6 +1,6 @@
 (:: w Int)
 
-;@axiom:pure
+;@axiom:pur
 (fn (w)
   {
     (__syscall3 1 1 0 0)

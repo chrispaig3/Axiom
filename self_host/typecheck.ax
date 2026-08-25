@@ -9283,9 +9283,11 @@
             ; bare `shout` where `shout` is `(-> Int Int)` is a VALUE -
             ; nothing is performed, and unioning its effects reported
             ; `(fn (handoff k) shout)` as performing IO. That shape is
-            ; the one `docs/agent-harness.md` §6 names as the reason
-            ; `AX3010` cannot be promoted to an error: "promoting that
-            ; shape refuses correct programs".
+            ; the one `docs/agent-harness.md` §6 named as the reason
+            ; `AX3010` could not be promoted to an error: "promoting
+            ; that shape refuses correct programs". Routing it here is
+            ; what removed that objection, and AX3010 was promoted on
+            ; 2026-08-25.
             ;
             ; So an arrow-typed referent contributes `effIncomplete`
             ; instead. That is the honest claim: the value escaped, the
@@ -9314,8 +9316,12 @@
 )
 
 ; ------------------------------------------------------------------
-; AX3010: an AXTAG claim the body does not support. A WARNING, and
-; the only diagnostic stage1 emits that is not an error.
+; AX3010: an AXTAG claim the body does not support. An ERROR since
+; 2026-08-25 - a tag is a claim its author WROTE, and a build that
+; ships a false one has published a guarantee it does not keep. It
+; fires only where the walk has an ANSWER; the shapes it is not in a
+; position to check are routed to AX3037 below, which stays a warning
+; and is what made this promotion sound.
 ;
 ; Three forms, all of stage0's:
 ;   `;@axiom:pure`          -> "`pure` claim contradicted: body performs X, Y"
@@ -12566,11 +12572,19 @@
 
 (pub :: emitAxtagKeyTypo (-> Int Int String String Int))
 
+; The message leads with the DECLARATION, not with the key, because
+; the span covers the declaration. `tests/lsp/drive.py` reads the first
+; backticked name out of a message and requires the source at exactly
+; that range to spell it - so a message opening `pur` over a span
+; covering `pure` is a diagnostic pointing one place and naming
+; another. Every other AXTAG code here already leads with the name it
+; spans (AX3010's "AXTAG mismatch on `x`"); this one did not, and no
+; fixture had exercised it through the server to notice.
 (pub fn (emitAxtagKeyTypo tc d key want)
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "unrecognised AXTAG key `" key) "` on `") (bareOf (nodeAName d))) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"
+      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"
     ))
   )
 )
@@ -12819,7 +12833,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3010"      "axtag-mismatch"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "AXTAG mismatch on `" (bareOf (nodeAName d))) "`: ") msg) "")      0      0      0
+      SEV_ERROR      "AX3010"      "axtag-mismatch"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "AXTAG mismatch on `" (bareOf (nodeAName d))) "`: ") msg) "")      0      0      "an AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer"
     ))
   )
 )
@@ -12830,10 +12844,11 @@
 ; different things: correct the tag, or resolve the call. AX3033 took
 ; a new code over sharing AX3020 for the same reason.
 ;
-; A WARNING, like AX3010. What it reports is a limit of the analysis
-; and not a defect in the program, and the repository has one
-; diagnostic of that kind already (AX3021) whose text says so out
-; loud.
+; A WARNING - and since 2026-08-25 that is the DIFFERENCE from
+; AX3010 rather than a property shared with it. What this reports is a
+; limit of the analysis and not a defect in the program, so it informs
+; where AX3010 refuses; the repository has one diagnostic of that kind
+; already (AX3021) whose text says so out loud.
 (pub :: emitAxtagUnverifiable (-> Int Int String Int))
 
 (pub fn (emitAxtagUnverifiable tc d label)

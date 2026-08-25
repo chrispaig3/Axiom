@@ -1,40 +1,46 @@
-[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `sys`: `pure` claim contradicted: body performs Alloc, IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `sys`: `pure` claim contradicted: body performs Alloc, IO[0m
  [1;34m--> [0m330-axtag-mismatch.ax:7:6
 [1;34m  |[0m
 [1;34m7 |[0m (fn (sys fd)
-[1;34m  |[0m      [1;33m^^^[0m
+[1;34m  |[0m      [1;31m^^^[0m
 [1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
-[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `reached`: `pure` claim contradicted: body performs Alloc, IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `reached`: `pure` claim contradicted: body performs Alloc, IO[0m
   [1;34m--> [0m330-axtag-mismatch.ax:17:6
 [1;34m   |[0m
 [1;34m17 |[0m (fn (reached n) (sys n))
-[1;34m   |[0m      [1;33m^^^^^^^[0m
+[1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
-[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `claims`: `effect(console)` claim unsupported: missing Console[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `claims`: `effect(console)` claim unsupported: missing Console[0m
   [1;34m--> [0m330-axtag-mismatch.ax:22:6
 [1;34m   |[0m
 [1;34m22 |[0m (fn (claims n) n)
-[1;34m   |[0m      [1;33m^^^^^^[0m
+[1;34m   |[0m      [1;31m^^^^^^[0m
 [1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
-[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `leaky`: `pure` claim contradicted: body performs IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `leaky`: `pure` claim contradicted: body performs IO[0m
   [1;34m--> [0m330-axtag-mismatch.ax:37:6
 [1;34m   |[0m
 [1;34m37 |[0m (fn (leaky f x)
-[1;34m   |[0m      [1;33m^^^^^[0m
+[1;34m   |[0m      [1;31m^^^^^[0m
 [1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
-[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `nonexistent`: `effect(nosucheffect)` claim unsupported: missing nosucheffect[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `nonexistent`: `effect(nosucheffect)` claim unsupported: missing nosucheffect[0m
   [1;34m--> [0m330-axtag-mismatch.ax:47:6
 [1;34m   |[0m
 [1;34m47 |[0m (fn (nonexistent f x) (f x))
-[1;34m   |[0m      [1;33m^^^^^^^^^^^[0m
+[1;34m   |[0m      [1;31m^^^^^^^^^^^[0m
 [1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
+compilation failed due to 5 previous errors

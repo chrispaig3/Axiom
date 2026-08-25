@@ -1,4 +1,4 @@
-[1;33mwarning[AX3039][0m[1m: unrecognised AXTAG key `effects` on `collided`; did you mean `effect`?[0m
+[1;33mwarning[AX3039][0m[1m: AXTAG key typo on `collided`: unrecognised key `effects`; did you mean `effect`?[0m
   [1;34m--> [0m349-axsym-tag-forgery.ax:60:6
 [1;34m   |[0m
 [1;34m60 |[0m (fn (collided n) (__syscall3 1 1 n 0))

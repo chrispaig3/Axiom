@@ -97,7 +97,10 @@
 #   the checked-in one reads 2, because the driver projected everything
 #   that was not 1 onto "W". NOW exit 1: 2 goldens rewritten, and both
 #   070 and 080 report "published severities outside LSP Error(1) and
-#   Warning(2): [('AX3010', 3)]".
+#   Warning(2): [('AX3039', 3)]". (It read `AX3010` until 2026-08-25,
+#   when that code became an error and both fixtures were re-founded on
+#   `AX3039` so a WARNING still existed anywhere in this corpus to
+#   project.)
 #
 #   OUTLINE DESTROYED. `lspSymKind` always answers 12 AND every symbol
 #   `range` is `(lspRange src 0)`. WAS exit 0, with 060-outline.golden

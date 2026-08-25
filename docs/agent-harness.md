@@ -98,19 +98,26 @@ the record twice. Across 22 compiler modules there is exactly one real
 ADT. So `(vecLen (parseModule toks))` type-checks, answers `OK`, and
 segfaults: everything is `Int`, so the checker protects nothing.
 
-**Every AXTAG claim is a warning.** A false `;@axiom:pure` on a body that
-performs I/O is `AX3010`, exit 0, a 60 KB executable, and the I/O happens
-at run time. `tests/diagnostics/severity.policy` is a hand-maintained
-allowlist of the codes permitted to render as warnings, and every one of
-them is in this family: `AX3010`, `AX3037`, `AX3038` and `AX3039`. The
-non-blocking-ness is a decision with a gate behind it, not an oversight.
+**A refuted AXTAG claim is an error.** A false `;@axiom:pure` on a body
+that performs I/O *was* `AX3010`, exit 0, a 60 KB executable, and the
+I/O happening at run time. Since 2026-08-25 it is an **error** and there
+is no executable.
 
-`AX3040` was a fifth entry until 2026-08-25, when the compiler learned to
-tell a function that never returns from one that fabricates a value and
-it became an **error**. This paragraph said five, and named it, for a day
-after it stopped being true - which is why the list is now compared
-against the file by `scripts/check-doc-drift.sh` rather than restated
-here from memory.
+`tests/diagnostics/severity.policy` is a hand-maintained allowlist of
+the codes permitted to render as warnings, and what remains in the AXTAG
+family is its UNANSWERABLE half: `AX3037`, `AX3038` and `AX3039`. That
+split is the whole rule - a claim the walk checked and refuted refuses
+the build; a claim it was not in a position to check informs and does
+not.
+
+`AX3040` left the list the same day, when the compiler learned to tell a
+function that never returns from one that fabricates a value; `AX3010`
+left it once the shapes the walk could not check were routed to
+`AX3037`, which is what removed the last thing excusing it. This
+paragraph went on naming `AX3040` as a member for a day after it stopped
+being one - which is why the list is compared against the file by
+`scripts/check-doc-drift.sh` rather than restated here from memory. That
+comparison is also what caught this paragraph.
 
 **There is no strictness flag.** No `-Werror`, no `--deny`, no
 `--agent-harness`; the driver's flag table is closed and an unknown flag
@@ -210,35 +217,42 @@ surface over types. `(safeRegion BODY)` expands to the form above; the
 compiler refuses the build if `BODY` reaches `IO`, `Alloc` or `Mut`, and
 the emitted code is `BODY` with nothing added.
 
-**owed, and load-bearing: `handle` launders effects.**
-`(handle BODY (IO) 0)` *subtracts* `IO` from what the body contributes -
-`docs/reference.md` describes the subtraction as the built-in case's
-intended meaning. So a `;@axiom:pure` function whose body wraps its I/O
-in that one form builds at exit 0, is reported `#pure` by `symbols`, and
-writes to stdout at run time. Because an inner handle subtracts before an
-outer one measures, this also defeats the `(Pure)` boundary above.
+**CLOSED 2026-08-23 - and this section had it as the document's number
+one.** `handle` was described here as *laundering* effects:
+`(handle BODY (IO) 0)` subtracting `IO` from what the body contributes,
+so a `;@axiom:pure` function wrapping its I/O in that one form built at
+exit 0, reported `#pure` to `symbols`, and wrote to stdout at run time -
+and an inner handle subtracting before an outer one measured defeated
+the `(Pure)` boundary above.
 
-The measured shape is worse than "no diagnostic". The build is not
-silent - it warns, on the **wrong function**:
+`6dcc784` split the two questions one predicate had been answering.
+`handle` NAMES a set and DISCHARGES a smaller one: for a built-in the
+effect still reaches the caller, because `handleIsDynamic` installs
+evidence only for a *declared* effect and the form otherwise lowers to
+its body. Re-measured against the compiler in this tree, both shapes
+this section built are refused:
 
 ```console
-W AX3010 launder.ax:7:6-10 axtag-mismatch "AXTAG mismatch on `main`:
-    `effect(io)` claim unsupported: missing IO"
-Build successful: ld
+$ axiom check --input launder.ax        # the laundering `pure` claim
+E AX3010 launder.ax:6:6-12 axtag-mismatch "AXTAG mismatch on `sneaky`:
+    `pure` claim contradicted: body performs IO"
+compilation failed due to 1 previous error          # exit 1
+
+$ axiom check --input pureb.ax          # an inner handle under (Pure)
+E AX3011 pureb.ax:5:31-38 effect-mismatch "effect mismatch: unhandled
+    effect `IO`"
+compilation failed due to 1 previous error          # exit 1
 ```
 
-`sneaky` laundered the effect, so its honest caller no longer *appears*
-to perform I/O, and `main` is warned for truthfully declaring that it
-does. The lying callee passes clean and reports `#pure`. An
-`Agent.Policy` reading this build learns the opposite of the truth about
-both functions, which is the precise reason this item is first in §5
-rather than filed with the other effect holes.
+The inversion is complete. It is the **lying callee** that is refused
+now, and its honest caller draws nothing at all - where this section's
+own example had the diagnostic landing on `main`, for truthfully
+declaring the I/O its callee had laundered away.
 
-So the single most important compiler change in this document is not a
-build mode. It is: **a handler that discharges a built-in effect without
-handling it must not be silently accepted inside a region a policy is
-reading.** Until that is closed, every `#pure` and every `#effects=` an
-`Agent.Policy` consumes is advisory.
+So the change this section called "the single most important compiler
+change in this document" is made, and an `Agent.Policy` reading a build
+that SUCCEEDED is reading a `#pure` the compiler stood behind. What is
+still advisory is the smaller and differently-shaped set below.
 
 Two further holes bound what `Agent.Safe` can promise, both measured:
 
@@ -495,9 +509,13 @@ remains, a call the compiler cannot resolve, and it announces itself as
 
 ## 6. What is refused, and why
 
-- **Promoting `AX3010` to an error.** The obvious next step after making
-  the effect rows honest is to make a contradicted claim refuse the
-  build, and it is wrong twice over — measured both times.
+- ~~**Promoting `AX3010` to an error.**~~ **DONE 2026-08-25.** The
+  obvious next step after making the effect rows honest was to make a
+  contradicted claim refuse the build, and this entry recorded it as
+  wrong twice over — measured both times, and both now closed. The
+  reasoning is kept in full below because it is what the promotion had
+  to answer, and because each objection was a real defect rather than a
+  reason to leave the claim unenforced.
 
   The code carries two shapes. "`effect(io)` claim unsupported: missing
   IO" is the one that looks undecidable and is not: it already consults
@@ -558,18 +576,37 @@ remains, a call the compiler cannot resolve, and it announces itself as
   rows and answers **3**, at exit 1 either way, and a healthy file's
   output is byte-identical.
 
-  **So neither recorded objection stands, and promoting `AX3010` is now
-  a decision rather than a blocked one.** What promotion would and would
-  not buy, stated plainly so the decision is made with it: it makes a
-  FALSE tag fatal. It does not make effects checked, because a tag is
-  opt-in and an untagged function performing IO still draws nothing.
-  The gap that leaves is the one **Effect rows in signatures** below
-  names, and this section's judgement on that is unchanged.
+  **Neither objection survived, and the promotion shipped the same day.**
+  `AX3010` is `SEV_ERROR`, it carries a help line naming the three ways
+  out, and it left `severity.policy`.
 
-  Until that decision is taken the severity stays, and the gate does
-  the refusing:
-  `check-agent-policy.sh` is where a violated policy stops a build,
-  which is §3.4's argument arriving a second time.
+  **What it cost, counted before it was made rather than after:** twelve
+  files in the corpus, **all twelve fixtures that construct the
+  diagnostic on purpose**, and **zero** in `self_host/` or `stdlib/` —
+  the compiler self-compiles with the claim fatal, which is the same
+  fact stated as a build. Three of the twelve had a subject that
+  *depended* on the severity and were re-founded rather than re-blessed:
+  `tests/lsp/070-warning-only.ax` and `080-many-diagnostics.ax` needed a
+  warning to still exist in the LSP corpus, and
+  `tests/diagnostics/370-mixed-warning-error.ax` needed one of each.
+  All three now use `AX3039`, which is a warning **by decision** — the
+  AXTAG key namespace is open — so the subject cannot be promoted out
+  from under them a second time.
+
+  **What it does NOT buy, stated so the boundary is not overread:** it
+  makes a false tag fatal; it does not make effects *checked*. A tag is
+  opt-in, and an untagged function performing IO still draws nothing.
+  That gap is the one **Effect rows in signatures** below names, and
+  this section's judgement on it is unchanged. `AX3037`/`AX3038` stay
+  warnings, and `tests/diagnostics/355-tag-over-approximated.ax` pins
+  the boundary in a single fixture: the unverifiable claim renders `W
+  AX3037` and the refuted one on the next declaration renders `E
+  AX3010`.
+
+  The gate keeps its job either way: `check-agent-policy.sh` is where a
+  violated *policy* stops a build, which is §3.4's argument arriving a
+  second time, and it is about the standard library declaring what it
+  performs rather than about any one tag being true.
 
 - **`--agent-harness` as a build mode.** Determinism is already
   unconditional; strictness already has an artifact; a mode is a new axis

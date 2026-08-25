@@ -1,10 +1,11 @@
-[1;33mwarning[AX3010][0m[1m: AXTAG mismatch on `w`: `pure` claim contradicted: body performs IO[0m
+[1;33mwarning[AX3039][0m[1m: AXTAG key typo on `w`: unrecognised key `pur`; did you mean `pure`?[0m
  [1;34m--> [0m370-mixed-warning-error.ax:4:6
 [1;34m  |[0m
 [1;34m4 |[0m (fn (w)
 [1;34m  |[0m      [1;33m^[0m
 [1;34m  |[0m
- [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+ [1;34m = [0m[1;32mhelp: [0man unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3039` for a full explanation
 
 [1;31merror[AX3006][0m[1m: duplicate definition `main`[0m
   [1;34m--> [0m370-mixed-warning-error.ax:15:6

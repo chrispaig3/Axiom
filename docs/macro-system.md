@@ -1893,16 +1893,21 @@ argument can invalidate an AXTAG claim the author wrote.** The claim is
 validated against the *expanded* program, and the dropped argument is
 not in it:
 
-```scheme
+```scheme fragment
 (macro (ignore x) 7)
 ;@axiom:effect(io)
 (fn (main) (ignore (side 1)))     ; `side` performs IO — and is dropped
 ```
 ```
-W AX3010 axtag-mismatch "AXTAG mismatch on `main`: `effect(io)` claim unsupported: missing IO"
+E AX3010 axtag-mismatch "AXTAG mismatch on `main`: `effect(io)` claim unsupported: missing IO"
 ```
 
-The warning is **correct**: after expansion, `main` performs no I/O.
+The diagnostic is **correct**, and since 2026-08-25 it refuses the
+build: after expansion, `main` performs no I/O, so the claim is false as
+written and the fix is to drop the tag the macro made untrue. (That is
+why the block above is fenced `scheme fragment` — `tests/docs/verify-doc-code.py`
+compiles every documented whole program, and this one is documented
+precisely because it does not compile.)
 This is the intended interaction, not a defect, and a conforming
 implementation **MUST** keep validating claims against the expanded
 program — validating them against the source would let a macro's

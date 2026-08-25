@@ -548,9 +548,11 @@ Both NID and AXTAG are now implemented.
   Sema validates what it can: `effect(io)` claims are checked against
   what the body actually performs - a `__syscallN`, or a call to
   something that performs one - and `pure` claims are checked against
-  the absence of any effect. Mismatches emit a normal `AX3010` / `axtag-mismatch`
-  warning so an agent can correct the annotation instead of silently
-  trusting it. Other tags (`no_refactor`, `owned(arena=frame)`, etc.) are
+  the absence of any effect. A mismatch the checker can decide emits `AX3010` /
+  `axtag-mismatch`, an **error** since 2026-08-25, so a build that
+  succeeded is one whose claims the compiler stood behind rather than
+  one an agent must re-read the warnings of. A claim it is not in a
+  position to check is `AX3037`, which remains a warning. Other tags (`no_refactor`, `owned(arena=frame)`, etc.) are
   preserved and emitted but not yet validated.
 
 AXSYM output for a file whose first declaration carries `;@axiom:pure`,

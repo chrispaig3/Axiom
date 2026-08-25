@@ -1,7 +1,7 @@
 # axiom explain, every code and every spelling.
 # AX1001-AX5001 were materialized from the Rust compiler at commit 1041f11 on
 # 2026-08-08; AX3018 and above (macros, visibility, limits, traits, effects, the
-# FFI boundary, type soundness) postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured. AX2004 was REWRITTEN on 2026-08-18 when the `extern` FFI landed: its captured text said generated code links no C library, which stopped being true for a program that binds a std Rust crate. It is the one code in the AX1001-AX5001 range that is no longer the 2026-08-08 byte.
+# FFI boundary, type soundness) postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured. AX2004 was REWRITTEN on 2026-08-18 when the `extern` FFI landed: its captured text said generated code links no C library, which stopped being true for a program that binds a std Rust crate. AX3010 was REWRITTEN on 2026-08-25 when it was PROMOTED from a warning to an ERROR: its captured text described a mismatch an agent could correct at leisure, and it now refuses the build. Those two are the only codes in the AX1001-AX5001 range that are no longer the 2026-08-08 bytes.
 ### explain --list
 [1;96mKnown Axiom diagnostic codes:[0m
   [93mAX1001[0m  unexpected character  (unexpected-char)
@@ -287,9 +287,20 @@ many fields it actually has.
 AX3010 - agent metadata mismatch
 
 A `;@axiom:<key>(<value>)` tag on this declaration makes a claim
-(e.g. `effect(io)`, `pure`) that the body does not support. The
-compiler validates tags it can and reports mismatches so an agent
-can correct the annotation instead of silently trusting it.
+(e.g. `effect(io)`, `pure`) that the body does not support.
+
+This is an ERROR, and refuses the build. A tag is a claim you
+WROTE: shipping a false one publishes a guarantee the program does
+not keep, and every reader that trusted it - a person, an agent, or
+`axiom symbols` - is misled by exactly the amount it was trusted.
+
+Three ways out: make the body match the tag; correct the tag to
+what the body does; or delete the tag, which withdraws the claim
+rather than answering it (an untagged function is never checked).
+
+Only claims the compiler can DECIDE reach this code. A claim it is
+not in a position to check - because the body calls a value it could
+not resolve - is AX3037, which is a warning. See `explain AX3037`.
 
 ### explain AX3011
 AX3011 - effect mismatch

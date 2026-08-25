@@ -226,8 +226,8 @@ observable effects:
 over every function body, so a syscall three calls down counts — and
 reported by `axiom symbols` as `#effects=...`. Effects do **not** appear
 in function types. `;@axiom:effect(...)` and `;@axiom:pure` are opt-in
-*claims*, validated against the inference; a mismatch is `AX3010`, a
-warning. An untagged function is not policed.
+*claims*, validated against the inference; a refuted claim is
+`AX3010`, an **error**. An untagged function is not policed.
 
 **MM-EXEC-9a (H).** **The inferred effect set is an
 under-approximation, and a specification must say so.** A conforming
@@ -323,7 +323,9 @@ does **not** mean the function is a mathematical function of its
 arguments — it may still mutate a heap field through an alias
 (`MM-MUT-2`), and it may still perform anything at all through a call
 the inference could not resolve, which is one of `MM-EXEC-9a`'s two
-remaining rows. `AX3010` is a **warning** that does not fail the build.
+remaining rows. `AX3010` refuses the build as of 2026-08-25 — but only
+where a claim was written and refuted; the unresolved call yields
+`AX3037`, which still does not.
 
 Three of the escapes this rule listed are gone. Writing memory, reading
 the command line and printing through a trait method are all inferred

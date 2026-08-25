@@ -31,17 +31,28 @@
 # One code per line. A code absent from this list must never appear as
 # `W` in any `.axdl` golden.
 #
-# AX3010 - an AXTAG that claims an effect the function does not have.
-#          A claim that is merely wrong about code that compiles.
-AX3010
+# AX3010 - PROMOTED TO AN ERROR 2026-08-25, and no longer listed here.
+#          It had been excused as "a claim that is merely wrong about
+#          code that compiles", which is true of the CODE and beside
+#          the point: the tag is a claim the author WROTE, and a build
+#          that ships a false one has published a guarantee it does not
+#          keep. The two objections docs/agent-harness.md 6 recorded
+#          are both gone - the over-approximating shapes now route to
+#          AX3037, and `symbols` prints its table for a file that fails
+#          to compile. What remains warning-shaped is the UNCHECKABLE
+#          half, and that is AX3037/AX3038 below, which stay.
 # AX3037 - an AXTAG claim the effect walk cannot check, because the
 #          body calls a value it could not resolve. A limit of the
 #          ANALYSIS rather than a defect in the program - the code
 #          compiles and may well be correct - so it informs and does
-#          not refuse. The same reasoning as AX3010 one line up, and
-#          the same standing risk: if this ever becomes the compiler's
-#          answer to a program that is actually wrong, it belongs in
-#          the other list.
+#          not refuse. AX3010 one line up USED to share this reasoning
+#          and no longer does, which is this list's rule working rather
+#          than an exception to it: the shapes the walk could not check
+#          were routed HERE, and once AX3010 fired only where the walk
+#          had an answer there was nothing left excusing it. The
+#          standing risk is the same one stated precisely - this list
+#          is for the unanswerable, and a code that becomes answerable
+#          leaves it.
 AX3037
 # AX3038 - a `handle` whose body reaches a call the walk cannot
 #          resolve, so the handled-effects list cannot be checked.

@@ -113,8 +113,10 @@
 #
 #   and the gate ACCEPTED it as a declared IO - `iohazard` contains
 #   `io`. The compiler had already refused it, as
-#   `W AX3010 ... 'effect(iohazard)' claim unsupported`, on the stderr
-#   this script was discarding. The filter is now
+#   `AX3010 ... 'effect(iohazard)' claim unsupported`, on the stderr
+#   this script was discarding. (That line rendered `W` when this was
+#   written; AX3010 became an ERROR on 2026-08-25. The severity letter
+#   is not what `axerr_hits` matches on, so the ablation still lands.) The filter is now
 #   `#effect=io( |$)`, and the path matches are `index($3, prefix) == 1`
 #   on the SPAN FIELD rather than `grep 'stdlib/'` on the whole line.
 #

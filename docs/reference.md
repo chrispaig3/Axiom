@@ -1009,9 +1009,10 @@ Traits define interfaces with typed methods — similar to type classes in Haske
 Axiom infers each function's side effects transitively - a fixpoint
 over every function body, so a syscall three calls down still counts -
 and validates any `;@axiom:effect(...)`/`;@axiom:pure` claims against
-what it inferred (`AX3010`, a warning). Effects do not appear in
-function types, and untagged functions are not policed: the tags are
-opt-in claims, checked when made. `axiom symbols --diagnostic-format
+what it inferred. A refuted claim is an **error** (`AX3010`); one the
+walk was not in a position to check is a warning (`AX3037`). Effects do
+not appear in function types, and untagged functions are not policed:
+the tags are opt-in claims, and they are checked when made. `axiom symbols --diagnostic-format
 ai` reports the inferred set as `#effects=...` beside any declared
 tags; the default `human` table has no metadata column and shows
 neither.
@@ -1982,7 +1983,7 @@ AXTAGs are source-embedded agent metadata preserved from `;@axiom:<key>(<value>)
 | `no_refactor` | Hints that the declaration should not be modified by automated refactoring |
 | `owned(arena=frame)` | Ownership metadata; accepted and unenforced — the wording predates the reference-counting decision (`docs/memory-model.md` MM-LIFE-7) |
 
-The compiler validates `effect(io)` claims against what the body actually performs - a `__syscallN`, or a call to something that performs one - and `pure` claims against the absence of any effect. Mismatches emit a warning (`AX3010`).
+The compiler validates `effect(io)` claims against what the body actually performs - a `__syscallN`, or a call to something that performs one - and `pure` claims against the absence of any effect. A mismatch the compiler can decide is an **error** (`AX3010`); a claim it cannot check - because the body calls a value it could not resolve - is a warning (`AX3037`).
 
 ---
 

@@ -18,6 +18,55 @@ its changelog too.
 
 ### Added
 
+- **A false AXTAG claim now REFUSES the build (`AX3010` is an error).**
+  A `;@axiom:pure` on a body that performs I/O was a warning: exit 0, an
+  executable, and the I/O happening at run time. A tag is a claim its
+  author *wrote*, and shipping a false one publishes a guarantee the
+  program does not keep — to a reader, to an agent, and to `axiom
+  symbols`, each misled by exactly the amount they trusted it.
+
+  **Only claims the compiler can DECIDE reach this code.** The boundary
+  is the whole design, and it is what made the promotion sound rather
+  than merely strict: a claim the effect walk is not in a position to
+  check — because the body calls a value it could not resolve — is
+  `AX3037`, which stays a warning, as do `AX3038` and `AX3039`.
+  `tests/diagnostics/355-tag-over-approximated.ax` pins both halves in
+  one fixture: `W AX3037` on the unverifiable claim, `E AX3010` on the
+  refuted one twelve lines down.
+
+  **Cost, counted before the change rather than after:** twelve files in
+  the corpus, **all twelve of them fixtures that construct the
+  diagnostic on purpose**, and **zero** in `self_host/` or `stdlib/` —
+  the compiler self-compiles with the claim fatal, which is that fact
+  restated as a build.
+
+  Three of the twelve had a subject that *depended* on the severity, and
+  were re-founded rather than re-blessed: `tests/lsp/070-warning-only.ax`
+  and `080-many-diagnostics.ax` needed a warning to still exist anywhere
+  in the LSP corpus (`check-lsp-selfhost.sh` ablates `lspSeverity` and
+  requires something to project), and
+  `tests/diagnostics/370-mixed-warning-error.ax` needed one of each. All
+  three now use `AX3039`, a warning **by decision** — the AXTAG key
+  namespace is open on purpose — so their subject cannot be promoted out
+  from under them a second time.
+
+  The diagnostic carries a help line naming the three ways out, and
+  `axiom explain AX3010` says which of them withdraws the claim rather
+  than answering it. `severity.policy` records the promotion where
+  `AX3040`'s is recorded, and `scripts/check-doc-drift.sh` — which
+  compares the warning family in `docs/agent-harness.md` against that
+  file — is what caught the prose still naming `AX3010` as a member.
+
+- **`AX3039` names the declaration it points at.** Its message opened
+  with the misspelled KEY (`unrecognised AXTAG key `pur` on `slipped``)
+  while its span covers the *declaration*. `tests/lsp/drive.py` reads the
+  first backticked name out of a published message and requires the
+  source at exactly that range to spell it — so this was a diagnostic
+  pointing at one name and opening with another, and no LSP fixture had
+  exercised `AX3039` to notice. It now reads `AXTAG key typo on
+  `slipped`: unrecognised key `pur`; did you mean `pure`?`, matching the
+  shape every other AXTAG diagnostic already used.
+
 - **`symbols` answers for a file that does not compile.** It printed
   the diagnostics and exited with stdout **empty**, which is the moment
   a reader most needs the declarations: the file is wrong and they are

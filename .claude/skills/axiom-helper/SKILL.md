@@ -79,9 +79,11 @@ AXTAG metadata (`;@axiom:<key>(<value>)` comments above declarations) is
 compiler-checked. The most important validation is that `effect(io)`
 claims match what the body actually performs — a `__syscallN`, a call to
 something that performs one, or a call to an `extern` — and `pure` claims
-match a body that performs nothing. Mismatches emit `AX3010`
-(`axtag-mismatch`), as a **warning**: it does not fail the build, so an
-agent that only checks the exit status will miss it.
+match a body that performs nothing. A mismatch emits `AX3010`
+(`axtag-mismatch`), an **error** since 2026-08-25: it fails the build,
+so the exit status is enough. A claim the walk could not check is
+`AX3037`, which is still a warning and still invisible to an agent
+reading only the exit status.
 
 When writing or reviewing Axiom source:
 - Always pair `;@axiom:effect(io)` with code that actually reaches a
@@ -522,8 +524,10 @@ When you encounter an error code in AXDL output:
    means later errors are usually already suppressed, so what remains
    after the first fix is a different question, not the same one.
 4. Verify the fix by re-running `axiom --diagnostic-format=ai check source.ax` and confirming zero errors.
-5. Check for `W` lines even on a successful build. `AX3010` is a warning
-   and does not move the exit status.
+5. Check for `W` lines even on a successful build. `AX3010` moves the
+   exit status now, but `AX3037`/`AX3038`/`AX3039` do not — and those
+   are the AXTAG claims the compiler could NOT check, which is the set
+   worth reading by hand.
 
 ### 5.7 Testing and validation
 

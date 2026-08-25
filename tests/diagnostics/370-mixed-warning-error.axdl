@@ -1,2 +1,2 @@
-W AX3010 370-mixed-warning-error.ax:4:6-7 axtag-mismatch "AXTAG mismatch on `w`: `pure` claim contradicted: body performs IO"
+W AX3039 370-mixed-warning-error.ax:4:6-7 axtag-key-typo "AXTAG key typo on `w`: unrecognised key `pur`; did you mean `pure`?" ?"an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"
 E AX3006 370-mixed-warning-error.ax:15:6-10 duplicate-definition "duplicate definition `main`" #"`main` redefined here" ^13:6-10:"`main` first defined here" ?"rename one of the definitions, or remove the duplicate"
