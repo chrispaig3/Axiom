@@ -1,0 +1,6 @@
+axiom: out of memory (mmap failed)
+axiom: backtrace (most recent call first)
+  at __axiom_out_of_memory
+  at axiom_alloc
+  at __axiom_user_main
+  at __axiom_recover_load

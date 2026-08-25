@@ -5572,7 +5572,60 @@
 
 (pub fn (targetRecoverArmAsm t)
   (if (|| (== t 0) (== t 2))
-    "\"stp x19, x20, [$0, #48]\\0Astp x21, x22, [$0, #64]\\0Astp x23, x24, [$0, #80]\\0Astp x25, x26, [$0, #96]\\0Astp x27, x28, [$0, #112]\\0Amov x9, sp\\0Astr x9, [$0]\\0Astr x29, [$0, #8]\\0Aadr x9, 1f\\0Astr x9, [$0, #16]\\0Ab 2f\\0A1:\\0Aldp x19, x20, [x9, #48]\\0Aldp x21, x22, [x9, #64]\\0Aldp x23, x24, [x9, #80]\\0Aldp x25, x26, [x9, #96]\\0Aldp x27, x28, [x9, #112]\\0A2:\", \"r,~{x0},~{x1},~{x2},~{x3},~{x4},~{x5},~{x6},~{x7},~{x8},~{x9},~{x10},~{x11},~{x12},~{x13},~{x14},~{x15},~{x16},~{x17},~{lr},~{v0},~{v1},~{v2},~{v3},~{v4},~{v5},~{v6},~{v7},~{v8},~{v9},~{v10},~{v11},~{v12},~{v13},~{v14},~{v15},~{v16},~{v17},~{v18},~{v19},~{v20},~{v21},~{v22},~{v23},~{v24},~{v25},~{v26},~{v27},~{v28},~{v29},~{v30},~{v31},~{memory},~{cc}\""
+    ; ONE BODY, TWO CLOBBER LISTS, and the difference is a single
+    ; register whose ABI role is not the same on the two AArch64
+    ; targets. `x18` is the PLATFORM REGISTER: reserved on Darwin, where
+    ; LLVM never allocates it and naming it in a clobber list is a false
+    ; statement llc warns about ("clobber list contains reserved
+    ; registers: X18"), and an ordinary allocatable caller-saved
+    ; temporary on Linux.
+    ;
+    ; The invariant this list keeps is "the clobber half IS the
+    ; caller-saved set", so a register that is caller-saved on one
+    ; target and reserved on the other has to be named on one and not
+    ; the other - exactly as `targetSyscallAsm` above names x16 for
+    ; Darwin and x8 for Linux rather than pretending one string serves
+    ; both.
+    ;
+    ; THE REGISTER FILE IS NOW ACCOUNTED FOR EXHAUSTIVELY, which is the
+    ; check that would have caught this by reading. On AArch64: x0-x17
+    ; and lr clobbered, x18 clobbered where it is allocatable, x19-x28
+    ; saved and restored by the block, x29 and sp restored explicitly,
+    ; v0-v31 clobbered. On x86-64: rax/rcx/rdx/rsi/rdi/r8-r11 and
+    ; xmm0-15 clobbered, rbx/r12-r15 saved and restored, rbp and rsp
+    ; restored explicitly. Every register is in exactly one of those
+    ; three sets, on every target. A register in NONE of them is a
+    ; register a value can hide in across the block, which is what this
+    ; was.
+    ;
+    ; MEASURED, and it is the same defect as the `~{x30}`-vs-`~{lr}`
+    ; one this file already records, one register over. With x18 in
+    ; neither the clobber half nor the block's own save/restore half,
+    ; LLVM on linux-aarch64 PREFERS it for the record pointer -
+    ; precisely because the block does not clobber it, so it needs no
+    ; prologue spill. Through the driver's real pipeline
+    ; (`emit-llvm | opt -O1 | llc -O1 -relocation-model=pic`) on
+    ; `tests/stdlib/402-recover-oom.ax`:
+    ;
+    ;     stp x19, x20, [x18, #48]      <- $0 is x18
+    ;     ...
+    ;     ldr x19, [x18, #40]           <- the status, read through it
+    ;
+    ; The landing path restores x19-x28 and nothing else, and the
+    ; aborted extent runs through `axiom_alloc`, which uses x18 itself
+    ; (`mov x18, x0`, `adrp x18, __axiom_chunk`). So the status was read
+    ; through a pointer the trap had destroyed. `402-recover-oom`
+    ; produced NO stderr on ubuntu-24.04-arm in CI runs 32811091535 and
+    ; 32811530545 while passing on linux-x86_64 and darwin-aarch64 -
+    ; the signature of a register that exists only on AArch64 and is
+    ; allocatable only on Linux. With `~{x18}` the pointer moves to x20,
+    ; which the block already saves and restores.
+    (cat3
+      "\"stp x19, x20, [$0, #48]\\0Astp x21, x22, [$0, #64]\\0Astp x23, x24, [$0, #80]\\0Astp x25, x26, [$0, #96]\\0Astp x27, x28, [$0, #112]\\0Amov x9, sp\\0Astr x9, [$0]\\0Astr x29, [$0, #8]\\0Aadr x9, 1f\\0Astr x9, [$0, #16]\\0Ab 2f\\0A1:\\0Aldp x19, x20, [x9, #48]\\0Aldp x21, x22, [x9, #64]\\0Aldp x23, x24, [x9, #80]\\0Aldp x25, x26, [x9, #96]\\0Aldp x27, x28, [x9, #112]\\0A2:\", \"r,~{x0},~{x1},~{x2},~{x3},~{x4},~{x5},~{x6},~{x7},~{x8},~{x9},~{x10},~{x11},~{x12},~{x13},~{x14},~{x15},~{x16},~{x17},~{lr}"      (if (== t 2)
+        ",~{x18}"
+        ""
+      )      ",~{v0},~{v1},~{v2},~{v3},~{v4},~{v5},~{v6},~{v7},~{v8},~{v9},~{v10},~{v11},~{v12},~{v13},~{v14},~{v15},~{v16},~{v17},~{v18},~{v19},~{v20},~{v21},~{v22},~{v23},~{v24},~{v25},~{v26},~{v27},~{v28},~{v29},~{v30},~{v31},~{memory},~{cc}\""
+    )
     "\"movq %rbx, 48($0)\\0Amovq %r12, 56($0)\\0Amovq %r13, 64($0)\\0Amovq %r14, 72($0)\\0Amovq %r15, 80($0)\\0Amovq %rsp, ($0)\\0Amovq %rbp, 8($0)\\0Aleaq 1f(%rip), %rax\\0Amovq %rax, 16($0)\\0Ajmp 2f\\0A1:\\0Amovq 48(%rax), %rbx\\0Amovq 56(%rax), %r12\\0Amovq 64(%rax), %r13\\0Amovq 72(%rax), %r14\\0Amovq 80(%rax), %r15\\0A2:\", \"r,~{rax},~{rcx},~{rdx},~{rsi},~{rdi},~{r8},~{r9},~{r10},~{r11},~{xmm0},~{xmm1},~{xmm2},~{xmm3},~{xmm4},~{xmm5},~{xmm6},~{xmm7},~{xmm8},~{xmm9},~{xmm10},~{xmm11},~{xmm12},~{xmm13},~{xmm14},~{xmm15},~{memory},~{cc}\""
   )
 )
