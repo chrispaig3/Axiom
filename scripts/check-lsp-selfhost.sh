@@ -16,10 +16,20 @@
 # left to rot into agreement by mutual silence.
 #
 # WHAT IT PINS NOW. tests/lsp/drive.py runs one fixed session per
-# fixture - lifecycle, didOpen, documentSymbol, an unsupported request,
-# didClose, shutdown, exit - and checks the result against a checked-in
-# golden AND against two hand-maintained manifests plus the fixture's
-# own bytes. Only the first of those is re-blessable.
+# fixture - lifecycle, didOpen, documentSymbol, hover, an unsupported
+# request, didClose, shutdown, exit - and checks the result against a
+# checked-in golden AND against two hand-maintained manifests plus the
+# fixture's own bytes. Only the first of those is re-blessable.
+#
+# Beside the per-fixture sessions it drives three whole-document ones
+# that are written INTO drive.py rather than read from `tests/lsp/`, so
+# their positions cannot drift away from the text they describe: a
+# generated 500-diagnostic document, an editing session that must not
+# grow, and NAVIGATION - six `definition` requests and a `hover` over a
+# document that imports a module written to a temp directory. The
+# navigation block is the one whose answers are all DERIVED: every
+# expected range is computed from the two documents' own bytes, so no
+# re-bless of any golden can satisfy it.
 #
 #   GOLDEN-ONLY, and therefore exactly as strong as whichever compiler
 #   last blessed it: the framed byte stream - framing, field order,

@@ -702,13 +702,192 @@
   )
 )
 
-; `textDocument/definition`: the macro's own declaration span, as a
-; Location in this document. A position that is not a macro name
-; answers null rather than an error - the protocol's way of saying
-; "nothing here", and what an editor expects for every other word in
-; the file.
+; The same walk over every declaration KIND the outline already lists -
+; a function, a `data`, a `struct` or a macro - rather than over macros
+; alone.
+;
+; `lspWantsSymbol` is reused deliberately: `documentSymbol` and
+; `definition` answering different sets of names is the drift this
+; repository reports most often, and there is no reason for a name the
+; outline shows to be a name navigation cannot reach.
+;
+; A `(:: f T)` signature is still not a target, for the reason it is
+; not in the outline: it shares its name with the `(fn (f) ...)` beside
+; it, and jumping to the signature when the body is one line below is
+; the wrong of the two answers.
+;
+; LAST WINS, which is the existing scan's rule and worth keeping: a
+; file that declares a name twice is already ill-formed, and the last
+; one is what the expander would have used.
+(pub :: lspFindDecl (-> Int String Int Int))
+
+(pub fn (lspFindDecl decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (lspWantsSymbol (nodeTag d)) (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0)))
+        d
+        (lspFindDecl decls name (- i 1))
+      )
+    )
+  )
+)
+
+; The same, over the MERGED declaration list `resolveImports` answers -
+; so a name this document imported is found in the module that declares
+; it.
+;
+; Two differences from the walk above, and both are about what an
+; imported declaration looks like. Its name is MANGLED (`Vec$vecPush`),
+; so the comparison is against `bareOf`; and it is not in this
+; document, so a declaration whose module is 0 - the entry file - is
+; skipped here, having already been offered by `lspFindDecl`.
+(pub :: lspFindImported (-> Int String Int Int))
+
+(pub fn (lspFindImported decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeModule d) 0) (&& (strEq (bareOf (nodeAName d)) name) (!= (nodeSpan d) 0))))
+        d
+        (lspFindImported decls name (- i 1))
+      )
+    )
+  )
+)
+
+; The unit a declaration's spans index, by module name.
+;
+; `symbols.ax` has `saUnitOf`, which is this, and it is not imported
+; here: `lsp.ax` reaches for `parser`, `typecheck`, `expand` and
+; `codegen` and not for the symbol renderer, and a module dependency
+; taken for fifteen lines is a dependency the next reader has to
+; explain. Answers -1 when no unit carries that name, which is what a
+; declaration the resolver did not attribute looks like.
+(pub :: lspUnitOf (-> Int Int Int))
+
+(pub fn (lspUnitOf units module)
+  ; FROM 1, and that is not an optimisation. Unit 0 is the entry file
+  ; and its module NAME is `(cast String 0)` - a null handle, because
+  ; the entry file has no module name - so asking `strEq` about it
+  ; dereferences null. Measured: the server answered the same-file
+  ; lookup correctly and then died of SIGSEGV on the first imported
+  ; one. `saUnitOf` in `symbols.ax` skips it for the same reason and
+  ; is where this rule comes from.
+  (let (
+    (n (vecLen units))
+    (mut i 1)
+    (mut at (- 0 1))
+  )
+    {
+      (while (< i n)
+        {
+          (if (strEq
+            (memGetWordStr (vecGet units i) 2)            (cast String module)
+          )
+            {
+              (set at i)
+              (set i n)
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      at
+    }
+  )
+)
+
+; `/a/b.ax` -> `file:///a/b.ax`, the inverse of `lspUriToPath`.
+;
+; PERCENT-ENCODING is the whole of it. A path may hold a space, a `%`,
+; a `#` or any non-ASCII byte, and an editor asked to open
+; `file:///Some Project/a.ax` opens nothing at all - silently, because
+; a Location it cannot parse is a Location it ignores. The unreserved
+; set is RFC 3986's, plus `/` because it separates the path, plus `.`,
+; `-`, `_` and `~`.
+;
+; A RELATIVE path is made absolute first, against the working
+; directory, because `moduleSrcPath` answers `Helper.ax` for a sibling
+; module and a Location must name a file the editor can open from
+; anywhere.
+(pub :: lspPathToUri (-> String String))
+
+;@axiom:effect(io)
+(pub fn (lspPathToUri path)
+  (let ((abs 
+    (if (pathIsAbsolute path)
+      path
+      (pathJoin sysGetCwd path)
+    )
+  ))
+    (let (
+      (n (strLen abs))
+      (mut i 0)
+      (mut out "file://")
+    )
+      {
+        (while (< i n)
+          {
+            (set out (strConcat
+              out              (if (lspUriSafe (strByte abs i))
+                (strSlice abs i 1)
+                (lspPercent (strByte abs i))
+              )
+            ))
+            (set i (+ i 1))
+          })
+        out
+      }
+    )
+  )
+)
+
+(pub :: lspUriSafe (-> Int Bool))
+
+(pub fn (lspUriSafe b) (|| (&& (>= b 97) (<= b 122)) (|| (&& (>= b 65) (<= b 90)) (|| (&& (>= b 48) (<= b 57)) (|| (== b 47) (|| (== b 46) (|| (== b 45) (|| (== b 95) (== b 126)))))))))
+
+(pub :: lspPercent (-> Int String))
+
+(pub fn (lspPercent b) (strConcat "%" (strConcat (lspHexDigit (/ b 16)) (lspHexDigit (% b 16)))))
+
+(pub :: lspHexDigit (-> Int String))
+
+(pub fn (lspHexDigit v) (strSlice "0123456789ABCDEF" v 1))
+
+; `textDocument/definition`: the declaration's own span, as a Location.
+;
+; TWO LOOKUPS, IN THIS ORDER, and the order is the language's scoping
+; rule rather than a preference: a module's own declaration shadows an
+; imported one, so this document is asked first and the merged list
+; only when it has no answer.
+;
+;   1. THIS DOCUMENT, over every declaration kind the outline lists -
+;      a function, a `data`, a `struct` or a macro. It used to be
+;      macros alone, so a call to a function three lines up answered
+;      null, which reads to an editor as "there is nothing here"
+;      rather than as "this server does not do that".
+;   2. EVERY IMPORTED MODULE, by resolving the imports the way
+;      `lspCheckDoc` does and searching the merged list. An imported
+;      declaration's name is mangled (`Vec$vecPush`) and its spans
+;      index its OWN file, so the answer is a Location in that file:
+;      the unit table `resolveImports` filled says which, and
+;      `lspPathToUri` spells it.
+;
+; WHAT THE SECOND ONE COSTS, said out loud because `MAC-TOOL-3` is
+; about exactly this: it reads and parses every transitively imported
+; module, which is what `axiom check` does on every keystroke already
+; through `lspCheckDoc`. It runs only when the first lookup misses, so
+; a definition request inside the file being edited pays one parse, and
+; nothing here expands a macro - the raw tree carries every declaration
+; either lookup needs.
+;
+; A position that is not a name still answers null, which is the
+; protocol's way of saying "nothing here" and what an editor expects
+; for every other word in the file.
 (pub :: lspDefinition (-> String String Int Int))
 
+;@axiom:effect(io)
 (pub fn (lspDefinition src uri params)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -720,10 +899,76 @@
         (let ((w (lspWordAt src (lspOffsetOf src ix (jsonGet params "position")))))
           (if (== (strLen w) 0)
             jsonNull
-            (let ((d (lspFindMacroDecl decls w (- (vecLen decls) 1))))
+            (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
+              (if (!= d 0)
+                (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRange src (nodeSpan d)))
+                (lspDefinitionImported (lspUriToPath uri) src decls w)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The second lookup: resolve this document's imports and answer a
+; Location in whichever module declares `w`.
+;
+; The resolver is given the same four scratch vectors and the same
+; entry directory `lspCheckDoc` gives it, because a different entry
+; directory would resolve a different set of files and the two answers
+; would disagree about what this document imports.
+;
+; A resolver failure is null rather than a diagnostic. A half-typed
+; import is the normal state of a file being edited, and a server that
+; answered an error to `definition` while the user was mid-word would
+; make navigation feel broken exactly when the file is.
+(pub :: lspDefinitionImported (-> String String Int String Int))
+
+;@axiom:effect(io)
+(pub fn (lspDefinitionImported path src decls w)
+  ; The entry unit carries the document's real text, not "".
+  ; Nothing here renders against it - an imported declaration's
+  ; spans index its own file - but the resolver stamps
+  ; diagnostics with it, and a unit whose source is empty is a
+  ; unit that reports every span at offset 0.
+  (let (
+    (bares vecNew)
+    (fulls vecNew)
+    (mods vecNew)
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+  )
+    (let ((units 
+      (let ((v vecNew))
+        {
+          (vecPush
+            v            (cast Int (CUnit2
+              path              src              (cast String 0)
+            ))
+          )
+          v
+        }
+      )
+    ))
+      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+        (if (> (strLen missing) 0)
+          jsonNull
+          (let ((allDecls (resolveImports
+            decls            bares            fulls            mods            tcode            entryDir            units
+          )))
+            (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
               (if (== d 0)
                 jsonNull
-                (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRange src (nodeSpan d)))
+                (let ((u (lspUnitOf units (nodeModule d))))
+                  (if (< u 0)
+                    jsonNull
+                    (let ((unit (vecGet units u)))
+                      (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr (lspPathToUri (memGetWordStr unit 0)))) "range" (lspRange (memGetWordStr unit 1) (nodeSpan d)))
+                    )
+                  )
+                )
               )
             )
           )

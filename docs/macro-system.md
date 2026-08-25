@@ -2099,12 +2099,30 @@ answers the declaration verbatim from the document's bytes in an
 `null`, which is the protocol's "nothing here" and what every other
 word in a file gets.
 
-*The v1 limit, stated rather than discovered:* the lookup reads THIS
-document's declarations, so a macro imported from another module
-answers null rather than jumping into that module's file. Resolving it
-means walking the import graph for a navigation request, which is the
-work `MAC-TOOL-3` exists to keep out of the fast path, and it wants
-the module-URI mapping the server does not otherwise need.
+*That limit is closed, 2026-08-25.* This paragraph read: "the lookup
+reads THIS document's declarations, so a macro imported from another
+module answers null rather than jumping into that module's file.
+Resolving it means walking the import graph for a navigation request,
+which is the work `MAC-TOOL-3` exists to keep out of the fast path, and
+it wants the module-URI mapping the server does not otherwise need."
+
+Both halves were right about the cost and wrong about the conclusion.
+The server does now resolve the import graph for a navigation request —
+but only when the lookup in THIS document misses, which is the same
+ordering the language's own scoping has (a module's own declaration
+shadows an imported one), so a definition request inside the file being
+edited still pays one parse. Nothing expands: the raw tree carries
+every declaration either lookup needs, so `MAC-TOOL-3` holds unchanged.
+The module-URI mapping is `lspPathToUri`, the inverse of the
+`lspUriToPath` the server already had.
+
+The same slice widened the lookup from macros to every declaration kind
+`documentSymbol` lists — a function, a `data`, a `struct`. It had been
+macros alone, so a call to a function three lines above answered null,
+which an editor renders as "there is nothing here" rather than as "this
+server does not do that". `documentSymbol` and `definition` answering
+different sets of names is drift, and there is no reason for a name the
+outline shows to be a name navigation cannot reach.
 
 **MAC-TOOL-3 (H, 2026-08-15).** A conforming language server **SHALL
 NOT** expand macros to answer a request that does not need it.

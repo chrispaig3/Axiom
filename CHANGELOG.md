@@ -18,6 +18,39 @@ its changelog too.
 
 ### Added
 
+- **Go-to-definition reaches functions, types, and other modules.** It
+  resolved a macro invocation to a macro declaration in the same
+  document, and nothing else — so a call to a function three lines
+  above answered `null`, which an editor renders as "there is nothing
+  here" rather than as "this server does not do that". It now answers
+  in two steps, in the language's own shadowing order: this document
+  first, over every declaration kind `documentSymbol` already lists (a
+  `fn`, a `data`, a `struct`, a macro), and then every imported module,
+  jumping into that module's own file.
+
+  The second step resolves the import graph, which `MAC-TOOL-3` was
+  written to keep off the fast path — so it runs only when the first
+  step misses, and nothing expands: the raw parse tree carries every
+  declaration either lookup needs. `docs/macro-system.md`'s "v1 limit"
+  paragraph, which predicted this cost and concluded against paying it,
+  is corrected in place rather than deleted.
+
+  New: `lspPathToUri`, the inverse of the `lspUriToPath` the server
+  already had, percent-encoding the bytes a path may hold — an editor
+  handed `file:///Some Project/a.ax` opens nothing, silently. The
+  crash this found on the way is worth recording: unit 0 is the entry
+  file and its module name is a null handle, so a unit walk that
+  started at 0 asked `strEq` about null and took the server down with
+  SIGSEGV. `symbols.ax`'s `saUnitOf` starts at 1 for that reason;
+  `lspUnitOf` now says so.
+
+  `tests/lsp/drive.py`'s navigation block now drives six requests
+  instead of three, every position derived from the documents' own
+  bytes, and the imported module is written to a temp directory rather
+  than into `tests/lsp/` — a `.ax` file there joins the diagnostics
+  sweep and needs a golden, and this one is the other side of a
+  navigation rather than a diagnostics fixture.
+
 - **The standard library has an API reference, and it is generated.**
   [`docs/stdlib-api.md`](docs/stdlib-api.md): every public name of
   every module — **417** of them — with its source-spelled type, the

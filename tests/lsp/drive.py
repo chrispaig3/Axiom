@@ -85,8 +85,10 @@ Usage: drive.py STAGE1 FIXTURE_DIR [--bless] [filter]
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 stage1, fixdir = sys.argv[1], sys.argv[2]
 rest = sys.argv[3:]
@@ -842,7 +844,20 @@ expect_symbols += N + 1
 # position on a name that is NOT a macro must answer null, which is the
 # protocol's "nothing here" and what every other word in a file gets.
 # ---------------------------------------------------------------------
-NAV = """(pub macro deriveTag
+# The imported module lives in a directory of its own rather than in
+# `tests/lsp/`, because a `.ax` file there joins the diagnostics sweep
+# and needs a golden and a manifest row of its own - and this file is
+# not a diagnostics fixture, it is the OTHER SIDE of a navigation.
+NAVDIR = tempfile.mkdtemp(prefix="axiom-nav-")
+NAVHELPER = """(pub :: bump (-> Int Int))
+
+(pub fn (bump x) (+ x 1))
+"""
+open(os.path.join(NAVDIR, "NavHelper.ax"), "w", encoding="utf-8").write(NAVHELPER)
+
+NAV = """(import NavHelper)
+
+(pub macro deriveTag
   ((deriveTag T)
    (pub :: (syntax/join tag T) Int)
    (pub fn ((syntax/join tag T)) 7)))
@@ -851,29 +866,42 @@ NAV = """(pub macro deriveTag
 
 (deriveTag Colour)
 
+(:: helper Int)
+(fn (helper) 3)
+
 (:: main Int)
-(fn (main) (tagColour))
+(fn (main) (+ (+ (tagColour) helper) (bump 1)))
 """
-nav_uri = "file://" + os.path.join(os.path.abspath(fixdir), "nav-generated.ax")
+nav_uri = "file://" + os.path.join(NAVDIR, "nav-generated.ax")
 NAV_DECL = locate(NAV, "deriveTag", 1)      # the macro's own name
 NAV_USE = locate(NAV, "deriveTag", 3)       # the invocation (2 is the rule head)
-NAV_MAIN = locate(NAV, "main", 2)           # a name that is not a macro
+FN_DECL = locate(NAV, "helper", 2)          # `(fn (helper) 3)`; 1 is the signature
+FN_USE = locate(NAV, "helper", 3)           # the call in `main`
+DATA_DECL = locate(NAV, "Colour", 1)        # `(data Colour (Red))`
+DATA_USE = locate(NAV, "Colour", 2)         # the macro argument
+IMP_USE = locate(NAV, "bump", 1)            # the imported call
+BUMP_DECL = locate(NAVHELPER, "bump", 2)    # its `fn` name, in the OTHER file
+NOTHING = locate(NAV, "syntax/join", 1)     # a name no declaration in scope has
+
+def defn(rid, at):
+    return {"jsonrpc": "2.0", "id": rid, "method": "textDocument/definition",
+            "params": {"textDocument": {"uri": nav_uri},
+                       "position": {"line": at["line"], "character": at["start"]}}}
 
 nav_session = b"".join(frame(m) for m in [
     {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
     {"jsonrpc": "2.0", "method": "textDocument/didOpen",
      "params": {"textDocument": {"uri": nav_uri, "languageId": "axiom",
                                  "version": 1, "text": NAV}}},
-    {"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
-     "params": {"textDocument": {"uri": nav_uri},
-                "position": {"line": NAV_USE["line"], "character": NAV_USE["start"]}}},
+    defn(2, NAV_USE),
     {"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover",
      "params": {"textDocument": {"uri": nav_uri},
                 "position": {"line": NAV_USE["line"], "character": NAV_USE["start"]}}},
-    {"jsonrpc": "2.0", "id": 4, "method": "textDocument/definition",
-     "params": {"textDocument": {"uri": nav_uri},
-                "position": {"line": NAV_MAIN["line"], "character": NAV_MAIN["start"]}}},
-    {"jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": None},
+    defn(4, FN_USE),
+    defn(5, DATA_USE),
+    defn(6, IMP_USE),
+    defn(7, NOTHING),
+    {"jsonrpc": "2.0", "id": 8, "method": "shutdown", "params": None},
     {"jsonrpc": "2.0", "method": "exit", "params": None},
 ])
 
@@ -883,8 +911,25 @@ nmsgs, ntail = unframe(np_.stdout)
 nresp = {m["id"]: m for m in nmsgs if "id" in m}
 nwhy = ""
 caps = (nresp.get(1, {}).get("result") or {}).get("capabilities") or {}
-want_range = {"start": {"line": NAV_DECL["line"], "character": NAV_DECL["start"]},
-              "end": {"line": NAV_DECL["line"], "character": NAV_DECL["end"]}}
+
+def rng(at):
+    return {"start": {"line": at["line"], "character": at["start"]},
+            "end": {"line": at["line"], "character": at["end"]}}
+
+def landed(rid, uri, at):
+    """Did request `rid` answer a Location at `at` in `uri`? Returns the
+    reason it did not, or ""."""
+    r = nresp.get(rid, {}).get("result")
+    if r is None:
+        return f"request {rid} answered null"
+    if r.get("uri") != uri:
+        return f"request {rid} answered {r.get('uri')}, want {uri}"
+    if r.get("range") != rng(at):
+        return f"request {rid} answered range {r.get('range')}, want {rng(at)}"
+    return ""
+
+want_range = rng(NAV_DECL)
+helper_uri = "file://" + os.path.join(NAVDIR, "NavHelper.ax")
 if np_.returncode != 0:
     nwhy = f"the server exited {np_.returncode}"
 elif ntail:
@@ -895,29 +940,31 @@ elif caps.get("definitionProvider") is not True:
 elif caps.get("hoverProvider") is not True:
     nwhy = ("the server answers textDocument/hover and does not advertise "
             f"hoverProvider: capabilities were {sorted(caps)}")
-elif nresp.get(2, {}).get("result") is None:
-    nwhy = "definition at the invocation answered null"
-elif nresp[2]["result"].get("uri") != nav_uri:
-    nwhy = f"definition answered another document: {nresp[2]['result'].get('uri')}"
-elif nresp[2]["result"].get("range") != want_range:
-    nwhy = (f"definition range {nresp[2]['result'].get('range')} is not the "
-            f"macro's own name at {want_range}")
+elif landed(2, nav_uri, NAV_DECL):
+    nwhy = "macro: " + landed(2, nav_uri, NAV_DECL)
 elif "```axiom" not in ((nresp.get(3, {}).get("result") or {}).get("contents") or {}).get("value", ""):
     nwhy = "hover did not answer an axiom code fence"
 elif NAV[NAV.index("(pub macro"):NAV.index("\n\n(data")] not in \
         nresp[3]["result"]["contents"]["value"]:
     nwhy = "hover did not quote the macro declaration verbatim from the document"
-elif nresp.get(4, {}).get("result") is not None:
-    nwhy = f"definition on a non-macro name answered {nresp[4]['result']}, want null"
+elif landed(4, nav_uri, FN_DECL):
+    nwhy = "same-file fn: " + landed(4, nav_uri, FN_DECL)
+elif landed(5, nav_uri, DATA_DECL):
+    nwhy = "same-file data: " + landed(5, nav_uri, DATA_DECL)
+elif landed(6, helper_uri, BUMP_DECL):
+    nwhy = "imported fn: " + landed(6, helper_uri, BUMP_DECL)
+elif nresp.get(7, {}).get("result") is not None:
+    nwhy = f"a name no declaration has answered {nresp[7]['result']}, want null"
 
 if nwhy:
-    print(f"FAIL macro-navigation: {nwhy}")
+    print(f"FAIL navigation: {nwhy}")
     failed += 1
 else:
-    print("ok   macro-navigation (definition lands on the macro's own name at "
-          f"{NAV_DECL['line']}:{NAV_DECL['start']}, hover quotes its declaration, "
-          "a non-macro name answers null)")
+    print("ok   navigation (a macro invocation, a same-file `fn` and `data`, an "
+          f"imported `fn` in {os.path.basename(helper_uri)}, hover quoting the "
+          "declaration, and null for a name nothing declares)")
     passed += 1
+shutil.rmtree(NAVDIR, ignore_errors=True)
 
 # ---------------------------------------------------------------------
 # An editing session does not grow.
