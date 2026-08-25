@@ -199,10 +199,12 @@ jobs:
             os: macos-14
     runs-on: ${{ matrix.os }}
     # Nineteen of the gates below build the compiler under test from
-    # `self_host/`, each producing a byte-identical artifact. One step
-    # builds it; `gate_build_axc` reuses it while the tree's source
-    # stamp matches and rebuilds when it does not, so an ablation of
-    # `self_host/` stays visible to every one of them.
+    # `self_host/`, each producing a compiler that emits identical IR.
+    # One step builds it; `gate_build_axc` reuses it while the tree's
+    # source stamp matches, rebuilds when it does not, and REFUSES when
+    # the path names no build product at all - so an ablation of
+    # `self_host/` stays visible to every one of them and a mis-set
+    # variable cannot read as a quiet success.
     # `scripts/check-gate-lib.sh` is the probe that proves that.
     env:
       AXIOM_AXC: ${{ github.workspace }}/.axiom-shared/axc
@@ -341,6 +343,25 @@ jobs:
       # either be refused with a span or run to 42.
       - name: Every legal name is an emittable name
         run: ./scripts/check-symbol-names.sh
+
+      # WHICH FUNCTION DIED. Before this, a trapping program yielded a
+      # status and one line, and the three SIGSEGVs the stack-depth gate
+      # below records were each diagnosed only by attaching `lldb` - a
+      # tool a worker dying inside a pre-forked pool does not have. The
+      # answer is `"frame-pointer"="all"` on the one attribute group,
+      # a table of address-beside-name over every symbol the module
+      # defines, and a walker that resolves each return address at
+      # `ra - 1`. Emitted text only: no `-g`, no `!dbg`, no seed move.
+      #
+      # The gate pins the whole trace byte for byte at `--opt 0`, checks
+      # every name it prints against `nm` at every optimisation level,
+      # and ablates the attribute per target to prove the check
+      # discriminates. It also records, with the measurement, why the
+      # roadmap's "five functions at every optimisation level" is not
+      # assertable: above `--opt 0` the five frames are not lost, they
+      # are never pushed.
+      - name: A dying program names the frames it died in
+        run: ./scripts/check-backtrace.sh
 
       # How much STACK the compiler needs, bisected and reported. This
       # backend eliminates only SELF tail calls and a `let` body is not a

@@ -134,10 +134,12 @@ gate_sha() {
 # first - which is also what makes an ablation of `self_host/` visible
 # to that gate rather than invisible.
 #
-# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Seventeen gates
-# call this, each rebuilding the same 60,881 lines at ~1m40s - about
-# 28 minutes per matrix leg, 85 across the three, for a byte-identical
-# artifact every time. `$AXIOM_AXC` lets one CI step build it once.
+# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Nineteen gates
+# call this, each rebuilding the same 60,881 lines. Measured on the
+# three CI legs on 2026-08-24: the `test` job took 17m38s / 18m54s /
+# 10m01s before the cache and 10m48s / 11m51s / 7m46s after it, so the
+# duplicated builds were about sixteen minutes of every run.
+# `$AXIOM_AXC` lets one CI step build it once.
 #
 # An env var naming a prebuilt compiler is exactly how this function's
 # own reason for existing gets deleted, so the cache is CONTENT-
@@ -146,12 +148,38 @@ gate_sha() {
 # right now. Change a byte anywhere the build reads and the stamp
 # moves, the cache misses, and a fresh compiler is built - so an
 # ablation of `self_host/` is visible BY CONSTRUCTION, not by anyone
-# remembering to invalidate anything. A stale artifact, a seed
-# compiler, or one with no stamp beside it are all simply ignored.
+# remembering to invalidate anything.
+#
+# A STALE STAMP AND AN ABSENT ONE ARE NOT THE SAME EVENT, and until
+# 2026-08-24 this function treated them as one. Both fell through to
+# "build it yourself", which is correct for the first and a silent
+# failure for the second: `AXIOM_AXC=.axiom-bin/axiom` - a seed
+# compiler, no stamp beside it - was ignored and every gate went
+# GREEN, having quietly paid the build the variable was set to avoid.
+# The roadmap that asked for this cache also asked that pointing it at
+# the seed go red, and it did not.
+#
+# So they are now separated by what the stamp SAYS rather than by what
+# the caller meant:
+#
+#   stamp present and equal   -> reuse. The artifact was built from
+#                                this tree by this builder.
+#   stamp present and different -> build. The tree moved; that is the
+#                                whole point of the content address,
+#                                and `check-fmt.sh` reaches it on every
+#                                run by design (it runs its inner gates
+#                                against a COPY of the tree).
+#   no stamp, no artifact, or a
+#   non-executable artifact   -> REFUSE. Nothing was built here. A
+#                                path that does not name a stamped
+#                                build product is a mistake in the
+#                                caller, not a cache miss, and it must
+#                                be as loud as one.
 #
 # `scripts/check-gate-lib.sh` is the negative probe: it plants a
 # builder that cannot build and asserts the cache is used when the
-# stamp matches and NOT used when it does not.
+# stamp matches, NOT used when it does not, and refused when there is
+# no stamp at all.
 #
 # The build log is kept at `$work/<varname>.build.log` and its first
 # twenty lines are printed on failure.
@@ -159,12 +187,27 @@ gate_build_axc() {
   local var="$1" out="${2:-$work/$1}" log="$work/$1.build.log"
   local stamp; stamp="$(gate_source_stamp)"
 
-  if [[ -n "${AXIOM_AXC:-}" && -x "${AXIOM_AXC:-}" && -f "${AXIOM_AXC}.stamp" ]] &&
-     [[ "$(cat "${AXIOM_AXC}.stamp")" == "$stamp" ]]; then
-    echo "== reusing the compiler under test (source stamp ${stamp:0:12}) =="
-    cp "$AXIOM_AXC" "$out"
-    printf -v "$var" '%s' "$out"
-    return 0
+  if [[ -n "${AXIOM_AXC:-}" ]]; then
+    if [[ ! -x "$AXIOM_AXC" ]]; then
+      echo "FAIL: AXIOM_AXC names $AXIOM_AXC, which is not an executable file." >&2
+      echo "      Set it to the output of scripts/build-shared-axc.sh, or unset it." >&2
+      exit 1
+    fi
+    if [[ ! -f "${AXIOM_AXC}.stamp" ]]; then
+      echo "FAIL: AXIOM_AXC names $AXIOM_AXC, which has no .stamp beside it." >&2
+      echo "      Only scripts/build-shared-axc.sh writes that stamp, and without" >&2
+      echo "      it there is nothing to say which tree the binary was built from," >&2
+      echo "      so it cannot be the compiler under test. Ignoring it here would" >&2
+      echo "      let a seed compiler stand in for the working tree and report a" >&2
+      echo "      green gate for a build that never happened." >&2
+      exit 1
+    fi
+    if [[ "$(cat "${AXIOM_AXC}.stamp")" == "$stamp" ]]; then
+      echo "== reusing the compiler under test (source stamp ${stamp:0:12}) =="
+      cp "$AXIOM_AXC" "$out"
+      printf -v "$var" '%s' "$out"
+      return 0
+    fi
   fi
 
   echo "== building the compiler under test from self_host/ =="

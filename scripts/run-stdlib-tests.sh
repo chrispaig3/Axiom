@@ -10,6 +10,21 @@
 # fifty failures. Where the file IS present the comparison is exact -
 # it exists for the cases whose whole subject is what they said on the
 # way out, like a program that dies of an allocation it could not make.
+#
+# EXACT UP TO THE BACKTRACE, and no further. A trapping program now
+# prints `axiom: backtrace (most recent call first)` and then one
+# `  at <function>` line per stack frame. The frames are NOT comparable
+# here: which of them survive depends on what the optimiser inlined,
+# which depends on the LLVM version, and the three CI legs do not run
+# the same one. Pinning them in a golden would be a fixture that fails
+# on a runner upgrade while the compiler is correct.
+#
+# So the comparison stops AT the marker line, which the golden itself
+# carries - `sed '/^axiom: backtrace/q'`. That keeps every byte the
+# fixture was written to pin, and adds one: that a trace was emitted at
+# all. The trace's CONTENTS are gated by `scripts/check-backtrace.sh`,
+# which controls the optimisation level and the program shape and can
+# therefore pin them exactly.
 # This is the
 # same set of cases the deleted Rust test suite ran as `stdlib_golden`
 # covers; the script exists so that a contributor can run one case, see
@@ -68,9 +83,10 @@ for case_file in tests/stdlib/*.ax; do
   set -e
 
   if [[ -f "$expected_err" ]]; then
-    if [[ "$(cat "$case_dir/$name.stderr")" != "$(cat "$expected_err")" ]]; then
+    sed '/^axiom: backtrace/q' "$case_dir/$name.stderr" > "$case_dir/$name.stderr.cmp"
+    if [[ "$(cat "$case_dir/$name.stderr.cmp")" != "$(cat "$expected_err")" ]]; then
       echo "FAIL $name (stderr)"
-      diff "$expected_err" "$case_dir/$name.stderr" | sed 's/^/    /' || true
+      diff "$expected_err" "$case_dir/$name.stderr.cmp" | sed 's/^/    /' || true
       failed=$((failed + 1))
       continue
     fi

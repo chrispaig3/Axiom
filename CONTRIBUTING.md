@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 483 `.ax` files in the repository apart from the two named below,
+the 484 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -282,6 +282,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-diagnostics.sh` | the AXDL corpus against its goldens, with every span recomputed from the fixture's own bytes |
 | `check-degenerate.sh` | degenerate input answers with a diagnostic, not with a signal |
 | `check-symbol-names.sh` | every name the frontend accepts is a name the backend can emit — all 94 printable bytes, in three positions |
+| `check-backtrace.sh` | a dying program names the frames it died in: the whole trace byte for byte at `--opt 0`, every name cross-checked against `nm` at every level, and the frame-pointer attribute ablated per target |
 | `check-stack-depth.sh` | how much stack the compiler needs for the largest Axiom program there is, bisected and reported |
 | `check-concurrent-run.sh` | two `axiom run`s in one directory do not corrupt each other |
 | `check-fmt.sh` | formatting a file does not change what it means: the tree formatted on a copy, with the suites re-run against it |
@@ -298,7 +299,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the nineteen gates that call `gate_build_axc` reuse it while the stamp matches the tree |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the nineteen gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim nineteen gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-version.sh` | every place the project states its own version says what `VERSION` says, counted per site, and the built compiler prints it too |
 | `check-net.sh` | a request handler bracketed as an arena scope holds worker RSS flat across ten thousand connections, against a floor of 50x over the same binary unscoped |

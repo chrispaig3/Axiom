@@ -14,6 +14,69 @@ its changelog too.
 
 ---
 
+## Unreleased
+
+### Added
+
+- **A dying program names the frames it died in.** Three pieces, none of
+  them debug metadata: `"frame-pointer"="all"` on the module's one
+  attribute group, a table of address-beside-name over every symbol the
+  module defines, and a walker that resolves each return address at
+  `ra - 1`. All emitted text, so `-g` is still never passed, there is
+  still no `!dbg` anywhere, and the committed seed still compiles
+  `self_host/` unchanged. An allocation failure now reads:
+
+  ```
+  axiom: out of memory (mmap failed)
+  axiom: backtrace (most recent call first)
+    at __axiom_out_of_memory
+    at axiom_alloc
+    at Mem$memAlloc
+    at __axiom_user_main
+    at main
+  ```
+
+  Cost, measured 2026-08-24 at `--opt 2` on darwin-aarch64: a
+  hello-world binary goes 65,704 → 82,536 bytes, the compiler itself
+  1,452,688 → 1,471,520 (+1.3%), and `axiom check self_host/main.ax`
+  is unchanged at 0.51 s. `scripts/check-backtrace.sh` pins the whole
+  trace byte for byte at `--opt 0`, cross-checks every name it prints
+  against `nm` at every optimisation level, and ablates the attribute
+  per target — it discriminates on all four.
+
+  What it deliberately is not: line numbers. Function-level frames
+  answer most of production triage, and a line table is the part that
+  needs real debug records.
+
+### Fixed
+
+- **The shared CI artifact was trusted on a stamp nobody could fail.**
+  `scripts/build-shared-axc.sh` claimed the artifact equals a fresh
+  build and checked it by calling one pure function twice in one
+  process over an unchanged tree. It now builds the compiler a second
+  time and compares the IR both emit for `self_host/main.ax` — 144,818
+  lines, byte for byte. (Not the binaries: the macOS linker stamps a
+  UUID into every Mach-O, so two builds of one source differ by ~11 KB
+  no compiler chose.)
+- **`AXIOM_AXC` pointing at a compiler with no stamp went green.**
+  `gate_build_axc` treated "no stamp beside the artifact" and "a stamp
+  that no longer matches" as one event, and both fell through to
+  rebuilding. So `AXIOM_AXC=.axiom-bin/axiom` — a real, working, seed
+  compiler — was silently ignored while every gate reported success,
+  having quietly paid the build the variable was set to avoid. The two
+  are now separated by what the stamp says: a stale stamp rebuilds (as
+  `check-fmt.sh` requires, since it runs its inner gates against a copy
+  of the tree), and an absent one is refused.
+- **Three files stated three different counts of one countable fact.**
+  How many gates call `gate_build_axc` was written down as seventeen,
+  eighteen and nineteen across six places, none of them swept by
+  `check-doc-drift.sh` because they live in `scripts/` and in the
+  workflow. The answer is eighteen, and `check-gate-lib.sh` now
+  recomputes it and refuses any of the six that says otherwise. It
+  found its first drift while being written, in its own comment.
+
+---
+
 ## 0.2.0 — 2026-08-24
 
 The first tagged release. Thirty days of work by one author, and the
@@ -89,10 +152,15 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — eighteen gates
-  rebuilt the same byte-identical compiler; now one step builds it. The
-  cache is content-addressed, so an ablation of `self_host/` still
-  invalidates it. `scripts/check-gate-lib.sh` proves that.
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — nineteen gates
+  rebuild the same compiler; now one step builds it, and builds it
+  twice to measure that the artifact emits the same IR as a fresh
+  build. (Not the same *bytes*: the macOS linker stamps a UUID into
+  every Mach-O, so two builds of one source differ by ~11 KB no
+  compiler chose.) The cache is content-addressed, so an ablation of
+  `self_host/` still invalidates it, and a path with no stamp beside it
+  is refused rather than ignored. `scripts/check-gate-lib.sh` proves
+  all three.
 
 ### Fixed
 
@@ -128,7 +196,9 @@ These are measured, not suspected. They are why this is `0.2.0`.
 
 - **No debug information.** No DWARF, no line tables, `-g` is never
   passed. A dying process yields an exit status and at most 35 bytes.
-  A SIGSEGV yields nothing.
+  A SIGSEGV yields nothing. (Since `0.2.0`: a trap now also prints a
+  function-level backtrace — see Unreleased. Line numbers and SIGSEGV
+  are still uncovered.)
 - **No fault containment.** There is no unwinding and no `catch`;
   handlers are tail-resumptive. A fault's only containment is the
   worker process dying.

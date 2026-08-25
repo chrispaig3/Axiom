@@ -76,7 +76,7 @@ command -v cc  >/dev/null || fail "cc is not on PATH"
 #   llc alone          16.52s
 #   opt -O1 then llc    1.72s
 #
-# 9.6x, on the binary that then runs in nineteen gates.
+# 9.6x, on the binary every gate afterwards builds with.
 #
 # `opt` stays OPTIONAL, exactly as `driver.ax` treats it: a PATH without
 # it warns and builds, because it is genuinely not always installed and

@@ -159,11 +159,14 @@ platform_table_report() {
 
       # The census of syscall sites the emitted runtime contains today,
       # as a floor. Three exits: allocator OOM (status 70), an unhandled
-      # effect (71), division by zero (72). Two writes: the messages the
-      # first and third print to fd 2 before exiting. Two mmaps: the
-      # allocator and the arena. A path that DISAPPEARS takes the
-      # comparison with it and must be noticed; a path that is ADDED
-      # passes the floor and is compared like the rest.
+      # effect (71), division by zero (72). Writes: the three trap
+      # messages, plus the six the backtracer makes - a header, and per
+      # frame the `  at ` prefix, the name or `<unknown>`, and a
+      # newline. Two mmaps: the allocator and the arena. A path that
+      # DISAPPEARS takes the comparison with it and must be noticed; a
+      # path that is ADDED passes the floor and is compared like the
+      # rest, which is why the write floor is left at the number the
+      # traps alone need rather than raised to the count of the day.
       floor_of["exit"] = 3
       floor_of["write"] = 2
       floor_of["mmap"] = 2
@@ -218,6 +221,23 @@ platform_table_report() {
       } else if (n == 7 && a[3] == "0" && a[4] == "0" && a[5] == "0" &&
                  a[6] == "0" && a[7] == "0") {
         name = "exit"
+      } else if (args == "") {
+        # NOT A SYSCALL AT ALL. `targetFrameAsm` reads the frame
+        # pointer out of x29 or %rbp for the backtracer - one
+        # instruction, one output register, NO arguments and no
+        # syscall number. It reached this gate as an unclassifiable
+        # syscall the day it was added, which is the gate working:
+        # the census below is a floor, and an asm site nobody read
+        # would be a syscall nobody compared.
+        #
+        # The arm is deliberately narrow. An empty argument list is
+        # the one shape that cannot be a syscall on any of the four
+        # targets, because every one of them passes the number as the
+        # first operand. A template with arguments this gate does not
+        # recognise still fails, as it must.
+        name = "-";
+        notsys++
+        next
       }
 
       if (name == "?") {

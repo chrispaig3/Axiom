@@ -1,0 +1,54 @@
+; exit 72 (see .exit)
+; A dying program says WHICH FUNCTION died.
+;
+; `310-effect-unhandled` and `314-out-of-memory` pin the sentence each
+; trap prints. Neither pins that anything follows it, and until
+; 2026-08-24 nothing did: a status and one line, which answers what
+; happened and nothing about where. The three SIGSEGVs
+; `scripts/check-stack-depth.sh` records were each diagnosed by
+; attaching `lldb`, and a worker dying inside a pre-forked pool has no
+; `lldb` attached and no second chance.
+;
+; WHAT THIS CASE PINS, and what it deliberately does not. The `.err`
+; golden carries the message and the backtrace's MARKER LINE, and the
+; runner compares stderr only as far as that marker
+; (`scripts/run-stdlib-tests.sh`). The frames themselves are not
+; comparable here: which of them survive depends on what the optimiser
+; inlined, that depends on the LLVM version, and the three CI legs do
+; not run the same one. Pinning them in a golden would be a fixture
+; that fails on a runner upgrade while the compiler is correct.
+;
+; So this case pins the half that is stable everywhere - a trap prints
+; a trace at all, and the status is still the trap's own - and
+; `scripts/check-backtrace.sh` pins the frames, where it controls the
+; optimisation level and can compare all eight byte for byte.
+;
+; THE DIVISOR COMES FROM `sysArgc`. A literal zero folds at
+; compile time and the guard the emitter writes is never reached, so a
+; constant here would make this case pass by not testing anything -
+; the same trap `314-out-of-memory` records for its own size.
+(import IO)
+
+(import Sys)
+
+(pub :: depth3 (-> Int Int))
+
+(pub fn (depth3 n) (/ 100 n))
+
+(pub :: depth2 (-> Int Int))
+
+(pub fn (depth2 n) (+ 1 (depth3 n)))
+
+(pub :: depth1 (-> Int Int))
+
+(pub fn (depth1 n) (+ 1 (depth2 n)))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (printlnLit (strCStr "dividing by a zero the compiler cannot see"))
+    (depth1 (- sysArgc 1))
+  }
+)

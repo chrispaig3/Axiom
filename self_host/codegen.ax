@@ -5491,6 +5491,32 @@
   )
 )
 
+; Read the frame pointer. One instruction, and only two distinct
+; strings for four targets, because this is an architecture question
+; rather than an OS one: AArch64 keeps it in x29 and x86-64 in %rbp on
+; both Darwin and Linux.
+;
+; `sideeffect` so the read is neither duplicated nor hoisted. It has no
+; clobbers to declare - unlike `targetSyscallAsm` above, whose comment
+; records what one missing clobber cost - because it writes one output
+; register and touches nothing else.
+;
+; This is only meaningful because `attributes #0` carries
+; `"frame-pointer"="all"`. Measured 2026-08-24 without it, on the
+; prologue of a non-leaf function at `llc -O2`: linux-aarch64 saved x30
+; alone and never wrote x29, and both x86_64 targets pushed a scratch
+; register in place of %rbp - so this would have read a general-purpose
+; register holding an unrelated value. Only darwin-aarch64, whose ABI
+; requires the frame pointer, was correct by accident.
+(pub :: targetFrameAsm (-> Int String))
+
+(pub fn (targetFrameAsm t)
+  (if (|| (== t 0) (== t 2))
+    "\"mov $0, x29\", \"=r\""
+    "\"movq %rbp, $0\", \"=r\""
+  )
+)
+
 (pub :: targetMmapNum (-> Int Int))
 
 (pub fn (targetMmapNum t)
@@ -6219,6 +6245,7 @@
     (emitLine cg "entry:")
     (emitLine cg "  %oomp = ptrtoint ptr @__axiom_oom_msg to i64")
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %oomp, i64 35, i64 0, i64 0, i64 0)"))
+    (emitLine cg "  call void @__axiom_backtrace()")
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)"))
     (emitLine cg "  unreachable")
     (emitLine cg "}")
@@ -6235,9 +6262,505 @@
     (emitLine cg "entry:")
     (emitLine cg "  %dzp = ptrtoint ptr @__axiom_divzero_msg to i64")
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %dzp, i64 24, i64 0, i64 0, i64 0)"))
+    (emitLine cg "  call void @__axiom_backtrace()")
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 72, i64 0, i64 0, i64 0, i64 0, i64 0)"))
     (emitLine cg "  unreachable")
     (emitLine cg "}")
+    cg
+  }
+)
+
+; ------------------------------------------------------------------
+; P1: WHICH FUNCTION DIED.
+;
+; A dying Axiom program used to yield a status and one line - "axiom:
+; division by zero" and 72 - which answers WHAT happened and nothing
+; about WHERE. `scripts/check-stack-depth.sh` records three SIGSEGVs
+; whose cause was found only by attaching `lldb`, and that is the tool
+; a production worker in a pre-forked pool does not have.
+;
+; The whole mechanism is three pieces, and none of them is debug
+; metadata:
+;
+;   1. `"frame-pointer"="all"` on the module's one attribute group.
+;      Measured 2026-08-24 on the prologue of a non-leaf function at
+;      `llc -O2`, with the attribute and without it: ALL FOUR targets
+;      need it. Both x86_64 targets push a scratch register in place of
+;      %rbp without it; linux-aarch64 saves x30 alone; and
+;      darwin-aarch64 - whose ABI is usually described as requiring a
+;      frame pointer, and where a first reading of this said the
+;      attribute was a no-op - emits `stp x29, x30, [sp, #-16]!`
+;      WITHOUT the following `mov x29, sp`. It saves the register pair
+;      and does not establish the frame pointer, which are different
+;      things and only the second is what a walker needs.
+;      `__axiom_div_by_zero` at --opt 1 is a function in this very tree
+;      that does the first and not the second.
+;
+;   2. A table of every symbol this module defines, address beside
+;      name, emitted as ordinary constant data.
+;
+;   3. A walker that follows the chain and turns each return address
+;      into a name.
+;
+; WHY THE LAYOUT NEEDS NO TARGET BRANCH. On AArch64 the prologue is
+; `stp x29, x30, [sp, #-16]!` then `mov x29, sp`, so [x29] is the saved
+; frame pointer and [x29+8] the return address. On x86-64 it is
+; `push %rbp` then `mov %rsp, %rbp`, so [rbp] is the saved frame
+; pointer and [rbp+8] the return address. The two ABIs agree on the
+; only two words this reads, which is why there is one walker here and
+; not four.
+;
+; WHAT IT DELIBERATELY IS NOT. No line numbers, no inlining records, no
+; DWARF, no `-g`, and no `!dbg` anywhere - `emitLine` writes text and
+; the seed compiles that text, so the self-hosting fixpoint is
+; untouched by construction. Function-level answers most of production
+; triage; line tables can wait until a real triage fails for want of
+; one.
+; ------------------------------------------------------------------
+; Every symbol this module DEFINES, in emission order, read back out of
+; the line buffer rather than out of the declaration list.
+;
+; Reading the buffer is what makes the table COMPLETE. The declaration
+; list holds user functions; it does not hold the lifted lambdas
+; (`@_lam_N`), the thunks (`@_thunk_N`), `@main`, or the runtime
+; helpers - `@axiom_alloc`, `@axiom_release`, the three traps and the
+; arena helpers - and every one of those can be the frame that died. A
+; name missing from the table is worse than absent: the lookup below
+; takes the greatest entry at or below the return address, so a hole
+; makes the walker confidently print the WRONG function.
+(pub :: symtabNames (-> Int Int))
+
+(pub fn (symtabNames lines)
+  (let ((out vecNew))
+    {
+      (symtabScan lines 0 out)
+      out
+    }
+  )
+)
+
+(pub :: symtabScan (-> Int Int Int Int))
+
+(pub fn (symtabScan lines i out)
+  (if (>= i (vecLen lines))
+    0
+    {
+      (let ((ln (vecGetStr lines i)))
+        (if (strStartsWith ln "define ")
+          (let ((at (symtabAtOf ln 0 (strLen ln))))
+            (if (< at 0)
+              0
+              (let ((end (symtabEndOf ln (+ at 1) (strLen ln))))
+                (if (< end 0)
+                  0
+                  (vecPush
+                    out                    (cast Int (strSlice ln (+ at 1) (- end (+ at 1))))
+                  )
+                )
+              )
+            )
+          )
+          0
+        )
+      )
+      (symtabScan lines (+ i 1) out)
+    }
+  )
+)
+
+; The `@` that opens the defined symbol. It is the first one on the
+; line: the return type precedes it and holds none, and the parameter
+; list follows it.
+(pub :: symtabAtOf (-> String Int Int Int))
+
+(pub fn (symtabAtOf s i n)
+  (if (>= i n)
+    (- 0 1)
+    (if (== (strByte s i) 64)
+      i
+      (symtabAtOf s (+ i 1) n)
+    )
+  )
+)
+
+; Where the symbol ends. A QUOTED symbol ends at its closing quote -
+; `llvmSym` quotes any name that is not a plain LLVM identifier, and a
+; quoted name may legally contain `(`, so scanning for the parameter
+; list first would truncate it. `check-symbol-names.sh` sweeps all 94
+; printable bytes through this path, so the quoted arm is exercised
+; rather than hypothetical.
+(pub :: symtabEndOf (-> String Int Int Int))
+
+(pub fn (symtabEndOf s i n)
+  (if (>= i n)
+    (- 0 1)
+    (if (== (strByte s i) 34)
+      (symtabQuoteEnd s (+ i 1) n)
+      (symtabParenOf s i n)
+    )
+  )
+)
+
+(pub :: symtabQuoteEnd (-> String Int Int Int))
+
+(pub fn (symtabQuoteEnd s i n)
+  (if (>= i n)
+    (- 0 1)
+    ; A `\` inside the quotes opens a two-digit hex escape, so the byte
+    ; after it can be a `"` that does not close the name. `llvmSymBody`
+    ; is the only writer and it escapes exactly `"` and `\`.
+    (if (== (strByte s i) 92)
+      (symtabQuoteEnd s (+ i 3) n)
+      (if (== (strByte s i) 34)
+        (+ i 1)
+        (symtabQuoteEnd s (+ i 1) n)
+      )
+    )
+  )
+)
+
+(pub :: symtabParenOf (-> String Int Int Int))
+
+(pub fn (symtabParenOf s i n)
+  (if (>= i n)
+    (- 0 1)
+    (if (== (strByte s i) 40)
+      i
+      (symtabParenOf s (+ i 1) n)
+    )
+  )
+)
+
+; The printable body of an `@`-spelling: a quoted name without its
+; quotes, a plain name unchanged.
+(pub :: symtabBody (-> String String))
+
+(pub fn (symtabBody spell)
+  (let ((n (strLen spell)))
+    (if (&& (> n 1) (== (strByte spell 0) 34))
+      (strSlice spell 1 (- n 2))
+      (strDup spell)
+    )
+  )
+)
+
+; How many BYTES a body denotes. `\xx` is three characters and one
+; byte, which is why this cannot be `strLen` - and getting it wrong
+; would hand `write` a length past the end of the constant.
+(pub :: symtabBodyBytes (-> String Int Int Int))
+
+(pub fn (symtabBodyBytes s i n)
+  (if (>= i (strLen s))
+    n
+    (if (== (strByte s i) 92)
+      (symtabBodyBytes s (+ i 3) (+ n 1))
+      (symtabBodyBytes s (+ i 1) (+ n 1))
+    )
+  )
+)
+
+; Is `name` one of the symbols this module defines? Asked once, about
+; `main`, to decide whether the walk has a place to stop.
+(pub :: symtabHas (-> Int String Int Bool))
+
+(pub fn (symtabHas names name i)
+  (if (>= i (vecLen names))
+    false
+    (if (strEq (vecGetStr names i) name)
+      true
+      (symtabHas names name (+ i 1))
+    )
+  )
+)
+
+; The name constants, one per symbol.
+(pub :: emitSymNames (-> Int Int Int Int))
+
+(pub fn (emitSymNames cg names i)
+  (if (>= i (vecLen names))
+    cg
+    {
+      (let ((body (symtabBody (vecGetStr names i))))
+        (emitLine cg (cat4 (cat3 "@__axiom_symn_" (fmtInt i) " = private unnamed_addr constant [") (fmtInt (symtabBodyBytes body 0 0)) " x i8] c\"" (cat2 body "\"")))
+      )
+      (emitSymNames cg names (+ i 1))
+    }
+  )
+)
+
+; The table itself: address, name pointer, name length, flattened into
+; one `[3N x i64]` rather than an array of structs, because the walker
+; then indexes it with one multiply and no aggregate type to keep in
+; step between the two emitters.
+;
+; The addresses are `ptrtoint` CONSTANT EXPRESSIONS. Nothing here can
+; sort them - the linker assigns addresses, long after this text is
+; written - so the table is in emission order and the lookup below
+; scans it. Sorting it at startup would need an initialiser hook this
+; language does not have, and a linear scan on a path that is about to
+; call `exit` costs nothing anyone can measure.
+(pub :: emitSymRows (-> Int Int Int Int))
+
+(pub fn (emitSymRows cg names i)
+  (if (>= i (vecLen names))
+    cg
+    {
+      (let ((spell (vecGetStr names i)))
+        (let ((body (symtabBody spell)))
+          (emitLine
+            cg            (cat4
+              (cat3 "  i64 ptrtoint (ptr @" spell " to i64), i64 ptrtoint (ptr @__axiom_symn_")              (fmtInt i)              " to i64), i64 "              (cat2
+                (fmtInt (symtabBodyBytes body 0 0))                (if (< (+ i 1) (vecLen names))
+                  ","
+                  ""
+                )
+              )
+            )
+          )
+        )
+      )
+      (emitSymRows cg names (+ i 1))
+    }
+  )
+)
+
+(pub :: emitSymbolTable (-> Int Int Int))
+
+(pub fn (emitSymbolTable cg names)
+  (let ((n (vecLen names)))
+    {
+      (emitLine cg "")
+      (emitSymNames cg names 0)
+      ; A zero-length LLVM array is legal but a `getelementptr` into
+      ; one is not useful, and a module with no `define` at all is a
+      ; shape this refuses to special-case in the walker: the row count
+      ; below is what bounds the scan, so a one-element placeholder
+      ; costs 8 bytes and removes a branch from the trap path.
+      (if (== n 0)
+        (emitLine cg "@__axiom_symtab = internal constant [3 x i64] zeroinitializer")
+        {
+          (emitLine cg (cat3 "@__axiom_symtab = internal constant [" (fmtInt (* 3 n)) " x i64] ["))
+          (emitSymRows cg names 0)
+          (emitLine cg "]")
+        }
+      )
+      (emitLine cg (cat3 "@__axiom_symtab_n = internal constant i64 " (fmtInt n) ""))
+      cg
+    }
+  )
+)
+
+; One `write(2, ptr, len)` through the same inline-asm template the
+; three traps use. A helper because the walker makes six of these calls
+; and the template string is the one thing in the emitter that must not
+; be retyped by hand - `targetSyscallAsm`'s own comment records a
+; clobber list that was one register short and cost an infinite loop.
+(pub :: emitBtWrite (-> Int String String Int))
+
+(pub fn (emitBtWrite cg ptrExpr lenExpr) (emitLine cg (cat4 (cat3 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 ") (fmtInt (targetWriteNum (memGetWord cg 26))) ", i64 2, i64 " (cat4 ptrExpr ", i64 " lenExpr ", i64 0, i64 0, i64 0)"))))
+
+; The name of one return address: the entry with the greatest address
+; at or below it.
+;
+; WHY "GREATEST AT OR BELOW" IS THE RIGHT LOOKUP, and what it depends
+; on. A return address points just PAST the call, so it is an interior
+; address of the caller, not its entry. The nearest preceding entry
+; therefore names the right function exactly when every function
+; between them is in the table - which is why `symtabNames` reads the
+; buffer rather than the declaration list. Addresses outside this
+; module's functions - a libc start frame above `main` - resolve to
+; whichever of ours happens to precede them, so the walker stops at
+; `main` rather than trusting the answer past it.
+(pub :: emitBtName (-> Int Int Int))
+
+(pub fn (emitBtName cg n)
+  (let ((sz 
+    (fmtInt
+      (if (== n 0)
+        3
+        (* 3 n)
+      )
+    )
+  ))
+    {
+      (emitLine cg "define internal i64 @__axiom_bt_name(i64 %ra) #0 {")
+      (emitLine cg "entry:")
+      ; THE RETURN ADDRESS IS NOT AN ADDRESS IN THE CALLER when the
+      ; call is the caller's LAST instruction: it points at the first
+      ; byte after it, which is the next function's entry. Measured
+      ; 2026-08-24 at `--opt 1` on a five-deep chain, darwin-aarch64 -
+      ; `main` ends `bl ___axiom_div_by_zero` at 0x528 and
+      ; `_axiom_alloc` begins at 0x52c, so the frame that was `main`
+      ; printed as `axiom_alloc`. Confidently wrong is the one output
+      ; a backtrace must never produce, and it took a disassembly to
+      ; see, because the name printed was a real function.
+      ;
+      ; Resolving `ra - 1` puts the lookup back inside the call
+      ; instruction, which is inside the caller by construction. One
+      ; subtraction, and it is why every unwinder does this.
+      (emitLine cg "  %pc = sub i64 %ra, 1")
+      (emitLine cg "  br label %scan")
+      (emitLine cg "scan:")
+      (emitLine cg "  %i = phi i64 [ 0, %entry ], [ %i1, %next ]")
+      (emitLine cg "  %ba = phi i64 [ 0, %entry ], [ %ba1, %next ]")
+      (emitLine cg "  %bn = phi i64 [ 0, %entry ], [ %bn1, %next ]")
+      (emitLine cg "  %bl = phi i64 [ 0, %entry ], [ %bl1, %next ]")
+      (emitLine cg (cat3 "  %fin = icmp uge i64 %i, " (fmtInt n) ""))
+      (emitLine cg "  br i1 %fin, label %emit, label %body")
+      (emitLine cg "body:")
+      (emitLine cg "  %i3 = mul i64 %i, 3")
+      (emitLine cg (cat3 "  %pa = getelementptr [" sz " x i64], ptr @__axiom_symtab, i64 0, i64 %i3"))
+      (emitLine cg "  %a = load i64, ptr %pa")
+      (emitLine cg "  %j1 = add i64 %i3, 1")
+      (emitLine cg (cat3 "  %pn = getelementptr [" sz " x i64], ptr @__axiom_symtab, i64 0, i64 %j1"))
+      (emitLine cg "  %nm = load i64, ptr %pn")
+      (emitLine cg "  %j2 = add i64 %i3, 2")
+      (emitLine cg (cat3 "  %pl = getelementptr [" sz " x i64], ptr @__axiom_symtab, i64 0, i64 %j2"))
+      (emitLine cg "  %ln = load i64, ptr %pl")
+      (emitLine cg "  %le = icmp ule i64 %a, %pc")
+      (emitLine cg "  %gt = icmp ugt i64 %a, %ba")
+      (emitLine cg "  %take = and i1 %le, %gt")
+      (emitLine cg "  br label %next")
+      (emitLine cg "next:")
+      (emitLine cg "  %ba1 = select i1 %take, i64 %a, i64 %ba")
+      (emitLine cg "  %bn1 = select i1 %take, i64 %nm, i64 %bn")
+      (emitLine cg "  %bl1 = select i1 %take, i64 %ln, i64 %bl")
+      (emitLine cg "  %i1 = add i64 %i, 1")
+      (emitLine cg "  br label %scan")
+      (emitLine cg "emit:")
+      (emitLine cg "  %atp = ptrtoint ptr @__axiom_bt_at to i64")
+      (emitBtWrite cg "%atp" "5")
+      (emitLine cg "  %found = icmp ne i64 %bn, 0")
+      (emitLine cg "  br i1 %found, label %named, label %unknown")
+      (emitLine cg "named:")
+      (emitBtWrite cg "%bn" "%bl")
+      (emitLine cg "  br label %eol")
+      ; An address no entry precedes. It cannot happen for a frame of
+      ; this module's own code, and printing a plausible wrong name
+      ; would be worse than printing nothing - the whole value of this
+      ; output is that a reader can believe it.
+      (emitLine cg "unknown:")
+      (emitLine cg "  %unp = ptrtoint ptr @__axiom_bt_unk to i64")
+      (emitBtWrite cg "%unp" "9")
+      (emitLine cg "  br label %eol")
+      (emitLine cg "eol:")
+      (emitLine cg "  %nlp = ptrtoint ptr @__axiom_bt_nl to i64")
+      (emitBtWrite cg "%nlp" "1")
+      (emitLine cg "  ret i64 %ba")
+      (emitLine cg "}")
+      (emitLine cg "")
+      cg
+    }
+  )
+)
+
+; The walk.
+;
+; THREE GUARDS, and each one is a way a corrupted stack ends this
+; rather than a fault inside the handler for a fault. A null frame
+; pointer ends it; a misaligned one ends it, because AArch64 faults on
+; an unaligned load and a crash inside the backtracer would replace the
+; message with nothing at all; and a next-frame pointer that does not
+; move UP ends it, because the stack grows down and a chain that
+; stopped ascending is a chain that is no longer a chain. The depth cap
+; is the fourth: 64 frames is past anything this compiler's own
+; `check-stack-depth.sh` measures, and a runaway loop printing forever
+; would bury the message it exists to qualify.
+(pub :: emitBtWalk (-> Int Int))
+
+(pub fn (emitBtWalk cg)
+  {
+    (emitLine cg "define internal void @__axiom_backtrace() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %hp = ptrtoint ptr @__axiom_bt_hdr to i64")
+    (emitBtWrite cg "%hp" "42")
+    (emitLine cg (cat3 "  %fpi = call i64 asm sideeffect " (targetFrameAsm (memGetWord cg 26)) "()"))
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %fp = phi i64 [ %fpi, %entry ], [ %nx, %frame ]")
+    (emitLine cg "  %d = phi i64 [ 0, %entry ], [ %d1, %frame ]")
+    (emitLine cg "  %deep = icmp uge i64 %d, 64")
+    (emitLine cg "  %fpz = icmp eq i64 %fp, 0")
+    (emitLine cg "  %mis = and i64 %fp, 7")
+    (emitLine cg "  %misb = icmp ne i64 %mis, 0")
+    (emitLine cg "  %s0 = or i1 %deep, %fpz")
+    (emitLine cg "  %stop = or i1 %s0, %misb")
+    (emitLine cg "  br i1 %stop, label %done, label %read")
+    (emitLine cg "read:")
+    (emitLine cg "  %fpp = inttoptr i64 %fp to ptr")
+    (emitLine cg "  %nx = load i64, ptr %fpp")
+    (emitLine cg "  %raa = add i64 %fp, 8")
+    (emitLine cg "  %rap = inttoptr i64 %raa to ptr")
+    (emitLine cg "  %ra = load i64, ptr %rap")
+    (emitLine cg "  %raz = icmp eq i64 %ra, 0")
+    (emitLine cg "  br i1 %raz, label %done, label %frame")
+    (emitLine cg "frame:")
+    (emitLine cg "  %at = call i64 @__axiom_bt_name(i64 %ra)")
+    ; STOP AT `main`. Above it the frames belong to the C runtime that
+    ; called it, and this module's table has no entry for any of them -
+    ; so the lookup would answer with whichever of OUR functions
+    ; happens to lie below a libc address, which is a wrong name
+    ; printed with the same confidence as a right one. Measured at
+    ; `--opt 0` before this existed: a trailing `at __axiom_user_main`
+    ; under `at main`, naming a frame that is not on the stack.
+    (emitLine cg "  %ma = load i64, ptr @__axiom_bt_mainaddr")
+    (emitLine cg "  %ismain = icmp eq i64 %at, %ma")
+    (emitLine cg "  %ismain0 = xor i1 %ismain, true")
+    (emitLine cg "  %d1 = add i64 %d, 1")
+    (emitLine cg "  %up = icmp ugt i64 %nx, %fp")
+    (emitLine cg "  %go = and i1 %up, %ismain0")
+    (emitLine cg "  br i1 %go, label %loop, label %done")
+    (emitLine cg "done:")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
+    (emitLine cg "")
+    cg
+  }
+)
+
+; The three constants the walker writes, the intrinsic it reads the
+; frame pointer with, and both functions - emitted at the module tail,
+; where every `define` has already been written and the table can
+; therefore be complete.
+;
+; THE FRAME POINTER IS READ WITH INLINE ASM, NOT `llvm.frameaddress`,
+; and the reason is a real refusal rather than a preference. The
+; intrinsic version was written first and `axiom build` refused it:
+;
+;   error[AX4004]: no archive is linked, and `llvm.frameaddress.p0`
+;                  needs one
+;
+; The driver treats every `declare` in the emitted module as a symbol
+; some archive must define (`check-ffi.sh` prices exactly that
+; boundary), and an LLVM intrinsic is not an archive symbol - so the
+; choice was to widen that link policy for a `llvm.`-prefixed name, or
+; to not emit a `declare` at all. Widening the one check that says
+; which external symbols a program may name, to make a backtrace
+; prettier, is the wrong trade. `targetFrameAsm` is one instruction per
+; architecture and declares nothing.
+(pub :: emitBacktrace (-> Int Int Int))
+
+(pub fn (emitBacktrace cg names)
+  {
+    (emitSymbolTable cg names)
+    (emitLine cg "@__axiom_bt_hdr = private unnamed_addr constant [42 x i8] c\"axiom: backtrace (most recent call first)\\0A\"")
+    (emitLine cg "@__axiom_bt_at = private unnamed_addr constant [5 x i8] c\"  at \"")
+    (emitLine cg "@__axiom_bt_nl = private unnamed_addr constant [1 x i8] c\"\\0A\"")
+    (emitLine cg "@__axiom_bt_unk = private unnamed_addr constant [9 x i8] c\"<unknown>\"")
+    ; `-1` when there is no `main` - an archive built with
+    ; `--emit-staticlib` has none, and `emitAllocator` skips the
+    ; wrapper for exactly that case. No function can be at address -1,
+    ; so the comparison simply never matches and the walk ends on its
+    ; other guards instead.
+    (emitLine
+      cg      (if (symtabHas names "main" 0)
+        "@__axiom_bt_mainaddr = internal constant i64 ptrtoint (ptr @main to i64)"
+        "@__axiom_bt_mainaddr = internal constant i64 -1"
+      )
+    )
+    (emitLine cg "")
+    (emitBtName cg (vecLen names))
+    (emitBtWalk cg)
     cg
   }
 )
@@ -6584,7 +7107,15 @@
       ; REQUIRES a declare for an undeclared callee, so `check`
       ; passed and `opt` then died with "use of undefined value"
       ; two stages later (the self-hosting record).
-      (renderCG (emitLine (emitExternDeclares decls (emitEffectGlobals (emitStringGlobals nextCg 0) 0) 0 vecNew) "attributes #0 = { \"no-builtins\" }"))
+      ; The symbol table is read out of the buffer, so it has to be
+      ; built HERE - after the last `define` and before the walker
+      ; adds its own two. `emitEffectGlobals` above is one of the
+      ; emitters that contributes one (`@__axiom_unhandled_effect`),
+      ; which is why the scan follows it rather than opening this
+      ; branch.
+      (let ((tailCg (emitExternDeclares decls (emitEffectGlobals (emitStringGlobals nextCg 0) 0) 0 vecNew)))
+        (renderCG (emitLine (emitBacktrace tailCg (symtabNames (memGetWord tailCg 0))) "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }"))
+      )
       (emitModuleTail decls nextCg (+ i 1))
     )
   )
@@ -9948,6 +10479,7 @@
     (emitLine cg "entry:")
     (emitLine cg "  %uep = ptrtoint ptr @__axiom_unhandled_msg to i64")
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %uep, i64 24, i64 0, i64 0, i64 0)"))
+    (emitLine cg "  call void @__axiom_backtrace()")
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 71, i64 0, i64 0, i64 0, i64 0, i64 0)"))
     (emitLine cg "  unreachable")
     (emitLine cg "}")
