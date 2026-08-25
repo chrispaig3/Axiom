@@ -18,6 +18,40 @@ its changelog too.
 
 ### Added
 
+- **A checked-in list whose ORDER was part of the golden, sorted in
+  whatever locale the machine happened to have.**
+  `tests/agent/stdlib-effects.allow` is derived by `sort -u` and
+  compared with `diff`, so its order is as load-bearing as its contents
+  — and `sort` collates by locale unless told otherwise. Measured
+  2026-08-25: `en_US.UTF-8` orders `sysEnvp` before `sysEnvSlot`,
+  `LC_ALL=C` orders them the other way. All **44** local gates were
+  green and all three CI `Tests` legs went red on the same two lines —
+  **including darwin**, so it was the locale and not the platform.
+
+  It had been latent since the file was created and surfaced only when
+  `sysEnvSlot` joined the list, because until then no two names in it
+  differed at a letter whose case decides the order. `scripts/lib/gate.sh`
+  already carries the rule, for the seed stamp — "a property of the tree,
+  not of where it was checked out or of the runner's locale" — and this
+  gate had simply never applied it. Every `sort` in
+  `check-agent-policy.sh` and the two in `check-agent-calls.sh` are
+  `LC_ALL=C` now, the `comm` calls included: `comm` requires both inputs
+  collated the same way and answers nonsense rather than failing when
+  they are not. The probe is the gate passing under `LC_ALL=en_US.UTF-8`
+  **and** `LC_ALL=C`, and the previous list failing against a C-collated
+  derivation.
+
+  **And the gate now asks the question that does not depend on its own
+  sort.** The population comparison cannot catch a repeat: un-pin the
+  derivation and re-bless, and the two move together — green on the
+  machine that blessed it, red on every other one. So the gate also
+  asserts that the checked-in list *is in C collation order*, which is
+  meaningful in every locale. A probe that re-sorted under a named
+  second locale would not be: a runner without that locale falls back to
+  C and passes for the wrong reason. Drilled by un-pinning the sort and
+  re-blessing — the population check reports "261 declarations, exactly
+  as the file says" and the collation check goes red beside it.
+
 - **Five of `MM-EXEC-9a`'s seven under-approximations are closed, and
   the row the table never listed is now in it.** `docs/memory-model.md`
   said the inferred effect set is an under-approximation "in five

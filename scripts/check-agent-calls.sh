@@ -104,7 +104,7 @@ for f in stdlib/*.ax stdlib/*/*.ax; do
   if [[ "$dir" == "." ]]; then printf '%s\n' "$base" >> "$work/modules"
   else printf '%s.%s\n' "${dir//\//.}" "$base" >> "$work/modules"; fi
 done
-sort -u -o "$work/modules" "$work/modules"
+LC_ALL=C sort -u -o "$work/modules" "$work/modules"
 
 modcount=$(wc -l < "$work/modules" | tr -d ' ')
 if (( modcount < 15 )); then
@@ -257,7 +257,7 @@ echo "== totality: an inferred effect has an edge that accounts for it =="
 missing=$(awk -v p="$stdlib_prefix" '
   $1 == "F" && index($3, p) == 1 &&
   /#effects=/ && !/#calls=/ &&
-  index($3, p "Ffi.ax:") != 1 { print $2, $3 }' "$work/calls" | sort -u || true)
+  index($3, p "Ffi.ax:") != 1 { print $2, $3 }' "$work/calls" | LC_ALL=C sort -u || true)
 if [[ -n "$missing" ]]; then
   echo "FAIL: these rows carry an inferred effect and no edge explaining it:"
   echo "$missing" | sed 's/^/     /' | head -20

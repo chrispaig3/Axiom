@@ -174,7 +174,7 @@ axsym_rows() {
 # not a regex.
 axsym_files() {
   awk -v p="$2/" '{ s = $3; sub(/:[0-9]+:[0-9]+-[0-9]+$/, "", s); print substr(s, length(p) + 1) }' "$1" \
-    | sort -u
+    | LC_ALL=C sort -u
 }
 
 # `axerr_hits <stderr> <path-prefix>` - the AX3010/AX3037/AX3038
@@ -190,7 +190,7 @@ axerr_hits() {
 
 # `name file` from a row, for reporting and for the exempt lists.
 axsym_name_file() {
-  sed -E 's|^F ([^ ]+) [^ ]*/([^/ :]+):[0-9].*|\1 \2|' | sort -u
+  sed -E 's|^F ([^ ]+) [^ ]*/([^/ :]+):[0-9].*|\1 \2|' | LC_ALL=C sort -u
 }
 
 # Every module in the tree, as `<module> <file>` pairs. `Platform.ax`
@@ -210,7 +210,7 @@ for f in stdlib/*.ax stdlib/*/*.ax; do
     printf '%s.%s %s\n' "${dir//\//.}" "$base" "$f" >> "$work/modfiles"
   fi
 done
-awk '{print $1}' "$work/modfiles" | sort -u > "$work/modules"
+awk '{print $1}' "$work/modfiles" | LC_ALL=C sort -u > "$work/modules"
 
 modcount=$(wc -l < "$work/modules" | tr -d ' ')
 if (( modcount < 15 )); then
@@ -263,12 +263,12 @@ Show   gate's input and it is `symbols.ax`'s to close, not this file's;
 Show   until it is, a `Show` instance in the standard library is policed
 Show   only through whoever calls it.
 ROWLESS
-awk '{print $1}' "$work/rowless.exempt" | sort -u > "$work/rowless.names"
+awk '{print $1}' "$work/rowless.exempt" | LC_ALL=C sort -u > "$work/rowless.names"
 
 axsym_files "$work/rows" "$repo_root" > "$work/hitfiles"
 while read -r mm ff; do
   if grep -qxF "$ff" "$work/hitfiles"; then echo "$mm"; fi
-done < "$work/modfiles" | sort -u > "$work/covered"
+done < "$work/modfiles" | LC_ALL=C sort -u > "$work/covered"
 comm -23 "$work/modules" "$work/covered" | comm -23 - "$work/rowless.names" > "$work/uncovered"
 if [[ -s "$work/uncovered" ]]; then
   echo "FAIL: these stdlib modules contributed no declaration to the stream,"
@@ -289,9 +289,25 @@ echo "ok   every stdlib module either contributes declarations or is exempt with
 # the row. That is safe only because the malformed-row check below
 # refuses a row carrying two of them; without it, a forged meta appended
 # to a claim would be the one this line believes.
+# `LC_ALL=C` ON EVERY SORT IN THIS FILE, AND IT IS NOT A STYLE CHOICE.
+# The list below is CHECKED IN, so its ORDER is part of a golden, and
+# `sort` collates by the runner's locale unless told otherwise. Measured
+# 2026-08-25: `en_US.UTF-8` orders `sysEnvp` before `sysEnvSlot` and `C`
+# orders them the other way, so a list blessed on a developer machine
+# and compared on a CI runner differ by two lines and nothing else. All
+# 44 local gates were green and all three CI `Tests` legs went red -
+# including darwin, so it is the LOCALE and not the platform.
+#
+# It was invisible until this commit because no two names in the list
+# had ever differed at a letter whose case decides the order. `gate.sh`
+# already carries the rule for the seed stamp - "a property of the tree,
+# not of where it was checked out or of the runner's locale" - and this
+# file simply had not applied it. The `comm` calls need it too: `comm`
+# requires both inputs collated the same way, and silently answers
+# nonsense when they are not.
 grep -oE '^F [^ ]+ [^ ]+ .*#effects=[A-Za-z,]+' "$work/rows" \
   | sed -E 's|^F ([^ ]+) [^ ]*/([^/ :]+):[0-9].*#effects=([A-Za-z,]+)$|\1 \2 \3|' \
-  | sort -u > "$work/derived"
+  | LC_ALL=C sort -u > "$work/derived"
 
 echo
 echo "== population: the effects the standard library performs =="
@@ -317,6 +333,24 @@ if ! diff -u "$allow" "$work/derived" > "$work/popdiff"; then
   exit 1
 fi
 echo "ok   $(wc -l < "$allow" | tr -d ' ') declarations, exactly as $allow says"
+
+# AND THE CHECK THAT WOULD HAVE CAUGHT THAT BEFORE CI DID. The
+# comparison above cannot: if the derivation's `sort` loses its
+# `LC_ALL=C` again, the re-bless and the compare move together, so the
+# gate stays green on the machine that blessed it and goes red on every
+# other one. This asks the file a question that does not depend on the
+# derivation at all - is it in C collation order? - and it is
+# meaningful in every locale, which a probe that re-sorts under a NAMED
+# second locale would not be: a runner without that locale silently
+# falls back to C and the probe passes for the wrong reason.
+if ! LC_ALL=C sort -c "$allow" 2>/dev/null; then
+  echo "FAIL: $allow is not in C collation order, so its order depends on"
+  echo "      whichever locale blessed it. Re-bless with the sorts in this"
+  echo "      file pinned to LC_ALL=C - see the comment above \`derived\`."
+  failed=$((failed + 1))
+else
+  echo "ok   $allow is in C collation order, so it reads the same on every runner"
+fi
 
 echo
 echo "== agreement: every derived IO is a declared IO =="
@@ -347,7 +381,7 @@ echo "ok   every row carries at most one derived effect list"
 undeclared=$(grep -E '#effects=([A-Za-z]+,)*IO(,| |$)' "$work/rows" \
   | grep -v -E '#effect=io( |$)' \
   | awk -v p="$stdlib_prefix" 'index($3, p "Ffi.ax:") != 1' \
-  | awk '{print $2}' | sort -u || true)
+  | awk '{print $2}' | LC_ALL=C sort -u || true)
 if [[ -n "$undeclared" ]]; then
   echo "FAIL: these perform an effect the author did not claim:"
   echo "$undeclared" | sed 's/^/     /'
@@ -368,7 +402,7 @@ echo "== completeness: no effect row is only a lower bound =="
 # compiler admits it cannot enumerate; it must say why that is
 # acceptable, and "it looks fine" is not a reason.
 : > "$work/incomplete.exempt"
-awk 'NF { print $1, $2 }' "$work/incomplete.exempt" | sort -u > "$work/incomplete.exempted"
+awk 'NF { print $1, $2 }' "$work/incomplete.exempt" | LC_ALL=C sort -u > "$work/incomplete.exempted"
 grep -F '#effects-incomplete' "$work/rows" | axsym_name_file > "$work/incomplete" || true
 comm -23 "$work/incomplete" "$work/incomplete.exempted" > "$work/incomplete.unexempt"
 if [[ -s "$work/incomplete.unexempt" ]]; then

@@ -204,9 +204,9 @@ sysEnv Sys.ax Alloc,IO,Mut
 sysEnvCount Sys.ax IO
 sysEnvCountFrom Sys.ax IO
 sysEnvLookup Sys.ax Alloc,IO,Mut
+sysEnvSlot Sys.ax IO
 sysEnvp Sys.ax Alloc,IO,Mut
 sysEnvpFill Sys.ax IO,Mut
-sysEnvSlot Sys.ax IO
 sysExitWith Sys.ax IO
 sysFileExists Sys.ax IO
 sysFileSize Sys.ax IO
