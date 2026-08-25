@@ -33,9 +33,17 @@
 # yet when `reseed.sh` runs - the seed is generated from a dirty tree
 # and lands in the NEXT commit. That is exactly how the old
 # `Generated from commit:` line came to be wrong. So the commit is
-# derived from git, as the last commit to touch `bootstrap/`, and
-# STAMP's `Source stamp:` is the falsifiable half: the commit's sources
-# must hash to it before anything is regenerated.
+# derived from git, and STAMP's `Source stamp:` is the falsifiable
+# half: the commit's sources must hash to it before anything is
+# regenerated.
+#
+# THE SEED IS THE FOUR `.ll` FILES, NOT THE DIRECTORY. The first
+# version of this asked for the last commit to touch `bootstrap/`, and
+# it went red on the very commit that added this gate - because that
+# commit rewrote `bootstrap/STAMP` and `bootstrap/README.md`, which are
+# metadata ABOUT the seed and not the seed. A later commit that only
+# corrects a sentence in the README must not be read as a reseed. The
+# check caught its own author, which is the property this file is for.
 #
 # COST. One compiler build plus four whole-compiler emissions, about
 # five minutes. It is its own CI job for that reason, and it needs the
@@ -84,13 +92,13 @@ fi
 echo
 echo "== the commit that carries this seed =="
 # --------------------------------------------------------------------
-commit="$(git -C "$repo_root" log -1 --format=%H -- bootstrap/ 2>/dev/null || true)"
+commit="$(git -C "$repo_root" log -1 --format=%H -- 'bootstrap/*.ll' 2>/dev/null || true)"
 if [[ -z "$commit" ]]; then
-  echo "FAIL: no commit in history touches bootstrap/."
+  echo "FAIL: no commit in history touches bootstrap/*.ll."
   echo "      A shallow clone cannot answer this - the job needs fetch-depth: 0."
   exit 1
 fi
-echo "ok   bootstrap/ was last written by ${commit:0:7}"
+echo "ok   the four seeds were last written by ${commit:0:7}"
 
 extract() {
   local sha="$1" dest="$2"

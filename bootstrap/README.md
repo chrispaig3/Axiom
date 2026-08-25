@@ -67,7 +67,7 @@ byte-identical `stage2 == stage3`.
 Lagging the tree is not the same as corresponding to nothing, and the
 distinction is the whole of the next section. The seed is not the IR of
 the source *beside* it; it is the IR of the source at the commit that
-last wrote this directory, and since 2026-08-25 that is asserted by
+last wrote the four `.ll` files, and since 2026-08-25 that is asserted by
 regenerating it (`scripts/check-seed-provenance.sh`). The lag is a lag
 in TIME, not a gap in provenance.
 
@@ -80,7 +80,8 @@ downstream.
 
 **The trust check is `scripts/check-seed-provenance.sh`**, added
 2026-08-25. It regenerates all four of these files from the source at
-the commit that last wrote this directory and requires the result to be
+the commit that last wrote THEM - the `.ll` files, not this directory,
+which also holds metadata about them - and requires the result to be
 byte-identical - so the seed is not an artifact you have to take on
 trust, it is a build product of `.ax` files you can read, and the
 regeneration is the proof. Until that gate existed nothing in this

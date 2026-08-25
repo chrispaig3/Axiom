@@ -171,7 +171,7 @@ its changelog too.
 
 - **The seed is the emission of source in this history, and here is the
   regeneration that says so.** `scripts/check-seed-provenance.sh`
-  resolves the commit that last wrote `bootstrap/`, requires that
+  resolves the commit that last wrote the four seed files, requires that
   commit's `self_host/**.ax` and `stdlib/**.ax` to hash to
   `bootstrap/STAMP`, and then regenerates all four seeds from them and
   requires byte-identity: **139,638 lines each, on all four targets**.

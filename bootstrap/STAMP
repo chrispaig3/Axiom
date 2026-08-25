@@ -8,7 +8,8 @@ The source stamp is `gate_seed_source_stamp` (scripts/lib/gate.sh) over
 the `self_host/**.ax` and `stdlib/**.ax` bytes these seeds were
 generated from: the path list, then every byte, hashed. It is the
 CHECKABLE claim here, and `scripts/check-seed-provenance.sh` checks it -
-it finds the commit that last touched `bootstrap/`, requires that
+it finds the commit that last touched the four `.ll` files - not this
+directory, which also holds metadata about them - requires that
 commit's sources to hash to this line, and then regenerates all four
 seeds from them and requires the result to be byte-identical.
 

@@ -100,7 +100,7 @@ echo "wrote bootstrap/SHA256SUMS"
 #
 # A hash of the bytes that were actually read cannot have that failure
 # mode. `scripts/check-seed-provenance.sh` resolves the commit the
-# other way - the one that last touched `bootstrap/` - and requires its
+# other way - the one that last touched the four `.ll` files - and requires its
 # sources to hash to this line before regenerating from them.
 stamp="$(gate_seed_source_stamp "$repo_root")"
 nfiles="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f | wc -l | tr -d ' ' )"
@@ -115,7 +115,8 @@ nfiles="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f | wc -l
   printf 'the `self_host/**.ax` and `stdlib/**.ax` bytes these seeds were\n'
   printf 'generated from: the path list, then every byte, hashed. It is the\n'
   printf 'CHECKABLE claim here, and `scripts/check-seed-provenance.sh` checks it -\n'
-  printf 'it finds the commit that last touched `bootstrap/`, requires that\n'
+  printf 'it finds the commit that last touched the four `.ll` files - not this\n'
+  printf 'directory, which also holds metadata about them - requires that\n'
   printf "commit's sources to hash to this line, and then regenerates all four\n"
   printf 'seeds from them and requires the result to be byte-identical.\n'
 } > bootstrap/STAMP
