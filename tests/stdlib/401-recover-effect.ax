@@ -1,0 +1,95 @@
+; exit 71 (see .exit)
+; ABORT TO AN ARENA MARK, for the unhandled-effect trap - and for the
+; one restore that is not about memory at all.
+;
+; An effect operation with no handler in dynamic extent exits 71
+; (`tests/stdlib/310-effect-unhandled.ax` pins that). Inside a
+; recovery point it answers 71 to the arming call instead, and the
+; program carries on.
+;
+; THE EVIDENCE SLOTS ARE THE HARD PART. `handle` pushes an evidence
+; record onto `@__axiom_ev_<Effect>` and pops it at the end of its
+; body. An abort jumps past every pending pop, and the records those
+; pops would have restored live in the arena ABOVE the mark - which
+; the abort's reset reclaims. `MM-ALLOC-16b` names the consequence
+; exactly: the slot still points at a reclaimed record and the next
+; operation dispatches through it. So the arming call snapshots every
+; slot and the abort writes them all back.
+;
+; `underHandler` is what would notice if it did not. It installs a
+; handler, arms a recovery point under it, and the extent it protects
+; installs a SECOND handler and then divides by zero - so the abort
+; jumps out of a live `handle` whose record is above the mark. The
+; `log` afterwards must reach the outer handler and answer 7. The two
+; numbers are folded into one so the golden cannot pass on half of it:
+; `72 * 10 + 7`, the recovered status and the outer handler's answer.
+;
+; The `handle` in the aborted extent is also the shape that abandons a
+; RETAIN on a block below the mark - `emitHandleDyn` takes one on the
+; record its push displaced, and the `release` that returns it is at
+; the pop this jump skips. That leak is bounded and measured by
+; `scripts/check-recover.sh`; it is named here because this is the
+; fixture whose shape produces it.
+(import IO)
+
+(import Str)
+
+(effect Console
+  (log :: (-> String Int)))
+
+(:: zero Int)
+
+(fn (zero) 0)
+
+(:: shout (-> Int Int))
+
+(fn (shout x) (log "nobody home"))
+
+(:: nested (-> Int Int))
+
+(fn (nested x)
+  (handle {
+    (log "reached the inner handler")
+    (/ 1 zero)
+  } (Console) (lambda (s) 0))
+)
+
+(:: underHandler (-> Int Int))
+
+(fn (underHandler x)
+  (handle (let (
+    (n (__axiom_recover
+      __axiom_arena_mark      (lambda (y) (nested y))
+    ))
+    (l (log "the outer handler is still installed"))
+  )
+    (+ (* n 10) l)
+  ) (Console Alloc) (lambda (s) 7))
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (inside (__axiom_recover
+      __axiom_arena_mark      (lambda (x) (shout x))
+    ))
+    (after (underHandler 0))
+  )
+    {
+      (println "recovered {inside}")
+      (println "slots {after}")
+      ; Outside every recovery point: 71, on fd 2, and the program
+      ; stops here.
+      (shout 0)
+      ; Spelled `printlnLit` and not `println` for the reason
+      ; `314-out-of-memory.ax` spells its own unreachable line that
+      ; way: `verify-stdlib-out.py` MODELS `(println "literal")` as a
+      ; claim that the literal appears in the golden, and this line is
+      ; deliberately never printed. It is still a tripwire - if the
+      ; trap outside a recovery point ever stops stopping the program,
+      ; stdout gains a line and the golden says so.
+      (printlnLit (strCStr "UNREACHABLE: the trap outside a recovery point returned"))
+    }
+  )
+)

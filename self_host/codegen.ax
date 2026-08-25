@@ -2617,7 +2617,11 @@
                         (countedAdd cell (parkForms (countFlow cg (spineArgAt e 0) params env)))
                         0
                       )
-                      (if (strEq n "__call_word")
+                      ; `__axiom_recover` CALLS the closure it is
+                      ; handed, which is the same claim `__call_word`
+                      ; makes about an address, so it takes the same
+                      ; conservative answer.
+                      (if (|| (strEq n "__call_word") (strEq n "__axiom_recover"))
                         ; a function reached by address may park
                         ; what it is handed
                         (stashAdd cell (parkForms (flowMaskAll
@@ -5517,6 +5521,77 @@
   )
 )
 
+; The setjmp half of `__axiom_recover`, per architecture, in the shape
+; `targetSyscallAsm` uses: the `"body", "constraints"` middle of an
+; `asm sideeffect` call, escaped and ready to sit between it and the
+; argument list.
+;
+; WHAT THE BLOCK DOES. It saves the stack pointer, the frame pointer
+; and the address of its OWN label `1:` into the record `$0` points
+; at, then jumps over that label. `__axiom_recover_abort` restores sp
+; and the frame pointer and branches to the saved address, which lands
+; INSIDE this block at `1:`, and control then falls out of the bottom
+; on both paths. Every instruction the emitter writes after the block
+; therefore runs twice - once on the way in and once on the way back -
+; which is the whole trick, and the reason the status is passed in the
+; record rather than in an output register: an output would have to be
+; a register LLVM allocated, and every register that could hold one is
+; either clobbered here or restored below.
+;
+; WHY THE CLOBBER LIST IS NOT THE WHOLE ARGUMENT. A block like this is
+; sound exactly when it behaves like a CALL - caller-saved registers
+; destroyed, callee-saved registers preserved - because that is the
+; discipline the register allocator already reasons about. So the
+; caller-saved half is declared (x0-x17 and every vector register on
+; AArch64; the SysV scratch set and xmm0-15 on x86-64) and the
+; callee-saved half is SAVED AND RESTORED by the block itself, into
+; words 6..15 of the record. Nothing is left for a value to hide in.
+;
+; Both halves were measured, on a hand-written LLVM prototype of this
+; block, on a function holding five values across the arm and aborting
+; from 200 frames down, at all four optimisation levels. With the
+; save/restore pair deleted and the clobber list untouched:
+;
+;     === -O0 ===   28   (correct)
+;     === -O1 ===   Segmentation fault: 11
+;     === -O2 ===   Segmentation fault: 11
+;     === -O3 ===   Segmentation fault: 11
+;
+; identically on darwin-aarch64 and on darwin-x86_64 under Rosetta.
+; The -O0 column is why a gate that built at one level would have
+; shipped it: at -O0 nothing lives in a register across anything.
+;
+; The frame pointer is restored rather than clobbered because it
+; cannot be clobbered - `"frame-pointer"="all"` makes it a reserved
+; register, and LLVM refuses a reserved name in a clobber list. `x30`
+; is spelled `lr` for the reason this file's syscall templates record
+; about `~{cc}`: LLVM silently IGNORES an unrecognised AArch64 clobber
+; name, and `~{x30}` is one - measured, with `_top@PAGE` parked in x30
+; across the block and a SIGSEGV at every level above -O0.
+(pub :: targetRecoverArmAsm (-> Int String))
+
+(pub fn (targetRecoverArmAsm t)
+  (if (|| (== t 0) (== t 2))
+    "\"stp x19, x20, [$0, #48]\\0Astp x21, x22, [$0, #64]\\0Astp x23, x24, [$0, #80]\\0Astp x25, x26, [$0, #96]\\0Astp x27, x28, [$0, #112]\\0Amov x9, sp\\0Astr x9, [$0]\\0Astr x29, [$0, #8]\\0Aadr x9, 1f\\0Astr x9, [$0, #16]\\0Ab 2f\\0A1:\\0Aldp x19, x20, [x9, #48]\\0Aldp x21, x22, [x9, #64]\\0Aldp x23, x24, [x9, #80]\\0Aldp x25, x26, [x9, #96]\\0Aldp x27, x28, [x9, #112]\\0A2:\", \"r,~{x0},~{x1},~{x2},~{x3},~{x4},~{x5},~{x6},~{x7},~{x8},~{x9},~{x10},~{x11},~{x12},~{x13},~{x14},~{x15},~{x16},~{x17},~{lr},~{v0},~{v1},~{v2},~{v3},~{v4},~{v5},~{v6},~{v7},~{v8},~{v9},~{v10},~{v11},~{v12},~{v13},~{v14},~{v15},~{v16},~{v17},~{v18},~{v19},~{v20},~{v21},~{v22},~{v23},~{v24},~{v25},~{v26},~{v27},~{v28},~{v29},~{v30},~{v31},~{memory},~{cc}\""
+    "\"movq %rbx, 48($0)\\0Amovq %r12, 56($0)\\0Amovq %r13, 64($0)\\0Amovq %r14, 72($0)\\0Amovq %r15, 80($0)\\0Amovq %rsp, ($0)\\0Amovq %rbp, 8($0)\\0Aleaq 1f(%rip), %rax\\0Amovq %rax, 16($0)\\0Ajmp 2f\\0A1:\\0Amovq 48(%rax), %rbx\\0Amovq 56(%rax), %r12\\0Amovq 64(%rax), %r13\\0Amovq 72(%rax), %r14\\0Amovq 80(%rax), %r15\\0A2:\", \"r,~{rax},~{rcx},~{rdx},~{rsi},~{rdi},~{r8},~{r9},~{r10},~{r11},~{xmm0},~{xmm1},~{xmm2},~{xmm3},~{xmm4},~{xmm5},~{xmm6},~{xmm7},~{xmm8},~{xmm9},~{xmm10},~{xmm11},~{xmm12},~{xmm13},~{xmm14},~{xmm15},~{memory},~{cc}\""
+  )
+)
+
+; The longjmp half. `$0` is the record (landing in the scratch register
+; the block above reads its restores through), `$1` the saved stack
+; pointer, `$2` the saved frame pointer, `$3` the address to branch to.
+; No `~{cc}`, and deliberately: this is not a syscall template, sets no
+; flags, and `check-cross-targets.sh` tells the two apart by the
+; instruction - `svc`, `syscall` - rather than by the mechanism.
+(pub :: targetRecoverJumpAsm (-> Int String))
+
+(pub fn (targetRecoverJumpAsm t)
+  (if (|| (== t 0) (== t 2))
+    "\"mov x9, $0\\0Amov sp, $1\\0Amov x29, $2\\0Abr $3\", \"r,r,r,r,~{x9},~{memory}\""
+    "\"movq $0, %rax\\0Amovq $1, %rsp\\0Amovq $2, %rbp\\0Ajmpq *$3\", \"r,r,r,r,~{rax},~{memory}\""
+  )
+)
+
 (pub :: targetMmapNum (-> Int Int))
 
 (pub fn (targetMmapNum t)
@@ -6108,6 +6183,7 @@
     (emitArenaHelpers cg)
     (emitDivTrap cg)
     (emitOomTrap cg)
+    (emitRecoverRuntime cg)
     (emitStrEqHelper cg)
     cg
   }
@@ -6236,6 +6312,171 @@
 ; for Axiom code to arm it, which needs a primitive, which needs the
 ; committed seed to move. This is the half that costs nothing: emitted
 ; text only, so the fixpoint holds with no reseed.
+; ------------------------------------------------------------------
+; ABORT TO AN ARENA MARK (docs/error-model.md, docs/memory-model.md
+; MM-ALLOC-16a/16b).
+;
+; A recovery point is a record in the arena and one global pointing at
+; the innermost armed one. `emitPrimRecover` writes the arm; this is
+; the other end - the function every trap asks before it writes its
+; sentence and exits.
+;
+;   word 0  the arming frame's stack pointer
+;   word 1  its frame pointer
+;   word 2  the address inside the arm block to resume at
+;   word 3  the arena mark to reclaim to
+;   word 4  the record this one displaced
+;   word 5  the status, written by the abort and read after the arm
+;   6..15   the callee-saved registers the arm block preserves
+;   16..    one word per evidence slot, snapshotted at the arm
+;
+; WHY A JUMP PAST N FRAMES IS SOUND HERE and is not in a language with
+; destructors: there are none, no finalizers and no stack-allocated
+; data, so unwinding degenerates to restoring three things - the stack
+; pointer, the arena and the effect slots. Nothing runs on the way out.
+; The N frames of pending `axiom_release` calls the jump abandons are
+; harmless because the reset reclaims everything above the mark
+; regardless of any count (MM-ALLOC-13, MM-ALLOC-14) and scrubs all
+; 4,097 slab heads first, so nothing filed survives to be double-issued
+; (MM-LIFE-2e). The residue everyone calls a wart is what makes this
+; correct.
+;
+; THE EVIDENCE SLOTS ARE THE ONE THING THE ARENA DOES NOT COVER. A
+; `handle` pushes a record onto `@__axiom_ev_<Effect>` and pops it at
+; the end of its body; a jump past that pop leaves the slot pointing at
+; a record the reset just reclaimed, and the next operation dispatches
+; through it. So the arm snapshots every slot and the abort writes them
+; all back - before the reset, because the snapshot lives in the record
+; and the record is above the mark.
+;
+; AND A PROGRAM THAT NEVER ARMS ONE PAYS NOTHING. This function is the
+; only reader of `@__axiom_recover_top` and it never writes it - the
+; arm site restores the displaced record itself, on both paths, which
+; is what leaves the global store-free. With no arm site anywhere,
+; GlobalOpt folds the load to the initialiser, the `armed` test to
+; false and the body to `ret i64 0`; the inliner then deletes the three
+; calls and GlobalDCE the function, the helpers and the global.
+; `scripts/check-recover.sh` asserts exactly that, at `opt -O1`.
+(pub :: emitRecoverRuntime (-> Int Int))
+
+(pub fn (emitRecoverRuntime cg)
+  {
+    (emitLine cg "")
+    (emitLine cg "@__axiom_recover_top = internal global i64 0")
+    (emitLine cg "define internal i64 @__axiom_recover_abort(i64 %code) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %top = load i64, ptr @__axiom_recover_top")
+    (emitLine cg "  %armed = icmp ne i64 %top, 0")
+    (emitLine cg "  br i1 %armed, label %jump, label %none")
+    (emitLine cg "none:")
+    (emitLine cg "  ret i64 0")
+    (emitLine cg "jump:")
+    (emitLine cg "  %recp = inttoptr i64 %top to ptr")
+    (emitLine cg "  %sp = load i64, ptr %recp")
+    (emitLine cg "  %a1 = add i64 %top, 8")
+    (emitLine cg "  %p1 = inttoptr i64 %a1 to ptr")
+    (emitLine cg "  %fp = load i64, ptr %p1")
+    (emitLine cg "  %a2 = add i64 %top, 16")
+    (emitLine cg "  %p2 = inttoptr i64 %a2 to ptr")
+    (emitLine cg "  %pc = load i64, ptr %p2")
+    (emitLine cg "  %a3 = add i64 %top, 24")
+    (emitLine cg "  %p3 = inttoptr i64 %a3 to ptr")
+    (emitLine cg "  %mark = load i64, ptr %p3")
+    (emitLine cg "  %a5 = add i64 %top, 40")
+    (emitLine cg "  %p5 = inttoptr i64 %a5 to ptr")
+    (emitLine cg "  store i64 %code, ptr %p5")
+    (emitLine cg "  call i64 @__axiom_recover_load(i64 %top)")
+    (emitLine cg "  call i64 @__axiom_arena_reset_fn(i64 %mark)")
+    (emitLine cg (cat3 "  call void asm sideeffect " (targetRecoverJumpAsm (memGetWord cg 26)) "(i64 %top, i64 %sp, i64 %fp, i64 %pc)"))
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  }
+)
+
+; How many DISTINCT evidence slots the program has - the same dedup
+; `emitEffectGlobals` applies, because an imported effect is registered
+; twice and both entries name one slot. It is the record's variable
+; part and the two helpers' loop bound.
+(pub :: distinctSlotCount (-> Int Int Int Int))
+
+(pub fn (distinctSlotCount tbl i acc)
+  (if (>= i (vecLen tbl))
+    acc
+    (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
+      (distinctSlotCount tbl (+ i 1) (+ acc 1))
+      (distinctSlotCount tbl (+ i 1) acc)
+    )
+  )
+)
+
+; The slot snapshot, as two functions rather than as a run of stores at
+; every arm site: an arm inside a loop is one call instead of one store
+; per declared effect per iteration, and both directions then read the
+; same walk, so they cannot disagree about the order.
+(pub :: emitRecoverSlotHelpers (-> Int Int))
+
+(pub fn (emitRecoverSlotHelpers cg)
+  {
+    (emitLine cg "")
+    (emitLine cg "define internal i64 @__axiom_recover_save(i64 %rec) #0 {")
+    (emitLine cg "entry:")
+    (emitRecoverSlotMoves cg 0 0 1)
+    (emitLine cg "  ret i64 0")
+    (emitLine cg "}")
+    (emitLine cg "define internal i64 @__axiom_recover_load(i64 %rec) #0 {")
+    (emitLine cg "entry:")
+    (emitRecoverSlotMoves cg 0 0 0)
+    (emitLine cg "  ret i64 0")
+    (emitLine cg "}")
+    cg
+  }
+)
+
+(pub :: emitRecoverSlotMoves (-> Int Int Int Int Int))
+
+(pub fn (emitRecoverSlotMoves cg i k save)
+  (let ((tbl (memGetWord cg 32)))
+    (if (>= i (vecLen tbl))
+      k
+      (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
+        {
+          (emitRecoverSlotMove cg (llvmSym (effSlot (vecGet tbl i))) k save)
+          (emitRecoverSlotMoves cg (+ i 1) (+ k 1) save)
+        }
+        (emitRecoverSlotMoves cg (+ i 1) k save)
+      )
+    )
+  )
+)
+
+(pub :: emitRecoverSlotMove (-> Int String Int Int Int))
+
+(pub fn (emitRecoverSlotMove cg slot k save)
+  (let (
+    (off (fmtInt (+ 128 (* k 8))))
+    (a (cat2 "%ra" (fmtInt k)))
+    (p (cat2 "%rp" (fmtInt k)))
+    (v (cat2 "%rv" (fmtInt k)))
+  )
+    {
+      (emitLine cg (cat3 (cat2 "  " a) " = add i64 %rec, " off))
+      (emitLine cg (cat4 (cat2 "  " p) " = inttoptr i64 " a " to ptr"))
+      (if (== save 1)
+        {
+          (emitLine cg (cat3 (cat2 "  " v) " = load i64, ptr @" slot))
+          (emitLine cg (cat4 "  store i64 " v ", ptr " p))
+        }
+        {
+          (emitLine cg (cat3 (cat2 "  " v) " = load i64, ptr " p))
+          (emitLine cg (cat4 "  store i64 " v ", ptr @" slot))
+        }
+      )
+      cg
+    }
+  )
+)
+
 (pub :: emitOomTrap (-> Int Int))
 
 (pub fn (emitOomTrap cg)
@@ -6243,6 +6484,7 @@
     (emitLine cg "@__axiom_oom_msg = private unnamed_addr constant [35 x i8] c\"axiom: out of memory (mmap failed)\\0A\"")
     (emitLine cg "define internal i64 @__axiom_out_of_memory() #0 {")
     (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
     (emitLine cg "  %oomp = ptrtoint ptr @__axiom_oom_msg to i64")
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %oomp, i64 35, i64 0, i64 0, i64 0)"))
     (emitLine cg "  call void @__axiom_backtrace()")
@@ -6260,6 +6502,7 @@
     (emitLine cg "@__axiom_divzero_msg = private unnamed_addr constant [24 x i8] c\"axiom: division by zero\\0A\"")
     (emitLine cg "define internal i64 @__axiom_div_by_zero() #0 {")
     (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 72)")
     (emitLine cg "  %dzp = ptrtoint ptr @__axiom_divzero_msg to i64")
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %dzp, i64 24, i64 0, i64 0, i64 0)"))
     (emitLine cg "  call void @__axiom_backtrace()")
@@ -7113,7 +7356,7 @@
       ; emitters that contributes one (`@__axiom_unhandled_effect`),
       ; which is why the scan follows it rather than opening this
       ; branch.
-      (let ((tailCg (emitExternDeclares decls (emitEffectGlobals (emitStringGlobals nextCg 0) 0) 0 vecNew)))
+      (let ((tailCg (emitExternDeclares decls (emitRecoverSlotHelpers (emitEffectGlobals (emitStringGlobals nextCg 0) 0)) 0 vecNew)))
         (renderCG (emitLine (emitBacktrace tailCg (symtabNames (memGetWord tailCg 0))) "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }"))
       )
       (emitModuleTail decls nextCg (+ i 1))
@@ -10477,6 +10720,7 @@
     (emitLine cg "@__axiom_unhandled_msg = private unnamed_addr constant [24 x i8] c\"axiom: unhandled effect\\0A\"")
     (emitLine cg "define internal i64 @__axiom_unhandled_effect() #0 {")
     (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 71)")
     (emitLine cg "  %uep = ptrtoint ptr @__axiom_unhandled_msg to i64")
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %uep, i64 24, i64 0, i64 0, i64 0)"))
     (emitLine cg "  call void @__axiom_backtrace()")
@@ -11405,25 +11649,28 @@
                             ; reference, so it fell through to the ordinary variable path and
                             ; emitted `%__axiom_arena_mark`, a value nothing defines, which llc
                             ; rejects. stage0 carries a comment about hitting the identical bug.
-                            (if (strEq nm "__axiom_arena_mark")
+                            (if (strEq nm "__axiom_recover")
                               true
-                              (if (strEq nm "__axiom_arena_reset")
+                              (if (strEq nm "__axiom_arena_mark")
                                 true
-                                (if (strEq nm "__axiom_arena_reset_keeping")
+                                (if (strEq nm "__axiom_arena_reset")
                                   true
-                                  ; Not spellable in source: `checkNumeric` rewrites `==`/`!=` into
-                                  ; these when it can see that BOTH operands are `String`. They are
-                                  ; primitives rather than a `Str` call because the rewrite must work
-                                  ; in a program that never imported `Str`.
-                                  (if (strEq nm "__streq")
+                                  (if (strEq nm "__axiom_arena_reset_keeping")
                                     true
-                                    (if (strEq nm "__strne")
+                                    ; Not spellable in source: `checkNumeric` rewrites `==`/`!=` into
+                                    ; these when it can see that BOTH operands are `String`. They are
+                                    ; primitives rather than a `Str` call because the rewrite must work
+                                    ; in a program that never imported `Str`.
+                                    (if (strEq nm "__streq")
                                       true
-                                      (if (strEq nm "__call_word")
+                                      (if (strEq nm "__strne")
                                         true
-                                        (if (isSyscallName nm)
+                                        (if (strEq nm "__call_word")
                                           true
-                                          false
+                                          (if (isSyscallName nm)
+                                            true
+                                            false
+                                          )
                                         )
                                       )
                                     )
@@ -11482,19 +11729,22 @@
                             (emitPrimArgc cg)
                             (if (strEq fnName "__argv")
                               (emitPrimArgv args cg)
-                              (if (strEq fnName "__axiom_arena_mark")
-                                (emitPrimArenaMark cg)
-                                (if (strEq fnName "__axiom_arena_reset")
-                                  (emitPrimArenaReset args cg)
-                                  (if (strEq fnName "__axiom_arena_reset_keeping")
-                                    (emitPrimArenaResetKeeping args cg)
-                                    (if (strEq fnName "__streq")
-                                      (emitPrimStrEq args cg 1)
-                                      (if (strEq fnName "__strne")
-                                        (emitPrimStrEq args cg 0)
-                                        (if (strEq fnName "__call_word")
-                                          (emitPrimCallWord args cg)
-                                          (emitPrimSyscall args cg)
+                              (if (strEq fnName "__axiom_recover")
+                                (emitPrimRecover args cg)
+                                (if (strEq fnName "__axiom_arena_mark")
+                                  (emitPrimArenaMark cg)
+                                  (if (strEq fnName "__axiom_arena_reset")
+                                    (emitPrimArenaReset args cg)
+                                    (if (strEq fnName "__axiom_arena_reset_keeping")
+                                      (emitPrimArenaResetKeeping args cg)
+                                      (if (strEq fnName "__streq")
+                                        (emitPrimStrEq args cg 1)
+                                        (if (strEq fnName "__strne")
+                                          (emitPrimStrEq args cg 0)
+                                          (if (strEq fnName "__call_word")
+                                            (emitPrimCallWord args cg)
+                                            (emitPrimSyscall args cg)
+                                          )
                                         )
                                       )
                                     )
@@ -11665,6 +11915,123 @@
 ; why a reset writes no byte of what it reclaims. They were inline
 ; once, and stopped fitting: a reset now walks the chunk list, which
 ; needs loops, which need blocks of their own.
+; `(__axiom_recover mark thunk)` - arm a recovery point at `mark`, run
+; `thunk`, and answer either what the thunk answered or the status of
+; the trap that aborted to here (70 out of memory, 71 unhandled effect,
+; 72 division by zero). `emitRecoverRuntime` beside the allocator holds
+; the record's layout and the argument for why the jump is sound; this
+; is the arm.
+;
+; The shape is a `setjmp`, and the two things that make it one are the
+; asm block (see `targetRecoverArmAsm`) and the fact that EVERY line
+; after it runs twice - once going in, once coming back. So the status
+; is read from the record rather than from an output register, and
+; `@__axiom_recover_top` is restored HERE, after the block, on both
+; paths: that leaves the global with no store anywhere in a program
+; that never arms one, which is what lets `opt` delete the whole
+; mechanism.
+;
+; The thunk is evaluated INSIDE the run arm. Evaluating it before the
+; arm would build a closure the abort path never uses and would put one
+; more value across the block for nothing.
+(pub :: emitPrimRecover (-> Int Int Int))
+
+(pub fn (emitPrimRecover args cg)
+  ; The arm opens a block of its own so the phi below has a NAME to
+  ; write for its first edge. A function's entry block carries no
+  ; label line - it is `%0` to LLVM and nothing here knows that
+  ; number - and field 11 answers whatever the last `emitLabel`
+  ; left, which for an arm in entry position is a label from the
+  ; PREVIOUS function: `use of undefined value '%label_9'`, from
+  ; `opt`, measured. `emitIfTail` never meets this because both of
+  ; its phi edges come from blocks it labelled itself.
+  ; MM-LIFE-2c's rule for a value that arrives and leaves: a
+  ; lambda built AT the call moves - its birth count is the
+  ; share this release spends - and anything else is retained
+  ; so the release below has one of its own to hand back.
+  ; `emitHandleDyn` balances its handler the same way.
+  ; The pop, in the merge. Putting it straight after the
+  ; arm block - where it reads naturally, and where it
+  ; was - disarms the point BEFORE the thunk runs, so
+  ; every trap inside the extent found nothing armed and
+  ; exited: all three fixtures printed their sentence
+  ; instead of their first line. Both paths reach here,
+  ; and neither reaches it while the point is still
+  ; wanted.
+  ; After the phi, not before it: a phi must be the first
+  ; instruction in its block, and `opt` says so - "PHI
+  ; nodes not grouped at top of basic block".
+  (let ((cg0 (emitExpr (vecGet args 0) cg)))
+    (let (
+      (mark (strDup (memGetWordStr cg0 2)))
+      (size (fmtInt (* (+ 16 (distinctSlotCount (memGetWord cg0 32) 0 0)) 8)))
+      (rec (regStr (allocReg cg0)))
+      (pv (regStr (allocReg cg0)))
+      (a3 (regStr (allocReg cg0)))
+      (p3 (regStr (allocReg cg0)))
+      (a4 (regStr (allocReg cg0)))
+      (p4 (regStr (allocReg cg0)))
+      (a5 (regStr (allocReg cg0)))
+      (p5 (regStr (allocReg cg0)))
+      (st (regStr (allocReg cg0)))
+      (ok (regStr (allocReg cg0)))
+      (res (regStr (allocReg cg0)))
+      (armB (cat2 "label_" (fmtInt (allocReg cg0))))
+      (runB (cat2 "label_" (fmtInt (allocReg cg0))))
+      (doneB (cat2 "label_" (fmtInt (allocReg cg0))))
+      (_0 (emitLine cg0 (cat2 "  br label %" armB)))
+      (_0b (emitLabel cg0 armB))
+      (_1 (emitLine cg0 (cat4 (cat2 "  " rec) " = call i64 @axiom_alloc(i64 " size ")")))
+      (_2 (emitLine cg0 (cat2 (cat2 "  " pv) " = load i64, ptr @__axiom_recover_top")))
+      (_3 (emitLine cg0 (cat4 (cat2 "  " a3) " = add i64 " rec ", 24")))
+      (_4 (emitLine cg0 (cat4 (cat2 "  " p3) " = inttoptr i64 " a3 " to ptr")))
+      (_5 (emitLine cg0 (cat4 "  store i64 " mark ", ptr " p3)))
+      (_6 (emitLine cg0 (cat4 (cat2 "  " a4) " = add i64 " rec ", 32")))
+      (_7 (emitLine cg0 (cat4 (cat2 "  " p4) " = inttoptr i64 " a4 " to ptr")))
+      (_8 (emitLine cg0 (cat4 "  store i64 " pv ", ptr " p4)))
+      (_9 (emitLine cg0 (cat4 (cat2 "  " a5) " = add i64 " rec ", 40")))
+      (_10 (emitLine cg0 (cat4 (cat2 "  " p5) " = inttoptr i64 " a5 " to ptr")))
+      (_11 (emitLine cg0 (cat2 "  store i64 0, ptr " p5)))
+      (_12 (emitLine cg0 (cat3 "  call i64 @__axiom_recover_save(i64 " rec ")")))
+      (_13 (emitLine cg0 (cat3 "  store i64 " rec ", ptr @__axiom_recover_top")))
+      (_14 (emitLine cg0 (cat3 "  call void asm sideeffect " (targetRecoverArmAsm (memGetWord cg0 26)) (cat3 "(i64 " rec ")"))))
+      (_15 (emitLine cg0 (cat3 (cat2 "  " st) " = load i64, ptr " p5)))
+      (_17 (emitLine cg0 (cat4 (cat2 "  " ok) " = icmp eq i64 " st ", 0")))
+      (_18 (emitLine cg0 (cat4 (cat3 "  br i1 " ok ", label %") runB (cat2 ", label %" doneB) "")))
+      (_19 (emitLabel cg0 runB))
+    )
+      (let ((cgT (emitExpr (vecGet args 1) cg0)))
+        (let ((f (strDup (memGetWordStr cgT 2))))
+          (let ((cgO 
+            (if (== (argIsDirectCon cgT (vecGet args 1)) 1)
+              cgT
+              (emitRetainOf cgT f)
+            )
+          ))
+            (let ((cgA (applyOneArg cgO f (constStr 0))))
+              (let (
+                (r (strDup (memGetWordStr cgA 2)))
+                (_20 (emitReleaseOf cgA (strDup f)))
+                (_21 (emitLine cgA (cat2 "  br label %" doneB)))
+                (runEnd (strDup (memGetWordStr cgA 11)))
+                (_22 (emitLabel cgA doneB))
+                (_23 (emitLine cgA (strConcat (strConcat (cat4 (cat2 "  " res) " = phi i64 [ " st ", %") (cat4 armB " ], [ " r ", %")) (cat2 runEnd " ]"))))
+                (_24 (emitLine cgA (cat3 "  store i64 " pv ", ptr @__axiom_recover_top")))
+              )
+                {
+                  (memSetWord cgA 2 res)
+                  (memSetWord cgA 14 0)
+                  cgA
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
 (pub :: emitPrimArenaMark (-> Int Int))
 
 (pub fn (emitPrimArenaMark cg)
@@ -14137,7 +14504,7 @@
                 (mentions name (spineArgAt e 2))
                 ; a function reached by address may keep what it is
                 ; handed
-                (if (strEq n "__call_word")
+                (if (|| (strEq n "__call_word") (strEq n "__axiom_recover"))
                   (mentionsArgs name e n_ 0)
                   0
                 )

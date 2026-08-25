@@ -238,6 +238,25 @@ platform_table_report() {
         name = "-";
         notsys++
         next
+      } else if ($0 !~ /svc #|syscall/) {
+        # ALSO NOT A SYSCALL, decided by the INSTRUCTION rather than by
+        # the argument shape. The longjmp half of a recovery point
+        # (`targetRecoverJumpAsm`) restores a stack pointer, a frame
+        # pointer and a branch target from four REGISTERS - it makes no
+        # syscall, and the arm above cannot see that, because its
+        # argument list is not empty.
+        #
+        # `svc` on AArch64 and `syscall` on x86-64 are the only two
+        # instructions that can make a syscall on the four targets, and
+        # `check-cross-targets.sh` already asserts that every syscall
+        # template carries one of them - that is the same discriminator
+        # this arm reads, so the two gates agree on what a syscall
+        # template is rather than each guessing. A template that DOES
+        # carry one and whose arguments this gate does not recognise
+        # still fails, as it must.
+        name = "-";
+        notsys++
+        next
       }
 
       if (name == "?") {

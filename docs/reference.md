@@ -2131,6 +2131,24 @@ one useful pattern depends on it:
   destination is scrubbed on allocation and the scrub can run over
   the source.
 
+A fourth form turns a mark into a **recovery point**.
+`(__axiom_recover mark thunk)` runs `thunk` — a `(-> Int Int)`, called
+with `0` — and answers what it answered. If instead the program runs out
+of memory, performs an effect with no handler in dynamic extent, or
+divides by zero anywhere inside that extent, the arming call answers
+**70**, **71** or **72** and the program carries on; outside a recovery
+point those three still write their sentence to fd 2 and exit, exactly
+as before. Points nest and an abort takes the innermost armed one.
+
+The abort restores the stack pointer, resets the arena to `mark`, and
+restores every evidence slot — that last one is why this is sound where
+calling `__axiom_arena_reset` by hand across a live `handle` is not
+(`memory-model.md` `MM-ALLOC-16b`, `MM-ALLOC-17`). Nothing runs on the
+way out: there are no destructors to call and no landing pads. It is not
+a `catch` and cannot contain a memory-safety fault — a SIGSEGV is not a
+trap and asks nothing. `error-model.md` `ERR-REC-6` states the whole
+contract; `tests/stdlib/403-recover-div.ax` is the smallest example.
+
 ### Using the AI-Optimized Format
 
 For machine-readable output, always use `--diagnostic-format=ai`:

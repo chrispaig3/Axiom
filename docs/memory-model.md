@@ -1250,6 +1250,46 @@ restored pointer and survive by `MM-ALLOC-14`. Flat at ~1.4 MiB from 80
 through 20,000 generations, against ~16 KiB per generation forever for
 the same loop unbracketed.
 
+**MM-ALLOC-17 (H). A trap may abort to a mark, and the abort discharges
+`MM-ALLOC-16b` on its own path.** `(__axiom_recover mark thunk)` arms a
+recovery point and runs `thunk`. Out of memory (70), an unhandled effect
+(71) and a division by zero (72) then answer the *arming call* with
+their status instead of writing to fd 2 and exiting; with nothing armed
+they do exactly what they always did. Points nest, and an abort takes
+the innermost armed one — `MM-ALLOC-16a`'s ordering rule, enforced by
+the mechanism rather than left to the program.
+
+The abort restores three things and runs nothing: the stack pointer, the
+arena (a reset to `mark`, `MM-ALLOC-13`), and every evidence slot. The
+third is what makes it sound where a program calling `__axiom_arena_reset`
+by hand is not. `MM-ALLOC-16b` is a *program obligation* precisely
+because a reset cannot know which `handle` extents it is cutting through;
+an abort can, because the arm site snapshots every slot into the recovery
+record before the extent begins and the abort writes them all back before
+the reset. So the sharpest instance of `MM-ALLOC-16` is, on this one
+path, discharged mechanically.
+
+The N frames of pending `axiom_release` calls the jump abandons are
+harmless, and it is `MM-ALLOC-14` and `MM-LIFE-2e` that make them so: the
+reset reclaims everything above the mark regardless of any count, and
+scrubs all 4,097 slab heads first, so nothing filed survives to be
+double-issued. What is *not* free is a retain taken on a block **below**
+the mark whose matching release was above it — `emitHandleDyn` takes one
+on the record its push displaces, and `emitPrimRecover` takes one on a
+thunk that is not a lambda built at the call. Those counts are abandoned.
+The residue is bounded by the number of aborts, not by the work inside
+them, and it is measured rather than argued: 100,000 aborts with a
+`handle` inside every aborted extent hold max RSS at **1,376 KiB**,
+byte-identical at 10,000 and at 100,000, against **419,328 KiB** for the
+same program with the trap removed so nothing ever resets
+(`scripts/check-recover.sh`).
+
+This is not unwinding and does not become it. There is no landing pad,
+no cleanup, no resumption and no way to catch anything at a chosen frame:
+the only thing a recovery point can contain is one of the three traps,
+and `docs/error-model.md` `ERR-REC-6` states what that does and does not
+buy.
+
 ### 3.4 The inferred arena model — withdrawn
 
 This section was the specification of the model

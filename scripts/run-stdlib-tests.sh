@@ -29,8 +29,28 @@
 # same set of cases the deleted Rust test suite ran as `stdlib_golden`
 # covers; the script exists so that a contributor can run one case, see
 # the actual diff, and keep the compiled binary around to poke at -
-# none of which a unit-test harness makes easy. It is now the only
-# runner for them.
+# none of which a unit-test harness makes easy.
+#
+# IT COMPILES WITH THE COMPILER THIS TREE BUILDS, and until 2026-08-24
+# it did not: it took `$axiom`, which in CI is the one
+# `bootstrap-from-seed.sh` builds from the COMMITTED SEED. That made it
+# the only runner in the repository testing a compiler nobody ships,
+# and it had a hard consequence rather than a philosophical one - a
+# fixture exercising anything the seed does not know cannot compile
+# here at all, whatever the compiler in the tree thinks. Three
+# recovery-point cases arrived and this script reported
+# `undefined variable __axiom_recover` against a tree where the
+# feature works and `check-stdlib-selfhost.sh` runs the same goldens
+# green.
+#
+# The alternative was to advance the seed, and `scripts/reseed.sh`
+# states the rule that rules it out: the seed moves when it can no
+# longer compile `self_host/`, "and it is the only routine reason to
+# move it. Advancing it otherwise is optional and costs 8.4 MB of
+# generated text in the diff". The seed compiles `self_host/` fine.
+# What was wrong was this script's choice of compiler, and the shared
+# artifact makes the right one free - `gate_build_axc` is the same one
+# every other gate here uses, and in CI it is a cache hit.
 #
 # Usage:
 #   scripts/run-stdlib-tests.sh            # every case
@@ -40,6 +60,7 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
+gate_build_axc axc
 
 filter="${1:-}"
 
@@ -63,7 +84,7 @@ for case_file in tests/stdlib/*.ax; do
   case_dir="$work/$name"
   mkdir -p "$case_dir"
 
-  if ! build_log="$("$axiom" build --input "$repo_root/$case_file" \
+  if ! build_log="$("$axc" build --input "$repo_root/$case_file" \
       --output "$case_dir/$name" 2>&1)"; then
     echo "FAIL $name (build)"
     echo "$build_log" | sed 's/^/    /'

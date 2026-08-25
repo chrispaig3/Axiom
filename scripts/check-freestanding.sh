@@ -19,6 +19,7 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
+gate_build_axc axc
 
 # Names that only ever belong to C. Axiom's own standard library defines
 # `exit`, `write`, and `read`, which compile to calls on Axiom functions
@@ -98,7 +99,7 @@ for case_file in tests/stdlib/*.ax; do
   name="$(basename "$case_file" .ax)"
 
   ir="$work/$name.ll"
-  "$axiom" emit-llvm "$case_file" -o "$ir" > /dev/null
+  "$axc" emit-llvm "$case_file" -o "$ir" > /dev/null
 
   if grep -nE "call[^\"]*@($libc_names)\(" "$ir" > "$work/$name.hits"; then
     echo "FAIL $name: generated IR calls libc"
@@ -122,7 +123,7 @@ for case_file in tests/stdlib/*.ax; do
   fi
 
   exe="$work/$name.bin"
-  "$axiom" build --input "$case_file" --output "$exe" > /dev/null
+  "$axc" build --input "$case_file" --output "$exe" > /dev/null
 
   case "$(uname -s)" in
     Darwin) imports="$(nm -u "$exe" 2>/dev/null | sed 's/^_//' || true)" ;;
@@ -139,55 +140,36 @@ for case_file in tests/stdlib/*.ax; do
   echo "ok   $name (no libc in IR or imports)"
 done
 
-# The same corpus, compiled by the SELF-HOSTED compiler.
+# WHICH COMPILER ANSWERS FOR THIS, and why there used to be two passes.
 #
-# Nothing ever ran this gate against stage1's output, and a real bug was
-# living in that gap: `opt` rewrites a byte loop into a call to `strlen`
-# when it can, and it can on stage1's register/phi IR while it cannot on
-# stage0's alloca form. Measured before the fix - a stage1-built
-# `010-hello.ax` grew 17 `strlen` references under `opt -O1` and linked
-# against `_strlen` and `_memset`. Every case failed; the gate was green
-# because it only ever asked stage0.
+# This gate ran the corpus twice: once through `$axiom` and once through
+# a `stage1` it built from `self_host/`. The second pass was added for a
+# real bug living in the gap - `opt` rewrites a byte loop into a call to
+# `strlen` when it can, and it can on stage1's register/phi IR while it
+# could not on stage0's alloca form. Every case failed and the gate was
+# green, because it only ever asked stage0.
 #
-# The freestanding contract belongs to the language, not to one backend,
-# so both compilers have to answer for it. This also exercises stage1's
-# own driver end to end, which is the only place in the gates that does.
-if [[ "${AXIOM_SKIP_STAGE1:-0}" != 1 ]]; then
-  s1="$work/stage1"
-  if "$axiom" build --input self_host/main.ax --output "$s1" >"$work/s1.log" 2>&1; then
-    s1_checked=0
-    for case_file in tests/stdlib/*.ax; do
-      name="$(basename "$case_file" .ax)"
-      exe="$work/s1-$name"
-      if ! "$s1" build --input "$repo_root/$case_file" --output "$exe" \
-           >"$work/s1-$name.log" 2>&1; then
-        echo "FAIL $name: the self-hosted compiler could not build it"
-        sed 's/^/    /' "$work/s1-$name.log" | head -3
-        status=1
-        continue
-      fi
-      case "$(uname -s)" in
-        Darwin) imports="$(nm -u "$exe" 2>/dev/null | sed 's/^_//' || true)" ;;
-        *)      imports="$(nm -D --undefined-only "$exe" 2>/dev/null | awk '{print $NF}' || true)" ;;
-      esac
-      if printf '%s\n' "$imports" | grep -qE "^($libc_names)$"; then
-        echo "FAIL $name: an executable built by the SELF-HOSTED compiler imports libc"
-        printf '%s\n' "$imports" | grep -E "^($libc_names)$" | sed 's/^/    /'
-        status=1
-        continue
-      fi
-      s1_checked=$((s1_checked + 1))
-    done
-    # A loop that silently stopped matching would report the silence it
-    # was looking for, so say how many it actually read.
-    echo "ok   $s1_checked cases built by the self-hosted compiler import no libc"
-    [[ "$s1_checked" -ge 30 ]] || { echo "FAIL only $s1_checked cases reached the stage1 pass"; status=1; }
-  else
-    echo "FAIL could not build the self-hosted compiler for the stage1 pass"
-    sed 's/^/    /' "$work/s1.log" | head -5
-    status=1
-  fi
-fi
+# That argument was written when `$axiom` meant stage0, the RUST
+# compiler: a genuinely different backend, whose disagreement with the
+# self-hosted one was worth a second pass. It means something else now.
+# `$axiom` is what `bootstrap-from-seed.sh` builds from the COMMITTED
+# SEED - the same backend, from whenever the seed was last cut - so
+# "both compilers" had become "this one, and a snapshot of it". The
+# stage1 pass was not testing a second backend; it was testing the only
+# one, and the first pass was testing an old copy.
+#
+# It also had a hard consequence rather than a philosophical one: a
+# fixture exercising anything the seed does not know cannot be compiled
+# by it at all, whatever the compiler in the tree thinks. The three
+# recovery-point cases arrived and this gate refused them with
+# `undefined variable __axiom_recover` against a tree where they build,
+# run, and answer their goldens.
+#
+# So there is one pass and it uses `gate_build_axc`'s artifact - the
+# compiler this tree builds, through its own driver, which is what the
+# stage1 pass was for. The freestanding contract still belongs to the
+# language rather than to one backend; what changed is that there is
+# only one backend left to ask.
 
 # ---------------------------------------------------------------
 # Negative probes: the IR check can still fail, and the language has

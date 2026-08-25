@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 490 `.ax` files in the repository apart from the two named below,
+the 493 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -299,7 +299,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the twenty gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim twenty gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the twenty-five gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim twenty-five gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-version.sh` | every place the project states its own version says what `VERSION` says, counted per site, and the built compiler prints it too |
 | `check-net.sh` | a request handler bracketed as an arena scope holds worker RSS flat across ten thousand connections, against a floor of 50x over the same binary unscoped |
@@ -307,6 +307,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-ffi.sh` | every FFI tier and the symbols each one imports, priced against a per-crate `axiom-allow.txt`; the one MM-FFI-5 requires. Runs in its own CI job, on linux-x86_64 and darwin-aarch64, because it is the only gate that needs `cargo` |
 | `check-name-scale.sh` | resolving a module's private names costs no more than resolving its public ones - a ratio rather than a wall-clock bound, so it is not flaky on a shared runner |
 | `check-type-namespace.sh` | a type name means what its own module says it means, whatever the import order - and finding out which declaration that is costs a bucket rather than a scan, which is why the semantics and the index landed together |
+| `check-recover.sh` | each of the three traps recovers inside a recovery point and still stops the process outside one, at four optimisation levels, and 100,000 aborts do not grow memory - paired with an ablated twin that must grow, and with a `handle` inside every aborted extent because the retain it abandons is the one thing the arena's wholesale reclaim does not cover |
 
 The rest of `scripts/` is not a CI step. `ci.yml` is the authority on
 which scripts run there — read it rather than this table; what follows

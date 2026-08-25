@@ -1,0 +1,65 @@
+; exit 72 (see .exit)
+; ABORT TO AN ARENA MARK, for the division trap.
+;
+; `(__axiom_recover mark thunk)` arms a recovery point at `mark` and
+; runs `thunk`. The three traps - 70 out of memory, 71 unhandled
+; effect, 72 division by zero - stop being the end of the process
+; INSIDE such an extent: the arena is reset to the mark, the effect
+; slots are restored, the stack pointer is put back, and the arming
+; call answers the trap's status instead of returning.
+;
+; Both halves are here on purpose, because only one of them is new.
+; The first division happens inside a recovery point and the program
+; keeps running with the status in hand. The second happens with
+; nothing armed, and then the trap does exactly what it did before
+; recovery existed: the sentence in `.err` on fd 2, and 72 in `.exit`.
+; A mechanism that recovered everywhere would be a worse language,
+; not a better one - a divide by zero in a program that never asked
+; to survive one must still stop the program.
+;
+; The second half is also the reason both halves have to be in ONE
+; case. With `__axiom_recover` unreferenced the whole mechanism is
+; dead code: the helper is internal and deleted, no store to
+; `@__axiom_recover_top` survives, and GlobalOpt folds the armed test
+; in the trap to false. A fixture that only ever traps outside an
+; extent would therefore test a trap with no branch in it.
+;
+; The divisor comes from a function so that no constant folding can
+; decide it before the guard does - the same reason
+; `tests/selfhost/980-divide-by-zero.ax` gives.
+(import IO)
+
+(import Str)
+
+(:: zero Int)
+
+(fn (zero) 0)
+
+(:: divide (-> Int Int))
+
+(fn (divide x) (/ 10 zero))
+
+(:: main Int)
+
+(fn (main)
+  (let ((inside 
+    (__axiom_recover
+      __axiom_arena_mark      (lambda (x) (divide x))
+    )
+  ))
+    {
+      (println "recovered {inside}")
+      ; Outside every recovery point: this one is the end of the
+      ; program, and the two lines after it never run.
+      (divide 0)
+      ; Spelled `printlnLit` and not `println` for the reason
+      ; `314-out-of-memory.ax` spells its own unreachable line that
+      ; way: `verify-stdlib-out.py` MODELS `(println "literal")` as a
+      ; claim that the literal appears in the golden, and this line is
+      ; deliberately never printed. It is still a tripwire - if the
+      ; trap outside a recovery point ever stops stopping the program,
+      ; stdout gains a line and the golden says so.
+      (printlnLit (strCStr "UNREACHABLE: the trap outside a recovery point returned"))
+    }
+  )
+)

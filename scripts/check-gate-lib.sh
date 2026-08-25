@@ -2,18 +2,18 @@
 # Assert that `gate_build_axc`'s cache cannot hide a change to the tree.
 #
 # WHY THIS GATE EXISTS AT ALL. `scripts/lib/gate.sh` is not a gate; it
-# is the preamble twenty gates share, and `gate_build_axc` is the
-# line in it that makes those nineteen test the compiler in the
+# is the preamble twenty-five gates share, and `gate_build_axc` is the
+# line in it that makes those twenty-six test the compiler in the
 # WORKING TREE rather than whatever binary happens to be on disk. Its
 # own comment says so: building from `self_host/` "is also what makes
 # an ablation of `self_host/` visible to that gate rather than
 # invisible."
 #
-# Then a cache was added to it, because nineteen rebuilds of the same
+# Then a cache was added to it, because twenty-six rebuilds of the same
 # 60,881 lines was about sixteen minutes of every CI run, measured on
 # all three legs. An environment variable naming a prebuilt compiler is
 # EXACTLY the shape that deletes the property above, silently, in every
-# one of those twenty gates at once - and the failure would look like
+# one of those twenty-five gates at once - and the failure would look like
 # green CI, which is the worst way for a gate to be wrong.
 #
 # So the cache is content-addressed: `$AXIOM_AXC` is used only when
@@ -245,9 +245,40 @@ word_for() {
     15) echo fifteen ;;   16) echo sixteen ;;    17) echo seventeen ;;
     18) echo eighteen ;;  19) echo nineteen ;;   20) echo twenty ;;
     21) echo "twenty-one" ;; 22) echo "twenty-two" ;; 23) echo "twenty-three" ;;
+    24) echo "twenty-four" ;; 25) echo "twenty-five" ;; 26) echo "twenty-six" ;;
+    27) echo "twenty-seven" ;; 28) echo "twenty-eight" ;; 29) echo "twenty-nine" ;;
+    30) echo thirty ;;
     *)  echo "" ;;
   esac
 }
+
+# A GUARD ON THE TABLE ABOVE, because it is data that looks like prose.
+# Both of this file's count moves on 2026-08-24 were made with a sweep
+# over the word, and both rewrote the table's own arms - `19) echo
+# twenty-six` after the first, `24) echo "twenty-six"` after the second.
+# The check downstream stayed green each time, because the ONE arm it
+# reads was the one that happened to be right: a check passing for the
+# wrong reason, in the file whose subject is checks that cannot fail.
+# So the table answers for itself, at every arm, before it is used.
+checks=$((checks + 1))
+table_ok=1
+for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
+            "19 nineteen" "20 twenty" "21 twenty-one" "22 twenty-two" \
+            "23 twenty-three" "24 twenty-four" "25 twenty-five" \
+            "26 twenty-six" "27 twenty-seven" "28 twenty-eight" \
+            "29 twenty-nine" "30 thirty"; do
+  set -- $pair
+  got="$(word_for "$1")"
+  if [[ "$got" != "$2" ]]; then
+    echo "FAIL: word_for $1 answers \"$got\", not \"$2\""
+    table_ok=0
+  fi
+done
+if (( table_ok )); then
+  echo "ok   word_for answers its own 16 arms"
+else
+  failed=$((failed + 1))
+fi
 want="$(word_for "$n_axc")"
 
 checks=$((checks + 1))
@@ -324,6 +355,6 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-gate-lib: $checks checks - the shared artifact is used only when it"
-echo "                was built from the tree as it stands, so twenty gates"
+echo "                was built from the tree as it stands, so twenty-five gates"
 echo "                still see an ablation of self_host/, and a path that names"
 echo "                no build product is refused rather than ignored"

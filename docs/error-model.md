@@ -129,7 +129,10 @@ sites depends on a caller remembering.
   genuinely undefined and change answer with `--opt`. No trap.
 
 These are the entire set of ways an Axiom program stops without
-returning, and `ERR-REC-2` is the rule that fixes it.
+returning. `ERR-REC-2` gives each trap a value-returning alternative the
+program can call instead; `ERR-REC-6` lets a program that did not call
+one CONTAIN the trap rather than die of it, at an arena mark, since
+2026-08-24.
 
 ---
 
@@ -450,7 +453,19 @@ and `ERR-MEM-4`, not replacements.
 **ERR-REC-1 (R). There is no unwinding, no early return and no
 exception, and the model does not add one.** Recovery is a value
 arriving at a `match`. This is not asceticism; it is the only option
-the runtime leaves open, and §5.2 says why.
+the runtime leaves open, and `ERR-REC-6` says what the one narrow
+exception is and why it is not the general mechanism this rule refuses.
+
+General unwinding stays refused, on its own measurements rather than by
+inheritance. Every call would become a two-destination `invoke`, so the
+emitter would have to know the enclosing landing pad — but an `invoke`
+in argument position splits a block underneath a `phi` the emitter is
+building from "whichever block actually reaches the merge", precisely
+because there is no block graph to ask. A cleanup pad must release
+pending values at an arbitrary point, which is liveness, which is a
+control-flow graph, which does not exist. And the unwinder is a hosted
+link: 188 undefined symbols for every program, not only the ones that
+ask.
 
 **ERR-REC-2 (H). Every trap gets a value-returning alternative; the
 raw operator keeps its semantics.** Shipped in `stdlib/Err.ax`. Two of
@@ -491,6 +506,69 @@ runtime already owns and below neither: 71 is the unhandled-operation
 trap and 72 is the division trap, so 70 completes the block and a
 reader who has seen one has seen the family. Exit codes 1–69 stay the
 program's own.
+
+**ERR-REC-6 (H). A trap may be contained, and only a trap.** Since
+2026-08-24, `(__axiom_recover mark thunk)` arms a **recovery point** at
+an arena mark and runs `thunk`. Each of the three ways a program stops
+without returning then answers the *arming call* with its status
+instead of writing to fd 2 and exiting:
+
+| Inside a recovery point | Outside one |
+|---|---|
+| out of memory answers **70** | `axiom: out of memory (mmap failed)`, exit 70 |
+| an unhandled effect answers **71** | `axiom: unhandled effect`, exit 71 |
+| division by zero answers **72** | `axiom: division by zero`, exit 72 |
+
+Both halves are in one program per case, at four optimisation levels:
+`tests/stdlib/401-recover-effect.ax`, `402-recover-oom.ax`,
+`403-recover-div.ax`, gated by `scripts/check-recover.sh`.
+
+**What it is not.** It is not unwinding, not a `catch`, and not an early
+return, so `ERR-REC-1` stands as written for everything except these
+three. There is no landing pad and no cleanup, nothing runs on the way
+out, the point cannot be placed at a frame of the program's choosing —
+it is wherever `__axiom_recover` was called — and a recovered extent
+cannot be resumed. It also does **not** contain a memory-safety fault: a
+SIGSEGV is not a trap, nothing asks the recovery point, and after one
+the heap invariants are unknown, which is why Java, Go and Rust all
+abort there too.
+
+**Why the narrow version is sound where general unwinding is refused.**
+There are no destructors, no finalizers and no stack-allocated data, so
+"unwinding" degenerates to restoring the stack pointer, the arena and the
+effect slots — and there is nothing to run on the way out.
+`docs/memory-model.md` `MM-ALLOC-17` states the memory argument, including
+the one thing it does not buy for free (a retain abandoned below the
+mark) and the measurement that bounds it: 100,000 aborts hold max RSS at
+1,376 KiB, against 419,328 KiB for the same program with nothing to
+recover from.
+
+**What it is for.** Failure divides into three classes, and only one of
+them is this. *Expected* failure — bad input, a missing file, a timeout —
+is `Result` and always was (`ERR-TYPE-1`). A *memory-safety fault* cannot
+be contained by any language: after one the heap invariants are unknown,
+which is why the paragraph above refuses it and why Java, Go and Rust all
+abort there too. Between them sits *programmer error* — out of memory, an
+unhandled effect, a division by zero — which is the only class an
+in-process abort can serve, and all three of its members were `exit` and
+nothing else. A
+worker in a pre-forked pool that divides by zero on one request no longer
+takes the process with it; the request boundary is already an arena
+scope (`MM-ALLOC-22`), and the recovery point is the same boundary
+answering a status. Expected failure is still `Result` (`ERR-TYPE-1`),
+and a recovery point is not a substitute for one: `ERR-REC-5`'s
+obligation applies to a status recovered here exactly as it does to an
+`Err` arriving at a `match`.
+
+**A program that never arms one pays nothing.** The mechanism's only
+mutable state is a single global that the arm site alone writes, so with
+no arm site anywhere `opt` folds the load in the abort to the
+initialiser, deletes the global, deletes the three calls the traps make,
+and folds all three functions to `ret i64 0`. `scripts/check-recover.sh`
+asserts those three properties separately at `opt -O1`, rather than
+asserting a line count, because P1's symbol table takes the address of
+every function a module defines and so keeps three names alive in every
+program either way.
 
 **ERR-REC-5 (P, program obligation). A recovered error MUST NOT be
 discarded silently.** `(match r ((Ok x) x) ((Err _) 0))` compiles and

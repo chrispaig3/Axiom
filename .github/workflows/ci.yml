@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Twenty of the gates below build the compiler under test from
+    # Twenty-five of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -397,6 +397,27 @@ jobs:
       # the program's types. Measured on the reverted compiler: 26.88x.
       - name: A type name resolves by module, and in constant time
         run: ./scripts/check-type-namespace.sh
+
+      # A fault inside a recovery point must be an answer, and a fault
+      # outside one must still stop the process. The three traps - out
+      # of memory, an unhandled effect, a division by zero - wrote a
+      # sentence to fd 2 and exited, which is the whole containment a
+      # worker in a pre-forked pool had. `__axiom_recover` gives them
+      # an arena mark to abort to.
+      #
+      # Four optimisation levels per case, and that is not thoroughness
+      # for its own sake: the mechanism is a `setjmp` in inline
+      # assembly whose correctness rests on what the clobber list and
+      # the block's own save/restore pair say about registers, and that
+      # is exactly the kind of claim that is true at -O0 and false
+      # above it. Measured on a prototype with the save/restore pair
+      # deleted: correct at -O0, SIGSEGV at -O1, -O2 and -O3.
+      #
+      # The 100,000-abort loop is paired with an ablated twin that must
+      # GROW, because a flat line also reads flat when the measurement
+      # is broken. Measured: 1,376 KiB against 419,328 KiB.
+      - name: A trap inside a recovery point is an answer, not an exit
+        run: ./scripts/check-recover.sh
 
       # Two `axiom run`s in one directory must not corrupt each other.
       # The scratch name was a fixed literal in the working directory,

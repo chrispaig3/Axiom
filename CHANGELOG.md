@@ -18,6 +18,25 @@ its changelog too.
 
 ### Added
 
+- **A trap can be contained instead of ending the process.**
+  `(__axiom_recover mark thunk)` arms a recovery point at an arena mark;
+  out of memory (70), an unhandled effect (71) and a division by zero
+  (72) then answer the arming call with their status instead of writing
+  to fd 2 and exiting. Outside a recovery point all three behave exactly
+  as before. Points nest and an abort takes the innermost. It is not
+  unwinding and does not become it — there are no destructors, so the
+  jump restores the stack pointer, the arena and the effect slots, and
+  nothing runs on the way out (`docs/error-model.md` `ERR-REC-6`,
+  `docs/memory-model.md` `MM-ALLOC-17`). Gated at four optimisation
+  levels, because the mechanism is a `setjmp` in inline assembly whose
+  correctness is a claim about registers: with the block's callee-saved
+  save/restore pair deleted, a prototype answered correctly at `-O0` and
+  segfaulted at `-O1`, `-O2` and `-O3`. 100,000 aborts with a `handle`
+  inside every aborted extent hold max RSS at **1,376 KiB**, against
+  419,328 KiB for the same program with nothing to recover from
+  (`scripts/check-recover.sh`). A program that never arms one keeps no
+  state, no call and no instruction of it after `opt -O1`.
+
 - **A dying program names the frames it died in.** Three pieces, none of
   them debug metadata: `"frame-pointer"="all"` on the module's one
   attribute group, a table of address-beside-name over every symbol the
@@ -170,7 +189,7 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty gates
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty-five gates
   rebuild the same compiler; now one step builds it, and builds it
   twice to measure that the artifact emits the same IR as a fresh
   build. (Not the same *bytes*: the macOS linker stamps a UUID into

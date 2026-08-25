@@ -1,0 +1,72 @@
+; exit 70 (see .exit)
+; ABORT TO AN ARENA MARK, for the out-of-memory trap.
+;
+; `tests/stdlib/314-out-of-memory.ax` says the allocator names the
+; failure and exits 70, and that there is no recoverable
+; out-of-memory condition. The second half of that is no longer true
+; inside a recovery point, and this is where the difference is
+; written down: `MM-ALLOC-7`'s status arrives at the arming call
+; instead of at the process.
+;
+; It is also the trap for which recovery is worth the most, and the
+; reason is `MM-ALLOC-13`. The abort resets the arena to the mark,
+; which puts every chunk mapped since the mark back on
+; `@__axiom_free` - so a worker that could not satisfy one request
+; hands back the memory that request was building on and is able to
+; answer the next one. `usable` after the recovery is the proof that
+; it can: an allocation, a store, and a load back, all through the
+; arena that just refused a mapping.
+;
+; THE SIZE IS 2^47 AND THAT IS NOT ARBITRARY - the argument is
+; `314-out-of-memory.ax`'s and it transfers unchanged. macOS
+; overcommits, so a request for 1 TiB succeeds here and the failure
+; path is never reached; 2^47 is past the user address space on every
+; target this compiler emits for, so the mapping is refused rather
+; than merely unbacked.
+(import IO)
+
+(import Str)
+
+(import Mem)
+
+(:: ask (-> Int Int))
+
+(fn (ask x) (memAlloc 140737488355328))
+
+(:: usable (-> Int Int))
+
+(fn (usable x)
+  (let ((p (memAlloc 64)))
+    {
+      (memSetWord p 0 4242)
+      (memGetWord p 0)
+    }
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (inside (__axiom_recover
+      __axiom_arena_mark      (lambda (x) (ask x))
+    ))
+    (again (usable 0))
+  )
+    {
+      (println "recovered {inside}")
+      (println "usable {again}")
+      ; Outside every recovery point: 70, on fd 2, and the program
+      ; stops here.
+      (ask 0)
+      ; Spelled `printlnLit` and not `println` for the reason
+      ; `314-out-of-memory.ax` spells its own unreachable line that
+      ; way: `verify-stdlib-out.py` MODELS `(println "literal")` as a
+      ; claim that the literal appears in the golden, and this line is
+      ; deliberately never printed. It is still a tripwire - if the
+      ; trap outside a recovery point ever stops stopping the program,
+      ; stdout gains a line and the golden says so.
+      (printlnLit (strCStr "UNREACHABLE: the trap outside a recovery point returned"))
+    }
+  )
+)

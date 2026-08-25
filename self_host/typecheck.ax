@@ -2149,6 +2149,11 @@
       (regFn fns "__retainref" (mkTArr (mkTVar "a") mkIntTy))
       (regFn fns "__argc" (mkIntArrow 0))
       (regFn fns "__argv" (mkIntArrow 1))
+      ; `(__axiom_recover mark thunk)` - MM-ALLOC-16a. The second
+      ; argument is spelled `(-> Int Int)` rather than `Int` because it
+      ; is CALLED, and a handle type here would let any word through to
+      ; an indirect call through word 0 of whatever it points at.
+      (regFn fns "__axiom_recover" (mkTArr mkIntTy (mkTArr (mkTArr mkIntTy mkIntTy) mkIntTy)))
       (regFn fns "__axiom_arena_mark" (mkIntArrow 0))
       (regFn fns "__axiom_arena_reset" (mkIntArrow 1))
       (regFn fns "__axiom_arena_reset_keeping" (mkIntArrow 3))

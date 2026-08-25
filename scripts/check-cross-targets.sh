@@ -28,6 +28,17 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
+# THE COMPILER UNDER TEST, and it used to be `$axiom` - which in CI is
+# what `bootstrap-from-seed.sh` builds from the COMMITTED SEED. What
+# this gate asserts is that the EMITTER produces assemblable,
+# position-independent code for four targets, so the emitter it asks
+# has to be the one in the tree. Asking the seed's had a hard
+# consequence rather than a philosophical one: a fixture exercising
+# anything the seed does not know could not be emitted here at all, and
+# the three recovery-point cases arrived and were refused with
+# `undefined variable __axiom_recover` against a tree where they build
+# and run. In CI this is a cache hit.
+gate_build_axc axc
 
 targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64)
 
@@ -195,7 +206,7 @@ for case_file in tests/stdlib/*.ax; do
   name="$(basename "$case_file" .ax)"
   for target in "${targets[@]}"; do
     ir="$work/$name.$target.ll"
-    if ! "$axiom" --target="$target" emit-llvm "$case_file" -o "$ir" > "$work/emit.log" 2>&1; then
+    if ! "$axc" --target="$target" emit-llvm "$case_file" -o "$ir" > "$work/emit.log" 2>&1; then
       echo "FAIL $name [$target]: emit-llvm"
       sed 's/^/    /' "$work/emit.log"
       status=1
@@ -253,10 +264,12 @@ ccwork="$(mktemp -d)"
 trap 'rm -rf "$ccwork"' EXIT
 printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$ccwork/cc.ax"
 export AXIOM_STDLIB="${AXIOM_STDLIB:-$(pwd)/stdlib}"
-if ! "$axiom" build --input self_host/main.ax --output "$ccwork/stage1" >"$ccwork/s1build.log" 2>&1; then
-  echo "FAIL: could not build stage1 for the template comparison"
-  status=1
-fi
+# The differential below is between the SEED's templates and the
+# tree's, so it needs both compilers and keeps `$axiom` for one side.
+# The other side is `$axc`, which is what a build of `self_host/` by
+# `$axiom` produces - this used to build it a second time under its own
+# name.
+cp "$axc" "$ccwork/stage1"
 for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
   "$axiom" --target="$target" emit-llvm "$ccwork/cc.ax" -o "$ccwork/s0.ll" >/dev/null 2>&1
   # SYSCALL templates, not every inline-asm site. The emitted runtime
