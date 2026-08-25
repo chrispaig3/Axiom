@@ -26,6 +26,7 @@
 
 (pub :: sumOfFresh (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (sumOfFresh i acc)
   ; Each iteration builds a Counter and drops it on the way out of the
   ; `let`: 200 Rust values freed by the handle, none closed by hand.

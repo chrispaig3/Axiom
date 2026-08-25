@@ -111,6 +111,7 @@
 
 (:: logger (-> Int Int))
 
+;@axiom:effect(io)
 (fn (logger n)
   {
     (ask n)
@@ -120,6 +121,7 @@
 
 (:: run (-> Int Int))
 
+;@axiom:effect(io)
 (fn (run n)
   (handle (logger n) (Ask IO) (lambda (v) 0))
 )

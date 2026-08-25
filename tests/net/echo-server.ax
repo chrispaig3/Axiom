@@ -82,6 +82,7 @@
 ; "1" or does not set them at all.
 (:: envOn (-> String Bool))
 
+;@axiom:effect(io)
 (fn (envOn name) (strEq (sysEnv name) "1"))
 
 ; The per-connection work, and the reason this file exists. The response
@@ -90,6 +91,7 @@
 ; reachable after the write.
 (:: respond (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (fn (respond con byte reps)
   (let ((mut s ""))
     (let ((mut i 0))
@@ -119,6 +121,7 @@
 ; it is on or off.
 (:: serve (-> Int Int Int Bool Int))
 
+;@axiom:effect(io)
 (fn (serve lsn arenaOn varied reportPeer)
   (let (
     (rec (memAlloc 64))
@@ -225,6 +228,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let ((port (parseInt (sysArg 1))))
     (let ((nworkers (parseInt (sysArg 2))))

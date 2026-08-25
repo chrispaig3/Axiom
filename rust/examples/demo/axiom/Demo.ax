@@ -131,6 +131,7 @@
 
 (pub :: bytesOf (-> String String))
 
+;@axiom:effect(io)
 (pub fn (bytesOf s)
   (let (
     (__c ffiCellNew)
@@ -149,6 +150,7 @@
 
 (pub :: charsOf (-> String Int))
 
+;@axiom:effect(io)
 (pub fn (charsOf s)
   (let (
     (__c ffiCellNew)
@@ -167,6 +169,7 @@
 
 (pub :: counterAdd (-> Counter Int Int))
 
+;@axiom:effect(io)
 (pub fn (counterAdd c by)
   (match c
     ((Counter __h0)
@@ -182,6 +185,7 @@
 
 (pub :: counterNew (-> Int Counter))
 
+;@axiom:effect(io)
 (pub fn (counterNew start)
   (let (
     (__p (cast Int (counterNewRaw start)))
@@ -193,6 +197,7 @@
 
 (pub :: counterTryNew (-> Int (Result Counter String)))
 
+;@axiom:effect(io)
 (pub fn (counterTryNew start)
   (let (
     (__c ffiCellNew)
@@ -218,6 +223,7 @@
 
 (pub :: counterValue (-> Counter Int))
 
+;@axiom:effect(io)
 (pub fn (counterValue c)
   (match c
     ((Counter __h0)
@@ -233,6 +239,7 @@
 
 (pub :: flags (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (flags n)
   (let (
     (__c ffiCellNew)
@@ -251,6 +258,7 @@
 
 (pub :: fromChars (-> Int String))
 
+;@axiom:effect(io)
 (pub fn (fromChars cs)
   (let (
     (__c ffiCellNew)
@@ -269,6 +277,7 @@
 
 (pub :: grid (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (grid n)
   (let (
     (__c ffiCellNew)
@@ -287,6 +296,7 @@
 
 (pub :: halves (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (halves n)
   (let (
     (__c ffiCellNew)
@@ -305,6 +315,7 @@
 
 (pub :: joinWords (-> Int String))
 
+;@axiom:effect(io)
 (pub fn (joinWords parts)
   (let (
     (__c ffiCellNew)
@@ -323,6 +334,7 @@
 
 (pub :: lookup (-> Int (Option (Result Int String))))
 
+;@axiom:effect(io)
 (pub fn (lookup i)
   (let (
     (__c ffiCellNew)
@@ -354,6 +366,7 @@
 
 (pub :: maybe (-> Int (Option Int)))
 
+;@axiom:effect(io)
 (pub fn (maybe n)
   (let (
     (__c ffiCellNew)
@@ -376,6 +389,7 @@
 
 (pub :: maybeParse (-> String (Result (Option Int) String)))
 
+;@axiom:effect(io)
 (pub fn (maybeParse s)
   (let (
     (__c ffiCellNew)
@@ -407,6 +421,7 @@
 
 (pub :: parseInt (-> String (Result Int String)))
 
+;@axiom:effect(io)
 (pub fn (parseInt text)
   (let (
     (__c ffiCellNew)
@@ -432,6 +447,7 @@
 
 (pub :: pointMaybe (-> Bool (Option Point)))
 
+;@axiom:effect(io)
 (pub fn (pointMaybe ok)
   (let (
     (__c (ffiCellNewN 2))
@@ -457,6 +473,7 @@
 
 (pub :: pointNorm2 (-> Point Float))
 
+;@axiom:effect(io)
 (pub fn (pointNorm2 p)
   (match p
     ((Point __f0 __f1)
@@ -469,6 +486,7 @@
 
 (pub :: pointOrigin Point)
 
+;@axiom:effect(io)
 (pub fn (pointOrigin)
   (let (
     (__c (ffiCellNewN 2))
@@ -486,6 +504,7 @@
 
 (pub :: pointScale (-> Point Int Point))
 
+;@axiom:effect(io)
 (pub fn (pointScale p k)
   (match p
     ((Point __f0 __f1)
@@ -507,6 +526,7 @@
 
 (pub :: pointTry (-> Bool (Result Point String)))
 
+;@axiom:effect(io)
 (pub fn (pointTry ok)
   (let (
     (__c (ffiCellNewN 2))
@@ -535,6 +555,7 @@
 
 (pub :: pointsScale (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (pointsScale ps k)
   (let (
     (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
@@ -554,6 +575,7 @@
 
 (pub :: pointsTry (-> Int (Result Int String)))
 
+;@axiom:effect(io)
 (pub fn (pointsTry ps)
   (let (
     (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
@@ -583,6 +605,7 @@
 
 (pub :: rangeVec (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (rangeVec n)
   (let (
     (__c ffiCellNew)
@@ -601,6 +624,7 @@
 
 (pub :: shout (-> String String))
 
+;@axiom:effect(io)
 (pub fn (shout text)
   (let (
     (__c ffiCellNew)
@@ -619,6 +643,7 @@
 
 (pub :: splitWords (-> String Int))
 
+;@axiom:effect(io)
 (pub fn (splitWords text)
   (let (
     (__c ffiCellNew)

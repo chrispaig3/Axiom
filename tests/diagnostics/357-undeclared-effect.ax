@@ -1,0 +1,77 @@
+; AX3042: silence is a CLAIM, and this is it being refuted.
+;
+; Effects were opt-in until 2026-08-25: a function that volunteered no
+; AXTAG was never asked what it performed, so a body could reach the
+; outside world and nothing in the build would say so. An untagged
+; function now claims to perform no IO, and that claim is checked like
+; any other.
+;
+; Every arm of the rule is here, because the ones that must stay
+; SILENT are what keep it from being a blanket refusal:
+;
+;   `leaks`    performs IO, says nothing            -> AX3042
+;   `declares` performs IO and says so              -> silent
+;   `builds`   allocates and mutates, says nothing  -> silent
+;   `lies`     performs IO under `pure`             -> AX3010, not AX3042
+;
+; `builds` is the measured half. Of 3,040 functions in `self_host/`
+; and `stdlib/`, 1,911 perform something and 1,382 perform exactly
+; `Alloc,Mut` - every function that touches a String or a Vec, because
+; allocating is what an expression DOES here and `Mut` is set by
+; writing any struct field. Requiring a declaration on those is 1,382
+; annotations that distinguish nothing from nothing, so `Alloc` and
+; `Mut` are ambient: still inferred, still on the AXSYM line, still
+; measured by `handle`/`(Pure)`, and never declarable.
+;
+; `lies` pins the split between the two codes. A declaration that made
+; a claim belongs to AX3010 whether the claim is right or wrong;
+; AX3042 is only for one that made no claim at all, so no declaration
+; ever draws both.
+(import IO)
+
+(import Vec)
+
+(:: leaks (-> Int Int))
+
+(fn (leaks n)
+  {
+    (println "out")
+    n
+  }
+)
+
+(:: declares (-> Int Int))
+
+;@axiom:effect(io)
+(fn (declares n)
+  {
+    (println "out")
+    n
+  }
+)
+
+(:: builds (-> Int Int))
+
+(fn (builds n)
+  (let ((v vecNew))
+    {
+      (vecPush v n)
+      (vecLen v)
+    }
+  )
+)
+
+(:: lies (-> Int Int))
+
+;@axiom:pure
+(fn (lies n)
+  {
+    (println "out")
+    n
+  }
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (declares 1))

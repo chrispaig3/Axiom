@@ -34,6 +34,7 @@
 ; binder was attributed somewhere, and it is not.
 (:: doIO (-> Int Int))
 
+;@axiom:effect(io)
 (fn (doIO n) (__syscall3 1 1 n 0))
 
 (struct Box

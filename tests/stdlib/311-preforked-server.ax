@@ -52,6 +52,7 @@
 
 (:: say (-> Int String Int))
 
+;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
@@ -71,6 +72,7 @@
 ; handled through its exit status.
 (:: serve (-> Int Int))
 
+;@axiom:effect(io)
 (fn (serve lsn)
   ; 255 is reserved for "this worker could not set
   ; itself up", and is the deterministic half of the
@@ -159,6 +161,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let ((port (+ 20000 (% sysGetPid 9000))))
     (let ((addr (memAlloc 16)))

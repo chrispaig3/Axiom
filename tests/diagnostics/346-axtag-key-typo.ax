@@ -17,6 +17,7 @@
 ;@axiom:pur
 (:: slipped (-> Int Int))
 
+;@axiom:effect(io)
 (fn (slipped n) (__syscall3 1 1 n 0))
 
 ;@axiom:PURE

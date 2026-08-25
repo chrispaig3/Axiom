@@ -101,6 +101,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   ; --- a directory is never empty ---------------------------------
   (let (

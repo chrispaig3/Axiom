@@ -69,6 +69,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let (
     (inside (__axiom_recover

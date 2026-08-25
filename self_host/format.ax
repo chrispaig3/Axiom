@@ -5469,13 +5469,43 @@
             p
           )
           (if (!= methods 0)
-            (let ((mut j 0))
+            (let (
+              (mut j 0)
+              (mut afterTag 0)
+            )
               {
                 (fpP p " where (")
                 (fpP p "\n")
                 (foPushIndent o)
                 (while (< j (fnLen methods))
                   (let ((m (fnKid methods j)))
+                    ; An AXTAG atom here is a member's effect
+                    ; DECLARATION, not a malformed member. Impl members
+                    ; can carry `;@axiom:` tags since 2026-08-25, and
+                    ; this loop refused every one of them: the kid is an
+                    ; ATOM, the arm below demands FN_PAREN, and `fpBad`
+                    ; refuses the whole FILE. `axiom fmt` reported only
+                    ; "formatter refusal", so a correct program became
+                    ; unformattable with the least informative message
+                    ; in the toolchain - the same shape the declaration
+                    ; -macro arm of `fpDecl` records having had.
+                    ;
+                    ; `afterTag` suppresses the blank line between a tag
+                    ; and the member it belongs to, so the pair prints
+                    ; the way it was written.
+                    (if (fpIsAxtagAtom m)
+                      {
+                        (if (&& (> j 0) (== afterTag 0))
+                          (fpP p "\n")
+                          p
+                        )
+                        (flushLeading src (fpQ p) o (fnStart m))
+                        (foEmitIndent o)
+                        (fpAxtag p (fnTok m))
+                        (fpP p "\n")
+                        (set afterTag 1)
+                        (set j (+ j 1))
+                      }
                     (if (!= (fnKind m) FN_PAREN)
                       {
                         (fpBad p)
@@ -5494,10 +5524,21 @@
                           }
                           (let ((mbody (vecGet melems 1)))
                             {
-                              (if (> j 0)
+                              (if (&& (> j 0) (== afterTag 0))
                                 (fpP p "\n")
                                 p
                               )
+                              (set afterTag 0)
+                              ; The comment queue is threaded through
+                              ; the members, not around them. Without
+                              ; this an ordinary comment written inside
+                              ; an `impl` stayed queued until the
+                              ; module ended and was re-emitted AFTER
+                              ; the impl - moved out of the block it
+                              ; was written in, which the round-trip
+                              ; check cannot see because the text and
+                              ; the count both survive.
+                              (flushLeading src (fpQ p) o (fnStart m))
                               (foEmitIndent o)
                               (fpP p "(")
                               (fpP p (fnText src (vecGet melems 0)))
@@ -5523,7 +5564,7 @@
                         )
                       )
                     )
-                  ))
+                  )))
                 (foPopIndent o)
                 (fpP p "\n")
                 (foEmitIndent o)

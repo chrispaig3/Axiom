@@ -14,6 +14,7 @@
 #|
 ;@axiom:pure
 |#
+;@axiom:effect(io)
 (fn (quiet fd)
   {
     (__syscall3 1 fd 0 0)

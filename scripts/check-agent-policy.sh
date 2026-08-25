@@ -489,18 +489,43 @@ cat > "$work/liar.ax" <<'LIAR'
 ;@axiom:effect(io)
 (fn (main) (shout 1))
 LIAR
-if ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" "$axc" --diagnostic-format=ai symbols liar.ax 2>/dev/null ) \
-     | grep -q -E '^F shout .*#effects=([A-Za-z]+,)*IO(,| |$)'; then
-  if ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" "$axc" --diagnostic-format=ai symbols liar.ax 2>/dev/null ) \
-       | grep '^F shout ' | grep -q '#effect='; then
-    echo "FAIL negative: an untagged IO function reported a claim it does not carry"
-    exit 1
-  fi
-  echo "ok   an untagged IO function is visible to the agreement check"
-else
+# `shout` is untagged and performs IO, so since 2026-08-25 this file
+# does not compile: AX3042 refuses it, and `symbols` exits 1. That is
+# the enforcement this probe is about, so the exit status is ASSERTED
+# rather than tolerated - a 0 here would mean the compiler stopped
+# refusing an undeclared effect, and this probe would go on passing on
+# the table alone.
+#
+# The table is still there to read because `symbols` prints it
+# ALONGSIDE its diagnostics rather than instead of them. Both halves
+# are checked: the row must carry the derived `#effects=IO`, and it
+# must NOT carry a `#effect=` claim, because the source makes none.
+#
+# The output is captured to a file first. Piping `symbols` straight
+# into `grep` under `set -o pipefail` makes the pipeline fail for the
+# COMPILER's exit status, not the grep's - which is what this probe did
+# when AX3042 landed, reporting "the agreement check cannot see an
+# untagged IO function" while the row it wanted was sitting in stdout.
+# `|| liar_rc=$?` and not `; liar_rc=$?`: this file runs under `set -e`,
+# and a bare failing subshell kills the script BEFORE the assignment -
+# which is how the first version of this probe exited 1 having printed
+# no failure at all.
+liar_rc=0
+( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" "$axc" --diagnostic-format=ai symbols liar.ax \
+    >"$work/liar.out" 2>/dev/null ) || liar_rc=$?
+if [[ "$liar_rc" == 0 ]]; then
+  echo "FAIL negative: an untagged IO function compiled (exit 0); AX3042 no longer refuses it"
+  exit 1
+fi
+if ! grep -q -E '^F shout .*#effects=([A-Za-z]+,)*IO(,| |$)' "$work/liar.out"; then
   echo "FAIL negative: the agreement check cannot see an untagged IO function"
   exit 1
 fi
+if grep '^F shout ' "$work/liar.out" | grep -q '#effect='; then
+  echo "FAIL negative: an untagged IO function reported a claim it does not carry"
+  exit 1
+fi
+echo "ok   an untagged IO function is refused (exit $liar_rc) and still visible to the agreement check"
 
 # The shape assertion 3 exists for, from the finding that produced it:
 # an effect that reaches the outside world through a struct field, under
@@ -625,8 +650,26 @@ echo "== the primitives that PERFORM, against the effect each performs =="
 prim_case() {  # <name> <call> <wanted effect>
   printf '(:: probe (-> Int Int))\n\n(fn (probe n) %s)\n\n(:: main Int)\n\n(fn (main) 0)\n' "$2" \
     > "$work/prim.ax"
+  # The probe is deliberately UNTAGGED, so the two IO primitives make it
+  # a program that does not compile (AX3042) and `symbols` exits 1. That
+  # is fine and is not what this measures: the subject is what the
+  # INFERENCE reports on the row, and `symbols` prints its table
+  # alongside diagnostics rather than instead of them. Tagging the probe
+  # would couple it to the answer - the tag would have to name the
+  # effect the case is trying to measure.
+  #
+  # A refusal is tolerated; a CRASH is not. Anything outside 0/1 is a
+  # compiler that died, and this reports it rather than reading an empty
+  # file as "the primitive performs nothing". Without the `|| rc=$?`
+  # form, `set -e` killed the whole gate at the `__argc` case, printing
+  # no failure at all.
+  local rc=0
   ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" "$axc" --diagnostic-format=ai symbols prim.ax ) \
-    > "$work/prim.axsym" 2>/dev/null
+    > "$work/prim.axsym" 2>/dev/null || rc=$?
+  if [[ "$rc" != 0 && "$rc" != 1 ]]; then
+    echo "FAIL primitives: \`$1\` - the compiler exited $rc (not a diagnostic; it died)"
+    failed_prim=$((failed_prim + 1)); return
+  fi
   local row; row="$(grep '^F probe ' "$work/prim.axsym" || true)"
   if [[ -z "$row" ]]; then
     echo "FAIL primitives: no row at all for \`$1\` - the probe stopped compiling"

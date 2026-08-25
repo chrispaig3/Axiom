@@ -10,5 +10,10 @@
 (pub extern "axiom_demo"
   (noSuchThing :: (-> Int Int) (symbol "axffi_no_such_thing")))
 
+; `main` declares the IO its `extern` call performs. Without the tag it
+; is AX3042 first, and this probe measures nothing about grounding:
+; the gate asserts the refusal is AX4004 SPECIFICALLY, so any earlier
+; error makes it fail for the wrong reason.
 (pub :: main Int)
+;@axiom:effect(io)
 (pub fn (main) (noSuchThing 1))

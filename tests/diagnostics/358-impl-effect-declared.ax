@@ -1,0 +1,52 @@
+; A trait-method IMPLEMENTATION can declare its effects, and before
+; 2026-08-25 it was the one declaration in the language that could not.
+;
+; Two bugs sat between the author and the answer, and the first hid
+; the second. `attachAxtags` walked only the TOP-LEVEL declaration
+; vector, so a tag written above `(emit ...)` inside an `(impl ...)`
+; fell between the impl's span and the next top-level declaration's
+; and was handed to that declaration, or dropped. And the expander
+; LOWERS each impl method into a fresh `TAG_D_FN` named
+; `Trait#Type#method` - the node everything after expansion actually
+; checks - copying the member's span but not its tags, so even an
+; attached tag died at the lowering.
+;
+; Both are fixed here: the cursor threads through an impl's methods,
+; and the lowered node inherits word 7. A diagnostic no edit can
+; satisfy is worse than no diagnostic, and the fix for one is a place
+; to put the answer rather than silence about the question.
+;
+; `speaks` is the whole point: it is INSIDE the impl and it works.
+; `quiet` is the control - the same shape with no tag - and it draws
+; AX3042 at the mangled name, which is what proves the check reaches
+; impl members at all rather than skipping them.
+(trait (Loud a) where (
+  speaks :: (-> a Int)
+))
+
+(trait (Hush a) where (
+  quiet :: (-> a Int)
+))
+
+(impl (Loud Int) where (
+  ;@axiom:effect(io)
+  (speaks
+    (lambda (x) (__syscall3 1 1 x 0))
+  )
+))
+
+(impl (Hush Int) where (
+  (quiet
+    (lambda (x) (__syscall3 1 1 x 0))
+  )
+))
+
+(:: caller (-> Int Int))
+
+;@axiom:effect(io)
+(fn (caller n) (speaks n))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (caller 1))

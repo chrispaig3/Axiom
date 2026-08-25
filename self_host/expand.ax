@@ -7635,6 +7635,15 @@
               )))
                 {
                   (memSetWord fnd 5 1)
+                  ; The member's AXTAGs travel with it. This node is a
+                  ; NEW one - `nm` is the mangled `Trait#Type#method`
+                  ; and everything after expansion checks THIS, not the
+                  ; `(emit ...)` the author wrote - so without this line
+                  ; a `;@axiom:effect(io)` inside an `(impl ...)` is
+                  ; parsed, attached, and then dropped on the floor by
+                  ; the lowering. The span is copied one line up for
+                  ; exactly the same reason.
+                  (memSetWord fnd 7 (memGetWord m 7))
                   (vecPush decls fnd)
                 }
               )

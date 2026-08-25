@@ -30,6 +30,7 @@
 
 (:: say (-> Int String Int))
 
+;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
@@ -57,6 +58,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let ((a (memAlloc 1000)))
     (let ((b (memAlloc 64)))

@@ -63,8 +63,9 @@ Audit the thing that exists, not a generic compiler:
 - **Effects are AXTAG claims checked against bodies** (`AX3010`, an
   **error** since 2026-08-25; `AX3037` for a claim the walk cannot
   check, still a warning). It rejects a claim, not an effect: an
-  untagged function is never policed, so this is not an effect system
-  that infers and rejects.
+  untagged function claims to perform no IO and is checked on it
+  (`AX3042`), so this DOES infer and reject - for `IO`. `Alloc`/`Mut`
+  are ambient and never declarable.
 - **Cascade suppression is poison propagation** (`TAG_T_ERR`, `tyCompat`,
   `tyPoisonUnknown`) plus ten spanlessness guards. There is no dedup pass
   and no diagnostic grouping.

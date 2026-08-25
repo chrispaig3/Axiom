@@ -33,6 +33,7 @@
 
 (:: say (-> Int String Int))
 
+;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
@@ -45,6 +46,7 @@
 ; `netWouldBlock` so that "not yet" and "broken" stay distinct.
 (:: acceptFromSoon (-> Int Int Int Int Int))
 
+;@axiom:effect(io)
 (fn (acceptFromSoon lsn peer lenb tries)
   (let ((c (netAcceptFrom lsn peer netAddrMaxBytes lenb)))
     (if (>= c 0)
@@ -66,6 +68,7 @@
 ; is what a caller should pass; this one exists to be wrong on purpose.
 (:: acceptFromCapSoon (-> Int Int Int Int Int Int))
 
+;@axiom:effect(io)
 (fn (acceptFromCapSoon lsn peer cap lenb tries)
   (let ((c (netAcceptFrom lsn peer cap lenb)))
     (if (>= c 0)
@@ -85,6 +88,7 @@
 
 (:: acceptSoon (-> Int Int Int))
 
+;@axiom:effect(io)
 (fn (acceptSoon lsn tries)
   (let ((c (netAccept lsn)))
     (if (>= c 0)
@@ -102,6 +106,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   ; ------------------------------------------------------- IPv4
   (let ((base (+ 40000 (% sysGetPid 20000))))

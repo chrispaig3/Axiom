@@ -68,10 +68,27 @@
 ; is a real declaration rather than an inert node: its bodies are
 ; type-checked and a missing method is AX3025. This file carried only
 ; `show` while nothing looked.
+;
+; The AXTAG and the comment are both here because an impl member can
+; carry a `;@axiom:` tag since 2026-08-25, and the printer had no arm
+; for either. The key is `no_refactor` - metadata, never validated -
+; and not `effect(io)`, because this file is about the NORMAL FORM and
+; the printer's path is the same for any key. A claim would couple the
+; zoo to the effect walk: the first draft here wrote `effect(io)` over
+; `(lambda (x) x)`, which performs nothing, and AX3010 refused the
+; formatted zoo. `tests/diagnostics/358-impl-effect-declared.ax` is
+; where the semantics are pinned. The tag hit the loop's `FN_PAREN` demand and refused the
+; WHOLE FILE with "formatter refusal"; the comment stayed queued until
+; the module ended and was re-emitted after the impl, which the
+; round-trip check cannot catch because its text and count both
+; survive being moved. Both are normal form now, and this case is what
+; keeps them so.
 (impl (Show Int) where (
+  ;@axiom:no_refactor
   (show
     (lambda (x) x)
   )
+  ; an ordinary comment, inside the block it was written in
   (width
     (lambda (x) 1)
   )

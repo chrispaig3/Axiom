@@ -168,6 +168,7 @@
 
 (pub :: charsOf (-> String Int))
 
+;@axiom:effect(io)
 (pub fn (charsOf text)
   (let (
     (__c ffiCellNew)
@@ -186,6 +187,7 @@
 
 (pub :: check (-> Bool (Option Bool)))
 
+;@axiom:effect(io)
 (pub fn (check flag)
   (let (
     (__c ffiCellNew)
@@ -208,6 +210,7 @@
 
 (pub :: combine (-> (-> Int Int Int) (-> Int Int Int Int) Int (Option Int)))
 
+;@axiom:effect(io)
 (pub fn (combine f g seed)
   (let (
     (__c ffiCellNew)
@@ -230,6 +233,7 @@
 
 (pub :: concat (-> Int String))
 
+;@axiom:effect(io)
 (pub fn (concat parts)
   (let (
     (__c ffiCellNew)
@@ -248,6 +252,7 @@
 
 (pub :: echo (-> String String))
 
+;@axiom:effect(io)
 (pub fn (echo cell)
   (let (
     (__c ffiCellNew)
@@ -266,6 +271,7 @@
 
 (pub :: evens (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (evens upto)
   (let (
     (__c ffiCellNew)
@@ -284,6 +290,7 @@
 
 (pub :: fromChars (-> Int String))
 
+;@axiom:effect(io)
 (pub fn (fromChars cs)
   (let (
     (__c ffiCellNew)
@@ -302,6 +309,7 @@
 
 (pub :: glyphOf (-> Char Glyph))
 
+;@axiom:effect(io)
 (pub fn (glyphOf c)
   (let (
     (__c (ffiCellNewN 2))
@@ -319,6 +327,7 @@
 
 (pub :: glyphsMaybe (-> Int (Option Int)))
 
+;@axiom:effect(io)
 (pub fn (glyphsMaybe n)
   (let (
     (__c ffiCellNew)
@@ -344,6 +353,7 @@
 
 (pub :: grid (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (grid n)
   (let (
     (__c ffiCellNew)
@@ -362,6 +372,7 @@
 
 (pub :: lookup (-> Int (Option (Result Thing String))))
 
+;@axiom:effect(io)
 (pub fn (lookup i)
   (let (
     (__c ffiCellNew)
@@ -393,6 +404,7 @@
 
 (pub :: maybeChar (-> Char (Option Char)))
 
+;@axiom:effect(io)
 (pub fn (maybeChar c)
   (let (
     (__c ffiCellNew)
@@ -416,6 +428,7 @@
 
 (pub :: maybeParse (-> String (Result (Option Int) String)))
 
+;@axiom:effect(io)
 (pub fn (maybeParse text)
   (let (
     (__c ffiCellNew)
@@ -447,6 +460,7 @@
 
 (pub :: maybePieces (-> String (Option Int)))
 
+;@axiom:effect(io)
 (pub fn (maybePieces text)
   (let (
     (__c ffiCellNew)
@@ -472,6 +486,7 @@
 
 (pub :: maybePixelTry (-> Int (Result (Option Pixel) String)))
 
+;@axiom:effect(io)
 (pub fn (maybePixelTry n)
   (let (
     (__c (ffiCellNewN 3))
@@ -507,6 +522,7 @@
 
 (pub :: maybeText (-> Int (Option String)))
 
+;@axiom:effect(io)
 (pub fn (maybeText n)
   (let (
     (__c ffiCellNew)
@@ -532,6 +548,7 @@
 
 (pub :: parity (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (parity n)
   (let (
     (__c ffiCellNew)
@@ -550,6 +567,7 @@
 
 (pub :: pieces (-> String Int))
 
+;@axiom:effect(io)
 (pub fn (pieces text)
   (let (
     (__c ffiCellNew)
@@ -568,6 +586,7 @@
 
 (pub :: piecesLookup (-> String (Option (Result Int String))))
 
+;@axiom:effect(io)
 (pub fn (piecesLookup text)
   (let (
     (__c ffiCellNew)
@@ -602,6 +621,7 @@
 
 (pub :: pixelBrightness (-> Pixel Float Float))
 
+;@axiom:effect(io)
 (pub fn (pixelBrightness p gain)
   (match p
     ((Pixel __f0 __f1 __f2)
@@ -614,6 +634,7 @@
 
 (pub :: pixelMix (-> Pixel Pixel Thing (Option Pixel)))
 
+;@axiom:effect(io)
 (pub fn (pixelMix a b t)
   (match a
     ((Pixel __f0 __f1 __f2)
@@ -655,6 +676,7 @@
 
 (pub :: pixelOff Pixel)
 
+;@axiom:effect(io)
 (pub fn (pixelOff)
   (let (
     (__c (ffiCellNewN 3))
@@ -673,6 +695,7 @@
 
 (pub :: pixelParse (-> String (Result Pixel String)))
 
+;@axiom:effect(io)
 (pub fn (pixelParse text)
   (let (
     (__c (ffiCellNewN 3))
@@ -702,6 +725,7 @@
 
 (pub :: pixelsDim (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (pixelsDim ps by)
   (let (
     (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
@@ -721,6 +745,7 @@
 
 (pub :: pixelsTry (-> Int (Result Int String)))
 
+;@axiom:effect(io)
 (pub fn (pixelsTry ps)
   (let (
     (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
@@ -750,6 +775,7 @@
 
 (pub :: ratio (-> Int Int (Result Float String)))
 
+;@axiom:effect(io)
 (pub fn (ratio a b)
   (let (
     (__c ffiCellNew)
@@ -776,6 +802,7 @@
 
 (pub :: renamed (-> String Int String))
 
+;@axiom:effect(io)
 (pub fn (renamed text n)
   (let (
     (__c ffiCellNew)
@@ -794,6 +821,7 @@
 
 (pub :: thingGet (-> Thing Int))
 
+;@axiom:effect(io)
 (pub fn (thingGet t)
   (match t
     ((Thing __h0)
@@ -809,6 +837,7 @@
 
 (pub :: thingMaybe (-> Thing (Option Thing)))
 
+;@axiom:effect(io)
 (pub fn (thingMaybe t)
   (match t
     ((Thing __h0)
@@ -836,6 +865,7 @@
 
 (pub :: thingNew (-> Int Thing))
 
+;@axiom:effect(io)
 (pub fn (thingNew n)
   (let (
     (__p (cast Int (thingNewRaw n)))
@@ -847,6 +877,7 @@
 
 (pub :: thingPair (-> Thing Thing Float Float))
 
+;@axiom:effect(io)
 (pub fn (thingPair a b scale)
   (match a
     ((Thing __h0)
@@ -867,6 +898,7 @@
 
 (pub :: thingTry (-> Int (Result Thing String)))
 
+;@axiom:effect(io)
 (pub fn (thingTry n)
   (let (
     (__c ffiCellNew)
@@ -892,6 +924,7 @@
 
 (pub :: tryEvens (-> Int (Result Int String)))
 
+;@axiom:effect(io)
 (pub fn (tryEvens upto)
   (let (
     (__c ffiCellNew)
@@ -920,6 +953,7 @@
 
 (pub :: tryGridF64 (-> Int (Result Int String)))
 
+;@axiom:effect(io)
 (pub fn (tryGridF64 n)
   (let (
     (__c ffiCellNew)
@@ -948,6 +982,7 @@
 
 (pub :: unitResult (-> Int (Result Int String)))
 
+;@axiom:effect(io)
 (pub fn (unitResult n)
   (let (
     (__c ffiCellNew)
@@ -973,6 +1008,7 @@
 
 (pub :: wide (-> Int Int Int Int Int String))
 
+;@axiom:effect(io)
 (pub fn (wide a b c d e)
   (let (
     (__c ffiCellNew)
@@ -993,6 +1029,7 @@
 
 (pub :: widgetNew Widget)
 
+;@axiom:effect(io)
 (pub fn (widgetNew)
   (let (
     (__p (cast Int widgetNewRaw))

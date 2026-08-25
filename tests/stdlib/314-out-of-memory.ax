@@ -32,6 +32,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   {
     (printlnLit (strCStr "asking for more than the address space holds"))

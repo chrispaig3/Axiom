@@ -1011,8 +1011,12 @@ over every function body, so a syscall three calls down still counts -
 and validates any `;@axiom:effect(...)`/`;@axiom:pure` claims against
 what it inferred. A refuted claim is an **error** (`AX3010`); one the
 walk was not in a position to check is a warning (`AX3037`). Effects do
-not appear in function types, and untagged functions are not policed:
-the tags are opt-in claims, and they are checked when made. `axiom symbols --diagnostic-format
+not appear in function types. Untagged functions ARE policed: silence
+is the claim "performs no IO", and a body performing IO under it is
+`AX3042`, an error. Only `IO` is declarable - `Alloc` and `Mut` are
+ambient, inferred and reported but never required, because 1,382 of
+the 1,911 effectful functions in this repository perform exactly those
+two. `axiom symbols --diagnostic-format
 ai` reports the inferred set as `#effects=...` beside any declared
 tags; the default `human` table has no metadata column and shows
 neither.

@@ -4,4 +4,5 @@
 ; compilers now emit before the user's (renamed) main runs.
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main) __argc)

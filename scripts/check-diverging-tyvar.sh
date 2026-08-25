@@ -202,16 +202,20 @@ cat > "$work/shapes.ax" <<'AX'
 ; 1. the base case, directly
 (:: pSys (-> String a))
 
+;@axiom:effect(io)
+
 (fn (pSys m) (cast a (sysExitWith 70)))
 
 ; 2. through `IO.exit`, one call away from it
 (:: pExit (-> String a))
 
+;@axiom:effect(io)
 (fn (pExit m) (cast a (exit 70)))
 
 ; 3. through `IO.die`, two calls away
 (:: pDie (-> String a))
 
+;@axiom:effect(io)
 (fn (pDie m) (cast a (die m 70)))
 
 ; 4. self tail recursion, which needs no cast at all
@@ -244,6 +248,7 @@ cat > "$work/shapes.ax" <<'AX'
 ; 8. every arm of an `if`, which is the MUST half of the analysis
 (:: pIf (-> Int a))
 
+;@axiom:effect(io)
 (fn (pIf n)
   (if (> n 0)
     (pExit "a\n")

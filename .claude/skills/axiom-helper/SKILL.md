@@ -5,6 +5,34 @@ description: Guides for working with the Axiom compiler, ensuring correctness (p
 
 # Axiom Helper — Agent Skill
 
+## Bandaids are never acceptable; only provide real solutions
+
+When a check fires somewhere it cannot be satisfied, the fix is to
+create the place where the answer goes — not to suppress the check,
+special-case the shape, or exempt the caller. Two worked examples from
+this repository, both of which started as an exemption and were
+replaced:
+
+- `AX3042` fired on trait-method implementations, which had nowhere to
+  write a `;@axiom:` tag. The bandaid was skipping any name containing
+  `#`. The real fix was two bugs deep: `attachAxtags` walked only the
+  top-level declaration vector, and the expander lowered impl methods
+  into a fresh node that copied the member's span but not its tags.
+- `AX3010` could not be promoted to an error because two shapes
+  misreported. The bandaid was leaving it a warning. The real fix was
+  routing the over-approximating shape to `AX3037` and making
+  `symbols` print its table for a file that fails to compile.
+
+The tell is a diagnostic **no edit can satisfy**, or a rule whose
+exceptions are named by spelling rather than by a property. When you
+find one, ask what the author would have to be able to WRITE for the
+check to be answerable, and build that.
+
+An exemption is only honest when the thing being exempted is genuinely
+not the case being checked — and then it is a definition, so write the
+measurement that shows it.
+
+
 ## 1. Compiler invocation: always use `axiom --diagnostic-format=ai`
 
 Every Axiom compiler command should pass the AI-optimized diagnostic

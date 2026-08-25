@@ -583,7 +583,21 @@ impl Surface {
             }
             tops.push(format!("(pub :: {} {})", d.axiom_name, d.wrapper_type()));
             let params: Vec<String> = d.params.iter().map(|(n, _)| n.clone()).collect();
-            tops.push(sexp::decl_fn(&d.axiom_name, &params, &d.wrapper_body()));
+            // Every wrapper here CALLS the extern symbol, and a call across
+            // the FFI boundary performs `IO`. Since 2026-08-25 a function
+            // that performs IO and does not declare it is `AX3042`, an
+            // error - so generated bindings that omit this line do not
+            // compile at all.
+            //
+            // Only these. The `close` wrapper above and the private
+            // marshalling helpers below reach `ffiHandleClose` and
+            // `ffiWordAt`, which move memory without leaving the process;
+            // tagging those would be a FALSE claim and `AX3010` refuses one
+            // of those just as hard.
+            tops.push(format!(
+                ";@axiom:effect(io)\n{}",
+                sexp::decl_fn(&d.axiom_name, &params, &d.wrapper_body())
+            ));
         }
 
         out.push_str(&tops.join("\n\n"));

@@ -1,0 +1,19 @@
+[1;31merror[AX3042][0m[1m: `leaks` performs IO and its declaration does not say so[0m
+  [1;34m--> [0m357-undeclared-effect.ax:36:6
+[1;34m   |[0m
+[1;34m36 |[0m (fn (leaks n)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration. Effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3042` for a full explanation
+
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `lies`: `pure` claim contradicted: body performs IO[0m
+  [1;34m--> [0m357-undeclared-effect.ax:67:6
+[1;34m   |[0m
+[1;34m67 |[0m (fn (lies n)
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+compilation failed due to 2 previous errors

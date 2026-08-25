@@ -18,6 +18,7 @@
 
 (:: check (-> Bool Int Int))
 
+;@axiom:effect(io)
 (fn (check ok n)
   (if ok
     0
@@ -30,6 +31,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   ; Both views of the same string, neither one wrong.
   {

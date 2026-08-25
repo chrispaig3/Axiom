@@ -1,16 +1,16 @@
 [1;31merror[AX3010][0m[1m: AXTAG mismatch on `f`: `pure` claim contradicted: body performs IO[0m
-  [1;34m--> [0m344-trait-effect-transitive.ax:34:6
+  [1;34m--> [0m344-trait-effect-transitive.ax:35:6
 [1;34m   |[0m
-[1;34m34 |[0m (fn (f n) (emit n))
+[1;34m35 |[0m (fn (f n) (emit n))
 [1;34m   |[0m      [1;31m^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
 [1;31merror[AX3010][0m[1m: AXTAG mismatch on `g`: `pure` claim contradicted: body performs IO[0m
-  [1;34m--> [0m344-trait-effect-transitive.ax:39:6
+  [1;34m--> [0m344-trait-effect-transitive.ax:40:6
 [1;34m   |[0m
-[1;34m39 |[0m (fn (g n) (f n))
+[1;34m40 |[0m (fn (g n) (f n))
 [1;34m   |[0m      [1;31m^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer

@@ -633,6 +633,7 @@ grep -q 'AX3001' x.out \
 cat >argc.ax <<'EOF'
 (import Sys)
 (:: main Int)
+;@axiom:effect(io)
 (fn (main) (sysArgc))
 EOF
 "$s1" run argc.ax >/dev/null 2>&1; [[ $? == 1 ]] \

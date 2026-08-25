@@ -40,6 +40,7 @@
 
 (:: say (-> Int String Int))
 
+;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
@@ -49,6 +50,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   ; Block first, or the default disposition kills us before
   ; anything can observe the signal.

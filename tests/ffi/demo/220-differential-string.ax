@@ -32,6 +32,7 @@
 
 (pub :: agrees (-> String Bool))
 
+;@axiom:effect(io)
 (pub fn (agrees s) (== (countVowels s) (axiomCount s 0 0)))
 
 ;@axiom:effect(io)

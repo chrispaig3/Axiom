@@ -119,6 +119,7 @@ cat > "$work/chain.ax" <<'PROBE'
 
 (pub :: main Int)
 
+;@axiom:effect(io)
 (pub fn (main) (a1 (- sysArgc 1)))
 PROBE
 

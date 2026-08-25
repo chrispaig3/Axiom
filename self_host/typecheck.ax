@@ -12356,34 +12356,150 @@
     (own (memGetWord d 7))
     (sig (sigAxtagsFor tc (nodeAName d)))
   )
-    (if (&& (== own 0) (== sig 0))
-      0
-      ; The signature's first: it is written first.
+    ; THERE IS NO EARLY RETURN FOR AN UNTAGGED DECLARATION, and its
+    ; absence is the point. `(if (&& (== own 0) (== sig 0)) 0 ...)`
+    ; stood here and made the whole effect system opt-in: a function
+    ; that volunteered no tag was never asked what it performed, so
+    ; silence meant "not checked". Silence now means "performs no IO",
+    ; which is a claim like any other and is checked like one. The
+    ; effects are therefore collected for EVERY function, not only for
+    ; the ones that volunteered.
+    (let (
+      (_m (memSetWord tc 16 (nodeModule d)))
+      (sc (bodyScopeOf tc d))
+    )
       (let (
-        (_m (memSetWord tc 16 (nodeModule d)))
-        (sc (bodyScopeOf tc d))
+        (eff (collectEffects tc (nodeC d) sc))
+        (_m0 (memSetWord tc 16 0))
       )
-        (let (
-          (eff (collectEffects tc (nodeC d) sc))
-          (_m0 (memSetWord tc 16 0))
-        )
-          {
-            (if (== sig 0)
-              0
-              (checkAxtagsFrom
-                tc                d                sig                0                eff                (bsEparams sc)
-              )
+        {
+          ; The signature's first: it is written first.
+          (if (== sig 0)
+            0
+            (checkAxtagsFrom
+              tc              d              sig              0              eff              (bsEparams sc)
             )
-            (if (== own 0)
-              0
-              (checkAxtagsFrom
-                tc                d                own                0                eff                (bsEparams sc)
-              )
+          )
+          (if (== own 0)
+            0
+            (checkAxtagsFrom
+              tc              d              own              0              eff              (bsEparams sc)
             )
-          }
+          )
+          ; A declaration that made ANY effect claim belongs to AX3010,
+          ; right or wrong. This arm is for the one that made none.
+          (if (|| (== (axtagsClaimAny sig) 1) (== (axtagsClaimAny own) 1))
+            0
+            (checkUndeclaredIO tc d eff)
+          )
+          0
+        }
+      )
+    )
+  )
+)
+
+; Does any AXTAG here make an EFFECT CLAIM - `pure`, or `effect(...)`?
+; A metadata key (`no_refactor`, `agent:readonly`) is not a claim and
+; does not answer this, so a declaration carrying only metadata is
+; still a declaration that said nothing about its effects.
+;
+; This is what keeps AX3042 and AX3010 from both firing on one
+; declaration. A claim that is WRONG is AX3010's to report; AX3042 is
+; for a body that performs IO and says nothing at all. An author who
+; wrote a claim never sees both for the same function.
+;
+; A `pure` tag counts as a claim even though it names no effect: it
+; claims the ABSENCE of every effect, IO included, and a body
+; performing IO under it already draws AX3010 `contradicted`.
+(pub :: axtagsClaimAny (-> Int Int))
+
+(pub fn (axtagsClaimAny tags)
+  (if (== tags 0)
+    0
+    (axtagsClaimAt tags 0)
+  )
+)
+
+(pub :: axtagsClaimAt (-> Int Int Int))
+
+(pub fn (axtagsClaimAt tags i)
+  (if (>= i (vecLen tags))
+    0
+    (let ((content (memGetWordStr (vecGet tags i) 1)))
+      (let ((op (strFindByte content 40 0)))
+        (let ((key (if (< op 0)
+          content
+          (strSlice content 0 op)
+        )))
+          (if (|| (strEq key "pure") (strEq key "effect"))
+            1
+            (axtagsClaimAt tags (+ i 1))
+          )
         )
       )
     )
+  )
+)
+
+; AX3042: a body reaches the outside world and its declaration does
+; not say so.
+;
+; WHY ONLY `IO`, measured. Of 3,040 functions in `self_host/` and
+; `stdlib/`, 1,911 perform something and 1,382 of those perform
+; exactly `Alloc,Mut` - every function that touches a String or a Vec,
+; because allocating is what an expression DOES here and `Mut` is set
+; by writing any struct field. A declaration required on those is
+; 1,382 annotations that distinguish nothing from nothing. `IO` is on
+; 299, and each one of those says the thing a caller actually needs to
+; know: this reaches outside the process. `Alloc` and `Mut` stay
+; ambient and stay INFERRED - `symbols` still reports them, and
+; `handle`/`(Pure)` still measure them, so nothing that could observe
+; them lost the ability to.
+;
+; `effOverApprox` is the same suppression `axtagContradicted` makes,
+; and for the same reason: a row that may be an UPPER bound - IO
+; present only because the body NAMES an arrow-typed function without
+; calling it - is not evidence that the body performs IO, and
+; accusing an author on it refuses a correct program.
+(pub :: checkUndeclaredIO (-> Int Int Int Int))
+
+(pub fn (checkUndeclaredIO tc d eff)
+  (if (== (effOverApprox eff) 1)
+    0
+    (if (== (effIn eff (builtinEff "IO")) 1)
+      (emitUndeclaredEffect tc d "IO")
+      0
+    )
+  )
+)
+
+; A trait-method IMPLEMENTATION draws this like anything else, and
+; getting there needed a parser fix rather than an exemption.
+; `attachAxtags` walked only the top-level declaration vector, so a
+; `;@axiom:effect(io)` written above `(emit ...)` inside an `(impl
+; ...)` was attached to the next TOP-LEVEL declaration or to nothing -
+; measured: silently ignored, with AX3042 firing on a method no edit
+; could satisfy. A diagnostic no edit can satisfy is worse than none,
+; and the honest fix is a place to put the answer, not silence about
+; the question. `attachAxtags` now threads its cursor through an
+; impl's methods and a trait's defaults, so the positional rule holds
+; at both depths.
+;
+; The effect would reach a caller either way - the walk unions every
+; impl at a trait-method call site, which is what dynamic dispatch
+; means - but "the caller is told" is not the same as "the
+; implementation declared it", and only the second lets a reader learn
+; what an impl does without reading its body.
+
+(pub :: emitUndeclaredEffect (-> Int Int String Int))
+
+(pub fn (emitUndeclaredEffect tc d name)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR      "AX3042"      "undeclared-effect"      (nodeSpan d)      (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` performs ") (strConcat name " and its declaration does not say so"))      0      0      "write `;@axiom:effect(io)` above the declaration. Effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring"
+    ))
   )
 )
 

@@ -18,6 +18,7 @@
 
 (pub :: layer1 (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (layer1 n) (add n 1))
 
 ;@axiom:effect(io)

@@ -68,6 +68,7 @@
 
 (:: panic (-> String a))
 
+;@axiom:effect(io)
 (fn (panic msg)
   {
     (writeStr 2 msg)
@@ -81,6 +82,7 @@
 
 (:: pick (-> Int Int))
 
+;@axiom:effect(io)
 (fn (pick n)
   (if (< n 0)
     (panic "negative\n")
@@ -90,4 +92,5 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main) (pick 7))

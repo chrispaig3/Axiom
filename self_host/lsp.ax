@@ -361,6 +361,7 @@
 
 (pub :: lspPreflight (-> Int Int String Int String))
 
+;@axiom:effect(io)
 (pub fn (lspPreflight decls tcode entryDir seen)
   (let (
     (mut i 0)
@@ -429,6 +430,7 @@
 ; ------------------------------------------------------------------
 (pub :: lspCheckDoc (-> String String Int))
 
+;@axiom:effect(io)
 (pub fn (lspCheckDoc path src)
   ; A lexical error is reported before a parse one, as it is in the
   ; compiler: an editor should point at the bad escape rather than at

@@ -4,6 +4,7 @@
 
 (pub :: main Int)
 
+;@axiom:effect(io)
 (pub fn (main)
   {
     (when (> 2 1) (printlnLit (__addr "when: pass")))

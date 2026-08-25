@@ -636,9 +636,13 @@ can fail - a proposal whose number is already spent - so the next
 collision is a red gate rather than a paragraph nobody re-read. Found
 2026-08-25 while closing `AX3040`'s second shape.
 
-The next free semantic number is therefore `AX3045`: `AX3042` and
-`AX3043` are still unspent and stay where they are, `AX3044` is the
-namespace pass's, and `AX3032` is retired and **MUST NOT** be reused. A
+The next free semantic number is therefore `AX3046`: `AX3042` was
+SPENT on 2026-08-25 by `undeclared-effect` (a function that performs IO
+and does not declare it), `AX3043` and `AX3045` are still unspent and
+stay where they are, `AX3044` is the namespace pass's, and `AX3032` is
+retired and **MUST NOT** be reused. `discarded-result` renumbered to
+`AX3046` when `AX3042` was built under it - which is this paragraph's
+own rule working, and the collision check below is what caught it. A
 proposal renumbers again if something builds one before this model does,
 which is exactly why these are proposals and not allocations. Eight
 renumberings is itself the evidence: a table of reserved numbers ages
@@ -647,7 +651,7 @@ what keeps it honest.
 
 | Proposed | Slug | Condition |
 |---|---|---|
-| `AX3042` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning |
+| `AX3046` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning (was `AX3042` until that number was built as `undeclared-effect`) |
 | `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 | `AX3045` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
 
@@ -821,7 +825,7 @@ match binder.
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — `AX3042`, `AX3043`, `AX3045` not constructed; gated against collision |
+| `ERR-DIAG-2`, `3` | P | — `AX3043`, `AX3045`, `AX3046` not constructed; gated against collision (`AX3042` was, and renumbered `discarded-result`) |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |

@@ -69,6 +69,7 @@
 ; empty in every probed session, errors included.
 (pub :: replOut (-> String Int))
 
+;@axiom:effect(io)
 (pub fn (replOut s) (sysWriteFd 1 (strData s) (strLen s)))
 
 ; ------------------------------------------------------------------
@@ -617,6 +618,7 @@
 ; ------------------------------------------------------------------
 (:: replTmpRoot String)
 
+;@axiom:effect(io)
 (fn (replTmpRoot)
   (let ((t (sysEnv "TMPDIR")))
     (if (&& (pathIsAbsolute t) (< (strFindByte t 39 0) 0))

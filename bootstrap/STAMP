@@ -1,6 +1,6 @@
-Source stamp:          f296bc109d8f27fa91e6141d37d75a418be694ccb4c3f2b36fc72cc7f79c074c
-Source files:          42
-Generated on:          2026-08-23T12:52:57Z
+Source stamp:          c1060bcbc555f934f4f2ca94ee02cc98f1d418f1729c0ad94d49aa4c8c07cf12
+Source files:          46
+Generated on:          2026-08-25T23:30:33Z
 Regenerate with:       scripts/reseed.sh
 Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh
 
@@ -12,17 +12,3 @@ it finds the commit that last touched the four `.ll` files - not this
 directory, which also holds metadata about them - requires that
 commit's sources to hash to this line, and then regenerates all four
 seeds from them and requires the result to be byte-identical.
-
-This file used to record `Generated from commit: <sha>` instead, and
-that line was WRONG BY CONSTRUCTION rather than by accident. `reseed.sh`
-wrote `git rev-parse HEAD`, and the routine reason to reseed is that
-`self_host/` has just changed - so the tree is dirty when it runs and
-HEAD is the commit BEFORE the one that carries the new seed. Measured on
-2026-08-25: it named `ee0e4e1`, and regenerating from `ee0e4e1` differs
-from the committed seed by 1,532 lines - the seed defines
-`parser$nodeBName` and `parser$nodeCName`, which that commit's source
-does not declare. The seed is the emission of `93a74e5`, the commit that
-committed it, and from `93a74e5` all four files reproduce byte for byte.
-Nothing read the line, so nothing caught it; a source stamp cannot have
-that failure mode, because it is a fact about bytes that exist at the
-moment it is written.

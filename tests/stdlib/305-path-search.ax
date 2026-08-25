@@ -82,6 +82,7 @@
 ; name a search takes, naming the file the search would find.
 (pub :: selfName String)
 
+;@axiom:effect(io)
 (pub fn (selfName)
   (let ((parts (strSplit (sysArg 0) 47)))
     (vecGetStr parts (- (vecLen parts) 1))

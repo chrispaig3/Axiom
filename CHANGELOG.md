@@ -18,6 +18,94 @@ its changelog too.
 
 ### Added
 
+- **`axiom fmt` handles an `impl` body's trivia — two bugs, one of them
+  older than the feature that exposed it.** An AXTAG inside an
+  `(impl ...)` hit the member loop's `FN_PAREN` demand, which calls
+  `fpBad` and refuses the **whole file** — so a correct program became
+  unformattable, reported as bare "formatter refusal", the least
+  informative message in the toolchain. The loop now prints a member's
+  tags and suppresses the blank line between a tag and the member it
+  belongs to.
+
+  The second one predates all of this and had nothing to do with
+  AXTAGs: **an ordinary comment written inside an `impl` was re-emitted
+  after the block**, because the comment queue was never flushed
+  against a member's offset and stayed queued until the module ended.
+  The formatter's round-trip check could not catch it — it compares the
+  count and the text of every comment, and both survive being moved to
+  a different place in the file. Found only by writing one next to a
+  tag and reading the output.
+
+  `tests/fmt/syntax-zoo.ax` gains the case, per the rule that a printer
+  arm and a zoo case land together. It uses `;@axiom:no_refactor` and
+  not `effect(io)`: the printer's path is the same for any key, and a
+  *claim* would couple the zoo to the effect walk. The first draft
+  wrote `effect(io)` over `(lambda (x) x)`, which performs nothing, and
+  `AX3010` refused the formatted zoo — the new enforcement catching the
+  fixture written to test it.
+
+- **Effects are enforced for every function, not only the ones that
+  asked (`AX3042`).** `checkAxtags` opened with
+  `(if (&& (== own 0) (== sig 0)) 0 ...)` — an untagged declaration was
+  never asked what it performed. That one line was the entire opt-in
+  hole: a body could reach the outside world and nothing in the build
+  would say so.
+
+  **Silence is now a claim, and it is checked.** An untagged function
+  claims to perform no IO; a body that performs IO under that silence
+  is `AX3042`, an error. The effects are collected for every function,
+  not only the ones that volunteered a tag.
+
+  **Only `IO` is declarable, and that line came from a measurement.**
+  Of 3,040 functions in `self_host/` and `stdlib/`, 1,911 perform
+  something — and **1,382 of those perform exactly `Alloc,Mut`**, which
+  is every function that touches a `String` or a `Vec`, because
+  allocating is what an expression does here and `Mut` is set by
+  writing any struct field. A declaration required on those is 1,382
+  annotations that distinguish nothing from nothing. `Alloc` and `Mut`
+  stay ambient: still inferred, still on the AXSYM line, still measured
+  by `handle`/`(Pure)`. `IO` is on 299, and each one tells a caller the
+  thing it cannot learn without opening the callee.
+
+  **Blast radius: 192 declarations annotated** — 114 in `self_host/`,
+  78 across `tests/` and `examples/`, and **0 in `stdlib/`**, which was
+  already fully declared. The compiler self-compiles with the rule on.
+
+  Two shapes stay silent, and both are in
+  `tests/diagnostics/357-undeclared-effect.ax` beside the two that
+  fire: a row that may be an **upper** bound (IO present only because
+  the body *names* an arrow-typed function without calling it) is not
+  evidence that the body performs IO; and a declaration that made any
+  effect claim belongs to `AX3010`, right or wrong, so no declaration
+  ever draws both codes.
+
+- **A trait-method implementation can declare its effects.** It was the
+  one declaration in the language with nowhere to put the answer, and
+  two bugs sat between the author and it — the first hiding the second.
+  `attachAxtags` walked only the top-level declaration vector, so a tag
+  written above `(emit ...)` inside an `(impl ...)` fell between the
+  impl's span and the next top-level declaration's and was handed to
+  that declaration or dropped. And the expander **lowers** each impl
+  method into a fresh `TAG_D_FN` named `Trait#Type#method` — the node
+  everything after expansion actually checks — copying the member's
+  span but not its tags, so even an attached tag died at the lowering.
+
+  Both are fixed: `attachAxtags` threads its cursor *through* an impl's
+  methods and a trait's defaults, so the positional rule ("a tag
+  belongs to the next declaration whose span follows it") now holds at
+  both depths, and the lowered node inherits word 7.
+  `tests/diagnostics/358-impl-effect-declared.ax` pins it with its own
+  control: a tagged implementation is silent, and an untagged one
+  beside it draws `AX3042` at its mangled name, which is what shows the
+  check reaches impl members rather than skipping them.
+
+  The first attempt at this was an exemption — skip any name containing
+  `#` — and it is worth recording as the wrong answer. The effect would
+  have reached callers either way, because the walk unions every impl
+  at a call site; but "the caller is told" is not "the implementation
+  declared it", and only the second lets a reader learn what an impl
+  does without reading its body.
+
 - **A false AXTAG claim now REFUSES the build (`AX3010` is an error).**
   A `;@axiom:pure` on a body that performs I/O was a warning: exit 0, an
   executable, and the I/O happening at run time. A tag is a claim its

@@ -95,6 +95,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   ; the bounds cases: empty, one, already sorted, exactly reversed
   {

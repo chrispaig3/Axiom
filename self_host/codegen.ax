@@ -4390,6 +4390,7 @@
 ; `readModuleSrc` reads through it, rather than being stated twice.
 (pub :: moduleSrcPath (-> String Int String String))
 
+;@axiom:effect(io)
 (pub fn (moduleSrcPath name tcode entryDir)
   (let ((stem (modPathToFile name)))
     (let ((a (tryModulePath stem (targetOsArchSuffix tcode) entryDir)))
@@ -4435,6 +4436,7 @@
 ; handles that case rather than degrading into it; see its comment.
 (pub :: moduleSearchDirs (-> String Int))
 
+;@axiom:effect(io)
 (pub fn (moduleSearchDirs entryDir)
   ; The entry directory is pushed WITH ITS SLASH, the way every
   ; other root here already is (`pushPathList` and the `AXIOM_STDLIB`
@@ -4649,6 +4651,7 @@
 
 (pub :: tryModulePath (-> String String String String))
 
+;@axiom:effect(io)
 (pub fn (tryModulePath stem suffix entryDir) (searchDirsFor (moduleSearchDirs entryDir) (cat2 stem suffix) 0))
 
 ; The first search directory in which `base` is a readable, non-empty
@@ -4707,6 +4710,7 @@
 
 (pub :: searchDirsFor (-> Int String Int String))
 
+;@axiom:effect(io)
 (pub fn (searchDirsFor dirs base i)
   (if (|| (stemEscapes base) (>= i (vecLen dirs)))
     ""
@@ -4733,6 +4737,7 @@
 ; produces a diagnostic, not something worse further away.
 (pub :: dieImport (-> String String Int))
 
+;@axiom:effect(io)
 (pub fn (dieImport msg name)
   {
     (sysWriteFd 2 (strData msg) (strLen msg))
@@ -4803,6 +4808,7 @@
 ; module search directory `DIR/axiom/`.
 (pub :: pushCrateDirs (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (pushCrateDirs v i)
   (if (>= i sysArgc)
     0
@@ -4835,10 +4841,12 @@
 ; for a host, not a program.
 (pub :: cgStaticlib Bool)
 
+;@axiom:effect(io)
 (pub fn (cgStaticlib) (argHas "--emit-staticlib" 1))
 
 (pub :: argHas (-> String Int Bool))
 
+;@axiom:effect(io)
 (pub fn (argHas flag i)
   (if (>= i sysArgc)
     false
@@ -4851,6 +4859,7 @@
 
 (pub :: crateDirsOf Int)
 
+;@axiom:effect(io)
 (pub fn (crateDirsOf)
   (let ((v vecNew))
     {
@@ -4862,6 +4871,7 @@
 
 (pub :: collectCrateDirs (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (collectCrateDirs v i)
   (if (>= i sysArgc)
     0
@@ -4892,6 +4902,7 @@
 
 (pub :: firstOperandArg (-> Int String))
 
+;@axiom:effect(io)
 (pub fn (firstOperandArg i)
   (if (>= i sysArgc)
     ""
@@ -4914,6 +4925,7 @@
 ; from a declaration's `module` stamp.
 (pub :: parseModuleOrDieUnit (-> String Int String Int Int))
 
+;@axiom:effect(io)
 (pub fn (parseModuleOrDieUnit name tcode entryDir units)
   {
     (if (== (unitIndexOf units name 0) (- 0 1))
@@ -4959,10 +4971,12 @@
 ; entry, and warning twice for one typo is chatter.
 (pub :: diagFormatFromArgv Int)
 
+;@axiom:effect(io)
 (pub fn (diagFormatFromArgv) (diagFormatScan 1))
 
 (pub :: diagFormatScan (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (diagFormatScan i)
   (if (>= i sysArgc)
     FMT_HUMAN
@@ -4998,6 +5012,7 @@
 ; `Int` until the checker compared the two (2026-08-21).
 (pub :: importHelpText (-> String Int String String))
 
+;@axiom:effect(io)
 (pub fn (importHelpText name tcode entryDir)
   (let (
     (stem (modPathToFile name))
@@ -5120,6 +5135,7 @@
   )
 )
 
+;@axiom:effect(io)
 (pub fn (parseModuleOrDie name tcode entryDir)
   (let ((srcOpt (readModuleSrc name tcode entryDir)))
     (match srcOpt
@@ -5273,6 +5289,7 @@
 
 (pub :: resolveImports (-> Int Int Int Int Int String Int Int))
 
+;@axiom:effect(io)
 (pub fn (resolveImports decls bares fulls mods tcode entryDir units)
   {
     (recordEntryFns decls bares fulls 0)
@@ -5300,6 +5317,7 @@
 ; traversal and siblings observe each other's additions.
 (pub :: resolveDecls (-> Int Int Int Int String Int Int Int Int Int String Int Int))
 
+;@axiom:effect(io)
 (pub fn (resolveDecls decls acc seen i modName bares fulls mods filter tcode entryDir units) (resolveDeclsPhase
   decls  (resolveDeclsPhase
     decls    acc    seen    i    modName    bares    fulls    mods    filter    tcode    entryDir    units    0
@@ -5320,6 +5338,7 @@
 ; the module's own declarations.
 (pub :: resolveDeclsPhase (-> Int Int Int Int String Int Int Int Int Int String Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (resolveDeclsPhase decls acc seen i modName bares fulls mods filter tcode entryDir units phase)
   (if (>= i (vecLen decls))
     acc
@@ -5780,6 +5799,7 @@
 ; ------------------------------------------------------------------
 (pub :: emitAllocator (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitAllocator cg)
   ; The process's arguments, captured by the `@main` wrapper below
   ; before the user's (renamed) main runs; `__argc`/`__argv` read
@@ -7356,6 +7376,7 @@
 ; and `stdlib/` only, as they always did.
 (pub :: emitModule (-> Int String String))
 
+;@axiom:effect(io)
 (pub fn (emitModule decls target)
   ; Expansion, for the same reason every other path runs it: this
   ; one reaches EMISSION, so without it a macro invocation is
@@ -7392,6 +7413,7 @@
 ; declaration list) without duplicating the refusal.
 (pub :: checkedTargetCode (-> String Int))
 
+;@axiom:effect(io)
 (pub fn (checkedTargetCode target)
   (let ((tcode (targetCode target)))
     (if (< tcode 0)
@@ -7407,6 +7429,7 @@
 ; module from disk twice.
 (pub :: emitResolved (-> Int Int Int Int String))
 
+;@axiom:effect(io)
 (pub fn (emitResolved allDecls bares fulls tcode)
   ; Every signature is known and the type table is built:
   ; index both, then decide who owns what result before a
@@ -7446,6 +7469,7 @@
 
 (pub :: emitModuleTail (-> Int Int Int String))
 
+;@axiom:effect(io)
 (pub fn (emitModuleTail decls cg i)
   (let ((nextCg 
     (if (>= i (vecLen decls))
@@ -7639,6 +7663,7 @@
 ; ------------------------------------------------------------------
 (pub :: emitDecl (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitDecl node cg)
   (if (== (nodeTag node) TAG_D_FN)
     ; Lambdas lifted out of the function's body, and thunks its bare
@@ -7950,6 +7975,7 @@
 
 (pub :: emitFnDef (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitFnDef node cg)
   ; The entry file's `main` is not the linker's `main` - the argv
   ; wrapper in the prelude owns that symbol and calls this one. Same
@@ -8576,6 +8602,7 @@
 ; still reads - `(go (- n 1) n)` would see the decremented `n` twice.
 (pub :: emitTailJump (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitTailJump args stamp cg)
   (let (
     (vals vecNew)
@@ -8971,6 +8998,7 @@
 
 (pub :: evalTailArgs (-> Int Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (evalTailArgs args vals cg i)
   (if (>= i (vecLen args))
     0
@@ -9100,6 +9128,7 @@
 ; ------------------------------------------------------------------
 (pub :: emitExprTail (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitExprTail e cg)
   (let ((tag (nodeTag e)))
     (if (== tag TAG_E_APP)
@@ -9139,6 +9168,7 @@
 ; inherits tail position.
 (pub :: emitSeqTail (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitSeqTail exprs cg i)
   (if (>= i (vecLen exprs))
     cg
@@ -9174,6 +9204,7 @@
 ; always branches to it.
 (pub :: emitMatchTail (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitMatchTail node cg)
   (let (
     (scrutExpr (nodeA node))
@@ -9219,6 +9250,7 @@
 
 (pub :: emitArmsTail (-> Int String String String Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitArmsTail arms sv cell mergeB cg i ff)
   (if (>= i (vecLen arms))
     ; the explicit fall-through zero - see emitArms' comment
@@ -9278,6 +9310,7 @@
 ; invalid LLVM, and a second terminator in a block is too.
 (pub :: emitIfTail (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitIfTail node cg)
   (let (
     (testExpr (nodeA node))
@@ -9482,6 +9515,7 @@
 ; mutable binding is loaded, not aliased.
 (pub :: capValues (-> Int Int Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (capValues cg capNames capRegs capFloats i)
   (if (>= i (vecLen capNames))
     cg
@@ -9517,6 +9551,7 @@
 
 (pub :: emitLambda (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitLambda node cg)
   (let (
     (lparams (nodeA node))
@@ -9672,6 +9707,7 @@
 ; are drained by the same loop - then any new forwarding thunks.
 (pub :: drainPending (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (drainPending cg)
   (let ((pend (memGetWord cg 21)))
     (if (== (vecLen pend) 0)
@@ -9686,6 +9722,7 @@
 ; from the record at the offsets `emitLambda` stored them to.
 (pub :: emitLamDef (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitLamDef d cg)
   ; The lifted-lambda twin of the re-scan deleted in `emitFnDef`,
   ; and redundant for the same reason: slot 8 is `allDecls`,
@@ -9952,6 +9989,7 @@
 
 (pub :: emitMatch (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitMatch node cg)
   ; A compile-time cell for the first arm's float flag - a local
   ; rather than a CG field, so a nested match cannot clobber the
@@ -10036,6 +10074,7 @@
 
 (pub :: emitArms (-> Int String String String Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitArms arms sv cell mergeB cg i ff)
   (if (>= i (vecLen arms))
     ; No arm matched. The scratch is an alloca now, not an
@@ -10386,6 +10425,7 @@
 ; on every call (`fmtInt`, measured: 16 MB over 200,000 calls).
 (pub :: emitExpr (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitExpr node cg) (emitExprDispatch node cg))
 
 ; The retain itself, for a leaf `emitExprTail` has just emitted in
@@ -10437,6 +10477,7 @@
 
 (pub :: emitExprDispatch (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitExprDispatch node cg)
   (let ((tag (nodeTag node)))
     (if (== tag TAG_E_INT)
@@ -10555,6 +10596,7 @@
 
 (pub :: emitHandle (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitHandle node cg)
   (let ((ent (handleEffectEnt node cg)))
     (if (== ent 0)
@@ -10573,6 +10615,7 @@
 
 (pub :: emitHandleDyn (-> Int String Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitHandleDyn node slot cg)
   ; The body is deliberately NOT emitted in tail position: the restore
   ; below has to run after it, and a self tail call rewritten to a
@@ -10674,6 +10717,7 @@
 ; prints must print even when the dispatch below traps.
 (pub :: emitEffectOp (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitEffectOp ent args cg)
   ; Emission only, as in `emitHandle`: the registry is keyed on the
   ; unquoted name.
@@ -10734,6 +10778,7 @@
 ; collected before anything that consumes them is emitted.
 (pub :: emitArgRegs (-> Int Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitArgRegs args cg out i)
   (if (>= i (vecLen args))
     cg
@@ -10872,6 +10917,7 @@
 ; generator falls back to.
 (pub :: emitStructConExpr (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitStructConExpr node cg)
   (let (
     (types (memGetWord cg 3))
@@ -10913,6 +10959,7 @@
 ; retain would double-count its birth.
 (pub :: emitSetF (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitSetF node cg)
   (let ((cgB (emitExpr (nodeA node) cg)))
     (let (
@@ -10992,6 +11039,7 @@
 ; decides and this reads its answer.
 (pub :: emitField (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitField node cg)
   (let ((cgB (emitExpr (nodeA node) cg)))
     (let (
@@ -11199,6 +11247,7 @@
 ; Checks symbol table first (let-bound variables), then type registry (constructors).
 (pub :: emitVar (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitVar node cg)
   ; A macro used to be expanded HERE, ahead of the symbol table, so a
   ; macro name outranked every binder in the program: `(macro (v) 9)`
@@ -11470,6 +11519,7 @@
 ; ------------------------------------------------------------------
 (pub :: emitApp (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitApp node cg)
   {
     (memSetWord cg 5 vecNew)
@@ -11479,6 +11529,7 @@
 
 (pub :: walkAppChain (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (walkAppChain node cg)
   (let (
     (fnNode (nodeA node))
@@ -11535,6 +11586,7 @@
 ; emitter reads another.
 (pub :: dispatchCall (-> String Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (dispatchCall fnName stamp cg defscope)
   ; Read and clear in one step: tail position belongs to this
   ; call alone, and the arguments emitted below must not inherit
@@ -11685,6 +11737,7 @@
 ; as integer.
 (pub :: emitIndirectCall (-> String Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitIndirectCall fnName args cg)
   (let ((cgH (emitVar (mkEVar fnName) cg)))
     (emitApplyChain args cgH (strDup (memGetWordStr cgH 2)) 0)
@@ -11693,6 +11746,7 @@
 
 (pub :: emitApplyChain (-> Int Int String Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitApplyChain args cg rec i)
   (if (>= i (vecLen args))
     {
@@ -11832,6 +11886,7 @@
 
 (pub :: emitPrim (-> String Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrim fnName args cg stamp)
   (if (strEq fnName "__intToFloat")
     (emitPrimIntToFloat args cg)
@@ -11905,6 +11960,7 @@
 ; form's own release path (`@axiom_release`) makes exactly this call.
 (pub :: emitPrimCallWord (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimCallWord args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let ((fnv (strDup (memGetWordStr cg1 2))))
@@ -11939,6 +11995,7 @@
 ; ownership events until MM-LIFE-2c.
 (pub :: emitPrimRetRel (-> Int Int String Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimRetRel args cg sym)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let ((h (strDup (memGetWordStr cg1 2))))
@@ -11971,6 +12028,7 @@
 ; The result is 0. A share is an effect on a header, not a value.
 (pub :: emitPrimRetainRef (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimRetainRef args cg stamp)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
@@ -12011,6 +12069,7 @@
 ; the evaluation order every other two-operand form here uses.
 (pub :: emitPrimStrEq (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimStrEq args cg want)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let ((a (strDup (memGetWordStr cg1 2))))
@@ -12067,6 +12126,7 @@
 ; more value across the block for nothing.
 (pub :: emitPrimRecover (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimRecover args cg)
   ; The arm opens a block of its own so the phi below has a NAME to
   ; write for its first edge. A function's entry block carries no
@@ -12178,6 +12238,7 @@
 
 (pub :: emitPrimArenaReset (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimArenaReset args cg)
   (let ((cg0 (emitExpr (vecGet args 0) cg)))
     (let ((cell (strDup (memGetWordStr cg0 2))))
@@ -12198,6 +12259,7 @@
 ; result register goes in field 2.
 (pub :: emitPrimArenaResetKeeping (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimArenaResetKeeping args cg)
   (let ((cg0 (emitExpr (vecGet args 0) cg)))
     (let ((cell (strDup (memGetWordStr cg0 2))))
@@ -12241,6 +12303,7 @@
 ; bounds check at this layer; `Sys.sysArg` owns that.
 (pub :: emitPrimArgv (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimArgv args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
@@ -12274,6 +12337,7 @@
 ; the i64 of its bits like every other float.
 (pub :: emitPrimIntToFloat (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimIntToFloat args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
@@ -12299,6 +12363,7 @@
 
 (pub :: emitPrimFloatToInt (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimFloatToInt args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
@@ -12326,6 +12391,7 @@
 ; registers, so a call with fewer arguments is padded with zeros.
 (pub :: emitPrimSyscall (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimSyscall args cg)
   (let (
     (cg1 (emitArgsList args cg 0))
@@ -12354,6 +12420,7 @@
 
 (pub :: emitPrimAlloc (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimAlloc args cg)
   (let (
     (cg1 (emitExpr (vecGet args 0) cg))
@@ -12384,6 +12451,7 @@
 
 (pub :: emitPrimLoad (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimLoad args cg width)
   (let (
     (cg1 (emitExpr (vecGet args 0) cg))
@@ -12429,6 +12497,7 @@
 
 (pub :: emitPrimStore (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimStore args cg width)
   ; A byte store needs the value narrowed first; a word store
   ; takes it as it stands.
@@ -12485,6 +12554,7 @@
 ; by the global the table will emit.
 (pub :: emitPrimAddr (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPrimAddr args cg)
   (let ((node (vecGet args 0)))
     (if (!= (nodeTag node) TAG_E_STR)
@@ -12538,6 +12608,7 @@
 ; does not exist.
 (pub :: emitOverApplied (-> String Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitOverApplied fnName args stamp cg)
   (let ((decls (memGetWord cg 8)))
     (if (isDefinedFn decls fnName)
@@ -12583,6 +12654,7 @@
 ; Emit regular call: check binops/comparisons first.
 (pub :: emitCall (-> String Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitCall fnName args stamp cg)
   (if (&& (== (vecLen args) 2) (isBinop fnName))
     (emitBinop2 fnName args cg)
@@ -12608,6 +12680,7 @@
 ; stage0, and this compiler compiles what it is given.
 (pub :: emitBinop2 (-> String Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitBinop2 fnName args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
@@ -12726,6 +12799,7 @@
 
 (pub :: emitCmp2 (-> String Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitCmp2 fnName args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
@@ -12801,6 +12875,7 @@
 
 (pub :: emitPlainCall (-> String Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitPlainCall fnName args stamp cg)
   ; The callee's defining module may have renamed it - a bare
   ; reference reaches whatever symbol the map says (entry file
@@ -12859,6 +12934,7 @@
 ; order, into `regs`.
 (pub :: emitArgsRegs (-> Int Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitArgsRegs args cg regs i)
   (if (>= i (vecLen args))
     {
@@ -12977,6 +13053,7 @@
 
 (pub :: emitAndOr (-> String Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitAndOr op args cg)
   ; `&&` takes the right-hand side when the left is true; `||`
   ; when it is false.
@@ -13202,6 +13279,7 @@
 ; Emit argument expressions from a Vec, building comma-separated reg string.
 (pub :: emitArgsList (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitArgsList args cg i)
   (if (>= i (vecLen args))
     {
@@ -13751,6 +13829,7 @@
 ; ------------------------------------------------------------------
 (pub :: emitConstructor (-> Int Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitConstructor args entry stamp cg)
   ; A nullary constructor of any type that unboxes (all-nullary OR
   ; mixed) is its immediate tag - stage0's S1 representation. The
@@ -13956,6 +14035,7 @@
 
 (pub :: emitFieldStores (-> Int String Int Int Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitFieldStores cg ptr args i base entry stamp)
   (if (>= i (vecLen args))
     cg
@@ -14006,12 +14086,14 @@
 ; ------------------------------------------------------------------
 (pub :: emitLet (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitLet node cg) (emitLetAt node cg 0))
 
 ; `tail` is 1 when the let itself sits in tail position, so its body
 ; does too and a borrowed leaf there gets event 2's retain.
 (pub :: emitLetAt (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitLetAt node cg tail)
   ; The binding remembers whether its initialiser was a float, so a
   ; later `(+ x ...)` on the bound name picks the right instruction.
@@ -15262,10 +15344,12 @@
 ; name binds the alloca (kind 1), and reads load.
 (pub :: emitLetM (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitLetM node cg) (emitLetMAt node cg 0))
 
 (pub :: emitLetMAt (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitLetMAt node cg tail)
   (let (
     (name (nodeAName node))
@@ -15310,6 +15394,7 @@
 ; compiler has no diagnostic channel subtler than dying.
 (pub :: emitSet (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitSet node cg)
   (let (
     (name (nodeAName node))
@@ -15346,6 +15431,7 @@
 ; iteration to take a value from.
 (pub :: emitWhile (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitWhile node cg)
   (let (
     (cnd (nodeA node))
@@ -15389,6 +15475,7 @@
 
 (pub :: emitIf (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitIf node cg)
   ; A well-typed `if` yields the same type from both branches, so
   ; the then-branch's float-ness stands for the whole form.
@@ -15448,6 +15535,7 @@
 
 (pub :: emitBegin (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitBegin node cg)
   (let ((exprs (nodeA node)))
     (emitSeq exprs cg 0)
@@ -15462,6 +15550,7 @@
 ; call results and locals, so only the syntactic direct-build shape
 ; releases in this slice; its fields were retained by event 6, so the
 ; walk hands their shares back correctly).
+;@axiom:effect(io)
 (pub fn (emitSeq exprs cg i)
   (if (>= i (vecLen exprs))
     cg

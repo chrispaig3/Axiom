@@ -34,6 +34,7 @@
 
 (:: say (-> Int String Int))
 
+;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
@@ -56,6 +57,7 @@
 ; loop every server built on this API will write.
 (:: acceptSoon (-> Int Int Int))
 
+;@axiom:effect(io)
 (fn (acceptSoon lsn tries)
   (let ((c (netAccept lsn)))
     (if (>= c 0)
@@ -73,6 +75,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let ((port (+ 20000 (% sysGetPid 10000))))
     (let (

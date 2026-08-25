@@ -21,6 +21,7 @@
 
 (pub :: valueOr (-> (Result Counter String) Int Int))
 
+;@axiom:effect(io)
 (pub fn (valueOr r d)
   (match r
     ((Ok c) (counterValue c))

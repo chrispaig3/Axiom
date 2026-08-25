@@ -593,15 +593,26 @@ remains, a call the compiler cannot resolve, and it announces itself as
   AXTAG key namespace is open — so the subject cannot be promoted out
   from under them a second time.
 
-  **What it does NOT buy, stated so the boundary is not overread:** it
-  makes a false tag fatal; it does not make effects *checked*. A tag is
-  opt-in, and an untagged function performing IO still draws nothing.
-  That gap is the one **Effect rows in signatures** below names, and
-  this section's judgement on it is unchanged. `AX3037`/`AX3038` stay
-  warnings, and `tests/diagnostics/355-tag-over-approximated.ax` pins
-  the boundary in a single fixture: the unverifiable claim renders `W
-  AX3037` and the refuted one on the next declaration renders `E
-  AX3010`.
+  **What it bought, and what it left:** it made a false tag fatal. It
+  did not, by itself, make effects *checked* — a tag was opt-in, and an
+  untagged function performing IO still drew nothing.
+
+  **That second gap closed the same day, in `AX3042`.** `checkAxtags`
+  opened with `(if (&& (== own 0) (== sig 0)) 0 ...)`, so a declaration
+  that volunteered no tag was never asked what it performed; that one
+  line WAS the opt-in. Silence is now the claim *"performs no IO"* and
+  is checked like any other, so effects are enforced for every
+  function. Only `IO` is declarable — measured: 1,382 of the 1,911
+  effectful functions here perform exactly `Alloc,Mut`, so requiring a
+  declaration on those distinguishes nothing from nothing, and both
+  stay ambient. §"Effect rows in signatures" below is therefore about
+  putting effects in *types*, which is a different and still-open
+  question from whether they are enforced.
+
+  `AX3037`/`AX3038` stay warnings, and
+  `tests/diagnostics/355-tag-over-approximated.ax` pins the boundary in
+  a single fixture: the unverifiable claim renders `W AX3037` and the
+  refuted one on the next declaration renders `E AX3010`.
 
   The gate keeps its job either way: `check-agent-policy.sh` is where a
   violated *policy* stops a build, which is §3.4's argument arriving a

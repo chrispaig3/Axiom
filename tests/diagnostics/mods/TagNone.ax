@@ -5,6 +5,7 @@
 
 (pub :: work (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (work n)
   {
     (println "tagnone does IO")

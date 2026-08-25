@@ -29,6 +29,7 @@
 
 (pub :: churn (-> Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (churn i acc)
   (if (>= i 500)
     acc

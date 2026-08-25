@@ -38,6 +38,7 @@
 
 (pub :: roundTrip (-> Foreign Int Int))
 
+;@axiom:effect(io)
 (pub fn (roundTrip h i)
   (if (>= i 2000)
     (counterValue h)

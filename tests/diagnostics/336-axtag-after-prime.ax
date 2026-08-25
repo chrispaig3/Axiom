@@ -44,4 +44,5 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main) (+ three (+ n' (after (quiet 0)))))

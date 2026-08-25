@@ -48,6 +48,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let (
     (f (strCStr "axiom_test_file_358"))

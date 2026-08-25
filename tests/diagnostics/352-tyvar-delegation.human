@@ -1,25 +1,25 @@
 [1;31merror[AX3040][0m[1m: `conjure` returns type variable `a`, which no parameter mentions, and its body produces that result rather than never returning: the caller chooses the type and a `cast` fabricates the value[0m
-  [1;34m--> [0m352-tyvar-delegation.ax:43:5
+  [1;34m--> [0m352-tyvar-delegation.ax:44:5
 [1;34m   |[0m
-[1;34m43 |[0m (:: conjure (-> Int a))
+[1;34m44 |[0m (:: conjure (-> Int a))
 [1;34m   |[0m     [1;31m^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mthree ways out: return a concrete word type and let callers write `cast`; or make it DIVERGE, so every path ends in a call that never returns, which is what makes `for all a` honest; or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3040` for a full explanation
 
 [1;31merror[AX3040][0m[1m: `sneak` returns type variable `a`, which no parameter mentions, and its body produces that result rather than never returning: the caller chooses the type and a `cast` fabricates the value[0m
-  [1;34m--> [0m352-tyvar-delegation.ax:55:5
+  [1;34m--> [0m352-tyvar-delegation.ax:57:5
 [1;34m   |[0m
-[1;34m55 |[0m (:: sneak (-> Int a))
+[1;34m57 |[0m (:: sneak (-> Int a))
 [1;34m   |[0m     [1;31m^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mthree ways out: return a concrete word type and let callers write `cast`; or make it DIVERGE, so every path ends in a call that never returns, which is what makes `for all a` honest; or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3040` for a full explanation
 
 [1;31merror[AX3040][0m[1m: `mixed` returns type variable `a`, which no parameter mentions, and its body produces that result rather than never returning: the caller chooses the type and a `cast` fabricates the value[0m
-  [1;34m--> [0m352-tyvar-delegation.ax:60:5
+  [1;34m--> [0m352-tyvar-delegation.ax:62:5
 [1;34m   |[0m
-[1;34m60 |[0m (:: mixed (-> Int a))
+[1;34m62 |[0m (:: mixed (-> Int a))
 [1;34m   |[0m     [1;31m^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mthree ways out: return a concrete word type and let callers write `cast`; or make it DIVERGE, so every path ends in a call that never returns, which is what makes `for all a` honest; or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose

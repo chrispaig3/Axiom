@@ -33,6 +33,7 @@
 
 (:: panic (-> String a))
 
+;@axiom:effect(io)
 (fn (panic msg)
   {
     (writeStr 2 msg)
@@ -49,6 +50,7 @@
 ; CORRECT: diverges, because `panic` does.
 (:: rethrow (-> Int a))
 
+;@axiom:effect(io)
 (fn (rethrow n) (panic "rethrown\n"))
 
 ; UNSOUND: fabricates, because `conjure` does.
@@ -59,6 +61,7 @@
 ; UNSOUND on one arm, which is enough.
 (:: mixed (-> Int a))
 
+;@axiom:effect(io)
 (fn (mixed n)
   (if (> n 0)
     (panic "big\n")

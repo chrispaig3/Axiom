@@ -225,9 +225,11 @@ observable effects:
 **MM-EXEC-9 (H).** Effects are **inferred transitively** — a fixpoint
 over every function body, so a syscall three calls down counts — and
 reported by `axiom symbols` as `#effects=...`. Effects do **not** appear
-in function types. `;@axiom:effect(...)` and `;@axiom:pure` are opt-in
+in function types. `;@axiom:effect(...)` and `;@axiom:pure` are
 *claims*, validated against the inference; a refuted claim is
-`AX3010`, an **error**. An untagged function is not policed.
+`AX3010`, an **error**. They are not opt-in: an untagged function
+claims to perform no `IO`, and a body that performs it anyway is
+`AX3042`. `Alloc` and `Mut` stay ambient and are never required.
 
 **MM-EXEC-9a (H).** **The inferred effect set is an
 under-approximation, and a specification must say so.** A conforming

@@ -1,0 +1,10 @@
+[1;31merror[AX3042][0m[1m: `Hush#Int#quiet` performs IO and its declaration does not say so[0m
+  [1;34m--> [0m358-impl-effect-declared.ax:39:4
+[1;34m   |[0m
+[1;34m39 |[0m   (quiet
+[1;34m   |[0m    [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration. Effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3042` for a full explanation
+
+compilation failed due to 1 previous error

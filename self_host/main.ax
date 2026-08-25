@@ -118,6 +118,7 @@
 ; text, so the two cannot disagree about what the symbols are.
 (pub :: symbolsEmit (-> Int Int String Int Int))
 
+;@axiom:effect(io)
 (pub fn (symbolsEmit tc gens cmd dfmt)
   {
     symbolsFormatNotice
@@ -1756,6 +1757,7 @@
 ; class, and it is what the usage text now says.
 (pub :: inputOperand String)
 
+;@axiom:effect(io)
 (pub fn (inputOperand)
   (let ((v (flagValue "--input" 1)))
     (if (> (strLen v) 0)
@@ -1790,6 +1792,7 @@
 ; the compiler chose.
 (pub :: runInputOperand String)
 
+;@axiom:effect(io)
 (pub fn (runInputOperand)
   (let ((p (positionalIndex operandStart)))
     (if (< p 0)
@@ -1799,6 +1802,7 @@
   )
 )
 
+;@axiom:effect(io)
 (pub fn (inputArgSkipping bare)
   (let (
     (n sysArgc)
@@ -1846,6 +1850,7 @@
 
 (pub :: fmtInputArg (-> Int String))
 
+;@axiom:effect(io)
 (pub fn (fmtInputArg _u) (inputArgSkipping "--check"))
 
 ; argv for the program `run` spawns: its own name, then every argument
@@ -1864,6 +1869,7 @@
 ; otherwise be ambiguous can be forced across with `--`.
 (pub :: runArgv (-> String Int))
 
+;@axiom:effect(io)
 (pub fn (runArgv name)
   (let (
     (first (+ (positionalIndex operandStart) 1))
@@ -1892,6 +1898,7 @@
 ; marker, not an argument the program asked for.
 (pub :: fillRunArgv (-> Int Int Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (fillRunArgv v from to slot)
   (if (>= from to)
     {
@@ -1912,6 +1919,7 @@
 
 (pub :: die (-> String Int Int))
 
+;@axiom:effect(io)
 (pub fn (die msg code)
   {
     (sysWriteFd 2 (strData msg) (strLen msg))

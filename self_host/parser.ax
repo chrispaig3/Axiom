@@ -5404,7 +5404,7 @@
 
 (pub fn (attachAxtags decls i axtags next)
   (if (>= i (vecLen decls))
-    0
+    next
     (let ((d (vecGet decls i)))
       (let ((limit 
         (if (== (nodeSpan d) 0)
@@ -5418,11 +5418,39 @@
               (memSetWord d 7 (axtagSlice axtags next upto))
               0
             )
-            (attachAxtags decls (+ i 1) axtags upto)
+            (attachAxtags
+              decls              (+ i 1)              axtags              (attachAxtagsNested d axtags upto)
+            )
           }
         )
       )
     )
+  )
+)
+
+; An `impl`'s methods and a `trait`'s defaults are DECLARATIONS that
+; live inside another declaration's node instead of in the top-level
+; vector, and until this existed they were the one place in the
+; language with nowhere to write a `;@axiom:` tag. A tag above
+; `(emit ...)` inside an `(impl ...)` sat between the impl's span and
+; the next top-level declaration's, so this walk either handed it to
+; that NEXT declaration or dropped it. Measured before the fix: the
+; tag was silently ignored, and `AX3042` fired on a method no edit
+; could satisfy.
+;
+; The cursor threads THROUGH the members rather than around them, so
+; the positional rule is the one the top level already used - a tag
+; belongs to the next declaration whose span follows it - and it now
+; holds at both depths. That is also why this function returns the
+; cursor and `attachAxtags` returns it too: the top-level walk must
+; resume after the tags a nested member consumed, or it would give
+; them out a second time.
+(pub :: attachAxtagsNested (-> Int Int Int Int))
+
+(pub fn (attachAxtagsNested d axtags cur)
+  (if (|| (== (nodeTag d) TAG_D_IMPL) (== (nodeTag d) TAG_D_TRAIT))
+    (attachAxtags (nodeB d) 0 axtags cur)
+    cur
   )
 )
 

@@ -55,6 +55,7 @@
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX3040[0m  a type variable the caller chooses and the callee produces  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
+  [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
@@ -1157,6 +1158,44 @@ Name only the library here. A directory belongs in `--link-search DIR`
 or `AXIOM_LINK_SEARCH`, and the symbol on the other side of the
 boundary belongs in the item's own `(symbol "...")` clause.
 
+### explain AX3042
+AX3042 - a function performs IO and does not declare it
+
+The body reaches outside the process - a `__syscallN`, a call to
+something that does, or an `extern` - and the declaration says
+nothing about it.
+
+SILENCE IS A CLAIM HERE. An untagged function is not an unchecked
+one: it is a function claiming to perform no IO, and this is that
+claim being refuted. Effects were opt-in until 2026-08-25, which
+meant a body could reach the outside world and nothing in the build
+would say so.
+
+Write `;@axiom:effect(io)` above the declaration. Effects are
+INFERRED TRANSITIVELY, so this fires on every function up the call
+chain, not only the one holding the syscall - and each of those is a
+place a reader would otherwise have to open the callee to learn it.
+If the effect is not wanted there, the fix is to stop performing it
+rather than to stop saying so.
+
+ONLY `IO` IS DECLARABLE, and the reason is a measurement. Of 3,040
+functions in this compiler and its standard library, 1,911 perform
+something and 1,382 of those perform exactly `Alloc,Mut` - every
+function that touches a String or a Vec, because allocating is what
+an expression does here and `Mut` is set by writing any struct
+field. A declaration required on those distinguishes nothing from
+nothing. `Alloc` and `Mut` stay ambient and stay inferred: `symbols`
+still reports them and `handle`/`(Pure)` still measure them.
+
+Two shapes do not draw this. A body whose IO may be an
+over-approximation - the row is an upper bound because the body
+NAMES an arrow-typed function without calling it - is not evidence
+that it performs IO. And a trait-method IMPLEMENTATION has no place
+to put a tag: `attachAxtags` gives tags to top-level declarations,
+and an impl's members are nested inside the impl node. The effect is
+not lost - the walk unions every impl at a call site, so the CALLER
+of a trait method that performs IO must declare it.
+
 ### explain AX3044
 AX3044 - a bare type name is declared in more than one imported module
 
@@ -1368,6 +1407,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX3040[0m  a type variable the caller chooses and the callee produces  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
+  [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)

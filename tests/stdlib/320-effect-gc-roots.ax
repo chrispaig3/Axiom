@@ -36,6 +36,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   {
     (handle {

@@ -3,6 +3,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let ((fd (sysOpenPath (__addr "in.ax") oRdonly)))
     (if (> fd 2)

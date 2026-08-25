@@ -1,6 +1,7 @@
 (:: w Int)
 
 ;@axiom:pur
+;@axiom:effect(io)
 (fn (w)
   {
     (__syscall3 1 1 0 0)

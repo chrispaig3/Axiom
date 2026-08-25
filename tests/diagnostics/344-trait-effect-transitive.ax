@@ -23,6 +23,7 @@
 ))
 
 (impl (Logger Int) where (
+  ;@axiom:effect(io)
   (emit
     (lambda (x) (__syscall3 1 1 x 0))
   )
@@ -40,4 +41,5 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main) (g 1))

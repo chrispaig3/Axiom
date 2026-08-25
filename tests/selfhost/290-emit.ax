@@ -13,6 +13,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let ((pr (parseModule (lex "(fn (f) 1)"))))
     (if (== (memGetWord pr 0) 0)

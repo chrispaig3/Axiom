@@ -19,4 +19,5 @@
 
 (:: known Int)
 
+;@axiom:effect(io)
 (fn (known) __argc)

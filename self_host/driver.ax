@@ -2058,6 +2058,7 @@
 ; name an external symbol, so there was nothing for a `-l` to resolve.
 (pub :: linkArgsOf Int)
 
+;@axiom:effect(io)
 (pub fn (linkArgsOf)
   (let ((v vecNew))
     {
@@ -2077,6 +2078,7 @@
 ; than the first: a program may bind more than one library.
 (pub :: collectFlagInto (-> Int String String Int Int Int))
 
+;@axiom:effect(io)
 (pub fn (collectFlagInto v name prefix i n)
   (if (>= i n)
     0
@@ -2115,10 +2117,12 @@
 
 (pub :: flagValue (-> String Int String))
 
+;@axiom:effect(io)
 (pub fn (flagValue name from) (flagValueAt name from sysArgc))
 
 (pub :: flagValueAt (-> String Int Int String))
 
+;@axiom:effect(io)
 (pub fn (flagValueAt name i n)
   (if (>= i n)
     ""
@@ -2232,6 +2236,7 @@
 
 (pub :: positionalIndex (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (positionalIndex from)
   (if (>= from sysArgc)
     (- 0 1)
@@ -2270,6 +2275,7 @@
 
 (pub :: positionalFrom (-> Int String))
 
+;@axiom:effect(io)
 (pub fn (positionalFrom from)
   (let ((i (positionalIndex from)))
     (if (< i 0)
@@ -2286,6 +2292,7 @@
 ; scan below it.
 (pub :: subcommandIndex Int)
 
+;@axiom:effect(io)
 (pub fn (subcommandIndex)
   (let ((a1 
     (if (> sysArgc 1)
@@ -2302,6 +2309,7 @@
 
 (pub :: subcommandName String)
 
+;@axiom:effect(io)
 (pub fn (subcommandName)
   (let ((i subcommandIndex))
     (if (< i 0)
@@ -2322,6 +2330,7 @@
 ; own name back as the input filename.
 (pub :: operandStart Int)
 
+;@axiom:effect(io)
 (pub fn (operandStart) (+ subcommandIndex 1))
 
 ; The optimisation level, refusing a value it cannot honour.
@@ -2334,6 +2343,7 @@
 ; clamp is a silent answer to a question the user got wrong.
 (pub :: optLevelArg Int)
 
+;@axiom:effect(io)
 (pub fn (optLevelArg)
   ; `checkArgs` has already refused every value this cannot honour, so
   ; the fallback here is unreachable rather than a silent substitution.
@@ -2354,6 +2364,7 @@
 
 (pub :: targetArg (-> String String))
 
+;@axiom:effect(io)
 (pub fn (targetArg fallback)
   (let ((v (flagValue "--target" 1)))
     (if (== (strLen v) 0)
@@ -2561,10 +2572,12 @@
 ; its help, not this compiler for its own.
 (pub :: hasFlagAnywhere (-> String String Bool))
 
+;@axiom:effect(io)
 (pub fn (hasFlagAnywhere cmd want) (hasFlagAnywhereFrom cmd want 1 0))
 
 (pub :: hasFlagAnywhereFrom (-> String String Int Int Bool))
 
+;@axiom:effect(io)
 (pub fn (hasFlagAnywhereFrom cmd want i endOpts)
   (if (>= i sysArgc)
     false

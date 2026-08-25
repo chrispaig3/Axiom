@@ -32,6 +32,7 @@
 
 (:: say (-> Int String Int))
 
+;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
@@ -42,6 +43,7 @@
 ; A bound, listening, non-blocking socket on `port`, or a negative.
 (:: listenOn (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (fn (listenOn addr optb port)
   (let ((fd netSocketTcp))
     (if (< fd 0)
@@ -91,6 +93,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let ((base (+ 20000 (% sysGetPid 9000))))
     (let ((addr (memAlloc 16)))

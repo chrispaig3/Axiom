@@ -19,6 +19,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   ; --- append -----------------------------------------------------
   ; It CREATES when the file is absent, which is what makes an

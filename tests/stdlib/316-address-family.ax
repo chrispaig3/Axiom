@@ -31,6 +31,7 @@
 
 (:: say (-> Int String Int))
 
+;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
@@ -40,6 +41,7 @@
 
 (:: shows (-> String String Int))
 
+;@axiom:effect(io)
 (fn (shows label text) (printlnLit (strCStr (strConcat (strConcat label " -> ") text))))
 
 ; Whether a rendering contains a colon, which is how "this v4 address
@@ -103,6 +105,7 @@
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   ; ---------------------------------------------------------- v4
   (let (

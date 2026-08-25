@@ -194,6 +194,7 @@ cat > "$work/nest.ax" <<'PROBE'
 
 (:: middle (-> Int Int))
 
+;@axiom:effect(io)
 (fn (middle x)
   (let ((mi __axiom_arena_mark))
     (let ((a (__axiom_recover mi (lambda (y) (inner y)))))
@@ -207,6 +208,7 @@ cat > "$work/nest.ax" <<'PROBE'
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (let ((mo __axiom_arena_mark))
     (let (
@@ -323,6 +325,7 @@ emit_abort_loop() {
 
 (:: main Int)
 
+;@axiom:effect(io)
 (fn (main)
   (handle
     (let (
