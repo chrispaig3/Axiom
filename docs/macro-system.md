@@ -116,9 +116,11 @@ by the expander, on the author's behalf, to make hygiene work.
 
 **MAC-LANG-8 (H).** Macros occupy the **value namespace**, which they
 share with `fn`/`define`, every trait method and every effect operation.
-(Exactly three namespaces exist: value, type, and none. Data
-constructors, type aliases, struct field names, a trait's own name and
-`impl` occupy *no* namespace and collide with nothing.)
+(Exactly three namespaces exist: value, type, and none. `data`,
+`struct` and — since 2026-08-24 — `type` occupy the TYPE namespace and
+collide with each other; data constructors, struct field names, a
+trait's own name and `impl` occupy *no* namespace and collide with
+nothing.)
 
 A macro and a function of the same name in one file is `AX3006`, with
 both spans real:

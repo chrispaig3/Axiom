@@ -100,6 +100,21 @@ line break inside a string literal is an ordinary character by decision,
 and that decision belongs to the language rather than to one consumer of
 one string.
 
+`AX3044` refuses a bare TYPE name that two or more imported modules
+declare, where nothing module-less outranks them and the reference is
+inside neither. It is `AX3014`'s type-namespace sibling and is a
+separate code because the ESCAPE is different: `AX3014` tells the
+reader to write `Mod::name`, and in type position that does not parse
+at all (`parseTypeAtom` has no `::` arm), so answering `AX3014` there
+would hand the reader a fix that fails to compile. What it says
+instead is to narrow one of the imports with a name list, or to rename
+one declaration. Until 2026-08-24 there was no diagnostic here of any
+kind: a type name resolved to whichever declaration came first in the
+merged list, which is import order, so a module's own bodies could be
+compiled against another module's field offsets — at exit 0, with the
+answer changing when an unrelated `(import ...)` line moved
+(`scripts/check-type-namespace.sh`, `tests/selfhost/491`-`494`).
+
 Codes are stable across wording changes, so you can grep for them in CI,
 pattern-match on them in editor tooling, or look them up directly:
 

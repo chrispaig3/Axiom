@@ -1,0 +1,11 @@
+; expect 99
+; `491` with the two imports in the other order. It answered 99 before
+; the fix too - by accident, because TeamB happened to be first - and
+; that is exactly why it is only half a test. Read it with `491`.
+(import TeamB)
+
+(import TeamA)
+
+(:: main Int)
+
+(fn (main) bPort)

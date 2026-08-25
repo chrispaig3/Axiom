@@ -335,9 +335,11 @@ echo "ok   stage3 built by stage2, with no Rust compiler anywhere in the chain"
 
 # Anti-vacuousness before the comparison, not after it: `cmp` is
 # happiest when both files are empty, and two missing compilers are
-# byte-identical. The binary is 588 KB today and the IR 61,688 lines;
-# the floors sit far below both and far above anything a failed build
-# leaves behind.
+# byte-identical. The binary is 1.5 MB today and the IR 152,202 lines
+# (re-measured 2026-08-24; the figures here read 588 KB and 61,688 and
+# had been stale for long enough to be worth nothing as a floor's
+# justification); the floors sit far below both and far above anything
+# a failed build leaves behind.
 for stage in d2 d3; do
   [[ -x "$work/$stage/axc" ]] || fail "$stage/axc is not an executable file"
   (( $(wc -c <"$work/$stage/axc") > 100000 )) \
@@ -605,14 +607,40 @@ floor=8192       # 8 MiB
 # ceiling after them, so a 39% regression could have landed green.
 # 340 leaves ~13% over the measured 301, which still catches the 38%
 # the quadratic costs on its first run.
-ceiling=348160   # 340 MiB, over a measured 301
+#
+# 340 -> 384 MiB on 2026-08-24, and the drift this one records is the
+# thing the entry above predicted. The type-namespace slice failed
+# here at 340.6 MiB, and the three measurements that priced it say the
+# machinery is not what grew:
+#
+#   HEAD's compiler on HEAD's source          333,648 KiB
+#   HEAD's compiler on the NEW source         348,560 KiB   +4.47%
+#   the NEW compiler on the NEW source        348,784 KiB   +0.06%
+#
+# The compiler CHANGE costs 0.06% on identical input; the other 4.47%
+# is 623 more source lines to compile. And the shape the ceiling
+# actually guards was measured rather than assumed, on synthetic
+# inputs of 2,000 / 4,000 / 8,000 declarations:
+#
+#   before   36,240 -> 70,176 -> 137,792 KiB   (x1.937, x1.963)
+#   after    36,352 -> 70,400 -> 138,304 KiB   (x1.937, x1.965)
+#
+# Doubling the input doubles the peak, at both compilers. Linear.
+#
+# The OTHER number this move records is that 301 had already become
+# 325.8 MiB by 2026-08-24 - eaten by commits that each passed, which
+# is exactly the invisible-margin failure the 540 -> 420 entry above
+# describes and which nothing in this script had ever reported. The
+# `ok` line now prints the headroom, so the next reader sees the
+# margin shrinking instead of only the run that finally crosses it.
+ceiling=393216   # 384 MiB, over a measured 340.6
 if (( peak < floor )); then
-  fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 61,688 lines"
+  fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi
 if (( peak > ceiling )); then
   fail "one self-compile peaked at $((peak / 1024)) MiB, over the $((ceiling / 1024)) MiB ceiling - suspect an accumulator that copies"
 fi
-echo "ok   one self-compile peaks at $((peak / 1024)) MiB, under the $((ceiling / 1024)) MiB ceiling"
+echo "ok   one self-compile peaks at $((peak / 1024)) MiB, under the $((ceiling / 1024)) MiB ceiling ($(( (ceiling - peak) * 100 / ceiling ))% headroom)"
 
 echo
 echo "fixpoint reached from $seed_ll: the Axiom compiler reproduces itself, builds itself, and answers $swept cases correctly"

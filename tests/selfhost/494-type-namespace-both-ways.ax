@@ -1,0 +1,15 @@
+; expect 106
+; BOTH modules resolve to their own declaration in the same program:
+; 99 from TeamB's `bPort` plus 7 from TeamA's `aPort`.
+;
+; The sum is what makes this stronger than `491`. Before the fix, with
+; TeamA imported first, it was 3 + 7 = 10; with TeamB first, 99 + 1 =
+; 100. One winner for the whole program cannot produce 106, whichever
+; module wins.
+(import TeamA)
+
+(import TeamB)
+
+(:: main Int)
+
+(fn (main) (+ bPort aPort))

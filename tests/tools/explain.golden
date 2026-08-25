@@ -55,6 +55,7 @@
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX3040[0m  a type variable returned that no parameter mentions  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
+  [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1048,6 +1049,49 @@ Name only the library here. A directory belongs in `--link-search DIR`
 or `AXIOM_LINK_SEARCH`, and the symbol on the other side of the
 boundary belongs in the item's own `(symbol "...")` clause.
 
+### explain AX3044
+AX3044 - a bare type name is declared in more than one imported module
+
+Two modules the program imports each declare a type of this name, no
+module-less declaration outranks them, and the reference is not inside
+either of them - so nothing decides which one it means.
+
+Until 2026-08-24 it was decided by ACCIDENT. Type names are not
+rewritten to `Mod$Name` the way `fn` and `::` declarations are, and
+the lookup returned the first match in the merged declaration list,
+which is import order:
+
+    TeamA.ax  (pub struct Config (port : Int) (retries : Int))
+    TeamB.ax  (pub struct Config (retries : Int) (port : Int))
+              (pub fn (bPort) (let ((c (Config 3 99))) c.port))
+    app.ax    (import TeamA) (import TeamB) (fn (main) (bPort))
+
+`check` said OK and the program answered 3 - TeamA's slot 0 - where
+TeamB's own declaration says 99. Swapping the two imports answered 99.
+A module's own correct code was reading another module's field
+offsets, with no diagnostic from any pass.
+
+That half is fixed and is not what this reports: a reference INSIDE
+the module that declares the type now reaches its own declaration,
+and so does a reference in the entry file to a type the entry file
+declares. This reports the case that is left, where the compiler
+genuinely cannot tell.
+
+WHAT TO DO. Qualification is NOT the answer here, and this is why the
+code is not AX3014: `Mod::Name` is an expression spelling and does not
+parse in type position at all. What works is either
+
+  * narrowing the import so only one of the two types is carried:
+    an import name list decides what a module exports to this
+    program, so `(import TeamA (fromA))` leaves TeamA's `Config`
+    invisible outside TeamA and the reference resolves; or
+  * renaming one of the declarations.
+
+A struct in one module and a `data` or `type` of the same name in
+another are the same collision and are reported the same way: they
+share one namespace, which is what `(data Foo ...)` beside
+`(type Foo = Int)` in one file has always been refused for.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1216,6 +1260,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX3040[0m  a type variable returned that no parameter mentions  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
+  [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

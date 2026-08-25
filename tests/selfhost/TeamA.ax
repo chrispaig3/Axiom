@@ -1,0 +1,16 @@
+; One half of a type name two imported modules both declare. Its
+; `Config` puts `port` in slot 0; `TeamB.ax`'s puts it in slot 1, and
+; the two are otherwise identical - same name, same arity, same field
+; names, same field types. See `491`..`494` and
+; `scripts/check-type-namespace.sh`.
+(pub struct Config
+  (port : Int)
+  (retries : Int))
+
+(pub :: aPort Int)
+
+(pub fn (aPort)
+  (let ((c (Config 7 1)))
+    c.port
+  )
+)

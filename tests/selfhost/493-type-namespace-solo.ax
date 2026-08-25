@@ -1,0 +1,9 @@
+; expect 99
+; The control: TeamB alone, no collision at all. Without this, `491`
+; passing would not distinguish "resolved correctly" from "answered 99
+; for some reason of its own".
+(import TeamB)
+
+(:: main Int)
+
+(fn (main) bPort)

@@ -1050,13 +1050,19 @@
 ; that defines nothing. Values and types are separate namespaces in
 ; stage0, so `(data Foo ...)` and `(fn (Foo) ...)` do not collide.
 ;
-; stage1's parser turns `type` and `trait` into TAG_NIL (parser.ax's
+; stage1's parser turns `trait` into TAG_NIL (parser.ax's
 ; skipUnknownDecl), so `fn` - and `define`, its documented synonym,
 ; which stage0 parses through the same function - is the only value
-; definition that reaches here. RECORDED GAP: stage0 also counts
-; `type` in the type namespace, so a duplicate `type` in the entry
-; file is an AX3006 stage1 stays silent about. Under-reporting, never
-; over-reporting: the direction that cannot reject a valid program.
+; definition that reaches here.
+;
+; `type` was the RECORDED GAP here until this line changed: stage0
+; counts an alias in the type namespace and stage1 did not, so two
+; `(type Amt = ...)` in one entry file were silent while two
+; `(struct Amt ...)` were AX3006 - and the second one won every
+; lookup. It is NS_TYPE now, which also makes `(type Amt = Int)`
+; beside `(struct Amt ...)` the duplicate it is: both bind the same
+; name in the same namespace, and `tcAliasFind` and `findStruct` read
+; one table.
 ; ------------------------------------------------------------------
 (pub :: NS_NONE Int)
 
@@ -1083,7 +1089,7 @@
 (pub fn (declNamespace tag)
   (if (|| (== tag TAG_D_FN) (|| (== tag TAG_D_MACRO) (== tag TAG_D_EXTERN)))
     NS_VALUE
-    (if (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))
+    (if (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (== tag TAG_D_ALIAS)))
       NS_TYPE
       NS_NONE
     )
@@ -1808,7 +1814,8 @@
   (fnSufIdx : Int)
   (privIdx : Int)
   (implIdx : Int)
-  (curCalls : Int))
+  (curCalls : Int)
+  (tyIdx : Int))
 
 ; The module whose body is being checked, or 0 for the
 ; entry file. A bare reference inside it resolves to
@@ -1864,6 +1871,9 @@
 ; Appended, for the reason every field before it was.
 ; See the suffix index section.
 ; `privates` as a set. 0 exactly when `privates` is.
+; The TYPE-name index, or 0 before it is built. Appended, for the
+; reason every field before it was: every reader indexes this record
+; by position. See the type namespace section.
 (pub :: tcFns (-> Int Int))
 
 (pub fn (tcFns tc) (memGetWord tc 0))
@@ -1970,7 +1980,9 @@
 (pub fn (regFnEff fns name ty eff)
   (let ((effs vecNew))
     {
-      (vecPush effs (cast Int eff))
+      (vecPush
+        effs        (cast Int eff)
+      )
       (vecPush
         fns        (cast Int (FnEnt
           name          ty          (- 0 1)          1          0          effs          vecNew          vecNew
@@ -2184,12 +2196,21 @@
       )
       ; The exact-name index, before collection rather than after:
       ; collection itself looks a name up per declaration.
+      ; The TYPE index FIRST, before every other table: the
+      ; alias pass below is the first thing that puts anything
+      ; in it, and `tyIdxPut` is a NO-OP while word 30 is still
+      ; 0 - so an index built after that pass would be an index
+      ; missing every alias, and missing it silently.
       (let ((tc 
         (cast Int (TC
-          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0
+          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0
         ))
       ))
         {
+          (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
+          ; The builtin `Option` went into `datas` before this record
+          ; existed, so it has no collection pass to be indexed by.
+          (tyIdxSeedDatas tc (tcDatas tc) 0)
           (memSetWord tc 20 (fnIdxBuildSized (tcFns tc) (vecLen allDecls)))
           (memSetWord tc 21 (ambIdxNew (vecLen allDecls)))
           ; The suffix index, in the same place and for the same
@@ -2395,8 +2416,15 @@
                     )
                     0
                   )
-                  (vecPush
-                    (tcStructs tc)                    (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d)))
+                  (let ((sent 
+                    (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d)))
+                  ))
+                    {
+                      (vecPush (tcStructs tc) sent)
+                      (tyIdxPut
+                        tc                        (nodeAName d)                        TY_STRUCT                        (nodeModule d)                        sent                        0
+                      )
+                    }
                   )
                 }
                 (if (== tag TAG_D_SIG)
@@ -2735,8 +2763,13 @@
         )
           {
             (tcCollectCtors (nodeB d) resTy ctors 0)
-            (vecPush
-              (tcDatas tc)              (cast Int (DataEnt (nodeAName d) ctors (nodeModule d)))
+            (let ((dent 
+              (cast Int (DataEnt (nodeAName d) ctors (nodeModule d)))
+            ))
+              {
+                (vecPush (tcDatas tc) dent)
+                (tyIdxAddData tc dent)
+              }
             )
           }
         )
@@ -3684,36 +3717,504 @@
   )
 )
 
-; Constructor lookup, FORWARD order - Option's are first. Used for
-; type resolution and patterns (stage0's find_constructor).
-; A `data`/`struct` name is NOT rewritten to `Mod$name` - only `fn`
-; and `::` are - so a type's privacy cannot be read off its name the
-; way a function's can, and these three lookups take the declaring
-; module from the entry beside it.
+; ------------------------------------------------------------------
+; THE TYPE NAMESPACE, AND ITS INDEX.
 ;
-; The predicate is the same one: exported, or asked from inside the
-; module that declared it.
-(pub :: findCtor (-> Int String Int))
+; A type name resolves through ONE table from here on, and the table
+; is a hash index rather than a scan. Both halves of that sentence are
+; one change on purpose; the rest of this comment is why.
+;
+; WHAT WAS WRONG. `mangleDecl` (self_host/namespace.ax) rewrites `fn`
+; and `::` declarations to `Mod$name` and rewrites nothing else, so
+; `data`, `struct` and `type` names arrive in the merged declaration
+; list spelled exactly as their module wrote them. The four lookups
+; this section replaces - `findStructFrom`, `findDataFrom`,
+; `findCtorFrom`, `tcAliasFindFrom` - were linear scans of that list
+; that returned the FIRST match, and the list is ordered
+; dependencies-first by import order. So two modules that each declare
+; `Config` had one winner for the whole program, decided by which
+; `(import ...)` line came first, and the loser's own body was checked
+; and emitted against the winner's field offsets:
+;
+;   TeamA.ax  (pub struct Config (port : Int) (retries : Int))
+;   TeamB.ax  (pub struct Config (retries : Int) (port : Int))
+;             (pub fn (bPort) (let ((c (Config 3 99))) c.port))
+;   app.ax    (import TeamA) (import TeamB) (fn (main) (bPort))
+;
+; `check` said OK, the program ran, and `bPort` answered 3 - TeamA's
+; slot 0 - where TeamB's own declaration says 99. Swapping the two
+; imports answered 99. No diagnostic from any pass, at any level.
+; `tests/selfhost/402`..`405` and `scripts/check-type-namespace.sh`
+; pin it.
+;
+; THE RULE NOW, which is the one the VALUE namespace already applies
+; through `mangledFor`, `findFnEnt` and `checkAmbiguous`:
+;
+;   a. a declaration in the REFERENCING module wins;
+;   b. otherwise a module-less declaration - the entry file, or a
+;      builtin like `Option` - wins;
+;   c. otherwise, if exactly one module declares the name, that one;
+;   d. otherwise the reference is refused, naming every module that
+;      declares it (AX3044).
+;
+; LOOKUP-SIDE, NOT RENAME-SIDE, and this was the decision to argue.
+; The obvious alternative is to teach `mangleDecl` to rewrite type
+; declarations to `Mod$Name` the way it rewrites functions. Against
+; it, measured:
+;
+;   * The parser cannot express the escape. `parseTypeAtom`
+;     (parser.ax) has no `::` arm at all - a capitalised name becomes
+;     `mkTCon s vecNew` and `(:: f (-> M::Config Int))` is AX2001,
+;     `expected type, found ::`. Renaming declarations to a spelling
+;     no reference can be written in means the ONLY way to name a type
+;     is the bare form, which is exactly the form the rename was
+;     supposed to disambiguate. A rename therefore drags a parser
+;     change, a `tyCompat` change (its TAG_T_CON arm is bare `strEq`)
+;     and a `checkStructConAt` change (`mkTCon (bareOf ...)` throws the
+;     module away again) behind it.
+;   * The entries ALREADY carry their declaring module - `StructEnt`
+;     and `DataEnt` word 2, and an alias node's word 8 - so the module
+;     identity a rename would encode into the string is already beside
+;     the name, unread. `declMatches` already checks it for a
+;     QUALIFIED reference. The only thing missing was asking.
+;   * The emitter is already namespace-capable: `addQualified`
+;     (codegen.ax) registers a `Mod$Name` alias for every imported
+;     struct and constructor, and `stampFieldStruct` already writes
+;     `Mod$Name` into the field-access node the emitter reads. Nothing
+;     downstream needed the declaration renamed; it needed the checker
+;     to pick the right one and stamp it.
+;   * Blast radius: a rename moves every AXSYM golden, every
+;     diagnostic that prints a type name, and the emitted symbol
+;     names. This change moves none of them.
+;
+; What lookup-side does NOT fix, and is recorded rather than hidden:
+; `tyCompat`'s TAG_T_CON arm is still `strEq` on the bare name, so
+; TeamA's `Config` and TeamB's `Config` are still the same type TO THE
+; UNIFIER. Passing one where the other is expected is not refused. It
+; cannot be reached without a bare reference from a third place, which
+; is now AX3044 - but the unifier is not what refuses it, and closing
+; that needs the parser work above.
+;
+; WHY THE INDEX IS IN THE SAME CHANGE. Rules (a)-(d) cannot exit on
+; the first match: deciding that a name is unambiguous means looking
+; at every declaration of it. On the old linear list that turns an
+; early-exit scan (average half the table) into a full scan of the
+; whole program's types, at every type reference - a straight
+; regression of the compile-time ceiling, paid on every program
+; including the ones with no collision at all. Bucketed by bare name,
+; "every declaration of this name" is the bucket, which is one entry
+; for all 46 type declarations in this repository. Measured on
+; `check self_host/main.ax`: 0.49s before, 0.49s after. Measured on a
+; program whose type table is twice the size with the same number of
+; references (`scripts/check-type-namespace.sh`, the scale half):
+; 1.45x before, ~1.00x after.
+;
+; The index carries CONSTRUCTORS too, which were the worst of the four
+; - `findCtorFrom` scanned every `data` and, inside each, every
+; constructor, so its cost was the program's total constructor count
+; per reference.
+; ------------------------------------------------------------------
+; The four things a name can be bound to in this table. `TY_ANY` is
+; not a kind an entry carries - it is the QUESTION a `TAG_T_CON` asks,
+; "anything a type annotation may name", which is the three declared
+; kinds and not a constructor.
+(pub :: TY_ANY Int)
 
-(pub fn (findCtor tc name) (findCtorFrom
-  (tcDatas tc)  name  (memGetWord tc 27)  (memGetWordStr tc 16)  0
-))
+(pub fn (TY_ANY) 0)
 
-(pub :: findCtorFrom (-> Int String Int String Int Int))
+(pub :: TY_STRUCT Int)
 
-(pub fn (findCtorFrom datas name privs curMod i)
+(pub fn (TY_STRUCT) 1)
+
+(pub :: TY_DATA Int)
+
+(pub fn (TY_DATA) 2)
+
+(pub :: TY_ALIAS Int)
+
+(pub fn (TY_ALIAS) 3)
+
+(pub :: TY_CTOR Int)
+
+(pub fn (TY_CTOR) 4)
+
+; `module` is the module that DECLARED it, 0 for the entry file and
+; for builtins. `ent` is what the lookup answers - a `StructEnt`, a
+; `DataEnt`, a `CtorEnt`, or an alias declaration node. `owner` is the
+; `DataEnt` a constructor belongs to and 0 otherwise: a constructor's
+; VISIBILITY is its data type's, so the privacy key has to be built
+; from the owner and not from the constructor's own name.
+(pub struct TyEnt
+  (name : String)
+  (kind : Int)
+  (module : Int)
+  (ent : Int)
+  (owner : Int))
+
+; Buckets over the entries, keyed on the BARE name - the same shape
+; and the same hash `ambIdxNew` and `privSetNew` use, sized from the
+; declaration count, which is an upper bound on the type count.
+(pub :: tyIdxNew (-> Int Int))
+
+(pub fn (tyIdxNew hint)
+  (let (
+    (nb (fnIdxBuckets hint))
+    (bs vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i nb)
+        {
+          (vecPush bs 0)
+          (set i (+ i 1))
+        })
+      bs
+    }
+  )
+)
+
+; Appended AS EACH DECLARATION IS COLLECTED, beside the `vecPush` that
+; puts it in `tcDatas`/`tcStructs`/`tcAliases`, so the index and the
+; Vec can never be out of step - collection itself looks names up.
+(pub :: tyIdxPut (-> Int String Int Int Int Int Int))
+
+(pub fn (tyIdxPut tc name kind m ent owner)
+  (let ((bs (memGetWord tc 30)))
+    (if (== bs 0)
+      0
+      (let ((bare (bareOf name)))
+        (let ((b (% (fnIdxHash bare) (vecLen bs))))
+          {
+            (if (== (vecGet bs b) 0)
+              (let ((v vecNew))
+                (vecSet bs b v)
+              )
+              0
+            )
+            (vecPush
+              (vecGet bs b)              (cast Int (TyEnt
+                bare                kind                m                ent                owner
+              ))
+            )
+            0
+          }
+        )
+      )
+    )
+  )
+)
+
+(pub :: tyIdxAddData (-> Int Int Int))
+
+(pub fn (tyIdxAddData tc ent)
+  {
+    (tyIdxPut
+      tc      (memGetWordStr ent 0)      TY_DATA      (memGetWord ent 2)      ent      0
+    )
+    (tyIdxAddCtors tc ent (memGetWord ent 1) 0)
+  }
+)
+
+(pub :: tyIdxAddCtors (-> Int Int Int Int Int))
+
+(pub fn (tyIdxAddCtors tc owner ctors i)
+  (if (>= i (vecLen ctors))
+    0
+    {
+      (tyIdxPut
+        tc        (memGetWordStr (vecGet ctors i) 0)        TY_CTOR        (memGetWord owner 2)        (vecGet ctors i)        owner
+      )
+      (tyIdxAddCtors tc owner ctors (+ i 1))
+    }
+  )
+)
+
+; The builtin `Option` is registered into `datas` before the record
+; exists, so it has no collection pass to be indexed by. Seeded from
+; whatever is already in the Vec rather than by naming `Option`, so a
+; second builtin type cannot be added and silently left unindexed.
+(pub :: tyIdxSeedDatas (-> Int Int Int Int))
+
+(pub fn (tyIdxSeedDatas tc datas i)
   (if (>= i (vecLen datas))
     0
-    (let ((d (vecGet datas i)))
-      (if (&& (!= privs 0) (== (privBlocks privs (privKey (memGetWord d 2) (memGetWordStr d 0)) curMod) 1))
-        (findCtorFrom
-          datas          name          privs          curMod          (+ i 1)
+    {
+      (tyIdxAddData tc (vecGet datas i))
+      (tyIdxSeedDatas tc datas (+ i 1))
+    }
+  )
+)
+
+(pub :: tyIdxBucket (-> Int String Int))
+
+(pub fn (tyIdxBucket tc name)
+  (let ((bs (memGetWord tc 30)))
+    (if (== bs 0)
+      0
+      (vecGet bs (% (fnIdxHash (bareOf name)) (vecLen bs)))
+    )
+  )
+)
+
+; A bucket holds whatever hashes together, so every walk below still
+; asks `declMatches` - which is `nameMatches` for a bare reference and
+; a real module comparison for a qualified one.
+(pub :: tyEntMatches (-> Int Int String Int))
+
+(pub fn (tyEntMatches te kind ref)
+  (if (== kind TY_ANY)
+    (if (== (memGetWord te 1) TY_CTOR)
+      0
+      (declMatches (memGetWord te 2) (memGetWordStr te 0) ref)
+    )
+    (if (!= (memGetWord te 1) kind)
+      0
+      (declMatches (memGetWord te 2) (memGetWordStr te 0) ref)
+    )
+  )
+)
+
+; A constructor's key is its DATA TYPE's, which is what
+; `findCtorFrom` asked before this and what `collectPrivates` records.
+(pub :: tyPrivKey (-> Int String))
+
+(pub fn (tyPrivKey te)
+  (if (== (memGetWord te 4) 0)
+    (privKey (memGetWord te 2) (memGetWordStr te 0))
+    (privKey (memGetWord (memGetWord te 4) 2) (memGetWordStr (memGetWord te 4) 0))
+  )
+)
+
+(pub :: tyVisible (-> Int Int Int Int))
+
+(pub fn (tyVisible privs te curMod)
+  (if (== privs 0)
+    1
+    (if (== (privBlocks privs (tyPrivKey te) curMod) 1)
+      0
+      1
+    )
+  )
+)
+
+; Which of rules (a), (b) and (c)/(d) this pass is asking for:
+; 1 = declared by the referencing module, 2 = declared by nobody,
+; 0 = any candidate at all.
+(pub :: tyTierOk (-> Int Int Int Int))
+
+(pub fn (tyTierOk te curMod tier)
+  (if (== tier 0)
+    1
+    (if (== tier 2)
+      (if (== (memGetWord te 2) 0)
+        1
+        0
+      )
+      (if (|| (== (memGetWord te 2) 0) (== curMod 0))
+        0
+        (if (strEq
+          (cast String (memGetWord te 2))          (cast String curMod)
         )
-        (let ((c (ctorInData (memGetWord d 1) (memGetWordStr d 2) name 0)))
-          (if (!= c 0)
-            c
-            (findCtorFrom
-              datas              name              privs              curMod              (+ i 1)
+          1
+          0
+        )
+      )
+    )
+  )
+)
+
+(pub :: tyScanFwd (-> Int Int String Int Int Int Int Int))
+
+(pub fn (tyScanFwd v kind ref privs curMod tier i)
+  (if (>= i (vecLen v))
+    0
+    (let ((te (vecGet v i)))
+      (if (&& (== (tyTierOk te curMod tier) 1) (&& (== (tyEntMatches te kind ref) 1) (== (tyVisible privs te curMod) 1)))
+        te
+        (tyScanFwd
+          v          kind          ref          privs          curMod          tier          (+ i 1)
+        )
+      )
+    )
+  )
+)
+
+; The LAST match rather than the first. `rfindCtor` is stage0's
+; bare-value and saturation path and the difference is observable when
+; two `data` declarations in one module name the same constructor, so
+; the direction is preserved WITHIN each tier rather than dropped.
+(pub :: tyScanRev (-> Int Int String Int Int Int Int Int))
+
+(pub fn (tyScanRev v kind ref privs curMod tier i)
+  (if (< i 0)
+    0
+    (let ((te (vecGet v i)))
+      (if (&& (== (tyTierOk te curMod tier) 1) (&& (== (tyEntMatches te kind ref) 1) (== (tyVisible privs te curMod) 1)))
+        te
+        (tyScanRev
+          v          kind          ref          privs          curMod          tier          (- i 1)
+        )
+      )
+    )
+  )
+)
+
+(pub :: tyPick (-> Int Int String Int Int Int Int Int))
+
+(pub fn (tyPick v kind ref privs curMod last tier)
+  (if (== last 0)
+    (tyScanFwd
+      v      kind      ref      privs      curMod      tier      0
+    )
+    (tyScanRev
+      v      kind      ref      privs      curMod      tier      (- (vecLen v) 1)
+    )
+  )
+)
+
+; Rules (a) then (b) then (c)/(d), in that order. A QUALIFIED
+; reference names one module, so it skips straight to the tier that
+; asks nothing about the referencing module - `declMatches` has
+; already pinned it.
+;
+; Rule (d) answers the FIRST candidate rather than 0, deliberately:
+; the reference is refused by `checkAmbiguousType` at a site that has
+; a span, and answering 0 here would turn one AX3044 into an AX3002
+; cascade about a type that plainly exists.
+(pub :: tyFind (-> Int Int String Int Int))
+
+(pub fn (tyFind tc kind name last)
+  (let ((v (tyIdxBucket tc name)))
+    (if (== v 0)
+      0
+      (let (
+        (privs (memGetWord tc 27))
+        (curMod (memGetWord tc 16))
+      )
+        (let ((te 
+          (if (!= (modOf name) 0)
+            (tyPick
+              v              kind              name              privs              curMod              last              0
+            )
+            (let ((own (tyPick
+              v              kind              name              privs              curMod              last              1
+            )))
+              (if (!= own 0)
+                own
+                (let ((glob (tyPick
+                  v                  kind                  name                  privs                  curMod                  last                  2
+                )))
+                  (if (!= glob 0)
+                    glob
+                    (tyPick
+                      v                      kind                      name                      privs                      curMod                      last                      0
+                    )
+                  )
+                )
+              )
+            )
+          )
+        ))
+          (if (== te 0)
+            0
+            (memGetWord te 3)
+          )
+        )
+      )
+    )
+  )
+)
+
+; Existence, deliberately IGNORING visibility and the referencing
+; module: reaching a type another module keeps private is AX3023's
+; subject, and answering AX3002 for it would say "no such type" about
+; one that exists.
+(pub :: tyIdxHas (-> Int Int String Int))
+
+(pub fn (tyIdxHas tc kind name)
+  (let ((v (tyIdxBucket tc name)))
+    (if (== v 0)
+      0
+      (if (== (tyScanFwd
+        v        kind        name        0        0        0        0
+      ) 0)
+        0
+        1
+      )
+    )
+  )
+)
+
+; Does the bucket hold TWO OR MORE visible declarations of this name?
+;
+; Nothing but a `yes` here can produce an AX3044, and the answer is
+; `no` for every name in every program that has no collision at all -
+; which is every program in this repository. It exists so the tiered
+; walk and its Vec below run only for a name that could possibly need
+; them: `tyConAmbiguous` is asked of every capitalised name in every
+; signature, annotation and field type, and building a module Vec
+; there put one allocation per type reference on an arena that never
+; frees. Measured on the scale probe (8,000 struct declarations,
+; 32,000 type references): 0.29s with the Vec, 0.23s without.
+(pub :: tyMultiDecl (-> Int Int String Int))
+
+(pub fn (tyMultiDecl tc kind name)
+  (let ((v (tyIdxBucket tc name)))
+    (if (== v 0)
+      0
+      (if (>= (tyMatchCount
+        v        kind        name        (memGetWord tc 27)        (memGetWord tc 16)        0        0
+      ) 2)
+        1
+        0
+      )
+    )
+  )
+)
+
+(pub :: tyMatchCount (-> Int Int String Int Int Int Int Int))
+
+(pub fn (tyMatchCount v kind ref privs curMod acc i)
+  (if (>= i (vecLen v))
+    acc
+    (tyMatchCount
+      v      kind      ref      privs      curMod      (if (&& (== (tyEntMatches (vecGet v i) kind ref) 1) (== (tyVisible privs (vecGet v i) curMod) 1))
+        (+ acc 1)
+        acc
+      )      (+ i 1)
+    )
+  )
+)
+
+; The distinct modules that make `name` UNRESOLVABLE, or an empty Vec.
+; Empty whenever rules (a), (b) or (c) answered - a module-local
+; declaration, a module-less one, or a single definer - so this is
+; exactly rule (d) and nothing else. The value namespace's
+; `definingModules` answers the same question from a table built at
+; collection; this one reads the bucket, which is the same one entry.
+(pub :: tyAmbigMods (-> Int Int String Int))
+
+(pub fn (tyAmbigMods tc kind name)
+  (let ((v (tyIdxBucket tc name)))
+    (if (== v 0)
+      vecNew
+      (if (!= (modOf name) 0)
+        vecNew
+        (let (
+          (privs (memGetWord tc 27))
+          (curMod (memGetWord tc 16))
+        )
+          (if (!= (tyScanFwd
+            v            kind            name            privs            curMod            1            0
+          ) 0)
+            vecNew
+            (if (!= (tyScanFwd
+              v              kind              name              privs              curMod              2              0
+            ) 0)
+              vecNew
+              (tyModsOf
+                v                kind                name                privs                curMod                vecNew                0
+              )
             )
           )
         )
@@ -3722,6 +4223,168 @@
   )
 )
 
+(pub :: tyModsOf (-> Int Int String Int Int Int Int Int))
+
+(pub fn (tyModsOf v kind ref privs curMod acc i)
+  (if (>= i (vecLen v))
+    acc
+    (let ((te (vecGet v i)))
+      {
+        (if (&& (== (tyEntMatches te kind ref) 1) (&& (== (tyVisible privs te curMod) 1) (!= (memGetWord te 2) 0)))
+          (if (==
+            (strInVec
+              acc              (cast String (memGetWord te 2))              0
+            )            1
+          )
+            0
+            (vecPush acc (memGetWord te 2))
+          )
+          0
+        )
+        (tyModsOf
+          v          kind          ref          privs          curMod          acc          (+ i 1)
+        )
+      }
+    )
+  )
+)
+
+; AX3044, the type namespace's AX3014. A separate code rather than a
+; reuse, because the ESCAPE is different and a diagnostic's help is
+; the half a reader acts on: AX3014 says "write `Mod::name`", and in
+; type position that is a parse error (`parseTypeAtom` has no `::`
+; arm), so answering AX3014 here would hand the reader a fix that does
+; not compile.
+;
+; What DOES work is narrowing the import: an import name list decides
+; `exported` in `resolveDeclsPhase`, which is what `collectPrivates`
+; reads, so `(import TeamA (fromA))` leaves TeamA's `Config` invisible
+; outside TeamA and the reference resolves by rule (c).
+(pub :: checkAmbiguousType (-> Int Int String Int Int))
+
+(pub fn (checkAmbiguousType tc kind name span)
+  (if (|| (== span 0) (== (tyMultiDecl tc kind name) 0))
+    0
+    (let ((mods (tyAmbigMods tc kind name)))
+      (if (< (vecLen mods) 2)
+        0
+        {
+          (emitDiag tc (diagSetLabel (mkDiag
+            SEV_ERROR            "AX3044"            "ambiguous-type"            span            (strConcat (strConcat (strConcat "ambiguous type `" (bareOf name)) "`: declared in ") (joinModules mods 0 ""))            0            0            "a type reference cannot be qualified - `Mod::Name` is an expression spelling and does not parse in type position - so narrow one of the imports to a name list that leaves this type behind, as in `(import TeamA (fromA))`, or rename one of the declarations"
+          ) (strConcat (strConcat "`" (bareOf name)) "` could mean more than one declaration")))
+          1
+        }
+      )
+    )
+  )
+)
+
+; Is this capitalised name unresolvable? Asked of TY_ANY, so a
+; `struct` in one module and a `data` of the same name in another are
+; the collision they are - per-kind questions would each answer "one
+; definer" and let it through.
+(pub :: tyConAmbiguous (-> Int String Int))
+
+(pub fn (tyConAmbiguous tc name)
+  (if (!=
+    (cast Int (typeKeywordCanon name))    0
+  )
+    0
+    (if (== (tyMultiDecl tc TY_ANY name) 0)
+      0
+      (if (>= (vecLen (tyAmbigMods tc TY_ANY name)) 2)
+        1
+        0
+      )
+    )
+  )
+)
+
+; The first ambiguous type constructor in `t`, as a word, or 0 - the
+; same walk and the same "first only, no span of its own" anchoring
+; rule as `tyUnknownCon` below.
+(pub :: tyAmbigCon (-> Int Int Int))
+
+(pub fn (tyAmbigCon tc t)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_T_CON)
+      (if (== (tyConAmbiguous tc (nodeAName t)) 1)
+        (nodeA t)
+        (tyAmbigConVec tc (nodeB t) 0)
+      )
+      (if (== (nodeTag t) TAG_T_ARR)
+        (if (!= (tyAmbigCon tc (nodeA t)) 0)
+          (tyAmbigCon tc (nodeA t))
+          (tyAmbigCon tc (nodeB t))
+        )
+        (if (== (nodeTag t) TAG_T_TUP)
+          (tyAmbigConVec tc (nodeA t) 0)
+          (if (== (nodeTag t) TAG_T_LIST)
+            (tyAmbigCon tc (nodeA t))
+            (if (== (nodeTag t) TAG_T_PTR)
+              (tyAmbigCon tc (nodeA t))
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tyAmbigConVec (-> Int Int Int Int))
+
+(pub fn (tyAmbigConVec tc xs i)
+  (if (== xs 0)
+    0
+    (if (>= i (vecLen xs))
+      0
+      (if (!= (tyAmbigCon tc (vecGet xs i)) 0)
+        (tyAmbigCon tc (vecGet xs i))
+        (tyAmbigConVec tc xs (+ i 1))
+      )
+    )
+  )
+)
+
+; A declaration's own signature or field types, refused when one of
+; them names a type two modules declare. Asked BEFORE alias expansion,
+; because expansion resolves an alias name and would otherwise pick
+; one of the two colliding aliases and erase the evidence.
+(pub :: checkAmbiguousSigTy (-> Int Int Int Int))
+
+(pub fn (checkAmbiguousSigTy tc d t)
+  (let ((bad (tyAmbigCon tc t)))
+    (if (== bad 0)
+      0
+      ; The unit, around this one emission. This pass runs before
+      ; `tcWalkDecls`, which is what normally stamps word 14, so
+      ; without this an AX3044 raised on an IMPORTED module's
+      ; signature would carry the entry file's unit and render its
+      ; caret against the wrong source. Restored to 0, which is what
+      ; the rest of the pass expects to find there.
+      (let ((_u (memSetWord tc 14 (unitIndexFor (memGetWord tc 13) (nodeModule d)))))
+        (let ((r 
+          (checkAmbiguousType
+            tc            TY_ANY            (cast String bad)            (nodeSpan d)
+          )
+        ))
+          {
+            (memSetWord tc 14 0)
+            r
+          }
+        )
+      )
+    )
+  )
+)
+
+; Does the constructor vector of one `data` hold `name`? The index
+; above answers every ordinary lookup; this is the one caller that
+; asks the question of a SINGLE declaration rather than of the
+; program - `ctorHiddenModule`, which walks the datas a reference may
+; NOT name in order to say "private" instead of "no such name".
 (pub :: ctorInData (-> Int String String Int Int))
 
 (pub fn (ctorInData ctors declMod name i)
@@ -3736,105 +4399,26 @@
   )
 )
 
+; Constructor lookup, FORWARD order - Option's are first. Used for
+; type resolution and patterns (stage0's find_constructor).
+(pub :: findCtor (-> Int String Int))
+
+(pub fn (findCtor tc name) (tyFind tc TY_CTOR name 0))
+
 ; The LAST matching constructor - stage0's bare-value and saturation
 ; paths use rfind, and the difference is observable when two datas
 ; declare the same constructor name.
 (pub :: rfindCtor (-> Int String Int))
 
-(pub fn (rfindCtor tc name) (rfindCtorFrom
-  (tcDatas tc)  name  (memGetWord tc 27)  (memGetWordStr tc 16)  (- (vecLen (tcDatas tc)) 1)
-))
-
-(pub :: rfindCtorFrom (-> Int String Int String Int Int))
-
-(pub fn (rfindCtorFrom datas name privs curMod i)
-  (if (< i 0)
-    0
-    (let ((d (vecGet datas i)))
-      (if (&& (!= privs 0) (== (privBlocks privs (privKey (memGetWord d 2) (memGetWordStr d 0)) curMod) 1))
-        (rfindCtorFrom
-          datas          name          privs          curMod          (- i 1)
-        )
-        (let ((c (rctorInData (memGetWord d 1) (memGetWordStr d 2) name (- (vecLen (memGetWord d 1)) 1))))
-          (if (!= c 0)
-            c
-            (rfindCtorFrom
-              datas              name              privs              curMod              (- i 1)
-            )
-          )
-        )
-      )
-    )
-  )
-)
-
-(pub :: rctorInData (-> Int String String Int Int))
-
-(pub fn (rctorInData ctors declMod name i)
-  (if (< i 0)
-    0
-    (let ((c (vecGet ctors i)))
-      (if (== (declMatches declMod (memGetWordStr c 0) name) 1)
-        c
-        (rctorInData ctors declMod name (- i 1))
-      )
-    )
-  )
-)
+(pub fn (rfindCtor tc name) (tyFind tc TY_CTOR name 1))
 
 (pub :: findStruct (-> Int String Int))
 
-(pub fn (findStruct tc name) (findStructFrom
-  (tcStructs tc)  name  (memGetWord tc 27)  (memGetWord tc 16)  0
-))
-
-(pub :: findStructFrom (-> Int String Int a Int Int))
-
-(pub fn (findStructFrom structs name privs curMod i)
-  (if (>= i (vecLen structs))
-    0
-    (let ((s (vecGet structs i)))
-      (if (== (declMatches (memGetWord s 2) (memGetWordStr s 0) name) 1)
-        (if (|| (== privs 0) (== (privBlocks privs (privKey (memGetWord s 2) (memGetWordStr s 0)) curMod) 0))
-          s
-          (findStructFrom
-            structs            name            privs            curMod            (+ i 1)
-          )
-        )
-        (findStructFrom
-          structs          name          privs          curMod          (+ i 1)
-        )
-      )
-    )
-  )
-)
+(pub fn (findStruct tc name) (tyFind tc TY_STRUCT name 0))
 
 (pub :: findData (-> Int String Int))
 
-(pub fn (findData tc name) (findDataFrom
-  (tcDatas tc)  name  (memGetWord tc 27)  (memGetWord tc 16)  0
-))
-
-(pub :: findDataFrom (-> Int String Int a Int Int))
-
-(pub fn (findDataFrom datas name privs curMod i)
-  (if (>= i (vecLen datas))
-    0
-    (let ((e (vecGet datas i)))
-      (if (== (nameMatches (memGetWordStr e 0) name) 1)
-        (if (|| (== privs 0) (== (privBlocks privs (privKey (memGetWord e 2) (memGetWordStr e 0)) curMod) 0))
-          e
-          (findDataFrom
-            datas            name            privs            curMod            (+ i 1)
-          )
-        )
-        (findDataFrom
-          datas          name          privs          curMod          (+ i 1)
-        )
-      )
-    )
-  )
-)
+(pub fn (findData tc name) (tyFind tc TY_DATA name 0))
 
 ; ------------------------------------------------------------------
 ; Type constructors named in a SIGNATURE.
@@ -3866,25 +4450,13 @@
 ; ------------------------------------------------------------------
 (pub :: tcAliasFind (-> Int String Int))
 
-(pub fn (tcAliasFind tc name) (tcAliasFindFrom (tcAliases tc) name 0))
+(pub fn (tcAliasFind tc name) (tyFind tc TY_ALIAS name 0))
 
-(pub :: tcAliasFindFrom (-> Int String Int Int))
-
-(pub fn (tcAliasFindFrom av name i)
-  (if (>= i (vecLen av))
-    0
-    (if (strEq (nodeAName (vecGet av i)) name)
-      (vecGet av i)
-      (tcAliasFindFrom av name (+ i 1))
-    )
-  )
-)
-
-; Existence, deliberately IGNORING visibility. `findDataFrom` and
-; `findStructFrom` skip their privacy filter when `privs` is 0, and
-; that is what is wanted: reaching a type another module keeps private
-; is AX3023's subject, and answering AX3002 for it would say "no such
-; type" about one that exists.
+; Existence, deliberately IGNORING visibility and the referencing
+; module: reaching a type another module keeps private is AX3023's
+; subject, answering AX3002 for it would say "no such type" about one
+; that exists, and a name two modules declare is AX3044's subject and
+; not "undefined".
 ;
 ; An ALIAS name counts as known. An alias is a declaration; saying
 ; "undefined type" about it would be false.
@@ -3907,19 +4479,9 @@
     1
     (if (strEq name "Linear")
       1
-      (if (!= (findDataFrom
-        (tcDatas tc)        name        0        0        0
-      ) 0)
+      (if (== (tyIdxHas tc TY_ANY name) 1)
         1
-        (if (!= (findStructFrom
-          (tcStructs tc)          name          0          0          0
-        ) 0)
-          1
-          (if (!= (tcAliasFind tc name) 0)
-            1
-            0
-          )
-        )
+        0
       )
     )
   )
@@ -4232,7 +4794,12 @@
     {
       (let ((d (vecGet decls i)))
         (if (== (nodeTag d) TAG_D_ALIAS)
-          (vecPush (tcAliases tc) d)
+          {
+            (vecPush (tcAliases tc) d)
+            (tyIdxPut
+              tc              (nodeAName d)              TY_ALIAS              (nodeModule d)              d              0
+            )
+          }
           0
         )
       )
@@ -4246,20 +4813,32 @@
 (pub fn (tcExpandFieldAliases tc decls i)
   (if (>= i (vecLen decls))
     0
+    ; The declaring module, for the duration of ITS field types.
+    ; Alias resolution is module-aware now, and this pass is one
+    ; of the two that walk imported declarations with no function
+    ; body around them to have set word 16 already - so without
+    ; this a module's own `(type Amt = Float)` would lose to
+    ; another module's `Amt` in that module's own struct.
+    ; A struct's fields are TAG_FIELD nodes carrying the type in
+    ; their `ty` slot; a `data`'s are one type VECTOR per
+    ; constructor, in the constructor node's. Two shapes, one
+    ; rule.
     {
       (let ((d (vecGet decls i)))
-        (let ((tg (nodeTag d)))
-          ; A struct's fields are TAG_FIELD nodes carrying the type in
-          ; their `ty` slot; a `data`'s are one type VECTOR per
-          ; constructor, in the constructor node's. Two shapes, one
-          ; rule.
-          (if (== tg TAG_D_STRUCT)
-            (tcExpandFieldAliasesOf tc (nodeB d) 0)
-            (if (== tg TAG_D_DATA)
-              (tcExpandCtorAliases tc (nodeB d) 0)
-              0
+        (let (
+          (_m (memSetWord tc 16 (nodeModule d)))
+          (tg (nodeTag d))
+        )
+          {
+            (if (== tg TAG_D_STRUCT)
+              (tcExpandFieldAliasesOf tc (nodeB d) 0)
+              (if (== tg TAG_D_DATA)
+                (tcExpandCtorAliases tc (nodeB d) 0)
+                0
+              )
             )
-          )
+            (memSetWord tc 16 0)
+          }
         )
       )
       (tcExpandFieldAliases tc decls (+ i 1))
@@ -4334,25 +4913,44 @@
 (pub fn (tcCheckSigTypes tc decls i)
   (if (>= i (vecLen decls))
     0
+    ; The declaring module, for the duration of ITS signature.
+    ; A module's own `(:: f (-> Config Int))` names ITS `Config`,
+    ; and this pass is where that is decided for every signature
+    ; in the program.
     {
-      (if (== (nodeTag (vecGet decls i)) TAG_D_SIG)
-        ; Expansion FIRST: `tcCheckSigTypeOf` poisons a signature
-        ; naming an unknown type, and an alias is a known one.
-        {
-          (tcExpandSigAliases tc (vecGet decls i))
-          (tcCheckSigTypeOf tc (vecGet decls i))
-          (tcCheckResultOnlyVars tc (vecGet decls i))
-        }
-        ; An `extern` item's type lives in the ITEM, not in the block
-        ; node's `ty` slot, so the walk above cannot see it - and until
-        ; this arm an extern signature could name any type at all. That
-        ; is not a cosmetic hole: the whole point of writing the type
-        ; inline is that it is the only description of the boundary the
-        ; compiler has, and `axiom-bindgen` emits `Foreign`, `Slice` and
-        ; `Outcome` into it.
-        (if (== (nodeTag (vecGet decls i)) TAG_D_EXTERN)
-          (tcCheckExternTypes tc (nodeC (vecGet decls i)) 0)
-          0
+      (let ((d (vecGet decls i)))
+        (let ((_m (memSetWord tc 16 (nodeModule d))))
+          {
+            (if (== (nodeTag d) TAG_D_SIG)
+              ; Ambiguity FIRST, before expansion: expansion RESOLVES
+              ; an alias name, so a signature naming a type two
+              ; modules both alias would have had one of them
+              ; substituted in and the collision erased before
+              ; anything could report it.
+              ;
+              ; Then expansion, THEN the unknown-type check:
+              ; `tcCheckSigTypeOf` poisons a signature naming an
+              ; unknown type, and an alias is a known one.
+              {
+                (checkAmbiguousSigTy tc d (nodeTy d))
+                (tcExpandSigAliases tc d)
+                (tcCheckSigTypeOf tc d)
+                (tcCheckResultOnlyVars tc d)
+              }
+              ; An `extern` item's type lives in the ITEM, not in the block
+              ; node's `ty` slot, so the walk above cannot see it - and until
+              ; this arm an extern signature could name any type at all. That
+              ; is not a cosmetic hole: the whole point of writing the type
+              ; inline is that it is the only description of the boundary the
+              ; compiler has, and `axiom-bindgen` emits `Foreign`, `Slice` and
+              ; `Outcome` into it.
+              (if (== (nodeTag d) TAG_D_EXTERN)
+                (tcCheckExternTypes tc (nodeC d) 0)
+                0
+              )
+            )
+            (memSetWord tc 16 0)
+          }
         )
       )
       (tcCheckSigTypes tc decls (+ i 1))
@@ -7161,25 +7759,35 @@
 (pub :: checkStructConAt (-> Int Int Int Int Int))
 
 (pub fn (checkStructConAt tc args span ent)
-  (let ((fields (memGetWord ent 1)))
-    (if (!= (vecLen args) (vecLen fields))
-      {
-        (if (!= span 0)
-          (emitDiag
-            tc            (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat "struct `" (bareOf (memGetWordStr ent 0))) "` expects ") (decStr (vecLen fields))) " field(s), found ") (decStr (vecLen args)))))
-              (mkDiag
-                SEV_ERROR                "AX3008"                "semantic-error"                span                msg                0                0                0
+  (if (== (checkAmbiguousType tc TY_ANY (memGetWordStr ent 0) span) 1)
+    ; Poison rather than "the first one" - `tyFind` answered a
+    ; candidate so the AX3002 cascade stays shut, and the field count
+    ; and field types below would otherwise be checked against a
+    ; declaration this reference has just been told it cannot name.
+    ; That is exactly the miscompile: an arity variant of the two-team
+    ; probe reported `struct `Config` expects 3 field(s), found 2`
+    ; inside the module that wrote 2, against a shape it never wrote.
+    (mkNode TAG_T_ERR 0 0 0)
+    (let ((fields (memGetWord ent 1)))
+      (if (!= (vecLen args) (vecLen fields))
+        {
+          (if (!= span 0)
+            (emitDiag
+              tc              (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat "struct `" (bareOf (memGetWordStr ent 0))) "` expects ") (decStr (vecLen fields))) " field(s), found ") (decStr (vecLen args)))))
+                (mkDiag
+                  SEV_ERROR                  "AX3008"                  "semantic-error"                  span                  msg                  0                  0                  0
+                )
               )
             )
+            0
           )
-          0
-        )
-        (mkNode TAG_T_ERR 0 0 0)
-      }
-      {
-        (checkStructFields tc args fields 0)
-        (mkTCon (bareOf (memGetWordStr ent 0)) vecNew)
-      }
+          (mkNode TAG_T_ERR 0 0 0)
+        }
+        {
+          (checkStructFields tc args fields 0)
+          (mkTCon (bareOf (memGetWordStr ent 0)) vecNew)
+        }
+      )
     )
   )
 )
@@ -7460,7 +8068,9 @@
 (pub fn (walkEffectsHandle tc e bound acc)
   (let ((inner (collectEffects tc (nodeA e) bound)))
     {
-      (effUnionUnhandled tc acc inner (nodeB e) 0)
+      (effUnionUnhandled
+        tc        acc        inner        (nodeB e)        0
+      )
       (if (== (handleIsDynamic tc (nodeB e) 0) 1)
         (effAdd acc (builtinEff "Alloc"))
         0
@@ -7480,7 +8090,9 @@
         0
         (effAdd acc (vecGetStr inner i))
       )
-      (effUnionUnhandled tc acc inner effs (+ i 1))
+      (effUnionUnhandled
+        tc        acc        inner        effs        (+ i 1)
+      )
     }
   )
 )
@@ -8746,57 +9358,65 @@
   (let ((baseTy (checkExprH tc (nodeA e) 0)))
     (if (== (nodeTag baseTy) TAG_T_CON)
       (let ((ent (findStruct tc (nodeAName baseTy))))
-        (let ((fty 
-          (if (== ent 0)
-            (- 0 1)
-            (structFieldTy ent (nodeBName e))
-          )
-        ))
-          (if (!= fty (- 0 1))
-            {
-              (stampFieldStruct e ent)
-              fty
-            }
-            ; Not a struct field. It may still be a DATA
-            ; constructor's named field: stage0 scans every data
-            ; type and every constructor that has field names,
-            ; first match winning, without consulting the
-            ; scrutinee's own type. That looseness is deliberate
-            ; there and is reproduced here rather than tightened,
-            ; because tightening it would refuse programs stage0
-            ; accepts.
-            (let ((dty (dataFieldTy tc (nodeBName e))))
-              (if (!= dty 0)
-                ; The field exists on a DATA constructor - but a
-                ; type with a NULLARY constructor may hand this
-                ; access an immediate tag (MM-VAL-8, rep 2), and
-                ; field access emits an unguarded load: `check`
-                ; said OK and `(let ((x (E))) x.v)` died of
-                ; SIGSEGV (MM-VAL-9a). A `match` emits the guard;
-                ; this form cannot, so on such a type it is
-                ; refused.
-                (let ((own (dataFieldOwner tc (nodeBName e))))
-                  (if (&& (!= own 0) (== (dataHasNullary own) 1))
-                    {
-                      (emitFieldOnMixed tc (nodeBName e) (memGetWordStr own 0) (nodeSpan e))
-                      (mkNode TAG_T_ERR 0 0 0)
-                    }
-                    ; Stamped EMPTY: "not a struct field", so
-                    ; the emitter skips its struct scan and
-                    ; reads the data field it resolved here
-                    ; (`resolveStructField`).
-                    {
-                      (setNodeTy
-                        e                        (cast Int "")
-                      )
-                      dty
-                    }
+        (if (== (checkAmbiguousType tc TY_ANY (nodeAName baseTy) (nodeSpan e)) 1)
+          ; The receiver's type name is one that two modules declare,
+          ; and the field offsets differ between them. Reading either
+          ; is a guess, and this is the site the original defect was
+          ; OBSERVED at: `c.port` inside TeamB answering TeamA's slot
+          ; 0, at exit 0, with no diagnostic from any pass.
+          (mkNode TAG_T_ERR 0 0 0)
+          (let ((fty 
+            (if (== ent 0)
+              (- 0 1)
+              (structFieldTy ent (nodeBName e))
+            )
+          ))
+            (if (!= fty (- 0 1))
+              {
+                (stampFieldStruct e ent)
+                fty
+              }
+              ; Not a struct field. It may still be a DATA
+              ; constructor's named field: stage0 scans every data
+              ; type and every constructor that has field names,
+              ; first match winning, without consulting the
+              ; scrutinee's own type. That looseness is deliberate
+              ; there and is reproduced here rather than tightened,
+              ; because tightening it would refuse programs stage0
+              ; accepts.
+              (let ((dty (dataFieldTy tc (nodeBName e))))
+                (if (!= dty 0)
+                  ; The field exists on a DATA constructor - but a
+                  ; type with a NULLARY constructor may hand this
+                  ; access an immediate tag (MM-VAL-8, rep 2), and
+                  ; field access emits an unguarded load: `check`
+                  ; said OK and `(let ((x (E))) x.v)` died of
+                  ; SIGSEGV (MM-VAL-9a). A `match` emits the guard;
+                  ; this form cannot, so on such a type it is
+                  ; refused.
+                  (let ((own (dataFieldOwner tc (nodeBName e))))
+                    (if (&& (!= own 0) (== (dataHasNullary own) 1))
+                      {
+                        (emitFieldOnMixed tc (nodeBName e) (memGetWordStr own 0) (nodeSpan e))
+                        (mkNode TAG_T_ERR 0 0 0)
+                      }
+                      ; Stamped EMPTY: "not a struct field", so
+                      ; the emitter skips its struct scan and
+                      ; reads the data field it resolved here
+                      ; (`resolveStructField`).
+                      {
+                        (setNodeTy
+                          e                          (cast Int "")
+                        )
+                        dty
+                      }
+                    )
                   )
+                  {
+                    (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
+                    mkI64Ty
+                  }
                 )
-                {
-                  (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
-                  mkI64Ty
-                }
               )
             )
           )

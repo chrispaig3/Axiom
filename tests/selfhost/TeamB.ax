@@ -1,0 +1,15 @@
+; The other half. `port` is slot 1 here. `bPort` is written entirely
+; inside this module and names only this module's declarations, so
+; there is one honest answer - 99 - and a compiler that reads
+; `TeamA`'s layout answers 3.
+(pub struct Config
+  (retries : Int)
+  (port : Int))
+
+(pub :: bPort Int)
+
+(pub fn (bPort)
+  (let ((c (Config 3 99)))
+    c.port
+  )
+)

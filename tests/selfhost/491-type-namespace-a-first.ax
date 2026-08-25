@@ -1,0 +1,17 @@
+; expect 99
+; Two imported modules each declare `Config`, same arity, fields in a
+; different order. `bPort` is TeamB's own code reading TeamB's own
+; struct, so the answer is TeamB's: 99.
+;
+; Before the type namespace was module-aware this answered 3 -
+; TeamA's slot 0 - because a type reference resolved to whichever
+; declaration came first in the merged list, which is import order.
+; `492` is the same program with the imports swapped and must give
+; the same answer; that pair is the actual property.
+(import TeamA)
+
+(import TeamB)
+
+(:: main Int)
+
+(fn (main) bPort)

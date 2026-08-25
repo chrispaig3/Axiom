@@ -50,6 +50,24 @@ its changelog too.
 
 ### Fixed
 
+- **Two modules declaring one type name had one winner, chosen by import
+  order.** `namespace.ax` rewrites `fn` and `::` declarations to
+  `Mod$name` and rewrites nothing else, so a `data`, `struct` or `type`
+  name arrived spelled as its module wrote it, and the four lookups that
+  read them back returned the first match in a list ordered by import
+  order. `TeamB`'s own function, reading `TeamB`'s own `struct`, was
+  compiled against `TeamA`'s field offsets — `check` OK, exit 0, no
+  diagnostic, and the answer changing when an unrelated `(import ...)`
+  line moved. A bare type name now means, in order: a declaration in the
+  referencing module, then a module-less one, then the single module
+  that declares it; a name two or more modules declare, referenced from
+  neither, is `AX3044` naming them. The lookup index landed with it and
+  not after it: module-aware resolution cannot exit on the first match,
+  and without the index every type reference becomes a full scan —
+  measured at 26.88× on the reverted compiler, against a ratio of 1.00
+  here at 8,000 types and 48,000 references
+  (`scripts/check-type-namespace.sh`, 18 checks).
+
 - **The shared CI artifact was trusted on a stamp nobody could fail.**
   `scripts/build-shared-axc.sh` claimed the artifact equals a fresh
   build and checked it by calling one pure function twice in one
@@ -152,7 +170,7 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — nineteen gates
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty gates
   rebuild the same compiler; now one step builds it, and builds it
   twice to measure that the artifact emits the same IR as a fresh
   build. (Not the same *bytes*: the macOS linker stamps a UUID into

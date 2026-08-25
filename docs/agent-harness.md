@@ -156,10 +156,18 @@ Without that fix the façade above had two bad options: spell every handle
 types are the whole point of the façade, so the fix is a prerequisite
 rather than an improvement.
 
-**Hazard, unfixed: the type namespace is flat.** There is no
-`Module::Type`, so two `Agent.*` modules that both export a `Node` merge
-silently. The harness must give every exported type a name unique across
-the whole namespace.
+**Hazard, narrowed 2026-08-24: the type namespace is flat but no longer
+silent.** There is still no `Module::Type` — a qualified spelling does
+not parse in type position — but two `Agent.*` modules that both export
+a `Node` no longer merge. Each module's own code reaches its own
+declaration, and a reference from anywhere that owns neither is
+`AX3044` naming both modules (`scripts/check-type-namespace.sh`). What
+is left of the hazard is that there is no way to *write* the
+disambiguation at the reference: the escapes are an import name list
+that leaves one of them behind, or a unique name. So the harness rule
+stands — give every exported type a name unique across the whole
+namespace — but breaking it is now a diagnostic rather than a wrong
+answer at exit 0.
 
 ### 3.2 `Agent.Tags` — read and validate
 

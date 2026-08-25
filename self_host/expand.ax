@@ -1510,7 +1510,7 @@
 
 ; Type-namespace lookup for a query subject. visibleOnly=1 answers
 ; what a reference AT THE INVOCATION SITE could name - the same
-; visibility rule the checker's own `findDataFrom` applies, enforced
+; visibility rule the checker's own `tyFind` applies, enforced
 ; here so a private type refuses loudly AT THE INVOCATION instead of
 ; scattering checker refusals over the generated code. visibleOnly=0
 ; finds anything, for the refusal's wording.

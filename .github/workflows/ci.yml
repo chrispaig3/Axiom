@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Nineteen of the gates below build the compiler under test from
+    # Twenty of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -382,6 +382,21 @@ jobs:
       # was written, and then run by nobody for eight days.
       - name: Private names resolve as cheaply as public ones
         run: ./scripts/check-name-scale.sh
+
+      # A type name must mean what its own module says it means. Type
+      # declarations are not rewritten to `Mod$Name` the way functions
+      # are, and the lookup took the first match in a list ordered by
+      # IMPORT ORDER - so two modules that each declared a `Config` had
+      # one winner for the whole program and the loser's own bodies were
+      # compiled against the winner's field offsets, at exit 0, with the
+      # answer changing when an unrelated `(import ...)` line moved.
+      #
+      # The scale half of the same gate is not decoration: module-aware
+      # resolution CANNOT exit on the first match, so without the index
+      # that landed with it, every type reference becomes a full scan of
+      # the program's types. Measured on the reverted compiler: 26.88x.
+      - name: A type name resolves by module, and in constant time
+        run: ./scripts/check-type-namespace.sh
 
       # Two `axiom run`s in one directory must not corrupt each other.
       # The scratch name was a fixed literal in the working directory,
