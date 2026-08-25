@@ -153,7 +153,7 @@ gate_sha() {
 # first - which is also what makes an ablation of `self_host/` visible
 # to that gate rather than invisible.
 #
-# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Twenty-nine gates
+# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Thirty gates
 # call this, each rebuilding the same 60,881 lines. Measured on the
 # three CI legs on 2026-08-24: the `test` job took 17m38s / 18m54s /
 # 10m01s before the cache and 10m48s / 11m51s / 7m46s after it, so the
@@ -287,6 +287,15 @@ gate_prose_docs_abs() {
   (( missing == 0 )) || exit 1
 }
 
+# `docs/stdlib-api.md` is here because it is a document under `docs/`
+# and `check-doc-drift.sh` fails one that is in no sweep's list - a
+# rule worth keeping even for a GENERATED file. Its own gate,
+# `check-stdlib-api.sh`, is stronger than any prose sweep: it
+# regenerates the whole document and diffs it. What the sweeps add is
+# the two things a regeneration cannot see, because the generator
+# would reproduce them faithfully - a link to a document that no
+# longer exists, and a fixture path that no longer resolves.
+#
 # `CHANGELOG.md` is here because `release.yml` passes it to
 # `gh release create --notes-file`: it is the first document a stranger
 # reads, and it was the ONE prose file in the tree that no sweep
@@ -304,5 +313,6 @@ docs/ffi.md
 docs/macro-system.md
 docs/memory-model.md
 docs/agent-harness.md
+docs/stdlib-api.md
 DOCS
 }

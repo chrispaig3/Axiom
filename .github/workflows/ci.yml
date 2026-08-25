@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Twenty-nine of the gates below build the compiler under test from
+    # Thirty of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -269,6 +269,19 @@ jobs:
       # cannot fail is the exact defect a test runner is for.
       - name: The test runner, its assertions and their isolation
         run: ./scripts/check-test-runner.sh
+
+      # The standard library's API reference is GENERATED, by an Axiom
+      # program, and this regenerates it and diffs. It is the strongest
+      # form the doc-drift rule takes: `check-doc-drift.sh` recomputes
+      # the numbers a document states, and this recomputes the whole
+      # document.
+      #
+      # It also runs the generator, which is this repository's worked
+      # example of a real program - so the example is exercised by CI
+      # rather than left to rot the way an example nothing depends on
+      # does.
+      - name: The stdlib API reference is what the library says
+        run: ./scripts/check-stdlib-api.sh
 
       # The acceptance measurement for the socket work, and the only gate
       # here whose subject is MEMORY rather than an answer: a pre-forked

@@ -72,10 +72,11 @@
 
 ; ------------------------------------------------------------------
 ; The assertions
-; ------------------------------------------------------------------
+;
 ; `want` and `got` are in that order in every one of these, and the
 ; message says which is which, because the commonest way to misread a
 ; failure is to read the two numbers the wrong way round.
+; ------------------------------------------------------------------
 ; Two `Int`s are equal.
 (pub :: assertEq (-> String Int Int Int))
 

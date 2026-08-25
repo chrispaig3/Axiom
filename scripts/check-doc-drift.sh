@@ -32,11 +32,11 @@
 #      this repository's standing rule about a sweep that reads fewer
 #      files than it should. This half of the gate WAS such a sweep
 #      until 2026-08-24: `claim()` opened README.md and nothing else,
-#      while sections 3, 4 and 5 below already read the ten documents
+#      while sections 3, 4 and 5 below already read the eleven documents
 #      `gate_prose_docs` names. The cost was standing in the tree -
 #      CONTRIBUTING.md said "449 of the 451 `.ax` files", README.md
 #      said 479, the tree had 479, and the gate was green. It reads
-#      the same ten documents now, and reports the file and line.
+#      the same eleven documents now, and reports the file and line.
 #
 #   3  EVERY **Complete** ROW NAMES A FIXTURE, and the fixture exists.
 #      This is the cheapest possible implementation of the
@@ -405,10 +405,30 @@ for root, dirs, files in os.walk("."):
         # one did, on its first run. Link targets are matched instead of bare
         # filenames so that PROSE naming a document - and this
         # paragraph does - is not read as a reference to it.
+        #
+        # A FILE MAY DECLARE WHERE ITS LINKS RESOLVE FROM, and exactly
+        # one does: `examples/axdoc/axdoc.ax` writes the markdown of
+        # `docs/stdlib-api.md`, so the links in its string literals are
+        # relative to `docs/` and resolving them against
+        # `examples/axdoc/` reports two dangling links that are not
+        # dangling. The alternative was to stop emitting links, or to
+        # build them from two string pieces so this pattern would not
+        # see them - and a check evaded by splitting a literal in half
+        # is worse than no check. The declaration is greppable, names a
+        # directory that must exist, and applies only to the file that
+        # carries it.
+        base = os.path.dirname(path)
+        declared = re.search(r"doc-links-resolve-from: *([\w./-]+)", text)
+        if declared:
+            base = declared.group(1)
+            if not os.path.isdir(base):
+                print(f"FAIL docs: {path} resolves its links from {base}, "
+                      f"which is not a directory")
+                bad += 1
         for tgt in re.findall(r"\]\(([\w./-]+\.md)(?:#[\w-]*)?\)", text):
             if tgt.startswith("docs/") or tgt in retrievable:
                 continue
-            resolved = os.path.normpath(os.path.join(os.path.dirname(path), tgt))
+            resolved = os.path.normpath(os.path.join(base, tgt))
             if not os.path.exists(resolved):
                 doc_named.setdefault(resolved, []).append(path)
 doc_missing = sorted((d, fs) for d, fs in doc_named.items() if not os.path.exists(d))

@@ -1,0 +1,575 @@
+; axdoc - the standard library's API reference, generated from the
+; standard library.
+;
+; This is an example program, and it is also the thing that writes
+; `docs/stdlib-api.md`. Those are the same fact: a reference that is
+; typed out by hand goes stale the first time somebody adds a
+; function, and the only reference that stays true is one derived from
+; the source with a gate diffing it. `scripts/check-stdlib-api.sh` runs
+; this program and requires its output to equal the committed document
+; byte for byte.
+;
+; WHAT IT READS, AND WHY TWO THINGS. The public surface comes from the
+; SOURCE - every `(pub :: ...)`, `(pub macro ...)`, `(pub data ...)`,
+; `(pub struct ...)`, `(pub trait ...)`, `(pub type ...)` and
+; `(effect ...)` head - because that is the only place visibility is
+; written down. `axiom symbols` cannot answer "is this public?" at all,
+; and it emits no row for a macro, so a reference driven by AXSYM alone
+; would print an `IO` with no `println`, a `Show` with no `format` and
+; an `Err` with no `try!`, and would be perfectly self-consistent while
+; doing it.
+;
+; The EFFECT ROW comes from AXSYM, because that is the compiler's own
+; answer and nothing else has it. It is the column an Axiom reference
+; exists for: `#effects=Alloc,IO` beside a name says what calling it
+; costs, derived by a fixpoint over every body rather than claimed by
+; whoever wrote the comment.
+;
+; THE LINKS IN THE HEADER BELOW RESOLVE FROM `docs/`, not from here.
+; `scripts/check-doc-drift.sh` resolves every markdown link target
+; against the directory of the file that writes it, which is right for
+; a document and wrong for a generator, so it reads this line and
+; resolves this file's against the directory named:
+;
+;   doc-links-resolve-from: docs
+;
+; Usage:
+;   axdoc <axsym-file> <module.ax>...
+;
+; The AXSYM file is one `axiom --diagnostic-format=ai symbols` stream
+; covering the modules named after it; the gate produces it.
+(import IO)
+
+(import Str)
+
+(import Vec)
+
+(import Sys)
+
+(import Path)
+
+; ------------------------------------------------------------------
+; Reading a declaration
+; ------------------------------------------------------------------
+; The declaration heads this recognises, in the order it tries them.
+; `(pub :: ` has to come before `(pub ` would match anything else, and
+; `(effect ` has no `pub` because an effect is exported unconditionally
+; - the one exception to the `pub` rule, and the reason `Test`'s
+; `assertFail` is callable from a file that imports only `Test`.
+(:: kindOf (-> String String))
+
+(fn (kindOf line)
+  (if (strStartsWith line "(pub :: ")
+    "value"
+    (if (strStartsWith line "(pub macro ")
+      "macro"
+      (if (strStartsWith line "(pub data ")
+        "data"
+        (if (strStartsWith line "(pub struct ")
+          "struct"
+          (if (strStartsWith line "(pub trait ")
+            "trait"
+            (if (strStartsWith line "(pub type ")
+              "type"
+              (if (strStartsWith line "(effect ")
+                "effect"
+                ""
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; How many bytes of the head to skip before the name begins.
+(:: headLen (-> String Int))
+
+(fn (headLen kind)
+  (if (strEq kind "value")
+    8
+    (if (strEq kind "macro")
+      11
+      (if (strEq kind "data")
+        10
+        (if (strEq kind "struct")
+          12
+          (if (strEq kind "trait")
+            11
+            (if (strEq kind "type")
+              10
+              8
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The identifier starting at `from`: bytes up to a space, `)` or `(`.
+;
+; A macro's head may be `(pub macro (name pat) body)` OR
+; `(pub macro name ((name T) ...))`, so an opening paren terminates the
+; name as well - and for the first spelling the name begins one byte
+; further on, which `declName` handles by stepping over it.
+(:: identAt (-> String Int String))
+
+(fn (identAt s from)
+  (let (
+    (n (strLen s))
+    (mut i from)
+  )
+    {
+      (while (if (< i n)
+        (let ((c (strByte s i)))
+          (if (== c 32)
+            false
+            (if (== c 41)
+              false
+              (if (== c 40)
+                false
+                true
+              )
+            )
+          )
+        )
+        false
+      )
+        (set i (+ i 1)))
+      (strSlice s from (- i from))
+    }
+  )
+)
+
+(:: declName (-> String String String))
+
+(fn (declName line kind)
+  (let ((at (headLen kind)))
+    (if (== (strByte line at) 40)
+      (identAt line (+ at 1))
+      (identAt line at)
+    )
+  )
+)
+
+; A `(pub :: NAME TYPE)` line's TYPE: everything after the name, with
+; the closing paren of the declaration dropped.
+;
+; The type is taken from the SOURCE rather than from AXSYM even though
+; AXSYM carries a checked one, because the two are written differently
+; - AXSYM prints `(Int -> (Int -> Int))` where the source says
+; `(-> Int Int Int)` - and a reference should show a reader the
+; spelling they will have to write.
+(:: declType (-> String String String))
+
+(fn (declType line name)
+  (let ((at (+ (+ 8 (strLen name)) 1)))
+    (if (>= at (strLen line))
+      ""
+      (let ((rest (strSlice line at (- (strLen line) at))))
+        (if (> (strLen rest) 0)
+          (if (== (strByte rest (- (strLen rest) 1)) 41)
+            (strSlice rest 0 (- (strLen rest) 1))
+            rest
+          )
+          rest
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The documentation above a declaration
+; ------------------------------------------------------------------
+; A comment line's text, with the leading `; ` removed.
+(:: commentText (-> String String))
+
+(fn (commentText line)
+  (if (strStartsWith line "; ")
+    (strSlice line 2 (- (strLen line) 2))
+    (if (strEq line ";")
+      ""
+      line
+    )
+  )
+)
+
+; Is this line a comment that is DOCUMENTATION rather than a banner?
+;
+; `; ------------------------------------------------------------------`
+; separates sections and says nothing about the declaration under it,
+; so a reference that printed it would put a row of dashes in the
+; summary column of every first function in a section.
+(:: isDocLine (-> String Bool))
+
+(fn (isDocLine line)
+  (if (strStartsWith line ";")
+    (if (strStartsWith line "; ---")
+      false
+      (if (strStartsWith line ";@")
+        false
+        true
+      )
+    )
+    false
+  )
+)
+
+; The FIRST PARAGRAPH of the comment block immediately above line `i`,
+; joined into one line.
+;
+; First paragraph, not the whole block: these blocks carry the reason a
+; function exists, what it measured and what it refuses, which is what
+; a reader wants when they are IN the file. A reference is an index,
+; and an index wants the sentence that tells you whether to open it.
+; The paragraph ends at a bare `;`, which is how every block in this
+; standard library separates them.
+;
+; THE BLOCK IS EVERY COMMENT LINE ABOVE THE DECLARATION UP TO A `; ---`
+; BANNER, and that puts an obligation on the library rather than on
+; this walk: prose that belongs to a SECTION has to sit inside the
+; banner, between its two rules, not under it. `axiom fmt` deletes a
+; blank line between two comment blocks, so a preamble written under a
+; banner and separated from the first declaration by one is silently
+; glued to that declaration - measured on `stdlib/Test.ax`, whose
+; `assertEq` came out summarised by a paragraph about the whole
+; section. The convention is in CONTRIBUTING.md; this is why it exists.
+(:: docAbove (-> Int Int String))
+
+(fn (docAbove lines i)
+  ; Walk UP to the top of the contiguous comment block.
+  (let (
+    (mut start (- i 1))
+    (mut out "")
+  )
+    {
+      (while (if (>= start 0)
+        (isDocLine (vecGetStr lines start))
+        false
+      )
+        (set start (- start 1)))
+      (set start (+ start 1))
+      ; ...then down again, stopping at the paragraph break.
+      (let ((mut j start))
+        (while (if (< j i)
+          (let ((t (commentText (vecGetStr lines j))))
+            (if (== (strLen t) 0)
+              false
+              true
+            )
+          )
+          false
+        )
+          {
+            (set out (if (== (strLen out) 0)
+              (commentText (vecGetStr lines j))
+              (strConcat (strConcat out " ") (commentText (vecGetStr lines j)))
+            ))
+            (set j (+ j 1))
+          })
+      )
+      out
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The effect row, from AXSYM
+; ------------------------------------------------------------------
+; `#effects=Alloc,IO` for `name`, or "" when the stream does not carry
+; one - which is what a pure function looks like, and also what a macro
+; looks like, because AXSYM has no row for a macro at all.
+;
+; A LINEAR SCAN, deliberately. The stream is a few hundred lines and
+; the public surface a few hundred names, so this is a few tens of
+; thousands of string comparisons - under a millisecond, against the
+; interner and hash map an index would cost. `Intern` and `Map` are
+; both in the standard library and both would work; neither earns its
+; place here, and a reference that reached for them would be teaching
+; the wrong lesson in the file people read as an example.
+(:: effectsOf (-> Int String String))
+
+(fn (effectsOf axsym name)
+  (let (
+    (n (vecLen axsym))
+    (mut i 0)
+    (mut found "")
+  )
+    {
+      (while (< i n)
+        (let ((line (vecGetStr axsym i)))
+          {
+            (if (&& (strStartsWith line "F ") (strEq (identAt line 2) name))
+              {
+                (set found (effectsField line))
+                (set i n)
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      found
+    }
+  )
+)
+
+; The `#effects=...` token of one AXSYM line, without its key.
+(:: effectsField (-> String String))
+
+(fn (effectsField line)
+  (let ((at (strFindStr line "#effects=")))
+    (if (< at 0)
+      ""
+      (identAt line (+ at 9))
+    )
+  )
+)
+
+; The first index at or after 0 where `needle` occurs in `hay`, or -1.
+(:: strFindStr (-> String String Int))
+
+(fn (strFindStr hay needle)
+  (let (
+    (n (strLen hay))
+    (m (strLen needle))
+    (mut i 0)
+    (mut at (- 0 1))
+  )
+    {
+      (while (<= (+ i m) n)
+        {
+          (if (strEq (strSlice hay i m) needle)
+            {
+              (set at i)
+              (set i n)
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      at
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Rendering
+; ------------------------------------------------------------------
+; A table cell: `|` would end the cell and a newline cannot occur, so
+; the one byte that has to be escaped is the pipe.
+(:: cell (-> String String))
+
+(fn (cell s)
+  (let (
+    (n (strLen s))
+    (mut i 0)
+    (mut out "")
+  )
+    {
+      (while (< i n)
+        {
+          (set out (strConcat
+            out            (if (== (strByte s i) 124)
+              "\\|"
+              (strSlice s i 1)
+            )
+          ))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; The module name a path denotes: `stdlib/Sys/Platform.ax` is
+; `Sys.Platform`, and `stdlib/Vec.ax` is `Vec`.
+(:: moduleName (-> String String))
+
+(fn (moduleName path)
+  ; `pathDir` keeps its trailing slash - documented, and for a good
+  ; reason - so `pathBase` of its answer is the empty string, and a
+  ; nested module came out as `.Vec` rather than `Vec`. The slash has
+  ; to come off before the last component can be read.
+  ;
+  ; And `Platform.darwin.ax` is the module `Sys.Platform`, not
+  ; `Sys.Platform.darwin`: the target is part of the FILE name and not
+  ; of the module name, which is how one `(import Sys.Platform)`
+  ; resolves to a different file per target. So the stem is cut at its
+  ; first dot.
+  (let ((stem (upToDot (pathStem path))))
+    (let ((dir (trimSlash (pathDir path))))
+      (if (strEq (pathBase dir) "stdlib")
+        stem
+        (strConcat (strConcat (pathBase dir) ".") stem)
+      )
+    )
+  )
+)
+
+(:: upToDot (-> String String))
+
+(fn (upToDot s)
+  (let ((at (strFindByte s 46 0)))
+    (if (< at 0)
+      s
+      (strSlice s 0 at)
+    )
+  )
+)
+
+(:: trimSlash (-> String String))
+
+(fn (trimSlash p)
+  (if (== (strLen p) 0)
+    p
+    (if (== (strByte p (- (strLen p) 1)) 47)
+      (strSlice p 0 (- (strLen p) 1))
+      p
+    )
+  )
+)
+
+(:: renderModule (-> String Int String))
+
+;@axiom:effect(io)
+(fn (renderModule path axsym)
+  ; The `mut` bindings are in two `let`s, split by TYPE, and that
+  ; is not a style choice: with `(mut count 0)` and `(mut rows "")`
+  ; in one binding list the checker unified them and reported
+  ; `set count`'s `Int` against `String`. One list per type is the
+  ; shape that checks.
+  (let (
+    (src (readFile path))
+    (name (moduleName path))
+  )
+    (let ((lines (strSplit src 10)))
+      (let (
+        (n (vecLen lines))
+        (mut i 0)
+        (mut count 0)
+      )
+        (let ((mut rows ""))
+          {
+            (while (< i n)
+              (let ((line (vecGetStr lines i)))
+                {
+                  (let ((kind (kindOf line)))
+                    (if (== (strLen kind) 0)
+                      0
+                      (let ((dn (declName line kind)))
+                        {
+                          (set count (+ count 1))
+                          (set rows (strConcat
+                            rows                            (renderRow
+                              kind                              dn                              (if (strEq kind "value")
+                                (declType line dn)
+                                ""
+                              )                              (effectsOf axsym dn)                              (docAbove lines i)
+                            )
+                          ))
+                          ; The block answers `0` so it agrees with the
+                          ; other arm of the `if` above it. Without it
+                          ; the arm's type is `set`'s, which is the
+                          ; STRING being assigned, and the checker
+                          ; reports the mismatch against `count`.
+                          0
+                        }
+                      )
+                    )
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            (strConcat
+              (strConcat (strConcat (strConcat "## `" name) "`\n\n") (strConcat (strConcat "`" path) (strConcat "` — " (strConcat (decStrOf count) " public names\n\n"))))              (if (== count 0)
+                ""
+                (strConcat "| Name | Kind | Type | Effects | Summary |\n|---|---|---|---|---|\n" (strConcat rows "\n"))
+              )
+            )
+          }
+        )
+      )
+    )
+  )
+)
+
+(:: renderRow (-> String String String String String String))
+
+(fn (renderRow kind name ty effects summary)
+  (strConcat
+    (strConcat (strConcat "| `" (cell name)) (strConcat "` | " kind))    (strConcat
+      (strConcat
+        " | "        (if (== (strLen ty) 0)
+          ""
+          (strConcat (strConcat "`" (cell ty)) "`")
+        )
+      )      (strConcat
+        (strConcat
+          " | "          (if (== (strLen effects) 0)
+            ""
+            (strConcat (strConcat "`" (cell effects)) "`")
+          )
+        )        (strConcat (strConcat " | " (cell summary)) " |\n")
+      )
+    )
+  )
+)
+
+; `Fmt.fmtInt` under another name, so this file needs no import for one
+; call. The reference states one number per module and this writes it.
+(:: decStrOf (-> Int String))
+
+(fn (decStrOf n)
+  (if (== n 0)
+    "0"
+    (let (
+      (mut v n)
+      (mut out "")
+    )
+      {
+        (while (> v 0)
+          {
+            (set out (strConcat (strSlice "0123456789" (% v 10) 1) out))
+            (set v (/ v 10))
+          })
+        out
+      }
+    )
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((argc sysArgc))
+    (if (< argc 3)
+      (die "usage: axdoc <axsym-file> <module.ax>...\n" 2)
+      (let ((axsym (strSplit (readFile (sysArg 1)) 10)))
+        (let (
+          (mut i 2)
+          (mut out "")
+        )
+          {
+            (set out (strConcat out header))
+            (while (< i argc)
+              {
+                (set out (strConcat out (renderModule (sysArg i) axsym)))
+                (set i (+ i 1))
+              })
+            (writeStr stdout out)
+            0
+          }
+        )
+      )
+    )
+  )
+)
+
+(:: header String)
+
+(fn (header) "# Axiom standard library — API reference\n\nGENERATED. `examples/axdoc/axdoc.ax` writes this file from the\nstandard library's own source and from `axiom symbols`; do not edit it\nby hand. `scripts/check-stdlib-api.sh` regenerates it and requires the\nresult to be byte-identical, so an edit here is a failing gate rather\nthan a document that quietly disagrees with the library.\n\nThe **public surface** is read from the source, because visibility is\nonly written there — AXSYM cannot say whether a name is `pub` and emits\nno row for a macro at all. The **effects** column is the compiler's\nown answer, derived by a fixpoint over every body rather than claimed\nby a comment: `Alloc` allocates, `IO` reaches a syscall or an `extern`,\nand a blank cell means the checker derived no effect (or, for a macro,\nthat AXSYM has no row to derive one from).\n\nThe **type** column is the source spelling, `(-> Int Int)`, not AXSYM's\ncurried rendering, because it is the spelling you will have to write.\n\nSee [reference.md](reference.md) for the language, and\n[README](../README.md#standard-library) for what each module is for.\n\n")

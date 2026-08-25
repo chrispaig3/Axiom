@@ -18,6 +18,35 @@ its changelog too.
 
 ### Added
 
+- **The standard library has an API reference, and it is generated.**
+  [`docs/stdlib-api.md`](docs/stdlib-api.md): every public name of
+  every module — **417** of them — with its source-spelled type, the
+  effect row the compiler derived, and the first paragraph of the
+  comment above it. What existed before were two hand-written module
+  tables, in `README.md` and `docs/reference.md`, which between them
+  named a minority of the public surface, were read by no gate, and had
+  already drifted apart: `docs/reference.md` called the `Err` macro
+  `try` where the library spells it `try!`. That is corrected here too.
+
+  The generator is **an Axiom program**, `examples/axdoc/axdoc.ax`,
+  which is also this repository's first worked example of a real
+  program rather than a fixture. It joins two sources because neither
+  is sufficient: visibility is only in the SOURCE (`axiom symbols` has
+  no `pub` field and emits no row for a macro, so an AXSYM-driven
+  reference would print an `IO` with no `println` and be
+  self-consistent about it), and the effect row is only in AXSYM,
+  where it is a fixpoint over every body rather than a claim in a
+  comment.
+
+  `scripts/check-stdlib-api.sh` regenerates the document and requires
+  byte-identity, then checks it against a name list `grep` derives from
+  the sources — every `(pub` name exactly once — so a generator that
+  dropped a module fails against a source outside itself rather than
+  being re-blessed. It also asserts the three `Sys/Platform.*.ax` files
+  declare the same 81 names, which is what makes carrying one of them
+  in the reference safe, and carries a documentation-coverage ratchet
+  at 290 of 417.
+
 - **A shipped binary names the tree it was built from.** `axiom
   version` printed `axiom (self-hosted) 0.2.0` and nothing else, so two
   builds of two *different* trees at one version were the same binary
@@ -268,7 +297,7 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty-nine gates
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — thirty gates
   rebuild the same compiler; now one step builds it, and builds it
   twice to measure that the artifact emits the same IR as a fresh
   build. (Not the same *bytes*: the macOS linker stamps a UUID into

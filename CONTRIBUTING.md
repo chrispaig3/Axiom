@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 500 `.ax` files in the repository apart from the two named below,
+the 501 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -179,7 +179,7 @@ documents state, but until 2026-08-24 its `claim()` helper opened
 README.md and nothing else — so the sentence above stood 28 files
 stale while the README stated the right total four lines of gate away
 and passed. Same claim, same class, one file swept. The helper reads
-all ten documents `gate_prose_docs` lists now, this one among them,
+all eleven documents `gate_prose_docs` lists now, this one among them,
 and a count that goes stale here fails exactly as it fails there.
 Which is also why the stale number is not spelled out in this
 paragraph: the pattern it matches on is the numeral and its unit, not
@@ -291,7 +291,8 @@ be a framework a reader had to learn before reading a single gate.
 | `check-render-selfhost.sh` | the human and JSON renderers, cross-checked against the AXDL goldens and against the palette `self_host/style.ax` declares |
 | `check-repl-selfhost.sh` | the REPL, piped session by piped session |
 | `check-lsp-selfhost.sh` | the language server's framed session bytes, and every published position converted into LSP's 0-based UTF-16 |
-| `check-doc-drift.sh` | this file and its nine siblings against the tree: every stated count recomputed, and every fixture a doc or a comment names must exist |
+| `check-stdlib-api.sh` | `docs/stdlib-api.md` is generated - by `examples/axdoc/axdoc.ax`, an Axiom program - and this regenerates it and requires byte-identity, plus that every `(pub` name a `grep` finds in `stdlib/` appears in it exactly once, that the three `Sys/Platform.*.ax` files declare the same names, and a documentation-coverage ratchet. Its negative probe adds a public name to a COPY of the library and requires the regenerated document to carry it |
+| `check-doc-drift.sh` | this file and its ten siblings against the tree: every stated count recomputed, and every fixture a doc or a comment names must exist |
 | `check-agent-policy.sh` | the standard library performs exactly the effects it declares, and the set of declarations performing any is the one in `tests/agent/stdlib-effects.allow` — `docs/agent-harness.md` §3.4's policy, as a gate over AXSYM rather than a compiler mode, on `check-ffi.sh`'s allowlist model |
 | `check-frontend-parity.sh` | the frontend's five consumers agree — on the value, not only on the verdict |
 | `check-memory-baseline.sh` | the managed Life probe holds RSS flat over 2000 generations where its unmanaged twin grows linearly |
@@ -300,7 +301,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the twenty-nine gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim twenty-nine gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the thirty gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim thirty gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-version.sh` | every place the project states its own version says what `VERSION` says, counted per site, and the built compiler prints it too |
 | `check-build-id.sh` | a shipped binary names the TREE it was built from, not only the version it promises: an unstamped build says `unstamped` and not a plausible value, the id is a function of the source (one changed byte moves it), and the id `build-stamped.sh` computes is the one `axiom version` reports |
@@ -531,6 +532,33 @@ primitives. When adding a new stdlib function:
    assertion names the one fact that was wrong. See
    [Testing](README.md#testing).
 7. **Update the module table** in `README.md` and `docs/reference.md`.
+
+### The doc-comment convention
+
+There is one, it is what the library already does, and since
+2026-08-25 it is READ: `examples/axdoc/axdoc.ax` turns it into
+[docs/stdlib-api.md](docs/stdlib-api.md) and
+`scripts/check-stdlib-api.sh` holds the result byte-identical.
+
+- **A symbol's documentation is the contiguous run of `;` comment
+  lines immediately above its `(pub :: NAME TYPE)`**, up to a `; ---`
+  banner. Not above the `(pub fn ...)` — the AXTAG goes there, and the
+  formatter keeps the two apart.
+- **Its FIRST paragraph is the summary** the reference prints. A
+  paragraph ends at a bare `;`. Write the sentence that tells a reader
+  whether to open the file first, and the measurements and refusals
+  after it.
+- **Prose that belongs to a SECTION goes inside the banner**, between
+  its two rules — not under it. `axiom fmt` deletes a blank line
+  between two comment blocks, so a preamble written under a banner is
+  glued to the first declaration below it and becomes that
+  declaration's summary. Measured on `stdlib/Test.ax`, whose
+  `assertEq` came out documented by a paragraph about the whole
+  section.
+- **A blank Summary cell in the reference is an undocumented name.**
+  `check-stdlib-api.sh` counts them and ratchets the total, so adding
+  a public name with no block above it lowers a number somebody has to
+  lower on purpose.
 
 ### Example: adding a new IO function
 
