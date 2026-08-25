@@ -571,7 +571,157 @@ else
 fi
 
 # ------------------------------------------------------------------
-# 5. The negative probe the gate cannot run for itself.
+# 5. EVERY REGISTER IS ACCOUNTED FOR, ON EVERY TARGET.
+#
+# The arm block is sound exactly when it behaves like a CALL, and it
+# says so by partitioning the register file into three sets:
+#
+#   clobbered            named in the constraint list
+#   saved and restored   written and read back by the block's own body
+#   restored explicitly  the frame pointer and the stack pointer, in
+#                        the longjmp
+#
+# A register in NONE of those is a register a value can hide in across
+# the block. `x18` was exactly that: reserved on Darwin, where LLVM
+# never allocates it and the omission is invisible, and an ordinary
+# allocatable caller-saved temporary on Linux, where LLVM PREFERS it
+# because the block does not clobber it. The recovered status was read
+# back through it and the aborted extent had destroyed it - SIGSEGV,
+# `Tests (linux-aarch64)` only, exit 139 with an empty stdout and an
+# empty stderr.
+#
+# THIS SECTION DOES NOT RESTATE THE CALLER-SAVED SET, which is the
+# thing I got wrong. It asserts the PARTITION over the whole register
+# file, which is only wrong if a register is forgotten to exist. And
+# the one legitimate way to be in none of the three sets - being
+# reserved on that target - is decided by asking LLVM rather than by
+# asserting it here: a register named in a clobber list that llc calls
+# reserved is one it will never allocate.
+# ------------------------------------------------------------------
+echo "== every register is accounted for, on every target =="
+
+# `reserved_on <triple> <reg>` - llc's own answer, not this file's.
+# The probe carries the SAME attribute group the compiler emits, and a
+# non-empty asm body. Neither is decoration: with a bare `define` and an
+# empty body llc is silent for every register on every target, x29
+# included, and the probe answers "nothing is reserved anywhere" - a
+# check that cannot fail. With `"frame-pointer"="all"` and a `nop` it
+# answers x18 reserved on arm64-apple and silent on aarch64-linux,
+# which is the ABI difference this section exists for.
+reserved_on() {
+  printf 'target triple = "%s"\ndefine void @p() #0 {\n  call void asm sideeffect "nop", "~{%s}"()\n  ret void\n}\nattributes #0 = { "no-builtins" "frame-pointer"="all" }\n' \
+    "$1" "$2" > "$work/res.ll"
+  llc -O0 "$work/res.ll" -o /dev/null 2>&1 | grep -qi "reserved registers"
+}
+
+triple_of() {
+  case "$1" in
+    darwin-aarch64) echo "arm64-apple-macosx14.0.0" ;;
+    darwin-x86_64)  echo "x86_64-apple-macosx14.0.0" ;;
+    linux-aarch64)  echo "aarch64-unknown-linux-gnu" ;;
+    linux-x86_64)   echo "x86_64-unknown-linux-gnu" ;;
+  esac
+}
+
+acct_checked=0
+for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+  ir="$work/acct-$target.ll"
+  if ! "$axc" --target="$target" emit-llvm tests/stdlib/403-recover-div.ax -o "$ir" >/dev/null 2>&1; then
+    echo "FAIL [$target] could not emit IR for the register-accounting check"
+    status=1
+    continue
+  fi
+  # The arm block is the one `asm sideeffect` whose body saves the
+  # callee-saved set. Matched on that, not on position.
+  block="$(grep -o 'asm sideeffect "[^"]*", "[^"]*"' "$ir" \
+           | grep -E 'stp x19, x20|movq %rbx, 48' | head -1)"
+  if [[ -z "$block" ]]; then
+    echo "FAIL [$target] no recovery arm block in the emitted IR"
+    status=1
+    continue
+  fi
+
+  case "$target" in
+    *aarch64)
+      regs=""; for i in $(seq 0 28); do regs="$regs x$i"; done
+      for i in $(seq 0 31); do regs="$regs v$i"; done
+      fp="x29"
+      # x30 is spelled `lr`, and this is not a style point: LLVM
+      # silently IGNORES `~{x30}` as an AArch64 clobber name, which is
+      # the bug this file records at `targetRecoverArmAsm`. Requiring
+      # the spelling that works, and refusing the one that does not.
+      if [[ "$block" == *'~{lr}'* ]]; then
+        : # accounted for
+      else
+        echo "FAIL [$target] the arm block does not clobber lr (x30)"
+        status=1
+      fi
+      if [[ "$block" == *'~{x30}'* ]]; then
+        echo "FAIL [$target] the arm block spells x30 as ~{x30}, which LLVM ignores; it must be ~{lr}"
+        status=1
+      fi
+      ;;
+    *x86_64)
+      regs="rax rbx rcx rdx rsi rdi r8 r9 r10 r11 r12 r13 r14 r15"
+      for i in $(seq 0 15); do regs="$regs xmm$i"; done
+      fp="rbp"
+      ;;
+  esac
+
+  unaccounted=""
+  for r in $regs; do
+    [[ "$r" == "$fp" ]] && continue
+    # named in the constraint list, or moved by the block's own body
+    if [[ "$block" == *"~{$r}"* ]] || [[ "$block" == *"$r,"* ]] || [[ "$block" == *"%$r,"* ]] \
+       || [[ "$block" == *" $r "* ]] || [[ "$block" == *"%$r"* ]]; then
+      continue
+    fi
+    # or reserved on this target, which llc decides
+    if reserved_on "$(triple_of "$target")" "$r"; then
+      continue
+    fi
+    unaccounted="$unaccounted $r"
+  done
+
+  if [[ -n "$unaccounted" ]]; then
+    echo "FAIL [$target] registers in no set - not clobbered, not saved, not reserved:$unaccounted"
+    echo "     a value can live in one of those across the arm block, and the"
+    echo "     landing path will not put it back"
+    status=1
+  else
+    echo "ok   [$target] every register is clobbered, saved, or reserved"
+    acct_checked=$((acct_checked + 1))
+  fi
+done
+if (( acct_checked != 4 )); then
+  echo "FAIL only $acct_checked of 4 targets reached the register-accounting check"
+  status=1
+fi
+# ABLATED 2026-08-25, which is the only thing that makes the four `ok`
+# lines above evidence. With `",~{x18}"` in `targetRecoverArmAsm`
+# replaced by `""` - the tree exactly as it was when
+# `Tests (linux-aarch64)` died of SIGSEGV - and the compiler rebuilt:
+#
+#     ok   [darwin-aarch64] every register is clobbered, saved, or reserved
+#     ok   [darwin-x86_64]  every register is clobbered, saved, or reserved
+#     FAIL [linux-aarch64] registers in no set - not clobbered, not saved,
+#          not reserved: x18
+#     ok   [linux-x86_64]  every register is clobbered, saved, or reserved
+#
+# One target, the right one, and darwin-aarch64 stays green because llc
+# calls x18 reserved there. That discrimination is the whole point: a
+# check that flagged x18 everywhere would have to be silenced on Darwin
+# and would then be silenced everywhere.
+#
+# It also catches this class WITHOUT a fixture happening to expose it.
+# Whether LLVM parks a value in an unaccounted register depends on the
+# pressure in one function: `401-recover-effect` and `403-recover-div`
+# pass on linux-aarch64 with the bug present, and only `402-recover-oom`
+# faults. A gate that waits for a fixture to get unlucky is a gate that
+# reports the bug it already shipped.
+
+# ------------------------------------------------------------------
+# 6. The negative probe the gate cannot run for itself.
 #
 # Everything above asserts that recovery WORKS, and the ablated memory
 # arm proves the measurement can see a difference. What is left is the
