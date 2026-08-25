@@ -216,13 +216,34 @@ if other:
         print(f"     {mod}.{name} -> {callee}")
     raise SystemExit(1)
 
+# THE BOUND IS ON DISTINCT CALLEES, NOT ON EDGES, and that is a
+# correction. It bounded `len(generated)` - the EDGE count - at 12,
+# with 4 measured on 2026-08-24. But an edge is one caller naming one
+# implementation, so the number scales with how many functions call a
+# trait method: `stdlib/Test.ax` arrived on 2026-08-25 with six public
+# assertions that each `println` a value, and 6 callers x 4 `Show`
+# implementations took it from 4 to 28 without the gap moving at all.
+# A ceiling that fires when somebody writes a function that prints is
+# measuring the library's size.
+#
+# The gap is `symbols.ax` emitting no row for an impl method body, and
+# its size is the number of DISTINCT names the graph can name and the
+# stream cannot explain. That is 4 today - `Show#Int#show` and its
+# three siblings - and it moves when a trait implementation is added
+# or when the gap closes, which is what this is for. The edge count is
+# still printed, because it is the thing a reader will see in the
+# stream, and it is no longer asserted.
+callees = sorted({r[2] for r in generated})
 print(f"ok   {len(rows)} rows, every edge resolved, no callee effect escapes its caller")
-print(f"ok   {len(generated)} edges name a trait implementation, which has no row "
+print(f"ok   {len(generated)} edges name a trait implementation, over "
+      f"{len(callees)} distinct names, which have no row "
       f"(the open symbols.ax gap, named in this gate's header)")
-if len(generated) > 12:
-    print(f"FAIL: {len(generated)} rowless trait-impl edges; there were 4 on 2026-08-24.")
-    print( "      That is not a failure of this change - it is the symbols.ax gap")
-    print( "      growing. Re-read the header before raising this number.")
+if len(callees) > 12:
+    print(f"FAIL: {len(callees)} distinct rowless trait-impl callees; there were 4 on")
+    print( "      2026-08-25. That is not a failure of this change - it is the")
+    print( "      symbols.ax gap growing. Re-read the header before raising this.")
+    for c in callees[:20]:
+        print(f"     {c}")
     raise SystemExit(1)
 PY
 cat "$work/contain.out"

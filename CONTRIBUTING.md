@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 501 `.ax` files in the repository apart from the two named below,
+the 502 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -301,13 +301,15 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the thirty gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim thirty gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the thirty-two gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim thirty-two gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
+| `check-install.sh` | the script `README.md` tells a stranger to pipe into bash. A release built from this tree is served over the loopback and installed; a tampered archive, one with no checksum and one with no `stdlib/` must each be refused. Its own probe deletes `install.sh`'s checksum comparison in a copy and requires the tampered case to stop being refused |
 | `check-version.sh` | every place the project states its own version says what `VERSION` says, counted per site, and the built compiler prints it too |
 | `check-build-id.sh` | a shipped binary names the TREE it was built from, not only the version it promises: an unstamped build says `unstamped` and not a plausible value, the id is a function of the source (one changed byte moves it), and the id `build-stamped.sh` computes is the one `axiom version` reports |
 | `check-net.sh` | a request handler bracketed as an arena scope holds worker RSS flat across ten thousand connections, against a floor of 50x over the same binary unscoped |
 | `check-agent-calls.sh` | `symbols --calls`: no callee's effect escapes its caller, every inferred effect row carries a call edge, and every `IO` reaches a syscall or an `extern` |
 | `check-ffi.sh` | every FFI tier and the symbols each one imports, priced against a per-crate `axiom-allow.txt`; the one MM-FFI-5 requires. Runs in its own CI job, on linux-x86_64 and darwin-aarch64, because it is the only gate that needs `cargo` |
+| `check-packages.sh` | `axiom.pkg`: a project's declared dependencies join the module search path after its own directory and before `$AXIOM_PATH`, and two of them providing one module are REFUSED rather than ordered. Every project is built in the gate's work directory and every module answers a distinct number, so the exit status says which file the resolver chose; the negative probe removes the manifest and requires the same program to stop resolving |
 | `check-name-scale.sh` | resolving a module's private names costs no more than resolving its public ones - a ratio rather than a wall-clock bound, so it is not flaky on a shared runner |
 | `check-type-namespace.sh` | a type name means what its own module says it means, whatever the import order - and finding out which declaration that is costs a bucket rather than a scan, which is why the semantics and the index landed together |
 | `check-recover.sh` | each of the three traps recovers inside a recovery point and still stops the process outside one, at four optimisation levels, and 100,000 aborts do not grow memory - paired with an ablated twin that must grow, and with a `handle` inside every aborted extent because the retain it abandons is the one thing the arena's wholesale reclaim does not cover |

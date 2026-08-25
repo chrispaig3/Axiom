@@ -961,9 +961,32 @@ requires the result to be byte-identical. The table above says what
 each module is *for*; the reference says what is in it.
 
 The library is found automatically - `AXIOM_STDLIB` overrides its
-location, and `AXIOM_PATH` (colon-separated) adds further module search
-directories. A module in the entry file's own directory always wins, so
-a project can shadow a standard-library module with its own.
+location, `axiom.pkg`'s `depend` lines add a project's own
+dependencies (see [Packages](#packages)), and `AXIOM_PATH`
+(colon-separated) adds further module search directories.
+
+**The search order, stated exactly**, because a shorter version of this
+sentence was wrong for a year. Resolution is a ladder of SUFFIXES over
+a list of DIRECTORIES, and the suffix is the outer loop:
+
+```
+for suffix in .<os>-<arch>.ax, .<os>.ax, .ax:
+    for dir in  the entry file's own directory
+                each `depend` in axiom.pkg, in file order
+                each $AXIOM_PATH entry, in order
+                each --crate DIR's axiom/ directory
+                $AXIOM_STDLIB, or the stdlib beside the binary:
+        if <dir><module><suffix> is a readable file, that is the module
+```
+
+So a project *does* shadow a standard-library module with its own file
+of the same name — but only at the same suffix. A more target-specific
+file anywhere on the path beats a less specific one nearer the entry
+file: measured 2026-08-25, a project's own `Sys/Platform.ax` loses to
+the standard library's `Sys/Platform.darwin.ax`, which is the mechanism
+that makes one `(import Sys.Platform)` resolve per target and is not a
+bug. The claim this paragraph replaced — "a module in the entry file's
+own directory always wins" — was false on exactly that case.
 
 ### Freestanding primitives
 
@@ -1227,11 +1250,12 @@ axiom run main.ax
 How it works:
 
 - A dotted module path maps directly to a file path: `Math.Ops` resolves
-  to `Math/Ops.ax`, **always relative to the entry file's own directory**
-  (the file you passed to `check`/`build`/`run`/`emit-llvm`) - not to
-  whichever file happens to contain the `(import ...)`, so a deeply nested
+  to `Math/Ops.ax`, relative to the entry file's own directory (the file
+  you passed to `check`/`build`/`run`/`emit-llvm`) - not to whichever
+  file happens to contain the `(import ...)`, so a deeply nested
   module can still `(import Math.Ops)` using the same path the entry file
-  would.
+  would. Other directories are searched after it, in the order under
+  [Standard library](#standard-library).
 - `(import Mod.Sub)` with no name list makes every `pub` top-level
   declaration of that file visible; `(import Mod.Sub (a b))` makes only
   the named ones visible (functions, `data`/`struct`/`type` decls, ...).
@@ -1327,6 +1351,57 @@ See [`docs/diagnostics.md`](docs/diagnostics.md) for the full agent-facing
 notation architecture: stable error codes (`AX####`), cascade suppression,
 the human report format, the AI-optimized "AXDL" diagnostic notation, and
 the AI-optimized "AXSYM" symbol/type notation.
+
+---
+
+## Packages
+
+A project says what it depends on in an `axiom.pkg` beside its source,
+or at any directory above it up to eight levels:
+
+```
+# axiom.pkg
+name     myapp
+version  0.1.0
+
+depend   vendor/axiom-json
+depend   ../shared/modules
+```
+
+`depend` names a **directory of modules**, resolved against the
+manifest's own directory so the project relocates, and each one joins
+the module search path after the entry file's directory and before
+`$AXIOM_PATH`. The manifest travels with the source; the variable
+travels with the shell, so when both can answer the declared dependency
+wins. `name` and `version` are recorded and read by nothing yet.
+
+**Two dependencies may not provide one module.** That is the property
+that makes this more than a search path, and it is refused before a
+byte is compiled:
+
+```
+$ axiom check app.ax ; echo $?
+error: two dependencies in ./axiom.pkg provide the module `Widget`:
+       a/Widget.ax
+       b/Widget.ax
+       One of them would win by declaration order and the other's
+       modules would compile against declarations they never named.
+3
+```
+
+Before this, whichever directory came first won, silently, and the
+loser's modules compiled against a package they had never named — the
+value-namespace twin of the type collision `AX3044` closed on
+2026-08-24, with the same failure mode: a wrong answer at exit 0.
+
+**What this is not**, said out loud so nobody has to discover it: there
+is no registry, no lockfile, no version constraint and no fetching. A
+dependency is a path on this machine. Each of those is a policy
+decision that wants a maintainer to make it, and a half-made one is
+worse than the mechanism it would rest on. `scripts/check-packages.sh`
+is the gate, 11 checks, and its negative probe removes the manifest and
+requires the same program to stop resolving — so nothing else can be
+what found the module.
 
 ---
 
@@ -1551,7 +1626,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Syscalls | **Complete** | `tests/selfhost/230-syscall.ax`. `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
 | Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend. (Defining `axiom_alloc` yourself does *not* override it — the name is refused outright, `AX3026`, because the override seam does not exist — [docs/memory-model.md](docs/memory-model.md) MM-ALLOC-8.) There is no manual `free`; every heap block carries a reference count and a shape word, and a block whose count reaches zero joins a size class and is handed out again — walking its reference map on the way, so a dead value takes what it owned with it: a discarded constructor cell holding a string frees the string's header *and* the string's bytes, and a thousand build-and-drop iterations move the allocator's bump by 384 bytes where they used to move it by 80,304 (`tests/stdlib/359-arc-str-bytes.ax`). **The self tail call is a release boundary since 2026-08-15** (MM-LIFE-2c event 4), which is the shape the strategy exists for - the activation that never returns: a loop allocating a fresh string per iteration and dropping the previous one moves the bump **480 bytes over 2000 iterations** where it used to move **224,304** (`tests/stdlib/362-arc-tail-boundary.ax`). What unblocked it was making the invisible stores visible: `Mem.memSetWord` and the AST's `mkNode` each `cast Int` a value out of the type system's sight, and both now take a share through `__retainref`, a type-directed retain that emits nothing at all when the stored word is an integer. **Events 2 and 3 shipped on 2026-08-21**, with owned temporaries: a reference a function answers is one share the caller holds and hands back, so the shapes they cover reclaim everything they build - every measured line of `tests/stdlib/372-arc-owned-results.ax` reads 0 bytes per iteration where three of them leaked 80. All seven of MM-LIFE-2c's events emit. **The arena scope IS the reclamation strategy as of 2026-08-24** (`MM-ALLOC-22`): `__axiom_arena_mark`/`__axiom_arena_reset` are what a request handler reclaims with, measured at 291× less memory than the same binary unscoped at ten thousand connections (`scripts/check-net.sh`, run 2026-08-24: 512 KiB scoped against 149,328 KiB; the exact ratio moves with the machine, so the gate asserts a floor of 50× rather than a number), and reference counting — `MM-LIFE-2a` — is **abandoned in place** rather than pending. What already emits stays and is not being finished; the residue it charges is 4,097 slab-head stores per reset, measured at under one percent of throughput. **The containers stopped being leaves on 2026-08-24** (`MM-LIFE-2h`): the shape word gained an ARRAY FORM - one bit saying every payload word of a block is a handle - which is the only encoding that can describe an element buffer, because the record form's bitmap holds 47 words and `Intern`'s string vector is 64 words before a single string is interned. `vecNewRef`, `mapNewRefVals` and `internNew` own what they hold; `vecFree`, `mapFree` and `internFree` hand it back, four levels deep (vector → data block → `Str` header → its bytes), and the identical program built with `vecNew` does not (`tests/stdlib/404-container-reference-maps.ax`, 255 - eight probes, one bit each). And the acceptance property above it (`MM-LIFE-2i`): a bounded LIVE SET has bounded memory in a process that frees no container and resets no arena - a 256-entry window over 2,000,000 inserts holds **1,392 KiB flat across a hundredfold** in iterations, against 34,368 KiB for the same program with the eviction removed (`scripts/check-steady-state.sh`). That gate found what the container gate could not: `mapNeedsGrow` counts tombstones, so an insert-and-remove workload doubled the table for entries that did not exist and reached 10 MB with 256 live keys. No tracing collector — the Rust compiler's `--gc` was not ported and the flag is now refused (the self-hosting record). See the memory model specification, [docs/memory-model.md](docs/memory-model.md) |
 | Crash diagnosis | **Function-level only** | `tests/stdlib/400-backtrace.ax`, `scripts/check-backtrace.sh`. A trap writes its message, then `axiom: backtrace (most recent call first)` and one `  at <function>` line per stack frame — the OOM path names `__axiom_out_of_memory`, `axiom_alloc`, `Mem$memAlloc`, `__axiom_user_main`, `main`. Three pieces, none of them debug metadata: `"frame-pointer"="all"` on the module's one attribute group, a table of address-beside-name over every symbol the module defines, and a walker that resolves each return address at `ra - 1` (at `ra`, a call that is a function's last instruction resolves to the *next* function — measured, and it printed `axiom_alloc` for `main`). Cost at `--opt 2`: a hello-world binary 65,704 → 82,536 bytes, the compiler +1.3%, `check self_host/main.ax` unchanged at 0.51 s. **No line numbers**, no DWARF, `-g` still never passed; a SIGSEGV still yields nothing, because nothing catches the signal. Above `--opt 0` a trace is shorter than the source suggests because the frames were inlined away rather than lost |
-| Releases and versioning | **Functional** | `VERSION` is the single source of truth and `scripts/check-version.sh` holds eleven literals across eight files to it, each named with the count it must yield, plus what the built binary prints. A `v*` tag fires `release.yml`, which refuses a tag disagreeing with `VERSION` and builds three targets from the committed seed through the fixpoint. Since 2026-08-25 the shipped binary also names the TREE it was built from — `axiom version` prints a build id, twelve hex characters of a hash over every `.ax` byte under `self_host/` and `stdlib/` plus the commit, so two builds of two different trees at one version are distinguishable to whoever holds one (`scripts/check-build-id.sh`, `self_host/build.ax`). No `darwin-x86_64` artifact: it is assembled and byte-compared and executed by no runner |
+| Releases and versioning | **Functional** | The installer is gated: `scripts/check-install.sh` serves a release built from the tree over the loopback, installs it, and requires a tampered archive, a missing checksum and an archive with no `stdlib/` to each be refused — with an ablation of `install.sh`'s own comparison proving that is what refuses them. `VERSION` is the single source of truth and `scripts/check-version.sh` holds eleven literals across eight files to it, each named with the count it must yield, plus what the built binary prints. A `v*` tag fires `release.yml`, which refuses a tag disagreeing with `VERSION` and builds three targets from the committed seed through the fixpoint. Since 2026-08-25 the shipped binary also names the TREE it was built from — `axiom version` prints a build id, twelve hex characters of a hash over every `.ax` byte under `self_host/` and `stdlib/` plus the commit, so two builds of two different trees at one version are distinguishable to whoever holds one (`scripts/check-build-id.sh`, `self_host/build.ax`). No `darwin-x86_64` artifact: it is assembled and byte-compared and executed by no runner |
 | Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; codegen verified for all four targets |
 | Self-hosting | **Done** | Axiom's compiler is written in Axiom. It compiles itself and reproduces itself byte-for-byte (`stage2 == stage3`, as objects and as IR), and a clean checkout builds it from `bootstrap/` with nothing but `llc` and a C linker. The Rust implementation it replaced has been removed. See the self-hosting record |
 | ADTs / data types | **Complete** | `tests/selfhost/140-data.ax`, `tests/selfhost/400-mixed-nullary.ax`, `tests/stdlib/270-nullary-unboxed.ax`. A constructor with fields is a heap-boxed tagged value; a nullary constructor *is* its tag, in a mixed type as well as an all-nullary one, and a match over a mixed type reads the tag through a runtime `< 4096` immediate-vs-pointer guard. Recursive types like `List`/`Tree` need no special case. See [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
@@ -1574,7 +1649,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Concurrency | **Library** | No language support and no compiler change: `stdlib/Job.ax` is a bounded pool of child processes over `Sys`'s existing `sysSpawn`/`sysWaitPid` pair, answering in submit order. Processes rather than threads, because a freestanding binary cannot create an OS thread on macOS. See the roadmap |
 | API reference | **Generated** | [docs/stdlib-api.md](docs/stdlib-api.md): every public name of every standard-library module, with its source-spelled type, the effect row the compiler derived, and the first paragraph of the comment above it. Written by `examples/axdoc/axdoc.ax` — an Axiom program — and held byte-identical by `scripts/check-stdlib-api.sh`, which also requires every `(pub` name a `grep` finds in `stdlib/` to appear in it exactly once, so a dropped module fails against a source outside the generator. 417 names, 290 with a summary; the coverage number is a ratchet, so a new public name with no comment above it lowers it and has to be a conversation |
 | Test runner | **Functional** | `axiom test` and `stdlib/Test.ax`, gated by `scripts/check-test-runner.sh` over `tests/testrunner/`. A test is a top-level `test`-named function taking no parameters; the runner appends a `main` to the file's own bytes and arms one recovery point per test, so a failed assertion, an unhandled effect, an allocation failure and a division by zero each end ONE test and answer with a status (`ERR-REC-6`) — measured on a fixture that fails in three of those ways and still reports the test declared after all three. Nothing is skipped in silence: a file with no test fails, and a `test`-named function that takes parameters is refused by name. What is NOT here: no test may run in parallel with another, there is no setup/teardown, and a test cannot be marked expected-to-fail. See [Testing](#testing) |
-| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 501 `.ax` files in the repo and a 37-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed in the [Compiler structure](#compiler-structure) table above among *The tools*, and gated by `scripts/check-lsp-selfhost.sh`; it answers go-to-definition for a macro invocation, a same-file function, `data` or `struct`, and — since 2026-08-25 — a name imported from another module, jumping into that module's own file; plus hover on a macro. All from the raw parse tree with no expansion (`MAC-TOOL-3`); the import graph is walked only when the lookup in the open document misses, which is the language's own shadowing order |
+| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 502 `.ax` files in the repo and a 37-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed in the [Compiler structure](#compiler-structure) table above among *The tools*, and gated by `scripts/check-lsp-selfhost.sh`; it answers go-to-definition for a macro invocation, a same-file function, `data` or `struct`, and — since 2026-08-25 — a name imported from another module, jumping into that module's own file; plus hover on a macro. All from the raw parse tree with no expansion (`MAC-TOOL-3`); the import graph is walked only when the lookup in the open document misses, which is the language's own shadowing order |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
 | Module visibility | **Complete** | `pub` on a declaration, or an import's name list, decides which names are visible outside a module — not which declarations exist. A module keeps its private helpers and behaves identically however it is imported; naming one from outside is `AX3023`. An import's name list is itself checked since `6a28103`: `(import M (noSuch))` is `AX3023`. `tests/selfhost/920-private-declaration.ax`, `930-selective-import.ax` |
 

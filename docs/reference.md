@@ -1431,14 +1431,14 @@ Both halves matter, and until 2026-08-10 there was only one: a private declarati
 
 ### How Imports Work
 
-- A dotted module path maps directly to a file path: `Math.Ops` resolves to `Math/Ops.ax`, always relative to the entry file's own directory.
+- A dotted module path maps directly to a file path: `Math.Ops` resolves to `Math/Ops.ax`, looked up in the entry file's own directory first and then in the rest of the search path — the project's `axiom.pkg` dependencies, `$AXIOM_PATH`, and the standard library, in that order. The SUFFIX ladder is the outer loop, so a more target-specific file anywhere beats a less specific one nearer the entry file: a project's `Sys/Platform.ax` loses to the standard library's `Sys/Platform.darwin.ax` (measured 2026-08-25). [README § Standard library](../README.md#standard-library) states the whole order; `scripts/check-packages.sh` gates it.
 - `(import Mod.Sub)` with no name list makes every `pub` top-level declaration visible.
 - `(import Mod.Sub (a b))` makes only the named ones visible; the module's other `pub` names stay out of scope.
 - An import's name list **is** checked, at the import: a name the module does not declare, or declares without `pub`, is `AX3023` on the import form itself and says which of the two it was (`tests/diagnostics/440-import-name-list.ax`).
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s declarations into `A` too) and diamond-safe (two different modules both importing `C` merges `C` exactly once).
 - Qualified access is supported: `Mod::name` resolves to `name` declared in `Mod`. Imported declarations still join the importing module's flat top-level namespace by default; use `Mod::name` to disambiguate when the same name exists in multiple modules.
 - **Types resolve by module, not by import order** (2026-08-24). A `data`, `struct` or `type` name is not rewritten to `Mod$Name` the way a `fn` is, and the lookup used to take the first declaration in the merged list — so two modules that each declared a `Config` had one winner for the whole program, chosen by which `(import ...)` came first, and the loser's own bodies were compiled against the winner's field offsets at exit 0 with no diagnostic. A bare type name now means, in order: a declaration in the referencing module, then a module-less one (the entry file, or a builtin like `Option`), then the single module that declares it. A name two or more modules declare, referenced from a module that declares neither, is `AX3044` naming them. `Mod::Name` is **not** the escape — it does not parse in type position; narrow one of the imports with a name list, or rename one declaration.
-- A module path that doesn't resolve to a real file is `AX5001`.
+- A module path that doesn't resolve to a real file is `AX5001`. Two of a project's declared dependencies providing one module is refused before compilation, naming both files and the manifest — see [README § Packages](../README.md#packages).
 
 ---
 

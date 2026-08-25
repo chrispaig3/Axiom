@@ -1,0 +1,398 @@
+; pkg.ax - `axiom.pkg`, the project manifest.
+;
+; WHAT A DEPENDENCY WAS BEFORE THIS. A directory on `$AXIOM_PATH`, a
+; colon-separated environment variable. That is a real mechanism and it
+; stays - but nothing records what a program depends on, so nothing
+; travels with the project, nothing can be checked, and two directories
+; providing a module of the same name resolve first-wins by environment
+; order, silently, with the loser's declarations compiled against
+; nobody. It is the value-namespace twin of the type collision `AX3044`
+; closed on 2026-08-24, and it had the same failure mode: a wrong
+; answer at exit 0.
+;
+; THE MANIFEST. `axiom.pkg`, at or above the entry file's directory, is
+; a line-based file - `#` comments, blank lines ignored, one
+; `key value` pair per line:
+;
+;     # axiom.pkg
+;     name     myapp
+;     version  0.1.0
+;     depend   vendor/axiom-json
+;     depend   ../shared/modules
+;
+; `depend` names a DIRECTORY of modules, resolved against the
+; manifest's own directory so the project relocates, and each one joins
+; the module search path after the entry file's directory and before
+; `$AXIOM_PATH`. `name` and `version` are recorded and read by nothing
+; yet; they are here because a manifest that cannot say what package it
+; describes is a search path with extra steps, and because they are
+; what a registry would key on if there is ever one.
+;
+; WHAT THIS IS NOT, said out loud so nobody has to discover it: there
+; is no registry, no lockfile, no version constraint and no fetching.
+; A dependency is a path on this machine. Every one of those is a
+; policy decision that wants a maintainer to make it, and shipping a
+; half-made one is worse than shipping the mechanism it would rest on.
+;
+; TWO DEPENDENCIES MAY NOT PROVIDE ONE MODULE. That is the property
+; that makes this more than `$AXIOM_PATH`, and `pkgVerify` refuses it
+; before a byte is compiled, naming both files and the manifest. It is
+; checked at the MANIFEST rather than per-import on purpose: the fault
+; is in the project's configuration, and reporting it only for the
+; imports that happen to be ambiguous would let a program build today
+; and stop building when somebody adds an import.
+(import Str)
+
+(import Vec)
+
+(import Sys)
+
+(import Path)
+
+; `strConcat` three and four ways. `codegen.ax` has `cat3`/`cat4` and
+; this module cannot import it: `codegen` imports THIS one, for the
+; search path, and a cycle is worse than eight lines.
+(pub :: pkg3 (-> String String String String))
+
+(pub fn (pkg3 a b c) (strConcat (strConcat a b) c))
+
+(pub :: pkg4 (-> String String String String String))
+
+(pub fn (pkg4 a b c d) (strConcat (strConcat a (strConcat b c)) d))
+
+; The manifest's file name. One place, because three functions here
+; and one message all say it.
+(pub :: pkgManifestName String)
+
+(pub fn (pkgManifestName) "axiom.pkg")
+
+; The nearest `axiom.pkg` at or above `dir`, or "".
+;
+; UP TO EIGHT LEVELS. A bound rather than a walk to the root, because
+; an unbounded walk reads a file per level of every path anyone ever
+; compiles from, and because a manifest eight directories above the
+; file being compiled is more likely to be somebody else's than yours.
+; The number is stated here rather than derived: no project in this
+; repository is deeper than three.
+(pub :: pkgFindManifest (-> String String))
+
+;@axiom:effect(io)
+(pub fn (pkgFindManifest dir)
+  (pkgFindManifestFrom
+    (if (== (strLen dir) 0)
+      "./"
+      (pathWithSlash dir)
+    )    0
+  )
+)
+
+(pub :: pkgFindManifestFrom (-> String Int String))
+
+;@axiom:effect(io)
+(pub fn (pkgFindManifestFrom dir depth)
+  (if (> depth 8)
+    ""
+    (let ((cand (strConcat dir pkgManifestName)))
+      (if (sysFileExists (strCStr cand))
+        cand
+        (let ((up (pathWithSlash (strConcat dir ".."))))
+          (pkgFindManifestFrom up (+ depth 1))
+        )
+      )
+    )
+  )
+)
+
+; The value of the first `key` line in `text`, or "".
+(pub :: pkgValue (-> String String String))
+
+(pub fn (pkgValue text key)
+  (let (
+    (lines (strSplit text 10))
+    (n (vecLen lines))
+    (mut i 0)
+  )
+    (let ((mut found ""))
+      {
+        (while (< i n)
+          {
+            ; Both arms answer `Int`: `set` answers the value it
+            ; assigned, which is a `String` here, and an `if` whose
+            ; arms disagree is a type error reported against the `0`.
+            (let ((v (pkgLineValue (vecGetStr lines i) key)))
+              (if (&& (== (strLen found) 0) (> (strLen v) 0))
+                {
+                  (set found v)
+                  0
+                }
+                0
+              )
+            )
+            (set i (+ i 1))
+          })
+        found
+      }
+    )
+  )
+)
+
+; Every value of `key`, in file order.
+(pub :: pkgValues (-> String String Int))
+
+(pub fn (pkgValues text key)
+  (let (
+    (lines (strSplit text 10))
+    (out vecNew)
+    (n (vecLen lines))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (let ((v (pkgLineValue (vecGetStr lines i) key)))
+            (if (> (strLen v) 0)
+              (vecPush
+                out                (cast Int v)
+              )
+              0
+            )
+          )
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; One line's value for `key`, or "".
+;
+; The key must be the line's first token and be followed by a space, so
+; `dependency` is not read as `depend`, and a `#` anywhere starts a
+; comment - which means a path may not contain one. That is a
+; restriction worth stating rather than a bug: a `#` in a path is legal
+; on every filesystem here, and a manifest format with no way to write
+; a comment is a manifest format nobody annotates.
+(pub :: pkgLineValue (-> String String String))
+
+(pub fn (pkgLineValue line key)
+  (let ((t (pkgTrim (pkgUncomment line))))
+    (if (strStartsWith t (strConcat key " "))
+      (pkgTrim (strSlice t (+ (strLen key) 1) (- (strLen t) (+ (strLen key) 1))))
+      ""
+    )
+  )
+)
+
+(pub :: pkgUncomment (-> String String))
+
+(pub fn (pkgUncomment line)
+  (let ((at (strFindByte line 35 0)))
+    (if (< at 0)
+      line
+      (strSlice line 0 at)
+    )
+  )
+)
+
+(pub :: pkgTrim (-> String String))
+
+(pub fn (pkgTrim s)
+  (let (
+    (n (strLen s))
+    (mut a 0)
+    (mut b (strLen s))
+  )
+    {
+      (while (if (< a b)
+        (strIsSpace (strByte s a))
+        false
+      )
+        (set a (+ a 1)))
+      (while (if (< a b)
+        (strIsSpace (strByte s (- b 1)))
+        false
+      )
+        (set b (- b 1)))
+      (strSlice s a (- b a))
+    }
+  )
+)
+
+; The dependency directories the manifest at or above `entryDir`
+; declares, each with a trailing slash and resolved against the
+; MANIFEST's directory - so `depend vendor/lib` means the same thing
+; wherever the project is checked out and whatever directory the
+; compiler is run from.
+;
+; An empty Vec when there is no manifest, which is every invocation
+; this repository's own gates make: the mechanism costs a project that
+; does not use it one `sysFileExists` per directory level.
+(pub :: pkgDependDirs (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (pkgDependDirs entryDir)
+  (let ((mf (pkgFindManifest entryDir)))
+    (if (== (strLen mf) 0)
+      vecNew
+      (let (
+        (base (pathDir mf))
+        (raw (pkgValues (sysReadFile (strData mf)) "depend"))
+      )
+        (let (
+          (out vecNew)
+          (n (vecLen raw))
+          (mut i 0)
+        )
+          {
+            (while (< i n)
+              {
+                (vecPush
+                  out                  (cast Int (pathWithSlash (pkgResolve base (vecGetStr raw i))))
+                )
+                (set i (+ i 1))
+              })
+            out
+          }
+        )
+      )
+    )
+  )
+)
+
+; A manifest path against the manifest's own directory. An absolute
+; path is taken as it stands.
+(pub :: pkgResolve (-> String String String))
+
+(pub fn (pkgResolve base p)
+  (if (pathIsAbsolute p)
+    p
+    (strConcat (pathWithSlash base) p)
+  )
+)
+
+; Refuse a manifest that cannot mean one thing.
+;
+; Two failures, both of them configuration rather than source, so both
+; are reported the way the driver reports a bad command line - a plain
+; `error:` line naming the file - rather than as an `AXnnnn` with a
+; span. There is no span: the fault is in a manifest, and the code
+; ranges in `docs/diagnostics.md` are about what the SOURCE said.
+;
+;   1. A `depend` directory that is not a directory. Silence here means
+;      every module it was meant to provide reports as missing, one at
+;      a time, naming the module and never the manifest.
+;   2. Two `depend` directories providing a module of the same name.
+;      Whichever came first would win, and the other package's modules
+;      would compile against declarations from a package they have
+;      never heard of.
+;
+; Answers 0, so a caller can bind it. Every failure exits.
+(pub :: pkgVerify (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (pkgVerify entryDir)
+  (let ((mf (pkgFindManifest entryDir)))
+    (if (== (strLen mf) 0)
+      0
+      (let ((dirs (pkgDependDirs entryDir)))
+        (let (
+          (n (vecLen dirs))
+          (mut i 0)
+        )
+          {
+            (while (< i n)
+              {
+                (if (sysIsDir (strCStr (vecGetStr dirs i)))
+                  0
+                  (pkgDie (pkg4 (pkg3 "error: " mf " names a dependency directory that is not there:\n") (pkg3 "       " (vecGetStr dirs i) "\n") "       `depend` names a DIRECTORY of modules, resolved against the\n" "       manifest's own directory.\n"))
+                )
+                (set i (+ i 1))
+              })
+            (pkgCheckOverlap dirs mf 0)
+          }
+        )
+      )
+    )
+  )
+)
+
+; Every pair of dependency directories, checked for a module both
+; provide. Quadratic in the number of dependencies and linear in their
+; contents, which is the right shape for a list a human typed.
+(pub :: pkgCheckOverlap (-> Int String Int Int))
+
+;@axiom:effect(io)
+(pub fn (pkgCheckOverlap dirs mf i)
+  (if (>= i (vecLen dirs))
+    0
+    {
+      (pkgCheckPair dirs mf i (+ i 1))
+      (pkgCheckOverlap dirs mf (+ i 1))
+    }
+  )
+)
+
+(pub :: pkgCheckPair (-> Int String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (pkgCheckPair dirs mf i j)
+  (if (>= j (vecLen dirs))
+    0
+    {
+      (let ((clash (pkgFirstShared (vecGetStr dirs i) (vecGetStr dirs j))))
+        (if (== (strLen clash) 0)
+          0
+          (pkgDie (pkg4 (pkg3 "error: two dependencies in " mf " provide the module `") (pkg3 (pathStem clash) "`:\n" "") (pkg3 "       " (strConcat (vecGetStr dirs i) clash) "\n") (pkg4 "       " (strConcat (vecGetStr dirs j) clash) "\n" "       One of them would win by declaration order and the other's\n       modules would compile against declarations they never named.\n")))
+        )
+      )
+      (pkgCheckPair dirs mf i (+ j 1))
+    }
+  )
+)
+
+; The first `.ax` file both directories hold, or "".
+(pub :: pkgFirstShared (-> String String String))
+
+;@axiom:effect(io)
+(pub fn (pkgFirstShared a b)
+  (let (
+    (entries (sysReadDir (strCStr a)))
+    (n (vecLen (sysReadDir (strCStr a))))
+  )
+    (let (
+      (mut i 0)
+      (mut hit "")
+    )
+      {
+        (while (< i (vecLen entries))
+          {
+            (let ((name (vecGetStr entries i)))
+              (if (&& (== (strLen hit) 0) (&& (strEq (pathExt name) ".ax") (sysFileExists (strCStr (strConcat b name)))))
+                {
+                  (set hit name)
+                  0
+                }
+                0
+              )
+            )
+            (set i (+ i 1))
+          })
+        hit
+      }
+    )
+  )
+)
+
+; The driver's refusal shape: the message on fd 2, exit 3 - this
+; compiler's code for "a module could not be read or parsed", which is
+; what a manifest naming a module twice or naming nothing amounts to.
+(pub :: pkgDie (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (pkgDie msg)
+  {
+    (sysWriteFd 2 (strData msg) (strLen msg))
+    (sysExitWith 3)
+    0
+  }
+)

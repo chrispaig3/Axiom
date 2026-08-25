@@ -43,9 +43,9 @@ usage: install.sh [--version X.Y.Z] [--prefix DIR]
   --version   release to install (default: latest)
   --prefix    where to install    (default: ~/.axiom)
 
-Environment: AXIOM_VERSION, AXIOM_PREFIX, AXIOM_REPO. Piping this
-script into bash gives it no arguments, so over `curl ... | bash` the
-environment variables are the way to set these:
+Environment: AXIOM_VERSION, AXIOM_PREFIX, AXIOM_REPO, AXIOM_BASE_URL.
+Piping this script into bash gives it no arguments, so over
+`curl ... | bash` the environment variables are the way to set these:
 
   curl -fsSL <url> | AXIOM_PREFIX=/opt/axiom bash
 
@@ -185,7 +185,26 @@ fi
 sha() { $sha_cmd "$@"; }
 
 # ---- resolve --------------------------------------------------------
-if [[ "$VERSION" == "latest" ]]; then
+# `AXIOM_BASE_URL` names the directory the two files are fetched from,
+# and exists so `scripts/check-install.sh` can serve a release it built
+# itself. It is not a back door: setting it takes the same access as
+# setting `PATH`, and anyone with that can replace `curl`. What it must
+# NOT do is weaken a real install, so it is honoured only when it is
+# set, and it changes WHERE the archive comes from and nothing about
+# what is then required of it - the checksum file is still mandatory,
+# the comparison still happens, and the installed compiler still has to
+# build and run a program that imports the standard library.
+# The protocol restriction travels with the base. A real install is
+# `--proto '=https'` and stays that way; a base the caller named is
+# allowed the two schemes a local test server can speak, and NOTHING
+# else - so this cannot be talked into `scp://` or `dict://`.
+fetch_proto="=https"
+if [[ -n "${AXIOM_BASE_URL:-}" ]]; then
+  base="$AXIOM_BASE_URL"
+  fetch_proto="=http,https,file"
+  [[ "$VERSION" != "latest" ]] \
+    || die "AXIOM_BASE_URL needs an explicit --version: there is no release API to ask"
+elif [[ "$VERSION" == "latest" ]]; then
   base="https://github.com/$REPO/releases/latest/download"
   echo "==> resolving the latest release of $REPO"
   # The two failure modes here are DIFFERENT and used to report the
@@ -218,9 +237,9 @@ name="axiom-$VERSION-$target"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 
 echo "==> downloading $name"
-curl -fsSL --proto '=https' --tlsv1.2 -o "$work/$name.tar.gz" "$base/$name.tar.gz" \
+curl -fsSL --proto "$fetch_proto" --tlsv1.2 -o "$work/$name.tar.gz" "$base/$name.tar.gz" \
   || die "no archive at $base/$name.tar.gz"
-curl -fsSL --proto '=https' --tlsv1.2 -o "$work/$name.tar.gz.sha256" "$base/$name.tar.gz.sha256" \
+curl -fsSL --proto "$fetch_proto" --tlsv1.2 -o "$work/$name.tar.gz.sha256" "$base/$name.tar.gz.sha256" \
   || die "the archive published no checksum; refusing to install it unverified"
 
 echo "==> verifying"

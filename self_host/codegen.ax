@@ -29,6 +29,8 @@
 ; every call site (`findFSigCg`, `mangledForCg`).
 (import Intern)
 
+(import pkg)
+
 ; ------------------------------------------------------------------
 ; Type registry: constructor/struct name -> arity, kind, tag.
 ; ------------------------------------------------------------------
@@ -4457,6 +4459,18 @@
       (vecPush
         v        (cast Int (pathWithSlash entryDir))
       )
+      ; `axiom.pkg`'s `depend` directories, between the entry file's
+      ; own directory and `$AXIOM_PATH`. That position is the whole
+      ; policy: a project still shadows a dependency with its own file
+      ; of the same name, and a dependency the project DECLARED
+      ; outranks one an environment variable happened to be carrying -
+      ; because the manifest travels with the source and the variable
+      ; travels with the shell.
+      ;
+      ; Costs one `sysFileExists` per directory level, per lookup, to a
+      ; tree with no manifest. That is the same shape as the `sysEnv`
+      ; call below it, and `pkg.ax` bounds the walk at eight levels.
+      (pushDependDirs v (pkgDependDirs entryDir) 0)
       (pushPathList v (sysEnv "AXIOM_PATH"))
       ; `--crate DIR`: the crate's generated binding module lives in
       ; `DIR/axiom/`, and the driver searches `DIR/target/release` for
@@ -4597,6 +4611,20 @@
   ; module search path.
   (let ((parts (strSplit list 58)))
     (pushPathParts v parts 0)
+  )
+)
+
+(pub :: pushDependDirs (-> Int Int Int Int))
+
+(pub fn (pushDependDirs v dirs i)
+  (if (>= i (vecLen dirs))
+    0
+    {
+      (vecPush
+        v        (cast Int (vecGetStr dirs i))
+      )
+      (pushDependDirs v dirs (+ i 1))
+    }
   )
 )
 

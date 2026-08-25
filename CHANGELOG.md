@@ -18,6 +18,65 @@ its changelog too.
 
 ### Added
 
+- **The one script a stranger pipes into bash is gated.**
+  `scripts/install.sh` fetches an archive and a checksum, compares
+  them, unpacks, installs, and proves the result works by building a
+  program that imports the standard library. Every one of those steps
+  was written carefully; none had ever been executed by a gate.
+  `scripts/check-install.sh` serves a release built from this tree over
+  the loopback and asserts four things — a good release installs and
+  the installed compiler runs; a tampered archive, a missing checksum
+  file, and an archive with no `stdlib/` are each refused.
+
+  The probe on the gate itself is the part that makes it evidence:
+  `install.sh`'s checksum comparison is deleted in a COPY, and the
+  tampered case must then stop being refused. A verification test that
+  passes against an unverifying installer is testing something else.
+
+  `install.sh` gained one seam for this, `AXIOM_BASE_URL`, and it is
+  documented in that file as not being a back door: setting it takes
+  the same access as setting `PATH`, and it changes only WHERE the
+  archive comes from — the checksum file is still mandatory, the
+  comparison still happens, and the protocol allow-list widens from
+  `https` to `http,https,file` only when the variable is set.
+
+- **A project can say what it depends on: `axiom.pkg`.** A dependency
+  was a directory on `$AXIOM_PATH` — a real mechanism, and one that
+  records nothing: the list lived in whoever's shell ran the compiler,
+  it did not travel with the source, and two directories providing a
+  module of the same name resolved first-wins by environment order,
+  silently, with the loser's modules compiled against declarations from
+  a package they had never named. That is the value-namespace twin of
+  the type collision `AX3044` closed the day before, with the same
+  failure mode: a wrong answer at exit 0.
+
+  The manifest is line-based — `#` comments, `name`, `version`, and one
+  `depend` per dependency directory, resolved against the manifest's
+  own directory so the project relocates. It is looked for at or above
+  the entry file's directory, bounded at eight levels. Each `depend`
+  joins the search path after the entry file's own directory and before
+  `$AXIOM_PATH`: a project still shadows a dependency with its own
+  file, and a dependency the project DECLARED outranks one an
+  environment variable happened to be carrying.
+
+  **Two dependencies providing one module are refused**, before a byte
+  is compiled, naming both files and the manifest — at the manifest
+  rather than per-import, because the fault is in the configuration and
+  reporting it only for the imports that happen to be ambiguous lets a
+  program build today and stop building when somebody adds an import.
+
+  There is no registry, no lockfile, no version constraint and no
+  fetching, and `README.md` says so where a reader will look. Each is a
+  policy decision that wants a maintainer, and a half-made one is worse
+  than the mechanism it would rest on.
+
+  `scripts/check-packages.sh`, 11 checks, every project built in the
+  gate's own work directory and every module answering a distinct
+  number so the exit status says which file was chosen. Its negative
+  probe removes the manifest and requires the same program to stop
+  resolving — without it, the positive checks could be measuring
+  `$AXIOM_PATH`.
+
 - **Go-to-definition reaches functions, types, and other modules.** It
   resolved a macro invocation to a macro declaration in the same
   document, and nothing else — so a call to a function three lines
@@ -218,6 +277,30 @@ its changelog too.
 
 ### Fixed
 
+- **A ceiling that measured the library's size rather than the gap it
+  named.** `check-agent-calls.sh` bounds the rowless trait-implementation
+  edges — the open `symbols.ax` gap, where an impl method body gets no
+  AXSYM row — at 12, with 4 measured. It counted EDGES, and an edge is
+  one caller naming one implementation, so the number scales with how
+  many functions call a trait method: `stdlib/Test.ax` arrived with six
+  public assertions that each `println` a value, and 6 callers × 4
+  `Show` implementations took it from 4 to 28 without the gap moving at
+  all. The bound is now on DISTINCT rowless callees — 4, the four
+  `Show#T#show` — which is the size of the gap rather than of the
+  library. The edge count is still printed, because it is what a reader
+  sees in the stream, and is no longer asserted.
+
+- **The documented module search order was wrong, and it was wrong on a
+  module the standard library ships.** `README.md` said "a module in
+  the entry file's own directory always wins". Resolution is a ladder
+  of SUFFIXES over a list of DIRECTORIES with the suffix as the OUTER
+  loop, so a more target-specific file anywhere on the path beats a
+  less specific one nearer the entry file. Measured 2026-08-25: a
+  project's own `Sys/Platform.ax` loses to the standard library's
+  `Sys/Platform.darwin.ax` — which is the mechanism that makes one
+  `(import Sys.Platform)` resolve per target, and is not a bug. The
+  whole order is now written out, in one place, and gated.
+
 - **A 256-entry cache grew without bound.** `mapNeedsGrow` reads `used`,
   and `used` counts tombstones, so a table under insert-and-remove churn
   reached the load factor with a live set that had not moved and
@@ -330,7 +413,7 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — thirty gates
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — thirty-two gates
   rebuild the same compiler; now one step builds it, and builds it
   twice to measure that the artifact emits the same IR as a fresh
   build. (Not the same *bytes*: the macOS linker stamps a UUID into

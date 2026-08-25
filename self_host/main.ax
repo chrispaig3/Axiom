@@ -50,6 +50,8 @@
 
 (import build)
 
+(import pkg)
+
 ; Which diagnostic renderer this invocation wants. `human` is the
 ; default, as it is stage0's; the aliases are stage0's; an unknown
 ; name warns with stage0's exact text and falls back rather than
@@ -274,10 +276,17 @@
   ; `--crate DIR` first: a stale or missing binding module is
   ; regenerated and a missing archive built, before the module
   ; search that would otherwise report them missing
+  ; The project manifest is verified BEFORE anything is read, so a
+  ; dependency directory that is not there, or two of them providing
+  ; one module, is reported once and against `axiom.pkg` - rather
+  ; than as a run of missing-module diagnostics that never name the
+  ; file that caused them. A tree with no manifest pays one
+  ; `sysFileExists` per directory level and gets nothing else.
   (let (
     (rerr (sourceReadErrno fileName))
     (dfmt diagFormatArg)
     (_crates prepareCrates)
+    (_pkg (pkgVerify (pathDir fileName)))
   )
     (if (!= rerr 0)
       {

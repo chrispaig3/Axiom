@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Thirty of the gates below build the compiler under test from
+    # Thirty-two of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -282,6 +282,27 @@ jobs:
       # does.
       - name: The stdlib API reference is what the library says
         run: ./scripts/check-stdlib-api.sh
+
+      # `axiom.pkg`: a project declares its dependencies, and two of
+      # them may not provide one module. Every project this gate uses
+      # is built in its work directory, and every module answers a
+      # distinct number, so the EXIT STATUS says which file the
+      # resolver chose - a gate that only asserted "it built" would
+      # pass on the wrong module being found, which is the failure
+      # this exists to catch.
+      - name: A project declares what it depends on
+        run: ./scripts/check-packages.sh
+
+      # The one script a stranger pipes into bash, and nothing ran it.
+      # This serves a release built from this tree over the loopback,
+      # installs it, and requires three bad releases to be refused - a
+      # tampered archive, one with no checksum, one with no `stdlib/`.
+      # Its own probe deletes `install.sh`'s comparison in a copy and
+      # requires the tampered case to stop being refused, because a
+      # verification test that passes against an unverifying installer
+      # is testing something else.
+      - name: The installer installs, and refuses what it should
+        run: ./scripts/check-install.sh
 
       # The acceptance measurement for the socket work, and the only gate
       # here whose subject is MEMORY rather than an answer: a pre-forked
