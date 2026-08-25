@@ -48,6 +48,8 @@
 
 (import style)
 
+(import build)
+
 ; Which diagnostic renderer this invocation wants. `human` is the
 ; default, as it is stage0's; the aliases are stage0's; an unknown
 ; name warns with stage0's exact text and falls back rather than
@@ -1095,8 +1097,13 @@
       }
     )
     (if (|| (strEq cmd "version") (|| (strEq cmd "--version") (strEq cmd "-V")))
+      ; The version says what was PROMISED; the build id says what
+      ; was built. Two builds of two different trees at one version
+      ; were indistinguishable here until 2026-08-25 - see
+      ; `self_host/build.ax` for why the id is a literal, and
+      ; `scripts/build-stamped.sh` for what rewrites it.
       {
-        (replOut "axiom (self-hosted) 0.2.0\n")
+        (replOut (cat3 "axiom (self-hosted) 0.2.0 (build " axiomBuildId ")\n"))
         0
       }
       (if (strEq cmd "check")

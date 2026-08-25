@@ -85,12 +85,41 @@ jobs:
       - name: Bootstrap from the committed seed
         run: ./scripts/bootstrap-from-seed.sh --install "$RUNNER_TEMP/out"
 
-      - name: The shipped binary reports the release version
+      # STAMPED, and this is the one place the distinction matters. The
+      # ladder above ships `stage3` - the compiler that came out of the
+      # fixpoint - and a fixpoint compiler is by definition one whose
+      # source contains no build-time value, so `stage3` says
+      # `(build unstamped)`. A binary that names its VERSION and not the
+      # tree it came from is indistinguishable from any other build at
+      # that version, which is the roadmap's P6 and what
+      # `scripts/check-build-id.sh` is about.
+      #
+      # So `stage3` builds one more compiler, from a `self_host/` that
+      # differs from the fixpoint's input in exactly one string
+      # literal. The fixpoint property is untouched - the ladder ran,
+      # and `stage2 == stage3` was required before this step exists -
+      # and what ships is the fixpoint compiler's output over a source
+      # a reader can regenerate: `scripts/build-stamped.sh` prints the
+      # id and asserts the binary reports it.
+      - name: Stamp the shipped binary with the tree it came from
+        run: |
+          AXIOM="$RUNNER_TEMP/out/axiom" ./scripts/build-stamped.sh "$RUNNER_TEMP/out/axiom-stamped"
+          mv "$RUNNER_TEMP/out/axiom-stamped" "$RUNNER_TEMP/out/axiom"
+
+      - name: The shipped binary reports the release version and its build
         run: |
           got="$("$RUNNER_TEMP/out/axiom" version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
           want="$(tr -d '[:space:]' < VERSION)"
           [[ "$got" == "$want" ]] || { echo "FAIL: binary says $got, VERSION says $want"; exit 1; }
-          echo "ok   axiom version -> $got"
+          # And it must not ship saying it does not know what it is.
+          line="$("$RUNNER_TEMP/out/axiom" version)"
+          case "$line" in
+            *"(build unstamped)"*)
+              echo "FAIL: the archive would ship an unstamped binary: $line"; exit 1 ;;
+            *"(build "*) ;;
+            *) echo "FAIL: the binary reports no build id at all: $line"; exit 1 ;;
+          esac
+          echo "ok   $line"
 
       # The stdlib travels with the compiler. `axiom` resolves modules
       # relative to its own location, so an archive holding only the

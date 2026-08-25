@@ -32,11 +32,18 @@
 # shipped in is the kind of thing that is discovered by a user rather
 # than by CI.
 #
-# What this gate still does NOT hold is the other half of the roadmap's
-# P6: a shipped binary names its VERSION and not its COMMIT, so two
-# builds of different trees at one version are indistinguishable to
-# whoever has the binary. `axiom version` prints
-# `axiom (self-hosted) 0.2.0` and nothing else.
+# THE OTHER HALF OF P6 IS NOW HELD, ELSEWHERE. This paragraph used to
+# read "what this gate still does NOT hold is ... a shipped binary
+# names its VERSION and not its COMMIT, so two builds of different
+# trees at one version are indistinguishable to whoever has the
+# binary." Since 2026-08-25 `axiom version` prints a BUILD ID beside
+# the version - a hash of every `.ax` byte the compiler was built
+# from, plus the commit when git can say one - and
+# `scripts/check-build-id.sh` is the gate. The split of labour is
+# exact and worth keeping straight: a version is a promise about an
+# interface and every site that states one must agree, which is this
+# file; a build id is a fact about bytes and only the binary can carry
+# it, which is that one.
 #
 # `VERSION` at the repository root is the single source of truth, and
 # it is a file rather than a constant in `self_host/` on purpose: the
@@ -82,7 +89,9 @@ json_version() { grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9
 #
 # `README.md` and `docs/reference.md` are here because they quote the
 # REPL banner, which contains the version, and both were bumped by
-# hand. The gate a reader would assume covers them does not:
+# hand. README states it TWICE since 2026-08-25: the REPL banner and
+# the `axiom version` line in CLI Commands, which now shows the build
+# id beside the version. The count is what catches a third appearing. The gate a reader would assume covers them does not:
 # `check-repl-selfhost.sh` drives the REPL as `repl --no-banner`, so the
 # two lines those documents pin are the two lines that gate never sees.
 SITES="
@@ -92,7 +101,7 @@ self_host/lsp.ax|1|lsp_version
 rust/Cargo.toml|4|toml_version
 tree-sitter-axiom/package.json|1|json_version
 tree-sitter-axiom/tree-sitter.json|1|json_version
-README.md|1|ax_version
+README.md|2|ax_version
 docs/reference.md|1|ax_version
 "
 

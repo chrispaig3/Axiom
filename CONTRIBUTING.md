@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 499 `.ax` files in the repository apart from the two named below,
+the 500 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -300,9 +300,10 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the twenty-eight gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim twenty-eight gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the twenty-nine gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim twenty-nine gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-version.sh` | every place the project states its own version says what `VERSION` says, counted per site, and the built compiler prints it too |
+| `check-build-id.sh` | a shipped binary names the TREE it was built from, not only the version it promises: an unstamped build says `unstamped` and not a plausible value, the id is a function of the source (one changed byte moves it), and the id `build-stamped.sh` computes is the one `axiom version` reports |
 | `check-net.sh` | a request handler bracketed as an arena scope holds worker RSS flat across ten thousand connections, against a floor of 50x over the same binary unscoped |
 | `check-agent-calls.sh` | `symbols --calls`: no callee's effect escapes its caller, every inferred effect row carries a call edge, and every `IO` reaches a syscall or an `extern` |
 | `check-ffi.sh` | every FFI tier and the symbols each one imports, priced against a per-crate `axiom-allow.txt`; the one MM-FFI-5 requires. Runs in its own CI job, on linux-x86_64 and darwin-aarch64, because it is the only gate that needs `cargo` |
@@ -390,7 +391,12 @@ it:
 3. **Write the `CHANGELOG.md` entry.** `release.yml` passes this file
    to `gh release create --notes-file`, so it *is* the release notes.
    It is swept by `check-doc-drift.sh` like every other prose document.
-4. **Tag and push:**
+4. **Nothing needs stamping by hand.** `release.yml` builds the archive
+   from the seed through the fixpoint and then has `stage3` build one
+   more compiler with `scripts/build-stamped.sh`, so the shipped binary
+   reports the tree it came from beside the version it promises. It
+   refuses to publish one that says `(build unstamped)`.
+5. **Tag and push:**
 
    ```bash
    git tag -a v0.2.0 -m "Axiom 0.2.0"

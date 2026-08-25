@@ -18,6 +18,36 @@ its changelog too.
 
 ### Added
 
+- **A shipped binary names the tree it was built from.** `axiom
+  version` printed `axiom (self-hosted) 0.2.0` and nothing else, so two
+  builds of two *different* trees at one version were the same binary
+  to whoever held one — the half of the roadmap's P6 that
+  `scripts/check-version.sh` has named in its own header since it was
+  written. It now prints a **build id**: twelve hex characters of a
+  hash over every `.ax` byte under `self_host/` and `stdlib/`, plus the
+  commit and a `-dirty` flag when git can answer. The hash is the
+  identity and the commit is the convenience, because a commit cannot
+  distinguish two builds of one commit with an edit in the working
+  directory and the hash can.
+
+  The value is an ordinary string literal that
+  `scripts/build-stamped.sh` rewrites **in a copy** of `self_host/`,
+  never in the tree. The three alternatives were each priced and
+  refused in `self_host/build.ax`: a compile-time environment read is a
+  new built-in and therefore a seed window; a linker-injected symbol is
+  an ungrounded `declare`, which `driver.ax` refuses at `AX4004` and is
+  right to; stamping the archive answers for a release and not for the
+  binary that outlives it. Because the rewrite happens in a copy and
+  behind a script the ladder never runs, `check-bootstrap.sh` and
+  `check-reproducible.sh` see nothing new — an unstamped build says
+  exactly `unstamped`, which is not a value any stamped build could be
+  confused with.
+
+  `scripts/check-build-id.sh`, 12 checks, and the negative probe is
+  the one that matters: one changed byte under `self_host/` or
+  `stdlib/` must move the id, or the id names nothing. The release
+  workflow now refuses to ship a binary reporting `(build unstamped)`.
+
 - **The seed is the emission of source in this history, and here is the
   regeneration that says so.** `scripts/check-seed-provenance.sh`
   resolves the commit that last wrote `bootstrap/`, requires that
@@ -238,7 +268,7 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty-eight gates
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty-nine gates
   rebuild the same compiler; now one step builds it, and builds it
   twice to measure that the artifact emits the same IR as a fresh
   build. (Not the same *bytes*: the macOS linker stamps a UUID into

@@ -1,0 +1,41 @@
+; build.ax - the identity of the tree this compiler was built from.
+;
+; THE PROBLEM THIS SOLVES. `axiom version` printed
+; `axiom (self-hosted) 0.2.0` and nothing else, so two builds of two
+; DIFFERENT trees at one version were indistinguishable to whoever held
+; the binary. A version number says what was promised; it does not say
+; what was built. `scripts/check-version.sh` has carried that sentence
+; in its header since it was written, as the half of the roadmap's P6
+; it could not hold.
+;
+; WHY A LITERAL AND NOT A BUILT-IN. There is no way for a compiler to
+; put a build-time value into the binary it produces without a
+; mechanism, and every mechanism available here costs something this
+; project has priced and refused:
+;
+;   - a compile-time environment read is a new built-in, and a built-in
+;     used by `self_host/` is a construct the committed seed cannot
+;     parse - a seed window, and 8.4 MB of regenerated text in the
+;     diff, for a string;
+;   - a linker-injected symbol is an ungrounded `declare`, which
+;     `driver.ax` refuses by name at `AX4004`, and the refusal is
+;     right: a freestanding binary that silently gained an undefined
+;     symbol is the failure `check-freestanding.sh` exists for;
+;   - stamping the ARCHIVE instead of the binary answers for a release
+;     and not for the binary, which is the thing that outlives it.
+;
+; So the value is an ordinary string literal in an ordinary module, and
+; `scripts/build-stamped.sh` rewrites it - in a COPY of `self_host/`,
+; never in the tree - before building. The seed compiles this file the
+; way it compiles any other, the bootstrap ladder never runs the script,
+; and `check-bootstrap.sh` and `check-reproducible.sh` see nothing new.
+;
+; WHY `unstamped` IS NOT A PLAUSIBLE VALUE. An unstamped build has to
+; say so in a way no stamped build could be confused with. A build id
+; that defaulted to the version, or to a zero hash, or to the empty
+; string would read as an answer. This one reads as its own absence,
+; and `scripts/check-build-id.sh` asserts that a plain
+; `axiom build --input self_host/main.ax` produces exactly it.
+(pub :: axiomBuildId String)
+
+(pub fn (axiomBuildId) "unstamped")

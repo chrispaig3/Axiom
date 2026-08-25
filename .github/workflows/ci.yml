@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Twenty-eight of the gates below build the compiler under test from
+    # Twenty-nine of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -239,6 +239,15 @@ jobs:
       # now that a tag makes those numbers something a stranger reads.
       - name: Every site states the same version
         run: ./scripts/check-version.sh
+
+      # The other half of that one. `check-version.sh` holds every site
+      # that STATES the version to `VERSION`, which is a promise about
+      # an interface; this holds the binary to naming the TREE it was
+      # built from, which is a fact about bytes. Without it two builds
+      # of two different trees at one version are the same binary to
+      # whoever holds one.
+      - name: A shipped binary names the tree it was built from
+        run: ./scripts/check-build-id.sh
 
       # These cases were also run by the deleted Rust test suite, as
       # `stdlib_golden`. This script is now their only runner, which is
