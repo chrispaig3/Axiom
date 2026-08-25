@@ -18,6 +18,65 @@ its changelog too.
 
 ### Added
 
+- **`AX3040` is an error, and the compiler can now tell a diverging
+  function from a cast.** It shipped as a WARNING on a stated ground:
+  the rule conflated two signatures and only one of them is unsound.
+
+  ```scheme
+  (:: conjure (-> Int a))     ; body CASTS a word out
+  (:: panic   (-> String a))  ; body NEVER RETURNS
+  ```
+
+  Measured on the tree before this landed: both check clean with the
+  identical diagnostic, and then `conjure` exits **139** and `panic`
+  runs correctly and exits **70**. A check that says the same thing
+  about a segfault and a correct program is not yet a check, and
+  promoting it as it stood would have refused the second — with help
+  text telling that author to tag a diverging function `;@axiom:raw`,
+  polluting the one enumeration that tag exists to keep exact.
+
+  The analysis is exact rather than approximate, because the type
+  system admits only two ways to produce such a result: a `cast`,
+  which fabricates the value, or a call to another such function,
+  which is the same question one level down. So the set splits by a
+  **greatest fixpoint** over tail positions — assume they all diverge,
+  strike out any whose tail can produce a value. Starting from
+  "diverges" is what admits a self-call; starting from "returns" would
+  never admit one and would refuse every diverging function there is.
+  `sysExitWith` is the base case for "never returns", inherited by
+  anything whose every tail reaches it (which is how `IO.exit` and
+  `IO.die` qualify without being named), and a `cast` whose ARGUMENT
+  never returns never returns either.
+
+  That last arm is not a nicety: the repository's own control fixture
+  spells its diverging `panic` as `(cast a (exit 70))`, so a rule that
+  looked only at the head of the tail would have refused the program
+  the fixture exists to protect. Two more arms came from writing the
+  shapes out rather than reasoning about them — a block whose
+  *statement* never returns, and an endless `while` — because the
+  first version accepted six of the eight spellings and refusing the
+  other two would have been the exact failure this promotion waited to
+  avoid.
+
+  **What it still does not catch**, measured while writing it and
+  recorded rather than left to be found: the rule asks whether the
+  variable appears in a PARAMETER, and every left side of the arrow
+  spine counts as one — including inside a function-typed parameter,
+  where the callee still chooses the type. `(:: apply1 (-> (-> a Int)
+  Int))` with `(fn (apply1 f) (f (cast a 42)))` draws **no diagnostic
+  at all**, checks OK, and exits **139**. Closing that means splitting
+  the spine by variance rather than by side, which is a larger change
+  and is not made here. `axiom explain AX3040` says so too.
+
+  `scripts/check-diverging-tyvar.sh`, 16 checks. The probe that makes
+  the acceptances worth anything changes ONE WORD in the accepted
+  program — the `(exit 70)` a cast wraps becomes the literal `70` —
+  and requires it to be refused. The diverging control moved out of the diagnostics corpus
+  into `tests/selfhost/976-diverging-tyvar.ax`: once it
+  stopped diagnosing anything, the diagnostics corpus refused it, and
+  it was right to — the file now claims something about a *program*,
+  not about a diagnostic.
+
 - **The one script a stranger pipes into bash is gated.**
   `scripts/install.sh` fetches an archive and a checksum, compares
   them, unpacks, installs, and proves the result works by building a
@@ -413,7 +472,7 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — thirty-two gates
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — thirty-three gates
   rebuild the same compiler; now one step builds it, and builds it
   twice to measure that the artifact emits the same IR as a fresh
   build. (Not the same *bytes*: the macOS linker stamps a UUID into
@@ -476,7 +535,9 @@ These are measured, not suspected. They are why this is `0.2.0`.
 - **`AX3040` is a known unsoundness that ships as a warning.** It
   cannot yet be promoted, because it cannot tell an unsound cast from a
   legitimately diverging function
-  (`tests/diagnostics/351-diverging-tyvar.ax`).
+  (`tests/selfhost/976-diverging-tyvar.ax`, which lived in the
+  diagnostics corpus as case 351 until the analysis landed and it
+  stopped diagnosing anything).
 - **Error handling is mid-migration.** `Err.ax` ships `Result`, but the
   standard library still signals failure with `-errno` sentinels at 84
   sites over 12 files, and a fallible call leaks the block it returns.

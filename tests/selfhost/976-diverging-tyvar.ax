@@ -1,0 +1,93 @@
+; expect 7
+;
+; The control that must stay SILENT, and the file that named what had
+; to be built before it could.
+;
+; IT MOVED HERE ON 2026-08-25, out of the diagnostics corpus where it
+; was case 351, and the move is the point. A diagnostics fixture whose
+; golden is empty is refused by that corpus - "a case that diagnoses
+; nothing proves nothing" - and it was right to refuse this one: once
+; the analysis learned the difference, this file stopped making a claim
+; about a DIAGNOSTIC and started making one about a PROGRAM. It
+; compiles, it runs, and it answers 7. `tests/diagnostics/352-tyvar-delegation.ax`
+; keeps the silent half where a diagnostics corpus can hold it, beside
+; three errors.
+;
+; `347-result-only-tyvar.ax` is the unsound shape: a body that CASTS a
+; machine word out through a result type the caller picks. This file is
+; the other one AX3040 used to conflate with it, and it is a CORRECT
+; PROGRAM.
+;
+; `panic` promises `forall a. String -> a`. That signature is inhabited
+; only by non-termination - `explain AX3040` says so in those words -
+; and `panic` is exactly that inhabitant: every path through it reaches
+; `exit`, so it never returns and never produces a value of the type
+; the caller named. Nothing is coerced, nothing is dereferenced, and no
+; caller can observe a wrong answer, because no caller is resumed.
+;
+; It is a shape a real program wants. A checked accessor, an assertion,
+; an unrecoverable configuration error - each is a function whose type
+; is honestly `forall a`, called in a position that expects an `Int` or
+; a `String` and simply never gets there.
+;
+; MEASURED 2026-08-24, both paths, and again 2026-08-25 after the
+; promotion:
+;
+;     (pick 7)        -> exits 7,  `panic` never entered
+;     (pick (- 0 1))  -> writes "negative" to fd 2 and exits 70
+;
+; so the program is right on the path that returns AND on the path that
+; does not.
+;
+; WHAT THIS FILE USED TO SAY, and what happened. It said: "What
+; promotion needs first is a way to tell divergence from a cast: a
+; spelling for `does not return`, or a walk proving every path exits.
+; Until one exists, this file is the control that keeps the shape
+; visible - if it ever stops drawing AX3040, something learned the
+; difference and `severity.policy` should be re-read."
+;
+; It stopped drawing AX3040 on 2026-08-25. The walk exists, and this
+; file is now the control in the OTHER direction: its golden is empty,
+; and any diagnostic appearing here is the analysis losing the
+; distinction it was built for.
+;
+; HOW THE WALK ADMITS THIS ONE, which is worth stating because the
+; shape below is the reason the analysis is not simply "the tail must
+; not be a cast". `panic`'s tail IS a cast - `(cast a (exit 70))` -
+; and it diverges anyway, because the value being coerced is `(exit
+; 70)`, which never returns: `IO.exit` ends in `sysExitWith`, and a
+; cast whose argument never returns is unreachable and fabricates
+; nothing. An analysis that looked only at the head of the tail would
+; have refused the program this fixture exists to protect.
+;
+; `sound` is the control in the third direction and must stay silent
+; for a different reason entirely: `a` appears in a PARAMETER, so the
+; caller supplies a value of it and the choice is witnessed by the
+; argument.
+(import IO)
+
+(:: panic (-> String a))
+
+(fn (panic msg)
+  {
+    (writeStr 2 msg)
+    (cast a (exit 70))
+  }
+)
+
+(:: sound (-> a a))
+
+(fn (sound x) x)
+
+(:: pick (-> Int Int))
+
+(fn (pick n)
+  (if (< n 0)
+    (panic "negative\n")
+    n
+  )
+)
+
+(:: main Int)
+
+(fn (main) (pick 7))

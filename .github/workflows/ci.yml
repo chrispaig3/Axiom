@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Thirty-two of the gates below build the compiler under test from
+    # Thirty-three of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -269,6 +269,17 @@ jobs:
       # cannot fail is the exact defect a test runner is for.
       - name: The test runner, its assertions and their isolation
         run: ./scripts/check-test-runner.sh
+
+      # AX3040 is an error since 2026-08-25, and the thing that made
+      # that possible is an analysis that tells a diverging function
+      # from a cast. This asserts the DISTINCTION rather than the
+      # diagnostic - the diagnostics corpus already pins the text, the
+      # span and the severity. Its probe changes ONE WORD in the
+      # accepted program and requires it to be refused, because an
+      # analysis that answered "diverges" for everything would pass
+      # every acceptance check and refuse nothing.
+      - name: A fabricated value is refused and a diverging one is not
+        run: ./scripts/check-diverging-tyvar.sh
 
       # The standard library's API reference is GENERATED, by an Axiom
       # program, and this regenerates it and diffs. It is the strongest

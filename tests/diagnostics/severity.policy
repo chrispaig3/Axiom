@@ -57,44 +57,39 @@ AX3038
 #          that costs something, where a typo means the claim was
 #          never checked.
 AX3039
-# AX3040 - a signature returning a type variable no parameter mentions.
-#          It IS unsound in the shape it was written for - the result
-#          dereferences as whatever the caller names, and the probe
-#          exits 139 - so the case for an error is real.
+# AX3040 - PROMOTED TO AN ERROR 2026-08-25, and no longer listed here.
+#          It is left as a comment because this file's whole subject is
+#          which codes may be warnings, and a code that stopped being
+#          one is exactly the fact the next reader will come looking
+#          for.
 #
-#          THE MIGRATION THIS USED TO DEFER TO IS DONE, and the old
-#          text is left below the line so the next reader can see what
-#          was believed. It said the fix was a migration of "fourteen
-#          declarations ... 3,980 call sites between them". All
-#          fourteen were migrated on 2026-08-23 (`explain.ax`: "No
-#          declaration in this repository carries it any more"), and
-#          `;@axiom:raw` marks ZERO declarations today. Swept
-#          2026-08-24: 479 files, ONE AX3040 hit, and it is
-#          `tests/diagnostics/347-result-only-tyvar.ax`, the fixture
-#          that constructs it on purpose.
-#
-#          SO IT STAYS A WARNING FOR A DIFFERENT REASON, and this one
-#          is not a migration - it is that the code conflates two
-#          shapes and only one of them is unsound:
+#          It stayed a warning because the rule conflated two
+#          signatures and only one of them is unsound:
 #
 #            (:: conjure (-> Int a))     ; body CASTS a word out
 #            (:: panic   (-> String a))  ; body NEVER RETURNS
 #
-#          The second is a correct program. `forall a. String -> a` is
-#          the honest type of a diverging function, and this code's own
-#          `explain` text conceeds it - "which in a sound system is
-#          inhabited only by non-termination". Measured 2026-08-24:
-#          `tests/diagnostics/348-diverging-tyvar.ax` checks, runs, and
-#          answers 7 on its returning path and 70 on its diverging one.
-#          Promoting AX3040 today would refuse it, and the help text
-#          would tell the author to tag a diverging function
+#          Measured 2026-08-25 on the tree before the change: both
+#          check clean with the identical AX3040, then `conjure` exits
+#          139 and `panic` runs correctly and exits 70. Promoting it as
+#          it stood would have refused the second, and the help would
+#          have told that author to tag a diverging function
 #          `;@axiom:raw` - which is not a raw word read, and which
 #          pollutes the one enumeration the tag exists to keep exact.
 #
-#          A check whose suggested fix makes the program less correct
-#          is the wrong check. What promotion needs first is a way to
-#          tell divergence from a cast - a spelling for "does not
-#          return", or a walk that proves every path exits. Until then
-#          the warning is what keeps a fifteenth unsound one from
-#          appearing unnoticed, which is what it was always doing.
-AX3040
+#          "What promotion needs first is a way to tell divergence from
+#          a cast" - the previous text of this block, and of
+#          `tests/selfhost/976-diverging-tyvar.ax`. That is what was
+#          built. A function whose result is a type variable no
+#          parameter mentions can produce it only by a `cast` or by a
+#          call to another such function, so the set splits by a
+#          fixpoint over tail positions: assume they all diverge, then
+#          strike out any whose tail can produce a value. What survives
+#          is not reported at all; what is struck out is this error.
+#          `347-result-only-tyvar.ax` is the struck-out control and
+#          `tests/selfhost/976-diverging-tyvar.ax` is the surviving
+#          one - it draws NOTHING now, which is what that file said
+#          would happen if anything ever learned the difference, so it
+#          moved to the corpus that can hold a fixture with no
+#          diagnostic. `352-tyvar-delegation.ax` keeps the silent
+#          controls here, beside three errors.

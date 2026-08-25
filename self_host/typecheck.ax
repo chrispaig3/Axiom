@@ -2245,6 +2245,11 @@
           ; seen every `data`/`struct`/`type` - a signature may name a
           ; type declared later in the file or in another module.
           (tcCheckSigTypes tc allDecls 0)
+          ; Result-only type variables, AFTER that loop rather than
+          ; inside it: deciding whether one of them diverges is a
+          ; question about the whole set at once, and the set is not
+          ; complete until every signature has been seen.
+          (tcCheckResultOnly tc allDecls)
           ; The ambiguity table, once: builtins are module-less
           ; winners and have no declaration to walk, so they are
           ; seeded rather than collected.
@@ -4940,7 +4945,6 @@
                 (checkAmbiguousSigTy tc d (nodeTy d))
                 (tcExpandSigAliases tc d)
                 (tcCheckSigTypeOf tc d)
-                (tcCheckResultOnlyVars tc d)
               }
               ; An `extern` item's type lives in the ITEM, not in the block
               ; node's `ty` slot, so the walk above cannot see it - and until
@@ -5146,6 +5150,52 @@
 ; point of the tag is not permission - it is that the layer becomes
 ; FINITE and greppable, `axiom symbols FILE --diagnostic-format ai |
 ; grep '#raw'`, where before it was invisible.
+; THE PROMOTION, AND WHAT IT WAITED FOR. This was a WARNING from the
+; day it was written, on a stated ground: the rule conflates two
+; signatures and only one of them is unsound.
+;
+;     (:: conjure (-> Int a))     ; body CASTS a word out
+;     (:: panic   (-> String a))  ; body NEVER RETURNS
+;
+; Measured on this tree, 2026-08-25, and the two are indistinguishable
+; to everything the compiler said before this change: both check clean
+; with the identical AX3040, and then `conjure` exits **139** while
+; `panic` runs correctly and exits with the status it chose. A check
+; that reports the same thing about a segfault and a correct program
+; is not yet a check. Promoting it as it stood would have refused
+; `panic`, and the help it printed would have told that author to tag
+; a diverging function `;@axiom:raw` - polluting the one enumeration
+; that tag exists to keep exact.
+;
+; SO THE ANALYSIS IS THE PROMOTION'S PREREQUISITE, and in this
+; language it is exact rather than approximate. A function whose
+; result is a type variable no parameter mentions can only PRODUCE
+; that result two ways, because the type system admits no others:
+;
+;   1. a `cast`, which fabricates the value - unsound;
+;   2. a call to another function whose result is also such a variable
+;      - which is the same question one level down.
+;
+; There is no third way. A `while` loop's value is not `a`; a literal
+; is not `a`; a parameter is not `a`, since no parameter mentions the
+; variable. So the set of such functions splits by a FIXPOINT over
+; their tail positions: assume they all diverge, then strike out any
+; whose tail can produce a value - a `cast`, a call to a struck-out
+; one, or anything that is not a call at all. What survives is a
+; cycle of calls that never returns, which is exactly what "inhabited
+; only by non-termination" means, and it is honestly typed. What is
+; struck out fabricates a value and is refused.
+;
+; The greatest fixpoint is what makes `panic` work: its tail is its
+; own recursive call, which returns only if `panic` returns, which is
+; the question being asked. Starting from "diverges" and shrinking
+; answers it; starting from "returns" and growing would never admit
+; a self-call and would refuse every diverging function there is.
+;
+; `;@axiom:raw` still exempts a declaration from the REPORT, and it
+; counts as struck out for everyone else's fixpoint - so a function
+; that gets its `a` by delegating to the unsafe layer is refused
+; rather than inheriting the exemption.
 (pub :: tcCheckResultOnlyVars (-> Int Int Int))
 
 (pub fn (tcCheckResultOnlyVars tc d)
@@ -5159,6 +5209,436 @@
         (sigSplitVars (nodeTy d) ps rs)
         (resultOnlyReport
           tc          d          ps          rs          0
+        )
+      }
+    )
+  )
+)
+
+; The first result-only type variable of `d`'s signature, or "".
+(pub :: resultOnlyVarOf (-> Int String))
+
+(pub fn (resultOnlyVarOf d)
+  (let (
+    (ps vecNew)
+    (rs vecNew)
+  )
+    {
+      (sigSplitVars (nodeTy d) ps rs)
+      (firstResultOnly ps rs 0)
+    }
+  )
+)
+
+(pub :: firstResultOnly (-> Int Int Int String))
+
+(pub fn (firstResultOnly ps rs i)
+  (if (>= i (vecLen rs))
+    ""
+    (if (==
+      (strVecHas
+        ps        (cast String (vecGet rs i))
+      )      1
+    )
+      (firstResultOnly ps rs (+ i 1))
+      (cast String (vecGet rs i))
+    )
+  )
+)
+
+; The `(fn (name ...) body)` for `name`, or 0.
+;
+; A linear scan, and it stays one: the set it is asked about is the
+; result-only-tyvar signatures, of which this whole repository has a
+; single digit. An index would be machinery for a list that fits on
+; one screen.
+(pub :: findFnDecl (-> Int String Int))
+
+(pub fn (findFnDecl decls name)
+  (let (
+    (n (vecLen decls))
+    (mut i 0)
+    (mut hit 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            (if (&& (== (nodeTag d) TAG_D_FN) (strEq (bareOf (nodeAName d)) name))
+              {
+                (set hit d)
+                (set i n)
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      hit
+    }
+  )
+)
+
+(pub :: findFnBody (-> Int String Int))
+
+(pub fn (findFnBody decls name)
+  (let ((d (findFnDecl decls name)))
+    (if (== d 0)
+      0
+      (nodeC d)
+    )
+  )
+)
+
+; Is this declaration in the unsafe layer - the tag on EITHER half?
+;
+; An AXTAG attaches to a declaration group, and a function is normally
+; two of them: the `::` signature and the `fn`. The check reads the
+; signature, so `;@axiom:raw` written above the `fn` was invisible to
+; it. That cost nothing while this was a warning - the tag was
+; ignored and the warning printed - and it costs a refused program
+; now. A tag one declaration out of place must not be the difference
+; between a build and a failure, so both halves are asked. Measured
+; 2026-08-25: the `fn`-placed spelling checked clean before this
+; change and errored after it, which is what sent this here.
+(pub :: rawTagged (-> Int Int Int))
+
+(pub fn (rawTagged decls d)
+  (if (== (declHasAxtag d "raw") 1)
+    1
+    (let ((f (findFnDecl decls (bareOf (nodeAName d)))))
+      (if (== f 0)
+        0
+        (declHasAxtag f "raw")
+      )
+    )
+  )
+)
+
+; The name at the bottom of an application spine, or "" when the head
+; is not a plain name. Spelled `divHeadName` and not `spineHeadName`
+; because `codegen.ax` already has the latter, and a name two modules
+; both declare is `AX3014` - which is how this one introduced itself. `(cast a w)` parses as `((cast a) w)`, so the
+; spine bottoms out at the variable `cast` and this answers `"cast"` -
+; which is the whole distinction this pass turns on.
+(pub :: divHeadName (-> Int String))
+
+(pub fn (divHeadName e)
+  (if (== e 0)
+    ""
+    (if (== (nodeTag e) TAG_E_APP)
+      (divHeadName (nodeA e))
+      (if (== (nodeTag e) TAG_E_VAR)
+        (bareOf (nodeAName e))
+        ""
+      )
+    )
+  )
+)
+
+; Does evaluating `e` never yield a value?
+;
+; The tails of a form are the positions its value can come from: the
+; last expression of a block, both arms of an `if`, every arm of a
+; `match`, every clause body and the else of a `cond`, the body of a
+; `let` or a `handle`. Everything else is its own tail.
+;
+; THREE WAYS TO NEVER RETURN, and the third one is what the
+; repository's own control fixture needed. A call to `sysExitWith` is
+; the base case: it is the exit syscall and there is no path past it.
+; A call to a function whose every tail never returns inherits that -
+; which is how `IO.exit` and `IO.die` qualify without being named
+; here, since one ends in `sysExitWith` and the other ends in the
+; first. And a `cast` whose ARGUMENT never returns never returns: the
+; coercion is unreachable, so it fabricates nothing.
+;
+; That third arm is not a nicety. `tests/selfhost/976-diverging-tyvar.ax`
+; - the fixture this repository wrote to record that the two shapes
+; differ - spells its diverging `panic` as `(cast a (exit 70))`, and a
+; rule that looked only at the cast would have refused the program the
+; fixture exists to protect. The analysis was wrong and the fixture was
+; right.
+;
+; A form this does not know is NOT a diverging tail, which is the safe
+; direction for a check that refuses: it reports rather than accepts,
+; and the three ways out are in the help.
+(pub :: divTailOk (-> Int Int Int Int Int))
+
+(pub fn (divTailOk decls e names depth)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_BEGIN)
+        ; ANY statement, not only the last. A block whose second
+        ; statement never returns never reaches its third, so the
+        ; block never returns whatever its tail says. `pLoop` below is
+        ; the shape that needs this: an endless `while`, and then a
+        ; `cast` after it that no execution arrives at.
+        (divAnyOk
+          decls          (nodeA e)          names          depth          0
+        )
+        (if (== tag TAG_E_IF)
+          (if (== (divTailOk decls (nodeB e) names depth) 1)
+            (divTailOk decls (nodeC e) names depth)
+            0
+          )
+          (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            (divTailOk decls (nodeC e) names depth)
+            (if (== tag TAG_E_HANDLE)
+              (divTailOk decls (nodeA e) names depth)
+              (if (== tag TAG_E_MATCH)
+                (divArmsOk
+                  decls                  (nodeB e)                  names                  depth                  0
+                )
+                (if (== tag TAG_E_COND)
+                  (if (== (divCondOk
+                    decls                    (nodeA e)                    names                    depth                    0
+                  ) 1)
+                    (divTailOk decls (nodeB e) names depth)
+                    0
+                  )
+                  (if (== tag TAG_E_WHILE)
+                    ; A loop whose test cannot become false. Only a
+                    ; CONSTANT test is read: `(while true ...)` and
+                    ; `(while 1 ...)` are the two spellings of "forever",
+                    ; and deciding it for a computed test is the halting
+                    ; problem. A loop this cannot prove endless is simply
+                    ; not a diverging tail, which is the safe direction.
+                    (divConstTrue (nodeA e))
+                    (if (== tag TAG_E_APP)
+                      (if (strEq (divHeadName e) "cast")
+                        ; The value being coerced. `(cast a x)` parses as
+                        ; `((cast a) x)`, so it is this node's argument.
+                        (divTailOk decls (nodeB e) names depth)
+                        (divCall decls (divHeadName e) names depth)
+                      )
+                      0
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Does calling `name` never return?
+;
+; The depth bound is a refusal to recurse forever through a call chain,
+; not an approximation of anything: a cycle among the candidate set is
+; already answered by `names` (the fixpoint assumes it diverges), and a
+; cycle outside it cannot end in `sysExitWith` at all. Eight is deeper
+; than `die` -> `exit` -> `sysExitWith` by five.
+(pub :: divCall (-> Int String Int Int Int))
+
+(pub fn (divCall decls name names depth)
+  (if (>= depth 8)
+    0
+    (if (strEq name "sysExitWith")
+      1
+      (if (== (strInVec names name 0) 1)
+        1
+        (let ((b (findFnBody decls name)))
+          (if (== b 0)
+            0
+            (divTailOk decls b names (+ depth 1))
+          )
+        )
+      )
+    )
+  )
+)
+
+; Does ANY expression in `xs` never return?
+(pub :: divAnyOk (-> Int Int Int Int Int Int))
+
+(pub fn (divAnyOk decls xs names depth i)
+  (if (>= i (vecLen xs))
+    0
+    (if (== (divTailOk decls (vecGet xs i) names depth) 1)
+      1
+      (divAnyOk
+        decls        xs        names        depth        (+ i 1)
+      )
+    )
+  )
+)
+
+; Is this test a constant the loop can never falsify?
+(pub :: divConstTrue (-> Int Int))
+
+(pub fn (divConstTrue t)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_E_VAR)
+      (if (strEq (bareOf (nodeAName t)) "true")
+        1
+        0
+      )
+      (if (== (nodeTag t) TAG_E_INT)
+        (if (== (nodeA t) 0)
+          0
+          1
+        )
+        0
+      )
+    )
+  )
+)
+
+(pub :: divArmsOk (-> Int Int Int Int Int Int))
+
+(pub fn (divArmsOk decls arms names depth i)
+  (if (>= i (vecLen arms))
+    ; No arm at all is not a diverging tail; an empty `match` produces
+    ; nothing and is somebody else's diagnostic.
+    (if (== i 0)
+      0
+      1
+    )
+    (if (== (divTailOk decls (nodeB (vecGet arms i)) names depth) 1)
+      (divArmsOk
+        decls        arms        names        depth        (+ i 1)
+      )
+      0
+    )
+  )
+)
+
+(pub :: divCondOk (-> Int Int Int Int Int Int))
+
+(pub fn (divCondOk decls cls names depth i)
+  (if (>= i (vecLen cls))
+    1
+    (if (== (divTailOk decls (nodeB (vecGet cls i)) names depth) 1)
+      (divCondOk
+        decls        cls        names        depth        (+ i 1)
+      )
+      0
+    )
+  )
+)
+
+; One round of the fixpoint: strike out every name whose body can
+; produce a value. Answers the survivors.
+(pub :: divRound (-> Int Int Int))
+
+(pub fn (divRound decls names)
+  (let (
+    (out vecNew)
+    (n (vecLen names))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((nm (vecGetStr names i)))
+          {
+            (if (== (divTailOk decls (findFnBody decls nm) names 0) 1)
+              (vecPush
+                out                (cast Int nm)
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; Iterate to a fixed point. Each round can only shrink the set, so it
+; terminates in at most `|names|` rounds; this repository reaches it
+; in one.
+(pub :: divFixpoint (-> Int Int Int))
+
+(pub fn (divFixpoint decls names)
+  (let ((next (divRound decls names)))
+    (if (== (vecLen next) (vecLen names))
+      next
+      (divFixpoint decls next)
+    )
+  )
+)
+
+; The pass. Collect, solve, report.
+(pub :: tcCheckResultOnly (-> Int Int Int))
+
+(pub fn (tcCheckResultOnly tc decls)
+  (let ((cands (resultOnlyCandidates decls vecNew 0)))
+    (if (== (vecLen cands) 0)
+      0
+      (let ((div (divFixpoint decls (candNames cands vecNew 0))))
+        (resultOnlyEmit
+          tc          decls          cands          div          0
+        )
+      )
+    )
+  )
+)
+
+; Every signature with a result-only type variable that has not opted
+; into the unsafe layer.
+(pub :: resultOnlyCandidates (-> Int Int Int Int))
+
+(pub fn (resultOnlyCandidates decls out i)
+  (if (>= i (vecLen decls))
+    out
+    (let ((d (vecGet decls i)))
+      {
+        (if (&& (== (nodeTag d) TAG_D_SIG) (&& (== (rawTagged decls d) 0) (> (strLen (resultOnlyVarOf d)) 0)))
+          (vecPush
+            out            (cast Int d)
+          )
+          0
+        )
+        (resultOnlyCandidates decls out (+ i 1))
+      }
+    )
+  )
+)
+
+(pub :: candNames (-> Int Int Int Int))
+
+(pub fn (candNames cands out i)
+  (if (>= i (vecLen cands))
+    out
+    {
+      (vecPush
+        out        (cast Int (bareOf (nodeAName (vecGet cands i))))
+      )
+      (candNames cands out (+ i 1))
+    }
+  )
+)
+
+(pub :: resultOnlyEmit (-> Int Int Int Int Int Int))
+
+(pub fn (resultOnlyEmit tc decls cands div i)
+  (if (>= i (vecLen cands))
+    0
+    (let ((d (vecGet cands i)))
+      {
+        (if (== (strInVec div (bareOf (nodeAName d)) 0) 1)
+          ; It diverges. `for all a` is honest here and there is
+          ; nothing to report.
+          0
+          ; A signature with NO definition is `AX3015`, which says the
+          ; real thing. Reporting this one too would be a cascade from
+          ; one mistake, which the diagnostics document forbids.
+          (if (== (findFnBody decls (bareOf (nodeAName d))) 0)
+            0
+            {
+              (memSetWord tc 16 (nodeModule d))
+              (emitResultOnlyVar tc d (resultOnlyVarOf d))
+            }
+          )
+        )
+        (resultOnlyEmit
+          tc          decls          cands          div          (+ i 1)
         )
       }
     )
@@ -5211,7 +5691,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3040"      "result-only-tyvar"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` returns type variable `") v) "`, which no parameter mentions: the caller chooses it and nothing witnesses the choice")      0      0      "return a concrete word type and let callers write `cast`, or tag the declaration `;@axiom:raw` to declare it part of the unsafe layer"
+      SEV_ERROR      "AX3040"      "result-only-tyvar"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` returns type variable `") v) "`, which no parameter mentions, and its body produces that result rather than never returning: the caller chooses the type and a `cast` fabricates the value")      0      0      "three ways out: return a concrete word type and let callers write `cast`; or make it DIVERGE, so every path ends in a call that never returns, which is what makes `for all a` honest; or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose"
     ))
   )
 )

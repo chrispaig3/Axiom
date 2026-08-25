@@ -1,0 +1,71 @@
+; The two shapes a LOCAL rule would get wrong, and the reason the
+; analysis is a fixpoint rather than a look at one expression.
+;
+; `347-result-only-tyvar.ax` has the direct unsound shape (a tail that
+; is a `cast`) and `tests/selfhost/976-diverging-tyvar.ax` has the direct
+; sound one (a
+; tail that never returns). Both are decidable by looking at one
+; function. These are not.
+;
+; `rethrow` and `sneak` have the SAME tail shape as each other - a call
+; to another function whose result is a type variable no parameter
+; mentions - and opposite truths. `rethrow` is correct, because what it
+; calls never returns. `sneak` is unsound, because what it calls
+; fabricates a word, and the fabrication reaches the caller through it.
+; Nothing about `rethrow`'s own body distinguishes them; only what its
+; callee does.
+;
+; So the set of these functions is solved together: assume they all
+; diverge, then strike out any whose tail can produce a value. `sneak`
+; goes when `conjure` goes, and `rethrow` survives with `panic`.
+;
+; `mixed` is the third case a local rule loses: one arm diverges and
+; the other fabricates. An `if` diverges only if BOTH arms do, and the
+; arm that returns is the one that hands the caller a machine word
+; wearing a type it chose.
+;
+; MEASURED 2026-08-25, on the tree before the analysis existed: all
+; five declarations here and in the two files above drew the identical
+; AX3040 warning, and `check` exited 0 for every one of them.
+;
+; Three errors are expected here and `rethrow` must draw none.
+(import IO)
+
+(:: panic (-> String a))
+
+(fn (panic msg)
+  {
+    (writeStr 2 msg)
+    (cast a (exit 70))
+  }
+)
+
+(:: conjure (-> Int a))
+
+(fn (conjure n)
+  (cast a n)
+)
+
+; CORRECT: diverges, because `panic` does.
+(:: rethrow (-> Int a))
+
+(fn (rethrow n) (panic "rethrown\n"))
+
+; UNSOUND: fabricates, because `conjure` does.
+(:: sneak (-> Int a))
+
+(fn (sneak n) (conjure n))
+
+; UNSOUND on one arm, which is enough.
+(:: mixed (-> Int a))
+
+(fn (mixed n)
+  (if (> n 0)
+    (panic "big\n")
+    (cast a n)
+  )
+)
+
+(:: main Int)
+
+(fn (main) 0)

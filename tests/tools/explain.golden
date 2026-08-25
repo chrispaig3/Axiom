@@ -1004,11 +1004,58 @@ It reaches memory unsafety, measured rather than argued:
 String pointer. The same shape through `vecGet` is how a `Vec` holding
 an Int reads back as a String, because a `Vec` carries no element type.
 
-WHAT TO DO. Return a concrete word type and let callers write `cast`,
-which is the language's one documented reinterpretation and is visible
-where it happens. Or, if the declaration really is part of the unsafe
+WHY IT IS AN ERROR, AND WHEN IT IS NOT. This was a WARNING until
+2026-08-25, on a stated ground: the rule conflated two signatures and
+only one of them is unsound.
+
+    (:: conjure (-> Int a))     ; body CASTS a word out
+    (:: panic   (-> String a))  ; body NEVER RETURNS
+
+The second is a correct program - `forall a. String -> a` is the
+honest type of a diverging function, which is what the paragraph above
+means by "inhabited only by non-termination". Both checked clean and
+both drew this diagnostic; then `conjure` exited 139 and `panic` ran
+correctly. A check that says the same thing about a segfault and a
+correct program is not yet a check.
+
+So the compiler now tells them apart, and it can do so exactly. A
+function whose result is a type variable no parameter mentions can
+produce that result only two ways, because the type system admits no
+others: a `cast`, which fabricates the value, or a call to another
+such function, which is the same question one level down. The set of
+them is solved by a fixpoint over their tail positions - assume they
+all diverge, then strike out any whose tail can produce a value. What
+survives never returns and is not reported. What is struck out
+fabricates a value and is this error.
+
+A call that never returns also counts: `sysExitWith` is the base case,
+anything whose every tail reaches it inherits that (which is how
+`IO.exit` and `IO.die` qualify), and a `cast` whose ARGUMENT never
+returns never returns either - the coercion is unreachable.
+
+WHAT IT STILL DOES NOT CATCH, measured 2026-08-25 and recorded here
+rather than left to be found. The rule asks whether the variable
+appears in a PARAMETER, and `sigSplitVars` counts every left side of
+the arrow spine as one - including inside a function-typed parameter,
+where the callee still chooses the type:
+
+    (:: apply1 (-> (-> a Int) Int))
+    (fn (apply1 f) (f (cast a 42)))
+    (apply1 strLen)
+
+That draws no diagnostic at all, checks OK, and exits 139 - the same
+unsoundness through a positive occurrence one level in. Closing it
+means splitting the spine by VARIANCE rather than by side, which is a
+larger change than this one and is not made here.
+
+WHAT TO DO. Three ways out, in the order to prefer them. Return a
+concrete word type and let callers write `cast`, which is the
+language's one documented reinterpretation and is visible where it
+happens. Or make the function DIVERGE, so every path ends in a call
+that never returns - that is what makes `forall a` honest, and it is
+reported no more. Or, if the declaration really is part of the unsafe
 layer - a raw word read whose meaning the type system does not model -
-tag it `;@axiom:raw`.
+tag it `;@axiom:raw`, on either the signature or the `fn`.
 
 The tag is not permission and it does not make the read safe. What it
 buys is that the unsafe layer becomes FINITE and enumerable:
