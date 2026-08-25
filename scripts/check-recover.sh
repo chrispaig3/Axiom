@@ -262,6 +262,14 @@ fi
 # `emit_abort_loop <count> <trap|no-trap> <file>` writes one program
 # in two spellings that differ by ONE LINE. Both take a single mark
 # outside the loop, allocate 4 KiB per iteration, and install a
+# `Mut` is in the outer handle list because `AX3011` requires the list
+# to be EXHAUSTIVE and `println` reaches `__store64`, which has carried
+# `Mut` since 2026-08-25 (`docs/memory-model.md` MM-EXEC-9a). This
+# probe is built from a heredoc rather than a checked-in fixture, which
+# is why a sweep over `tests/**/*.ax` did not see it: a gate that
+# GENERATES a program is a second corpus, and an effect-inference change
+# has to be measured against both.
+#
 # handler per iteration inside the extent - the `handle` is there
 # because the retain it takes on the record it displaces is the one
 # thing the arena's wholesale reclaim does not cover. `trap` divides
@@ -325,7 +333,7 @@ emit_abort_loop() {
         (println "{t}")
         0
       }
-    )    (Console Alloc IO)    (lambda (s) 0)
+    )    (Console Alloc IO Mut)    (lambda (s) 0)
   )
 )
 PROBE

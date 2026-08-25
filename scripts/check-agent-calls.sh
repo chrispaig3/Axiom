@@ -339,8 +339,21 @@ echo
 echo "== grounding: every inferred IO reaches a primitive through the graph =="
 # The assertion the other three set up. Containment says no effect
 # ESCAPES upward; this says every IO effect came from somewhere real
-# going down - a `__syscallN` or an `extern`, the only two things in
-# this language that can perform one.
+# going down.
+#
+# WHAT COUNTS AS "REAL" IS THE DEFINITION OF `IO`, AND THE DEFINITION
+# MOVED. It was a `__syscallN` or an `extern`, and this walk said so.
+# On 2026-08-25 `__argc`/`__argv` were registered with `IO` as well
+# (`docs/memory-model.md` MM-EXEC-9a): reading the command line is
+# reading input the process did not compute, which is what `IO` means
+# even though no syscall happens. Nine `stdlib/Sys.ax` rows became
+# IO-performing that day and every one of them failed here, correctly -
+# the gate was holding the old definition, and a grounding check whose
+# origin list is short reports honest effects as unexplained.
+#
+# So the list is four, not two, and it is the SAME list the compiler
+# registers with `regFnEff` in `self_host/typecheck.ax`. When one
+# grows, so does the other; there is no third place to look.
 #
 # It is a transitive walk, not a one-hop check, because the library is
 # four and five hops deep: `writeStr` -> `sysWriteAllFd` -> `sysWriteFd`
@@ -387,7 +400,7 @@ def grounded(key, seen):
         return False
     seen.add(key)
     for callee in rows[key][1]:
-        if callee.startswith('__syscall'):
+        if callee.startswith('__syscall') or callee in ('__argc', '__argv'):
             return True
         nxt = resolve(callee)
         if nxt is None:
@@ -411,14 +424,16 @@ for key, (effs, calls) in rows.items():
 
 if ungrounded:
     print("FAIL: these rows carry IO but no path through #calls= reaches a")
-    print("      `__syscallN` or an `extern`, so the effect has no origin:")
+    print("      `__syscallN`, an `extern`, `__argc` or `__argv`, so the")
+    print("      effect has no origin:")
     for (mod, name), span in ungrounded[:20]:
         print("     %s.%s  %s" % (mod, name, span))
     raise SystemExit(1)
 
 n = sum(1 for k, v in rows.items()
         if 'IO' in v[0] and spans.get(k, '').startswith(prefix))
-print("ok   all %d IO-performing library rows reach a syscall or an extern" % n)
+print("ok   all %d IO-performing library rows reach a syscall, an extern, "
+      "or the argument vector" % n)
 PYG
 cat "$work/ground.out"
 

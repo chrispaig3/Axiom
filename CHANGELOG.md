@@ -18,6 +18,88 @@ its changelog too.
 
 ### Added
 
+- **Five of `MM-EXEC-9a`'s seven under-approximations are closed, and
+  the row the table never listed is now in it.** `docs/memory-model.md`
+  said the inferred effect set is an under-approximation "in five
+  measured ways" and that a conforming implementation SHOULD make it an
+  over-approximation. Probed one at a time on 2026-08-25, that sentence
+  was wrong in both directions.
+
+  **One row was already closed and still listed.** A trait method whose
+  implementation does I/O was documented as inferred effect-free "and so
+  are its callers". It is not: the fixpoint unions every implementation
+  of the method — which is what dynamic dispatch means — so a caller
+  reports `#effects=IO`, and a call that dispatches to a *silent*
+  implementation reports it too, because the set is a property of the
+  method and not of one call site. Measured, not assumed.
+
+  **Three were the same defect `__alloc` had been**, a primitive that
+  PERFORMS something registered like `__load64`, which computes, and
+  they are registered now: `__store8`/`__store64` as `Mut`,
+  `__argc`/`__argv` as `IO`, the three arena primitives as `Alloc`.
+  Each is chosen against a definition the reference already carried
+  rather than invented for it — a field store *lowers to* `__store64`,
+  and `Mut`'s whole definition is that a field store is visible through
+  every alias while a `mut` local is not. `__argc` **broadens** `IO`
+  from "reaches a `__syscallN`" to "reaches the outside world"; the
+  reference's table is corrected rather than left to disagree.
+  `__axiom_arena_mark` only reads the bump pointer and is
+  over-approximated on purpose, which is what the rule's own SHOULD
+  asks for.
+
+  **And a seventh was found while closing them.** A `data` or `struct`
+  constructor allocates and contributes nothing.
+  `docs/error-model.md` had named that since it was written — "an
+  under-approximation here in the sense `MM-EXEC-9a` already names" —
+  and `MM-EXEC-9a` did not name it. It is a row there now, left open
+  with its reason: `ERR-PROP-2`'s purity claim relies on the omission,
+  so closing it is a decision about that rule and not a repair.
+
+  Measured cost, and it discriminates rather than blankets — counted the
+  way `check-agent-policy.sh` counts, one probe importing every module
+  and 578 declarations listed: **216** carried an effect before and
+  **261** after, and of the 431 arrow-typed ones **187** are still
+  effect-free, down from 230. A diagnostic
+  differential over every `.ax` in the tree moved exactly one file —
+  `tests/stdlib/320-effect-gc-roots.ax`, whose `handle` list `AX3011`
+  requires to be exhaustive, had to name `Mut` because `vecPush` stores
+  — which is the check working.
+
+  **And that differential was not enough, which is worth more than the
+  result.** `scripts/check-recover.sh` builds its 100,000-abort probe
+  from a heredoc, with a `handle` of its own; `println` reaches
+  `__store64`, so that list needed `Mut` too, and no sweep over
+  `tests/**/*.ax` could ever have seen it. It arrived as a red gate in
+  the battery, which is the right place for it to arrive. **A gate that
+  generates a program is a second corpus**, and an effect-inference
+  change has to be measured against both. `__retain`/`__release` deliberately get
+  nothing: their writes are the runtime's own bookkeeping, and `Mut`
+  there marks every function that touches a reference.
+
+  **A gate held the old definition, which is the best evidence here that
+  the change is real.** `check-agent-calls.sh` walks the call graph and
+  requires every inferred `IO` in the library to *reach* an origin — it
+  said "a `__syscallN` or an `extern`, the only two things in this
+  language that can perform one", which was the definition of `IO` until
+  this commit. Nine rows failed it immediately and correctly: they
+  perform IO and reach no syscall, because reading the command line is
+  not one. The origin list is four now, and it is the same list
+  `regFnEff` registers, so when one grows so does the other. And those
+  nine — `sysArgc`, `sysArg`, `sysEnv`, `sysEnvp` and five helpers —
+  carry `;@axiom:effect(io)` now, because `check-agent-policy.sh`
+  requires every derived IO in the library to be a declared one. The
+  reason is written once, above the argument-vector block, since a
+  reader meeting that tag on `(pub fn (sysArgc) __argc)` will otherwise
+  go looking for the syscall.
+
+  `scripts/check-agent-policy.sh` asserts the mapping **one primitive at
+  a time**, with `__load64`, `__load8` and `__retain` as controls that
+  must report nothing. The population golden beside it cannot hold that
+  rule: re-blessing an allow list after a regression makes the gate
+  agree with whatever the compiler now says, which is what a golden is
+  for and exactly why the rule needs an assertion that is not one. Seven
+  of the eleven cases go red against the compiler built before this.
+
 - **Two documents restated a fact and went stale, and one gate reported
   less the worse things got.** All three surfaced while closing
   `AX3040`'s second shape, and none of them is about types.

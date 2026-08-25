@@ -1273,10 +1273,10 @@ the choice.
 
 | Effect | Meaning |
 |---|---|
-| `IO` | Reaches the outside world through a `__syscallN` |
+| `IO` | Reaches the outside world: a `__syscallN`, or `__argc`/`__argv` — reading the command line is reading input the process did not compute. The second half arrived 2026-08-25 (`memory-model.md` MM-EXEC-9a); before it, a `;@axiom:pure` function could read the command line and the claim was accepted |
 | `Pure` | No side effects |
-| `Alloc` | Heap allocation: a call reaching the `__alloc` primitive — every `Vec`/`Map`/`Str` growth, every `memAlloc`. The `(alloc T)` keyword contributes it too and was the only contributor until 2026-08-23, which had it exactly inverted (`memory-model.md` MM-EXEC-9a) |
-| `Mut` | Mutable heap state: `(set base.field v)`. Plain `set` on a `mut` local is deliberately *not* `Mut` - a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
+| `Alloc` | Heap **machinery**, not strictly allocation: a call reaching `__alloc` — every `Vec`/`Map`/`Str` growth, every `memAlloc` — and, since 2026-08-25, the three arena primitives, because a reset ends every block allocated since a mark. `handle` contributes it too, for installing evidence, which allocates nothing either. The `(alloc T)` keyword contributes it and was the only contributor until 2026-08-23, which had it exactly inverted (`memory-model.md` MM-EXEC-9a) |
+| `Mut` | Mutable heap state: `(set base.field v)`, and the `__store8`/`__store64` primitives it lowers to — the second half arrived 2026-08-25 (`memory-model.md` MM-EXEC-9a), which is why `vecPush` and `mapInsert` carry it. Plain `set` on a `mut` local is deliberately *not* `Mut` - a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
 | `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is always reported unsupported, even over a body that plainly does not terminate. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
 
 ### Declaring an Effect Type

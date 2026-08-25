@@ -540,6 +540,67 @@ if [[ -z "$(axerr_hits "$work/forged.err" "forged.ax")" ]]; then
 fi
 echo "ok   an unsupported claim reaches the gate through stderr"
 
+# --------------------------------------------------------------------
+echo
+echo "== the primitives that PERFORM, against the effect each performs =="
+# --------------------------------------------------------------------
+# The population assertion above is a whole-library fact and moves for
+# many reasons. This is the rule underneath it, one primitive at a time.
+#
+# `MM-EXEC-9a` says the inferred set is an under-approximation and that
+# a conforming implementation SHOULD make it an over-approximation. Six
+# of its rows were one defect: a primitive that PERFORMS something,
+# registered like `__load64`, which computes. `__alloc` was corrected on
+# 2026-08-23; `__store8`/`__store64`, `__argc`/`__argv` and the three
+# arena primitives on 2026-08-25.
+#
+# A population golden cannot hold that rule. Re-blessing the allow list
+# after a regression would make the gate agree with whatever the
+# compiler now says - which is exactly what a golden is for, and exactly
+# why the rule needs an assertion that is not a golden.
+prim_case() {  # <name> <call> <wanted effect>
+  printf '(:: probe (-> Int Int))\n\n(fn (probe n) %s)\n\n(:: main Int)\n\n(fn (main) 0)\n' "$2" \
+    > "$work/prim.ax"
+  ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" "$axc" --diagnostic-format=ai symbols prim.ax ) \
+    > "$work/prim.axsym" 2>/dev/null
+  local row; row="$(grep '^F probe ' "$work/prim.axsym" || true)"
+  if [[ -z "$row" ]]; then
+    echo "FAIL primitives: no row at all for \`$1\` - the probe stopped compiling"
+    failed_prim=$((failed_prim + 1)); return
+  fi
+  local got; got="$(printf '%s\n' "$row" | grep -oE '#effects=[A-Za-z,]+' | sed 's/#effects=//' || true)"
+  if [[ "$got" == "$3" ]]; then
+    echo "ok   \`$1\` performs ${3:-nothing}"
+  else
+    echo "FAIL primitives: \`$1\` reported '${got:-nothing}', wanted '${3:-nothing}'"
+    failed_prim=$((failed_prim + 1))
+  fi
+}
+failed_prim=0
+prim_case "__alloc"                     "(__alloc n)"                          "Alloc"
+prim_case "__store64"                   "(__store64 n 0 42)"                   "Mut"
+prim_case "__store8"                    "(__store8 n 0 42)"                    "Mut"
+prim_case "__argc"                      "(__argc)"                             "IO"
+prim_case "__argv"                      "(__argv n)"                           "IO"
+prim_case "__axiom_arena_mark"          "(__axiom_arena_mark)"                 "Alloc"
+prim_case "__axiom_arena_reset"         "(__axiom_arena_reset n)"              "Alloc"
+prim_case "__axiom_arena_reset_keeping" "(__axiom_arena_reset_keeping n 0 0)"  "Alloc"
+# THE CONTROLS, and they are what make the eight above mean anything. A
+# registration that gave EVERY primitive an effect would satisfy all of
+# them and destroy the discrimination the whole mechanism is for. These
+# two compute, they are spelled exactly like the ones above, and they
+# must report nothing.
+prim_case "__load64 (control)"          "(__load64 n 0)"                       ""
+prim_case "__load8 (control)"           "(__load8 n 0)"                        ""
+# And `__retain`/`__release` are the deliberate omission `MM-EXEC-9a`
+# names: their writes are the runtime's own bookkeeping, and giving them
+# `Mut` marks every function that touches a reference.
+prim_case "__retain (deliberate)"       "(__retain n)"                         ""
+if (( failed_prim > 0 )); then
+  echo "     $failed_prim primitive(s) disagree with docs/memory-model.md MM-EXEC-9a"
+  exit 1
+fi
+
 echo
 echo "check-agent-policy: the standard library performs what it declares,"
 echo "                    the set that performs anything is the one on file,"

@@ -483,9 +483,13 @@ boundary.
 
 What is left is (2)'s façade, (4), and (6). The effect rows those rest
 on are honest now in a way they were not when this was written: the
-laundering is closed, and `Alloc` names the primitive that allocates
-rather than a keyword that does not (`docs/memory-model.md` MM-EXEC-9a,
-whose table lost that row on 2026-08-23).
+laundering is closed, `Alloc` names the primitive that allocates rather
+than a keyword that does not, and five of MM-EXEC-9a's six
+under-approximations are gone — a function that writes memory, reads the
+command line, resets the arena or prints through a trait method is no
+longer inferred effect-free (`docs/memory-model.md` MM-EXEC-9a). One row
+remains, a call the compiler cannot resolve, and it announces itself as
+`#effects-incomplete` rather than reporting a set that looks complete.
 
 ---
 

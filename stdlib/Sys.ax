@@ -262,10 +262,22 @@
 ; the primitives are where the type system stops - so the bounds live
 ; here, and an out-of-range index answers the empty string rather
 ; than whatever address sits past the vector.
+;
+; EVERYTHING BELOW THAT READS THEM CARRIES `;@axiom:effect(io)`, and it
+; does not make a syscall. `IO` means "reaches the outside world", and
+; the command line is input this process did not compute: a function
+; that reads it is not a function of its arguments, which is the thing
+; `MM-EXEC-9b` says a purity claim ought to exclude. Until 2026-08-25
+; `__argc`/`__argv` were registered like `__load64`, which computes, so
+; every one of these was inferred effect-free and `;@axiom:pure` over
+; one of them was accepted. That was `MM-EXEC-9a`'s second row.
+; The same applies to the environment block below, which `sysEnvp`
+; reaches through `__argv` past the end of the argument vector.
 ; ------------------------------------------------------------------
 ; How many arguments the process received, including the program name.
 (pub :: sysArgc Int)
 
+;@axiom:effect(io)
 (pub fn (sysArgc) __argc)
 
 ; The i-th argument as a Str (0 is the program name), or "" when `i`
@@ -274,6 +286,7 @@
 ; wrapping them without copying is sound.
 (pub :: sysArg (-> Int String))
 
+;@axiom:effect(io)
 (pub fn (sysArg i)
   (if (|| (< i 0) (>= i __argc))
     ""
@@ -765,15 +778,18 @@
 ; The address of the i-th environment entry's bytes, or 0 past the end.
 (:: sysEnvSlot (-> Int Int))
 
+;@axiom:effect(io)
 (fn (sysEnvSlot i) (__argv (+ (+ __argc 1) i)))
 
 ; How many entries the environment has.
 (:: sysEnvCount Int)
 
+;@axiom:effect(io)
 (fn (sysEnvCount) (sysEnvCountFrom 0))
 
 (:: sysEnvCountFrom (-> Int Int))
 
+;@axiom:effect(io)
 (fn (sysEnvCountFrom i)
   (if (== (sysEnvSlot i) 0)
     i
@@ -789,10 +805,12 @@
 ; `strConcat` and `strDup` both do.
 (pub :: sysEnv (-> String String))
 
+;@axiom:effect(io)
 (pub fn (sysEnv name) (sysEnvLookup (strConcat name "=") 0))
 
 (:: sysEnvLookup (-> String Int String))
 
+;@axiom:effect(io)
 (fn (sysEnvLookup prefix i)
   (let ((p (sysEnvSlot i)))
     (if (== p 0)
@@ -817,6 +835,7 @@
 ; particular resolves its toolchain through the environment.
 (pub :: sysEnvp Int)
 
+;@axiom:effect(io)
 (pub fn (sysEnvp)
   (let ((n sysEnvCount))
     (let ((v (memAlloc (* (+ n 1) 8))))
@@ -830,6 +849,7 @@
 
 (:: sysEnvpFill (-> Int Int Int Int))
 
+;@axiom:effect(io)
 (fn (sysEnvpFill v i n)
   (if (>= i n)
     (memSetWord v n 0)

@@ -1955,18 +1955,60 @@
 ;
 ; `MM-EXEC-9a` records that the inferred effect set is an
 ; UNDER-approximation and says a conforming implementation SHOULD make
-; it an over-approximation, then lists six measured ways it is not. The
-; second row is this one: a function that "calls `__alloc`, or any
-; `Vec`/`Map`/`Str` operation" was inferred effect-free, because
-; `__alloc` was registered like `__load64` - a primitive that computes.
+; it an over-approximation, then lists the measured ways it is not.
+; Every row that was a PRIMITIVE registered as though it computed is
+; closed by this function, and the rest of that table is not about
+; primitives at all.
 ;
-; The inversion is the part worth naming. `Alloc` fired only for the
-; `(alloc T)` keyword, a form that allocates nothing and that
-; `MM-LIFE-7` records as definable-but-uncallable, and never for the
-; operation the whole heap goes through. So the effect existed, was
-; spellable, was checkable, and was attached to the wrong thing.
-; Registering it here is not adding noise to the analysis; it is
-; removing a lie from it.
+; `__alloc` went first, on 2026-08-23, and the inversion is the part
+; worth naming. `Alloc` fired only for the `(alloc T)` keyword, a form
+; that allocates nothing and that `MM-LIFE-7` records as
+; definable-but-uncallable, and never for the operation the whole heap
+; goes through. So the effect existed, was spellable, was checkable,
+; and was attached to the wrong thing.
+;
+; THE OTHER SIX WENT ON 2026-08-25, and they are the same defect with
+; the inversion left out - a primitive that performs, registered like
+; `__load64`, which computes:
+;
+;   `__store8`/`__store64` -> `Mut`. They write memory at an address,
+;   which is visible through every alias of whatever is there. That is
+;   the definition `Mut` already carried for `(set base.field v)`, and
+;   a field store lowers to one of these.
+;
+;   `__argc`/`__argv` -> `IO`. Reading the command line is reading
+;   input the process did not compute, which is what `MM-EXEC-9b` says
+;   a purity claim ought to exclude and did not. It BROADENS `IO` from
+;   "reaches a `__syscallN`" to "reaches the outside world", and
+;   `reference.md`'s table is corrected to match rather than left to
+;   disagree.
+;
+;   the three arena primitives -> `Alloc`. `Alloc` is the heap-MACHINERY
+;   effect and not strictly an allocation: `walkEffectsHandle` already
+;   contributes it for installing handler evidence, which allocates
+;   nothing either. A reset is the operation that ends every block
+;   allocated since a mark, so a function performing one is as far from
+;   pure as a function performing the allocation. `__axiom_arena_mark`
+;   only reads the bump pointer and is over-approximated on purpose -
+;   the rule's own SHOULD asks for over-approximation, and a mark is
+;   only ever written to be paired with a reset.
+;
+; Measured, this tree, counted the way `scripts/check-agent-policy.sh`
+; counts - one probe importing every module, 578 declarations listed:
+; 216 carried an effect before and 261 after, so it discriminates
+; rather than blankets. TWO exhaustive `handle` lists had to name `Mut`,
+; which is `AX3011` working rather than a cost - and the second is the
+; measurement lesson: `tests/stdlib/320-effect-gc-roots.ax` is a
+; checked-in fixture, and the other is a program `check-recover.sh`
+; BUILDS FROM A HEREDOC, which a differential over `tests/**/*.ax`
+; cannot see. A gate that generates a program is a second corpus. Registering these is not adding noise to the analysis;
+; it is removing a lie from it.
+;
+; What deliberately does NOT get one: `__retain`/`__release`, whose
+; writes are the runtime's own bookkeeping and invisible to the
+; program's meaning - giving them `Mut` marks every function that
+; touches a reference and deletes the discrimination the rest of this
+; buys.
 (pub :: regFnEff (-> Int String Int String Int))
 
 (pub fn (regFnEff fns name ty eff)
@@ -2114,14 +2156,14 @@
       (regFn fns "__syscall5" (mkIntArrow 6))
       (regFn fns "__syscall6" (mkIntArrow 7))
       (regFn fns "__load8" (mkIntArrow 2))
-      (regFn fns "__store8" (mkIntArrow 3))
+      (regFnEff fns "__store8" (mkIntArrow 3) (builtinEff "Mut"))
       (regFn fns "__load64" (mkIntArrow 2))
       ; `(__call_word fn arg)`: call a C function `i64 (i64)` by its
       ; ADDRESS - the destructor word of a foreign-form block
       ; (stdlib/Ffi.ax `ffiHandleClose`); the release runtime makes
       ; the same call when such a block dies
       (regFn fns "__call_word" (mkIntArrow 2))
-      (regFn fns "__store64" (mkIntArrow 3))
+      (regFnEff fns "__store64" (mkIntArrow 3) (builtinEff "Mut"))
       (regFnEff fns "__alloc" (mkIntArrow 1) (builtinEff "Alloc"))
       (regFn fns "__retain" (mkIntArrow 1))
       (regFn fns "__release" (mkIntArrow 1))
@@ -2139,16 +2181,16 @@
       ; `mkNode` - which is where MM-LIFE-2c's co-ownership blocker
       ; actually lives (docs/memory-model.md).
       (regFn fns "__retainref" (mkTArr (mkTVar "a") mkIntTy))
-      (regFn fns "__argc" (mkIntArrow 0))
-      (regFn fns "__argv" (mkIntArrow 1))
+      (regFnEff fns "__argc" (mkIntArrow 0) (builtinEff "IO"))
+      (regFnEff fns "__argv" (mkIntArrow 1) (builtinEff "IO"))
       ; `(__axiom_recover mark thunk)` - MM-ALLOC-16a. The second
       ; argument is spelled `(-> Int Int)` rather than `Int` because it
       ; is CALLED, and a handle type here would let any word through to
       ; an indirect call through word 0 of whatever it points at.
       (regFn fns "__axiom_recover" (mkTArr mkIntTy (mkTArr (mkTArr mkIntTy mkIntTy) mkIntTy)))
-      (regFn fns "__axiom_arena_mark" (mkIntArrow 0))
-      (regFn fns "__axiom_arena_reset" (mkIntArrow 1))
-      (regFn fns "__axiom_arena_reset_keeping" (mkIntArrow 3))
+      (regFnEff fns "__axiom_arena_mark" (mkIntArrow 0) (builtinEff "Alloc"))
+      (regFnEff fns "__axiom_arena_reset" (mkIntArrow 1) (builtinEff "Alloc"))
+      (regFnEff fns "__axiom_arena_reset_keeping" (mkIntArrow 3) (builtinEff "Alloc"))
       (regFn fns "__addr" (mkTArr mkStringTy mkIntTy))
       ; Not spellable in source - `checkNumeric` rewrites `==`/`!=`
       ; into these. They are registered anyway because the rewritten

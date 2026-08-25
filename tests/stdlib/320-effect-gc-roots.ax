@@ -6,6 +6,12 @@
 ; corrupts the dispatch after it. The `--gc` run lives in the CLI
 ; integration tests (the golden harness compiles with the default
 ; allocator).
+;
+; The handle list names `Mut` since 2026-08-25, and the reason is not
+; about this program: `AX3011` requires the list to be EXHAUSTIVE, and
+; `churn`'s `vecPush` reaches `__store64`, which was registered as a
+; primitive that computes until `MM-EXEC-9a`'s row for it was closed.
+; This was the only fixture in the tree the correction moved.
 (import IO)
 
 (import Vec)
@@ -36,7 +42,7 @@
       (churn 200000)
       (log "still alive")
       0
-    } (Console IO Alloc) (lambda (s)
+    } (Console IO Alloc Mut) (lambda (s)
       {
         ; `cast String`: a handler parameter's type is a variable, so it
         ; selects no `Show` implementation (AX3025).

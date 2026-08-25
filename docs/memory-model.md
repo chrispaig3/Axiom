@@ -231,45 +231,108 @@ warning. An untagged function is not policed.
 
 **MM-EXEC-9a (H).** **The inferred effect set is an
 under-approximation, and a specification must say so.** A conforming
-implementation **SHOULD** make it an over-approximation; today it is
-not, in five measured ways:
+implementation **SHOULD** make it an over-approximation. It was not, in
+**seven** measured ways — six this table listed and one it did not.
+**Five are closed.** Two remain, and they are different in kind:
 
-| A function that... | is inferred |
-|---|---|
-| calls `__store8`/`__store64` — writes arbitrary memory | effect-free |
-| reads `__argc`/`__argv` — the process command line | effect-free |
-| calls the arena primitives | effect-free |
-| calls a **trait method** whose implementation does I/O | effect-free, and so are its callers — inference runs before trait dispatch is resolved |
-| calls through a local, a parameter, or an unresolved name | contributes nothing but a transparency mark |
+| A function that... | is inferred | why it is still open |
+|---|---|---|
+| calls through a local, a parameter, or an unresolved name | contributes nothing but a transparency mark | needs the flow analysis `MM-EXEC-9b` describes and the language does not have. **It announces itself**: the row carries `#effects-incomplete` and a `pure` claim over it draws `AX3037`, so a reader is handed a lower bound labelled as one rather than a set that looks complete |
+| applies a `data` or `struct` **constructor** | effect-free, though the constructor allocates | a DECISION, not a gap. `error-model.md` `ERR-PROP-2` names it and relies on it: making it precise gives every `Result` constructor `#effects=Alloc`, and that rule's purity claim would then need `Alloc` exempted explicitly rather than by omission. Measured 2026-08-25 — `(fn (mkPair n) (P n n))` reports no `#effects=` |
 
-The `__alloc` row left this table on 2026-08-23. It was the inverted
-one: `Alloc` fired for the `(alloc T)` keyword, a form that allocates
-nothing and that `MM-LIFE-7` records as definable-but-uncallable, and
-never for the primitive the whole heap goes through — so the effect
-existed, was spellable, was checkable, and was attached to the wrong
-thing. `__alloc` is registered with it now, which is what this rule's
-SHOULD asks for, and the reach is what a reader would expect: `memAlloc`,
-`vecPush` and `strConcat` carry `Alloc`; `vecGet` and `strEq` do not.
-192 of the standard library's 358 arrow-typed declarations are still
-effect-free, so it discriminates rather than blankets, and
-`scripts/check-agent-policy.sh` pins the whole population.
+The second row was found while closing the others and is **added** to
+this table rather than left where it was. `error-model.md` had named it
+since it was written, "an under-approximation here in the sense
+`MM-EXEC-9a` already names" — and `MM-EXEC-9a` did not name it. A table
+whose whole job is to enumerate was short by one for as long as the
+sentence pointing at it existed.
 
-`IO` is introduced by a **direct** call to `__syscall0`–`__syscall6` and
-by nothing else. Measured — `axiom symbols` reports no `#effects=` at
-all for either of these two:
+**The five that closed, and what each was.** All but one were the same
+defect: a primitive that PERFORMS something, registered like `__load64`,
+which computes. `scripts/check-agent-policy.sh` asserts the mapping one
+primitive at a time, with `__load64`, `__load8` and `__retain` as the
+controls that must stay silent — a population golden cannot hold this
+rule, because re-blessing it after a regression makes the gate agree
+with whatever the compiler now says.
+
+| Row | Closed | Now |
+|---|---|---|
+| calls `__alloc` | 2026-08-23 | `Alloc` |
+| calls a **trait method** whose implementation does I/O | 2026-08-23 | the fixpoint unions **every** implementation of the method, which is what dynamic dispatch means; `#effects=IO` reaches the caller and its callers |
+| calls `__store8`/`__store64` — writes arbitrary memory | 2026-08-25 | `Mut` |
+| reads `__argc`/`__argv` — the process command line | 2026-08-25 | `IO` |
+| calls the arena primitives | 2026-08-25 | `Alloc` |
+
+The `__alloc` row was the inverted one: `Alloc` fired for the
+`(alloc T)` keyword, a form that allocates nothing and that `MM-LIFE-7`
+records as definable-but-uncallable, and never for the primitive the
+whole heap goes through — so the effect existed, was spellable, was
+checkable, and was attached to the wrong thing.
+
+The 2026-08-25 three are chosen against the definitions already in
+[reference.md](reference.md), not invented for them. A `__store64` is
+what `(set base.field v)` lowers to, and `Mut`'s whole definition is
+that a field store is visible through every alias while a `mut` local
+is not. `__argc` **broadens** `IO` from "reaches a `__syscallN`" to
+"reaches the outside world", which is the honest reading and the one
+`MM-EXEC-9b` needs; that table is corrected rather than left to
+disagree. `Alloc` is the heap-**machinery** effect and not strictly an
+allocation — `handle` already contributed it for installing evidence,
+which allocates nothing — and an arena reset ends every block since a
+mark, so a function performing one is exactly as far from pure as one
+performing the allocation. `__axiom_arena_mark` only reads the bump
+pointer and is over-approximated **on purpose**: this rule's own SHOULD
+asks for that, and a mark is only ever written to be paired with a
+reset.
+
+`__retain`/`__release` deliberately get nothing. Their writes are the
+runtime's own bookkeeping, invisible to the program's meaning, and
+giving them `Mut` marks every function that touches a reference and
+deletes the discrimination the rest of this buys.
+
+**Measured, and it discriminates rather than blankets.** Counted the way
+`scripts/check-agent-policy.sh` counts — one probe importing every
+module, 578 declarations listed — **216** carried an effect before the
+2026-08-25 three and **261** after; of the 431 arrow-typed ones, **187
+are still effect-free**, down from 230. The reach is what a reader would
+expect: `memAlloc`, `vecPush` and `strConcat` carry `Alloc`, the last
+two carry `Mut` as well because they store, and `vecGet` and `strEq`
+carry neither. **Two** `handle` lists moved, and where the
+second one lives is the measurement lesson. `AX3011` requires such a
+list to be exhaustive, and `println` reaches `__store64`:
+`tests/stdlib/320-effect-gc-roots.ax` is a checked-in fixture and a
+differential over `tests/**/*.ax` found it; the other is a program
+`scripts/check-recover.sh` builds from a heredoc, which that sweep
+cannot see at all. **A gate that generates a program is a second
+corpus**, and an inference change has to be measured against both.
+Neither is a cost — both are the check working. `scripts/check-agent-policy.sh` pins the
+whole population against `tests/agent/stdlib-effects.allow`.
+
+Measured on the compiler before the correction, `axiom symbols`
+reported no `#effects=` at all for either of these; both report one now:
 
 ```scheme
-(fn (writes a)    (__store64 a 0 42)) ; writes arbitrary memory
-(fn (readsArgs n) (__argc))           ; reads the command line
+(fn (writes a)    (__store64 a 0 42)) ; writes arbitrary memory -> Mut
+(fn (readsArgs n) (__argc))           ; reads the command line  -> IO
 ```
 
 **MM-EXEC-9b (H).** What a purity claim therefore guarantees, precisely:
 **`;@axiom:pure` that the checker accepted means the function's body
-reaches no `__syscallN` by a path the inference can follow.** It does
-**not** mean the function is a mathematical function of its arguments —
-it may write memory, read the command line, mutate a heap field through
-an alias (`MM-MUT-2`), or print through a trait method. `AX3010` is a
-**warning** that does not fail the build.
+reaches no effectful primitive by a path the inference can follow.** It
+does **not** mean the function is a mathematical function of its
+arguments — it may still mutate a heap field through an alias
+(`MM-MUT-2`), and it may still perform anything at all through a call
+the inference could not resolve, which is one of `MM-EXEC-9a`'s two
+remaining rows. `AX3010` is a **warning** that does not fail the build.
+
+Three of the escapes this rule listed are gone. Writing memory, reading
+the command line and printing through a trait method are all inferred
+now, so a `pure` claim over any of them is reported rather than
+accepted. The unresolved-call route is not, and it is the reason this
+rule still says what it says — but that route is at least *announced*,
+by `#effects-incomplete` on the row and `AX3037` on the claim. The
+other survivor, constructor allocation, is silent and deliberate; see
+`MM-EXEC-9a`'s table for the rule that depends on it.
 
 A program that needs a real purity guarantee cannot get one from this
 mechanism today. Stating that is more useful than the alternative,
@@ -3298,7 +3361,7 @@ document.
 | `MM-VAL-4c` | `(!= NaN NaN)` is `false`; `Fmt.fmtFloat` cannot render inf or NaN |
 | `MM-VAL-3b` | `INT_MIN / -1` and shifts ≥ 64 are undefined and answer differently per `--opt`. The operators are unchanged; what closed is the absence of an alternative — `stdlib/Err.ax`'s checked arithmetic, `tests/stdlib/312-checked-arithmetic.ax` |
 | `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc` |
-| `MM-EXEC-9a` | effect inference is an under-approximation in five measured ways, including across trait dispatch (the `__alloc` row closed on 2026-08-23) |
+| `MM-EXEC-9a` | effect inference is an under-approximation. Seven measured ways; **five closed** — `__alloc` and trait dispatch on 2026-08-23, `__store8`/`__store64` (`Mut`), `__argc`/`__argv` (`IO`) and the arena primitives (`Alloc`) on 2026-08-25. Two left: a call through a local, a parameter or an unresolved name, which sets `#effects-incomplete` rather than reporting a set that looks complete; and constructor allocation, which is a decision `ERR-PROP-2` relies on and was the row this table did not list |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so a function of either name is definable but uncallable |
 | ~~`MM-EXEC-16`~~ | **CLOSED 2026-08-24.** Status **72** was division by zero here *and*, in `docs/ffi.md` C7, the exit a `no_std` crate's panic handler took — an Axiom division and a Rust panic were indistinguishable to a supervisor reading a status. The FFI side moved to **73**, which `MM-EXEC-16` does not reserve, and the path is gated by `tests/ffi/demo/115-abort-status.ax`. Worth recording why it survived: all 35 FFI cases carried `; expect 0`, so the abort had never been executed by anything and any status whatever would have passed |
 | ~~`MM-LIFE-2a`~~ | **CLOSED 2026-08-25** as an ungated cost; the cost itself stays, by design. Every arena reset still charges **4,097** slab-head stores on the once-per-request path, because releases file blocks into those heads and a head left dangling across a reset double-issues storage. What was the defect was that nothing measured it. `scripts/check-arena-reset-rate.sh` does: three spellings of one program one word apart put a reset at **about 1.35 µs** against a mark's few nanoseconds, a fourth binary built by deleting the `slabclear` block from the emitted IR shows the scrub is what costs it, and the emitter's own `[4097 x i64]` and loop bound are asserted with no clock in the assertion at all. It also corrected this document: the cost is **1.7–1.8%** of the 77 µs per-connection budget, not the "under one percent" estimated from a bench whose arms overlap |

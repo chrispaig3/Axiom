@@ -249,7 +249,10 @@ the claim validates.
 Recorded honestly: this also means **constructor allocation does not
 enter the inferred effect set**. `Alloc` is a built-in effect and a
 constructor allocates, so the inference is an under-approximation here
-in the sense `MM-EXEC-9a` already names. The error model relies on the
+in the sense `MM-EXEC-9a` names. It says "names" rather than "already
+names" for a reason: until 2026-08-25 that rule's table did not list
+this row, so the sentence pointed at an enumeration that was short by
+one. It is a row there now, with this paragraph as its reason. The error model relies on the
 convenient half of that; a conforming implementation that made `Alloc`
 precise would make every `Result` constructor `#effects=Alloc`, and
 `ERR-PROP-2`'s purity claim would need `Alloc` exempted explicitly
