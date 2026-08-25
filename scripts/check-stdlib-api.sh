@@ -121,11 +121,26 @@ build_axsym() {
   done <<< "$mod_list"
 }
 
+# The generator is BUILT ONCE and then run as a binary, rather than run
+# through `axiom run` each time. Not for speed: `run` writes its scratch
+# executable and intermediates into the WORKING DIRECTORY, and the
+# working directory here has to be the tree root, because the module
+# paths the document prints are repo-relative and the generator is
+# handed them as it will print them. A gate that writes into the
+# repository is a gate that can leave something in it.
+gen_bin="$work/axdoc"
+if ! AXIOM_STDLIB="$repo_root/stdlib" "$axc" build \
+       --input "$repo_root/$gen" --output "$gen_bin" >"$work/gen.log" 2>&1; then
+  echo "FAIL: could not build $gen"
+  sed 's/^/     /' "$work/gen.log" | head -20
+  exit 1
+fi
+
 generate() {  # <src-root> <out-file>
   local root="$1" out="$2" axsym="$work/axsym.$$"
   ( cd "$root" && build_axsym "$axsym" )
   # shellcheck disable=SC2046
-  ( cd "$root" && AXIOM_STDLIB="$root/stdlib" "$axc" run "$repo_root/$gen" "$axsym" $(printf '%s ' $mod_list) ) > "$out"
+  ( cd "$root" && AXIOM_STDLIB="$root/stdlib" "$gen_bin" "$axsym" $(printf '%s ' $mod_list) ) > "$out"
 }
 
 # --------------------------------------------------------------------
