@@ -18,6 +18,52 @@ its changelog too.
 
 ### Added
 
+- **`mapGet` answers `Int`, and a default argument no longer names the
+  type of a value it did not supply.** Found by writing the program
+  rather than reading the code, which is §1b's own rule:
+
+  ```scheme
+  (mapInsert m 1 100000000)
+  (strLen (mapGet m 1 "absent"))
+  ```
+
+  `check` answered **OK** and the binary exited **139** — 100000000
+  dereferenced as a String pointer. `mapGet` was `(-> Int Int a a)`, and
+  the variable is in a PARAMETER, so `AX3040` does not fire: the rule
+  asks whether a parameter mentions it and one does. What the rule
+  cannot see is *which* parameter. `dflt` witnesses what the caller
+  wants back when the key is **absent**; the cast inside `mapGet` was on
+  the **found** path, where the word comes out of a table that carries
+  no element type. The two are unrelated, and the source said so in the
+  other direction — "`a` here is witnessed by `dflt`" — with
+  `docs/memory-model.md` repeating it as the reason `mapValAt` was moved
+  off the `#raw` layer.
+
+  It answers `Int` now, which is the truth about a machine word, and
+  `mapGetStr` is the typed reader beside it. That is exactly the pair
+  `vecGet`/`vecGetStr` and `memGetWord`/`memGetWordStr` already were —
+  **`Map` was the last container whose reader still wore a polymorphic
+  spelling**, and `vecGet` had been given this same treatment already.
+  Swept the whole standard library to be sure: every other polymorphic
+  signature is either over a *parameterised* container (`(Result a e)`,
+  `(Option a)`, where the `a` that comes out is the one that went in) or
+  write-side (`mapInsert`, `vecPush`, `vecSet`, `memSetWord`, where the
+  caller supplies it). One outlier, now closed.
+
+  The blast radius is the measurement: **23 call sites, 22 of them
+  already passing an `Int` default** — the one exception is a
+  homogeneous `Map` of Strings in `080-map.ax`, which becomes
+  `mapGetStr` and drops an outer `cast String`. `mapGetStr` is spelled
+  out rather than delegating, because delegating needs `(cast Int dflt)`
+  — a cast at an ARGUMENT root, which classifies that value's evidence 0
+  and drops its retain (`MM-LIFE-2d`). The cast stays at a RETURN, which
+  is the position `vecGetStr` uses.
+
+  `tests/stdlib/081-map-value-type.ax` is the positive half — both
+  readers, and an absent key on each — and
+  `tests/diagnostics/354-map-value-type.ax` is the refusal, with the
+  `Int`-default call beside it as the control that must stay silent.
+
 - **A checked-in list whose ORDER was part of the golden, sorted in
   whatever locale the machine happened to have.**
   `tests/agent/stdlib-effects.allow` is derived by `sort -u` and

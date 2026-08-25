@@ -1547,9 +1547,23 @@ type — and the evidence word is computed from it. Measured:
 (memSetWord p 0 (getStr p 0))     ; evidence word 1, releases emitted
 ```
 
-That is the migration recipe for the `#raw` layer, and it is why
-`mapValAt` was moved off it by casting inside `mapGet` - where `a` is
-already witnessed by the `dflt` parameter - rather than at the call.
+That is the migration recipe for the `#raw` layer. `mapValAt` was moved
+off it by casting inside `mapGet`, "where `a` is already witnessed by
+the `dflt` parameter" — **and that reason was wrong, measured
+2026-08-25.** `dflt` witnesses what the caller wants back when the key
+is ABSENT; the cast sat on the found path, where the word came out of a
+table that carries no element type. The two are unrelated, so the
+signature let a caller name a type the table does not hold:
+`(mapInsert m 1 100000000)` then `(strLen (mapGet m 1 "absent"))`
+checked `OK` and exited **139**.
+
+`mapGet` answers `Int` now — the truth about a machine word — and
+`mapGetStr` is the typed reader beside it, which is the
+`vecGet`/`vecGetStr` and `memGetWord`/`memGetWordStr` shape `Map` was
+the last container to be missing. The cast is still at a RETURN and
+still not at the call, which is the part of the recipe that was right:
+what changed is which position is honest about what it produces, not
+where the cast goes.
 
 ## 4. Mutation
 
@@ -1751,7 +1765,10 @@ documentation edit. This document will not write about it in the past
 tense.
 
 **The half-finished state carries a permanent per-request cost, and it
-is under one percent.** `__axiom_arena_reset_fn` scrubs **4,097** slab
+is 1.7–1.8% of a request** — a figure this paragraph had as *“under one
+percent”* until 2026-08-25, when a gate measured it instead of a bench.
+The correction is below, where the estimate that produced the old number
+is. `__axiom_arena_reset_fn` scrubs **4,097** slab
 heads on every reset — 4,097 stores on the exact path `MM-ALLOC-22`'s
 workload takes once per request — and it does that **precisely
 because** releases file blocks into those heads: a head left dangling
@@ -1765,18 +1782,34 @@ workers, 5,000 loopback connections, the same binary either side of its
 arena flag: **12,864 and 12,986 conn/s scoped against 13,282 and 13,032
 unscoped** — runs that overlap. 32 KiB of stores costs about 0.6 µs
 against a per-connection budget near 77 µs, which is where the
-sub-one-percent figure comes from rather than from the ratio directly.
+sub-one-percent figure came from rather than from the ratio directly.
+
+**That estimate was wrong, and the way it was wrong is the argument for
+the gate.** `tests/net/echo-server.ax` takes `__axiom_arena_mark`
+unconditionally and only the reset sits behind the arena flag, so its
+two arms ablate the WHOLE reset rather than the scrub — and they
+overlap, which is why the number had to be reasoned from 32 KiB of
+stores instead of read off. `scripts/check-arena-reset-rate.sh` runs one
+program in three spellings a word apart, so the cost is *attributed*: a
+reset is **~1.35 µs** and a mark under 10 ns at `--opt 1`, which is
+**1.7–1.8%** of the same 77 µs budget, not under one.
 
 Both halves of that are worth keeping. The residue is real — it is the
 price of composing §3.3 with counting at all, and it does not go away
-while `MM-LIFE-2a` stays abandoned in place. And it is noise, which is
-why it does not argue the strategy back onto the schedule. What it does
-argue is narrower and still open: `check-net.sh` measures memory and
-not time, so this figure comes from a bench and not from a gate, and no
-gate anywhere in this repository compares a reset carrying the scrub
-against one without it. §9.0 keeps it as a defect on that ground alone
-— not that the cost is unknown, but that nothing would notice it
-changing.
+while `MM-LIFE-2a` stays abandoned in place. And it is small, which is
+why it does not argue the strategy back onto the schedule; it is no
+longer *noise*, because 1.7–1.8% is a figure a reader can act on and
+0.6% was not.
+
+What this paragraph argued until 2026-08-25 was narrower still, and it
+is **closed**: `check-net.sh` measures memory and not time, so the
+figure came from a bench and not from a gate, and nothing here compared
+a reset carrying the scrub against one without it.
+`scripts/check-arena-reset-rate.sh` does, in six checks, two of which
+have no clock in them at all — the emitted scrub is asserted from the
+IR, and the negative probe deletes that block and rebuilds, dropping the
+cost 42×. §9.0 records the row as closed on that ground: not that the
+cost became known, but that something would now notice it changing.
 
 **MM-LIFE-2b (W 2026-08-24, abandoned in place —
 see `MM-LIFE-2a`; what already emits is recorded below and stays).

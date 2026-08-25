@@ -541,27 +541,76 @@
 
 ; The value for `key`, or `dflt` if `key` is absent.
 ;
+; Axiom's builtin `Option` does work end to end, but every `data` value
+; is heap-boxed unconditionally, so an `Option`-returning `mapGet` would
+; allocate 16 bytes on every successful lookup - in a bump allocator
+; with no `free`, in the hottest operation of a compiler's symbol table.
+; A caller-supplied default costs nothing and lets each call site pick a
+; sentinel it knows cannot occur in its own value range; a caller with
+; no such value uses `mapHas` first and pays the second probe only where
+; it actually needs the distinction.
+; IT ANSWERS `Int`, AND IT USED TO ANSWER A TYPE VARIABLE. That
+; signature was `(-> Int Int a a)`, and the justification written here
+; was: "`a` is witnessed by `dflt`, so this cast sits at a RETURN inside
+; a signature that already carries the type." The first clause is true
+; of the DEFAULT path and false of the one the cast is on. `dflt`
+; witnesses what the caller wants back when the key is ABSENT; the cast
+; is on the found path, where the word came out of the table and has
+; nothing to do with `dflt`'s type. A `Map` carries no element type -
+; that is what the handle convention IS - so the two are unrelated, and
+; the signature let the caller name a type the table does not hold:
+;
+;     (mapInsert m 1 100000000)
+;     (strLen (mapGet m 1 "absent"))
+;
+; `check` answered OK and the binary exited **139** - 100000000
+; dereferenced as a String pointer. Measured 2026-08-25.
+;
+; So it answers `Int`, which is the truth about a machine word, and a
+; caller who knows what the word is says so at the call:
+; `mapGetStr` below. That is the shape `vecGet`/`vecGetStr` and
+; `memGetWord`/`memGetWordStr` already had; `Map` was the one container
+; whose reader still wore a polymorphic spelling. See `AX3040`, whose
+; whole subject is a type variable the caller chooses and the callee
+; cannot have produced.
+;
 ; The default is caller-supplied rather than fixed at 0, and rather than
-; returning `Option`. Axiom's builtin `Option` does work end to end, but
-; every `data` value is heap-boxed unconditionally, so an
-; `Option`-returning `mapGet` would allocate 16 bytes on every successful
-; lookup - in a bump allocator with no `free`, in the hottest operation
-; of a compiler's symbol table. A caller-supplied default costs nothing
-; and lets each call site pick a sentinel it knows cannot occur in its
-; own value range; a caller with no such value uses `mapHas` first and
-; pays the second probe only where it actually needs the distinction.
-(pub :: mapGet (-> Int Int a a))
+; returning `Option`, for the reason above: a heap-boxed `Option` on the
+; hottest lookup in a compiler's symbol table.
+(pub :: mapGet (-> Int Int Int Int))
 
 (pub fn (mapGet m key dflt)
   (let ((i (mapFindSlot m key)))
     (if (< i 0)
       dflt
-      ; `mapValAt` answers the raw word. `a` here is witnessed by
-      ; `dflt`, so this cast sits at a RETURN inside a signature that
-      ; already carries the type. A cast at an ARGUMENT root instead
-      ; would classify that value's evidence 0 and drop its retain -
-      ; measured, see docs/memory-model.md.
-      (cast a (mapValAt m i))
+      ; `mapValAt` answers the raw word, and so does this. No cast: the
+      ; declared result IS what the word is.
+      (mapValAt m i)
+    )
+  )
+)
+
+; The value for `key` read as a `String`, or `dflt` if `key` is absent.
+;
+; The typed half of the pair, exactly as `vecGetStr` is to `vecGet`. It
+; does NOT make the read safe - a `Map` still carries no element type,
+; and reading a table of Ints through this segfaults just as before.
+; What it buys is that the claim is made at the CALL SITE, in one word a
+; reader can see, instead of being inferred from a default argument
+; three tokens away.
+;
+; Spelled out rather than delegating to `mapGet`, which would need
+; `(cast Int dflt)` - a cast at an ARGUMENT root, which classifies that
+; value's evidence 0 and drops its retain (docs/memory-model.md
+; MM-LIFE-2d). The cast here is at a RETURN, which is the safe position
+; and the one `vecGetStr` uses.
+(pub :: mapGetStr (-> Int Int String String))
+
+(pub fn (mapGetStr m key dflt)
+  (let ((i (mapFindSlot m key)))
+    (if (< i 0)
+      dflt
+      (cast String (mapValAt m i))
     )
   )
 )

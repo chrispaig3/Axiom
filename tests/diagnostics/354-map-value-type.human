@@ -1,0 +1,17 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found String[0m
+  [1;34m--> [0m354-map-value-type.ax:33:19
+[1;34m   |[0m
+[1;34m33 |[0m       (mapGet n 1 "absent")
+[1;34m   |[0m                   [1;31m^^^^^^^^ this has type `String`, expected `Int`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
+  [1;34m--> [0m354-map-value-type.ax:33:8
+[1;34m   |[0m
+[1;34m33 |[0m       (mapGet n 1 "absent")
+[1;34m   |[0m        [1;31m^^^^^^ this has type `Int`, expected `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 2 previous errors

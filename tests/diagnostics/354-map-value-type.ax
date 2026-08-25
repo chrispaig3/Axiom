@@ -1,0 +1,49 @@
+; A `Map` carries no element type, and the default argument must not be
+; allowed to name one for a value it did not supply.
+;
+; `mapGet` answered `(-> Int Int a a)` until 2026-08-25. The variable is
+; in a PARAMETER, so `AX3040` does not fire — the rule asks whether a
+; parameter mentions it, and one does. What the rule cannot see is that
+; the parameter mentioning it is a DEFAULT, used only when the key is
+; absent, while the value actually returned comes out of a table that
+; carries no type at all. `dflt` witnesses the absent path and nothing
+; else, and the cast was on the other one.
+;
+; Measured on the compiler before the change: `check` answered OK and
+; the binary exited 139 — 100000000 dereferenced as a String pointer.
+;
+; `mapGet` answers `Int` now, so the mismatch is an ordinary `AX3004` at
+; the argument, which is the diagnostic a reader can act on: the default
+; is an `Int` and `"absent"` is not. `mapGetStr` is the reader for a
+; table whose words really are Strings, and it says so at the call.
+;
+; `honest` is the control: the same lookup with an `Int` default, which
+; is what every other call site in this repository already writes, and
+; it must draw nothing.
+(import Map)
+
+(import Str)
+
+(:: mixed (-> Int Int))
+
+(fn (mixed n)
+  {
+    (mapInsert n 1 100000000)
+    (strLen
+      (mapGet n 1 "absent")
+    )
+  }
+)
+
+(:: honest (-> Int Int))
+
+(fn (honest n)
+  {
+    (mapInsert n 1 100000000)
+    (mapGet n 1 (- 0 1))
+  }
+)
+
+(:: main Int)
+
+(fn (main) 0)

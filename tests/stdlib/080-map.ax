@@ -248,10 +248,12 @@
       ; get's default is the same variable as its return - so it must be
       ; a String too.
       (mapInsert x 1000 "interned")
-      ; `cast String`: `mapGet` answers the VALUE type, a type
-      ; variable, which selects no `Show` implementation (AX3025).
+      ; `mapGetStr` and not `(cast String (mapGet ...))`: `mapGet`
+      ; answers `Int` since 2026-08-25, because a type variable there
+      ; let a caller name a type the table does not hold and exit 139.
+      ; The typed reader says at the CALL what the word is.
       (println
-        (cast String (mapGet x 1000 ""))
+        (mapGetStr x 1000 "")
       )
       ; interned
       ; --- the hash is pinned against an independent fmix64 ---

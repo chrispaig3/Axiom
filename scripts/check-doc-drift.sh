@@ -152,6 +152,71 @@ else
 fi
 
 # ---------------------------------------------------------------
+# 1d. a document against its OWN defect table
+# ---------------------------------------------------------------
+# `docs/memory-model.md` §9.0 is the register of defects this
+# specification records, and a row leaves it by being struck through and
+# marked CLOSED. That table is the source of truth for whether a rule is
+# open — and the prose above it is where the reader actually meets the
+# rule, so the two can disagree, and did.
+#
+# `MM-LIFE-2a` closed on 2026-08-25 when `check-arena-reset-rate.sh`
+# landed. §9.0 said so the same day. Four hundred lines earlier the
+# document still said "no gate anywhere in this repository compares a
+# reset carrying the scrub against one without it. §9.0 keeps it as a
+# defect on that ground alone" — and stated the superseded number, in
+# bold, as the paragraph's heading.
+#
+# WHY THE NEGATIVE-CLAIMS RULE BELOW DOES NOT CATCH THIS. Its noun list
+# deliberately excludes a bare `gate`, measured and written down where
+# it is defined: the word means three things in this repository and
+# including it matched paragraphs about none of them. Re-measured
+# 2026-08-25 — adding it flags 12 paragraphs, 7 with no path, of which
+# most are changelog narrative. So this is a DIFFERENT rule with a
+# machine-checkable anchor: the rule id. It fires only where a document
+# names a rule its own table has closed AND says something about that
+# rule being open, which is one paragraph in the tree and was zero after
+# the fix.
+echo "== documents: nothing described as open is closed in the same file =="
+if ! python3 - $(gate_prose_docs) <<'PY'
+import re, sys
+OPENISH = re.compile(r"still open|no gate|nothing would notice|stays a defect"
+                     r"|is unknown|not measured|ungated", re.I)
+# A struck-through rule id followed by CLOSED, which is how a row leaves
+# the register. Anchored on the table's own syntax rather than on prose.
+CLOSED_ROW = re.compile(r"\|\s*~~`([A-Z][A-Z0-9-]*-[0-9]+[a-z]?)`~~\s*\|\s*\*\*CLOSED")
+bad = 0
+checked = 0
+for doc in sys.argv[1:]:
+    text = open(doc, encoding="utf-8").read()
+    closed = set(CLOSED_ROW.findall(text))
+    if not closed:
+        continue
+    checked += len(closed)
+    for para in re.split(r"\n\s*\n", text):
+        # The register itself is exempt: a CLOSED row says what the
+        # defect WAS, so it quotes the open language on purpose.
+        if not para.strip() or para.lstrip().startswith("|"):
+            continue
+        m = OPENISH.search(para)
+        if not m:
+            continue
+        for rule in sorted(closed):
+            if rule in para:
+                line = text.count("\n", 0, text.index(para)) + 1
+                print(f"FAIL closed-rules: {doc}:{line} describes `{rule}` as open —")
+                print(f"  it says {m.group(0)!r} — while this document's own defect")
+                print(f"  register marks it CLOSED. The register is the source of truth;")
+                print(f"  correct the prose, or reopen the row and say why.")
+                print(f"  | {' '.join(para.split())[:140]}")
+                bad += 1
+if bad:
+    sys.exit(1)
+print(f"ok   {checked} closed defect rule(s), none described as open elsewhere")
+PY
+then failed=$((failed+1)); fi
+
+# ---------------------------------------------------------------
 # 1c. the WARNING allowlist, against the document that restates it
 # ---------------------------------------------------------------
 # `tests/diagnostics/severity.policy` decides which codes may render as

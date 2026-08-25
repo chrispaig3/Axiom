@@ -224,7 +224,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Map`
 
-`stdlib/Map.ax` — 20 public names
+`stdlib/Map.ax` — 21 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -243,7 +243,8 @@ See [reference.md](reference.md) for the language, and
 | `mapOwnsVals` | value | `(-> Int Bool)` |  | Whether this table owns a share of every value it holds - the `mapNewRefVals` half. Word 6 of the header, and not a test of the value array's shape word: see `mapAllocTable`. |
 | `mapNextSlot` | value | `(-> Int Int Int)` |  | The next slot after `i`. |
 | `mapHas` | value | `(-> Int Int Bool)` |  |  |
-| `mapGet` | value | `(-> Int Int a a)` |  | The value for `key`, or `dflt` if `key` is absent. |
+| `mapGet` | value | `(-> Int Int Int Int)` |  | The value for `key`, or `dflt` if `key` is absent. |
+| `mapGetStr` | value | `(-> Int Int String String)` |  | The value for `key` read as a `String`, or `dflt` if `key` is absent. |
 | `mapInsert` | value | `(-> Int Int a Int)` | `Alloc,Mut` | Insert or overwrite, growing first if the load factor demands it. Returns the handle - the same one, since the header is mutated in place; see `Vec`'s module comment for why it is returned anyway. |
 | `mapRemove` | value | `(-> Int Int Int)` | `Mut` | Delete `key`. Returns the handle. |
 | `mapSumVals` | value | `(-> Int Int)` |  | The sum of every live value. |

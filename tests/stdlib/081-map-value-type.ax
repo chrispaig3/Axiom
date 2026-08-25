@@ -1,0 +1,58 @@
+; A `Map` carries no element type, and its reader must not pretend it
+; does.
+;
+; `mapGet` answered `(-> Int Int a a)` until 2026-08-25. The type
+; variable is in a PARAMETER - the default - so `AX3040` does not fire
+; and nothing looked wrong. But `dflt` witnesses what the caller wants
+; back when the key is ABSENT, and the cast inside `mapGet` sat on the
+; FOUND path, where the word came out of the table. The two are
+; unrelated, so the default silently chose the return type of a value it
+; had nothing to do with:
+;
+;     (mapInsert m 1 100000000)
+;     (strLen (mapGet m 1 "absent"))     ; check OK, exit 139
+;
+; Measured on the compiler before the change. It is the same shape
+; `AX3040` refuses one level up - a type variable the CALLER chooses
+; that the callee cannot have produced - reached through a default
+; argument instead of through a bare result.
+;
+; `mapGet` answers `Int` now, so that program is a type error at
+; `check`, and `mapGetStr` is the typed reader beside it. The pair is
+; what `vecGet`/`vecGetStr` and `memGetWord`/`memGetWordStr` already
+; were; `Map` was the last container whose reader wore a polymorphic
+; spelling.
+;
+; THIS FIXTURE IS THE POSITIVE HALF. It pins that both readers work and
+; that a `Map` really does hold either kind of word. The refusal itself
+; is `tests/diagnostics/354-map-value-type.ax`, because a program
+; that does not compile cannot be a golden that prints.
+(import Map)
+
+(import IO)
+
+(import Fmt)
+
+(import Str)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (ints mapNew)
+    (strs mapNew)
+  )
+    {
+      (mapInsert ints 1 100000000)
+      (mapInsert strs 2 "interned")
+      ; the raw reader answers the word, and the word is the Int
+      (println (fmtInt (mapGet ints 1 (- 0 1))))
+      ; the typed reader says at the CALL what the word is
+      (println (mapGetStr strs 2 "absent"))
+      ; and an absent key answers the default, on both
+      (println (fmtInt (mapGet ints 99 (- 0 7))))
+      (println (mapGetStr strs 99 "missing"))
+      0
+    }
+  )
+)
