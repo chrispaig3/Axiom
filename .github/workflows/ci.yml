@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Thirty-four of the gates below build the compiler under test from
+    # Thirty-five of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -280,6 +280,20 @@ jobs:
       # every acceptance check and refuse nothing.
       - name: A fabricated value is refused and a diverging one is not
         run: ./scripts/check-diverging-tyvar.sh
+
+      # The FFI boundary is a C ABI, and until this gate the only thing
+      # that exercised it was a Rust crate. `check-ffi.sh` below is
+      # excellent and it tests the Rust CLIENT: cargo, `#[axiom_export]`,
+      # `axiom-bindgen`, the generated host binding. None of that is the
+      # boundary. The boundary is `declare i64 @sym(i64, ...)` and a
+      # `-l` flag, and a plain C archive bound with `cc` and `ar` was
+      # measured working on the first attempt - untested, undocumented
+      # for C users, and one refactor away from breaking silently.
+      #
+      # This runs no cargo. That is the point: the ABI keeps a test that
+      # survives the Rust workspace being changed, moved or removed.
+      - name: A plain C archive binds through the ABI, with no Rust
+        run: ./scripts/check-c-abi.sh
 
       # The standard library's API reference is GENERATED, by an Axiom
       # program, and this regenerates it and diffs. It is the strongest
