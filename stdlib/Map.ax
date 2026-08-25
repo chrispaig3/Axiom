@@ -216,7 +216,15 @@
 ; `mapNew` quietly twice as large as its own documented default.
 (pub :: mapNew Int)
 
-(pub fn (mapNew) (mapAllocTable mapDefaultCap))
+(pub fn (mapNew) (mapAllocTable mapDefaultCap 0))
+
+; An empty `Map` whose VALUES it owns a share of: the value array
+; carries the array form, so `mapFree` releases every value in it. Keys
+; stay `Int`s and stay a leaf, which is what they are - `mapInsert`'s
+; key parameter is `Int`, not a type variable.
+(pub :: mapNewRefVals Int)
+
+(pub fn (mapNewRefVals) (mapAllocTable mapDefaultCap 1))
 
 ; An empty `Map` sized so that `want` entries fit without rehashing.
 ;
@@ -227,7 +235,16 @@
 ; request a lie.
 (pub :: mapWithCapacity (-> Int Int))
 
-(pub fn (mapWithCapacity want)
+(pub fn (mapWithCapacity want) (mapSized want 0))
+
+; `mapWithCapacity`'s owning twin. See `mapNewRefVals`.
+(pub :: mapWithCapacityRefVals (-> Int Int))
+
+(pub fn (mapWithCapacityRefVals want) (mapSized want 1))
+
+(:: mapSized (-> Int Int Int))
+
+(fn (mapSized want refs)
   (mapAllocTable
     (mapRoundUpPow2
       (*
@@ -236,7 +253,7 @@
           want
         )        2
       )
-    )
+    )    refs
   )
 )
 
@@ -265,21 +282,59 @@
 )
 
 ; A header over three freshly zeroed arrays: `cap` words of keys, `cap`
-; words of values, `cap` *bytes* of states.
-(:: mapAllocTable (-> Int Int))
+; words of values, `cap` *bytes* of states - plus `len`, `used` and the
+; flag saying whether this table owns a share of every value in it.
+(:: mapAllocTable (-> Int Int Int))
 
-(fn (mapAllocTable cap)
-  (let ((m (memAlloc 48)))
+(fn (mapAllocTable cap refs)
+  ; Words 2, 3 and 4 are the map (28 = bits 2/3/4), so the
+  ; header's death takes all three arrays with it - and each is
+  ; retained once here for the reason `Vec.vecBuild` gives: a
+  ; block the allocator answers has a count of zero, and release
+  ; steps over zero.
+  (let (
+    (m (memAllocMapped 56 28))
+    (keys (memAlloc (* cap 8)))
+    (vals (memAlloc (* cap 8)))
+    (states (memAlloc cap))
+  )
     {
+      (__retain m)
+      (__retain keys)
+      (__retain vals)
+      (__retain states)
+      (if (== refs 1)
+        (memMarkArray vals)
+        vals
+      )
       (memSetWord m 0 0)
       (memSetWord m 1 cap)
-      (memSetWord m 2 (memAlloc (* cap 8)))
-      (memSetWord m 3 (memAlloc (* cap 8)))
-      (memSetWord m 4 (memAlloc cap))
+      (memSetWord m 2 keys)
+      (memSetWord m 3 vals)
+      (memSetWord m 4 states)
       (memSetWord m 5 0)
+      ; WORD 6, for the reason `Vec.vecBuild` gives at its word 3: the
+      ; data block's shape bit answers the RUNTIME's question and is
+      ; ambiguous against any allocator with a different clamp - it was
+      ; a SIGSEGV under the committed seed, on a table big enough for
+      ; its value array to pass 16,384 words. The map says what it is
+      ; itself. Seven words in an eight-word block; word 7 is spare.
+      (memSetWord m 6 refs)
       m
     }
   )
+)
+
+; Hand `m` back: the three arrays go with it, and on a `mapNewRefVals`
+; table so does one share of every value still in it. Answers 0, as
+; `Vec.vecFree` does and for the same reason.
+(pub :: mapFree (-> Int Int))
+
+(pub fn (mapFree m)
+  {
+    (__release m)
+    0
+  }
 )
 
 ; ------------------------------------------------------------------
@@ -299,6 +354,33 @@
 (pub :: mapUsed (-> Int Int))
 
 (pub fn (mapUsed m) (memGetWord m 5))
+
+; Hand back the share of the value in slot `i` and zero the word. A
+; no-op on a `mapNew` table, which owns nothing it holds.
+(:: mapDropVal (-> Int Int Int))
+
+(fn (mapDropVal m i)
+  (if (mapOwnsVals m)
+    (let (
+      (vals (memGetWord m 3))
+      (old (memGetWord (memGetWord m 3) i))
+    )
+      {
+        (memSetWord vals i 0)
+        (__release old)
+        m
+      }
+    )
+    m
+  )
+)
+
+; Whether this table owns a share of every value it holds - the
+; `mapNewRefVals` half. Word 6 of the header, and not a test of the
+; value array's shape word: see `mapAllocTable`.
+(pub :: mapOwnsVals (-> Int Bool))
+
+(pub fn (mapOwnsVals m) (== (memGetWord m 6) 1))
 
 (:: mapKeyAt (-> Int Int Int))
 
@@ -503,6 +585,36 @@
 
 (fn (mapNeedsGrow m) (>= (* (mapUsed m) 2) (mapCap m)))
 
+; The capacity to rehash AT, which is not always twice the current one.
+;
+; `mapNeedsGrow` reads `used`, and `used` counts tombstones, so a table
+; under insert-and-remove churn reaches the load factor with a live set
+; that never moved. Doubling there grows the table for entries that do
+; not exist: measured 2026-08-24 on a 256-entry window over 200,000
+; inserts, the table climbed to about 524,288 slots and the process to
+; 10 MB - a bounded live set with unbounded memory, which is exactly
+; what P3 says must not happen and what nothing in this repository
+; measured until `scripts/check-steady-state.sh`.
+;
+; So growth asks about `len` rather than `used`: when the LIVE entries
+; would sit at a quarter load or less in the current table, the rehash
+; happens at the SAME capacity, which drops every tombstone and grows
+; nothing. Only a table that is genuinely full doubles.
+;
+; A quarter and not a half, because a half thrashes: rehashing at `cap`
+; with `len * 2 == cap` leaves the table needing another rehash on the
+; very next insert. At a quarter, `cap / 4` inserts must arrive before
+; the next one can, so the rehash cost stays amortised O(1) per insert
+; in both directions.
+(:: mapRehashCap (-> Int Int))
+
+(fn (mapRehashCap m)
+  (if (<= (* (mapLen m) 4) (mapCap m))
+    (mapCap m)
+    (* (mapCap m) 2)
+  )
+)
+
 ; Insert or overwrite, growing first if the load factor demands it.
 ; Returns the handle - the same one, since the header is mutated in
 ; place; see `Vec`'s module comment for why it is returned anyway.
@@ -516,7 +628,7 @@
 (pub fn (mapInsert m key value)
   {
     (if (mapNeedsGrow m)
-      (mapRehash m (* (mapCap m) 2))
+      (mapRehash m (mapRehashCap m))
       m
     )
     (mapInsertNoGrow m key value)
@@ -555,6 +667,7 @@
           (if (== st mapStateLive)
             (if (== (memGetWord keys h) key)
               {
+                (mapDropVal m h)
                 (memSetWord vals h value)
                 m
               }
@@ -598,6 +711,7 @@
             ; grow without bound under repeated assignment to one
             ; key.
             {
+              (mapDropVal m i)
               (memSetWord vals i value)
               m
             }
@@ -664,7 +778,14 @@
   (let ((i (mapFindSlot m key)))
     (if (< i 0)
       m
+      ; The slot's value is dropped HERE rather than left for the
+      ; rehash to notice: a tombstone is not copied forward, so a
+      ; value left in place would be released neither by the move
+      ; nor by the caller. Zeroing it is also what keeps the
+      ; array-form walk honest if the table is freed before it
+      ; ever rehashes.
       {
+        (mapDropVal m i)
         (memPutByte (memGetWord m 4) i mapStateTomb)
         (memSetWord m 0 (- (mapLen m) 1))
         m
@@ -706,6 +827,13 @@
       (newStates (memAlloc newCap))
     )
       {
+        (__retain newKeys)
+        (__retain newVals)
+        (__retain newStates)
+        (if (mapOwnsVals m)
+          (memMarkArray newVals)
+          newVals
+        )
         (memSetWord m 1 newCap)
         (memSetWord m 2 newKeys)
         (memSetWord m 3 newVals)
@@ -716,6 +844,15 @@
           {
             (memSetWord m 0 n)
             (memSetWord m 5 n)
+            ; A rehash MOVES every live value's share into the new
+            ; array and drops the TOMBSTONED ones, so the old array
+            ; may not be released as an array - it would spend the
+            ; moved shares a second time. `mapRemove` has already
+            ; handed back what it removed, so nothing is owed here.
+            (memMarkLeaf oldVals)
+            (__release oldKeys)
+            (__release oldVals)
+            (__release oldStates)
             m
           }
         )

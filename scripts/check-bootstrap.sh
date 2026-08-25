@@ -633,7 +633,18 @@ floor=8192       # 8 MiB
 # describes and which nothing in this script had ever reported. The
 # `ok` line now prints the headroom, so the next reader sees the
 # margin shrinking instead of only the run that finally crosses it.
-ceiling=393216   # 384 MiB, over a measured 340.6
+# And it came back DOWN the same day, without the ceiling moving: 340.6
+# -> 323 MiB, measured by this gate against the container work
+# (MM-LIFE-2h). Growth used to abandon a `Vec`'s old data block, and
+# this compiler is made of vectors; doubling one now hands the old block
+# to the allocator's free list. That is a 5% cut to the peak on a tree
+# that had GROWN by two more slices of compiler source in between, so
+# the reclamation more than paid for both. The ceiling stays at 384
+# because 323 leaves it 15% of headroom, which is the margin this
+# number is set to keep - and the `ok` line prints that margin now, so
+# the next reader watches it shrink instead of meeting the run that
+# finally crosses it.
+ceiling=393216   # 384 MiB, over a measured 323
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi

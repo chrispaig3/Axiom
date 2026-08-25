@@ -5951,21 +5951,26 @@
     ; MM-LIFE-2b says a block that does not record its own size makes
     ; the release path unimplementable, and only the allocator knows
     ; the size of a raw allocation. MM-LIFE-2d's encoding: bit 0 the
-    ; form (0 = record), bits 1..15 the padded payload WORD count,
-    ; bits 16..62 the reference bitmap - which the allocator leaves
-    ; EMPTY, because it cannot know a field from an int. memAlloc'd
-    ; memory is therefore a leaf by construction, the unsafe layer's
-    ; own rule; monomorphic construction sites overwrite the word
-    ; with their record shape. A payload past 32767 words overflows
-    ; the count field and stores 0 - the unknown-size sentinel
-    ; release refuses to file (262KB read buffers exist; the clamp is
-    ; not decorative).
+    ; form (0 = record), bits 1..14 the padded payload WORD count,
+    ; bit 15 the ARRAY FORM, bits 16..62 the reference bitmap - which
+    ; the allocator leaves EMPTY, because it cannot know a field from
+    ; an int. memAlloc'd memory is therefore a leaf by construction,
+    ; the unsafe layer's own rule; monomorphic construction sites
+    ; overwrite the word with their record shape, and a container
+    ; stamps its element buffer with the array form through
+    ; `Mem.memMarkArray`. A payload past 16383 words overflows the
+    ; count field and stores 0 - the unknown-size sentinel release
+    ; refuses to file (262KB read buffers exist; the clamp is not
+    ; decorative). The ceiling was 32767 words until the array form
+    ; took the count's top bit on 2026-08-24; what that costs is reuse
+    ; of blocks between 131KB and 262KB, which now read as
+    ; unknown-size rather than being filed.
     (emitLine cg "  %cwp = inttoptr i64 %hb to ptr")
     (emitLine cg "  store i64 0, ptr %cwp")
     (emitLine cg "  %shpw = add i64 %hb, 8")
     (emitLine cg "  %shpwp = inttoptr i64 %shpw to ptr")
     (emitLine cg "  %wcnt = lshr i64 %sz0, 3")
-    (emitLine cg "  %wbig = icmp ugt i64 %wcnt, 32767")
+    (emitLine cg "  %wbig = icmp ugt i64 %wcnt, 16383")
     (emitLine cg "  %wleaf = select i1 %wbig, i64 0, i64 %wcnt")
     (emitLine cg "  %wshp = shl i64 %wleaf, 1")
     (emitLine cg "  store i64 %wshp, ptr %shpwp")
@@ -6039,7 +6044,9 @@
     (emitLine cg "  %D = alloca i64")
     (emitLine cg "  %wi = alloca i64")
     (emitLine cg "  %wm = alloca i64")
+    (emitLine cg "  %warr = alloca i64")
     (emitLine cg "  store i64 0, ptr %dead")
+    (emitLine cg "  store i64 0, ptr %warr")
     (emitLine cg "  store i64 0, ptr %D")
     (emitLine cg "  store i64 %h0, ptr %cur")
     (emitLine cg "  br label %relone")
@@ -6069,7 +6076,10 @@
     (emitLine cg "  %isrec = icmp eq i64 %formb, 0")
     (emitLine cg "  %map0 = lshr i64 %shw, 16")
     (emitLine cg "  %hasmap = icmp ne i64 %map0, 0")
-    (emitLine cg "  %dowalk = and i1 %isrec, %hasmap")
+    (emitLine cg "  %aform = and i64 %shw, 32768")
+    (emitLine cg "  %isarr = icmp ne i64 %aform, 0")
+    (emitLine cg "  %needw = or i1 %hasmap, %isarr")
+    (emitLine cg "  %dowalk = and i1 %isrec, %needw")
     (emitLine cg "  br i1 %dowalk, label %defer, label %notrec")
     ; the FOREIGN FORM (form bit 1, stdlib/Ffi.ax): payload word 0 is
     ; the address of a C destructor `i64 (i64)`, word 1 the Rust value
@@ -6102,7 +6112,7 @@
     (emitLine cg "  br label %after")
     (emitLine cg "filev:")
     (emitLine cg "  %bcnt0 = lshr i64 %shw, 1")
-    (emitLine cg "  %bcnt = and i64 %bcnt0, 32767")
+    (emitLine cg "  %bcnt = and i64 %bcnt0, 16383")
     (emitLine cg "  %ok1 = icmp ne i64 %bcnt, 0")
     (emitLine cg "  %ok2 = icmp ule i64 %bcnt, 8192")
     (emitLine cg "  %ok = and i1 %ok1, %ok2")
@@ -6121,8 +6131,36 @@
     (emitLine cg "walk:")
     (emitLine cg "  %Dw = load i64, ptr %D")
     (emitLine cg "  %m = load i64, ptr %wm")
+    (emitLine cg "  %warrf = load i64, ptr %warr")
+    (emitLine cg "  %wisarr = icmp ne i64 %warrf, 0")
+    ; One exhaustion test for both forms, and it is not a coincidence:
+    ; `%wm` holds the REMAINING bitmap for a record block and the
+    ; REMAINING word count for an array block, and both are done at
+    ; zero.
     (emitLine cg "  %mzero = icmp eq i64 %m, 0")
-    (emitLine cg "  br i1 %mzero, label %fileD, label %testbit")
+    (emitLine cg "  br i1 %mzero, label %fileD, label %stepone")
+    (emitLine cg "stepone:")
+    (emitLine cg "  br i1 %wisarr, label %arrstep, label %testbit")
+    ; The ARRAY FORM (bit 15): every payload word 0..count-1 is a
+    ; reference. It is the only shape that can describe a container's
+    ; element buffer - `Intern`'s string vector is 64 words at
+    ; construction and the record bitmap holds 47 - and it costs one
+    ; bit rather than a second header word because the count field had
+    ; one to spare: the allocator clamps a payload past 16,383 words to
+    ; the unknown-size sentinel, which is the same clamp it always
+    ; applied one bit higher up.
+    ;
+    ; Words past a container's `len` are ZERO, which `relone` skips as
+    ; an immediate - that is why `vecPop` zeroes what it vacates rather
+    ; than leaving a stale handle above the waterline for this walk to
+    ; spend a share of.
+    (emitLine cg "arrstep:")
+    (emitLine cg "  %ai = load i64, ptr %wi")
+    (emitLine cg "  %am1 = add i64 %m, -1")
+    (emitLine cg "  %ai1 = add i64 %ai, 1")
+    (emitLine cg "  store i64 %am1, ptr %wm")
+    (emitLine cg "  store i64 %ai1, ptr %wi")
+    (emitLine cg "  br label %relchild")
     (emitLine cg "testbit:")
     (emitLine cg "  %i = load i64, ptr %wi")
     (emitLine cg "  %bit = and i64 %m, 1")
@@ -6133,7 +6171,8 @@
     (emitLine cg "  %isset = icmp ne i64 %bit, 0")
     (emitLine cg "  br i1 %isset, label %relchild, label %walk")
     (emitLine cg "relchild:")
-    (emitLine cg "  %woff = shl i64 %i, 3")
+    (emitLine cg "  %ri = phi i64 [ %i, %testbit ], [ %ai, %arrstep ]")
+    (emitLine cg "  %woff = shl i64 %ri, 3")
     (emitLine cg "  %waddr = add i64 %Dw, %woff")
     (emitLine cg "  %waddrp = inttoptr i64 %waddr to ptr")
     (emitLine cg "  %wval = load i64, ptr %waddrp")
@@ -6144,7 +6183,7 @@
     (emitLine cg "  %dqp = inttoptr i64 %dq to ptr")
     (emitLine cg "  %dshw = load i64, ptr %dqp")
     (emitLine cg "  %dcnt0 = lshr i64 %dshw, 1")
-    (emitLine cg "  %dcnt = and i64 %dcnt0, 32767")
+    (emitLine cg "  %dcnt = and i64 %dcnt0, 16383")
     (emitLine cg "  %dok1 = icmp ne i64 %dcnt, 0")
     (emitLine cg "  %dok2 = icmp ule i64 %dcnt, 8192")
     (emitLine cg "  %dok = and i1 %dok1, %dok2")
@@ -6174,7 +6213,18 @@
     (emitLine cg "  %pqp = inttoptr i64 %pq to ptr")
     (emitLine cg "  %pshw = load i64, ptr %pqp")
     (emitLine cg "  %pmap = lshr i64 %pshw, 16")
-    (emitLine cg "  store i64 %pmap, ptr %wm")
+    ; A block carrying both forms is walked as an ARRAY - the two are
+    ; disjoint by construction (a header has a map, a buffer has the
+    ; array bit) and one of them has to win a shape that should not
+    ; exist.
+    (emitLine cg "  %parr = and i64 %pshw, 32768")
+    (emitLine cg "  %pisarr = icmp ne i64 %parr, 0")
+    (emitLine cg "  %pcnt0 = lshr i64 %pshw, 1")
+    (emitLine cg "  %pcnt = and i64 %pcnt0, 16383")
+    (emitLine cg "  %pwm = select i1 %pisarr, i64 %pcnt, i64 %pmap")
+    (emitLine cg "  %pflg = select i1 %pisarr, i64 1, i64 0")
+    (emitLine cg "  store i64 %pwm, ptr %wm")
+    (emitLine cg "  store i64 %pflg, ptr %warr")
     (emitLine cg "  br label %walk")
     (emitLine cg "done:")
     (emitLine cg "  ret void")
@@ -7182,7 +7232,7 @@
     ; gone by run time - with the allocator's exact clamp, because a
     ; kept block can be a 262KB read buffer as easily as a cell
     (emitLine cg "  %kcnt = lshr i64 %szr, 3")
-    (emitLine cg "  %kbig = icmp ugt i64 %kcnt, 32767")
+    (emitLine cg "  %kbig = icmp ugt i64 %kcnt, 16383")
     (emitLine cg "  %kleaf = select i1 %kbig, i64 0, i64 %kcnt")
     (emitLine cg "  %kshp = shl i64 %kleaf, 1")
     (emitLine cg "  store i64 %kshp, ptr %dshp")

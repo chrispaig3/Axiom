@@ -1762,15 +1762,15 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 | Module | Provides |
 |---|---|
 | `Pre` | `when`, `unless`, `cond2`, `cond3` (conditional macros), `deriveEq`, `deriveShow`, `deriveArity`, `showOr` |
-| `Mem` | `memAlloc`, `memAllocMapped`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
+| `Mem` | `memAlloc`, `memAllocMapped`, `memMarkArray`/`memMarkLeaf`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
 | `Str` | `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr` |
 | `Utf8` | `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid` (the character view of a `Str`) |
-| `Vec` | `vecNew`, `vecWithCapacity`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecLast`, `vecClear` |
-| `Map` | `mapNew`, `mapWithCapacity`, `mapHas`, `mapGet`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapUsed` (open-addressing `Int→Int` hash map) |
+| `Vec` | `vecNew`, `vecNewRef`, `vecWithCapacity`, `vecWithCapacityRef`, `vecFree`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecLast`, `vecClear` |
+| `Map` | `mapNew`, `mapNewRefVals`, `mapWithCapacity`, `mapWithCapacityRefVals`, `mapFree`, `mapHas`, `mapGet`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapUsed` (open-addressing `Int→Int` hash map) |
 | `Fmt` | `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth` — the functions a format specifier selects |
 | `Show` | the `Show` trait and its `show` method (`Int`, `String`, `Bool`, `Float`), and the `format` macro |
 | `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try`, `toOption`, `withContext`, and the checked arithmetic `divChecked`, `remChecked`, `shlChecked`, `shrChecked` ([error-model.md](error-model.md) is the specification) |
-| `Intern` | `internNew`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
+| `Intern` | `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
 | `Sys` | `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`; the filesystem (below); and the process layer `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros` |
 | `Path` | `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute`, `pathLastSlash`, `pathExtIndex` — decisions about bytes, no syscalls |
 | `IO` | `println`, `eprintln` (**macros** — see Printing and Formatting), `writeStr`, `printlnLit`, `readFileLit`, `exit`, `die`; and the filesystem (below) |
@@ -2130,6 +2130,36 @@ one useful pattern depends on it:
   followed by an ordinary copy is unsound, because the copy's
   destination is scrubbed on allocation and the scrub can run over
   the source.
+
+**A container can own what it holds, and be freed.** Since 2026-08-24
+each of the three has an owning constructor beside its ordinary one -
+`vecNewRef`, `mapNewRefVals`, and `internNew`, which is owning outright
+because an interner has no other use - and a `Free` that hands the
+whole structure back:
+
+```axiom
+(let ((v vecNewRef))
+  {
+    (vecPush v (strDup "hello"))   ; the vector takes a share
+    (vecFree v)                    ; header, data block, and the string
+  })
+```
+
+The two constructors differ in ONE WORD at allocation: the data block
+of a `vecNewRef` carries the **array form** (`Mem.memMarkArray`), which
+says every payload word of it is a handle, so releasing the block
+releases them all. `vecNew`'s data block is a leaf and makes no claim
+about its contents. For the `Int`s a compiler's vectors are full of that
+is exactly right and free - the store emits no instruction at all. For a
+REFERENCE it is not a borrow: the store still takes a share
+(`memory-model.md` `MM-LIFE-2g`) and nothing hands it back, so the
+element is immortal. Closing that is what the owning constructor is
+for. Growth,
+overwriting and removal all hand back what they displace, and `vecPop`
+zeroes the slot it vacates - the popped value's share becomes the
+caller's. `memory-model.md` `MM-LIFE-2h` states the encoding and the two
+obligations that come with it; `MM-LIFE-2i` is the acceptance property
+and its measurement.
 
 A fourth form turns a mark into a **recovery point**.
 `(__axiom_recover mark thunk)` runs `thunk` — a `(-> Int Int)`, called

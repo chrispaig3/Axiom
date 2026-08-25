@@ -186,14 +186,37 @@
 (:: internAllocTable (-> Int Int))
 
 (fn (internAllocTable cap)
-  (let ((it (memAlloc 24)))
+  ; Words 0 and 2 are the map (5 = bits 0 and 2): the `Vec` and
+  ; the slot table. Word 1 is `cap`, a number, and is not in it.
+  ; The `Vec` is a REF vector, so the header's death reaches every
+  ; interned string - which is the whole point of an interner
+  ; being freeable at all, since it is the structure that holds
+  ; every identifier a compilation ever saw.
+  (let (
+    (it (memAllocMapped 24 5))
+    (strs (vecWithCapacityRef cap))
+    (tbl (memAlloc (* cap 8)))
+  )
     {
-      (memSetWord it 0 (vecWithCapacity cap))
+      (__retain it)
+      (__retain tbl)
+      (memSetWord it 0 strs)
       (memSetWord it 1 cap)
-      (memSetWord it 2 (memAlloc (* cap 8)))
+      (memSetWord it 2 tbl)
       it
     }
   )
+)
+
+; Hand `it` back: the slot table, the `Vec`, and one share of every
+; string in it. Answers 0, as `Vec.vecFree` and `Map.mapFree` do.
+(pub :: internFree (-> Int Int))
+
+(pub fn (internFree it)
+  {
+    (__release it)
+    0
+  }
 )
 
 ; ------------------------------------------------------------------
@@ -375,11 +398,24 @@
 (:: internRehash (-> Int Int Int))
 
 (fn (internRehash it newCap)
-  {
-    (memSetWord it 1 newCap)
-    (memSetWord it 2 (memAlloc (* newCap 8)))
-    (internReplaceFrom it 0)
-  }
+  (let (
+    (old (internTable it))
+    (tbl (memAlloc (* newCap 8)))
+  )
+    {
+      (__retain tbl)
+      (memSetWord it 1 newCap)
+      (memSetWord it 2 tbl)
+      (internReplaceFrom it 0)
+      ; The table holds ids, not handles, so the old one is a leaf and
+      ; goes straight back to the free list. The strings never moved -
+      ; they live in the `Vec`, which a rehash does not touch, and
+      ; that is exactly why the `Vec` is sized generously at
+      ; construction.
+      (__release old)
+      it
+    }
+  )
 )
 
 (:: internReplaceFrom (-> Int Int Int))

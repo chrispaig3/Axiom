@@ -1,16 +1,18 @@
 F memAlloc stdlib/Mem.ax:38:9-17 "(Int -> Int)" @0fd03fba89121d1d #effects=Alloc #calls=__alloc
 F memAllocMapped stdlib/Mem.ax:73:9-23 "(Int -> (Int -> Int))" @cdcfd5fd6fed28da #effects=Alloc #calls=&,-,<<,==,>,>>,__alloc,__load64,__store64,|
-F memCopy stdlib/Mem.ax:103:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5 #calls=Mem$memCopyFrom
-F memCopyFrom stdlib/Mem.ax:127:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815 #calls=+,<,__load8,__store8
-F memSet stdlib/Mem.ax:143:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8 #calls=Mem$memSetFrom
-F memSetFrom stdlib/Mem.ax:147:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178 #calls=+,<,__store8
-F memCmp stdlib/Mem.ax:164:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c #calls=Mem$memCmpFrom
-F memCmpFrom stdlib/Mem.ax:168:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4 #calls=&&,+,-,<,==,__load8
-F memGetWord stdlib/Mem.ax:198:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #calls=__load64
-F memGetWordStr stdlib/Mem.ax:210:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #calls=Mem$memGetWord
-F memSetWord stdlib/Mem.ax:240:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #calls=__retainref,__store64
-F memGetByte stdlib/Mem.ax:252:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #calls=__load8
-F memPutByte stdlib/Mem.ax:256:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #calls=__store8
+F memMarkArray stdlib/Mem.ax:122:9-21 "(Int -> Int)" @d007f6fd2106dcb2 #calls=-,__load64,__store64,|
+F memMarkLeaf stdlib/Mem.ax:137:9-20 "(Int -> Int)" @7d30ebb403b48901 #calls=&,-,__load64,__store64
+F memCopy stdlib/Mem.ax:175:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5 #calls=Mem$memCopyFrom
+F memCopyFrom stdlib/Mem.ax:199:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815 #calls=+,<,__load8,__store8
+F memSet stdlib/Mem.ax:215:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8 #calls=Mem$memSetFrom
+F memSetFrom stdlib/Mem.ax:219:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178 #calls=+,<,__store8
+F memCmp stdlib/Mem.ax:236:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c #calls=Mem$memCmpFrom
+F memCmpFrom stdlib/Mem.ax:240:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4 #calls=&&,+,-,<,==,__load8
+F memGetWord stdlib/Mem.ax:270:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #calls=__load64
+F memGetWordStr stdlib/Mem.ax:282:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #calls=Mem$memGetWord
+F memSetWord stdlib/Mem.ax:312:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #calls=__retainref,__store64
+F memGetByte stdlib/Mem.ax:324:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #calls=__load8
+F memPutByte stdlib/Mem.ax:328:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #calls=__store8
 F sysRead stdlib/Sys/Platform.darwin.ax:20:9-16 "Int" @d99009b49c22cd84
 F sysWrite stdlib/Sys/Platform.darwin.ax:25:9-17 "Int" @74cf7b68f9a13d7f
 F sysOpen stdlib/Sys/Platform.darwin.ax:30:9-16 "Int" @48be4da44965be58

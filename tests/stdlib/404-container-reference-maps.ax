@@ -1,0 +1,196 @@
+; exit 255 (see .exit)
+; MM-LIFE-2h, the ARRAY form and the container maps built on it. Eight
+; probes, one bit each; the arithmetic is 128+64+32+16+8+4+2+1 = 255.
+;
+; The array form is the third shape a counted block can carry, beside
+; the record form's 47-bit reference bitmap and MM-FFI-6's foreign
+; form. It is bit 15 of the shape word and it says "every payload word
+; 0..count-1 is a reference", which is the only thing that can describe
+; a container's element buffer - probe 64 is the proof that a bitmap
+; could not have done it, because `Intern`'s table is 64 words at
+; CONSTRUCTION and a bitmap holds 47.
+;
+;   128  a reference vector's data block reads array form and its word
+;        count: 32768 (bit 15) + 16 (8 words, cap 8), and the plain
+;        `vecNew`'s reads 16 - the same block, the same size, no claim
+;        about its contents
+;    64  `internNew`'s string vector holds 64 words, so its shape reads
+;        32768 + 128 - PAST the record bitmap's 47-word capacity, in a
+;        structure the standard library builds by default
+;    32  the three container headers carry record maps naming their own
+;        buffers: `Vec` 262152 (4 words, bit 2), `Map` 1835024 (8
+;        words, bits 2/3/4), `Intern` 327688 (4 words, bits 0 and 2).
+;        The `Map` is eight words and not the six it holds because
+;        word 6 is the flag saying whether it owns its values - read
+;        from the header rather than from the value array's shape bit,
+;        which is ambiguous against an allocator with a different
+;        clamp and was a SIGSEGV under the committed seed
+;        (`stdlib/Mem.ax` records the measurement)
+;    16  TRANSITIVE RECLAIM, four levels: freeing the vector releases
+;        its data block, whose array form releases the `Str` header,
+;        whose own map releases the 201-byte block behind it - and a
+;        200-byte request gets that block back
+;     8  THE ABLATION, in the fixture: the identical program built with
+;        `vecNew` instead of `vecNewRef` does NOT get it back. Two
+;        blocks come back instead of four, and the elements are exactly
+;        what is lost
+;     4  growth is no longer a leak: doubling a vector hands the old
+;        data block to the allocator's free list, and a request of that
+;        size gets it back
+;     2  a `mapNewRefVals` table's value array carries the form and a
+;        `mapNew` table's does not - the same one-word difference
+;     1  `vecPop` zeroes what it vacates, so an element popped before
+;        the free is NOT released by the array walk. Without the zero
+;        the walk would find the stale handle above `len` and spend a
+;        share the caller still holds - which is a use-after-free the
+;        moment that block has been handed out again, not a leak
+;
+; TWO ABLATIONS, RUN RATHER THAN IMAGINED (2026-08-24). Both are one
+; edit inside `stdlib/`, so both cost a rebuild of this fixture and
+; nothing else:
+;
+;   `Mem.memMarkArray` made a no-op (`(| sw 32768)` -> `(| sw 0)`), so
+;   no block ever carries the array form: this fixture answers 45,
+;   losing 128, 64, 16 and 2 - the two shape probes, the transitive
+;   reclaim, and the map-table shape. 32, 8, 4 and 1 survive, and they
+;   are exactly the four that do not depend on the form: the record
+;   maps on the headers, the ablation arm (which IS the unfixed
+;   behaviour), the leaf release on growth, and the pop.
+;
+;   `vecPop`'s `(memSetWord (vecData v) (- len 1) 0)` deleted: this
+;   fixture answers 254. Only probe 1 falls, and it falls to exactly
+;   the count the double release predicts.
+(import Mem)
+
+(import Vec)
+
+(import Map)
+
+(import Intern)
+
+(import Str)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: shapeOf (-> Int Int))
+
+(fn (shapeOf h) (__load64 (- h 8) 0))
+
+(:: countOf (-> Int Int))
+
+(fn (countOf h) (__load64 (- h 16) 0))
+
+; Build a one-element vector over a 200-byte string, drop every share
+; of it, and answer whether the string's BYTE block came back. `refs`
+; picks the constructor, and it is the only difference between probe 16
+; and probe 8.
+;
+; 200 rather than a round handful of bytes: `strAlloc 200` asks the
+; allocator for 201, which pads to 208, a size class nothing else in
+; this fixture touches. The lesson `359-arc-str-bytes.ax` records -
+; a probe sharing a size class with the loop measures the free list
+; rather than what it meant to - applies in reverse here, where the
+; free list IS the measurement.
+(:: bytesComeBack (-> Bool Bool))
+
+(fn (bytesComeBack refs)
+  (let ((s (strAlloc 200)))
+    (let (
+      (bytes (memGetWord
+        (cast Int s)        2
+      ))
+      (v (if refs
+        vecNewRef
+        vecNew
+      ))
+    )
+      {
+        (vecPush v s)
+        (__release
+          (cast Int s)
+        )
+        (vecFree v)
+        (== (memAlloc 200) bytes)
+      }
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (vr vecNewRef)
+    (vp vecNew)
+    (it internNew)
+    (mr mapNewRefVals)
+    (mp mapNew)
+    (mut acc 0)
+  )
+    {
+      (set acc (+ acc (* 128 (b2i (&& (== (shapeOf (memGetWord vr 2)) 32784) (== (shapeOf (memGetWord vp 2)) 16))))))
+      (set acc (+ acc (* 64 (b2i (== (shapeOf (memGetWord (memGetWord it 0) 2)) 32896)))))
+      (set acc (+ acc (* 32 (b2i (&& (== (shapeOf vr) 262152) (&& (== (shapeOf mp) 1835024) (== (shapeOf it) 327688)))))))
+      (set acc (+ acc (* 16 (b2i (bytesComeBack true)))))
+      (set acc (+ acc (* 8 (b2i (== (b2i (bytesComeBack false)) 0)))))
+      ; Cap 8 means a 64-byte data block. Nine pushes double it, the
+      ; 64-byte block is filed, and a 64-byte request pops it. The
+      ; elements are zeroes, which release skips as immediates, so this
+      ; probe measures the block and nothing else.
+      (let ((g vecNewRef))
+        (let ((old (memGetWord g 2)))
+          {
+            (vecPushN g 9)
+            (set acc (+ acc (* 4 (b2i (== (memAlloc 64) old)))))
+          }
+        )
+      )
+      (set acc (+ acc (* 2 (b2i (&& (== (shapeOf (memGetWord mr 3)) 32784) (== (shapeOf (memGetWord mp 3)) 16))))))
+      ; The popped element keeps the caller's share: two retains put its
+      ; count at 3, the pop zeroes the word, and the free walks past a
+      ; zero rather than spending a share. Without `vecPop`'s zero the
+      ; count reads 2 here.
+      (let ((k (strDup "pop")))
+        (let ((pv vecNewRef))
+          {
+            (vecPush pv k)
+            (__retain
+              (cast Int k)
+            )
+            (vecPop pv)
+            (vecFree pv)
+            (set acc (+
+              acc              (b2i
+                (==
+                  (countOf
+                    (cast Int k)
+                  )                  3
+                )
+              )
+            ))
+          }
+        )
+      )
+      acc
+    }
+  )
+)
+
+(:: vecPushN (-> Int Int Int))
+
+(fn (vecPushN v n)
+  (if (<= n 0)
+    v
+    {
+      (vecPush v 0)
+      (vecPushN v (- n 1))
+    }
+  )
+)

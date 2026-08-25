@@ -295,6 +295,20 @@ grep -oE '^F [^ ]+ [^ ]+ .*#effects=[A-Za-z,]+' "$work/rows" \
 
 echo
 echo "== population: the effects the standard library performs =="
+# A BLESS PATH, which this file lacked while `check-tools-selfhost.sh`
+# had one for its sibling golden. The allow list is not a judgement -
+# it is what the checker DERIVES, checked in so that a change to it is
+# a line in a diff somebody reads rather than a silent drift. Adding a
+# standard-library function therefore moves it, and re-deriving it by
+# hand meant reproducing this pipeline by hand.
+#
+# It is still not a rubber stamp: the diff below is what a reviewer
+# reads, and the point of the file is that the delta is small enough to
+# read. Bless it when the delta is what you meant.
+if [[ "${AXIOM_BLESS:-0}" == 1 ]]; then
+  cp "$work/derived" "$repo_root/$allow"
+  echo "blessed $allow"
+fi
 if ! diff -u "$allow" "$work/derived" > "$work/popdiff"; then
   echo "FAIL: the derived effect set differs from $allow"
   sed 's/^/     /' "$work/popdiff" | head -40

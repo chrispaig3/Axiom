@@ -2270,6 +2270,104 @@ scrubs the slab heads first, because a release-to-zero inside an
 arena extent files a block the reset would otherwise leave dangling
 into re-issuable memory.
 
+**MM-LIFE-2h (H, 2026-08-24). The array form exists, and the three
+containers carry it.** `MM-LIFE-2d` above specified two forms and
+shipped one: every block the allocator answered was a **leaf**, one call
+site in the whole tree said otherwise (`Str`'s header, through
+`memAllocMapped`), and the sentence *"the containers therefore migrate
+their data buffers from `memAlloc` to an array-form allocation"* was a
+plan. This rule is that migration, measured.
+
+The array form is **bit 15** of the shape word, and it says *every
+payload word `0..count-1` of this block is a handle*. It costs one bit
+and no second header word, because the count field had one to spare: the
+allocator already clamped a payload past 32,767 words to the
+unknown-size sentinel, and the clamp now sits at 16,383. What that costs
+is reuse of blocks between 131 KB and 262 KB, which read as unknown-size
+rather than being filed.
+
+A bitmap could not have done this job, and the number is the argument:
+the record form holds **47** words, and `Intern`'s string vector is
+**64 words at construction**, before a single string is interned. A
+count is the only encoding that describes a buffer.
+
+| block | shape word | means |
+|---|---|---|
+| `vecNewRef`'s data | `32784` | array form, 8 words |
+| `vecNew`'s data | `16` | the same block, the same size, no claim about its contents |
+| `internNew`'s string vector | `32896` | array form, 64 words — past the bitmap's capacity |
+| a `Vec` header | `262152` | 4 words, bit 2 — the data block |
+| a `Map` header | `1835024` | 8 words, bits 2/3/4 — keys, values, states |
+| an `Intern` header | `327688` | 4 words, bits 0 and 2 — the `Vec` and the slot table |
+
+`tests/stdlib/404-container-reference-maps.ax` reads all six back and
+pins four more properties in the same eight-bit answer: transitive
+reclaim four levels deep (vector → data block → `Str` header → its
+201-byte buffer, and a 200-byte request gets that buffer back), the
+same program built with `vecNew` NOT getting it back, growth handing
+the abandoned block to the free list, and `vecPop` zeroing what it
+vacates.
+
+**The bit is written by the container and read only by the runtime.**
+There is no `memIsArray`, and its absence is a measured result rather
+than an omission. Bit 15 is unambiguous only against an allocator that
+clamps the count at 16,383 words, and the committed seed clamps at
+32,767 — where the bit used to be the count's top — so under the seed's
+runtime every block of 16,384 words or more reads back as an array of
+handles. `tests/stdlib/200-scale.ax` builds a `Map` of 262,144 slots,
+whose value array passes that line, and `mapRemove` believed the bit and
+released a raw integer: **SIGSEGV**, in a program correct under the
+compiler this tree builds and wrong under the one that builds this tree.
+`stage1` runs on the seed's runtime, so the bootstrap ladder is exactly
+where it lands. Each container therefore carries a flag word of its own
+— `Vec` word 3, `Map` word 6 — written by the same code that reads it,
+with no encoding to disagree about. That is why a `Map` header is eight
+words for the six it holds.
+
+**Two obligations come with the form, and both are the user's.** First,
+words past `len` **MUST** be zero: the walk releases the whole block's
+words, because the block knows its size and nothing else, so a stale
+handle above the waterline has its share spent while the caller that
+was handed it still holds one — a use-after-free, not a leak. `vecPop`
+and `mapRemove` zero what they vacate for that reason. Second, a buffer
+that is COPIED — a `Vec` doubling, a `Map` rehashing — moves its
+elements' shares rather than duplicating them, so the abandoned block
+**MUST** be marked a leaf (`Mem.memMarkLeaf`) before it is released, or
+every element it held is freed twice.
+
+**MM-LIFE-2i (H, 2026-08-24). A bounded live set has bounded memory,
+and it did not before.** This is `MM-LIFE-2h`'s acceptance property and
+the one a long-running process actually needs: not that a container can
+be freed, but that a program which never frees one and never resets the
+arena holds flat memory while its contents turn over completely.
+
+Two shapes, measured on darwin-aarch64 at 20,000, 200,000 and 2,000,000
+iterations — a hundredfold, so a plateau is told apart from a slope:
+
+| shape | live set | 20k | 200k | 2M | ablated twin at 200k |
+|---|---|---|---|---|---|
+| a 256-entry window, insert and evict | 256 entries | 1,392 | 1,392 | 1,392 KiB | 34,368 KiB — no eviction |
+| 64 fixed keys, values replaced | 64 entries | 1,328 | 1,328 | 1,344 KiB | 16,976 KiB — leaf values |
+
+`scripts/check-steady-state.sh`. The ablated twins are mandatory rather
+than decorative: a flat line also reads flat when the measurement is
+broken, and the aggregate's twin differs by ONE WORD (`mapNew` for
+`mapNewRefVals`) and prints the same answer, so the two arms are the
+same work and differ only in what they hand back.
+
+**That gate found a defect the container gate could not.** `mapNeedsGrow`
+reads `used`, and `used` counts tombstones, so a table under
+insert-and-remove churn reached the load factor with a live set that had
+not moved, and `mapInsert` doubled the table for entries that did not
+exist: a 256-entry window over 200,000 inserts climbed to roughly
+524,288 slots and 10 MB. A **bounded live set with unbounded memory** —
+exactly what this rule refuses — with every other gate in the tree green
+across it, `check-container-reclaim.sh` included, because that one frees
+its containers whole and never removes an entry from one. `mapRehashCap`
+now rehashes at the SAME capacity when the live entries would sit at a
+quarter load or less, which drops every tombstone and grows nothing:
+10,048 → 1,392 KiB.
+
 **MM-LIFE-2d (W 2026-08-24, abandoned in place —
 see `MM-LIFE-2a`; what already emits is recorded below and stays).
 The reference map.** Release at count

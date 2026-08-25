@@ -1,10 +1,11 @@
 ; Vec - a growable array of machine words, in Axiom.
 ;
-; A `Vec` is the address of a three-word header:
+; A `Vec` is the address of a four-word header:
 ;
 ;     word 0 : len  - number of live elements
 ;     word 1 : cap  - elements the data block can hold
 ;     word 2 : data - address of cap * 8 bytes of element storage
+;     word 3 : refs - 1 if this vector owns a share of every element
 ;
 ; Elements are machine words. Because Axiom's representation is uniform -
 ; every value is one 64-bit word - the same `Vec` code stores `Int`s,
@@ -21,13 +22,34 @@
 ; if the header ever has to move (a shrinking or arena-compacting
 ; implementation would move it).
 ;
-; LEAK ON GROWTH: there is no `free` - memory comes from the backend's
-; `mmap` bump allocator and is reclaimed only at process exit - so
-; doubling the data block abandons the old one. Pushing n elements into a
-; vector that starts empty therefore touches about 2n words of storage
-; and leaves n of them unreachable. For a compiler process that is the
-; right trade (see `Mem.memAlloc`); for anything long-running it is not,
-; and the fix is an allocator with `free`, not a change here.
+; RECLAMATION, since 2026-08-24. The header is a counted block whose
+; reference map names word 2, so `vecFree` releases the header and the
+; data block goes with it; growth hands the abandoned block back to the
+; allocator's free list rather than leaking it. Whether the ELEMENTS go
+; too is the caller's choice at construction:
+;
+;   `vecNew`     a LEAF data block. Elements are words this vector makes
+;                no claim about. For the `Int`s a compiler's vectors are
+;                full of that is exactly right and costs nothing -
+;                `memSetWord`'s `__retainref` emits no instruction for
+;                an integer. For a REFERENCE it is the old behaviour and
+;                not a borrow: the store still takes a share
+;                (`MM-LIFE-2g`, the invisible-store rule) and nothing
+;                ever hands it back, so the element is immortal. That is
+;                the leak `vecNewRef` exists to close, and the reason
+;                the choice is at the constructor rather than per push.
+;   `vecNewRef`  an ARRAY-FORM data block (`Mem.memMarkArray`). Every
+;                element is a handle this vector owns a share of, taken
+;                by `vecPush` and handed back when the vector dies.
+;
+; The two differ in one word at construction and nowhere else. Until
+; that day this comment read "LEAK ON GROWTH: there is no `free` ...
+; the fix is an allocator with `free`, not a change here" - the
+; allocator grew one (MM-LIFE-2e), and this is the change here.
+;
+; A vector is born owned: the header and its data block are retained
+; once at construction, so a `Vec` a caller never frees behaves exactly
+; as it did before, and `vecFree` is the only thing that ends one.
 (import Mem)
 
 ; ------------------------------------------------------------------
@@ -59,26 +81,87 @@
 ; on `cap >= 1` and needs no special case.
 (pub :: vecWithCapacity (-> Int Int))
 
-(pub fn (vecWithCapacity cap)
+(pub fn (vecWithCapacity cap) (vecBuild cap 0))
+
+; The same, with an ARRAY-FORM data block: every element is a handle
+; this vector owns a share of. See the module comment.
+(pub :: vecWithCapacityRef (-> Int Int))
+
+(pub fn (vecWithCapacityRef cap) (vecBuild cap 1))
+
+; An empty `Vec` with `vecDefaultCap` capacity, owning its elements.
+(pub :: vecNewRef Int)
+
+(pub fn (vecNewRef) (vecWithCapacityRef vecDefaultCap))
+
+; `refs` decides one word - the data block's shape - and nothing else.
+;
+; THE TWO RETAINS ARE NOT DECORATION. `memAlloc` answers a block with a
+; count of ZERO, which release reads as "nobody owns this" and steps
+; over, so a header at zero cannot die and a data block at zero cannot
+; be reclaimed by the header's map. `strAlloc` takes the same retain on
+; its buffer, for the same reason, and calls it "the header's own share".
+(:: vecBuild (-> Int Int Int))
+
+(fn (vecBuild cap refs)
   (let (
     (n (if (< cap 1)
       1
       cap
     ))
-    (v (memAlloc 24))
+    (v (memAllocMapped 32 4))
+    (d (memAlloc (* n 8)))
   )
     {
+      (__retain v)
+      (__retain d)
+      (if (== refs 1)
+        (memMarkArray d)
+        d
+      )
       (memSetWord v 0 0)
       (memSetWord v 1 n)
-      (memSetWord v 2 (memAlloc (* n 8)))
+      (memSetWord v 2 d)
+      ; WORD 3, AND WHY IT IS NOT A READ OF THE DATA BLOCK'S OWN BIT.
+      ; The shape word answers "walk my payload as handles" to the
+      ; RUNTIME, and only the compiler that emits that walk agrees with
+      ; the compiler that wrote the bit about where the count field
+      ; ends. Reading it back from here was a SIGSEGV under the
+      ; committed seed - `stdlib/Mem.ax` records the measurement - so
+      ; the vector says what it is in a word of its own. The header was
+      ; three words in a four-word block already; this one is free.
+      (memSetWord v 3 refs)
       v
     }
   )
 )
 
+; Hand `v` back. Its data block goes with it - the header's reference
+; map names word 2 - and, for a `vecNewRef` vector, so does one share of
+; every element.
+;
+; Answers 0 rather than the handle: a freed handle is the one thing this
+; module must not encourage a caller to keep using, and every other
+; mutator answers the handle precisely so that it CAN be chained.
+(pub :: vecFree (-> Int Int))
+
+(pub fn (vecFree v)
+  {
+    (__release v)
+    0
+  }
+)
+
 ; ------------------------------------------------------------------
 ; Accessors
 ; ------------------------------------------------------------------
+; Whether this vector owns a share of every element it holds - the
+; `vecNewRef` half of the module comment. It is word 3 of the header
+; and not a test of the data block's shape word: see `vecBuild`.
+(pub :: vecOwnsRefs (-> Int Bool))
+
+(pub fn (vecOwnsRefs v) (== (memGetWord v 3) 1))
+
 (pub :: vecLen (-> Int Int))
 
 (pub fn (vecLen v) (memGetWord v 0))
@@ -181,7 +264,18 @@
     v
     (if (>= i (vecLen v))
       v
+      ; On a `vecNewRef` vector the displaced element's share is
+      ; this vector's to hand back, and dropping the word without
+      ; doing so is a leak the walk can never find. The release
+      ; comes FIRST only in program order - `memSetWord` retains
+      ; the incoming value through `__retainref` - and setting a
+      ; slot to what it already holds is therefore still safe,
+      ; because the count went up before it came down.
       {
+        (if (vecOwnsRefs v)
+          (vecDropAt v i)
+          v
+        )
         (memSetWord (vecData v) i x)
         v
       }
@@ -231,11 +325,26 @@
 (:: vecReserveExactly (-> Int Int Int))
 
 (fn (vecReserveExactly v newCap)
-  (let ((bigger (memAlloc (* newCap 8))))
+  (let (
+    (old (vecData v))
+    (bigger (memAlloc (* newCap 8)))
+  )
     {
-      (memCopy bigger (vecData v) (* (vecLen v) 8))
+      (__retain bigger)
+      (if (vecOwnsRefs v)
+        (memMarkArray bigger)
+        bigger
+      )
+      (memCopy bigger old (* (vecLen v) 8))
       (memSetWord v 2 bigger)
       (memSetWord v 1 newCap)
+      ; The copy MOVED the elements' shares, so the old block must not
+      ; spend them on the way out: it is marked a leaf first, and its
+      ; release then reclaims the block and touches nothing it held.
+      ; Without that line a ref vector that grew once would free every
+      ; element it still contained.
+      (memMarkLeaf old)
+      (__release old)
       v
     }
   )
@@ -279,8 +388,16 @@
   (let ((len (vecLen v)))
     (if (== len 0)
       0
+      ; The slot is ZEROED, and on a `vecNewRef` vector that is a
+      ; correctness rule rather than tidiness: the array-form walk
+      ; releases the whole BLOCK's words, so a stale handle left
+      ; above `len` would have its share spent at `vecFree` while
+      ; the caller this pop handed it to still holds it. A pop
+      ; TRANSFERS the vector's share to the caller; the zero is
+      ; what makes the transfer true.
       (let ((top (memGetWord (vecData v) (- len 1))))
         {
+          (memSetWord (vecData v) (- len 1) 0)
           (memSetWord v 0 (- len 1))
           top
         }
@@ -303,7 +420,41 @@
 ; many iterations allocates once in total.
 (pub :: vecClear (-> Int Int))
 
-(pub fn (vecClear v) (memSetWord v 0 0))
+(pub fn (vecClear v)
+  {
+    (if (vecOwnsRefs v)
+      (vecDropFrom v 0)
+      v
+    )
+    (memSetWord v 0 0)
+  }
+)
+
+; Hand back the share of element `i` and zero the slot. Only ever called
+; on an array-form data block, where the vector owns what it holds.
+(:: vecDropAt (-> Int Int Int))
+
+(fn (vecDropAt v i)
+  (let ((old (memGetWord (vecData v) i)))
+    {
+      (memSetWord (vecData v) i 0)
+      (__release old)
+      v
+    }
+  )
+)
+
+(:: vecDropFrom (-> Int Int Int))
+
+(fn (vecDropFrom v i)
+  (if (>= i (vecLen v))
+    v
+    {
+      (vecDropAt v i)
+      (vecDropFrom v (+ i 1))
+    }
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Bulk reads

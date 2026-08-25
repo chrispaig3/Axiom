@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Twenty-five of the gates below build the compiler under test from
+    # Twenty-seven of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -418,6 +418,35 @@ jobs:
       # is broken. Measured: 1,376 KiB against 419,328 KiB.
       - name: A trap inside a recovery point is an answer, not an exit
         run: ./scripts/check-recover.sh
+
+      # A container that is dropped must give its elements back. Every
+      # other memory gate here is reset-BASED - `measure-memory-baseline`
+      # and `check-net` bracket their work in a mark and a reset - so
+      # until this one existed nothing asserted the OTHER half: a
+      # program that never resets, allocates containers in a loop, drops
+      # them, and must not grow. That is the shape of a server, an agent
+      # loop, and a compiler pass run twice.
+      #
+      # Every probe ships in two spellings that differ by one word, and
+      # the gate asserts the two DISAGREE by more than 5x. If both go
+      # flat it is red; if both grow it is red. It can only pass if
+      # reclamation is happening AND the instrument can see it.
+      - name: A dropped container gives its elements back
+        run: ./scripts/check-container-reclaim.sh
+
+      # And the acceptance measurement above that one: a bounded LIVE
+      # SET must have bounded memory in a process that frees no
+      # container and resets no arena. Three magnitudes - 20k, 200k, 2M
+      # - because a plateau is what distinguishes steady state from a
+      # slope, and a log-shaped leak passes any two-point ratio test.
+      #
+      # It earned its keep on its first run: `mapNeedsGrow` counts
+      # tombstones, so a 256-entry window over 200,000 inserts grew its
+      # table to ~524,288 slots and the process to 10 MB - a bounded
+      # live set with unbounded memory - with every other gate in this
+      # file green across it, the container gate included.
+      - name: A bounded live set has bounded memory
+        run: ./scripts/check-steady-state.sh
 
       # Two `axiom run`s in one directory must not corrupt each other.
       # The scratch name was a fixed literal in the working directory,

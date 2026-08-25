@@ -93,8 +93,11 @@ makeDirOk IO.ax Alloc,IO
 mapAllocTable Map.ax Alloc
 mapInsert Map.ax Alloc
 mapNew Map.ax Alloc
+mapNewRefVals Map.ax Alloc
 mapRehash Map.ax Alloc
+mapSized Map.ax Alloc
 mapWithCapacity Map.ax Alloc
+mapWithCapacityRefVals Map.ax Alloc
 memAlloc Mem.ax Alloc
 memAllocMapped Mem.ax Alloc
 netAccept Sys.ax IO
@@ -195,10 +198,13 @@ sysWriteFd Sys.ax IO
 sysWriteFile Sys.ax IO
 utf8FromChar Utf8.ax Alloc
 utf8Slice Utf8.ax Alloc
+vecBuild Vec.ax Alloc
 vecNew Vec.ax Alloc
+vecNewRef Vec.ax Alloc
 vecPush Vec.ax Alloc
 vecReserve Vec.ax Alloc
 vecReserveExactly Vec.ax Alloc
 vecWithCapacity Vec.ax Alloc
+vecWithCapacityRef Vec.ax Alloc
 writeFile IO.ax Alloc,IO
 writeStr IO.ax IO

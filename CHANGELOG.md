@@ -18,24 +18,24 @@ its changelog too.
 
 ### Added
 
-- **A trap can be contained instead of ending the process.**
-  `(__axiom_recover mark thunk)` arms a recovery point at an arena mark;
-  out of memory (70), an unhandled effect (71) and a division by zero
-  (72) then answer the arming call with their status instead of writing
-  to fd 2 and exiting. Outside a recovery point all three behave exactly
-  as before. Points nest and an abort takes the innermost. It is not
-  unwinding and does not become it — there are no destructors, so the
-  jump restores the stack pointer, the arena and the effect slots, and
-  nothing runs on the way out (`docs/error-model.md` `ERR-REC-6`,
-  `docs/memory-model.md` `MM-ALLOC-17`). Gated at four optimisation
-  levels, because the mechanism is a `setjmp` in inline assembly whose
-  correctness is a claim about registers: with the block's callee-saved
-  save/restore pair deleted, a prototype answered correctly at `-O0` and
-  segfaulted at `-O1`, `-O2` and `-O3`. 100,000 aborts with a `handle`
-  inside every aborted extent hold max RSS at **1,376 KiB**, against
-  419,328 KiB for the same program with nothing to recover from
-  (`scripts/check-recover.sh`). A program that never arms one keeps no
-  state, no call and no instruction of it after `opt -O1`.
+- **The containers own what they hold, and can be freed.** The shape
+  word gained an **array form** — one bit saying every payload word of a
+  block is a handle — which is the only encoding that can describe an
+  element buffer: the record form's bitmap holds 47 words and `Intern`'s
+  string vector is 64 words before a single string is interned.
+  `vecNewRef`, `mapNewRefVals` and `internNew` own their elements;
+  `vecFree`, `mapFree` and `internFree` hand them back, four levels deep
+  (`docs/memory-model.md` `MM-LIFE-2h`;
+  `tests/stdlib/404-container-reference-maps.ax` answers 255, eight
+  probes at one bit each). Containers built and dropped in a loop with
+  no arena reset now hold **1,360 KiB flat** where the same program one
+  word different grows to 61,344 (`scripts/check-container-reclaim.sh`).
+- **A bounded live set has bounded memory.** The acceptance property
+  above that one, and the readiness plan's P3 stated so it can be
+  falsified: a 256-entry window over **2,000,000** inserts holds 1,392
+  KiB, unmoved across a hundredfold in iterations, against 34,368 KiB
+  with the eviction removed (`scripts/check-steady-state.sh`,
+  `MM-LIFE-2i`).
 
 - **A dying program names the frames it died in.** Three pieces, none of
   them debug metadata: `"frame-pointer"="all"` on the module's one
@@ -69,23 +69,15 @@ its changelog too.
 
 ### Fixed
 
-- **Two modules declaring one type name had one winner, chosen by import
-  order.** `namespace.ax` rewrites `fn` and `::` declarations to
-  `Mod$name` and rewrites nothing else, so a `data`, `struct` or `type`
-  name arrived spelled as its module wrote it, and the four lookups that
-  read them back returned the first match in a list ordered by import
-  order. `TeamB`'s own function, reading `TeamB`'s own `struct`, was
-  compiled against `TeamA`'s field offsets — `check` OK, exit 0, no
-  diagnostic, and the answer changing when an unrelated `(import ...)`
-  line moved. A bare type name now means, in order: a declaration in the
-  referencing module, then a module-less one, then the single module
-  that declares it; a name two or more modules declare, referenced from
-  neither, is `AX3044` naming them. The lookup index landed with it and
-  not after it: module-aware resolution cannot exit on the first match,
-  and without the index every type reference becomes a full scan —
-  measured at 26.88× on the reverted compiler, against a ratio of 1.00
-  here at 8,000 types and 48,000 references
-  (`scripts/check-type-namespace.sh`, 18 checks).
+- **A 256-entry cache grew without bound.** `mapNeedsGrow` reads `used`,
+  and `used` counts tombstones, so a table under insert-and-remove churn
+  reached the load factor with a live set that had not moved and
+  doubled itself for entries that did not exist: 256 live keys, roughly
+  524,288 slots, 10 MB. `mapRehashCap` now rehashes at the same capacity
+  when the live entries would sit at a quarter load or less, which drops
+  every tombstone and grows nothing — 10,048 → 1,392 KiB. Every other
+  gate in the tree was green across it, including the container gate,
+  which frees its containers whole and never removes an entry from one.
 
 - **The shared CI artifact was trusted on a stamp nobody could fail.**
   `scripts/build-shared-axc.sh` claimed the artifact equals a fresh
@@ -189,7 +181,7 @@ in both directions.
   `PATH` invocation before reporting success. Neither publishes a
   `darwin-x86_64` binary, because no runner has ever executed one.
   `CONTRIBUTING.md` has the procedure.
-- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty-five gates
+- **A shared compiler artifact for CI** (`AXIOM_AXC`) — twenty-seven gates
   rebuild the same compiler; now one step builds it, and builds it
   twice to measure that the artifact emits the same IR as a fresh
   build. (Not the same *bytes*: the macOS linker stamps a UUID into

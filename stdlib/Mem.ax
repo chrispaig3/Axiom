@@ -77,7 +77,7 @@
     (if (== bytes 0)
       h
       (let ((sw (__load64 (- h 8) 0)))
-        (let ((cnt (& (>> sw 1) 32767)))
+        (let ((cnt (& (>> sw 1) 16383)))
           (let ((lim 
             (if (> cnt 47)
               47
@@ -95,6 +95,78 @@
   )
 )
 
+; The ARRAY FORM: every payload word of this block is a handle to
+; another counted block, so releasing it releases all of them
+; (docs/memory-model.md MM-LIFE-2d names the two forms; the array form
+; landed 2026-08-24).
+;
+; It is one bit - bit 15 of the shape word - and no second header word,
+; because the count field had a bit to spare: the allocator already
+; clamps a payload past 16,383 words to the unknown-size sentinel, and
+; the clamp used to sit one bit higher up.
+;
+; WHY A CONTAINER CANNOT USE `memAllocMapped` INSTEAD. The record form's
+; bitmap holds 47 words. `Intern`'s string vector is **64 words at
+; construction**, before anything is interned, so the standard library
+; builds a structure past that capacity by default - and a `Vec` that
+; grows twice is past it four times over. A count is the only encoding
+; that describes a buffer.
+;
+; THE ELEMENTS PAST `len` MUST BE ZERO. The walk releases words
+; 0..count-1 of the whole BLOCK, not 0..len-1: the block knows its size
+; and nothing else. `memAlloc` zeroes, which covers a fresh block and a
+; recycled one, and a container that vacates a slot - `vecPop`,
+; `mapRemove` - has to zero it, or the walk spends a share of a handle
+; the caller still holds. That is a use-after-free rather than a leak,
+; and it is the one obligation this form puts on its user.
+(pub :: memMarkArray (-> Int Int))
+
+(pub fn (memMarkArray h)
+  {
+    (__store64 (- h 8) 0 (| (__load64 (- h 8) 0) 32768))
+    h
+  }
+)
+
+; The inverse, and it is not symmetry for its own sake: it is what a
+; container's GROWTH needs. Doubling a buffer copies the elements to a
+; new block WITHOUT retaining them - the shares move - so releasing the
+; old block while it still reads as an array would spend every share
+; twice. Clearing the bit first makes the old block a leaf, and its
+; release then reclaims the block and touches nothing it used to hold.
+(pub :: memMarkLeaf (-> Int Int))
+
+(pub fn (memMarkLeaf h)
+  {
+    (__store64 (- h 8) 0 (& (__load64 (- h 8) 0) (- (- 0 1) 32768)))
+    h
+  }
+)
+
+; THERE IS NO `memIsArray`, AND THE REASON IS A MEASURED CRASH.
+;
+; The obvious companion to the two above is a reader - "does this block
+; carry the array form" - and the first version of this work had one.
+; It is not sound, because bit 15 is only unambiguous against an
+; allocator that clamps at 16,383 words, and this file is compiled by
+; whichever compiler is building it. The COMMITTED SEED clamps at
+; 32,767, which is where the bit used to be the top of the count field,
+; so under the seed's runtime every block of 16,384 words or more has
+; bit 15 set and reads back as an array of handles.
+;
+; `tests/stdlib/200-scale.ax` interns 100,000 strings, so its `Map`
+; reaches 262,144 slots, so its value array passes 16,384 words - and
+; `mapRemove` read the bit, believed it, and released a raw integer.
+; SIGSEGV, in a program that is correct under the compiler this tree
+; builds and wrong under the one that builds this tree. `stage1` runs
+; on the seed's runtime, so the bootstrap ladder is exactly where this
+; lands.
+;
+; A container therefore carries its own flag in its own header - one
+; word it wrote itself, with no encoding to be ambiguous about - and
+; the shape bit stays what it is for: the RUNTIME's instruction for
+; walking a dead block, written by the same compiler that emits the
+; walk that reads it.
 ; Copy `count` bytes from `src` to `dst`. Returns `dst`.
 ;
 ; Copies forwards, so overlapping ranges are only safe when
