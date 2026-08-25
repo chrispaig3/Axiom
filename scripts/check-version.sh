@@ -23,11 +23,20 @@
 # tree-sitter manifests and the two prose banners are reached by nothing
 # else at all.
 #
-# It matters more than a tidiness gate, because there are ZERO git tags
-# today. The first release this repository cuts will be the first time
-# anyone outside it reads these numbers, and a binary whose `--version`
-# disagrees with the archive it shipped in is the kind of thing that is
-# discovered by a user rather than by CI.
+# It matters more than a tidiness gate, and it stopped being a
+# prediction on 2026-08-24: `v0.2.0` is cut, so these numbers have been
+# read from outside this repository. (This paragraph argued from "there
+# are ZERO git tags today" until 2026-08-25, which was true when it was
+# written and is the kind of claim that expires without anything
+# noticing.) A binary whose `--version` disagrees with the archive it
+# shipped in is the kind of thing that is discovered by a user rather
+# than by CI.
+#
+# What this gate still does NOT hold is the other half of the roadmap's
+# P6: a shipped binary names its VERSION and not its COMMIT, so two
+# builds of different trees at one version are indistinguishable to
+# whoever has the binary. `axiom version` prints
+# `axiom (self-hosted) 0.2.0` and nothing else.
 #
 # `VERSION` at the repository root is the single source of truth, and
 # it is a file rather than a constant in `self_host/` on purpose: the

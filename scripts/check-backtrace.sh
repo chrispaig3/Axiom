@@ -208,7 +208,19 @@ for opt in 0 1 2 3; do
   # `nm` prints Mach-O symbols with a leading underscore and ELF
   # symbols without one, so both spellings are accepted; what is
   # asserted is that the name EXISTS, not how the platform spells it.
-  nm -j "$work/c$opt" 2>/dev/null | sed 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
+  #
+  # ACCEPTED, not REWRITTEN, and the difference was a Linux-only red on
+  # trunk. This was one `sed 's/^_//'`, which is the Mach-O convention
+  # applied unconditionally: on ELF there is no prefix to strip, so it
+  # ate a real character and turned `__axiom_div_by_zero` into
+  # `_axiom_div_by_zero`. Every emitted-runtime name is `__`-prefixed
+  # and every one of them failed; `main`, `a1`..`e5` passed, because
+  # they have no underscore for the sed to take. The comment above said
+  # the right thing and the line below it did not do it.
+  #
+  # Both spellings now go in the set, so a name matches whichever
+  # platform spelled it.
+  nm -j "$work/c$opt" 2>/dev/null | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
   unknown=""
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
@@ -449,7 +461,9 @@ fi
 # the same `nm` cross-check as §2, applied to the table rather than to
 # one trace, so a name mangled differently in the table than in the
 # `define` would be caught even if no frame ever landed on it.
-nm -j "$work/chain0" 2>/dev/null | sed 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
+# Both spellings, for the reason §2 records: stripping the Mach-O
+# prefix unconditionally eats a real character on ELF.
+nm -j "$work/chain0" 2>/dev/null | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
 missing=0
 while IFS= read -r sym; do
   [[ -n "$sym" ]] || continue
