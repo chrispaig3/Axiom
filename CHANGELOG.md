@@ -18,6 +18,57 @@ its changelog too.
 
 ### Added
 
+- **Effect inference was quadratic in the depth of a call chain, and the
+  losing declaration order is the one people write.** A round of
+  `inferEffects` propagates an effect **one call edge** when it meets the
+  caller before the callee, and the **whole chain** when it meets them
+  the other way. `inferEffectsPass` binds its recursive call before its
+  body, so it walks declarations last-to-first — fast for a file whose
+  callers sit above their callees, slow for the conventional layout of
+  helpers above their users.
+
+  Measured on one call graph written both ways, 2,000 functions with an
+  effect at the bottom:
+
+  | declaration order | N=2000 |
+  |---|---|
+  | callers first | 0.052s |
+  | callees first | **3.504s** (67×, 3.66× per doubling) |
+
+  3.66× per doubling is the quadratic `README`'s retirement table has
+  suspected since it was written — *"watch the known quadratic at 55.7%
+  of a check at N=8000"*. It is rounds × declarations, where rounds is
+  the depth of the chain.
+
+  **One round is two passes now, in opposite directions.** The
+  per-declaration work is `inferEffectsOne`, so the same work walks
+  either way; a round goes forward first and backward only if forward
+  grew something. Either pass answering 0 ends the fixpoint — a complete
+  pass that grows nothing has reached it, whichever way it walked.
+
+  | | before | after | |
+  |---|---|---|---|
+  | chain, callees first | 3.180s | **0.038s** | 82.8× |
+  | chain, callers first | 0.040s | 0.035s | no regression |
+  | 16,000 plain functions | 0.530s | 0.526s | no regression |
+  | `self_host/main.ax` | 0.339s | **0.248s** | **1.37×** |
+
+  The last row is the one that matters daily: the compiler's own
+  self-check is **27% faster** on a real 60,881-line program.
+
+  **It changes no answer.** All **3,029** `#effects=` rows `axiom
+  symbols` reports across `stdlib/` and `self_host/` are identical
+  before and after, and a diagnostic differential over every `.ax` in
+  the tree reports zero differences. A fixpoint's result does not depend
+  on the order it is reached in; only the round count does.
+
+  Not the complete answer: a graph that is not a chain can still need
+  several rounds, and the general fix is a **worklist** over the reverse
+  call graph — when a row grows, re-examine that function's callers and
+  nothing else. The edges already exist (`tcNoteCall`, word 29, resolved
+  in round 1), so the reverse map is buildable from what is here. That
+  is written down where the next reader meets it and is not made here.
+
 - **The FFI boundary is a C ABI, and now something says so.**
   `docs/ffi.md` has always described it as one machine word per argument
   and one word back — `extern "C" fn(i64, ...) -> i64` — and the emitter

@@ -9781,12 +9781,49 @@
 
 (pub :: inferEffectsRound (-> Int Int Int Int Int))
 
+; ONE ROUND IS TWO PASSES, IN OPPOSITE DIRECTIONS, and that is a
+; complexity fix rather than a tidy-up.
+;
+; A round propagates an effect exactly one call edge when it meets the
+; caller before the callee, and the WHOLE CHAIN when it meets them the
+; other way round. The pass above visits declarations last-to-first, so
+; which of those a program gets is decided by the order its
+; declarations happen to be written in - and the conventional order,
+; helpers above the functions that call them, is the losing one.
+;
+; Measured 2026-08-25 on one call graph written both ways, 2,000
+; functions with an effect at the bottom of the chain:
+;
+;     callers declared first   0.052s
+;     callees declared first   3.504s      67x, and 3.66x per doubling
+;
+; The second is the shape real code has. Running both directions costs
+; at most one extra pass and collapses a linear chain in either order
+; to a single round: the same file above goes 3.504s -> 0.057s.
+;
+; ORDER OF THE TWO: forward first, because a converged program then
+; costs ONE pass rather than two - the reverse pass runs only when the
+; forward one grew something. And either pass answering 0 ends the
+; fixpoint, which is sound for the reason the round loop always rested
+; on: a complete pass over every declaration that grows nothing has
+; reached the fixed point, whichever direction it walked.
+;
+; This is not the complete answer. A graph that is not a chain can
+; still need several rounds, and the general fix is a WORKLIST over the
+; reverse call graph - when a row grows, re-examine that function's
+; callers and nothing else. The edges are already recorded (`tcNoteCall`
+; into word 29, resolved in round 1), so the reverse map is buildable
+; from what is here. That is a larger change than this one and is not
+; made here.
 (pub fn (inferEffectsRound tc decls round limit)
   (if (>= round limit)
     0
-    (if (== (inferEffectsPass tc decls 0) 0)
+    (if (== (inferEffectsPassFwd tc decls 0) 0)
       0
-      (inferEffectsRound tc decls (+ round 1) limit)
+      (if (== (inferEffectsPass tc decls 0) 0)
+        0
+        (inferEffectsRound tc decls (+ round 1) limit)
+      )
     )
   )
 )
@@ -9796,64 +9833,93 @@
 ; Answers 1 when anything grew.
 (pub :: inferEffectsPass (-> Int Int Int Int))
 
-(pub fn (inferEffectsPass tc decls i)
-  (if (>= i (vecLen decls))
+; ONE declaration's contribution. 1 when its effect row or its
+; effect-parameter set grew.
+;
+; Split out of the pass below so the pass can be walked in EITHER
+; direction over the same work - see `inferEffectsRound`.
+(pub :: inferEffectsOne (-> Int Int Int))
+
+(pub fn (inferEffectsOne tc d)
+  (if (!= (nodeTag d) TAG_D_FN)
     0
+    ; Set BEFORE the entry lookup, for the reason `tcCheckFn`
+    ; states: `nodeA d` is this module's mangled name, and a
+    ; declaration its own module does not export is invisible
+    ; to a lookup made from nowhere. Looked up first, every
+    ; private function's entry came back 0, its body's effects
+    ; were never accumulated, and the whole standard library
+    ; drew `AX3010 effect(io) claim unsupported` the moment one
+    ; import carried a name list.
     (let (
-      (rest (inferEffectsPass tc decls (+ i 1)))
-      (d (vecGet decls i))
+      (_m (memSetWord tc 16 (nodeModule d)))
+      (ent (findFnEnt tc (nodeAName d)))
     )
-      (if (!= (nodeTag d) TAG_D_FN)
-        rest
-        ; Set BEFORE the entry lookup, for the reason `tcCheckFn`
-        ; states: `nodeA d` is this module's mangled name, and a
-        ; declaration its own module does not export is invisible
-        ; to a lookup made from nowhere. Looked up first, every
-        ; private function's entry came back 0, its body's effects
-        ; were never accumulated, and the whole standard library
-        ; drew `AX3010 effect(io) claim unsupported` the moment one
-        ; import carried a name list.
-        (let (
-          (_m (memSetWord tc 16 (nodeModule d)))
-          (ent (findFnEnt tc (nodeAName d)))
-        )
-          (if (== ent 0)
-            {
-              (memSetWord tc 16 0)
-              rest
-            }
-            ; Word 29 is live for exactly this walk, so
-            ; `tcNoteCall` has somewhere to put an edge and every
-            ; other `collectEffects` caller records nothing.
-            ;
-            ; The edge set does NOT need the fixpoint's changed
-            ; signal below. `findFnEnt` reads a table that is
-            ; complete before `inferEffects` starts, and a body's
-            ; syntax does not move between rounds, so round 1
-            ; resolves every edge this walk will ever resolve;
-            ; rounds 2..n re-derive the same set and `tcNoteCall`
-            ; dedups them away. Only the effect ROWS grow, which
-            ; is what `g1`/`g2` measure.
-            (let ((sc (bodyScopeOf tc d)))
-              (let (
-                (_c (memSetWord tc 29 (memGetWord ent 7)))
-                (got (collectEffects tc (nodeC d) sc))
-                (_c0 (memSetWord tc 29 0))
-                (_m0 (memSetWord tc 16 0))
-              )
-                (let (
-                  (g1 (effUnion (memGetWord ent 5) got 0))
-                  (g2 (intUnion (memGetWord ent 6) (bsEparams sc) 0))
-                )
-                  (if (|| (== g1 1) (== g2 1))
-                    1
-                    rest
-                  )
-                )
+      (if (== ent 0)
+        {
+          (memSetWord tc 16 0)
+          0
+        }
+        ; Word 29 is live for exactly this walk, so
+        ; `tcNoteCall` has somewhere to put an edge and every
+        ; other `collectEffects` caller records nothing.
+        ;
+        ; The edge set does NOT need the fixpoint's changed
+        ; signal below. `findFnEnt` reads a table that is
+        ; complete before `inferEffects` starts, and a body's
+        ; syntax does not move between rounds, so round 1
+        ; resolves every edge this walk will ever resolve;
+        ; rounds 2..n re-derive the same set and `tcNoteCall`
+        ; dedups them away. Only the effect ROWS grow, which
+        ; is what `g1`/`g2` measure.
+        (let ((sc (bodyScopeOf tc d)))
+          (let (
+            (_c (memSetWord tc 29 (memGetWord ent 7)))
+            (got (collectEffects tc (nodeC d) sc))
+            (_c0 (memSetWord tc 29 0))
+            (_m0 (memSetWord tc 16 0))
+          )
+            (let (
+              (g1 (effUnion (memGetWord ent 5) got 0))
+              (g2 (intUnion (memGetWord ent 6) (bsEparams sc) 0))
+            )
+              (if (|| (== g1 1) (== g2 1))
+                1
+                0
               )
             )
           )
         )
+      )
+    )
+  )
+)
+
+; LAST declaration to first. The recursive call is bound before the
+; body runs, so `decls[i]` is processed after everything above it.
+(pub fn (inferEffectsPass tc decls i)
+  (if (>= i (vecLen decls))
+    0
+    (let ((rest (inferEffectsPass tc decls (+ i 1))))
+      (if (== (inferEffectsOne tc (vecGet decls i)) 1)
+        1
+        rest
+      )
+    )
+  )
+)
+
+; FIRST declaration to last: `decls[i]` is processed before the
+; recursion, which is the whole difference.
+(pub :: inferEffectsPassFwd (-> Int Int Int Int))
+
+(pub fn (inferEffectsPassFwd tc decls i)
+  (if (>= i (vecLen decls))
+    0
+    (let ((here (inferEffectsOne tc (vecGet decls i))))
+      (if (== (inferEffectsPassFwd tc decls (+ i 1)) 1)
+        1
+        here
       )
     )
   )
