@@ -15,11 +15,19 @@ to `VERSION`, each named with the count it must yield, plus the number
 the built binary prints. That is a strong gate and it proves one thing:
 the number is **stated** consistently.
 
-It does not prove the number is **earned**. Before `0.4.0`, every gate
-in this repository stayed green while a public name changed its type,
-widened its effect row, or stopped existing. A consumer pinning
-`0.3.1` and moving to `0.3.2` had nothing but a changelog entry
-somebody remembered to write.
+It does not prove the number is **earned**. Before `0.3.2`, nothing in
+this repository compared the public surface against what a PREVIOUS
+release promised. One gate came close and is worth naming precisely,
+because the difference is the whole point: `check-stdlib-api.sh`
+regenerates `docs/stdlib-api.md` from the library and diffs it, so it
+does see a name change type or stop existing — but it compares the
+library against a document regenerated **from the same tree**, and it
+has a bless path. A re-bless satisfies it by construction. It proves
+the documentation matches the library; it cannot prove the library
+matches a promise, because it has no memory of one.
+
+So a consumer pinning `0.3.1` and moving to `0.3.2` had nothing but a
+changelog entry somebody remembered to write.
 
 `CHANGELOG.md`'s `0.2.0` release named the gap in its own Compatibility
 section — *"a deprecation policy and a compatibility gate over the
@@ -73,30 +81,61 @@ contract does not move when a declaration moves down its file.
 
 ## 3. What a version number promises
 
-Axiom is `0.x`, and says what that means rather than leaving it to
-convention.
+Axiom is `0.x`. SemVer's own §4 says that anything MAY change at any
+time in `0.x`, and this project does not pretend otherwise: there is
+one maintainer, no LTS branch, and `SECURITY.md` supports exactly the
+newest release. So the version component is **not** what decides
+whether a break is allowed.
 
-| Change | Patch `0.3.1 → 0.3.2` | Minor `0.3.x → 0.4.0` |
-|---|---|---|
-| a public name is added | allowed | allowed |
-| an effect row narrows | allowed | allowed |
-| a public name is removed | **refused** | allowed, **declared** |
-| a signature changes | **refused** | allowed, **declared** |
-| an effect row widens | **refused** | allowed, **declared** |
+**COMPAT-4 (H).** A breaking change is allowed at any bump, and only
+when somebody wrote down that they meant it. `compat/BREAKING` names
+each one against a version strictly newer than the baseline's — newer
+rather than equal to `VERSION`, because a break lands *before* the
+release carrying it is bumped, and a permit keyed on `VERSION` would
+refuse every change the release exists to make until its last commit.
 
-**COMPAT-4 (H).** A breaking change is allowed, and only when somebody
-wrote down that they meant it. `compat/BREAKING` names each one against
-the version that makes it; an undeclared one fails the gate.
+An undeclared break fails the gate. That is the whole enforcement, and
+it is deliberately small: the gate does not decide whether a break is
+wise, it decides that a break is **deliberate** — which is the part a
+machine can check and the part that was missing.
 
-That is the whole enforcement, and it is deliberately small. The gate
-does not decide whether a break is wise. It decides that a break is
-**deliberate**, which is the part a machine can check and the part that
-was missing.
+| Change | Verdict |
+|---|---|
+| a public name is added | allowed, silently |
+| an effect row narrows | allowed, silently |
+| a public name is removed | allowed, **declared** |
+| a signature changes | allowed, **declared** |
+| a struct's fields are reordered or retyped | allowed, **declared** |
+| a trait loses a method | allowed, **declared** |
+| an effect row widens | allowed, **declared** |
+
+**What the component signals**, which is guidance and not a gate:
+
+- **patch** — the surface is unchanged, or a break is small enough that
+  the declaration in `compat/BREAKING` is the whole migration note.
+- **minor** — the surface changed in a way a consumer must read about
+  before upgrading. The changelog entry is the migration note.
+
+> **This section was wrong when it was written, and the correction is
+> recorded rather than made quietly.** Its first version carried a
+> table saying a *patch* bump **refuses** a breaking change and only a
+> *minor* permits one. `scripts/check-compat.sh` never checked that,
+> and could not have: it compares the declared version against the
+> baseline's and has no notion of which component moved. So the
+> document claimed a rule the gate did not hold — which is the exact
+> defect this whole release exists to remove, in the one document
+> describing it. The rule above is the one the gate actually enforces.
 
 **COMPAT-5 (H).** Adding a public name is not a breaking change, and
 the gate has a probe that must stay green to prove it. A gate that
 reddens on every difference is a freeze, not a contract — it would make
 adding a function to the standard library a breaking change.
+
+**COMPAT-6 (P).** At `1.0`, the component becomes enforceable: a break
+declared against a version whose MINOR did not move should fail. The
+arm is one comparison beside `declared_newer` in
+`scripts/check-compat.sh`, and it is planned rather than built because
+under `0.x` it would refuse releases this project intends to make.
 
 ---
 

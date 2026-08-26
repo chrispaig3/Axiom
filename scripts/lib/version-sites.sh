@@ -40,6 +40,29 @@ lspg_version() { grep -oE '"version":"[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]
 # afford - so the sentence is a site like any other.
 sec_version()  { grep -oE 'The supported release is \*\*[0-9]+\.[0-9]+\.[0-9]+\*\*' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 
+# A `Cargo.lock`'s entry for a workspace member, which is a site's
+# OUTPUT the way `tree-sitter-axiom/src/parser.c` is: cargo derives it
+# from `rust/Cargo.toml`, and a bump that moves the manifest and not the
+# lock leaves the two disagreeing until the next `cargo build` quietly
+# fixes it. 0.3.1 shipped with both lockfiles still reading 0.3.0, and
+# what found it was a gate battery running `cargo test` - not a check.
+#
+# TWO PACKAGES ARE EXCLUDED BY NAME. `axiom-leaky` and `axiom-nostd` are
+# example crates carrying their own `0.1.0`, deliberately, and naming
+# them here is what makes that choice visible - the same argument
+# `check-stdlib-api.sh` gives for naming its module list rather than
+# globbing it. A third-party package's version is never read: the awk
+# only prints a version that FOLLOWS an `axiom-` name line.
+lock_version()  {
+  awk '/^name = "axiom-/ { n = $3; gsub(/"/, "", n); next }
+       /^version = "/ {
+         if (n != "" && n != "axiom-leaky" && n != "axiom-nostd") {
+           v = $3; gsub(/"/, "", v); print v
+         }
+         n = ""
+       }'
+}
+
 # --- writers: rewrite this file's versions to $2 ----------------------
 #
 # `sed` to a temp file and move it, rather than `-i`: BSD `sed` needs an
@@ -57,6 +80,22 @@ lsp_replace()  { _rewrite "$1" "s/(\"version\" \(jsonStr \")[0-9]+\.[0-9]+\.[0-9
 json_replace() { _rewrite "$1" "s/(\"version\": \")[0-9]+\.[0-9]+\.[0-9]+(\")/\1$2\2/g"; }
 lspg_replace() { _rewrite "$1" "s/(\"version\":\")[0-9]+\.[0-9]+\.[0-9]+(\")/\1$2\2/g"; }
 sec_replace()  { _rewrite "$1" "s/(The supported release is \*\*)[0-9]+\.[0-9]+\.[0-9]+(\*\*)/\1$2\2/g"; }
+# The matching writer: rewrite exactly the versions `lock_version`
+# reads, and nothing else in the file.
+lock_replace() {
+  local t; t="$(mktemp)"
+  awk -v ver="$2" '
+    /^name = "axiom-/ { n = $3; gsub(/"/, "", n); print; next }
+    /^version = "/ {
+      if (n != "" && n != "axiom-leaky" && n != "axiom-nostd") {
+        print "version = \"" ver "\""; n = ""; next
+      }
+      n = ""
+    }
+    { print }
+  ' "$1" > "$t" && cat "$t" > "$1"
+  rm -f "$t"
+}
 # Both `toml_version` shapes in one pass: a line-anchored key, and the
 # inline `version = "X" }` a workspace dependency uses.
 toml_replace() {
@@ -83,6 +122,8 @@ self_host/main.ax|1|ax_version|ax_replace
 self_host/repl.ax|1|ax_version|ax_replace
 self_host/lsp.ax|1|lsp_version|lsp_replace
 rust/Cargo.toml|4|toml_version|toml_replace
+rust/Cargo.lock|7|lock_version|lock_replace
+rust/examples/nostd/Cargo.lock|4|lock_version|lock_replace
 tree-sitter-axiom/package.json|1|json_version|json_replace
 tree-sitter-axiom/tree-sitter.json|1|json_version|json_replace
 README.md|2|ax_version|ax_replace

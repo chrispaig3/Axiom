@@ -126,6 +126,35 @@ its changelog too.
   three per-target `Sys/Platform` files as the one named exception.
   20 modules.
 
+- **Both `Cargo.lock`s shipped 0.3.1 still reading 0.3.0.** They are a
+  site's OUTPUT, the way `tree-sitter-axiom/src/parser.c` is: cargo
+  derives them from `rust/Cargo.toml`, so a bump that moved the
+  manifest left the lock behind until the next `cargo build` quietly
+  fixed it. Nothing checked them, and what finally moved them was a
+  gate battery running `cargo test` — a build, not a check. Both are
+  version sites now, with a reader/writer pair proved together: the
+  writer moved all seven tracked entries to 9.9.9 and left
+  `axiom-leaky` at `0.1.0` and `syn` at `2.0.119` untouched. Nineteen
+  extractor/site pairs observed red.
+
+  `axiom-leaky` and `axiom-nostd` are excluded **by name** rather than
+  by pattern, because they are example crates carrying their own
+  version deliberately — the same argument `check-stdlib-api.sh` makes
+  for naming its module list instead of globbing it.
+
+- **The policy claimed a rule the gate did not hold.**
+  `docs/compatibility.md` §3 shipped with a table saying a *patch* bump
+  refuses a breaking change and only a *minor* permits one.
+  `scripts/check-compat.sh` never checked that and could not have — it
+  compares the declared version against the baseline's and has no
+  notion of which component moved. So the one document describing this
+  release's thesis contained the exact defect the release exists to
+  remove. §3 now states the rule the gate enforces: under `0.x` a
+  **declared** break is allowed at any bump, an undeclared one fails,
+  and the component is advisory. `COMPAT-6 (P)` records that at `1.0`
+  the component becomes enforceable and names the single comparison
+  beside `declared_newer` that would do it.
+
 - **A count restated in prose beside the list it counts.** Adding a
   version site moved a number three headers had written down and no
   gate read: `version-sites.sh` and `bump-version.sh` said "seventeen
