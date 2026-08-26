@@ -16,6 +16,19 @@
 # reported the migration making no progress while it made all of it.
 # A declaration answering `Result` is not a sentinel whatever its
 # comment says.
+#
+# WHAT THIS NUMBER WILL NOT REACH, and why a reader watching it fall
+# should know: it counts sentinels of BOTH kinds. Of the thirteen left,
+# eight report ABSENCE (`internFind`, `strFindByte`, `pathLastSlash`
+# and friends answer -1 for "not found") and want `Option`, not
+# `Result`. The five that report FAILURE are all decided already -
+# `IO.writeStr` and the three `net` calls sit on hot paths where an
+# `(Ok n)` block allocates per call or per poll wake, outside the
+# per-request arena scope, and `check-net.sh` asserts memory ratios on
+# exactly that server; `sysRandomNum` is a platform shim below `Err`.
+#
+# So this stops at thirteen until someone decides the `Option`
+# migration. `docs/error-model.md` 10.1 has the measurement.
 stdlib/Agent/Tags.ax 3
 stdlib/IO.ax 1
 stdlib/Intern.ax 1

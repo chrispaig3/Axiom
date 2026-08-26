@@ -1087,8 +1087,57 @@ before the next:
    the fallback is genuinely equivalent to the error.**
 4. `self_host/` — the compiler's own phases, which is where the model
    stops being a library and starts being the thing that proves it.
+
+   **Measured 2026-08-26, and this slice is almost entirely
+   mis-specified.** Twenty-five declarations in `self_host/` carry a
+   sentinel contract. Classified by what the sentinel MEANS:
+   **twenty-one are absence, not failure** — `namedFieldIndex` answers
+   "where the pattern mentions field `n`, or -1"; `structFieldOf`
+   answers "0 when the struct does not declare the name";
+   `findExternUnit`, `scopeFindIdx`, `slotFirstIndex`, `expRepIndex`
+   and the rest are the same shape. They are LOOKUPS. A lookup that
+   finds nothing has not failed.
+
+   Of the remaining four, `tcAddExtern`'s comment is about a parameter
+   rather than a return, `targetCode`'s `-1` is an unknown target
+   *name* the caller already refuses loudly, and `runTool` is the one
+   genuine failure — bounded at the stdlib edge, where it unwraps
+   `sysRunPath` to 127.
+
+   So the `Result` work in this slice is **one function**, and it is
+   done.
 5. The REPL surface, `check-repl-selfhost.sh`'s session bank extended
    with an `Err` at the prompt.
+
+### 10.1 What is actually left, measured rather than planned
+
+Classifying every remaining sentinel by whether it reports **absence**
+or **failure** — §5's own distinction, the one this model opens with —
+changes what "finishing the migration" means.
+
+| | absence (wants `Option`) | failure (wants `Result`) |
+|---|---|---|
+| `stdlib/`, the 13 remaining | 8 | 5 |
+| `self_host/`, slice 4's 25 | 21 | 1 |
+
+And all five stdlib failures are already decided: `IO.writeStr` and the
+three `net` calls are **deliberately excluded** — they sit on hot paths
+where an `(Ok n)` block allocates per call or per poll wake, outside
+the per-request arena scope, and `scripts/check-net.sh` asserts memory
+ratios on exactly that server. `sysRandomNum` is a platform shim below
+`Err`.
+
+**So the `Result` migration is complete.** What `ERR-ADOPT-1` still
+counts is a different migration: twenty-nine lookups that answer `-1`
+or `0` for "not found" and want **`Option`**, which is built in, needs
+no import (§1), and is what §5's table already assigns to that class.
+
+That is a decision to take deliberately, not a slice to grind. It is
+recorded here rather than acted on because renumbering the slices is a
+change to this section, and because the sentinel census
+(`compat/SENTINELS`, gated by `scripts/check-compat.sh`) counts both
+kinds — so the number will not reach zero by porting failures alone,
+and a reader watching it fall should know why it stops.
 
 **ERR-ADOPT-2 (P). Every slice keeps `stage2 == stage3`.** No slice
 touches the seed until one has to, and the one that does — a built-in
