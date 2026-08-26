@@ -306,6 +306,7 @@ gate_prose_docs() {
 README.md
 CONTRIBUTING.md
 CHANGELOG.md
+SECURITY.md
 docs/reference.md
 docs/diagnostics.md
 docs/error-model.md

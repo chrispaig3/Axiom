@@ -60,7 +60,36 @@ its changelog too.
   empty. A count would let one name leave the stream while another
   joined it.
 
+- **`SECURITY.md`, and its supported release is a version site.** P7
+  claims security has a process and there was no artifact saying what
+  it is. There is one now: where to report (a private GitHub advisory,
+  not a public issue), what to expect (7 days to a first response, 30
+  to a decision) and the honest bound behind those numbers — one
+  maintainer, said out loud rather than implied.
+
+  The supported-release sentence is held to `VERSION` by
+  `scripts/check-version.sh` like every other site, with its own
+  reader/writer pair and its own arm in the negative probe. A security
+  policy naming a version that nothing checks goes stale silently,
+  which is the one failure mode a security document cannot afford.
+
+  Scope is stated in both directions. In: the compiler, the library,
+  the seed, the installer, the FFI boundary. Out, with reasons: a
+  program that uses `cast` unsoundly, a program that calls `__syscallN`
+  directly, compile-time resource exhaustion beyond `AX2005` and
+  `AX3024`, Windows, and `rust/examples/`.
+
 ### Fixed
+
+- **A count restated in prose beside the list it counts.** Adding a
+  version site moved a number three headers had written down and no
+  gate read: `version-sites.sh` and `bump-version.sh` said "seventeen
+  sites", `check-version.sh` said "eleven places", and the live table
+  is seventeen files stating twenty-one versions. Rather than reset
+  three numbers that would rot again, the numbers are gone — the table
+  IS the count, and `check-version.sh` derives and prints the totals on
+  every run. The weakest rule that kills the class beats the complete
+  one.
 
 - **A probe that breaks the build satisfied a red-expecting negative
   test.** Found while writing the gate above, and it is the reason the

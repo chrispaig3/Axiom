@@ -3,13 +3,14 @@
 #
 #   scripts/bump-version.sh 0.3.0
 #
-# WHAT THIS REPLACED. `VERSION` is the authority, and seventeen sites
-# across four file formats restate it: the compiler's own banner, the
-# REPL's, the language server's `serverInfo`, four keys in
-# `rust/Cargo.toml`, two tree-sitter manifests, and the REPL banner as
-# quoted in `README.md` (twice) and `docs/reference.md`. Every one of
-# those was a hand edit. `check-version.sh` would catch a miss - it did,
-# on this very release, with seventeen sites still reading 0.2.0 - but
+# WHAT THIS REPLACED. `VERSION` is the authority, and every site
+# `scripts/lib/version-sites.sh` names restates it: the compiler's own
+# banner, the REPL's, the language server's `serverInfo`, four keys in
+# `rust/Cargo.toml`, two tree-sitter manifests, eight checked-in LSP
+# transcripts, `SECURITY.md`'s supported-release line, and the REPL
+# banner as quoted in `README.md` (twice) and `docs/reference.md`. Every
+# one of those was a hand edit. `check-version.sh` would catch a miss -
+# it did, when 0.3.0 was cut, with every site still reading 0.2.0 - but
 # catching it is not the same as not doing it, and a gate that fires
 # after the tag is cut has fired too late.
 #

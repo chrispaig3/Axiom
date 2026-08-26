@@ -2,10 +2,13 @@
 # Assert that every place this project states its own version says the
 # same thing, and that it is the thing `VERSION` says.
 #
-# WHY THIS GATE EXISTS. The version is a bare literal in eleven places
-# across five file formats - three Axiom sources, four Cargo entries,
-# two tree-sitter manifests and two prose documents - and nothing held
-# them to a single source of truth.
+# WHY THIS GATE EXISTS. The version is a bare literal in every file
+# `scripts/lib/version-sites.sh` names, across five formats - Axiom
+# sources, Cargo entries, tree-sitter manifests, checked-in LSP
+# transcripts and prose documents - and nothing held them to a single
+# source of truth. The totals are printed below rather than restated
+# here: this header said eleven for as long as it existed, and the
+# table it describes has not been eleven since.
 #
 # It is NOT true that nothing compared them before this file, and the
 # first version of this header said so; `check-driver.sh` (`22f2c19`,
