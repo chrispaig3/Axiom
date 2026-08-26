@@ -62,6 +62,7 @@ internRehash Intern.ax Alloc,Mut
 internReplaceFrom Intern.ax Mut
 internWithCapacity Intern.ax Alloc,Mut
 ioPath IO.ax Alloc,Mut
+ioResult IO.ax Alloc,Mut
 isDir IO.ax Alloc,IO,Mut
 jcFail Json.ax Mut
 jcNew Json.ax Alloc,Mut
