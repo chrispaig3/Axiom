@@ -104,11 +104,22 @@ I/O happening at run time. Since 2026-08-25 it is an **error** and there
 is no executable.
 
 `tests/diagnostics/severity.policy` is a hand-maintained allowlist of
-the codes permitted to render as warnings, and what remains in the AXTAG
-family is its UNANSWERABLE half: `AX3037`, `AX3038` and `AX3039`. That
-split is the whole rule - a claim the walk checked and refuted refuses
-the build; a claim it was not in a position to check informs and does
-not.
+the codes permitted to render as warnings: `AX3037`, `AX3038`,
+`AX3039` and `AX3048`.
+
+The first three are the AXTAG family's UNANSWERABLE half, and that
+split is the whole rule for them - a claim the walk checked and refuted
+refuses the build; a claim it was not in a position to check informs
+and does not.
+
+`AX3048` is on the list for a different reason, and it is the first
+member that is not a statement about what the compiler could not
+determine. A reference to a name marked `;@axiom:deprecated` is
+perfectly determinate: the name exists, it type-checks, and it works.
+It warns because the release that ANNOUNCES a removal is the one
+release in which the callers must still build, and promoting it would
+make deprecation and removal the same event - the distinction the
+notice exists to draw. See `docs/compatibility.md` COMPAT-7.
 
 `AX3040` left the list the same day, when the compiler learned to tell a
 function that never returns from one that fabricates a value; `AX3010`
