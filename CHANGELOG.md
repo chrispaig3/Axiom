@@ -16,6 +16,110 @@ its changelog too.
 
 ## Unreleased
 
+### Changed
+
+- **`stdlib/Sys.ax` stops answering an Int that is sometimes an
+  errno.** Twelve raw wrappers answer `(Result Int Error)` through
+  `sysResult`: the seven filesystem calls (`sysWriteFile`,
+  `sysAppendFile`, `sysUnlink`, `sysMkdir`, `sysRmdir`, `sysRename`,
+  `sysFileSize`) and five process calls (`sysSpawn`, `sysWaitPid`,
+  `sysRun`, `sysRunPath`, `sysRandomBytes`). `IO.ax`'s wrappers
+  **re-wrap** rather than convert — `Sys` has the errno, `IO` has the
+  path, so the code carries through and only the message is rebuilt.
+
+  `sysRun` is the one that mattered. Its contract was three answers in
+  one `Int`: an exit code, `128+n` for a signal, and a negated errno
+  meaning **the child never ran**. It is split by the type now — `Err`
+  is the spawn failing, `Ok` carries whatever the child answered —
+  which is the distinction `Sys.ax`'s own comment says a driver must
+  not lose, *"could not start llc"* against *"llc rejected the
+  module"*.
+
+  Census: `Sys.ax` **13 → 3**, the library **30 → 13**. Nine breaks
+  declared against `0.3.4`; `runTool` unwraps at the stdlib boundary to
+  127 because `self_host/` is a different slice.
+
+  **The reason this was deferred did not exist.** `0.3.3` recorded that
+  `Sys` sits below `Err` in the dependency order. `Err` imports only
+  `Str`; `Str` imports `Mem` and `Vec`. There is no cycle, and
+  `(import Err)` in `Sys.ax` compiles first try. An ordering claim
+  about an import graph is checkable in one command.
+
+### Added
+
+- **A parameterised type answered through a bare `Int` is refused.**
+  `Int` is this language's universal heap handle and the tree relies on
+  it — `mkSpan` declares `Int` and answers a `Span` — which is why
+  `tyReprClash` names only `Bool` and `Float`, and why the 2026-08-10
+  attempt at the general rule reported 21 of 271 files that were all
+  correct.
+
+  A parameterised constructor is different **in kind**: the handle
+  keeps the address and throws the type *arguments* away, so nothing
+  downstream can recover what it holds. Swept **0 over 516 files**, and
+  probed the other way — `Result`- and `Option`-through-`Int` refused,
+  while a monomorphic struct handle, a monomorphic data handle, an
+  honest `Int` and a correctly declared `Result` are all still
+  accepted. `tests/diagnostics/498-param-through-int.ax` carries the
+  defect and that control in one file.
+
+  It closes a class that produced two silent defects during the
+  migration itself: `IO.makeDir` returned a **heap address** where an
+  errno belonged with `check` printing `OK`, and `driver.runTool` did
+  the same one layer up and surfaced as `AX4003` at run time.
+
+### Fixed
+
+- **`unwrapOr` with a constant is not a port, and it cost three
+  defects.** Wherever a sentinel carried *which* failure, a fallback
+  value destroys it and nothing complains:
+
+  `Job.jobSubmit` — a failed spawn became pid `0`, which is not `< 0`,
+  so the pool counted it live and `sysWaitPid 0` waited for **any**
+  child in the process group. `302-job` **hung** rather than failed;
+  `check` printed `OK` throughout.
+
+  `993-filesystem-verbs` — `(== (unwrapOr … 0) -2)` is silently false,
+  so the case counted one fewer success and exited 1 where its own
+  first line says 77.
+
+  `305-path-search` — printed the fallback for every failure, which is
+  the vacuous pass that fixture's own comment exists to prevent.
+
+  All three are `match` now, and the golden for `305` matches
+  **unchanged** — the assertion survived rather than being re-blessed
+  around. The rule, in `docs/error-model.md`: `unwrapOr` is safe only
+  where the fallback is genuinely *equivalent* to the error.
+
+- **The generated API reference documented a contract that no longer
+  existed.** CI caught `docs/stdlib-api.md` stale on all three
+  platforms. Regenerating alone would have been worse than the
+  failure: the reference pulls its prose from each source's first
+  comment, and those still said *"or `-errno`"* — so it would have
+  shown the new signature above a description of the contract it
+  replaced. Four comments rewritten with it.
+
+### Found, not fixed
+
+- **Twenty-nine of the thirty sentinels left are not failures, and two
+  of `ERR-ADOPT-1`'s five slices are specified against the wrong
+  distinction.** Classified by what the sentinel *means* — §5's own
+  split between expected failure and programmer error — slice 4's 25
+  declarations in `self_host/` are **21 absence** (`namedFieldIndex`
+  answers "or -1"; `structFieldOf` answers "0 when the struct does not
+  declare the name"; they are lookups, and a lookup that finds nothing
+  has not failed) against one genuine failure, already bounded. Of the
+  13 left in `stdlib/`, eight are absence and all five failures are
+  already decided — `writeStr` and the three `net` calls sit on hot
+  paths where an `(Ok n)` block allocates per call or per poll wake and
+  `check-net.sh` asserts memory ratios on exactly that server.
+
+  **So the `Result` migration is complete.** What remains is a
+  different one: 29 lookups wanting `Option`, which is built in and
+  needs no import. Recorded as `docs/error-model.md` §10.1 rather than
+  acted on, because renumbering the slices is a decision about that
+  document. `compat/SENTINELS` says why the count stops at 13.
+
 ## 0.3.3 — 2026-08-26
 
 ### Changed
