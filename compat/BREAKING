@@ -1,0 +1,15 @@
+# Breaking changes to the standard library's public surface, declared.
+#
+# `scripts/check-compat.sh` refuses a removed, retyped or
+# effect-widened public name unless a line here names it against the
+# version that makes the change. That is the whole enforcement: a
+# break is allowed, and it is allowed only when somebody wrote down
+# that they meant it.
+#
+# Format, whitespace-separated:
+#
+#   <version>  <kind-letter>  <name>  <why>
+#
+# The kind letter is AXSYM's: F function, D data, C constructor,
+# S struct, T trait. `docs/compatibility.md` is the policy this file
+# implements.

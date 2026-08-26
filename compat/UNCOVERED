@@ -1,0 +1,28 @@
+# Public names the symbol stream does not carry.
+#
+# `axiom symbols` has no arm for `TAG_D_MACRO` and none for
+# `TAG_D_IMPL`, and its `TAG_D_EFFECT` arm registers the effect's
+# OPERATIONS rather than the effect itself (`self_host/symbols.ax`,
+# the declaration dispatch). So these thirteen names are public API
+# that `scripts/check-compat.sh` cannot see - twelve macros, among
+# them `println` and `format`, and one effect declaration.
+#
+# This is a hole in the contract and it is written down rather than
+# left to be discovered. It is compared as a SET, not a count: a
+# fourteenth invisible name fails the gate, and closing the hole is
+# this file becoming empty.
+#
+# Measured 2026-08-26 against 0.3.1: 407 rows carried, 13 not.
+Assert
+cond2
+cond3
+deriveArity
+deriveEq
+deriveShow
+eprintln
+format
+println
+showOr
+try!
+unless
+when

@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Thirty-six of the gates below build the compiler under test from
+    # Thirty-seven of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -307,6 +307,15 @@ jobs:
       # does.
       - name: The stdlib API reference is what the library says
         run: ./scripts/check-stdlib-api.sh
+
+      # The version number is a claim about compatibility, and this is
+      # what makes it one. `check-version.sh` proves the number is
+      # STATED in nineteen places; this proves it was EARNED, by
+      # diffing the public surface against the baseline the last
+      # release published. A removed, retyped or effect-widened public
+      # name fails unless `compat/BREAKING` declares it.
+      - name: The public surface agrees with the last release's baseline
+        run: ./scripts/check-compat.sh
 
       # `axiom.pkg`: a project declares its dependencies, and two of
       # them may not provide one module. Every project this gate uses

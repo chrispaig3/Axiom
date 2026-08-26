@@ -2,7 +2,7 @@
 # Assert that `gate_build_axc`'s cache cannot hide a change to the tree.
 #
 # WHY THIS GATE EXISTS AT ALL. `scripts/lib/gate.sh` is not a gate; it
-# is the preamble thirty-six gates share, and `gate_build_axc` is the
+# is the preamble thirty-seven gates share, and `gate_build_axc` is the
 # line in it that makes those twenty-six test the compiler in the
 # WORKING TREE rather than whatever binary happens to be on disk. Its
 # own comment says so: building from `self_host/` "is also what makes
@@ -13,7 +13,7 @@
 # 60,881 lines was about sixteen minutes of every CI run, measured on
 # all three legs. An environment variable naming a prebuilt compiler is
 # EXACTLY the shape that deletes the property above, silently, in every
-# one of those thirty-six gates at once - and the failure would look like
+# one of those thirty-seven gates at once - and the failure would look like
 # green CI, which is the worst way for a gate to be wrong.
 #
 # So the cache is content-addressed: `$AXIOM_AXC` is used only when
@@ -250,7 +250,7 @@ word_for() {
     30) echo thirty ;;    31) echo "thirty-one" ;;
     32) echo "thirty-two" ;;   33) echo "thirty-three" ;;
     34) echo "thirty-four" ;;   35) echo "thirty-five" ;;
-    36) echo "thirty-six" ;;
+    36) echo "thirty-six" ;;   37) echo "thirty-seven" ;;
     *)  echo "" ;;
   esac
 }
@@ -271,7 +271,7 @@ for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
             "26 twenty-six" "27 twenty-seven" "28 twenty-eight" \
             "29 twenty-nine" "30 thirty" "31 thirty-one" \
             "32 thirty-two" "33 thirty-three" "34 thirty-four" \
-            "35 thirty-five" "36 thirty-six"; do
+            "35 thirty-five" "36 thirty-six" "37 thirty-seven"; do
   set -- $pair
   got="$(word_for "$1")"
   if [[ "$got" != "$2" ]]; then
@@ -280,7 +280,7 @@ for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
   fi
 done
 if (( table_ok )); then
-  echo "ok   word_for answers its own 22 arms"
+  echo "ok   word_for answers its own 23 arms"
 else
   failed=$((failed + 1))
 fi
@@ -446,6 +446,6 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-gate-lib: $checks checks - the shared artifact is used only when it"
-echo "                was built from the tree as it stands, so thirty-six gates"
+echo "                was built from the tree as it stands, so thirty-seven gates"
 echo "                still see an ablation of self_host/, and a path that names"
 echo "                no build product is refused rather than ignored"

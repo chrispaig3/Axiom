@@ -16,6 +16,73 @@ its changelog too.
 
 ## Unreleased
 
+### Added
+
+- **A version number is now a checked claim.** `scripts/check-version.sh`
+  holds nineteen literals across sixteen files to `VERSION`, which
+  proves the number is *stated*. Nothing proved it was *earned*: every
+  gate in this repository stayed green while a public name changed
+  type, widened its effect row, or stopped existing. `0.2.0`'s
+  Compatibility section named the gap and called it the next release's
+  work. `scripts/check-compat.sh` is that work, and it brings to
+  thirty-seven gates the number that build the compiler under test
+  through `gate_build_axc`.
+
+  The subject is `axiom symbols --diagnostic-format=ai`, joined with
+  `pub` visibility read from the source — visibility is not in AXSYM,
+  so the join is the one `examples/axdoc/axdoc.ax` already makes for
+  `docs/stdlib-api.md`, and the two must agree about what "public"
+  means. **407 rows** at `0.3.1`, checked in as `compat/0.3.1.axsym`.
+
+  Two measurements decide the design, and both were taken rather than
+  assumed. The `@nid` is **location-independent** — the same hash comes
+  back when a module is read from a different path — and it is
+  **contract-independent**: it did not move when a signature went from
+  `(Int -> Int)` to `(Int -> (Int -> Int))`. So the nid is IDENTITY and
+  the type plus the effect row is the CONTRACT, and a diff separates
+  "this name is gone" from "this name changed" with no heuristic. A
+  removed, retyped or effect-widened name is breaking; an added name and
+  a narrowed effect row are not, because a gate that reddens on every
+  difference is a freeze rather than a contract.
+
+  A break is allowed, and only when someone wrote down that they meant
+  it: `compat/BREAKING` names each one against the version that makes
+  it, and an undeclared one fails.
+
+- **The hole in the symbol stream is written down rather than left to
+  be found.** `symbols` has no arm for `TAG_D_MACRO` and none for
+  `TAG_D_IMPL`, and its `TAG_D_EFFECT` arm registers the effect's
+  operations rather than the effect. So thirteen public names — twelve
+  macros, `println` and `format` among them, and one effect declaration
+  — are API that no gate over this stream can see. `compat/UNCOVERED`
+  lists them and the gate compares it as a **set**: a fourteenth
+  invisible name fails, and closing the hole is that file becoming
+  empty. A count would let one name leave the stream while another
+  joined it.
+
+### Fixed
+
+- **A probe that breaks the build satisfied a red-expecting negative
+  test.** Found while writing the gate above, and it is the reason the
+  gate reports `FATAL` separately from every comparison result. The
+  first effect-widening probe exited non-zero — from `AX2001`, not from
+  a detected widening — and a negative test asking only for a non-zero
+  exit would have recorded it as proof. Two more sharpened the same
+  probe: `AX3010` refuses an effect *claim* over a body that does not
+  perform it, and `AX3042` then refuses the *caller*, because effects
+  are inferred transitively and widening a leaf widens everything above
+  it. The probe now widens `isErr` — one of the eight exports
+  `docs/error-model.md` records as reached by nothing — carrying the
+  tag and the syscall together, and every negative probe asserts the
+  **classification** it must produce rather than that the gate failed.
+
+  Five negative probes, run individually: a name leaving the API
+  (`REMOVED`), a signature changing (`CHANGED`), an effect row widening
+  (`WIDENED`), a name being added (must stay **green**), and a stdlib
+  that does not compile (must answer `FATAL`, never `REMOVED`). 18
+  checks.
+
+
 ## 0.3.1 — 2026-08-26
 
 ### Fixed
