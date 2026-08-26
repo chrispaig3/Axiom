@@ -90,6 +90,52 @@ its changelog too.
   directly, compile-time resource exhaustion beyond `AX2005` and
   `AX3024`, Windows, and `rust/examples/`.
 
+- **`AX3047`, `sized-integer-type`: a C or Rust primitive spelling in
+  type position is refused.** Reproduced on 0.3.1, and the cause is
+  sharper than "sized integers are not supported": a lowercase name in
+  type position is a type **VARIABLE**, and there is no such thing as
+  an unknown one — so `u64` did not fail, it *succeeded*, binding a
+  fresh variable and generalising the signature over it.
+  `(:: f (-> u64 Int))` means `forall n. n -> Int`, so
+  `(f "not a number")` checked **OK**, exited 0 and ran. That is the
+  opposite of the constraint the spelling looks like, which is why it
+  is an error and not a lint.
+
+  The uppercase near-misses were already safe, by a different route:
+  `Double` and `I64` draw `AX3002`, because an unknown uppercase name
+  is an unknown type *constructor* and the checker resolves it.
+  `tests/diagnostics/495-widthless-types.ax` pins that half; the new
+  `496-sized-integer-type.axbad` is deliberately beside it.
+
+  **The refusal is a named set, not a rule about length.** Refusing
+  every multi-letter type variable would reject
+  `(-> (Vec elem) (-> elem out) (Vec out))` — a correct, readable
+  program — which is the "a check whose suggested fix makes the program
+  less correct is the wrong check" trap. The corpus licenses the set
+  instead: across the compiler's 2,859 AXSYM rows and the library's
+  597, the entire type-variable vocabulary is six single letters
+  (`a` 71, `e` 16, `b` 14, `c` 5, `f` 2, `d` 1), so no spelling in the
+  set can be taking a name this tree uses. Measured: 26 spellings
+  refused each naming the Axiom type meant, 11 ordinary variables still
+  accepted including `elem`, `out`, `acc`, `xs` and `result`, a
+  differential over **598 files with zero divergences**, and an
+  ablation where the pre-change compiler answers `OK` at exit 0.
+
+  It is `AX3047` rather than `AX3048` so the constructed set has no
+  gap. `docs/error-model.md` records it as spent and leaves the
+  reserved block (`AX3043`, `AX3045`, `AX3046`) untouched — a new code
+  goes above the reserved block, never into it.
+
+### Found, not fixed
+
+- **A parameter named `set` is a formatter refusal.** The parser and
+  the checker accept it and the compiler builds and runs; `axiom fmt`
+  will not rewrite the file, reporting `formatter refusal`. Found while
+  naming a parameter in the new `sizedTyIn` walk, which was renamed to
+  `words` rather than reconciling the two implementations here. A
+  formatter is a second implementation of the grammar, and the two
+  disagreeing about what is an identifier is its own slice.
+
 ### Fixed
 
 - **The compatibility gate was green on a struct field reorder.** Found

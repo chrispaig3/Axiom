@@ -57,6 +57,7 @@
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
+  [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1239,6 +1240,42 @@ another are the same collision and are reported the same way: they
 share one namespace, which is what `(data Foo ...)` beside
 `(type Foo = Int)` in one file has always been refused for.
 
+### explain AX3047
+AX3047 - a C or Rust primitive type name in type position
+
+A lowercase name in type position is a TYPE VARIABLE, and there is no
+such thing as an unknown one. So `u64` in a signature does not fail -
+it succeeds, binding a fresh variable, and the signature generalises
+over it:
+
+  (:: f (-> u64 Int))   is   forall n. n -> Int
+
+which accepts a String. Measured before this diagnostic existed:
+`check` said OK and the program ran. That is the opposite of the
+constraint the spelling looks like, which is why this is an error and
+not a warning.
+
+Axiom has ONE integer type, `Int`, 64 bits wide, and one float type,
+`Float`, also 64 bits. There are no width-carrying spellings and no
+signedness in the type system; `docs/memory-model.md` MM-VAL-3c
+records that `Double` and `I64` were removed for exactly this reason -
+they had names and no widths.
+
+The uppercase near-misses are already refused, and by a different
+route: `Double` and `I64` draw AX3002, because an unknown UPPERCASE
+name is an unknown type CONSTRUCTOR and the checker resolves it. Only
+the lowercase spellings were silent, and this code closes that.
+
+The narrow integer spellings are real on the OTHER side of an `extern`
+block: `docs/ffi.md` maps `i32 i16 i8 u32 u16 u8 usize isize` onto
+`Int` and range-checks them at the boundary. They belong in the Rust
+signature, never in the Axiom one.
+
+A multi-letter type variable is still perfectly legal - `elem`, `out`,
+`acc` and `xs` all check - because the refusal is a NAMED SET, not a
+rule about length. Refusing every multi-letter variable would reject
+`(-> (Vec elem) (-> elem out) (Vec out))`, a correct program.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1409,6 +1446,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
+  [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

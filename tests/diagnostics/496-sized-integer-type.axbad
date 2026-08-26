@@ -1,0 +1,25 @@
+; The lowercase half of 495, and the half that was silent.
+;
+; `Double` and `U8` next door draw AX3002 because they are
+; CAPITALISED: an unknown uppercase name is an unknown type
+; CONSTRUCTOR, and the checker resolves it and fails. A lowercase name
+; in type position is a type VARIABLE, and there is no such thing as
+; an unknown one - so `u64` did not fail, it SUCCEEDED, binding a
+; fresh variable and generalising the signature over it.
+;
+; Measured on 0.3.1, which is why this is an error rather than a
+; lint: with the body below and `(f "not a number")` at the call
+; site, `axiom check` printed OK, `axiom run` exited 0, and the
+; program ran. `(:: f (-> u64 Int))` means `forall n. n -> Int`, which
+; is the OPPOSITE of the constraint the spelling looks like.
+;
+; This is `.axbad` because the refusal is at parse time, so the file
+; does not parse and `check-fmt`/`check-tree-sitter` must not sweep it
+; as source.
+(:: f (-> u64 Int))
+
+(fn (f x) 7)
+
+(:: main Int)
+
+(fn (main) (f 41))

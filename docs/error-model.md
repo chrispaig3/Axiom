@@ -726,11 +726,19 @@ can fail - a proposal whose number is already spent - so the next
 collision is a red gate rather than a paragraph nobody re-read. Found
 2026-08-25 while closing `AX3040`'s second shape.
 
-The next free semantic number is therefore `AX3046`: `AX3042` was
+The next free semantic number is therefore `AX3048`: `AX3042` was
 SPENT on 2026-08-25 by `undeclared-effect` (a function that performs IO
-and does not declare it), `AX3043` and `AX3045` are still unspent and
-stay where they are, `AX3044` is the namespace pass's, and `AX3032` is
-retired and **MUST NOT** be reused. `discarded-result` renumbered to
+and does not declare it), `AX3047` was spent on 2026-08-26 by
+`sized-integer-type` (a C or Rust primitive spelling in type position,
+which is a type VARIABLE and so was silently accepted), `AX3043` and
+`AX3045` are still unspent and stay where they are, `AX3044` is the
+namespace pass's, and `AX3032` is retired and **MUST NOT** be reused.
+
+`AX3047` is the ninth number this section has had to reconcile, and the
+first one it allocated rather than surrendered: it was taken from the
+free end deliberately, leaving the three proposals below untouched.
+That is the rule working in the other direction - a new code goes above
+the reserved block, not into it. `discarded-result` renumbered to
 `AX3046` when `AX3042` was built under it - which is this paragraph's
 own rule working, and the collision check below is what caught it. A
 proposal renumbers again if something builds one before this model does,

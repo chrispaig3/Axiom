@@ -818,6 +818,16 @@
   0  0  p  seg  "AX2006"
 ))
 
+; A C or Rust primitive type name in type position. `exp` carries the
+; NAME as written, the way `pErrModSeg` carries the segment, because
+; the whole point of AX3047 is that the reader sees the spelling they
+; typed beside the Axiom type it should have been.
+(pub :: pErrSizedTy (-> Int String Int))
+
+(pub fn (pErrSizedTy p n) (PResult
+  0  0  p  n  "AX3047"
+))
+
 ; An `extern` block's library name that is not one. `exp` carries the
 ; ONE offending byte as a one-byte string, and `""` means the name was
 ; empty - the two shapes AX3041 has. The offending byte rather than the
@@ -872,6 +882,48 @@
         (diagAddNote d (strConcat "the parser walks the form tree recursively, so nesting depth is " "native stack depth"))
         d
       }
+    )
+  )
+)
+
+; AX3047, at the offending type name's own token.
+;
+; The message says what the name IS rather than what it is not,
+; because "not a type" is the reader's own belief and the surprise is
+; the other half: it is a type VARIABLE, and a signature carrying one
+; accepts anything at all. The help names the Axiom type so the fix is
+; a substitution rather than a search.
+(pub :: ax3047Diag (-> Int Int String Int))
+
+(pub fn (ax3047Diag tokens pos n)
+  ; `strConcat` rather than `cat3`/`cat4`: those live in `codegen.ax`,
+  ; and `parser.ax` must not depend on it. Whole-program splicing hides
+  ; the mistake from a build of `main.ax` - every module is in one
+  ; namespace by then - and it surfaces the moment anything imports the
+  ; parser ALONE, which `tests/selfhost/280-parse.ax` does and three
+  ; other compiler modules do.
+  (let (
+    (tok (vecGet tokens pos))
+    (meant (sizedTyMeant n))
+  )
+    (let (
+      (msg (strConcat (strConcat "`" n) "` is a type VARIABLE here, not a type"))
+      (help (strConcat
+        (strConcat
+          (strConcat (strConcat "write `" meant) "`. A lowercase name in type position is a TYPE VARIABLE, and there is no such thing as an unknown one - so this signature does not constrain anything, it generalises over it and accepts a value of any type at all. ")
+          "Axiom has one integer type, `Int`, 64 bits wide, and one float, `Float`. The narrow spellings belong on the Rust side of an `extern` block, where the boundary widens them - see docs/ffi.md; they are not Axiom types. "
+        )
+        (strConcat (strConcat "The uppercase near-misses are refused already: `Double` and `I64` draw AX3002, because an unknown UPPERCASE name is an unknown type constructor. `" n) "` is lowercase, which is the whole difference.")
+      ))
+    )
+      (let ((d (mkDiag
+        SEV_ERROR        "AX3047"        "sized-integer-type"        (tokenSpan tok)        msg        0        ""        help
+      )))
+        {
+          (diagSetLabel d (strConcat (strConcat "this binds a fresh type variable named `" n) "`"))
+          d
+        }
+      )
     )
   )
 )
@@ -971,6 +1023,8 @@
       ; expectation the site never made.
       (if (strEq (pResCode r) "AX2006")
         (ax2006Diag tokens pos exp)
+        (if (strEq (pResCode r) "AX3047")
+          (ax3047Diag tokens pos exp)
         (if (strEq (pResCode r) "AX3041")
           (ax3041Diag tokens pos exp)
           ; AX2002 is NOT "the position is at EOF" - stage0 emits it from
@@ -1028,6 +1082,7 @@
                 )
               )
             )
+          )
           )
         )
       )
@@ -2824,6 +2879,122 @@
 ; was zero. `I64` is gone from here too - the checker still constructs
 ; it internally as the `set` form's type (mkI64Ty), which is a leaked
 ; internal, not a surface type a program may claim.
+; A C or Rust primitive type name written in TYPE position, and the
+; Axiom type that was meant - or "" when the name is an ordinary type
+; variable.
+;
+; WHY THIS IS NOT THE `Double` CASE ABOVE. `Double` and `I64` were
+; removed and now draw `AX3002` where a signature names them, which
+; works because they are CAPITALISED: an unknown uppercase name is an
+; unknown type CONSTRUCTOR and the checker refuses it. A lowercase name
+; in type position is a type VARIABLE, and there is no such thing as an
+; unknown one - so `(:: f (-> u64 Int))` does not fail, it succeeds as
+; `forall a. a -> Int`, and then accepts a String. Measured on 0.3.1:
+; `check` says OK and the program runs.
+;
+; WHY A NAMED SET AND NOT A RULE. The tempting general rule - refuse a
+; MULTI-LETTER type variable - is too wide. It refuses
+; `(-> (Vec elem) (-> elem out) (Vec out))`, a correct and readable
+; program, and a check whose suggested fix makes the program less
+; correct is the wrong check (the AX3005 backstop, 2026-08-17).
+;
+; The corpus licenses the set rather than the rule. Across the
+; compiler's 2,859 AXSYM rows and the standard library's 597, the whole
+; type-variable vocabulary is six SINGLE LETTERS - `a` 71, `e` 16,
+; `b` 14, `c` 5, `f` 2, `d` 1. Not one multi-character type variable
+; exists, so no spelling below can be taking a name this tree uses.
+;
+; VALUE POSITION IS UNTOUCHED, and that is why this is asked here and
+; not in the lexer: `byte`, `from`, `str` and `char` are ordinary
+; identifiers, and the corpus uses several as parameter names -
+; `(strFindByte s byte from)` is three of them in one signature.
+(pub :: sizedTyMeant (-> String String))
+
+(pub fn (sizedTyMeant n)
+  (if (sizedTyIn n "i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize size_t int uint long short")
+    "Int"
+    (if (sizedTyIn n "f32 f64 float double")
+      "Float"
+      (if (sizedTyIn n "bool")
+        "Bool"
+        (if (sizedTyIn n "char")
+          "Char"
+          (if (sizedTyIn n "str string")
+            "String"
+            (if (sizedTyIn n "void")
+              "Void"
+              ""
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Is `n` one of the space-separated words in `words`?
+;
+; A word list rather than a chain of `(|| (strEq ...) ...)`, because the
+; chain for seventeen spellings is seventeen nested `||`s and its
+; closing run is seventeen parens deep - which is a shape this
+; repository has already paid for twice. The list is also the thing a
+; reader wants to see.
+;
+; The walk compares word by word against the source string rather than
+; splitting it, so it allocates nothing per call and runs at parse time
+; over every type atom.
+;
+; The list parameter is `words` and not `set` because `set` is a
+; FORMATTER REFUSAL: `axiom fmt` will not rewrite a file with a
+; parameter of that name, while the parser and the checker accept it
+; and the compiler builds. That is a live parser/formatter divergence,
+; found here and recorded in `CHANGELOG.md` rather than fixed in this
+; change - a formatter is a second implementation of the grammar, and
+; the two disagreeing is its own slice.
+(pub :: sizedTyIn (-> String String Bool))
+
+(pub fn (sizedTyIn n words) (sizedTyInFrom n words 0))
+
+(pub :: sizedTyInFrom (-> String String Int Bool))
+
+(pub fn (sizedTyInFrom n words i)
+  (if (> i (- (strLen words) (strLen n)))
+    false
+    (if (sizedTyWordAt n words i)
+      true
+      (sizedTyInFrom n words (sizedTyNextWord words (+ i 1)))
+    )
+  )
+)
+
+; Does `words` hold `n` as a whole word starting at `i`?
+(pub :: sizedTyWordAt (-> String String Int Bool))
+
+(pub fn (sizedTyWordAt n words i)
+  ; `strSlice` takes a START and a COUNT, not two indices - and passing
+  ; `i + len` as the count matched only at i = 0, so the walk silently
+  ; found nothing for every word after the first.
+  (if (== (strCmp (strSlice words i (strLen n)) n) 0)
+    (if (== (+ i (strLen n)) (strLen words))
+      true
+      (== (strByte words (+ i (strLen n))) 32)
+    )
+    false
+  )
+)
+
+; The index just past the next space at or after `i`, or `strLen words`.
+(pub :: sizedTyNextWord (-> String Int Int))
+
+(pub fn (sizedTyNextWord words i)
+  (let ((sp (strFindByte words 32 i)))
+    (if (< sp 0)
+      (strLen words)
+      (+ sp 1)
+    )
+  )
+)
+
 (pub :: typeKeywordCanon (-> String String))
 
 (pub fn (typeKeywordCanon n)
@@ -2932,7 +3103,17 @@
               )
                 (pOk (mkTCon canon vecNew) (advance pos))
                 (if (== (lexStartsLower s) 1)
-                  (pOk (mkTVar s) (advance pos))
+                  ; A lowercase name in type position is a type
+                  ; VARIABLE, and there is no such thing as an unknown
+                  ; one - so a C or Rust primitive spelling does not
+                  ; fail here, it succeeds as `forall n. ...` and then
+                  ; accepts anything. AX3047 is the refusal; see
+                  ; `sizedTyMeant` for why the set is named rather than
+                  ; derived from a rule about length.
+                  (if (== (strLen (sizedTyMeant s)) 0)
+                    (pOk (mkTVar s) (advance pos))
+                    (pErrSizedTy pos s)
+                  )
                   (pOk (mkTCon s vecNew) (advance pos))
                 )
               )
