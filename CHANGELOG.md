@@ -20,6 +20,56 @@ its changelog too.
 
 ### Added
 
+- **The symbol stream carries every public name.** `symbols` had no arm
+  for `TAG_D_MACRO`, and its `TAG_D_EFFECT` arm registered the effect's
+  operations rather than the effect — so thirteen public names,
+  `println`, `format` and `try!` among them, were API no gate over the
+  stream could see. `compat/UNCOVERED` recorded that hole when the
+  compatibility gate landed; it is empty now, and still compared as a
+  set, so a fourteenth invisible name fails. The baseline is **420
+  rows**, up from 407.
+
+  `check-tools-selfhost.sh` caught the other half: it reconstructs the
+  human table from AXSYM with its own letter-to-word table, a
+  deliberate second implementation of `symKindWord`, and went red on
+  `M` and `E` with the bare letters in the `want` column. No re-bless
+  could have satisfied it.
+
+### Fixed
+
+- **Emptying the hole killed the gate that reads it.** `compat/UNCOVERED`
+  reaching zero names is the success condition of the item above — and
+  it made `grep -v '^#'` match nothing, which exits 1, which under
+  `set -euo pipefail` killed `check-compat.sh` immediately after it
+  printed that section's heading. The battery read **45 passed, 1
+  failed in 2 seconds**, with no `FAIL` line for `run-gates.sh` to
+  quote. Both greps carry `|| true` now.
+
+  This is the trap the repository already had written down — *a bare
+  `grep` with no match kills a `set -e` gate* — arriving from the one
+  direction nobody guards: not a failure state, but the state the work
+  was aiming at.
+
+- **Ten recorded doc conflicts, each verified before it was touched.**
+  The `MM-FFI` conformance row was wrong three ways, not the two on
+  record: `FFI-5` listed Planned and `FFI-1` Refused against their own
+  `(H)` text, and `FFI-6` appeared in no column at all. `ERR-PROP-5`'s
+  *rule* carried `(P)` while its text is present-tense, names a probe
+  and has no obligation — the table was right and the marker was copied
+  from the neighbouring `(P)` block. `ERR-ADOPT-1` said 65 sites while
+  its own table summed to 64. `MM-LIFE-7` was still Planned though
+  `linear`/`consume` were removed on 2026-08-25. `CONTRIBUTING.md` said
+  CI had seven jobs against `ci.yml`'s eight. `check-bootstrap.sh`'s
+  header said 151 cases / 50 distinct against a live 157 / 53, and
+  "340 MiB" against a ceiling of 384.
+
+  `README.md`'s "84 sites over 12 files" went with them: that was the
+  comment-counting proxy, and the row now cites the gated number and
+  says why the old one was wrong.
+
+
+### Added
+
 - **A version number is now a checked claim.** `scripts/check-version.sh`
   holds nineteen literals across sixteen files to `VERSION`, which
   proves the number is *stated*. Nothing proved it was *earned*: every

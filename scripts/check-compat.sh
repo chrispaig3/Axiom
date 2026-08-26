@@ -233,8 +233,15 @@ echo "== the hole in the stream is exactly the hole we wrote down =="
 checks=$((checks + 1))
 have="$work/uncovered.have"
 want="$work/uncovered.want"
-python3 "$helper" uncovered "$axc" "$work" "$repo_root/stdlib" 2>/dev/null | LC_ALL=C sort > "$have"
-grep -v '^#' "$baseline_dir/UNCOVERED" | grep -v '^[[:space:]]*$' | LC_ALL=C sort > "$want"
+# `|| true` on both, and the empty case is exactly why. This gate runs
+# under `set -euo pipefail`, and a `grep` that matches nothing exits 1
+# - so the moment `compat/UNCOVERED` became EMPTY, which is the state
+# this whole hole was being closed to reach, the pipeline failed and
+# the gate died silently after printing its heading. Measured: 45 gates
+# passed and this one "failed" in 2 seconds with no FAIL line for
+# `run-gates.sh` to quote. The success condition killed the check.
+python3 "$helper" uncovered "$axc" "$work" "$repo_root/stdlib" 2>/dev/null | LC_ALL=C sort > "$have" || true
+{ grep -v '^#' "$baseline_dir/UNCOVERED" || true; } | { grep -v '^[[:space:]]*$' || true; } | LC_ALL=C sort > "$want"
 if diff -q "$have" "$want" > /dev/null; then
   n="$(grep -c . "$have" || true)"
   if [[ "$n" -eq 0 ]]; then
