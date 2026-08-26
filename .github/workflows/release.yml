@@ -224,7 +224,39 @@ jobs:
         run: |
           v="$(tr -d '[:space:]' < VERSION)"
           ls -l dist
+
+          # THIS RELEASE'S SECTION, not the whole changelog.
+          #
+          # `--notes-file CHANGELOG.md` shipped the entire file, and on
+          # v0.3.4 that finally hit GitHub's ceiling:
+          #
+          #     HTTP 422: Validation Failed
+          #     body is too long (maximum is 125000 characters)
+          #
+          # The file was 132,366 characters; this release's own section
+          # is 7,032. Every build had already succeeded, so the failure
+          # was three platforms of correct artifacts and no release.
+          #
+          # It was also always the wrong content: a reader opening
+          # v0.3.4 wants v0.3.4's notes, not every note since 0.2.0.
+          notes="$(mktemp)"
+          awk -v tag="## $v " '
+            index($0, tag) == 1 { f = 1 }
+            f && /^## / && index($0, tag) != 1 { exit }
+            f { print }
+          ' CHANGELOG.md > "$notes"
+
+          # A section that is missing or empty must STOP the release
+          # rather than publish an empty body - the same rule the rest
+          # of this repository applies to a golden with no content.
+          if [[ ! -s "$notes" ]]; then
+            echo "FAIL: CHANGELOG.md has no '## $v' section to publish as notes." >&2
+            echo "      The release body would have been empty." >&2
+            exit 1
+          fi
+          echo "release notes: $(wc -c < "$notes") characters, $(wc -l < "$notes") lines"
+
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "Axiom $v" \
-            --notes-file CHANGELOG.md \
+            --notes-file "$notes" \
             --verify-tag

@@ -20,6 +20,23 @@ its changelog too.
 
 ### Changed
 
+- **The release published the whole changelog as its notes, and the
+  changelog outgrew GitHub.** `release.yml` passed `CHANGELOG.md`
+  entire to `--notes-file`, and on this release that hit the ceiling:
+  `HTTP 422: body is too long (maximum is 125000 characters)` against
+  a 132,366-character file. All three platform builds had already
+  succeeded, so the failure was three sets of correct artifacts and no
+  release.
+
+  It was always the wrong content as well — a reader opening `v0.3.4`
+  wants `v0.3.4`'s notes, not every note since `0.2.0`. The publish
+  step extracts this version's own section now (7,032 characters), and
+  **refuses to publish an empty body**: a missing or empty section
+  stops the release rather than shipping notes that say nothing, which
+  is the same rule this repository applies to a golden with no
+  content. Checked against every released version — 0.2.0 through
+  0.3.4 all extract, the largest being 0.3.0 at 78,160.
+
 No gate was added for this release: the thirty-seven gates that build
 the compiler under test through `gate_build_axc` already cover it,
 `check-compat.sh` holding the nine declared breaks and
