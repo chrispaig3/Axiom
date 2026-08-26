@@ -126,6 +126,37 @@ its changelog too.
   three per-target `Sys/Platform` files as the one named exception.
   20 modules.
 
+- **The permit reported every declared break as undeclared.** The
+  version bump to `0.3.2` was made early, precisely so a break could be
+  declared while it lands — and the first thing that exercised the
+  declared path found it had never worked. `declared_newer` was defined
+  thirty lines *below* its only caller; bash resolves a function at call
+  time, the call answered 127, and `if` read 127 as false. `set -e`
+  never fired because a condition is exempt, and the gate passed 22
+  checks throughout.
+
+  No probe in `scripts/check-compat.sh` could have caught it: five
+  required the gate to **refuse** and one required it to stay green on
+  an addition, and not one ever reached `compat/BREAKING`. There is a seventh now,
+  asserting both directions off a single planted break — declared is
+  accepted, the same break undeclared is not — and it drives
+  `undeclared_in`, the function the real check calls, rather than
+  calling `declared_newer` itself.
+
+  **That probe still cannot catch this class, and the ablation is what
+  said so.** The probes run near the end of the file, by which point
+  every definition has been read, so the probe stayed green through the
+  exact bug it was written for. The guard that does catch it is
+  structural: `declare -F` over both helpers, immediately above the
+  first call. Ablated by putting `declared_newer` back where it was:
+  `FAIL called before defined: declared_newer`, exit 1.
+
+  A third defect fell out on the way. `declared_newer`'s `read -r v k n _`
+  left `n` undeclared, and bash scopes dynamically — so it assigned
+  straight through to `undeclared_in`'s local counter of the same name,
+  and the count came back as the string `unwrapOr`. Every one of them
+  is `local` now, and none is spelled `n`.
+
 - **Both `Cargo.lock`s shipped 0.3.1 still reading 0.3.0.** They are a
   site's OUTPUT, the way `tree-sitter-axiom/src/parser.c` is: cargo
   derives them from `rust/Cargo.toml`, so a bump that moved the

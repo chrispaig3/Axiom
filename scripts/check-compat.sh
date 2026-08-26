@@ -46,6 +46,54 @@ checks=0
 ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
+# Is this break declared against a version strictly newer than the
+# baseline's? `sort -V` decides, so 0.10.0 beats 0.9.0.
+#
+# DEFINED HERE, above every use, and that is not a style choice. The
+# first version of this gate defined it thirty lines BELOW its only
+# caller. Bash resolves a function at call time, so the call answered
+# 127, `if` swallowed that as false, `set -e` never fired because a
+# condition is exempt, and every declared break was reported
+# UNDECLARED. No negative probe caught it, because not one of them
+# exercised the DECLARED path - the gate had five probes for refusing
+# and none for accepting. There is one now.
+declared_newer() {  # <permit-file> <kind-letter> <name>
+  # Every one of these is `local`, and `d_n` is not spelled `n`. Bash
+  # scopes dynamically: an undeclared `n` here assigns straight through
+  # to `undeclared_in`'s local counter of the same name, and the count
+  # came back as the string `unwrapOr`. Same shape as two parallel Vecs
+  # sharing one names-Vec - the write lands somewhere real and wrong.
+  local brk="$1" letter="$2" name="$3" d_v d_k d_n
+  while read -r d_v d_k d_n _; do
+    [[ "$d_k" == "$letter" && "$d_n" == "$name" ]] || continue
+    [[ "$d_v" == "$base_version" ]] && continue
+    [[ "$(printf '%s\n%s\n' "$base_version" "$d_v" | sort -V | tail -1)" == "$d_v" ]] && return 0
+  done < <(grep -v '^#' "$brk" 2>/dev/null | grep -v '^[[:space:]]*$')
+  return 1
+}
+
+# Every breaking row in <diff-file> that <permit-file> does not declare,
+# counted and named on stdout.
+#
+# THE REAL CHECK AND THE ACCEPTING PROBE BOTH CALL THIS, and that is the
+# point. The first accepting probe called `declared_newer` directly and
+# so tested the FUNCTION while the defect was at the CALL SITE - the
+# call sat above the definition, answered 127, and `if` read that as
+# false. Ablated, the probe stayed green through the exact bug it was
+# written for. A probe has to drive the path the gate drives.
+undeclared_in() {  # <diff-file> <permit-file> -> count on stdout
+  local diff_file="$1" brk="$2" n=0 kind letter name
+  while read -r kind letter name; do
+    if declared_newer "$brk" "$letter" "$name"; then
+      echo "     declared: $kind $letter $name" >&2
+    else
+      echo "     UNDECLARED: $kind $letter $name" >&2
+      n=$((n + 1))
+    fi
+  done < <(awk '$1=="REMOVED"||$1=="CHANGED"||$1=="WIDENED" {print $1, $2, $3}' "$diff_file")
+  echo "$n"
+}
+
 helper="$repo_root/tests/compat/verify-compat.py"
 baseline_dir="$repo_root/compat"
 version="$(cat "$repo_root/VERSION")"
@@ -101,6 +149,36 @@ else
   echo "     '>' is in the tree and outside this gate entirely."
 fi
 
+# Every helper the permit needs must EXIST by the time the permit runs.
+#
+# This is here because the alternative did not work. Bash resolves a
+# function at call time, so a call above its definition answers 127 and
+# `if` reads that as false - which is how the permit came to report
+# every declared break as UNDECLARED while the gate passed twenty-two
+# checks. A negative probe cannot cover it: the probes run near the end
+# of this file, by which point every definition has been read, so the
+# probe stays green through the exact bug it was written for. Measured,
+# twice.
+#
+# So the guard is structural rather than behavioural, it sits
+# immediately above the first call, and it is the only check here that
+# is about this script rather than about the library.
+checks=$((checks + 1))
+missing=""
+for f in declared_newer undeclared_in; do
+  declare -F "$f" > /dev/null 2>&1 || missing="$missing $f"
+done
+if [[ -z "$missing" ]]; then
+  ok "the permit's helpers are defined before the permit runs"
+else
+  bad "called before defined:$missing"
+  echo "     bash resolves a function at call time; a call above its"
+  echo "     definition answers 127, and \`if\` reads 127 as false - so"
+  echo "     every breaking change would be reported as declared, or as"
+  echo "     undeclared, depending on which way the test is written."
+  exit 1
+fi
+
 echo "== the current surface agrees with the baseline, or the break is declared =="
 checks=$((checks + 1))
 diff_out="$work/diff.txt"
@@ -122,22 +200,7 @@ else
   # THIS version. That file is the deprecation policy made mechanical:
   # a break is allowed, and it is allowed only when someone wrote down
   # that they meant it.
-  undeclared=0
-  while read -r kind letter name; do
-    # The declared version must be NEWER THAN THE BASELINE'S, not equal
-    # to `VERSION`. A breaking change lands before the release that
-    # carries it is bumped, so for most of a release cycle `VERSION`
-    # still reads the baseline's own version - and a permit keyed on
-    # `VERSION` would refuse every change the release exists to make,
-    # until the last commit. Found by an adversarial read of this gate
-    # before it had ever refused anything.
-    if declared_newer "$letter" "$name"; then
-      echo "     declared: $kind $letter $name"
-    else
-      echo "     UNDECLARED: $kind $letter $name"
-      undeclared=$((undeclared + 1))
-    fi
-  done < <(awk '$1=="REMOVED"||$1=="CHANGED"||$1=="WIDENED" {print $1, $2, $3}' "$diff_out")
+  undeclared="$(undeclared_in "$diff_out" "$baseline_dir/BREAKING")"
   if [[ $undeclared -eq 0 ]]; then
     ok "every breaking difference is declared in compat/BREAKING for $version"
   else
@@ -160,15 +223,6 @@ fi
 # ---------------------------------------------------------------------
 # Is this break declared against a version strictly newer than the
 # baseline's? `sort -V` decides, so 0.10.0 beats 0.9.0.
-declared_newer() {  # <kind-letter> <name>
-  local letter="$1" name="$2" v
-  while read -r v k n _; do
-    [[ "$k" == "$letter" && "$n" == "$name" ]] || continue
-    [[ "$v" == "$base_version" ]] && continue
-    [[ "$(printf '%s\n%s\n' "$base_version" "$v" | sort -V | tail -1)" == "$v" ]] && return 0
-  done < <(grep -v '^#' "$baseline_dir/BREAKING" 2>/dev/null | grep -v '^[[:space:]]*$')
-  return 1
-}
 
 echo "== the hole in the stream is exactly the hole we wrote down =="
 # `symbols` carries no row for a macro, for an impl method, or for an
@@ -311,6 +365,52 @@ rm -rf "$abl"
 # And the mode the other three cannot show: a tree that does not compile
 # must answer FATAL, never a compatibility verdict. Without this, every
 # probe above could be satisfied by a syntax error.
+# THE PROBE FOR THE ACCEPTING PATH, and its control.
+#
+# Five probes require this gate to REFUSE something and one requires it
+# to stay green on an addition; not one of them ever reached
+# `compat/BREAKING`. That is how a call to an undefined function sat in
+# the permit reporting every declared break as undeclared, with the gate
+# passing 22 checks - bash resolves a function at call time, the call
+# answered 127, and `if` read that as false.
+#
+# The first version of this probe did not catch that either: it called
+# `declared_newer` directly, so it tested the FUNCTION while the defect
+# was at the CALL SITE, and it stayed green when the bug was
+# reinstated. It goes through `undeclared_in` now - the same function
+# the real check above calls - and it asserts BOTH directions off one
+# planted break, so the permit cannot be a rubber stamp either.
+checks=$((checks + 1))
+abl="$work/abl"; rm -rf "$abl"; cp -r "$repo_root/stdlib" "$abl"
+python3 - "$abl/Err.ax" <<'EOP'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = "(pub :: unwrapOr (-> (Result a e) a a))"
+assert old in s, "probe text absent"
+open(p, "w", encoding="utf-8").write(s.replace(old, old.replace("pub ", "", 1), 1))
+EOP
+pdiff="$work/probe.diff"
+python3 "$helper" compare "$axc" "$work" "$baseline" "$abl" > "$pdiff" 2>&1 || true
+if ! grep -q '^  REMOVED F unwrapOr$' "$pdiff"; then
+  bad "the permit probe did not produce the removal it needs"
+  sed 's/^/     /' "$pdiff" | head -4
+else
+  decl="$work/BREAKING.declared"
+  cat "$baseline_dir/BREAKING" > "$decl"
+  printf '%s  F  unwrapOr  probe: the accepting path\n' "$version" >> "$decl"
+  n_yes="$(undeclared_in "$pdiff" "$decl" 2>/dev/null)"
+  n_no="$(undeclared_in "$pdiff" "$baseline_dir/BREAKING" 2>/dev/null)"
+  if [[ "$n_yes" -eq 0 && "$n_no" -eq 1 ]]; then
+    ok "a break declared for $version is accepted, and the same break undeclared is not"
+  else
+    bad "the permit does not read compat/BREAKING correctly"
+    echo "     declared: expected 0 undeclared, got $n_yes"
+    echo "     undeclared: expected 1 undeclared, got $n_no"
+  fi
+fi
+rm -rf "$abl"
+
 echo "== a tree that does not compile is not a compatibility verdict =="
 checks=$((checks + 1))
 rm -rf "$abl"; cp -r "$repo_root/stdlib" "$abl"
