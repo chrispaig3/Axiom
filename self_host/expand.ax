@@ -6031,6 +6031,13 @@
           (if (== g 0)
             0
             {
+              ; The template's AXTAGs travel to the declaration it
+              ; generated. `g` is a NEW node - everything after
+              ; expansion checks it, not the template - so without this
+              ; a tag written inside a template is parsed, attached,
+              ; and then dropped at instantiation. The same shape as an
+              ; impl method losing its tag when it is lowered.
+              (memSetWord g 7 (memGetWord t 7))
               (vecPush acc g)
               ; ONE declaration, counted the moment it exists. This is
               ; the per-node discipline `expandExpr` has always used on
@@ -7223,7 +7230,13 @@
       (memSetWord d 7 tags)
       0
     }
-    (if (== (nodeTag (vecGet made i)) TAG_D_FN)
+    ; A generated `fn` that ALREADY carries tags got them from its own
+    ; template, where an author wrote them against that function's
+    ; body. An invocation's tags are a claim about a different thing
+    ; and must not overwrite them - so the search skips it and looks
+    ; for the next untagged function, which is the one an invocation
+    ; -level tag can honestly describe.
+    (if (&& (== (nodeTag (vecGet made i)) TAG_D_FN) (== (memGetWord (vecGet made i) 7) 0))
       (if (== i 0)
         {
           (memSetWord d 7 tags)

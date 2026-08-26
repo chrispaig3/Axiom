@@ -1,0 +1,28 @@
+[1;33mwarning[AX3037][0m[1m: AXTAG unverifiable on `quiet`: `effect(div)` cannot be checked: nothing in the compiler infers that effect, so no body ever supplies it[0m
+  [1;34m--> [0m359-div-not-inferred.ax:36:6
+[1;34m   |[0m
+[1;34m36 |[0m (fn (quiet n) n)
+[1;34m   |[0m      [1;33m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`Div` and `Err` are spellable and never inferred - zero of this repository's 3,040 effect rows carry either. The claim is recorded and nothing validates it. Divergence is not inferred because the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating; `(handle BODY (Pure) 0)` is the construct that does refuse, and it measures IO, Alloc and Mut
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3037` for a full explanation
+
+[1;33mwarning[AX3037][0m[1m: AXTAG unverifiable on `diverges`: `effect(div)` cannot be checked: nothing in the compiler infers that effect, so no body ever supplies it[0m
+  [1;34m--> [0m359-div-not-inferred.ax:41:6
+[1;34m   |[0m
+[1;34m41 |[0m (fn (diverges n) (diverges n))
+[1;34m   |[0m      [1;33m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`Div` and `Err` are spellable and never inferred - zero of this repository's 3,040 effect rows carry either. The claim is recorded and nothing validates it. Divergence is not inferred because the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating; `(handle BODY (Pure) 0)` is the construct that does refuse, and it measures IO, Alloc and Mut
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3037` for a full explanation
+
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `honest`: `effect(mut)` claim unsupported: missing Mut[0m
+  [1;34m--> [0m359-div-not-inferred.ax:46:6
+[1;34m   |[0m
+[1;34m46 |[0m (fn (honest n) n)
+[1;34m   |[0m      [1;31m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+compilation failed due to 1 previous error

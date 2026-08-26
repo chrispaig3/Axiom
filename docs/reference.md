@@ -1281,7 +1281,7 @@ the choice.
 | `Pure` | No side effects |
 | `Alloc` | Heap **machinery**, not strictly allocation: a call reaching `__alloc` — every `Vec`/`Map`/`Str` growth, every `memAlloc` — and, since 2026-08-25, the three arena primitives, because a reset ends every block allocated since a mark. `handle` contributes it too, for installing evidence, which allocates nothing either. The `(alloc T)` keyword contributes it and was the only contributor until 2026-08-23, which had it exactly inverted (`memory-model.md` MM-EXEC-9a) |
 | `Mut` | Mutable heap state: `(set base.field v)`, and the `__store8`/`__store64` primitives it lowers to — the second half arrived 2026-08-25 (`memory-model.md` MM-EXEC-9a), which is why `vecPush` and `mapInsert` carry it. Plain `set` on a `mut` local is deliberately *not* `Mut` - a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
-| `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is always reported unsupported, even over a body that plainly does not terminate. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
+| `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is reported **unverifiable** (`AX3037`, a warning) rather than unsupported, even over a body that plainly does not terminate — a claim the compiler never looks for is a fact about the analysis, not the body. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
 
 ### Declaring an Effect Type
 
@@ -2063,7 +2063,7 @@ next one, so a piped session and a typed one produce the same bytes.
 
 ```
 $ axiom repl
-axiom (self-hosted) 0.2.0 - Axiom REPL
+axiom (self-hosted) 0.3.0 - Axiom REPL
 Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))

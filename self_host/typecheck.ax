@@ -8989,6 +8989,29 @@
 ; head decides what the call itself adds - and, when the callee is
 ; known to be effect-transparent somewhere, which argument escapes
 ; into that position.
+; Walk a call's arguments. Identical to `walkEffectsVec` except that a
+; bare NAME argument is attributed exactly rather than marked as a
+; possible over-approximation - it is being passed to something that
+; can call it.
+(pub :: walkEffectsArgVec (-> Int Int Int Int Int Int))
+
+(pub fn (walkEffectsArgVec tc v i bound acc)
+  (if (>= i (vecLen v))
+    0
+    {
+      (let ((a (vecGet v i)))
+        (if (== (nodeTag a) TAG_E_VAR)
+          (effRefSiteAt tc (nodeAName a) bound acc 0)
+          (walkEffects tc a bound acc)
+        )
+      )
+      (walkEffectsArgVec
+        tc        v        (+ i 1)        bound        acc
+      )
+    }
+  )
+)
+
 (pub :: walkEffectsSpine (-> Int Int Int Int Int))
 
 (pub fn (walkEffectsSpine tc e bound acc)
@@ -8997,8 +9020,29 @@
     (head (spineHead e))
   )
     {
-      (walkEffectsVec
-        tc        args        0        bound        acc
+      ; Arguments of a CALL are attributed exactly: a bare arrow-typed
+      ; name there is handed to a body that may apply it, so its
+      ; effects are this call's and not an over-approximation.
+      ;
+      ; A CONSTRUCTOR's arguments are not. `(Box doIO)` STORES the
+      ; function; nothing applies it, and `install` does not perform
+      ; what `doIO` performs. Measured: treating every argument as a
+      ; call put a false AX3042 on `install`, `hold` and `main` in
+      ; `tests/diagnostics/343-axtag-unverifiable.ax`, whose whole
+      ; subject is a function value going into memory in one place and
+      ; being called in another.
+      ;
+      ; `findFnEnt` answers 0 for a constructor, which is the same
+      ; property `MM-EXEC-9a`'s note relies on - it answers 0 for
+      ; `cast` and every struct/data constructor - so the head having
+      ; an entry is exactly "this is a function that could apply it".
+      (if (&& (== (nodeTag head) TAG_E_VAR) (!= (findFnEnt tc (nodeAName head)) 0))
+        (walkEffectsArgVec
+          tc          args          0          bound          acc
+        )
+        (walkEffectsVec
+          tc          args          0          bound          acc
+        )
       )
       (if (== (nodeTag head) TAG_E_VAR)
         (walkCallHead
@@ -9255,9 +9299,31 @@
   )
 )
 
+; A bare reference in a position where the walk cannot see the value
+; being CALLED. Marks `?:byref` for an arrow-typed referent.
 (pub :: effRefSite (-> Int String Int Int Int))
 
-(pub fn (effRefSite tc n bound acc)
+(pub fn (effRefSite tc n bound acc) (effRefSiteAt tc n bound acc 1))
+
+; The same rule with the over-approximation mark SUPPRESSED, for a
+; reference the walk can see being handed to something that calls it.
+;
+; `mark` is 0 at exactly one place: an ARGUMENT of a call. Passing
+; `shout` to `(apply shout n)` is not naming a function and walking
+; away - it is handing it to a body that applies it, and `apply`'s own
+; row says so (`#effect-params=f`). Marking that byref suppressed
+; AX3042 for the whole call chain: measured, `(fn (main) (sneaky 1))`
+; compiled clean, printed "IO HAPPENED" at run time, and `symbols`
+; reported `#effects=IO #effects-overapprox` on `main` - the walk
+; KNEW, and the marker was the only reason nothing said so.
+;
+; The shape the mark exists for survives: `(fn (handoff k) shout)`
+; RETURNS an effectful function without calling it, and a bare name in
+; that position still marks. The two differ by whether the walk can
+; see a call, which is exactly what argument position tells it.
+(pub :: effRefSiteAt (-> Int String Int Int Int Int))
+
+(pub fn (effRefSiteAt tc n bound acc mark)
   (if (== (bsIsLocal bound n) 1)
     0
     (if (== (isSyscallPrim n) 1)
@@ -9303,7 +9369,7 @@
             ; correcting it costs nothing.
             {
               (effUnion acc (memGetWord ent 5) 0)
-              (if (== (tyIsArrow (memGetWord ent 1)) 1)
+              (if (&& (== mark 1) (== (tyIsArrow (memGetWord ent 1)) 1))
                 (effAdd acc effByRef)
                 0
               )
@@ -9386,8 +9452,27 @@
     (if (== tr 0)
       0
       {
-        (traitUnionImpls
+        ; MORE THAN ONE IMPL AND THE UNION IS AN UPPER BOUND, because
+        ; dispatch picks exactly one of them and this walk cannot say
+        ; which. With a single impl it is exact and nothing is marked.
+        ;
+        ; That distinction stopped being cosmetic the day AX3042 became
+        ; an error. Measured: a `(Show Int)` impl that performs nothing
+        ; and a `(Show Bool)` impl that performs IO, with only the
+        ; first ever reached, REFUSED the program for IO it does not
+        ; perform - which is the objection that blocked promoting
+        ; AX3010 in the first place ("promoting that shape refuses
+        ; correct programs"), arriving again through a different door.
+        ;
+        ; Marking it routes the claim to AX3037 - cannot be checked -
+        ; and leaves the row itself unchanged, so `symbols` still
+        ; reports the union and AX3011 still sees the upper bound it
+        ; needs.
+        (if (> (traitUnionImpls
           tc          (memGetWord tc 28)          (nodeAName tr)          (bareOf n)          acc          0
+        ) 1)
+          (effAdd acc effByRef)
+          0
         )
         1
       }
@@ -9397,10 +9482,12 @@
 
 (pub :: traitUnionImpls (-> Int Int String String Int Int Int))
 
+; Answers HOW MANY implementations it unioned, which is what tells the
+; caller whether the result is exact (one) or an upper bound (more).
 (pub fn (traitUnionImpls tc impls tname method acc i)
   (if (>= i (vecLen impls))
     0
-    {
+    (+
       (let ((d (vecGet impls i)))
         (if (strEq (nodeAName d) tname)
           (let ((e (fnEntExact tc (traitImplName tname (nodeCName d) method))))
@@ -9416,6 +9503,7 @@
               {
                 (tcNoteCall tc (memGetWordStr e 0))
                 (effUnion acc (memGetWord e 5) 0)
+                1
               }
             )
           )
@@ -9425,7 +9513,7 @@
       (traitUnionImpls
         tc        impls        tname        method        acc        (+ i 1)
       )
-    }
+    )
   )
 )
 
@@ -12822,7 +12910,29 @@
         ; documented as not permitted to make.
         (if (&& (== (axtagCouldExist tc want) 1) (|| (> (vecLen eparams) 0) (== (effPartial eff) 1)))
           0
-          (emitAxtag tc d (strConcat (strConcat (strConcat "`effect(" val) ")` claim unsupported: missing ") (effRender want)))
+          ; `Div` is NEVER INFERRED. It is a built-in name a claim can
+          ; spell and the walk has no producer for, so `missing Div` is
+          ; not a fact about the body - it is a fact about the
+          ; analysis, and refusing a build over it accuses the author
+          ; of something the compiler never looked for. That made it a
+          ; trap the day AX3010 became an error: a `div` claim went
+          ; from a warning nobody had to act on to a build that cannot
+          ; be fixed except by deleting the claim.
+          ;
+          ; So it routes to AX3037 - the code for a claim the walk is
+          ; not in a position to check - with its own wording, because
+          ; AX3037's usual message names an unresolved CALL and there
+          ; is no call involved here.
+          ;
+          ; Inferring it is not the fix. The cheapest sound rule (a
+          ; self-call, or any `while`) marks 65% of this compiler
+          ; divergent and calls the syntax zoo's own counted loop
+          ; non-terminating - measured, and recorded in
+          ; `docs/reference.md`.
+          (if (== (effNeverInferred want) 1)
+            (emitAxtagNotInferred tc d val)
+            (emitAxtag tc d (strConcat (strConcat (strConcat "`effect(" val) ")` claim unsupported: missing ") (effRender want)))
+          )
         )
       )
     )
@@ -12830,6 +12940,41 @@
 )
 
 ; Only a CUSTOM effect can fail to exist; the built-ins always do.
+; AX3037 for an effect the walk has no producer for at all. Distinct
+; wording from the unresolved-call case on purpose: "the compiler does
+; not infer this" and "the compiler could not follow your call" send a
+; reader to different places, and only one of them is about their code.
+; The built-in effect names NOTHING PRODUCES. `Div` and `Err` are both
+; spellable - a handle list may write them, and they are not custom
+; effects - and the walk has no producer for either: measured over
+; `self_host/` and `stdlib/`, ZERO of 3,040 rows carry one.
+;
+; So `missing Div`/`missing Err` was never a fact about the body. Keep
+; this list honest: an effect that gains a producer must LEAVE it, or
+; a real mismatch starts reporting as unverifiable.
+(pub :: effNeverInferred (-> String Int))
+
+(pub fn (effNeverInferred want)
+  (if (strEq want (builtinEff "Div"))
+    1
+    (if (strEq want (builtinEff "Err"))
+      1
+      0
+    )
+  )
+)
+
+(pub :: emitAxtagNotInferred (-> Int Int String Int))
+
+(pub fn (emitAxtagNotInferred tc d val)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_WARNING      "AX3037"      "axtag-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (strConcat (strConcat "`effect(" val) ")` cannot be checked: nothing in the compiler infers that effect, so no body ever supplies it"))      0      0      "`Div` and `Err` are spellable and never inferred - zero of this repository's 3,040 effect rows carry either. The claim is recorded and nothing validates it. Divergence is not inferred because the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating; `(handle BODY (Pure) 0)` is the construct that does refuse, and it measures IO, Alloc and Mut"
+    ))
+  )
+)
+
 (pub :: axtagCouldExist (-> Int String Int))
 
 (pub fn (axtagCouldExist tc e)

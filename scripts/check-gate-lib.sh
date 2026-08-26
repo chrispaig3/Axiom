@@ -324,7 +324,21 @@ count_sites=(
 site_text() {  # <path> -> the text this check may read, on stdout
   case "$1" in
     CHANGELOG.md)
-      awk '/^## Unreleased/{u=1;next} u&&/^## /{exit} u' "$repo_root/$1"
+      # `## Unreleased` AND the newest released section, and nothing
+      # older.
+      #
+      # Scoped at all because this check demands the CURRENT count, and
+      # a shipped release note states the count that was true when it
+      # shipped - so reading the whole file asks a past release to be
+      # wrong about its own present.
+      #
+      # Two sections rather than one because `## Unreleased` is EMPTY by
+      # design the moment a release is cut: the notes that described the
+      # new gates become the new version's notes. Reading only
+      # Unreleased made this gate fail on every release for a reason
+      # that had nothing to do with gates - measured while cutting
+      # 0.3.0.
+      awk '/^## Unreleased/{u=1;n=0} u{ if (/^## /) { n++; if (n>2) exit } print }' "$repo_root/$1"
       ;;
     *) cat "$repo_root/$1" ;;
   esac

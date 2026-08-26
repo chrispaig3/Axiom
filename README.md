@@ -772,13 +772,19 @@ Built-in effects:
 | `Pure` | No side effects |
 | `Alloc` | Heap **machinery**, not strictly allocation: a call reaching `__alloc`, which is every `Vec`/`Map`/`Str` growth and every `memAlloc`; the three arena primitives since 2026-08-25, because a reset ends every block allocated since a mark; and `handle`, for installing evidence. The `(alloc T)` keyword also contributes it and is the reason it used to be the *only* contributor — a form that allocates nothing, while the primitive the heap goes through contributed nothing (`docs/memory-model.md` MM-EXEC-9a, whose table lost that row on 2026-08-23) |
 | `Mut` | Mutable heap state: `(set base.field v)`, and the `__store8`/`__store64` primitives it lowers to (`docs/memory-model.md` MM-EXEC-9a, closed 2026-08-25) — which is why `vecPush` and `mapInsert` carry it. A plain `set` on a `mut` **local** is deliberately not `Mut` — a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
-| `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is always reported unsupported, even over a body that plainly does not terminate. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
+| `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is reported **unverifiable** (`AX3037`, a warning) rather than unsupported, even over a body that plainly does not terminate — a claim the compiler never looks for is a fact about the analysis, not the body. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
 
 `Err` is accepted as a sixth built-in effect name — a handle list may
 write it and it is not a `Custom` effect — but nothing in the compiler
-infers it today, so an `effect(err)` claim is always reported as
-unsupported. `Div` is in the same position and the table above says so:
-two of the six names can be written and cannot be satisfied.
+infers it today, and a handle list is the only place its name resolves:
+the AXTAG path lowercases the value and finds no declaration, so
+`;@axiom:effect(err)` reports `missing err` as the undeclared *custom*
+effect it reads as.
+
+`Div` is the one that resolves to a built-in nothing produces, so a
+`;@axiom:effect(div)` claim is `AX3037` — a **warning** saying nothing
+infers that effect — and not the `AX3010` error a refuted claim gets.
+An accusation the compiler never looked for would be unanswerable.
 
 Declare an effect type:
 
@@ -848,14 +854,28 @@ one — an implementation that performs I/O and says nothing draws
 | Type | Description | LLVM type |
 |---|---|---|
 | `Int` | 64-bit signed integer | `i64` |
-| `Float` | 64-bit floating point | `f64` |
-| `Bool` | Boolean | `i1` |
-| `Char` | Character | `i8` |
+| `Float` | 64-bit IEEE-754 double. The **word holds the bit pattern**; each arithmetic site `bitcast`s to `double`, operates (`fadd double`, `fdiv double`, …) and `bitcast`s back | `i64` |
+| `Bool` | Boolean. A distinct type from `Int` — `if` consumes it, and `true`/`false` are its literals | `i64` |
+| `Char` | Character. A codepoint word at run time, a distinct **type** from `Int` | `i64` |
 | `String` | A `Str` handle - the address of a `{ length, bytes, owner }` header. One word wide like `Int`, and a **distinct type** from it: `(cast Int s)` is the crossing; see [Strings](#strings) | `i64` |
-| `()` | Unit (no value) | `void` |
-| `Unit` | A distinct constructor, **not** a synonym for `()` — `symbols` renders them differently; see [reference.md](docs/reference.md#types) | `void` |
-| `Void` | Void | `void` |
-| `Any` | Generic pointer | `ptr` |
+| `()` | Unit (no value) | `i64` |
+| `Unit` | A distinct constructor, **not** a synonym for `()` — `symbols` renders them `(Int -> ())` and `(Int -> Unit)`; see [reference.md](docs/reference.md#types) | `i64` |
+| `Void` | Void. Accepted and distinct — a mismatch reports "found `Void`" — and not a removed name | `i64` |
+| `Any` | Generic pointer. Accepted, and one word like everything else | `i64` |
+
+**Every column-three entry is `i64`, and that is the fact rather than a
+formatting accident.** The emitter is uniformly word-wide: a type is a
+CHECKING-time distinction and carries no representation of its own, so
+`Bool`, `Char`, `Any`, `()`, `Unit` and `Void` are all one machine word
+and `(-> Bool Bool)` emits `define i64 @f(i64)`. `Float` is the only one
+whose word is interpreted differently, and only at the operator.
+
+That column read `f64`/`i1`/`i8`/`ptr`/`void` until 2026-08-25 —
+inherited from the Rust-era compiler, which did lower narrowly — and was
+wrong for seven of nine rows against the self-hosted one. It is also
+why `docs/memory-model.md`'s MM-LIFE-2a calls codegen's shape word the
+wall: the representation is uniform, so nothing about a value's type
+survives into the emitted code to be relied on.
 
 ### Sized integers and floats — removed
 
@@ -1336,7 +1356,7 @@ axiom repl
 # compiler was built from, plus the commit when there is one. Two builds
 # of two different trees at one version are different builds, and say so
 axiom version
-#   axiom (self-hosted) 0.2.0 (build 7ce43b921d1d 23b97d8285b4)
+#   axiom (self-hosted) 0.3.0 (build 7ce43b921d1d 23b97d8285b4)
 
 # Look up a diagnostic code, or list every one of them
 axiom explain AX3001
@@ -1538,7 +1558,7 @@ version in it is held instead by `scripts/check-version.sh`, which
 names this file as one of its sites:
 
 ```
-axiom (self-hosted) 0.2.0 - Axiom REPL
+axiom (self-hosted) 0.3.0 - Axiom REPL
 Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))
@@ -1668,7 +1688,7 @@ the pipeline above is a module you can read in the language it compiles.
 | Performance gates | **Rate covered** | Every timing gate here asserts a RATIO, deliberately, so a slow runner cannot fail one — which left *rate* uncovered until 2026-08-25. `scripts/check-arena-reset-rate.sh` makes the rate a ratio anyway: one program in three spellings a word apart attributes the cost of an arena reset at **about 1.35 µs** against a mark's few nanoseconds, **1.7–1.8%** of the 77 µs per-connection budget the memory model states — correcting that document, which said "under one percent" from an estimate. Two of its checks have no clock in them: the emitted IR's scrub is asserted directly, and the negative probe deletes that block from the IR and rebuilds, dropping the cost 42× |
 | Type soundness | **One class closed** | `AX3040` is an **error** since 2026-08-25: a signature whose result is a type variable no parameter mentions, whose body produces that result rather than never returning. It was a warning because the rule conflated two shapes and only one is unsound — `(:: conjure (-> Int a))` casting a word out, and `(:: panic (-> String a))` never returning — which checked identically and then exited **139** and **70** respectively. The compiler now tells them apart exactly, because the type system admits only two ways to produce such a result: a `cast`, or a call to another such function. The set is solved by a fixpoint over tail positions — assume all diverge, strike out any whose tail can produce a value — with `sysExitWith` as the base case for "never returns", inherited by anything whose every tail reaches it. Eight diverging spellings are accepted and three fabricating ones refused. **The second shape closed 2026-08-25**: the rule asked whether the variable appears in a PARAMETER, and every left side of the arrow spine counted as one — so `(:: f (-> (-> a Int) Int))` with `(f (cast a 42))` drew *nothing*, checked OK and exited **139**, the same dereference one level in. The spine is now split by **variance** rather than by side: a variable with a position the callee must produce and none the caller supplies is unwitnessed wherever it sits, and that arm never consults the divergence fixpoint, because a function that fabricates on its way to returning an `Int` has no diverging reading to appeal to — nor does one that fabricates on its way to *not* returning: `(:: divDemand (-> (-> a Int) a))` has its result variable excused for diverging and still hands its callback a fabricated `a`, which is why the two arms decide their overlap rather than subtract it (measured, **139** again). The corpus does not move — 19 signatures here nest an arrow and the four with variables in one mention every variable on both sides. It reads the SIGNATURE, so a body that never calls its callback is refused too, which is asserted rather than left to be found (`scripts/check-diverging-tyvar.sh`, 26 checks; `tests/diagnostics/347`, `352`, `353`, `tests/selfhost/976`) |
 | Test runner | **Functional** | `axiom test` and `stdlib/Test.ax`, gated by `scripts/check-test-runner.sh` over `tests/testrunner/`. A test is a top-level `test`-named function taking no parameters; the runner appends a `main` to the file's own bytes and arms one recovery point per test, so a failed assertion, an unhandled effect, an allocation failure and a division by zero each end ONE test and answer with a status (`ERR-REC-6`) — measured on a fixture that fails in three of those ways and still reports the test declared after all three. Nothing is skipped in silence: a file with no test fails, and a `test`-named function that takes parameters is refused by name. What is NOT here: no test may run in parallel with another, there is no setup/teardown, and a test cannot be marked expected-to-fail. See [Testing](#testing) |
-| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 510 `.ax` files in the repo and a 37-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed in the [Compiler structure](#compiler-structure) table above among *The tools*, and gated by `scripts/check-lsp-selfhost.sh`; it answers go-to-definition for a macro invocation, a same-file function, `data` or `struct`, and — since 2026-08-25 — a name imported from another module, jumping into that module's own file; plus hover on a macro. All from the raw parse tree with no expansion (`MAC-TOOL-3`); the import graph is walked only when the lookup in the open document misses, which is the language's own shadowing order |
+| Editor support | **Functional** | [tree-sitter grammar](tree-sitter-axiom/) with highlighting queries, gated against all 512 `.ax` files in the repo and a 37-case tree-shape corpus. The language server is `self_host/lsp.ax`, listed in the [Compiler structure](#compiler-structure) table above among *The tools*, and gated by `scripts/check-lsp-selfhost.sh`; it answers go-to-definition for a macro invocation, a same-file function, `data` or `struct`, and — since 2026-08-25 — a name imported from another module, jumping into that module's own file; plus hover on a macro. All from the raw parse tree with no expansion (`MAC-TOOL-3`); the import graph is walked only when the lookup in the open document misses, which is the language's own shadowing order |
 | Imports | **Functional** | `(import Mod.Sub ...)` resolves and merges declarations from other files; qualified access via `Mod::name` disambiguates; see [Modules and imports](#modules-and-imports) |
 | Module visibility | **Complete** | `pub` on a declaration, or an import's name list, decides which names are visible outside a module — not which declarations exist. A module keeps its private helpers and behaves identically however it is imported; naming one from outside is `AX3023`. An import's name list is itself checked since `6a28103`: `(import M (noSuch))` is `AX3023`. `tests/selfhost/920-private-declaration.ax`, `930-selective-import.ax` |
 

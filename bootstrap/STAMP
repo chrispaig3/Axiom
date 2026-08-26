@@ -1,6 +1,6 @@
-Source stamp:          c1060bcbc555f934f4f2ca94ee02cc98f1d418f1729c0ad94d49aa4c8c07cf12
+Source stamp:          cfb03f6cb8469d2621a8de9c7b3f9137c51ba61ddf86893e4308a581ddd377d7
 Source files:          46
-Generated on:          2026-08-25T23:30:33Z
+Generated on:          2026-08-26T02:06:58Z
 Regenerate with:       scripts/reseed.sh
 Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh
 

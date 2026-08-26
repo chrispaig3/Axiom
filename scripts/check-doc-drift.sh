@@ -898,6 +898,67 @@ if (( failed == dup_before )); then
   echo "ok   $numbered numbered cases, no unaccounted collisions ($grand grandfathered)"
 fi
 
+# --------------------------------------------------------------------
+echo "== types: README's LLVM column, against what the emitter actually writes =="
+# --------------------------------------------------------------------
+# The column was WRONG FOR SEVEN OF NINE ROWS until 2026-08-25, and had
+# been for as long as the self-hosted compiler existed: it said `f64`,
+# `i1`, `i8`, `ptr` and `void`, which is what the RUST compiler lowered
+# to. This one is uniformly word-wide - a type is a checking-time
+# distinction that carries no representation - so `(-> Bool Bool)` emits
+# `define i64 @f(i64)` and so does every other row.
+#
+# Nothing caught it because nothing read the column. A table of facts
+# about the emitter is checkable against the emitter, so this compiles
+# one probe per row and reads the `define` line back.
+#
+# THE TYPE GOES IN PARAMETER POSITION on purpose. In return position a
+# probe needs a VALUE of the type, which means a `cast` for `Unit` and
+# `Void` and is not expressible at all for `()` - so the shape of the
+# probe would vary per row and the rows would stop being comparable.
+# A parameter needs no value.
+types_before=$failed
+tw="$work/types"; mkdir -p "$tw"
+row_n=0
+while IFS='|' read -r ty want; do
+  [[ -z "$ty" ]] && continue
+  row_n=$((row_n + 1))
+  printf '(:: g (-> %s Int))\n\n(fn (g x) 0)\n\n(:: main Int)\n\n(fn (main) 0)\n' "$ty" > "$tw/t.ax"
+  if ! ( cd "$tw" && AXIOM_STDLIB="$repo_root/stdlib" "$axc" build \
+           --input t.ax --output t.bin --emit-llvm ) >/dev/null 2>&1; then
+    echo "FAIL types: the probe for \`$ty\` does not compile - README names a type the compiler will not take"
+    failed=$((failed+1)); continue
+  fi
+  got="$(grep -oE '^define [a-z0-9]+ @g\([a-z0-9]+' "$tw/t.bin.ll" | head -1 | sed -E 's/.*@g\(//')"
+  if [[ -z "$got" ]]; then
+    echo "FAIL types: no \`define @g\` in the emitted IR for \`$ty\` - the probe stopped measuring"
+    failed=$((failed+1)); continue
+  fi
+  if [[ "$got" != "$want" ]]; then
+    echo "FAIL types: README says \`$ty\` lowers to \`$want\`; the emitter writes \`$got\`"
+    failed=$((failed+1))
+  fi
+done <<< "$(awk '
+  /^\| Type \| Description \| LLVM type \|/ { intable = 1; next }
+  intable && /^\|---/ { next }
+  intable && !/^\|/ { intable = 0 }
+  intable {
+    # first cell is the type, LAST cell is the LLVM type; a Description
+    # containing a `|` would break a naive split, so take the ends.
+    n = split($0, c, "|")
+    ty = c[2]; lv = c[n-1]
+    gsub(/^[ \t]*`?|`?[ \t]*$/, "", ty)
+    gsub(/^[ \t]*`?|`?[ \t]*$/, "", lv)
+    if (ty != "" && lv != "") print ty "|" lv
+  }
+' README.md)"
+if (( row_n < 8 )); then
+  echo "FAIL types: read $row_n row(s) out of README's table; the parse broke and this section is checking almost nothing"
+  failed=$((failed+1))
+elif (( failed == types_before )); then
+  echo "ok   all $row_n documented types lower to what README's LLVM column says"
+fi
+
 echo
 if (( failed )); then
   echo "check-doc-drift: $failed section(s) failed"

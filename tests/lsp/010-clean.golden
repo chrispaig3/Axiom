@@ -1,6 +1,6 @@
 Content-Length: 198
 
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true},"serverInfo":{"name":"axiom","version":"0.2.0"}}}Content-Length: 111
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true},"serverInfo":{"name":"axiom","version":"0.3.0"}}}Content-Length: 111
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[]}}Content-Length: 218
 

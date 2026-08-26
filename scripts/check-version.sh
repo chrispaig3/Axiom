@@ -79,10 +79,11 @@ if [[ ! "$want" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 echo "== VERSION says $want =="
 
-ax_version()   { grep -oE 'axiom \(self-hosted\) [0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
-lsp_version()  { grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"\)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
-toml_version() { grep -oE '^version = "[0-9]+\.[0-9]+\.[0-9]+"|version = "[0-9]+\.[0-9]+\.[0-9]+" }' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
-json_version() { grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
+# The readers, the writers and the site list all live in one file, which
+# `scripts/bump-version.sh` sources too. That is the point: the bump and
+# the check cannot disagree about what the sites ARE, because there is
+# only one list. See scripts/lib/version-sites.sh.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/version-sites.sh"
 
 # <file> <expected-count> <extractor>. The extractor prints every
 # version this file states, one per line.
@@ -94,16 +95,7 @@ json_version() { grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9
 # id beside the version. The count is what catches a third appearing. The gate a reader would assume covers them does not:
 # `check-repl-selfhost.sh` drives the REPL as `repl --no-banner`, so the
 # two lines those documents pin are the two lines that gate never sees.
-SITES="
-self_host/main.ax|1|ax_version
-self_host/repl.ax|1|ax_version
-self_host/lsp.ax|1|lsp_version
-rust/Cargo.toml|4|toml_version
-tree-sitter-axiom/package.json|1|json_version
-tree-sitter-axiom/tree-sitter.json|1|json_version
-README.md|2|ax_version
-docs/reference.md|1|ax_version
-"
+SITES="$VERSION_SITES"
 
 extract() { "$2" < "$1" || true; }
 
@@ -136,7 +128,7 @@ check_site() {
 }
 
 total=0
-while IFS='|' read -r file expect fn; do
+while IFS='|' read -r file expect fn _writer; do
   [[ -z "$file" ]] && continue
   check_site "$file" "$expect" "$fn"
   total=$((total + expect))
@@ -173,7 +165,7 @@ probed=0
 # `0X2Y0`, so the mutation would land in places the assertions never
 # look and the probe would be measuring its own sloppiness.
 want_re="$(printf '%s' "$want" | sed 's/\./\\./g')"
-while IFS='|' read -r file expect fn; do
+while IFS='|' read -r file expect fn _writer; do
   [[ -z "$file" ]] && continue
   mutant="$work/mutant-$(echo "$file" | tr '/.' '__')"
   sed -e "s/$want_re/9.9.9/g" "$file" > "$mutant"

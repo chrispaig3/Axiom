@@ -5450,7 +5450,39 @@
 (pub fn (attachAxtagsNested d axtags cur)
   (if (|| (== (nodeTag d) TAG_D_IMPL) (== (nodeTag d) TAG_D_TRAIT))
     (attachAxtags (nodeB d) 0 axtags cur)
+    (if (== (nodeTag d) TAG_D_MACRO)
+      (attachAxtagsRules (memGetWord d 9) 0 axtags cur)
+      cur
+    )
+  )
+)
+
+; A declaration macro's TEMPLATES, which are declarations the author
+; wrote and can therefore tag.
+;
+; Without this a `;@axiom:effect(io)` written above a `(fn ...)` INSIDE
+; a template had an offset past the macro's own span, so this walk gave
+; it to the next TOP-LEVEL declaration - the invocation - and
+; `expGiveTags` then handed it to the FIRST function the macro
+; generated. Measured on a two-function template whose SECOND function
+; performs IO: the first drew a false AX3010 for a claim its body does
+; not support, and the second drew AX3042 with no edit anywhere that
+; could satisfy it.
+;
+; The rules are at word 9 and each rule's template vector at index 1 -
+; `expRuleTpl`'s slot, and the wire format `parseMacroRules` documents
+; as fixed at 0 and 1.
+(pub :: attachAxtagsRules (-> Int Int Int Int Int))
+
+(pub fn (attachAxtagsRules rules i axtags cur)
+  (if (== rules 0)
     cur
+    (if (>= i (vecLen rules))
+      cur
+      (attachAxtagsRules
+        rules        (+ i 1)        axtags        (attachAxtags (vecGet (vecGet rules i) 1) 0 axtags cur)
+      )
+    )
   )
 )
 

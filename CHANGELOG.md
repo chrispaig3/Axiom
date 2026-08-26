@@ -16,7 +16,213 @@ its changelog too.
 
 ## Unreleased
 
+## 0.3.0 — 2026-08-25
+
+### Fixed
+
+- **A declaration macro's template can declare its effects.** It was the
+  last declaration in the language that could not, and three bugs stood
+  in the way, each hiding the next: `attachAxtags` walked only the
+  top-level vector, so a tag inside a template was handed to the
+  **invocation**; `expGiveTags` then gave the invocation's tags to the
+  **first** generated `fn` and stopped; and `expBuildDecls` builds a new
+  node per template declaration — the node everything after expansion
+  checks — without copying word 7, so even an attached tag died at
+  instantiation.
+
+  Measured on a two-function template whose *second* function performs
+  IO: the first drew a false `AX3010` for a claim it never made, and the
+  second drew `AX3042` with no edit anywhere that could satisfy it.
+
+  An invocation's tags no longer overwrite a template's own — they land
+  on the first **untagged** generated function, which is the only one an
+  invocation-level claim can honestly describe.
+  `tests/diagnostics/361-macro-template-effect.ax` carries both
+  directions: a tagged IO function and an untagged pure one stay silent,
+  and an untagged IO function generated from the same template draws
+  `AX3042` at its own name — so the file cannot pass by a compiler that
+  stopped checking generated functions altogether.
+
+- **An unreachable trait implementation refused a correct program.** The
+  effect fixpoint cannot resolve which implementation a trait-method
+  call reaches, so it unions **every** one of them — right for an upper
+  bound, and tolerable while the diagnostic was a warning. As an error
+  it refused programs that perform nothing: a `(Show Int)` impl doing
+  nothing beside a `(Show Bool)` impl doing IO, with only the first ever
+  reached, drew `AX3042` on the caller.
+
+  That is the objection which blocked promoting `AX3010` in the first
+  place — "promoting that shape refuses correct programs" — arriving
+  again through a different door.
+
+  A union over **more than one** implementation is now marked an upper
+  bound, so the claim routes to `AX3037` (cannot be checked) instead of
+  refusing. With a single implementation dispatch is determined, the
+  union is exact, and nothing is marked. The row itself is unchanged, so
+  `symbols` still reports the union and `AX3011` still sees the upper
+  bound it needs.
+
+- **An ordinary higher-order call silenced `AX3042` for a whole call
+  chain.** Found by an audit sweep against the enforcement shipped in
+  this same release, and it was a real hole in the headline feature:
+
+  ```scheme
+  (fn (apply f x) (f x))
+  (fn (sneaky n) (apply shout n))     ; shout performs IO
+  (fn (main) (sneaky 1))              ; untagged
+  ```
+
+  compiled **clean**, ran, and printed. `symbols` reported
+  `#effects=IO #effects-overapprox` on `main` — the walk *knew*, and the
+  over-approximation marker was the only reason nothing said so.
+
+  The cause was the `?:byref` mark being set too widely. It exists for
+  `(fn (handoff k) shout)`, which *returns* an effectful function
+  without calling it — a genuine upper bound, and the shape that had
+  blocked promoting `AX3010`. But passing a bare name **as an argument**
+  is not that: it is handing the function to a body that may apply it,
+  and `apply`'s own row says so (`#effect-params=f`). A call's arguments
+  are attributed exactly now; a bare name anywhere else still marks.
+
+  **A data constructor's arguments are not a call**, and the first
+  version of this fix got that wrong. `(Box doIO)` *stores* the
+  function; nothing applies it. Treating every argument as a call put a
+  false `AX3042` on three declarations in
+  `tests/diagnostics/343-axtag-unverifiable.ax`, whose entire subject is
+  a function value going into memory in one place and being called in
+  another. `findFnEnt` answers 0 for a constructor — the same property
+  `MM-EXEC-9a` relies on — so "the head has an entry" is exactly "this
+  is something that could apply it".
+
+- **`check-type-namespace.sh` runs alone in the parallel battery.** It
+  asserts that naming the last type in a table costs the same as naming
+  the first, and it was classified parallel-safe because it never reads
+  a clock — it compares two measurements *to each other*. Under load it
+  reported 1.42x and failed; alone it passes. A gate that compares two
+  timings is as load-sensitive as one that reads a clock, and the tell
+  is the **ratio**, not the clock.
+
+- **README's LLVM-type column was wrong for seven of its nine rows**, and
+  had been for as long as the self-hosted compiler existed. It said
+  `f64`, `i1`, `i8`, `ptr` and `void` — which is what the **Rust-era**
+  compiler lowered to. This one is uniformly word-wide: a type is a
+  checking-time distinction that carries no representation, so
+  `(-> Bool Bool)` emits `define i64 @f(i64)` and so does every other
+  row. Only `Int` and `String` were right.
+
+  The sharpest probe needs no `cast` at all: a plain `'😀'` literal
+  carries **128512** through a `Char` and prints it back, which no `i8`
+  can hold. `Float` is the one row with a real distinction left, and it
+  is not the one the table drew: the **word holds the bit pattern**, and
+  each arithmetic site `bitcast`s to `double`, runs `fadd double`, and
+  `bitcast`s back.
+
+  It also contradicted its own adjacent prose. The section directly
+  below explains that `I8`–`I128` were removed *because* each "lowered
+  to a full-width `i64` with no truncation" — exactly what `Char` still
+  does, while the table above claimed `i8`.
+
+- **`check-doc-drift.sh` now checks that column against the emitter.**
+  Nothing caught the drift because nothing read the column; a table of
+  facts about the emitter is checkable against the emitter. The gate
+  compiles one probe per documented row and reads the `define` line
+  back. The type goes in **parameter** position deliberately: a return
+  position needs a *value* of the type, which means a `cast` for `Unit`
+  and `Void` and is not expressible at all for `()`, so the probe's
+  shape would vary per row and the rows would stop being comparable.
+  Ablated by putting `i1` back on the `Bool` row: `FAIL types: README
+  says \`Bool\` lowers to \`i1\`; the emitter writes \`i64\``.
+
 ### Added
+
+- **`scripts/run-gates.sh` — the battery runs in parallel.** Every gate
+  that tests the working tree begins by building the compiler from
+  `self_host/`, and `gate_build_axc` already knew how not to: point
+  `AXIOM_AXC` at a binary whose `.stamp` matches `gate_source_stamp` and
+  the gate copies it instead of spending a build. This builds that
+  binary once, exports it, and runs the gates concurrently.
+
+  **The sharing is what makes the concurrency sound**, not just faster:
+  with `AXIOM_AXC` set, a gate's use of the compiler is a `cp` into its
+  own `$work`, so no two gates write the same path. Without it they
+  would race to build into the same cache.
+
+  **Fourteen gates still run alone**, and the reason is that they
+  measure. Four read a clock (`check-bootstrap`,
+  `check-container-reclaim`, `check-recover`, `check-steady-state`) and
+  the rest assert a ratio, a memory figure or a rate; a measurement
+  taken while a dozen compilers share the machine is not the
+  measurement the gate means to take, and a gate that passes on an idle
+  laptop and fails on a busy one is worse than a slow one.
+  `check-ffi` and `check-bootstrap` also drive `cargo`, whose own
+  parallel build nested inside this one would slow both.
+
+  It runs the same gates the same way — no flags, no skips, no
+  interpretation beyond the exit status — so a gate that fails here
+  fails when run by hand. `--list` prints the split.
+
+- **`scripts/bump-version.sh` — the version moves in one command.**
+  `VERSION` is the authority and **twelve sites across four file
+  formats** restate it: the compiler banner, the REPL's, the language
+  server's `serverInfo`, four keys in `rust/Cargo.toml`, two tree-sitter
+  manifests, and the REPL banner as quoted in `README.md` (twice) and
+  `docs/reference.md`. Every one was a hand edit, and cutting this
+  release found all twelve still reading `0.2.0` — `check-version.sh`
+  caught it, which is the gate working and also the gate firing *after*
+  the tag would have been cut.
+
+  **The bump does not own the list.** The sites, the readers and the
+  writers live in `scripts/lib/version-sites.sh`, which
+  `check-version.sh` now sources instead of carrying its own copy. A
+  second list in the bump script would fail silently in the worst way:
+  the bump rewrites eleven, the gate checks twelve, and the one they
+  disagree about is the one nobody edited.
+
+  **It proves its own work.** Each writer is paired with the gate's own
+  reader and its count is re-asserted immediately after the rewrite, so
+  a writer whose pattern is looser or tighter than its reader's is
+  caught at that site rather than three minutes later. Then it rebuilds
+  the compiler — `check-version.sh` reads the built binary's banner, not
+  only the sources — and finally runs the gate, exiting non-zero if it
+  fails. It cannot report success over a site it missed.
+
+  It deliberately does not touch `CHANGELOG.md`, commit, or tag: a
+  release note is prose somebody writes, and a `v*` tag is what fires
+  `release.yml`, so cutting one stays a decision rather than a side
+  effect of renumbering.
+
+**Effects are enforced.** A function that reaches the outside world and
+does not say so no longer builds. This is the release's one headline and
+it is a **breaking** change: source that compiled at 0.2.0 and performs
+`IO` under no declaration is now refused (`AX3042`), as is source
+carrying a tag the compiler can refute (`AX3010`, promoted from a
+warning). 257 declarations across this repository gained a
+`;@axiom:effect(io)` line; `stdlib/` needed none, having already been
+fully declared.
+
+### Added
+
+- **`;@axiom:effect(div)` is a warning again, and says why.** `Div` is a
+  built-in effect name that any claim can spell and the effect walk has
+  **no producer for** — nothing anywhere contributes it. So `missing
+  Div` was never a fact about the body; it is a fact about the
+  analysis. Making `AX3010` an error turned that into a trap in the
+  same release: a `div` claim went from a warning nobody had to act on
+  to a build that could not be fixed except by deleting the claim, and
+  a diagnostic no edit can satisfy is worse than none.
+
+  It routes to `AX3037` — the code for a claim the walk is not in a
+  position to check — with its own wording, because `AX3037`'s usual
+  message names an unresolved *call* and no call is involved. The split
+  is per-effect and not a softening: `tests/diagnostics/359-div-not-inferred.ax`
+  carries a `mut` claim over a body that does not mutate, and that is
+  still `AX3010`, still an error.
+
+  Inferring divergence is not the fix, and that is measured rather than
+  assumed: the cheapest sound rule — a self-call, or any `while` —
+  marks 65% of this compiler divergent and calls the syntax zoo's own
+  counted loop non-terminating. `(handle BODY (Pure) 0)` remains the
+  construct that refuses, and it measures `IO`, `Alloc` and `Mut`.
 
 - **`axiom fmt` handles an `impl` body's trivia — two bugs, one of them
   older than the feature that exposed it.** An AXTAG inside an
