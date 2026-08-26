@@ -58,6 +58,7 @@
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
+  [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1283,6 +1284,31 @@ A multi-letter type variable is still perfectly legal - `elem`, `out`,
 rule about length. Refusing every multi-letter variable would reject
 `(-> (Vec elem) (-> elem out) (Vec out))`, a correct program.
 
+### explain AX3048
+AX3048 - a reference to a deprecated name
+
+The declaration this name resolves to carries
+`;@axiom:deprecated(...)`, and the tag's text is quoted in the help.
+
+It is a WARNING by design, not as a staging step toward an error.
+The name still works and the program still compiles. Refusing it
+here would make deprecation and removal the same event, and
+separating those two is the only thing a deprecation notice is for:
+the release that ANNOUNCES a removal is the one release in which the
+callers must still build.
+
+The other half is a gate. `scripts/check-compat.sh` compares the
+public surface against the last release's baseline and refuses a
+removed name unless `compat/BREAKING` declares it - EXCEPT when the
+baseline row carried `#deprecated=`, in which case the removal is
+reported `RETIRED` and permitted outright. So this warning is what a
+caller sees, and the baseline is what the gate sees, and the notice
+has to ship a release before the removal for either to apply
+(docs/compatibility.md, COMPAT-7).
+
+To silence it, stop calling the name - the help says what to use
+instead, because the tag's author wrote it there.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1454,6 +1480,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
+  [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

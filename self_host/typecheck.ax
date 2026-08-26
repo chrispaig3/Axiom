@@ -1807,7 +1807,16 @@
   (privIdx : Int)
   (implIdx : Int)
   (curCalls : Int)
-  (tyIdx : Int))
+  (tyIdx : Int)
+  ; Names carrying `;@axiom:deprecated`, built ONCE and lazily, on
+  ; `sigTags`'s pattern - an empty Vec is a real handle, so "built and
+  ; empty" and "not built" stay distinguishable. It is its own table
+  ; rather than a scan of `sigTags` because that one holds every
+  ; tagged signature (a few hundred, mostly `effect(io)`) and this is
+  ; asked at EVERY resolved reference: scanning it there is the O(n^2)
+  ; this compiler has already written once. Ask the cheap question
+  ; first - `vecLen` of a table that is empty in every program today.
+  (deprecated : Int))
 
 ; The module whose body is being checked, or 0 for the
 ; entry file. A bare reference inside it resolves to
@@ -2242,7 +2251,7 @@
       ; missing every alias, and missing it silently.
       (let ((tc 
         (cast Int (TC
-          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0
+          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0          0
         ))
       ))
         {
@@ -6035,6 +6044,64 @@
   )
 )
 
+; The VALUE of an AXTAG on this declaration, or "" when it carries no
+; such key. A tag record is (word 0 = whole text, word 1 = key,
+; word 2 = value), the shape `declHasAxtagFrom` reads word 1 of.
+(pub :: axtagValueOf (-> Int String String))
+
+(pub fn (axtagValueOf d key) (axtagValueFrom (memGetWord d 7) key 0))
+
+; A tag's word 1 is the WHOLE text - `deprecated(use vecLen)`, not the
+; bare key - which is why `declHasAxtag` works for `raw` and `pure`
+; (they take no value) and silently answers 0 for any key that does.
+; Measured the hard way: the tag reached AXSYM as
+; `#deprecated=use%20vecLen` while the lookup here saw nothing.
+(pub :: axtagKeyOf (-> Int String))
+
+(pub fn (axtagKeyOf t)
+  (let ((txt (memGetWordStr t 1)))
+    (let ((op (strFindByte txt 40 0)))
+      (if (< op 0)
+        txt
+        (strSlice txt 0 op)
+      )
+    )
+  )
+)
+
+(pub :: axtagTextValue (-> Int String))
+
+(pub fn (axtagTextValue t)
+  (let ((txt (memGetWordStr t 1)))
+    (let ((op (strFindByte txt 40 0)))
+      (if (< op 0)
+        ""
+        (let ((cl (strFindByte txt 41 (+ op 1))))
+          (if (< cl 0)
+            ""
+            (strSlice txt (+ op 1) (- cl (+ op 1)))
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: axtagValueFrom (-> Int String Int String))
+
+(pub fn (axtagValueFrom tags key i)
+  (if (== tags 0)
+    ""
+    (if (>= i (vecLen tags))
+      ""
+      (if (strEq (axtagKeyOf (vecGet tags i)) key)
+        (axtagTextValue (vecGet tags i))
+        (axtagValueFrom tags key (+ i 1))
+      )
+    )
+  )
+)
+
 (pub :: tcCheckSigTypeOf (-> Int Int Int))
 
 (pub fn (tcCheckSigTypeOf tc d)
@@ -7380,6 +7447,8 @@
                 (mkNode TAG_T_ERR 0 0 0)
                 (let ((ent (findFnEnt tc name)))
                   (if (!= ent 0)
+                    {
+                      (warnDeprecated tc name (nodeSpan e))
                     ; INSTANTIATED. A signature's type variables
                     ; are rigid where the body reads them and
                     ; fresh where a caller does; this is the
@@ -7391,6 +7460,7 @@
                     ; hangs a TAG_EVSTAMP on this reference
                     ; when the declaration is polymorphic.
                     (tyInstStamped tc (memGetWord ent 1) e)
+                    }
                     (let ((ctor (findCtor tc name)))
                       (if (!= ctor 0)
                         (tyInstStamped tc (memGetWord ctor 3) e)
@@ -12710,6 +12780,99 @@
 ; One pass over the declaration list, keeping only the signatures that
 ; carry an AXTAG. An empty Vec is a real handle, so "built and empty"
 ; and "not built" are distinguishable and the pass runs once.
+; The replacement text a `;@axiom:deprecated(...)` names, or "" when
+; `name` is not deprecated.
+;
+; WHY A TABLE AND NOT A SCAN OF `sigTags`. This is asked at every
+; resolved reference. `sigTags` holds every signature carrying ANY
+; AXTAG - a few hundred, almost all `effect(io)` - so walking it here
+; is a linear scan per reference, which is the O(n^2) `emitTyvarFor`
+; already shipped once. This table holds only the deprecated ones, and
+; is EMPTY in every program in this repository today, so the common
+; path is one `vecLen`.
+; AX3048 at a reference to a name its declaration marks deprecated.
+;
+; A WARNING, not an error, and that is the whole point of the tag: the
+; name still works, and the release that removes it is allowed to
+; because `compat/BREAKING`'s rule reads the notice from the previous
+; release's baseline (`docs/compatibility.md` COMPAT-7). Refusing here
+; would make deprecation and removal the same event, which is what a
+; deprecation notice exists to separate.
+(pub :: warnDeprecated (-> Int String Int Int))
+
+(pub fn (warnDeprecated tc name span)
+  (if (== span 0)
+    0
+    (let ((repl (deprecatedFor tc name)))
+      (if (== (strLen repl) 0)
+        0
+        (emitDiag
+          tc          (diagSetLabel
+            (mkDiag
+              SEV_WARNING              "AX3048"              "deprecated-name"              span              (strConcat (strConcat "`" (srcSpelling name)) "` is deprecated")              0              ""              (strConcat (strConcat "the declaration says: " repl) ". It still works, and it still compiles - a deprecation is a notice, not a refusal. It may be removed in a later release, and `compat/BREAKING`'s rule lets that happen without a declared break precisely because this notice shipped first")
+            )            (strConcat "declared `;@axiom:deprecated(" (strConcat repl ")`"))
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: deprecatedFor (-> Int String String))
+
+(pub fn (deprecatedFor tc name)
+  {
+    (if (== (memGetWord tc 31) 0)
+      (memSetWord tc 31 (deprecatedBuild (memGetWord tc 10) vecNew 0))
+      0
+    )
+    (deprecatedFrom (memGetWord tc 31) name 0)
+  }
+)
+
+; One pass over the declaration list, keeping the declarations that
+; carry the key. Both spellings are kept, because `smTags` loses a tag
+; above a `::` when the `fn` carries one - the measurement that made
+; `axiom test` discovery a NAME rule - so a reader must consult
+; whichever declaration has it.
+(pub :: deprecatedBuild (-> Int Int Int Int))
+
+(pub fn (deprecatedBuild decls acc i)
+  (if (== decls 0)
+    acc
+    (if (>= i (vecLen decls))
+      acc
+      {
+        (let ((d (vecGet decls i)))
+          (if (&& (|| (== (nodeTag d) TAG_D_SIG) (== (nodeTag d) TAG_D_FN))
+                  (> (strLen (axtagValueOf d "deprecated")) 0))
+            (vecPush acc d)
+            0
+          )
+        )
+        (deprecatedBuild decls acc (+ i 1))
+      }
+    )
+  )
+)
+
+(pub :: deprecatedFrom (-> Int String Int String))
+
+(pub fn (deprecatedFrom tbl name i)
+  (if (== tbl 0)
+    ""
+    (if (>= i (vecLen tbl))
+      ""
+      (let ((d (vecGet tbl i)))
+        (if (strEq (bareOf (nodeAName d)) (bareOf name))
+          (axtagValueOf d "deprecated")
+          (deprecatedFrom tbl name (+ i 1))
+        )
+      )
+    )
+  )
+)
+
 (pub :: sigTagsBuild (-> Int Int Int Int))
 
 (pub fn (sigTagsBuild decls acc i)

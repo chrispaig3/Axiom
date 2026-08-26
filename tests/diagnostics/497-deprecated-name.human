@@ -1,0 +1,9 @@
+[1;33mwarning[AX3048][0m[1m: `oldLen` is deprecated[0m
+  [1;34m--> [0m497-deprecated-name.ax:21:13
+[1;34m   |[0m
+[1;34m21 |[0m (fn (main) (oldLen 7))
+[1;34m   |[0m             [1;33m^^^^^^ declared `;@axiom:deprecated(use vecLen instead)`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mthe declaration says: use vecLen instead. It still works, and it still compiles - a deprecation is a notice, not a refusal. It may be removed in a later release, and `compat/BREAKING`'s rule lets that happen without a declared break precisely because this notice shipped first
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3048` for a full explanation
+

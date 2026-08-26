@@ -161,12 +161,17 @@ carried in the baseline row and stripped before comparison.
 one removal and compares it against two baselines differing only in the
 notice: with it `RETIRED` and zero breaking, without it `REMOVED`.
 
-**What is NOT here, and is written down rather than implied:** the
-compiler does **not** warn at a *reference* to a deprecated name. That
-needs a name→declaration lookup at every reference site — `rawTagged`
-in `self_host/typecheck.ax` is the shape it would take — and it is
-owed, not refused. Today a deprecation is a promise to the compat gate
-and a note to a reader, not a diagnostic.
+**The other half is a diagnostic.** A reference to a deprecated name
+draws `AX3048`, a **warning**, quoting the tag's own text. So the
+notice reaches a caller at the moment they use the name, and reaches
+this gate at the moment someone removes it.
+
+It is a warning by design and not as a staging step: the release that
+*announces* a removal is the one release in which the callers must
+still build. Promoting it would make deprecation and removal the same
+event, which is the distinction the notice exists to draw.
+`tests/diagnostics/severity.policy` records that reasoning beside the
+code, and `497-deprecated-name.ax` is the fixture.
 
 **COMPAT-6 (P).** At `1.0`, the component becomes enforceable: a break
 declared against a version whose MINOR did not move should fail. The

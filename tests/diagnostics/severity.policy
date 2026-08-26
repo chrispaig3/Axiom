@@ -118,3 +118,21 @@ AX3039
 #          diverging reading to confuse with a cast.
 #          `353-callback-tyvar.ax` is that arm's fixture, with the
 #          higher-order control every ordinary callback has.
+
+# AX3048 `deprecated-name` - a reference to a name its own declaration
+#          marks `;@axiom:deprecated(...)`. A warning by DESIGN and not
+#          as a staging step, which is the whole difference between
+#          this and the four above. The name still works and still
+#          compiles: refusing it here would make deprecation and
+#          removal the same event, and separating those two is the
+#          only thing a deprecation notice is for.
+#
+#          It is what makes the notice enforceable at the other end.
+#          `scripts/check-compat.sh` permits a REMOVAL outright when
+#          the previous release's baseline carried `#deprecated=`
+#          (`docs/compatibility.md` COMPAT-7), so the warning is the
+#          half a caller sees and the baseline is the half the gate
+#          sees. Promoting this to an error would strand every caller
+#          in the release that announces the change, which is the one
+#          release in which their code must still build.
+AX3048

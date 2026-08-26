@@ -35,6 +35,38 @@ its changelog too.
   `M` and `E` with the bare letters in the `want` column. No re-bless
   could have satisfied it.
 
+- **`AX3048`, `deprecated-name`: a reference to a deprecated name now
+  warns.** `;@axiom:deprecated` shipped earlier in this release as
+  something only `check-compat.sh` read. Both ends are wired now: the
+  warning is what a **caller** sees at the moment they use the name,
+  and the baseline's `#deprecated=` row is what the **gate** sees when
+  someone removes it. Neither applies unless the notice shipped a
+  release first.
+
+  A **warning by design**, not as a staging step, and
+  `tests/diagnostics/severity.policy` records the reasoning beside the
+  code: the release that *announces* a removal is the one release in
+  which the callers must still build. Promoting it would make
+  deprecation and removal the same event, which is the distinction the
+  notice exists to draw.
+
+  Two things it cost, both worth keeping:
+
+  **`declHasAxtag` silently answers no for any key that takes a
+  value.** A tag record's word 1 is the whole text —
+  `deprecated(use vecLen)` — not the bare key, so the existing helper
+  matched only `raw` and `pure`, which take none. The tag reached
+  AXSYM as `#deprecated=use%20vecLen%20instead` while the lookup saw
+  nothing at all. Split at the paren now.
+
+  **The obvious hook is the O(n²) this compiler already shipped once.**
+  A `findFnDecl` scan at every resolved reference is what
+  `emitTyvarFor` did before it was measured. `sigAxtagsFor` looked like
+  the shortcut and is not: it holds every tagged signature, a few
+  hundred, almost all `effect(io)`. The deprecated names get their own
+  table on the check context — built once, empty in every program in
+  this repository today, so the common path is one `vecLen`.
+
 ### Fixed
 
 - **Emptying the hole killed the gate that reads it.** `compat/UNCOVERED`

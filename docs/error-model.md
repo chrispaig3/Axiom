@@ -726,11 +726,14 @@ can fail - a proposal whose number is already spent - so the next
 collision is a red gate rather than a paragraph nobody re-read. Found
 2026-08-25 while closing `AX3040`'s second shape.
 
-The next free semantic number is therefore `AX3048`: `AX3042` was
+The next free semantic number is therefore `AX3049`: `AX3042` was
 SPENT on 2026-08-25 by `undeclared-effect` (a function that performs IO
 and does not declare it), `AX3047` was spent on 2026-08-26 by
 `sized-integer-type` (a C or Rust primitive spelling in type position,
-which is a type VARIABLE and so was silently accepted), `AX3043` and
+which is a type VARIABLE and so was silently accepted), `AX3048` the
+same day by `deprecated-name` (a reference to a name its declaration
+marks `;@axiom:deprecated`, a warning by design - see
+`tests/diagnostics/severity.policy`), `AX3043` and
 `AX3045` are still unspent and stay where they are, `AX3044` is the
 namespace pass's, and `AX3032` is retired and **MUST NOT** be reused.
 

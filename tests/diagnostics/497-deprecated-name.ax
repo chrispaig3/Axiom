@@ -1,0 +1,21 @@
+; A reference to a name its own declaration marks deprecated.
+;
+; The tag needed no compiler change to EXIST - the AXTAG key namespace
+; is open, so `;@axiom:deprecated(...)` already parsed, was recorded,
+; and was re-emitted on the AXSYM line as `#deprecated=`. What was
+; missing was anything reading it. `scripts/check-compat.sh` reads it
+; at one end (a removal whose baseline row carried the notice is
+; RETIRED, not REMOVED) and this warning is the other end, the one a
+; caller sees.
+;
+; A WARNING by design, not as a staging step: the release that
+; ANNOUNCES a removal is the one release in which callers must still
+; build. `tests/diagnostics/severity.policy` records that reasoning.
+;@axiom:deprecated(use vecLen instead)
+(pub :: oldLen (-> Int Int))
+
+(pub fn (oldLen v) 0)
+
+(:: main Int)
+
+(fn (main) (oldLen 7))
