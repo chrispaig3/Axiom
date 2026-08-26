@@ -429,11 +429,18 @@ if ! grep -q '^  REMOVED F unwrapOr$' "$pdiff"; then
 else
   decl="$work/BREAKING.declared"
   cat "$baseline_dir/BREAKING" > "$decl"
-  printf '%s  F  unwrapOr  probe: the accepting path\n' "$version" >> "$decl"
+  # A SYNTHETIC version, not `$VERSION`. The moment a release is cut,
+  # its own baseline is checked in and `base_version` becomes the
+  # version being released - so `$VERSION` stops being newer than the
+  # baseline and this probe would fail for the whole window between
+  # generating a baseline and the next bump. That is the RULE working
+  # (you must bump before you may break), and it is not what this probe
+  # is testing. The subject here is whether the permit is READ at all.
+  printf '999.0.0  F  unwrapOr  probe: the accepting path\n' >> "$decl"
   n_yes="$(undeclared_in "$pdiff" "$decl" 2>/dev/null)"
   n_no="$(undeclared_in "$pdiff" "$baseline_dir/BREAKING" 2>/dev/null)"
   if [[ "$n_yes" -eq 0 && "$n_no" -eq 1 ]]; then
-    ok "a break declared for $version is accepted, and the same break undeclared is not"
+    ok "a break declared for a version newer than $base_version is accepted, and the same break undeclared is not"
   else
     bad "the permit does not read compat/BREAKING correctly"
     echo "     declared: expected 0 undeclared, got $n_yes"

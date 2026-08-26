@@ -16,6 +16,8 @@ its changelog too.
 
 ## Unreleased
 
+## 0.3.2 — 2026-08-26
+
 ### Added
 
 - **A version number is now a checked claim.** `scripts/check-version.sh`
