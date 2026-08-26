@@ -35,6 +35,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Str)
 
 (import Mem)
@@ -99,11 +101,28 @@
 (pub fn (probe label env)
   {
     (println label)
-    (sysRun (strCStr (strDup (sysArg 0))) (argv2 selfName "search") (envp1 env))
+    (unwrapOr (sysRun (strCStr (strDup (sysArg 0))) (argv2 selfName "search") (envp1 env)) 0)
   }
 )
 
 (pub :: main Int)
+
+; What `sysRunPath` answered, in the sentinel spelling this case's
+; golden has always used: a child's exit code, or the negated errno of
+; a search that refused. `unwrapOr` with a constant would print that
+; constant for every failure and this case would pass whatever went
+; wrong - the vacuous pass the comment below is about, reintroduced by
+; the migration itself.
+(:: searchAnswer (-> String Int))
+
+;@axiom:effect(io)
+(fn (searchAnswer name)
+  (match (sysRunPath name (argv2 name "victim") 0)
+    ((Ok code) code)
+    ((Err e) (- 0 (errCode e)))
+  )
+)
+
 
 ;@axiom:effect(io)
 (pub fn (main)
@@ -121,9 +140,9 @@
       ; search refused - the vacuous pass this whole case exists to
       ; avoid.
       (let ((n (strLen (sysEnv "PATH"))))
-        (let ((rc (sysRunPath selfName (argv2 selfName "victim") 0)))
+        (let ((shown (searchAnswer selfName)))
           {
-            (println "  PATH length {n}, sysRunPath answered {rc}")
+            (println "  PATH length {n}, sysRunPath answered {shown}")
             0
           }
         )

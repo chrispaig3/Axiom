@@ -48,6 +48,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Mem)
 
 (:: say (-> Int String Int))
@@ -291,7 +293,7 @@
                     (let ((mut busy 0))
                       {
                         (while (< k2 (vecLen pids))
-                          (let ((st (sysWaitPid (vecGet pids k2))))
+                          (let ((st (unwrapOr (sysWaitPid (vecGet pids k2)) 0)))
                             {
                               ; 255 is the setup-failure code and is
                               ; the only value that is not a count,

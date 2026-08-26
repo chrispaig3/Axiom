@@ -914,10 +914,11 @@
 ; must include the program name at index 0, since the kernel does not
 ; supply it. Neither vector is searched for on `PATH` - `sysRunPath`
 ; does that.
-(pub :: sysSpawn (-> Int Int Int Int))
+(pub :: sysSpawn (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysSpawn path argv envp)
+  (sysResult "sysSpawn"
   (if (== spawnUsesPosixSpawn 1)
     (let ((pidbuf (memAlloc 8)))
       {
@@ -994,13 +995,14 @@
       )
     )
   )
-)
+))
 
 ; Wait for `pid` and answer the raw wait status, or `-errno`.
-(pub :: sysWaitPid (-> Int Int))
+(pub :: sysWaitPid (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysWaitPid pid)
+  (sysResult "sysWaitPid"
   ; The kernel writes a 32-bit int into an 8-byte word, so the upper
   ; half is whatever was there before. Zeroing first is what makes
   ; the read below the status rather than the status plus garbage.
@@ -1017,7 +1019,7 @@
       )
     }
   )
-)
+))
 
 ; The exit code carried by a wait status, for a child that exited
 ; normally.
@@ -1036,19 +1038,25 @@
 ; which is what distinguishes "could not start llc" from "llc rejected
 ; the module", two failures a driver must not report the same way. A
 ; child killed by a signal answers 128+signal, the shell's convention.
-(pub :: sysRun (-> Int Int Int Int))
+(pub :: sysRun (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysRun path argv envp)
-  (let ((pid (sysSpawn path argv envp)))
-    (if (< pid 0)
-      pid
-      (let ((st (sysWaitPid pid)))
-        (if (< st 0)
-          st
+  ; The three-way answer, now split by the type rather than by a sign.
+  ; `Err` means THE CHILD NEVER RAN - the spawn's own errno - which is
+  ; the distinction a driver must not lose: "could not start llc" and
+  ; "llc rejected the module" are different failures. `Ok` means it
+  ; ran, and carries what it answered, including `128+n` for a signal
+  ; on the shell's convention.
+  (match (sysSpawn path argv envp)
+    ((Err e) (Err e))
+    ((Ok pid)
+      (match (sysWaitPid pid)
+        ((Err e) (Err e))
+        ((Ok st)
           (if (!= (sysTermSignal st) 0)
-            (+ 128 (sysTermSignal st))
-            (sysExitCode st)
+            (Ok (+ 128 (sysTermSignal st)))
+            (Ok (sysExitCode st))
           )
         )
       )
@@ -1122,7 +1130,8 @@
 ; Measured on this host, 2026-08-23: a directory holding an executable
 ; `probe`, and `env -i ./probe` in it. `(sysRunPath "probe" ...)`
 ; answered 9 - the exit code of the copy in the WORKING DIRECTORY, which
-; had run - where this comment promises -2. It answers -2 now. That
+; had run - where this comment promises "not found". It refuses now,
+; and since 0.3.4 it refuses in the `Err` arm rather than as -2. That
 ; matters because this is the lookup a compiler driver resolves `llc`
 ; and `cc` through, so `axiom build` inside a source tree it did not
 ; write, with no PATH in the environment, ran that tree's `./llc`.
@@ -1134,7 +1143,7 @@
 ; because a default would have this library guess at a host layout it is
 ; told nothing else about - a guess that is wrong on any target whose
 ; toolchain lives elsewhere, and wrong silently.
-(pub :: sysRunPath (-> String Int Int Int))
+(pub :: sysRunPath (-> String Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysRunPath name argv envp)
@@ -1142,7 +1151,7 @@
     (sysRun (strCStr (strDup name)) argv envp)
     (let ((path (sysEnv "PATH")))
       (if (== (strLen path) 0)
-        (- 0 2)
+        (Err (mkError 2 "sysRunPath: PATH is empty"))
         (sysRunSearch
           name          argv          envp          path          0
         )
@@ -1159,12 +1168,14 @@
 ; about. The caller refuses an empty `path` as well; both guards are
 ; here because either alone leaves this function unable to state its own
 ; termination.
-(:: sysRunSearch (-> String Int Int String Int Int))
+(:: sysRunSearch (-> String Int Int String Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (fn (sysRunSearch name argv envp path from)
   (if (>= from (strLen path))
-    (- 0 2)
+    ; PATH exhausted: nothing was found to run, which is a spawn
+    ; failure and not a child's answer - ENOENT, in the `Err` arm.
+    (Err (mkError 2 (strConcat (strConcat "sysRunSearch: " name) ": not found on PATH")))
     ; AN EMPTY ENTRY IS SKIPPED rather than read as the
     ; working directory. POSIX does give `PATH=/usr/bin:`
     ; and `PATH=:/usr/bin` a `.` entry and the shell
@@ -1213,8 +1224,14 @@
                     )
                     {
                       (sysCloseFd fd)
+                      ; `Ok` here means the child RAN, whatever it
+                      ; answered - a non-zero exit is this entry's
+                      ; result and ends the walk. Only a spawn failure
+                      ; (`Err`) means try the next `PATH` entry, which
+                      ; is the distinction the old `>= 0` was making by
+                      ; sign.
                       (let ((rc (sysRun cpath argv envp)))
-                        (if (>= rc 0)
+                        (if (isOk rc)
                           rc
                           (sysRunSearch
                             name                            argv                            envp                            path                            (+ end 1)
@@ -2140,10 +2157,11 @@
 ;
 ; A ZERO-BYTE REQUEST IS 0 AND MAKES NO SYSCALL, so a caller computing a
 ; length does not have to special-case an empty one.
-(pub :: sysRandomBytes (-> Int Int Int))
+(pub :: sysRandomBytes (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysRandomBytes buf n)
+  (sysResult "sysRandomBytes"
   (let ((mut off 0))
     (let ((mut rc 0))
       {
@@ -2179,7 +2197,7 @@
       }
     )
   )
-)
+))
 
 ; ------------------------------------------------------------------
 ; Signals

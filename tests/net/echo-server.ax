@@ -43,6 +43,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Mem)
 
 (import Str)
@@ -314,7 +316,7 @@
                       (let ((mut r 0))
                         (while (< r (vecLen pids))
                           {
-                            (sysWaitPid (vecGet pids r))
+                            (unwrapOr (sysWaitPid (vecGet pids r)) 0)
                             (set r (+ r 1))
                           })
                       )

@@ -49,6 +49,8 @@
 
 (import Sys)
 
+(import Err)
+
 ; A pool is a 4-word record:
 ;
 ;   0  width      the maximum number of children running at once
@@ -122,7 +124,13 @@
           (if (== pid 0)
             (set i (+ i 1))
             {
-              (vecSet codes i (jobStatusToCode (sysWaitPid pid)))
+              ; `Err` is the wait itself failing, which is not a child's
+              ; exit code - `jobPending` stays the honest answer there,
+              ; the same value the slot held before it was reaped.
+              (vecSet codes i (match (sysWaitPid pid)
+                ((Ok st) (jobStatusToCode st))
+                ((Err e) (- 0 (errCode e)))
+              ))
               (vecSet pids i 0)
               (memSetWord p 3 (- (jobLive p) 1))
               (set done 1)
@@ -168,22 +176,33 @@
       (while (&& (== more 1) (>= (jobLive p) (jobWidth p)))
         (set more (jobReapOldest p)))
     )
-    (let (
-      (slot (vecLen (jobPids p)))
-      (pid (sysSpawn path argv envp))
-    )
-      (if (< pid 0)
-        {
-          (vecPush (jobPids p) 0)
-          (vecPush (jobCodes p) pid)
-          slot
-        }
-        {
-          (vecPush (jobPids p) pid)
-          (vecPush (jobCodes p) jobPending)
-          (memSetWord p 3 (+ (jobLive p) 1))
-          slot
-        }
+    (let ((slot (vecLen (jobPids p))))
+      ; MATCH, not `unwrapOr`. A failed spawn has no pid, and any
+      ; fallback is a lie the rest of this pool believes: `0` is not
+      ; `< 0`, so it took the SUCCESS branch, pushed 0 as a live child
+      ; and counted it - and `sysWaitPid 0` then waits for ANY child in
+      ; the process group, forever. `302-job` hung rather than failed.
+      ;
+      ; That is the whole argument for the type. The sign convention
+      ; carried "the child never ran" in the same Int as the pid, so a
+      ; mechanical unwrap could destroy the distinction without the
+      ; checker noticing. The arms cannot.
+      (match (sysSpawn path argv envp)
+        ((Err e)
+          {
+            (vecPush (jobPids p) 0)
+            (vecPush (jobCodes p) (- 0 (errCode e)))
+            slot
+          }
+        )
+        ((Ok pid)
+          {
+            (vecPush (jobPids p) pid)
+            (vecPush (jobCodes p) jobPending)
+            (memSetWord p 3 (+ (jobLive p) 1))
+            slot
+          }
+        )
       )
     )
   }

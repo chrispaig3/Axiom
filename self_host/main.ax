@@ -989,10 +989,11 @@
                                 (let ((code (sysRunPath exe (testArgv exe) sysEnvp)))
                                   {
                                     (unwrapOr (sysUnlink (strCStr exe)) 0)
-                                    (if (< code 0)
-                                      4
-                                      code
-                                    )
+                                    ; `Err` is the spawn failing - the
+                                    ; child never ran - which is exit 4,
+                                    ; the toolchain code. `Ok` carries
+                                    ; whatever the child answered.
+                                    (unwrapOr code 4)
                                   }
                                 )
                               )
@@ -1584,12 +1585,10 @@
                                       (let ((code (sysRunPath exe (runArgv exe) sysEnvp)))
                                         {
                                           (unwrapOr (sysUnlink (strCStr exe)) 0)
-                                          (sysExitWith
-                                            (if (< code 0)
-                                              4
-                                              code
-                                            )
-                                          )
+                                          ; `Err` means the child never
+                                          ; ran: exit 4, the toolchain
+                                          ; code. `Ok` is its answer.
+                                          (sysExitWith (unwrapOr code 4))
                                           0
                                         }
                                       )

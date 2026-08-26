@@ -52,3 +52,21 @@
 # `ioResult` now RE-WRAPS a `Sys` Result rather than converting a raw
 # Int, because `Sys` converts at its own layer now.
 0.3.4  F  ioResult       (Int -> ...) -> ((Result Int Error) -> ...)
+
+# 0.3.4 - the process half of slice 3. `sysRun`'s three-way answer is
+# now split by the TYPE rather than by a sign: `Err` means the child
+# NEVER RAN (the spawn's own errno), `Ok` means it ran and carries what
+# it answered, including 128+n for a signal. That is the distinction
+# `Sys.ax`'s own comment says a driver must not lose - "could not start
+# llc" against "llc rejected the module".
+#
+# The net calls are deliberately NOT here: `netPollWait` runs inside
+# the echo server's event loop, where an `(Ok n)` block would allocate
+# per poll wake outside the per-connection arena scope, and
+# `check-net.sh` asserts memory ratios on exactly that server. Same
+# reasoning that leaves `IO.writeStr` on a sentinel.
+0.3.4  F  sysSpawn        -errno -> (Result Int Error): Err means no child
+0.3.4  F  sysWaitPid      -errno -> (Result Int Error)
+0.3.4  F  sysRun          -errno -> (Result Int Error): Err means the child never ran
+0.3.4  F  sysRunPath      -errno -> (Result Int Error)
+0.3.4  F  sysRandomBytes  -errno -> (Result Int Error)

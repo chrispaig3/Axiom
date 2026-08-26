@@ -1052,12 +1052,39 @@ before the next:
    asserting an observed VALUE stands exactly where the type system
    does not.
 
-   What remains in `Sys.ax` are the seven that are not filesystem
-   calls: `sysSpawn`, `sysWaitPid`, `sysRun`, `netSocketTcp`,
-   `netPollCreate`, `netPollWait`, `sysRandomBytes`. `sysRun`'s
-   contract is three-way — an exit code, `128+n` for a signal, or a
-   negative spawn errno meaning the child never ran — and wants a
-   decision rather than the same wrapper.
+   **The process half is done too.** `sysSpawn`, `sysWaitPid`,
+   `sysRun`, `sysRunPath` and `sysRandomBytes` answer
+   `(Result Int Error)`. `sysRun`'s three-way contract is now split by
+   the TYPE rather than by a sign: **`Err` means the child never ran**
+   (the spawn's own errno), `Ok` means it ran and carries what it
+   answered, including `128+n` for a signal. That is the distinction
+   this file's own comment says a driver must not lose. `Sys.ax`'s
+   census: **13 → 3**; the library **30 → 13**.
+
+   **The three net calls are deliberately NOT ported.** `netPollWait`
+   runs inside the echo server's event loop, so an `(Ok n)` block would
+   allocate per poll wake, outside the per-connection arena scope —
+   and `scripts/check-net.sh` asserts memory ratios on exactly that
+   server. Risking a measured gate for no safety gain is the wrong
+   trade, and it is the same reasoning that leaves `IO.writeStr` on a
+   sentinel. `runTool` in `self_host/driver.ax` unwraps at the stdlib
+   boundary for the same reason of scope: the compiler's own phases are
+   slice 4.
+
+   **`unwrapOr` with a constant is not a port, and it cost three
+   defects here.** Wherever the sentinel carried WHICH failure, a
+   fallback value destroys it and nothing complains:
+
+   - `Job.jobSubmit` — a failed spawn became pid `0`, which is not
+     `< 0`, so the pool counted it live and `sysWaitPid 0` waited for
+     any child in the group. `302-job` **hung** rather than failed.
+   - `993-filesystem-verbs` — `(== (unwrapOr … 0) -2)` is silently
+     false, so the case counted one fewer success and exited 1 for 77.
+   - `305-path-search` — printed the fallback for every failure, which
+     is the vacuous pass that fixture's own comment exists to prevent.
+
+   All three are `match` now. The rule: **`unwrapOr` is safe only where
+   the fallback is genuinely equivalent to the error.**
 4. `self_host/` — the compiler's own phases, which is where the model
    stops being a library and starts being the thing that proves it.
 5. The REPL surface, `check-repl-selfhost.sh`'s session bank extended

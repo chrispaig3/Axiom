@@ -26,6 +26,8 @@
 ; worth writing down.
 (import IO)
 (import Sys)
+
+(import Err)
 (import Mem)
 
 (:: say (-> Int String Int))
@@ -65,16 +67,16 @@
       {
         ; A zero-length request is 0 and makes no syscall, so a caller
         ; computing a length need not special-case an empty one.
-        (say (if (== (sysRandomBytes a 0) 0) 1 0) "a zero-length request succeeds")
+        (say (if (isOk (sysRandomBytes a 0)) 1 0) "a zero-length request succeeds")
         (say
           (if (== (nonZero a 0 1000) 0) 1 0)
           "a zero-length request wrote nothing")
         ; One chunk, comfortably under the cap.
-        (say (if (== (sysRandomBytes b 32) 0) 1 0) "a short request succeeds")
+        (say (if (isOk (sysRandomBytes b 32)) 1 0) "a short request succeeds")
         (say (if (> (nonZero b 0 32) 0) 1 0) "a short request filled its buffer")
         ; THE CASE THIS FILE IS FOR: 1000 bytes is four chunks on both
         ; platforms, so it only succeeds if the loop advances correctly.
-        (say (if (== (sysRandomBytes a 1000) 0) 1 0) "a request spanning four chunks succeeds")
+        (say (if (isOk (sysRandomBytes a 1000)) 1 0) "a request spanning four chunks succeeds")
         (say
           (if (> (nonZero a 0 256) 0) 1 0)
           "the first chunk is filled")
@@ -92,8 +94,8 @@
         ; something fixed and every assertion above would still pass.
         (let ((c (memAlloc 64)))
           {
-            (sysRandomBytes b 64)
-            (sysRandomBytes c 64)
+            (unwrapOr (sysRandomBytes b 64) 0)
+            (unwrapOr (sysRandomBytes c 64) 0)
             (say
               (if (!= (memCmp b c 64) 0) 1 0)
               "two draws differ")

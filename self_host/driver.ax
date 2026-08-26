@@ -105,7 +105,13 @@
         (memSetWord v 0 (strCStr (strDup tool)))
         (fillArgv v args 0 n)
         (memSetWord v (+ n 1) 0)
-        (sysRunPath tool v sysEnvp)
+        ; The stdlib boundary. `sysRunPath` answers a `Result` since
+        ; 0.3.4 - `Err` is the spawn failing, the tool never ran - and
+        ; the compiler's own phases are ERR-ADOPT-1 slice 4, not this
+        ; one. So it is unwrapped here, to 127: "command not found",
+        ; the shell's convention and the honest reading of a tool that
+        ; could not be started. Every caller's `rc` keeps its meaning.
+        (unwrapOr (sysRunPath tool v sysEnvp) 127)
       }
     )
   )

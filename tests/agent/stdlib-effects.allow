@@ -221,7 +221,7 @@ sysNowMicros Sys.ax IO
 sysNowMonotonic Sys.ax IO
 sysOpenPath Sys.ax IO
 sysOpenPathMode Sys.ax IO
-sysRandomBytes Sys.ax IO
+sysRandomBytes Sys.ax Alloc,IO,Mut
 sysReadAll Sys.ax Alloc,IO,Mut
 sysReadDir Sys.ax Alloc,IO,Mut
 sysReadDirDecode Sys.ax Alloc,Mut
