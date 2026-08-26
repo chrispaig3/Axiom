@@ -13536,7 +13536,10 @@
                 )
                 (if (== (tyReprClash want got) 1)
                   (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
-                  0
+                  (if (tyParamThroughInt want got)
+                    (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
+                    0
+                  )
                 )
               )
             )
@@ -13587,6 +13590,43 @@
           1
           0
         )
+      )
+    )
+  )
+)
+
+; A PARAMETERISED type answered through a bare `Int`, which the handle
+; convention does NOT cover and which `tyReprClash` above deliberately
+; exempts at its second line.
+;
+; The convention is real: `Int` is this language's universal heap
+; handle, `mkSpan` declares `Int` and answers a `Span`, `jobPoolNew`
+; answers a `JobPool`. Every one of those is a MONOMORPHIC struct, and
+; the handle is the whole value - a caller that knows the convention
+; knows what it holds.
+;
+; A parameterised constructor is different in kind. `(Result Int Error)`
+; through an `Int` keeps the address and throws the type ARGUMENTS
+; away, so nothing downstream can recover what it holds; there is
+; nothing left for the convention to mean. Measured twice on
+; 2026-08-26, both silent:
+;
+;   `IO.makeDir` declared `Int` over a body that became `sysMkdir`'s
+;   `Result`. It returned a HEAP ADDRESS where an errno belonged and
+;   `check` printed OK; a fixture caught it at `got=4372103456 want=0`.
+;
+;   `driver.runTool` did the same one layer up and surfaced as AX4003
+;   at run time, having compiled clean.
+(pub :: tyParamThroughInt (-> Int Int Bool))
+
+(pub fn (tyParamThroughInt want got)
+  (if (|| (!= (nodeTag want) TAG_T_CON) (!= (nodeTag got) TAG_T_CON))
+    false
+    (if (!= (vecLen (nodeB want)) 0)
+      false
+      (if (== (vecLen (nodeB got)) 0)
+        false
+        (strEq (nodeAName want) "Int")
       )
     )
   )

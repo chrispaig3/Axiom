@@ -1,0 +1,41 @@
+; A PARAMETERISED type answered through a bare `Int`.
+;
+; `Int` is this language's universal heap handle and the whole tree
+; relies on it: `mkSpan` declares `Int` and answers a `Span`,
+; `Job.jobPoolNew` answers a `JobPool`. `tyReprClash` therefore names
+; only `Bool` and `Float` as representation clashes - a 2026-08-10
+; attempt at the general rule reported 21 of 271 files, every one a
+; handle returned through `Int` on purpose.
+;
+; A PARAMETERISED constructor is different in kind. The handle keeps
+; the address and throws the type ARGUMENTS away, so nothing
+; downstream can recover what it holds and there is nothing left for
+; the convention to mean.
+;
+; Measured twice on 2026-08-26, both silent, both during the `Result`
+; migration: `IO.makeDir` declared `Int` over a body that had become
+; `sysMkdir`'s `Result` and returned a HEAP ADDRESS where an errno
+; belonged - `check` printed OK and a fixture caught it at
+; `got=4372103456 want=0`. `driver.runTool` did the same one layer up
+; and surfaced as `AX4003` at run time.
+;
+; The monomorphic handle below is the control: it must stay accepted,
+; because that is the convention this rule is carved around.
+(import Err)
+
+(struct Span (a : Int) (b : Int))
+
+; The control: a monomorphic handle through `Int`, which is the
+; language's convention and is NOT refused.
+(:: mkSpan (-> Int Int Int))
+
+(fn (mkSpan a b) (Span a b))
+
+; The defect: a parameterised type through `Int`.
+(:: leak (-> Int Int))
+
+(fn (leak x) (Ok x))
+
+(:: main Int)
+
+(fn (main) (mkSpan 1 2))

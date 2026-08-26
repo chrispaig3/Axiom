@@ -1,0 +1,9 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found Result Int _t255[0m
+  [1;34m--> [0m498-param-through-int.ax:37:15
+[1;34m   |[0m
+[1;34m37 |[0m (fn (leak x) (Ok x))
+[1;34m   |[0m               [1;31m^^ this has type `Result Int _t255`, expected `Int`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 1 previous error

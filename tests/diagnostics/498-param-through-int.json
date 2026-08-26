@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3004","slug":"type-mismatch","message":"type mismatch: expected Int, found Result Int _t255","file":"498-param-through-int.ax","span":{"start":{"line":37,"col":15},"end":{"line":37,"col":17},"char_start":1477,"char_end":1479},"label":"this has type `Result Int _t255`, expected `Int`","related":[],"notes":[],"help":[],"expansion":[]}
