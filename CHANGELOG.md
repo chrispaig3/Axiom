@@ -91,6 +91,32 @@ its changelog too.
   around. The rule, in `docs/error-model.md`: `unwrapOr` is safe only
   where the fallback is genuinely *equivalent* to the error.
 
+- **The stdlib boundary collapsed a `Result` onto the wrong constant,
+  and a missing `opt` stopped being survivable.** `runTool` unwrapped
+  a tool that could not be started to `127` — "command not found", the
+  shell's convention, and the wrong answer here. Every caller in
+  `driver.ax` separates *tool missing* from *tool ran and failed* **by
+  sign**: `(if (< rc 0)` prints "`opt` not found on PATH; building
+  without mid-level optimisation" and **continues**, while any non-zero
+  non-negative `rc` fails the build. `127` is positive, so CI went red
+  on all three platforms. `check-driver.sh` exists to hold exactly this
+  — a `PATH` with `llc` and `cc` but no `opt` must still build — and it
+  did.
+
+  The boundary collapses `Err` to the **negated errno** now: the exact
+  contract every caller already tests. This was the fourth
+  `unwrapOr`-with-a-constant defect in the migration, and the first
+  introduced *after* the rule against it was written down.
+
+- **An assertion that counted a failure as a success.** Auditing all 71
+  unwraps rather than waiting for the next gate found
+  `(== (unwrapOr (sysFileSize f) 0) 0)` in `993-filesystem-verbs`: the
+  expected size is `0` and the fallback is `0`, so a failed call and an
+  empty file were indistinguishable. A `match` keeps them apart. The
+  other 69 are fire-and-forget cleanup, where the value is discarded,
+  or assertions against a non-zero value, where a failure surfaces as a
+  failed assertion.
+
 - **The generated API reference documented a contract that no longer
   existed.** CI caught `docs/stdlib-api.md` stale on all three
   platforms. Regenerating alone would have been worse than the

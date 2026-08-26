@@ -134,7 +134,10 @@
         (set n (+ n 1))
         0
       )
-      (if (== (unwrapOr (sysFileSize f) 0) 0)
+      ; `unwrapOr ... 0` here would count a FAILURE as a success: the
+      ; expected size is 0 and the fallback is 0, so the two become
+      ; indistinguishable. The arms keep them apart.
+      (if (match (sysFileSize f) ((Ok v) (== v 0)) ((Err e) false))
         (set n (+ n 1))
         0
       )

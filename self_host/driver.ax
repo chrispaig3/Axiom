@@ -108,10 +108,23 @@
         ; The stdlib boundary. `sysRunPath` answers a `Result` since
         ; 0.3.4 - `Err` is the spawn failing, the tool never ran - and
         ; the compiler's own phases are ERR-ADOPT-1 slice 4, not this
-        ; one. So it is unwrapped here, to 127: "command not found",
-        ; the shell's convention and the honest reading of a tool that
-        ; could not be started. Every caller's `rc` keeps its meaning.
-        (unwrapOr (sysRunPath tool v sysEnvp) 127)
+        ; one. So the Result is collapsed here, and it is collapsed
+        ; back onto THE EXACT CONTRACT EVERY CALLER ALREADY TESTS: a
+        ; NEGATED ERRNO when the tool could not be started, the child's
+        ; own code otherwise.
+        ;
+        ; It was `127` for one commit - "command not found", the
+        ; shell's convention - and that broke the build on all three
+        ; platforms. Every caller here distinguishes the two cases BY
+        ; SIGN: `(if (< rc 0)` above `opt` prints "not found on PATH;
+        ; building without mid-level optimisation" and CONTINUES, while
+        ; any non-zero non-negative rc fails the build. 127 is
+        ; positive, so a missing `opt` stopped being survivable -
+        ; which `check-driver.sh` exists to catch and did.
+        (match (sysRunPath tool v sysEnvp)
+          ((Ok code) code)
+          ((Err e) (- 0 (errCode e)))
+        )
       }
     )
   )
