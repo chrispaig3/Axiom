@@ -126,6 +126,23 @@ its changelog too.
   reserved block (`AX3043`, `AX3045`, `AX3046`) untouched — a new code
   goes above the reserved block, never into it.
 
+- **The sentinel census is gated, on a metric that counts functions.**
+  R5's rule is to gate the direction *before* porting anything, and the
+  metric the plan inherited could not do it. `docs/error-model.md`
+  sizes the `Result` migration with a `grep` proxy and tells the reader
+  to recompute rather than quote it — recomputed today that proxy reads
+  **89 over 15 files**, not the recorded 64, and roughly **sixty of
+  those are comment lines**. `stdlib/IO.ax` has eleven matches and zero
+  in code. A per-file "no file may rise" rule over that would gate
+  prose, and the migration's own explanatory comments would break it on
+  the first commit.
+
+  The unit is now a public **function** whose own doc-comment states a
+  sentinel contract — what the migration ports, and what a caller
+  depends on. **30 across 7 modules**, checked into `compat/SENTINELS`.
+  A file may fall freely; a file that rises fails. Ablated by adding
+  one `-errno` line to `Vec.ax`: `stdlib/Vec.ax(0->1)`, red.
+
 - **`;@axiom:deprecated` retires a name gracefully, and it needed no
   compiler change.** The AXTAG key namespace is open by design: an
   unknown key already parses, is recorded, and is re-emitted on the

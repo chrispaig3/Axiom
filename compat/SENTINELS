@@ -1,0 +1,26 @@
+# Public functions whose own doc-comment states a sentinel contract,
+# per module. The `Result` migration's size, and its DIRECTION.
+#
+# `docs/error-model.md` sizes this with a `grep` proxy over
+# `errno|sentinel|(- 0 1)` and tells the reader to recompute rather
+# than quote. Recomputed 2026-08-26 that proxy reads 89 over 15 files,
+# not the 64 recorded - and around sixty of those are COMMENT lines.
+# `stdlib/IO.ax` has eleven matches and zero in code. A per-file "no
+# file may rise" rule over that metric would gate PROSE, and the
+# migration's own explanatory comments would break it on the first
+# commit.
+#
+# So the unit here is a public FUNCTION, which is what the migration
+# ports and what a caller depends on. `scripts/check-compat.sh`
+# recomputes these and refuses any file that RISES. A file may fall
+# freely - that is the migration - and the number here is lowered in
+# the same commit that lowers the count.
+#
+# R5: gate the direction before porting anything.
+stdlib/Agent/Tags.ax 3
+stdlib/IO.ax 8
+stdlib/Intern.ax 1
+stdlib/Path.ax 2
+stdlib/Str.ax 2
+stdlib/Sys.ax 13
+stdlib/Sys/Platform.darwin.ax 1

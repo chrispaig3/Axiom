@@ -250,6 +250,37 @@ else
   echo "     when a name LEAVES."
 fi
 
+echo "== the sentinel census may fall, never rise =="
+# The direction, not the number. A file that ports a sentinel to
+# `Result` lowers its count and lowers the line here in the same
+# commit; a file that GAINS one fails. R5's early warning is the count
+# going up while a migration is "in progress", so this is the arm that
+# has to exist before any porting starts.
+checks=$((checks + 1))
+now="$work/sentinels.now"
+python3 "$helper" sentinels "$axc" "$work" "$repo_root/stdlib" > "$now"
+total_now="$(awk '{s+=$2} END{print s+0}' "$now")"
+# A floor, because a census that stops matching reports the silence it
+# was looking for. Not a count: the migration is meant to drive it down.
+if [[ "$(grep -c . "$now")" -lt 3 ]]; then
+  bad "the census matched $(grep -c . "$now") modules - the metric has stopped matching"
+else
+  risen=""
+  while read -r mod n; do
+    was="$(awk -v m="$mod" '$1==m {print $2}' "$baseline_dir/SENTINELS")"
+    [[ -z "$was" ]] && was=0
+    (( n > was )) && risen="$risen $mod($was->$n)"
+  done < <(grep -v '^#' "$now" | grep -v '^[[:space:]]*$')
+  if [[ -z "$risen" ]]; then
+    ok "sentinel census: $total_now public functions over $(grep -c . "$now") modules, none risen"
+  else
+    bad "a module gained a sentinel contract:$risen"
+    echo "     A new `-errno` or `-1` return is the convention winning against the"
+    echo "     migration. Return a \`Result\`, or lower the count in compat/SENTINELS"
+    echo "     only when porting takes one away."
+  fi
+fi
+
 echo "== the negative probes =="
 
 probe() {                       # name  expect-classification  file  old  new

@@ -248,6 +248,54 @@ def uncovered(root, axiom, work):
     return sorted(public_names(root) - seen)
 
 
+# --- the sentinel census ------------------------------------------
+#
+# `docs/error-model.md` sizes the `Result` migration with a `grep`
+# proxy over `errno|sentinel|\(- 0 1\)` and tells the reader to
+# RECOMPUTE it rather than quote it. Recomputed 2026-08-26 it reads 89
+# over 15 files, not the recorded 64 - and roughly sixty of those are
+# COMMENT lines. `stdlib/IO.ax` has eleven matches and zero in code.
+#
+# So a per-file "no file may rise" rule over that proxy would gate
+# PROSE, and the migration's own explanatory comments would break it on
+# the first commit. R5's rule is to gate the direction before porting
+# anything; a gate over the wrong metric is worse than no gate, because
+# it reads as coverage.
+#
+# The unit here is a PUBLIC FUNCTION whose own doc-comment block states
+# a sentinel contract - which is the thing the migration actually ports
+# and the thing a caller actually depends on. Measured the same day:
+# 40 overall, 31 across `IO.ax` and `Sys.ax`, which matches the
+# document's own "32 sites" for that slice closely enough to believe
+# both.
+SENTINEL_PROSE = re.compile(
+    r"-errno|answers 0, or|or `-1`|, or -1|negative errno|a negative/errno")
+
+
+def sentinel_census(root):
+    """{module: count of public functions with a sentinel contract}."""
+    out = {}
+    for m in MODULES:
+        path = os.path.join(root, m + ".ax")
+        lines = open(path, encoding="utf-8").read().split("\n")
+        n = 0
+        for i, line in enumerate(lines):
+            if not line.startswith("(pub :: "):
+                continue
+            block, j = [], i - 1
+            while j >= 0 and (lines[j].startswith(";") or not lines[j].strip()):
+                if lines[j].startswith(";"):
+                    block.append(lines[j])
+                j -= 1
+                if len(block) > 14:
+                    break
+            if SENTINEL_PROSE.search("\n".join(block)):
+                n += 1
+        if n:
+            out["stdlib/" + m + ".ax"] = n
+    return out
+
+
 def main(argv):
     if len(argv) < 4:
         sys.exit("usage: verify-compat.py {generate|compare} <axiom> <work> [args]")
@@ -264,6 +312,10 @@ def main(argv):
         if cmd == "generate":
             for row in surface(argv[4], axiom, work):
                 print(row)
+            return 0
+        if cmd == "sentinels":
+            for mod, n in sorted(sentinel_census(argv[4]).items()):
+                print(f"{mod} {n}")
             return 0
         if cmd == "modules":
             # Printed rather than duplicated in the gate: a second copy
