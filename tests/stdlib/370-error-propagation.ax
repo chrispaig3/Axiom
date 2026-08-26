@@ -71,6 +71,34 @@
 ;    seeing allocation, term 64 goes to 0 and this fixture fails.
 ;    `docs/error-model.md` ERR-MEM-4 records the whole measurement.
 ;
+;    NO PROBE HERE USES A `memAlloc` DELTA ANY MORE, and the reason is
+;    that one of them went green on linux-x86_64 while leaking. Every
+;    probe used to bracket its loop with two `memAlloc` addresses,
+;    which is sound only while the bump stays inside one chunk. Term
+;    32's ABLATED arm leaks 640,032 bytes, and 640 KB is enough to
+;    cross one: the two addresses then live in unrelated chunks, the
+;    subtraction answers a number about nothing, and on Linux that
+;    number came back UNDER the 4096 gap. So the term PASSED on a
+;    compiler with the defect fully present, while darwin-aarch64
+;    failed it correctly. A crossing made the check pass instead of
+;    fail, which is worse than no check at all.
+;
+;    Fixing term 32 alone would have been the smaller lie. Term 64
+;    crossed a chunk on the very next run - its delta came back
+;    **-144**, a negative number of bytes - and it had been green on
+;    darwin only by where the boundary happened to fall. Terms 4 and 8
+;    assert FLATNESS through the same instrument and carry the same
+;    hazard by construction: a crossing is only reachable when the arm
+;    allocates heavily, which is exactly when the term should fail.
+;
+;    So all four read the arena MARK CELL, as `372-arc-owned-results`
+;    does: word 0 is the bump, word 2 is the chunk. The three FLAT
+;    terms (4, 8, 32) require the chunk to be unchanged AND the bump
+;    to have barely moved, so a crossing is a failure. Term 64 asserts
+;    GROWTH, so for it a crossing IS the growth and satisfies the term
+;    on its own. Each direction fails the way an unmeasurable
+;    measurement has to.
+;
 ;    That measurement also fixed the metric. A `memAlloc` address delta
 ;    is only meaningful BELOW the allocator's chunk size: the same
 ;    loop read 32.0 bytes/iter at 10,000 and 50,000 and 795.7 at
@@ -282,41 +310,63 @@
         )
       ))
       (set steps (+ steps 1))
-      (let ((a1 (memAlloc 8)))
+      (let ((a1 __axiom_arena_mark))
         {
           (totalPlain 100000 0)
-          (let ((a2 (memAlloc 8)))
-            (set acc (+ acc (* 8 (b2i (< (- a2 a1) 4096)))))
+          (let ((a2 __axiom_arena_mark))
+            (set acc (+
+              acc              (*
+                8                (b2i (&&
+                  (== (__load64 a2 2) (__load64 a1 2))                  (< (- (__load64 a2 0) (__load64 a1 0)) 4096)
+                ))
+              )
+            ))
           )
           (set steps (+ steps 1))
         }
       )
-      (let ((b1 (memAlloc 8)))
+      (let ((b1 __axiom_arena_mark))
         {
           (carry (Bad (wide 0)) 2000)
-          (let ((b2 (memAlloc 8)))
-            (set acc (+ acc (* 4 (b2i (< (- b2 b1) 4096)))))
+          (let ((b2 __axiom_arena_mark))
+            (set acc (+
+              acc              (*
+                4                (b2i (&&
+                  (== (__load64 b2 2) (__load64 b1 2))                  (< (- (__load64 b2 0) (__load64 b1 0)) 4096)
+                ))
+              )
+            ))
           )
           (set steps (+ steps 1))
         }
       )
-      (let ((c1 (memAlloc 8)))
+      (let ((c1 __axiom_arena_mark))
         {
           (drain 10000 0)
           (drainLet 10000 0)
-          (let ((c2 (memAlloc 8)))
-            (set acc (+ acc (* 32 (b2i (< (- c2 c1) 4096)))))
+          (let ((c2 __axiom_arena_mark))
+            (set acc (+
+              acc              (*
+                32                (b2i (&&
+                  (== (__load64 c2 2) (__load64 c1 2))                  (< (- (__load64 c2 0) (__load64 c1 0)) 4096)
+                ))
+              )
+            ))
           )
           (set steps (+ steps 1))
         }
       )
-      (let ((d1 (memAlloc 8)))
+      (let ((d1 __axiom_arena_mark))
         (let ((h (hoard 2000)))
           {
-            (let ((d2 (memAlloc 8)))
+            (let ((d2 __axiom_arena_mark))
               (set acc (+
                 acc                (*
-                  64                  (b2i (&& (> (- d2 d1) 4096) (== (vecLen h) 2000)))
+                  64                  (b2i (&&
+                    (== (vecLen h) 2000)                    (||
+                      (!= (__load64 d2 2) (__load64 d1 2))                      (> (- (__load64 d2 0) (__load64 d1 0)) 4096)
+                    )
+                  ))
                 )
               ))
             )
