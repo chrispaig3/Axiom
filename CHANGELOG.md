@@ -16,7 +16,14 @@ its changelog too.
 
 ## Unreleased
 
+## 0.3.4 — 2026-08-26
+
 ### Changed
+
+No gate was added for this release: the thirty-seven gates that build
+the compiler under test through `gate_build_axc` already cover it,
+`check-compat.sh` holding the nine declared breaks and
+`run-stdlib-tests.sh` the behaviour at 82 fixtures.
 
 - **`stdlib/Sys.ax` stops answering an Int that is sometimes an
   errno.** Twelve raw wrappers answer `(Result Int Error)` through

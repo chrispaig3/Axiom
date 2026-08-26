@@ -1,0 +1,422 @@
+D Result stdlib/Err.ax @b9f5acf9ecf678ba "data Result" #ctors=Ok,Err
+E Assert stdlib/Test.ax @a5dcced0ec910716 "effect Assert"
+F acceptNonblockFlag stdlib/Sys/Platform.ax @897180219612fc65 "Int"
+F addChecked stdlib/Err.ax @5d660b40b8422a2f "(Int -> (Int -> Result Int Error))"
+F afInet stdlib/Sys/Platform.ax @d27a836ebaf1ed16 "Int"
+F afInet6 stdlib/Sys/Platform.ax @981a7527a915ed60 "Int"
+F andThen stdlib/Err.ax @7e9d9a86e9e8b953 "(Result a e -> ((a -> Result b e) -> Result b e))" #effect-params=f
+F appendFile stdlib/IO.ax @4b78265d73feae45 "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
+F assertEq stdlib/Test.ax @db796e9e71ce46bb "(String -> (Int -> (Int -> Int)))" #effects=Alloc,Assert,IO,Mut
+F assertFalse stdlib/Test.ax @152cbbcfab6e58d0 "(String -> (Bool -> Int))" #effects=Alloc,Assert,IO,Mut
+F assertNe stdlib/Test.ax @db68629e71bfbf24 "(String -> (Int -> (Int -> Int)))" #effects=Alloc,Assert,IO,Mut
+F assertStrEq stdlib/Test.ax @dfa4276dcf404cc2 "(String -> (String -> (String -> Int)))" #effects=Alloc,Assert,IO,Mut
+F assertTrue stdlib/Test.ax @3bba0d699490a41d "(String -> (Bool -> Int))" #effects=Alloc,Assert,IO,Mut
+F atFdCwd stdlib/Sys/Platform.ax @dd105a98ff529076 "Int"
+F axsymAt stdlib/Agent/Tags.ax @9857a49eddb13ee4 "Int"
+F axsymBuild stdlib/Agent/Tags.ax @90e054b510fdadf7 "(String -> (Int -> (Int -> Option Sym)))" #effects=Alloc,Mut
+F axsymEquals stdlib/Agent/Tags.ax @02e5ff7306479c90 "Int"
+F axsymEscapable stdlib/Agent/Tags.ax @2f51c65b5bcdd117 "(Int -> Bool)"
+F axsymHash stdlib/Agent/Tags.ax @40b7b631b2998055 "Int"
+F axsymHexVal stdlib/Agent/Tags.ax @86fde69a8a4a0325 "(Int -> Int)"
+F axsymIsKind stdlib/Agent/Tags.ax @774d05f880e6a877 "(Int -> Bool)"
+F axsymLine stdlib/Agent/Tags.ax @261b15506fc5ee93 "(String -> Option Sym)" #effects=Alloc,Mut
+F axsymMeta stdlib/Agent/Tags.ax @e64d0949728e4c44 "(String -> Meta)" #effects=Alloc,Mut
+F axsymMetaScan stdlib/Agent/Tags.ax @adadeb79ba3cc155 "(String -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut
+F axsymNewline stdlib/Agent/Tags.ax @c6a15cc624be96b7 "Int"
+F axsymNid stdlib/Agent/Tags.ax @869c10f2b03547e0 "(String -> String)" #effects=Alloc,Mut
+F axsymParse stdlib/Agent/Tags.ax @fb8df544f17200c0 "(String -> Int)" #effects=Alloc,Mut
+F axsymParseFrom stdlib/Agent/Tags.ax @05b9a953de313f10 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
+F axsymPctAt stdlib/Agent/Tags.ax @c41c2433278a2ea1 "(String -> (Int -> Int))"
+F axsymPercent stdlib/Agent/Tags.ax @faaea79c24d5b376 "Int"
+F axsymQuote stdlib/Agent/Tags.ax @3c7d05e72a6ae6f3 "Int"
+F axsymSpace stdlib/Agent/Tags.ax @35a66028044af139 "Int"
+F axsymTrimEnd stdlib/Agent/Tags.ax @02bacf0f23ff9132 "(String -> String)" #effects=Alloc,Mut
+F axsymUnpct stdlib/Agent/Tags.ax @69e747e8075c303d "(String -> String)" #effects=Alloc,Mut
+F axsymUnpctFrom stdlib/Agent/Tags.ax @6d0b470d687aa56d "(String -> (Int -> (String -> String)))" #effects=Alloc,Mut
+F clockHasMonotonic stdlib/Sys/Platform.ax @9718b6249aa77bff "Int"
+F clockIsGettimeofday stdlib/Sys/Platform.ax @48d4af426412da35 "Int"
+F copyFile stdlib/IO.ax @9c31bf69483ba434 "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
+F cstrLen stdlib/Str.ax @4883f0a813371906 "(Int -> (Int -> Int))"
+F cwd stdlib/IO.ax @157f7ecab6ed7bbb "String" #effects=Alloc,IO,Mut
+F cwdUsesFcntlPath stdlib/Sys/Platform.ax @bc3db68f15679b55 "Int"
+F die stdlib/IO.ax @52fb9ccad9feab1b "(String -> (Int -> Int))" #effects=Alloc,IO,Mut
+F dirReadNeedsPosition stdlib/Sys/Platform.ax @67e373cb3c77d650 "Int"
+F direntNameOffset stdlib/Sys/Platform.ax @cbddd296a9b48d3f "Int"
+F divChecked stdlib/Err.ax @64cf173b228d176f "(Int -> (Int -> Result Int Error))"
+F eAgain stdlib/Sys/Platform.ax @e069fc6f4f9b397a "Int"
+F eExist stdlib/Sys/Platform.ax @4a860ff9c061ee75 "Int"
+F eIsDir stdlib/Sys/Platform.ax @6b013530d7d877b5 "Int"
+F errCode stdlib/Err.ax @cc1e4529d6664c73 "(Error -> Int)"
+F errContext stdlib/Err.ax @fe4f05b820694e19 "(Error -> String)"
+F errContextOf stdlib/Err.ax @b862d60d2e00078c "(Error -> (String -> Error))"
+F errDivideByZero stdlib/Err.ax @029f54fed7ccc8c4 "Int"
+F errMessage stdlib/Err.ax @c92fba93fdf774cd "(Error -> String)"
+F errOverflow stdlib/Err.ax @d27666f207e5c0cc "Int"
+F errShiftTooWide stdlib/Err.ax @6a505014b69f075b "Int"
+F errorText stdlib/Err.ax @f35171f54885d954 "(Error -> String)" #effects=Alloc,Mut
+F exit stdlib/IO.ax @74897aa4bb126f5b "(Int -> Int)" #effects=IO
+F fGetFl stdlib/Sys/Platform.ax @586088fc3a85778b "Int"
+F fGetPath stdlib/Sys/Platform.ax @7c3930a7ed86acda "Int"
+F fSetFl stdlib/Sys/Platform.ax @b22030a3ced82cc7 "Int"
+F ffiBytesToStr stdlib/Ffi.ax @56498f1f27cd76b3 "(Int -> (Int -> String))" #effects=Alloc,Mut
+F ffiCellFree stdlib/Ffi.ax @f0c2245811af4f34 "(Int -> Int)"
+F ffiCellNew stdlib/Ffi.ax @210c0ee259ee3940 "Int" #effects=Alloc
+F ffiCellNewN stdlib/Ffi.ax @15b6589ecfcaf2ca "(Int -> Int)" #effects=Alloc
+F ffiCellWord stdlib/Ffi.ax @5ab2bbdb776ae842 "(Int -> (Int -> Int))"
+F ffiHandleClose stdlib/Ffi.ax @349b6eee50e67e9c "(Handle -> Int)" #effects=Mut
+F ffiHandleLive stdlib/Ffi.ax @4d0d67695ff4052a "(Handle -> Bool)"
+F ffiHandleNew stdlib/Ffi.ax @fcf72ac4d8475fe6 "(Int -> (Int -> Handle))" #effects=Alloc,Mut
+F ffiHandlePtr stdlib/Ffi.ax @983c0fc5300b1bd2 "(Handle -> Int)"
+F ffiStatusErr stdlib/Ffi.ax @bbd6ec830034703f "Int"
+F ffiStatusNone stdlib/Ffi.ax @f24d67e0f160a4b2 "Int"
+F ffiStatusOk stdlib/Ffi.ax @16e3c9978c2d8b82 "Int"
+F ffiStrsToVec stdlib/Ffi.ax @c78214df73ea4c6f "(Int -> (Int -> Int))" #effects=Alloc,Mut
+F ffiWordAt stdlib/Ffi.ax @184cc722da2ed5af "(Int -> (Int -> Int))"
+F ffiWordListsToVec stdlib/Ffi.ax @736f6ad949ba6110 "(Int -> (Int -> Int))" #effects=Alloc,Mut
+F ffiWordsToVec stdlib/Ffi.ax @075584dad1fda964 "(Int -> (Int -> Int))" #effects=Alloc,Mut
+F fileExists stdlib/IO.ax @957c6f005e5962fd "(String -> Bool)" #effects=Alloc,IO,Mut
+F fileSize stdlib/IO.ax @9c1d10204ae6561c "(String -> Result Int Error)" #effects=Alloc,IO,Mut
+F fmtFloat stdlib/Fmt.ax @2bf4996fc763ed24 "(Float -> String)" #effects=Alloc,Mut
+F fmtFloatPrec stdlib/Fmt.ax @ea5df8d40446e07a "(Float -> (Int -> String))" #effects=Alloc,Mut
+F fmtHex stdlib/Fmt.ax @ded1877943829b97 "(Int -> String)" #effects=Alloc,Mut
+F fmtHexUpper stdlib/Fmt.ax @69395a9a100cf1a1 "(Int -> String)" #effects=Alloc,Mut
+F fmtInt stdlib/Fmt.ax @e931a47949df77df "(Int -> String)" #effects=Alloc,Mut
+F fmtIntWidth stdlib/Fmt.ax @9cad3c09486818d1 "(Int -> Int)"
+F fmtPadCenter stdlib/Fmt.ax @d4ec77aeafee7c72 "(String -> (Int -> String))" #effects=Alloc,Mut
+F fmtPadLeft stdlib/Fmt.ax @c1ae7a7c49727db6 "(String -> (Int -> String))" #effects=Alloc,Mut
+F fmtPadRight stdlib/Fmt.ax @9a1e0b25bf6c290b "(String -> (Int -> String))" #effects=Alloc,Mut
+F fmtPadZerosLeft stdlib/Fmt.ax @5956b543e920a6f3 "(String -> (Int -> String))" #effects=Alloc,Mut
+F forkChildIsZero stdlib/Sys/Platform.ax @d2e5b0de4127a1a5 "Int"
+F intMin stdlib/Err.ax @f0cd39212565a998 "Int"
+F internCap stdlib/Intern.ax @3c482e9ca4af6ba5 "(Int -> Int)"
+F internCount stdlib/Intern.ax @08a34d2974e1f73e "(Int -> Int)"
+F internFind stdlib/Intern.ax @f306270f42e9422c "(Int -> (String -> Int))"
+F internFree stdlib/Intern.ax @1ab32b0ec872e7a5 "(Int -> Int)"
+F internIntern stdlib/Intern.ax @c0cfda926f640ae3 "(Int -> (String -> Int))" #effects=Alloc,Mut
+F internLookup stdlib/Intern.ax @9bf565b62b573151 "(Int -> (Int -> String))" #effects=Alloc,Mut
+F internNew stdlib/Intern.ax @679e049cbd3c8d47 "Int" #effects=Alloc,Mut
+F internSlotOf stdlib/Intern.ax @bdbb2540203f874e "(String -> (Int -> Int))"
+F internWithCapacity stdlib/Intern.ax @49340d6b26eeec1b "(Int -> Int)" #effects=Alloc,Mut
+F ioResult stdlib/IO.ax @fb972d7262a48622 "(Result Int Error -> (String -> (String -> Result Int Error)))" #effects=Alloc,Mut
+F isDir stdlib/IO.ax @01f4aa63b443d24e "(String -> Bool)" #effects=Alloc,IO,Mut
+F isErr stdlib/Err.ax @f7427963ada0c9e2 "(Result a e -> Bool)"
+F isOk stdlib/Err.ax @ae1736447ed221d1 "(Result a e -> Bool)"
+F jobRunAll stdlib/Job.ax @fed2f9fdf14b67d6 "(Int -> (Int -> Int))" #effects=Alloc,IO,Mut
+F jsonArr stdlib/Json.ax @68fd4aae235e9684 "Int" #effects=Alloc,Mut
+F jsonArrGet stdlib/Json.ax @9dc0bd1e8f64ad80 "(Int -> (Int -> Int))"
+F jsonArrLen stdlib/Json.ax @c917861ea7f36c0b "(Int -> Int)"
+F jsonArrPush stdlib/Json.ax @819eb37c323d1480 "(Int -> (Int -> Int))" #effects=Alloc,Mut
+F jsonBool stdlib/Json.ax @63bfe8fe663f3099 "(Int -> Int)" #effects=Alloc,Mut
+F jsonBoolVal stdlib/Json.ax @4f07fe2945c54ea8 "(Int -> Int)"
+F jsonGet stdlib/Json.ax @9b833cae3f92f92b "(Int -> (String -> Int))"
+F jsonGetInt stdlib/Json.ax @e1e94afcdb24e824 "(Int -> (String -> Int))"
+F jsonGetStr stdlib/Json.ax @9e2ac6fd451ece52 "(Int -> (String -> String))"
+F jsonInt stdlib/Json.ax @241000adfc6e73fa "(Int -> Int)"
+F jsonIsNull stdlib/Json.ax @88cdf14f2e462408 "(Int -> Bool)"
+F jsonNull stdlib/Json.ax @7dfed8da8fca8928 "Int" #effects=Alloc,Mut
+F jsonNum stdlib/Json.ax @5e1c24ae1c943007 "(Int -> Int)" #effects=Alloc,Mut
+F jsonNumText stdlib/Json.ax @9cd00a1ecdad5ec0 "(Int -> String)"
+F jsonObj stdlib/Json.ax @56f8f8ae18f75e2e "Int" #effects=Alloc,Mut
+F jsonObjLen stdlib/Json.ax @76ce7fbfd05c0055 "(Int -> Int)"
+F jsonObjPut stdlib/Json.ax @693cf1c059a50feb "(Int -> (String -> (Int -> Int)))" #effects=Alloc,Mut
+F jsonParse stdlib/Json.ax @583896fb23d65be0 "(String -> Int)" #effects=Alloc,Mut
+F jsonStr stdlib/Json.ax @04662cae7b3fb694 "(String -> Int)" #effects=Alloc,Mut
+F jsonStrVal stdlib/Json.ax @af44ac2e7c51150b "(Int -> String)"
+F jsonWrite stdlib/Json.ax @6e98a942b19afa70 "(Int -> String)" #effects=Alloc,Mut
+F listDir stdlib/IO.ax @57dff7eef5f36852 "(String -> Int)" #effects=Alloc,IO,Mut
+F makeDir stdlib/IO.ax @46d7f559c3f07f88 "(String -> Result Int Error)" #effects=Alloc,IO,Mut
+F makeDirAll stdlib/IO.ax @950f2260f3d815eb "(String -> Result Int Error)" #effects=Alloc,IO,Mut
+F mapCap stdlib/Map.ax @3947946cfee63541 "(Int -> Int)"
+F mapErr stdlib/Err.ax @6f8c866d1e49e9be "(Result a e -> ((e -> f) -> Result a f))" #effect-params=f
+F mapFree stdlib/Map.ax @cbe9505f107d7421 "(Int -> Int)"
+F mapGet stdlib/Map.ax @5d932c6d13ecab55 "(Int -> (Int -> (Int -> Int)))"
+F mapGetStr stdlib/Map.ax @1f84fbdb8b692e80 "(Int -> (Int -> (String -> String)))"
+F mapHas stdlib/Map.ax @0df1c46ce6591dd1 "(Int -> (Int -> Bool))"
+F mapHash stdlib/Map.ax @0aee7e0b696d815b "(Int -> Int)"
+F mapHashPrime stdlib/Map.ax @ef36d4419605fae6 "Int"
+F mapInsert stdlib/Map.ax @244a57c351f2134a "(Int -> (Int -> (a -> Int)))" #effects=Alloc,Mut
+F mapLen stdlib/Map.ax @323c736cfb5e07fa "(Int -> Int)"
+F mapNew stdlib/Map.ax @20101a6cf0d571ab "Int" #effects=Alloc,Mut
+F mapNewRefVals stdlib/Map.ax @94b7d46f2ee7b3c8 "Int" #effects=Alloc,Mut
+F mapNextSlot stdlib/Map.ax @e86f41fbfa43f396 "(Int -> (Int -> Int))"
+F mapOk stdlib/Err.ax @64ad9b7011061ab5 "(Result a e -> ((a -> b) -> Result b e))" #effect-params=f
+F mapOwnsVals stdlib/Map.ax @e0a52f43702a3b4e "(Int -> Bool)"
+F mapRemove stdlib/Map.ax @184469ffdca5e7c7 "(Int -> (Int -> Int))" #effects=Mut
+F mapRoundUpPow2 stdlib/Map.ax @0a1dd60fc0710248 "(Int -> Int)"
+F mapSlotOf stdlib/Map.ax @4faf7ec86ee769fa "(Int -> (Int -> Int))"
+F mapSumKeys stdlib/Map.ax @9fe04993ac45d8d2 "(Int -> Int)"
+F mapSumVals stdlib/Map.ax @dda5e233698be162 "(Int -> Int)"
+F mapUsed stdlib/Map.ax @734a6de206e41d7a "(Int -> Int)"
+F mapWithCapacity stdlib/Map.ax @d426ac78cbdeecb7 "(Int -> Int)" #effects=Alloc,Mut
+F mapWithCapacityRefVals stdlib/Map.ax @18bf6a1aac5bd5dc "(Int -> Int)" #effects=Alloc,Mut
+F memAlloc stdlib/Mem.ax @0fd03fba89121d1d "(Int -> Int)" #effects=Alloc
+F memAllocMapped stdlib/Mem.ax @cdcfd5fd6fed28da "(Int -> (Int -> Int))" #effects=Alloc,Mut
+F memCmp stdlib/Mem.ax @30029e7d2389e32c "(Int -> (Int -> (Int -> Int)))"
+F memCopy stdlib/Mem.ax @3082f9a36dd5daa5 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
+F memGetByte stdlib/Mem.ax @b36a11af3f07101e "(Int -> (Int -> Int))"
+F memGetWord stdlib/Mem.ax @b5f8fe0f14e0113c "(Int -> (Int -> Int))"
+F memGetWordStr stdlib/Mem.ax @b8fd4c3ebafbabfb "(Int -> (Int -> String))"
+F memMarkArray stdlib/Mem.ax @d007f6fd2106dcb2 "(Int -> Int)" #effects=Mut
+F memMarkLeaf stdlib/Mem.ax @7d30ebb403b48901 "(Int -> Int)" #effects=Mut
+F memPutByte stdlib/Mem.ax @a42c84e86afc6d53 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
+F memSet stdlib/Mem.ax @b8cc3a7d70814fa8 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
+F memSetWord stdlib/Mem.ax @577fd648169c96a8 "(Int -> (Int -> (a -> Int)))" #effects=Mut
+F mkError stdlib/Err.ax @a209679fd0d09783 "(Int -> (String -> Error))"
+F mulChecked stdlib/Err.ax @a9a6c99c92231704 "(Int -> (Int -> Result Int Error))"
+F netAccept stdlib/Sys.ax @d44bcc0c82ad6d3e "(Int -> Int)" #effects=IO
+F netAcceptFrom stdlib/Sys.ax @c209e279dbfdd47a "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=IO,Mut
+F netAddr4 stdlib/Sys.ax @4ad9d34e7db15afb "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut
+F netAddr4Bytes stdlib/Sys.ax @973e1cebca08db8e "Int"
+F netAddr6 stdlib/Sys.ax @4ad9d54e7db15e61 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))))" #effects=Mut
+F netAddr6Bytes stdlib/Sys.ax @2111a3e8ab253338 "Int"
+F netAddrFamily stdlib/Sys.ax @49a9661cbdbe4a51 "(Int -> Int)"
+F netAddrLenRead stdlib/Sys.ax @28fe8ae23b4b5ff8 "(Int -> Int)"
+F netAddrMaxBytes stdlib/Sys.ax @ba5d073b0ea5ae48 "Int"
+F netAddrPort stdlib/Sys.ax @6b7955d8ce0d3b1e "(Int -> Int)"
+F netAddrSize stdlib/Sys.ax @430910e4a91c3d44 "(Int -> Int)"
+F netAddrText stdlib/Sys.ax @7bdbffbb2ce89d36 "(Int -> String)" #effects=Alloc,Mut
+F netAddrTextPort stdlib/Sys.ax @95961b37b6f26d61 "(Int -> String)" #effects=Alloc,Mut
+F netBind stdlib/Sys.ax @708fb7b1dcc54b0d "(Int -> (Int -> Int))" #effects=IO
+F netConnect stdlib/Sys.ax @abde39582a93b33c "(Int -> (Int -> Int))" #effects=IO
+F netListen stdlib/Sys.ax @052af9572f4e0479 "(Int -> (Int -> Int))" #effects=IO
+F netPollAddRead stdlib/Sys.ax @1dac906fb2cad372 "(Int -> (Int -> (Int -> Int)))" #effects=IO,Mut
+F netPollBufBytes stdlib/Sys.ax @30bd22d0c275a8ab "(Int -> Int)"
+F netPollCreate stdlib/Sys.ax @202f96129c0da6d7 "Int" #effects=IO
+F netPollDelRead stdlib/Sys.ax @334c269a51684844 "(Int -> (Int -> (Int -> Int)))" #effects=IO,Mut
+F netPollFdAt stdlib/Sys.ax @53e9d386428e9f20 "(Int -> (Int -> Int))"
+F netPollSignalAt stdlib/Sys.ax @31dccd6ea15f5d32 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=IO
+F netPollWait stdlib/Sys.ax @9ac8670341fa8f56 "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=IO,Mut
+F netSetBlocking stdlib/Sys.ax @b898cb1963c78685 "(Int -> Int)" #effects=IO
+F netSetNonBlocking stdlib/Sys.ax @896cfa31823b8a4a "(Int -> Int)" #effects=IO
+F netSetOptInt stdlib/Sys.ax @6a7d1023edc5cbb0 "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=IO,Mut
+F netShutdown stdlib/Sys.ax @4a7d2fbde4864590 "(Int -> (Int -> Int))" #effects=IO
+F netSignalOpen stdlib/Sys.ax @ff035e77a4e003a6 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=IO,Mut
+F netSocketTcp stdlib/Sys.ax @a65dd9667467f042 "Int" #effects=IO
+F netSocketTcp6 stdlib/Sys.ax @1968dd17cc9d951c "Int" #effects=IO
+F netWouldBlock stdlib/Sys.ax @c706a365e1f7ebac "(Int -> Bool)"
+F oNonblock stdlib/Sys/Platform.ax @e28c97fa7ca01710 "Int"
+F oRdonly stdlib/Sys/Platform.ax @bea12e59bc90ac1c "Int"
+F oWronlyCreateAppend stdlib/Sys/Platform.ax @26a10abfaabe5f03 "Int"
+F oWronlyCreateTrunc stdlib/Sys/Platform.ax @20f55868f574f56b "Int"
+F okOr stdlib/Err.ax @c1f60d511b5769c4 "(Option a -> (e -> Result a e))"
+F openNeedsDirFd stdlib/Sys/Platform.ax @d12588b93c717bad "Int"
+F pathBase stdlib/Path.ax @de1bcc0189423689 "(String -> String)" #effects=Alloc,Mut
+F pathDir stdlib/Path.ax @4d9676176b81d873 "(String -> String)" #effects=Alloc,Mut
+F pathExt stdlib/Path.ax @5892b11772632a57 "(String -> String)" #effects=Alloc,Mut
+F pathExtIndex stdlib/Path.ax @b1b5ab30acb472fd "(String -> Int)"
+F pathIsAbsolute stdlib/Path.ax @10586463b8bda4b1 "(String -> Bool)"
+F pathJoin stdlib/Path.ax @33e9babf07ce95bc "(String -> (String -> String))" #effects=Alloc,Mut
+F pathLastSlash stdlib/Path.ax @10ca84362d8e8b15 "(String -> Int)"
+F pathReplaceExt stdlib/Path.ax @b0eb325012347d8f "(String -> (String -> String))" #effects=Alloc,Mut
+F pathStem stdlib/Path.ax @c5c84c8412c10e45 "(String -> String)" #effects=Alloc,Mut
+F pathWithSlash stdlib/Path.ax @2c8fe884b1e54f8d "(String -> String)" #effects=Alloc,Mut
+F pollAddOp stdlib/Sys/Platform.ax @8ded25e2f48c404e "Int"
+F pollDelOp stdlib/Sys/Platform.ax @b9dceb68276454ac "Int"
+F pollEventFdOffset stdlib/Sys/Platform.ax @a82e65073201e547 "Int"
+F pollEventSize stdlib/Sys/Platform.ax @918d2641eec8e977 "Int"
+F pollReadFilter stdlib/Sys/Platform.ax @2a42e21130434f1c "Int"
+F pollSignalFilter stdlib/Sys/Platform.ax @505ea806bac66894 "Int"
+F pollSigsetSize stdlib/Sys/Platform.ax @a184d63c46ffcbc0 "Int"
+F pollUsesKqueue stdlib/Sys/Platform.ax @1908ec81ed6473d2 "Int"
+F printlnLit stdlib/IO.ax @92593fe7cb210315 "(Int -> Int)" #effects=IO
+F randomIsGetentropy stdlib/Sys/Platform.ax @e644f15320868f39 "Int"
+F randomMaxChunk stdlib/Sys/Platform.ax @671fe1e243b8cebf "Int"
+F rdBuf stdlib/Rpc.ax @77cc5cd95dc4bd9a "(Int -> String)"
+F rdConsumed stdlib/Rpc.ax @a9d98ecf5017c5b7 "(Int -> Int)"
+F rdFilled stdlib/Rpc.ax @db45387b8a489b01 "(Int -> Int)"
+F rdNew stdlib/Rpc.ax @12b851d92553e459 "(Int -> Int)" #effects=Alloc,Mut
+F rdReseat stdlib/Rpc.ax @e2a88306163b65c9 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
+F readErrno stdlib/IO.ax @ea6c0775f6a25f61 "(String -> Int)" #effects=Alloc,IO,Mut
+F readFile stdlib/IO.ax @bd195d65a3722851 "(String -> String)" #effects=Alloc,IO,Mut
+F readFileLit stdlib/IO.ax @93f6acb216f0baba "(Int -> String)" #effects=Alloc,IO,Mut
+F remChecked stdlib/Err.ax @8fb62ce3aababe76 "(Int -> (Int -> Result Int Error))"
+F removeDir stdlib/IO.ax @a936e27accf6c276 "(String -> Result Int Error)" #effects=Alloc,IO,Mut
+F removeFile stdlib/IO.ax @9ee28d98af09ee49 "(String -> Result Int Error)" #effects=Alloc,IO,Mut
+F renamePath stdlib/IO.ax @628b17483d92c17a "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
+F rpcRead stdlib/Rpc.ax @71be0acbedd462ce "(Int -> String)" #effects=Alloc,IO,Mut
+F rpcWrite stdlib/Rpc.ax @8401ff9bdbad5391 "(Int -> (String -> Int))" #effects=Alloc,IO,Mut
+F seekEnd stdlib/Sys/Platform.ax @ffd6d76db53ee6f4 "Int"
+F seekSet stdlib/Sys/Platform.ax @9bb0af6e0d80b0bd "Int"
+F shlChecked stdlib/Err.ax @554de2a593269cfd "(Int -> (Int -> Result Int Error))"
+F shrChecked stdlib/Err.ax @d6fbeaead7a43037 "(Int -> (Int -> Result Int Error))"
+F sigBlockHow stdlib/Sys/Platform.ax @00f00dc0489ed3fd "Int"
+F sigInfoSize stdlib/Sys/Platform.ax @b495ce207db60ed1 "Int"
+F sigInt stdlib/Sys/Platform.ax @a8fba5915b585705 "Int"
+F sigTerm stdlib/Sys/Platform.ax @2b81ae936de3a146 "Int"
+F signalUsesSignalFd stdlib/Sys/Platform.ax @e3835b13a0c96f39 "Int"
+F sigsetBytes stdlib/Sys/Platform.ax @5d5a22f9ed6b6af7 "Int"
+F soError stdlib/Sys/Platform.ax @6c2e10dec509dfd1 "Int"
+F soReuseAddr stdlib/Sys/Platform.ax @2eb918fe7c42780c "Int"
+F soReusePort stdlib/Sys/Platform.ax @d5633181720e0e8c "Int"
+F sockStream stdlib/Sys/Platform.ax @bfebe0265f896953 "Int"
+F sockaddrHasLenByte stdlib/Sys/Platform.ax @ef72f44767bfc769 "Int"
+F solSocket stdlib/Sys/Platform.ax @dc009c67cc64ce6a "Int"
+F spawnUsesPosixSpawn stdlib/Sys/Platform.ax @7f321f2729051480 "Int"
+F stderr stdlib/Sys.ax @08a866f6d6bcc7af "Int"
+F stdin stdlib/Sys.ax @a5fa19f690215d8f "Int"
+F stdout stdlib/Sys.ax @5f3d08f707c41b14 "Int"
+F strAlloc stdlib/Str.ax @b8ec3bb3fe2acd63 "(Int -> String)" #effects=Alloc,Mut
+F strByte stdlib/Str.ax @b744777f3cb15078 "(String -> (Int -> Int))"
+F strCStr stdlib/Str.ax @c481b6861daac77a "(String -> Int)"
+F strCmp stdlib/Str.ax @7d1efca2bc01048e "(String -> (String -> Int))"
+F strConcat stdlib/Str.ax @22972c7a28e75fd2 "(String -> (String -> String))" #effects=Alloc,Mut
+F strData stdlib/Str.ax @67465baef4d86a22 "(String -> Int)"
+F strDup stdlib/Str.ax @a890bfa2d4a6809f "(String -> String)" #effects=Alloc,Mut
+F strEq stdlib/Str.ax @4ee168f65eaa3fec "(String -> (String -> Bool))"
+F strFindByte stdlib/Str.ax @38cfa6a2400e724f "(String -> (Int -> (Int -> Int)))"
+F strFromByte stdlib/Str.ax @cc6843692d250f9c "(Int -> String)" #effects=Alloc,Mut
+F strFromLit stdlib/Str.ax @6206421c05dd1a83 "(Int -> String)" #effects=Alloc,Mut
+F strHexVal stdlib/Str.ax @9d2dd21191ab219a "(Int -> Int)"
+F strIsAlpha stdlib/Str.ax @92f6658af52ff1ce "(Int -> Bool)"
+F strIsDigit stdlib/Str.ax @3896c3e2e54af473 "(Int -> Bool)"
+F strIsEmpty stdlib/Str.ax @a83222c0759c013b "(String -> Bool)"
+F strIsHexDigit stdlib/Str.ax @2b97165574231c58 "(Int -> Bool)"
+F strIsSpace stdlib/Str.ax @d84830fe78ed2530 "(Int -> Bool)"
+F strLen stdlib/Str.ax @eda5fda2fbb7e0d9 "(String -> Int)"
+F strOwner stdlib/Str.ax @8e64d8cc385f2c0d "(String -> Int)"
+F strSlice stdlib/Str.ax @c1ced650f3717fa8 "(String -> (Int -> (Int -> String)))" #effects=Alloc,Mut
+F strSplit stdlib/Str.ax @999c5d68d9676692 "(String -> (Int -> Int))" #effects=Alloc,Mut
+F strSplitFrom stdlib/Str.ax @5e61889eee5022b6 "(String -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut
+F strStartsWith stdlib/Str.ax @6f8a115feaeda283 "(String -> (String -> Bool))"
+F strWrap stdlib/Str.ax @23328120de2f4a36 "(Int -> (Int -> String))" #effects=Alloc,Mut
+F strWrapOwned stdlib/Str.ax @2bbe9929cdf4389f "(Int -> (Int -> (Int -> String)))" #effects=Alloc,Mut
+F subChecked stdlib/Err.ax @4c69b49dee798ee8 "(Int -> (Int -> Result Int Error))"
+F symAgentTag stdlib/Agent/Tags.ax @6a20dcbb408178f5 "(Sym -> (String -> String))" #effects=Alloc,Mut
+F symDerivedPure stdlib/Agent/Tags.ax @e008da91a4698001 "(Sym -> Bool)"
+F symEffects stdlib/Agent/Tags.ax @3f2e8396dc088d2c "(Sym -> String)"
+F symHasAgentTag stdlib/Agent/Tags.ax @9afe50582dbe94dd "(Sym -> (String -> Bool))" #effects=Alloc,Mut
+F symHasTag stdlib/Agent/Tags.ax @5250297f9bb4557a "(Sym -> (String -> Bool))"
+F symHasTagFrom stdlib/Agent/Tags.ax @c2d9ad7551f5b99e "(Int -> (String -> (Int -> Bool)))"
+F symTag stdlib/Agent/Tags.ax @4ad9d05f8373f4b2 "(Sym -> (String -> String))"
+F symTagFrom stdlib/Agent/Tags.ax @1fc1a88fdc402896 "(Int -> (String -> (Int -> String)))"
+F symTagLastIdx stdlib/Agent/Tags.ax @56a41000c8e59539 "(Int -> (String -> (Int -> (Int -> Int))))"
+F sysAcceptNum stdlib/Sys/Platform.ax @ec78a2fc609b0378 "Int"
+F sysAppendFile stdlib/Sys.ax @e90b7af39cb7683e "(Int -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
+F sysArg stdlib/Sys.ax @3db1f17248f803ec "(Int -> String)" #effects=Alloc,IO,Mut
+F sysArgc stdlib/Sys.ax @cd60d431fd6e0bfd "Int" #effects=IO
+F sysBindNum stdlib/Sys/Platform.ax @fac8fabade48ff55 "Int"
+F sysClockNum stdlib/Sys/Platform.ax @338b1a845ae4c6ae "Int"
+F sysClose stdlib/Sys/Platform.ax @3f19c86be94cca74 "Int"
+F sysCloseFd stdlib/Sys.ax @7fd623c108fa0e16 "(Int -> Int)" #effects=IO
+F sysConnectNum stdlib/Sys/Platform.ax @6d5f94b6d491b24e "Int"
+F sysCwdNum stdlib/Sys/Platform.ax @9f128b205b538472 "Int"
+F sysDirMode stdlib/Sys.ax @871413e6dd9a3620 "Int"
+F sysEnv stdlib/Sys.ax @5e45a6725ad5781f "(String -> String)" #effects=Alloc,IO,Mut
+F sysEnvp stdlib/Sys.ax @05d2435058bba49d "Int" #effects=Alloc,IO,Mut
+F sysErrno stdlib/Sys.ax @e4fcf86f81f533d4 "(Int -> Int)"
+F sysExecve stdlib/Sys/Platform.ax @cf0811b42b349ef8 "Int"
+F sysExit stdlib/Sys/Platform.ax @c21daf50c2bdc420 "Int"
+F sysExitCode stdlib/Sys.ax @03ef401d22e32095 "(Int -> Int)"
+F sysExitWith stdlib/Sys.ax @d8f871c40f27bd98 "(Int -> Int)" #effects=IO
+F sysFailed stdlib/Sys.ax @20968f03cd985c85 "(Int -> Bool)"
+F sysFcntlNum stdlib/Sys/Platform.ax @5756ae47a61687bd "Int"
+F sysFileExists stdlib/Sys.ax @77adeec49ea33cae "(Int -> Bool)" #effects=IO
+F sysFileSize stdlib/Sys.ax @ba9ca8d4432d2707 "(Int -> Result Int Error)" #effects=Alloc,IO,Mut
+F sysFork stdlib/Sys/Platform.ax @d2301f5b9cd3da3c "Int"
+F sysForkArg stdlib/Sys/Platform.ax @ccc826600e295ed8 "Int"
+F sysForkProcess stdlib/Sys.ax @2798e558cdcba191 "Int" #effects=IO
+F sysGetCwd stdlib/Sys.ax @6c8b3254c8d189ae "String" #effects=Alloc,IO,Mut
+F sysGetPid stdlib/Sys.ax @e01219550b14af99 "Int" #effects=IO
+F sysGetPidNum stdlib/Sys/Platform.ax @8dd97b36f3b03217 "Int"
+F sysGetSockOptNum stdlib/Sys/Platform.ax @9c1f4360d9bbdd5b "Int"
+F sysGetdentsNum stdlib/Sys/Platform.ax @b41c5b342d9c34f2 "Int"
+F sysIsDir stdlib/Sys.ax @36505d31e2c82c4f "(Int -> Bool)" #effects=Alloc,IO,Mut
+F sysKill stdlib/Sys.ax @cf9f22853868f8f0 "(Int -> (Int -> Int))" #effects=IO
+F sysKillNum stdlib/Sys/Platform.ax @6302c2903fe03690 "Int"
+F sysListenNum stdlib/Sys/Platform.ax @2270bc9aee4f5729 "Int"
+F sysLseek stdlib/Sys/Platform.ax @b985a8cd089c8e5c "Int"
+F sysMkdir stdlib/Sys.ax @be2b0c600d3a7a7b "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
+F sysMkdirNum stdlib/Sys/Platform.ax @d70958f5f657e079 "Int"
+F sysNowMicros stdlib/Sys.ax @f477dcfff2a87b25 "(Int -> Int)" #effects=IO
+F sysNowMonotonic stdlib/Sys.ax @5b284a6b7a397474 "(Int -> Int)" #effects=IO
+F sysOpen stdlib/Sys/Platform.ax @48be4da44965be58 "Int"
+F sysOpenPath stdlib/Sys.ax @b47abb1d2eb1204f "(Int -> (Int -> Int))" #effects=IO
+F sysPollCreateNum stdlib/Sys/Platform.ax @dc35fd57ec1f5d83 "Int"
+F sysPollCtlNum stdlib/Sys/Platform.ax @242bc4ea898a397a "Int"
+F sysPollWaitNum stdlib/Sys/Platform.ax @9ede20211dc34918 "Int"
+F sysPosixSpawn stdlib/Sys/Platform.ax @301427b704c87bd6 "Int"
+F sysRandomBytes stdlib/Sys.ax @91774dfa9d848ea2 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
+F sysRandomNum stdlib/Sys/Platform.ax @41dc832f2b0bd645 "Int"
+F sysRead stdlib/Sys/Platform.ax @d99009b49c22cd84 "Int"
+F sysReadDir stdlib/Sys.ax @5d8e612d7b61d4bb "(Int -> Int)" #effects=Alloc,IO,Mut
+F sysReadErrno stdlib/Sys.ax @8f8756a765ffebf8 "(Int -> Int)" #effects=Alloc,IO,Mut
+F sysReadFd stdlib/Sys.ax @eb5754a5798a29a6 "(Int -> (Int -> (Int -> Int)))" #effects=IO
+F sysReadFile stdlib/Sys.ax @c4bfba5a8d5cc6f2 "(Int -> String)" #effects=Alloc,IO,Mut
+F sysRename stdlib/Sys.ax @c9eab29a959d9192 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
+F sysRenameNum stdlib/Sys/Platform.ax @2f71f22a53ea2a9a "Int"
+F sysResult stdlib/Sys.ax @3818c32f161c6ea9 "(String -> (Int -> Result Int Error))" #effects=Alloc,Mut
+F sysRmdir stdlib/Sys.ax @d327a926df338c60 "(Int -> Result Int Error)" #effects=Alloc,IO,Mut
+F sysRmdirNum stdlib/Sys/Platform.ax @624e8f20729e9500 "Int"
+F sysRun stdlib/Sys.ax @bbbf9371ff5be965 "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut
+F sysRunPath stdlib/Sys.ax @745fd42209866396 "(String -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut
+F sysSetSockOptNum stdlib/Sys/Platform.ax @15fecfbd37170e5f "Int"
+F sysShutdownNum stdlib/Sys/Platform.ax @0af83866f8239352 "Int"
+F sysSigBit stdlib/Sys.ax @2af0675112c87a80 "(Int -> Int)"
+F sysSigProcMaskNum stdlib/Sys/Platform.ax @82b597fafe8fd6ab "Int"
+F sysSignalBlock stdlib/Sys.ax @f89f270d0d99a59d "(Int -> (Int -> Int))" #effects=IO,Mut
+F sysSignalFdNum stdlib/Sys/Platform.ax @3df0630ac7abf0ae "Int"
+F sysSocketNum stdlib/Sys/Platform.ax @d42ebb17e38c1a17 "Int"
+F sysSpawn stdlib/Sys.ax @eae08a8f17ffb87f "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut
+F sysTermSignal stdlib/Sys.ax @0a5f760df90adcd2 "(Int -> Int)"
+F sysUnlink stdlib/Sys.ax @a3b2d8ec8f9d1187 "(Int -> Result Int Error)" #effects=Alloc,IO,Mut
+F sysUnlinkNum stdlib/Sys/Platform.ax @ba296983f73bf8b5 "Int"
+F sysWait4 stdlib/Sys/Platform.ax @c6592bc7da3c817f "Int"
+F sysWaitPid stdlib/Sys.ax @ea532200609a4d1e "(Int -> Result Int Error)" #effects=Alloc,IO,Mut
+F sysWrite stdlib/Sys/Platform.ax @74cf7b68f9a13d7f "Int"
+F sysWriteAllFd stdlib/Sys.ax @b6e7d59df7e91e20 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=IO
+F sysWriteFd stdlib/Sys.ax @9c8a666c6e8e298d "(Int -> (Int -> (Int -> Int)))" #effects=IO
+F sysWriteFile stdlib/Sys.ax @4736ce81d5e54e71 "(Int -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
+F testFail stdlib/Test.ax @9b0184df2c462fab "(String -> Int)" #effects=Alloc,Assert,IO,Mut
+F toOption stdlib/Err.ax @8b13feec85bc508b "(Result a e -> Option a)"
+F unwrapOr stdlib/Err.ax @7c65bfd8d6878035 "(Result a e -> (a -> a))"
+F utf8CharAt stdlib/Utf8.ax @a0819c1a2f359b25 "(String -> (Int -> Int))"
+F utf8DecodeAt stdlib/Utf8.ax @7ba515bf550a751b "(String -> (Int -> Int))"
+F utf8FromChar stdlib/Utf8.ax @582bc7a96f682b98 "(Int -> String)" #effects=Alloc,Mut
+F utf8IsCont stdlib/Utf8.ax @712cc40dd0b643c4 "(Int -> Bool)"
+F utf8Len stdlib/Utf8.ax @d994bf3d9db2e67b "(String -> Int)"
+F utf8Next stdlib/Utf8.ax @8f8da8c4b60bdd8d "(String -> (Int -> Int))"
+F utf8Offset stdlib/Utf8.ax @1cc613abe5130f4f "(String -> (Int -> Int))"
+F utf8Replacement stdlib/Utf8.ax @6ff3996962b7c730 "Int"
+F utf8SeqLen stdlib/Utf8.ax @04ee7ebce0c9bcd2 "(Int -> Int)"
+F utf8Slice stdlib/Utf8.ax @8c8ae92a7eb93b8e "(String -> (Int -> (Int -> String)))" #effects=Alloc,Mut
+F utf8Valid stdlib/Utf8.ax @b351c53c0f3c1e46 "(String -> Bool)"
+F utf8Width stdlib/Utf8.ax @a6701055109f0c30 "(Int -> Int)"
+F vecCap stdlib/Vec.ax @a13fc6a6d379366d "(Int -> Int)"
+F vecClear stdlib/Vec.ax @319fd64658175a30 "(Int -> Int)" #effects=Mut
+F vecFree stdlib/Vec.ax @1e43cc6130f92c1d "(Int -> Int)"
+F vecGet stdlib/Vec.ax @805a0ea6c155b2f9 "(Int -> (Int -> Int))"
+F vecGetStr stdlib/Vec.ax @588fcc550a528a44 "(Int -> (Int -> String))"
+F vecHash stdlib/Vec.ax @4546b24f9c54ce2f "(Int -> Int)"
+F vecLast stdlib/Vec.ax @1af3be30b8373b1f "(Int -> Int)"
+F vecLen stdlib/Vec.ax @550435a6a8c88c3e "(Int -> Int)"
+F vecNew stdlib/Vec.ax @42d7eca69e40111f "Int" #effects=Alloc,Mut
+F vecNewRef stdlib/Vec.ax @a3810b6416057230 "Int" #effects=Alloc,Mut
+F vecOwnsRefs stdlib/Vec.ax @3ca4292918920a5c "(Int -> Bool)"
+F vecPop stdlib/Vec.ax @31549fa694465c32 "(Int -> Int)" #effects=Mut
+F vecPush stdlib/Vec.ax @c293060dc287a3bb "(Int -> (a -> Int))" #effects=Alloc,Mut
+F vecSet stdlib/Vec.ax @177422a685a6c685 "(Int -> (Int -> (a -> Int)))" #effects=Mut
+F vecSort stdlib/Vec.ax @d7b57bf54b6da257 "(Int -> Int)" #effects=Mut
+F vecSortBy stdlib/Vec.ax @05b978068f71d6a2 "(Int -> ((Int -> (Int -> Int)) -> Int))" #effect-params=cmp #effects=Mut
+F vecSum stdlib/Vec.ax @17aa19a685d446aa "(Int -> Int)"
+F vecTry stdlib/Vec.ax @1057f8a6821016c0 "(Int -> (Int -> Option Int))"
+F vecWithCapacity stdlib/Vec.ax @a5898d2fb6017e13 "(Int -> Int)" #effects=Alloc,Mut
+F vecWithCapacityRef stdlib/Vec.ax @4931b5c5fdddadcc "(Int -> Int)" #effects=Alloc,Mut
+F withContext stdlib/Err.ax @9733c7d4aeb3bcda "(Result a Error -> (String -> Result a Error))"
+F writeFile stdlib/IO.ax @02446b7fc8d23e18 "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
+F writeStr stdlib/IO.ax @d7ac81e9b98b4f11 "(Int -> (String -> Int))" #effects=IO
+M cond2 stdlib/Pre.ax @7b48136fc64b7ba1 "macro cond2"
+M cond3 stdlib/Pre.ax @7b48126fc64b79ee "macro cond3"
+M deriveArity stdlib/Pre.ax @784f037cfed395af "macro deriveArity"
+M deriveEq stdlib/Pre.ax @70f62ddfcdb04e64 "macro deriveEq"
+M deriveShow stdlib/Pre.ax @758babef6d640a1f "macro deriveShow"
+M eprintln stdlib/IO.ax @8f94b1f182f051b9 "macro eprintln"
+M format stdlib/Show.ax @f0b2b594fd323246 "macro format"
+M println stdlib/IO.ax @6385b2ebf0ca5c02 "macro println"
+M showOr stdlib/Pre.ax @e44b1b360eac12ad "macro showOr"
+M try! stdlib/Err.ax @33e26f813784f1f9 "macro try!"
+M unless stdlib/Pre.ax @af6f0ce3aa587897 "macro unless"
+M when stdlib/Pre.ax @eacb4a87e7ad62e5 "macro when"
+S Error stdlib/Err.ax @0805ae0b9077d3a6 "struct Error" #fields=code:Int,message:String,context:String
+S Meta stdlib/Agent/Tags.ax @ba9f4823bce27105 "struct Meta" #fields=key:String,val:String
+S Sym stdlib/Agent/Tags.ax @8902c6a9b1655a47 "struct Sym" #fields=kind:Int,name:String,loc:String,ty:String,nid:String,meta:Int
+T Show stdlib/Show.ax @8318f82fa5e17568 "trait Show" #methods=show:(a -> String)
