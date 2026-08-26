@@ -691,7 +691,7 @@
   (let ((pid sysGetPid))
     (let ((leaf (strConcat (strConcat "axiom-repl-" (decStr pid)) ".d")))
       (let ((dir (pathJoin replTmpRoot leaf)))
-        (if (!= (sysMkdir (strCStr dir) 448) 0)
+        (if (isErr (sysMkdir (strCStr dir) 448))
           (replOut "Error: could not create a private scratch directory\n")
           (let ((base (pathJoin dir "expr")))
             (let (
@@ -701,7 +701,7 @@
               (outf (strConcat base ".out"))
             )
               {
-                (if (< (sysWriteFile (strCStr ll) ir) 0)
+                (if (isErr (sysWriteFile (strCStr ll) ir))
                   (replOut "Error: could not write the generated IR\n")
                   (let ((lrc 
                     (runTool
@@ -784,15 +784,15 @@
                     )
                   )
                 )
-                (sysUnlink (strCStr ll))
-                (sysUnlink (strCStr obj))
-                (sysUnlink (strCStr exe))
-                (sysUnlink (strCStr outf))
+                (unwrapOr (sysUnlink (strCStr ll)) 0)
+                (unwrapOr (sysUnlink (strCStr obj)) 0)
+                (unwrapOr (sysUnlink (strCStr exe)) 0)
+                (unwrapOr (sysUnlink (strCStr outf)) 0)
                 ; The directory goes with the files it held. `sysRmdir`
                 ; only removes an EMPTY one, so a name this function did
                 ; not create and did not empty survives, and the four
                 ; unlinks above are what earn the removal.
-                (sysRmdir (strCStr dir))
+                (unwrapOr (sysRmdir (strCStr dir)) 0)
                 0
               }
             )

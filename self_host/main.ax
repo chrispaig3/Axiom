@@ -551,7 +551,7 @@
                                         {
                                           (if (&& (== needMain 0) (> (strLen (flagValue "--emit-rust-binding" 1)) 0))
                                             (let ((bp (flagValue "--emit-rust-binding" 1)))
-                                              (if (< (sysWriteFile (strCStr bp) (rustBindingOf decls pubFns fileName)) 0)
+                                              (if (isErr (sysWriteFile (strCStr bp) (rustBindingOf decls pubFns fileName)))
                                                 (die (cat3 "error: could not write " bp "\n") 1)
                                                 ; laid out by `rustfmt` when one is on
                                                 ; PATH, so a checked-in copy is the
@@ -968,7 +968,7 @@
                   (gen (pathJoin (pathDir file) (cat3 ".axiom-test." (decStr sysGetPid) ".ax")))
                   (text (testDriverText src names))
                 )
-                  (if (< (sysWriteFile (strCStr gen) text) 0)
+                  (if (isErr (sysWriteFile (strCStr gen) text))
                     {
                       (die (cat3 "error: could not write the generated test driver to '" gen "'\n") 4)
                       1
@@ -980,7 +980,7 @@
                             ir                            base                            optLevelArg                            0                            (effectiveLinkArgs ir linkArgsOf)
                           )))
                             {
-                              (sysUnlink (strCStr gen))
+                              (unwrapOr (sysUnlink (strCStr gen)) 0)
                               (if (!= rc 0)
                                 {
                                   (die "" rc)
@@ -988,7 +988,7 @@
                                 }
                                 (let ((code (sysRunPath exe (testArgv exe) sysEnvp)))
                                   {
-                                    (sysUnlink (strCStr exe))
+                                    (unwrapOr (sysUnlink (strCStr exe)) 0)
                                     (if (< code 0)
                                       4
                                       code
@@ -1191,7 +1191,7 @@
                     (replOut ir)
                     0
                   }
-                  (if (< (sysWriteFile (strCStr out) ir) 0)
+                  (if (isErr (sysWriteFile (strCStr out) ir))
                     (die (cat3 "error: could not write LLVM IR to '" out "'\n") 4)
                     {
                       (replOut (cat3 "LLVM IR written to " out "\n"))
@@ -1314,7 +1314,7 @@
                                     }
                                     (die (cat3 "Error: " f " needs formatting\n") 1)
                                   )
-                                  (if (< (sysWriteFile (strCStr f) text) 0)
+                                  (if (isErr (sysWriteFile (strCStr f) text))
                                     (die "error: could not write formatted file\n" 1)
                                     {
                                       (replOut (cat3 "OK: " f " formatted\n"))
@@ -1583,7 +1583,7 @@
                                       (die "" rc)
                                       (let ((code (sysRunPath exe (runArgv exe) sysEnvp)))
                                         {
-                                          (sysUnlink (strCStr exe))
+                                          (unwrapOr (sysUnlink (strCStr exe)) 0)
                                           (sysExitWith
                                             (if (< code 0)
                                               4

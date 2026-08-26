@@ -153,7 +153,7 @@ See [reference.md](reference.md) for the language, and
 | `eprintln` | macro |  |  |  |
 | `readFileLit` | value | `(-> Int String)` | `Alloc,IO,Mut` | The whole contents of the file at NUL-terminated path `cstr`, or an empty `Str` if it cannot be opened. |
 | `readFile` | value | `(-> String String)` | `Alloc,IO,Mut` |  |
-| `ioResult` | value | `(-> Int String String (Result Int Error))` | `Alloc,Mut` | A `sys*` answer turned into a `Result`. |
+| `ioResult` | value | `(-> (Result Int Error) String String (Result Int Error))` | `Alloc,Mut` | A `Sys` answer re-wrapped with the path this layer knows. |
 | `writeFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Write `s` to `path`, creating it or TRUNCATING what is there. Answers `(Ok bytes)`, or `(Err e)` whose code is the errno. |
 | `appendFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Add `s` to the end of `path`, creating it if absent. Answers the `(Ok bytes)`, or `(Err e)` whose code is the errno. |
 | `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the file `path`. Answers 0, or a negative errno. |
@@ -163,7 +163,7 @@ See [reference.md](reference.md) for the language, and
 | `isDir` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
 | `fileSize` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | The size of `path` in bytes, or a negative errno. |
 | `readErrno` | value | `(-> String Int)` | `Alloc,IO,Mut` | 0 when `path` can be read as a file, otherwise the errno saying why not: 2 missing, 13 not permitted, 21 a directory. |
-| `makeDir` | value | `(-> String Int)` | `Alloc,IO,Mut` | Create the directory `path`, mode 0755. Answers 0, or a negative errno - `-17` (EEXIST) when it is already there. |
+| `makeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create the directory `path`, mode 0755. Answers 0, or a negative errno - `-17` (EEXIST) when it is already there. |
 | `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers 0, or the negative errno of the first component that could not be made. |
 | `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the EMPTY directory `path`. Answers 0, or a negative errno - `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
 | `listDir` | value | `(-> String Int)` | `Alloc,IO,Mut` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
@@ -360,10 +360,11 @@ See [reference.md](reference.md) for the language, and
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 74 public names
+`stdlib/Sys.ax` — 75 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
+| `sysResult` | value | `(-> String Int (Result Int Error))` | `Alloc,Mut` | write(fd, buf, count) -> bytes written, or a negative/errno result. A raw syscall answer turned into a `Result`. |
 | `stdin` | value | `Int` |  |  |
 | `stdout` | value | `Int` |  |  |
 | `stderr` | value | `Int` |  |  |
@@ -378,15 +379,15 @@ See [reference.md](reference.md) for the language, and
 | `sysReadFile` | value | `(-> Int String)` | `Alloc,IO,Mut` | Open, read entire contents, close.  Returns an empty string on any error (missing file, permission, etc.). |
 | `sysArgc` | value | `Int` | `IO` | How many arguments the process received, including the program name. |
 | `sysArg` | value | `(-> Int String)` | `Alloc,IO,Mut` | The i-th argument as a Str (0 is the program name), or "" when `i` is out of range. The bytes are the process's own argv storage - NUL-terminated, alive for the whole run, never freed or moved - so wrapping them without copying is sound. |
-| `sysWriteFile` | value | `(-> Int String Int)` | `IO` | Write `s` to `path`, creating or truncating it. Answers the number of bytes written, or a negative errno from whichever step failed. |
-| `sysAppendFile` | value | `(-> Int String Int)` | `IO` | Append `s` to `path`, creating it if it is not there. Answers the number of bytes written, or a negative errno. |
-| `sysRename` | value | `(-> Int Int Int)` | `IO` | Rename `old` to `new`, answering 0 or `-errno`. Both are NUL-terminated char* - `strCStr`. |
-| `sysUnlink` | value | `(-> Int Int)` | `IO` | Remove `path`. Answers 0, or `-errno`. |
-| `sysMkdir` | value | `(-> Int Int Int)` | `IO` | Create directory `path` with `mode`. Answers 0, or `-errno` - which is `-17` (EEXIST) when it is already there, and callers usually want to treat that as success. |
+| `sysWriteFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO,Mut` | Write `s` to `path`, creating or truncating it. Answers the number of bytes written, or a negative errno from whichever step failed. |
+| `sysAppendFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO,Mut` | Append `s` to `path`, creating it if it is not there. Answers the number of bytes written, or a negative errno. |
+| `sysRename` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Rename `old` to `new`, answering 0 or `-errno`. Both are NUL-terminated char* - `strCStr`. |
+| `sysUnlink` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` | Remove `path`. Answers 0, or `-errno`. |
+| `sysMkdir` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Create directory `path` with `mode`. Answers 0, or `-errno` - which is `-17` (EEXIST) when it is already there, and callers usually want to treat that as success. |
 | `sysDirMode` | value | `Int` |  | 0755, the mode a directory usually wants. A nullary function because that is how this language spells a constant. |
-| `sysRmdir` | value | `(-> Int Int)` | `IO` | Remove the empty directory `path`. Answers 0, or `-errno`. |
+| `sysRmdir` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` | Remove the empty directory `path`. Answers 0, or `-errno`. |
 | `sysFileExists` | value | `(-> Int Bool)` | `IO` | 1 when `path` names something that can be opened for reading. |
-| `sysFileSize` | value | `(-> Int Int)` | `IO` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
+| `sysFileSize` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
 | `sysReadErrno` | value | `(-> Int Int)` | `Alloc,IO,Mut` | 0 when `path` can be opened AND read as a file, otherwise the errno saying why not. |
 | `sysIsDir` | value | `(-> Int Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
 | `sysReadDir` | value | `(-> Int Int)` | `Alloc,IO,Mut` | Every name in the directory `path`, as a Vec of owned `Str` - `.` and `..` INCLUDED, in whatever order the filesystem gives them. |

@@ -1027,9 +1027,37 @@ before the next:
    and the sentinel convention did not, because "it failed with 2" and
    "it answered 2" were the same Int.
 
-   `stdlib/Sys.ax`'s 13 remain, and they are the harder half: `Sys` is
-   below `Err` in the dependency order, so porting it is not the same
-   change twice.
+   **`Sys.ax`'s filesystem half is done too, the same day.** Seven raw
+   wrappers answer `(Result Int Error)` through `sysResult`:
+   `sysWriteFile`, `sysAppendFile`, `sysUnlink`, `sysMkdir`,
+   `sysRmdir`, `sysRename`, `sysFileSize`. `IO.ax`'s wrappers RE-WRAP
+   rather than convert now — `Sys` has the errno and `IO` has the path,
+   so the code carries through and only the message is rebuilt.
+   `Sys.ax`'s census: **13 → 7**; the whole library **30 → 17**.
+
+   **The claim that `Sys` sits below `Err` was wrong, and it was load
+   bearing.** `Err` imports only `Str`; `Str` imports `Mem` and `Vec`.
+   There is no cycle, and `(import Err)` in `Sys.ax` compiles first
+   try. This slice was deferred once on a dependency that does not
+   exist — *read the import graph before believing an ordering claim
+   about it.*
+
+   **The port surfaced a wrong-code path the checker cannot see.**
+   `makeDir`'s body is one `sysMkdir` call and its signature says
+   `Int`. When `sysMkdir` began answering a `Result`, `makeDir` kept
+   type-checking and started returning a **heap address** where an
+   errno belonged — because `Int` is the universal heap-handle type.
+   Nothing refused it; `tests/stdlib/055-filesystem.ax` printed
+   `got=4372103456 want=0`, and that is what caught it. A fixture
+   asserting an observed VALUE stands exactly where the type system
+   does not.
+
+   What remains in `Sys.ax` are the seven that are not filesystem
+   calls: `sysSpawn`, `sysWaitPid`, `sysRun`, `netSocketTcp`,
+   `netPollCreate`, `netPollWait`, `sysRandomBytes`. `sysRun`'s
+   contract is three-way — an exit code, `128+n` for a signal, or a
+   negative spawn errno meaning the child never ran — and wants a
+   decision rather than the same wrapper.
 4. `self_host/` — the compiler's own phases, which is where the model
    stops being a library and starts being the thing that proves it.
 5. The REPL surface, `check-repl-selfhost.sh`'s session bank extended

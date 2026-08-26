@@ -26,6 +26,27 @@
 ; Core operations
 ; ------------------------------------------------------------------
 ; write(fd, buf, count) -> bytes written, or a negative/errno result.
+; A raw syscall answer turned into a `Result`.
+;
+; The convention it converts FROM is this file's own, stated at the top:
+; a negative return is `-errno`, normalised out of Darwin's carry-flag
+; protocol by the backend. The convention it converts TO is `Result`,
+; where the failure is in the type.
+;
+; The message names the operation and the errno and NOT the path,
+; because a path here is an `Int` - a NUL-terminated buffer address -
+; and rendering one would mean reading foreign memory to build an error
+; about a call that just failed. `IO.ax`'s wrappers have the `String`
+; and put it in their own message.
+(pub :: sysResult (-> String Int (Result Int Error)))
+
+(pub fn (sysResult op n)
+  (if (< n 0)
+    (Err (mkError (- 0 n) (strConcat (strConcat op ": errno ") (fmtInt (- 0 n)))))
+    (Ok n)
+  )
+)
+
 ; Write all `count` bytes at `buf` to `fd`: bytes written, or `-errno`.
 ;
 ; A single `write` is PERMITTED to transfer fewer bytes than asked - a
@@ -67,6 +88,8 @@
 ; ------------------------------------------------------------------
 ; File I/O utilities
 ; ------------------------------------------------------------------
+(import Err)
+
 (import Str)
 
 (import Mem)
@@ -301,10 +324,11 @@
 ; direction of file I/O the library did not have: it could read a file
 ; and it could write to an already-open descriptor, but nothing put a
 ; string on disk under a name.
-(pub :: sysWriteFile (-> Int String Int))
+(pub :: sysWriteFile (-> Int String (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysWriteFile path s)
+  (sysResult "sysWriteFile"
   (let ((fd (sysOpenPath path oWronlyCreateTrunc)))
     (if (sysFailed fd)
       fd
@@ -316,7 +340,7 @@
       )
     )
   )
-)
+))
 
 ; Append `s` to `path`, creating it if it is not there. Answers the
 ; number of bytes written, or a negative errno.
@@ -331,10 +355,11 @@
 ; processes appending to one log interleave whole writes instead of
 ; overwriting each other's last one. Opening for writing and seeking
 ; by hand does not have that property.
-(pub :: sysAppendFile (-> Int String Int))
+(pub :: sysAppendFile (-> Int String (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysAppendFile path s)
+  (sysResult "sysAppendFile"
   (let ((fd (sysOpenPath path oWronlyCreateAppend)))
     (if (sysFailed fd)
       fd
@@ -346,7 +371,7 @@
       )
     )
   )
-)
+))
 
 ; Rename `old` to `new`, answering 0 or `-errno`. Both are
 ; NUL-terminated char* - `strCStr`.
@@ -366,32 +391,34 @@
 ; `renameat`, which takes a directory fd before EACH path, so this
 ; branches on the existing `openNeedsDirFd` capability rather than
 ; growing a second one.
-(pub :: sysRename (-> Int Int Int))
+(pub :: sysRename (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysRename old new)
+  (sysResult "sysRename"
   (if (== openNeedsDirFd 1)
     (__syscall4
       sysRenameNum      atFdCwd      old      atFdCwd      new
     )
     (__syscall2 sysRenameNum old new)
   )
-)
+))
 
 ; Remove `path`. Answers 0, or `-errno`.
 ;
 ; AArch64 Linux has no `unlink` in its table - only `unlinkat` - which
 ; is the same shape as `open`/`openat`, so it branches on the same
 ; `openNeedsDirFd` capability rather than growing a second one.
-(pub :: sysUnlink (-> Int Int))
+(pub :: sysUnlink (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysUnlink path)
+  (sysResult "sysUnlink"
   (if (== openNeedsDirFd 1)
     (__syscall3 sysUnlinkNum atFdCwd path 0)
     (__syscall1 sysUnlinkNum path)
   )
-)
+))
 
 ; Create directory `path` with `mode`. Answers 0, or `-errno` - which
 ; is `-17` (EEXIST) when it is already there, and callers usually want
@@ -400,15 +427,16 @@
 ; Same shape as `sysUnlink`: AArch64 Linux has only `mkdirat`, so this
 ; branches on the existing `openNeedsDirFd` capability rather than
 ; growing a second one. `path` must be NUL-terminated - `strCStr`.
-(pub :: sysMkdir (-> Int Int Int))
+(pub :: sysMkdir (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysMkdir path mode)
+  (sysResult "sysMkdir"
   (if (== openNeedsDirFd 1)
     (__syscall3 sysMkdirNum atFdCwd path mode)
     (__syscall2 sysMkdirNum path mode)
   )
-)
+))
 
 ; 0755, the mode a directory usually wants. A nullary function because
 ; that is how this language spells a constant.
@@ -421,15 +449,16 @@
 ; `AT_REMOVEDIR` is 512 on Linux, and it is what makes `unlinkat` -
 ; the only call AArch64 has for either job - remove a directory rather
 ; than refuse with EISDIR.
-(pub :: sysRmdir (-> Int Int))
+(pub :: sysRmdir (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysRmdir path)
+  (sysResult "sysRmdir"
   (if (== openNeedsDirFd 1)
     (__syscall3 sysRmdirNum atFdCwd path 512)
     (__syscall1 sysRmdirNum path)
   )
-)
+))
 
 ; ------------------------------------------------------------------
 ; Four questions about a file that need no new syscall.
@@ -472,10 +501,11 @@
 ; it is the reason that measurement is recorded instead of papered
 ; over - a caller that must not be fooled asks two questions, and this
 ; one alone was never going to answer both.
-(pub :: sysFileSize (-> Int Int))
+(pub :: sysFileSize (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysFileSize path)
+  (sysResult "sysFileSize"
   (let ((fd (sysOpenPath path oRdonly)))
     (if (< fd 0)
       fd
@@ -487,7 +517,7 @@
       )
     )
   )
-)
+))
 
 ; 0 when `path` can be opened AND read as a file, otherwise the errno
 ; saying why not.

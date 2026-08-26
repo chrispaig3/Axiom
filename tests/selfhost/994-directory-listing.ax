@@ -31,6 +31,8 @@
 ;      file, so the refusal has to come from the `getdents` itself.
 (import Sys)
 
+(import Err)
+
 (import Str)
 
 (import Fmt)
@@ -65,7 +67,7 @@
   (if (>= i bigCount)
     0
     {
-      (sysWriteFile (strCStr (pathOf i)) "x")
+      (unwrapOr (sysWriteFile (strCStr (pathOf i)) "x") 0)
       (fill (+ i 1))
     }
   )
@@ -78,7 +80,7 @@
   (if (>= i bigCount)
     0
     {
-      (sysUnlink (strCStr (pathOf i)))
+      (unwrapOr (sysUnlink (strCStr (pathOf i))) 0)
       (drain (+ i 1))
     }
   )
@@ -111,7 +113,7 @@
     (mut n 0)
   )
     {
-      (sysMkdir d sysDirMode)
+      (unwrapOr (sysMkdir d sysDirMode) 0)
       (let ((v (sysReadDir d)))
         {
           (if (== (vecLen v) 2)
@@ -129,8 +131,8 @@
         }
       )
       ; --- what is in it shows up -------------------------------------
-      (sysWriteFile f "x")
-      (sysMkdir (strCStr "ax994/sub") sysDirMode)
+      (unwrapOr (sysWriteFile f "x") 0)
+      (unwrapOr (sysMkdir (strCStr "ax994/sub") sysDirMode) 0)
       (let ((v (sysReadDir d)))
         {
           (if (== (vecLen v) 4)
@@ -165,7 +167,7 @@
         0
       )
       ; --- more than one buffer ---------------------------------------
-      (sysMkdir big sysDirMode)
+      (unwrapOr (sysMkdir big sysDirMode) 0)
       (fill 0)
       (let ((v (sysReadDir big)))
         {
@@ -200,13 +202,13 @@
       )
       ; --- teardown ----------------------------------------------------
       (drain 0)
-      (if (== (sysRmdir big) 0)
+      (if (isOk (sysRmdir big))
         (set n (+ n 1))
         0
       )
-      (sysUnlink f)
-      (sysRmdir (strCStr "ax994/sub"))
-      (if (== (sysRmdir d) 0)
+      (unwrapOr (sysUnlink f) 0)
+      (unwrapOr (sysRmdir (strCStr "ax994/sub")) 0)
+      (if (isOk (sysRmdir d))
         (set n (+ n 1))
         0
       )

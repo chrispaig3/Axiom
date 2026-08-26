@@ -358,7 +358,7 @@
               )
             ))
               {
-                (sysUnlink (strCStr outPath))
+                (unwrapOr (sysUnlink (strCStr outPath)) 0)
                 (let ((rc3 (runTool "ar" arArgs)))
                   (if (!= rc3 0)
                     (toolFailDiag
@@ -1916,25 +1916,25 @@
         (objPath (cat2 outPath ".o"))
         (optPath (cat2 outPath ".opt.ll"))
       )
-        (if (< (sysWriteFile (strCStr llPath) ir) 0)
+        (if (isErr (sysWriteFile (strCStr llPath) ir))
           (toolFailDiag "could not write LLVM IR" "check that the output directory exists and is writable")
           (let ((toAssemble (runOpt llPath optLevel optPath)))
             (if (== (strLen toAssemble) 0)
               {
-                (sysUnlink (strCStr llPath))
+                (unwrapOr (sysUnlink (strCStr llPath)) 0)
                 (toolFailDiag "opt failed" "`opt` is optional - a PATH without it warns and builds - so this is a failure of the one that is installed")
               }
               (let ((rc (assembleAndLink
                 toAssemble                objPath                outPath                optLevel                linkArgs
               )))
                 {
-                  (sysUnlink (strCStr objPath))
+                  (unwrapOr (sysUnlink (strCStr objPath)) 0)
                   (if (!= (strCmp toAssemble llPath) 0)
-                    (sysUnlink (strCStr optPath))
+                    (unwrapOr (sysUnlink (strCStr optPath)) 0)
                     0
                   )
                   (if (== keepLl 0)
-                    (sysUnlink (strCStr llPath))
+                    (unwrapOr (sysUnlink (strCStr llPath)) 0)
                     0
                   )
                   rc

@@ -31,6 +31,8 @@
 ; written, for the reason term 8 states.)
 (import Sys)
 
+(import Err)
+
 (import Str)
 
 (:: b2i (-> Bool Int))
@@ -56,7 +58,7 @@
     (mut steps 0)
   )
     {
-      (sysWriteFile f "hello")
+      (unwrapOr (sysWriteFile f "hello") 0)
       (set steps (+ steps 1))
       (let ((got (sysReadFile f)))
         {
@@ -81,7 +83,7 @@
           (set steps (+ steps 1))
         }
       )
-      (if (== (sysUnlink f) 0)
+      (if (isOk (sysUnlink f))
         (set acc (+ acc 2))
         0
       )

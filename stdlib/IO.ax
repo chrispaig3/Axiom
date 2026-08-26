@@ -188,26 +188,32 @@
 
 (fn (ioPath path) (strCStr (strDup path)))
 
-; A `sys*` answer turned into a `Result`.
+; A `Sys` answer re-wrapped with the path this layer knows.
 ;
-; The convention it converts FROM is `docs/error-model.md` §1.2's: a
-; negative return is `-errno`, and a caller had to remember that. The
-; convention it converts TO is `Result`, where the failure is in the
-; type and a caller that ignores it is refused rather than trusted.
+; `Sys.sysResult` already turned the raw `-errno` into an `Error`; what
+; it could not do is name the path, because a path at that layer is an
+; `Int` - a NUL-terminated buffer address, and rendering one would mean
+; reading foreign memory to describe a call that just failed. This
+; layer has the `String`, so it carries the code through and rebuilds
+; the message.
 ;
 ; `op` and `path` go into the message because an errno alone does not
 ; say what was being attempted, and every one of these calls has a
 ; path - which is the whole reason a bare `-2` is a bad answer: it is
 ; ENOENT for a file the caller can name and cannot see named.
-(pub :: ioResult (-> Int String String (Result Int Error)))
+(pub :: ioResult (-> (Result Int Error) String String (Result Int Error)))
 
-(pub fn (ioResult n op path)
-  (if (< n 0)
-    (Err (mkError
-      (- 0 n)
-      (strConcat (strConcat (strConcat op ": ") (strConcat path ": errno ")) (fmtInt (- 0 n)))
-    ))
-    (Ok n)
+(pub fn (ioResult r op path)
+  (match r
+    ((Ok v) (Ok v))
+    ; `Sys` already turned the errno into an `Error`; what it could not
+    ; do is name the path, because at that layer a path is an `Int` -
+    ; a NUL-terminated buffer address. The code is carried through
+    ; unchanged and only the message is rebuilt.
+    ((Err e) (Err (mkError
+      (errCode e)
+      (strConcat (strConcat (strConcat op ": ") (strConcat path ": errno ")) (fmtInt (errCode e)))
+    )))
   )
 )
 
@@ -306,10 +312,10 @@
 
 ; Create the directory `path`, mode 0755. Answers 0, or a negative
 ; errno - `-17` (EEXIST) when it is already there.
-(pub :: makeDir (-> String Int))
+(pub :: makeDir (-> String (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (makeDir path) (sysMkdir (ioPath path) sysDirMode))
+(pub fn (makeDir path) (ioResult (sysMkdir (ioPath path) sysDirMode) "makeDir" path))
 
 ; Create `path` and every missing directory above it. Answers 0, or
 ; the negative errno of the first component that could not be made.
@@ -325,7 +331,7 @@
 
 ; From 1, not 0: a leading `/` is the root, which exists and cannot
 ; be created, and asking to create "" fails with ENOENT.
-(:: makeDirAllFrom (-> String Int Int))
+(:: makeDirAllFrom (-> String Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (fn (makeDirAllFrom path i)
@@ -333,7 +339,7 @@
     (makeDirOk path)
     (if (== (strByte path i) 47)
       (let ((rc (makeDirOk (strSlice path 0 i))))
-        (if (< rc 0)
+        (if (isErr rc)
           rc
           (makeDirAllFrom path (+ i 1))
         )
@@ -344,14 +350,21 @@
 )
 
 ; `makeDir`, with "it was already there" counted as success.
-(:: makeDirOk (-> String Int))
+(:: makeDirOk (-> String (Result Int Error)))
 
 ;@axiom:effect(io)
 (fn (makeDirOk p)
-  (let ((rc (makeDir p)))
-    (if (== (sysErrno rc) eExist)
-      0
-      rc
+  (let ((r (makeDir p)))
+    (match r
+      ((Ok v) (Ok v))
+      ; An existing directory is SUCCESS, which is the whole difference
+      ; from `makeDir`. The errno is `Error.code` now rather than a
+      ; negated return, so the test is a field read instead of
+      ; `sysErrno` over a sentinel.
+      ((Err e) (if (== (errCode e) eExist)
+        (Ok 0)
+        (Err e)
+      ))
     )
   )
 )

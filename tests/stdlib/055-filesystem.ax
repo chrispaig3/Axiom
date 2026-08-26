@@ -146,10 +146,10 @@
   )
     {
       (set bad (+ bad (no "dir absent" (fileExists d))))
-      (set bad (+ bad (eqInt "makeDir" (makeDir d) 0)))
+      (set bad (+ bad (eqInt "makeDir" (unwrapOr (makeDir d) (- 0 1)) 0)))
       (set bad (+ bad (yes "dir exists" (fileExists d))))
       (set bad (+ bad (yes "dir is a dir" (isDir d))))
-      (set bad (+ bad (eqInt "makeDir twice is EEXIST" (makeDir d) (- 0 17))))
+      (set bad (+ bad (eqInt "makeDir twice is EEXIST" (codeOf (makeDir d)) 17)))
       ; `makeDirAll` differs from `makeDir` in exactly two ways: it
       ; makes the parents, and an existing directory is success.
       (set bad (+ bad (eqInt "makeDirAll nested" (unwrapOr (makeDirAll "fs055/a/b/c") (- 0 1)) 0)))

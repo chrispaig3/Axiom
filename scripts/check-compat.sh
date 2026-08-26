@@ -451,7 +451,13 @@ else
   printf '999.0.0  F  unwrapOr  probe: the accepting path\n' >> "$decl"
   n_yes="$(undeclared_in "$pdiff" "$decl" 2>/dev/null)"
   n_no="$(undeclared_in "$pdiff" "$baseline_dir/BREAKING" 2>/dev/null)"
-  if [[ "$n_yes" -eq 0 && "$n_no" -eq 1 ]]; then
+  # The DELTA, not the absolutes. The tree may legitimately carry
+  # undeclared-in-this-permit breaks of its own while a migration is in
+  # flight; what this probe asserts is that the notice for THIS name
+  # removes exactly one from the count. Comparing against 0 and 1
+  # silently required the rest of the tree to be clean, and went red
+  # the first time a release ported an API - twice.
+  if [[ $((n_no - n_yes)) -eq 1 ]]; then
     ok "a break declared for a version newer than $base_version is accepted, and the same break undeclared is not"
   else
     bad "the permit does not read compat/BREAKING correctly"

@@ -15,7 +15,21 @@
 ; the ones already proven.
 (import Sys)
 
+(import Err)
+
 (import Str)
+
+; The errno behind a failed rename, or 0 when it succeeded.
+(:: renameCode (-> Int Int Int))
+
+;@axiom:effect(io)
+(fn (renameCode a b)
+  (match (sysRename a b)
+    ((Ok v) 0)
+    ((Err e) (errCode e))
+  )
+)
+
 
 (:: main Int)
 
@@ -34,19 +48,19 @@
     (mut n 0)
   )
     {
-      (if (== (sysAppendFile f "one\n") 4)
+      (if (== (unwrapOr (sysAppendFile f "one\n") 0) 4)
         (set n (+ n 1))
         0
       )
-      (if (== (sysFileSize f) 4)
+      (if (== (unwrapOr (sysFileSize f) 0) 4)
         (set n (+ n 1))
         0
       )
-      (if (== (sysAppendFile f "two\n") 4)
+      (if (== (unwrapOr (sysAppendFile f "two\n") 0) 4)
         (set n (+ n 1))
         0
       )
-      (if (== (sysFileSize f) 8)
+      (if (== (unwrapOr (sysFileSize f) 0) 8)
         (set n (+ n 1))
         0
       )
@@ -55,18 +69,18 @@
         0
       )
       ; and the contrast that makes the pair worth having
-      (if (== (sysWriteFile f "1") 1)
+      (if (== (unwrapOr (sysWriteFile f "1") 0) 1)
         (set n (+ n 1))
         0
       )
-      (if (== (sysFileSize f) 1)
+      (if (== (unwrapOr (sysFileSize f) 0) 1)
         (set n (+ n 1))
         0
       )
       ; --- rename -----------------------------------------------------
       ; The destination gains the bytes AND the source stops existing.
       ; Checking only the first would pass for a copy.
-      (if (== (sysRename f g) 0)
+      (if (isOk (sysRename f g))
         (set n (+ n 1))
         0
       )
@@ -79,8 +93,9 @@
         0
       )
       ; A missing source is refused rather than silently creating an
-      ; empty destination.
-      (if (== (sysRename gone f) (- 0 2))
+      ; empty destination. ENOENT is `Error.code` now, not a negated
+      ; return: the failure and the answer stopped being the same Int.
+      (if (== (renameCode gone f) 2)
         (set n (+ n 1))
         0
       )
@@ -94,8 +109,8 @@
       ; `sysReadErrno` exists, and they are checked against a directory
       ; and an empty file that this fixture makes, so the answers do
       ; not depend on where it was run from.
-      (sysMkdir d sysDirMode)
-      (sysWriteFile f "")
+      (unwrapOr (sysMkdir d sysDirMode) 0)
+      (unwrapOr (sysWriteFile f "") 0)
       (if (== (sysReadErrno g) 0)
         (set n (+ n 1))
         0
@@ -119,7 +134,7 @@
         (set n (+ n 1))
         0
       )
-      (if (== (sysFileSize f) 0)
+      (if (== (unwrapOr (sysFileSize f) 0) 0)
         (set n (+ n 1))
         0
       )
@@ -167,15 +182,15 @@
         0
       )
       ; --- teardown ----------------------------------------------------
-      (if (== (sysUnlink f) 0)
+      (if (isOk (sysUnlink f))
         (set n (+ n 1))
         0
       )
-      (if (== (sysUnlink g) 0)
+      (if (isOk (sysUnlink g))
         (set n (+ n 1))
         0
       )
-      (if (== (sysRmdir d) 0)
+      (if (isOk (sysRmdir d))
         (set n (+ n 1))
         0
       )

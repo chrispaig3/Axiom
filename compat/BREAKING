@@ -27,3 +27,28 @@
 0.3.3  F  makeDirAll  -errno -> (Result Int Error): the failure is in the type
 0.3.3  F  removeDir   -errno -> (Result Int Error): the failure is in the type
 0.3.3  F  copyFile    -errno -> (Result Int Error): the failure is in the type
+
+# 0.3.4 - ERR-ADOPT-1 slice 3, the `Sys` half. Seven raw syscall
+# wrappers answer `(Result Int Error)` instead of an Int that is a
+# result when non-negative and a negated errno when negative.
+#
+# They read WIDENED rather than CHANGED because the effect row moved
+# too: building an `Error` allocates, so each gained `Alloc`. The type
+# changed as well - a widened row and a changed signature are the same
+# event here, and the gate reports the coarser one.
+0.3.4  F  sysWriteFile   -errno -> (Result Int Error)
+0.3.4  F  sysAppendFile  -errno -> (Result Int Error)
+0.3.4  F  sysUnlink      -errno -> (Result Int Error)
+0.3.4  F  sysMkdir       -errno -> (Result Int Error)
+0.3.4  F  sysRmdir       -errno -> (Result Int Error)
+0.3.4  F  sysRename      -errno -> (Result Int Error)
+0.3.4  F  sysFileSize    -errno -> (Result Int Error)
+# `makeDir` went with them: its body is one `sysMkdir` call, and its
+# declared `Int` return silently became a Result HANDLE - which the
+# checker cannot catch, because `Int` is the universal heap-handle
+# type. It printed a heap address as an errno until the fixture caught
+# it.
+0.3.4  F  makeDir        -errno -> (Result Int Error)
+# `ioResult` now RE-WRAPS a `Sys` Result rather than converting a raw
+# Int, because `Sys` converts at its own layer now.
+0.3.4  F  ioResult       (Int -> ...) -> ((Result Int Error) -> ...)
