@@ -198,7 +198,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Thirty-five of the gates below build the compiler under test from
+    # Thirty-six of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -530,6 +530,19 @@ jobs:
       # file green across it, the container gate included.
       - name: A bounded live set has bounded memory
         run: ./scripts/check-steady-state.sh
+
+      # And the cost this repository carried on every fallible call
+      # until 2026-08-25: the block a call returning `Result` answers
+      # was reclaimed under no spelling - 32 bytes a call, linear in
+      # the thing an error model exists to make ordinary
+      # (docs/error-model.md ERR-MEM-4). `370-error-propagation.ax`
+      # term 32 asserts it is reclaimed now, and this gate asserts
+      # that the compiler is WHY: it turns off the one word the fix
+      # turns on, rebuilds, and requires the fixture to go red at term
+      # 32 and at no other term. A flat line that no ablation can bend
+      # is not evidence of reclamation.
+      - name: A fallible call's block is reclaimed, and one word is what does it
+        run: ./scripts/check-fallible-reclaim.sh
 
       # And what a reset COSTS, which is the roadmap's P8 and the one
       # thing no gate here measured: every timing gate asserts a ratio,

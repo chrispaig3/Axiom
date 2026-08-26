@@ -197,26 +197,38 @@ finds. This is recorded as blocker **B2** in §8; if two-parameter
 `impl` ever lands, `ERR-TYPE-3` may be revisited, and it keeps its
 number when it is.
 
-**ERR-TYPE-3a (H). An error-inspecting combinator MUST take the error
-through a parameter declared at its concrete type.** Reading a field
-off a `match` binder does not work when the scrutinee is polymorphic:
+**ERR-TYPE-3a (RETIRED 2026-08-25). An error-inspecting combinator
+MAY read the error's fields off the `match` binder.** This rule said
+MUST NOT, and it was a checker limitation from the start rather than a
+design choice. The limitation is gone:
 
 ```scheme
-(fn (withContext r ctx)
+(:: reContext (-> (Result a Error) String (Result a Error)))
+(fn (reContext r ctx)
   (match r
+    ((Ok x) (Ok x))
     ((Err y) (Err (Error y.code y.message ctx)))))
-; AX3004 type mismatch: expected struct or data type, found _t206
+; compiles; code 1, message "divided by zero", context as given
 ```
 
-The checker instantiates `(Result a Error)`'s constructor field to a
-fresh variable and never resolves it against the signature, so `y` has
-no fields as far as the arm is concerned. Handing `y` to a function
-whose *parameter* is declared `Error` gets the concrete type back, and
-`stdlib/Err.ax`'s `errContextOf` exists for exactly that reason.
+Written 2026-08-16, that was `AX3004 type mismatch: expected struct or
+data type, found _t206` — the checker instantiated `(Result a
+Error)`'s constructor field to a fresh variable and never resolved it
+against the signature, so `y` had no fields as far as the arm was
+concerned. `ctorPatEnv` landed 2026-08-21 (`a388fc1`) and resolves
+exactly that: a constructor pattern's field types are instantiated
+against the scrutinee's before its binders are bound. Nothing recorded
+the consequence, and the sweep of 2026-08-22 that re-checked every
+claim in every document did not catch it — that sweep resolves the
+fixtures a document NAMES, and this rule named none.
 
-This is a checker limitation rather than a design choice, and it is
-recorded as **B5** in §8. It shapes every combinator in the module, so
-it is a rule and not a footnote.
+The number is kept and burned rather than reused, and `stdlib/Err.ax`
+keeps `errContextOf`: it is public, `docs/stdlib-api.md` lists it, and
+removing an exported name to tidy a rule that no longer binds would
+break importers for no gain. What changes is why it is there — a
+convenience now, not a requirement. `tests/stdlib/371-err-module.ax`
+term 2 pins both spellings against each other, and mutating the direct
+read's field drops that term and no other (exit 253 against 255).
 
 **ERR-TYPE-4 (H). `Option` is not an error type, and the conversion is
 named.** `Option` says *absent*; `Result` says *failed, and here is
@@ -374,9 +386,9 @@ monomorphic 176 bytes, polymorphic `(Result Int String)` 288 bytes.
 Both flat. The model is viable polymorphically, which is the only way
 it is worth having.
 
-**ERR-MEM-4 (P). The block a fallible call returns is not reclaimed.**
-This is the model's standing cost today and the specification states it
-rather than discovering it later:
+**ERR-MEM-4 (H). The block a fallible call returns is reclaimed.
+CLOSED 2026-08-25.** This was the model's standing cost for nine days,
+and the specification stated it rather than discovering it later:
 
 > A call returning `Result` allocates one block that nothing frees.
 > Measured at **32 bytes per fallible call**, identically whether the
@@ -384,7 +396,12 @@ rather than discovering it later:
 > iteration at both 10,000 and 50,000 iterations, against a flat
 > control loop with no `Result` in it.
 
-The prerequisite this rule used to name is gone and the leak is not.
+Every one of those numbers is 0 now, measured the same way. What
+follows is the measurement that closed it, kept in full because the
+two wrong prerequisites this rule carried before it are the reason it
+took three passes to name the right one.
+
+The prerequisite this rule used to name is gone and the leak was not.
 `MM-LIFE-2c`'s events 2 and 3 — the ownership pair this rule blamed for
 it — shipped on 2026-08-21 (`tests/stdlib/372-arc-owned-results.ax`),
 and the 32 bytes survived them untouched. Re-measured 2026-08-22 with
@@ -417,16 +434,89 @@ answer is a field-class test inside a walk that already exists. That is
 a narrower prerequisite than the one this rule carried, and naming it
 narrowly is the point of re-measuring.
 
-A conforming implementation **MUST** reclaim it. Until then the cost is
-linear in fallible calls, which is survivable for a compiler that runs
-once and is not survivable for either program that does not — the LSP
-per keystroke, the pre-forked server per request — and `ERR-ADOPT-3`
-says what to do about that.
+**And it was still half of one.** A field-class test over the field as
+DECLARED closes `(RInt Int)` and leaves `(Ok v)` exactly where it was,
+because `Ok`'s field is declared `a`. Measured 2026-08-25 before the
+fix, same instrument: a concrete sum type with an `Int` field cost 32
+bytes per iteration, and so did `(Option Int)`, whose field is a type
+variable that happens to arrive as `Int`. `Result` is the second kind.
+A fixture built from the first would have gone green over a fix that
+changed nothing about this rule's own subject.
 
-`370-error-propagation.ax` term 8 asserts the **control** — the same
-loop with no `Result` allocates nothing — rather than the leak. A
-fixture asserting the leak would have to be rewritten the day it is
-fixed; a control that isolates it survives the fix.
+The useful type is therefore the **instantiated** one, and only the
+match site has it: `(step i)` at `(-> Int (Result Int String))` is what
+makes this `Ok`'s field an `Int`. So the checker records it. In
+`bindOnePatArg` — where a constructor pattern's binders are already
+bound at their instantiated field types — `stampPatBinderTy` writes the
+type's constructor name onto the binder's own node, and codegen's
+`binderIsScalar` classifies that name with `scalarTyName`, the same
+list `fldClass` classifies a declared field by. A binder the checker
+could not resolve is left unstamped, which reads as "assume it can
+alias" and is the answer every compiler before this one gave.
+
+Three things about the shape of that fix, each of which was a choice
+rather than the only option:
+
+- It is a **twelfth word on `ASTNode`**, not word 6. Word 6 already
+  carries an evidence stamp for a call's spine head, which is a
+  `TAG_E_VAR` node too, and a type name landing there would be read as
+  a node.
+- It is a **name, not a type node**. The unifier writes through type
+  nodes in place, so a pointer kept across phases can be overwritten;
+  `stampFieldStruct` records a name for the same reason.
+- The escape walk gets its **own** binder collection, `patBindersEsc`,
+  rather than a flag on the shared one. The five other callers of
+  `patBindersCg` want the binders as a SCOPE — for shadowing, and for
+  the flow environment — and a scalar binder is still a binding. It is
+  only the escape question it cannot answer yes to.
+
+**The stamp refuses to take a last answer, and that is measured rather
+than defensive.** Its word has three states: `0` for never stamped, a
+NAME for "every check that reached this node agreed", and the EMPTY
+STRING for "two checks disagreed", which reads back conservative. One
+binder node genuinely is checked twice at different types:
+`checkImplComplete` synthesizes a trait's DEFAULT body into every impl
+that omits the method **without copying the body's nodes**, so two
+impls at two types check one AST, and `impl` declaration order alone
+decides which name would survive.
+
+Measured 2026-08-25 on `tests/stdlib/373-shared-default-binder.ax`:
+with the disagreement arm removed, `Ident#String#ident` contains
+`call void @axiom_release(i64 %t0)` — a release of the block the
+returned `String` still lives in — and with it present, none. One line
+of IR from one word in the checker, and
+`scripts/check-fallible-reclaim.sh` asserts both directions.
+
+No program was found that **observes** that release: the field has
+another owner at every call site built for it, so nothing reached count
+0 and both compilers answered correctly. The honest statement is that
+the hazard is real in the emitted code and latent at run time — which
+is also why the gate reads the IR rather than an exit status, since a
+golden would be green with the release present.
+
+The same sharing has two other symptoms, neither fixed here: a default
+body whose scrutinee is a **dispatched** trait method is refused
+outright (`AX3004`, identically at 0.3.0),
+`tests/diagnostics/365-trait-default-shared-body.ax`; and the block's
+**shape word** depends on `impl` declaration order in the compiler as
+shipped, recorded as `MM-LIFE-2j` in `docs/memory-model.md`.
+
+The cost was linear in fallible calls, which was survivable for a
+compiler that runs once and was not survivable for either program that
+does not — the LSP per keystroke, the pre-forked server per request.
+`ERR-ADOPT-3` said what to do about that; it no longer has to.
+
+`370-error-propagation.ax` said, of its own term 8, that "a fixture
+asserting the leak would have to be rewritten the day it is fixed".
+This was that day. Term 8 stays — it is what attributes a difference to
+the error value rather than to the loop — and **term 32** asserts the
+reclamation over 20,000 calls in both spellings. Because three flat
+lines cannot tell reclamation from a blind instrument, **term 64**
+requires a retained allocation to move the same probe pair, and
+`scripts/check-fallible-reclaim.sh` requires the fixture to go RED
+under an ablation of `binderIsScalar` — at term 32, and at no other
+term. Ablated: exit 95 against 127, and the probe delta back to 640,032
+bytes over 20,000 calls, which is this rule's 32 to the byte.
 
 **ERR-MEM-5 (H). An error record may declare at most 46 payload
 words.** `AX3029` refuses a wider block (47 mappable payload words, one
@@ -745,15 +835,19 @@ against an expander without the rule.
 **ERR-SUGAR-3 (H). A contextual wrapper is a function, not a form.**
 `(withContext r "reading the manifest")` replaces an `Err`'s `context`
 and passes `Ok` through. It needs no binder, so it never depended on
-`MAC-HYG-10`; it does depend on `ERR-TYPE-3a`, which is why it reads
-the error's fields through `errContextOf` rather than in the arm.
+`MAC-HYG-10`. It reads the error's fields through `errContextOf`
+rather than in the arm because `ERR-TYPE-3a` required that when it was
+written; since that rule's retirement on 2026-08-25 the indirection is
+a kept name rather than a necessity, and `371` term 2 now checks the
+direct spelling against it.
 
 ---
 
 ## 8. What this specification found
 
 Five defects, none of them recorded anywhere before, each found by
-probing a claim rather than reading one. Two are fixed.
+probing a claim rather than reading one. Four are fixed; `B2` is the
+one still open.
 
 **B1 — a macro binder did not scope over another parameter's syntax.
 FIXED 2026-08-16.** `(macro (bind! x e body) (let ((x e)) body))` put
@@ -784,19 +878,45 @@ now what the table says. Doc drift of the exact class
 `scripts/check-doc-drift.sh` exists to catch, in a table that gate does
 not read, which is why a probe found it and no gate did.
 
-**B4 — a fallible call leaks 32 bytes.** `ERR-MEM-4`. Not a defect of
-this model; a defect this model is the first to have a number for.
+**B4 — a fallible call leaks 32 bytes. FIXED 2026-08-25.**
+`ERR-MEM-4`. Not a defect of this model; a defect this model is the
+first to have a number for, and the number is what closed it: the
+release was already emitted and a `match` binder was suppressing it,
+which no amount of reading the ownership rules would have said. The
+first diagnosis blamed `MM-LIFE-2c`'s ownership events and was wrong —
+they shipped and the 32 bytes did not move. The second named a
+field-class test on the binder path and was half right: it closes a
+concrete `Int` field and leaves `(Ok v)` untouched, because the useful
+type is the INSTANTIATED one and only the checker has it.
 
-**B5 — a `match` binder over a polymorphic scrutinee has no type.**
-`(match r ((Err y) y.code))` where `r : (Result a Error)` is `AX3004
-expected struct or data type, found _t206`: the checker instantiates
-the constructor's field to a fresh variable and never resolves it
-against the signature, so the binder has no fields. Passing the binder
-to a function whose parameter is declared at the concrete type
-recovers it, which is `ERR-TYPE-3a` and the shape every combinator in
-`stdlib/Err.ax` takes. Found while writing `withContext`, which is the
-first function in this repository to read a field off a polymorphic
-match binder.
+**B5 — a `match` binder over a polymorphic scrutinee has no type.
+FIXED 2026-08-21, RECORDED 2026-08-25.** `(match r ((Err y) y.code))`
+where `r : (Result a Error)` was `AX3004 expected struct or data type,
+found _t206`: the checker instantiated the constructor's field to a
+fresh variable and never resolved it against the signature, so the
+binder had no fields. Passing the binder to a function whose parameter
+is declared at the concrete type recovered it, which was `ERR-TYPE-3a`.
+Every combinator in `stdlib/Err.ax` is still written that way, because
+those are public names and the shape costs nothing — not because the
+rule still binds.
+
+`ctorPatEnv` closed it five days later (`a388fc1`), as a side effect of
+unrelated work on nested patterns, and **the four days between that
+and the sweep of 2026-08-22 are the interesting part**: that sweep
+re-checked every claim in every document against the compiler that was
+there, and this claim survived it. It could not have done otherwise.
+The sweep resolves the fixtures a document names and re-runs them; B5
+named no fixture, because a defect has none. A claim that something
+does NOT work is invisible to a gate built out of things that do, and
+this repository has now made that mistake twice — the other is
+`ERR-ADOPT-3`'s uniqueness claim, recorded in `docs/memory-model.md`
+§9.1. The fixture that would have existed if the negative had been
+false is `tests/stdlib/371-err-module.ax`, and it exists now: term 2
+runs the direct read and the routed one and compares their answers, so
+the claim is pinned by a program rather than by a sentence.
+
+The fixture it should have had is `tests/stdlib/371-err-module.ax`
+term 2, which now carries both spellings and compares them.
 
 ---
 
@@ -806,7 +926,7 @@ match binder.
 |---|---|---|
 | `ERR-TYPE-1`, `2` | **H, gated** | `stdlib/Err.ax`; `tests/stdlib/371-err-module.ax` |
 | `ERR-TYPE-3` | **H, gated** | `mapErr`, `371-err-module.ax` term 8 |
-| `ERR-TYPE-3a` | H | `AX3004 _t206`; `errContextOf` is the workaround |
+| `ERR-TYPE-3a` | **R** | retired 2026-08-25 — the limitation it recorded is gone (`ctorPatEnv`); `371` term 2 pins both spellings |
 | `ERR-TYPE-4` | **H, gated** | `okOr`/`toOption`, `371` term 4 |
 | `ERR-TYPE-5` | H | `fldClass` classifies from declared types |
 | `ERR-PROP-1` | H | the language having no other mechanism |
@@ -817,7 +937,7 @@ match binder.
 | `ERR-MEM-1` | H | `fldClass`, `self_host/codegen.ax` |
 | `ERR-MEM-2` | **H, gated** | `370-error-propagation.ax` term 4 + ablation |
 | `ERR-MEM-3` | H | 176 / 288 bytes, mono / poly, 2000 iterations |
-| `ERR-MEM-4` | P | 32 bytes per call; control gated as `370` term 8 |
+| `ERR-MEM-4` | **H, gated** | `370-error-propagation.ax` terms 32 + 64, and `scripts/check-fallible-reclaim.sh` ablates the compiler |
 | `ERR-MEM-5` | H | `AX3029` / `AX3030` |
 | `ERR-MEM-6` | R | `linear` enforces nothing |
 | `ERR-REC-1` | R | no unwinding exists |
@@ -830,12 +950,12 @@ match binder.
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
 
-Eighteen rules hold, nine of them named by a fixture that carries an
-ablation — and one of those nine, `ERR-REC-2`, has a fixture that
+Nineteen rules hold, ten of them named by a fixture that carries an
+ablation — and one of those ten, `ERR-REC-2`, has a fixture that
 reaches two of its four operators, which the row says. What remains is
-`ERR-PROP-4`, `ERR-MEM-4`, `ERR-REC-4`/`5`, `ERR-DIAG-2`/`3` and the
-migration itself — and the document says so in every row rather than in
-a note at the end.
+`ERR-PROP-4`, `ERR-REC-4`/`5`, `ERR-DIAG-2`/`3` and the migration
+itself — and the document says so in every row rather than in a note at
+the end.
 
 ---
 
@@ -880,9 +1000,15 @@ touches the seed until one has to, and the one that does — a built-in
 `Result` under `ERR-TYPE-2`, if it is ever justified — lands as
 feature-then-`scripts/reseed.sh`, never as both at once.
 
-**ERR-ADOPT-3 (P, amended 2026-08-24). The long-lived programs are the
-constraint on `ERR-MEM-4`, and there are two of them.** A compiler
-process runs once and exits; 32 bytes per fallible call is noise.
+**ERR-ADOPT-3 (H, amended 2026-08-24, discharged 2026-08-25). The
+long-lived programs were the constraint on `ERR-MEM-4`, and there are
+two of them.** A compiler process runs once and exits; 32 bytes per
+fallible call was noise there. The two programs below are why it was
+not noise everywhere — and since `ERR-MEM-4` closed, the constraint
+this rule existed to state is discharged. The rule is kept because the
+two programs it identified are still the ones any future per-call cost
+has to be measured against, and identifying them is the part that took
+a correction.
 
 This rule said `self_host/lsp.ax` was "the one long-lived Axiom program
 v1 ships". That stopped being true when the socket work landed:
@@ -900,17 +1026,17 @@ Both programs hold their memory flat by the same mechanism — a
 `__axiom_arena_mark` / `__axiom_arena_reset` bracket around the unit of
 work, which `docs/memory-model.md`'s `MM-ALLOC-22` states as the
 reclamation strategy rather than as an interim one — so a `Result`
-allocated inside the bracket is reclaimed at the boundary and one that
-escapes it is not. That is the whole of what `ERR-MEM-4` has to be
-measured against, and it is why the 32 bytes are a per-*call* figure and
-not a per-*process* one.
+allocated inside the bracket was reclaimed at the boundary and one that
+escaped it was not. That is what `ERR-MEM-4` had to be measured
+against, and it is why the 32 bytes were a per-*call* figure and not a
+per-*process* one.
 
-Migrating the compiler's phases to `Result` therefore **MUST** be
+Migrating the compiler's phases to `Result` **MUST** still be
 re-measured against `scripts/check-lsp-selfhost.sh`'s per-edit figure
-**and** `scripts/check-net.sh`'s scoped-against-unscoped ratio, and
-`ERR-MEM-4` closed before either program's own request path migrates.
-Its cause is now named narrowly enough to cost one walk rather than one
-analysis, which moves it from a blocker to a task.
+**and** `scripts/check-net.sh`'s scoped-against-unscoped ratio. What is
+no longer a precondition is `ERR-MEM-4` itself: it closed on
+2026-08-25, before either program's own request path migrated, which is
+the order this rule asked for.
 
 ---
 
@@ -933,7 +1059,7 @@ crosses a boundary:
         (parseAll (vecTail toks) (+ acc v)))))   ; ERR-PROP-3: the arm
 
 ; The caller attaches what it was doing. `withContext` takes the
-; RESULT, not the error - ERR-TYPE-3a is why nothing here reaches into
+; RESULT, not the error - ERR-TYPE-3a was why nothing here reached into
 ; an `Err` binder for its fields.
 (:: parseManifest (-> Int (Result Int Error)))
 (fn (parseManifest toks)

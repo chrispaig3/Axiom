@@ -11976,6 +11976,91 @@
   )
 )
 
+; Record on the binder what type it stands for, so codegen can ask a
+; question it has no other way to ask: can this name carry a reference
+; out of the block the match is over?
+;
+; `ty` here is the constructor's field type ALREADY INSTANTIATED
+; against the scrutinee (`ctorPatEnv`, `tyInstVec`), which is the
+; whole value of stamping it here rather than deriving it there:
+; `Ok`'s field is declared `a`, and only the match site knows that
+; this `Ok` came out of a `(Result Int String)`.
+;
+; Only a `TAG_T_CON` is recorded, and only its NAME. A type variable,
+; an arrow or an array poisons the word, which is what codegen already
+; treats as "assume it can alias" - so an unresolved type costs the old
+; answer and never a wrong one. The name is a snapshot rather than the
+; node, because the unifier writes through type nodes in place and a
+; pointer kept across phases can be overwritten; `stampFieldStruct`
+; records a name for the same reason.
+;
+; THE WORD HAS THREE STATES, AND THE THIRD IS WHY. `0` is "never
+; stamped", a NAME is "every check that reached this node agreed it is
+; that type", and the EMPTY STRING is "two checks disagreed". Codegen
+; reads the last two the same way - `scalarTyName ""` is 0, which is
+; conservative - so the poison state costs nothing to read. It exists
+; because a binder node can in principle be checked more than once at
+; DIFFERENT types, and last-write-wins would then hand codegen an `Int`
+; for a binder that is really a `String`. That is not a leak; it is a
+; release of a block the binder still points into.
+;
+; It is REACHABLE, and it was measured before this arm was written
+; rather than argued for. The path is a trait DEFAULT body, which
+; `checkImplComplete` synthesizes into every impl that omits the method
+; WITHOUT copying the body's nodes - so two impls at two types check
+; one AST. A body whose match scrutinee is an ordinary generic
+; constructor compiles cleanly at both and stamps one binder node
+; twice, with disagreeing names, and `impl` declaration order alone
+; decides which would survive.
+;
+; Measured 2026-08-25 on `tests/stdlib/373-shared-default-binder.ax`:
+; with this arm removed, `Ident#String#ident` contains
+; `call void @axiom_release(i64 %t0)` - a release of the block the
+; returned String still lives in - and with it present, none. One line
+; of IR from one word here. `scripts/check-fallible-reclaim.sh` asserts
+; both directions, so this arm is not untested defensive code.
+;
+; No program was found that OBSERVES that release - the field has
+; another owner at every call site built for it - so the honest
+; statement is that the hazard is real in the emitted code and latent
+; at run time. A body whose scrutinee is a DISPATCHED trait method is
+; refused instead (`AX3004`), a second symptom of the same sharing,
+; pinned by `tests/diagnostics/365-trait-default-shared-body.ax`.
+(pub :: stampPatBinderTy (-> Int Int Int))
+
+(pub fn (stampPatBinderTy arg ty)
+  (let (
+    (prev (nodeBinderTy arg))
+    (now 
+      (if (== ty 0)
+        (cast Int "")
+        (if (!= (nodeTag ty) TAG_T_CON)
+          (cast Int "")
+          (nodeA ty)
+        )
+      )
+    )
+  )
+    (if (== prev 0)
+      {
+        (setNodeBinderTy arg now)
+        0
+      }
+      (if (strEq
+        (cast String prev)        (cast String now)
+      )
+        0
+        {
+          (setNodeBinderTy
+            arg            (cast Int "")
+          )
+          0
+        }
+      )
+    )
+  )
+)
+
 ; One argument position: a bare name binds at the given type, a
 ; nested constructor pattern recurses with its own checks, a literal
 ; binds nothing.
@@ -11989,6 +12074,7 @@
         (if (strEq (nodeAName arg) "_")
           0
           {
+            (stampPatBinderTy arg ty)
             (pushScope
               (tcScope tc)              (nodeA arg)              0              (nodeSpan arg)              ty
             )

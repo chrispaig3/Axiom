@@ -157,12 +157,21 @@
 ; The field reads go through `errContextOf` rather than being written
 ; inline in the arm, and that is not tidiness. A `match` binder over a
 ; polymorphic scrutinee does not carry its instantiated type: reading
-; `y.code` in the arm below is AX3004 `expected struct or data type,
-; found _t206`, because the checker instantiates `Result a Error`'s
-; constructor field to a variable and never resolves it against the
+; `y.code` in the arm below WAS AX3004 `expected struct or data type,
+; found _t206`, because the checker instantiated `Result a Error`'s
+; constructor field to a variable and never resolved it against the
 ; signature. Handing `y` to a function whose PARAMETER is declared
-; `Error` gets the concrete type back, which is the shape every
-; error-inspecting combinator in this module has to take.
+; `Error` got the concrete type back, and that is why every
+; error-inspecting combinator in this module was shaped this way.
+;
+; It is no longer required: `ctorPatEnv` (2026-08-21) instantiates a
+; constructor pattern's field types against the scrutinee's, so the
+; arm can read `y.code` directly. This function stays because it is
+; PUBLIC - `docs/stdlib-api.md` lists it and importers may call it -
+; and because deleting an exported name to tidy a rule that no longer
+; binds costs its callers and buys nothing. `docs/error-model.md`
+; ERR-TYPE-3a records the retirement; `tests/stdlib/371-err-module.ax`
+; term 2 checks the direct spelling against this one.
 (pub :: errContextOf (-> Error String Error))
 
 (pub fn (errContextOf e ctx) (Error e.code e.message ctx))

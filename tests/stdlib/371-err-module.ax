@@ -12,12 +12,33 @@
 ; below is the first program in this repository that depends on it.
 ;
 ; Term 2 pins the shape every error-inspecting combinator in `Err` had
-; to take. A `match` binder over a polymorphic scrutinee does not
-; carry its instantiated type, so reading `y.code` inside an arm of a
-; `(Result a Error)` match is AX3004 `expected struct or data type,
-; found _t206`; handing the binder to a function whose parameter is
-; DECLARED `Error` gets the concrete type back. `withContext` is built
-; that way and this term is what would notice if it stopped being.
+; to take, and - since 2026-08-25 - that it no longer has to. A `match`
+; binder over a polymorphic scrutinee did not carry its instantiated
+; type, so reading `y.code` inside an arm of a `(Result a Error)`
+; match was AX3004 `expected struct or data type, found _t206`, and
+; handing the binder to a function whose parameter is DECLARED `Error`
+; was the way back to the concrete type. `withContext` is still built
+; that way - `errContextOf` is public and removing it would break
+; anyone who imports it - and term 2 is what would notice if it
+; stopped being.
+;
+; But the limitation itself is GONE, and nothing recorded that.
+; `ctorPatEnv` landed 2026-08-21 (`a388fc1`) and instantiates a
+; constructor pattern's field types against the scrutinee's, which is
+; exactly the resolution `docs/error-model.md` B5 said did not happen;
+; B5 was written 2026-08-16 and was true then. Five days later it was
+; not, and the sweep of 2026-08-22 that re-checked every claim in
+; every document did not catch it, because that sweep resolves the
+; fixtures a document NAMES and B5 named none. Term 2 now carries the
+; fixture it needed: `reContext` reads `y.code` and `y.message`
+; DIRECTLY off the binder and rebuilds the record from them, and the
+; term compares its rendered text against the `errContextOf` spelling
+; beside it - so it cannot pass by the read merely compiling and
+; answering the wrong field.
+;
+; It went into term 2 rather than a term of its own because an exit
+; status is eight bits and this file already spends all eight. A ninth
+; term would have read 255 and looked like a pass.
 ;
 ; docs/error-model.md called this file the one that "exercises the whole
 ; surface". It did not: `isOk`, `isErr`, `errMessage`, `errContext`,
@@ -33,7 +54,9 @@
 ;   16  try! propagates an error unchanged through a two-step chain
 ;    8  mapErr converts an error type and andThen sequences
 ;    4  okOr and toOption convert in both directions
-;    2  withContext attaches, and errorText renders what it attached
+;    2  withContext attaches, errorText renders what it attached, and
+;       the same context attached by a DIRECT field read off the match
+;       binder renders identically - the shape B5 recorded as refused
 ;    1  every step above ran
 ;
 ; Ablation, run 2026-08-16: revert `expBinderParam`'s pattern-binder
@@ -57,6 +80,20 @@
 (:: chain (-> Int (Result Int Error)))
 
 (fn (chain n) (try! a (divChecked 100 n) (try! b (divChecked a 2) (Ok (+ b 1)))))
+
+; Term 256's subject: the polymorphic scrutinee is a PARAMETER, so
+; nothing at this site fixes `a` - and the arm still reads three
+; fields off `y` and rebuilds the record from them. Every combinator
+; in `Err` is written the other way round, through `errContextOf`, so
+; without this function the tree contains no program that asks.
+(:: reContext (-> (Result a Error) String (Result a Error)))
+
+(fn (reContext r ctx)
+  (match r
+    ((Ok x) (Ok x))
+    ((Err y) (Err (Error y.code y.message ctx)))
+  )
+)
 
 (:: codeOf (-> (Result Int Error) Int))
 
@@ -143,7 +180,17 @@
         )
       ))
       (set steps (+ steps 1))
-      (set acc (+ acc (* 2 (b2i (strEq (textOf (withContext (divChecked 1 0) "reading the manifest")) "divided by zero while reading the manifest")))))
+      (set acc (+
+        acc        (*
+          2          (b2i
+            (&&
+              (strEq (textOf (withContext (divChecked 1 0) "reading the manifest")) "divided by zero while reading the manifest")              (&&
+                (== (codeOf (reContext (divChecked 1 0) "reading the manifest")) errDivideByZero)                (strEq (textOf (reContext (divChecked 1 0) "reading the manifest")) (textOf (withContext (divChecked 1 0) "reading the manifest")))
+              )
+            )
+          )
+        )
+      ))
       (set steps (+ steps 1))
       (if (== steps 7)
         (+ acc 1)

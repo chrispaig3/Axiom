@@ -45,7 +45,8 @@
   (axtags : Int)
   (module : Int)
   (fieldNames : Int)
-  (defscope : Int))
+  (defscope : Int)
+  (binderTy : Int))
 
 ; A declaration's visibility: 1 when it was written `pub`, 0 otherwise.
 ; stage0 splices only the PUBLIC declarations of an imported module
@@ -505,7 +506,7 @@
     (__retainref b)
     (__retainref c)
     (ASTNode
-      t      (cast Int a)      (cast Int b)      (cast Int c)      0      0      0      0      0      0      0
+      t      (cast Int a)      (cast Int b)      (cast Int c)      0      0      0      0      0      0      0      0
     )
   }
 )
@@ -518,7 +519,7 @@
     (__retainref b)
     (__retainref c)
     (ASTNode
-      t      (cast Int a)      (cast Int b)      (cast Int c)      sp      0      0      0      0      0      0
+      t      (cast Int a)      (cast Int b)      (cast Int c)      sp      0      0      0      0      0      0      0
     )
   }
 )
@@ -574,6 +575,42 @@
 (pub fn (setNodeDefScope n)
   {
     (memSetWord n 10 1)
+    n
+  }
+)
+
+; The type a PATTERN BINDER stands for, as the checker resolved it,
+; spelled as the constructor name of that type and 0 for every node
+; that is not such a binder.
+;
+; It is here because codegen has to answer a question it cannot see
+; the input to. `escapesViaBinders` asks whether a match arm's binder
+; can carry a reference OUT of the block being matched, and by the
+; time it walks the arm the field has become a bare variable with no
+; type on it - so the answer was "yes, whatever it is", and the
+; scrutinee of every `Result`-shaped match went unreleased
+; (docs/error-model.md ERR-MEM-4, 32 bytes per fallible call). The
+; equivalent question on the FIELD-READ path is `fieldReadIsScalar`,
+; which can ask it because a field read still names its field.
+;
+; Word 11 rather than word 6: word 6 already carries an evidence
+; stamp for a call's spine head, which is a TAG_E_VAR node too, and
+; a type name landing there would be read as a node.
+;
+; The checker is the only phase that can supply it, because the
+; useful type is the INSTANTIATED one: `Ok`'s field is declared `a`
+; and a scrutinee of `(Result Int String)` makes it `Int`, which is
+; the difference between a word that cannot alias the block and a
+; reference that can.
+(pub :: nodeBinderTy (-> Int Int))
+
+(pub fn (nodeBinderTy n) (memGetWord n 11))
+
+(pub :: setNodeBinderTy (-> Int Int Int))
+
+(pub fn (setNodeBinderTy n t)
+  {
+    (memSetWord n 11 t)
     n
   }
 )

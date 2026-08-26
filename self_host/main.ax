@@ -1151,7 +1151,7 @@
       ; `self_host/build.ax` for why the id is a literal, and
       ; `scripts/build-stamped.sh` for what rewrites it.
       {
-        (replOut (cat3 "axiom (self-hosted) 0.3.0 (build " axiomBuildId ")\n"))
+        (replOut (cat3 "axiom (self-hosted) 0.3.1 (build " axiomBuildId ")\n"))
         0
       }
       (if (strEq cmd "check")

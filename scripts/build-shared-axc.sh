@@ -2,7 +2,7 @@
 # Build the compiler-under-test ONCE, and stamp it so the gates will
 # trust it.
 #
-# Thirty-five gates call `gate_build_axc`, and each one rebuilt the same
+# Thirty-six gates call `gate_build_axc`, and each one rebuilt the same
 # 60,881 lines. The saving is measured on the only A/B that is not a
 # developer machine under unknown load - the `test` job's three CI legs
 # on 2026-08-24, at `2283e93` before and `8cf595f` after:
@@ -26,7 +26,7 @@
 #
 # WHY THIS SCRIPT ASSERTS ANYTHING AT ALL. It is not a gate, and the
 # table in CONTRIBUTING.md says so. But it is the one place that makes
-# the claim thirty-five gates then rest on - "this artifact is what you
+# the claim thirty-six gates then rest on - "this artifact is what you
 # would have built" - and until 2026-08-24 the only check here restated
 # its own stamp:
 #
@@ -79,7 +79,7 @@ gate_source_stamp > "$out.stamp"
 # THE EQUALITY, MEASURED. A second, independent build from the same
 # tree with the same builder, and then both compilers are asked to emit
 # the IR for `self_host/main.ax`. The artifact this script hands to
-# thirty-five gates is the compiler each of them would have built exactly
+# thirty-six gates is the compiler each of them would have built exactly
 # when those two files are identical.
 #
 # This can go red for a real reason, and the reason is worth naming:
@@ -110,7 +110,7 @@ gate_source_stamp > "$out.stamp"
 # what they were built from, and two compilers that emit the same IR
 # for the same input are interchangeable for every purpose a gate has -
 # which is the claim being made. A source difference that changes no
-# emitted byte is not a difference the thirty-five gates can observe, and
+# emitted byte is not a difference the thirty-six gates can observe, and
 # a check that failed on one would be reporting a distinction that does
 # not exist. The stamp is what covers the inputs; this covers the
 # behaviour.
@@ -139,7 +139,7 @@ if ! cmp -s "$work/a.ll" "$work/b.ll"; then
   echo "    --- $a_lines lines vs $b_lines lines, first difference at line \
 $(cmp "$work/a.ll" "$work/b.ll" 2>&1 | sed 's/.*line //')" >&2
   echo "      The shared artifact is therefore NOT the compiler a gate would" >&2
-  echo "      have built, and thirty-five gates would be testing something else." >&2
+  echo "      have built, and thirty-six gates would be testing something else." >&2
   exit 1
 fi
 

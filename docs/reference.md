@@ -2063,7 +2063,7 @@ next one, so a piped session and a typed one produce the same bytes.
 
 ```
 $ axiom repl
-axiom (self-hosted) 0.3.0 - Axiom REPL
+axiom (self-hosted) 0.3.1 - Axiom REPL
 Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))

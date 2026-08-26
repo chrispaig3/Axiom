@@ -1,7 +1,8 @@
-; exit 31 (see .exit)
+; exit 127 (see .exit)
 ; The facts an error-propagating loop stands on. They pull in different
 ; directions - one is about where the RECURSION sits, one about where
-; the ERROR VALUE sits, and one is a cost nothing currently reclaims.
+; the ERROR VALUE sits, and one was a cost nothing reclaimed until
+; 2026-08-25.
 ;
 ; Measured 2026-08-16, before `docs/error-model.md` specified anything,
 ; because a propagation model that cannot survive a loop is not a model.
@@ -36,17 +37,39 @@
 ;    `fldClass` classifies an applied type by its head - a monomorphic
 ;    probe would not have asked the question.
 ;
-; 3. WHAT NOTHING RECLAIMS, and why term 8 is a control rather than a
-;    flatness claim. The block a fallible call RETURNS is not reclaimed
-;    under any spelling: matching the call directly and let-binding it
-;    first both leak exactly 32 bytes per call - one `Res` block -
-;    measured at 10,000 and 50,000 iterations, both 32.0 bytes/iter on
-;    the nose. So term 8 asserts the CONTROL instead: the same loop
-;    with no `Res` in it is flat, which is what attributes those 32
-;    bytes to the error value and not to the loop. A fixture asserting
-;    the leak would have to be rewritten the day it is fixed; a control
-;    that isolates it does not. The defect is registered in
-;    `docs/error-model.md` ERR-MEM-4.
+; 3. WHAT THE FALLIBLE CALL COSTS - 32 bytes until 2026-08-25, and
+;    zero since. The block a fallible call RETURNS used to be
+;    reclaimed under no spelling: matching the call directly and
+;    let-binding it first both leaked exactly 32 bytes per call - one
+;    `Res` block - measured at 10,000 and 50,000 iterations, both
+;    32.0 bytes/iter on the nose. This section said then that "a
+;    fixture asserting the leak would have to be rewritten the day it
+;    is fixed", and term 32 is that rewrite.
+;
+;    What held the block was the BINDER. A `match` scrutinee is
+;    released after the merge only when no arm's binder escapes
+;    through that arm's body (`scrutineeReleasable`), and a binder
+;    reaching its arm's value read as an escape whatever its type -
+;    so `((Good v) v)` kept the block alive to protect an `Int`.
+;    The field-read path never had this problem, because a field read
+;    still names its field and `fieldReadIsScalar` can classify it;
+;    by the time the escape walk reaches an arm, the field has become
+;    a bare variable with nothing on it to classify. The checker now
+;    stamps each pattern binder with the type it resolved
+;    (`stampPatBinderTy`), and it stamps the INSTANTIATED one, which
+;    is the half a declared-type test could not reach: `Good`'s field
+;    is declared `a`, and only this match site knows this `Good` came
+;    out of a `(Res Int Int)`.
+;
+;    Term 8 stays exactly as it was - the same loop with no `Res` in
+;    it - because it is what attributes a difference to the error
+;    value rather than to the loop. But two flat lines cannot tell
+;    reclamation from a blind instrument, so term 64 is the other
+;    half: the ablation this file has named since 2026-08-16 - drop
+;    `carry`'s `let` and construct the error inline - measured by the
+;    same probe pair, and REQUIRED to grow. If the instrument stops
+;    seeing allocation, term 64 goes to 0 and this fixture fails.
+;    `docs/error-model.md` ERR-MEM-4 records the whole measurement.
 ;
 ;    That measurement also fixed the metric. A `memAlloc` address delta
 ;    is only meaningful BELOW the allocator's chunk size: the same
@@ -55,6 +78,10 @@
 ;    not contiguous with the last and the raw subtraction counted the
 ;    gap. Every delta below stays well under it.
 ;
+;   64  the instrument can SEE growth: 2000 Strings allocated and KEPT
+;       move the same probe pair past the gap the flat terms sit under
+;   32  the block a fallible call answers IS reclaimed, matched
+;       directly and let-bound alike - 10,000 iterations of each
 ;   16  the arm-tail propagation loop completes 1,000,000 iterations
 ;    8  the same loop with no Result in it allocates nothing
 ;    4  a reference-carrying error value, let-bound at the boundary, is
@@ -65,10 +92,21 @@
 ; Ablations, run 2026-08-16. Move the recursion into the scrutinee:
 ; SIGSEGV and no exit code at all, which is why term 16 is a completion
 ; and not a value. Drop the `let` in `carry` and construct the error
-; inline: term 4 goes to 0 and that bump moves 288,176.
+; inline: term 4 goes to 0 and that bump moved 288,176. RE-MEASURED
+; 2026-08-25 it moves 144 over the same 2000 iterations, so that
+; spelling is no longer an ablation of anything and term 64 uses a
+; retained allocation instead - see the note on `hoard`.
+;
+; Ablation for term 32, run 2026-08-25: make `binderIsScalar` in
+; `self_host/codegen.ax` answer 0 unconditionally - one word - and the
+; bump over those 20,000 iterations moves 640,000 bytes, 32 per call,
+; exactly as it did before the fix. `scripts/check-fallible-reclaim.sh`
+; runs that ablation rather than describing it.
 (import Str)
 
 (import Mem)
+
+(import Vec)
 
 (data Res (a e)
   (Good a)
@@ -139,6 +177,74 @@
   )
 )
 
+; Term 64: the probe pair is not blind. 2000 Strings allocated and
+; KEPT - the Vec outlives the second probe, so nothing may reclaim
+; them - must read as growth. Without this, terms 4, 8 and 32 are
+; three flat lines with no evidence that a line which SHOULD move
+; would.
+;
+; It is here because the ablation this file named for six weeks - drop
+; `carry`'s `let` and construct the error inline - stopped being one.
+; Re-measured 2026-08-25: that spelling moves the bump 144 bytes over
+; 2000 iterations, not the 288,176 recorded on 2026-08-16, so it is a
+; flat line too now and would have made a control that cannot fail.
+; A control has to be something the allocator must answer for.
+(:: hoard (-> Int Int))
+
+(fn (hoard n)
+  (let (
+    (v vecNewRef)
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (vecPush v (wide i))
+          (set i (+ i 1))
+        })
+      v
+    }
+  )
+)
+
+; ERR-MEM-4's two spellings. The recursion is the tail call in both -
+; the `match` sits inside an ARGUMENT to it, so term 1's cliff is not
+; in play and what these measure is the `Res` block alone. `v` is an
+; `Int` living in a field the declaration spells `a`.
+(:: drain (-> Int Int Int))
+
+(fn (drain n acc)
+  (if (== n 0)
+    acc
+    (drain
+      (- n 1)      (+
+        acc        (match (step n)
+          ((Good v) v)
+          ((Bad e) 0)
+        )
+      )
+    )
+  )
+)
+
+(:: drainLet (-> Int Int Int))
+
+(fn (drainLet n acc)
+  (if (== n 0)
+    acc
+    (drainLet
+      (- n 1)      (+
+        acc        (let ((r (step n)))
+          (match r
+            ((Good v) v)
+            ((Bad e) 0)
+          )
+        )
+      )
+    )
+  )
+)
+
 ; an error raised mid-loop must answer unchanged, not be re-wrapped
 (:: failAt (-> Int Int (Res Int Int)))
 
@@ -194,6 +300,30 @@
           (set steps (+ steps 1))
         }
       )
+      (let ((c1 (memAlloc 8)))
+        {
+          (drain 10000 0)
+          (drainLet 10000 0)
+          (let ((c2 (memAlloc 8)))
+            (set acc (+ acc (* 32 (b2i (< (- c2 c1) 4096)))))
+          )
+          (set steps (+ steps 1))
+        }
+      )
+      (let ((d1 (memAlloc 8)))
+        (let ((h (hoard 2000)))
+          {
+            (let ((d2 (memAlloc 8)))
+              (set acc (+
+                acc                (*
+                  64                  (b2i (&& (> (- d2 d1) 4096) (== (vecLen h) 2000)))
+                )
+              ))
+            )
+            (set steps (+ steps 1))
+          }
+        )
+      )
       (set acc (+
         acc        (*
           2          (b2i
@@ -207,7 +337,7 @@
         )
       ))
       (set steps (+ steps 1))
-      (if (== steps 4)
+      (if (== steps 6)
         (+ acc 1)
         acc
       )

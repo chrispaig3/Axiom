@@ -14578,6 +14578,18 @@
 ; statement position too (`(match b ((Mk s) (set r s)))` stashed a
 ; reference the walker never looked at). A pattern shape this walk
 ; cannot enumerate binders for answers ESCAPE, the walker's rule.
+; ERR-MEM-4. A binder is a candidate for carrying a reference out of
+; the scrutinee only if it could hold one. `patBindersEsc` drops the
+; binders the checker stamped with a machine-scalar type: the same
+; argument `escapes` already makes for a field read one line down -
+; a word copied out of a block cannot alias it, so releasing the
+; block after the match cannot dangle the word.
+;
+; Measured before it: `(match (step i) ((Ok v) v) ((Err e) 0))` over
+; `step : (-> Int (Result Int String))` grew the arena 32 bytes per
+; iteration, and so did the `let`-bound spelling; a match whose arms
+; bind NOTHING grew 0. The 32 bytes were the `Result` block, and the
+; only thing holding it was `v`, an `Int`.
 (pub :: escapesViaBinders (-> Int Int Int Int Int Int))
 
 (pub fn (escapesViaBinders cg arms vp i root)
@@ -14586,7 +14598,7 @@
     (if (>= i (vecLen arms))
       0
       (let ((arm (vecGet arms i)))
-        (let ((bs (patBindersCg (nodeA arm) vecNew)))
+        (let ((bs (patBindersEsc (nodeA arm) vecNew)))
           (if (== bs 0)
             1
             (if (== (escapesAny
@@ -15089,6 +15101,102 @@
       (if (== (patBindersCg (vecGet subs i) acc) 0)
         0
         (patBindersCgVec subs acc (+ i 1))
+      )
+    )
+  )
+)
+
+; `patBindersCg`, minus the binders that cannot alias what they were
+; copied out of. Everything else about it is identical, including the
+; 0 for a shape it does not know - not knowing a pattern's binders is
+; not knowing that none of them escape.
+;
+; This is a SEPARATE walk rather than a flag on the shared one because
+; the other five callers want the binders as a SCOPE - what names the
+; arm body binds, for shadowing (`boundWithinArms`) and for the flow
+; environment (`flowMaskArms`, `flowStashesArms`, `tailOwnedArms`,
+; `collectTailsArms`). A scalar binder is still a binding; it is only
+; the escape question it cannot answer yes to.
+(pub :: patBindersEsc (-> Int Int Int))
+
+(pub fn (patBindersEsc pat acc)
+  (if (== pat 0)
+    acc
+    (let ((tag (nodeTag pat)))
+      (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_FLT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_CHAR) (== tag TAG_P_CON0)))))
+        acc
+        (if (== tag TAG_E_VAR)
+          {
+            (if (== (binderIsScalar pat) 0)
+              {
+                (vecPush acc (nodeA pat))
+                0
+              }
+              0
+            )
+            acc
+          }
+          (if (== tag TAG_E_APP)
+            (if (== (patBindersEsc (nodeB pat) acc) 0)
+              0
+              (patBindersEscHead (nodeA pat) acc)
+            )
+            (if (== tag TAG_P_CONNAMED)
+              (patBindersEscVec (nodeC pat) acc 0)
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: patBindersEscHead (-> Int Int Int))
+
+(pub fn (patBindersEscHead pat acc)
+  (if (== (nodeTag pat) TAG_E_APP)
+    (if (== (patBindersEsc (nodeB pat) acc) 0)
+      0
+      (patBindersEscHead (nodeA pat) acc)
+    )
+    acc
+  )
+)
+
+(pub :: patBindersEscVec (-> Int Int Int Int))
+
+(pub fn (patBindersEscVec subs acc i)
+  (if (== subs 0)
+    acc
+    (if (>= i (vecLen subs))
+      acc
+      (if (== (patBindersEsc (vecGet subs i) acc) 0)
+        0
+        (patBindersEscVec subs acc (+ i 1))
+      )
+    )
+  )
+)
+
+; Did the checker stamp this binder with a MACHINE SCALAR type? An
+; unstamped binder answers 0 - a type variable the checker could not
+; resolve, a pattern the stamp does not reach - and 0 is the answer
+; that keeps the old, conservative behaviour.
+;
+; `scalarTyName` is the same list `fldClass` classifies a declared
+; field by, which is what makes this the binder-path twin of
+; `fieldReadIsScalar` rather than a second opinion about what a word
+; is. `Foreign` is in that list deliberately: it is a pointer Axiom
+; does not own, so nothing here may retain or release it.
+(pub :: binderIsScalar (-> Int Int))
+
+(pub fn (binderIsScalar n)
+  (let ((t (nodeBinderTy n)))
+    (if (== t 0)
+      0
+      (scalarTyName
+        (cast String t)
       )
     )
   )

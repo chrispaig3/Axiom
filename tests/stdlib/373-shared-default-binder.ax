@@ -1,0 +1,85 @@
+; exit 0
+; A trait DEFAULT body is checked once per implementing type, over ONE
+; AST. This file is the program that proves it, and the subject of
+; `scripts/check-fallible-reclaim.sh`'s second half.
+;
+; `checkImplComplete` synthesizes the default into every impl that
+; omits the method without copying the body's nodes, so `ident`'s
+; `(match (Some x) ((Some v) v) ((None) x))` is checked twice: once
+; with `a` at `String` and once with `a` at `Int`. The binder `v` is
+; ONE node, and the two checks disagree about what it holds.
+;
+; That matters because `stampPatBinderTy` writes the binder's resolved
+; type onto that node so codegen can tell a machine scalar - which
+; cannot alias the block it was copied out of - from a reference,
+; which can (docs/error-model.md ERR-MEM-4). A stamp that took the
+; LAST answer would hand `Ident#String#ident` the `Int` written by the
+; other impl, and codegen would release the `(Option String)` block
+; while `v`, the String inside it, is what the function returns.
+;
+; SEPARATELY, AND NOT FIXED HERE: the same sharing makes a trait
+; default body's SHAPE WORD depend on `impl` declaration order, in the
+; compiler as shipped at 0.3.0 and with nothing of ERR-MEM-4's in it.
+; Swap the two impls below and `Ident#String#ident` builds its block
+; with header `4` - a LEAF, no reference map - and no
+; `axiom_retain(%x)`, where this ordering gives header `131076` and the
+; retain. One of the two is wrong for `String`; which one, and whether
+; any program can observe it, is not established. It is recorded as
+; `MM-LIFE-2j` in docs/memory-model.md rather than fixed, because it is
+; older than this file and wants its own measurement.
+;
+; MEASURED 2026-08-25, and this is why the impls are in this order.
+; With last-write-wins, `Ident#String#ident` contains
+; `call void @axiom_release(i64 %t0)` and with the disagreement
+; poisoned it contains none - a one-line IR difference from a one-word
+; change in the checker. Swapping the two `impl` declarations moves
+; which instantiation gets the wrong answer, and nothing else.
+;
+; THE PROGRAM ANSWERING CORRECTLY IS NOT THE EVIDENCE, and this file
+; says so rather than implying it. It answers correctly under both
+; compilers: the released block's field is a String the CALLER still
+; holds a share of, so the count reaches 0 in neither. That is luck
+; about ownership at the call site, not a property. What this file
+; contributes to the corpus is that the shape compiles and runs at all
+; - the gate is what reads the IR, because the defect is invisible to
+; the program's own output. A fixture asserting only the output would
+; be green with the release present, which is the whole reason the
+; assertion is not here.
+(import IO)
+
+(import Str)
+
+(trait (Ident a) where (
+  tag :: (-> a Int)
+  ident :: (-> a a) = (lambda (x)
+    (match (Some x)
+      ((Some v) v)
+      ((None) x)))
+))
+
+(impl (Ident String) where (
+  (tag (lambda (s) (strLen s)))
+))
+
+(impl (Ident Int) where (
+  (tag (lambda (n) n))
+))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((mut i 0))
+    {
+      (while (< i 200)
+        {
+          (strLen (ident (strConcat "payload-" (fmtInt i))))
+          (set i (+ i 1))
+        })
+      (println (ident "sentinel"))
+      (println (ident 7))
+      (println (tag "abc"))
+      0
+    }
+  )
+)

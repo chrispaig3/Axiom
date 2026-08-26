@@ -16,7 +16,154 @@ its changelog too.
 
 ## Unreleased
 
+## 0.3.1 — 2026-08-26
+
 ### Fixed
+
+- **A fallible call no longer leaks 32 bytes.** `docs/error-model.md`
+  ERR-MEM-4 was the error model's standing cost: a call returning
+  `Result` allocated one block that nothing freed, 32.0 bytes per call
+  on the nose, identically whether the call was matched directly or
+  bound to a `let` first. Every one of those numbers is 0 now, measured
+  the same way — the arena mark cell's word 0 over 10,000 iterations
+  after a 1,000-iteration warm-up.
+
+  The release was already being emitted, and a **binder** was
+  suppressing it. A `match` scrutinee is released after the merge only
+  when no arm's binder escapes through that arm's body, and a binder
+  reaching its arm's value read as an escape whatever its type — so
+  `((Ok v) v)` kept a `Result` block alive to protect an `Int`. The
+  field-read path never had the problem, because a field read still
+  names its field and `fieldReadIsScalar` can classify it; by the time
+  the escape walk reaches an arm the field is a bare variable with
+  nothing on it to classify.
+
+  **A test over the field as DECLARED would have closed the wrong
+  half.** Measured before the fix, a concrete `(RInt Int)` cost 32
+  bytes per iteration and so did `(Option Int)`, whose field is a type
+  variable that happens to arrive as `Int`. `Result` is the second
+  kind: `Ok`'s field is declared `a`. The useful type is the
+  instantiated one and only the match site has it, so the checker
+  records it — `stampPatBinderTy` writes the resolved type's name onto
+  the binder's own node in `bindOnePatArg`, where the binders are
+  already bound at their instantiated field types, and codegen's
+  `binderIsScalar` classifies that name with `scalarTyName`, the same
+  list `fldClass` classifies a declared field by. An unstamped binder
+  reads as "assume it can alias", which is what every compiler before
+  this one assumed about all of them.
+
+  It is a twelfth word on `ASTNode` rather than word 6, because word 6
+  already carries an evidence stamp for a call's spine head and that is
+  a `TAG_E_VAR` node too. It is a name rather than a type node, because
+  the unifier writes through type nodes in place. And the escape walk
+  gets its own binder collection, `patBindersEsc`, because the five
+  other callers of `patBindersCg` want the binders as a SCOPE and a
+  scalar binder is still a binding.
+
+  `tests/stdlib/370-error-propagation.ax` said, of its own term 8,
+  that "a fixture asserting the leak would have to be rewritten the day
+  it is fixed". This was that day. Term 32 asserts the reclamation over
+  20,000 calls in both spellings; term 64 requires a retained
+  allocation to move the same probe pair, because three flat lines
+  cannot tell reclamation from a blind instrument; and
+  `scripts/check-fallible-reclaim.sh` turns off the one word the fix
+  turns on, rebuilds the compiler from the ablated tree, and requires
+  the fixture to go red at term 32 and **at no other term** — exit 95
+  against 127, with the probe delta back to 640,032 bytes over 20,000
+  calls, which is ERR-MEM-4's 32 to the byte.
+
+  **The stamp is not last-write-wins, and that is not paranoia.** Its
+  word has three states — `0` for never stamped, a NAME for "every
+  check that reached this node agreed", and the empty string for "two
+  checks disagreed" — and a disagreement poisons it to the
+  conservative answer. One binder node can in principle be checked
+  twice at different types, because `checkImplComplete` synthesizes a
+  trait's DEFAULT body into every impl that omits the method without
+  copying the body's nodes; two impls at two types would then check one
+  AST. Last-write-wins there would hand codegen an `Int` for a binder
+  holding a `String`, and codegen would release the block the binder
+  still points into.
+
+  That is measured, not defensive. A default body whose match
+  scrutinee is an ordinary generic constructor compiles **cleanly** at
+  two types and stamps one binder node twice with disagreeing names,
+  and `impl` declaration order alone decides which survives. On
+  `tests/stdlib/373-shared-default-binder.ax`, with the disagreement
+  arm removed, `Ident#String#ident` contains
+  `call void @axiom_release(i64 %t0)` — a release of the block the
+  returned `String` still lives in — and with it present, none. One
+  line of IR from one word in the checker, asserted both directions by
+  `scripts/check-fallible-reclaim.sh`.
+
+  No program was found that **observes** that release: the field has
+  another owner at every call site built for it, so both compilers
+  answer correctly. The hazard is real in the emitted code and latent
+  at run time, which is why the gate reads the IR — a golden would be
+  green with the release present.
+
+  A first draft of this note claimed the sharing was unreachable
+  because a default body with a **dispatched** scrutinee is refused
+  (`AX3004`, identically at 0.3.0). That refusal is real and is pinned
+  by `tests/diagnostics/365-trait-default-shared-body.ax`, but it hides
+  nothing — it is the cheaper-to-see symptom of the same sharing, and
+  the claim was wrong.
+
+  It brings the count to **thirty-six gates** calling
+  `gate_build_axc`, which `check-gate-lib.sh` requires this note to
+  say: the shared compiler every gate reuses is trusted only while its
+  stamp matches the tree, and the count is stated in six places so a
+  stale one is a failure rather than a comment.
+
+  Term 64 exists because the ablation this file had named since
+  2026-08-16 stopped being one: dropping `carry`'s `let` and
+  constructing the error inline moved the bump 288,176 bytes then and
+  moves it 144 now. A control has to be something the allocator must
+  answer for, so it is a retained allocation instead.
+
+- **`check-gate-lib.sh` asked a shipped release note to be current.**
+  The gate holds six sites to the number of gates that call
+  `gate_build_axc`, in two arms: one requires the current count to be
+  stated, the other refuses any site that states a different one. On
+  2026-08-25 the first arm was taught to read `CHANGELOG.md` from
+  `## Unreleased` through the newest released section, because
+  Unreleased is empty the moment a release is cut and the count would
+  otherwise be stated nowhere.
+
+  The second arm was left reading the same window, and that is wrong
+  from the other side: a released section states the count that was
+  true when it shipped. Moving the count to thirty-six surfaced it —
+  `0.3.0`'s note prices `check-c-abi.sh` against the old count, and the
+  only ways to go green were to edit a shipped release note into
+  something that did not happen, or to not move the count. The refusing
+  arm now reads `## Unreleased` alone. The requiring arm still reads
+  both, and the asymmetry is now written down where it lives.
+
+- **A `match` binder over a polymorphic scrutinee has had a type since
+  2026-08-21, and nothing said so.** `docs/error-model.md` B5 recorded
+  `(match r ((Err y) y.code))` at `r : (Result a Error)` as `AX3004
+  expected struct or data type, found _t206`, which was true when it
+  was written on 2026-08-16. `ctorPatEnv` closed it five days later
+  (`a388fc1`) as a side effect of work on nested patterns.
+
+  The four days between that and the sweep of 2026-08-22 are the part
+  worth recording. That sweep re-checked every claim in every document
+  against the compiler that was there, and this claim survived it — it
+  could not have done otherwise, because the sweep resolves the
+  fixtures a document NAMES and a claim that something does not work
+  names none. This repository has now made that mistake twice; the
+  other is `ERR-ADOPT-3`'s uniqueness claim.
+
+  `ERR-TYPE-3a` — "an error-inspecting combinator MUST take the error
+  through a parameter declared at its concrete type" — is retired, its
+  number burned rather than reused. `stdlib/Err.ax` keeps
+  `errContextOf`: it is public, `docs/stdlib-api.md` lists it, and
+  deleting an exported name to tidy a rule that no longer binds costs
+  its callers and buys nothing. What changed is why it is there.
+  `tests/stdlib/371-err-module.ax` term 2 now carries both spellings
+  and compares them; mutating the direct read's field drops that term
+  and no other. It went into term 2 rather than a term of its own
+  because an exit status is eight bits and that file already spends
+  all eight.
 
 - **A trait method's DEFAULT body can declare its effects.** The fourth
   declaration site in a row that could not, and the same shape every
@@ -41,6 +188,22 @@ its changelog too.
   must fire: a second default with the same shape and no tag draws
   `AX3042` at its own mangled name, so the file cannot pass by a
   compiler that stopped checking synthesized methods.
+
+### Found, not fixed
+
+- **A trait default body's shape word depends on `impl` declaration
+  order** — in the compiler as shipped at 0.3.0, with nothing of this
+  release's in it. `MM-LIFE-2j` in `docs/memory-model.md`. Same root
+  cause as above: `checkImplComplete` shares the default's AST across
+  every monomorphization, and a per-node stamp is last-write-wins over
+  them. Measured on `tests/stdlib/373-shared-default-binder.ax` and the
+  same file with its two `impl` blocks swapped — `Ident#String#ident`
+  builds its block with header `131076` and `axiom_retain(%x)` when the
+  `Int` impl is declared first, and with header **`4`**, a leaf with no
+  reference map and no retain, when the `String` impl is. One of the
+  two is wrong for `String`. Which one, and whether any program can
+  observe it, is not established, and the entry says so rather than
+  calling it a memory-safety bug it has not demonstrated.
 
 ## 0.3.0 — 2026-08-25
 

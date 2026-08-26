@@ -46,12 +46,26 @@
   )
 )
 
-; A `match` binder over a polymorphic scrutinee does not carry its
-; instantiated type - reading `e.code` in an arm of a `(Result a Error)`
-; match is AX3004 - so the binder is handed to a function whose
-; parameter is DECLARED `Error`. `371-err-module.ax` pins the same
-; workaround; this file would stop compiling if it stopped being needed,
-; which is the good direction to fail in.
+; The binder is handed to a function whose parameter is DECLARED
+; `Error` because, when this was written, a `match` binder over a
+; polymorphic scrutinee did not carry its instantiated type and
+; reading `e.code` in the arm was AX3004.
+;
+; THE SENTENCE THAT USED TO END THIS PARAGRAPH WAS WRONG, and wrong in
+; the way this repository names most often. It said "this file would
+; stop compiling if it stopped being needed, which is the good
+; direction to fail in" - a claim that the workaround is load-bearing
+; and that its removal would announce itself. It is not and it did
+; not. `ctorPatEnv` lifted the limitation on 2026-08-21 and this file
+; went on compiling, because a program written to avoid a refusal
+; cannot notice the refusal being lifted. A fixture cannot pin the
+; ABSENCE of a diagnostic by not provoking it.
+;
+; What actually pins it is `371-err-module.ax` term 2, which runs both
+; spellings and compares their answers, and `docs/error-model.md`
+; ERR-TYPE-3a records the retirement. `errCode` stays here: it is a
+; public name and this file is about checked arithmetic, not about
+; which way an error's fields are read.
 (:: codeOf (-> (Result Int Error) Int))
 
 (fn (codeOf r)
