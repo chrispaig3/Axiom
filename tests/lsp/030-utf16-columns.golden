@@ -1,6 +1,6 @@
 Content-Length: 198
 
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true},"serverInfo":{"name":"axiom","version":"0.3.2"}}}Content-Length: 404
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true},"serverInfo":{"name":"axiom","version":"0.3.3"}}}Content-Length: 404
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[{"range":{"start":{"line":6,"character":20},"end":{"line":6,"character":23}},"severity":1,"code":"AX3001","source":"axiom","message":"undefined variable `zzz`\n\nhelp: variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"}]}}Content-Length: 398
 

@@ -1007,9 +1007,29 @@ before the next:
    decides it, because it is the first slice with a caller.
 2. `stdlib/Utf8.ax`, `stdlib/Str.ax`, `stdlib/Path.ax` — 11 sites, no
    `errno`, pure, no callers outside `stdlib/`. The rehearsal.
-3. `stdlib/IO.ax` and `stdlib/Sys.ax` — 32 sites and the `-errno`
-   convention. The `Error.code` for these is the errno itself, negated
-   back, so no information is invented and none is lost.
+3. `stdlib/IO.ax` and `stdlib/Sys.ax` — the `-errno` convention. The
+   `Error.code` for these is the errno itself, negated back, so no
+   information is invented and none is lost.
+
+   **`IO.ax`'s half is done, 2026-08-26.** Eight calls answer
+   `(Result Int Error)`: `writeFile`, `appendFile`, `removeFile`,
+   `renamePath`, `fileSize`, `makeDirAll`, `removeDir` and `copyFile`,
+   all through one converter, `ioResult`. `IO.ax`'s census went **8 to
+   1** — `writeStr` is what remains, and it is the hot printing path
+   rather than a filesystem call, so it is its own decision.
+
+   It was far smaller than this list implied: `self_host/` calls none
+   of the eight. The real call sites were **one internal use and two
+   test fixtures**, and porting them gave `unwrapOr`, `isErr` and
+   `errCode` the callers §10's own note asks for. `055-filesystem.ax`
+   now asserts an errno through `errCode` rather than comparing
+   against `(- 0 2)` — which is the assertion `Result` makes possible
+   and the sentinel convention did not, because "it failed with 2" and
+   "it answered 2" were the same Int.
+
+   `stdlib/Sys.ax`'s 13 remain, and they are the harder half: `Sys` is
+   below `Err` in the dependency order, so porting it is not the same
+   change twice.
 4. `self_host/` — the compiler's own phases, which is where the model
    stops being a library and starts being the thing that proves it.
 5. The REPL surface, `check-repl-selfhost.sh`'s session bank extended

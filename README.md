@@ -1187,6 +1187,7 @@ primitives. Reaching a foreign symbol on purpose is the `extern` block
 (import Path)
 (import Str)
 (import Vec)
+(import Err)
 
 ; Every `.ax` file in `dir`, with its size, one per line.
 (:: report (-> String Int Int Int))
@@ -1197,7 +1198,9 @@ primitives. Reaching a foreign symbol on purpose is the `extern` block
       (let ((p (pathJoin dir (cast String (vecGet names i)))))
         {
           (if (strEq (pathExt p) ".ax")
-              (let ((size (fileSize p))) (println "{p}  {size}"))
+              ; `fileSize` answers a `Result`: the failure is in the
+              ; type, so a size and an errno are no longer the same Int.
+              (let ((size (unwrapOr (fileSize p) 0))) (println "{p}  {size}"))
               0)
           (report dir names (+ i 1))
         })))
@@ -1356,7 +1359,7 @@ axiom repl
 # compiler was built from, plus the commit when there is one. Two builds
 # of two different trees at one version are different builds, and say so
 axiom version
-#   axiom (self-hosted) 0.3.2 (build 7ce43b921d1d 23b97d8285b4)
+#   axiom (self-hosted) 0.3.3 (build 7ce43b921d1d 23b97d8285b4)
 
 # Look up a diagnostic code, or list every one of them
 axiom explain AX3001
@@ -1558,7 +1561,7 @@ version in it is held instead by `scripts/check-version.sh`, which
 names this file as one of its sites:
 
 ```
-axiom (self-hosted) 0.3.2 - Axiom REPL
+axiom (self-hosted) 0.3.3 - Axiom REPL
 Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))

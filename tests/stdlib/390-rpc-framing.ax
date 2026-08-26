@@ -29,6 +29,8 @@
 ; length it means behind one it does not.
 (import IO)
 
+(import Err)
+
 (import Rpc)
 
 (import Str)
@@ -121,7 +123,7 @@
     ; arrives, over the buffer growth that `rdCompact` does. This is
     ; the case a ceiling set too low would break.
     (frameOne "large-legal" "200000" (repeatTo "abcdefgh" 200000))
-    (removeFile "axiom-rpc-framing.tmp")
+    (unwrapOr (removeFile "axiom-rpc-framing.tmp") 0)
     0
   }
 )

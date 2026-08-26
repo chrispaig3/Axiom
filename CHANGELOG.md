@@ -16,6 +16,69 @@ its changelog too.
 
 ## Unreleased
 
+## 0.3.3 — 2026-08-26
+
+### Changed
+
+- **`stdlib/IO.ax`'s filesystem calls answer `Result`.** `ERR-ADOPT-1`
+  slice 3, the half where `-errno` genuinely means a failure. Eight
+  calls — `writeFile`, `appendFile`, `removeFile`, `renamePath`,
+  `fileSize`, `makeDirAll`, `removeDir` and `copyFile` — answer
+  `(Result Int Error)` through one converter, `ioResult`. The
+  `Error.code` is the errno itself, negated back, so no information is
+  invented and none is lost.
+
+  **Breaking**, and declared: eight lines in `compat/BREAKING` against
+  `0.3.3`, which is what `scripts/check-compat.sh` requires and what
+  bumping early in 0.3.2 made possible.
+
+  It was far smaller than `docs/error-model.md` §10 implied.
+  `self_host/` calls **none** of the eight — the real sites were one
+  internal use and two test fixtures. Porting them gave `unwrapOr`,
+  `isErr` and `errCode` the callers §10 asks for, and
+  `055-filesystem.ax` now asserts an errno through `errCode` instead of
+  comparing against `(- 0 2)`. That is the assertion `Result` makes
+  possible and the sentinel convention could not: "it failed with 2"
+  and "it answered 2" were the same `Int`.
+
+  `IO.ax`'s census goes **8 → 1**. `writeStr` is what remains, and it
+  is the hot printing path rather than a filesystem call, so it is its
+  own decision. No gate was added for this: the thirty-seven gates that
+  build the compiler under test through `gate_build_axc` already cover
+  it, `check-compat.sh` holding the break and `run-stdlib-tests.sh`
+  holding the behaviour at 82 fixtures. `stdlib/Sys.ax`'s 13 are the harder half — `Sys` sits
+  below `Err` in the dependency order, so porting it is not this change
+  twice.
+
+### Fixed
+
+- **The census was still reading prose, and would have reported the
+  migration making no progress while it made all of it.** The metric
+  matched a doc-comment mentioning `-errno` — including
+  `removeFile`'s, which explains which errno the kernel returns for a
+  directory, and the new `ioResult`'s, which explains the entire
+  convention it converts *away from*. Porting a function to `Result`
+  left it counted. **The signature decides now**: a declaration
+  answering `Result` is not a sentinel whatever its comment says.
+  Census 30 → 23.
+
+- **Two negative probes were coupled to the working tree being
+  compatible with the baseline.** They tested the run's exit status, so
+  the moment the tree carried deliberate breaking changes — which is
+  what a release that ports an API *is* — they read those as their own
+  failure. Both assert their own row's classification now, which is
+  what the other five already did.
+
+- **A documented example and the generated API reference both broke,
+  and both gates said so.** `README.md`'s directory-walk snippet put
+  `fileSize` in a `println` hole, which now needs a `Show` for
+  `Result` — `check-tools-selfhost.sh` compiles every fenced block and
+  refused it. `docs/stdlib-api.md` went stale against the new
+  signatures and `check-stdlib-api.sh` regenerated and diffed it. The
+  snippet uses `unwrapOr` now, which is also the shorter demonstration
+  of the new API.
+
+
 ## 0.3.2 — 2026-08-26
 
 ### Added

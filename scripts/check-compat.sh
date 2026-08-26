@@ -388,14 +388,19 @@ probe "a struct's fields are reordered" "CHANGED S Error" Err.ax \
 checks=$((checks + 1))
 abl="$work/abl"; rm -rf "$abl"; cp -r "$repo_root/stdlib" "$abl"
 printf '\n(pub :: compatProbeAdded Int)\n\n(pub fn (compatProbeAdded) 7)\n' >> "$abl/Vec.ax"
-if out="$(python3 "$helper" compare "$axc" "$work" "$baseline" "$abl" 2>&1)"; then
-  if printf '%s\n' "$out" | grep -q '^  ADDED F compatProbeAdded$'; then
-    ok "a new public name is ADDED and not breaking"
-  else
-    bad "adding a public name did not report ADDED"; printf '%s\n' "$out" | sed 's/^/     /' | head -4
-  fi
+# Asserts THIS ROW's classification, not the run's exit status. The
+# working tree may legitimately carry breaking changes of its own -
+# a release that ports an API does - and an exit-status test would
+# then read those as this probe failing. The subject is whether an
+# ADDITION is classified as breaking, and only the row says that.
+out="$(python3 "$helper" compare "$axc" "$work" "$baseline" "$abl" 2>&1 || true)"
+if printf '%s\n' "$out" | grep -q '^FATAL'; then
+  bad "the addition probe stopped the tree compiling"
+  printf '%s\n' "$out" | sed 's/^/     /' | head -3
+elif printf '%s\n' "$out" | grep -q '^  ADDED F compatProbeAdded$'; then
+  ok "a new public name is ADDED and not breaking"
 else
-  bad "adding a public name was treated as breaking - this gate is a freeze, not a contract"
+  bad "adding a public name was not reported ADDED - this gate is a freeze, not a contract"
   printf '%s\n' "$out" | sed 's/^/     /' | head -4
 fi
 rm -rf "$abl"
@@ -481,8 +486,11 @@ if ! grep -q '^F unwrapOr .*#deprecated=' "$depbase"; then
 else
   out_dep="$(python3 "$helper" compare "$axc" "$work" "$depbase" "$abl" 2>&1 || true)"
   out_pln="$(python3 "$helper" compare "$axc" "$work" "$baseline" "$abl" 2>&1 || true)"
+  # The two arms differ only in the notice, so comparing THE ROW is
+  # the whole assertion. A "0 breaking" check would additionally
+  # require the rest of the tree to be compatible, which is not this
+  # probe's subject and is false in any release that ports an API.
   if printf '%s\n' "$out_dep" | grep -q '^  RETIRED F unwrapOr$' \
-     && printf '%s\n' "$out_dep" | grep -q '0 breaking' \
      && printf '%s\n' "$out_pln" | grep -q '^  REMOVED F unwrapOr$'; then
     ok "a deprecated name is RETIRED, and the same name undeprecated is REMOVED"
   else

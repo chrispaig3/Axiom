@@ -143,7 +143,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `IO`
 
-`stdlib/IO.ax` — 22 public names
+`stdlib/IO.ax` — 23 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -153,18 +153,19 @@ See [reference.md](reference.md) for the language, and
 | `eprintln` | macro |  |  |  |
 | `readFileLit` | value | `(-> Int String)` | `Alloc,IO,Mut` | The whole contents of the file at NUL-terminated path `cstr`, or an empty `Str` if it cannot be opened. |
 | `readFile` | value | `(-> String String)` | `Alloc,IO,Mut` |  |
-| `writeFile` | value | `(-> String String Int)` | `Alloc,IO,Mut` | Write `s` to `path`, creating it or TRUNCATING what is there. Answers the bytes written, or a negative errno. |
-| `appendFile` | value | `(-> String String Int)` | `Alloc,IO,Mut` | Add `s` to the end of `path`, creating it if absent. Answers the bytes written, or a negative errno. |
-| `removeFile` | value | `(-> String Int)` | `Alloc,IO,Mut` | Remove the file `path`. Answers 0, or a negative errno. |
-| `renamePath` | value | `(-> String String Int)` | `Alloc,IO,Mut` | Move `old` to `new`, answering 0 or a negative errno. |
-| `copyFile` | value | `(-> String String Int)` | `Alloc,IO,Mut` | Copy `src` onto `dst`, answering the bytes written or a negative errno. `dst` is created or truncated. |
+| `ioResult` | value | `(-> Int String String (Result Int Error))` | `Alloc,Mut` | A `sys*` answer turned into a `Result`. |
+| `writeFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Write `s` to `path`, creating it or TRUNCATING what is there. Answers `(Ok bytes)`, or `(Err e)` whose code is the errno. |
+| `appendFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Add `s` to the end of `path`, creating it if absent. Answers the `(Ok bytes)`, or `(Err e)` whose code is the errno. |
+| `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the file `path`. Answers 0, or a negative errno. |
+| `renamePath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Move `old` to `new`, answering 0 or a negative errno. |
+| `copyFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is created or truncated. |
 | `fileExists` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names something that can be opened for reading - a directory included. `isDir` separates them. |
 | `isDir` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
-| `fileSize` | value | `(-> String Int)` | `Alloc,IO,Mut` | The size of `path` in bytes, or a negative errno. |
+| `fileSize` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | The size of `path` in bytes, or a negative errno. |
 | `readErrno` | value | `(-> String Int)` | `Alloc,IO,Mut` | 0 when `path` can be read as a file, otherwise the errno saying why not: 2 missing, 13 not permitted, 21 a directory. |
 | `makeDir` | value | `(-> String Int)` | `Alloc,IO,Mut` | Create the directory `path`, mode 0755. Answers 0, or a negative errno - `-17` (EEXIST) when it is already there. |
-| `makeDirAll` | value | `(-> String Int)` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers 0, or the negative errno of the first component that could not be made. |
-| `removeDir` | value | `(-> String Int)` | `Alloc,IO,Mut` | Remove the EMPTY directory `path`. Answers 0, or a negative errno - `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
+| `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers 0, or the negative errno of the first component that could not be made. |
+| `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the EMPTY directory `path`. Answers 0, or a negative errno - `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
 | `listDir` | value | `(-> String Int)` | `Alloc,IO,Mut` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
 | `cwd` | value | `String` | `Alloc,IO,Mut` | The process's working directory as an absolute path, or "" if it cannot be determined. See `Sys.sysGetCwd` for why this is two different syscalls underneath. |
 | `exit` | value | `(-> Int Int)` | `IO` |  |

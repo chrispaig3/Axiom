@@ -13,3 +13,17 @@
 # The kind letter is AXSYM's: F function, D data, C constructor,
 # S struct, T trait. `docs/compatibility.md` is the policy this file
 # implements.
+
+# 0.3.3 - ERR-ADOPT-1 slice 3, the half of it where `-errno` genuinely
+# means a failure. Seven filesystem calls and `copyFile` answer
+# `(Result Int Error)` instead of an Int that is a byte count when
+# positive and a negated errno when negative. See docs/error-model.md
+# section 10.
+0.3.3  F  writeFile   -errno -> (Result Int Error): the failure is in the type
+0.3.3  F  appendFile  -errno -> (Result Int Error): the failure is in the type
+0.3.3  F  removeFile  -errno -> (Result Int Error): the failure is in the type
+0.3.3  F  renamePath  -errno -> (Result Int Error): the failure is in the type
+0.3.3  F  fileSize    -errno -> (Result Int Error): the failure is in the type
+0.3.3  F  makeDirAll  -errno -> (Result Int Error): the failure is in the type
+0.3.3  F  removeDir   -errno -> (Result Int Error): the failure is in the type
+0.3.3  F  copyFile    -errno -> (Result Int Error): the failure is in the type

@@ -13,6 +13,8 @@
 ; inferred `#effects=` either way.
 (import Sys)
 
+(import Err)
+
 (import Str)
 
 (import Vec)
@@ -186,19 +188,42 @@
 
 (fn (ioPath path) (strCStr (strDup path)))
 
+; A `sys*` answer turned into a `Result`.
+;
+; The convention it converts FROM is `docs/error-model.md` §1.2's: a
+; negative return is `-errno`, and a caller had to remember that. The
+; convention it converts TO is `Result`, where the failure is in the
+; type and a caller that ignores it is refused rather than trusted.
+;
+; `op` and `path` go into the message because an errno alone does not
+; say what was being attempted, and every one of these calls has a
+; path - which is the whole reason a bare `-2` is a bad answer: it is
+; ENOENT for a file the caller can name and cannot see named.
+(pub :: ioResult (-> Int String String (Result Int Error)))
+
+(pub fn (ioResult n op path)
+  (if (< n 0)
+    (Err (mkError
+      (- 0 n)
+      (strConcat (strConcat (strConcat op ": ") (strConcat path ": errno ")) (fmtInt (- 0 n)))
+    ))
+    (Ok n)
+  )
+)
+
 ; Write `s` to `path`, creating it or TRUNCATING what is there.
-; Answers the bytes written, or a negative errno.
-(pub :: writeFile (-> String String Int))
+; Answers `(Ok bytes)`, or `(Err e)` whose code is the errno.
+(pub :: writeFile (-> String String (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (writeFile path s) (sysWriteFile (ioPath path) s))
+(pub fn (writeFile path s) (ioResult (sysWriteFile (ioPath path) s) "writeFile" path))
 
 ; Add `s` to the end of `path`, creating it if absent. Answers the
-; bytes written, or a negative errno.
-(pub :: appendFile (-> String String Int))
+; `(Ok bytes)`, or `(Err e)` whose code is the errno.
+(pub :: appendFile (-> String String (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (appendFile path s) (sysAppendFile (ioPath path) s))
+(pub fn (appendFile path s) (ioResult (sysAppendFile (ioPath path) s) "appendFile" path))
 
 ; Remove the file `path`. Answers 0, or a negative errno.
 ;
@@ -206,10 +231,10 @@
 ; Darwin and EISDIR on Linux (probed 2026-08-15: `-1` here). That is
 ; `removeDir`'s job, and the two are separate calls on every platform
 ; except AArch64 Linux, where they are one call and a flag.
-(pub :: removeFile (-> String Int))
+(pub :: removeFile (-> String (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (removeFile path) (sysUnlink (ioPath path)))
+(pub fn (removeFile path) (ioResult (sysUnlink (ioPath path)) "removeFile" path))
 
 ; Move `old` to `new`, answering 0 or a negative errno.
 ;
@@ -218,13 +243,13 @@
 ; the kernel refuses with EXDEV (18) and `copyFile` + `removeFile` is
 ; the fallback - which is not atomic, and that is the difference the
 ; two spellings are for.
-(pub :: renamePath (-> String String Int))
+(pub :: renamePath (-> String String (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (renamePath old new) (sysRename (ioPath old) (ioPath new)))
+(pub fn (renamePath old new) (ioResult (sysRename (ioPath old) (ioPath new)) "renamePath" old))
 
-; Copy `src` onto `dst`, answering the bytes written or a negative
-; errno. `dst` is created or truncated.
+; Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is
+; created or truncated.
 ;
 ; The whole file goes through memory, so this is for the sizes a
 ; source tree holds rather than for arbitrary ones - a streaming copy
@@ -233,13 +258,13 @@
 ; missing file and copying that would report success having created an
 ; empty `dst` - destroying whatever was at `dst` on behalf of a source
 ; that does not exist.
-(pub :: copyFile (-> String String Int))
+(pub :: copyFile (-> String String (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (copyFile src dst)
   (let ((e (readErrno src)))
     (if (!= e 0)
-      (- 0 e)
+      (Err (mkError e (strConcat (strConcat "copyFile: " src) ": unreadable")))
       (writeFile dst (readFile src))
     )
   )
@@ -263,10 +288,10 @@
 ; A DIRECTORY answers a positive number here, and it is the size of
 ; the directory file rather than anything a caller means - ask `isDir`
 ; first if that matters. See `Sys.sysFileSize`.
-(pub :: fileSize (-> String Int))
+(pub :: fileSize (-> String (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (fileSize path) (sysFileSize (ioPath path)))
+(pub fn (fileSize path) (ioResult (sysFileSize (ioPath path)) "fileSize" path))
 
 ; 0 when `path` can be read as a file, otherwise the errno saying why
 ; not: 2 missing, 13 not permitted, 21 a directory.
@@ -293,10 +318,10 @@
 ; difference from `makeDir` and the reason a build can call this
 ; unconditionally instead of testing first - testing first is a race,
 ; and treating EEXIST as success is not.
-(pub :: makeDirAll (-> String Int))
+(pub :: makeDirAll (-> String (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (makeDirAll path) (makeDirAllFrom path 1))
+(pub fn (makeDirAll path) (ioResult (makeDirAllFrom path 1) "makeDirAll" path))
 
 ; From 1, not 0: a leading `/` is the root, which exists and cannot
 ; be created, and asking to create "" fails with ENOENT.
@@ -336,10 +361,10 @@
 ; removes a tree: that is a loop over `listDir`, and it is the
 ; caller's to write, because a library that deletes recursively on
 ; one call is a library that deletes the wrong subtree once.
-(pub :: removeDir (-> String Int))
+(pub :: removeDir (-> String (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (removeDir path) (sysRmdir (ioPath path)))
+(pub fn (removeDir path) (ioResult (sysRmdir (ioPath path)) "removeDir" path))
 
 ; The entries of the directory `path`, as a Vec of `Str` - sorted by
 ; byte, with `.` and `..` removed.

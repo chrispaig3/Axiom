@@ -5,20 +5,19 @@
 # `errno|sentinel|(- 0 1)` and tells the reader to recompute rather
 # than quote. Recomputed 2026-08-26 that proxy reads 89 over 15 files,
 # not the 64 recorded - and around sixty of those are COMMENT lines.
-# `stdlib/IO.ax` has eleven matches and zero in code. A per-file "no
-# file may rise" rule over that metric would gate PROSE, and the
-# migration's own explanatory comments would break it on the first
-# commit.
+# `
 #
-# So the unit here is a public FUNCTION, which is what the migration
-# ports and what a caller depends on. `scripts/check-compat.sh`
-# recomputes these and refuses any file that RISES. A file may fall
-# freely - that is the migration - and the number here is lowered in
-# the same commit that lowers the count.
-#
-# R5: gate the direction before porting anything.
+# 2026-08-26, and the metric moved with the data: THE SIGNATURE
+# DECIDES. A doc-comment mentioning `-errno` is prose, not a sentinel -
+# `removeFile`'s explains which errno the kernel answers for a
+# directory, and `IO.ioResult`'s explains the whole convention it
+# converts AWAY from. Both counted on the comment alone, so porting a
+# function to `Result` left it in the census: the number would have
+# reported the migration making no progress while it made all of it.
+# A declaration answering `Result` is not a sentinel whatever its
+# comment says.
 stdlib/Agent/Tags.ax 3
-stdlib/IO.ax 8
+stdlib/IO.ax 1
 stdlib/Intern.ax 1
 stdlib/Path.ax 2
 stdlib/Str.ax 2

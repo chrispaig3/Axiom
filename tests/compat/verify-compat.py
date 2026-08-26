@@ -289,6 +289,21 @@ def sentinel_census(root):
                 j -= 1
                 if len(block) > 14:
                     break
+            # THE SIGNATURE DECIDES, and the comment only narrows.
+            #
+            # A doc-comment is prose, and prose about a sentinel is not
+            # a sentinel: `removeFile`'s comment explains which errno
+            # the kernel answers for a directory, and `ioResult`'s
+            # explains the whole convention it CONVERTS AWAY FROM.
+            # Both matched on the comment alone, so porting a function
+            # to `Result` left it counted - the census would have
+            # reported the migration making no progress while it made
+            # all of it.
+            #
+            # A declaration answering `Result` is not a sentinel
+            # whatever its comment says, and that is checkable.
+            if "Result" in line:
+                continue
             if SENTINEL_PROSE.search("\n".join(block)):
                 n += 1
         if n:
