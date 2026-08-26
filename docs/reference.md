@@ -1995,6 +1995,18 @@ The compiler validates `effect(io)` claims against what the body actually perfor
 
 These features existed in earlier versions of Axiom but have been removed. Each word keeps a grammar rule whose only job is to report `AX2004` and say what to write instead.
 
+### `begin` — Removed
+
+`(begin a b c)` was the sequencing form. Brace blocks replaced it:
+`{ a b c }` sequences and answers its last expression, and a `fn` body
+already sequences, so the wrapper is usually just deletable.
+
+It is **reserved** rather than left as an ordinary name. Until
+2026-08-26 it was one, so `(begin 1 2 42)` fell through to an
+application and drew `AX3001 undefined variable begin` — a diagnostic
+that names no replacement and reads like a typo. It answers `AX2004`
+now, like its five siblings.
+
 ### `union` — Removed
 
 C interoperability is no longer a goal, and an untagged union cannot be pattern-matched safely — its variants are not distinguishable at run time. Use `data` for a tagged sum or `struct` for a product.

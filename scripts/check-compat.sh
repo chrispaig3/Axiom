@@ -411,6 +411,43 @@ else
 fi
 rm -rf "$abl"
 
+# A name the PREVIOUS release marked deprecated may be removed without
+# a line in `compat/BREAKING` - that is what the notice buys, and this
+# is the probe that it is bought rather than assumed.
+#
+# Both arms come off ONE planted removal and differ only in which
+# baseline they are compared against, so the deprecation notice is the
+# single variable. Without the control arm the check would pass for a
+# gate that simply stopped reporting removals.
+checks=$((checks + 1))
+abl="$work/abl"; rm -rf "$abl"; cp -r "$repo_root/stdlib" "$abl"
+python3 - "$abl/Err.ax" <<'EOP'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = "(pub :: unwrapOr (-> (Result a e) a a))"
+assert old in s, "probe text absent"
+open(p, "w", encoding="utf-8").write(s.replace(old, old.replace("pub ", "", 1), 1))
+EOP
+depbase="$work/baseline.deprecated"
+sed 's|^\(F unwrapOr .*\)$|\1 #deprecated=use%20a%20match|' "$baseline" > "$depbase"
+if ! grep -q '^F unwrapOr .*#deprecated=' "$depbase"; then
+  bad "the deprecation probe could not mark the baseline row"
+else
+  out_dep="$(python3 "$helper" compare "$axc" "$work" "$depbase" "$abl" 2>&1 || true)"
+  out_pln="$(python3 "$helper" compare "$axc" "$work" "$baseline" "$abl" 2>&1 || true)"
+  if printf '%s\n' "$out_dep" | grep -q '^  RETIRED F unwrapOr$' \
+     && printf '%s\n' "$out_dep" | grep -q '0 breaking' \
+     && printf '%s\n' "$out_pln" | grep -q '^  REMOVED F unwrapOr$'; then
+    ok "a deprecated name is RETIRED, and the same name undeprecated is REMOVED"
+  else
+    bad "the deprecation notice does not change the verdict"
+    echo "     with the notice:"; printf '%s\n' "$out_dep" | sed 's/^/       /' | head -3
+    echo "     without it:";      printf '%s\n' "$out_pln" | sed 's/^/       /' | head -3
+  fi
+fi
+rm -rf "$abl"
+
 echo "== a tree that does not compile is not a compatibility verdict =="
 checks=$((checks + 1))
 rm -rf "$abl"; cp -r "$repo_root/stdlib" "$abl"

@@ -172,6 +172,13 @@ and so does one bound to a `no_std` Rust crate - measured, `nm -u` on
 both is empty. Reaching the kernel needs no FFI either: the standard
 library is written in Axiom over `__syscall0`-`__syscall6`.
 
+`begin` is gone because `{ }` brace blocks and implicit sequencing
+replaced it: `{ a b c }` sequences and answers the last expression,
+which is exactly what `(begin a b c)` meant, and a `fn` body already
+sequences - so the wrapper is usually just deletable. It is reserved
+rather than left as an ordinary name because an ordinary name draws
+`AX3001 undefined variable begin`, which names no replacement.
+
 `region` is gone because memory is no longer scoped by an explicit
 source-level block. Allocation lifetime is inferred: a value's arena is
 determined by where it is created and how far it escapes, and it is

@@ -131,6 +131,43 @@ the gate has a probe that must stay green to prove it. A gate that
 reddens on every difference is a freeze, not a contract — it would make
 adding a function to the standard library a breaking change.
 
+**COMPAT-7 (H).** A name may be retired **gracefully**, and that path
+needs no line in `compat/BREAKING`:
+
+```
+;@axiom:deprecated(use vecLen instead)
+(pub :: oldLen (-> Int Int))
+```
+
+Removing a name is permitted outright when **the baseline row carried
+`#deprecated=`** — that is, when the notice shipped in a previous
+release. Such a difference is reported `RETIRED` rather than `REMOVED`
+and is not breaking. Deprecating and removing in the same release does
+**not** qualify, and the rule gets that right for free: the baseline
+*is* the last release, so a notice added this cycle is not in it.
+
+This costs no compiler change. The AXTAG key namespace is open by
+design — an unknown key already parses, is recorded, and is re-emitted
+on the AXSYM line, so `;@axiom:deprecated(...)` arrives as
+`#deprecated=` with nothing to build. What the gate adds is the
+reading.
+
+The annotation is deliberately **not** contract. If it were, adding a
+deprecation notice would read as a signature change and be refused as
+breaking — which would make the graceful path the forbidden one. It is
+carried in the baseline row and stripped before comparison.
+
+*Kept by:* `scripts/check-compat.sh`'s deprecation probe, which plants
+one removal and compares it against two baselines differing only in the
+notice: with it `RETIRED` and zero breaking, without it `REMOVED`.
+
+**What is NOT here, and is written down rather than implied:** the
+compiler does **not** warn at a *reference* to a deprecated name. That
+needs a name→declaration lookup at every reference site — `rawTagged`
+in `self_host/typecheck.ax` is the shape it would take — and it is
+owed, not refused. Today a deprecation is a promise to the compat gate
+and a note to a reader, not a diagnostic.
+
 **COMPAT-6 (P).** At `1.0`, the component becomes enforceable: a break
 declared against a version whose MINOR did not move should fail. The
 arm is one comparison beside `declared_newer` in

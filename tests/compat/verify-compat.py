@@ -72,6 +72,22 @@ ROW = re.compile(r'^(\S+) (\S+) (\S+) "(.*?)"(.*)$')
 CONTRACT_META = ("#effects=", "#ctors=", "#of=", "#effect-params=",
                  "#fields=", "#methods=")
 
+# Carried in the row so the baseline RECORDS it, and stripped by
+# `contract()` so it is not compared.
+#
+# `;@axiom:deprecated(...)` is how a name is retired gracefully: it
+# needs no compiler change - the AXTAG key namespace is open, unknown
+# keys already parse, are recorded and are re-emitted on the AXSYM line
+# as `#deprecated=`. What it gives this gate is the one thing a
+# removal rule needs: evidence that the name was marked BEFORE the
+# release that removes it, which is exactly what "the baseline carried
+# it" means.
+#
+# It must not be contract. If it were, ADDING a deprecation notice
+# would read as a signature change and be refused as breaking - which
+# would make the graceful path the forbidden one.
+ANNOTATION_META = ("#deprecated=",)
+
 # A stream that stops producing reads as agreement, so it is floored.
 # 407 rows on 2026-08-26; the floor is under it with room, and it is a
 # floor rather than a count so adding a public name does not fail here.
@@ -126,9 +142,12 @@ def normalise(text, root, names):
         # `#methods=show:(a` - which compares equal for every change
         # after the first token.
         nid = next((t for t in rest.split() if t.startswith("@")), "-")
-        meta = sorted(m.strip() for m in re.findall(r'#[a-z-]+(?:=[^#]*)?', rest)
-                      if m.startswith(CONTRACT_META))
-        rows.append(f'{kind} {name} {module} {nid} "{ty}"' + "".join(" " + m for m in meta))
+        found = [m.strip() for m in re.findall(r'#[a-z-]+(?:=[^#]*)?', rest)]
+        meta = sorted(m for m in found if m.startswith(CONTRACT_META))
+        note = sorted(m for m in found if m.startswith(ANNOTATION_META))
+        rows.append(f'{kind} {name} {module} {nid} "{ty}"'
+                    + "".join(" " + m for m in meta)
+                    + "".join(" " + m for m in note))
     return sorted(set(rows))
 
 
@@ -160,7 +179,17 @@ def identity(row):
 
 
 def contract(row):
-    return row.split(" ", 4)[4]  # '"type"' and the contract metadata
+    """Everything a caller can depend on: the type and the contract
+    metadata, with the annotations stripped."""
+    tail = row.split(" ", 4)[4]
+    for m in re.findall(r'\s#[a-z-]+(?:=\S*)?', tail):
+        if m.strip().startswith(ANNOTATION_META):
+            tail = tail.replace(m, "")
+    return tail
+
+
+def deprecated(row):
+    return any(t.startswith(ANNOTATION_META) for t in row.split())
 
 
 def effects(text):
@@ -168,6 +197,9 @@ def effects(text):
     return set(m.group(1).split(",")) if m else set()
 
 
+# `RETIRED` is deliberately absent: a name the previous release
+# shipped marked `;@axiom:deprecated` was announced, and removing it is
+# the notice being honoured rather than a surprise.
 BREAKING = ("REMOVED", "CHANGED", "WIDENED")
 
 
@@ -177,7 +209,12 @@ def compare(base, cur):
     out = []
     for k in sorted(set(b) | set(c)):
         if k not in c:
-            out.append(("REMOVED", k, contract(b[k]), ""))
+            # A name the BASELINE already marked deprecated shipped with
+            # that notice in a previous release, which is the whole
+            # point of the notice. Removing it is not a surprise, and it
+            # needs no line in `compat/BREAKING`.
+            kind = "RETIRED" if deprecated(b[k]) else "REMOVED"
+            out.append((kind, k, contract(b[k]), ""))
         elif k not in b:
             out.append(("ADDED", k, "", contract(c[k])))
         elif contract(b[k]) != contract(c[k]):

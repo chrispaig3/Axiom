@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `begin` is no longer part of Axiom[0m
+  [1;34m--> [0m943-removed-begin.ax:12:13
+[1;34m   |[0m
+[1;34m12 |[0m (fn (main) (begin 1 2 42))
+[1;34m   |[0m             [1;31m^^^^^ `begin` was replaced by `{ }` brace blocks and implicit sequencing; it was an ordinary name to the parser afterwards, so using one drew `AX3001 undefined variable begin`, which named no replacement[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse a brace block: `{ a b c }` sequences expressions and answers the last one, which is what `(begin a b c)` meant - and a `fn` body already sequences, so the wrapper is usually just deletable
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error

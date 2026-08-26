@@ -126,6 +126,46 @@ its changelog too.
   reserved block (`AX3043`, `AX3045`, `AX3046`) untouched — a new code
   goes above the reserved block, never into it.
 
+- **`;@axiom:deprecated` retires a name gracefully, and it needed no
+  compiler change.** The AXTAG key namespace is open by design: an
+  unknown key already parses, is recorded, and is re-emitted on the
+  AXSYM line, so `;@axiom:deprecated(use vecLen)` already arrived as
+  `#deprecated=use%20vecLen`. The whole mechanism was there and nothing
+  read it.
+
+  `scripts/check-compat.sh` reads it now. A removal is permitted
+  outright when **the baseline row carried the notice** — reported
+  `RETIRED` rather than `REMOVED`, and not breaking. Deprecating and
+  removing in the same release does not qualify, and the rule gets that
+  right for free: the baseline *is* the last release, so a notice added
+  this cycle is not in it.
+
+  The annotation is deliberately **not** contract. If it were, adding a
+  deprecation notice would read as a signature change and be refused as
+  breaking, which would make the graceful path the forbidden one. It is
+  carried in the baseline row and stripped before comparison.
+
+  Probed both ways off one planted removal, against two baselines
+  differing only in the notice: with it `RETIRED` and zero breaking,
+  without it `REMOVED`. 28 checks.
+
+  Not built, and written down rather than implied (`COMPAT-7`): the
+  compiler does not warn at a *reference* to a deprecated name. That
+  needs a name→declaration lookup at every reference site — `rawTagged`
+  in `self_host/typecheck.ax` is the shape — and it is owed, not
+  refused.
+
+- **`begin` is reserved, and answers `AX2004` instead of "undefined
+  variable".** It was the sequencing form; `{ }` replaced it, and
+  afterwards `begin` was an ordinary name to the parser — so
+  `(begin 1 2 42)` fell through to an application and drew
+  `AX3001 undefined variable begin`, which names no replacement and
+  reads like a typo. Its five siblings — `union`, `region`, `foreign`,
+  `linear`, `consume` — were all reserved and carry migration advice;
+  `begin` was the one left out, and `CHANGELOG.md`'s own 0.2.0
+  Compatibility section is where that was recorded. It now names the
+  brace block (`tests/diagnostics/943-removed-begin.axbad`).
+
 ### Found, not fixed
 
 - **A parameter named `set` is a formatter refusal.** The parser and

@@ -1,0 +1,12 @@
+; `begin` was the sequencing form. `{ }` replaced it, and afterwards
+; `begin` was an ordinary name to the parser - so this program drew
+; `AX3001 undefined variable begin`, a diagnostic that names no
+; replacement and reads like a typo. Its five siblings - `union`,
+; `region`, `foreign`, `linear`, `consume` - have all been reserved
+; and answer AX2004 with migration advice; `begin` was the one left
+; out, which `CHANGELOG.md`'s 0.2.0 Compatibility section recorded.
+;
+; `.axbad` because the refusal is at parse time.
+(:: main Int)
+
+(fn (main) (begin 1 2 42))

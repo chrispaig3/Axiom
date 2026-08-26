@@ -1194,6 +1194,8 @@
 (pub :: removedRationale (-> String String))
 
 (pub fn (removedRationale kw)
+  (if (strEq kw "begin")
+    (strConcat "`begin` was replaced by `{ }` brace blocks and implicit " "sequencing; it was an ordinary name to the parser afterwards, so using one drew `AX3001 undefined variable begin`, which named no replacement")
   (if (strEq kw "union")
     (strConcat "`union` was removed: C interoperability is no longer a goal, " "and an untagged union cannot be pattern-matched safely - its variants are not distinguishable at run time")
     (if (strEq kw "linear")
@@ -1211,8 +1213,11 @@
     )
   )
 )
+  )
 
 (pub fn (removedHelp kw)
+  (if (strEq kw "begin")
+    (strConcat "use a brace block: `{ a b c }` sequences expressions and answers " "the last one, which is what `(begin a b c)` meant - and a `fn` body already sequences, so the wrapper is usually just deletable")
   (if (strEq kw "union")
     (strConcat "use `data` for a tagged sum whose variants the compiler can check " "for exhaustiveness, or `struct` for a product of fields")
     (if (strEq kw "linear")
@@ -1230,6 +1235,7 @@
     )
   )
 )
+  )
 
 ; ------------------------------------------------------------------
 ; Token helpers.
@@ -4339,12 +4345,25 @@
                             ; reference counting every heap block carries.
                             (if (kwEq name "consume")
                               (pErrRemoved pos "consume")
+                            ; `begin` is RESERVED here for the same
+                            ; reason the other five are: it was the
+                            ; sequencing form, `{ }` replaced it, and
+                            ; until now it fell through to an
+                            ; application of a bare name and drew
+                            ; `AX3001 undefined variable begin` - a
+                            ; diagnostic that names no replacement and
+                            ; reads like a typo. `CHANGELOG.md`'s 0.2.0
+                            ; Compatibility section recorded exactly
+                            ; that gap.
+                            (if (kwEq name "begin")
+                              (pErrRemoved pos "begin")
                               (if (kwEq name "alloc")
                                 (parseAllocExpr tokens (advance pos) (tokenSpan kw))
                                 (if (kwEq name "handle")
                                   (parseHandleExpr tokens (advance pos))
                                   (parseAppForm tokens pos)
                                 )
+                              )
                               )
                             )
                           )
