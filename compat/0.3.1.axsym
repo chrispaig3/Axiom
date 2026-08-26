@@ -401,7 +401,7 @@ F vecWithCapacityRef stdlib/Vec.ax @4931b5c5fdddadcc "(Int -> Int)" #effects=All
 F withContext stdlib/Err.ax @9733c7d4aeb3bcda "(Result a Error -> (String -> Result a Error))"
 F writeFile stdlib/IO.ax @02446b7fc8d23e18 "(String -> (String -> Int))" #effects=Alloc,IO,Mut
 F writeStr stdlib/IO.ax @d7ac81e9b98b4f11 "(Int -> (String -> Int))" #effects=IO
-S Error stdlib/Err.ax @0805ae0b9077d3a6 "struct Error"
-S Meta stdlib/Agent/Tags.ax @ba9f4823bce27105 "struct Meta"
-S Sym stdlib/Agent/Tags.ax @8902c6a9b1655a47 "struct Sym"
-T Show stdlib/Show.ax @8318f82fa5e17568 "trait Show"
+S Error stdlib/Err.ax @0805ae0b9077d3a6 "struct Error" #fields=code:Int,message:String,context:String
+S Meta stdlib/Agent/Tags.ax @ba9f4823bce27105 "struct Meta" #fields=key:String,val:String
+S Sym stdlib/Agent/Tags.ax @8902c6a9b1655a47 "struct Sym" #fields=kind:Int,name:String,loc:String,ty:String,nid:String,meta:Int
+T Show stdlib/Show.ax @8318f82fa5e17568 "trait Show" #methods=show:(a -> String)

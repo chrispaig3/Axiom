@@ -28,6 +28,17 @@ its changelog too.
   thirty-seven gates the number that build the compiler under test
   through `gate_build_axc`.
 
+  **Corrected while writing this**: the first draft said every gate
+  would stay green through such a change, and `check-stdlib-api.sh`
+  would not — it regenerates `docs/stdlib-api.md` from the library and
+  diffs, and that document carries each name and its type. The true
+  claim is narrower and sharper: that gate compares the library against
+  a document regenerated **from the same tree**, and it has a bless
+  path, so a re-bless satisfies it by construction. It proves the
+  documentation matches the library. Nothing proved the library matches
+  what a previous release promised, because nothing had a memory of a
+  previous release.
+
   The subject is `axiom symbols --diagnostic-format=ai`, joined with
   `pub` visibility read from the source — visibility is not in AXSYM,
   so the join is the one `examples/axdoc/axdoc.ax` already makes for
@@ -80,6 +91,40 @@ its changelog too.
   `AX3024`, Windows, and `rust/examples/`.
 
 ### Fixed
+
+- **The compatibility gate was green on a struct field reorder.** Found
+  by an adversarial read of the gate before it had refused anything,
+  and demonstrated rather than argued: swapping two fields of
+  `(pub struct Error ...)` left the nid, the type string and
+  `#effects=` byte-identical, so the first version of this gate could
+  not see it. A `struct` is positional and `cast` reinterprets a block,
+  so field ORDER is contract — this is the `AX3044` miscompile one
+  module along. The compiler emits `#fields=` and `#methods=` and the
+  normalisation was throwing both away, which also made deleting a
+  method from the public `Show` trait invisible. Both are carried now,
+  and a sixth negative probe reorders `Error`'s fields and requires
+  `CHANGED S Error`.
+
+  The same read found the metadata parse: values were split on
+  whitespace, and `#methods=show:(a -> String)` tokenises into three
+  words, so it truncated to `#methods=show:(a` — equal for every change
+  after the first token. Metadata splits on the `#` that starts each
+  key now.
+
+- **The permit refused the release it shipped in.** `compat/BREAKING`
+  keyed each declaration on `VERSION`, and a breaking change lands
+  *before* the release carrying it is bumped — so for almost all of a
+  cycle `VERSION` still reads the baseline's own version and every
+  declared break would have been refused. The rule is now "declared
+  against a version strictly newer than the baseline's", decided by
+  `sort -V` so `0.10.0` beats `0.9.0`.
+
+- **A new standard-library module would have been outside the gate
+  entirely.** The module list was checked in neither direction. It is
+  checked in both now, on `check-stdlib-api.sh`'s model and for its
+  stated reason — a list checked one way rots the other — with the
+  three per-target `Sys/Platform` files as the one named exception.
+  20 modules.
 
 - **A count restated in prose beside the list it counts.** Adding a
   version site moved a number three headers had written down and no

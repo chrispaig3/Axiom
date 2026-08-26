@@ -78,6 +78,29 @@ else
   echo "     checks it is satisfied by construction. Commit it, or revert it."
 fi
 
+echo "== the module list and stdlib/ agree =="
+# Both directions. A list checked only for existence lets a NEW module
+# join `stdlib/` and stay entirely outside this gate - its whole public
+# surface invisible, with every check below still green. That is
+# `check-stdlib-api.sh`'s rule and the reason it gives: a list checked
+# one way rots the other. The three per-target `Sys/Platform` files are
+# the one exception, named rather than globbed because which one the
+# baseline carries is a decision worth seeing.
+checks=$((checks + 1))
+listed="$work/mods.listed"
+intree="$work/mods.tree"
+python3 "$helper" modules "$axc" "$work" | LC_ALL=C sort > "$listed"
+(cd "$repo_root" && find stdlib -name '*.ax' -type f) \
+  | grep -v 'stdlib/Sys/Platform\.linux-' | LC_ALL=C sort > "$intree"
+if diff -q "$listed" "$intree" > /dev/null; then
+  ok "the module list and stdlib/ agree, $(grep -c . "$listed") modules"
+else
+  bad "the module list has drifted from stdlib/"
+  diff "$listed" "$intree" | sed 's/^/     /' | head -10
+  echo "     '<' is named in verify-compat.py's MODULES and not in the tree;"
+  echo "     '>' is in the tree and outside this gate entirely."
+fi
+
 echo "== the current surface agrees with the baseline, or the break is declared =="
 checks=$((checks + 1))
 diff_out="$work/diff.txt"
@@ -101,8 +124,14 @@ else
   # that they meant it.
   undeclared=0
   while read -r kind letter name; do
-    if grep -qE "^$version[[:space:]]+$letter[[:space:]]+$name([[:space:]]|$)" \
-         "$baseline_dir/BREAKING" 2>/dev/null; then
+    # The declared version must be NEWER THAN THE BASELINE'S, not equal
+    # to `VERSION`. A breaking change lands before the release that
+    # carries it is bumped, so for most of a release cycle `VERSION`
+    # still reads the baseline's own version - and a permit keyed on
+    # `VERSION` would refuse every change the release exists to make,
+    # until the last commit. Found by an adversarial read of this gate
+    # before it had ever refused anything.
+    if declared_newer "$letter" "$name"; then
       echo "     declared: $kind $letter $name"
     else
       echo "     UNDECLARED: $kind $letter $name"
@@ -129,6 +158,18 @@ fi
 # arm: 25 of 26 `check-driver` cases once failed correctly and the 26th
 # passed on both sides.
 # ---------------------------------------------------------------------
+# Is this break declared against a version strictly newer than the
+# baseline's? `sort -V` decides, so 0.10.0 beats 0.9.0.
+declared_newer() {  # <kind-letter> <name>
+  local letter="$1" name="$2" v
+  while read -r v k n _; do
+    [[ "$k" == "$letter" && "$n" == "$name" ]] || continue
+    [[ "$v" == "$base_version" ]] && continue
+    [[ "$(printf '%s\n%s\n' "$base_version" "$v" | sort -V | tail -1)" == "$v" ]] && return 0
+  done < <(grep -v '^#' "$baseline_dir/BREAKING" 2>/dev/null | grep -v '^[[:space:]]*$')
+  return 1
+}
+
 echo "== the hole in the stream is exactly the hole we wrote down =="
 # `symbols` carries no row for a macro, for an impl method, or for an
 # effect declaration itself. Those names are public API this gate
@@ -231,6 +272,23 @@ probe "an effect row widens" "WIDENED F isErr" Err.ax \
       ((Err y) true)
     ) }
 )'
+
+# The probe that exists because this gate did NOT have it. Its first
+# version's contract was the nid, the type and `#effects=`, and an
+# adversarial read demonstrated that swapping two fields of
+# `(pub struct Error ...)` left all three byte-identical - so the gate
+# was green on a layout break, which is the `AX3044` miscompile one
+# module along. A `struct` is positional and `cast` reinterprets a
+# block, so field ORDER is contract. `#fields=` and `#methods=` are
+# carried now, and this is what proves it.
+probe "a struct's fields are reordered" "CHANGED S Error" Err.ax \
+  '(pub struct Error
+  (code : Int)
+  (message : String)
+  (context : String))' '(pub struct Error
+  (code : Int)
+  (context : String)
+  (message : String))'
 
 # The one probe that must stay GREEN. A gate that reddens on every
 # difference is not a compatibility gate, it is a freeze - and it would

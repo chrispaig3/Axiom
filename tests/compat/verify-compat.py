@@ -50,7 +50,27 @@ MODULES = ("Agent/Tags Err Ffi Fmt IO Intern Job Json Map Mem Path Pre Rpc Show 
 PUB = re.compile(r'^\(pub (?::: |macro |data |struct |trait |type )\(?([A-Za-z0-9_!?*+/<>=-]+)')
 EFFECT = re.compile(r'^\(effect ([A-Za-z0-9_]+)')
 ROW = re.compile(r'^(\S+) (\S+) (\S+) "(.*?)"(.*)$')
-CONTRACT_META = ("#effects=", "#ctors=", "#of=", "#effect-params=")
+# Everything AXSYM emits that a CALLER can depend on. Measured over the
+# whole surface rather than guessed: the keys that appear are
+# `#effects=`, `#effect=`, `#effects-overapprox`, `#effect-params=`,
+# `#of=`, `#fields=`, `#effects-incomplete`, `#ctors=` and `#methods=`.
+#
+# `#fields=` and `#methods=` are here because leaving them out was a
+# hole: a struct row without them is `"struct Error"` and nothing else,
+# so reordering `Error`'s fields, changing one's type, or deleting a
+# trait method all read as NO DIFFERENCE. Field ORDER is contract in
+# this language - a `struct` is positional and `cast` reinterprets a
+# block - which is the miscompile `AX3044` was built for, one module
+# along.
+#
+# Three keys are deliberately out. `#effect=` is the author's AXTAG
+# re-emitted, and since 0.3.0 `AX3010` refuses a claim the body does
+# not perform - so it is a subset of `#effects=` and carrying it would
+# report a tag added over an unchanged body as a breaking change.
+# `#effects-overapprox` and `#effects-incomplete` are states of the
+# ANALYSIS, not promises to a caller.
+CONTRACT_META = ("#effects=", "#ctors=", "#of=", "#effect-params=",
+                 "#fields=", "#methods=")
 
 # A stream that stops producing reads as agreement, so it is floored.
 # 407 rows on 2026-08-26; the floor is under it with room, and it is a
@@ -99,9 +119,15 @@ def normalise(text, root, names):
             module = ("stdlib/" + os.path.relpath(real, root)
                       if real.startswith(root + os.sep) else real)
             module = re.sub(r'Sys/Platform\.[A-Za-z0-9_-]+\.ax$', 'Sys/Platform.ax', module)
-        tokens = rest.split()
-        nid = next((t for t in tokens if t.startswith("@")), "-")
-        meta = sorted(t for t in tokens if t.startswith(CONTRACT_META))
+        # Metadata is split on the ` #` that starts each key, NOT on
+        # whitespace: a value can contain spaces. `#methods=` carries a
+        # method's TYPE, so `show:(a -> String)` tokenises into three
+        # words and a whitespace split silently truncates it to
+        # `#methods=show:(a` - which compares equal for every change
+        # after the first token.
+        nid = next((t for t in rest.split() if t.startswith("@")), "-")
+        meta = sorted(m.strip() for m in re.findall(r'#[a-z-]+(?:=[^#]*)?', rest)
+                      if m.startswith(CONTRACT_META))
         rows.append(f'{kind} {name} {module} {nid} "{ty}"' + "".join(" " + m for m in meta))
     return sorted(set(rows))
 
@@ -201,6 +227,13 @@ def main(argv):
         if cmd == "generate":
             for row in surface(argv[4], axiom, work):
                 print(row)
+            return 0
+        if cmd == "modules":
+            # Printed rather than duplicated in the gate: a second copy
+            # of this list is a second thing to keep in step, and the
+            # failure mode of that is silent.
+            for m in MODULES:
+                print("stdlib/" + m + ".ax")
             return 0
         if cmd == "uncovered":
             for name in uncovered(argv[4], axiom, work):
