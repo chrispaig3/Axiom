@@ -56,11 +56,21 @@
 
 ; --- trait: supertraits, methods, defaults --------------------------
 (trait (Show a) where
-  (show :: (-> a Int)
+  (;@axiom:no_refactor
+   show :: (-> a Int)
    width :: (-> a Int)))
 
 (trait (Ord a) (Show) where
   (cmp :: (-> a Int)))
+
+; The tag inside the `where` list is here for the same reason the one
+; in the `impl` below is: a trait method can carry a `;@axiom:` tag
+; since 2026-08-25 - a DEFAULT body's effects are declared on the
+; method - and the printer had no arm for it. The atom failed the
+; loop's identifier test and reached `fpBad`, which refuses the whole
+; FILE. `no_refactor` again, and not `effect(io)`: the printer's path
+; is the same for any key, and a claim would couple this file to the
+; effect walk.
 
 ; --- impl -----------------------------------------------------------
 ; Every method the trait declares, because since 2026-08-10 an `impl`

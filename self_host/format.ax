@@ -5346,12 +5346,31 @@
     (elems (fpExprElems methods 0))
     (mut i 0)
     (mut nth 0)
+    (mut afterTag 0)
   )
     {
       (fpP p " where (")
       (fpP p "\n")
       (foPushIndent o)
       (while (< i (vecLen elems))
+        ; An AXTAG atom here declares the effects of the method that
+        ; FOLLOWS it - a trait method's default body can carry one since
+        ; 2026-08-25. The arm below demands an identifier, so every one
+        ; of them reached `fpBad` and refused the whole FILE with the
+        ; least informative message in the toolchain. Same shape, and
+        ; same fix, as the `impl` member loop in `fpDeclImpl` below.
+        (if (fpIsAxtagAtom (vecGet elems i))
+          {
+            (if (&& (> nth 0) (== afterTag 0))
+              (fpP p "\n")
+              p
+            )
+            (foEmitIndent o)
+            (fpAxtag p (fnTok (vecGet elems i)))
+            (fpP p "\n")
+            (set afterTag 1)
+            (set i (+ i 1))
+          }
         (if (&&
           (fpIsIdentAtom (vecGet elems i))          (&&
             (< (+ i 2) (+ (vecLen elems) 1))            (if (< (+ i 1) (vecLen elems))
@@ -5362,10 +5381,11 @@
         )
           (if (< (+ i 2) (vecLen elems))
             {
-              (if (> nth 0)
+              (if (&& (> nth 0) (== afterTag 0))
                 (fpP p "\n")
                 p
               )
+              (set afterTag 0)
               (foEmitIndent o)
               (fpP p (fnText src (vecGet elems i)))
               (fpP p " :: ")
@@ -5400,7 +5420,7 @@
             (fpBad p)
             (set i (vecLen elems))
           }
-        ))
+        )))
       (foPopIndent o)
       (fpP p "\n")
       (foEmitIndent o)

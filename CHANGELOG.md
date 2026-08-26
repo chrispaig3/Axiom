@@ -16,6 +16,32 @@ its changelog too.
 
 ## Unreleased
 
+### Fixed
+
+- **A trait method's DEFAULT body can declare its effects.** The fourth
+  declaration site in a row that could not, and the same shape every
+  time: the author tags node A, the compiler builds node B from it, and
+  everything downstream checks B. Copying the *span* across is
+  remembered at each of those sites; copying word 7 was not.
+
+  | site | node A | node B |
+  |---|---|---|
+  | `expandImplMethods` | a written impl method | a mangled `TAG_D_FN` |
+  | `expBuildDecls` | a macro template decl | an instantiated decl |
+  | `checkImplComplete` | a trait **default** | a synthesized method |
+
+  This one is the oddest, because the method is never written in the
+  impl at all: `(impl (Noisy Int) where ())` defines nothing, and
+  `checkImplComplete` synthesizes `Noisy#Int#loud` from the trait's
+  default. Measured before the fix, that synthesized method drew
+  `AX3042` with the tag present and with it absent **identically** — the
+  tag changed nothing, so no edit could satisfy it.
+
+  `tests/diagnostics/362-trait-default-effect.ax` carries a control that
+  must fire: a second default with the same shape and no tag draws
+  `AX3042` at its own mangled name, so the file cannot pass by a
+  compiler that stopped checking synthesized methods.
+
 ## 0.3.0 — 2026-08-25
 
 ### Fixed

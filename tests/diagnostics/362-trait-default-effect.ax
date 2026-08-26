@@ -1,0 +1,42 @@
+; A trait method's DEFAULT body can declare its effects, and it was the
+; fourth declaration site in a row that could not.
+;
+; The pattern, four times over: the author tags node A, the compiler
+; builds node B from it, and everything downstream checks B. Copying
+; the span across is remembered every time; copying word 7 was not.
+;
+;   expandImplMethods   a written impl method  -> a mangled TAG_D_FN
+;   expBuildDecls       a macro template decl  -> an instantiated decl
+;   checkImplComplete   a trait DEFAULT        -> a synthesized method
+;
+; and `attachAxtags` had to learn to descend into each nesting before
+; any of them had a tag to lose in the first place.
+;
+; This one is the oddest of the three because the method is never
+; WRITTEN in the impl at all: `(impl (Noisy Int) where ())` defines
+; nothing, and `checkImplComplete` synthesizes `Noisy#Int#loud` from
+; the trait's default. Measured before the fix: that synthesized
+; method drew AX3042 with the tag present and with it absent,
+; identically - the tag changed nothing, so no edit could satisfy it.
+;
+; `quiet` is the control that must FIRE. Same shape, same trait, no
+; tag - so it draws AX3042 at its own mangled name. Without it this
+; file would assert only that nothing is reported, which a compiler
+; that had stopped checking synthesized methods would also satisfy.
+(trait (Noisy a) where (
+  ;@axiom:effect(io)
+  loud :: (-> a Int) = (lambda (x) (__syscall3 1 1 x 0))
+  quiet :: (-> a Int) = (lambda (x) (__syscall3 1 1 x 0))
+))
+
+(impl (Noisy Int) where ())
+
+(:: caller (-> Int Int))
+
+;@axiom:effect(io)
+(fn (caller n) (+ (loud n) (quiet n)))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (caller 1))

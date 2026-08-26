@@ -7736,10 +7736,31 @@
       {
         (if (== (findFieldNamed methods (nodeAName want) 0) 0)
           (if (!= (nodeC want) 0)
-            (lowerEmit
-              decls              tr              d              (mkNodeAt
+            ; The default's AXTAGs travel onto the node synthesized for
+            ; it. This is a NEW node standing in for a method the impl
+            ; did not write, and everything downstream checks IT - so
+            ; without this a `;@axiom:effect(io)` on a trait DEFAULT is
+            ; parsed, attached to the trait's method, and then dropped
+            ; here. Measured: `Noisy#Int#loud` drew AX3042 with the tag
+            ; present and with it absent, identically - a diagnostic no
+            ; edit could satisfy.
+            ;
+            ; FOURTH SITE with this shape. `expandImplMethods` lowers a
+            ; written impl method, `expBuildDecls` instantiates a macro
+            ; template, `attachAxtags` had to learn to descend into
+            ; both - and this one synthesizes a method that was never
+            ; written at all. The span is copied on the line below for
+            ; exactly the same reason the tags are: the author's node
+            ; and the checked node are different objects.
+            (let ((syn (mkNodeAt
                 TAG_FIELD                (nodeA want)                (nodeC want)                0                (nodeSpan want)
-              )              want              v
+            )))
+              {
+                (memSetWord syn 7 (memGetWord want 7))
+                (lowerEmit
+                  decls                  tr                  d                  syn                  want                  v
+                )
+              }
             )
             (implDiag
               out              (nodeSpan d)              (strConcat (strConcat (strConcat (strConcat "this implementation of `" (nodeAName tr)) "` does not define `") (nodeAName want)) "`")              "define it, or give the trait method a default body with `= <expr>`"              "a trait method with no implementation and no default has nothing to dispatch to"

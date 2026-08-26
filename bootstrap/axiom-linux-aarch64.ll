@@ -71558,71 +71558,73 @@ label_28:
   %t34 = icmp ne i64 %t33, 0
   br i1 %t34, label %label_35, label %label_36
 label_35:
-  %t38 = load i64, ptr %s.1
-  %t39 = load i64, ptr %s.2
-  %t40 = load i64, ptr %s.3
-  %t41 = call i64 @parser$TAG_FIELD()
-  %t42 = call i64 @parser$nodeA(i64 %t21)
-  %t43 = call i64 @parser$nodeC(i64 %t21)
-  %t44 = call i64 @parser$nodeSpan(i64 %t21)
-  %t45 = call i64 @parser$mkNodeAt(i64 %t41, i64 %t42, i64 %t43, i64 0, i64 %t44, i64 0)
-  %t46 = load i64, ptr %s.5
-  %t47 = call i64 @expand$lowerEmit(i64 %t38, i64 %t39, i64 %t40, i64 %t45, i64 %t21, i64 %t46)
+  %t38 = call i64 @parser$TAG_FIELD()
+  %t39 = call i64 @parser$nodeA(i64 %t21)
+  %t40 = call i64 @parser$nodeC(i64 %t21)
+  %t41 = call i64 @parser$nodeSpan(i64 %t21)
+  %t42 = call i64 @parser$mkNodeAt(i64 %t38, i64 %t39, i64 %t40, i64 0, i64 %t41, i64 0)
+  %t43 = call i64 @Mem$memGetWord(i64 %t21, i64 7)
+  %t44 = call i64 @Mem$memSetWord(i64 %t42, i64 7, i64 %t43, i64 0)
+  %t45 = load i64, ptr %s.1
+  %t46 = load i64, ptr %s.2
+  %t47 = load i64, ptr %s.3
+  %t48 = load i64, ptr %s.5
+  %t49 = call i64 @expand$lowerEmit(i64 %t45, i64 %t46, i64 %t47, i64 %t42, i64 %t21, i64 %t48)
   br label %label_37
 label_36:
-  %t48 = load i64, ptr %s.6
-  %t49 = load i64, ptr %s.3
-  %t50 = call i64 @parser$nodeSpan(i64 %t49)
-  %t51 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_869, i64 0, i32 2) to i64
-  %t52 = load i64, ptr %s.2
-  %t53 = call i64 @parser$nodeAName(i64 %t52)
-  %t54 = call i64 @Str$strConcat(i64 %t51, i64 %t53)
-  call void @axiom_release(i64 %t51)
+  %t50 = load i64, ptr %s.6
+  %t51 = load i64, ptr %s.3
+  %t52 = call i64 @parser$nodeSpan(i64 %t51)
+  %t53 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_869, i64 0, i32 2) to i64
+  %t54 = load i64, ptr %s.2
+  %t55 = call i64 @parser$nodeAName(i64 %t54)
+  %t56 = call i64 @Str$strConcat(i64 %t53, i64 %t55)
   call void @axiom_release(i64 %t53)
-  %t55 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_870, i64 0, i32 2) to i64
-  %t56 = call i64 @Str$strConcat(i64 %t54, i64 %t55)
-  call void @axiom_release(i64 %t54)
   call void @axiom_release(i64 %t55)
-  %t57 = call i64 @parser$nodeAName(i64 %t21)
+  %t57 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_870, i64 0, i32 2) to i64
   %t58 = call i64 @Str$strConcat(i64 %t56, i64 %t57)
   call void @axiom_release(i64 %t56)
   call void @axiom_release(i64 %t57)
-  %t59 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_48, i64 0, i32 2) to i64
+  %t59 = call i64 @parser$nodeAName(i64 %t21)
   %t60 = call i64 @Str$strConcat(i64 %t58, i64 %t59)
   call void @axiom_release(i64 %t58)
   call void @axiom_release(i64 %t59)
-  %t61 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_871, i64 0, i32 2) to i64
-  %t62 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_872, i64 0, i32 2) to i64
-  %t63 = call i64 @expand$implDiag(i64 %t48, i64 %t50, i64 %t60, i64 %t61, i64 %t62)
+  %t61 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_48, i64 0, i32 2) to i64
+  %t62 = call i64 @Str$strConcat(i64 %t60, i64 %t61)
   call void @axiom_release(i64 %t60)
+  call void @axiom_release(i64 %t61)
+  %t63 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_871, i64 0, i32 2) to i64
+  %t64 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_872, i64 0, i32 2) to i64
+  %t65 = call i64 @expand$implDiag(i64 %t50, i64 %t52, i64 %t62, i64 %t63, i64 %t64)
+  call void @axiom_release(i64 %t62)
   br label %label_37
 label_37:
-  %t64 = phi i64 [ %t47, %label_35 ], [ %t63, %label_36 ]
+  %t66 = phi i64 [ %t49, %label_35 ], [ %t65, %label_36 ]
   br label %label_30
 label_29:
   br label %label_30
 label_30:
-  %t65 = phi i64 [ %t64, %label_37 ], [ 0, %label_29 ]
-  %t66 = load i64, ptr %s.1
-  %t67 = load i64, ptr %s.2
-  %t68 = load i64, ptr %s.3
-  %t69 = load i64, ptr %s.4
-  %t70 = load i64, ptr %s.5
-  %t71 = load i64, ptr %s.6
-  %t72 = load i64, ptr %s.7
-  %t73 = add i64 %t72, 1
-  %t74 = load i64, ptr %s.5
-  store i64 %t66, ptr %s.1
-  store i64 %t67, ptr %s.2
-  store i64 %t68, ptr %s.3
-  store i64 %t69, ptr %s.4
-  store i64 %t70, ptr %s.5
-  store i64 %t71, ptr %s.6
-  store i64 %t73, ptr %s.7
+  %t67 = phi i64 [ %t66, %label_37 ], [ 0, %label_29 ]
+  %t68 = load i64, ptr %s.1
+  %t69 = load i64, ptr %s.2
+  %t70 = load i64, ptr %s.3
+  %t71 = load i64, ptr %s.4
+  %t72 = load i64, ptr %s.5
+  %t73 = load i64, ptr %s.6
+  %t74 = load i64, ptr %s.7
+  %t75 = add i64 %t74, 1
+  %t76 = load i64, ptr %s.5
+  store i64 %t68, ptr %s.1
+  store i64 %t69, ptr %s.2
+  store i64 %t70, ptr %s.3
+  store i64 %t71, ptr %s.4
+  store i64 %t72, ptr %s.5
+  store i64 %t73, ptr %s.6
+  store i64 %t75, ptr %s.7
   br label %label_0
 label_17:
-  %t75 = load i64, ptr %s.5
-  call void @axiom_release(i64 %t75)
+  %t77 = load i64, ptr %s.5
+  call void @axiom_release(i64 %t77)
   ret i64 0
 }
 define i64 @Map$mapHashPrime() #0 {
@@ -132994,223 +132996,289 @@ label_67:
 define i64 @format$fpTraitMethods(i64 %p, i64 %methods) #0 {
   %s.3 = alloca i64
   %s.4 = alloca i64
+  %s.5 = alloca i64
   %t0 = call i64 @format$fpSrc(i64 %p)
   %t1 = call i64 @format$fpOut(i64 %p)
   %t2 = call i64 @format$fpExprElems(i64 %methods, i64 0)
   store i64 0, ptr %s.3
   store i64 0, ptr %s.4
-  %t5 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_2116, i64 0, i32 2) to i64
-  %t6 = call i64 @format$fpP(i64 %p, i64 %t5)
-  call void @axiom_release(i64 %t5)
-  %t7 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_14, i64 0, i32 2) to i64
-  %t8 = call i64 @format$fpP(i64 %p, i64 %t7)
-  call void @axiom_release(i64 %t7)
-  %t9 = call i64 @format$foPushIndent(i64 %t1)
-  br label %label_10
-label_10:
-  %t13 = load i64, ptr %s.3
-  %t14 = call i64 @Vec$vecLen(i64 %t2)
-  %c15 = icmp slt i64 %t13, %t14
-  %t16 = zext i1 %c15 to i64
-  %t17 = icmp ne i64 %t16, 0
-  br i1 %t17, label %label_11, label %label_12
+  store i64 0, ptr %s.5
+  %t6 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_2116, i64 0, i32 2) to i64
+  %t7 = call i64 @format$fpP(i64 %p, i64 %t6)
+  call void @axiom_release(i64 %t6)
+  %t8 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_14, i64 0, i32 2) to i64
+  %t9 = call i64 @format$fpP(i64 %p, i64 %t8)
+  call void @axiom_release(i64 %t8)
+  %t10 = call i64 @format$foPushIndent(i64 %t1)
+  br label %label_11
 label_11:
-  %t18 = load i64, ptr %s.3
-  %t19 = call i64 @Vec$vecGet(i64 %t2, i64 %t18)
-  %t20 = call i64 @format$fpIsIdentAtom(i64 %t19)
-  %t21 = icmp ne i64 %t20, 0
-  br i1 %t21, label %label_22, label %label_23
-label_22:
-  %t25 = load i64, ptr %s.3
-  %t26 = add i64 %t25, 2
-  %t27 = call i64 @Vec$vecLen(i64 %t2)
-  %t28 = add i64 %t27, 1
-  %c29 = icmp slt i64 %t26, %t28
-  %t30 = zext i1 %c29 to i64
-  %t31 = icmp ne i64 %t30, 0
-  br i1 %t31, label %label_32, label %label_33
-label_32:
-  %t35 = load i64, ptr %s.3
-  %t36 = add i64 %t35, 1
-  %t37 = call i64 @Vec$vecLen(i64 %t2)
-  %c38 = icmp slt i64 %t36, %t37
-  %t39 = zext i1 %c38 to i64
-  %t40 = icmp ne i64 %t39, 0
-  br i1 %t40, label %label_41, label %label_42
-label_41:
-  %t44 = load i64, ptr %s.3
-  %t45 = add i64 %t44, 1
-  %t46 = call i64 @Vec$vecGet(i64 %t2, i64 %t45)
-  %t47 = call i64 @format$fpIsDColonAtom(i64 %t46)
-  br label %label_43
-label_42:
-  br label %label_43
-label_43:
-  %t48 = phi i64 [ %t47, %label_41 ], [ 0, %label_42 ]
-  %t49 = icmp ne i64 %t48, 0
-  %t50 = zext i1 %t49 to i64
-  br label %label_34
-label_33:
-  br label %label_34
-label_34:
-  %t51 = phi i64 [ %t50, %label_43 ], [ 0, %label_33 ]
-  %t52 = icmp ne i64 %t51, 0
-  %t53 = zext i1 %t52 to i64
-  br label %label_24
-label_23:
-  br label %label_24
-label_24:
-  %t54 = phi i64 [ %t53, %label_34 ], [ 0, %label_23 ]
-  %t55 = icmp ne i64 %t54, 0
-  br i1 %t55, label %label_56, label %label_57
-label_56:
-  %t59 = load i64, ptr %s.3
-  %t60 = add i64 %t59, 2
-  %t61 = call i64 @Vec$vecLen(i64 %t2)
-  %c62 = icmp slt i64 %t60, %t61
-  %t63 = zext i1 %c62 to i64
-  %t64 = icmp ne i64 %t63, 0
-  br i1 %t64, label %label_65, label %label_66
-label_65:
-  %t68 = load i64, ptr %s.4
-  %c69 = icmp sgt i64 %t68, 0
-  %t70 = zext i1 %c69 to i64
-  %t71 = icmp ne i64 %t70, 0
-  br i1 %t71, label %label_72, label %label_73
-label_72:
-  %t75 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_14, i64 0, i32 2) to i64
-  %t76 = call i64 @format$fpP(i64 %p, i64 %t75)
-  call void @axiom_release(i64 %t75)
-  br label %label_74
-label_73:
-  br label %label_74
-label_74:
-  %t77 = phi i64 [ %t76, %label_72 ], [ %p, %label_73 ]
-  %t78 = call i64 @format$foEmitIndent(i64 %t1)
-  %t79 = load i64, ptr %s.3
-  %t80 = call i64 @Vec$vecGet(i64 %t2, i64 %t79)
-  %t81 = call i64 @format$fnText(i64 %t0, i64 %t80)
-  %t82 = call i64 @format$fpP(i64 %p, i64 %t81)
-  call void @axiom_release(i64 %t81)
-  %t83 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_2117, i64 0, i32 2) to i64
-  %t84 = call i64 @format$fpP(i64 %p, i64 %t83)
-  call void @axiom_release(i64 %t83)
-  %t85 = load i64, ptr %s.3
-  %t86 = add i64 %t85, 2
-  %t87 = call i64 @Vec$vecGet(i64 %t2, i64 %t86)
-  %t88 = call i64 @format$fpType(i64 %p, i64 %t87)
-  %t89 = load i64, ptr %s.3
-  %t90 = add i64 %t89, 3
-  store i64 %t90, ptr %s.3
-  %t91 = load i64, ptr %s.3
-  %t92 = add i64 %t91, 1
-  %t93 = call i64 @Vec$vecLen(i64 %t2)
-  %c94 = icmp slt i64 %t92, %t93
-  %t95 = zext i1 %c94 to i64
-  %t96 = icmp ne i64 %t95, 0
-  br i1 %t96, label %label_97, label %label_98
-label_97:
-  %t100 = load i64, ptr %s.3
-  %t101 = call i64 @Vec$vecGet(i64 %t2, i64 %t100)
-  %t102 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_6, i64 0, i32 2) to i64
-  %t103 = call i64 @format$fpIsAtomText(i64 %t0, i64 %t101, i64 %t102)
-  call void @axiom_release(i64 %t102)
-  %t104 = icmp ne i64 %t103, 0
-  %t105 = zext i1 %t104 to i64
-  br label %label_99
-label_98:
-  br label %label_99
-label_99:
-  %t106 = phi i64 [ %t105, %label_97 ], [ 0, %label_98 ]
-  %t107 = icmp ne i64 %t106, 0
-  br i1 %t107, label %label_108, label %label_109
-label_108:
-  %t111 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_230, i64 0, i32 2) to i64
-  %t112 = call i64 @format$fpP(i64 %p, i64 %t111)
-  call void @axiom_release(i64 %t111)
-  %t113 = load i64, ptr %s.3
-  %t114 = add i64 %t113, 1
-  %t115 = call i64 @Vec$vecGet(i64 %t2, i64 %t114)
-  %t116 = call i64 @format$fpExpr(i64 %p, i64 %t115)
-  %t117 = load i64, ptr %s.3
-  %t118 = add i64 %t117, 2
-  store i64 %t118, ptr %s.3
-  br label %label_110
-label_109:
-  br label %label_110
-label_110:
-  %t119 = phi i64 [ %t118, %label_108 ], [ %p, %label_109 ]
-  %t120 = load i64, ptr %s.3
-  %t121 = call i64 @Vec$vecLen(i64 %t2)
-  %c122 = icmp slt i64 %t120, %t121
-  %t123 = zext i1 %c122 to i64
-  %t124 = icmp ne i64 %t123, 0
-  br i1 %t124, label %label_125, label %label_126
-label_125:
-  %t128 = load i64, ptr %s.3
-  %t129 = call i64 @Vec$vecGet(i64 %t2, i64 %t128)
-  %t130 = call i64 @format$fnKind(i64 %t129)
-  %t131 = call i64 @format$FN_PAREN()
-  %c132 = icmp eq i64 %t130, %t131
-  %t133 = zext i1 %c132 to i64
-  %t134 = icmp ne i64 %t133, 0
-  %t135 = zext i1 %t134 to i64
-  br label %label_127
-label_126:
-  br label %label_127
-label_127:
-  %t136 = phi i64 [ %t135, %label_125 ], [ 0, %label_126 ]
-  %t137 = icmp ne i64 %t136, 0
-  br i1 %t137, label %label_138, label %label_139
-label_138:
-  %t141 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_235, i64 0, i32 2) to i64
-  %t142 = call i64 @format$fpP(i64 %p, i64 %t141)
-  call void @axiom_release(i64 %t141)
-  %t143 = load i64, ptr %s.3
-  %t144 = call i64 @Vec$vecGet(i64 %t2, i64 %t143)
-  %t145 = call i64 @format$fpEffectAtoms(i64 %p, i64 %t144)
-  %t146 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_40, i64 0, i32 2) to i64
-  %t147 = call i64 @format$fpP(i64 %p, i64 %t146)
-  call void @axiom_release(i64 %t146)
-  %t148 = load i64, ptr %s.3
-  %t149 = add i64 %t148, 1
-  store i64 %t149, ptr %s.3
-  br label %label_140
-label_139:
-  br label %label_140
-label_140:
-  %t150 = phi i64 [ %t149, %label_138 ], [ %p, %label_139 ]
-  %t151 = load i64, ptr %s.4
-  %t152 = add i64 %t151, 1
-  store i64 %t152, ptr %s.4
-  br label %label_67
-label_66:
-  %t153 = call i64 @format$fpBad(i64 %p)
-  %t154 = call i64 @Vec$vecLen(i64 %t2)
-  store i64 %t154, ptr %s.3
-  br label %label_67
-label_67:
-  %t155 = phi i64 [ %t152, %label_140 ], [ %t154, %label_66 ]
-  br label %label_58
-label_57:
-  %t156 = call i64 @format$fpBad(i64 %p)
-  %t157 = call i64 @Vec$vecLen(i64 %t2)
-  store i64 %t157, ptr %s.3
-  br label %label_58
-label_58:
-  %t158 = phi i64 [ %t155, %label_67 ], [ %t157, %label_57 ]
-  br label %label_10
+  %t14 = load i64, ptr %s.3
+  %t15 = call i64 @Vec$vecLen(i64 %t2)
+  %c16 = icmp slt i64 %t14, %t15
+  %t17 = zext i1 %c16 to i64
+  %t18 = icmp ne i64 %t17, 0
+  br i1 %t18, label %label_12, label %label_13
 label_12:
-  %t159 = call i64 @format$foPopIndent(i64 %t1)
-  %t160 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_14, i64 0, i32 2) to i64
-  %t161 = call i64 @format$fpP(i64 %p, i64 %t160)
-  call void @axiom_release(i64 %t160)
-  %t162 = call i64 @format$foEmitIndent(i64 %t1)
-  %t163 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_40, i64 0, i32 2) to i64
-  %t164 = call i64 @format$fpP(i64 %p, i64 %t163)
-  call void @axiom_release(i64 %t163)
+  %t19 = load i64, ptr %s.3
+  %t20 = call i64 @Vec$vecGet(i64 %t2, i64 %t19)
+  %t21 = call i64 @format$fpIsAxtagAtom(i64 %t20)
+  %t22 = icmp ne i64 %t21, 0
+  br i1 %t22, label %label_23, label %label_24
+label_23:
+  %t26 = load i64, ptr %s.4
+  %c27 = icmp sgt i64 %t26, 0
+  %t28 = zext i1 %c27 to i64
+  %t29 = icmp ne i64 %t28, 0
+  br i1 %t29, label %label_30, label %label_31
+label_30:
+  %t33 = load i64, ptr %s.5
+  %c34 = icmp eq i64 %t33, 0
+  %t35 = zext i1 %c34 to i64
+  %t36 = icmp ne i64 %t35, 0
+  %t37 = zext i1 %t36 to i64
+  br label %label_32
+label_31:
+  br label %label_32
+label_32:
+  %t38 = phi i64 [ %t37, %label_30 ], [ 0, %label_31 ]
+  %t39 = icmp ne i64 %t38, 0
+  br i1 %t39, label %label_40, label %label_41
+label_40:
+  %t43 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_14, i64 0, i32 2) to i64
+  %t44 = call i64 @format$fpP(i64 %p, i64 %t43)
+  call void @axiom_release(i64 %t43)
+  br label %label_42
+label_41:
+  br label %label_42
+label_42:
+  %t45 = phi i64 [ %t44, %label_40 ], [ %p, %label_41 ]
+  %t46 = call i64 @format$foEmitIndent(i64 %t1)
+  %t47 = load i64, ptr %s.3
+  %t48 = call i64 @Vec$vecGet(i64 %t2, i64 %t47)
+  %t49 = call i64 @format$fnTok(i64 %t48)
+  %t50 = call i64 @format$fpAxtag(i64 %p, i64 %t49)
+  %t51 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_14, i64 0, i32 2) to i64
+  %t52 = call i64 @format$fpP(i64 %p, i64 %t51)
+  call void @axiom_release(i64 %t51)
+  store i64 1, ptr %s.5
+  %t53 = load i64, ptr %s.3
+  %t54 = add i64 %t53, 1
+  store i64 %t54, ptr %s.3
+  br label %label_25
+label_24:
+  %t55 = load i64, ptr %s.3
+  %t56 = call i64 @Vec$vecGet(i64 %t2, i64 %t55)
+  %t57 = call i64 @format$fpIsIdentAtom(i64 %t56)
+  %t58 = icmp ne i64 %t57, 0
+  br i1 %t58, label %label_59, label %label_60
+label_59:
+  %t62 = load i64, ptr %s.3
+  %t63 = add i64 %t62, 2
+  %t64 = call i64 @Vec$vecLen(i64 %t2)
+  %t65 = add i64 %t64, 1
+  %c66 = icmp slt i64 %t63, %t65
+  %t67 = zext i1 %c66 to i64
+  %t68 = icmp ne i64 %t67, 0
+  br i1 %t68, label %label_69, label %label_70
+label_69:
+  %t72 = load i64, ptr %s.3
+  %t73 = add i64 %t72, 1
+  %t74 = call i64 @Vec$vecLen(i64 %t2)
+  %c75 = icmp slt i64 %t73, %t74
+  %t76 = zext i1 %c75 to i64
+  %t77 = icmp ne i64 %t76, 0
+  br i1 %t77, label %label_78, label %label_79
+label_78:
+  %t81 = load i64, ptr %s.3
+  %t82 = add i64 %t81, 1
+  %t83 = call i64 @Vec$vecGet(i64 %t2, i64 %t82)
+  %t84 = call i64 @format$fpIsDColonAtom(i64 %t83)
+  br label %label_80
+label_79:
+  br label %label_80
+label_80:
+  %t85 = phi i64 [ %t84, %label_78 ], [ 0, %label_79 ]
+  %t86 = icmp ne i64 %t85, 0
+  %t87 = zext i1 %t86 to i64
+  br label %label_71
+label_70:
+  br label %label_71
+label_71:
+  %t88 = phi i64 [ %t87, %label_80 ], [ 0, %label_70 ]
+  %t89 = icmp ne i64 %t88, 0
+  %t90 = zext i1 %t89 to i64
+  br label %label_61
+label_60:
+  br label %label_61
+label_61:
+  %t91 = phi i64 [ %t90, %label_71 ], [ 0, %label_60 ]
+  %t92 = icmp ne i64 %t91, 0
+  br i1 %t92, label %label_93, label %label_94
+label_93:
+  %t96 = load i64, ptr %s.3
+  %t97 = add i64 %t96, 2
+  %t98 = call i64 @Vec$vecLen(i64 %t2)
+  %c99 = icmp slt i64 %t97, %t98
+  %t100 = zext i1 %c99 to i64
+  %t101 = icmp ne i64 %t100, 0
+  br i1 %t101, label %label_102, label %label_103
+label_102:
+  %t105 = load i64, ptr %s.4
+  %c106 = icmp sgt i64 %t105, 0
+  %t107 = zext i1 %c106 to i64
+  %t108 = icmp ne i64 %t107, 0
+  br i1 %t108, label %label_109, label %label_110
+label_109:
+  %t112 = load i64, ptr %s.5
+  %c113 = icmp eq i64 %t112, 0
+  %t114 = zext i1 %c113 to i64
+  %t115 = icmp ne i64 %t114, 0
+  %t116 = zext i1 %t115 to i64
+  br label %label_111
+label_110:
+  br label %label_111
+label_111:
+  %t117 = phi i64 [ %t116, %label_109 ], [ 0, %label_110 ]
+  %t118 = icmp ne i64 %t117, 0
+  br i1 %t118, label %label_119, label %label_120
+label_119:
+  %t122 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_14, i64 0, i32 2) to i64
+  %t123 = call i64 @format$fpP(i64 %p, i64 %t122)
+  call void @axiom_release(i64 %t122)
+  br label %label_121
+label_120:
+  br label %label_121
+label_121:
+  %t124 = phi i64 [ %t123, %label_119 ], [ %p, %label_120 ]
+  store i64 0, ptr %s.5
+  %t125 = call i64 @format$foEmitIndent(i64 %t1)
+  %t126 = load i64, ptr %s.3
+  %t127 = call i64 @Vec$vecGet(i64 %t2, i64 %t126)
+  %t128 = call i64 @format$fnText(i64 %t0, i64 %t127)
+  %t129 = call i64 @format$fpP(i64 %p, i64 %t128)
+  call void @axiom_release(i64 %t128)
+  %t130 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_2117, i64 0, i32 2) to i64
+  %t131 = call i64 @format$fpP(i64 %p, i64 %t130)
+  call void @axiom_release(i64 %t130)
+  %t132 = load i64, ptr %s.3
+  %t133 = add i64 %t132, 2
+  %t134 = call i64 @Vec$vecGet(i64 %t2, i64 %t133)
+  %t135 = call i64 @format$fpType(i64 %p, i64 %t134)
+  %t136 = load i64, ptr %s.3
+  %t137 = add i64 %t136, 3
+  store i64 %t137, ptr %s.3
+  %t138 = load i64, ptr %s.3
+  %t139 = add i64 %t138, 1
+  %t140 = call i64 @Vec$vecLen(i64 %t2)
+  %c141 = icmp slt i64 %t139, %t140
+  %t142 = zext i1 %c141 to i64
+  %t143 = icmp ne i64 %t142, 0
+  br i1 %t143, label %label_144, label %label_145
+label_144:
+  %t147 = load i64, ptr %s.3
+  %t148 = call i64 @Vec$vecGet(i64 %t2, i64 %t147)
+  %t149 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_6, i64 0, i32 2) to i64
+  %t150 = call i64 @format$fpIsAtomText(i64 %t0, i64 %t148, i64 %t149)
+  call void @axiom_release(i64 %t149)
+  %t151 = icmp ne i64 %t150, 0
+  %t152 = zext i1 %t151 to i64
+  br label %label_146
+label_145:
+  br label %label_146
+label_146:
+  %t153 = phi i64 [ %t152, %label_144 ], [ 0, %label_145 ]
+  %t154 = icmp ne i64 %t153, 0
+  br i1 %t154, label %label_155, label %label_156
+label_155:
+  %t158 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_230, i64 0, i32 2) to i64
+  %t159 = call i64 @format$fpP(i64 %p, i64 %t158)
+  call void @axiom_release(i64 %t158)
+  %t160 = load i64, ptr %s.3
+  %t161 = add i64 %t160, 1
+  %t162 = call i64 @Vec$vecGet(i64 %t2, i64 %t161)
+  %t163 = call i64 @format$fpExpr(i64 %p, i64 %t162)
+  %t164 = load i64, ptr %s.3
+  %t165 = add i64 %t164, 2
+  store i64 %t165, ptr %s.3
+  br label %label_157
+label_156:
+  br label %label_157
+label_157:
+  %t166 = phi i64 [ %t165, %label_155 ], [ %p, %label_156 ]
+  %t167 = load i64, ptr %s.3
+  %t168 = call i64 @Vec$vecLen(i64 %t2)
+  %c169 = icmp slt i64 %t167, %t168
+  %t170 = zext i1 %c169 to i64
+  %t171 = icmp ne i64 %t170, 0
+  br i1 %t171, label %label_172, label %label_173
+label_172:
+  %t175 = load i64, ptr %s.3
+  %t176 = call i64 @Vec$vecGet(i64 %t2, i64 %t175)
+  %t177 = call i64 @format$fnKind(i64 %t176)
+  %t178 = call i64 @format$FN_PAREN()
+  %c179 = icmp eq i64 %t177, %t178
+  %t180 = zext i1 %c179 to i64
+  %t181 = icmp ne i64 %t180, 0
+  %t182 = zext i1 %t181 to i64
+  br label %label_174
+label_173:
+  br label %label_174
+label_174:
+  %t183 = phi i64 [ %t182, %label_172 ], [ 0, %label_173 ]
+  %t184 = icmp ne i64 %t183, 0
+  br i1 %t184, label %label_185, label %label_186
+label_185:
+  %t188 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_235, i64 0, i32 2) to i64
+  %t189 = call i64 @format$fpP(i64 %p, i64 %t188)
+  call void @axiom_release(i64 %t188)
+  %t190 = load i64, ptr %s.3
+  %t191 = call i64 @Vec$vecGet(i64 %t2, i64 %t190)
+  %t192 = call i64 @format$fpEffectAtoms(i64 %p, i64 %t191)
+  %t193 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_40, i64 0, i32 2) to i64
+  %t194 = call i64 @format$fpP(i64 %p, i64 %t193)
+  call void @axiom_release(i64 %t193)
+  %t195 = load i64, ptr %s.3
+  %t196 = add i64 %t195, 1
+  store i64 %t196, ptr %s.3
+  br label %label_187
+label_186:
+  br label %label_187
+label_187:
+  %t197 = phi i64 [ %t196, %label_185 ], [ %p, %label_186 ]
+  %t198 = load i64, ptr %s.4
+  %t199 = add i64 %t198, 1
+  store i64 %t199, ptr %s.4
+  br label %label_104
+label_103:
+  %t200 = call i64 @format$fpBad(i64 %p)
+  %t201 = call i64 @Vec$vecLen(i64 %t2)
+  store i64 %t201, ptr %s.3
+  br label %label_104
+label_104:
+  %t202 = phi i64 [ %t199, %label_187 ], [ %t201, %label_103 ]
+  br label %label_95
+label_94:
+  %t203 = call i64 @format$fpBad(i64 %p)
+  %t204 = call i64 @Vec$vecLen(i64 %t2)
+  store i64 %t204, ptr %s.3
+  br label %label_95
+label_95:
+  %t205 = phi i64 [ %t202, %label_104 ], [ %t204, %label_94 ]
+  br label %label_25
+label_25:
+  %t206 = phi i64 [ %t54, %label_42 ], [ %t205, %label_95 ]
+  br label %label_11
+label_13:
+  %t207 = call i64 @format$foPopIndent(i64 %t1)
+  %t208 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_14, i64 0, i32 2) to i64
+  %t209 = call i64 @format$fpP(i64 %p, i64 %t208)
+  call void @axiom_release(i64 %t208)
+  %t210 = call i64 @format$foEmitIndent(i64 %t1)
+  %t211 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_40, i64 0, i32 2) to i64
+  %t212 = call i64 @format$fpP(i64 %p, i64 %t211)
+  call void @axiom_release(i64 %t211)
   call void @axiom_release(i64 %t0)
-  ret i64 %t164
+  ret i64 %t212
 }
 define i64 @format$fpDeclImpl(i64 %p, i64 %n) #0 {
   %s.56 = alloca i64
