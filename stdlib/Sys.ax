@@ -906,8 +906,10 @@
 ; `Sys.Platform.spawnUsesPosixSpawn` is the capability selecting between
 ; them, in keeping with `openNeedsDirFd`: nothing here names an OS.
 ; ------------------------------------------------------------------
-; Start `path` with argument vector `argv` and environment `envp`,
-; answering the child's pid, or `-errno`.
+; Start `path` with argument vector `argv` and environment `envp`.
+; `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means
+; no child exists, which is what a caller must not confuse with a
+; child that started and failed.
 ;
 ; `path` is a raw NUL-terminated char*, as `sysOpenPath` takes one.
 ; `argv` and `envp` are NULL-terminated arrays of such pointers; `argv`
@@ -997,7 +999,8 @@
   )
 ))
 
-; Wait for `pid` and answer the raw wait status, or `-errno`.
+; Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)`
+; carries the errno of a wait that could not be performed.
 (pub :: sysWaitPid (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
@@ -1034,10 +1037,15 @@
 
 ; Run `path` to completion and answer its exit code.
 ;
-; A negative answer is the spawn's own `-errno` - the child never ran -
-; which is what distinguishes "could not start llc" from "llc rejected
-; the module", two failures a driver must not report the same way. A
-; child killed by a signal answers 128+signal, the shell's convention.
+; `(Err e)` is the spawn's own errno - THE CHILD NEVER RAN - which is
+; what distinguishes "could not start llc" from "llc rejected the
+; module", two failures a driver must not report the same way. `(Ok c)`
+; means it ran, and `c` is what it answered: its exit code, or
+; 128+signal if a signal killed it, the shell's convention.
+;
+; The distinction used to be carried by the SIGN of one Int. It is
+; carried by the arms now, which is the difference between a caller
+; that may lose it and one that cannot.
 (pub :: sysRun (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
@@ -2152,8 +2160,9 @@
 ; loop below advances by the request on one platform and by the answer
 ; on the other, and `randomIsGetentropy` is which.
 ; ------------------------------------------------------------------
-; Fill `n` bytes at `buf` with kernel entropy. Answers 0, or a negative
-; errno with the buffer's contents unspecified.
+; Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)`
+; whose code is the errno - and on `Err` the buffer's contents are
+; unspecified, so a caller must not read them.
 ;
 ; A ZERO-BYTE REQUEST IS 0 AND MAKES NO SYSCALL, so a caller computing a
 ; length does not have to special-case an empty one.

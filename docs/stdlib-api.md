@@ -394,12 +394,12 @@ See [reference.md](reference.md) for the language, and
 | `sysGetCwd` | value | `String` | `Alloc,IO,Mut` | The process's working directory as an absolute path, or "" if it cannot be determined. |
 | `sysEnv` | value | `(-> String String)` | `Alloc,IO,Mut` | The value of the environment variable `name`, or "" when it is unset. |
 | `sysEnvp` | value | `Int` | `Alloc,IO,Mut` | A NULL-terminated copy of the process's own environment vector, in the form a child expects. |
-| `sysSpawn` | value | `(-> Int Int Int Int)` | `Alloc,IO,Mut` | Start `path` with argument vector `argv` and environment `envp`, answering the child's pid, or `-errno`. |
-| `sysWaitPid` | value | `(-> Int Int)` | `Alloc,IO,Mut` | Wait for `pid` and answer the raw wait status, or `-errno`. |
+| `sysSpawn` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Start `path` with argument vector `argv` and environment `envp`. `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means no child exists, which is what a caller must not confuse with a child that started and failed. |
+| `sysWaitPid` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` | Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)` carries the errno of a wait that could not be performed. |
 | `sysExitCode` | value | `(-> Int Int)` |  | The exit code carried by a wait status, for a child that exited normally. |
 | `sysTermSignal` | value | `(-> Int Int)` |  | The signal that killed a child, or 0 if it exited normally. |
-| `sysRun` | value | `(-> Int Int Int Int)` | `Alloc,IO,Mut` | Run `path` to completion and answer its exit code. |
-| `sysRunPath` | value | `(-> String Int Int Int)` | `Alloc,IO,Mut` | Run `name`, searching `PATH` for it when it contains no slash. |
+| `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Run `path` to completion and answer its exit code. |
+| `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,IO,Mut` | Run `name`, searching `PATH` for it when it contains no slash. |
 | `sysGetPid` | value | `Int` | `IO` | The calling process's own id - the per-session suffix scratch files need so two concurrent processes cannot collide. The syscall takes no arguments; the unused ones are simply zero. |
 | `sysNowMicros` | value | `(-> Int Int)` | `IO` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux answers CLOCK_MONOTONIC via clock_gettime. |
 | `sysNowMonotonic` | value | `(-> Int Int)` | `IO` | Microseconds from a clock that NEVER steps backwards, or a negative when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing. |
@@ -432,7 +432,7 @@ See [reference.md](reference.md) for the language, and
 | `netPollDelRead` | value | `(-> Int Int Int Int)` | `IO,Mut` |  |
 | `netPollWait` | value | `(-> Int Int Int Int Int Int)` | `IO,Mut` | Wait for readiness, answering how many events landed in `buf` or a negative errno. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
 | `netPollFdAt` | value | `(-> Int Int Int)` |  | The descriptor named by event `i` of a buffer `netPollWait` filled. |
-| `sysRandomBytes` | value | `(-> Int Int Int)` | `IO` | Fill `n` bytes at `buf` with kernel entropy. Answers 0, or a negative errno with the buffer's contents unspecified. |
+| `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int Int)` | `IO,Mut` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 8 bytes. |
 | `netSignalOpen` | value | `(-> Int Int Int Int Int)` | `IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on Darwin, which needs none. |
