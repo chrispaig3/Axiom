@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3004","slug":"type-mismatch","message":"type mismatch: expected String, found Int","file":"365-trait-default-shared-body.ax","span":{"start":{"line":38,"col":44},"end":{"line":38,"col":45},"char_start":1951,"char_end":1952},"label":"this has type `Int`, expected `String`","related":[],"notes":[],"help":[],"expansion":[]}
