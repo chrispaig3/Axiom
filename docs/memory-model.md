@@ -2974,13 +2974,27 @@ remains is the release side — a `Str` header is a `memAlloc` leaf, so
 its death returns nothing yet — and the §3.3 refusal; both ride with
 the container rung.
 
-**MM-LIFE-7 (P).** **Linear types.** `(linear T)` and `(consume e)`
-parse today and enforce nothing: a linear value may be used twice or
-zero times, consumed twice, or never, and no memory is reclaimed at any
-point.
+**MM-LIFE-7 (P, its syntax refused 2026-08-25).** **Linear types.**
+`(linear T)` and `(consume e)` no longer parse. Both report `AX2004`:
+`axiom check` on `(fn (main) (consume 0))` answers "`consume` parsed
+and reclaimed nothing, and is now refused", a `(linear Int)`
+annotation answers the same for `linear`, and each exits 1
+(`reference.md`, Removed Features; `error-model.md` ERR-MEM-6).
 
-"Parsed only" understates one half and overstates the other, and both
-matter to anyone building on it:
+**What was refused is the inert syntax, not the discipline, which is
+why this rule keeps P.** The clauses below are still normative for a
+conforming implementation and still unimplemented; `error-model.md`
+ERR-MEM-6 states the same status from the other side — "`MM-LIFE-7`,
+if it lands, would add two things to this model and change none of its
+rules". A rule whose spelling is gone and whose obligation is not is
+neither **R** nor **W**, so §9's Lifetimes row keeps `LIFE-7` under
+Planned.
+
+Until 2026-08-25 both spellings parsed and enforced nothing: a linear
+value could be used twice or zero times, consumed twice, or never, and
+no memory was reclaimed at any point. "Parsed only" understated one
+half and overstated the other, and the record is kept below because old
+source still carries both spellings:
 
 - **`Linear T` is a real nominal barrier.** It is the type constructor
   `Linear` applied to `T`, and it is *incompatible* with `T`:
@@ -3358,7 +3372,7 @@ that rule's status, which is the failure this table exists to prevent.
 | Mutation | MUT-1…5 | — | — | MUT-6 |
 | Lifetimes | LIFE-1, 3, 4, 6, 2g | LIFE-5, LIFE-7 | LIFE-2a…2f (2026-08-24, superseded by ALLOC-22) | LIFE-2 |
 | Parallelism | PAR-1…5 | PAR-6 | — | — |
-| Foreign | FFI-2…4 | FFI-5 | — | FFI-1 |
+| Foreign | FFI-1…6 | — | — | — |
 
 `MM-VAL-21` appears in no column: it is neither held, planned nor
 refused, but **defective** — see §9.0.

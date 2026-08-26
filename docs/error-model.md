@@ -325,7 +325,7 @@ constructed anywhere, and `scripts/check-doc-drift.sh` checks
 construction against `explain --list` in both directions, so it must
 not be listed until it is built.
 
-**ERR-PROP-5 (P). Higher-order propagation carries the callee's
+**ERR-PROP-5 (H). Higher-order propagation carries the callee's
 effects, not the error.** A combinator taking a fallible function
 (`mapResult`, `andThen`) is effect-transparent in that parameter and
 `axiom symbols` reports `#effect-params=`; its own body stays pure. No
@@ -969,8 +969,17 @@ the end.
 
 ## 10. Adoption
 
-**ERR-ADOPT-1 (P). The migration is 65 sites and it is not one
-commit.** Order, each slice green before the next:
+**ERR-ADOPT-1 (P). The migration is 64 sites by §1.2's `grep` proxy,
+and 30 public functions over 7 modules by the metric that is gated. It
+is not one commit.** The proxy sizes the work and is recomputed rather
+than quoted (§1.2). The gated unit is a public function whose own
+doc-comment states a sentinel contract - what the migration ports, and
+what a caller depends on - recorded in `compat/SENTINELS` and
+recomputed by `scripts/check-compat.sh`, which fails any module that
+RISES. A module may fall freely, and the number in `compat/SENTINELS`
+is lowered in the same commit that lowers the count: that is the
+direction, gated before anything is ported. Order, each slice green
+before the next:
 
 1. ~~`stdlib/Err.ax`~~ **DONE 2026-08-16** — `Result`, `Error`,
    `mapErr`, `withContext`, `okOr`, `toOption`, `andThen`, `mapOk`,

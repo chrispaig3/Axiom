@@ -314,8 +314,14 @@ import re, sys
 # One entry per arm of `symKindWord` in self_host/symbols.ax, and no
 # more: `X` (foreign binding) was retired with the FFI, and leaving it
 # here would have this rule spell a kind the compiler prints raw.
+# This table is the SECOND implementation of `symKindWord`, and it is
+# deliberately a second one: the check reconstructs the human table
+# from AXSYM and compares, so a letter the compiler emits and this
+# does not know is a real failure rather than a re-bless. It caught
+# `M` and `E` the day they were added.
 KIND = {'F': 'Fn', 'D': 'Data', 'C': 'Ctor',
-        'S': 'Struct', 'A': 'Alias', 'T': 'Trait'}
+        'S': 'Struct', 'A': 'Alias', 'T': 'Trait',
+        'M': 'Macro', 'E': 'Effect'}
 axsym = [l for l in open(sys.argv[1], encoding='utf-8').read().split('\n') if l]
 table = [l for l in open(sys.argv[2], encoding='utf-8').read().split('\n') if l]
 bad = []

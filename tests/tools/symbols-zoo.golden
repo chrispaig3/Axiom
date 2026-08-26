@@ -147,3 +147,7 @@ T Show tests/fmt/syntax-zoo.ax:58:9-13 "trait Show" @8318f82fa5e17568 #methods=s
 T Ord tests/fmt/syntax-zoo.ax:63:9-12 "trait Ord" @c40227b1c47b7fe4 #methods=cmp:(a -> Int)
 T Container tests/fmt/syntax-zoo.ax:229:9-18 "trait Container" @8d4c851c510050c4 #methods=held:Box a
 T Boxy tests/fmt/syntax-zoo.ax:233:9-13 "trait Boxy" @c48328b263173335 #methods=reboxed:Box Box a
+M twice tests/fmt/syntax-zoo.ax:102:9-14 "macro twice" @a0ee9867b2571b97
+E Console tests/fmt/syntax-zoo.ax:186:9-16 "effect Console" @5e35620abc5f495d
+E Wire tests/fmt/syntax-zoo.ax:189:9-13 "effect Wire" @f3f0a43895c12689
+E Boxes tests/fmt/syntax-zoo.ax:247:9-14 "effect Boxes" @244d27b945c772d1

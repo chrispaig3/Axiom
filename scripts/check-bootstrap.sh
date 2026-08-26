@@ -476,7 +476,7 @@ for case_file in "$repo_root"/tests/selfhost/[0-9]*.ax; do
   fi
 done
 
-# Floors. 151 cases carrying 50 distinct expectations today; a sweep
+# Floors. 157 cases carrying 53 distinct expectations today; a sweep
 # that reads fewer than 60, or one whose expectations collapse to a
 # handful of values, has lost its corpus or its parser - and either
 # reads exactly like a compiler that answers everything correctly.
@@ -600,7 +600,7 @@ floor=8192       # 8 MiB
 # 1.4 KB addition to one diagnostic's prose in `explain.ax`, zero new
 # lines, had moved the peak 5.3 MiB.
 #
-# 420 -> 340 MiB on 2026-08-22, and this file's own rule is why: "moving
+# 420 -> 384 MiB on 2026-08-22, and this file's own rule is why: "moving
 # it DOWN after a win is part of taking the win". The measured peak is
 # 301 MiB - the escBody fix that set the 420 figure was followed by the
 # release-first and intrusive-dead-list work, and nobody moved the

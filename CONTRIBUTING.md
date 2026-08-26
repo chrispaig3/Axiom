@@ -339,9 +339,9 @@ written by hand and nothing compared it to the workflow.
 ## CI/CD
 
 Every push to `trunk` and every pull request runs
-`.github/workflows/ci.yml`. Seven jobs, staged so that a cheap failure
+`.github/workflows/ci.yml`. Eight jobs, staged so that a cheap failure
 is reported before an expensive one — the grammar job gates the other
-six, because it is the only one that needs no compiler at all. Five of
+seven, because it is the only one that needs no compiler at all. Six of
 them provision a compiler through the same composite action,
 `.github/actions/provision`:
 
@@ -358,9 +358,13 @@ them provision a compiler through the same composite action,
    host, at `--opt` 0, 1 and 2, and all four committed seeds assemble.
 5. **Self-hosting fixpoint** — `check-bootstrap.sh`: `stage2 ==
    stage3`, byte for byte, with the ladder rooted at the committed seed.
-6. **Reproducible build** — two independent runs produce identical
+6. **Seed provenance** — `check-seed-provenance.sh`: all four committed
+   seeds are regenerated from the commit that last wrote them and must
+   come back byte-identical. Its own job because it needs
+   `fetch-depth: 0` and about five minutes.
+7. **Reproducible build** — two independent runs produce identical
    bytes.
-7. **Bootstrap from seed** — the load-bearing one, on linux-x86_64 and
+8. **Bootstrap from seed** — the load-bearing one, on linux-x86_64 and
    darwin-aarch64: a clean checkout builds the compiler from
    `bootstrap/` with only `llc` and `cc`. If this fails, the repository
    cannot be built at all, and a stale seed is the usual reason

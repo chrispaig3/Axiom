@@ -1,4 +1,5 @@
 D Result stdlib/Err.ax @b9f5acf9ecf678ba "data Result" #ctors=Ok,Err
+E Assert stdlib/Test.ax @a5dcced0ec910716 "effect Assert"
 F acceptNonblockFlag stdlib/Sys/Platform.ax @897180219612fc65 "Int"
 F addChecked stdlib/Err.ax @5d660b40b8422a2f "(Int -> (Int -> Result Int Error))"
 F afInet stdlib/Sys/Platform.ax @d27a836ebaf1ed16 "Int"
@@ -401,6 +402,18 @@ F vecWithCapacityRef stdlib/Vec.ax @4931b5c5fdddadcc "(Int -> Int)" #effects=All
 F withContext stdlib/Err.ax @9733c7d4aeb3bcda "(Result a Error -> (String -> Result a Error))"
 F writeFile stdlib/IO.ax @02446b7fc8d23e18 "(String -> (String -> Int))" #effects=Alloc,IO,Mut
 F writeStr stdlib/IO.ax @d7ac81e9b98b4f11 "(Int -> (String -> Int))" #effects=IO
+M cond2 stdlib/Pre.ax @7b48136fc64b7ba1 "macro cond2"
+M cond3 stdlib/Pre.ax @7b48126fc64b79ee "macro cond3"
+M deriveArity stdlib/Pre.ax @784f037cfed395af "macro deriveArity"
+M deriveEq stdlib/Pre.ax @70f62ddfcdb04e64 "macro deriveEq"
+M deriveShow stdlib/Pre.ax @758babef6d640a1f "macro deriveShow"
+M eprintln stdlib/IO.ax @8f94b1f182f051b9 "macro eprintln"
+M format stdlib/Show.ax @f0b2b594fd323246 "macro format"
+M println stdlib/IO.ax @6385b2ebf0ca5c02 "macro println"
+M showOr stdlib/Pre.ax @e44b1b360eac12ad "macro showOr"
+M try! stdlib/Err.ax @33e26f813784f1f9 "macro try!"
+M unless stdlib/Pre.ax @af6f0ce3aa587897 "macro unless"
+M when stdlib/Pre.ax @eacb4a87e7ad62e5 "macro when"
 S Error stdlib/Err.ax @0805ae0b9077d3a6 "struct Error" #fields=code:Int,message:String,context:String
 S Meta stdlib/Agent/Tags.ax @ba9f4823bce27105 "struct Meta" #fields=key:String,val:String
 S Sym stdlib/Agent/Tags.ax @8902c6a9b1655a47 "struct Sym" #fields=kind:Int,name:String,loc:String,ty:String,nid:String,meta:Int

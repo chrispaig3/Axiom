@@ -402,7 +402,8 @@ macro cannot perform effects at expansion time: a template calling
 `readFile` emits the *call*, and the file's contents appear nowhere in
 the output. That is the sandbox the proposal wanted, and it holds.
 
-Three measured defects block a *safe* expansion API, and none is small:
+Two measured defects still block a *safe* expansion API, and neither is
+small. A third, the one that was never a hygiene defect, is closed:
 
 1. **Reverse hygiene has a live hole.** A template's free identifier
    naming a trait method is captured by an entry-file declaration. The
@@ -410,13 +411,15 @@ Three measured defects block a *safe* expansion API, and none is small:
    `tests/selfhost/383-format-capture.ax` pins the broken behaviour.
 2. **Declaration-level generated names are unhygienic**, colliding with
    hand-written ones as `AX3006` at a positionless span.
-3. **A declaration-macro fan-out is unbounded.** The two output budgets
-   are incremented only inside expression expansion; the declaration
-   phase never touches them, so a doubling template is killed at
-   multi-gigabyte RSS with no diagnostic and no output. For a harness
-   compiling model-generated code this is the sharpest edge in the
-   language: `axiom check` has no memory bound and no lever to give it
-   one.
+3. ~~**A declaration-macro fan-out is unbounded.**~~ **Bounded,
+   2026-08-23.** The two expression budgets are still reachable only
+   from `expandExpr`, which phase D never enters, so the fix was a
+   third budget on the axis phase D lacked: `expMaxDecls`, 10,000,
+   counted at every generated declaration rather than at the product.
+   A doubling template that used to be an operating-system kill at
+   multi-gigabyte RSS with no diagnostic and no output now refuses as
+   `AX3024` (`tests/diagnostics/401-decl-macro-size-limit.ax`, and §5's
+   item 5). `axiom check` has the memory lever this said it lacked.
 
 There is, however, a **closed compile-time reflection vocabulary** that
 already exists — the `syntax/*` forms — letting a program interrogate the

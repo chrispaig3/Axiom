@@ -147,3 +147,7 @@ Trait    Show                 trait Show                               [tests/fm
 Trait    Ord                  trait Ord                                [tests/fmt/syntax-zoo.ax:63:9-12]
 Trait    Container            trait Container                          [tests/fmt/syntax-zoo.ax:229:9-18]
 Trait    Boxy                 trait Boxy                               [tests/fmt/syntax-zoo.ax:233:9-13]
+Macro    twice                macro twice                              [tests/fmt/syntax-zoo.ax:102:9-14]
+Effect   Console              effect Console                           [tests/fmt/syntax-zoo.ax:186:9-16]
+Effect   Wire                 effect Wire                              [tests/fmt/syntax-zoo.ax:189:9-13]
+Effect   Boxes                effect Boxes                             [tests/fmt/syntax-zoo.ax:247:9-14]

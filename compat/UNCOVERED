@@ -12,17 +12,12 @@
 # fourteenth invisible name fails the gate, and closing the hole is
 # this file becoming empty.
 #
-# Measured 2026-08-26 against 0.3.1: 407 rows carried, 13 not.
-Assert
-cond2
-cond3
-deriveArity
-deriveEq
-deriveShow
-eprintln
-format
-println
-showOr
-try!
-unless
-when
+# CLOSED 2026-08-26. `symbols.ax` gained a `TAG_D_MACRO` arm and an
+# arm recording an `(effect ...)` declaration's own name, so all 420
+# public names now carry a row and this list is empty.
+#
+# It stays, and it stays COMPARED. The gate reads it as a SET, so an
+# empty file is the assertion that nothing has left the stream - a
+# fourteenth invisible name would fail here, which is exactly the
+# check that was missing when twelve macros were outside the contract
+# and nothing said so.

@@ -626,13 +626,27 @@
   (prmN : Int)
   (prmV : Int)
   (opN : Int)
-  (opV : Int))
+  (opV : Int)
+  ; Macros. `symbols` emitted no row for one until 2026-08-26, so
+  ; twelve public names in the standard library - `println` and
+  ; `format` among them - were API that nothing over this stream could
+  ; see. `compat/UNCOVERED` listed them as a hole; these three slots
+  ; are what closes it.
+  (mcN : Int)
+  (mcS : Int)
+  (mcU : Int)
+  ; The effect DECLARATION itself. Its operations were already keyed
+  ; (slots 18/19), which is what a handler needs; the effect's own name
+  ; had no row, so `Assert` was public API outside the stream.
+  (efN : Int)
+  (efS : Int)
+  (efU : Int))
 
 (pub :: smNew Int)
 
 (pub fn (smNew)
   (cast Int (SymMaps
-    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew
+    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew
   ))
 )
 
@@ -716,6 +730,14 @@
                     (smNid sm name "DType:")
                     (smTags sm d name)
                   }
+                  (if (== tag TAG_D_MACRO)
+                    {
+                      (saPut2
+                        (memGetWord sm 20)                        (memGetWord sm 21)                        (memGetWord sm 22)                        name                        (nodeSpan d)                        u
+                      )
+                      (smNid sm name "DMacro:")
+                      (smTags sm d name)
+                    }
                   (if (== tag TAG_D_TRAIT)
                     {
                       (saPut2
@@ -755,10 +777,15 @@
                       )
                       (if (== tag TAG_D_EFFECT)
                         ; Operation types, keyed under both spellings the checker
-                        ; registers ops with.
+                        ; registers ops with - AND the effect's own name, which
+                        ; had no row until 2026-08-26.
                         (let (
                           (fields (nodeC d))
                           (mut i 0)
+                          (_e (saPut2
+                            (memGetWord sm 23)                            (memGetWord sm 24)                            (memGetWord sm 25)                            name                            (nodeSpan d)                            u
+                          ))
+                          (_n (smNid sm name "DEffect:"))
                         )
                           (if (== fields 0)
                             0
@@ -778,6 +805,7 @@
                         0
                       )
                     )
+                  )
                   )
                 )
               )
@@ -938,9 +966,15 @@
           "Struct"
           (if (strEq k "A")
             "Alias"
-            (if (strEq k "T")
-              "Trait"
-              k
+            (if (strEq k "E")
+              "Effect"
+              (if (strEq k "M")
+              "Macro"
+              (if (strEq k "T")
+                "Trait"
+                k
+              )
+            )
             )
           )
         )
@@ -1489,6 +1523,79 @@
                   (set i (+ i 1))
                 }
               )
+            ))
+        )
+        ; --- macros -----------------------------------------------
+        ; The name vector collected above IS the list. Every other walk
+        ; here iterates a `tc` list and uses `sm` only for the span and
+        ; the nid, but the checker keeps no macro list - macros are
+        ; consumed by the expander before it runs - so the collection
+        ; is the only place they survive.
+        ;
+        ; A macro has no TYPE. The row says `macro <name>`, the shape
+        ; `trait <name>` already uses, and carries its parameter names
+        ; as `#params=` so a reader can see the arity a call must
+        ; satisfy. Without this row `println`, `format` and `try!` were
+        ; public API no gate over this stream could see
+        ; (`compat/UNCOVERED`).
+        (let (
+          (mcs (memGetWord sm 20))
+          (mut i 0)
+        )
+          (while (< i (vecLen mcs))
+            (let ((name (vecGetStr mcs i)))
+              {
+                (let ((metas vecNew))
+                  {
+                    (smTagMetas sm name metas)
+                    (vecPush
+                      lines                      (symLine
+                        "M"                        (bareOf name)                        (let ((loc (smLocReal
+                          sm                          20                          21                          22                          name                          units
+                        )))
+                          (if (== (strLen loc) 0)
+                            "-"
+                            loc
+                          )
+                        )                        (strConcat "macro " (bareOf name))                        (smNidFor sm name)                        metas
+                      )
+                    )
+                  }
+                )
+                (set i (+ i 1))
+              }
+            ))
+        )
+        ; --- effects ----------------------------------------------
+        ; The effect's own name. Its OPERATIONS were always keyed - a
+        ; handler needs those - but the declaration had no row, so
+        ; `Assert` was the last public name outside this stream.
+        (let (
+          (efs (memGetWord sm 23))
+          (mut i 0)
+        )
+          (while (< i (vecLen efs))
+            (let ((name (vecGetStr efs i)))
+              {
+                (let ((metas vecNew))
+                  {
+                    (smTagMetas sm name metas)
+                    (vecPush
+                      lines                      (symLine
+                        "E"                        (bareOf name)                        (let ((loc (smLocReal
+                          sm                          23                          24                          25                          name                          units
+                        )))
+                          (if (== (strLen loc) 0)
+                            "-"
+                            loc
+                          )
+                        )                        (strConcat "effect " (bareOf name))                        (smNidFor sm name)                        metas
+                      )
+                    )
+                  }
+                )
+                (set i (+ i 1))
+              }
             ))
         )
         ; --- join -------------------------------------------------
