@@ -185,6 +185,25 @@ its changelog too.
 
 ### Found, not fixed
 
+- **`ERR-ADOPT-1`'s slice order is backwards, and slice 2 is the wrong
+  port.** Slice 2 is `Utf8.ax`, `Str.ax`, `Path.ax`, called "the
+  rehearsal". Measured: it is **four public functions and 69 call
+  sites**, `strFindByte` alone carrying 45 — and three of the four
+  should not become `Result` at all. `strFindByte` answers `-1` for
+  **not found**, which is absence, not failure; `pathLastSlash` and
+  `pathExtIndex` are the same shape. `docs/error-model.md`'s own §5
+  table separates *expected failure* from *programmer error*, and its
+  §1 notes that `Option` needs no import where `Result` does. Absence
+  wants `Option`.
+
+  So the rehearsal ports the sites where the migration's premise does
+  **not** hold, and does it across the widest call-site fan-out in the
+  slice list. Slice 3 — `IO.ax` and `Sys.ax`, where `-errno` genuinely
+  *is* a failure — is the right first port. Recorded rather than acted
+  on: reordering the migration is a decision about
+  `docs/error-model.md` §10, not a commit. `compat/SENTINELS` holds the
+  direction meanwhile.
+
 - **A parameter named `set` is a formatter refusal.** The parser and
   the checker accept it and the compiler builds and runs; `axiom fmt`
   will not rewrite the file, reporting `formatter refusal`. Found while
