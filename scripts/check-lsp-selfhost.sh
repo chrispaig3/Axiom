@@ -25,11 +25,39 @@
 # that are written INTO drive.py rather than read from `tests/lsp/`, so
 # their positions cannot drift away from the text they describe: a
 # generated 500-diagnostic document, an editing session that must not
-# grow, and NAVIGATION - six `definition` requests and a `hover` over a
-# document that imports a module written to a temp directory. The
-# navigation block is the one whose answers are all DERIVED: every
-# expected range is computed from the two documents' own bytes, so no
-# re-bless of any golden can satisfy it.
+# grow, and the LANGUAGE-FEATURE block - six `definition` requests,
+# six `hover`s and three `completion`s over a document that imports a
+# module written to a temp directory. That block is the one whose
+# answers are all DERIVED: every expected range, every quoted
+# declaration, every paragraph and every completion `detail` is
+# computed from the two documents' own bytes, so no re-bless of any
+# golden can satisfy it.
+#
+# HOVER AND COMPLETION were widened on 2026-08-26 and the block grew
+# with them. Hover used to answer for macros alone; it now answers for
+# every declaration kind the outline lists, quotes a `fn` as its
+# SIGNATURE, carries the comment paragraph above the declaration, and
+# reaches into an imported module and names it. Completion is new.
+# What each of those adds to this gate is a DERIVED obligation:
+#
+#   * the form text every hover must quote is CUT OUT of the document
+#     that holds it, and the paragraph below the fence is recomputed
+#     from the same lines with `; ` taken off - a second
+#     implementation, in Python, of `lspFormText` and `lspDocComment`;
+#   * every hover's `range` must be the WORD under the cursor, which
+#     for an imported name is in a different file from the declaration
+#     being quoted;
+#   * a prefix-filtered completion's every label must start with the
+#     prefix READ OUT of the document at the position sent, and
+#     `helper`'s `detail` must be the type sliced from its own
+#     signature;
+#   * the menu offered to a document that does NOT parse must equal,
+#     exactly, the head keywords extracted from the `kwEq name ...`
+#     call sites in self_host/parser.ax - so the copy of that
+#     vocabulary in self_host/lsp.ax is a checked claim rather than a
+#     list that drifts. drive.py refuses to run if that extraction
+#     yields fewer than 15 keywords, or if any derived form text or
+#     paragraph comes out empty.
 #
 #   GOLDEN-ONLY, and therefore exactly as strong as whichever compiler
 #   last blessed it: the framed byte stream - framing, field order,
@@ -71,7 +99,8 @@
 # header, because it cannot be repeated.
 #
 # NEGATIVE TESTS, re-run 2026-08-08 against this version of the gate.
-# Six ablations. Each PATCHES self_host/lsp.ax in a scratch tree (never
+# The hover and completion ablations are from 2026-08-26 and are at the
+# end. Six ablations first. Each PATCHES self_host/lsp.ax in a scratch tree (never
 # the real one), builds a server from it - six distinct binaries, sha256
 # all different from the good one's 0cffc884 - RE-BLESSES every golden
 # from that build so the golden half is green by construction, and then
@@ -157,10 +186,65 @@
 # distinct SymbolKinds ("a server that answered 12 to everything would
 # pass").
 #
+# HOVER AND COMPLETION, nine more ablations, 2026-08-26. Each patches
+# self_host/lsp.ax in a scratch tree, builds a server from it,
+# re-blesses every golden from that build, and then runs this script
+# clean. Every one exits 1, and each names its own thing:
+#
+#   HOVER FOR MACROS ONLY. `lspHover`'s first lookup goes back to
+#   `lspFindMacroDecl` - the state it was in until 2026-08-26. 8
+#   goldens rewritten, exit 1: "fn hover: request 10 answered null".
+#
+#   RANGE IS THE DECLARATION. `range` becomes `(lspRange dsrc (nodeSpan
+#   d))` again. Exit 1: "macro hover: request 3 covered (3, 11)-(3, 20),
+#   want the word at (14, 1)-(14, 10)" - the declaration is nine lines
+#   above the word being read, and for an imported name it is in
+#   another file.
+#
+#   NO PARAGRAPH. `lspDocComment`'s result is replaced by "". The fence
+#   is untouched and every range still correct. Exit 1: "request 3 did
+#   not carry 'A macro that derives a tag function.'".
+#
+#   NO PREFIX FILTER. `strStartsWith label prefix` becomes `(|| ...
+#   true)`. Exit 1: "completion filtered on 'he' still offered
+#   ['alloc', 'begin', 'cond', ...]".
+#
+#   ONE KEYWORD MISSING. `handle` is dropped from `lspKeywords`, which
+#   is what a keyword the parser learns and this list does not looks
+#   like. Exit 1, with both lists printed and `handle` absent from the
+#   server's.
+#
+#   NO DETAIL. `lspComplDetail` answers "" for everything. Exit 1:
+#   "request 15 offered 'helper' with detail None, want 'Int'".
+#
+#   UNBOUNDED MENU. `LSP_COMPL_MAX` raised to a million. Exit 1: "the
+#   empty prefix menu carried 2075 item(s), over the 200" - from the
+#   cost block, whose RATIO alone did not fail.
+#
+#   NO CLAMP. `lspClampLines` is taken off the fence. Exit 1: "clamped
+#   hover: request 18 did not carry '; ...'" - the corpus carries a
+#   47-line `data` for this, and drive.py refuses to run if that
+#   declaration ever stops overrunning the 40-line clamp, because the
+#   truncation check would then pass on an unclamped server.
+#
+#   NO EARLY GUARD - the one that is NOT caught, recorded because a
+#   gate has to say what it does not hold. `lspComplWants` is removed
+#   from `lspComplLocal`'s call site so a `detail` is built for every
+#   declaration and discarded on the prefix. Measured 1.05x here and
+#   1.65x at 6,000 declarations against a good build's 0.5-0.75x, both
+#   inside the 2.00x ceiling, and this script exits 0. The reason is in
+#   the cost block's own header.
+#
+# The keyword extraction's floor was checked the same way the manifest
+# floors are: run against a parser.ax carrying two `kwEq` sites,
+# drive.py refuses before any server starts - "derived only 2 head
+# keywords ... an equality against a list this short asserts nothing".
+#
 # RESTORED, this tree, same day: exit 0. 10 passed, 0 failed, 8
 # fixtures + 2 generated; 7 positions derived from source, 7
 # name-at-range checks, 6015 symbol names read back out of the source,
-# discriminating on 030-utf16-columns:zzz.
+# discriminating on 030-utf16-columns:zzz. With hover and completion:
+# 13 passed, 0 failed.
 #
 #   AXIOM_BLESS=1 scripts/check-lsp-selfhost.sh          # all
 #   AXIOM_BLESS=1 scripts/check-lsp-selfhost.sh 080      # one, exits 1
@@ -306,6 +390,125 @@ PY
 perf_status=$?
 echo "$perf"
 if [[ "$perf_status" -ne 0 ]]; then
+  status=1
+fi
+
+# ------------------------------------------------------------------
+# COMPLETION'S COST, as the same kind of ratio, on the same document.
+#
+# `textDocument/completion` is a per-KEYSTROKE request - more so than
+# the outline, which a client asks for once per open - and it does the
+# most expensive thing this server knows how to do: parse, resolve
+# every transitive import, and then, for each item it accepts, walk the
+# declaration list for that name's signature.
+#
+# The assertion is the outline's, at two positions: an EMPTY prefix,
+# where nothing is filtered out and the menu is as long as it ever
+# gets, and a FILTERED one two characters into a name, which is what a
+# client actually sends while someone types. Neither may cost more than
+# the whole parse-and-check of the same document, which `didOpen` does
+# anyway on the same keystroke.
+#
+# WHAT THIS RATIO CATCHES AND WHAT IT DOES NOT, measured 2026-08-26 on
+# the 2,050-declaration document below, best of three, against builds
+# from a patched scratch tree:
+#
+#   * AN UNBOUNDED MENU. `LSP_COMPL_MAX` raised to a million: the
+#     request carried 2,075 items, and the cap check below fails - "the
+#     menu carried 2075 item(s), over the 200 LSP_COMPL_MAX says it
+#     sends". The RATIO alone did not fail, which is why the count is
+#     asserted beside it.
+#   * A SERVER THAT ANSWERS NOTHING. The item floor, for the reason the
+#     outline has one: an empty menu is instant, so a ratio taken
+#     without it would be a measurement of nothing.
+#
+#   NOT CAUGHT, and said out loud rather than left to be discovered:
+#   building a `detail` for every declaration and discarding it on the
+#   prefix - the quadratic `lspComplWants` exists to avoid. Removing
+#   that guard measured 1.05x here and 1.65x at 6,000 declarations,
+#   both inside this ceiling; the good build measures 0.5-0.75x. Both
+#   requests are dominated by ONE PARSE of the document, which every
+#   request in this server pays and which no ceiling can go below, so
+#   there is no wall-clock threshold that separates the two builds
+#   without flaking. The guard is held by the comment on it and by
+#   review, not by this number.
+# ------------------------------------------------------------------
+item_floor=100
+item_cap=200
+cperf=$(SERVER="$work/stage1" ITEM_FLOOR="$item_floor" ITEM_CAP="$item_cap" python3 - <<'PY'
+import json, os, subprocess, sys, time
+server=os.environ["SERVER"]
+floor=int(os.environ["ITEM_FLOOR"]); cap=int(os.environ["ITEM_CAP"])
+n=2050
+text="".join(f"(:: f{i} (-> Int Int))\n(fn (f{i} x) (+ x {i}))\n" for i in range(n))
+text+="(:: main Int)\n(fn (main) 0)\n"
+uri="file:///tmp/axiom-lsp-perf/big.ax"
+def frame(o):
+    b=json.dumps(o).encode(); return b"Content-Length: "+str(len(b)).encode()+b"\r\n\r\n"+b
+base=[frame({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":None,"rootUri":None,"capabilities":{}}}),
+      frame({"jsonrpc":"2.0","method":"initialized","params":{}}),
+      frame({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"axiom","version":1,"text":text}}})]
+tail=[frame({"jsonrpc":"2.0","id":9,"method":"shutdown","params":{}}),frame({"jsonrpc":"2.0","method":"exit","params":{}})]
+# The last line is `(fn (main) 0)`. Column 1 is just past `(`, so the
+# prefix is empty; column 8 is three characters into `main`, which is
+# the shape a client sends between keystrokes.
+last=len(text.split("\n"))-2
+def cm(line,ch):
+    return frame({"jsonrpc":"2.0","id":3,"method":"textDocument/completion",
+                  "params":{"textDocument":{"uri":uri},"position":{"line":line,"character":ch}}})
+def best(msgs):
+    b=None; out=None
+    for _ in range(3):
+        t0=time.time()
+        p=subprocess.run([server,"lsp","--no-banner"],input=b"".join(msgs),capture_output=True,timeout=600)
+        dt=time.time()-t0
+        if p.returncode!=0:
+            print(f"FAIL server exited {p.returncode}"); sys.exit(1)
+        if b is None or dt<b: b=dt; out=p.stdout
+    return b,out
+def menu(out):
+    i=0
+    while True:
+        j=out.find(b"\r\n\r\n",i)
+        if j<0: return None
+        hdr=out[i:j].decode("utf-8","replace")
+        cl=[l for l in hdr.split("\r\n") if l.lower().startswith("content-length")]
+        if not cl: return None
+        ln=int(cl[0].split(":")[1]); m=json.loads(out[j+4:j+4+ln]); i=j+4+ln
+        if m.get("id")==3: return (m.get("result") or {}).get("items")
+t_open,_=best(base+tail)
+bad=0
+for what, ch, want_floor in (("empty prefix", 1, floor), ("filtered", 8, 1)):
+    t_all,out=best(base+[cm(last,ch)]+tail)
+    its=menu(out)
+    if its is None:
+        print(f"FAIL the server answered no completion result at the {what}")
+        bad=1; continue
+    if len(its) < want_floor:
+        print(f"FAIL the {what} menu carried {len(its)} item(s), floor {want_floor} - a")
+        print( "     server that answers nothing is fast, so the ratio would mean nothing")
+        bad=1; continue
+    if len(its) > cap:
+        print(f"FAIL the {what} menu carried {len(its)} item(s), over the {cap}")
+        print( "     LSP_COMPL_MAX says it sends - the cap is what keeps a stdlib-wide")
+        print( "     empty prefix off the wire on every keystroke")
+        bad=1; continue
+    cost=max(t_all-t_open, 0.0)
+    ratio=cost/t_open if t_open>0 else 0.0
+    print(f"completion {what}: {len(its)} item(s), didOpen {t_open:.3f}s, "
+          f"completion {cost:.3f}s, ratio {ratio:.2f}x")
+    if ratio > 2.0:
+        print(f"FAIL completion cost {ratio:.2f}x the whole parse-and-check of the same")
+        print( "     document, over a ceiling of 2.00x. It is asked once per keystroke,")
+        print( "     so this is the budget - see lspComplWants and LSP_COMPL_MAX in")
+        print( "     self_host/lsp.ax.")
+        bad=1
+sys.exit(bad)
+PY
+)
+cperf_status=$?
+echo "$cperf"
+if [[ "$cperf_status" -ne 0 ]]; then
   status=1
 fi
 

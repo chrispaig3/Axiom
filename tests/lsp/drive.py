@@ -831,25 +831,67 @@ expect_named += 1
 expect_symbols += N + 1
 
 # ---------------------------------------------------------------------
-# Macro navigation: an invocation is a reference to its declaration.
+# Navigation, hover and completion, over two documents written HERE.
 #
-# MAC-TOOL-2. Both answers are DERIVED here from the document's own
-# bytes - the declaration's name position for `definition`, the
-# declaration's source text for `hover` - so no re-bless of any golden
-# can satisfy them, and the document is written in this file rather
-# than read from a fixture so the positions cannot drift away from the
-# text they describe.
+# MAC-TOOL-2 for the navigation half: an invocation is a reference to
+# its declaration. Everything in this section is DERIVED from the two
+# documents' own bytes - the declaration's name position for
+# `definition`, the declaration's source text and the paragraph above
+# it for `hover`, the half-typed word under the cursor for
+# `completion` - so no re-bless of any golden can satisfy it. The
+# documents live in this file rather than in `tests/lsp/` so their
+# positions cannot drift away from the text they describe.
 #
-# The third request is the one that says the feature has a boundary: a
-# position on a name that is NOT a macro must answer null, which is the
-# protocol's "nothing here" and what every other word in a file gets.
+# Three requests say each feature has a BOUNDARY: a position on a name
+# that nothing declares must answer null for `definition` and for
+# `hover`, which is the protocol's "nothing here" and what every other
+# word in a file gets; and a document that does not PARSE must still
+# complete keywords, because a file is unparseable exactly while a form
+# is half written, which is when the question gets asked.
 # ---------------------------------------------------------------------
+# The head keywords, derived from the parser rather than written down.
+#
+# `self_host/lsp.ax` carries a copy of this set - it has to, the
+# protocol wants labels - and a hand-kept copy of another module's
+# vocabulary drifts. So the reference is `parseTopForm`/`parseExpr`'s
+# own `kwEq name ...` call sites, and the check is an EQUALITY against
+# what the server offers a document that does not parse (where nothing
+# else can be offered). A keyword the parser learns and the server
+# forgets fails here.
+#
+# `union`, `region` and `foreign` are named by the parser only in order
+# to REFUSE them (AX2004), so they are not expected in a menu.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PARSER_AX = os.path.join(REPO, "self_host", "parser.ax")
+_psrc = open(PARSER_AX, encoding="utf-8").read()
+_kwdefs = dict(re.findall(r'\(pub fn \((kw[A-Za-z]+)\) "([^"]+)"\)', _psrc))
+_kwlits = set(re.findall(r'kwEq\s+\w+\s+"([^"]+)"', _psrc))
+_kwnames = set(re.findall(r'kwEq\s+\w+\s+(kw[A-Za-z]+)', _psrc))
+_missing = _kwnames - set(_kwdefs)
+if _missing:
+    sys.exit(f"FAIL: {PARSER_AX} compares against {sorted(_missing)}, whose "
+             f"spelling this file could not read - the keyword reference "
+             f"would be short and the equality below would be wrong")
+KEYWORDS = sorted((_kwlits | {_kwdefs[n] for n in _kwnames})
+                  - {"union", "region", "foreign"})
+# An extraction that stops matching turns the equality into a comparison
+# of two short lists that happen to agree. It is refused before any
+# server starts, for the reason the manifest floors are.
+if len(KEYWORDS) < 15:
+    sys.exit(f"FAIL: derived only {len(KEYWORDS)} head keywords from "
+             f"{PARSER_AX} ({KEYWORDS}) - the pattern has stopped matching, "
+             f"and an equality against a list this short asserts nothing")
+
 # The imported module lives in a directory of its own rather than in
 # `tests/lsp/`, because a `.ax` file there joins the diagnostics sweep
 # and needs a golden and a manifest row of its own - and this file is
 # not a diagnostics fixture, it is the OTHER SIDE of a navigation.
 NAVDIR = tempfile.mkdtemp(prefix="axiom-nav-")
-NAVHELPER = """(pub :: bump (-> Int Int))
+NAVHELPER = """; Add one to a number.
+;
+; The paragraph a hover has to carry across a module boundary, past the
+; blank comment line that separates two of them.
+(pub :: bump (-> Int Int))
 
 (pub fn (bump x) (+ x 1))
 """
@@ -857,50 +899,155 @@ open(os.path.join(NAVDIR, "NavHelper.ax"), "w", encoding="utf-8").write(NAVHELPE
 
 NAV = """(import NavHelper)
 
+; A macro that derives a tag function.
 (pub macro deriveTag
   ((deriveTag T)
    (pub :: (syntax/join tag T) Int)
    (pub fn ((syntax/join tag T)) 7)))
 
-(data Colour (Red))
+; A colour, with two constructors.
+(data Colour (Red) (Green))
+
+; A point in the plane.
+(struct Point (x : Int) (y : Int))
 
 (deriveTag Colour)
 
+; The paragraph that sits above the `::` and not above the definition.
 (:: helper Int)
 (fn (helper) 3)
 
 (:: main Int)
 (fn (main) (+ (+ (tagColour) helper) (bump 1)))
 """
+# A declaration taller than a tooltip. `lspClampLines` cuts a hover's
+# fence at 40 lines and says so in the fence's own comment syntax, and
+# nothing else in this corpus is long enough to reach that.
+BIG_N = 45
+NAV += ("\n; A type with more constructors than a tooltip should carry.\n"
+        "(data Big\n" + "".join(f"  (B{i})\n" for i in range(BIG_N)) + "  )\n")
+HOVER_CLAMP = 40
 nav_uri = "file://" + os.path.join(NAVDIR, "nav-generated.ax")
 NAV_DECL = locate(NAV, "deriveTag", 1)      # the macro's own name
 NAV_USE = locate(NAV, "deriveTag", 3)       # the invocation (2 is the rule head)
 FN_DECL = locate(NAV, "helper", 2)          # `(fn (helper) 3)`; 1 is the signature
 FN_USE = locate(NAV, "helper", 3)           # the call in `main`
-DATA_DECL = locate(NAV, "Colour", 1)        # `(data Colour (Red))`
+DATA_DECL = locate(NAV, "Colour", 1)        # `(data Colour (Red) (Green))`
 DATA_USE = locate(NAV, "Colour", 2)         # the macro argument
+STRUCT_DECL = locate(NAV, "Point", 1)       # `(struct Point ...)`
+BIG_DECL = locate(NAV, "Big", 1)            # `(data Big ...)`, taller than the clamp
 IMP_USE = locate(NAV, "bump", 1)            # the imported call
 BUMP_DECL = locate(NAVHELPER, "bump", 2)    # its `fn` name, in the OTHER file
 NOTHING = locate(NAV, "syntax/join", 1)     # a name no declaration in scope has
+
+def between(src, opener, closer):
+    """The source text of one form, sliced out of the document that
+    holds it. Hover must quote exactly this, so it is cut here rather
+    than written out a second time."""
+    i = src.index(opener)
+    j = src.index(closer, i)
+    return src[i:j]
+
+# What each hover must quote, cut out of the document it belongs to.
+MACRO_TEXT = between(NAV, "(pub macro", "\n\n; A colour")
+DATA_TEXT = between(NAV, "(data Colour", "\n\n; A point")
+STRUCT_TEXT = between(NAV, "(struct Point", "\n\n(deriveTag")
+FN_SIG_TEXT = between(NAV, "(:: helper", "\n(fn (helper)")
+BUMP_SIG_TEXT = between(NAVHELPER, "(pub :: bump", "\n\n(pub fn")
+# The paragraphs, as prose: the same lines with `; ` taken off, which is
+# what the server publishes into the markdown below the fence.
+def prose(src, form_opener):
+    out, i = [], src.index(form_opener)
+    while i > 0:
+        ls = src.rfind("\n", 0, i - 1) + 1
+        line = src[ls:i - 1]
+        if not line.startswith(";"):
+            break
+        out.insert(0, line[1:].lstrip(" ") if line[1:2] == " " else line[1:])
+        i = ls
+    return "\n".join(out)
+
+MACRO_DOC = prose(NAV, "(pub macro")
+DATA_DOC = prose(NAV, "(data Colour")
+FN_DOC = prose(NAV, "(:: helper")
+BUMP_DOC = prose(NAVHELPER, "(pub :: bump")
+# The type a completion `detail` must carry for `helper`, cut out of its
+# signature: everything between the name and the closing paren.
+HELPER_TYPE = FN_SIG_TEXT[FN_SIG_TEXT.index("helper") + len("helper"):].strip()[:-1].strip()
+# The prefix a completion request two characters into `helper` is
+# filtering on, read out of the document at the position being sent.
+PREFIX_AT = 2
+PREFIX = NAV.split("\n")[FN_USE["line"]][FN_USE["start"]:FN_USE["start"] + PREFIX_AT]
+# A document mid-form. `(` at EOF cannot parse, so nothing but keywords
+# can be offered and the menu is exactly the derived set.
+BROKEN = NAV + "\n("
+
+# Every derived string above has to be non-empty and actually present,
+# or the assertions built on it are comparisons of "" against "".
+for what, text, doc in (("macro", MACRO_TEXT, NAV), ("data", DATA_TEXT, NAV),
+                        ("struct", STRUCT_TEXT, NAV), ("fn sig", FN_SIG_TEXT, NAV),
+                        ("bump sig", BUMP_SIG_TEXT, NAVHELPER),
+                        ("macro doc", MACRO_DOC, None), ("data doc", DATA_DOC, None),
+                        ("fn doc", FN_DOC, None), ("bump doc", BUMP_DOC, None),
+                        ("helper type", HELPER_TYPE, None),
+                        ("prefix", PREFIX, None)):
+    if not text.strip() or (doc is not None and text not in doc):
+        sys.exit(f"FAIL: the derived {what} text is empty or is not in the "
+                 f"document it was cut from ({text!r}) - every hover and "
+                 f"completion assertion below rests on it")
+if len(BUMP_DOC.split("\n")) < 3:
+    sys.exit("FAIL: the imported paragraph is under three lines, so it no "
+             "longer spans the blank comment line it exists to test")
+# The clamp can only be observed on a declaration that overruns it.
+if BIG_N + 2 <= HOVER_CLAMP:
+    sys.exit(f"FAIL: `Big` is {BIG_N + 2} lines against a clamp of "
+             f"{HOVER_CLAMP} - nothing in this corpus would reach it, and the "
+             f"truncation check below would pass on an unclamped server")
 
 def defn(rid, at):
     return {"jsonrpc": "2.0", "id": rid, "method": "textDocument/definition",
             "params": {"textDocument": {"uri": nav_uri},
                        "position": {"line": at["line"], "character": at["start"]}}}
 
+def hov(rid, at, off=0):
+    return {"jsonrpc": "2.0", "id": rid, "method": "textDocument/hover",
+            "params": {"textDocument": {"uri": nav_uri},
+                       "position": {"line": at["line"],
+                                    "character": at["start"] + off}}}
+
+def compl(rid, line, char):
+    return {"jsonrpc": "2.0", "id": rid, "method": "textDocument/completion",
+            "params": {"textDocument": {"uri": nav_uri},
+                       "position": {"line": line, "character": char}}}
+
+BROKEN_LINE = len(BROKEN.split("\n")) - 1
 nav_session = b"".join(frame(m) for m in [
     {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
     {"jsonrpc": "2.0", "method": "textDocument/didOpen",
      "params": {"textDocument": {"uri": nav_uri, "languageId": "axiom",
                                  "version": 1, "text": NAV}}},
     defn(2, NAV_USE),
-    {"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover",
-     "params": {"textDocument": {"uri": nav_uri},
-                "position": {"line": NAV_USE["line"], "character": NAV_USE["start"]}}},
+    hov(3, NAV_USE),
     defn(4, FN_USE),
     defn(5, DATA_USE),
     defn(6, IMP_USE),
     defn(7, NOTHING),
+    hov(10, FN_USE),
+    hov(11, DATA_USE),
+    hov(12, STRUCT_DECL),
+    hov(13, IMP_USE),
+    hov(14, NOTHING),
+    hov(18, BIG_DECL),
+    # Two characters into `helper`: the prefix is the document's own
+    # bytes, and every label must start with it.
+    compl(15, FN_USE["line"], FN_USE["start"] + PREFIX_AT),
+    # On the first byte of a name, so the prefix is empty and the whole
+    # menu - keywords, this document, the imported module - is offered.
+    compl(16, NAV_USE["line"], NAV_USE["start"]),
+    {"jsonrpc": "2.0", "method": "textDocument/didChange",
+     "params": {"textDocument": {"uri": nav_uri, "version": 2},
+                "contentChanges": [{"text": BROKEN}]}},
+    compl(17, BROKEN_LINE, 1),
     {"jsonrpc": "2.0", "id": 8, "method": "shutdown", "params": None},
     {"jsonrpc": "2.0", "method": "exit", "params": None},
 ])
@@ -928,8 +1075,54 @@ def landed(rid, uri, at):
         return f"request {rid} answered range {r.get('range')}, want {rng(at)}"
     return ""
 
+def hover_says(rid, wants, at):
+    """Every string in `wants` must be in the hover's markdown, and the
+    hover's `range` must be the WORD under the cursor - not the
+    declaration's own span, which is in another part of the file and,
+    for an imported name, in another file entirely."""
+    r = nresp.get(rid, {}).get("result")
+    if r is None:
+        return f"request {rid} answered null"
+    value = (r.get("contents") or {}).get("value")
+    if not isinstance(value, str):
+        return f"request {rid} answered contents {r.get('contents')!r}"
+    if "```axiom" not in value:
+        return f"request {rid} answered no axiom code fence"
+    for w in wants:
+        if w not in value:
+            return (f"request {rid} did not carry {w!r};\n"
+                    f"          it answered {value!r}")
+    if r.get("range") != rng(at):
+        return (f"request {rid} covered {r.get('range')}, want the word at "
+                f"{rng(at)}")
+    return ""
+
+def items(rid):
+    r = nresp.get(rid, {}).get("result") or {}
+    return r, r.get("items") or []
+
+def offers(rid, label, kind, detail=None):
+    """Is `label` in this menu, with the kind and detail it must have?"""
+    _, its = items(rid)
+    for it in its:
+        if it.get("label") != label:
+            continue
+        if it.get("kind") != kind:
+            return (f"request {rid} offered {label!r} as kind "
+                    f"{it.get('kind')}, want {kind}")
+        if detail is not None and it.get("detail") != detail:
+            return (f"request {rid} offered {label!r} with detail "
+                    f"{it.get('detail')!r}, want {detail!r}")
+        return ""
+    return (f"request {rid} did not offer {label!r} at all "
+            f"(it offered {sorted(i.get('label') for i in its)[:12]}...)")
+
 want_range = rng(NAV_DECL)
 helper_uri = "file://" + os.path.join(NAVDIR, "NavHelper.ax")
+compl_caps = caps.get("completionProvider")
+_, its15 = items(15)
+_, its16 = items(16)
+r17, its17 = items(17)
 if np_.returncode != 0:
     nwhy = f"the server exited {np_.returncode}"
 elif ntail:
@@ -940,13 +1133,22 @@ elif caps.get("definitionProvider") is not True:
 elif caps.get("hoverProvider") is not True:
     nwhy = ("the server answers textDocument/hover and does not advertise "
             f"hoverProvider: capabilities were {sorted(caps)}")
+elif not isinstance(compl_caps, dict):
+    nwhy = ("the server answers textDocument/completion and does not advertise "
+            f"completionProvider: capabilities were {sorted(caps)}")
+elif compl_caps.get("triggerCharacters") != ["("]:
+    nwhy = (f"completionProvider triggers on "
+            f"{compl_caps.get('triggerCharacters')!r}, want ['('] - a client "
+            f"sends an unprompted request only at a character it names")
+elif compl_caps.get("resolveProvider") is not False:
+    nwhy = ("completionProvider claims resolveProvider "
+            f"{compl_caps.get('resolveProvider')!r}; there is no "
+            "completionItem/resolve, and a client that believed it would wait "
+            "for a round trip that never comes")
 elif landed(2, nav_uri, NAV_DECL):
     nwhy = "macro: " + landed(2, nav_uri, NAV_DECL)
-elif "```axiom" not in ((nresp.get(3, {}).get("result") or {}).get("contents") or {}).get("value", ""):
-    nwhy = "hover did not answer an axiom code fence"
-elif NAV[NAV.index("(pub macro"):NAV.index("\n\n(data")] not in \
-        nresp[3]["result"]["contents"]["value"]:
-    nwhy = "hover did not quote the macro declaration verbatim from the document"
+elif hover_says(3, ["```axiom", MACRO_TEXT, MACRO_DOC], NAV_USE):
+    nwhy = "macro hover: " + hover_says(3, ["```axiom", MACRO_TEXT, MACRO_DOC], NAV_USE)
 elif landed(4, nav_uri, FN_DECL):
     nwhy = "same-file fn: " + landed(4, nav_uri, FN_DECL)
 elif landed(5, nav_uri, DATA_DECL):
@@ -955,6 +1157,68 @@ elif landed(6, helper_uri, BUMP_DECL):
     nwhy = "imported fn: " + landed(6, helper_uri, BUMP_DECL)
 elif nresp.get(7, {}).get("result") is not None:
     nwhy = f"a name no declaration has answered {nresp[7]['result']}, want null"
+# A `fn` hovers as its SIGNATURE and its paragraph, and the paragraph is
+# above the `::` rather than above the definition - so a hover read at
+# the wrong one of the two carries an empty block.
+elif hover_says(10, [FN_SIG_TEXT, FN_DOC], FN_USE):
+    nwhy = "fn hover: " + hover_says(10, [FN_SIG_TEXT, FN_DOC], FN_USE)
+elif "(fn (helper) 3)" in nresp[10]["result"]["contents"]["value"]:
+    nwhy = ("fn hover quoted the body; a `fn` hovers as its type, and the "
+            "body is what `definition` is for")
+elif hover_says(11, [DATA_TEXT, DATA_DOC], DATA_USE):
+    nwhy = "data hover: " + hover_says(11, [DATA_TEXT, DATA_DOC], DATA_USE)
+elif hover_says(12, [STRUCT_TEXT], STRUCT_DECL):
+    nwhy = "struct hover: " + hover_says(12, [STRUCT_TEXT], STRUCT_DECL)
+# The imported one is the whole shape at once: another file's bytes,
+# another file's paragraph, the module it came from, and a range in
+# THIS document.
+elif hover_says(13, [BUMP_SIG_TEXT, BUMP_DOC, "NavHelper"], IMP_USE):
+    nwhy = "imported hover: " + hover_says(13, [BUMP_SIG_TEXT, BUMP_DOC, "NavHelper"], IMP_USE)
+elif nresp.get(14, {}).get("result") is not None:
+    nwhy = (f"hover on a name no declaration has answered "
+            f"{nresp[14]['result']}, want null")
+elif hover_says(18, ["(data Big", "(B0)", "; ..."], BIG_DECL):
+    nwhy = "clamped hover: " + hover_says(18, ["(data Big", "(B0)", "; ..."], BIG_DECL)
+elif f"(B{BIG_N - 1})" in nresp[18]["result"]["contents"]["value"]:
+    nwhy = (f"hover on a {BIG_N + 2}-line declaration carried its last "
+            f"constructor; the fence is clamped at {HOVER_CLAMP} lines, "
+            f"because a tooltip that long is a wall over the code being read")
+elif nresp[18]["result"]["contents"]["value"].count("\n") > HOVER_CLAMP + 6:
+    nwhy = (f"the clamped hover still ran to "
+            f"{nresp[18]['result']['contents']['value'].count(chr(10))} lines")
+elif [i for i in its15 if not str(i.get("label", "")).startswith(PREFIX)]:
+    nwhy = (f"completion filtered on {PREFIX!r} still offered "
+            f"{[i['label'] for i in its15 if not str(i.get('label','')).startswith(PREFIX)][:6]}")
+elif offers(15, "helper", 3, HELPER_TYPE):
+    nwhy = "prefix completion: " + offers(15, "helper", 3, HELPER_TYPE)
+elif (nresp.get(15, {}).get("result") or {}).get("isIncomplete") is not True:
+    nwhy = ("a prefix-filtered completion answered isIncomplete false; a "
+            "client is then entitled to filter that list itself and stop "
+            "asking, which freezes the menu on the first letter")
+elif offers(16, "Colour", 13):
+    nwhy = "empty-prefix completion: " + offers(16, "Colour", 13)
+elif offers(16, "Red", 20):
+    nwhy = "empty-prefix completion: " + offers(16, "Red", 20)
+elif offers(16, "Point", 22):
+    nwhy = "empty-prefix completion: " + offers(16, "Point", 22)
+elif offers(16, "deriveTag", 3):
+    nwhy = "empty-prefix completion: " + offers(16, "deriveTag", 3)
+elif offers(16, "bump", 3, "NavHelper"):
+    nwhy = "empty-prefix completion: " + offers(16, "bump", 3, "NavHelper")
+elif "tagColour" in [i.get("label") for i in its16]:
+    nwhy = ("completion offered `tagColour`, which only exists after macro "
+            "expansion - these requests read the raw parse tree (MAC-TOOL-3)")
+# The document no longer parses, so nothing but keywords CAN be offered,
+# and the menu is exactly the set derived from parser.ax.
+elif [i.get("label") for i in its17] != KEYWORDS:
+    nwhy = (f"a document that does not parse offered "
+            f"{[i.get('label') for i in its17]},\n          want the "
+            f"{len(KEYWORDS)} head keywords parser.ax dispatches on: {KEYWORDS}")
+elif {i.get("kind") for i in its17} != {14}:
+    nwhy = (f"keywords were offered as kinds {sorted({i.get('kind') for i in its17})}, "
+            f"want 14 (CompletionItemKind.Keyword) alone")
+elif r17.get("isIncomplete") is not True:
+    nwhy = "the unparseable document's completion answered isIncomplete false"
 
 if nwhy:
     print(f"FAIL navigation: {nwhy}")
@@ -963,7 +1227,18 @@ else:
     print("ok   navigation (a macro invocation, a same-file `fn` and `data`, an "
           f"imported `fn` in {os.path.basename(helper_uri)}, hover quoting the "
           "declaration, and null for a name nothing declares)")
-    passed += 1
+    print(f"ok   hover      (a macro, a `fn` as its signature, a `data`, a "
+          f"`struct`, and `bump` quoted out of NavHelper.ax with its module "
+          f"and its paragraph; 5 form texts and 4 paragraphs cut from the "
+          f"documents, ranges on the WORD not the declaration; null for a "
+          f"name nothing declares; a {BIG_N + 2}-line `data` cut at "
+          f"{HOVER_CLAMP})")
+    print(f"ok   completion ({len(its15)} item(s) all starting {PREFIX!r} with "
+          f"`helper` : {HELPER_TYPE!r}, {len(its16)} at an empty prefix "
+          f"carrying this document's 4 kinds and NavHelper's `bump`, and "
+          f"exactly the {len(KEYWORDS)} keywords derived from parser.ax on a "
+          f"document that does not parse)")
+    passed += 3
 shutil.rmtree(NAVDIR, ignore_errors=True)
 
 # ---------------------------------------------------------------------

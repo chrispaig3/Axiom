@@ -1,6 +1,6 @@
-Content-Length: 198
+Content-Length: 271
 
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true},"serverInfo":{"name":"axiom","version":"0.3.4"}}}Content-Length: 286
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["("]}},"serverInfo":{"name":"axiom","version":"0.3.4"}}}Content-Length: 286
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"severity":1,"code":"AX5001","source":"axiom","message":"cannot resolve import `NoSuchModuleAtAll`"}]}}Content-Length: 218
 

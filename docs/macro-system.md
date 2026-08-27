@@ -2097,10 +2097,10 @@ did not until recently, which also left the language server's
 macro invocation as a reference to its declaration: go-to-definition
 jumps to the `macro` form, hover shows the template, and
 `documentSymbol` lists macros beside functions. All three hold —
-`definitionProvider` and `hoverProvider` are advertised, a position on
-a macro name answers the declaration's own name range, and hover
-answers the declaration verbatim from the document's bytes in an
-`axiom` code fence. A position on a name that is not a macro answers
+`definitionProvider`, `hoverProvider` and `completionProvider` are
+advertised, a position on a macro name answers the declaration's own
+name range, and hover answers the declaration verbatim from the
+document's bytes in an `axiom` code fence. A position on a name that is not a macro answers
 `null`, which is the protocol's "nothing here" and what every other
 word in a file gets.
 
@@ -2129,15 +2129,47 @@ server does not do that". `documentSymbol` and `definition` answering
 different sets of names is drift, and there is no reason for a name the
 outline shows to be a name navigation cannot reach.
 
+*And hover followed, 2026-08-26.* `hover` was still the macros-only
+lookup this paragraph describes `definition` having been — the same
+wrong answer, on the other request. It now takes `definition`'s
+ordering and `definition`'s set: this document's declarations first,
+then the merged list, over every kind the outline lists. What it
+answers is the declaration in an `axiom` fence, the module below it
+when the name was imported, and the COMMENT PARAGRAPH written above the
+declaration, which is the half a signature cannot carry. A `fn` is
+quoted as its `(:: f T)` signature rather than its body — a body is
+arbitrarily long, and "where is this written" is the question
+`definition` answers — and the paragraph is read from above the
+signature, because that is where this language puts it. The published
+`range` is the WORD under the cursor rather than the declaration's own
+span, which is what the protocol asks for and which for an imported
+name is not even in the same file.
+
+`completionProvider` joined them in the same slice, under `MAC-TOOL-3`
+unchanged. A completion offers, in this order, the head keywords the
+parser dispatches on, this document's declarations and the
+constructors a `data` names, and every imported module's declarations
+under their bare names — a local name shadowing an imported one and
+both shadowing a keyword, which is the language's own rule. The list is
+filtered on the prefix under the cursor and sent with `isIncomplete:
+true`, because a server that filters must be asked again on the next
+keystroke; a document that does not parse still completes keywords,
+which is not a degraded case but the normal one, since a file is
+unparseable exactly while a form is half written.
+
 **MAC-TOOL-3 (H, 2026-08-15).** A conforming language server **SHALL
 NOT** expand macros to answer a request that does not need it.
 Expansion is bounded but not free (`MAC-EXP-10` measured 41.4 s on a
 fan-out probe), and the budgets exist precisely because an editor
-cannot wait. The three requests that are not diagnostics —
-`documentSymbol`, `definition`, `hover` — read the RAW parse tree and
-expand nothing; only `didOpen` and `didChange`, which publish
-diagnostics, run the full pipeline, because a diagnostic about
-generated code is exactly what expansion is for.
+cannot wait. The four requests that are not diagnostics —
+`documentSymbol`, `definition`, `hover`, `completion` — read the RAW
+parse tree and expand nothing; only `didOpen` and `didChange`, which
+publish diagnostics, run the full pipeline, because a diagnostic about
+generated code is exactly what expansion is for. The visible
+consequence is that completion does not offer a name a macro would
+generate: `(deriveTag Colour)` does not put `tagColour` in the menu,
+because nothing has expanded it. `check-lsp-selfhost.sh` asserts that
+absence rather than leaving it to be noticed.
 
 **MAC-TOOL-4 (H, 2026-08-15).** With `MAC-CAP-8`, `axiom symbols`
 **SHALL** list generated declarations, attributed to the file

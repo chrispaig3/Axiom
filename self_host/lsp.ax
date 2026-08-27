@@ -9,10 +9,20 @@
 ;
 ; WHAT IT SPEAKS. The lifecycle (`initialize`, `initialized`,
 ; `shutdown`, `exit`), full-text document sync (`didOpen`, `didChange`,
-; `didClose`) and `publishDiagnostics`. Sync is FULL rather than
-; incremental - `textDocumentSync: 1` - because the checker takes a
-; whole source string anyway, so an incremental store would exist only
-; to be re-flattened before every check.
+; `didClose`) and `publishDiagnostics`; and four questions about a
+; position or a document - `documentSymbol`, `definition`, `hover` and
+; `completion`. Sync is FULL rather than incremental -
+; `textDocumentSync: 1` - because the checker takes a whole source
+; string anyway, so an incremental store would exist only to be
+; re-flattened before every check.
+;
+; THE FOUR QUESTIONS ALL READ THE RAW PARSE TREE and expand nothing,
+; which is MAC-TOOL-3's rule: expansion is bounded but not free (41.4 s
+; on a measured fan-out probe) and none of them needs it. `hover` and
+; `completion` additionally read the source BYTES - the declaration's
+; own text, the paragraph above it, the half-typed word under the
+; cursor - because what a reader wants is what is written, and the
+; document already holds it.
 ;
 ; THE FRONTEND IS LIBRARY-SHAPED, WITH ONE EXCEPTION, and that
 ; exception is why `lspPreflight` exists. `parseModuleWith` and
@@ -600,9 +610,9 @@
 ; The identifier under a position, by the lexer's own rule for what an
 ; identifier byte is, so `deriveEq` and `+` and `syntax/join` all
 ; answer the same way the compiler would read them.
-(pub :: lspWordAt (-> String Int String))
+(pub :: lspWordSpan (-> String Int Int))
 
-(pub fn (lspWordAt src off)
+(pub fn (lspWordSpan src off)
   (let ((n (strLen src)))
     (if (if (>= off n)
       true
@@ -611,7 +621,7 @@
         true
       )
     )
-      ""
+      0
       (let (
         (mut s off)
         (mut e off)
@@ -627,9 +637,23 @@
             false
           )
             (set e (+ e 1)))
-          (strSlice src s (- e s))
+          (mkSpan s e)
         }
       )
+    )
+  )
+)
+
+; The same word as text. Written over the span rather than beside it,
+; because two walks of the same rule are two chances to disagree about
+; what an identifier byte is.
+(pub :: lspWordAt (-> String Int String))
+
+(pub fn (lspWordAt src off)
+  (let ((sp (lspWordSpan src off)))
+    (if (== sp 0)
+      ""
+      (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))
     )
   )
 )
@@ -980,14 +1004,40 @@
   )
 )
 
-; `textDocument/hover`: the macro's declaration, verbatim from the
-; document's own bytes, in an Axiom code fence. The TEMPLATE is what a
-; reader wants and what MAC-TOOL-2 asks for, and the declaration's
-; source text is the template plus its pattern - which is more useful
-; than either half and costs no rendering.
-(pub :: lspHover (-> String Int Int))
+; `textDocument/hover`: what the declaration under the cursor says
+; about itself, in the words the document uses.
+;
+; WHAT IT ANSWERS, and each part is left out when the document has not
+; got it:
+;
+;   * a CODE FENCE holding the declaration. For a `fn` that is its
+;     SIGNATURE - `(:: bump (-> Int Int))` - because a body is
+;     arbitrarily long and "where is this written" is the question
+;     `definition` answers; a `fn` with no signature falls back to its
+;     own first line. For a macro, a `data` or a `struct` it is the
+;     WHOLE form, which is the part a reader wants: the rules, the
+;     constructors, the fields.
+;   * the MODULE, when the name came from an import.
+;   * the COMMENT BLOCK above the declaration, as prose.
+;
+; IT USED TO ANSWER FOR MACROS ALONE, and null for every other name -
+; which reads to an editor as "there is nothing here" rather than as
+; "this server does not do that". That is the wrong of the two answers
+; `definition` was fixed of on 2026-08-15, and this is the same fix on
+; the other request: the lookup order is now `lspDefinition`'s, for the
+; reason it has it, which is the language's scoping rule. A module's
+; own declaration shadows an imported one, so this document is asked
+; first and the merged list only when it has no answer.
+;
+; `range` IS THE WORD, NOT THE DECLARATION. The protocol's range is the
+; part of THIS document the tooltip covers, and sending the
+; declaration's span made an editor highlight a line three above the
+; word being read - or, for an imported name, a span into a file the
+; editor does not have open.
+(pub :: lspHover (-> String String Int Int))
 
-(pub fn (lspHover src params)
+;@axiom:effect(io)
+(pub fn (lspHover src uri params)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
       jsonNull
@@ -995,15 +1045,141 @@
         (decls (memGetWord pr 1))
         (ix (lspLineIndex src))
       )
-        (let ((w (lspWordAt src (lspOffsetOf src ix (jsonGet params "position")))))
-          (if (== (strLen w) 0)
+        (let ((wsp (lspWordSpan src (lspOffsetOf src ix (jsonGet params "position")))))
+          (if (== wsp 0)
             jsonNull
-            (let ((d (lspFindMacroDecl decls w (- (vecLen decls) 1))))
+            (let (
+              (w (strSlice src (spanStart wsp) (- (spanEnd wsp) (spanStart wsp))))
+              (range (lspRangeIx src ix wsp))
+            )
+              (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
+                (if (!= d 0)
+                  (lspHoverAt src decls d range "")
+                  (lspHoverImported (lspUriToPath uri) src decls w range)
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The hover object for declaration `d`, whose spans index `dsrc` and
+; whose signature - if it has one - is in `ddecls`. `range` names the
+; word in the document being edited, which is a different document
+; whenever `origin` is non-empty.
+;
+; A `fn` IS READ AT ITS SIGNATURE, not at itself, and that decides two
+; answers at once. The fence gets the type rather than a body of
+; unbounded length; and the comment block comes from above the `::`,
+; which is where this language puts it - `(pub :: bump (-> Int Int))`
+; sits between the paragraph and `(pub fn (bump x) ...)`, so a block
+; read above the definition is the blank line, every time. A `fn` with
+; no signature is read at itself, and then the fence is its first line:
+; the header names the parameters, and the body is what `definition`
+; is for.
+(pub :: lspHoverAt (-> String Int Int Int String Int))
+
+(pub fn (lspHoverAt dsrc ddecls d range origin)
+  (let ((sig 
+    (if (== (nodeTag d) TAG_D_FN)
+      (lspFindSig ddecls (nodeAName d) (- (vecLen ddecls) 1))
+      0
+    )
+  ))
+    (let ((at 
+      (if (== sig 0)
+        d
+        sig
+      )
+    ))
+      (let ((o (lspFormStart dsrc (spanStart (nodeSpan at)))))
+        (let (
+          (code (lspClampLines (lspHoverCode dsrc d sig o) 40))
+          (doc (lspDocComment dsrc o))
+        )
+          (let ((body (strConcat (strConcat "```axiom\n" code) "\n```\n")))
+            (let ((withMod 
+              (if (== (strLen origin) 0)
+                body
+                (strConcat body (strConcat (strConcat "\nfrom `" origin) "`\n"))
+              )
+            ))
+              (let ((value 
+                (if (== (strLen doc) 0)
+                  withMod
+                  (strConcat withMod (strConcat "\n" doc))
+                )
+              ))
+                (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr value))) "range" range)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The fenced half. Everything read at its own form is quoted whole; a
+; `fn` with no signature to be read at instead gives up its body.
+(pub :: lspHoverCode (-> String Int Int Int String))
+
+(pub fn (lspHoverCode dsrc d sig o)
+  (if (&& (== sig 0) (== (nodeTag d) TAG_D_FN))
+    (lspFirstLine (lspFormText dsrc o))
+    (lspFormText dsrc o)
+  )
+)
+
+; The second lookup, and it is `lspDefinitionImported` with a different
+; answer at the end: the same preflight, the same four scratch vectors,
+; the same entry directory, so hover and navigation cannot disagree
+; about which module declares a name. What differs is that hover reads
+; the OTHER unit's text - `memGetWordStr unit 1` - because the
+; declaration's span indexes that file, and names the module it found
+; it in, because "where did this come from" is most of what a reader
+; hovering an imported name is asking.
+(pub :: lspHoverImported (-> String String Int String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspHoverImported path src decls w range)
+  (let (
+    (bares vecNew)
+    (fulls vecNew)
+    (mods vecNew)
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+  )
+    (let ((units 
+      (let ((v vecNew))
+        {
+          (vecPush
+            v            (cast Int (CUnit2
+              path              src              (cast String 0)
+            ))
+          )
+          v
+        }
+      )
+    ))
+      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+        (if (> (strLen missing) 0)
+          jsonNull
+          (let ((allDecls (resolveImports
+            decls            bares            fulls            mods            tcode            entryDir            units
+          )))
+            (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
               (if (== d 0)
                 jsonNull
-                (let ((sp (nodeSpan d)))
-                  (let ((txt (lspDeclText src sp)))
-                    (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr (strConcat (strConcat "```axiom\n" txt) "\n```")))) "range" (lspRange src sp))
+                (let ((u (lspUnitOf units (nodeModule d))))
+                  (if (< u 0)
+                    jsonNull
+                    (let ((unit (vecGet units u)))
+                      (lspHoverAt (memGetWordStr unit 1) allDecls d range (memGetWordStr unit 2))
+                    )
                   )
                 )
               )
@@ -1015,64 +1191,455 @@
   )
 )
 
-; The declaration's own source text: from the `(` that opens the form
-; to its matching `)`. The span names the macro's NAME, not the form,
-; so the opener is found by walking back to the nearest `(` and the
-; closer by counting depth forward - the same balance the formatter's
-; scanner keeps, at a hundredth of the code, because nothing here has
-; to understand what it is skipping except quotes and comments.
-(pub :: lspDeclText (-> String Int String))
+; ------------------------------------------------------------------
+; Reading a declaration back out of the document
+;
+; Hover quotes the source rather than rendering the tree, which is the
+; same decision `definition` made and for the same reason: what a
+; reader wants is what is WRITTEN, comments and spacing and all, and
+; the document already holds it. Three questions have to be answered
+; from bytes to do that - where the form starts, where it ends, and
+; what was said above it.
+; ------------------------------------------------------------------
+; The `(` that opens the top-level form containing `off`.
+;
+; WALKING BACK TO THE NEAREST `(` IS A DIFFERENT QUESTION, and a `fn`
+; is where the two answers part. A declaration's span names its NAME. A
+; macro's name sits directly after its keyword - `(pub macro deriveTag`
+; - so the nearest opener behind it is the form's own, which is why the
+; nearest-opener rule was right for as long as hover answered macros
+; and nothing else. A function's name sits INSIDE its parameter list -
+; `(pub fn (bump x) (+ x 1))` - so the nearest opener is `(bump x)`'s,
+; and a hover built on it would quote the parameter list and call it
+; the declaration.
+;
+; The rule is COLUMN ZERO: a top-level form begins a line. That is what
+; `axiom fmt` writes and what every file this compiler reads is in. A
+; document mid-edit that indents a declaration falls back to the
+; nearest opener, which is the answer this had before and no worse.
+(pub :: lspFormStart (-> String Int Int))
 
-(pub fn (lspDeclText src sp)
-  (let (
-    (s (spanStart sp))
-    (n (strLen src))
-  )
-    (let ((mut o s))
-      {
-        (while (if (> o 0)
-          (!= (strByte src o) 40)
-          false
+(pub fn (lspFormStart src off)
+  (let ((n (strLen src)))
+    (if (== n 0)
+      0
+      (let ((from 
+        (if (< off n)
+          off
+          (- n 1)
         )
-          (set o (- o 1)))
+      ))
         (let (
-          (mut i o)
-          (mut depth 0)
-          (mut stop (- 0 1))
+          (mut o from)
+          (mut best (- 0 1))
+          (mut go 1)
         )
           {
-            (while (if (< i n)
-              (< stop 0)
-              false
-            )
-              {
-                (if (== (strByte src i) 40)
-                  (set depth (+ depth 1))
-                  0
+            (while (== go 1)
+              (if (&& (== (strByte src o) 40) (|| (== o 0) (== (strByte src (- o 1)) 10)))
+                {
+                  (set best o)
+                  (set go 0)
+                }
+                (if (== o 0)
+                  (set go 0)
+                  (set o (- o 1))
                 )
-                (if (== (strByte src i) 41)
-                  {
-                    (set depth (- depth 1))
-                    (if (<= depth 0)
-                      (set stop (+ i 1))
-                      0
-                    )
-                  }
-                  0
-                )
-                (set i (+ i 1))
-              })
-            (strSlice
-              src              o              (-
-                (if (< stop 0)
-                  n
-                  stop
-                )                o
-              )
+              ))
+            (if (>= best 0)
+              best
+              (lspNearestOpen src from)
             )
           }
         )
+      )
+    )
+  )
+)
+
+; The fallback: the nearest `(` at or before `off`, wherever it sits.
+(pub :: lspNearestOpen (-> String Int Int))
+
+(pub fn (lspNearestOpen src off)
+  (let ((mut o off))
+    {
+      (while (if (> o 0)
+        (!= (strByte src o) 40)
+        false
+      )
+        (set o (- o 1)))
+      o
+    }
+  )
+)
+
+; The form at `o`, from its `(` to its matching `)`.
+;
+; A DEPTH COUNT ALONE IS NOT ENOUGH, and that is the half this used to
+; be missing: a `)` inside a string, a char literal, a `;` comment or a
+; `#| |#` block is not a closer. A `data` declaration with a comment
+; between two constructors ended at the comment's paren and hover
+; quoted half a type. Rather than restate the rule this asks the four
+; functions `scanAxtags` asks - `skipStringBody`, `skipCharBody`,
+; `skipBlockComment`, `findNewline` - in `scanAxtags`'s own order, and
+; consumes an identifier whole through `skipIdent` FIRST, because `'`
+; is an identifier byte and `f'` must not open a char literal. What
+; that costs when it is got wrong is written out at length in
+; lexer.ax: one apostrophe silently deleted every AXTAG after it.
+(pub :: lspFormText (-> String Int String))
+
+(pub fn (lspFormText src o)
+  (let (
+    (n (strLen src))
+    (mut i o)
+    (mut depth 0)
+    (mut stop (- 0 1))
+  )
+    {
+      (while (if (< i n)
+        (< stop 0)
+        false
+      )
+        (let ((ch (strByte src i)))
+          (if (== ch 34)
+            (set i (skipStringBody src (+ i 1) n))
+            (if (isIdentStart ch)
+              (set i (skipIdent src (+ i 1) n))
+              (if (== ch 39)
+                (set i (skipCharBody src (+ i 1) n))
+                (if (&& (== ch 35) (isBlockOpen src i n))
+                  (set i (skipBlockComment src (+ i 2) n))
+                  (if (== ch 59)
+                    (set i (findNewline src i n))
+                    {
+                      (if (== ch 40)
+                        (set depth (+ depth 1))
+                        0
+                      )
+                      (if (== ch 41)
+                        {
+                          (set depth (- depth 1))
+                          (if (<= depth 0)
+                            (set stop (+ i 1))
+                            0
+                          )
+                        }
+                        0
+                      )
+                      (set i (+ i 1))
+                    }
+                  )
+                )
+              )
+            )
+          )
+        ))
+      (strSlice
+        src        o        (-
+          (if (< stop 0)
+            n
+            stop
+          )          o
+        )
+      )
+    }
+  )
+)
+
+; The declaration's own source text. The span names the NAME; the form
+; around it is what a reader asked for.
+(pub :: lspDeclText (-> String Int String))
+
+(pub fn (lspDeclText src sp) (lspFormText src (lspFormStart src (spanStart sp))))
+
+; The comment block written directly above the form at `o`, as prose.
+;
+; This is the half of hover a signature cannot give. Every file this
+; compiler reads documents a declaration in the lines above it - this
+; one included - and an editor that shows the type and not the
+; paragraph shows the less useful half.
+;
+; THE BLOCK STOPS AT A BANNER. A comment whose body is nothing but `-`
+; or `=` is a section separator: it belongs to the FILE, and what sits
+; above it documents the section rather than this declaration. Without
+; that rule, hover on the first declaration after a banner quoted the
+; banner, the section header and every line of prose introducing it.
+; A blank line ends the block too, which is what a paragraph break
+; between two declarations means.
+;
+; Only a form that begins a line has a block above it; the indented
+; fallback in `lspFormStart` answers "" rather than reading whatever
+; text happens to precede it on the same line.
+(pub :: lspDocComment (-> String Int String))
+
+(pub fn (lspDocComment src o)
+  (if (if (== o 0)
+    true
+    (!= (strByte src (- o 1)) 10)
+  )
+    ""
+    (let (
+      (mut e o)
+      (mut out "")
+      (mut go 1)
+    )
+      {
+        (while (== go 1)
+          (if (<= e 0)
+            (set go 0)
+            (let ((ls (lspPrevLineStart src e)))
+              (let ((line (strSlice src ls (- (- e 1) ls))))
+                (if (lspIsDocLine line)
+                  {
+                    (set out (strConcat (strConcat (lspDocStrip line) "\n") out))
+                    (set e ls)
+                  }
+                  (set go 0)
+                )
+              )
+            )
+          ))
+        out
       }
+    )
+  )
+)
+
+; The start of the line whose newline sits at `e - 1`.
+(pub :: lspPrevLineStart (-> String Int Int))
+
+(pub fn (lspPrevLineStart src e)
+  (let ((mut i (- e 1)))
+    {
+      (while (if (> i 0)
+        (!= (strByte src (- i 1)) 10)
+        false
+      )
+        (set i (- i 1)))
+      i
+    }
+  )
+)
+
+; A line that is entirely a comment, and is not a banner.
+(pub :: lspIsDocLine (-> String Bool))
+
+(pub fn (lspIsDocLine line)
+  (let (
+    (n (strLen line))
+    (mut i 0)
+  )
+    {
+      (while (if (< i n)
+        (lspIsBlank (strByte line i))
+        false
+      )
+        (set i (+ i 1)))
+      (if (>= i n)
+        false
+        (if (!= (strByte line i) 59)
+          false
+          (lspNotBanner line (+ i 1))
+        )
+      )
+    }
+  )
+)
+
+; A comment body of nothing but `-` or `=` is a rule across the page,
+; not a sentence about the declaration below it.
+;
+; AN EMPTY BODY IS NOT ONE. A bare `;` is the paragraph break inside a
+; doc block and is how nearly every multi-paragraph comment in this
+; repository is written, so a banner test that fired on "no text" cut
+; every such block down to its last paragraph - measured on `bump`,
+; whose first sentence disappeared. A banner needs a rule character
+; PRESENT and nothing else beside it.
+(pub :: lspNotBanner (-> String Int Bool))
+
+(pub fn (lspNotBanner line i)
+  (let (
+    (n (strLen line))
+    (mut k i)
+    (mut rule 0)
+    (mut other 0)
+  )
+    {
+      (while (< k n)
+        {
+          (let ((b (strByte line k)))
+            (if (|| (== b 45) (== b 61))
+              (set rule 1)
+              (if (lspIsBlank b)
+                0
+                (set other 1)
+              )
+            ))
+          (set k (+ k 1))
+        })
+      (|| (== other 1) (== rule 0))
+    }
+  )
+)
+
+(pub :: lspIsBlank (-> Int Bool))
+
+(pub fn (lspIsBlank b) (|| (== b 32) (== b 9)))
+
+(pub :: lspIsSpace (-> Int Bool))
+
+(pub fn (lspIsSpace b) (|| (lspIsBlank b) (|| (== b 10) (== b 13))))
+
+; One comment line as prose: the leading blanks, the `;`, and one space
+; after it. `;@axiom:effect(io)` keeps its `@`, because an AXTAG is
+; part of what the declaration claims about itself and a reader hovering
+; it wants to see the claim.
+(pub :: lspDocStrip (-> String String))
+
+(pub fn (lspDocStrip line)
+  (let (
+    (n (strLen line))
+    (mut i 0)
+  )
+    {
+      (while (if (< i n)
+        (lspIsBlank (strByte line i))
+        false
+      )
+        (set i (+ i 1)))
+      (if (< i n)
+        (set i (+ i 1))
+        0
+      )
+      (if (if (< i n)
+        (== (strByte line i) 32)
+        false
+      )
+        (set i (+ i 1))
+        0
+      )
+      (strSlice line i (- n i))
+    }
+  )
+)
+
+; At most `max` lines of `s`, with the cut said out loud in the fence's
+; own comment syntax. Hover is a tooltip: a two-hundred-constructor
+; `data` quoted whole is a wall the editor draws over the code being
+; read.
+(pub :: lspClampLines (-> String Int String))
+
+(pub fn (lspClampLines s max)
+  (let (
+    (n (strLen s))
+    (mut i 0)
+    (mut lines 0)
+    (mut cut (- 0 1))
+  )
+    {
+      (while (if (< i n)
+        (< cut 0)
+        false
+      )
+        {
+          (if (== (strByte s i) 10)
+            {
+              (set lines (+ lines 1))
+              (if (>= lines max)
+                (set cut i)
+                0
+              )
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      (if (< cut 0)
+        s
+        (strConcat (strSlice s 0 cut) "\n  ; ...")
+      )
+    }
+  )
+)
+
+(pub :: lspFirstLine (-> String String))
+
+(pub fn (lspFirstLine s)
+  (let ((nl (strFindByte s 10 0)))
+    (if (< nl 0)
+      s
+      (strSlice s 0 nl)
+    )
+  )
+)
+
+; The last `(:: name T)` this declaration list carries for `name`.
+;
+; The comparison is EXACT, and it is exact for imported names too:
+; `resolveImports` mangles a signature and its definition the same way,
+; so `NavHelper$bump`'s type is found under `NavHelper$bump`. Type
+; names are not mangled, which is why this is asked about functions
+; and nothing else.
+(pub :: lspFindSig (-> Int String Int Int))
+
+(pub fn (lspFindSig decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_SIG) (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0)))
+        d
+        (lspFindSig decls name (- i 1))
+      )
+    )
+  )
+)
+
+; The TYPE a signature declares, as its own bytes: `(pub :: bump (-> Int
+; Int))` answers `(-> Int Int)`. A completion list has room for the
+; type and not for the form around it.
+;
+; The name is skipped by walking identifier bytes from the span rather
+; than by its length, because an imported declaration's `nodeAName` is
+; `NavHelper$bump` and the source spells `bump`.
+(pub :: lspSigType (-> String Int String))
+
+(pub fn (lspSigType src sig)
+  (let ((o (lspFormStart src (spanStart (nodeSpan sig)))))
+    (let ((t (lspFormText src o)))
+      (let (
+        (n (strLen t))
+        (mut i (- (spanStart (nodeSpan sig)) o))
+      )
+        {
+          (if (|| (< i 0) (>= i n))
+            (set i n)
+            0
+          )
+          (while (if (< i n)
+            (isIdentChar (strByte t i))
+            false
+          )
+            (set i (+ i 1)))
+          (while (if (< i n)
+            (lspIsSpace (strByte t i))
+            false
+          )
+            (set i (+ i 1)))
+          (let ((mut e (- n 1)))
+            {
+              (while (if (> e i)
+                (lspIsSpace (strByte t (- e 1)))
+                false
+              )
+                (set e (- e 1)))
+              (if (> e i)
+                (strSlice t i (- e i))
+                ""
+              )
+            }
+          )
+        }
+      )
     )
   )
 )
@@ -1111,6 +1678,427 @@
           out
         }
       )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/completion`: the names that could go where the cursor
+; is.
+;
+; WHAT IS OFFERED, in the order a client receives it:
+;
+;   1. THE HEAD KEYWORDS the parser dispatches on - `let`, `if`,
+;      `match`, `fn`, `data` and the rest. No declaration list carries
+;      them, and a half-typed form is usually reaching for one.
+;   2. THIS DOCUMENT'S declarations, over the kinds the outline lists,
+;      plus the CONSTRUCTORS a `data` declares: `Red` is a name that
+;      gets written and it is not a declaration of its own.
+;   3. EVERY IMPORTED MODULE'S declarations, under their bare names,
+;      with the module in `detail`.
+;
+; A LOCAL NAME SHADOWS AN IMPORTED ONE and both shadow a keyword, which
+; is the language's own rule and the reason for that order; a name
+; already offered is not offered twice.
+;
+; THE PREFIX IS APPLIED HERE, and `isIncomplete` is what makes that
+; correct rather than a shortcut. A client is entitled to filter a
+; COMPLETE list itself and stop asking. This server answers only the
+; names starting with what has been typed, so it must say the list is
+; partial and be asked again on the next keystroke - answering
+; `isIncomplete: false` to a filtered list is how a completion menu
+; ends up frozen on the first letter. The `LSP_COMPL_MAX` cap rides on
+; the same field: a menu is not a directory listing, and a truncation
+; a client has been told about is not a silent one.
+;
+; A DOCUMENT THAT DOES NOT PARSE STILL COMPLETES, with the keywords.
+; That is not a degraded case to apologise for - it is the normal one.
+; A file is unparseable exactly while a form is half written, which is
+; exactly when the question is being asked.
+;
+; WHAT IT COSTS: the parse and the import resolution `didOpen` already
+; runs on every keystroke, and no expansion - MAC-TOOL-3's rule, the
+; one `definition` and `hover` keep. `check-lsp-selfhost.sh` holds the
+; whole request under the cost of that `didOpen` as a ratio, and holds
+; the menu under `LSP_COMPL_MAX` items. It does NOT hold the guard
+; below: both requests are dominated by the one parse every request in
+; this server pays, so no wall-clock ceiling separates a build that
+; asks the cheap question first from one that does not. That gate's
+; header says so rather than implying otherwise.
+; ------------------------------------------------------------------
+; A menu, not a directory. 200 is far past what any client shows and
+; far short of the six thousand names a stdlib-wide empty prefix would
+; otherwise serialise on every keystroke.
+(pub :: LSP_COMPL_MAX Int)
+
+(pub fn (LSP_COMPL_MAX) 200)
+
+; The head keywords, spelled once.
+;
+; This list is a COPY of a set the parser owns, and it is a checked
+; copy: `check-lsp-selfhost.sh` derives that set from the `kwEq name`
+; call sites in `self_host/parser.ax` and requires this to equal it. So
+; a keyword the parser learns and this forgets is a red gate rather
+; than a menu quietly behind the language - which is the drift a
+; hand-kept list of another module's vocabulary otherwise guarantees.
+;
+; The three the parser names only in order to REFUSE them - `union`,
+; `region` and `foreign`, whose whole effect is AX2004 - are not
+; offered. Suggesting a word that cannot be used is worse than
+; suggesting nothing.
+(pub :: lspKeywords Int)
+
+(pub fn (lspKeywords)
+  (let ((v vecNew))
+    {
+      (vecPush v "alloc")
+      (vecPush v "begin")
+      (vecPush v "cond")
+      (vecPush v "consume")
+      (vecPush v "data")
+      (vecPush v "define")
+      (vecPush v "effect")
+      (vecPush v "extern")
+      (vecPush v "fn")
+      (vecPush v "handle")
+      (vecPush v "if")
+      (vecPush v "impl")
+      (vecPush v "import")
+      (vecPush v "lambda")
+      (vecPush v "let")
+      (vecPush v "macro")
+      (vecPush v "match")
+      (vecPush v "pub")
+      (vecPush v "set")
+      (vecPush v "struct")
+      (vecPush v "syntax/for")
+      (vecPush v "trait")
+      (vecPush v "type")
+      (vecPush v "while")
+      v
+    }
+  )
+)
+
+; LSP CompletionItemKind. Function 3, Keyword 14, Enum 13, EnumMember
+; 20, Struct 22. A macro is a Function: the protocol has no kind for
+; one, and `lspSymKind` collapses it the same way for the outline.
+(pub :: lspComplKind (-> Int Int))
+
+(pub fn (lspComplKind tag)
+  (if (== tag TAG_D_DATA)
+    13
+    (if (== tag TAG_D_STRUCT)
+      22
+      3
+    )
+  )
+)
+
+(pub :: lspComplItem (-> String Int String Int))
+
+(pub fn (lspComplItem label kind detail)
+  (let ((base (jsonObjPut (jsonObjPut jsonObj "label" (jsonStr label)) "kind" (jsonNum kind))))
+    (if (== (strLen detail) 0)
+      base
+      (jsonObjPut base "detail" (jsonStr detail))
+    )
+  )
+)
+
+; Whether `label` would be offered.
+;
+; Asked BEFORE a detail is built, and that is the whole point of its
+; existing separately: `lspComplDetail` scans the declaration list for
+; a signature, so building one for every declaration and then
+; discarding it on the prefix is n-squared paid per keystroke -
+; measured at 25 ms on a 2,050-declaration document, 65 ms at 6,000.
+; Axiom is strict; the only way not to compute an argument is not to
+; reach the call.
+;
+; Nothing but this comment holds it. The cost gate bounds the request
+; against a `didOpen` that is itself dominated by a parse, and both
+; builds sit inside that ceiling - so the guard is held by review, and
+; deleting it is a change to make on purpose.
+(pub :: lspComplWants (-> Int String String Bool))
+
+(pub fn (lspComplWants seen label prefix)
+  (if (>= (vecLen seen) LSP_COMPL_MAX)
+    false
+    (if (== (strLen label) 0)
+      false
+      (if (== (expIsJoinMarker label) 0)
+        (if (strStartsWith label prefix)
+          (if (lspSeenHas seen label)
+            false
+            true
+          )
+          false
+        )
+        false
+      )
+    )
+  )
+)
+
+(pub :: lspComplOffer (-> Int Int String Int String String Int))
+
+(pub fn (lspComplOffer out seen label kind detail prefix)
+  (if (lspComplWants seen label prefix)
+    {
+      (vecPush seen label)
+      (jsonArrPush out (lspComplItem label kind detail))
+      0
+    }
+    0
+  )
+)
+
+; The identifier bytes immediately BEFORE the cursor.
+;
+; `lspWordAt` will not do, and the difference is the whole request: it
+; requires the offset to be ON an identifier byte, and a cursor that
+; has just typed `vecP` sits one past the `P`, on whatever comes next
+; or on nothing at all.
+(pub :: lspPrefixAt (-> String Int String))
+
+(pub fn (lspPrefixAt src off)
+  (let (
+    (n (strLen src))
+    (e 
+      (if (> off n)
+        n
+        off
+      )
+    )
+  )
+    (let ((mut s e))
+      {
+        (while (if (> s 0)
+          (isIdentChar (strByte src (- s 1)))
+          false
+        )
+          (set s (- s 1)))
+        (strSlice src s (- e s))
+      }
+    )
+  )
+)
+
+(pub :: lspComplList (-> Int Int))
+
+(pub fn (lspComplList items) (jsonObjPut (jsonObjPut jsonObj "isIncomplete" (jsonBool 1)) "items" items))
+
+(pub :: lspCompletion (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspCompletion src uri params)
+  (let (
+    (ix (lspLineIndex src))
+    (out jsonArr)
+    (seen vecNew)
+  )
+    (let ((prefix (lspPrefixAt src (lspOffsetOf src ix (jsonGet params "position")))))
+      (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+        {
+          (lspComplKeywords out seen prefix)
+          (if (== (memGetWord pr 0) 0)
+            0
+            (let ((decls (memGetWord pr 1)))
+              {
+                (lspComplLocal out seen src decls prefix)
+                (lspComplImported out seen (lspUriToPath uri) src decls prefix)
+              }
+            )
+          )
+          (lspComplList out)
+        }
+      )
+    )
+  )
+)
+
+(pub :: lspComplKeywords (-> Int Int String Int))
+
+(pub fn (lspComplKeywords out seen prefix)
+  (let (
+    (kws lspKeywords)
+    (n (vecLen kws))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (lspComplOffer out seen (vecGetStr kws i) 14 "keyword" prefix)
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; This document's own names. The same set the outline publishes - so a
+; name an editor can list, jump to and hover is a name it can also
+; complete - plus the constructors, which the outline leaves out
+; because they are not declarations and completion wants because they
+; are names.
+(pub :: lspComplLocal (-> Int Int String Int String Int))
+
+(pub fn (lspComplLocal out seen src decls prefix)
+  (let (
+    (n (vecLen decls))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            (if (&& (lspWantsSymbol (nodeTag d)) (!= (nodeSpan d) 0))
+              {
+                (if (lspComplWants seen (nodeAName d) prefix)
+                  (lspComplOffer
+                    out                    seen                    (nodeAName d)                    (lspComplKind (nodeTag d))                    (lspComplDetail src decls d)                    prefix
+                  )
+                  0
+                )
+                (if (== (nodeTag d) TAG_D_DATA)
+                  (lspComplCtors out seen (nodeB d) prefix)
+                  0
+                )
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; A local function's type, as written. Only a `fn` has one to show, and
+; only the document's own declarations are asked: over the merged list
+; this scan is the length of every module imported, per accepted item,
+; per keystroke. An imported name shows its MODULE instead, which is
+; the question being asked about it anyway and costs one walk of the
+; mangled name.
+(pub :: lspComplDetail (-> String Int Int String))
+
+(pub fn (lspComplDetail src decls d)
+  (if (== (nodeTag d) TAG_D_FN)
+    (let ((sig (lspFindSig decls (nodeAName d) (- (vecLen decls) 1))))
+      (if (== sig 0)
+        ""
+        (lspSigType src sig)
+      )
+    )
+    ""
+  )
+)
+
+(pub :: lspComplCtors (-> Int Int Int String Int))
+
+(pub fn (lspComplCtors out seen ctors prefix)
+  (let (
+    (n (vecLen ctors))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (lspComplOffer out seen (nodeAName (vecGet ctors i)) 20 "" prefix)
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; Everything the imports bring in, by the bare name a reference spells.
+;
+; The resolver is given what `lspCheckDoc` and `lspDefinitionImported`
+; give it, for the reason they agree on it: a different entry directory
+; resolves a different set of files, and a completion list that does
+; not match the names the checker will accept is worse than no list.
+; A resolver failure is an empty addition rather than a diagnostic -
+; half-typed imports are the normal state of a file being edited.
+(pub :: lspComplImported (-> Int Int String String Int String Int))
+
+;@axiom:effect(io)
+(pub fn (lspComplImported out seen path src decls prefix)
+  (let (
+    (bares vecNew)
+    (fulls vecNew)
+    (mods vecNew)
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+  )
+    (let ((units 
+      (let ((v vecNew))
+        {
+          (vecPush
+            v            (cast Int (CUnit2
+              path              src              (cast String 0)
+            ))
+          )
+          v
+        }
+      )
+    ))
+      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+        (if (> (strLen missing) 0)
+          0
+          (let ((allDecls (resolveImports
+            decls            bares            fulls            mods            tcode            entryDir            units
+          )))
+            (let (
+              (n (vecLen allDecls))
+              (mut i 0)
+            )
+              {
+                (while (< i n)
+                  (let ((d (vecGet allDecls i)))
+                    {
+                      (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeModule d) 0) (!= (nodeSpan d) 0)))
+                        {
+                          (lspComplOffer
+                            out                            seen                            (bareOf (nodeAName d))                            (lspComplKind (nodeTag d))                            (lspModOf (nodeAName d))                            prefix
+                          )
+                          (if (== (nodeTag d) TAG_D_DATA)
+                            (lspComplCtors out seen (nodeB d) prefix)
+                            0
+                          )
+                        }
+                        0
+                      )
+                      (set i (+ i 1))
+                    }
+                  ))
+                0
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The module half of a mangled name: `Vec$vecPush` answers `Vec`. The
+; other half of `bareOf`, and "" for a name nothing mangled - a type
+; name, which `resolveImports` does not rewrite.
+(pub :: lspModOf (-> String String))
+
+(pub fn (lspModOf s) (lspModOfFrom s (- (strLen s) 1)))
+
+(pub :: lspModOfFrom (-> String Int String))
+
+(pub fn (lspModOfFrom s i)
+  (if (< i 0)
+    ""
+    (if (== (strByte s i) 36)
+      (strSlice s 0 i)
+      (lspModOfFrom s (- i 1))
     )
   )
 )
@@ -1406,12 +2394,30 @@
 ; nothing calls.
 (pub :: lspCapabilities Int)
 
-(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.3.4"))))
+(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions)) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.3.4"))))
 
 ; `definitionProvider` and `hoverProvider` joined on 2026-08-15
 ; with the macro navigation they describe (MAC-TOOL-2). Both are
 ; answered from the raw parse tree, so a client that sends them
 ; per keystroke costs a parse and no expansion (MAC-TOOL-3).
+; `completionProvider` joined on 2026-08-26, under the same rule.
+
+; `completionProvider` is an OBJECT where the three beside it are
+; booleans, and both of its fields are load-bearing.
+;
+; `resolveProvider: false` says every item is complete as sent. There
+; is no `completionItem/resolve` here, and a client that believed
+; otherwise would show a menu of labels and wait for a second round
+; trip that never comes.
+;
+; `triggerCharacters: ["("]` is the language's own shape. A client
+; sends an UNPROMPTED completion request only at a character this list
+; names, and in a language where every call opens a paren, `(` is the
+; moment a name is being reached for. Typing into a word asks anyway.
+(pub :: lspCompletionOptions Int)
+
+(pub fn (lspCompletionOptions) (jsonObjPut (jsonObjPut jsonObj "resolveProvider" (jsonBool 0)) "triggerCharacters" (jsonArrPush jsonArr (jsonStr "("))))
+
 ; Check the document behind `uri` and publish the result.
 (pub :: lspRecheck (-> Int Int String Int))
 
@@ -1506,7 +2512,9 @@
                                   (if (strEq method "textDocument/definition")
                                     (lspReply id (lspDefinition (docText uris texts (lspParamsUri params)) (lspParamsUri params) params))
                                     (if (strEq method "textDocument/hover")
-                                      (lspReply id (lspHover (docText uris texts (lspParamsUri params)) params))
+                                      (lspReply id (lspHover (docText uris texts (lspParamsUri params)) (lspParamsUri params) params))
+                                      (if (strEq method "textDocument/completion")
+                                        (lspReply id (lspCompletion (docText uris texts (lspParamsUri params)) (lspParamsUri params) params))
                                       (if (strEq method "textDocument/didClose")
                                         (let ((uri (lspParamsUri params)))
                                           {
@@ -1524,7 +2532,7 @@
                                           0
                                           (lspError id (- 0 32601) (strConcat "method not found: " method))
                                         )
-                                      )
+                                      ))
                                     )
                                   )
                                 )
