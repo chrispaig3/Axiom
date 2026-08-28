@@ -107,6 +107,22 @@ What the lifecycle does, and what it does not:
 
 ## Editor setup
 
+Three things are separate, and an editor can have any one of them
+without the others — which is the confusion worth naming before the
+configurations:
+
+| | What it gives | Which editors use it |
+|---|---|---|
+| the **language server** (`axiom lsp`) | every request in this document | all of them |
+| **semantic tokens**, a request the server answers | highlighting by what a name resolves to | Neovim, VS Code, `lsp-mode`; **not** Helix, **not** eglot |
+| the **tree-sitter grammar** (`tree-sitter-axiom/`) | highlighting from the syntax alone | Helix (its only source of colour), Neovim (beside the tokens), the `tree-sitter` CLI |
+
+So: in Neovim and VS Code the server alone colours a buffer, and the
+grammar is an addition. In Helix the server colours nothing — install
+the grammar or the file stays plain text, however well the server is
+working. Every section below ends with the command that tells you which
+of the three you actually have.
+
 The server is found through the editor's `PATH`, so `axiom` must be on
 it — or write the absolute path where the configurations below say
 `"axiom"`. Source files end in `.ax`; the server does not read the
@@ -181,8 +197,14 @@ vim.api.nvim_create_autocmd("LspAttach", {
 })
 ```
 
-`:checkhealth vim.lsp` shows the client attached and the capabilities
-it received. Highlighting from the tree-sitter grammar is separate and
+**Verify:** open a `.ax` file and run `:checkhealth vim.lsp` — the
+client must be listed as attached, and the capabilities it received
+must include `semanticTokensProvider`. Then put the cursor on a
+parameter and run `:Inspect`: a *Semantic Tokens* section naming
+`@lsp.type.parameter.axiom` is the proof that highlighting is coming
+from the server. If `:Inspect` shows nothing there, the client
+attached but the tokens did not arrive; `:lua =vim.lsp.get_clients()[1].server_capabilities.semanticTokensProvider`
+says whether the server offered them. Highlighting from the tree-sitter grammar is separate and
 optional — the semantic tokens colour a buffer with no grammar
 installed — and registering it is nvim-treesitter's business, pointed
 at [`tree-sitter-axiom/`](../tree-sitter-axiom/README.md) in a
@@ -202,17 +224,21 @@ require("nvim-treesitter.parsers").get_parser_configs().axiom = {
 
 ### Helix
 
-Helix highlights with tree-sitter alone and does not consume semantic
-tokens or code lenses, so the grammar matters here and the two
-lens commands are out of reach. Everything else — definition,
-references, rename, hover, completion, signature help, inlay hints,
-document and workspace symbols, formatting, code actions — is the
-built-in client's.
+Helix highlights with tree-sitter alone: it does **not** consume
+semantic tokens or code lenses, so the grammar is not optional here the
+way it is in an editor that has them, and the two lens commands are out
+of reach. Everything else — definition, references, rename, hover,
+completion, signature help, inlay hints, document and workspace
+symbols, formatting, code actions — is the built-in client's.
+
+Three parts have to be in place, and `hx --health axiom` is the one
+command that says which are: the server, the compiled grammar, and the
+highlight queries in the runtime directory. Configuration first:
 
 ```toml
 # ~/.config/helix/languages.toml
 [language-server.axiom]
-command = "axiom"
+command = "axiom"                 # or the absolute path to the binary
 args = ["lsp"]
 
 [[language]]
@@ -224,21 +250,64 @@ comment-token = ";"
 block-comment-tokens = { start = "#|", end = "|#" }
 indent = { tab-width = 2, unit = "  " }
 language-servers = ["axiom"]
+auto-format = true
 
 [[grammar]]
 name = "axiom"
 source = { path = "/path/to/axiom/tree-sitter-axiom" }
 ```
 
-Then `hx --grammar build`, and copy
-`tree-sitter-axiom/queries/highlights.scm` to
-`~/.config/helix/runtime/queries/axiom/highlights.scm`. The query file
-is written in nvim-treesitter's capture names, and a capture Helix's
-themes do not spell (`@module`, `@keyword.modifier`, `@number.float`)
-is left uncoloured rather than wrong. `hx --health axiom` reports
-whether the grammar and the server were both found. Inlay hints are
-off in Helix until `config.toml` says `[editor.lsp]
-display-inlay-hints = true`.
+**Do not set `formatter` for this language.** `axiom fmt` rewrites a
+file in place and has no `--stdin`, and Helix formats by piping the
+buffer through a command's standard input — so a
+`formatter = { command = "axiom fmt", args = ["--stdin"] }` line cannot
+work, and, because a configured formatter takes precedence over the
+language server, it turns off the formatting that does. `hx --health
+axiom` reports such a line as `✘ 'axiom fmt' not found in $PATH`
+(Helix reads the whole string as one command name). With no `formatter`
+line, `auto-format` uses the server's `textDocument/formatting`, which
+runs the same `fmtFormat` the command does.
+
+Then build the grammar and install the queries — Helix loads queries
+from its runtime directory, **not** from the grammar's own `queries/`:
+
+```bash
+mkdir -p ~/.config/helix/runtime/queries/axiom
+cp /path/to/axiom/tree-sitter-axiom/queries/highlights.scm \
+   ~/.config/helix/runtime/queries/axiom/highlights.scm
+hx --grammar build            # compiles the [[grammar]] entries above
+```
+
+**Verify, and do not skip this:** `hx --health axiom` must print a
+green tick on all three lines that matter.
+
+```
+Configured language servers:
+  ✓ axiom: /path/to/axiom
+Configured formatter: None          <- correct; the server formats
+Tree-sitter parser: ✓
+Highlight queries: ✓
+```
+
+`Tree-sitter parser: None` or `Highlight queries: ✘` means the buffer
+will render as plain text no matter what the language server answers,
+because Helix takes no colour from it. That is the whole failure mode:
+the server can be attached and answering every request while nothing in
+the file is coloured.
+
+Capture names in `highlights.scm` follow nvim-treesitter's convention.
+Helix resolves a scope it does not spell by trimming the last segment —
+`@keyword.modifier` falls back to `keyword`, `@number.float` to
+`number` — so a theme that names only the coarse scopes still colours
+everything; a theme that names the fine ones colours it more precisely.
+Measured on `stdlib/Vec.ax`: 2,392 captures over 15 distinct names.
+
+Inlay hints are off until `~/.config/helix/config.toml` says:
+
+```toml
+[editor.lsp]
+display-inlay-hints = true
+```
 
 ### Emacs (eglot)
 
@@ -337,14 +406,21 @@ function deactivate() { return client && client.stop(); }
 module.exports = { activate, deactivate };
 ```
 
+**Verify:** with the Extension Development Host open on a `.ax` file,
+run *Developer: Inspect Editor Tokens and Scopes* from the command
+palette and put the cursor on a parameter — the popup's *semantic token
+type* row must read `parameter`. If that row says *no semantic token*,
+either the client did not connect (check the *Output* panel, channel
+*Axiom*, for the server's stderr) or semantic highlighting is off for
+your theme: set `"editor.semanticHighlighting.enabled": true` in
+settings, which some themes otherwise leave to themselves.
+
 Two things a builder adds next: a TextMate grammar under
-`contributes.grammars`, without which the semantic tokens are the
-whole of the highlighting — and `"editor.semanticHighlighting.enabled":
-true` in settings, since some themes leave it to the theme — and a
+`contributes.grammars`, without which the semantic tokens are the whole
+of the highlighting — VS Code paints semantic tokens *over* a TextMate
+base, so with no grammar an unparsed region is uncoloured — and a
 `language-configuration.json` naming `;` as the line comment and the
-bracket pairs. *Developer: Inspect Editor Tokens and Scopes* shows,
-for the token under the cursor, the semantic token type and the
-TextMate scope it was mapped to.
+bracket pairs.
 
 ## What each request answers
 
