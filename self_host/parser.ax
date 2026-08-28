@@ -4771,7 +4771,7 @@
 ; lines below. `(lambda (x y) b)` is `(lambda (x) (lambda (y) b))`,
 ; which is what the language's curried types already say it means and
 ; what the closure representation already implements: one hidden
-; `%_env` per lifted body, capture by value of everything in scope, so
+; `%.env` per lifted body, capture by value of everything in scope, so
 ; the inner lambda captures `x` exactly as it captures any other
 ; enclosing binding.
 ;

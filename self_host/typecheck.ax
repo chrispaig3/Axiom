@@ -12085,7 +12085,7 @@
 ;
 ; Measured 2026-08-25 on `tests/stdlib/373-shared-default-binder.ax`:
 ; with this arm removed, `Ident#String#ident` contains
-; `call void @axiom_release(i64 %t0)` - a release of the block the
+; `call void @axiom_release(i64 %.t0)` - a release of the block the
 ; returned String still lives in - and with it present, none. One line
 ; of IR from one word here. `scripts/check-fallible-reclaim.sh` asserts
 ; both directions, so this arm is not untested defensive code.

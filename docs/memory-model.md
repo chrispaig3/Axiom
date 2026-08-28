@@ -470,8 +470,8 @@ compiler does not even constant-fold.
 
 ```
 (fn (main) (+ 1 (* 2 3)))
-    %t0 = mul i64 2, 3
-    %t1 = add i64 1, %t0
+    %.t0 = mul i64 2, 3
+    %.t1 = add i64 1, %.t0
 ```
 
 Folding happens later, in `opt`, on IR — never on the source, and never
@@ -640,11 +640,11 @@ words to reinterpret as `double`:
 
 ```
 define i64 @addf(i64 %a, i64 %b) #0 {
-  %d0 = bitcast i64 %a to double
-  %d1 = bitcast i64 %b to double
-  %d2 = fadd double %d0, %d1
-  %t3 = bitcast double %d2 to i64
-  ret i64 %t3
+  %.d0 = bitcast i64 %a to double
+  %.d1 = bitcast i64 %b to double
+  %.d2 = fadd double %.d0, %.d1
+  %.t3 = bitcast double %.d2 to i64
+  ret i64 %.t3
 }
 ```
 
@@ -750,10 +750,10 @@ All three facts are visible in one probe. With
 `(+ (cast Int (A2)) (cast Int (B1 7)))` emits:
 
 ```llvm
-%t0 = call i64 @axiom_alloc(i64 16)     ; B1: (1 + arity) * 8
-store i64 4, ptr %t2                    ; word 0 = tag 4
-store i64 7, ptr %t4                    ; word 1 = the field
-%t5 = add i64 3, %t0                    ; (A2) IS the immediate 3
+%.t0 = call i64 @axiom_alloc(i64 16)    ; B1: (1 + arity) * 8
+store i64 4, ptr %.t2                   ; word 0 = tag 4
+store i64 7, ptr %.t4                   ; word 1 = the field
+%.t5 = add i64 3, %.t0                  ; (A2) IS the immediate 3
 ```
 
 A1 = 2, A2 = 3, B1 = 4, B2 = 5: one counter, across both types.
@@ -881,7 +881,7 @@ and calls the function with its arguments unshifted. Every call through
 a value therefore has one calling convention.
 
 **MM-VAL-17a (H).** A lifted lambda's signature is
-`@_lam_N(i64 %_env, i64 %p)` — environment first, then **exactly one**
+`@_lam_N(i64 %.env, i64 %p)` — environment first, then **exactly one**
 user parameter. A multi-parameter lambda is curried into a chain of
 one-parameter lambdas, **each allocating its own record**. Only an
 arity-1 top-level function can become a function value at all

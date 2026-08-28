@@ -1,0 +1,121 @@
+; expect 42
+; A source name spelled the way the emitter spells its own.
+;
+; LLVM keeps one namespace per function for every local value and
+; block label, and the emitter's invented names used to live in it
+; beside the parameters: a temporary was `%tN`, a label `label_N`, a
+; double `%dN`, a compare `%cN`, a function pointer `%fN`, an argv
+; pointer `%pN`/`%gN`, a lambda's environment `%_env`. Every one of
+; those is a legal Axiom identifier, so `(fn (f t0) (+ t0 1))` passed
+; `check` and died in `opt`:
+;
+;   multiple definition of local value named 't0'
+;   E AX4003 <toolchain>:- toolchain-failure "opt failed"
+;
+; a toolchain error, for a program the compiler had just called
+; well-typed. Measured one prefix at a time on the 0.3.5 compiler:
+; `t0`, `label_3`, `f1`, `c0`, `d0`, `p1` and a lambda parameter named
+; `_env` each fail this way (exit 4); `entry`, `a0`, `s0` and a
+; let-bound `t0` never did - a user function has no `entry:` label, a
+; thunk forwards no source name, `%s.N` already carried a `.`, and a
+; `let` binds a register, never a `%name`.
+;
+; Every invented name now begins with `.` (`tmpStr`/`labelStr` in
+; codegen.ax), a byte no identifier can contain, so the collision is
+; impossible by construction rather than refused by spelling. Each
+; function below names its parameters after one of the old prefixes
+; and puts them through the construct that made that prefix; the
+; controls ride along so the fixture names the whole vocabulary.
+; Seven parts of 6.
+
+; `%tN`: every temporary. Three names, one of them two digits.
+(:: viaT (-> Int Int Int Int))
+
+(fn (viaT t0 t1 t12) (+ t0 (+ t1 t12)))
+
+; `label_N`: an `if` allocates its three labels from the same counter
+; as the temporaries, so the small numbers are the ones in play.
+(:: viaLabel (-> Int Int Int Int Int Int Int))
+
+(fn (viaLabel label_0 label_1 label_2 label_3 label_4 label_5)
+  (if (> label_1 0)
+    (+ label_2 label_0)
+    (+ label_3 (+ label_4 label_5))
+  )
+)
+
+; `%_env`: the lifted lambda's hidden first parameter, beside a
+; source parameter of the same name.
+(:: viaEnv (-> Int Int))
+
+(fn (viaEnv x) ((lambda (_env) (+ _env x)) 1))
+
+; `%fN`: the function pointer stored into a closure record.
+(:: viaF (-> Int Int Int Int Int Int))
+
+(fn (viaF f0 f1 f2 f3 f4)
+  ((lambda (x) (+ x (+ f0 (+ f1 (+ f2 (+ f3 f4)))))) 1)
+)
+
+; `%cN`: the i1 of a comparison.
+(:: viaC (-> Int Int Int Int Int Int))
+
+(fn (viaC c0 c1 c2 c3 c4) (if (< c0 c1) (+ c2 (+ c3 c4)) 0))
+
+; `%dN`: the doubles a float operation bitcasts through.
+(:: viaD (-> Float Float Float Float Float Float Int))
+
+(fn (viaD d0 d1 d2 d3 d4 d5)
+  (__floatToInt (* (+ d0 d1) (+ d2 (+ d3 (+ d4 d5)))))
+)
+
+; `%pN`/`%gN`: the pointer and element of an `__argv` read. The
+; address read is subtracted back out, so the answer is the sum.
+(:: viaArgv (-> Int Int Int Int Int Int Int))
+
+;@axiom:effect(io)
+(fn (viaArgv p0 p1 p2 p3 g0 g1)
+  (- (+ (__argv 0) (+ p0 (+ p1 (+ p2 (+ p3 (+ g0 g1)))))) (__argv 0))
+)
+
+; Controls, feeding `viaT`. `%s.N` was a self-recursive function's
+; parameter slot; `%aN` a thunk's forwarded argument; `entry` the
+; runtime's block label, which a user function never has.
+(:: viaS (-> Int Int Int))
+
+(fn (viaS s0 s1) (if (== s0 0) s1 (viaS (- s0 1) (+ s1 1))))
+
+(:: viaA (-> Int Int))
+
+(fn (viaA a0) (+ a0 1))
+
+(:: viaEntry (-> Int Int))
+
+(fn (viaEntry entry) (if (> entry 0) entry 0))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((thunk viaA))
+    (+
+      (viaT (viaS 2 0) (thunk 1) (viaEntry 2))
+      (+
+        (viaLabel 1 1 5 0 0 0)
+        (+
+          (viaEnv 5)
+          (+
+            (viaF 1 1 1 1 1)
+            (+
+              (viaC 1 2 2 2 2)
+              (+
+                (viaD 1.0 1.0 1.0 1.0 1.0 0.0)
+                (viaArgv 1 1 1 1 1 1)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

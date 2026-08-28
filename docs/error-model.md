@@ -482,7 +482,7 @@ decides which name would survive.
 
 Measured 2026-08-25 on `tests/stdlib/373-shared-default-binder.ax`:
 with the disagreement arm removed, `Ident#String#ident` contains
-`call void @axiom_release(i64 %t0)` — a release of the block the
+`call void @axiom_release(i64 %.t0)` — a release of the block the
 returned `String` still lives in — and with it present, none. One line
 of IR from one word in the checker, and
 `scripts/check-fallible-reclaim.sh` asserts both directions.

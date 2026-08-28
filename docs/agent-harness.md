@@ -311,7 +311,7 @@ between checkouts until that is normalised.
 inherited.** `self_host/codegen.ax` is a one-pass syntax-directed text
 emitter. `emitExpr` is `(-> Int Int Int)` — node and context in, the
 same context out — and an expression's *value* is a **string** in `CG`
-field 2, an LLVM register name like `"%t7"`, with a float bit beside it
+field 2, an LLVM register name like `"%.t7"`, with a float bit beside it
 in field 14. Block structure is two scalars: `curBlock`, one String,
 written in exactly one place and read in five, all five filling a phi
 predecessor; and `terminated`, one bit. In 14,406 lines the file defines

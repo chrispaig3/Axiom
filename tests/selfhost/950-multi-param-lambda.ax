@@ -9,7 +9,7 @@
 ;
 ; It is now parsed as what the curried types already said it was:
 ; `(lambda (x y) b)` is `(lambda (x) (lambda (y) b))`, which the
-; closure representation has always implemented - one hidden `%_env`
+; closure representation has always implemented - one hidden `%.env`
 ; per lifted body, capture by value of everything in scope, so the
 ; inner lambda captures `x` the way it captures any other enclosing
 ; binding.

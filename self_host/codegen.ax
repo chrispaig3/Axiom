@@ -3647,9 +3647,54 @@
 
 (pub fn (cat4 a b c d) (strConcat (strConcat a (strConcat b c)) d))
 
+; ------------------------------------------------------------------
+; Names the emitter invents.
+;
+; A function body holds two kinds of LLVM local: the ones the SOURCE
+; named - every parameter is `%` + `llvmSym name`, in the header, in
+; `allocParamSlots`, in `retainRefParams` and in `emitVar` - and the
+; ones this file makes up: the temporaries, the block labels, the
+; typed intermediates (`d` for a double, `c` for an i1, `f` for a
+; function pointer, `p`/`g` for a pointer and its element, `s` for a
+; parameter's slot), a lambda's hidden environment word, a thunk's
+; forwarded arguments. LLVM keeps ONE namespace per function for all
+; of them, so a scheme that can spell a source name is a collision
+; waiting for the program that writes it: `(fn (f t0) (+ t0 1))`
+; passed `check` and died in `opt` with `multiple definition of local
+; value named 't0'`, reported as AX4003 against the toolchain - and a
+; parameter named `label_3`, `f1`, `c0`, `d0` or `p1`, or a lambda
+; parameter named `_env`, did the same
+; (tests/selfhost/955-source-names-vs-emitter-names.ax).
+;
+; The two are kept apart BY CONSTRUCTION, not by a list of reserved
+; spellings: every name made here begins with `.`, which LLVM accepts
+; as the first byte of a local or a label and which no Axiom
+; identifier can contain - `isIdentStart` and `isIdentChar` in
+; lexer.ax both leave byte 46 out, and `llvmSym` quotes a name rather
+; than inventing bytes for it, so nothing the source wrote arrives
+; with a leading `.` either. Admitting `.` into identifiers is the one
+; lexer change that would meet this rule, and it would have to move
+; the prefix with it.
+;
+; The rule covers every `define` this file writes FOR THE PROGRAM:
+; top-level functions, lifted lambdas (`%.env`), forwarding thunks
+; (`%.aN`, `%.r`). The runtime block - `axiom_alloc`, `axiom_retain`,
+; the backtracer and their kin - is hand-written IR in functions of
+; its own, in which no source name is ever emitted, and its `%size`
+; and `entry:` stay as they are. The hidden `%__evw.h` evidence word
+; and the `%__scr.h` scratch cell are unspellable through their `.`
+; as well.
+(pub :: tmpStr (-> String Int String))
+
+(pub fn (tmpStr kind n) (cat3 "%." kind (fmtInt n)))
+
 (pub :: regStr (-> Int String))
 
-(pub fn (regStr n) (cat2 "%t" (fmtInt n)))
+(pub fn (regStr n) (tmpStr "t" n))
+
+(pub :: labelStr (-> Int String))
+
+(pub fn (labelStr n) (cat2 ".L" (fmtInt n)))
 
 (pub :: constStr (-> Int String))
 
@@ -8531,7 +8576,7 @@
     (slots vecNew)
     (hdrN (allocReg cg))
   )
-    (let ((hdrB (cat2 "label_" (fmtInt hdrN))))
+    (let ((hdrB (labelStr hdrN)))
       {
         (allocParamSlots params slots cg 0)
         (retainRefParams params cg 0)
@@ -8551,12 +8596,13 @@
 (pub fn (allocParamSlots params slots cg i)
   (if (>= i (vecLen params))
     0
-    ; `%s.N`, not `%aN`: a parameter named `a1` is `%a1` already
+    ; `%.sN`: an invented name, so it begins with `.` like every
+    ; other one (see `tmpStr`) and no parameter can spell it
     (let (
       (pname (vecGetStr params i))
       (an (allocReg cg))
     )
-      (let ((ar (cat2 "%s." (fmtInt an))))
+      (let ((ar (tmpStr "s" an)))
         {
           (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
           (emitLine cg (cat4 "  store i64 %" (llvmSym (strDup pname)) ", ptr " ar))
@@ -9217,7 +9263,7 @@
     (cell (regStr cn))
     (_1 (emitLine cg1 (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" "")))
     (mn (allocReg cg1))
-    (mergeB (cat2 "label_" (fmtInt mn)))
+    (mergeB (labelStr mn))
     (rel (scrutineeReleasable node scrutExpr cg1))
     (pmark (vecLen (memGetWord cg1 42)))
     (_p (if (== rel 1)
@@ -9266,7 +9312,7 @@
       (pat (nodeA arm))
       (body (nodeB arm))
       (nn (allocReg cg))
-      (nextB (cat2 "label_" (fmtInt nn)))
+      (nextB (labelStr nn))
       (mark (symMark cg))
     )
       (let ((cgP (emitPatMatch
@@ -9323,9 +9369,9 @@
     (elseLbl (allocReg cg1))
     (mergeLbl (allocReg cg1))
     (cmpR (regStr cmpN))
-    (thenB (cat2 "label_" (fmtInt thenLbl)))
-    (elseB (cat2 "label_" (fmtInt elseLbl)))
-    (mergeB (cat2 "label_" (fmtInt mergeLbl)))
+    (thenB (labelStr thenLbl))
+    (elseB (labelStr elseLbl))
+    (mergeB (labelStr mergeLbl))
     (_1 (emitLine cg1 (cat4 (cat2 "  " cmpR) " = icmp ne i64 " testReg ", 0")))
     (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cmpR ", label %") thenB (cat2 ", label %" elseB) "")))
     (_3 (emitLabel cg1 thenB))
@@ -9416,7 +9462,7 @@
 ; Lambda expressions: capture, lifting, and the record convention.
 ;
 ; A lambda is lifted to a fresh top-level function `_lam_N` whose
-; hidden first parameter `%_env` is the closure record: word 0 the
+; hidden first parameter `%.env` is the closure record: word 0 the
 ; code pointer, words 1.. the captured values. `emitIndirectCall`
 ; passes the record itself as that first argument on every call
 ; through a value, so a record built from a *bare top-level function*
@@ -9576,7 +9622,7 @@
         )
           (let (
             (pr (regStr pn))
-            (fr (cat2 "%f" (fmtInt fn2)))
+            (fr (tmpStr "f" fn2))
           )
             {
               (emitLine cg (strConcat (cat3 (cat2 "  " pr) " = call i64 @axiom_alloc(i64 " (fmtInt (* (+ k 1) 8))) ")"))
@@ -9717,7 +9763,7 @@
   )
 )
 
-; The lifted function itself: `emitFnDef`'s shape with `%_env` in
+; The lifted function itself: `emitFnDef`'s shape with `%.env` in
 ; front, and the captures bound as symbols before the body - loaded
 ; from the record at the offsets `emitLambda` stored them to.
 (pub :: emitLamDef (-> Int Int Int))
@@ -9748,7 +9794,7 @@
       (let ((hdr 
         (strConcat
           (cat4
-            "define i64 @"            (strDup lname)            "(i64 %_env"            (if (== (strLen paramStr) 0)
+            "define i64 @"            (strDup lname)            "(i64 %.env"            (if (== (strLen paramStr) 0)
               ""
               (cat2 ", " paramStr)
             )
@@ -9785,7 +9831,7 @@
 (pub fn (bindCaps cg capNames capFloats i)
   (if (>= i (vecLen capNames))
     cg
-    (let ((cg1 (loadWordAt cg "%_env" (+ 1 i))))
+    (let ((cg1 (loadWordAt cg "%.env" (+ 1 i))))
       {
         (bindSym
           cg1          (vecGetStr capNames i)          (strDup (memGetWordStr cg1 2))          (vecGet capFloats i)          0
@@ -9861,7 +9907,7 @@
     (full (vecGetStr (memGetWord cg 23) i))
     (ar (vecGet (memGetWord cg 24) i))
   )
-    (let ((cg1 (emitLine cg (strConcat (cat4 "define i64 @_thunk_" (fmtInt i) "(i64 %_env" (thunkParamStr ar 0)) ") #0 {"))))
+    (let ((cg1 (emitLine cg (strConcat (cat4 "define i64 @_thunk_" (fmtInt i) "(i64 %.env" (thunkParamStr ar 0)) ") #0 {"))))
       (let ((evTail 
         (if (== (fnTakesEvw cg1 full) 1)
           (if (==
@@ -9873,8 +9919,8 @@
           ""
         )
       ))
-        (let ((cg2 (emitLine cg1 (strConcat (cat3 (cat4 "  %r = call i64 @" (llvmSym (strDup full)) "(" (thunkArgStr ar 0)) evTail "") ")"))))
-          (emitLine (emitLine cg2 "  ret i64 %r") "}")
+        (let ((cg2 (emitLine cg1 (strConcat (cat3 (cat4 "  %.r = call i64 @" (llvmSym (strDup full)) "(" (thunkArgStr ar 0)) evTail "") ")"))))
+          (emitLine (emitLine cg2 "  ret i64 %.r") "}")
         )
       )
     )
@@ -9886,7 +9932,7 @@
 (pub fn (thunkParamStr ar j)
   (if (>= j ar)
     ""
-    (cat3 (cat2 ", i64 %a" (fmtInt j)) (thunkParamStr ar (+ j 1)) "")
+    (cat3 (cat2 ", i64 %.a" (fmtInt j)) (thunkParamStr ar (+ j 1)) "")
   )
 )
 
@@ -9897,7 +9943,7 @@
     ""
     (let ((rest (thunkArgStr ar (+ j 1))))
       (cat3
-        (cat2 "i64 %a" (fmtInt j))        (if (== (strLen rest) 0)
+        (cat2 "i64 %.a" (fmtInt j))        (if (== (strLen rest) 0)
           ""
           (cat2 ", " rest)
         )        ""
@@ -10006,7 +10052,7 @@
     (cell (regStr cn))
     (_1 (emitLine cg1 (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" "")))
     (mn (allocReg cg1))
-    (mergeB (cat2 "label_" (fmtInt mn)))
+    (mergeB (labelStr mn))
     (rel (scrutineeReleasable node scrutExpr cg1))
     (pmark (vecLen (memGetWord cg1 42)))
     (_p (if (== rel 1)
@@ -10098,7 +10144,7 @@
       (pat (nodeA arm))
       (body (nodeB arm))
       (nn (allocReg cg))
-      (nextB (cat2 "label_" (fmtInt nn)))
+      (nextB (labelStr nn))
       (mark (symMark cg))
     )
       (let ((cgP (emitPatMatch
@@ -10301,10 +10347,10 @@
   )
     (let (
       (cell (regStr cellN))
-      (cr (cat2 "%c" (fmtInt cn)))
-      (immB (cat2 "label_" (fmtInt immN)))
-      (boxB (cat2 "label_" (fmtInt boxN)))
-      (mergeB (cat2 "label_" (fmtInt mergeN)))
+      (cr (tmpStr "c" cn))
+      (immB (labelStr immN))
+      (boxB (labelStr boxN))
+      (mergeB (labelStr mergeN))
     )
       (let ((cg1 (emitLine cg (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" ""))))
         (let ((cg2 (emitLine cg1 (cat4 (cat2 "  " cr) " = icmp slt i64 " (strDup vr) ", 4096"))))
@@ -10344,7 +10390,7 @@
   )
     (let (
       (tr (regStr tn))
-      (contB (cat2 "label_" (fmtInt cn)))
+      (contB (labelStr cn))
     )
       {
         (emitLine cg (cat4 (cat2 "  " tr) " = icmp eq i64 " (strDup vr) (cat2 ", " want)))
@@ -10735,8 +10781,8 @@
         (let (
           (rec (regStr recN))
           (cmpR (regStr cmpN))
-          (trapB (cat2 "label_" (fmtInt trapN)))
-          (goB (cat2 "label_" (fmtInt goN)))
+          (trapB (labelStr trapN))
+          (goB (labelStr goN))
         )
           (let (
             (_1 (emitLine cgA (cat4 (cat2 "  " rec) " = load i64, ptr @" slot "")))
@@ -11378,7 +11424,7 @@
                         )
                           (let (
                             (pr (regStr pn))
-                            (fr (cat2 "%f" (fmtInt fn2)))
+                            (fr (tmpStr "f" fn2))
                           )
                             {
                               (emitLine cg (cat2 (cat2 "  " pr) " = call i64 @axiom_alloc(i64 8)"))
@@ -11783,7 +11829,7 @@
       (rn (allocReg cgL))
     )
       (let (
-        (fp (cat2 "%f" (fmtInt fpn)))
+        (fp (tmpStr "f" fpn))
         (r (regStr rn))
       )
         {
@@ -12167,9 +12213,9 @@
       (st (regStr (allocReg cg0)))
       (ok (regStr (allocReg cg0)))
       (res (regStr (allocReg cg0)))
-      (armB (cat2 "label_" (fmtInt (allocReg cg0))))
-      (runB (cat2 "label_" (fmtInt (allocReg cg0))))
-      (doneB (cat2 "label_" (fmtInt (allocReg cg0))))
+      (armB (labelStr (allocReg cg0)))
+      (runB (labelStr (allocReg cg0)))
+      (doneB (labelStr (allocReg cg0)))
       (_0 (emitLine cg0 (cat2 "  br label %" armB)))
       (_0b (emitLabel cg0 armB))
       (_1 (emitLine cg0 (cat4 (cat2 "  " rec) " = call i64 @axiom_alloc(i64 " size ")")))
@@ -12315,8 +12361,8 @@
     )
       (let (
         (b (regStr bn))
-        (p (cat2 "%p" (fmtInt pn)))
-        (g (cat2 "%g" (fmtInt gn)))
+        (p (tmpStr "p" pn))
+        (g (tmpStr "g" gn))
         (r (regStr rn))
       )
         {
@@ -12346,7 +12392,7 @@
       (rn (allocReg cg1))
     )
       (let (
-        (dr (cat2 "%d" (fmtInt dn)))
+        (dr (tmpStr "d" dn))
         (r (regStr rn))
       )
         {
@@ -12372,7 +12418,7 @@
       (rn (allocReg cg1))
     )
       (let (
-        (dr (cat2 "%d" (fmtInt dn)))
+        (dr (tmpStr "d" dn))
         (r (regStr rn))
       )
         {
@@ -12779,9 +12825,9 @@
     (rn (allocReg cg))
   )
     (let (
-      (ar (cat2 "%d" (fmtInt an)))
-      (br (cat2 "%d" (fmtInt bn)))
-      (fr (cat2 "%d" (fmtInt mn)))
+      (ar (tmpStr "d" an))
+      (br (tmpStr "d" bn))
+      (fr (tmpStr "d" mn))
       (r (regStr rn))
     )
       {
@@ -12829,7 +12875,7 @@
     (rn (allocReg cg))
   )
     (let (
-      (cr (cat2 "%c" (fmtInt cn)))
+      (cr (tmpStr "c" cn))
       (r (regStr rn))
     )
       {
@@ -12855,9 +12901,9 @@
     (rn (allocReg cg))
   )
     (let (
-      (ar (cat2 "%d" (fmtInt an)))
-      (br (cat2 "%d" (fmtInt bn)))
-      (cr (cat2 "%c" (fmtInt cn)))
+      (ar (tmpStr "d" an))
+      (br (tmpStr "d" bn))
+      (cr (tmpStr "c" cn))
       (r (regStr rn))
     )
       {
@@ -13066,9 +13112,9 @@
     (shortL (allocReg cg1))
     (mergeL (allocReg cg1))
     (cr (regStr cn))
-    (rhsB (cat2 "label_" (fmtInt rhsL)))
-    (shortB (cat2 "label_" (fmtInt shortL)))
-    (mergeB (cat2 "label_" (fmtInt mergeL)))
+    (rhsB (labelStr rhsL))
+    (shortB (labelStr shortL))
+    (mergeB (labelStr mergeL))
     (_1 (emitLine cg1 (cat4 (cat2 "  " cr) " = icmp ne i64 " ra ", 0")))
     (tgtT (if isAnd
       rhsB
@@ -13619,8 +13665,8 @@
                       (kn (allocReg cgC))
                     )
                       (let (
-                        (doB (cat2 "label_" (fmtInt dn)))
-                        (skB (cat2 "label_" (fmtInt kn)))
+                        (doB (labelStr dn))
+                        (skB (labelStr kn))
                       )
                         (let ((cgD (emitLine cgC (cat4 (cat3 "  br i1 " cr ", label %") doB (cat2 ", label %" skB) ""))))
                           (let ((cgE (emitLabel cgD doB)))
@@ -15471,7 +15517,7 @@
         (mark (symMark cg1))
         (an (allocReg cg1))
       )
-        (let ((ar (cat2 "%s." (fmtInt an))))
+        (let ((ar (tmpStr "s" an)))
           {
             (emitAlloca cg1 ar)
             (emitLine cg1 (cat4 "  store i64 " valReg ", ptr " ar))
@@ -15549,9 +15595,9 @@
     (xn (allocReg cg))
   )
     (let (
-      (hdrB (cat2 "label_" (fmtInt hn)))
-      (bodyB (cat2 "label_" (fmtInt bn)))
-      (exitB (cat2 "label_" (fmtInt xn)))
+      (hdrB (labelStr hn))
+      (bodyB (labelStr bn))
+      (exitB (labelStr xn))
     )
       (let (
         (_1 (emitLine cg (cat2 "  br label %" hdrB)))
@@ -15603,9 +15649,9 @@
     (elseLbl (allocReg cg1))
     (mergeLbl (allocReg cg1))
     (cmpR (regStr cmpN))
-    (thenB (cat2 "label_" (fmtInt thenLbl)))
-    (elseB (cat2 "label_" (fmtInt elseLbl)))
-    (mergeB (cat2 "label_" (fmtInt mergeLbl)))
+    (thenB (labelStr thenLbl))
+    (elseB (labelStr elseLbl))
+    (mergeB (labelStr mergeLbl))
     (_1 (emitLine cg1 (cat4 (cat2 "  " cmpR) " = icmp ne i64 " testReg ", 0")))
     (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cmpR ", label %") thenB (cat2 ", label %" elseB) "")))
     (_3 (emitLabel cg1 thenB))

@@ -30,7 +30,7 @@
 ;
 ; MEASURED 2026-08-25, and this is why the impls are in this order.
 ; With last-write-wins, `Ident#String#ident` contains
-; `call void @axiom_release(i64 %t0)` and with the disagreement
+; `call void @axiom_release(i64 %.t0)` and with the disagreement
 ; poisoned it contains none - a one-line IR difference from a one-word
 ; change in the checker. Swapping the two `impl` declarations moves
 ; which instantiation gets the wrong answer, and nothing else.
