@@ -2161,15 +2161,47 @@ unparseable exactly while a form is half written.
 NOT** expand macros to answer a request that does not need it.
 Expansion is bounded but not free (`MAC-EXP-10` measured 41.4 s on a
 fan-out probe), and the budgets exist precisely because an editor
-cannot wait. The four requests that are not diagnostics —
-`documentSymbol`, `definition`, `hover`, `completion` — read the RAW
-parse tree and expand nothing; only `didOpen` and `didChange`, which
-publish diagnostics, run the full pipeline, because a diagnostic about
-generated code is exactly what expansion is for. The visible
-consequence is that completion does not offer a name a macro would
-generate: `(deriveTag Colour)` does not put `tagColour` in the menu,
-because nothing has expanded it. `check-lsp-selfhost.sh` asserts that
-absence rather than leaving it to be noticed.
+cannot wait. Every request that is asked per keystroke or per cursor
+move — `documentSymbol`, `definition`, `hover`, `completion`, and since
+2026-08-28 `references`, `documentHighlight`, `prepareRename`,
+`rename`, `signatureHelp`, `inlayHint`, `foldingRange`,
+`selectionRange`, `documentLink`, `workspace/symbol`, `formatting`,
+`typeDefinition` and `codeLens` — reads the RAW parse tree and the
+document's bytes and expands nothing. Three things run the pipeline,
+each because expansion IS the answer: `didOpen` and `didChange`, which
+publish diagnostics, because a diagnostic about generated code is
+exactly what expansion is for; `codeAction`, because a quickfix is a
+checker diagnostic's own fix and the assist writes what the checker
+inferred; and `axiom/expandMacro`, because rendering what a macro
+generated is the question being asked. None of the three is sent per
+keystroke — a client asks for code actions when the cursor rests and
+for an expansion on demand — and each costs about one `didOpen` of the
+same document, which the editor paid on the last keystroke anyway.
+The visible consequence is that completion does not offer a name a
+macro would generate: `(deriveTag Colour)` does not put `tagColour` in
+the menu, because nothing has expanded it. `check-lsp-selfhost.sh`
+asserts that absence rather than leaving it to be noticed.
+
+*The expansion request needed a printer, 2026-08-28.* Nothing in the
+compiler could turn a node back into source — `format.ax` prints from
+its own token forms, `symbols` renders types alone — so
+`axiom/expandMacro` carries the first `ASTNode`-to-source printer,
+`lspRenderDecl`/`lspRenderExpr` in `self_host/lsp.ax`. Its promise is
+that the output parses and means what the tree meant, and the gate
+holds the first half by reopening the rendering as a document and
+requiring an outline of exactly the generated name; the second was
+measured on a template holding a mutable `let`, a block, `set`,
+`while`, `match`, `cond`, a two-parameter lambda, struct construction,
+field access, an escaped string, a char, a float, a negative literal
+and a generated `data`, `type` and `struct` — `check` on the rendering
+reported exactly the diagnostics it reported on the template. Two
+things the printer says out loud: a hygiene binder `x.3` is written
+`x_3`, and `Mod$name` as `Mod::name`. And one thing it found: a
+generated `struct`'s fields carry no type in the expanded tree, because
+`expBuildStructFieldsIn` substitutes the parsed field's float-flag slot
+where the type sits, so they print `(name)` — which re-parses to the
+same wildcard the checker already saw. That is an expander defect
+recorded here, not a printer choice.
 
 **MAC-TOOL-4 (H, 2026-08-15).** With `MAC-CAP-8`, `axiom symbols`
 **SHALL** list generated declarations, attributed to the file

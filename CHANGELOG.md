@@ -16,6 +16,178 @@ its changelog too.
 
 ## Unreleased
 
+## 0.3.5 — 2026-08-28
+
+The language server grows from four questions to twenty, most of what
+rust-analyzer answers for Rust. Every per-keystroke request is answered
+from the raw parse tree and the document's own bytes with no macro
+expansion (`MAC-TOOL-3`); the two that run the pipeline do so because
+the pipeline's output is the answer — a code action reads the checker's
+own fixes, and `axiom/expandMacro` expands because expanding is the
+question. Every request is gated by `scripts/check-lsp-selfhost.sh` two
+ways: a derived check that asks it the right question on a document the
+driver writes itself, and a sweep that asks every advertised request the
+wrong question at every kind of position. 28 passed, 0 failed; the sweep
+answers 10,564 requests over 19 providers.
+
+### Added
+
+- **The server knows what a name refers to.** `textDocument/references`,
+  `textDocument/documentHighlight`, `textDocument/prepareRename` and
+  `textDocument/rename` are projections of one walk over the parse tree
+  that records every occurrence of a name with the KEY of the binding it
+  resolves to, following the language's own scoping: the innermost local
+  first, then this document's declarations (constructors included, last
+  wins), then "not this document's" — so the two `i`s of two functions
+  are two names, and a `let` that shadows a parameter is a different
+  binding from it. `definition` and `hover` ask the local half FIRST,
+  because a local shadows a declaration of the same name: definition from
+  a read lands on ITS binder through a shadowing `let`, and hover on a
+  parameter answers `pw : Int` from the signature's arrow. References and
+  rename reach every OTHER open document whose imports resolve to this
+  file, under its own uri; rename refuses (null) a spelling that is not
+  one identifier, a keyword, an imported or builtin name — renaming
+  across files the server did not open would leave a broken workspace,
+  and a stdlib name must never be renamed from a client — and a
+  collision, which for a local is found by a second walk with a probe
+  that asks, at every emission, whether the new spelling is bound around
+  the binding or captured inside its scope.
+
+  What the tree could not say: `fn` and `lambda` parameters carry no
+  span. Their anchors are recovered from the header's bytes
+  (`lspHeaderParamSpans`) and used only when the count agrees with the
+  tree; a curried lambda's nodes take the one scan's spans in order.
+
+  Measured on this repository's own sources, 60 positions each, every
+  one of the six requests costs 0.41x–0.63x of the `didOpen` on the same
+  file (typecheck.ax 14 ms against 26; codegen.ax 18 against 32).
+  drive.py's NAV block derives every expected range from four documents
+  written in the driver; the cross-file rename is APPLIED in Python,
+  written to disk and reopened — the checker publishing nothing for the
+  renamed pair is the proof that no occurrence was missed.
+
+- **Six ways to read a document without changing it.**
+  `textDocument/signatureHelp` answers the call the cursor is inside — a
+  `fn` of the document, one of its constructors, or an imported `fn`
+  with its module named — as `(add x y) : (-> Int Int Int)` with the
+  type cut from the `::` beside the `fn`, each parameter as the UTF-16
+  offset pair that slices the label to its name, the paragraph above
+  the declaration as documentation, and `activeParameter` counted from
+  the bytes by the same string-and-comment-aware scanner every other
+  request uses. `textDocument/inlayHint` shows three things the source
+  does not spell: `x:` before each argument of a call to a declared or
+  imported `fn` (never before a variable spelled like its parameter),
+  `: Int` after each parameter in a header and ` -> Int` after it, the
+  last two from the signature's arrow. `textDocument/foldingRange` folds
+  every form and brace block whose opener and closer sit on different
+  lines, comment runs as `comment` and import runs as `imports`, from a
+  bracket scan — so a half-typed file still folds. `selectionRange`
+  answers word → form → … → document; `documentLink` turns every
+  `(import M)` the resolver's own search can find into a link over the
+  dotted name as written; `workspace/symbol` searches every open document
+  and every module each imports for a case-folded substring, capped at
+  200.
+
+  The one measurement that changed the code: parameter-name hints look a
+  callee up once per call site, so the declaration list is indexed per
+  request. Keyed on the name's first byte, this repository's naming —
+  `lsp*`, `vec*`, `f0`..`f2049` — puts every function in one bucket:
+  0.050 s for a whole-document request over 2,050 headers against a
+  0.031 s `didOpen`. A djb2 hash over 1,024 slots: 0.012 s. Ratios on
+  the gate's document: signature help 0.29x, folding 0.10x, selection
+  0.01x, links 0.07x, workspace/symbol 0.54x at 200 items, a
+  whole-document hint request 0.25x (0.81x on a variant where every
+  function calls another; a 60-line editor window 0.54x).
+
+- **The server formats, fixes, runs and expands.** `textDocument/formatting`
+  answers the formatter's output as one edit over the whole document,
+  from the same `fmtFormat` that `axiom fmt` runs, `[]` for an
+  already-formatted file and null for one that does not parse — the
+  gate holds the edit's text equal, byte for byte, to what `fmt` wrote to
+  a copy. `textDocument/codeAction` offers the compiler's machine-
+  applicable fixes as quickfixes — a help carrying a fix span, exactly
+  what AXDL prints after `~>`, becomes a preferred CodeAction, so a code
+  that gains a fix in `typecheck.ax` gains a quickfix without a line
+  changing here — and an *Add type signature for `f`* assist for a `fn`
+  with no `::`, written from the type the checker inferred, in the
+  parser's own spelling `(-> Int Int)` (`tyRender`'s `(Int -> Int)` is
+  refused by the parser, which the assist found). The gate holds
+  AX3012's fix to the derived range of the BINDER — not the `set` the
+  diagnostic anchors on, thirteen columns away — with text `mut x`,
+  AX3001's to the misspelt call, and the assist to `axiom symbols`'
+  type rewritten; then applies all three in Python, reopens the result
+  and requires no diagnostics at all. `textDocument/typeDefinition` lands
+  on the `data`, `struct` or `type` of a signed fn's result, a header
+  parameter or a constructor, null for builtins. `textDocument/codeLens`
+  puts a `▶ Run` lens on `main` and an *Expand macro* lens on every
+  `pub macro`; the commands are the client's to run, as rust-analyzer's
+  are, and the server runs nothing.
+
+  **`axiom/expandMacro`**, the analogue of `rust-analyzer/expandMacro`,
+  answers what a macro generated as Axiom source: on a top-level
+  invocation its own products, on a macro declaration everything it
+  generated. It required the first `ASTNode`-to-source printer anywhere
+  in the compiler — `format.ax` prints from its own token forms,
+  `symbols` renders types alone — whose promise is that its output parses
+  and means what the tree meant. The gate reopens the rendering as a
+  document and requires a clean parse with an outline of exactly the
+  generated name; measured beyond the gate on a template holding a
+  mutable `let`, a block, `set`, `while`, `match`, `cond`, a lambda,
+  struct construction, field access, an escaped string, a char, a float,
+  a negative literal and a generated `data`, `type` and `struct`, `check`
+  on the rendering reported exactly the diagnostics it reported on the
+  template. A joined product name records span 0, so an invocation's
+  products are attributed structurally — the fresh parse is expanded
+  with every other invocation removed — rather than by position.
+
+  Costs on the gate's 2,050-declaration document against a 0.031 s
+  `didOpen`: formatting 0.66x, codeAction 0.74x (1.39x before the
+  is-there-a-signature question was asked before the walk),
+  typeDefinition 0.50x, codeLens 0.18x, expandMacro 0.69x.
+
+- **One door for what the server learns next.** `lsp.ax`'s dispatch was
+  a nested `if` chain and its capabilities one expression; both are now
+  three sections — NAV, VIEW, FIX — each answering "do you handle this
+  method", "what do you reply", "what do you advertise", asked in a fixed
+  order, and each with its own region of `tests/lsp/drive.py`. Three
+  engineers added to one file at once without a merge conflict, which is
+  the whole reason. Beside the sections, `lspFormEnd` (factored out of
+  `lspFormText`), `lspEnclosingOpens` and `lspSpanHas` answer where a
+  form ends and which forms contain an offset — three sections were
+  about to ask — and `lspResolveFor` states the import preamble once
+  where the file had grown six copies of it.
+
+- **Every advertised request, at every kind of position, on files
+  written for something else.** `check-lsp-selfhost.sh` ends with a
+  sweep whose method list is DERIVED from the capabilities the server
+  advertises: a key the sweep cannot build a request for fails the gate,
+  and it refuses to run under twelve providers, so a server advertising
+  three things cannot pass by sweeping three. Every 97th byte of
+  `stdlib/Json.ax` plus the positions that break scanners — 0, EOF, one
+  past EOF, a line past the end, inside a string, inside a comment, on
+  `(`, on `)` — then the same module cut off mid-form, then an empty
+  document. Every id must be answered, no answer may be an error, and
+  the shutdown afterwards must still be answered. 10,564 requests over
+  19 providers, all answered, in about 12 s.
+
+### Found, not fixed
+
+Two compiler defects the language-server work ran into, recorded here
+because the next release should carry the fix and this one does not:
+
+- **A generated `struct`'s fields carry no type.** `expand.ax`'s
+  `expBuildStructFieldsIn` substitutes the parsed field's `b` slot —
+  the float flag — where the type node sits, so every struct a macro
+  generates has fields the checker treats as wildcards and `symbols`
+  prints without types. The printer renders them `(name)`, which
+  re-parses to the same wildcard; `docs/macro-system.md` says so beside
+  `MAC-TOOL-3`.
+- **A parameter named `t0` collides with the emitter's temporaries.**
+  `(fn (f t0) ...)` passes `check` and dies in `opt` with *multiple
+  definition of local value named 't0'*, reported as `AX4003`. Any `tN`
+  spelling does it. A reserved-name refusal at the checker or a
+  mangling rule at the emitter is the fix; neither is in this release.
+
 ## 0.3.4 — 2026-08-26
 
 ### Changed
