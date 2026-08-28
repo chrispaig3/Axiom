@@ -30,6 +30,11 @@ driver writes itself, and a sweep that asks every advertised request the
 wrong question at every kind of position. 28 passed, 0 failed; the sweep
 answers 10,564 requests over 19 providers.
 
+No gate was added for this release: the thirty-seven gates that build
+the compiler under test through `gate_build_axc` already include
+`check-lsp-selfhost.sh`, and the sweep is a section of that gate rather
+than a new one.
+
 ### Added
 
 - **The server knows what a name refers to.** `textDocument/references`,
@@ -182,6 +187,16 @@ because the next release should carry the fix and this one does not:
   prints without types. The printer renders them `(name)`, which
   re-parses to the same wildcard; `docs/macro-system.md` says so beside
   `MAC-TOOL-3`.
+- **`check` accepts a keyword as a variable name and `fmt` refuses it.**
+  `(fn (g data) data)` type-checks and builds; `axiom fmt` refuses the
+  file, by the documented rule (`tests/fmt/parity/070-keyword-in-expr`)
+  it inherited from the retired compiler's lexer, which reserved the
+  structural keywords everywhere. The self-hosted parser reserves them
+  only in head position. Three functions in the language server named a
+  parameter `data` and the battery's `check-fmt.sh` caught it; they are
+  renamed here, and the two subcommands disagreeing about a valid
+  program is the defect, recorded for the next release to settle one
+  way or the other.
 - **A parameter named `t0` collides with the emitter's temporaries.**
   `(fn (f t0) ...)` passes `check` and dies in `opt` with *multiple
   definition of local value named 't0'*, reported as `AX4003`. Any `tN`

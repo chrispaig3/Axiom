@@ -2807,16 +2807,16 @@
 
 (pub :: lspNavTopPutCtors (-> Int String Int Int Int))
 
-(pub fn (lspNavTopPutCtors bs data ctors i)
+(pub fn (lspNavTopPutCtors bs dat ctors i)
   (if (>= i (vecLen ctors))
     0
     (let ((c (vecGet ctors i)))
       {
         (if (!= (nodeSpan c) 0)
-          (lspNavTopPut bs (nodeAName c) (lspNavCtorKey data (nodeAName c)))
+          (lspNavTopPut bs (nodeAName c) (lspNavCtorKey dat (nodeAName c)))
           0
         )
-        (lspNavTopPutCtors bs data ctors (+ i 1))
+        (lspNavTopPutCtors bs dat ctors (+ i 1))
       }
     )
   )
@@ -2824,7 +2824,7 @@
 
 (pub :: lspNavCtorKey (-> String String String))
 
-(pub fn (lspNavCtorKey data ctor) (strConcat data (strConcat "#" ctor)))
+(pub fn (lspNavCtorKey dat ctor) (strConcat dat (strConcat "#" ctor)))
 
 ; An entry is (name, key); a bucket is a Vec of entries or 0.
 (pub :: lspNavTopPut (-> Int String String Int))
@@ -3263,16 +3263,16 @@
 
 (pub :: lspNavDeclCtors (-> Int String Int Int Int))
 
-(pub fn (lspNavDeclCtors nv data ctors i)
+(pub fn (lspNavDeclCtors nv dat ctors i)
   (if (>= i (vecLen ctors))
     0
     (let ((c (vecGet ctors i)))
       {
         (if (!= (nodeSpan c) 0)
-          (lspNavEmit nv (nodeAName c) (nodeSpan c) NAV_DECL (lspNavCtorKey data (nodeAName c)) 0 0)
+          (lspNavEmit nv (nodeAName c) (nodeSpan c) NAV_DECL (lspNavCtorKey dat (nodeAName c)) 0 0)
           0
         )
-        (lspNavDeclCtors nv data ctors (+ i 1))
+        (lspNavDeclCtors nv dat ctors (+ i 1))
       }
     )
   )
@@ -7244,9 +7244,9 @@
                 (let ((t (lspLocalTypeOf src decls off w)))
                   (if (!= t 0)
                     (lspTypeLocation (lspUriToPath uri) src uri decls "" t)
-                    (let ((data (lspFindCtorData decls w (- (vecLen decls) 1))))
-                      (if (!= data 0)
-                        (lspLocationJson uri src (nodeSpan data))
+                    (let ((dat (lspFindCtorData decls w (- (vecLen decls) 1))))
+                      (if (!= dat 0)
+                        (lspLocationJson uri src (nodeSpan dat))
                         (lspTypeLocation (lspUriToPath uri) src uri decls w 0)
                       )
                     )
