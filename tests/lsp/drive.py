@@ -3071,6 +3071,455 @@ shutil.rmtree(FIXDIR, ignore_errors=True)
 # END SECTION FIX TESTS
 # =====================================================================
 
+# =====================================================================
+# SECTION HL TESTS: semantic tokens, full and range.
+# =====================================================================
+# One document written HERE carrying every class the legend names - an
+# import, an AXTAG line, a comment line and a block comment, a macro, a
+# `data` with constructors, a `struct` with fields, a `::` naming the
+# data and `Int`, a `fn` of two parameters, an immutable and a `mut`
+# `let` with a `set`, a `match` with a constructor pattern, a call of
+# an imported function and a `Mod::name` qualified one, a lambda, a
+# string with an escape, a char, an int, a float, a negative literal,
+# an operator head - and every expected (line, column, length, type,
+# modifiers) DERIVED from its bytes: positions by `ident_at`/`locate`,
+# lengths in UTF-16 units. The protocol's delta array is decoded by a
+# second implementation below, and every token of the whole answer is
+# held to the invariants a client depends on: sorted, non-overlapping,
+# inside its line, spelling what its type says it must.
+#
+# The boundaries: `range` over two lines must equal the tokens of
+# `full` that start on those lines; the same document with a `(`
+# appended - which does not parse - must still answer keywords,
+# strings, comments and numbers unchanged, with the READ of a
+# parameter falling from `parameter` to `variable` (the walk that
+# resolved it has nothing to walk) while the header's own binders and
+# a `set` target keep their colour from the form around them; an empty
+# document, an unopened URI and a range past EOF answer `{data: []}`;
+# and the legend advertised is exactly the one the integers index.
+HLDIR = tempfile.mkdtemp(prefix="axiom-hl-")
+HL_HELPER = """; Double a number.
+(pub :: twice (-> Int Int))
+
+(pub fn (twice x) (* x 2))
+"""
+HL = r"""(import HlHelper)
+
+;@axiom:no_refactor
+; A comment line above the declaration.
+#| a block
+   comment |#
+(pub macro deriveTag
+  ((deriveTag T)
+   (pub :: (syntax/join tag T) Int)
+   (pub fn ((syntax/join tag T)) 7)))
+
+(pub data Shape (Dot) (Circle Int))
+
+(pub struct Box (top : Shape) (n : Int))
+
+(pub :: area (-> Shape Int Int))
+
+(pub fn (area s k)
+  (let ((base 3) (mut acc 0))
+    {
+      (set acc (+ base k))
+      (match s
+        ((Dot) acc)
+        ((Circle r) (twice (+ r acc))))
+    }))
+
+(:: main Int)
+
+(fn (main) (+ (area (Circle 4) -2) (+ (HlHelper::twice 1) ((lambda (lx) lx) 5))))
+
+(:: greet String)
+
+(fn (greet) "hi\"there")
+
+(:: ch Char)
+
+(fn (ch) 'x')
+
+(:: pi Float)
+
+(fn (pi) 3.25)
+"""
+open(os.path.join(HLDIR, "HlHelper.ax"), "w", encoding="utf-8").write(HL_HELPER)
+hl_uri = "file://" + os.path.join(HLDIR, "hl-generated.ax")
+hl_empty_uri = "file://" + os.path.join(HLDIR, "hl-empty.ax")
+hl_ghost_uri = "file://" + os.path.join(HLDIR, "hl-never-opened.ax")
+HL_BROKEN = HL + "\n("
+HL_LINES = HL.split("\n")
+HL_BROKEN_LINES = HL_BROKEN.split("\n")
+
+# The legend, written here from the protocol's own names and compared
+# for EQUALITY with what the server advertises; the integers below
+# index it, so a server that reordered its list would fail every
+# anchor at once.
+HL_TYPES = ["namespace", "type", "enumMember", "function", "macro", "parameter",
+            "variable", "keyword", "string", "number", "comment", "operator",
+            "property", "decorator"]
+HL_MODS = ["declaration", "readonly", "modification", "defaultLibrary"]
+HT = {n: i for i, n in enumerate(HL_TYPES)}
+HM = {n: 1 << i for i, n in enumerate(HL_MODS)}
+DECL, RO, MOD, LIB = HM["declaration"], HM["readonly"], HM["modification"], HM["defaultLibrary"]
+HL_IDENT_CLASSES = {"namespace", "type", "enumMember", "function", "macro",
+                    "parameter", "variable", "property"}
+HL_KEYWORD_SET = set(KEYWORDS) | {"mut", "else", "true", "false", "where"}
+HL_IDENT_RE = re.compile(r"^[A-Za-z_+\-*/%<>=!&|^][" + IDENT_CHARS + "]*$")
+
+
+def hl_decode(data):
+    """The protocol's delta array back into absolute (line, character,
+    length, type, modifiers) tuples - a second implementation of the
+    encoding, from the specification: a token's line is a delta from
+    the previous token's, its character a delta from the previous
+    token's when on the same line and from column 0 otherwise. None
+    for anything that is not five non-negative integers per token."""
+    if not isinstance(data, list) or len(data) % 5 or \
+            any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in data):
+        return None
+    out, line, ch = [], 0, 0
+    for k in range(0, len(data), 5):
+        dl, dc, ln, ty, mods = data[k:k + 5]
+        if dl:
+            line, ch = line + dl, dc
+        else:
+            ch += dc
+        out.append((line, ch, ln, ty, mods))
+    return out
+
+
+def hl_names(t):
+    """A decoded token in the legend's words, for a failure message."""
+    ty = HL_TYPES[t[3]] if t[3] < len(HL_TYPES) else f"?{t[3]}"
+    ms = "+".join(n for n in HL_MODS if t[4] & HM[n]) or "-"
+    return f"{t[0]}:{t[1]}+{t[2]} {ty} {ms}"
+
+
+def hl_anchor(what, at, text, ty, mods):
+    """One expectation: the token starting at `at` spells `text`, so
+    its length is that text's UTF-16 length, with the type and the
+    modifier bits named."""
+    return (what, at["line"], at["start"], u16(text), HT[ty], mods)
+
+
+def hl_sub(anchor, sub, n=1):
+    """The position `sub` characters into the N-th `anchor`, for a
+    token `ident_at` cannot find on its own: `::` in `(pub :: area`,
+    the literal after a head."""
+    p = vat(HL, anchor, n, sub)
+    return {"line": p["line"], "start": p["character"]}
+
+
+def hl_line(prefix):
+    """The whole line beginning with `prefix`: its position and text."""
+    p = locate(HL, prefix, 1)
+    return {"line": p["line"], "start": 0}, HL_LINES[p["line"]]
+
+
+HL_STRING_TEXT = '"hi\\"there"'
+HL_CHAR_TEXT = "'x'"
+_dec_at, _dec_text = hl_line(";@axiom:")
+_cmt_at, _cmt_text = hl_line("; A comment line")
+_blk1_at, _blk1_text = hl_line("#| a block")
+_blk2_at, _blk2_text = hl_line("   comment |#")
+HL_ANCHORS = [
+    hl_anchor("import keyword", ident_at(HL, "import", 1), "import", "keyword", 0),
+    hl_anchor("imported module", ident_at(HL, "HlHelper", 1), "HlHelper", "namespace", 0),
+    hl_anchor("AXTAG line", _dec_at, _dec_text, "decorator", 0),
+    hl_anchor("comment line", _cmt_at, _cmt_text, "comment", 0),
+    hl_anchor("block comment, first line", _blk1_at, _blk1_text, "comment", 0),
+    hl_anchor("block comment, second line", _blk2_at, _blk2_text, "comment", 0),
+    hl_anchor("pub", ident_at(HL, "pub", 1), "pub", "keyword", 0),
+    hl_anchor("macro keyword", ident_at(HL, "macro", 1), "macro", "keyword", 0),
+    hl_anchor("macro declared", ident_at(HL, "deriveTag", 1), "deriveTag", "macro", DECL),
+    hl_anchor("data keyword", ident_at(HL, "data", 1), "data", "keyword", 0),
+    hl_anchor("data declared", ident_at(HL, "Shape", 1), "Shape", "type", DECL),
+    hl_anchor("nullary constructor declared", ident_at(HL, "Dot", 1), "Dot", "enumMember", DECL),
+    hl_anchor("constructor declared", ident_at(HL, "Circle", 1), "Circle", "enumMember", DECL),
+    hl_anchor("Int in a constructor field", ident_at(HL, "Int", 2), "Int", "type", LIB),
+    hl_anchor("struct declared", ident_at(HL, "Box", 1), "Box", "type", DECL),
+    hl_anchor("struct field name", ident_at(HL, "top", 1), "top", "property", 0),
+    hl_anchor("struct field type", ident_at(HL, "Shape", 2), "Shape", "type", 0),
+    hl_anchor("signature ::", hl_sub("(pub :: area", "(pub "), "::", "operator", 0),
+    hl_anchor("signature name", ident_at(HL, "area", 1), "area", "function", DECL),
+    hl_anchor("arrow", hl_sub("(-> Shape Int Int)", "("), "->", "operator", 0),
+    hl_anchor("Shape in a signature", ident_at(HL, "Shape", 3), "Shape", "type", 0),
+    hl_anchor("fn keyword", ident_at(HL, "fn", 2), "fn", "keyword", 0),
+    hl_anchor("fn declared", ident_at(HL, "area", 2), "area", "function", DECL),
+    hl_anchor("first parameter", ident_at(HL, "s", 1), "s", "parameter", DECL),
+    hl_anchor("second parameter", ident_at(HL, "k", 1), "k", "parameter", DECL),
+    hl_anchor("let keyword", ident_at(HL, "let", 1), "let", "keyword", 0),
+    hl_anchor("immutable let binder", ident_at(HL, "base", 1), "base", "variable", DECL | RO),
+    hl_anchor("int literal", hl_sub("(base 3)", "(base "), "3", "number", 0),
+    hl_anchor("mut keyword", ident_at(HL, "mut", 1), "mut", "keyword", 0),
+    hl_anchor("mutable let binder", ident_at(HL, "acc", 1), "acc", "variable", DECL),
+    hl_anchor("set keyword", ident_at(HL, "set", 1), "set", "keyword", 0),
+    hl_anchor("set target", ident_at(HL, "acc", 2), "acc", "variable", MOD),
+    hl_anchor("operator head", hl_sub("(+ base k)", "("), "+", "operator", 0),
+    hl_anchor("immutable let read", ident_at(HL, "base", 2), "base", "variable", RO),
+    hl_anchor("parameter read", ident_at(HL, "k", 2), "k", "parameter", 0),
+    hl_anchor("match keyword", ident_at(HL, "match", 1), "match", "keyword", 0),
+    hl_anchor("nullary constructor pattern", ident_at(HL, "Dot", 2), "Dot", "enumMember", 0),
+    hl_anchor("constructor pattern", ident_at(HL, "Circle", 2), "Circle", "enumMember", 0),
+    hl_anchor("pattern binder", ident_at(HL, "r", 1), "r", "variable", DECL),
+    hl_anchor("imported call", ident_at(HL, "twice", 1), "twice", "function", LIB),
+    hl_anchor("pattern binder read", ident_at(HL, "r", 2), "r", "variable", 0),
+    hl_anchor("mutable let read", ident_at(HL, "acc", 4), "acc", "variable", 0),
+    hl_anchor("call of this document's fn", ident_at(HL, "area", 3), "area", "function", 0),
+    hl_anchor("constructor in an expression", ident_at(HL, "Circle", 3), "Circle", "enumMember", 0),
+    hl_anchor("negative literal", locate(HL, "-2", 1), "-2", "number", 0),
+    hl_anchor("qualifier", ident_at(HL, "HlHelper", 2), "HlHelper", "namespace", 0),
+    hl_anchor("qualified imported call", ident_at(HL, "twice", 2), "twice", "function", LIB),
+    hl_anchor("lambda keyword", ident_at(HL, "lambda", 1), "lambda", "keyword", 0),
+    hl_anchor("lambda parameter", ident_at(HL, "lx", 1), "lx", "parameter", DECL),
+    hl_anchor("lambda parameter read", ident_at(HL, "lx", 2), "lx", "parameter", 0),
+    hl_anchor("String", ident_at(HL, "String", 1), "String", "type", LIB),
+    hl_anchor("string with an escape", locate(HL, HL_STRING_TEXT, 1), HL_STRING_TEXT, "string", 0),
+    hl_anchor("char literal", locate(HL, HL_CHAR_TEXT, 1), HL_CHAR_TEXT, "string", 0),
+    hl_anchor("float literal", locate(HL, "3.25", 1), "3.25", "number", 0),
+]
+# The read of the parameter `k`: `parameter` while the document
+# parses, `variable` once it does not - the witness that the parsing
+# document's answer came from resolution and not from spelling.
+HL_K_READ = ident_at(HL, "k", 2)
+HL_S_DECL = ident_at(HL, "s", 1)
+HL_SET_ACC = ident_at(HL, "acc", 2)
+HL_RANGE_LINE = locate(HL, "(pub fn (area", 1)["line"]
+HL_RANGE = {"start": {"line": HL_RANGE_LINE, "character": 0},
+            "end": {"line": HL_RANGE_LINE + 2, "character": 0}}
+HL_PAST_EOF = {"start": {"line": len(HL_LINES) + 3, "character": 0},
+               "end": {"line": len(HL_LINES) + 4, "character": 0}}
+
+# The corpus, counted, so every anchor lands on the occurrence it was
+# written for; and the shapes the checks below assume.
+HL_COUNTS = {"HlHelper": 2, "deriveTag": 2, "Shape": 3, "Dot": 2, "Circle": 3,
+             "area": 3, "acc": 4, "s": 2, "k": 2, "r": 2, "base": 2, "twice": 2,
+             "lx": 2, "mut": 1, "top": 1, "Box": 1, "-2": 1}
+for _n, _c in HL_COUNTS.items():
+    if ident_count(HL, _n) != _c:
+        sys.exit(f"FAIL: the HL document spells `{_n}` {ident_count(HL, _n)} "
+                 f"time(s) as an identifier, this file assumes {_c}")
+if ident_at(HL, "fn", 2)["line"] != HL_RANGE_LINE or \
+        ident_at(HL, "Int", 2)["line"] != locate(HL, "(pub data", 1)["line"] or \
+        not HL_LINES[HL_RANGE_LINE + 1].lstrip().startswith("(let "):
+    sys.exit("FAIL: the HL document's `fn`, `Int` or `let` are no longer where the "
+             "anchors expect them")
+if len(HL_ANCHORS) < 24:
+    sys.exit(f"FAIL: {len(HL_ANCHORS)} semantic-token anchors, under the floor of 24")
+if [a for a in HL_ANCHORS if a[3] <= 0]:
+    sys.exit("FAIL: a semantic-token anchor has an empty text - it would assert nothing")
+if len({a[4] for a in HL_ANCHORS}) != len(HL_TYPES):
+    sys.exit(f"FAIL: the anchors cover {len({a[4] for a in HL_ANCHORS})} of the "
+             f"{len(HL_TYPES)} token types - a type nothing asserts is a type nothing tests")
+if len({a[5] for a in HL_ANCHORS}) < 6 or "\\" not in HL_STRING_TEXT:
+    sys.exit("FAIL: the anchors no longer span the modifier combinations, or the "
+             "string anchor carries no escape")
+if len({(a[1], a[2]) for a in HL_ANCHORS}) != len(HL_ANCHORS):
+    sys.exit("FAIL: two semantic-token anchors name the same position")
+
+
+def hl_req(rid, method, uri, extra=None):
+    p = {"textDocument": {"uri": uri}}
+    p.update(extra or {})
+    return {"jsonrpc": "2.0", "id": rid, "method": method, "params": p}
+
+
+HL_FULL, HL_RANGE_M = "textDocument/semanticTokens/full", "textDocument/semanticTokens/range"
+hl_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    nav_open(hl_uri, HL),
+    hl_req(2, HL_FULL, hl_uri),
+    hl_req(3, HL_RANGE_M, hl_uri, {"range": HL_RANGE}),
+    hl_req(4, HL_RANGE_M, hl_uri, {"range": HL_PAST_EOF}),
+    nav_open(hl_empty_uri, ""),
+    hl_req(5, HL_FULL, hl_empty_uri),
+    hl_req(6, HL_FULL, hl_ghost_uri),
+    {"jsonrpc": "2.0", "method": "textDocument/didChange",
+     "params": {"textDocument": {"uri": hl_uri, "version": 2},
+                "contentChanges": [{"text": HL_BROKEN}]}},
+    hl_req(7, HL_FULL, hl_uri),
+    {"jsonrpc": "2.0", "id": 8, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+hp = subprocess.run([stage1, "lsp"], input=hl_session, capture_output=True, cwd=HLDIR)
+hmsgs, htail = unframe(hp.stdout)
+hresp = {m["id"]: m for m in hmsgs if "id" in m}
+hcaps = ((hresp.get(1, {}).get("result") or {}).get("capabilities") or {}).get("semanticTokensProvider")
+hpubs = [(m["params"]["uri"], m["params"]["diagnostics"]) for m in hmsgs
+         if m.get("method") == "textDocument/publishDiagnostics"]
+
+
+def hres(rid):
+    return hresp.get(rid, {}).get("result")
+
+
+def hl_invariants(toks, lines):
+    """The reason a token list breaks what a client relies on, or "":
+    every token inside the legend, non-empty, on a line that exists and
+    inside it, the list sorted with no two overlapping, and the source
+    at each token spelling its class - an identifier for the name
+    classes, a keyword the parser dispatches on, operator bytes, a
+    number, a quote-opened literal, an AXTAG or comment opener."""
+    prev = None
+    for t in toks:
+        line, ch, ln, ty, mods = t
+        if ty >= len(HL_TYPES) or mods >= 1 << len(HL_MODS):
+            return f"token {t} indexes outside the legend"
+        if ln <= 0:
+            return f"token {hl_names(t)} is empty"
+        if line >= len(lines):
+            return f"token {hl_names(t)} is on a line the document does not have"
+        if ch + ln > u16(lines[line]):
+            return f"token {hl_names(t)} runs past the end of its line ({u16(lines[line])} units)"
+        if prev is not None and (prev[0], prev[1]) >= (line, ch):
+            return f"tokens out of order: {hl_names(prev)} then {hl_names(t)}"
+        if prev is not None and prev[0] == line and prev[1] + prev[2] > ch:
+            return f"tokens overlap: {hl_names(prev)} and {hl_names(t)}"
+        try:
+            text = slice_u16(lines[line], ch, ch + ln)
+        except UnicodeDecodeError:
+            return f"token {hl_names(t)} splits a surrogate pair"
+        name = HL_TYPES[ty]
+        bad = ""
+        if name in HL_IDENT_CLASSES and not HL_IDENT_RE.match(text):
+            bad = "is not one identifier"
+        elif name == "keyword" and text not in HL_KEYWORD_SET:
+            bad = "is not a keyword"
+        elif name == "operator" and not re.fullmatch(r"[+\-*/%<>=!&|^~:]+", text):
+            bad = "is not spelled of operator bytes"
+        elif name == "number" and not re.fullmatch(r"-?[0-9_]+(\.[0-9_]+)?", text):
+            bad = "is not a number"
+        elif name == "string" and text[0] not in "\"'":
+            bad = "does not open a string or char literal"
+        elif name == "decorator" and not text.startswith(";@axiom:"):
+            bad = "is not an AXTAG line"
+        elif name == "comment" and not (text.startswith(";") or text.startswith("#|")
+                                        or (prev is not None and prev[3] == HT["comment"]
+                                            and prev[0] == line - 1)):
+            bad = "neither opens a comment nor continues one from the line above"
+        if bad:
+            return f"token {hl_names(t)} spells {text!r}, which {bad}"
+        prev = t
+    return ""
+
+
+def hl_first_bad(anchors, got):
+    for what, line, ch, ln, ty, mods in anchors:
+        t = got.get((line, ch))
+        if t is None:
+            near = [hl_names(x) for x in got.values() if x[0] == line]
+            return f"{what}: no token starts at {line}:{ch}; that line carries {near}"
+        if (t[2], t[3], t[4]) != (ln, ty, mods):
+            return (f"{what}: at {line}:{ch} the server says {hl_names(t)}, derived "
+                    f"{line}:{ch}+{ln} {HL_TYPES[ty]} "
+                    f"{'+'.join(n for n in HL_MODS if mods & HM[n]) or '-'}")
+    return ""
+
+
+def hl_of_class(toks, names):
+    return {t for t in toks or [] if HL_TYPES[t[3]] in names}
+
+
+hl_full = hl_decode((hres(2) or {}).get("data")) if isinstance(hres(2), dict) else None
+hl_rng = hl_decode((hres(3) or {}).get("data")) if isinstance(hres(3), dict) else None
+hl_brk = hl_decode((hres(7) or {}).get("data")) if isinstance(hres(7), dict) else None
+hl_got = {(t[0], t[1]): t for t in hl_full or []}
+hl_brk_got = {(t[0], t[1]): t for t in hl_brk or []}
+hl_rng_want = [t for t in hl_full or [] if t[0] in (HL_RANGE_LINE, HL_RANGE_LINE + 1)]
+hl_pub_first = next((d for u, d in hpubs if u == hl_uri), None)
+hl_pub_last = next((d for u, d in reversed(hpubs) if u == hl_uri), None)
+HL_LITERALS = {"string", "number", "comment", "decorator"}
+hwhy = ""
+if hp.returncode != 0:
+    hwhy = f"the server exited {hp.returncode}: {hp.stderr[:200]!r}"
+elif hp.stderr:
+    hwhy = f"stderr not empty: {hp.stderr[:200]!r}"
+elif htail:
+    hwhy = f"{len(htail)} trailing bytes after the last frame"
+elif 8 not in hresp:
+    hwhy = "the session never answered shutdown - a request killed the server"
+# --- the capability ---------------------------------------------------
+elif hcaps != {"legend": {"tokenTypes": HL_TYPES, "tokenModifiers": HL_MODS},
+               "range": True, "full": True}:
+    hwhy = (f"semanticTokensProvider is {hcaps!r}, want the legend "
+            f"{HL_TYPES} / {HL_MODS} with range and full")
+# --- the corpus: a real program, and its broken twin ----------------
+elif hl_pub_first != []:
+    hwhy = (f"the HL document does not check clean, so its resolved answers rest on "
+            f"a tree the compiler refused: {hl_pub_first!r:.300}")
+elif not [d for d in hl_pub_last or [] if str(d.get("code", "")).startswith(("AX1", "AX2"))]:
+    hwhy = "the broken HL document published no parse error, so it is not the unparseable document it is meant to be"
+# --- full -------------------------------------------------------------
+elif hl_full is None:
+    hwhy = f"semanticTokens/full answered {hres(2)!r:.200}, want {{data: [five ints per token]}}"
+elif len(hl_full) < len(HL_ANCHORS):
+    hwhy = f"semanticTokens/full answered {len(hl_full)} tokens, fewer than the {len(HL_ANCHORS)} anchors"
+elif hl_invariants(hl_full, HL_LINES):
+    hwhy = "full: " + hl_invariants(hl_full, HL_LINES)
+elif hl_first_bad(HL_ANCHORS, hl_got):
+    hwhy = "full: " + hl_first_bad(HL_ANCHORS, hl_got)
+# --- range ------------------------------------------------------------
+elif len(hl_rng_want) < 6 or {t[0] for t in hl_rng_want} != {HL_RANGE_LINE, HL_RANGE_LINE + 1}:
+    hwhy = f"the two-line range holds {len(hl_rng_want)} tokens of full - too few to hold a range to"
+elif hl_rng is None:
+    hwhy = f"semanticTokens/range answered {hres(3)!r:.200}, want {{data: [...]}}"
+elif hl_rng != hl_rng_want:
+    hwhy = (f"range over lines {HL_RANGE_LINE}-{HL_RANGE_LINE + 1} is not the tokens of full "
+            f"that start there;\n          server:  {[hl_names(t) for t in hl_rng]}\n"
+            f"          derived: {[hl_names(t) for t in hl_rng_want]}")
+elif hres(4) != {"data": []}:
+    hwhy = f"a range past EOF answered {hres(4)!r:.200}, want {{data: []}}"
+# --- empty, unopened --------------------------------------------------
+elif hres(5) != {"data": []}:
+    hwhy = f"an empty document answered {hres(5)!r:.200}, want {{data: []}}"
+elif hres(6) != {"data": []}:
+    hwhy = f"a URI never opened answered {hres(6)!r:.200}, want {{data: []}}"
+# --- a document that does not parse -----------------------------------
+elif hl_brk is None:
+    hwhy = f"semanticTokens/full on the broken document answered {hres(7)!r:.200}"
+elif hl_invariants(hl_brk, HL_BROKEN_LINES):
+    hwhy = "broken: " + hl_invariants(hl_brk, HL_BROKEN_LINES)
+elif hl_of_class(hl_brk, {"keyword"}) != hl_of_class(hl_full, {"keyword"}):
+    hwhy = (f"the broken document's keywords differ from the parsing one's: "
+            f"{sorted(hl_of_class(hl_brk, {'keyword'}) ^ hl_of_class(hl_full, {'keyword'}))}")
+elif hl_of_class(hl_brk, HL_LITERALS) != hl_of_class(hl_full, HL_LITERALS):
+    hwhy = (f"the broken document's strings, numbers and comments differ from the parsing one's: "
+            f"{sorted(hl_of_class(hl_brk, HL_LITERALS) ^ hl_of_class(hl_full, HL_LITERALS))}")
+elif hl_first_bad([hl_anchor("parameter read, unresolved", HL_K_READ, "k", "variable", 0),
+                   hl_anchor("header parameter, from the form", HL_S_DECL, "s", "parameter", DECL),
+                   hl_anchor("set target, from the form", HL_SET_ACC, "acc", "variable", MOD)],
+                  hl_brk_got):
+    hwhy = "broken: " + hl_first_bad(
+        [hl_anchor("parameter read, unresolved", HL_K_READ, "k", "variable", 0),
+         hl_anchor("header parameter, from the form", HL_S_DECL, "s", "parameter", DECL),
+         hl_anchor("set target, from the form", HL_SET_ACC, "acc", "variable", MOD)],
+        hl_brk_got)
+
+if hwhy:
+    print(f"FAIL semantic-tokens: {hwhy}")
+    failed += 1
+else:
+    print(f"ok   semantic-tokens-full ({len(HL_ANCHORS)} anchors derived from the document "
+          f"over all {len(HL_TYPES)} token types - import as namespace, AXTAG as decorator, "
+          f"a macro, a data and its constructors, struct fields as property, parameters, "
+          f"an immutable let readonly and a mut one modified at its set, imported and "
+          f"qualified calls as defaultLibrary, a string with an escape, a char, a float, "
+          f"a negative; {len(hl_full)} tokens sorted, non-overlapping and each spelling "
+          f"its class; the legend exact; {{data: []}} for an empty document and an "
+          f"unopened URI; keywords and literals unchanged and a parameter read falling to "
+          f"variable when the document does not parse)")
+    print(f"ok   semantic-tokens-range ({len(hl_rng)} tokens over lines "
+          f"{HL_RANGE_LINE}-{HL_RANGE_LINE + 1} equal to full's on those lines; "
+          f"{{data: []}} past EOF)")
+    passed += 2
+shutil.rmtree(HLDIR, ignore_errors=True)
+# =====================================================================
+# END SECTION HL TESTS
+# =====================================================================
+
 # ---------------------------------------------------------------------
 # An editing session does not grow.
 #
