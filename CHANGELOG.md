@@ -175,9 +175,48 @@ than a new one.
   the shutdown afterwards must still be answered. 10,564 requests over
   19 providers, all answered, in about 12 s.
 
+### Reviewed
+
+An adversarial pass drove every request at real files and at documents
+written to ask what the sections' own tests did not, and found four
+wrong answers, each reproduced by a request before it was touched and
+each now pinned by a derived check the pre-fix server fails:
+
+- **A rename of a type left its uses behind.** The occurrence walk read
+  expressions and declaration names and skipped type positions, so
+  `rename` on `Shape` rewrote the declaration and left `(:: area (->
+  Shape Int))`, a struct field and an alias spelling the old name. Type
+  nodes carry no span, so the positions are now read from the bytes of
+  every `::`, `data`, `struct`, `type`, `impl` and `trait` form and
+  resolved against a TYPE table alone — a `fn` spelled like a `data` is
+  not the same name. On four real files, `references` on twenty
+  top-level names equals a whole-identifier grep of the code.
+- **Signature help and parameter hints answered a top-level function
+  for a local of the same name** — `(fn (t7 f) (f 1 2))` beside a
+  top-level `f` — and a `fn` header answered its own signature. A local
+  index over the declarations a range meets is asked first.
+- **The assist wrote a type the parser refuses.** `symbols` prints an
+  unresolved variable as `_tN`, and a type variable must start with a
+  lowercase letter; each is now lettered in order of appearance, and
+  over every unsigned `fn` in `stdlib/`, `tests/` and `docs/` all
+  fourteen offered signatures check clean.
+- **An expansion was empty by name, and one did not lex.** A generated
+  `impl` is named after its trait, which the written list declares, so
+  `(deriveEq Inner)` answered nothing; products are known by identity
+  now. A `syntax/binders` variable is `x#0` in the tree, and `#` is not
+  an identifier byte; every byte the lexer refuses is written `_`. The
+  differential — every top-level invocation under `tests/` and `docs/`
+  expanded and spliced into a copy in place of the invocation, `check`
+  codes and `symbols` names held equal to the original — passes all 43
+  invocations whose document expands.
+
+Two costs were found and cut in the same pass: the whole-document code
+action, 1.34x–1.87x of `didOpen` with two walks per unsigned `fn`, is
+0.87x–1.28x with bucket lookups.
+
 ### Found, not fixed
 
-Two compiler defects the language-server work ran into, recorded here
+Three compiler defects the language-server work ran into, recorded here
 because the next release should carry the fix and this one does not:
 
 - **A generated `struct`'s fields carry no type.** `expand.ax`'s
