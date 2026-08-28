@@ -10792,63 +10792,84 @@
 ; ------------------------------------------------------------------
 ; Emitting a token.
 ; ------------------------------------------------------------------
-; One token over [s, e), which must not hold a newline; appended only
-; when it starts inside the requested range, but the column tracking
-; advances either way so the next token's conversion starts where this
-; one ended.
+; One token over [s, e), which must not hold a line break; appended
+; only when it starts inside the requested range, but the column
+; tracking advances either way so the next token's conversion starts
+; where this one ended.
+;
+; A `\r` at `e` is not part of the token. The line index and every
+; scanner here split on `\n` alone, so in a CRLF document a `;` line
+; and each piece of a multi-line string ran up to and including the
+; `\r` - one unit past the line a client that ends lines at `\r\n`
+; sees, on every comment of the file. Measured on `(fn (f) "a\r\nb")`
+; before this: the first piece was `"a\r`, length 3 over a 10-unit
+; line that ends at unit 10.
 (pub :: lspHlEmit (-> Int Int Int Int Int Int))
 
-(pub fn (lspHlEmit st s e ty mods)
-  (if (<= e s)
-    0
-    (let (
-      (src (memGetWordStr st 0))
-      (ix (memGetWord st 1))
-    )
-      (let ((ln (lspLineOfIx ix s)))
-        {
-          (if (!= ln (memGetWord st 5))
-            {
-              (memSetWord st 5 ln)
-              (memSetWord st 6 (vecGet ix ln))
-              (memSetWord st 7 0)
-            }
-            0
-          )
-          (let ((ch (+ (memGetWord st 7) (lspCharFrom src (memGetWord st 6) s))))
-            {
-              (memSetWord st 6 s)
-              (memSetWord st 7 ch)
-              (if (&& (>= s (memGetWord st 8)) (< s (memGetWord st 9)))
-                (let (
-                  (out (memGetWord st 2))
-                  (dl (- ln (memGetWord st 3)))
-                )
-                  {
-                    (jsonArrPush out (jsonNum dl))
-                    (jsonArrPush
-                      out                      (jsonNum
-                        (if (== dl 0)
-                          (- ch (memGetWord st 4))
-                          ch
+(pub fn (lspHlEmit st s e0 ty mods)
+  (let ((e (lspHlTrimCr (memGetWordStr st 0) s e0)))
+    (if (<= e s)
+      0
+      (let (
+        (src (memGetWordStr st 0))
+        (ix (memGetWord st 1))
+      )
+        (let ((ln (lspLineOfIx ix s)))
+          {
+            (if (!= ln (memGetWord st 5))
+              {
+                (memSetWord st 5 ln)
+                (memSetWord st 6 (vecGet ix ln))
+                (memSetWord st 7 0)
+              }
+              0
+            )
+            (let ((ch (+ (memGetWord st 7) (lspCharFrom src (memGetWord st 6) s))))
+              {
+                (memSetWord st 6 s)
+                (memSetWord st 7 ch)
+                (if (&& (>= s (memGetWord st 8)) (< s (memGetWord st 9)))
+                  (let (
+                    (out (memGetWord st 2))
+                    (dl (- ln (memGetWord st 3)))
+                  )
+                    {
+                      (jsonArrPush out (jsonNum dl))
+                      (jsonArrPush
+                        out                        (jsonNum
+                          (if (== dl 0)
+                            (- ch (memGetWord st 4))
+                            ch
+                          )
                         )
                       )
-                    )
-                    (jsonArrPush out (jsonNum (lspCharFrom src s e)))
-                    (jsonArrPush out (jsonNum ty))
-                    (jsonArrPush out (jsonNum mods))
-                    (memSetWord st 3 ln)
-                    (memSetWord st 4 ch)
-                    0
-                  }
+                      (jsonArrPush out (jsonNum (lspCharFrom src s e)))
+                      (jsonArrPush out (jsonNum ty))
+                      (jsonArrPush out (jsonNum mods))
+                      (memSetWord st 3 ln)
+                      (memSetWord st 4 ch)
+                      0
+                    }
+                  )
+                  0
                 )
-                0
-              )
-            }
-          )
-        }
+              }
+            )
+          }
+        )
       )
     )
+  )
+)
+
+; The end of [s, e) with a trailing `\r` taken off. Only a token cut
+; at a `\n` can end in one, so identifiers and numbers are untouched.
+(pub :: lspHlTrimCr (-> String Int Int Int))
+
+(pub fn (lspHlTrimCr src s e)
+  (if (&& (> e s) (== (strByte src (- e 1)) 13))
+    (- e 1)
+    e
   )
 )
 
@@ -10919,7 +10940,7 @@
                     (set i e)
                   }
                 )
-                (if (== ch 39)
+                (if (&& (== ch 39) (lspHlCharOpens src i n))
                   (let ((e (skipCharBody src (+ i 1) n)))
                     {
                       (lspHlEmitLines st i e HL_STRING 0)
@@ -10970,6 +10991,25 @@
 (pub :: lspHlIsAxtag (-> String Int Int Bool))
 
 (pub fn (lspHlIsAxtag src i n) (&& (<= (+ i 8) n) (strEq (strSlice src (+ i 1) 7) "@axiom:")))
+
+; A `'` opens a char literal only where the lexer's `stepToken` says
+; one begins: when the byte after it exists and is not a space, `(` or
+; `[` - stage0's rule. Any other `'` is a quote mark, which spells no
+; token and falls through to the punctuation arm. Read as an opener,
+; it sent the scan to the next `'` in the file or to EOF, and on the
+; stray quote mark of a half-typed line every line between was painted
+; as a string - measured on `(fn (f) (g ' x))` followed by a second
+; declaration, whose `fn` came back with no token at all.
+(pub :: lspHlCharOpens (-> String Int Int Bool))
+
+(pub fn (lspHlCharOpens src i n)
+  (if (>= (+ i 1) n)
+    false
+    (let ((b (strByte src (+ i 1))))
+      (&& (!= b 32) (&& (!= b 40) (!= b 91)))
+    )
+  )
+)
 
 (pub :: lspHlIsNumberStart (-> String Int Int Bool))
 

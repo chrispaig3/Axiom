@@ -3152,6 +3152,17 @@ hl_ghost_uri = "file://" + os.path.join(HLDIR, "hl-never-opened.ax")
 HL_BROKEN = HL + "\n("
 HL_LINES = HL.split("\n")
 HL_BROKEN_LINES = HL_BROKEN.split("\n")
+# A document the bytes alone must get right, on two corners the scan
+# used to lose: a `'` before a space, which the lexer reads as a quote
+# mark and not as the opening of a char literal - read as an opener it
+# sent the scan to the next `'` in the file, and every line between
+# came back as a string, the second declaration's `fn` with no token at
+# all - and CRLF line ends, where the `\r` before every `\n` was inside
+# the comment token, one unit past the line a client that ends lines at
+# `\r\n` sees. It does not parse; nothing below asks it to.
+HL_ODD = "(fn (f) (g ' x))\r\n; tail\r\n(fn (h) 1)\r\n"
+hl_odd_uri = "file://" + os.path.join(HLDIR, "hl-odd.ax")
+HL_ODD_LINES = HL_ODD.split("\n")
 
 # The legend, written here from the protocol's own names and compared
 # for EQUALITY with what the server advertises; the integers below
@@ -3292,6 +3303,25 @@ HL_RANGE = {"start": {"line": HL_RANGE_LINE, "character": 0},
             "end": {"line": HL_RANGE_LINE + 2, "character": 0}}
 HL_PAST_EOF = {"start": {"line": len(HL_LINES) + 3, "character": 0},
                "end": {"line": len(HL_LINES) + 4, "character": 0}}
+# The quote-mark document's anchors: the comment token is the line
+# WITHOUT its `\r`, and the declaration after the quote mark is lit.
+# `x` is read by the form (the document does not parse), a lowercase
+# name off the head; `h` is a `fn` header's own name.
+HL_ODD_CMT_TEXT = HL_ODD_LINES[locate(HL_ODD, "; tail", 1)["line"]].rstrip("\r")
+HL_ODD_QUOTE = locate(HL_ODD, "'", 1)
+HL_ODD_ANCHORS = [
+    hl_anchor("call head before the quote mark", ident_at(HL_ODD, "g", 1), "g", "function", 0),
+    hl_anchor("argument after the quote mark", ident_at(HL_ODD, "x", 1), "x", "variable", 0),
+    hl_anchor("CRLF comment line", {"line": locate(HL_ODD, "; tail", 1)["line"], "start": 0},
+              HL_ODD_CMT_TEXT, "comment", 0),
+    hl_anchor("fn keyword after the quote mark", ident_at(HL_ODD, "fn", 2), "fn", "keyword", 0),
+    hl_anchor("fn declared after the quote mark", ident_at(HL_ODD, "h", 1), "h", "function", DECL),
+    hl_anchor("literal after the quote mark", locate(HL_ODD, "1", 1), "1", "number", 0),
+]
+if "\r\n" not in HL_ODD or "' " not in HL_ODD or HL_ODD_CMT_TEXT.endswith("\r") \
+        or not HL_ODD_CMT_TEXT or [a for a in HL_ODD_ANCHORS if a[3] <= 0]:
+    sys.exit("FAIL: the quote-mark document no longer carries a `' ` and CRLF line ends, "
+             "or a derived anchor on it is empty - the two corners it pins would go untested")
 
 # The corpus, counted, so every anchor lands on the occurrence it was
 # written for; and the shapes the checks below assume.
@@ -3341,6 +3371,8 @@ hl_session = b"".join(frame(m) for m in [
      "params": {"textDocument": {"uri": hl_uri, "version": 2},
                 "contentChanges": [{"text": HL_BROKEN}]}},
     hl_req(7, HL_FULL, hl_uri),
+    nav_open(hl_odd_uri, HL_ODD),
+    hl_req(9, HL_FULL, hl_odd_uri),
     {"jsonrpc": "2.0", "id": 8, "method": "shutdown", "params": None},
     {"jsonrpc": "2.0", "method": "exit", "params": None},
 ])
@@ -3382,6 +3414,8 @@ def hl_invariants(toks, lines):
             text = slice_u16(lines[line], ch, ch + ln)
         except UnicodeDecodeError:
             return f"token {hl_names(t)} splits a surrogate pair"
+        if "\r" in text:
+            return f"token {hl_names(t)} spells {text!r}, which holds a line break"
         name = HL_TYPES[ty]
         bad = ""
         if name in HL_IDENT_CLASSES and not HL_IDENT_RE.match(text):
@@ -3426,8 +3460,10 @@ def hl_of_class(toks, names):
 hl_full = hl_decode((hres(2) or {}).get("data")) if isinstance(hres(2), dict) else None
 hl_rng = hl_decode((hres(3) or {}).get("data")) if isinstance(hres(3), dict) else None
 hl_brk = hl_decode((hres(7) or {}).get("data")) if isinstance(hres(7), dict) else None
+hl_odd = hl_decode((hres(9) or {}).get("data")) if isinstance(hres(9), dict) else None
 hl_got = {(t[0], t[1]): t for t in hl_full or []}
 hl_brk_got = {(t[0], t[1]): t for t in hl_brk or []}
+hl_odd_got = {(t[0], t[1]): t for t in hl_odd or []}
 hl_rng_want = [t for t in hl_full or [] if t[0] in (HL_RANGE_LINE, HL_RANGE_LINE + 1)]
 hl_pub_first = next((d for u, d in hpubs if u == hl_uri), None)
 hl_pub_last = next((d for u, d in reversed(hpubs) if u == hl_uri), None)
@@ -3497,6 +3533,17 @@ elif hl_first_bad([hl_anchor("parameter read, unresolved", HL_K_READ, "k", "vari
          hl_anchor("header parameter, from the form", HL_S_DECL, "s", "parameter", DECL),
          hl_anchor("set target, from the form", HL_SET_ACC, "acc", "variable", MOD)],
         hl_brk_got)
+# --- a quote mark before a space, and CRLF line ends --------------------
+elif hl_odd is None:
+    hwhy = f"semanticTokens/full on the quote-mark document answered {hres(9)!r:.200}"
+elif hl_invariants(hl_odd, HL_ODD_LINES):
+    hwhy = "quote mark: " + hl_invariants(hl_odd, HL_ODD_LINES)
+elif (HL_ODD_QUOTE["line"], HL_ODD_QUOTE["start"]) in hl_odd_got:
+    hwhy = (f"the `'` before a space opened a token, "
+            f"{hl_names(hl_odd_got[(HL_ODD_QUOTE['line'], HL_ODD_QUOTE['start'])])}; the lexer "
+            f"reads it as a quote mark, which spells nothing")
+elif hl_first_bad(HL_ODD_ANCHORS, hl_odd_got):
+    hwhy = "quote mark: " + hl_first_bad(HL_ODD_ANCHORS, hl_odd_got)
 
 if hwhy:
     print(f"FAIL semantic-tokens: {hwhy}")
@@ -3510,7 +3557,9 @@ else:
           f"a negative; {len(hl_full)} tokens sorted, non-overlapping and each spelling "
           f"its class; the legend exact; {{data: []}} for an empty document and an "
           f"unopened URI; keywords and literals unchanged and a parameter read falling to "
-          f"variable when the document does not parse)")
+          f"variable when the document does not parse; a `'` before a space spelling no "
+          f"token and the declaration after it lit; a CRLF comment token ending before "
+          f"its `\\r`)")
     print(f"ok   semantic-tokens-range ({len(hl_rng)} tokens over lines "
           f"{HL_RANGE_LINE}-{HL_RANGE_LINE + 1} equal to full's on those lines; "
           f"{{data: []}} past EOF)")
