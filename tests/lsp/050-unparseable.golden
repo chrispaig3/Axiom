@@ -1,6 +1,6 @@
-Content-Length: 271
+Content-Length: 372
 
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["("]}},"serverInfo":{"name":"axiom","version":"0.3.4"}}}Content-Length: 329
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["("]},"referencesProvider":true,"documentHighlightProvider":true,"renameProvider":{"prepareProvider":true}},"serverInfo":{"name":"axiom","version":"0.3.4"}}}Content-Length: 329
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"severity":1,"code":"AX2001","source":"axiom","message":"expected expression, found `EOF`\n\nhelp: Axiom expected expression at this position"}]}}Content-Length: 36
 

@@ -1248,6 +1248,492 @@ shutil.rmtree(NAVDIR, ignore_errors=True)
 # documents' own bytes, never read from a golden.
 # =====================================================================
 
+# Four documents written HERE, in a directory of their own for the
+# reason NavHelper.ax has one: RefHelper.ax, imported by NavMain.ax;
+# NavMain.ax, which binds every kind of local the walk knows and
+# declares the names the others reference; NavUser.ax, which imports
+# NavMain and references its `fn` and its constructor, so the
+# cross-file half of `references` and `rename` has a second open
+# document to find; and NavBroken.ax, NavMain with an unclosed paren,
+# on which every request must answer null without the session dying.
+# RefHelper.ax is opened too, so the reverse direction - the cursor on
+# an IMPORTED name, whose declaring file happens to be open - has a
+# document to answer from.
+#
+# Every position is found as a WHOLE identifier (`ident_at`), because
+# `locate` finds substrings and `rad` is inside `radius`. Every
+# expected list is built here from those positions and compared for
+# EQUALITY - order, uri and range - so a server that finds one
+# occurrence too many, or one too few, or lists another document's
+# first, fails. The rename is applied in Python to the documents' own
+# bytes, and the result is opened in a second session: the checker
+# publishing NOTHING for the renamed pair is the proof that every
+# occurrence was found, since a missed one would be AX3001 at the old
+# spelling.
+NAVREF_DIR = tempfile.mkdtemp(prefix="axiom-nav-refs-")
+REF_HELPER = """; Double a number.
+(pub :: twice (-> Int Int))
+
+(pub fn (twice x) (* x 2))
+"""
+NAV_MAIN = """(import RefHelper)
+
+; A shape with two constructors, one of them carrying a field.
+(pub data Shape (Dot) (Circle Int))
+
+; Two parameters; the second is shadowed by a `let` whose value
+; still reads the parameter, because a `let` is not recursive.
+(pub :: area (-> Int Int Int))
+
+(pub fn (area pw ph)
+  (let ((ph (+ ph 1)))
+    (+ ph (twice pw))))
+
+; A mutable binding written by `set`.
+(pub :: count (-> Int Int))
+
+(pub fn (count n)
+  (let ((mut acc 0))
+    {
+      (set acc (+ acc n))
+      acc
+    }))
+
+; A `match` with a constructor head and a pattern binder.
+(pub :: radius (-> Shape Int))
+
+(pub fn (radius s)
+  (match s
+    ((Dot) 0)
+    ((Circle rad) (area rad rad))))
+
+; A lambda with two parameters.
+(pub :: apply2 Int)
+
+(pub fn (apply2) ((lambda (lx ly) (+ lx ly)) 1 2))
+
+(:: main Int)
+
+(fn (main) (+ (count 3) (+ (apply2) (radius (Circle 4)))))
+"""
+NAV_USER = """(import NavMain)
+
+; A second document that imports the first and reads its names.
+(:: useArea Int)
+
+(fn (useArea) (+ (area 2 3) (radius (Circle 9))))
+"""
+NAV_BROKEN = NAV_MAIN + "\n("
+for _name, _text in (("RefHelper.ax", REF_HELPER), ("NavMain.ax", NAV_MAIN),
+                     ("NavUser.ax", NAV_USER)):
+    open(os.path.join(NAVREF_DIR, _name), "w", encoding="utf-8").write(_text)
+A_URI = "file://" + os.path.join(NAVREF_DIR, "NavMain.ax")
+B_URI = "file://" + os.path.join(NAVREF_DIR, "NavUser.ax")
+C_URI = "file://" + os.path.join(NAVREF_DIR, "NavBroken.ax")
+D_URI = "file://" + os.path.join(NAVREF_DIR, "RefHelper.ax")
+
+# The lexer's identifier bytes, so a name is found only where the
+# compiler would read it as one token.
+IDENT_CHARS = r"A-Za-z0-9_'!*+/<>=%&|^-"
+
+def ident_at(src, name, n):
+    """The n-th occurrence of `name` as a WHOLE identifier, in LSP
+    coordinates plus the byte index it starts at."""
+    pat = re.compile(f"(?<![{IDENT_CHARS}])" + re.escape(name) + f"(?![{IDENT_CHARS}])")
+    ms = list(pat.finditer(src))
+    if len(ms) < n:
+        raise LookupError(f"identifier {name!r} has {len(ms)} occurrence(s), "
+                          f"fewer than {n}")
+    idx = ms[n - 1].start()
+    ln, text, col = line_of(src, idx)
+    start = u16(text[:col])
+    return {"line": ln, "start": start, "end": start + u16(name), "byte": idx}
+
+def ident_count(src, name):
+    pat = re.compile(f"(?<![{IDENT_CHARS}])" + re.escape(name) + f"(?![{IDENT_CHARS}])")
+    return len(pat.findall(src))
+
+def idents(src, name, n):
+    return [ident_at(src, name, k) for k in range(1, n + 1)]
+
+def pair_text(src, byte):
+    """The `(name value)` pair a `let` binder at `byte` sits in: back to
+    its `(`, forward to the matching `)`."""
+    o = src.rfind("(", 0, byte)
+    depth, i = 0, o
+    while i < len(src):
+        if src[i] == "(":
+            depth += 1
+        elif src[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return src[o:i + 1]
+        i += 1
+    return ""
+
+# The corpus, counted: each name must occur exactly as often as the
+# assertions below assume, or a position lands on the wrong occurrence
+# and the check passes or fails for the wrong reason.
+NAV_COUNTS = {"ph": 4, "pw": 2, "area": 3, "acc": 4, "lx": 2, "rad": 3,
+              "twice": 1, "Circle": 3, "count": 3, "surface": 0, "total": 0}
+for _n, _c in NAV_COUNTS.items():
+    if ident_count(NAV_MAIN, _n) != _c:
+        sys.exit(f"FAIL: NavMain.ax spells `{_n}` {ident_count(NAV_MAIN, _n)} "
+                 f"time(s) as an identifier, this file assumes {_c}")
+for _n, _c in (("area", 1), ("Circle", 1), ("useArea", 2), ("surface", 0)):
+    if ident_count(NAV_USER, _n) != _c:
+        sys.exit(f"FAIL: NavUser.ax spells `{_n}` {ident_count(NAV_USER, _n)} "
+                 f"time(s), this file assumes {_c}")
+if ident_count(REF_HELPER, "twice") != 2:
+    sys.exit("FAIL: RefHelper.ax must spell `twice` exactly twice")
+if not (NAV_MAIN.isascii() and NAV_USER.isascii()):
+    sys.exit("FAIL: the rename is applied below with UTF-16 units read as "
+             "characters, which is only true of ASCII documents")
+
+PH = idents(NAV_MAIN, "ph", 4)            # header, let binder, let value, body
+PW = idents(NAV_MAIN, "pw", 2)            # header, `(twice pw)`
+AREA_A = idents(NAV_MAIN, "area", 3)      # signature, fn, the call in radius
+AREA_B = idents(NAV_USER, "area", 1)
+ACC = idents(NAV_MAIN, "acc", 4)          # `(mut acc 0)`, the set target, two reads
+LX = idents(NAV_MAIN, "lx", 2)            # lambda parameter, its read
+RAD = idents(NAV_MAIN, "rad", 3)          # pattern binder, two reads
+TWICE_A = idents(NAV_MAIN, "twice", 1)
+TWICE_D = idents(REF_HELPER, "twice", 2)  # signature, fn
+CIRCLE_A = idents(NAV_MAIN, "Circle", 3)  # constructor, pattern head, expression
+CIRCLE_B = idents(NAV_USER, "Circle", 1)
+KW_MATCH = ident_at(NAV_MAIN, "match", 1)
+KW_LET = ident_at(NAV_MAIN, "let", 1)
+LITERAL = locate(NAV_MAIN, "((Dot) 0)", 1)
+LITERAL = {"line": LITERAL["line"], "start": LITERAL["end"] - 2}  # the `0`
+# The type hover must show for `pw`: parameter 0 of `area`'s own
+# signature, read out of its text.
+AREA_SIG = between(NAV_MAIN, "(pub :: area", "\n\n(pub fn (area")
+_arrow = re.search(r"\(->\s+(.+)\)\)$", AREA_SIG)
+PARAM_TYPE = _arrow.group(1).split()[0] if _arrow else ""
+# The binding pair hover must quote for the let-bound `ph`.
+LET_TEXT = pair_text(NAV_MAIN, PH[1]["byte"])
+for what, text in (("area signature", AREA_SIG), ("parameter type", PARAM_TYPE),
+                   ("let pair", LET_TEXT)):
+    if not text.strip() or (what != "parameter type" and text not in NAV_MAIN):
+        sys.exit(f"FAIL: the derived {what} is empty or not in NavMain.ax "
+                 f"({text!r}) - the hover assertions below rest on it")
+if "ph" not in LET_TEXT or LET_TEXT.count("(") < 2:
+    sys.exit(f"FAIL: the derived let pair {LET_TEXT!r} is not a `(name value)` pair")
+
+def nav_req(rid, method, uri, at, extra=None):
+    p = {"textDocument": {"uri": uri},
+         "position": {"line": at["line"], "character": at["start"]}}
+    if extra:
+        p.update(extra)
+    return {"jsonrpc": "2.0", "id": rid, "method": method, "params": p}
+
+def nav_open(uri, text):
+    return {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "axiom",
+                                        "version": 1, "text": text}}}
+
+def refs(rid, uri, at, incl):
+    return nav_req(rid, "textDocument/references", uri, at,
+                   {"context": {"includeDeclaration": incl}})
+
+def hilite(rid, uri, at):
+    return nav_req(rid, "textDocument/documentHighlight", uri, at)
+
+def prep(rid, uri, at):
+    return nav_req(rid, "textDocument/prepareRename", uri, at)
+
+def ren(rid, uri, at, new):
+    return nav_req(rid, "textDocument/rename", uri, at, {"newName": new})
+
+nav_session2 = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    nav_open(A_URI, NAV_MAIN), nav_open(B_URI, NAV_USER),
+    nav_open(C_URI, NAV_BROKEN), nav_open(D_URI, REF_HELPER),
+    # references
+    refs(2, A_URI, PH[0], True), refs(3, A_URI, PH[0], False),
+    refs(4, A_URI, PH[1], True), refs(5, A_URI, PH[3], False),
+    refs(6, A_URI, AREA_A[1], True), refs(7, A_URI, AREA_A[1], False),
+    refs(8, A_URI, TWICE_A[0], True), refs(9, A_URI, CIRCLE_A[0], True),
+    refs(10, A_URI, KW_MATCH, True), refs(11, C_URI, PH[0], True),
+    # highlights
+    hilite(12, A_URI, ACC[2]), hilite(13, A_URI, LX[1]), hilite(14, A_URI, RAD[0]),
+    hilite(15, A_URI, LITERAL), hilite(16, C_URI, ACC[2]),
+    # rename
+    prep(17, A_URI, PW[1]), prep(18, A_URI, TWICE_A[0]), prep(19, A_URI, KW_LET),
+    prep(20, C_URI, PW[1]),
+    ren(21, A_URI, AREA_A[1], "surface"), ren(22, A_URI, PW[1], "1abc"),
+    ren(23, A_URI, PW[1], "ph"), ren(24, A_URI, AREA_A[1], "count"),
+    ren(25, A_URI, AREA_A[1], "useArea"), ren(26, C_URI, PW[1], "zz"),
+    ren(27, A_URI, ACC[2], "total"),
+    # the local half of definition and hover
+    nav_req(28, "textDocument/definition", A_URI, PH[3]),
+    nav_req(29, "textDocument/definition", A_URI, PH[2]),
+    nav_req(30, "textDocument/hover", A_URI, PW[1]),
+    nav_req(31, "textDocument/hover", A_URI, PH[3]),
+    nav_req(32, "textDocument/hover", C_URI, PW[1]),
+    nav_req(33, "textDocument/definition", C_URI, PH[3]),
+    {"jsonrpc": "2.0", "id": 34, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+rp = subprocess.run([stage1, "lsp"], input=nav_session2, capture_output=True,
+                    cwd=NAVREF_DIR)
+rmsgs, rtail = unframe(rp.stdout)
+rresp = {m["id"]: m for m in rmsgs if "id" in m}
+rcaps = (rresp.get(1, {}).get("result") or {}).get("capabilities") or {}
+rpubs = {}
+for m in rmsgs:
+    if m.get("method") == "textDocument/publishDiagnostics":
+        rpubs.setdefault(m["params"]["uri"], m["params"]["diagnostics"])
+
+def loc(uri, at):
+    return (uri, rng(at))
+
+def got_locs(rid):
+    r = rresp.get(rid, {}).get("result")
+    if not isinstance(r, list):
+        return r
+    return [(x.get("uri"), x.get("range")) for x in r]
+
+def want_locs(rid, want):
+    """Reason request `rid` did not answer exactly `want`, or ""."""
+    g = got_locs(rid)
+    if g != want:
+        return f"request {rid} answered {g!r}, want {want!r}"
+    return ""
+
+def want_null(rid, what):
+    r = rresp.get(rid, {}).get("result", "unanswered")
+    if r is not None:
+        return f"{what} (request {rid}) answered {r!r:.160}, want null"
+    return ""
+
+def got_hilites(rid):
+    r = rresp.get(rid, {}).get("result")
+    if not isinstance(r, list):
+        return r
+    return [(x.get("range"), x.get("kind")) for x in r]
+
+def want_hilites(rid, pairs):
+    g = got_hilites(rid)
+    want = [(rng(at), kind) for at, kind in pairs]
+    if g != want:
+        return f"request {rid} answered {g!r}, want {want!r}"
+    return ""
+
+def got_edits(rid):
+    r = rresp.get(rid, {}).get("result")
+    if not isinstance(r, dict) or not isinstance(r.get("changes"), dict):
+        return r
+    return {u: [(e.get("range"), e.get("newText")) for e in es]
+            for u, es in r["changes"].items()}
+
+def apply_edits(text, edits):
+    """Apply TextEdits to an ASCII document, last first so earlier
+    offsets stay valid; refuses overlapping edits."""
+    starts, at = [], 0
+    for line in text.split("\n"):
+        starts.append(at)
+        at += len(line) + 1
+    spans = sorted(((starts[e["range"]["start"]["line"]] + e["range"]["start"]["character"],
+                     starts[e["range"]["end"]["line"]] + e["range"]["end"]["character"],
+                     e["newText"]) for e in edits), reverse=True)
+    for (s1, _, _), (_, e2, _) in zip(spans, spans[1:]):
+        if s1 < e2:
+            return None
+    for s, e, t in spans:
+        text = text[:s] + t + text[e:]
+    return text
+
+def nav_hover(rid, wants, at):
+    r = rresp.get(rid, {}).get("result")
+    if r is None:
+        return f"request {rid} answered null"
+    value = (r.get("contents") or {}).get("value")
+    if not isinstance(value, str) or "```axiom" not in value:
+        return f"request {rid} answered contents {r.get('contents')!r}"
+    for w in wants:
+        if w not in value:
+            return f"request {rid} did not carry {w!r}; it answered {value!r}"
+    if r.get("range") != rng(at):
+        return f"request {rid} covered {r.get('range')}, want the word at {rng(at)}"
+    return ""
+
+def nav_landed(rid, uri, at):
+    r = rresp.get(rid, {}).get("result")
+    if r is None:
+        return f"request {rid} answered null"
+    if r.get("uri") != uri or r.get("range") != rng(at):
+        return f"request {rid} answered {r!r}, want {loc(uri, at)!r}"
+    return ""
+
+rename_caps = rcaps.get("renameProvider")
+SURFACE_EDITS = {A_URI: [(rng(a), "surface") for a in AREA_A],
+                 B_URI: [(rng(AREA_B[0]), "surface")]}
+TOTAL_EDITS = {A_URI: [(rng(a), "total") for a in ACC]}
+nwhy = ""
+if rp.returncode != 0:
+    nwhy = f"the server exited {rp.returncode}: {rp.stderr[:200]!r}"
+elif rp.stderr:
+    nwhy = f"stderr not empty: {rp.stderr[:200]!r}"
+elif rtail:
+    nwhy = f"{len(rtail)} trailing bytes after the last frame"
+elif 34 not in rresp:
+    nwhy = "the session never answered shutdown - a request killed the server"
+elif rcaps.get("referencesProvider") is not True:
+    nwhy = f"referencesProvider is not advertised: capabilities were {sorted(rcaps)}"
+elif rcaps.get("documentHighlightProvider") is not True:
+    nwhy = f"documentHighlightProvider is not advertised: capabilities were {sorted(rcaps)}"
+elif not isinstance(rename_caps, dict) or rename_caps.get("prepareProvider") is not True:
+    nwhy = (f"renameProvider is {rename_caps!r}, want an object with "
+            f"prepareProvider true so a client asks before opening a rename box")
+# The corpus is a real program: three of the four documents check
+# clean, and the broken one reports its parse error - so the rename's
+# "still checks clean" proof below is not vacuous.
+elif any(rpubs.get(u) for u in (A_URI, B_URI, D_URI)):
+    nwhy = ("the navigation corpus does not check clean before any rename: "
+            f"{[(os.path.basename(u), rpubs.get(u)) for u in (A_URI, B_URI, D_URI) if rpubs.get(u)]!r:.300}")
+elif not rpubs.get(C_URI):
+    nwhy = "NavBroken.ax published no diagnostic, so it is not the unparseable document it is meant to be"
+# --- references -----------------------------------------------------
+# (a) The shadowed parameter: the header and the let's VALUE, never the
+# let's own binder or the body's read, which belong to the inner `ph`.
+elif want_locs(2, [loc(A_URI, PH[0]), loc(A_URI, PH[2])]):
+    nwhy = "param `ph` with declaration: " + want_locs(2, [loc(A_URI, PH[0]), loc(A_URI, PH[2])])
+elif want_locs(3, [loc(A_URI, PH[2])]):
+    nwhy = "param `ph` without declaration: " + want_locs(3, [loc(A_URI, PH[2])])
+elif want_locs(4, [loc(A_URI, PH[1]), loc(A_URI, PH[3])]):
+    nwhy = "let `ph` with declaration: " + want_locs(4, [loc(A_URI, PH[1]), loc(A_URI, PH[3])])
+elif want_locs(5, [loc(A_URI, PH[3])]):
+    nwhy = "let `ph` from its read, without declaration: " + want_locs(5, [loc(A_URI, PH[3])])
+# (b) The top-level fn: its signature, its definition, its call, and the
+# call in the OTHER open document, under that document's uri, last.
+elif want_locs(6, [loc(A_URI, a) for a in AREA_A] + [loc(B_URI, AREA_B[0])]):
+    nwhy = "`area` across two documents: " + want_locs(6, [loc(A_URI, a) for a in AREA_A] + [loc(B_URI, AREA_B[0])])
+elif want_locs(7, [loc(A_URI, AREA_A[2]), loc(B_URI, AREA_B[0])]):
+    nwhy = "`area` references only: " + want_locs(7, [loc(A_URI, AREA_A[2]), loc(B_URI, AREA_B[0])])
+# The reverse: the cursor on an imported name whose module is open.
+elif want_locs(8, [loc(A_URI, TWICE_A[0])] + [loc(D_URI, d) for d in TWICE_D]):
+    nwhy = "imported `twice` with its open module: " + want_locs(8, [loc(A_URI, TWICE_A[0])] + [loc(D_URI, d) for d in TWICE_D])
+elif want_locs(9, [loc(A_URI, c) for c in CIRCLE_A] + [loc(B_URI, CIRCLE_B[0])]):
+    nwhy = "constructor `Circle` in a pattern, an expression and another document: " + want_locs(9, [loc(A_URI, c) for c in CIRCLE_A] + [loc(B_URI, CIRCLE_B[0])])
+elif want_null(10, "references on the keyword `match`"):
+    nwhy = want_null(10, "references on the keyword `match`")
+elif want_null(11, "references on the document that does not parse"):
+    nwhy = want_null(11, "references on the document that does not parse")
+# --- document highlights --------------------------------------------
+# (c) Write on the binder and the `set` target, Read on the reads.
+elif want_hilites(12, [(ACC[0], 3), (ACC[1], 3), (ACC[2], 2), (ACC[3], 2)]):
+    nwhy = "`acc` highlights: " + want_hilites(12, [(ACC[0], 3), (ACC[1], 3), (ACC[2], 2), (ACC[3], 2)])
+elif want_hilites(13, [(LX[0], 3), (LX[1], 2)]):
+    nwhy = "lambda parameter highlights (its span recovered from the bytes): " + want_hilites(13, [(LX[0], 3), (LX[1], 2)])
+elif want_hilites(14, [(RAD[0], 3), (RAD[1], 2), (RAD[2], 2)]):
+    nwhy = "pattern binder highlights: " + want_hilites(14, [(RAD[0], 3), (RAD[1], 2), (RAD[2], 2)])
+elif want_null(15, "documentHighlight on a literal"):
+    nwhy = want_null(15, "documentHighlight on a literal")
+elif want_null(16, "documentHighlight on the document that does not parse"):
+    nwhy = want_null(16, "documentHighlight on the document that does not parse")
+# --- rename ---------------------------------------------------------
+# (d) prepareRename: the word's range and its spelling for a local;
+# null for an imported name, a keyword, and a broken document.
+elif rresp.get(17, {}).get("result") != {"range": rng(PW[1]), "placeholder": "pw"}:
+    nwhy = f"prepareRename on `pw` answered {rresp.get(17, {}).get('result')!r}, want its range and placeholder"
+elif want_null(18, "prepareRename on the imported `twice`"):
+    nwhy = want_null(18, "prepareRename on the imported `twice`")
+elif want_null(19, "prepareRename on the keyword `let`"):
+    nwhy = want_null(19, "prepareRename on the keyword `let`")
+elif want_null(20, "prepareRename on the document that does not parse"):
+    nwhy = want_null(20, "prepareRename on the document that does not parse")
+# (e) The exact edit set for the fn, under both uris.
+elif got_edits(21) != SURFACE_EDITS:
+    nwhy = f"rename `area` -> `surface` answered {got_edits(21)!r}, want {SURFACE_EDITS!r}"
+# (f) Refusals: not an identifier, a sibling parameter, a name this
+# document declares, a name the importing document declares, a broken
+# document.
+elif want_null(22, "rename to `1abc`"):
+    nwhy = want_null(22, "rename to `1abc`")
+elif want_null(23, "rename `pw` to `ph`, its sibling parameter"):
+    nwhy = want_null(23, "rename `pw` to `ph`, its sibling parameter")
+elif want_null(24, "rename `area` to `count`, which this document declares"):
+    nwhy = want_null(24, "rename `area` to `count`, which this document declares")
+elif want_null(25, "rename `area` to `useArea`, which the importing document declares"):
+    nwhy = want_null(25, "rename `area` to `useArea`, which the importing document declares")
+elif want_null(26, "rename on the document that does not parse"):
+    nwhy = want_null(26, "rename on the document that does not parse")
+elif got_edits(27) != TOTAL_EDITS:
+    nwhy = f"rename of the local `acc` answered {got_edits(27)!r}, want {TOTAL_EDITS!r}"
+# --- definition and hover on locals ---------------------------------
+# (g) A reference lands on ITS binder: the body's `ph` on the let, the
+# let value's `ph` on the parameter.
+elif nav_landed(28, A_URI, PH[1]):
+    nwhy = "definition of the let-bound `ph`: " + nav_landed(28, A_URI, PH[1])
+elif nav_landed(29, A_URI, PH[0]):
+    nwhy = "definition of the parameter `ph` from the let's value: " + nav_landed(29, A_URI, PH[0])
+# (h) Hover: the parameter with its type from the signature, the let
+# with its binding pair cut from the document.
+elif nav_hover(30, [f"pw : {PARAM_TYPE}", "parameter of `area`"], PW[1]):
+    nwhy = "hover on a parameter: " + nav_hover(30, [f"pw : {PARAM_TYPE}", "parameter of `area`"], PW[1])
+elif nav_hover(31, [LET_TEXT, "bound by `let` in `area`"], PH[3]):
+    nwhy = "hover on a let binding: " + nav_hover(31, [LET_TEXT, "bound by `let` in `area`"], PH[3])
+elif want_null(32, "hover on the document that does not parse"):
+    nwhy = want_null(32, "hover on the document that does not parse")
+elif want_null(33, "definition on the document that does not parse"):
+    nwhy = want_null(33, "definition on the document that does not parse")
+
+# The rename, APPLIED. NavMain.ax is rewritten on disk as well as
+# reopened, because NavUser.ax's checker reads its import from disk;
+# both must then check clean, and the old name must be gone.
+renamed = {}
+if not nwhy:
+    for u, text in ((A_URI, NAV_MAIN), (B_URI, NAV_USER)):
+        edits = rresp[21]["result"]["changes"][u]
+        renamed[u] = apply_edits(text, edits)
+        if renamed[u] is None:
+            nwhy = f"the edits for {os.path.basename(u)} overlap"
+            break
+if not nwhy:
+    open(os.path.join(NAVREF_DIR, "NavMain.ax"), "w", encoding="utf-8").write(renamed[A_URI])
+    r2 = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        nav_open(A_URI, renamed[A_URI]), nav_open(B_URI, renamed[B_URI]),
+        {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ]), capture_output=True, cwd=NAVREF_DIR)
+    m2, t2 = unframe(r2.stdout)
+    pubs2 = {m["params"]["uri"]: m["params"]["diagnostics"] for m in m2
+             if m.get("method") == "textDocument/publishDiagnostics"}
+    if r2.returncode != 0 or t2:
+        nwhy = f"the session over the renamed documents exited {r2.returncode} with {len(t2)} trailing bytes"
+    elif any(ident_count(renamed[u], "area") for u in renamed):
+        nwhy = "the renamed documents still spell `area` as an identifier"
+    elif ident_count(renamed[A_URI], "surface") != len(AREA_A) or ident_count(renamed[B_URI], "surface") != 1:
+        nwhy = (f"the renamed documents spell `surface` {ident_count(renamed[A_URI], 'surface')} "
+                f"and {ident_count(renamed[B_URI], 'surface')} times, want {len(AREA_A)} and 1")
+    elif pubs2.get(A_URI) or pubs2.get(B_URI):
+        nwhy = ("the renamed documents no longer check clean: "
+                f"{[(os.path.basename(u), [(d['code'], first_line(d['message'])) for d in ds]) for u, ds in pubs2.items() if ds]!r:.400}")
+
+if nwhy:
+    print(f"FAIL nav-references: {nwhy}")
+    failed += 1
+else:
+    print(f"ok   references (a shadowed parameter and the `let` that shadows it, "
+          f"includeDeclaration both ways, `area` and `Circle` found in "
+          f"{os.path.basename(B_URI)} under its own uri, imported `twice` found "
+          f"in its open module; null on a keyword and on a document that does not parse)")
+    print(f"ok   highlights (Write on a `mut` binder and its `set`, Read on its "
+          f"reads; a lambda parameter and a pattern binder anchored from the "
+          f"bytes; null on a literal and on a broken document)")
+    print(f"ok   rename     (prepareRename on a local, null on an import, a keyword "
+          f"and a broken document; `area` -> `surface` as {len(AREA_A)} + 1 edits under "
+          f"two uris, applied here and checked clean with no `area` left; a local "
+          f"renamed in {len(ACC)} places; refused for `1abc`, a sibling parameter, and "
+          f"a name either document declares)")
+    print(f"ok   local-nav  (definition from a read to ITS binder through a "
+          f"shadowing `let`, hover `pw : {PARAM_TYPE}` from the signature and "
+          f"{LET_TEXT!r} cut from the document; null on a broken document)")
+    passed += 4
+shutil.rmtree(NAVREF_DIR, ignore_errors=True)
+
 # =====================================================================
 # END SECTION NAV TESTS
 # =====================================================================

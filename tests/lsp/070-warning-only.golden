@@ -1,6 +1,6 @@
-Content-Length: 271
+Content-Length: 372
 
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["("]}},"serverInfo":{"name":"axiom","version":"0.3.4"}}}Content-Length: 473
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["("]},"referencesProvider":true,"documentHighlightProvider":true,"renameProvider":{"prepareProvider":true}},"serverInfo":{"name":"axiom","version":"0.3.4"}}}Content-Length: 473
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[{"range":{"start":{"line":3,"character":5},"end":{"line":3,"character":9}},"severity":2,"code":"AX3039","source":"axiom","message":"AXTAG key typo on `pure`: unrecognised key `pur`; did you mean `pure`?\n\nhelp: an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"}]}}Content-Length: 401
 

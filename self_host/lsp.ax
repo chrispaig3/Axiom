@@ -922,13 +922,26 @@
         (decls (memGetWord pr 1))
         (ix (lspLineIndex src))
       )
-        (let ((w (lspWordAt src (lspOffsetOf src ix (jsonGet params "position")))))
-          (if (== (strLen w) 0)
-            jsonNull
-            (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
-              (if (!= d 0)
-                (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRange src (nodeSpan d)))
-                (lspDefinitionImported (lspUriToPath uri) src decls w)
+        (let ((off (lspOffsetOf src ix (jsonGet params "position"))))
+          (let ((w (lspWordAt src off)))
+            (if (== (strLen w) 0)
+              jsonNull
+              ; A LOCAL BINDING FIRST - a `let`, a parameter, a
+              ; pattern variable - because a local shadows a
+              ; declaration of the same name, which is the
+              ; language's rule and SECTION NAV's. 0 means the word
+              ; is not one, and the two lookups below then answer
+              ; exactly as they did before.
+              (let ((loc (lspNavLocalDefinition src uri ix decls off)))
+                (if (!= loc 0)
+                  loc
+                  (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
+                    (if (!= d 0)
+                      (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRange src (nodeSpan d)))
+                      (lspDefinitionImported (lspUriToPath uri) src decls w)
+                    )
+                  )
+                )
               )
             )
           )
@@ -1052,10 +1065,18 @@
               (w (strSlice src (spanStart wsp) (- (spanEnd wsp) (spanStart wsp))))
               (range (lspRangeIx src ix wsp))
             )
-              (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
-                (if (!= d 0)
-                  (lspHoverAt src decls d range "")
-                  (lspHoverImported (lspUriToPath uri) src decls w range)
+              ; A local binding first, for the reason `definition`
+              ; asks it first: a local shadows a declaration of the
+              ; same name. 0 means the word is not one.
+              (let ((local (lspNavLocalHover src decls ix wsp)))
+                (if (!= local 0)
+                  local
+                  (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
+                    (if (!= d 0)
+                      (lspHoverAt src decls d range "")
+                      (lspHoverImported (lspUriToPath uri) src decls w range)
+                    )
+                  )
                 )
               )
             )
@@ -2559,18 +2580,2066 @@
 ; ==================================================================
 ; SECTION NAV: references, rename, document highlights, local bindings
 ; ==================================================================
+; WHAT THIS SECTION KNOWS that the four original questions do not: what
+; a NAME REFERS TO. `definition` and `hover` answered from the
+; declaration list alone, so a `let` binder, a `fn` parameter, a
+; `lambda` parameter and a pattern variable were "nothing here", and
+; two functions that each bind an `i` were one name. Everything below
+; is a projection of ONE walk over the raw parse tree - expanding
+; nothing, MAC-TOOL-3's rule - that records every OCCURRENCE of a name
+; together with the KEY of the binding it resolves to, following the
+; language's own scoping: the innermost local scope first, then this
+; document's top-level declarations, then "not this document's".
+;
+; A KEY names a binding uniquely within one document:
+;
+;   @<offset>       a local binder anchored at that byte - a `let`
+;                   name, a recovered parameter, a pattern variable
+;   ~<node>:<name>  a local binder with NO anchor (see
+;                   `lspHeaderParamSpans` for how one arises); it still
+;                   resolves references, and is not renamable
+;   <name>          a top-level declaration of this document; a `fn`
+;                   and its `::` signature share one
+;   <data>#<ctor>   a constructor, keyed by the `data` that declares it
+;   ?<bare>         a name this document does not declare - imported,
+;                   or a builtin
+;   !<name>         an effect named by `handle`
+;
+; Two occurrences are the same name iff their keys are equal, which is
+; the whole of what `references`, `documentHighlight`, `prepareRename`
+; and `rename` ask.
+;
+; WHAT IT COSTS: one parse, one line index, one walk that is linear in
+; the tree. Resolution is a scope STACK - a Vec of (name, key) pairs
+; pushed and popped as the walk descends - so a reference costs its
+; depth, and the top-level table is a bucket index keyed by
+; `fnIdxHash` rather than `lspFindDecl`'s scan, so it costs one bucket
+; and not the declaration list. The cross-file half of `references`
+; and `rename` parses every OTHER open document once, which is the
+; only way to know whether it imports this one; nothing is read from
+; disk for a reference search - the store is the workspace.
+;
+; NOT WALKED, and why: a macro's TEMPLATE, whose identifiers are
+; pattern variables and gensym-renamed binders rather than scoped
+; code; a `syntax/for` declaration and an `extern` block, for the same
+; reason the outline leaves them out; and type positions, which name
+; types and not bindings. A reference to a top-level name from inside
+; a macro template is therefore not renamed with the rest - a rename
+; of such a name still answers, and the template keeps the old
+; spelling, which the expander then reports as an undefined name.
+; ------------------------------------------------------------------
+; `==` compares Ints, so a Bool is negated by naming it.
+(pub :: lspNavNot (-> Bool Bool))
+
+(pub fn (lspNavNot b)
+  (if b
+    false
+    true
+  )
+)
+
+; The roles an occurrence can play.
+(pub :: NAV_READ Int)
+
+(pub fn (NAV_READ) 0)
+
+(pub :: NAV_WRITE Int)
+
+(pub fn (NAV_WRITE) 1)
+
+(pub :: NAV_BINDER Int)
+
+(pub fn (NAV_BINDER) 2)
+
+(pub :: NAV_DECL Int)
+
+(pub fn (NAV_DECL) 3)
+
+(pub :: NAV_DECL_SIG Int)
+
+(pub fn (NAV_DECL_SIG) 4)
+
+; What kind of binder a BINDER occurrence is, which is what hover
+; says about it.
+(pub :: NAV_B_PARAM Int)
+
+(pub fn (NAV_B_PARAM) 1)
+
+(pub :: NAV_B_LET Int)
+
+(pub fn (NAV_B_LET) 2)
+
+(pub :: NAV_B_LAMBDA Int)
+
+(pub fn (NAV_B_LAMBDA) 3)
+
+(pub :: NAV_B_PATTERN Int)
+
+(pub fn (NAV_B_PATTERN) 4)
+
+; ------------------------------------------------------------------
+; An occurrence is a seven-word block:
+;
+;   word 0  name, as the reference spells it - the BARE name for a
+;           qualified `Mod::name`
+;   word 1  the identifier's own byte span; 0 for none
+;   word 2  role (NAV_READ .. NAV_DECL_SIG)
+;   word 3  key (see the section header)
+;   word 4  binder kind (NAV_B_*), 0 for anything but a binder
+;   word 5  owner - the top-level declaration the occurrence sits in
+;   word 6  parameter index, for a `fn` parameter
+;
+; The walk's context is a six-word block:
+;
+;   word 0  the document's text
+;   word 1  the occurrence Vec being filled, in source order
+;   word 2  the scope stack: (name, key) pairs pushed FLAT, so the
+;           innermost binding is the last pair
+;   word 3  the top-level table (`lspNavTopBuild`)
+;   word 4  0, or a rename collision probe (`lspNavProbe`)
+;   word 5  the name of the declaration being walked
+; ------------------------------------------------------------------
+(pub :: lspNavOccurrences (-> String Int Int))
+
+(pub fn (lspNavOccurrences src decls) (lspNavOccurrencesProbe src decls 0))
+
+(pub :: lspNavOccurrencesProbe (-> String Int Int Int))
+
+(pub fn (lspNavOccurrencesProbe src decls probe)
+  (let (
+    (nv (memAlloc 48))
+    (mut i 0)
+  )
+    {
+      (memSetWord nv 0 src)
+      (memSetWord nv 1 vecNew)
+      (memSetWord nv 2 vecNew)
+      (memSetWord nv 3 (lspNavTopBuild decls))
+      (memSetWord nv 4 probe)
+      (memSetWord nv 5 "")
+      (while (< i (vecLen decls))
+        {
+          (lspNavWalkDecl nv (vecGet decls i))
+          (set i (+ i 1))
+        })
+      (memGetWord nv 1)
+    }
+  )
+)
+
+(pub :: lspNavEmit (-> Int String Int Int String Int Int Int))
+
+(pub fn (lspNavEmit nv name span role key bkind idx)
+  (let ((o (memAlloc 56)))
+    {
+      (memSetWord o 0 name)
+      (memSetWord o 1 span)
+      (memSetWord o 2 role)
+      (memSetWord o 3 key)
+      (memSetWord o 4 bkind)
+      (memSetWord o 5 (memGetWordStr nv 5))
+      (memSetWord o 6 idx)
+      (vecPush (memGetWord nv 1) o)
+      (lspNavProbeAt nv name key)
+      0
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The top-level table: this document's declared names, each mapped to
+; its key, LAST WINS - `lspFindDecl`'s rule, over `lspFindDecl`'s
+; kinds plus `type` aliases and the constructors a `data` declares,
+; because a constructor is a name that gets written and resolved.
+;
+; A bucket index rather than a scan: the walk asks this question once
+; per reference, and `lspFindDecl` per reference is the declaration
+; list squared, which on this repository's own `typecheck.ax` is
+; twenty thousand references against two thousand declarations.
+; ------------------------------------------------------------------
+(pub :: lspNavDeclares (-> Int Bool))
+
+(pub fn (lspNavDeclares tag) (|| (lspWantsSymbol tag) (== tag TAG_D_ALIAS)))
+
+(pub :: lspNavTopBuild (-> Int Int))
+
+(pub fn (lspNavTopBuild decls)
+  (let (
+    (nb (fnIdxBuckets (vecLen decls)))
+    (bs vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i nb)
+        {
+          (vecPush bs 0)
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i (vecLen decls))
+        (let ((d (vecGet decls i)))
+          {
+            (if (lspNavIsNamedDecl d)
+              {
+                (lspNavTopPut bs (nodeAName d) (nodeAName d))
+                (if (== (nodeTag d) TAG_D_DATA)
+                  (lspNavTopPutCtors bs (nodeAName d) (nodeB d) 0)
+                  0
+                )
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      bs
+    }
+  )
+)
+
+; A declaration the outline would list under its own name: one of the
+; kinds, with a span, and not a `(syntax/join ...)` marker - a marker
+; is a spelling no reference can write.
+(pub :: lspNavIsNamedDecl (-> Int Bool))
+
+(pub fn (lspNavIsNamedDecl d) (&& (lspNavDeclares (nodeTag d)) (&& (!= (nodeSpan d) 0) (== (expIsJoinMarker (nodeAName d)) 0))))
+
+(pub :: lspNavTopPutCtors (-> Int String Int Int Int))
+
+(pub fn (lspNavTopPutCtors bs data ctors i)
+  (if (>= i (vecLen ctors))
+    0
+    (let ((c (vecGet ctors i)))
+      {
+        (if (!= (nodeSpan c) 0)
+          (lspNavTopPut bs (nodeAName c) (lspNavCtorKey data (nodeAName c)))
+          0
+        )
+        (lspNavTopPutCtors bs data ctors (+ i 1))
+      }
+    )
+  )
+)
+
+(pub :: lspNavCtorKey (-> String String String))
+
+(pub fn (lspNavCtorKey data ctor) (strConcat data (strConcat "#" ctor)))
+
+; An entry is (name, key); a bucket is a Vec of entries or 0.
+(pub :: lspNavTopPut (-> Int String String Int))
+
+(pub fn (lspNavTopPut bs name key)
+  (let ((b (% (fnIdxHash name) (vecLen bs))))
+    (let ((v
+      (if (== (vecGet bs b) 0)
+        (let ((fresh vecNew))
+          {
+            (vecSet bs b fresh)
+            fresh
+          }
+        )
+        (vecGet bs b)
+      )
+    ))
+      (let ((at (lspNavTopSlot v name 0)))
+        (if (< at 0)
+          (let ((e (memAlloc 16)))
+            {
+              (memSetWord e 0 name)
+              (memSetWord e 1 key)
+              (vecPush v e)
+              0
+            }
+          )
+          {
+            (memSetWord (vecGet v at) 1 key)
+            0
+          }
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspNavTopSlot (-> Int String Int Int))
+
+(pub fn (lspNavTopSlot v name k)
+  (if (>= k (vecLen v))
+    (- 0 1)
+    (if (strEq (memGetWordStr (vecGet v k) 0) name)
+      k
+      (lspNavTopSlot v name (+ k 1))
+    )
+  )
+)
+
+; The key `name` is declared under, or "" when this document does not
+; declare it.
+(pub :: lspNavTopGet (-> Int String String))
+
+(pub fn (lspNavTopGet bs name)
+  (if (== (vecLen bs) 0)
+    ""
+    (let ((v (vecGet bs (% (fnIdxHash name) (vecLen bs)))))
+      (if (== v 0)
+        ""
+        (let ((at (lspNavTopSlot v name 0)))
+          (if (< at 0)
+            ""
+            (memGetWordStr (vecGet v at) 1)
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The scope stack.
+; ------------------------------------------------------------------
+(pub :: lspNavPush (-> Int String String Int))
+
+(pub fn (lspNavPush nv name key)
+  (let ((scope (memGetWord nv 2)))
+    {
+      (vecPush scope name)
+      (vecPush scope key)
+      0
+    }
+  )
+)
+
+(pub :: lspNavPopN (-> Int Int Int))
+
+(pub fn (lspNavPopN nv k)
+  (let (
+    (scope (memGetWord nv 2))
+    (mut i 0)
+  )
+    {
+      (while (< i k)
+        {
+          (vecPop scope)
+          (vecPop scope)
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; The key the innermost binding of `name` carries, or "".
+(pub :: lspNavScopeFind (-> Int String String))
+
+(pub fn (lspNavScopeFind scope name)
+  (let (
+    (mut i (- (vecLen scope) 2))
+    (mut k "")
+  )
+    {
+      (while (>= i 0)
+        (if (strEq (vecGetStr scope i) name)
+          {
+            (set k (vecGetStr scope (+ i 1)))
+            (set i (- 0 2))
+          }
+          (set i (- i 2))
+        ))
+      k
+    }
+  )
+)
+
+(pub :: lspNavScopeHasKey (-> Int String Bool))
+
+(pub fn (lspNavScopeHasKey scope key)
+  (let (
+    (mut i (- (vecLen scope) 1))
+    (mut found false)
+  )
+    {
+      (while (>= i 1)
+        (if (strEq (vecGetStr scope i) key)
+          {
+            (set found true)
+            (set i (- 0 2))
+          }
+          (set i (- i 2))
+        ))
+      found
+    }
+  )
+)
+
+; What `name` refers to where the walk currently stands: the innermost
+; local, else this document's declaration, else nothing this document
+; declares. A qualified `Mod::name` arrives as `Mod$name` and can be
+; neither a local nor a declaration here, so it falls through to the
+; last case under its bare name - which is also where an unqualified
+; reference to the same imported name lands, so the two are the same
+; name, as they are to the compiler.
+(pub :: lspNavResolve (-> Int String String))
+
+(pub fn (lspNavResolve nv name)
+  (let ((k (lspNavScopeFind (memGetWord nv 2) name)))
+    (if (!= (strLen k) 0)
+      k
+      (let ((t (lspNavTopGet (memGetWord nv 3) name)))
+        (if (!= (strLen t) 0)
+          t
+          (strConcat "?" (bareOf name))
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The rename collision probe.
+;
+; A rename of a LOCAL is refused when the new spelling would change
+; what any name in the binding's scope refers to, and the only place
+; that can be decided is inside the walk, where the scope stack is
+; live. So `rename` walks a second time with a probe - (new name, the
+; key being renamed, hit) - and every emission asks two questions:
+;
+;   * this occurrence IS the binding being renamed, and the new name
+;     is already bound around it - by an enclosing local, or by a
+;     top-level declaration the renamed local would then shadow;
+;   * this occurrence SPELLS the new name and sits inside the renamed
+;     binding's scope, so the rename would capture it.
+;
+; Either is a hit, and a hit is a null answer. The declaration-level
+; half of the same question needs no probe: `lspNavNamed` scans the
+; occurrences once.
+; ------------------------------------------------------------------
+(pub :: lspNavProbe (-> String String Int))
+
+(pub fn (lspNavProbe newName key)
+  (let ((p (memAlloc 24)))
+    {
+      (memSetWord p 0 newName)
+      (memSetWord p 1 key)
+      (memSetWord p 2 0)
+      p
+    }
+  )
+)
+
+(pub :: lspNavProbeAt (-> Int String String Int))
+
+(pub fn (lspNavProbeAt nv name key)
+  (let ((p (memGetWord nv 4)))
+    (if (== p 0)
+      0
+      (let (
+        (newName (memGetWordStr p 0))
+        (k (memGetWordStr p 1))
+        (scope (memGetWord nv 2))
+      )
+        (if (strEq key k)
+          (if (|| (!= (strLen (lspNavScopeFind scope newName)) 0) (!= (strLen (lspNavTopGet (memGetWord nv 3) newName)) 0))
+            (memSetWord p 2 1)
+            0
+          )
+          (if (&& (strEq name newName) (lspNavScopeHasKey scope k))
+            (memSetWord p 2 1)
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; Binders.
+;
+; A binder with a span is keyed by it - the byte a name is bound at is
+; unique in the document - and emitted as an occurrence, so it can be
+; found under a cursor, highlighted and renamed. A binder without one
+; is keyed by its node and its name, which is unique too, and is not
+; emitted: it resolves the references beneath it, and there is nothing
+; for an editor to point at.
+; ------------------------------------------------------------------
+(pub :: lspNavBinderKey (-> String Int Int String))
+
+(pub fn (lspNavBinderKey name span node)
+  (if (!= span 0)
+    (strConcat "@" (decStr (spanStart span)))
+    (strConcat "~" (strConcat (decStr node) (strConcat ":" name)))
+  )
+)
+
+(pub :: lspNavEmitBinder (-> Int String Int String Int Int Int))
+
+(pub fn (lspNavEmitBinder nv name span key bkind idx)
+  (if (|| (== span 0) (strEq name "_"))
+    0
+    (lspNavEmit nv name span NAV_BINDER key bkind idx)
+  )
+)
+
+; ------------------------------------------------------------------
+; Parameter spans, recovered from the BYTES.
+;
+; The parser records a `fn`'s parameters and a `lambda`'s as bare
+; Strings - `nodeB` of TAG_D_FN, `nodeA` of TAG_E_LAM - with no span,
+; because nothing in the compiler ever reports a diagnostic AT a
+; parameter name. The document still has them: a `fn` header is
+; `(name p1 p2 ...)` and the node's span is the name's token, so the
+; parameters are the identifiers between the name and the header's
+; `)`; a `lambda`'s span is its keyword, and the parameter list `(p1
+; p2)` is the form after it. This reads them, in order, skipping
+; whitespace and comments, and stops at the first byte that is neither
+; an identifier nor blank.
+;
+; The count is CHECKED against the tree by every caller: a header the
+; scan reads differently from the parser - a `(syntax/join ...)` name,
+; a form mid-edit - yields the wrong number of spans, and the
+; parameters are then treated as having none rather than being
+; anchored at bytes that belong to something else. A parameter with no
+; anchor still resolves its references; it is not renamable and not
+; highlightable, which is the honest answer to "where is it bound".
+; ------------------------------------------------------------------
+(pub :: lspHeaderParamSpans (-> String Int Int))
+
+(pub fn (lspHeaderParamSpans src from)
+  (let (
+    (n (strLen src))
+    (out vecNew)
+    (mut i (lspNavSkipBlank src from n))
+    (mut go 1)
+  )
+    {
+      (if (&& (< i n) (== (strByte src i) 40))
+        (set i (lspNavSkipBlank src (+ i 1) n))
+        0
+      )
+      (while (== go 1)
+        (if (>= i n)
+          (set go 0)
+          (if (isIdentStart (strByte src i))
+            (let ((e (skipIdent src (+ i 1) n)))
+              {
+                (vecPush out (mkSpan i e))
+                (set i (lspNavSkipBlank src e n))
+              }
+            )
+            (set go 0)
+          )
+        ))
+      out
+    }
+  )
+)
+
+; Past whitespace, `;` comments and `#| |#` blocks - the same three
+; the lexer skips between tokens, asked of the lexer's own helpers.
+(pub :: lspNavSkipBlank (-> String Int Int Int))
+
+(pub fn (lspNavSkipBlank src i n)
+  (let (
+    (mut k i)
+    (mut go 1)
+  )
+    {
+      (while (== go 1)
+        (if (>= k n)
+          (set go 0)
+          (let ((b (strByte src k)))
+            (if (lspIsSpace b)
+              (set k (+ k 1))
+              (if (== b 59)
+                (set k (findNewline src k n))
+                (if (&& (== b 35) (isBlockOpen src k n))
+                  (set k (skipBlockComment src (+ k 2) n))
+                  (set go 0)
+                )
+              )
+            )
+          )
+        ))
+      k
+    }
+  )
+)
+
+; The span of the LAST segment of a qualified reference. The parser
+; gives `Mod::name` - and `Sys.Platform::sysRead` - the span of its
+; first token, which is the module; the name a reader is looking at is
+; the segment after the last `::`, and that is what an occurrence
+; should cover. Read forward from the first segment through `.` and
+; `::` runs; anything else ends the chain, and a chain with no `::`
+; keeps the span it was given.
+(pub :: lspNavQualSpan (-> String Int Int))
+
+(pub fn (lspNavQualSpan src sp)
+  (let (
+    (n (strLen src))
+    (mut i (spanEnd sp))
+    (mut last sp)
+    (mut go 1)
+  )
+    {
+      (while (== go 1)
+        (if (>= (+ i 2) n)
+          (set go 0)
+          (if (&& (== (strByte src i) 58) (&& (== (strByte src (+ i 1)) 58) (isIdentStart (strByte src (+ i 2)))))
+            (let ((e (skipIdent src (+ i 3) n)))
+              {
+                (set last (mkSpan (+ i 2) e))
+                (set i e)
+              }
+            )
+            (if (&& (== (strByte src i) 46) (isIdentStart (strByte src (+ i 1))))
+              (set i (skipIdent src (+ i 2) n))
+              (set go 0)
+            )
+          )
+        ))
+      last
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The walk: declarations.
+; ------------------------------------------------------------------
+(pub :: lspNavWalkDecl (-> Int Int Int))
+
+(pub fn (lspNavWalkDecl nv d)
+  (let ((tag (nodeTag d)))
+    {
+      ; Every top-level tag keeps a String in word 1 - a name, a
+      ; module path, a binder - so the owner is readable whatever
+      ; the declaration is.
+      (memSetWord nv 5 (nodeAName d))
+      (if (== tag TAG_D_FN)
+        (lspNavWalkFn nv d)
+        (if (== tag TAG_D_SIG)
+          (lspNavDeclName nv d NAV_DECL_SIG)
+          (if (== tag TAG_D_DATA)
+            {
+              (lspNavDeclName nv d NAV_DECL)
+              (lspNavDeclCtors nv (nodeAName d) (nodeB d) 0)
+            }
+            (if (|| (== tag TAG_D_STRUCT) (|| (== tag TAG_D_MACRO) (== tag TAG_D_ALIAS)))
+              (lspNavDeclName nv d NAV_DECL)
+              (if (== tag TAG_D_MACROCALL)
+                ; An invocation is a REFERENCE to the macro
+                ; (MAC-TOOL-2), and its arguments are read as
+                ; expressions at top level: `(deriveTag Colour)`
+                ; names the `data` it derives for.
+                {
+                  (lspNavRef nv (nodeAName d) (nodeSpan d) NAV_READ)
+                  (lspNavWalkVec nv (nodeB d))
+                }
+                (if (== tag TAG_D_IMPL)
+                  (lspNavWalkImpl nv (nodeB d) 0)
+                  0
+                )
+              )
+            )
+          )
+        )
+      )
+    }
+  )
+)
+
+; The declaration's own name, keyed by itself. A `fn` and its `::`
+; signature both land here under the same key, which is what makes a
+; rename touch both.
+(pub :: lspNavDeclName (-> Int Int Int Int))
+
+(pub fn (lspNavDeclName nv d role)
+  (if (&& (!= (nodeSpan d) 0) (== (expIsJoinMarker (nodeAName d)) 0))
+    (lspNavEmit nv (nodeAName d) (nodeSpan d) role (nodeAName d) 0 0)
+    0
+  )
+)
+
+(pub :: lspNavDeclCtors (-> Int String Int Int Int))
+
+(pub fn (lspNavDeclCtors nv data ctors i)
+  (if (>= i (vecLen ctors))
+    0
+    (let ((c (vecGet ctors i)))
+      {
+        (if (!= (nodeSpan c) 0)
+          (lspNavEmit nv (nodeAName c) (nodeSpan c) NAV_DECL (lspNavCtorKey data (nodeAName c)) 0 0)
+          0
+        )
+        (lspNavDeclCtors nv data ctors (+ i 1))
+      }
+    )
+  )
+)
+
+; A `fn`: its name, its parameters bound over its body. The parameter
+; spans come from the header's bytes and are used only when their
+; count agrees with the tree - see `lspHeaderParamSpans`. Each
+; parameter is pushed as soon as it is emitted, so a second parameter
+; spelling the first is seen by the rename probe as a collision.
+(pub :: lspNavWalkFn (-> Int Int Int))
+
+(pub fn (lspNavWalkFn nv d)
+  (let (
+    (params (nodeB d))
+    (np (vecLen params))
+  )
+    (let ((spans
+      (if (&& (> np 0) (!= (nodeSpan d) 0))
+        (lspHeaderParamSpans (memGetWordStr nv 0) (spanEnd (nodeSpan d)))
+        vecNew
+      )
+    ))
+      (let (
+        (ok (== (vecLen spans) np))
+        (mut i 0)
+      )
+        {
+          (lspNavDeclName nv d NAV_DECL)
+          (while (< i np)
+            (let (
+              (p (vecGetStr params i))
+              (sp
+                (if ok
+                  (vecGet spans i)
+                  0
+                )
+              )
+            )
+              (let ((key (lspNavBinderKey p sp d)))
+                {
+                  (lspNavEmitBinder nv p sp key NAV_B_PARAM i)
+                  (lspNavPush nv p key)
+                  (set i (+ i 1))
+                }
+              )
+            ))
+          (lspNavWalk nv (nodeC d))
+          (lspNavPopN nv np)
+        }
+      )
+    )
+  )
+)
+
+; An `impl`'s members are expressions - `((name expr) ...)` after
+; `where` - read at top level, so a `lambda` written there binds its
+; parameters like any other.
+(pub :: lspNavWalkImpl (-> Int Int Int Int))
+
+(pub fn (lspNavWalkImpl nv fields i)
+  (if (>= i (vecLen fields))
+    0
+    (let ((f (vecGet fields i)))
+      {
+        (if (== (nodeTag f) TAG_FIELD)
+          (lspNavWalk nv (nodeB f))
+          0
+        )
+        (lspNavWalkImpl nv fields (+ i 1))
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The walk: expressions.
+;
+; Every arm reads exactly the children the API map names for its tag
+; and nothing else, and a tag with no arm is a leaf: a literal, a type
+; node an `alloc` carries, a shape this walk does not know. A handle
+; of 0 is a leaf too.
+; ------------------------------------------------------------------
+(pub :: lspNavWalk (-> Int Int Int))
+
+(pub fn (lspNavWalk nv e)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_VAR)
+        (lspNavRef nv (nodeAName e) (nodeSpan e) NAV_READ)
+        (if (== tag TAG_E_APP)
+          {
+            (lspNavWalk nv (nodeA e))
+            (lspNavWalk nv (nodeB e))
+          }
+          (if (== tag TAG_E_LAM)
+            (lspNavWalkLam nv e)
+            (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+              (lspNavWalkLet nv e)
+              (if (== tag TAG_E_IF)
+                {
+                  (lspNavWalk nv (nodeA e))
+                  (lspNavWalk nv (nodeB e))
+                  (lspNavWalk nv (nodeC e))
+                }
+                (if (== tag TAG_E_BEGIN)
+                  (lspNavWalkVec nv (nodeA e))
+                  (if (== tag TAG_E_WHILE)
+                    {
+                      (lspNavWalk nv (nodeA e))
+                      (lspNavWalkVec nv (nodeB e))
+                    }
+                    (if (== tag TAG_E_MATCH)
+                      {
+                        (lspNavWalk nv (nodeA e))
+                        (lspNavWalkArms nv (nodeB e) 0)
+                      }
+                      (if (== tag TAG_E_COND)
+                        {
+                          (lspNavWalkClauses nv (nodeA e) 0)
+                          (lspNavWalk nv (nodeB e))
+                        }
+                        (if (== tag TAG_E_SET)
+                          ; The target is a WRITE, resolved as a
+                          ; read would be; the value follows it in
+                          ; the source and in this list.
+                          {
+                            (lspNavRef nv (nodeAName e) (nodeSpan e) NAV_WRITE)
+                            (lspNavWalk nv (nodeB e))
+                          }
+                          (if (== tag TAG_E_FIELD)
+                            ; A field name is not a variable; the
+                            ; base is.
+                            (lspNavWalk nv (nodeA e))
+                            (if (== tag TAG_E_SETF)
+                              {
+                                (lspNavWalk nv (nodeA e))
+                                (lspNavWalk nv (nodeC e))
+                              }
+                              (if (== tag TAG_E_STRUCTCON)
+                                {
+                                  (lspNavRef nv (nodeAName e) (nodeSpan e) NAV_READ)
+                                  (lspNavWalkVec nv (nodeB e))
+                                }
+                                (if (== tag TAG_E_ALLOC)
+                                  (lspNavWalk nv (nodeB e))
+                                  (if (== tag TAG_E_HANDLE)
+                                    {
+                                      (lspNavWalk nv (nodeA e))
+                                      (lspNavWalkEffects nv (nodeB e) 0)
+                                      (lspNavWalk nv (nodeC e))
+                                    }
+                                    0
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspNavWalkVec (-> Int Int Int))
+
+(pub fn (lspNavWalkVec nv xs)
+  (let ((mut i 0))
+    {
+      (while (< i (vecLen xs))
+        {
+          (lspNavWalk nv (vecGet xs i))
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; A reference, under the key it resolves to. `_` is a wildcard and
+; never a name.
+(pub :: lspNavRef (-> Int String Int Int Int))
+
+(pub fn (lspNavRef nv name span role)
+  (if (strEq name "_")
+    0
+    (let ((key (lspNavResolve nv name)))
+      (lspNavEmit
+        nv        (bareOf name)        (if (>= (strFindByte name 36 0) 0)
+          (lspNavQualSpan (memGetWordStr nv 0) span)
+          span
+        )        role        key        0        0
+      )
+    )
+  )
+)
+
+; A `let` binder scopes its BODY and not its value - a `let` is not
+; recursive - so the value is walked before the name is pushed. The
+; occurrence is emitted first because the name precedes the value in
+; the source, and the list is kept in source order.
+(pub :: lspNavWalkLet (-> Int Int Int))
+
+(pub fn (lspNavWalkLet nv e)
+  (let (
+    (name (nodeAName e))
+    (key (lspNavBinderKey (nodeAName e) (nodeSpan e) e))
+  )
+    {
+      (lspNavEmitBinder nv name (nodeSpan e) key NAV_B_LET 0)
+      (lspNavWalk nv (nodeB e))
+      (lspNavPush nv name key)
+      (lspNavWalk nv (nodeC e))
+      (lspNavPopN nv 1)
+    }
+  )
+)
+
+; A `lambda` of several parameters is several nested TAG_E_LAM nodes
+; carrying the SAME keyword span (`curryLam`), and the byte scan reads
+; the whole `(p1 p2)` list once; the nodes take the spans in order.
+; The chain is walked here rather than through `lspNavWalk`, so the
+; nested nodes are not each scanned again as if they were lambdas of
+; their own. A lambda written INSIDE another has its own keyword and
+; its own span, so it is not part of the chain.
+(pub :: lspNavWalkLam (-> Int Int Int))
+
+(pub fn (lspNavWalkLam nv e)
+  (let (
+    (sp (nodeSpan e))
+    (total (lspNavLamArity e (nodeSpan e) 0))
+  )
+    (let ((spans
+      (if (&& (> total 0) (!= sp 0))
+        (lspHeaderParamSpans (memGetWordStr nv 0) (spanEnd sp))
+        vecNew
+      )
+    ))
+      (let (
+        (ok (== (vecLen spans) total))
+        (mut n e)
+        (mut k 0)
+      )
+        {
+          (while (lspNavInChain n sp)
+            {
+              (if (> (vecLen (nodeA n)) 0)
+                (let (
+                  (p (vecGetStr (nodeA n) 0))
+                  (psp
+                    (if ok
+                      (vecGet spans k)
+                      0
+                    )
+                  )
+                )
+                  (let ((key (lspNavBinderKey p psp n)))
+                    {
+                      (lspNavEmitBinder nv p psp key NAV_B_LAMBDA k)
+                      (lspNavPush nv p key)
+                      (set k (+ k 1))
+                    }
+                  )
+                )
+                0
+              )
+              (set n (nodeB n))
+            })
+          (lspNavWalk nv n)
+          (lspNavPopN nv k)
+        }
+      )
+    )
+  )
+)
+
+(pub :: lspNavInChain (-> Int Int Bool))
+
+(pub fn (lspNavInChain n sp)
+  (if (== n 0)
+    false
+    (&& (== (nodeTag n) TAG_E_LAM) (== (nodeSpan n) sp))
+  )
+)
+
+(pub :: lspNavLamArity (-> Int Int Int Int))
+
+(pub fn (lspNavLamArity n sp acc)
+  (if (lspNavInChain n sp)
+    (lspNavLamArity
+      (nodeB n)      sp      (if (> (vecLen (nodeA n)) 0)
+        (+ acc 1)
+        acc
+      )
+    )
+    acc
+  )
+)
+
+; `match` arms: the pattern's binders scope the arm's body. A
+; `syntax/for` arm binds its iteration variable - spanless, it is a
+; template construct - over its own arms.
+(pub :: lspNavWalkArms (-> Int Int Int Int))
+
+(pub fn (lspNavWalkArms nv arms i)
+  (if (>= i (vecLen arms))
+    0
+    (let ((arm (vecGet arms i)))
+      {
+        (if (== (nodeTag arm) TAG_M_ARM)
+          (let ((bound (lspNavWalkPat nv (nodeA arm))))
+            {
+              (lspNavWalk nv (nodeB arm))
+              (lspNavPopN nv bound)
+            }
+          )
+          (if (== (nodeTag arm) TAG_M_FOR)
+            {
+              (lspNavWalk nv (nodeB arm))
+              (lspNavPush nv (nodeAName arm) (lspNavBinderKey (nodeAName arm) 0 arm))
+              (lspNavWalkArms nv (nodeC arm) 0)
+              (lspNavPopN nv 1)
+            }
+            0
+          )
+        )
+        (lspNavWalkArms nv arms (+ i 1))
+      }
+    )
+  )
+)
+
+; `cond` clauses are (test, body) pairs in TAG_M_ARM nodes and bind
+; nothing.
+(pub :: lspNavWalkClauses (-> Int Int Int Int))
+
+(pub fn (lspNavWalkClauses nv clauses i)
+  (if (>= i (vecLen clauses))
+    0
+    (let ((c (vecGet clauses i)))
+      {
+        (lspNavWalk nv (nodeA c))
+        (lspNavWalk nv (nodeB c))
+        (lspNavWalkClauses nv clauses (+ i 1))
+      }
+    )
+  )
+)
+
+; The effects a `handle` names, as references to effects - a namespace
+; this document's declarations are not searched for.
+(pub :: lspNavWalkEffects (-> Int Int Int Int))
+
+(pub fn (lspNavWalkEffects nv effs i)
+  (if (>= i (vecLen effs))
+    0
+    (let ((v (vecGet effs i)))
+      {
+        (if (&& (== (nodeTag v) TAG_E_VAR) (!= (nodeSpan v) 0))
+          (lspNavEmit nv (nodeAName v) (nodeSpan v) NAV_READ (strConcat "!" (nodeAName v)) 0 0)
+          0
+        )
+        (lspNavWalkEffects nv effs (+ i 1))
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The walk: patterns. Answers how many binders it pushed, which the
+; arm pops after its body.
+;
+; The head of an application spine and a `TAG_P_CON0` /
+; `TAG_P_CONNAMED` name are CONSTRUCTOR references, resolved against
+; the top-level table alone - a local can never be a constructor.
+; Every other variable in pattern position is a binder, except `_`.
+; ------------------------------------------------------------------
+(pub :: lspNavWalkPat (-> Int Int Int))
+
+(pub fn (lspNavWalkPat nv p)
+  (if (== p 0)
+    0
+    (let ((tag (nodeTag p)))
+      (if (== tag TAG_E_VAR)
+        (if (|| (strEq (nodeAName p) "_") (== (nodeSpan p) 0))
+          0
+          (let ((key (lspNavBinderKey (nodeAName p) (nodeSpan p) p)))
+            {
+              (lspNavEmitBinder nv (nodeAName p) (nodeSpan p) key NAV_B_PATTERN 0)
+              (lspNavPush nv (nodeAName p) key)
+              1
+            }
+          )
+        )
+        (if (== tag TAG_E_APP)
+          (lspNavWalkPatSpine nv p)
+          (if (== tag TAG_P_CON0)
+            {
+              (lspNavCtorRef nv (nodeAName p) (nodeSpan p))
+              0
+            }
+            (if (== tag TAG_P_CONNAMED)
+              {
+                (lspNavCtorRef nv (nodeAName p) (nodeSpan p))
+                (lspNavWalkPatVec nv (nodeC p) 0)
+              }
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; `(Just x)` is App(Var Just, Var x): the spine's innermost head is the
+; constructor and every argument along it is a sub-pattern.
+(pub :: lspNavWalkPatSpine (-> Int Int Int))
+
+(pub fn (lspNavWalkPatSpine nv m)
+  (if (== (nodeTag m) TAG_E_APP)
+    (let ((a (lspNavWalkPatSpine nv (nodeA m))))
+      (+ a (lspNavWalkPat nv (nodeB m)))
+    )
+    (if (== (nodeTag m) TAG_E_VAR)
+      {
+        (lspNavCtorRef nv (nodeAName m) (nodeSpan m))
+        0
+      }
+      (lspNavWalkPat nv m)
+    )
+  )
+)
+
+(pub :: lspNavWalkPatVec (-> Int Int Int Int))
+
+(pub fn (lspNavWalkPatVec nv pats i)
+  (if (>= i (vecLen pats))
+    0
+    (let ((a (lspNavWalkPat nv (vecGet pats i))))
+      (+ a (lspNavWalkPatVec nv pats (+ i 1)))
+    )
+  )
+)
+
+(pub :: lspNavCtorRef (-> Int String Int Int))
+
+(pub fn (lspNavCtorRef nv name span)
+  (if (|| (== span 0) (strEq name "_"))
+    0
+    (let ((t (lspNavTopGet (memGetWord nv 3) name)))
+      (lspNavEmit
+        nv        (bareOf name)        span        NAV_READ        (if (!= (strLen t) 0)
+          t
+          (strConcat "?" (bareOf name))
+        )        0        0
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; Reading the occurrence list.
+; ------------------------------------------------------------------
+; The occurrence under byte `off`, or 0. Spans do not overlap, so the
+; first hit is the only one.
+(pub :: lspNavAt (-> Int Int Int))
+
+(pub fn (lspNavAt occs off)
+  (let (
+    (n (vecLen occs))
+    (mut i 0)
+    (mut found 0)
+  )
+    {
+      (while (< i n)
+        (let ((o (vecGet occs i)))
+          {
+            (if (lspSpanHas (memGetWord o 1) off)
+              {
+                (set found o)
+                (set i n)
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      found
+    }
+  )
+)
+
+; The BINDER occurrence a local key was made from, or 0.
+(pub :: lspNavBinderOf (-> Int String Int))
+
+(pub fn (lspNavBinderOf occs key)
+  (let (
+    (n (vecLen occs))
+    (mut i 0)
+    (mut found 0)
+  )
+    {
+      (while (< i n)
+        (let ((o (vecGet occs i)))
+          {
+            (if (&& (== (memGetWord o 2) NAV_BINDER) (strEq (memGetWordStr o 3) key))
+              {
+                (set found o)
+                (set i n)
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      found
+    }
+  )
+)
+
+(pub :: lspNavIsDeclRole (-> Int Bool))
+
+(pub fn (lspNavIsDeclRole role) (|| (== role NAV_BINDER) (|| (== role NAV_DECL) (== role NAV_DECL_SIG))))
+
+; Every occurrence carrying `key`, in source order; declarations,
+; signatures and binders only when `incl` is 1.
+(pub :: lspNavSameKey (-> Int String Int Int))
+
+(pub fn (lspNavSameKey occs key incl)
+  (let (
+    (n (vecLen occs))
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((o (vecGet occs i)))
+          {
+            (if (strEq (memGetWordStr o 3) key)
+              (if (|| (== incl 1) (lspNavNot (lspNavIsDeclRole (memGetWord o 2))))
+                (vecPush out o)
+                0
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; Whether any occurrence spells `name`.
+(pub :: lspNavNamed (-> Int String Bool))
+
+(pub fn (lspNavNamed occs name)
+  (let (
+    (n (vecLen occs))
+    (mut i 0)
+    (mut found false)
+  )
+    {
+      (while (< i n)
+        {
+          (if (strEq (memGetWordStr (vecGet occs i) 0) name)
+            {
+              (set found true)
+              (set i n)
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      found
+    }
+  )
+)
+
+; The key's first byte says what kind of binding it names.
+(pub :: lspNavIsLocal (-> String Bool))
+
+(pub fn (lspNavIsLocal key) (&& (> (strLen key) 0) (|| (== (strByte key 0) 64) (== (strByte key 0) 126))))
+
+(pub :: lspNavIsTop (-> String Bool))
+
+(pub fn (lspNavIsTop key)
+  (if (== (strLen key) 0)
+    false
+    (let ((b (strByte key 0)))
+      (if (|| (== b 64) (|| (== b 126) (|| (== b 63) (== b 33))))
+        false
+        true
+      )
+    )
+  )
+)
+
+; The bare name a top-level key is spelled by outside this document:
+; a constructor's key carries its `data`, and an importing file writes
+; the constructor alone.
+(pub :: lspNavBareOfKey (-> String String))
+
+(pub fn (lspNavBareOfKey key)
+  (let ((h (strFindByte key 35 0)))
+    (if (< h 0)
+      key
+      (strSlice key (+ h 1) (- (strLen key) (+ h 1)))
+    )
+  )
+)
+
+; Renamable: a local with an anchor, or a name this document declares.
+; NOT renamable, and null is the answer: a name declared in another
+; module, even an open one - renaming across files this server did not
+; open would leave a broken workspace, and a standard-library name
+; must never be renamed from a client; a builtin; an effect; a keyword
+; or `_`, which are never occurrences; and a parameter whose span
+; could not be recovered.
+(pub :: lspNavRenamable (-> Int Bool))
+
+(pub fn (lspNavRenamable o)
+  (let ((key (memGetWordStr o 3)))
+    (|| (lspNavIsTop key) (&& (> (strLen key) 0) (== (strByte key 0) 64)))
+  )
+)
+
+; LSP DocumentHighlightKind: Read 2, Write 3. A binding site is a write.
+(pub :: lspNavHighlightKind (-> Int Int))
+
+(pub fn (lspNavHighlightKind role)
+  (if (== role NAV_READ)
+    2
+    3
+  )
+)
+
+; `context.includeDeclaration`, defaulting to true when the client
+; sent no context at all.
+(pub :: lspNavInclDecl (-> Int Int))
+
+(pub fn (lspNavInclDecl params)
+  (let ((ctx (jsonGet params "context")))
+    (if (== ctx 0)
+      1
+      (let ((b (jsonGet ctx "includeDeclaration")))
+        (if (== b 0)
+          1
+          (jsonBoolVal b)
+        )
+      )
+    )
+  )
+)
+
+; A new name the lexer would read as one identifier, and that is not
+; a keyword, and not the wildcard.
+(pub :: lspNavValidName (-> String Bool))
+
+(pub fn (lspNavValidName s)
+  (let (
+    (n (strLen s))
+    (mut i 1)
+    (mut ok
+      (if (== n 0)
+        false
+        (isIdentStart (strByte s 0))
+      )
+    )
+  )
+    {
+      (while (&& ok (< i n))
+        {
+          (if (isIdentChar (strByte s i))
+            0
+            {
+              (set ok false)
+              0
+            }
+          )
+          (set i (+ i 1))
+        })
+      (if ok
+        (if (|| (strEq s "_") (lspSeenHas lspKeywords s))
+          false
+          true
+        )
+        false
+      )
+    }
+  )
+)
+
+; The parsed declarations of `src`, or 0 when it does not parse - the
+; one answer every request in this section gives null for.
+(pub :: lspNavParse (-> String Int))
+
+(pub fn (lspNavParse src)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      0
+      (memGetWord pr 1)
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; JSON shapes.
+; ------------------------------------------------------------------
+(pub :: lspNavLocations (-> Int String String Int Int Int))
+
+(pub fn (lspNavLocations out uri src ix sel)
+  (let ((mut i 0))
+    {
+      (while (< i (vecLen sel))
+        {
+          (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix (memGetWord (vecGet sel i) 1))))
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; TextEdits, one per occurrence, in source order - which is offset
+; order, and the spans of two occurrences never overlap.
+(pub :: lspNavEdits (-> String Int Int String Int))
+
+(pub fn (lspNavEdits src ix sel newName)
+  (let (
+    (out jsonArr)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen sel))
+        {
+          (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (memGetWord (vecGet sel i) 1))) "newText" (jsonStr newName)))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The other open documents.
+;
+; A document IMPORTS this one when one of its `(import M)` lines
+; resolves - by `moduleSrcPath`, the compiler's own search - to this
+; document's path. Both paths are made absolute against the working
+; directory before they are compared, because `moduleSrcPath` answers
+; whatever the entry directory was spelled as, and a `file:` URI is
+; always absolute.
+;
+; Answers a Vec of (store index, parsed declarations) pairs, so a
+; caller that goes on to walk the importer does not parse it twice.
+; The current document and any document that is empty or does not
+; parse are skipped.
+; ------------------------------------------------------------------
+(pub :: lspNavAbs (-> String String))
+
+;@axiom:effect(io)
+(pub fn (lspNavAbs p)
+  (if (pathIsAbsolute p)
+    p
+    (pathJoin sysGetCwd p)
+  )
+)
+
+(pub :: lspNavImportsPath (-> Int Int String String Bool))
+
+;@axiom:effect(io)
+(pub fn (lspNavImportsPath decls tcode entryDir target)
+  (let (
+    (n (vecLen decls))
+    (mut i 0)
+    (mut found false)
+  )
+    {
+      (while (&& (< i n) (lspNavNot found))
+        (let ((d (vecGet decls i)))
+          {
+            (if (== (nodeTag d) TAG_D_IMPORT)
+              (let ((p (moduleSrcPath (nodeAName d) tcode entryDir)))
+                (if (&& (> (strLen p) 0) (strEq (lspNavAbs p) target))
+                  {
+                    (set found true)
+                    0
+                  }
+                  0
+                )
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      found
+    }
+  )
+)
+
+(pub :: lspNavImporters (-> String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspNavImporters uri uris texts)
+  (let (
+    (target (lspNavAbs (lspUriToPath uri)))
+    (tcode (checkedTargetCode hostTarget))
+    (out vecNew)
+    (n (vecLen uris))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let (
+          (ouri (vecGetStr uris i))
+          (otext (vecGetStr texts i))
+        )
+          {
+            (if (|| (strEq ouri uri) (== (strLen otext) 0))
+              0
+              (let ((odecls (lspNavParse otext)))
+                (if (== odecls 0)
+                  0
+                  (if (lspNavImportsPath odecls tcode (pathDir (lspUriToPath ouri)) target)
+                    (let ((pair (memAlloc 16)))
+                      {
+                        (memSetWord pair 0 i)
+                        (memSetWord pair 1 odecls)
+                        (vecPush out pair)
+                        0
+                      }
+                    )
+                    0
+                  )
+                )
+              )
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; The occurrences in importer `pair` that spell `bare` and resolve to
+; nothing that document declares - a local or a declaration of its
+; own would shadow the import, and is a different name.
+(pub :: lspNavForeignSel (-> Int Int String Int))
+
+(pub fn (lspNavForeignSel texts pair bare) (lspNavSameKey (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWord pair 1)) (strConcat "?" bare) 1))
+
+; The reverse direction: the cursor is on a name this document
+; imports. The module that declares it is found the way `definition`
+; finds it - preflight, then the resolver, then `lspFindImported` - and
+; if THAT file is open in the store, its URI is answered, so its own
+; occurrences can be listed. "" when the name is not an import, or
+; the declaring file is not open.
+(pub :: lspNavHomeUri (-> String String Int String Int String))
+
+;@axiom:effect(io)
+(pub fn (lspNavHomeUri path src decls w uris)
+  (let (
+    (bares vecNew)
+    (fulls vecNew)
+    (mods vecNew)
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+  )
+    (let ((units
+      (let ((v vecNew))
+        {
+          (vecPush
+            v            (cast Int (CUnit2
+              path              src              (cast String 0)
+            ))
+          )
+          v
+        }
+      )
+    ))
+      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+        (if (> (strLen missing) 0)
+          ""
+          (let ((allDecls (resolveImports
+            decls            bares            fulls            mods            tcode            entryDir            units
+          )))
+            (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
+              (if (== d 0)
+                ""
+                (let ((u (lspUnitOf units (nodeModule d))))
+                  (if (< u 0)
+                    ""
+                    (let ((huri (lspPathToUri (memGetWordStr (vecGet units u) 0))))
+                      (if (< (docFind uris huri) 0)
+                        ""
+                        huri
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/references`: every occurrence of the name under the
+; cursor, as Locations - this document's first, then each importing
+; document's, each in offset order. Null when nothing is under the
+; cursor, which is what a keyword, a literal and a comment are.
+; ------------------------------------------------------------------
+(pub :: lspReferences (-> String String Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspReferences src uri params uris texts)
+  (let ((decls (lspNavParse src)))
+    (if (== decls 0)
+      jsonNull
+      (let (
+        (ix (lspLineIndex src))
+        (occs (lspNavOccurrences src decls))
+        (incl (lspNavInclDecl params))
+      )
+        (let ((o (lspNavAt occs (lspOffsetOf src ix (jsonGet params "position")))))
+          (if (== o 0)
+            jsonNull
+            (let (
+              (key (memGetWordStr o 3))
+              (out jsonArr)
+            )
+              {
+                (lspNavLocations out uri src ix (lspNavSameKey occs key incl))
+                (if (lspNavIsTop key)
+                  (lspNavForeignLocations out uri (lspNavBareOfKey key) uris texts)
+                  (if (== (strByte key 0) 63)
+                    (lspNavHomeLocations out (lspUriToPath uri) src decls (memGetWordStr o 0) incl uris texts)
+                    0
+                  )
+                )
+                out
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspNavForeignLocations (-> Int String String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspNavForeignLocations out uri bare uris texts)
+  (let (
+    (imps (lspNavImporters uri uris texts))
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen imps))
+        (let ((pair (vecGet imps i)))
+          (let (
+            (otext (vecGetStr texts (memGetWord pair 0)))
+            (ouri (vecGetStr uris (memGetWord pair 0)))
+          )
+            {
+              (lspNavLocations out ouri otext (lspLineIndex otext) (lspNavForeignSel texts pair bare))
+              (set i (+ i 1))
+            }
+          )
+        ))
+      0
+    }
+  )
+)
+
+(pub :: lspNavHomeLocations (-> Int String String Int String Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspNavHomeLocations out path src decls bare incl uris texts)
+  (let ((huri (lspNavHomeUri path src decls bare uris)))
+    (if (== (strLen huri) 0)
+      0
+      (let ((htext (docText uris texts huri)))
+        (let ((hdecls (lspNavParse htext)))
+          (if (== hdecls 0)
+            0
+            (lspNavLocations out huri htext (lspLineIndex htext) (lspNavSameKey (lspNavOccurrences htext hdecls) bare incl))
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/documentHighlight`: the same name in THIS document,
+; each occurrence with the kind of use it is.
+; ------------------------------------------------------------------
+(pub :: lspDocumentHighlight (-> String Int Int))
+
+(pub fn (lspDocumentHighlight src params)
+  (let ((decls (lspNavParse src)))
+    (if (== decls 0)
+      jsonNull
+      (let (
+        (ix (lspLineIndex src))
+        (occs (lspNavOccurrences src decls))
+      )
+        (let ((o (lspNavAt occs (lspOffsetOf src ix (jsonGet params "position")))))
+          (if (== o 0)
+            jsonNull
+            (let (
+              (sel (lspNavSameKey occs (memGetWordStr o 3) 1))
+              (out jsonArr)
+              (mut i 0)
+            )
+              {
+                (while (< i (vecLen sel))
+                  (let ((s (vecGet sel i)))
+                    {
+                      (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (memGetWord s 1))) "kind" (jsonNum (lspNavHighlightKind (memGetWord s 2)))))
+                      (set i (+ i 1))
+                    }
+                  ))
+                out
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/prepareRename`: the range and current spelling of a
+; renamable identifier, else null - see `lspNavRenamable` for the
+; refusals.
+; ------------------------------------------------------------------
+(pub :: lspPrepareRename (-> String Int Int))
+
+(pub fn (lspPrepareRename src params)
+  (let ((decls (lspNavParse src)))
+    (if (== decls 0)
+      jsonNull
+      (let (
+        (ix (lspLineIndex src))
+        (occs (lspNavOccurrences src decls))
+      )
+        (let ((o (lspNavAt occs (lspOffsetOf src ix (jsonGet params "position")))))
+          (if (== o 0)
+            jsonNull
+            (if (lspNavRenamable o)
+              (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (memGetWord o 1))) "placeholder" (jsonStr (memGetWordStr o 0)))
+              jsonNull
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/rename`: a WorkspaceEdit over every occurrence of the
+; name - its declaration, its signature, every binder and reference in
+; this document, and for a declared name the references in every open
+; document that imports this one, under their own URIs.
+;
+; REFUSED WITH NULL, beyond what `prepareRename` refuses: a new name
+; the lexer would not read as one identifier, a keyword, `_`; the old
+; name itself; and a collision - for a local, a name already bound in
+; an enclosing or the same scope or a name the renamed binding would
+; capture (`lspNavProbe`); for a declaration, a name this document or
+; any importing document already spells anywhere, because a rename
+; that makes a call resolve somewhere else is a change of meaning
+; disguised as a change of spelling.
+; ------------------------------------------------------------------
+(pub :: lspRename (-> String String Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspRename src uri params uris texts)
+  (let ((decls (lspNavParse src)))
+    (if (== decls 0)
+      jsonNull
+      (let (
+        (ix (lspLineIndex src))
+        (occs (lspNavOccurrences src decls))
+        (newName (jsonGetStr params "newName"))
+      )
+        (let ((o (lspNavAt occs (lspOffsetOf src ix (jsonGet params "position")))))
+          (if (|| (== o 0) (|| (lspNavNot (lspNavRenamable o)) (|| (lspNavNot (lspNavValidName newName)) (strEq newName (memGetWordStr o 0)))))
+            jsonNull
+            (let ((key (memGetWordStr o 3)))
+              (if (lspNavIsTop key)
+                (lspRenameTop src uri ix occs key newName uris texts)
+                (lspRenameLocal src uri ix decls occs key newName)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspRenameLocal (-> String String Int Int Int String String Int))
+
+(pub fn (lspRenameLocal src uri ix decls occs key newName)
+  (let ((probe (lspNavProbe newName key)))
+    {
+      (lspNavOccurrencesProbe src decls probe)
+      (if (== (memGetWord probe 2) 1)
+        jsonNull
+        (lspNavWorkspaceEdit (jsonObjPut jsonObj uri (lspNavEdits src ix (lspNavSameKey occs key 1) newName)))
+      )
+    }
+  )
+)
+
+(pub :: lspRenameTop (-> String String Int Int String String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspRenameTop src uri ix occs key newName uris texts)
+  (if (lspNavNamed occs newName)
+    jsonNull
+    (let (
+      (bare (lspNavBareOfKey key))
+      (imps (lspNavImporters uri uris texts))
+      (changes (jsonObjPut jsonObj uri (lspNavEdits src ix (lspNavSameKey occs key 1) newName)))
+      (mut i 0)
+      (mut clash false)
+    )
+      {
+        (while (&& (< i (vecLen imps)) (lspNavNot clash))
+          (let ((pair (vecGet imps i)))
+            (let (
+              (otext (vecGetStr texts (memGetWord pair 0)))
+              (ouri (vecGetStr uris (memGetWord pair 0)))
+              (oocc (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWord pair 1)))
+            )
+              {
+                (if (lspNavNamed oocc newName)
+                  {
+                    (set clash true)
+                    0
+                  }
+                  (let ((sel (lspNavSameKey oocc (strConcat "?" bare) 1)))
+                    (if (> (vecLen sel) 0)
+                      (jsonObjPut changes ouri (lspNavEdits otext (lspLineIndex otext) sel newName))
+                      0
+                    )
+                  )
+                )
+                (set i (+ i 1))
+              }
+            )
+          ))
+        (if clash
+          jsonNull
+          (lspNavWorkspaceEdit changes)
+        )
+      }
+    )
+  )
+)
+
+(pub :: lspNavWorkspaceEdit (-> Int Int))
+
+(pub fn (lspNavWorkspaceEdit changes) (jsonObjPut jsonObj "changes" changes))
+
+; ------------------------------------------------------------------
+; The local-binding half of `definition` and `hover`.
+;
+; Both are asked FIRST by their callers, before the declaration
+; lookups, because a local shadows a declaration of the same name -
+; the language's rule, and the order `lspNavResolve` follows. Each
+; answers 0 when the word under the cursor is not a local, and the
+; caller then proceeds exactly as it did before, so every answer that
+; is not about a local is unchanged.
+; ------------------------------------------------------------------
+; The binder's Location for a local reference or binder; null for a
+; local whose binder has no anchor - jumping to a declaration of the
+; same name would be the wrong of the two answers.
+(pub :: lspNavLocalDefinition (-> String String Int Int Int Int))
+
+(pub fn (lspNavLocalDefinition src uri ix decls off)
+  (let ((occs (lspNavOccurrences src decls)))
+    (let ((o (lspNavAt occs off)))
+      (if (== o 0)
+        0
+        (let ((key (memGetWordStr o 3)))
+          (if (lspNavIsLocal key)
+            (let ((b (lspNavBinderOf occs key)))
+              (if (== b 0)
+                jsonNull
+                (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix (memGetWord b 1)))
+              )
+            )
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+; A hover for a local: the binding AS WRITTEN, and a line saying what
+; kind of binding it is, so a reader knows whether the fence is a
+; `let` pair, a parameter, or a pattern.
+;
+;   let       the binding pair, `(x (+ a 1))` or `(mut i 0)`, cut from
+;             the pair's own `(` to its `)` and clamped like every
+;             other fence
+;   fn param  `x : Int` when the `fn` has a `::` signature with an
+;             arrow at that position, else `x`
+;   lambda param, pattern variable
+;             the name, then the line it is bound on
+(pub :: lspNavLocalHover (-> String Int Int Int Int))
+
+(pub fn (lspNavLocalHover src decls ix wsp)
+  (let ((occs (lspNavOccurrences src decls)))
+    (let ((o (lspNavAt occs (spanStart wsp))))
+      (if (== o 0)
+        0
+        (let ((key (memGetWordStr o 3)))
+          (if (lspNavIsLocal key)
+            (let ((b (lspNavBinderOf occs key)))
+              (if (== b 0)
+                0
+                (let (
+                  (bkind (memGetWord b 4))
+                  (owner (memGetWordStr b 5))
+                  (name (memGetWordStr b 0))
+                  (at (spanStart (memGetWord b 1)))
+                )
+                  (let (
+                    (code
+                      (if (== bkind NAV_B_LET)
+                        (lspClampLines (lspFormText src (lspNearestOpen src at)) 40)
+                        (if (== bkind NAV_B_PARAM)
+                          (lspNavParamCode decls owner name (memGetWord b 6))
+                          (strConcat name (strConcat "\n" (lspNavLineText src at)))
+                        )
+                      )
+                    )
+                    (prose
+                      (if (== bkind NAV_B_LET)
+                        "bound by `let` in `"
+                        (if (== bkind NAV_B_PARAM)
+                          "parameter of `"
+                          (if (== bkind NAV_B_LAMBDA)
+                            "parameter of a `lambda` in `"
+                            "bound by a pattern in `"
+                          )
+                        )
+                      )
+                    )
+                  )
+                    (let ((value (strConcat "```axiom\n" (strConcat code (strConcat "\n```\n\n" (strConcat prose (strConcat owner "`\n")))))))
+                      (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr value))) "range" (lspRangeIx src ix wsp))
+                    )
+                  )
+                )
+              )
+            )
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+; `name : T` from the owning function's signature, when it has one and
+; the arrow reaches position `k`; the bare name otherwise. The type is
+; rendered from the tree rather than sliced, because a signature's
+; type nodes carry no spans.
+(pub :: lspNavParamCode (-> Int String String Int String))
+
+(pub fn (lspNavParamCode decls owner name k)
+  (let ((sig (lspFindSig decls owner (- (vecLen decls) 1))))
+    (if (== sig 0)
+      name
+      (let ((t (nthParamTy (nodeTy sig) k 0)))
+        (if (== t 0)
+          name
+          (strConcat name (strConcat " : " (tyRender t)))
+        )
+      )
+    )
+  )
+)
+
+; The line `off` sits on, without its indentation.
+(pub :: lspNavLineText (-> String Int String))
+
+(pub fn (lspNavLineText src off)
+  (let (
+    (n (strLen src))
+    (mut s (lineStartOf src off))
+    (e (lineEndFrom src off))
+  )
+    {
+      (while (&& (< s e) (lspIsBlank (strByte src s)))
+        (set s (+ s 1)))
+      (if (>= s e)
+        ""
+        (strSlice src s (- e s))
+      )
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The section's three answers to the extension door.
+; ------------------------------------------------------------------
 (pub :: lspNavHandles (-> String Bool))
 
-(pub fn (lspNavHandles method) false)
+(pub fn (lspNavHandles method) (|| (strEq method "textDocument/references") (|| (strEq method "textDocument/documentHighlight") (|| (strEq method "textDocument/prepareRename") (strEq method "textDocument/rename")))))
 
 (pub :: lspNavDispatch (-> String Int Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (lspNavDispatch method id params uris texts) (lspError id (- 0 32601) (strConcat "method not found: " method)))
+(pub fn (lspNavDispatch method id params uris texts)
+  (let (
+    (uri (lspParamsUri params))
+    (src (docText uris texts (lspParamsUri params)))
+  )
+    (if (strEq method "textDocument/references")
+      (lspReply id (lspReferences src uri params uris texts))
+      (if (strEq method "textDocument/documentHighlight")
+        (lspReply id (lspDocumentHighlight src params))
+        (if (strEq method "textDocument/prepareRename")
+          (lspReply id (lspPrepareRename src params))
+          (if (strEq method "textDocument/rename")
+            (lspReply id (lspRename src uri params uris texts))
+            (lspError id (- 0 32601) (strConcat "method not found: " method))
+          )
+        )
+      )
+    )
+  )
+)
 
+; `renameProvider` is an OBJECT: `prepareProvider: true` tells the
+; client to ask `prepareRename` first, so an editor never opens a
+; rename box on a name this server will refuse to rename.
 (pub :: lspNavCaps (-> Int Int))
 
-(pub fn (lspNavCaps caps) caps)
+(pub fn (lspNavCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut caps "referencesProvider" (jsonBool 1)) "documentHighlightProvider" (jsonBool 1)) "renameProvider" (jsonObjPut jsonObj "prepareProvider" (jsonBool 1))))
 
 ; ==================================================================
 ; END SECTION NAV
