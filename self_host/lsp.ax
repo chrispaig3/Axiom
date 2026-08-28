@@ -80,6 +80,8 @@
 
 (import codegen)
 
+(import format)
+
 ; ------------------------------------------------------------------
 ; Positions
 ; ------------------------------------------------------------------
@@ -881,6 +883,77 @@
 
 (pub fn (lspHexDigit v) (strSlice "0123456789ABCDEF" v 1))
 
+; ------------------------------------------------------------------
+; The import preamble, once.
+;
+; Every request that reaches into an imported module needs the same
+; nine lines - the four scratch vectors, the entry unit carrying the
+; document's REAL text (a unit whose source is empty reports every span
+; at offset 0), the preflight, the resolver - and until 2026-08-28 the
+; file carried them inline in `lspDefinitionImported`,
+; `lspHoverImported` and `lspComplImported`, then in three more places
+; the sections added. Six copies of a preamble that must agree with
+; `lspCheckDoc` about which files a document imports is six places for
+; it to stop agreeing. It is stated here once.
+;
+; Answers 0 when the preflight found a module it could not read - the
+; half-typed-import case, which every caller answers as "this document
+; alone" rather than as an error - and otherwise a five-word block:
+; word 0 the merged declaration list, 1 the unit table, 2 `bares`,
+; 3 `fulls`, 4 `mods` - the last three for the one caller that goes on
+; to expand, since `expandProgram` takes the resolver's tables.
+;
+; A resolver failure is silent by design: a half-typed import is the
+; normal state of a file being edited, and a request that answered an
+; error while the user was mid-word would make navigation feel broken
+; exactly when the file is.
+; ------------------------------------------------------------------
+(pub :: lspResolveFor (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspResolveFor path src decls)
+  (let (
+    (bares vecNew)
+    (fulls vecNew)
+    (mods vecNew)
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+  )
+    (let ((units 
+      (let ((v vecNew))
+        {
+          (vecPush
+            v            (cast Int (CUnit2
+              path              src              (cast String 0)
+            ))
+          )
+          v
+        }
+      )
+    ))
+      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+        (if (> (strLen missing) 0)
+          0
+          (let ((allDecls (resolveImports
+            decls            bares            fulls            mods            tcode            entryDir            units
+          )))
+            (let ((r (memAlloc 40)))
+              {
+                (memSetWord r 0 allDecls)
+                (memSetWord r 1 units)
+                (memSetWord r 2 bares)
+                (memSetWord r 3 fulls)
+                (memSetWord r 4 mods)
+                r
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
 ; `textDocument/definition`: the declaration's own span, as a Location.
 ;
 ; TWO LOOKUPS, IN THIS ORDER, and the order is the language's scoping
@@ -951,62 +1024,30 @@
   )
 )
 
-; The second lookup: resolve this document's imports and answer a
-; Location in whichever module declares `w`.
-;
-; The resolver is given the same four scratch vectors and the same
-; entry directory `lspCheckDoc` gives it, because a different entry
-; directory would resolve a different set of files and the two answers
-; would disagree about what this document imports.
-;
-; A resolver failure is null rather than a diagnostic. A half-typed
-; import is the normal state of a file being edited, and a server that
-; answered an error to `definition` while the user was mid-word would
-; make navigation feel broken exactly when the file is.
+; The second lookup: resolve this document's imports through
+; `lspResolveFor` - the same preamble `lspCheckDoc` runs, so the two
+; cannot disagree about what this document imports - and answer a
+; Location in whichever module declares `w`. A resolver failure is
+; null rather than a diagnostic, for the reason `lspResolveFor` gives.
 (pub :: lspDefinitionImported (-> String String Int String Int))
 
 ;@axiom:effect(io)
 (pub fn (lspDefinitionImported path src decls w)
-  ; The entry unit carries the document's real text, not "".
-  ; Nothing here renders against it - an imported declaration's
-  ; spans index its own file - but the resolver stamps
-  ; diagnostics with it, and a unit whose source is empty is a
-  ; unit that reports every span at offset 0.
-  (let (
-    (bares vecNew)
-    (fulls vecNew)
-    (mods vecNew)
-    (tcode (checkedTargetCode hostTarget))
-    (entryDir (pathDir path))
-  )
-    (let ((units 
-      (let ((v vecNew))
-        {
-          (vecPush
-            v            (cast Int (CUnit2
-              path              src              (cast String 0)
-            ))
-          )
-          v
-        }
+  (let ((r (lspResolveFor path src decls)))
+    (if (== r 0)
+      jsonNull
+      (let (
+        (allDecls (memGetWord r 0))
+        (units (memGetWord r 1))
       )
-    ))
-      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
-        (if (> (strLen missing) 0)
-          jsonNull
-          (let ((allDecls (resolveImports
-            decls            bares            fulls            mods            tcode            entryDir            units
-          )))
-            (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
-              (if (== d 0)
+        (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
+          (if (== d 0)
+            jsonNull
+            (let ((u (lspUnitOf units (nodeModule d))))
+              (if (< u 0)
                 jsonNull
-                (let ((u (lspUnitOf units (nodeModule d))))
-                  (if (< u 0)
-                    jsonNull
-                    (let ((unit (vecGet units u)))
-                      (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr (lspPathToUri (memGetWordStr unit 0)))) "range" (lspRange (memGetWordStr unit 1) (nodeSpan d)))
-                    )
-                  )
+                (let ((unit (vecGet units u)))
+                  (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr (lspPathToUri (memGetWordStr unit 0)))) "range" (lspRange (memGetWordStr unit 1) (nodeSpan d)))
                 )
               )
             )
@@ -1167,41 +1208,21 @@
 
 ;@axiom:effect(io)
 (pub fn (lspHoverImported path src decls w range)
-  (let (
-    (bares vecNew)
-    (fulls vecNew)
-    (mods vecNew)
-    (tcode (checkedTargetCode hostTarget))
-    (entryDir (pathDir path))
-  )
-    (let ((units 
-      (let ((v vecNew))
-        {
-          (vecPush
-            v            (cast Int (CUnit2
-              path              src              (cast String 0)
-            ))
-          )
-          v
-        }
+  (let ((r (lspResolveFor path src decls)))
+    (if (== r 0)
+      jsonNull
+      (let (
+        (allDecls (memGetWord r 0))
+        (units (memGetWord r 1))
       )
-    ))
-      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
-        (if (> (strLen missing) 0)
-          jsonNull
-          (let ((allDecls (resolveImports
-            decls            bares            fulls            mods            tcode            entryDir            units
-          )))
-            (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
-              (if (== d 0)
+        (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
+          (if (== d 0)
+            jsonNull
+            (let ((u (lspUnitOf units (nodeModule d))))
+              (if (< u 0)
                 jsonNull
-                (let ((u (lspUnitOf units (nodeModule d))))
-                  (if (< u 0)
-                    jsonNull
-                    (let ((unit (vecGet units u)))
-                      (lspHoverAt (memGetWordStr unit 1) allDecls d range (memGetWordStr unit 2))
-                    )
-                  )
+                (let ((unit (vecGet units u)))
+                  (lspHoverAt (memGetWordStr unit 1) allDecls d range (memGetWordStr unit 2))
                 )
               )
             )
@@ -2128,58 +2149,38 @@
 
 ;@axiom:effect(io)
 (pub fn (lspComplImported out seen path src decls prefix)
-  (let (
-    (bares vecNew)
-    (fulls vecNew)
-    (mods vecNew)
-    (tcode (checkedTargetCode hostTarget))
-    (entryDir (pathDir path))
-  )
-    (let ((units 
-      (let ((v vecNew))
-        {
-          (vecPush
-            v            (cast Int (CUnit2
-              path              src              (cast String 0)
-            ))
-          )
-          v
-        }
+  (let ((r (lspResolveFor path src decls)))
+    (if (== r 0)
+      0
+      (let (
+        (allDecls (memGetWord r 0))
+        (units (memGetWord r 1))
       )
-    ))
-      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
-        (if (> (strLen missing) 0)
-          0
-          (let ((allDecls (resolveImports
-            decls            bares            fulls            mods            tcode            entryDir            units
-          )))
-            (let (
-              (n (vecLen allDecls))
-              (mut i 0)
-            )
-              {
-                (while (< i n)
-                  (let ((d (vecGet allDecls i)))
+        (let (
+          (n (vecLen allDecls))
+          (mut i 0)
+        )
+          {
+            (while (< i n)
+              (let ((d (vecGet allDecls i)))
+                {
+                  (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeModule d) 0) (!= (nodeSpan d) 0)))
                     {
-                      (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeModule d) 0) (!= (nodeSpan d) 0)))
-                        {
-                          (lspComplOffer
-                            out                            seen                            (bareOf (nodeAName d))                            (lspComplKind (nodeTag d))                            (lspModOf (nodeAName d))                            prefix
-                          )
-                          (if (== (nodeTag d) TAG_D_DATA)
-                            (lspComplCtors out seen (nodeB d) prefix)
-                            0
-                          )
-                        }
+                      (lspComplOffer
+                        out                            seen                            (bareOf (nodeAName d))                            (lspComplKind (nodeTag d))                            (lspModOf (nodeAName d))                            prefix
+                      )
+                      (if (== (nodeTag d) TAG_D_DATA)
+                        (lspComplCtors out seen (nodeB d) prefix)
                         0
                       )
-                      (set i (+ i 1))
                     }
-                  ))
-                0
-              }
-            )
-          )
+                    0
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            0
+          }
         )
       )
     )
@@ -4146,43 +4147,23 @@
 
 ;@axiom:effect(io)
 (pub fn (lspNavHomeUri path src decls w uris)
-  (let (
-    (bares vecNew)
-    (fulls vecNew)
-    (mods vecNew)
-    (tcode (checkedTargetCode hostTarget))
-    (entryDir (pathDir path))
-  )
-    (let ((units
-      (let ((v vecNew))
-        {
-          (vecPush
-            v            (cast Int (CUnit2
-              path              src              (cast String 0)
-            ))
-          )
-          v
-        }
+  (let ((r (lspResolveFor path src decls)))
+    (if (== r 0)
+      ""
+      (let (
+        (allDecls (memGetWord r 0))
+        (units (memGetWord r 1))
       )
-    ))
-      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
-        (if (> (strLen missing) 0)
-          ""
-          (let ((allDecls (resolveImports
-            decls            bares            fulls            mods            tcode            entryDir            units
-          )))
-            (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
-              (if (== d 0)
+        (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
+          (if (== d 0)
+            ""
+            (let ((u (lspUnitOf units (nodeModule d))))
+              (if (< u 0)
                 ""
-                (let ((u (lspUnitOf units (nodeModule d))))
-                  (if (< u 0)
+                (let ((huri (lspPathToUri (memGetWordStr (vecGet units u) 0))))
+                  (if (< (docFind uris huri) 0)
                     ""
-                    (let ((huri (lspPathToUri (memGetWordStr (vecGet units u) 0))))
-                      (if (< (docFind uris huri) 0)
-                        ""
-                        huri
-                      )
-                    )
+                    huri
                   )
                 )
               )
@@ -4720,62 +4701,6 @@
 (pub fn (lspSignatureHelpOptions) (jsonObjPut (jsonObjPut jsonObj "triggerCharacters" (jsonArrPush (jsonArrPush jsonArr (jsonStr "(")) (jsonStr " "))) "retriggerCharacters" (jsonArrPush jsonArr (jsonStr " "))))
 
 ; ------------------------------------------------------------------
-; The import preamble, once.
-;
-; `lspDefinitionImported`, `lspHoverImported` and `lspComplImported`
-; each inline the same nine lines - the four scratch vectors, the
-; entry unit with the document's real text, the preflight, the
-; resolver - and this section may not edit them. So the preamble is
-; stated here once for its three callers, answering the two things a
-; reach into an imported module needs as a 2-word block: word 0 the
-; merged declaration list, word 1 the unit table. 0 when the preflight
-; found a module it could not read, which is the half-typed-import
-; case, and which every caller answers as "this document alone".
-; ------------------------------------------------------------------
-(pub :: lspViewResolve (-> String String Int Int))
-
-;@axiom:effect(io)
-(pub fn (lspViewResolve path src decls)
-  (let (
-    (bares vecNew)
-    (fulls vecNew)
-    (mods vecNew)
-    (tcode (checkedTargetCode hostTarget))
-    (entryDir (pathDir path))
-  )
-    (let ((units
-      (let ((v vecNew))
-        {
-          (vecPush
-            v            (cast Int (CUnit2
-              path              src              (cast String 0)
-            ))
-          )
-          v
-        }
-      )
-    ))
-      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
-        (if (> (strLen missing) 0)
-          0
-          (let ((allDecls (resolveImports
-            decls            bares            fulls            mods            tcode            entryDir            units
-          )))
-            (let ((r (memAlloc 16)))
-              {
-                (memSetWord r 0 allDecls)
-                (memSetWord r 1 units)
-                r
-              }
-            )
-          )
-        )
-      )
-    )
-  )
-)
-
-; ------------------------------------------------------------------
 ; Items: the byte-level view of a form's arguments.
 ;
 ; Signature help asks "which argument is the cursor on" and parameter
@@ -5158,7 +5083,7 @@
 
 ;@axiom:effect(io)
 (pub fn (lspViewSigImported path src decls head)
-  (let ((r (lspViewResolve path src decls)))
+  (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
       0
       (let (
@@ -5509,7 +5434,7 @@
 
 ;@axiom:effect(io)
 (pub fn (lspViewFnIndexFor path src decls)
-  (let ((r (lspViewResolve path src decls)))
+  (let ((r (lspResolveFor path src decls)))
     (lspViewFnIndex
       (if (== r 0)
         decls
@@ -6559,7 +6484,7 @@
 
 ;@axiom:effect(io)
 (pub fn (lspViewSymsImported out seen query path src decls)
-  (let ((r (lspViewResolve path src decls)))
+  (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
       0
       (let (
@@ -6817,14 +6742,6 @@
 ; point of the whole file - and a range cut out of that output would
 ; be a different formatter with a weaker proof.
 ;
-; The formatter is imported HERE rather than in the file's preamble,
-; because this section is the only reader of it and an import is a
-; top-level declaration like any other: `parseTopForm` reads one
-; wherever it stands and `resolveImports` walks every `TAG_D_IMPORT`
-; node in the list. Keeping it beside its one caller is the same rule
-; that keeps the section's helpers inside the section.
-(import format)
-
 (pub :: lspFixHandles (-> String Bool))
 
 (pub fn (lspFixHandles method) (|| (strEq method "textDocument/formatting") (|| (strEq method "textDocument/codeAction") (|| (strEq method "textDocument/typeDefinition") (|| (strEq method "textDocument/codeLens") (strEq method "axiom/expandMacro"))))))
@@ -6912,50 +6829,28 @@
 
 ;@axiom:effect(io)
 (pub fn (lspFixExpand path src decls)
-  (let (
-    (bares vecNew)
-    (fulls vecNew)
-    (mods vecNew)
-    (tcode (checkedTargetCode hostTarget))
-    (entryDir (pathDir path))
-  )
-    (let ((units
-      (let ((v vecNew))
-        {
-          (vecPush
-            v            (cast Int (CUnit2
-              path              src              (cast String 0)
-            ))
-          )
-          v
-        }
+  (let ((r (lspResolveFor path src decls)))
+    (if (== r 0)
+      0
+      (let (
+        (allDecls (memGetWord r 0))
+        (units (memGetWord r 1))
+        (ftbl vecNew)
+        (eds vecNew)
       )
-    ))
-      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
-        (if (> (strLen missing) 0)
-          0
-          (let (
-            (allDecls (resolveImports
-              decls              bares              fulls              mods              tcode              entryDir              units
-            ))
-            (ftbl vecNew)
-            (eds vecNew)
-          )
-            (let ((gens (expandProgram
-              decls              allDecls              eds              ftbl              units              bares              fulls              mods
-            )))
-              (let ((b (memAlloc 40)))
-                {
-                  (lowerImpls allDecls eds)
-                  (memSetWord b 0 allDecls)
-                  (memSetWord b 1 units)
-                  (memSetWord b 2 eds)
-                  (memSetWord b 3 gens)
-                  (memSetWord b 4 ftbl)
-                  b
-                }
-              )
-            )
+        (let ((gens (expandProgram
+          decls          allDecls          eds          ftbl          units          (memGetWord r 2)          (memGetWord r 3)          (memGetWord r 4)
+        )))
+          (let ((b (memAlloc 40)))
+            {
+              (lowerImpls allDecls eds)
+              (memSetWord b 0 allDecls)
+              (memSetWord b 1 units)
+              (memSetWord b 2 eds)
+              (memSetWord b 3 gens)
+              (memSetWord b 4 ftbl)
+              b
+            }
           )
         )
       )
@@ -7586,64 +7481,44 @@
 
 ;@axiom:effect(io)
 (pub fn (lspTypeLocationImported path src uri decls w given)
-  (let (
-    (bares vecNew)
-    (fulls vecNew)
-    (mods vecNew)
-    (tcode (checkedTargetCode hostTarget))
-    (entryDir (pathDir path))
-  )
-    (let ((units
-      (let ((v vecNew))
-        {
-          (vecPush
-            v            (cast Int (CUnit2
-              path              src              (cast String 0)
-            ))
-          )
-          v
-        }
+  (let ((r (lspResolveFor path src decls)))
+    (if (== r 0)
+      jsonNull
+      (let (
+        (allDecls (memGetWord r 0))
+        (units (memGetWord r 1))
       )
-    ))
-      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
-        (if (> (strLen missing) 0)
-          jsonNull
-          (let ((allDecls (resolveImports
-            decls            bares            fulls            mods            tcode            entryDir            units
-          )))
-            (let ((t
-              (if (!= given 0)
-                given
-                (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
-                  (if (&& (!= d 0) (== (nodeTag d) TAG_D_FN))
-                    (let ((sig (lspFindSig allDecls (nodeAName d) (- (vecLen allDecls) 1))))
-                      (if (== sig 0)
-                        0
-                        (lspArrowResult (nodeTy sig))
-                      )
-                    )
+        (let ((t
+          (if (!= given 0)
+            given
+            (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
+              (if (&& (!= d 0) (== (nodeTag d) TAG_D_FN))
+                (let ((sig (lspFindSig allDecls (nodeAName d) (- (vecLen allDecls) 1))))
+                  (if (== sig 0)
                     0
+                    (lspArrowResult (nodeTy sig))
                   )
                 )
+                0
               )
-            ))
-              (if (== t 0)
-                jsonNull
-                (if (!= (nodeTag t) TAG_T_CON)
-                  jsonNull
-                  (let ((local (lspTypeLocalOf src uri decls t)))
-                    (if (!= local 0)
-                      local
-                      (let ((d (lspFindTypeImported allDecls (nodeAName t) (- (vecLen allDecls) 1))))
-                        (if (== d 0)
+            )
+          )
+        ))
+          (if (== t 0)
+            jsonNull
+            (if (!= (nodeTag t) TAG_T_CON)
+              jsonNull
+              (let ((local (lspTypeLocalOf src uri decls t)))
+                (if (!= local 0)
+                  local
+                  (let ((d (lspFindTypeImported allDecls (nodeAName t) (- (vecLen allDecls) 1))))
+                    (if (== d 0)
+                      jsonNull
+                      (let ((u (lspUnitOf units (nodeModule d))))
+                        (if (< u 0)
                           jsonNull
-                          (let ((u (lspUnitOf units (nodeModule d))))
-                            (if (< u 0)
-                              jsonNull
-                              (let ((unit (vecGet units u)))
-                                (lspLocationJson (lspPathToUri (memGetWordStr unit 0)) (memGetWordStr unit 1) (nodeSpan d))
-                              )
-                            )
+                          (let ((unit (vecGet units u)))
+                            (lspLocationJson (lspPathToUri (memGetWordStr unit 0)) (memGetWordStr unit 1) (nodeSpan d))
                           )
                         )
                       )
