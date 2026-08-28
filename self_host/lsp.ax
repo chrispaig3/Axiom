@@ -4649,18 +4649,2140 @@
 ; SECTION VIEW: signature help, inlay hints, folding, selection
 ; ranges, document links, workspace symbols
 ; ==================================================================
+; Six requests that show a reader MORE about the code without changing
+; it, in the shape rust-analyzer gives them: signature help, inlay
+; hints, folding ranges, selection ranges, document links and the
+; workspace symbol list. All six read the raw parse tree and the
+; document's bytes and expand nothing (MAC-TOOL-3); each parses once
+; and builds one line index; the three that reach into imported
+; modules - signature help on an imported name, the parameter names
+; of an imported call, the workspace list - resolve the imports
+; exactly as `lspDefinitionImported` does, preflight first, so a
+; half-typed import degrades to "this document alone" and never to a
+; dead server.
+;
+; WHAT THE BYTES ANSWER THAT THE TREE CANNOT. The parser records a
+; span for a declaration's NAME and for every atom, and none for a
+; parameter name in a `fn` header (`parseIdentList` keeps the lexeme
+; alone), for the `(` of a form, or for the `)` that closes it. So a
+; parameter's type hint sits at a position recovered by scanning the
+; header's identifiers after the name's span; an argument's hint at
+; the start of the i-th item after the call's head, found by the same
+; item scanner signature help counts arguments with; and every fold
+; and selection range at a bracket the scanner found. The scanner is
+; `lspFormEnd`'s - strings, char literals, `;` and `#| |#` comments
+; are stepped over by the lexer's own functions - so no two of these
+; requests can disagree about where a form ends.
 (pub :: lspViewHandles (-> String Bool))
 
-(pub fn (lspViewHandles method) false)
+(pub fn (lspViewHandles method) (|| (strEq method "textDocument/signatureHelp") (|| (strEq method "textDocument/inlayHint") (|| (strEq method "textDocument/foldingRange") (|| (strEq method "textDocument/selectionRange") (|| (strEq method "textDocument/documentLink") (strEq method "workspace/symbol")))))))
 
 (pub :: lspViewDispatch (-> String Int Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (lspViewDispatch method id params uris texts) (lspError id (- 0 32601) (strConcat "method not found: " method)))
+(pub fn (lspViewDispatch method id params uris texts)
+  (if (strEq method "workspace/symbol")
+    (lspReply id (lspWorkspaceSymbols uris texts params))
+    (let ((uri (lspParamsUri params)))
+      (let ((src (docText uris texts uri)))
+        (if (strEq method "textDocument/signatureHelp")
+          (lspReply id (lspSignatureHelp src uri params))
+          (if (strEq method "textDocument/inlayHint")
+            (lspReply id (lspInlayHints src uri params))
+            (if (strEq method "textDocument/foldingRange")
+              (lspReply id (lspFoldingRanges src))
+              (if (strEq method "textDocument/selectionRange")
+                (lspReply id (lspSelectionRanges src params))
+                (if (strEq method "textDocument/documentLink")
+                  (lspReply id (lspDocumentLinks src uri))
+                  (lspError id (- 0 32601) (strConcat "method not found: " method))
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
+; `signatureHelpProvider` and `documentLinkProvider` are objects, the
+; other four booleans. `(` and a space are where a call's argument
+; changes hands in this language, so both trigger and a space
+; retriggers; `resolveProvider: false` says every link is complete
+; as sent, since there is no `documentLink/resolve` here.
 (pub :: lspViewCaps (-> Int Int))
 
-(pub fn (lspViewCaps caps) caps)
+(pub fn (lspViewCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "signatureHelpProvider" lspSignatureHelpOptions) "inlayHintProvider" (jsonBool 1)) "foldingRangeProvider" (jsonBool 1)) "selectionRangeProvider" (jsonBool 1)) "documentLinkProvider" (jsonObjPut jsonObj "resolveProvider" (jsonBool 0))) "workspaceSymbolProvider" (jsonBool 1)))
+
+(pub :: lspSignatureHelpOptions Int)
+
+(pub fn (lspSignatureHelpOptions) (jsonObjPut (jsonObjPut jsonObj "triggerCharacters" (jsonArrPush (jsonArrPush jsonArr (jsonStr "(")) (jsonStr " "))) "retriggerCharacters" (jsonArrPush jsonArr (jsonStr " "))))
+
+; ------------------------------------------------------------------
+; The import preamble, once.
+;
+; `lspDefinitionImported`, `lspHoverImported` and `lspComplImported`
+; each inline the same nine lines - the four scratch vectors, the
+; entry unit with the document's real text, the preflight, the
+; resolver - and this section may not edit them. So the preamble is
+; stated here once for its three callers, answering the two things a
+; reach into an imported module needs as a 2-word block: word 0 the
+; merged declaration list, word 1 the unit table. 0 when the preflight
+; found a module it could not read, which is the half-typed-import
+; case, and which every caller answers as "this document alone".
+; ------------------------------------------------------------------
+(pub :: lspViewResolve (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspViewResolve path src decls)
+  (let (
+    (bares vecNew)
+    (fulls vecNew)
+    (mods vecNew)
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+  )
+    (let ((units
+      (let ((v vecNew))
+        {
+          (vecPush
+            v            (cast Int (CUnit2
+              path              src              (cast String 0)
+            ))
+          )
+          v
+        }
+      )
+    ))
+      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+        (if (> (strLen missing) 0)
+          0
+          (let ((allDecls (resolveImports
+            decls            bares            fulls            mods            tcode            entryDir            units
+          )))
+            (let ((r (memAlloc 16)))
+              {
+                (memSetWord r 0 allDecls)
+                (memSetWord r 1 units)
+                r
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; Items: the byte-level view of a form's arguments.
+;
+; Signature help asks "which argument is the cursor on" and parameter
+; hints ask "where does the i-th argument begin", and both are
+; questions about the ITEMS after a form's head: nested forms, brace
+; blocks, string and char literals, identifiers, numbers. One scanner
+; answers both, so what one request calls the second argument the
+; other cannot label first.
+; ------------------------------------------------------------------
+; One past the identifier starting at `i`, absorbing a `::name`
+; qualifier: `Vec::vecPush` is ONE var to the parser - named
+; `Vec$vecPush`, spanning its first segment - and must be one item
+; here, or every argument after a qualified head is counted one early.
+(pub :: lspViewIdentEnd (-> String Int Int Int))
+
+(pub fn (lspViewIdentEnd src i n)
+  (let ((mut e (skipIdent src i n)))
+    {
+      (while (if (< (+ e 2) n)
+        (if (== (strByte src e) 58)
+          (if (== (strByte src (+ e 1)) 58)
+            (isIdentStart (strByte src (+ e 2)))
+            false
+          )
+          false
+        )
+        false
+      )
+        (set e (skipIdent src (+ e 2) n)))
+      e
+    }
+  )
+)
+
+; One past the item starting at `i`: a form to its closer, a brace
+; block to its `}`, a string or char literal to its quote, an
+; identifier through `lspViewIdentEnd`, and any other atom - a
+; number, mostly - to the next delimiter. Always past `i`, so a scan
+; that steps by it terminates.
+(pub :: lspViewItemEnd (-> String Int Int Int))
+
+(pub fn (lspViewItemEnd src i n)
+  (let ((ch (strByte src i)))
+    (if (== ch 40)
+      (lspFormEnd src i)
+      (if (== ch 123)
+        (lspViewBraceEnd src i)
+        (if (== ch 34)
+          (skipStringBody src (+ i 1) n)
+          (if (isIdentStart ch)
+            (lspViewIdentEnd src i n)
+            (if (== ch 39)
+              (skipCharBody src (+ i 1) n)
+              (let ((mut j (+ i 1)))
+                {
+                  (while (if (< j n)
+                    (lspViewIsAtomByte (strByte src j))
+                    false
+                  )
+                    (set j (+ j 1)))
+                  j
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; A byte that continues an atom: anything but whitespace, a bracket,
+; a quote or a comment start.
+(pub :: lspViewIsAtomByte (-> Int Bool))
+
+(pub fn (lspViewIsAtomByte b)
+  (if (lspIsSpace b)
+    false
+    (if (|| (== b 40) (|| (== b 41) (|| (== b 123) (|| (== b 125) (|| (== b 34) (== b 59))))))
+      false
+      true
+    )
+  )
+)
+
+; One past the `}` closing the brace block at `o`, or the document
+; length. A brace block is a sequence, not a form, and `lspFormEnd`
+; counts parens alone; an argument written `{ ... }` is met wherever
+; a body sequences its steps. The four skips are `lspFormEnd`'s, in
+; its order, for the reason it gives.
+(pub :: lspViewBraceEnd (-> String Int Int))
+
+(pub fn (lspViewBraceEnd src o)
+  (let (
+    (n (strLen src))
+    (mut i (+ o 1))
+    (mut depth 1)
+    (mut stop (- 0 1))
+  )
+    {
+      (while (if (< i n)
+        (< stop 0)
+        false
+      )
+        (let ((ch (strByte src i)))
+          (if (== ch 34)
+            (set i (skipStringBody src (+ i 1) n))
+            (if (isIdentStart ch)
+              (set i (skipIdent src (+ i 1) n))
+              (if (== ch 39)
+                (set i (skipCharBody src (+ i 1) n))
+                (if (&& (== ch 35) (isBlockOpen src i n))
+                  (set i (skipBlockComment src (+ i 2) n))
+                  (if (== ch 59)
+                    (set i (findNewline src i n))
+                    {
+                      (if (== ch 123)
+                        (set depth (+ depth 1))
+                        0
+                      )
+                      (if (== ch 125)
+                        {
+                          (set depth (- depth 1))
+                          (if (<= depth 0)
+                            (set stop (+ i 1))
+                            0
+                          )
+                        }
+                        0
+                      )
+                      (set i (+ i 1))
+                    }
+                  )
+                )
+              )
+            )
+          )
+        ))
+      (if (< stop 0)
+        n
+        stop
+      )
+    }
+  )
+)
+
+; The identifier the form at `o` opens with, or "" when what follows
+; its `(` is not one - a nested form, a brace block, a literal.
+(pub :: lspViewHeadAt (-> String Int String))
+
+(pub fn (lspViewHeadAt src o)
+  (let (
+    (n (strLen src))
+    (mut i (+ o 1))
+  )
+    {
+      (while (if (< i n)
+        (lspIsSpace (strByte src i))
+        false
+      )
+        (set i (+ i 1)))
+      (if (if (< i n)
+        (isIdentStart (strByte src i))
+        false
+      )
+        (strSlice src i (- (lspViewIdentEnd src i n) i))
+        ""
+      )
+    }
+  )
+)
+
+; One past the head of the form at `o` - where its arguments begin.
+(pub :: lspViewHeadEnd (-> String Int Int))
+
+(pub fn (lspViewHeadEnd src o)
+  (let (
+    (n (strLen src))
+    (mut i (+ o 1))
+  )
+    {
+      (while (if (< i n)
+        (lspIsSpace (strByte src i))
+        false
+      )
+        (set i (+ i 1)))
+      (if (if (< i n)
+        (isIdentStart (strByte src i))
+        false
+      )
+        (lspViewIdentEnd src i n)
+        i
+      )
+    }
+  )
+)
+
+; The index of the argument the cursor at `off` is on, in the form
+; opening at `o`: the number of COMPLETE items between the head and
+; the cursor, where an item the cursor is inside or touching is the
+; one being typed rather than a finished one. `(add 1 |` is 1;
+; `(add 1|` is 0, because the `1` is still being written; `(add |`
+; is 0. Comments between arguments are not items.
+(pub :: lspViewActiveArg (-> String Int Int Int))
+
+(pub fn (lspViewActiveArg src o off)
+  (let (
+    (n (strLen src))
+    (mut i (lspViewHeadEnd src o))
+    (mut count 0)
+    (mut active (- 0 1))
+    (mut go 1)
+  )
+    {
+      (while (if (== go 1)
+        (< i off)
+        false
+      )
+        (let ((ch (strByte src i)))
+          (if (lspIsSpace ch)
+            (set i (+ i 1))
+            (if (== ch 59)
+              (set i (findNewline src i n))
+              (if (&& (== ch 35) (isBlockOpen src i n))
+                (set i (skipBlockComment src (+ i 2) n))
+                (if (== ch 41)
+                  (set go 0)
+                  (let ((e (lspViewItemEnd src i n)))
+                    (if (<= off e)
+                      {
+                        (set active count)
+                        (set go 0)
+                      }
+                      {
+                        (set count (+ count 1))
+                        (set i e)
+                      }
+                    )
+                  )
+                )
+              )
+            )
+          )
+        ))
+      (if (< active 0)
+        count
+        active
+      )
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/signatureHelp`: the declaration of the call the cursor
+; is inside, with the argument being typed marked.
+;
+; The innermost form containing the cursor is the call - a cursor
+; sitting exactly ON a `(` is inside the form it opens, because that
+; is the character the client sends the trigger at - and its head is
+; read from the bytes after the `(`. A `fn` of this document answers
+; first, then one of its `data` constructors, then an imported `fn`
+; read in its own unit's text with the module named in the label,
+; then an imported constructor: `lspDefinition`'s order, for the
+; language's scoping reason. A keyword head (`let`, `if`) is null: the
+; parser dispatches on it and no declaration describes it. So is an
+; operator, which has no declaration to read.
+;
+; The label is what a reader would write: `(add x y) : (-> Int Int
+; Int)`, the type cut from the `::` beside the `fn` exactly as
+; completion's `detail` is, and omitted when there is none. Each
+; parameter is the [start, end) UTF-16 offsets of its name INSIDE the
+; label - the protocol's array form, so the client bolds the active
+; one without searching the string.
+; ------------------------------------------------------------------
+(pub :: lspSignatureHelp (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspSignatureHelp src uri params)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      jsonNull
+      (let (
+        (decls (memGetWord pr 1))
+        (ix (lspLineIndex src))
+      )
+        (let ((o (lspViewCallAt src (lspOffsetOf src ix (jsonGet params "position")))))
+          (if (< o 0)
+            jsonNull
+            (let ((head (lspViewHeadAt src o)))
+              (if (|| (== (strLen head) 0) (== (strVecHas lspKeywords head) 1))
+                jsonNull
+                (let ((local (lspViewSigLocal src decls head)))
+                  (let ((found
+                    (if (== local 0)
+                      (lspViewSigImported (lspUriToPath uri) src decls head)
+                      local
+                    )
+                  ))
+                    (if (== found 0)
+                      jsonNull
+                      (lspViewSigHelp found (lspViewActiveArg src o (lspOffsetOf src ix (jsonGet params "position"))))
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The `(` of the innermost form containing `off`, or -1 when nothing
+; does. `lspEnclosingOpens` leaves a form opening exactly AT `off` to
+; its caller; here it counts.
+(pub :: lspViewCallAt (-> String Int Int))
+
+(pub fn (lspViewCallAt src off)
+  (if (if (< off (strLen src))
+    (== (strByte src off) 40)
+    false
+  )
+    off
+    (let ((opens (lspEnclosingOpens src off)))
+      (if (== (vecLen opens) 0)
+        (- 0 1)
+        (vecGet opens (- (vecLen opens) 1))
+      )
+    )
+  )
+)
+
+; The SignatureHelp object: one signature, active, with the argument
+; index clamped to the last parameter once the cursor is past them
+; all - a client given an index off the end highlights nothing.
+(pub :: lspViewSigHelp (-> Int Int Int))
+
+(pub fn (lspViewSigHelp sig arg)
+  (let ((np (jsonArrLen (jsonGet sig "parameters"))))
+    (let ((active
+      (if (>= arg np)
+        (if (> np 0)
+          (- np 1)
+          0
+        )
+        arg
+      )
+    ))
+      (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "signatures" (jsonArrPush jsonArr sig)) "activeSignature" (jsonNum 0)) "activeParameter" (jsonNum active))
+    )
+  )
+)
+
+; This document's answer for `head`: its `fn` of that name, else a
+; constructor of one of its `data` declarations, else 0.
+(pub :: lspViewSigLocal (-> String Int String Int))
+
+(pub fn (lspViewSigLocal src decls head)
+  (let ((d (lspFindDecl decls head (- (vecLen decls) 1))))
+    (if (if (!= d 0)
+      (== (nodeTag d) TAG_D_FN)
+      false
+    )
+      (lspViewSigFn src decls d "")
+      (let ((c (lspViewFindCtor decls head 0)))
+        (if (== c 0)
+          0
+          (lspViewSigCtor c)
+        )
+      )
+    )
+  )
+)
+
+; The second lookup, over the merged list: an imported `fn`, read in
+; the unit that declares it so the type and the paragraph are its
+; own text; else an imported constructor.
+(pub :: lspViewSigImported (-> String String Int String Int))
+
+;@axiom:effect(io)
+(pub fn (lspViewSigImported path src decls head)
+  (let ((r (lspViewResolve path src decls)))
+    (if (== r 0)
+      0
+      (let (
+        (allDecls (memGetWord r 0))
+        (units (memGetWord r 1))
+      )
+        (let ((d (lspFindImported allDecls head (- (vecLen allDecls) 1))))
+          (if (if (!= d 0)
+            (== (nodeTag d) TAG_D_FN)
+            false
+          )
+            (let ((u (lspUnitOf units (nodeModule d))))
+              (if (< u 0)
+                0
+                (let ((unit (vecGet units u)))
+                  (lspViewSigFn (memGetWordStr unit 1) allDecls d (memGetWordStr unit 2))
+                )
+              )
+            )
+            (let ((c (lspViewFindCtor allDecls head 1)))
+              (if (== c 0)
+                0
+                (lspViewSigCtor c)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The constructor named `name` among the `data` declarations of
+; `decls`: this document's own when `imported` is 0, the imported
+; ones alone when it is 1 - the merged list carries both, and the
+; local ones were asked first.
+(pub :: lspViewFindCtor (-> Int String Int Int))
+
+(pub fn (lspViewFindCtor decls name imported)
+  (let (
+    (n (vecLen decls))
+    (mut i 0)
+    (mut found 0)
+  )
+    {
+      (while (if (< i n)
+        (== found 0)
+        false
+      )
+        (let ((d (vecGet decls i)))
+          {
+            (if (if (== (nodeTag d) TAG_D_DATA)
+              (if (== imported 1)
+                (!= (nodeModule d) 0)
+                (== (nodeModule d) 0)
+              )
+              false
+            )
+              (set found (lspViewCtorIn (nodeB d) name))
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      found
+    }
+  )
+)
+
+(pub :: lspViewCtorIn (-> Int String Int))
+
+(pub fn (lspViewCtorIn ctors name)
+  (let (
+    (n (vecLen ctors))
+    (mut i 0)
+    (mut found 0)
+  )
+    {
+      (while (if (< i n)
+        (== found 0)
+        false
+      )
+        {
+          (if (strEq (nodeAName (vecGet ctors i)) name)
+            (set found (vecGet ctors i))
+            0
+          )
+          (set i (+ i 1))
+        })
+      found
+    }
+  )
+)
+
+; A `fn` as a SignatureInformation, read in the document that declares
+; it (`dsrc`, `ddecls`). The name is the bare one - an imported
+; declaration's `nodeAName` is `ViewHelper$twice` and the reader
+; wrote `twice` - and the signature is found under the mangled one,
+; because `resolveImports` mangles a `::` and its `fn` alike. `origin`
+; names the module of an imported one, after the type, so the label
+; still reads as the call.
+(pub :: lspViewSigFn (-> String Int Int String Int))
+
+(pub fn (lspViewSigFn dsrc ddecls d origin)
+  (let (
+    (sig (lspFindSig ddecls (nodeAName d) (- (vecLen ddecls) 1)))
+    (ps (nodeB d))
+    (starts vecNew)
+    (ends vecNew)
+    (mut label (strConcat "(" (bareOf (nodeAName d))))
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen ps))
+        {
+          (set label (strConcat label " "))
+          (vecPush starts (strLen label))
+          (set label (strConcat label (vecGetStr ps i)))
+          (vecPush ends (strLen label))
+          (set i (+ i 1))
+        })
+      (set label (strConcat label ")"))
+      (if (!= sig 0)
+        (set label (strConcat (strConcat label " : ") (lspSigType dsrc sig)))
+        label
+      )
+      (if (> (strLen origin) 0)
+        (set label (strConcat (strConcat label " from ") origin))
+        label
+      )
+      (lspViewSigInfo label starts ends (lspViewSigDoc dsrc d sig))
+    }
+  )
+)
+
+; The paragraph above the declaration, read where hover reads it: at
+; the `::` when the `fn` has one, because that is where this language
+; puts the comment, and at the `fn` itself otherwise.
+(pub :: lspViewSigDoc (-> String Int Int String))
+
+(pub fn (lspViewSigDoc dsrc d sig)
+  (let ((at
+    (if (== sig 0)
+      d
+      sig
+    )
+  ))
+    (if (== (nodeSpan at) 0)
+      ""
+      (lspDocComment dsrc (lspFormStart dsrc (spanStart (nodeSpan at))))
+    )
+  )
+)
+
+; A constructor: `(Circle Int)`, each field type rendered by the
+; checker's own printer and labelled as a parameter, so the client
+; bolds the field being written.
+(pub :: lspViewSigCtor (-> Int Int))
+
+(pub fn (lspViewSigCtor c)
+  (let (
+    (tys (nodeTy c))
+    (starts vecNew)
+    (ends vecNew)
+    (mut label (strConcat "(" (nodeAName c)))
+    (mut i 0)
+  )
+    {
+      (while (if (!= tys 0)
+        (< i (vecLen tys))
+        false
+      )
+        {
+          (set label (strConcat label " "))
+          (vecPush starts (strLen label))
+          (set label (strConcat label (tyRender (vecGet tys i))))
+          (vecPush ends (strLen label))
+          (set i (+ i 1))
+        })
+      (set label (strConcat label ")"))
+      (lspViewSigInfo label starts ends "")
+    }
+  )
+)
+
+; The SignatureInformation object. The byte offsets into `label`
+; become UTF-16 units through `lspCharFrom` from 0, which a label
+; with no newline in it makes exact; `documentation` is carried as
+; markdown when the declaration has a paragraph and left out when it
+; has not.
+(pub :: lspViewSigInfo (-> String Int Int String Int))
+
+(pub fn (lspViewSigInfo label starts ends doc)
+  (let (
+    (params jsonArr)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen starts))
+        {
+          (jsonArrPush params (jsonObjPut jsonObj "label" (jsonArrPush (jsonArrPush jsonArr (jsonNum (lspCharFrom label 0 (vecGet starts i)))) (jsonNum (lspCharFrom label 0 (vecGet ends i))))))
+          (set i (+ i 1))
+        })
+      (let ((base (jsonObjPut (jsonObjPut jsonObj "label" (jsonStr label)) "parameters" params)))
+        (if (== (strLen doc) 0)
+          base
+          (jsonObjPut base "documentation" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr doc)))
+        )
+      )
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; A name index over a declaration list, built once per request.
+;
+; Parameter-name hints ask "which `fn` is this" once per CALL SITE,
+; and a document has many more call sites than declarations - so a
+; walk of the declaration list per site is the n-squared
+; `lspComplWants` exists to avoid, and over the MERGED list it is that
+; times every module imported. No hash map is in reach of this file
+; (`Map` is imported by `Intern` alone), so this is a bucket table:
+; `LSP_VIEW_IDX_SLOTS` slots keyed by a hash of EVERY byte of the
+; name, each a Vec of (bare name, node) pairs, empty ones left as 0.
+;
+; THE FIRST BYTE ALONE WAS TRIED FIRST and was a mistake this
+; repository's naming makes certain: every function in this file
+; begins `lsp`, and on the gate's document of 2,050 functions named
+; `f0`..`f2049` a first-byte key put all of them in one slot - the
+; n-squared walk again, wearing an index. Measured on that document
+; against a 0.031 s `didOpen`, a whole-document hint request: 0.050 s
+; with the first-byte key and 0.012 s with the hash below over the
+; 4,100 header hints; 0.074 s and 0.026 s over 6,150 hints when every
+; function also calls one. A 60-line window, which is what an editor
+; asks for, is 0.016 s either way.
+;
+; Two entries under one name resolve the language's way: the
+; document's own declaration (module 0) shadows an imported one, and
+; among the document's own the LAST wins, which is `lspFindDecl`'s
+; rule.
+; ------------------------------------------------------------------
+(pub :: LSP_VIEW_IDX_SLOTS Int)
+
+(pub fn (LSP_VIEW_IDX_SLOTS) 1024)
+
+(pub :: lspViewIdxNew Int)
+
+(pub fn (lspViewIdxNew)
+  (let (
+    (v vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i LSP_VIEW_IDX_SLOTS)
+        {
+          (vecPush v 0)
+          (set i (+ i 1))
+        })
+      v
+    }
+  )
+)
+
+; djb2 over the bytes, reduced modulo 2^24 at every step: `h * 33 + b`
+; then stays under 2^30, so the arithmetic never wraps and the slot is
+; a remainder of the same number on every run.
+(pub :: lspViewIdxSlot (-> String Int))
+
+(pub fn (lspViewIdxSlot name)
+  (let (
+    (n (strLen name))
+    (mut i 0)
+    (mut h 5381)
+  )
+    {
+      (while (< i n)
+        {
+          (set h (% (+ (* h 33) (strByte name i)) 16777216))
+          (set i (+ i 1))
+        })
+      (% h LSP_VIEW_IDX_SLOTS)
+    }
+  )
+)
+
+(pub :: lspViewIdxAdd (-> Int String Int Int))
+
+(pub fn (lspViewIdxAdd idx name node)
+  (let ((slot (lspViewIdxSlot name)))
+    (let ((bucket
+      (if (== (vecGet idx slot) 0)
+        (let ((b vecNew))
+          {
+            (vecSet idx slot b)
+            b
+          }
+        )
+        (vecGet idx slot)
+      )
+    ))
+      {
+        (vecPush bucket name)
+        (vecPush bucket node)
+        0
+      }
+    )
+  )
+)
+
+(pub :: lspViewIdxFind (-> Int String Int))
+
+(pub fn (lspViewIdxFind idx name)
+  (let ((bucket (vecGet idx (lspViewIdxSlot name))))
+    (if (== bucket 0)
+      0
+      (let (
+        (n (vecLen bucket))
+        (mut i 0)
+        (mut local 0)
+        (mut other 0)
+      )
+        {
+          (while (< i n)
+            {
+              (if (strEq (vecGetStr bucket i) name)
+                (if (== (nodeModule (vecGet bucket (+ i 1))) 0)
+                  (set local (vecGet bucket (+ i 1)))
+                  (set other (vecGet bucket (+ i 1)))
+                )
+                0
+              )
+              (set i (+ i 2))
+            })
+          (if (!= local 0)
+            local
+            other
+          )
+        }
+      )
+    )
+  )
+)
+
+; The `fn` declarations a call can name, by bare name: this document's
+; and, when its imports resolve, every module's. A failed preflight -
+; a half-typed import - is this document alone.
+(pub :: lspViewFnIndexFor (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspViewFnIndexFor path src decls)
+  (let ((r (lspViewResolve path src decls)))
+    (lspViewFnIndex
+      (if (== r 0)
+        decls
+        (memGetWord r 0)
+      )
+    )
+  )
+)
+
+(pub :: lspViewFnIndex (-> Int Int))
+
+(pub fn (lspViewFnIndex list)
+  (let (
+    (idx lspViewIdxNew)
+    (n (vecLen list))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet list i)))
+          {
+            (if (&& (== (nodeTag d) TAG_D_FN) (!= (nodeSpan d) 0))
+              (lspViewIdxAdd idx (bareOf (nodeAName d)) d)
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      idx
+    }
+  )
+)
+
+; The `::` signatures of this document, by name, for the header hints
+; - the same question `lspFindSig` answers, asked once per `fn` rather
+; than by a walk per `fn`.
+(pub :: lspViewSigIndex (-> Int Int))
+
+(pub fn (lspViewSigIndex decls)
+  (let (
+    (idx lspViewIdxNew)
+    (n (vecLen decls))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            (if (&& (== (nodeTag d) TAG_D_SIG) (!= (nodeSpan d) 0))
+              (lspViewIdxAdd idx (nodeAName d) d)
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      idx
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/inlayHint`: three kinds of hint, inside the requested
+; range, on every `fn` whose extent meets it.
+;
+;   (a) PARAMETER NAMES at call sites - `x:` before the `1` of
+;       `(add 1 2)` - for every application whose head names a `fn`
+;       this document declares or imports. An argument that IS a
+;       variable spelled like the parameter shows nothing, which is
+;       rust-analyzer's rule: `(bump x)` where the parameter is `x`
+;       says nothing a reader does not see. Operators and
+;       constructors have no `fn` declaration and fall out of the
+;       same lookup; nothing is special-cased by spelling.
+;   (b) PARAMETER TYPES in the header, `: Int` after each name, from
+;       the `::` signature's arrow, one parameter per arrow position.
+;   (c) THE RETURN TYPE, ` -> Int` after the header's `)`, when the
+;       signature has at least one arrow - a nullary `(:: main Int)`
+;       has nothing to say there.
+;
+; A `fn`'s EXTENT is the span from its name to the next declaration's
+; name (or EOF): the tree records no form extent, and the next name
+; is a bound that costs nothing, where `lspFormEnd` per `fn` would
+; rescan the document. A `fn` outside the range is skipped before its
+; body is walked, which is what keeps a request for the visible
+; window from paying for the whole file.
+; ------------------------------------------------------------------
+(pub :: lspInlayHints (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspInlayHints src uri params)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      jsonArr
+      (let (
+        (decls (memGetWord pr 1))
+        (ix (lspLineIndex src))
+        (n (strLen src))
+        (range (jsonGet params "range"))
+      )
+        (let (
+          (rs
+            (if (== range 0)
+              0
+              (lspOffsetOf src ix (jsonGet range "start"))
+            )
+          )
+          (re
+            (if (== range 0)
+              n
+              (lspOffsetOf src ix (jsonGet range "end"))
+            )
+          )
+          (fns (lspViewFnIndexFor (lspUriToPath uri) src decls))
+          (sigs (lspViewSigIndex decls))
+          (out jsonArr)
+          (mut i 0)
+        )
+          {
+            (while (< i (vecLen decls))
+              (let ((d (vecGet decls i)))
+                {
+                  (if (&& (== (nodeTag d) TAG_D_FN) (!= (nodeSpan d) 0))
+                    (let (
+                      (lo (spanStart (nodeSpan d)))
+                      (hi (lspViewNextDeclStart decls i n))
+                    )
+                      (if (&& (< lo re) (> hi rs))
+                        {
+                          (lspViewHintsHeader out src ix d (lspViewIdxFind sigs (nodeAName d)) rs re)
+                          (lspViewHintsExpr out src ix fns (nodeC d) rs re)
+                        }
+                        0
+                      )
+                    )
+                    0
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            out
+          }
+        )
+      )
+    )
+  )
+)
+
+; Where the declaration after `i` begins, or the document length.
+(pub :: lspViewNextDeclStart (-> Int Int Int Int))
+
+(pub fn (lspViewNextDeclStart decls i n)
+  (let (
+    (mut j (+ i 1))
+    (mut at n)
+  )
+    {
+      (while (if (< j (vecLen decls))
+        (== at n)
+        false
+      )
+        {
+          (if (!= (nodeSpan (vecGet decls j)) 0)
+            (set at (spanStart (nodeSpan (vecGet decls j))))
+            0
+          )
+          (set j (+ j 1))
+        })
+      at
+    }
+  )
+)
+
+; The header hints, (b) and (c). The positions are recovered from the
+; header's bytes: identifiers after the name's span up to the `)`,
+; which is exactly the token sequence `parseIdentList` accepted -
+; anything else there and the document would not have parsed. The
+; byte before the name must be the header's own `(`: the bare nullary
+; form `(fn answer 42)` has no parameter list, and its `42` is not a
+; parameter however identifier-shaped its digits are.
+(pub :: lspViewHintsHeader (-> Int String Int Int Int Int Int Int))
+
+(pub fn (lspViewHintsHeader out src ix d sig rs re)
+  (if (if (== sig 0)
+    true
+    (if (== (nodeTy sig) 0)
+      true
+      (if (lspViewHeaderOpen src (spanStart (nodeSpan d)))
+        false
+        true
+      )
+    )
+  )
+    0
+    (let (
+      (ty (nodeTy sig))
+      (n (strLen src))
+      (mut i (spanEnd (nodeSpan d)))
+      (mut k 0)
+      (mut close (- 0 1))
+      (mut go 1)
+    )
+      {
+        (while (if (== go 1)
+          (< i n)
+          false
+        )
+          (let ((ch (strByte src i)))
+            (if (lspIsSpace ch)
+              (set i (+ i 1))
+              (if (== ch 41)
+                {
+                  (set close i)
+                  (set go 0)
+                }
+                (if (isIdentChar ch)
+                  (let ((e (skipIdent src i n)))
+                    {
+                      (let ((pt (nthParamTy ty k 0)))
+                        (if (if (!= pt 0)
+                          (!= (nodeTag pt) TAG_T_ERR)
+                          false
+                        )
+                          (lspViewHint out src ix e (strConcat ": " (tyRender pt)) 1 0 rs re)
+                          0
+                        ))
+                      (set k (+ k 1))
+                      (set i e)
+                    }
+                  )
+                  (set go 0)
+                )
+              )
+            )
+          ))
+        (if (if (>= close 0)
+          (== (nodeTag ty) TAG_T_ARR)
+          false
+        )
+          (lspViewHint out src ix (+ close 1) (strConcat " -> " (tyRender (lspViewResultTy ty))) 1 0 rs re)
+          0
+        )
+      }
+    )
+  )
+)
+
+; Whether the byte before `s`, past any blanks, is a `(`.
+(pub :: lspViewHeaderOpen (-> String Int Bool))
+
+(pub fn (lspViewHeaderOpen src s)
+  (let ((mut i (- s 1)))
+    {
+      (while (if (> i 0)
+        (lspIsBlank (strByte src i))
+        false
+      )
+        (set i (- i 1)))
+      (if (< i 0)
+        false
+        (== (strByte src i) 40)
+      )
+    }
+  )
+)
+
+; The final result of an arrow type: `(-> Int Int Bool)` folds to
+; `Int -> (Int -> Bool)`, so the result is the last `nodeB`.
+(pub :: lspViewResultTy (-> Int Int))
+
+(pub fn (lspViewResultTy ty)
+  (if (if (!= ty 0)
+    (== (nodeTag ty) TAG_T_ARR)
+    false
+  )
+    (lspViewResultTy (nodeB ty))
+    ty
+  )
+)
+
+; One InlayHint at byte `off`, appended only when `off` is inside the
+; requested range. `kind` is the protocol's: 1 Type, 2 Parameter.
+; `padRight` puts a space after a parameter-name label, so `x:` does
+; not touch the `1` it names.
+(pub :: lspViewHint (-> Int String Int Int String Int Int Int Int Int))
+
+(pub fn (lspViewHint out src ix off label kind padRight rs re)
+  (if (&& (>= off rs) (< off re))
+    (let ((base (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "position" (lspPosIx src ix off)) "label" (jsonStr label)) "kind" (jsonNum kind))))
+      {
+        (jsonArrPush
+          out          (if (== padRight 1)
+            (jsonObjPut base "paddingRight" (jsonBool 1))
+            base
+          )
+        )
+        0
+      }
+    )
+    0
+  )
+)
+
+; ------------------------------------------------------------------
+; The body walk for (a).
+;
+; Every expression tag the parser builds, by its children: nodes are
+; walked, Vecs of nodes are walked element by element, and Strings -
+; a binder, a field name, a `set` target - are not touched. A tag
+; not named here is a leaf. Patterns are not walked: `(Just x)` in
+; arm position is a constructor and a binder, and neither is a call.
+;
+; POSITIONS COME FROM THE BYTES, not the tree. An application's span
+; is its head's, a `let` argument's is its binder's, an `if`'s is its
+; test's: none of them is where the argument BEGINS, which is the `(`
+; the parser does not record. So the head's span - exact, and the one
+; thing the tree does place - anchors a scan of the items after it,
+; and the i-th item's start is where the i-th argument's hint goes.
+; Literals, too, are found this way rather than through their spans,
+; so every argument shape takes one path.
+; ------------------------------------------------------------------
+(pub :: lspViewHintsExpr (-> Int String Int Int Int Int Int Int))
+
+(pub fn (lspViewHintsExpr out src ix fns e rs re)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_APP)
+        (lspViewHintsApp out src ix fns e rs re)
+        (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+          {
+            (lspViewHintsExpr out src ix fns (nodeB e) rs re)
+            (lspViewHintsExpr out src ix fns (nodeC e) rs re)
+          }
+          (if (== tag TAG_E_IF)
+            {
+              (lspViewHintsExpr out src ix fns (nodeA e) rs re)
+              (lspViewHintsExpr out src ix fns (nodeB e) rs re)
+              (lspViewHintsExpr out src ix fns (nodeC e) rs re)
+            }
+            (if (== tag TAG_E_LAM)
+              (lspViewHintsExpr out src ix fns (nodeB e) rs re)
+              (if (== tag TAG_E_BEGIN)
+                (lspViewHintsVec out src ix fns (nodeA e) rs re)
+                (if (== tag TAG_E_STRUCTCON)
+                  (lspViewHintsVec out src ix fns (nodeB e) rs re)
+                  (if (== tag TAG_E_WHILE)
+                    {
+                      (lspViewHintsExpr out src ix fns (nodeA e) rs re)
+                      (lspViewHintsVec out src ix fns (nodeB e) rs re)
+                    }
+                    (if (== tag TAG_E_MATCH)
+                      {
+                        (lspViewHintsExpr out src ix fns (nodeA e) rs re)
+                        (lspViewHintsArms out src ix fns (nodeB e) 0 rs re)
+                      }
+                      (if (== tag TAG_E_COND)
+                        {
+                          (lspViewHintsArms out src ix fns (nodeA e) 1 rs re)
+                          (lspViewHintsExpr out src ix fns (nodeB e) rs re)
+                        }
+                        (if (== tag TAG_E_SET)
+                          (lspViewHintsExpr out src ix fns (nodeB e) rs re)
+                          (if (== tag TAG_E_FIELD)
+                            (lspViewHintsExpr out src ix fns (nodeA e) rs re)
+                            (if (== tag TAG_E_SETF)
+                              {
+                                (lspViewHintsExpr out src ix fns (nodeA e) rs re)
+                                (lspViewHintsExpr out src ix fns (nodeC e) rs re)
+                              }
+                              (if (== tag TAG_E_ALLOC)
+                                (lspViewHintsExpr out src ix fns (nodeB e) rs re)
+                                (if (== tag TAG_E_HANDLE)
+                                  {
+                                    (lspViewHintsExpr out src ix fns (nodeA e) rs re)
+                                    (lspViewHintsExpr out src ix fns (nodeC e) rs re)
+                                  }
+                                  0
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspViewHintsVec (-> Int String Int Int Int Int Int Int))
+
+(pub fn (lspViewHintsVec out src ix fns xs rs re)
+  (if (== xs 0)
+    0
+    (let ((mut i 0))
+      {
+        (while (< i (vecLen xs))
+          {
+            (lspViewHintsExpr out src ix fns (vecGet xs i) rs re)
+            (set i (+ i 1))
+          })
+        0
+      }
+    )
+  )
+)
+
+; The arms of a `match` (bodies alone - the pattern is not a call) or
+; of a `cond` (`withTest` 1: the test is an expression too).
+(pub :: lspViewHintsArms (-> Int String Int Int Int Int Int Int Int))
+
+(pub fn (lspViewHintsArms out src ix fns arms withTest rs re)
+  (if (== arms 0)
+    0
+    (let ((mut i 0))
+      {
+        (while (< i (vecLen arms))
+          (let ((arm (vecGet arms i)))
+            {
+              (if (== (nodeTag arm) TAG_M_ARM)
+                {
+                  (if (== withTest 1)
+                    (lspViewHintsExpr out src ix fns (nodeA arm) rs re)
+                    0
+                  )
+                  (lspViewHintsExpr out src ix fns (nodeB arm) rs re)
+                }
+                0
+              )
+              (set i (+ i 1))
+            }
+          ))
+        0
+      }
+    )
+  )
+)
+
+; An application: `(f a b)` is App(App(f, a), b), so the arguments
+; come off the spine last-first and are reversed. A head that is a
+; variable is a call; any other head - a lambda, a nested form - is
+; walked as an expression. Every argument is walked afterwards, since
+; each may hold calls of its own.
+(pub :: lspViewHintsApp (-> Int String Int Int Int Int Int Int))
+
+(pub fn (lspViewHintsApp out src ix fns e rs re)
+  (let (
+    (args vecNew)
+    (mut h e)
+  )
+    {
+      (while (== (nodeTag h) TAG_E_APP)
+        {
+          (vecPush args (nodeB h))
+          (set h (nodeA h))
+        })
+      (lspViewReverse args)
+      (if (== (nodeTag h) TAG_E_VAR)
+        (lspViewHintsCall out src ix fns h args rs re)
+        (lspViewHintsExpr out src ix fns h rs re)
+      )
+      (lspViewHintsVec out src ix fns args rs re)
+    }
+  )
+)
+
+(pub :: lspViewReverse (-> Int Int))
+
+(pub fn (lspViewReverse v)
+  (let (
+    (mut i 0)
+    (mut j (- (vecLen v) 1))
+  )
+    {
+      (while (< i j)
+        (let ((t (vecGet v i)))
+          {
+            (vecSet v i (vecGet v j))
+            (vecSet v j t)
+            (set i (+ i 1))
+            (set j (- j 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; The hints for one call: the declaration's parameter names, each at
+; the start of the item the bytes hold at that position, for as many
+; arguments as the call has and the declaration names.
+(pub :: lspViewHintsCall (-> Int String Int Int Int Int Int Int Int))
+
+(pub fn (lspViewHintsCall out src ix fns head args rs re)
+  (let ((d
+    (if (== (nodeSpan head) 0)
+      0
+      (lspViewIdxFind fns (bareOf (nodeAName head)))
+    )
+  ))
+    (if (== d 0)
+      0
+      (let (
+        (ps (nodeB d))
+        (n (strLen src))
+        (mut i (lspViewIdentEnd src (spanStart (nodeSpan head)) n))
+        (mut a 0)
+        (mut go 1)
+      )
+        {
+          (while (if (== go 1)
+            (if (< i n)
+              (&& (< a (vecLen ps)) (< a (vecLen args)))
+              false
+            )
+            false
+          )
+            (let ((ch (strByte src i)))
+              (if (lspIsSpace ch)
+                (set i (+ i 1))
+                (if (== ch 59)
+                  (set i (findNewline src i n))
+                  (if (&& (== ch 35) (isBlockOpen src i n))
+                    (set i (skipBlockComment src (+ i 2) n))
+                    (if (== ch 41)
+                      (set go 0)
+                      {
+                        (if (lspViewSameName (vecGet args a) (vecGetStr ps a))
+                          0
+                          (lspViewHint out src ix i (strConcat (vecGetStr ps a) ":") 2 1 rs re)
+                        )
+                        (set a (+ a 1))
+                        (set i (lspViewItemEnd src i n))
+                      }
+                    )
+                  )
+                )
+              )
+            ))
+          0
+        }
+      )
+    )
+  )
+)
+
+(pub :: lspViewSameName (-> Int String Bool))
+
+(pub fn (lspViewSameName arg name)
+  (if (== arg 0)
+    false
+    (if (== (nodeTag arg) TAG_E_VAR)
+      (strEq (nodeAName arg) name)
+      false
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/foldingRange`: every form whose `(` and `)` sit on
+; different lines, every `{ }` block likewise, a run of two or more
+; whole-line `;` comments as "comment", and a run of two or more
+; top-level `(import ...)` forms as "imports".
+;
+; A BYTE SCAN, NOT A PARSE, and that is the point: a half-typed file
+; is unparseable exactly while its author is looking at it, and its
+; balanced forms still fold. The scanner is `lspFormEnd`'s, with a
+; stack of open brackets in place of a depth count so each closer
+; knows its own opener; an unbalanced closer is ignored and an
+; unclosed opener folds nothing. A `;` is a whole-line comment when
+; nothing but blanks precedes it on its line - a `;` inside a string
+; is never seen, because the string was stepped over.
+; ------------------------------------------------------------------
+(pub :: lspFoldingRanges (-> String Int))
+
+(pub fn (lspFoldingRanges src)
+  (let (
+    (n (strLen src))
+    (ix (lspLineIndex src))
+    (out jsonArr)
+    (stack vecNew)
+    (comments vecNew)
+    (mut i 0)
+    (mut impStart (- 0 1))
+    (mut impEnd (- 0 1))
+    (mut impCount 0)
+    (mut topImport 0)
+  )
+    {
+      (while (< i n)
+        (let ((ch (strByte src i)))
+          (if (== ch 34)
+            (set i (skipStringBody src (+ i 1) n))
+            (if (isIdentStart ch)
+              (set i (skipIdent src (+ i 1) n))
+              (if (== ch 39)
+                (set i (skipCharBody src (+ i 1) n))
+                (if (&& (== ch 35) (isBlockOpen src i n))
+                  (set i (skipBlockComment src (+ i 2) n))
+                  (if (== ch 59)
+                    {
+                      (if (lspViewLineBlankBefore src ix i)
+                        (vecPush comments (lspLineOfIx ix i))
+                        0
+                      )
+                      (set i (findNewline src i n))
+                    }
+                    {
+                      (if (|| (== ch 40) (== ch 123))
+                        {
+                          ; A top-level `(` opens or breaks an import
+                          ; run; the run is flushed at the first form
+                          ; that is not an import.
+                          (if (&& (== ch 40) (== (vecLen stack) 0))
+                            (if (lspViewIsImportAt src i n)
+                              {
+                                (if (< impStart 0)
+                                  (set impStart i)
+                                  0
+                                )
+                                (set topImport 1)
+                              }
+                              {
+                                (lspViewFlushImports out ix impStart impEnd impCount)
+                                (set impStart (- 0 1))
+                                (set impCount 0)
+                                (set topImport 0)
+                              }
+                            )
+                            0
+                          )
+                          (vecPush stack i)
+                        }
+                        0
+                      )
+                      (if (|| (== ch 41) (== ch 125))
+                        (if (> (vecLen stack) 0)
+                          (let ((o (vecPop stack)))
+                            {
+                              (lspViewFold out (lspLineOfIx ix o) (lspLineOfIx ix i) "")
+                              (if (&& (== (vecLen stack) 0) (== topImport 1))
+                                {
+                                  (set impEnd i)
+                                  (set impCount (+ impCount 1))
+                                }
+                                0
+                              )
+                            }
+                          )
+                          0
+                        )
+                        0
+                      )
+                      (set i (+ i 1))
+                    }
+                  )
+                )
+              )
+            )
+          )
+        ))
+      (lspViewFlushImports out ix impStart impEnd impCount)
+      (lspViewFoldComments out comments)
+      out
+    }
+  )
+)
+
+; One FoldingRange, when the lines differ - a region of one line is
+; nothing to fold. `kind` is added when non-empty.
+(pub :: lspViewFold (-> Int Int Int String Int))
+
+(pub fn (lspViewFold out sl el kind)
+  (if (>= sl el)
+    0
+    (let ((base (jsonObjPut (jsonObjPut jsonObj "startLine" (jsonNum sl)) "endLine" (jsonNum el))))
+      {
+        (jsonArrPush
+          out          (if (== (strLen kind) 0)
+            base
+            (jsonObjPut base "kind" (jsonStr kind))
+          )
+        )
+        0
+      }
+    )
+  )
+)
+
+; The import run so far, as an "imports" fold when it holds two or
+; more CLOSED imports - `impCount` is counted at the closer, so a
+; half-typed import at the end of the run does not extend it.
+(pub :: lspViewFlushImports (-> Int Int Int Int Int Int))
+
+(pub fn (lspViewFlushImports out ix impStart impEnd impCount)
+  (if (if (>= impStart 0)
+    (>= impCount 2)
+    false
+  )
+    (lspViewFold out (lspLineOfIx ix impStart) (lspLineOfIx ix impEnd) "imports")
+    0
+  )
+)
+
+; Whether the form opening at `o` is `(import ...)`: the keyword, then
+; a byte that is not part of an identifier, so `(imports` is not one.
+; This is the parser's own `kwEq` test made on bytes, since no tree
+; exists for a document that does not parse.
+(pub :: lspViewIsImportAt (-> String Int Int Bool))
+
+(pub fn (lspViewIsImportAt src o n)
+  (let ((mut i (+ o 1)))
+    {
+      (while (if (< i n)
+        (lspIsSpace (strByte src i))
+        false
+      )
+        (set i (+ i 1)))
+      (if (> (+ i 6) n)
+        false
+        (if (strEq (strSlice src i 6) "import")
+          (if (< (+ i 6) n)
+            (if (isIdentChar (strByte src (+ i 6)))
+              false
+              true
+            )
+            true
+          )
+          false
+        )
+      )
+    }
+  )
+)
+
+; Whether nothing but blanks sits between the start of `off`'s line
+; and `off` - what makes a `;` at `off` a whole-line comment rather
+; than one trailing code.
+(pub :: lspViewLineBlankBefore (-> String Int Int Bool))
+
+(pub fn (lspViewLineBlankBefore src ix off)
+  (let (
+    (mut i (vecGet ix (lspLineOfIx ix off)))
+    (mut blank 1)
+  )
+    {
+      (while (if (< i off)
+        (== blank 1)
+        false
+      )
+        {
+          (if (lspIsBlank (strByte src i))
+            0
+            (set blank 0)
+          )
+          (set i (+ i 1))
+        })
+      (== blank 1)
+    }
+  )
+)
+
+; Runs of two or more consecutive whole-line comments, as "comment"
+; folds. `lines` is ascending, because the scan that filled it was;
+; a blank line between two comments ends a run, since consecutive
+; means consecutive.
+(pub :: lspViewFoldComments (-> Int Int Int))
+
+(pub fn (lspViewFoldComments out lines)
+  (let (
+    (n (vecLen lines))
+    (mut i 0)
+    (mut runStart (- 0 1))
+    (mut runEnd (- 0 1))
+  )
+    {
+      (while (< i n)
+        (let ((ln (vecGet lines i)))
+          {
+            (if (if (>= runStart 0)
+              (== ln (+ runEnd 1))
+              false
+            )
+              (set runEnd ln)
+              {
+                (lspViewFold out runStart runEnd "comment")
+                (set runStart ln)
+                (set runEnd ln)
+              }
+            )
+            (set i (+ i 1))
+          }
+        ))
+      (lspViewFold out runStart runEnd "comment")
+      0
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/selectionRange`: for each position, the chain of
+; ranges a selection expands through - the identifier under the
+; cursor, then each enclosing form innermost-out, then the whole
+; document.
+;
+; Built from the document INWARD so that each link's `parent` exists
+; before the link does, and answered from the innermost, which is how
+; the protocol nests it. A link whose range equals the one before it
+; is dropped - a word that is the whole of a form, say - so the client
+; sees each range once. Nothing is parsed: a chain of brackets is a
+; byte question, and a document that does not parse still has one.
+; ------------------------------------------------------------------
+(pub :: lspSelectionRanges (-> String Int Int))
+
+(pub fn (lspSelectionRanges src params)
+  (let (
+    (ix (lspLineIndex src))
+    (positions (jsonGet params "positions"))
+    (out jsonArr)
+    (mut i 0)
+  )
+    {
+      (while (< i (jsonArrLen positions))
+        {
+          (jsonArrPush out (lspViewSelChain src ix (lspOffsetOf src ix (jsonArrGet positions i))))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+(pub :: lspViewSelChain (-> String Int Int Int))
+
+(pub fn (lspViewSelChain src ix off)
+  (let (
+    (n (strLen src))
+    (opens (lspEnclosingOpens src off))
+    (mut cur (jsonObjPut jsonObj "range" (lspRangeIx src ix (mkSpan 0 n))))
+    (mut ps 0)
+    (mut pe n)
+    (mut i 0)
+  )
+    {
+      ; A cursor ON a `(` is inside the form it opens, which
+      ; `lspEnclosingOpens` leaves to its caller.
+      (if (if (< off n)
+        (== (strByte src off) 40)
+        false
+      )
+        (vecPush opens off)
+        0
+      )
+      (while (< i (vecLen opens))
+        (let ((o (vecGet opens i)))
+          (let ((e (lspFormEnd src o)))
+            {
+              (if (|| (!= o ps) (!= e pe))
+                {
+                  (set cur (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (mkSpan o e))) "parent" cur))
+                  (set ps o)
+                  (set pe e)
+                }
+                0
+              )
+              (set i (+ i 1))
+            }
+          )
+        ))
+      (let ((w (lspWordSpan src off)))
+        (if (if (!= w 0)
+          (|| (!= (spanStart w) ps) (!= (spanEnd w) pe))
+          false
+        )
+          (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix w)) "parent" cur)
+          cur
+        )
+      )
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/documentLink`: every `(import M)` whose module the
+; resolver's own search finds, as a link over the dotted name to the
+; file's URI. The range is the name AS WRITTEN: the parser's span
+; names the path's first segment alone, so the range extends over
+; identifier bytes and the `.` between segments - `.` is not an
+; identifier byte, which is why this is a scan and not `lspWordSpan`.
+; An import the search cannot resolve gets no link, and the diagnostic
+; the checker publishes for it already says why.
+; ------------------------------------------------------------------
+(pub :: lspDocumentLinks (-> String String Int))
+
+;@axiom:effect(io)
+(pub fn (lspDocumentLinks src uri)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      jsonArr
+      (let (
+        (decls (memGetWord pr 1))
+        (ix (lspLineIndex src))
+        (n (strLen src))
+        (tcode (checkedTargetCode hostTarget))
+        (entryDir (pathDir (lspUriToPath uri)))
+        (out jsonArr)
+        (mut i 0)
+      )
+        {
+          (while (< i (vecLen decls))
+            (let ((d (vecGet decls i)))
+              {
+                (if (&& (== (nodeTag d) TAG_D_IMPORT) (!= (nodeSpan d) 0))
+                  (let ((p (moduleSrcPath (nodeAName d) tcode entryDir)))
+                    (if (== (strLen p) 0)
+                      0
+                      (let (
+                        (s (spanStart (nodeSpan d)))
+                        (mut e (spanStart (nodeSpan d)))
+                      )
+                        {
+                          (while (if (< e n)
+                            (|| (isIdentChar (strByte src e)) (== (strByte src e) 46))
+                            false
+                          )
+                            (set e (+ e 1)))
+                          (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (mkSpan s e))) "target" (jsonStr (lspPathToUri p))))
+                          0
+                        }
+                      )
+                    )
+                  )
+                  0
+                )
+                (set i (+ i 1))
+              }
+            ))
+          out
+        }
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `workspace/symbol`: every declaration the open documents can see -
+; their own, and every module each imports - whose bare name holds
+; the query, case-folded.
+;
+; The workspace this server knows is the document store: the editor
+; sends it the files that are open and nothing else, and the imports
+; of those files are what a reader of them can reach. Each open
+; document is parsed and its imports resolved as `lspComplImported`
+; resolves them; an imported declaration is placed in ITS file
+; through the unit table, with the module as `containerName`. The
+; kinds are the outline's, plus EnumMember for a constructor, which
+; the outline omits and a search wants. The list stops at
+; `LSP_COMPL_MAX`, for the reason completion's does: a search result
+; is not a directory listing. A declaration reached twice - a module
+; two open documents both import - is listed once, by URI and offset.
+; ------------------------------------------------------------------
+(pub :: lspWorkspaceSymbols (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspWorkspaceSymbols uris texts params)
+  (let (
+    (query (jsonGetStr params "query"))
+    (out jsonArr)
+    (seen vecNew)
+    (mut j 0)
+  )
+    {
+      (while (if (< j (vecLen uris))
+        (< (jsonArrLen out) LSP_COMPL_MAX)
+        false
+      )
+        (let (
+          (uri (vecGetStr uris j))
+          (src (vecGetStr texts j))
+        )
+          {
+            (if (> (strLen src) 0)
+              (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+                (if (== (memGetWord pr 0) 0)
+                  0
+                  (let ((decls (memGetWord pr 1)))
+                    {
+                      (lspViewSymsLocal out seen query uri src decls)
+                      (lspViewSymsImported out seen query (lspUriToPath uri) src decls)
+                    }
+                  )
+                )
+              )
+              0
+            )
+            (set j (+ j 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+(pub :: lspViewSymsLocal (-> Int Int String String String Int Int))
+
+(pub fn (lspViewSymsLocal out seen query uri src decls)
+  (let (
+    (ix (lspLineIndex src))
+    (n (vecLen decls))
+    (mut i 0)
+  )
+    {
+      (while (if (< i n)
+        (< (jsonArrLen out) LSP_COMPL_MAX)
+        false
+      )
+        (let ((d (vecGet decls i)))
+          {
+            (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeSpan d) 0) (== (expIsJoinMarker (nodeAName d)) 0)))
+              {
+                (lspViewSymOffer out seen query uri src ix (nodeAName d) (lspSymKind (nodeTag d)) (nodeSpan d) "")
+                (if (== (nodeTag d) TAG_D_DATA)
+                  (lspViewSymCtors out seen query uri src ix (nodeB d) "")
+                  0
+                )
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; The imported half. The name test is asked BEFORE the unit is looked
+; up and before its URI and line index are built - the cheap question
+; first, as `lspComplWants` asks it - and a unit's URI and index are
+; made once, when it first has a symbol to place.
+(pub :: lspViewSymsImported (-> Int Int String String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspViewSymsImported out seen query path src decls)
+  (let ((r (lspViewResolve path src decls)))
+    (if (== r 0)
+      0
+      (let (
+        (allDecls (memGetWord r 0))
+        (units (memGetWord r 1))
+        (n (vecLen allDecls))
+        (uuris vecNew)
+        (uixs vecNew)
+        (mut i 0)
+      )
+        {
+          (while (< i (vecLen units))
+            {
+              (vecPush uuris "")
+              (vecPush uixs 0)
+              (set i (+ i 1))
+            })
+          (set i 0)
+          (while (if (< i n)
+            (< (jsonArrLen out) LSP_COMPL_MAX)
+            false
+          )
+            (let ((d (vecGet allDecls i)))
+              {
+                (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeModule d) 0) (!= (nodeSpan d) 0)))
+                  (let ((bare (bareOf (nodeAName d))))
+                    (if (lspViewDeclWants d bare query)
+                      (let ((u (lspUnitOf units (nodeModule d))))
+                        (if (< u 0)
+                          0
+                          (let ((unit (vecGet units u)))
+                            {
+                              (lspViewUnitPrep uuris uixs unit u)
+                              (lspViewSymOffer out seen query (vecGetStr uuris u) (memGetWordStr unit 1) (vecGet uixs u) bare (lspSymKind (nodeTag d)) (nodeSpan d) (memGetWordStr unit 2))
+                              (if (== (nodeTag d) TAG_D_DATA)
+                                (lspViewSymCtors out seen query (vecGetStr uuris u) (memGetWordStr unit 1) (vecGet uixs u) (nodeB d) (memGetWordStr unit 2))
+                                0
+                              )
+                            }
+                          )
+                        )
+                      )
+                      0
+                    )
+                  )
+                  0
+                )
+                (set i (+ i 1))
+              }
+            ))
+          0
+        }
+      )
+    )
+  )
+)
+
+; Whether a declaration has anything to list for `query`: its own
+; name, or - for a `data` - one of its constructors' names.
+(pub :: lspViewDeclWants (-> Int String String Bool))
+
+(pub fn (lspViewDeclWants d bare query)
+  (if (lspStrHasFold bare query)
+    true
+    (if (== (nodeTag d) TAG_D_DATA)
+      (lspViewCtorsWant (nodeB d) query)
+      false
+    )
+  )
+)
+
+(pub :: lspViewCtorsWant (-> Int String Bool))
+
+(pub fn (lspViewCtorsWant ctors query)
+  (let (
+    (mut i 0)
+    (mut found 0)
+  )
+    {
+      (while (if (< i (vecLen ctors))
+        (== found 0)
+        false
+      )
+        {
+          (if (lspStrHasFold (nodeAName (vecGet ctors i)) query)
+            (set found 1)
+            0
+          )
+          (set i (+ i 1))
+        })
+      (== found 1)
+    }
+  )
+)
+
+; The URI and line index of unit `u`, made on first use.
+(pub :: lspViewUnitPrep (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspViewUnitPrep uuris uixs unit u)
+  (if (== (vecGet uixs u) 0)
+    {
+      (vecSet uuris u (lspPathToUri (memGetWordStr unit 0)))
+      (vecSet uixs u (lspLineIndex (memGetWordStr unit 1)))
+      0
+    }
+    0
+  )
+)
+
+(pub :: lspViewSymCtors (-> Int Int String String String Int Int String Int))
+
+(pub fn (lspViewSymCtors out seen query uri src ix ctors container)
+  (let ((mut i 0))
+    {
+      (while (if (< i (vecLen ctors))
+        (< (jsonArrLen out) LSP_COMPL_MAX)
+        false
+      )
+        (let ((c (vecGet ctors i)))
+          {
+            (if (!= (nodeSpan c) 0)
+              (lspViewSymOffer out seen query uri src ix (nodeAName c) 22 (nodeSpan c) container)
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; One SymbolInformation, when `name` holds the query and the
+; declaration at `uri`:`span` has not been listed already.
+(pub :: lspViewSymOffer (-> Int Int String String String Int String Int Int String Int))
+
+(pub fn (lspViewSymOffer out seen query uri src ix name kind span container)
+  (if (>= (jsonArrLen out) LSP_COMPL_MAX)
+    0
+    (if (lspStrHasFold name query)
+      (let ((key (strConcat uri (strConcat "#" (decStr (spanStart span))))))
+        (if (lspSeenHas seen key)
+          0
+          (let ((base (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr name)) "kind" (jsonNum kind)) "location" (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix span)))))
+            {
+              (vecPush seen key)
+              (jsonArrPush
+                out                (if (== (strLen container) 0)
+                  base
+                  (jsonObjPut base "containerName" (jsonStr container))
+                )
+              )
+              0
+            }
+          )
+        )
+      )
+      0
+    )
+  )
+)
+
+; Case-insensitive substring, ASCII-folded: `TWI` is in `twice`. An
+; empty needle is in everything, which is what an empty query means.
+(pub :: lspStrHasFold (-> String String Bool))
+
+(pub fn (lspStrHasFold hay needle)
+  (let (
+    (hn (strLen hay))
+    (nn (strLen needle))
+    (mut i 0)
+    (mut found 0)
+  )
+    {
+      (while (if (== found 0)
+        (<= (+ i nn) hn)
+        false
+      )
+        {
+          (if (lspViewFoldEqAt hay i needle nn)
+            (set found 1)
+            0
+          )
+          (set i (+ i 1))
+        })
+      (== found 1)
+    }
+  )
+)
+
+(pub :: lspViewFoldEqAt (-> String Int String Int Bool))
+
+(pub fn (lspViewFoldEqAt hay at needle nn)
+  (let (
+    (mut k 0)
+    (mut same 1)
+  )
+    {
+      (while (if (== same 1)
+        (< k nn)
+        false
+      )
+        {
+          (if (== (lspViewFoldByte (strByte hay (+ at k))) (lspViewFoldByte (strByte needle k)))
+            0
+            (set same 0)
+          )
+          (set k (+ k 1))
+        })
+      (== same 1)
+    }
+  )
+)
+
+(pub :: lspViewFoldByte (-> Int Int))
+
+(pub fn (lspViewFoldByte b)
+  (if (&& (>= b 65) (<= b 90))
+    (+ b 32)
+    b
+  )
+)
 
 ; ==================================================================
 ; END SECTION VIEW

@@ -1742,6 +1742,553 @@ shutil.rmtree(NAVREF_DIR, ignore_errors=True)
 # SECTION VIEW TESTS: signature help, inlay hints, folding ranges,
 # selection ranges, document links, workspace symbols.
 # =====================================================================
+# The six VIEW requests - signature help, inlay hints, folding ranges,
+# selection ranges, document links, workspace symbols - over a document
+# and two helper modules written HERE. Every expected position, label,
+# type text, paragraph and URI is DERIVED from the three documents'
+# bytes, so no re-bless of any golden can satisfy it: the hint list the
+# server must answer is built from the header and call anchors, the
+# fold and selection ranges from a second bracket matcher written
+# below, the signature label's type from the `::` line it is cut from.
+#
+# Each feature has a POSITIVE check and a BOUNDARY: null or [] where it
+# does not apply - a keyword head, a document that does not parse, a
+# query nothing matches, a document with nothing to fold. Folding's
+# boundary runs the other way as well: a document that does NOT parse
+# still answers the ranges of its balanced forms, which is the point of
+# folding from bytes rather than from a tree.
+VIEWDIR = tempfile.mkdtemp(prefix="axiom-view-")
+VIEWHELPER = """; Double a number.
+(pub :: twice (-> Int Int))
+
+(pub fn (twice n) (* n 2))
+"""
+VIEWOTHER = """(pub :: seven Int)
+
+(pub fn (seven) 7)
+"""
+open(os.path.join(VIEWDIR, "ViewHelper.ax"), "w", encoding="utf-8").write(VIEWHELPER)
+open(os.path.join(VIEWDIR, "ViewOther.ax"), "w", encoding="utf-8").write(VIEWOTHER)
+# A dotted module path, so the link's range has a `.` to extend over -
+# the parser's span names the first segment alone.
+VIEWDEEP = """(pub :: deep Int)
+
+(pub fn (deep) 9)
+"""
+os.mkdir(os.path.join(VIEWDIR, "Nested"))
+open(os.path.join(VIEWDIR, "Nested", "Deep.ax"), "w", encoding="utf-8").write(VIEWDEEP)
+
+# Three imports in a row, one dotted, a three-line comment block, a two-parameter
+# `fn` with a signature, a call with literal arguments, a call whose
+# first argument is a variable spelled like the parameter, a
+# constructor call, a multi-line `let`, and a call into the imported
+# module.
+VIEW = """(import ViewHelper)
+(import ViewOther)
+(import Nested.Deep)
+
+; A block of three comment lines,
+; which a folding client collapses
+; as one region.
+(:: add (-> Int Int Int))
+(fn (add x y) (+ x y))
+
+(data Shape (Circle Int) (Square Int Int))
+
+(:: sumUp (-> Int Int))
+(fn (sumUp x)
+  (let ((total (add 1 2))
+        (same (add x 3)))
+    (+ total same)))
+
+(:: shape Shape)
+(fn (shape) (Circle 7))
+
+(:: main Int)
+(fn (main) (twice (add 4 5)))
+"""
+view_uri = "file://" + os.path.join(VIEWDIR, "view-generated.ax")
+vhelper_uri = "file://" + os.path.join(VIEWDIR, "ViewHelper.ax")
+vother_uri = "file://" + os.path.join(VIEWDIR, "ViewOther.ax")
+vdeep_uri = "file://" + os.path.join(VIEWDIR, "Nested", "Deep.ax")
+# A document mid-form, and one with nothing to fold or hint.
+VIEW_BROKEN = VIEW + "\n("
+VIEW_FLAT = "(:: one Int)\n(fn (one) 1)\n"
+
+
+def vat(src, anchor, occurrence=1, sub=""):
+    """The LSP position `sub` characters into the N-th `anchor`. The
+    anchor sits on one line, so the column is its UTF-16 start plus the
+    UTF-16 length of the prefix - the same rule `locate` uses."""
+    p = locate(src, anchor, occurrence)
+    return {"line": p["line"], "character": p["start"] + u16(sub)}
+
+
+def vform(src, opener, occurrence=1):
+    """(start, one past end) character indices of the form whose `(`
+    begins the N-th `opener`, by counting brackets and stepping over
+    `;` comments - a second implementation of the server's scan, over
+    documents that keep their brackets out of strings."""
+    idx = -1
+    for _ in range(occurrence):
+        idx = src.index(opener, idx + 1)
+    depth, i = 0, idx
+    while i < len(src):
+        c = src[i]
+        if c == ";":
+            nl = src.find("\n", i)
+            i = len(src) if nl < 0 else nl
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return idx, i + 1
+        i += 1
+    raise LookupError(f"the form at {opener!r} never closes")
+
+
+def vrange(src, i, j):
+    """An LSP range from two character indices into `src`."""
+    def at(k):
+        ln, text, col = line_of(src, k)
+        return {"line": ln, "character": u16(text[:col])}
+    return {"start": at(i), "end": at(j)}
+
+
+def vlines(src, span):
+    """(startLine, endLine) of a form: the lines of its `(` and `)`."""
+    return line_of(src, span[0])[0], line_of(src, span[1] - 1)[0]
+
+
+def vparams(src, header):
+    """The parameter names a `fn` header declares, read out of the
+    document: `(fn (add x y)` -> ["x", "y"]."""
+    rest = src[src.index(header) + len(header):]
+    return rest[:rest.index(")")].split()
+
+
+def arrow_parts(ty):
+    """`(-> Int Int Bool)` -> ["Int", "Int", "Bool"]: the parameter
+    types in order and, last, the result."""
+    if not (ty.startswith("(-> ") and ty.endswith(")")):
+        sys.exit(f"FAIL: {ty!r} is not an arrow type, and the hint labels "
+                 f"below are derived from one")
+    return ty[len("(-> "):-1].split()
+
+
+# The signature texts, cut from the `::` lines that carry them, and the
+# type alone: everything after the name up to the closing paren.
+def sig_type(sig_text, name):
+    return sig_text[sig_text.index(name) + len(name):].strip()[:-1].strip()
+
+ADD_SIG_TEXT = between(VIEW, "(:: add", "\n(fn (add")
+ADD_TYPE = sig_type(ADD_SIG_TEXT, "add")
+SUMUP_SIG_TEXT = between(VIEW, "(:: sumUp", "\n(fn (sumUp")
+SUMUP_TYPE = sig_type(SUMUP_SIG_TEXT, "sumUp")
+TWICE_SIG_TEXT = between(VIEWHELPER, "(pub :: twice", "\n\n(pub fn")
+TWICE_TYPE = sig_type(TWICE_SIG_TEXT, "twice")
+TWICE_DOC = prose(VIEWHELPER, "(pub :: twice")
+ADD_DOC = prose(VIEW, "(:: add")
+ADD_PARAMS = vparams(VIEW, "(fn (add")
+SUMUP_PARAMS = vparams(VIEW, "(fn (sumUp")
+TWICE_PARAMS = vparams(VIEWHELPER, "(pub fn (twice")
+ADD_TYS = arrow_parts(ADD_TYPE)
+SUMUP_TYS = arrow_parts(SUMUP_TYPE)
+# The constructor's field types, cut from the `data` line.
+CIRCLE_FIELDS = between(VIEW, "(Circle", ")")[len("(Circle"):].split()
+
+for what, text, doc in (("add type", ADD_TYPE, VIEW), ("sumUp type", SUMUP_TYPE, VIEW),
+                        ("twice type", TWICE_TYPE, VIEWHELPER),
+                        ("twice doc", TWICE_DOC, None), ("add doc", ADD_DOC, None)):
+    if not text.strip() or (doc is not None and text not in doc):
+        sys.exit(f"FAIL: the derived {what} text is empty or is not in the "
+                 f"document it was cut from ({text!r}) - every signature and "
+                 f"hint assertion below rests on it")
+if len(ADD_PARAMS) != 2 or len(ADD_TYS) != 3 or len(TWICE_PARAMS) != 1 or not CIRCLE_FIELDS:
+    sys.exit(f"FAIL: the VIEW document no longer declares the shapes the "
+             f"checks below are written for: add{ADD_PARAMS} : {ADD_TYS}, "
+             f"twice{TWICE_PARAMS}, Circle{CIRCLE_FIELDS}")
+if len(ADD_DOC.split("\n")) < 3:
+    sys.exit("FAIL: the comment block above `add` is under three lines, so "
+             "the folding check for a comment run would not need a run")
+
+# --- inlay hints: the whole list, derived -----------------------------
+# One tuple per hint: (line, UTF-16 character, label, kind). Kind 1 is
+# a type hint, kind 2 a parameter name; both come from the protocol.
+HDR_ADD, HDR_SUM = "(fn (add x y)", "(fn (sumUp x)"
+CALL_LIT, CALL_SAME, CALL_IMP = "(add 1 2)", "(add x 3)", "(twice (add 4 5))"
+
+
+def vhint(anchor, sub, label, kind):
+    p = vat(VIEW, anchor, 1, sub)
+    return (p["line"], p["character"], label, kind)
+
+HINTS_WANT = sorted([
+    # (b) the parameter types after each header name, (c) the result
+    # after the header's `)`.
+    vhint(HDR_ADD, "(fn (add x", ": " + ADD_TYS[0], 1),
+    vhint(HDR_ADD, "(fn (add x y", ": " + ADD_TYS[1], 1),
+    vhint(HDR_ADD, "(fn (add x y)", " -> " + ADD_TYS[2], 1),
+    vhint(HDR_SUM, "(fn (sumUp x", ": " + SUMUP_TYS[0], 1),
+    vhint(HDR_SUM, "(fn (sumUp x)", " -> " + SUMUP_TYS[1], 1),
+    # (a) parameter names before literal arguments ...
+    vhint(CALL_LIT, "(add ", ADD_PARAMS[0] + ":", 2),
+    vhint(CALL_LIT, "(add 1 ", ADD_PARAMS[1] + ":", 2),
+    # ... before the `3` but NOT before the `x` spelled like the parameter,
+    vhint(CALL_SAME, "(add x ", ADD_PARAMS[1] + ":", 2),
+    # ... and for an imported callee, with the nested call's own hints.
+    vhint(CALL_IMP, "(twice ", TWICE_PARAMS[0] + ":", 2),
+    vhint(CALL_IMP, "(twice (add ", ADD_PARAMS[0] + ":", 2),
+    vhint(CALL_IMP, "(twice (add 4 ", ADD_PARAMS[1] + ":", 2),
+])
+FORBIDDEN_HINT = vhint(CALL_SAME, "(add ", ADD_PARAMS[0] + ":", 2)
+HDR_ADD_LINE = locate(VIEW, HDR_ADD, 1)["line"]
+HINTS_ONE_LINE = sorted(h for h in HINTS_WANT if h[0] == HDR_ADD_LINE)
+if len(HINTS_WANT) < 10 or len(HINTS_ONE_LINE) < 3 or FORBIDDEN_HINT in HINTS_WANT:
+    sys.exit(f"FAIL: derived {len(HINTS_WANT)} hints ({len(HINTS_ONE_LINE)} on "
+             f"the `add` header line) - an equality against a list this short "
+             f"asserts nothing")
+
+# --- folding, selection, links, symbols: derived ---------------------
+FOLD_FN = vform(VIEW, "(fn (sumUp")
+FOLD_LET = vform(VIEW, "(let ((total")
+FOLD_PLUS = vform(VIEW, "(+ total same)")
+FOLD_FN_L, FOLD_LET_L = vlines(VIEW, FOLD_FN), vlines(VIEW, FOLD_LET)
+COMMENT_L = (locate(VIEW, "; A block", 1)["line"], locate(VIEW, "; as one region.", 1)["line"])
+IMPORTS_L = (locate(VIEW, "(import ViewHelper)", 1)["line"], locate(VIEW, "(import Nested.Deep)", 1)["line"])
+DATA_LINE = locate(VIEW, "(data Shape", 1)["line"]
+if FOLD_FN_L[0] == FOLD_FN_L[1] or COMMENT_L[1] - COMMENT_L[0] != 2 or IMPORTS_L[1] - IMPORTS_L[0] != 2:
+    sys.exit(f"FAIL: the VIEW document's fn ({FOLD_FN_L}), comment block "
+             f"({COMMENT_L}) or import run ({IMPORTS_L}) no longer spans the "
+             f"lines the folding checks need")
+
+# Two characters into the second `total` - the reference in `(+ total
+# same)`, not the binder - and the chain a selection expands through.
+TOTAL_IDX = VIEW.index("total", VIEW.index("total") + 1)
+SEL_POS = vat(VIEW, "total", 2, "to")
+CHAIN_WANT = [vrange(VIEW, TOTAL_IDX, TOTAL_IDX + len("total")),
+              vrange(VIEW, *FOLD_PLUS), vrange(VIEW, *FOLD_LET),
+              vrange(VIEW, *FOLD_FN), vrange(VIEW, 0, len(VIEW))]
+# The empty last line: nothing encloses it, so the chain is the document.
+EOF_POS = {"line": VIEW.count("\n"), "character": 0}
+DOC_RANGE = vrange(VIEW, 0, len(VIEW))
+
+LINKS_WANT = [(rng(locate(VIEW, "ViewHelper", 1)), vhelper_uri),
+              (rng(locate(VIEW, "ViewOther", 1)), vother_uri),
+              (rng(locate(VIEW, "Nested.Deep", 1)), vdeep_uri)]
+
+TWICE_DECL = locate(VIEWHELPER, "twice", 2)   # the `fn`'s name; 1 is the `::`
+SEVEN_DECL = locate(VIEWOTHER, "seven", 2)
+DEEP_DECL = locate(VIEWDEEP, "deep", 2)
+ADD_DECL = locate(VIEW, "add", 2)             # `(fn (add`; 1 is `(:: add`
+SHAPE_DECL = locate(VIEW, "Shape", 1)
+CIRCLE_DECL = locate(VIEW, "Circle", 1)
+# Mixed case on purpose: the match is a case-folded substring.
+TWICE_QUERY = "tWi"
+if TWICE_QUERY.lower() not in "twice" or TWICE_QUERY in VIEWHELPER:
+    sys.exit("FAIL: the workspace query must be a case-folded substring of "
+             "`twice` that the helper does not spell literally")
+
+
+def vreq(rid, method, extra):
+    p = {"textDocument": {"uri": view_uri}}
+    p.update(extra)
+    return {"jsonrpc": "2.0", "id": rid, "method": method, "params": p}
+
+
+def vsig(rid, anchor, sub):
+    return vreq(rid, "textDocument/signatureHelp", {"position": vat(VIEW, anchor, 1, sub)})
+
+
+def vhints(rid, start_line, end_line):
+    return vreq(rid, "textDocument/inlayHint",
+                {"range": {"start": {"line": start_line, "character": 0},
+                           "end": {"line": end_line, "character": 0}}})
+
+
+def vws(rid, query):
+    return {"jsonrpc": "2.0", "id": rid, "method": "workspace/symbol",
+            "params": {"query": query}}
+
+
+def vchange(text, version):
+    return {"jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {"textDocument": {"uri": view_uri, "version": version},
+                       "contentChanges": [{"text": text}]}}
+
+VIEW_LINES = VIEW.count("\n") + 1
+view_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+     "params": {"textDocument": {"uri": view_uri, "languageId": "axiom",
+                                 "version": 1, "text": VIEW}}},
+    vsig(40, CALL_LIT, "(add 1 "),        # on the `2`: the second argument
+    vsig(41, "(let ((total", "(let "),    # a keyword head
+    vsig(42, "(Circle 7)", "(Circle "),   # a constructor
+    vsig(43, CALL_IMP, "(twice"),         # touching an imported head
+    vhints(44, 0, VIEW_LINES),
+    vhints(45, HDR_ADD_LINE, HDR_ADD_LINE + 1),
+    vreq(46, "textDocument/foldingRange", {}),
+    vreq(47, "textDocument/selectionRange", {"positions": [SEL_POS, EOF_POS]}),
+    vreq(48, "textDocument/documentLink", {}),
+    vws(49, TWICE_QUERY),
+    vws(50, "zzqx"),
+    vws(51, ""),
+    vchange(VIEW_BROKEN, 2),
+    vsig(52, CALL_LIT, "(add 1 "),
+    vhints(53, 0, VIEW_LINES + 2),
+    vreq(54, "textDocument/foldingRange", {}),
+    vreq(55, "textDocument/documentLink", {}),
+    vchange(VIEW_FLAT, 3),
+    vreq(56, "textDocument/foldingRange", {}),
+    vhints(57, 0, 3),
+    {"jsonrpc": "2.0", "id": 9, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+
+vp = subprocess.run([stage1, "lsp"], input=view_session, capture_output=True,
+                    cwd=fixdir)
+vmsgs, vtail = unframe(vp.stdout)
+vresp = {m["id"]: m for m in vmsgs if "id" in m}
+vcaps = (vresp.get(1, {}).get("result") or {}).get("capabilities") or {}
+
+
+def vres(rid):
+    return vresp.get(rid, {}).get("result")
+
+
+def sig_says(rid, label_parts, active, param_names, doc=None):
+    """One signature whose label carries every part, whose parameters'
+    [start, end) offsets SLICE the label to the names given, with the
+    active parameter given - and the paragraph, when one is expected."""
+    r = vres(rid)
+    if r is None:
+        return f"request {rid} answered null"
+    sigs = r.get("signatures") or []
+    if len(sigs) != 1:
+        return f"request {rid} answered {len(sigs)} signature(s), want 1"
+    s = sigs[0]
+    label = s.get("label", "")
+    for w in label_parts:
+        if w not in label:
+            return f"request {rid} label {label!r} does not carry {w!r}"
+    if r.get("activeSignature") != 0:
+        return f"request {rid} activeSignature {r.get('activeSignature')!r}, want 0"
+    if r.get("activeParameter") != active:
+        return f"request {rid} activeParameter {r.get('activeParameter')!r}, want {active}"
+    got = []
+    for p in s.get("parameters") or []:
+        lb = p.get("label")
+        if not (isinstance(lb, list) and len(lb) == 2):
+            return f"request {rid} parameter label {lb!r} is not an offset pair"
+        got.append(slice_u16(label, lb[0], lb[1]))
+    if got != param_names:
+        return f"request {rid} parameters slice the label to {got}, want {param_names}"
+    if doc is not None and doc not in ((s.get("documentation") or {}).get("value") or ""):
+        return f"request {rid} documentation {s.get('documentation')!r} does not carry {doc!r}"
+    return ""
+
+
+def hints_of(rid):
+    r = vres(rid)
+    if not isinstance(r, list):
+        return None
+    return sorted((h["position"]["line"], h["position"]["character"],
+                   h["label"], h["kind"]) for h in r)
+
+
+def hints_padded(rid):
+    """Every parameter-name hint carries paddingRight and no type hint
+    does; answers the first offender or ''."""
+    for h in vres(rid) or []:
+        if (h["kind"] == 2) != (h.get("paddingRight") is True):
+            return f"hint {h!r} has the wrong paddingRight for its kind"
+    return ""
+
+
+def folds_of(rid):
+    r = vres(rid)
+    if not isinstance(r, list):
+        return None
+    return sorted((f["startLine"], f["endLine"], f.get("kind")) for f in r)
+
+
+def chain_of(node):
+    out = []
+    while node is not None:
+        out.append(node.get("range"))
+        node = node.get("parent")
+    return out
+
+
+def links_of(rid):
+    r = vres(rid)
+    if not isinstance(r, list):
+        return None
+    return [(l.get("range"), l.get("target")) for l in
+            sorted(r, key=lambda l: (l["range"]["start"]["line"], l["range"]["start"]["character"]))]
+
+
+def vsym_named(rid, name):
+    return [s for s in (vres(rid) or []) if s.get("name") == name]
+
+
+def sym_is(rid, name, kind, uri, at, container=None):
+    """Exactly one symbol `name`, with the kind, the Location and the
+    containerName it must have; the reason it is not, or ''."""
+    ss = vsym_named(rid, name)
+    if len(ss) != 1:
+        return f"request {rid} listed {name!r} {len(ss)} time(s), want once"
+    s = ss[0]
+    if s.get("kind") != kind:
+        return f"request {rid} listed {name!r} as kind {s.get('kind')}, want {kind}"
+    loc = s.get("location") or {}
+    if loc.get("uri") != uri:
+        return f"request {rid} placed {name!r} in {loc.get('uri')}, want {uri}"
+    if loc.get("range") != rng(at):
+        return f"request {rid} placed {name!r} at {loc.get('range')}, want {rng(at)}"
+    if s.get("containerName") != container:
+        return (f"request {rid} gave {name!r} containerName "
+                f"{s.get('containerName')!r}, want {container!r}")
+    return ""
+
+sig_caps = vcaps.get("signatureHelpProvider")
+link_caps = vcaps.get("documentLinkProvider")
+folds46, folds54, folds56 = folds_of(46), folds_of(54), folds_of(56)
+sel47 = vres(47)
+vwhy = ""
+if vp.returncode != 0:
+    vwhy = f"the server exited {vp.returncode}"
+elif vp.stderr:
+    vwhy = f"stderr not empty: {vp.stderr[:200]!r}"
+elif vtail:
+    vwhy = f"{len(vtail)} trailing bytes after the last frame"
+# --- capabilities: a promise the client reads ------------------------
+elif not isinstance(sig_caps, dict) or sig_caps.get("triggerCharacters") != ["(", " "] \
+        or sig_caps.get("retriggerCharacters") != [" "]:
+    vwhy = (f"signatureHelpProvider is {sig_caps!r}, want triggerCharacters "
+            f"['(', ' '] and retriggerCharacters [' ']")
+elif vcaps.get("inlayHintProvider") is not True:
+    vwhy = f"inlayHintProvider not advertised: capabilities were {sorted(vcaps)}"
+elif vcaps.get("foldingRangeProvider") is not True:
+    vwhy = f"foldingRangeProvider not advertised: capabilities were {sorted(vcaps)}"
+elif vcaps.get("selectionRangeProvider") is not True:
+    vwhy = f"selectionRangeProvider not advertised: capabilities were {sorted(vcaps)}"
+elif not isinstance(link_caps, dict) or link_caps.get("resolveProvider") is not False:
+    vwhy = (f"documentLinkProvider is {link_caps!r}, want resolveProvider false - "
+            f"there is no documentLink/resolve")
+elif vcaps.get("workspaceSymbolProvider") is not True:
+    vwhy = f"workspaceSymbolProvider not advertised: capabilities were {sorted(vcaps)}"
+# --- signature help --------------------------------------------------
+elif sig_says(40, ["(add " + " ".join(ADD_PARAMS) + ")", ADD_TYPE], 1, ADD_PARAMS, ADD_DOC):
+    vwhy = "signature help on the second argument: " + \
+        sig_says(40, ["(add " + " ".join(ADD_PARAMS) + ")", ADD_TYPE], 1, ADD_PARAMS, ADD_DOC)
+elif vres(41) is not None:
+    vwhy = f"signature help on a `let` head answered {vres(41)!r}, want null"
+elif sig_says(42, ["(Circle " + " ".join(CIRCLE_FIELDS) + ")"], 0, CIRCLE_FIELDS):
+    vwhy = "signature help on a constructor: " + \
+        sig_says(42, ["(Circle " + " ".join(CIRCLE_FIELDS) + ")"], 0, CIRCLE_FIELDS)
+elif sig_says(43, ["(twice " + " ".join(TWICE_PARAMS) + ")", TWICE_TYPE, "ViewHelper"], 0, TWICE_PARAMS, TWICE_DOC):
+    vwhy = "signature help on an imported fn: " + \
+        sig_says(43, ["(twice " + " ".join(TWICE_PARAMS) + ")", TWICE_TYPE, "ViewHelper"], 0, TWICE_PARAMS, TWICE_DOC)
+elif vres(52) is not None:
+    vwhy = f"signature help on a document that does not parse answered {vres(52)!r}, want null"
+# --- inlay hints -----------------------------------------------------
+elif hints_of(44) != HINTS_WANT:
+    vwhy = (f"inlay hints over the whole document are not the derived list;\n"
+            f"          server:  {hints_of(44)}\n          derived: {HINTS_WANT}")
+elif hints_padded(44):
+    vwhy = "inlay hints: " + hints_padded(44)
+elif hints_of(45) != HINTS_ONE_LINE:
+    vwhy = (f"inlay hints over line {HDR_ADD_LINE} alone answered {hints_of(45)}, "
+            f"want only that line's {HINTS_ONE_LINE}")
+elif vres(53) != []:
+    vwhy = f"inlay hints on a document that does not parse answered {vres(53)!r}, want []"
+elif vres(57) != []:
+    vwhy = f"inlay hints on a signature with no arrow answered {vres(57)!r}, want []"
+# --- folding ---------------------------------------------------------
+elif folds46 is None:
+    vwhy = f"foldingRange answered {vres(46)!r}, want an array"
+elif (FOLD_FN_L[0], FOLD_FN_L[1], None) not in folds46:
+    vwhy = f"folding did not offer the fn form {FOLD_FN_L}; it offered {folds46}"
+elif (FOLD_LET_L[0], FOLD_LET_L[1], None) not in folds46:
+    vwhy = f"folding did not offer the let form {FOLD_LET_L}; it offered {folds46}"
+elif (COMMENT_L[0], COMMENT_L[1], "comment") not in folds46:
+    vwhy = f"folding did not offer the comment block {COMMENT_L} as kind comment; it offered {folds46}"
+elif (IMPORTS_L[0], IMPORTS_L[1], "imports") not in folds46:
+    vwhy = f"folding did not offer the import run {IMPORTS_L} as kind imports; it offered {folds46}"
+elif [f for f in folds46 if f[0] == DATA_LINE]:
+    vwhy = f"folding offered a range starting on the one-line `data` at line {DATA_LINE}"
+elif [f for f in folds46 if f[0] >= f[1]]:
+    vwhy = f"folding offered a range that does not span two lines: {[f for f in folds46 if f[0] >= f[1]]}"
+elif folds54 != folds46:
+    vwhy = (f"a document that does not parse folded {folds54}, want the same "
+            f"balanced forms as before the edit: {folds46}")
+elif folds56 != []:
+    vwhy = f"a document of one-line forms folded {folds56}, want []"
+# --- selection ranges ------------------------------------------------
+elif not isinstance(sel47, list) or len(sel47) != 2:
+    vwhy = f"selectionRange for two positions answered {sel47!r}"
+elif chain_of(sel47[0]) != CHAIN_WANT:
+    vwhy = (f"selection chain at `total` is not the derived one;\n"
+            f"          server:  {chain_of(sel47[0])}\n          derived: {CHAIN_WANT}")
+elif chain_of(sel47[1]) != [DOC_RANGE]:
+    vwhy = f"selection chain on the empty last line is {chain_of(sel47[1])}, want the document alone"
+# --- document links --------------------------------------------------
+elif links_of(48) != LINKS_WANT:
+    vwhy = (f"document links are not the derived ones;\n"
+            f"          server:  {links_of(48)}\n          derived: {LINKS_WANT}")
+elif vres(55) != []:
+    vwhy = f"document links on a document that does not parse answered {vres(55)!r}, want []"
+# --- workspace symbols -----------------------------------------------
+elif len(vres(49) or []) != 1 or sym_is(49, "twice", 12, vhelper_uri, TWICE_DECL, "ViewHelper"):
+    vwhy = (f"workspace/symbol {TWICE_QUERY!r}: " +
+            (sym_is(49, "twice", 12, vhelper_uri, TWICE_DECL, "ViewHelper")
+             or f"answered {len(vres(49) or [])} symbol(s), want the one `twice`"))
+elif vres(50) != []:
+    vwhy = f"workspace/symbol on a query nothing matches answered {vres(50)!r}, want []"
+elif sym_is(51, "add", 12, view_uri, ADD_DECL):
+    vwhy = "workspace/symbol '': " + sym_is(51, "add", 12, view_uri, ADD_DECL)
+elif sym_is(51, "Shape", 10, view_uri, SHAPE_DECL):
+    vwhy = "workspace/symbol '': " + sym_is(51, "Shape", 10, view_uri, SHAPE_DECL)
+elif sym_is(51, "Circle", 22, view_uri, CIRCLE_DECL):
+    vwhy = "workspace/symbol '': " + sym_is(51, "Circle", 22, view_uri, CIRCLE_DECL)
+elif sym_is(51, "seven", 12, vother_uri, SEVEN_DECL, "ViewOther"):
+    vwhy = "workspace/symbol '': " + sym_is(51, "seven", 12, vother_uri, SEVEN_DECL, "ViewOther")
+elif sym_is(51, "twice", 12, vhelper_uri, TWICE_DECL, "ViewHelper"):
+    vwhy = "workspace/symbol '': " + sym_is(51, "twice", 12, vhelper_uri, TWICE_DECL, "ViewHelper")
+elif sym_is(51, "deep", 12, vdeep_uri, DEEP_DECL, "Nested.Deep"):
+    vwhy = "workspace/symbol '': " + sym_is(51, "deep", 12, vdeep_uri, DEEP_DECL, "Nested.Deep")
+elif len(vres(51)) > 200:
+    vwhy = f"workspace/symbol '' answered {len(vres(51))} symbols, over the 200 cap"
+
+if vwhy:
+    print(f"FAIL view: {vwhy}")
+    failed += 1
+else:
+    print(f"ok   signature-help (activeParameter 1 on `{CALL_LIT}`, labels "
+          f"slicing to {ADD_PARAMS} with {ADD_TYPE!r} cut from the document, a "
+          f"constructor, `twice` from ViewHelper with its paragraph; null on a "
+          f"keyword head and on a document that does not parse)")
+    print(f"ok   inlay-hints (exactly the {len(HINTS_WANT)} derived hints: types "
+          f"after header parameters, the result after the header, names before "
+          f"literal and nested arguments, none before the var spelled like its "
+          f"parameter; {len(HINTS_ONE_LINE)} for one line; [] on a document that "
+          f"does not parse)")
+    print(f"ok   folding    (the fn {FOLD_FN_L}, the let {FOLD_LET_L}, a comment "
+          f"run {COMMENT_L}, an import run {IMPORTS_L}; the same forms on a "
+          f"document that does not parse; [] with nothing to fold)")
+    print(f"ok   selection  (word -> form -> let -> fn -> document, {len(CHAIN_WANT)} "
+          f"derived ranges; the document alone on the empty last line)")
+    print(f"ok   links      ({len(LINKS_WANT)} module names, one dotted, to their files' URIs; "
+          f"[] on a document that does not parse)")
+    print(f"ok   workspace  (`twice` found by {TWICE_QUERY!r} in ViewHelper.ax with "
+          f"its container, 6 declarations of 3 kinds in 4 files placed by an "
+          f"empty query, [] for a query nothing matches)")
+    passed += 6
+shutil.rmtree(VIEWDIR, ignore_errors=True)
 
 # =====================================================================
 # END SECTION VIEW TESTS
