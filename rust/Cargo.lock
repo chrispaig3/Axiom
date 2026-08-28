@@ -4,11 +4,11 @@ version = 4
 
 [[package]]
 name = "axiom-abi"
-version = "0.3.5"
+version = "0.3.6"
 
 [[package]]
 name = "axiom-bindgen"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "axiom-ffi-classify",
  "syn 2.0.119",
@@ -16,14 +16,14 @@ dependencies = [
 
 [[package]]
 name = "axiom-demo"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "axiom-ffi",
 ]
 
 [[package]]
 name = "axiom-ffi"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "axiom-abi",
  "axiom-ffi-macros",
@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "axiom-ffi-classify"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "axiom-ffi-macros"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "axiom-ffi",
  "axiom-ffi-classify",
@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "axiom-host"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "axiom-ffi",
 ]

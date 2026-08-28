@@ -38,14 +38,14 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
-axiom-abi = { path = "axiom-abi", version = "0.3.5" }
-axiom-ffi-macros = { path = "axiom-ffi-macros", version = "0.3.5" }
-axiom-ffi-classify = { path = "axiom-ffi-classify", version = "0.3.5" }
+axiom-abi = { path = "axiom-abi", version = "0.3.6" }
+axiom-ffi-macros = { path = "axiom-ffi-macros", version = "0.3.6" }
+axiom-ffi-classify = { path = "axiom-ffi-classify", version = "0.3.6" }
 # `parsing` and `printing` are syn defaults; the `visit` visitor API is
 # used by none of the three crates that parse Rust here.
 syn = { version = "2", features = ["full", "extra-traits"] }

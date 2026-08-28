@@ -16,6 +16,16 @@ its changelog too.
 
 ## Unreleased
 
+## 0.3.6 — 2026-08-28
+
+The three compiler defects the language-server work found and 0.3.5
+recorded under *Found, not fixed* are fixed, the server stops sending
+semantic tokens so the grammar is the one source of colour, and the
+grammar gains rainbow brackets. No gate was added: every change here
+is covered by the thirty-seven gates that build the compiler under
+test through `gate_build_axc`, and `check-tree-sitter.sh` learns one
+more query file.
+
 ### Removed
 
 - **Semantic tokens.** 0.3.5's `textDocument/semanticTokens/full` and
@@ -75,6 +85,26 @@ its changelog too.
   rewrites and 24 refusals; the tree-sitter corpus gains the shape (38
   cases). The ten identifiers renamed in `f0a2fa3` could be renamed
   back.
+
+- **Every name the emitter invents begins with a byte no identifier can
+  spell.** `(fn (f t0) (+ t0 1))` passed `check` and died in `opt` with
+  *multiple definition of local value named 't0'* (AX4003): temporaries
+  were `%tN` and a parameter `%name`, one LLVM namespace, two schemes
+  that could spell the same string — and `t<digits>` was only the first;
+  measured one prefix at a time, `label_3`, `f1`, `c0`, `d0`, `p1` and a
+  lambda parameter named `_env` each failed the same way. The fix is a
+  construction, not a list: every local value and block label the
+  emitter makes up now begins with `.` — `%.t0`, `%.d0`, `.L3`, `%.env`
+  — which LLVM accepts and no Axiom identifier can contain
+  (`isIdentStart`/`isIdentChar` leave byte 46 out), so the two
+  namespaces are disjoint by what they are made of; 28 label sites and
+  17 typed-temporary sites go through `tmpStr`/`labelStr`. Global
+  symbols are untouched byte for byte (`check-symbol-names`,
+  `check-freestanding`, `check-c-abi`). `tests/selfhost/955-source-
+  names-vs-emitter-names.ax` names a parameter after every old prefix:
+  exit 4 in `opt` on 0.3.5, 42 here. The committed seed keeps its `%tN`
+  and the ladder built from it reaches its fixpoint on the new
+  spelling (`check-bootstrap.sh`).
 
 - **`bootstrap-from-seed.sh --install` copied the compiler onto the
   binary it was replacing.** `cp` onto an existing executable rewrites

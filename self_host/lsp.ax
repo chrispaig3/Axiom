@@ -2497,7 +2497,7 @@
 ; nothing calls.
 (pub :: lspCapabilities Int)
 
-(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (lspFixCaps (lspViewCaps (lspNavCaps (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions))))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.3.5"))))
+(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (lspFixCaps (lspViewCaps (lspNavCaps (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions))))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.3.6"))))
 
 ; `definitionProvider` and `hoverProvider` joined on 2026-08-15
 ; with the macro navigation they describe (MAC-TOOL-2). Both are
@@ -8575,8 +8575,10 @@
 ; parser drops, is written as a comment naming it; an `impl` head
 ; keeps only its type's NAME, as the parser kept it; a rule-form
 ; macro's non-binder patterns are written as the `syntax/pat` marker
-; the parser stores; a generated struct's fields have no type in the
-; tree (see `lspRenderFields`) and are written untyped. A node with a
+; the parser stores; a generated struct's fields are written with
+; their types now that the expander carries them (they were untyped
+; until `expBuildStructFieldsIn` was fixed - `lspRenderFields` still
+; writes a bare `(name)` for a field whose type is 0). A node with a
 ; tag this printer does not know is written as
 ; `(syntax/unrenderable N)`, which parses and says what it is.
 ;
