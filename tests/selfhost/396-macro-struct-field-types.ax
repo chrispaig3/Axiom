@@ -1,0 +1,72 @@
+; expect 73
+; A macro-generated `struct` keeps its field TYPES - and so its float
+; flags - exactly as its handwritten twin does.
+;
+; `expBuildStructFieldsIn` read the parser's field node wrong: the
+; parser stores a field's name in word a, its FLOAT FLAG in word b
+; and its type node in ty (`parseOneFieldNamed`), and the builder
+; substituted b as if it were the type and stored the result back in
+; b, leaving ty 0. Two consequences, one per field kind here:
+;
+;   - `Bare` has `(f : Float)` spelled in the template, so b is 1, and
+;     `expSubstTy` of the integer 1 dereferenced it: the unfixed
+;     compiler dies of SIGSEGV (exit 139) in expansion, on `check`,
+;     `build` and `symbols` alike, before reporting anything.
+;   - `Param` gets its `Float` through the parameter `E`, so b is 0
+;     and the field reaches the checker with no type at all - a
+;     silent wildcard. `symbols` printed `#fields=n:{unknown},
+;     f:{unknown}` beside the twin's `n:Int,f:Float`, and on its own
+;     `(* p.f p.f)` was refused with a false `AX3004 expected Float,
+;     found Int` - a well-typed program, exit 1.
+;
+; The builder now substitutes the type from ty and recomputes the flag
+; from what came out (`expTyIsFloatCon`, as `expCtorFlags` does for a
+; constructor), so all three structs below are the same struct. Every
+; term needs both types right: integer arithmetic on `n`, and float
+; arithmetic on `f` with nothing beside it to say "float" - `(* f f)`
+; on two words the field alone has to type.
+;
+;   21  (* b.n 3)                          Bare, the Int field
+;    6  (__floatToInt (* b.f b.f))         Bare, 2.5 * 2.5 = 6.25
+;   35  (* p.n 5)                          Param, the Int field
+;    6  (__floatToInt (* p.f p.f))         Param, the Float field
+;    5  (- h.n (__floatToInt h.f))         the handwritten twin
+;
+; 21 + 6 + 35 + 6 + 5 = 73. The unfixed compiler answers 139.
+(macro defPair ((defPair N)
+   (struct N (n : Int) (f : Float))))
+
+(macro defPairOf ((defPairOf N E)
+   (struct N (n : Int) (f : E))))
+
+(defPair Bare)
+
+(defPairOf Param Float)
+
+(struct Hand
+  (n : Int)
+  (f : Float))
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (b (struct Bare 7 2.5))
+    (p (struct Param 7 2.5))
+    (h (struct Hand 7 2.5))
+  )
+    (+
+      (* b.n 3)
+      (+
+        (__floatToInt (* b.f b.f))
+        (+
+          (* p.n 5)
+          (+
+            (__floatToInt (* p.f p.f))
+            (- h.n (__floatToInt h.f))
+          )
+        )
+      )
+    )
+  )
+)

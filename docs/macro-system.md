@@ -2196,12 +2196,22 @@ field access, an escaped string, a char, a float, a negative literal
 and a generated `data`, `type` and `struct` — `check` on the rendering
 reported exactly the diagnostics it reported on the template. Two
 things the printer says out loud: a hygiene binder `x.3` is written
-`x_3`, and `Mod$name` as `Mod::name`. And one thing it found: a
-generated `struct`'s fields carry no type in the expanded tree, because
-`expBuildStructFieldsIn` substitutes the parsed field's float-flag slot
-where the type sits, so they print `(name)` — which re-parses to the
-same wildcard the checker already saw. That is an expander defect
-recorded here, not a printer choice.
+`x_3`, and `Mod$name` as `Mod::name`. And one thing it found, an
+expander defect rather than a printer choice, fixed the same day: a
+generated `struct`'s fields carried no type in the expanded tree,
+because `expBuildStructFieldsIn` substituted the parsed field's
+float-flag word where the type sits. An `Int` field's 0 became an
+untyped field — the wildcard the checker already saw, `{unknown}` in
+`symbols` where the handwritten twin prints `Int`, `(name)` in the
+rendering — and a bare `Float` field's 1 was dereferenced as a node,
+so `check` died of SIGSEGV before saying anything. The builder now
+substitutes the field's type node and recomputes the float flag from
+what came out, as `expCtorFlags` does for a constructor, so a generated
+struct and its handwritten twin produce identical AXSYM rows and
+identical code. Pinned by
+`tests/selfhost/396-macro-struct-field-types.ax` — exit 139 on the
+unfixed compiler — and by the zoo's `RecTwin`, whose row in
+`tests/tools/symbols-zoo.golden` carries `Rec`'s own `#fields=`.
 
 **MAC-TOOL-4 (H, 2026-08-15).** With `MAC-CAP-8`, `axiom symbols`
 **SHALL** list generated declarations, attributed to the file

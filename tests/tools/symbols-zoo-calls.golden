@@ -141,6 +141,7 @@ D Wrapped tests/fmt/syntax-zoo.ax:226:7-14 "data Wrapped" @456b706b2b771a60 #cto
 C W tests/fmt/syntax-zoo.ax:227:4-5 "(Box Int -> Wrapped)" #of=Wrapped
 S Rec tests/fmt/syntax-zoo.ax:50:13-16 "struct Rec" @7e8483a9aaef3fde #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 S Holder tests/fmt/syntax-zoo.ax:223:9-15 "struct Holder" @39a2b36e5f606cfe #fields=item:Box Int
+S RecTwin tests/fmt/syntax-zoo.ax:376:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:21:11-16 "Int" @910ecfbfa27ddde2
 A BoxedCount tests/fmt/syntax-zoo.ax:221:11-21 "Box Int" @ce5c1ba8305ca704
 T Show tests/fmt/syntax-zoo.ax:58:9-13 "trait Show" @8318f82fa5e17568 #methods=show:(a -> Int),width:(a -> Int)
@@ -148,6 +149,7 @@ T Ord tests/fmt/syntax-zoo.ax:63:9-12 "trait Ord" @c40227b1c47b7fe4 #methods=cmp
 T Container tests/fmt/syntax-zoo.ax:229:9-18 "trait Container" @8d4c851c510050c4 #methods=held:Box a
 T Boxy tests/fmt/syntax-zoo.ax:233:9-13 "trait Boxy" @c48328b263173335 #methods=reboxed:Box Box a
 M twice tests/fmt/syntax-zoo.ax:102:9-14 "macro twice" @a0ee9867b2571b97
+M defRecTwin tests/fmt/syntax-zoo.ax:368:8-18 "macro defRecTwin" @175bc52ff43ee048
 E Console tests/fmt/syntax-zoo.ax:186:9-16 "effect Console" @5e35620abc5f495d
 E Wire tests/fmt/syntax-zoo.ax:189:9-13 "effect Wire" @f3f0a43895c12689
 E Boxes tests/fmt/syntax-zoo.ax:247:9-14 "effect Boxes" @244d27b945c772d1

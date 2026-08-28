@@ -6934,13 +6934,32 @@
           (cast Int fn0)          0
         )
           0
+          ; The parser's field layout (`parseOneFieldNamed`): the name
+          ; in a, the FLOAT FLAG in b, the TYPE NODE in ty. This read b
+          ; as the type. `expSubstTy` of the integer 1 a bare `Float`
+          ; leaves there dereferenced it, and expansion died of SIGSEGV
+          ; before `check` could say anything; an `Int` field's 0
+          ; substituted to 0, so the field reached the checker with no
+          ; type - a silent wildcard, `{unknown}` in AXSYM where its
+          ; handwritten twin prints `Int`. The type substitutes from
+          ; ty and the flag is recomputed from what came out, as
+          ; `expCtorFlags` does for a constructor and for the same
+          ; reason: the template's own flag is 0 for `(f : E)` however
+          ; `E` substitutes. Pinned by
+          ; tests/selfhost/396-macro-struct-field-types.ax and the
+          ; zoo's `RecTwin`, whose AXSYM row carries `Rec`'s.
           (let ((ty (expSubstTy
-            (nodeB f)            params            args            env            isp
+            (nodeTy f)            params            args            env            isp
           )))
-            (expBuildStructFieldsIn
-              fs              params              args              env              isp              (vecPush acc (mkNodeAt
-                TAG_FIELD                fn0                ty                0                (expNameSpan (nodeAName f) params args)
-              ))              (+ i 1)
+            (let ((g (mkNodeAt
+              TAG_FIELD              fn0              (expTyIsFloatCon ty)              0              (expNameSpan (nodeAName f) params args)
+            )))
+              {
+                (setNodeTy g ty)
+                (expBuildStructFieldsIn
+                  fs                  params                  args                  env                  isp                  (vecPush acc g)                  (+ i 1)
+                )
+              }
             )
           )
         )
