@@ -18,7 +18,7 @@ consumer should price in.
 
 ## What is supported
 
-The supported release is **0.3.4**. Security fixes are made against the
+The supported release is **0.3.5**. Security fixes are made against the
 newest release and shipped as a new patch; earlier releases receive
 nothing, and there is no long-term-support branch.
 
