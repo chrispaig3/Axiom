@@ -43,6 +43,39 @@ its changelog too.
 
 ### Fixed
 
+- **A macro-generated `struct`'s fields carried the parser's float flag
+  where their type belonged.** `expBuildStructFieldsIn` substituted
+  word `b` of each field — the float flag — as if it were the type and
+  stored the result back in `b`, leaving `ty` 0. Measured on the tree
+  before the change: a template spelling `(f : Float)` made `check`,
+  `build` and `symbols` die of SIGSEGV in expansion (a dereferenced
+  `1`); a `Float` arriving through a parameter reached the checker as
+  a silent wildcard, `symbols` printed `#fields=n:{unknown},f:{unknown}`
+  beside the handwritten twin's `n:Int,f:Float`, and `(* p.f p.f)` was
+  refused with a false `AX3004`. The builder reads the type from `ty`,
+  recomputes the flag from what the substitution produced (as
+  `expCtorFlags` already does for constructors), and parks the type
+  where the parser does. `tests/selfhost/396-macro-struct-field-types.ax`
+  exits 139 on the old compiler and 73 on this one; the symbols zoo's
+  `RecTwin` row now carries `Rec`'s own `#fields=`.
+
+- **The formatter reserved thirty-two words the language does not.**
+  `axiom fmt` refused `(fn (g data) data)` while `check` accepted it;
+  `docs/reference.md` has always said a keyword is special only in the
+  position its rule claims. `fpIsReservedWord` reproduced the retired
+  Rust compiler's lexer, and the parity bank had pinned that answer as
+  `070-keyword-in-expr` since the day it was materialized. Measured
+  over thirty-six shapes: every non-head keyword-spelled identifier was
+  `check` OK (or a checker error) and `fmt` refused; in head position
+  the parser refuses only `consume` and `begin` (AX2004) — and the
+  printer PRINTED those two, output `check` cannot read. Two words
+  replace the list (`fpIsRefusedHead`, the two `parseInner` refuses);
+  `070` and `131` flip to rewrites, `190`–`197` pin the identifiers
+  that print and the refusals the parser shares. 48 parity cases, 24
+  rewrites and 24 refusals; the tree-sitter corpus gains the shape (38
+  cases). The ten identifiers renamed in `f0a2fa3` could be renamed
+  back.
+
 - **`bootstrap-from-seed.sh --install` copied the compiler onto the
   binary it was replacing.** `cp` onto an existing executable rewrites
   the same inode, and macOS keeps a signature cached per inode for a
