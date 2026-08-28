@@ -1281,6 +1281,12 @@ NAV_MAIN = """(import RefHelper)
 ; A shape with two constructors, one of them carrying a field.
 (pub data Shape (Dot) (Circle Int))
 
+; A struct whose field names the type above, and an alias that names
+; it too: two of the type positions a rename of it has to reach.
+(pub struct Box (top : Shape) (n : Int))
+
+(pub type Shapes = [Shape])
+
 ; Two parameters; the second is shadowed by a `let` whose value
 ; still reads the parameter, because a `let` is not recursive.
 (pub :: area (-> Int Int Int))
@@ -1375,7 +1381,8 @@ def pair_text(src, byte):
 # assertions below assume, or a position lands on the wrong occurrence
 # and the check passes or fails for the wrong reason.
 NAV_COUNTS = {"ph": 4, "pw": 2, "area": 3, "acc": 4, "lx": 2, "rad": 3,
-              "twice": 1, "Circle": 3, "count": 3, "surface": 0, "total": 0}
+              "twice": 1, "Circle": 3, "count": 3, "surface": 0, "total": 0,
+              "Shape": 4, "Blob": 0}
 for _n, _c in NAV_COUNTS.items():
     if ident_count(NAV_MAIN, _n) != _c:
         sys.exit(f"FAIL: NavMain.ax spells `{_n}` {ident_count(NAV_MAIN, _n)} "
@@ -1401,6 +1408,20 @@ TWICE_A = idents(NAV_MAIN, "twice", 1)
 TWICE_D = idents(REF_HELPER, "twice", 2)  # signature, fn
 CIRCLE_A = idents(NAV_MAIN, "Circle", 3)  # constructor, pattern head, expression
 CIRCLE_B = idents(NAV_USER, "Circle", 1)
+# The type: its declaration, then three TYPE POSITIONS - a struct
+# field, the alias's target, the signature of `radius` - none of which
+# is a node with a span, so each is a place the walk has to read out
+# of the bytes. The `Int` beside it in that signature is a builtin
+# type position: an occurrence, never renamable.
+SHAPE_A = idents(NAV_MAIN, "Shape", 4)
+_radius_sig = NAV_MAIN.index("(pub :: radius")
+INT_IN_SIG = next(p for p in idents(NAV_MAIN, "Int", ident_count(NAV_MAIN, "Int"))
+                  if p["byte"] > _radius_sig)
+if not (SHAPE_A[0]["byte"] < NAV_MAIN.index("(pub struct Box") < SHAPE_A[1]["byte"]
+        < NAV_MAIN.index("(pub type Shapes") < SHAPE_A[2]["byte"] < _radius_sig < SHAPE_A[3]["byte"]
+        < INT_IN_SIG["byte"] < NAV_MAIN.index("\n", _radius_sig)):
+    sys.exit("FAIL: NavMain.ax no longer spells `Shape` in the four positions - data, "
+             "struct field, alias, signature - the type-position checks are written for")
 KW_MATCH = ident_at(NAV_MAIN, "match", 1)
 KW_LET = ident_at(NAV_MAIN, "let", 1)
 LITERAL = locate(NAV_MAIN, "((Dot) 0)", 1)
@@ -1472,6 +1493,10 @@ nav_session2 = b"".join(frame(m) for m in [
     nav_req(31, "textDocument/hover", A_URI, PH[3]),
     nav_req(32, "textDocument/hover", C_URI, PW[1]),
     nav_req(33, "textDocument/definition", C_URI, PH[3]),
+    # type positions: from the signature, from the declaration
+    refs(35, A_URI, SHAPE_A[3], True), hilite(36, A_URI, SHAPE_A[0]),
+    prep(37, A_URI, INT_IN_SIG), ren(38, A_URI, SHAPE_A[1], "Blob"),
+    ren(39, A_URI, SHAPE_A[0], "Int"),
     {"jsonrpc": "2.0", "id": 34, "method": "shutdown", "params": None},
     {"jsonrpc": "2.0", "method": "exit", "params": None},
 ])
@@ -1570,6 +1595,7 @@ rename_caps = rcaps.get("renameProvider")
 SURFACE_EDITS = {A_URI: [(rng(a), "surface") for a in AREA_A],
                  B_URI: [(rng(AREA_B[0]), "surface")]}
 TOTAL_EDITS = {A_URI: [(rng(a), "total") for a in ACC]}
+BLOB_EDITS = {A_URI: [(rng(s), "Blob") for s in SHAPE_A]}
 nwhy = ""
 if rp.returncode != 0:
     nwhy = f"the server exited {rp.returncode}: {rp.stderr[:200]!r}"
@@ -1678,14 +1704,34 @@ elif want_null(32, "hover on the document that does not parse"):
     nwhy = want_null(32, "hover on the document that does not parse")
 elif want_null(33, "definition on the document that does not parse"):
     nwhy = want_null(33, "definition on the document that does not parse")
+# --- type positions ---------------------------------------------------
+# The cursor on `Shape` in a SIGNATURE finds the declaration and every
+# other type position; the declaration's highlight is the one Write
+# among Reads; a builtin in a type position is an occurrence but not
+# a renamable one; the rename reaches all four; and a new name the
+# type positions already spell is refused, since `(-> Int Int)` would
+# then mean something else.
+elif want_locs(35, [loc(A_URI, s) for s in SHAPE_A]):
+    nwhy = "`Shape` from its signature position: " + want_locs(35, [loc(A_URI, s) for s in SHAPE_A])
+elif want_hilites(36, [(SHAPE_A[0], 3)] + [(s, 2) for s in SHAPE_A[1:]]):
+    nwhy = "`Shape` highlights over its type positions: " + want_hilites(36, [(SHAPE_A[0], 3)] + [(s, 2) for s in SHAPE_A[1:]])
+elif want_null(37, "prepareRename on the builtin `Int` in a signature"):
+    nwhy = want_null(37, "prepareRename on the builtin `Int` in a signature")
+elif got_edits(38) != BLOB_EDITS:
+    nwhy = f"rename `Shape` -> `Blob` from its struct field answered {got_edits(38)!r}, want {BLOB_EDITS!r}"
+elif want_null(39, "rename `Shape` to `Int`, which its signatures already spell"):
+    nwhy = want_null(39, "rename `Shape` to `Int`, which its signatures already spell")
 
-# The rename, APPLIED. NavMain.ax is rewritten on disk as well as
-# reopened, because NavUser.ax's checker reads its import from disk;
-# both must then check clean, and the old name must be gone.
+# The renames, APPLIED - `area` -> `surface` under both uris and
+# `Shape` -> `Blob` under the first, whose edits never overlap.
+# NavMain.ax is rewritten on disk as well as reopened, because
+# NavUser.ax's checker reads its import from disk; both must then
+# check clean, and the old names must be gone.
 renamed = {}
 if not nwhy:
     for u, text in ((A_URI, NAV_MAIN), (B_URI, NAV_USER)):
-        edits = rresp[21]["result"]["changes"][u]
+        edits = list(rresp[21]["result"]["changes"][u])
+        edits += rresp[38]["result"]["changes"].get(u, [])
         renamed[u] = apply_edits(text, edits)
         if renamed[u] is None:
             nwhy = f"the edits for {os.path.basename(u)} overlap"
@@ -1708,6 +1754,13 @@ if not nwhy:
     elif ident_count(renamed[A_URI], "surface") != len(AREA_A) or ident_count(renamed[B_URI], "surface") != 1:
         nwhy = (f"the renamed documents spell `surface` {ident_count(renamed[A_URI], 'surface')} "
                 f"and {ident_count(renamed[B_URI], 'surface')} times, want {len(AREA_A)} and 1")
+    elif ident_count(renamed[A_URI], "Shape") or ident_count(renamed[A_URI], "Blob") != len(SHAPE_A):
+        nwhy = (f"after renaming the type, NavMain.ax spells `Shape` "
+                f"{ident_count(renamed[A_URI], 'Shape')} and `Blob` "
+                f"{ident_count(renamed[A_URI], 'Blob')} times, want 0 and {len(SHAPE_A)} - "
+                f"a type position the rename did not reach")
+    elif A_URI not in pubs2 or B_URI not in pubs2:
+        nwhy = "the session over the renamed documents published nothing for one of them"
     elif pubs2.get(A_URI) or pubs2.get(B_URI):
         nwhy = ("the renamed documents no longer check clean: "
                 f"{[(os.path.basename(u), [(d['code'], first_line(d['message'])) for d in ds]) for u, ds in pubs2.items() if ds]!r:.400}")
@@ -1719,15 +1772,19 @@ else:
     print(f"ok   references (a shadowed parameter and the `let` that shadows it, "
           f"includeDeclaration both ways, `area` and `Circle` found in "
           f"{os.path.basename(B_URI)} under its own uri, imported `twice` found "
-          f"in its open module; null on a keyword and on a document that does not parse)")
+          f"in its open module, `Shape` in {len(SHAPE_A) - 1} type positions read from "
+          f"the bytes; null on a keyword and on a document that does not parse)")
     print(f"ok   highlights (Write on a `mut` binder and its `set`, Read on its "
           f"reads; a lambda parameter and a pattern binder anchored from the "
-          f"bytes; null on a literal and on a broken document)")
-    print(f"ok   rename     (prepareRename on a local, null on an import, a keyword "
-          f"and a broken document; `area` -> `surface` as {len(AREA_A)} + 1 edits under "
-          f"two uris, applied here and checked clean with no `area` left; a local "
-          f"renamed in {len(ACC)} places; refused for `1abc`, a sibling parameter, and "
-          f"a name either document declares)")
+          f"bytes; Read on a type's signature, field and alias positions; null on a "
+          f"literal and on a broken document)")
+    print(f"ok   rename     (prepareRename on a local, null on an import, a keyword, "
+          f"a builtin type and a broken document; `area` -> `surface` as {len(AREA_A)} + 1 "
+          f"edits under two uris and `Shape` -> `Blob` as {len(SHAPE_A)} edits through a "
+          f"signature, a struct field and an alias, applied here and checked clean with "
+          f"neither old name left; a local renamed in {len(ACC)} places; refused for "
+          f"`1abc`, a sibling parameter, a name either document declares, and a type "
+          f"name the signatures spell)")
     print(f"ok   local-nav  (definition from a read to ITS binder through a "
           f"shadowing `let`, hover `pw : {PARAM_TYPE}` from the signature and "
           f"{LET_TEXT!r} cut from the document; null on a broken document)")
@@ -1803,6 +1860,9 @@ VIEW = """(import ViewHelper)
 
 (:: shape Shape)
 (fn (shape) (Circle 7))
+
+(:: viaLocal Int)
+(fn (viaLocal) (let ((add (lambda (p q) (+ p q)))) (add 8 9)))
 
 (:: main Int)
 (fn (main) (twice (add 4 5)))
@@ -1946,7 +2006,18 @@ HINTS_WANT = sorted([
 FORBIDDEN_HINT = vhint(CALL_SAME, "(add ", ADD_PARAMS[0] + ":", 2)
 HDR_ADD_LINE = locate(VIEW, HDR_ADD, 1)["line"]
 HINTS_ONE_LINE = sorted(h for h in HINTS_WANT if h[0] == HDR_ADD_LINE)
-if len(HINTS_WANT) < 10 or len(HINTS_ONE_LINE) < 3 or FORBIDDEN_HINT in HINTS_WANT:
+# The call whose head is the `let`-bound `add`, spelled like the
+# top-level `fn`: a LOCAL, so it is not a call to `add` and gets no
+# parameter hints and no signature - the language's scoping rule, and
+# the one thing a lookup by bare name cannot know.
+CALL_LOCAL = "(add 8 9)"
+LOCAL_CALL_LINE = locate(VIEW, CALL_LOCAL, 1)["line"]
+if "(let ((add " not in VIEW or VIEW.count(CALL_LOCAL) != 1 \
+        or LOCAL_CALL_LINE != locate(VIEW, "(let ((add ", 1)["line"]:
+    sys.exit("FAIL: the VIEW document no longer binds a local `add` and calls it once on "
+             "the binding's own line")
+if len(HINTS_WANT) < 10 or len(HINTS_ONE_LINE) < 3 or FORBIDDEN_HINT in HINTS_WANT \
+        or [h for h in HINTS_WANT if h[0] == LOCAL_CALL_LINE]:
     sys.exit(f"FAIL: derived {len(HINTS_WANT)} hints ({len(HINTS_ONE_LINE)} on "
              f"the `add` header line) - an equality against a list this short "
              f"asserts nothing")
@@ -2036,6 +2107,8 @@ view_session = b"".join(frame(m) for m in [
     vws(49, TWICE_QUERY),
     vws(50, "zzqx"),
     vws(51, ""),
+    vsig(58, CALL_LOCAL, "(add 8 "),       # a head that is a local
+    vsig(59, HDR_ADD, "(fn (add x "),      # inside the fn's own header
     vchange(VIEW_BROKEN, 2),
     vsig(52, CALL_LIT, "(add 1 "),
     vhints(53, 0, VIEW_LINES + 2),
@@ -2195,7 +2268,16 @@ elif sig_says(43, ["(twice " + " ".join(TWICE_PARAMS) + ")", TWICE_TYPE, "ViewHe
         sig_says(43, ["(twice " + " ".join(TWICE_PARAMS) + ")", TWICE_TYPE, "ViewHelper"], 0, TWICE_PARAMS, TWICE_DOC)
 elif vres(52) is not None:
     vwhy = f"signature help on a document that does not parse answered {vres(52)!r}, want null"
+elif vres(58) is not None:
+    vwhy = (f"signature help on `{CALL_LOCAL}`, whose head is the `let`-bound `add`, "
+            f"answered {vres(58)!r:.160}, want null - a local is not the fn it is spelled like")
+elif vres(59) is not None:
+    vwhy = (f"signature help inside the header `{HDR_ADD}` answered {vres(59)!r:.160}, "
+            f"want null - a header declares a fn, it does not call one")
 # --- inlay hints -----------------------------------------------------
+elif [h for h in hints_of(44) or [] if h[0] == LOCAL_CALL_LINE]:
+    vwhy = (f"inlay hints labelled the arguments of `{CALL_LOCAL}` on line {LOCAL_CALL_LINE}, "
+            f"whose head is a local: {[h for h in hints_of(44) if h[0] == LOCAL_CALL_LINE]}")
 elif hints_of(44) != HINTS_WANT:
     vwhy = (f"inlay hints over the whole document are not the derived list;\n"
             f"          server:  {hints_of(44)}\n          derived: {HINTS_WANT}")
@@ -2271,12 +2353,13 @@ else:
     print(f"ok   signature-help (activeParameter 1 on `{CALL_LIT}`, labels "
           f"slicing to {ADD_PARAMS} with {ADD_TYPE!r} cut from the document, a "
           f"constructor, `twice` from ViewHelper with its paragraph; null on a "
-          f"keyword head and on a document that does not parse)")
+          f"keyword head, on a head that is a local, inside a fn header, and on a "
+          f"document that does not parse)")
     print(f"ok   inlay-hints (exactly the {len(HINTS_WANT)} derived hints: types "
           f"after header parameters, the result after the header, names before "
           f"literal and nested arguments, none before the var spelled like its "
-          f"parameter; {len(HINTS_ONE_LINE)} for one line; [] on a document that "
-          f"does not parse)")
+          f"parameter, none on a call whose head is a local; {len(HINTS_ONE_LINE)} "
+          f"for one line; [] on a document that does not parse)")
     print(f"ok   folding    (the fn {FOLD_FN_L}, the let {FOLD_LET_L}, a comment "
           f"run {COMMENT_L}, an import run {IMPORTS_L}; the same forms on a "
           f"document that does not parse; [] with nothing to fold)")
@@ -2351,6 +2434,34 @@ FIX = """; A shape, for typeDefinition to land on.
 
 (deriveTag Shape)
 
+; A trait, its instance for the field type, and a macro that derives
+; an instance for a whole `data` - an IMPL product, named after the
+; trait the document already declares, with hygiene-renamed binders
+; from `syntax/binders`.
+(trait (Eq a) where (
+  eq :: (-> a a Bool)
+))
+
+(impl (Eq Int) where (
+  (eq (lambda (x y) (== x y)))
+))
+
+(macro deriveEq ((deriveEq T)
+   (impl (Eq T) where
+     ((eq (lambda (a b)
+       (match a
+         (syntax/for (C (syntax/constructors T))
+           ((C (syntax/binders C x))
+            (match b
+              ((C (syntax/binders C y))
+               (syntax/fold && true
+                            ((xi (syntax/binders C x))
+                             (yi (syntax/binders C y)))
+                 (eq xi yi)))
+              (_ false)))))))))))
+
+(deriveEq Shape)
+
 (:: helper (-> Int Int))
 (fn (helper n) (+ n 1))
 
@@ -2369,8 +2480,10 @@ FIX = """; A shape, for typeDefinition to land on.
 (fn (twice x)   (+ x
   x))
 
+(fn (adder n) (lambda (y) y))
+
 (:: main Int)
-(fn (main) (+ (+ (tagShape) (area (mk 2))) (+ call (+ bump (twice 3)))))
+(fn (main) (+ (+ (tagShape) (area (mk 2))) (+ call (+ bump (+ (twice 3) (adder 10 5))))))
 """
 fix_path = os.path.join(FIXDIR, "fix-generated.ax")
 open(fix_path, "w", encoding="utf-8").write(FIX)
@@ -2378,6 +2491,7 @@ fix_uri = "file://" + fix_path
 fmt_uri = "file://" + os.path.join(FIXDIR, "fix-formatted.ax")
 fixed_uri = "file://" + os.path.join(FIXDIR, "fix-fixed.ax")
 exp_uri = "file://" + os.path.join(FIXDIR, "fix-expansion.ax")
+exp2_uri = "file://" + os.path.join(FIXDIR, "fix-expansion-impl.ax")
 
 
 def locate_in(src, context, name):
@@ -2410,6 +2524,16 @@ HELPR = locate(FIX, "helpr", 1)                    # AX3001's misspelt call
 HELPER_NAME = cut(FIX, "(fn (", " n) (+ n 1))")    # ...and the name it meant
 TWICE_NAME = cut(FIX, "(fn (", " x)   (+ x")       # the unsigned fn
 TWICE_LINE = locate(FIX, "(fn (" + TWICE_NAME, 1)["line"]
+ADDER_NAME = cut(FIX, "(fn (", " n) (lambda (y) y))")  # unsigned, with a type the checker cannot resolve
+ADDER_LINE = locate(FIX, "(fn (" + ADDER_NAME, 1)["line"]
+# The impl-deriving macro: its name, the trait its template names, the
+# invocation's argument, and the binder prefix `syntax/binders` spells.
+EQ_MACRO = cut(FIX, "(macro ", " ((")
+EQ_TRAIT = cut(FIX, "(trait (", " a)")
+EQ_ARG = cut(FIX, "(" + EQ_MACRO + " ", ")\n\n(:: helper")
+EQ_USE = locate(FIX, "(" + EQ_MACRO + " " + EQ_ARG + ")", 1)
+EQ_USE = {"line": EQ_USE["line"], "start": EQ_USE["start"] + 1}
+BINDER_PREFIX = cut(FIX, "(syntax/binders C ", "))\n")
 MAIN_DECL = locate(FIX, "main", 2)                 # `(fn (main) ...)`; 1 is the `::`
 SHAPE_DECL = locate(FIX, "Shape", 1)               # `(data Shape ...)`
 MK_USE = locate_in(FIX, "(mk 2)", "mk")            # returns Shape
@@ -2419,7 +2543,7 @@ CIRCLE_USE = locate_in(FIX, "(Circle n)", "Circle")  # a constructor of Shape
 DERIVE_DECL = locate(FIX, "deriveTag", 1)          # the macro's own name
 DERIVE_USE = locate(FIX, "deriveTag", 3)           # the invocation (2 is the rule head)
 MACRO_NAME = cut(FIX, "(pub macro ", "\n")
-INV_ARG = cut(FIX, "(" + MACRO_NAME + " ", ")\n\n(:: helper")
+INV_ARG = cut(FIX, "(" + MACRO_NAME + " ", ")\n\n; A trait")
 GEN_NAME = cut(FIX, "(syntax/join ", " T)") + INV_ARG   # what the join makes
 TPL_LIT = cut(FIX, "(pub fn ((syntax/join tag T)) ", ")))")
 BROKEN_FIX = FIX + "\n("
@@ -2519,19 +2643,43 @@ def to_source_type(s):
     return render(seq(items))
 
 
+def letterize(s):
+    """The checker's unresolved type variables - `_tN`, which no
+    signature may spell (the parser reads a type variable as a name
+    starting with a lowercase letter) - each replaced by the first
+    letter the type does not already use, in order of appearance: a
+    second implementation of the server's `lspFreshRenames`."""
+    used = {t for t in re.findall(r"[A-Za-z_][A-Za-z0-9_']*", s)
+            if t[0].islower() and not re.fullmatch(r"_t\d+", t)}
+    ren = {}
+    for v in re.findall(r"_t\d+", s):
+        if v not in ren:
+            ren[v] = next(c for c in "abcdefghijklmnopqrstuvwxyz" if c not in used)
+            used.add(ren[v])
+    return re.sub(r"_t\d+", lambda m: ren[m.group(0)], s)
+
+
 sym_copy = os.path.join(FIXDIR, "sym-copy.ax")
 open(sym_copy, "w", encoding="utf-8").write(FIX)
 AXSYM_TWICE = axsym_type(sym_copy, TWICE_NAME)
 SRC_TYPE = to_source_type(AXSYM_TWICE) if AXSYM_TWICE else ""
 ASSIST_TEXT = "(:: " + TWICE_NAME + " " + SRC_TYPE + ")\n"
 ASSIST_AT = {"line": TWICE_LINE, "character": 0}
+AXSYM_ADDER = axsym_type(sym_copy, ADDER_NAME)
+ADDER_LETTERED = letterize(AXSYM_ADDER)
+ADDER_SRC_TYPE = to_source_type(ADDER_LETTERED) if ADDER_LETTERED else ""
+ADDER_ASSIST_TEXT = "(:: " + ADDER_NAME + " " + ADDER_SRC_TYPE + ")\n"
+ADDER_AT = {"line": ADDER_LINE, "character": 0}
 
 # Every derived string has to be non-empty and mean what it is used
 # for, or the assertions below compare "" against "".
 for what, text in (("formatted text", FMT), ("helper name", HELPER_NAME),
                    ("unsigned fn name", TWICE_NAME), ("symbols type", AXSYM_TWICE),
                    ("source type", SRC_TYPE), ("macro name", MACRO_NAME),
-                   ("generated name", GEN_NAME), ("template literal", TPL_LIT)):
+                   ("generated name", GEN_NAME), ("template literal", TPL_LIT),
+                   ("adder symbols type", AXSYM_ADDER), ("adder source type", ADDER_SRC_TYPE),
+                   ("eq macro", EQ_MACRO), ("eq trait", EQ_TRAIT), ("eq argument", EQ_ARG),
+                   ("binder prefix", BINDER_PREFIX)):
     if not text.strip():
         sys.exit(f"FAIL: the derived {what} is empty - every FIX assertion "
                  f"resting on it would compare nothing against nothing")
@@ -2541,6 +2689,10 @@ if FMT == FIX:
 if "->" not in AXSYM_TWICE:
     sys.exit(f"FAIL: symbols printed {AXSYM_TWICE!r} for {TWICE_NAME}, not an "
              f"arrow - the rewrite into the parser's spelling would be a no-op")
+# The fresh-variable rule can only be observed on a type that has one.
+if not re.search(r"_t\d+", AXSYM_ADDER) or ADDER_LETTERED == AXSYM_ADDER:
+    sys.exit(f"FAIL: symbols printed {AXSYM_ADDER!r} for {ADDER_NAME}, which carries "
+             f"no unresolved `_tN` variable - the assist's renaming of one would go untested")
 if GEN_NAME in FIX.split("(fn (main)")[0]:
     sys.exit(f"FAIL: {GEN_NAME!r} is written in the document above `main`, so "
              f"the expansion check could not tell generated from written")
@@ -2615,6 +2767,7 @@ fix_session = b"".join(frame(m) for m in [
     fixreq(11, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_USE)})),
     fixreq(12, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_DECL)})),
     fixreq(13, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(MAIN_DECL)})),
+    fixreq(25, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(EQ_USE)})),
     {"jsonrpc": "2.0", "method": "textDocument/didOpen",
      "params": {"textDocument": {"uri": fmt_uri, "languageId": "axiom",
                                  "version": 1, "text": FMT}}},
@@ -2640,11 +2793,13 @@ def fres(rid):
     return fresp.get(rid, {}).get("result")
 
 
-def action_of(rid, kind, code=None):
+def action_of(rid, kind, code=None, title=None):
     """The one action of `kind` (and, for a quickfix, of diagnostic
-    `code`) request `rid` answered, or None."""
+    `code`; for an assist, of `title`) request `rid` answered, or None."""
     for a in fres(rid) or []:
         if a.get("kind") != kind:
+            continue
+        if title is not None and a.get("title") != title:
             continue
         if code is None or [d.get("code") for d in a.get("diagnostics") or []] == [code]:
             return a
@@ -2691,10 +2846,12 @@ def lens_named(rid, command):
 
 ax3012 = action_of(3, "quickfix", "AX3012")
 ax3001 = action_of(3, "quickfix", "AX3001")
-assist = action_of(3, "refactor.rewrite")
+assist = action_of(3, "refactor.rewrite", title="Add type signature for `" + TWICE_NAME + "`")
+assist_adder = action_of(3, "refactor.rewrite", title="Add type signature for `" + ADDER_NAME + "`")
 run_lens = lens_named(10, "axiom.run")
 exp_lens = lens_named(10, "axiom.expandMacro")
 r11 = fres(11) or {}
+r25 = fres(25) or {}
 fwhy = ""
 if fp.returncode != 0:
     fwhy = f"the server exited {fp.returncode}: {fp.stderr[:200]!r}"
@@ -2717,9 +2874,9 @@ elif fres(2) != [{"range": WHOLE, "newText": FMT}]:
 elif fres(14) != []:
     fwhy = f"formatting an already-formatted document answered {fres(14)!r:.200}, want []"
 # --- code actions --------------------------------------------------------
-elif len(fres(3) or []) != 3:
+elif len(fres(3) or []) != 4:
     fwhy = (f"the whole-document code action request answered {len(fres(3) or [])} "
-            f"action(s), want 2 quickfixes and 1 assist: {json.dumps(fres(3))[:400]}")
+            f"action(s), want 2 quickfixes and 2 assists: {json.dumps(fres(3))[:400]}")
 elif ax3012 is None:
     fwhy = f"no quickfix carrying the AX3012 diagnostic: {json.dumps(fres(3))[:400]}"
 elif edit_is(ax3012, rng(BINDER), "mut " + cut(FIX, "(let ((", " 1))")):
@@ -2741,6 +2898,15 @@ elif assist.get("title") != "Add type signature for `" + TWICE_NAME + "`":
 elif edit_is(assist, {"start": ASSIST_AT, "end": ASSIST_AT}, ASSIST_TEXT):
     fwhy = ("the assist " + edit_is(assist, {"start": ASSIST_AT, "end": ASSIST_AT}, ASSIST_TEXT)
             + f" - symbols printed {AXSYM_TWICE!r}, which is {SRC_TYPE!r} in the parser's spelling")
+# The type the checker could not resolve: `symbols` prints `_tN`, which
+# no signature may spell, so the assist writes it as a type variable
+# the parser reads - and the checker then accepts (the second session
+# below holds the applied document clean).
+elif assist_adder is None:
+    fwhy = f"no assist offered for `{ADDER_NAME}`, whose inferred type carries an unresolved variable: {json.dumps(fres(3))[:400]}"
+elif edit_is(assist_adder, {"start": ADDER_AT, "end": ADDER_AT}, ADDER_ASSIST_TEXT):
+    fwhy = ("the assist for `" + ADDER_NAME + "` " + edit_is(assist_adder, {"start": ADDER_AT, "end": ADDER_AT}, ADDER_ASSIST_TEXT)
+            + f" - symbols printed {AXSYM_ADDER!r}, whose `_tN` must be written as a lowercase variable: {ADDER_SRC_TYPE!r}")
 elif fres(4) != []:
     fwhy = f"a range on a line with nothing to fix answered {fres(4)!r:.200}, want []"
 elif [a.get("kind") for a in fres(5) or []] != ["refactor.rewrite"]:
@@ -2778,6 +2944,21 @@ elif fres(12) != r11:
     fwhy = f"expandMacro on the declaration answered {fres(12)!r:.300}, want the invocation's products"
 elif fres(13) is not None:
     fwhy = f"expandMacro on `main` answered {fres(13)!r:.200}, want null"
+# The impl product: named after the trait the document declares, so a
+# product known by name alone is invisible; the head is the template's
+# with the argument substituted, and the binders `syntax/binders`
+# spells `x#i` and hygiene renames `.k` come out as identifiers.
+elif r25.get("name") != EQ_MACRO:
+    fwhy = f"expandMacro on `({EQ_MACRO} {EQ_ARG})` answered {fres(25)!r:.300}, want name {EQ_MACRO!r}"
+# `pub` or not: phase D stamps every product exported (expCopyDeclInto
+# writes word 5), and the printer writes the tree it is given.
+elif not re.search(r"\((?:pub )?impl \(" + re.escape(EQ_TRAIT) + " " + re.escape(EQ_ARG) + r"\)", r25.get("expansion", "")):
+    fwhy = (f"the impl expansion does not carry `(impl ({EQ_TRAIT} {EQ_ARG})`: "
+            f"{r25.get('expansion')!r:.300}")
+elif not re.search(r"(?<![A-Za-z0-9_'])" + re.escape(BINDER_PREFIX) + r"_\d+_\d+(?![A-Za-z0-9_'])", r25.get("expansion", "")) \
+        or re.search(r"[A-Za-z0-9_'][#.][0-9]", r25.get("expansion", "")):
+    fwhy = (f"the impl expansion's `syntax/binders` variables are not written as "
+            f"identifiers `{BINDER_PREFIX}_<i>_<k>`: {r25.get('expansion')!r:.400}")
 # --- a document that does not parse ---------------------------------------
 elif fres(20) is not None:
     fwhy = f"formatting an unparseable document answered {fres(20)!r:.200}, want null"
@@ -2792,17 +2973,19 @@ elif fres(24) is not None:
 
 # The second session: the first one's answers, applied and opened.
 EXPANSION = r11.get("expansion", "") if not fwhy else ""
-FIXED = apply_edits(FIX, [one_edit(ax3012), one_edit(ax3001), one_edit(assist)]) if not fwhy else FIX
-fixed_diags = exp_diags = None
+EXPANSION2 = r25.get("expansion", "") if not fwhy else ""
+FIXED = apply_edits(FIX, [one_edit(ax3012), one_edit(ax3001), one_edit(assist), one_edit(assist_adder)]) if not fwhy else FIX
+fixed_diags = exp_diags = exp2_diags = None
 gen_outline = []
-sym_after = ""
+sym_after = sym_after_adder = ""
 if not fwhy:
     if FIXED == FIX:
-        fwhy = "applying the three edits changed nothing"
+        fwhy = "applying the four edits changed nothing"
     else:
         fixed_copy = os.path.join(FIXDIR, "fixed-copy.ax")
         open(fixed_copy, "w", encoding="utf-8").write(FIXED)
         sym_after = axsym_type(fixed_copy, TWICE_NAME)
+        sym_after_adder = axsym_type(fixed_copy, ADDER_NAME)
         second = b"".join(frame(m) for m in [
             fixreq(1, "initialize", {}),
             {"jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -2811,6 +2994,9 @@ if not fwhy:
             {"jsonrpc": "2.0", "method": "textDocument/didOpen",
              "params": {"textDocument": {"uri": exp_uri, "languageId": "axiom",
                                          "version": 1, "text": EXPANSION}}},
+            {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+             "params": {"textDocument": {"uri": exp2_uri, "languageId": "axiom",
+                                         "version": 1, "text": EXPANSION2}}},
             fixreq(2, "textDocument/documentSymbol", fixdoc(exp_uri)),
             fixreq(3, "shutdown", None),
             {"jsonrpc": "2.0", "method": "exit", "params": None},
@@ -2822,21 +3008,34 @@ if not fwhy:
         sresp = {m["id"]: m for m in smsgs if "id" in m}
         fixed_diags = pubs.get(fixed_uri)
         exp_diags = pubs.get(exp_uri)
+        exp2_diags = pubs.get(exp2_uri)
         gen_outline = sresp.get(2, {}).get("result")
         parse_codes = [d.get("code") for d in exp_diags or []
                        if str(d.get("code", "")).startswith(("AX1", "AX2"))]
+        parse_codes2 = [d.get("code") for d in exp2_diags or []
+                        if str(d.get("code", "")).startswith(("AX1", "AX2"))]
         if sp.returncode != 0 or stail:
             fwhy = f"the second session exited {sp.returncode} with {len(stail)} trailing bytes"
         elif fixed_diags != []:
-            fwhy = (f"the document with every quickfix and the assist applied still "
+            fwhy = (f"the document with every quickfix and both assists applied still "
                     f"publishes {[(d.get('code'), d['range']['start']) for d in fixed_diags or []]}"
                     f"; the fixed text was:\n{FIXED}")
         elif sym_after != AXSYM_TWICE:
             fwhy = (f"after inserting {ASSIST_TEXT.strip()!r}, symbols prints "
                     f"{sym_after!r} for {TWICE_NAME}, where it printed {AXSYM_TWICE!r} "
                     f"before - the signature does not mean what the assist claimed")
+        elif sym_after_adder != ADDER_LETTERED:
+            fwhy = (f"after inserting {ADDER_ASSIST_TEXT.strip()!r}, symbols prints "
+                    f"{sym_after_adder!r} for {ADDER_NAME}, want {ADDER_LETTERED!r} - the "
+                    f"unresolved variable written as a type variable, and nothing else changed")
+        # A publish that never arrived would make the parse checks
+        # below vacuous: an absent list has no parse codes in it.
+        elif exp_diags is None or exp2_diags is None:
+            fwhy = "the server published no diagnostics for an expansion document"
         elif parse_codes:
             fwhy = f"the expansion text does not parse ({parse_codes}):\n{EXPANSION}"
+        elif parse_codes2:
+            fwhy = f"the impl expansion text does not parse ({parse_codes2}):\n{EXPANSION2}"
         elif not isinstance(gen_outline, list) or [s.get("name") for s in gen_outline] != [GEN_NAME]:
             fwhy = (f"the expansion's outline is {gen_outline!r:.300}, want exactly "
                     f"[{GEN_NAME!r}] - the one declaration the macro generated")
@@ -2852,9 +3051,10 @@ else:
           f"when the document does not parse)")
     print(f"ok   code-actions (AX3012 fixed at the BINDER {rng(BINDER)['start']} not the "
           f"`set` at {rng(SET_X)['start']}, AX3001 fixed to {HELPER_NAME!r}, the assist "
-          f"inserting {ASSIST_TEXT.strip()!r} from symbols' {AXSYM_TWICE!r}; all three "
-          f"applied check clean and symbols agrees; [] off the fixes and when the "
-          f"document does not parse)")
+          f"inserting {ASSIST_TEXT.strip()!r} from symbols' {AXSYM_TWICE!r} and "
+          f"{ADDER_ASSIST_TEXT.strip()!r} from {AXSYM_ADDER!r}; all four applied check "
+          f"clean and symbols agrees; [] off the fixes and when the document does not "
+          f"parse)")
     print(f"ok   type-definition (a fn's result, a header parameter and a constructor "
           f"all landing on `{cut(FIX, '(data ', ' ')}`; null for Int and for a document "
           f"that does not parse)")
@@ -2862,8 +3062,9 @@ else:
           f"over `{MACRO_NAME}`; [] when the document does not parse)")
     print(f"ok   expand-macro (`{MACRO_NAME}` at its invocation and at its declaration "
           f"rendering {GEN_NAME!r} with literal {TPL_LIT}; the text re-parses with an "
-          f"outline of exactly that name; null on `main` and when the document does "
-          f"not parse)")
+          f"outline of exactly that name; `{EQ_MACRO}` rendering `(impl ({EQ_TRAIT} "
+          f"{EQ_ARG})` with its binders as identifiers, re-parsing clean; null on `main` "
+          f"and when the document does not parse)")
     passed += 5
 shutil.rmtree(FIXDIR, ignore_errors=True)
 # =====================================================================
