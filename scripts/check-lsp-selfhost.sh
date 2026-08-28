@@ -59,6 +59,18 @@
 #     yields fewer than 15 keywords, or if any derived form text or
 #     paragraph comes out empty.
 #
+# AND, SINCE 2026-08-28, THE SWEEP at the end of this file: every
+# request the server ADVERTISES in `initialize` - the list is derived
+# from the capabilities, not written down - fired at every 97th byte
+# and every scanner-breaking position of a real stdlib module, of the
+# same module cut off mid-form, and of an empty document, with the one
+# obligation an editor needs before any other: an answer to every id,
+# no error, and a server still alive to say `shutdown`. It refuses to
+# run under twelve advertised providers, and it FAILS on a capability
+# key it does not know how to build a request for, so a feature added
+# to lsp.ax and not to the sweep's table is a red gate rather than an
+# untested promise.
+#
 #   GOLDEN-ONLY, and therefore exactly as strong as whichever compiler
 #   last blessed it: the framed byte stream - framing, field order,
 #   JSON escaping, message sequence, the `initialize` capabilities, the
@@ -509,6 +521,157 @@ PY
 cperf_status=$?
 echo "$cperf"
 if [[ "$cperf_status" -ne 0 ]]; then
+  status=1
+fi
+
+# ------------------------------------------------------------------
+# EVERY ADVERTISED REQUEST, AT EVERY KIND OF POSITION, ON REAL FILES.
+#
+# The derived checks above ask each request the RIGHT question on a
+# document written for it. This asks every request the WRONG question,
+# many times, on documents written for something else: a stdlib module
+# as it is, the same module cut off mid-form so it does not parse, and
+# an empty document. The property is the one an editor depends on
+# before any other - the server ANSWERS, with a result or with an
+# error that is not "method not found", and is still alive afterwards.
+# A server that dies on a `references` request at byte 0 of a comment
+# has every other feature it advertises taken away with it.
+#
+# THE METHOD LIST IS DERIVED FROM THE CAPABILITIES, not written here.
+# A provider the server advertises is a promise a client will act on,
+# so every advertised provider is exercised; a request this table does
+# not know how to build from a capability key is a FAILURE, because a
+# capability nothing sweeps is a capability nothing tested. And the
+# sweep refuses to run under a floor of advertised providers, for the
+# reason every other floor in this gate exists: a server advertising
+# three things sweeps three things, and the exit status would read as
+# coverage it does not have.
+#
+# POSITIONS. Every K-th byte of the document plus the ones that break
+# scanners: 0, EOF, one past EOF, a line past the end, inside a string
+# literal, inside a comment, on `(`, on `)`. Each is converted to
+# {line, character} in Python, from the bytes, in UTF-16 units.
+#
+# COST. One session per document, all requests framed up front; the
+# request count is printed so a sweep that shrinks is visible.
+# ------------------------------------------------------------------
+sweep=$(SERVER="$work/stage1" REPO="$repo_root" python3 - <<'PY'
+import json, os, subprocess, sys
+server=os.environ["SERVER"]; repo=os.environ["REPO"]
+FLOOR=12          # advertised providers, below which this sweep asserts nothing
+STEP=97           # bytes between sampled positions
+def frame(o):
+    b=json.dumps(o).encode(); return b"Content-Length: "+str(len(b)).encode()+b"\r\n\r\n"+b
+def unframe(out):
+    msgs=[]; i=0
+    while True:
+        j=out.find(b"\r\n\r\n",i)
+        if j<0: return msgs, out[i:]
+        hdr=out[i:j].decode("utf-8","replace")
+        cl=[l for l in hdr.split("\r\n") if l.lower().startswith("content-length")]
+        if not cl: return msgs, out[i:]
+        n=int(cl[0].split(":")[1]); msgs.append(json.loads(out[j+4:j+4+n])); i=j+4+n
+def pos_of(text, off):
+    off=min(off,len(text)); head=text[:off]
+    line=head.count("\n"); ls=head.rfind("\n")+1
+    return {"line":line,"character":len(text[ls:off].encode("utf-16-le"))//2}
+def positions(text):
+    n=len(text); offs=set(range(0,n,STEP)); offs.update([0,n,n+1])
+    for needle in ('"', ';', '(', ')'):
+        k=text.find(needle)
+        if k>=0: offs.add(k+1 if needle in '";' else k)
+    ps=[pos_of(text,o) for o in sorted(o for o in offs if o<=n)]
+    ps.append({"line":text.count("\n")+5,"character":0})
+    return ps
+def build(cap, name, uri, text, p, rid):
+    """One request per capability key, at position p. Answers None for a
+    key this table does not know, which the caller treats as failure."""
+    td={"textDocument":{"uri":uri}}
+    whole={"start":{"line":0,"character":0},"end":pos_of(text,len(text))}
+    m={"definitionProvider":("textDocument/definition",{**td,"position":p}),
+       "hoverProvider":("textDocument/hover",{**td,"position":p}),
+       "completionProvider":("textDocument/completion",{**td,"position":p}),
+       "documentSymbolProvider":("textDocument/documentSymbol",td),
+       "referencesProvider":("textDocument/references",{**td,"position":p,"context":{"includeDeclaration":True}}),
+       "documentHighlightProvider":("textDocument/documentHighlight",{**td,"position":p}),
+       "signatureHelpProvider":("textDocument/signatureHelp",{**td,"position":p}),
+       "inlayHintProvider":("textDocument/inlayHint",{**td,"range":whole}),
+       "foldingRangeProvider":("textDocument/foldingRange",td),
+       "selectionRangeProvider":("textDocument/selectionRange",{**td,"positions":[p]}),
+       "documentLinkProvider":("textDocument/documentLink",td),
+       "workspaceSymbolProvider":("workspace/symbol",{"query":"vec" if rid%2 else ""}),
+       "documentFormattingProvider":("textDocument/formatting",{**td,"options":{"tabSize":2,"insertSpaces":True}}),
+       "codeActionProvider":("textDocument/codeAction",{**td,"range":{"start":p,"end":p},"context":{"diagnostics":[]}}),
+       "typeDefinitionProvider":("textDocument/typeDefinition",{**td,"position":p}),
+       "codeLensProvider":("textDocument/codeLens",td),
+      }
+    if name=="renameProvider":
+        return [("textDocument/prepareRename",{**td,"position":p}),
+                ("textDocument/rename",{**td,"position":p,"newName":"renamedName"})]
+    if name=="experimental":
+        if isinstance(cap,dict) and cap.get("expandMacro"):
+            return [("axiom/expandMacro",{**td,"position":p})]
+        return []
+    if name=="textDocumentSync": return []
+    if name not in m: return None
+    return [m[name]]
+def caps_of():
+    msgs=[frame({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":None,"rootUri":None,"capabilities":{}}}),
+          frame({"jsonrpc":"2.0","id":2,"method":"shutdown","params":None}),
+          frame({"jsonrpc":"2.0","method":"exit","params":None})]
+    p=subprocess.run([server,"lsp"],input=b"".join(msgs),capture_output=True,timeout=600)
+    ms,_=unframe(p.stdout)
+    return {m["id"]:m for m in ms if "id" in m}[1]["result"]["capabilities"]
+caps=caps_of()
+providers=[k for k,v in caps.items() if v not in (None,False)]
+if len(providers) < FLOOR:
+    print(f"FAIL the server advertises {len(providers)} capabilities ({sorted(providers)}), under the")
+    print(f"     floor of {FLOOR} - a sweep over that few would report coverage it does not have")
+    sys.exit(1)
+src=open(os.path.join(repo,"stdlib","Json.ax"),encoding="utf-8").read()
+docs=[("Json.ax", src), ("Json-truncated.ax", src[:len(src)*2//3]), ("empty.ax", "")]
+bad=0; total=0
+for label,text in docs:
+    uri="file://"+os.path.join(repo,"stdlib",label)
+    reqs=[]; rid=10
+    for p in positions(text):
+        for name in providers:
+            built=build(caps[name],name,uri,text,p,rid)
+            if built is None:
+                print(f"FAIL capability {name!r} is advertised and this sweep does not know how to")
+                print( "     exercise it - add it to the table, or a capability nothing tests ships")
+                sys.exit(1)
+            for method,params in built:
+                reqs.append((rid,method,params)); rid+=1
+    msgs=[frame({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":None,"rootUri":None,"capabilities":{}}}),
+          frame({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"axiom","version":1,"text":text}}})]
+    msgs+=[frame({"jsonrpc":"2.0","id":r,"method":m,"params":ps}) for r,m,ps in reqs]
+    msgs+=[frame({"jsonrpc":"2.0","id":2,"method":"shutdown","params":None}),
+           frame({"jsonrpc":"2.0","method":"exit","params":None})]
+    p=subprocess.run([server,"lsp"],input=b"".join(msgs),capture_output=True,timeout=1200)
+    ms,tail=unframe(p.stdout)
+    byid={m["id"]:m for m in ms if "id" in m}
+    why=""
+    if p.returncode!=0: why=f"the server exited {p.returncode} (stderr: {p.stderr[-300:]!r})"
+    elif tail: why=f"{len(tail)} trailing bytes after the last frame"
+    elif 2 not in byid: why="the shutdown after the sweep was never answered - the server died mid-sweep"
+    else:
+        for r,m,ps in reqs:
+            a=byid.get(r)
+            if a is None: why=f"request {r} ({m} at {ps.get('position',ps.get('range','-'))}) was never answered"; break
+            if "error" in a: why=f"request {r} ({m} at {ps.get('position',ps.get('range','-'))}) answered error {a['error']}"; break
+    total+=len(reqs)
+    if why:
+        print(f"FAIL sweep on {label}: {why}"); bad=1
+    else:
+        print(f"ok   sweep on {label}: {len(reqs)} requests over {len(positions(text))} positions x {len(providers)} providers, all answered")
+print(f"sweep: {total} requests, {len(providers)} advertised providers (floor {FLOOR})")
+sys.exit(bad)
+PY
+)
+sweep_status=$?
+echo "$sweep"
+if [[ "$sweep_status" -ne 0 ]]; then
   status=1
 fi
 
