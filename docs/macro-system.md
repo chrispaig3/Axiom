@@ -2166,7 +2166,7 @@ move — `documentSymbol`, `definition`, `hover`, `completion`, and since
 2026-08-28 `references`, `documentHighlight`, `prepareRename`,
 `rename`, `signatureHelp`, `inlayHint`, `foldingRange`,
 `selectionRange`, `documentLink`, `workspace/symbol`, `formatting`,
-`typeDefinition`, `codeLens` and `semanticTokens` — reads the RAW parse tree and the
+`typeDefinition` and `codeLens` — reads the RAW parse tree and the
 document's bytes and expands nothing. Three things run the pipeline,
 each because expansion IS the answer: `didOpen` and `didChange`, which
 publish diagnostics, because a diagnostic about generated code is

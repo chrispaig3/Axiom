@@ -182,3 +182,18 @@ echo "--- highlight queries compile ---"
 # which it is on any machine that has not run the npm install above.
 "$ts" query queries/highlights.scm "${sources[@]}" > /dev/null
 echo "ok   queries/highlights.scm over ${#sources[@]} files"
+
+# The rainbow query names every bracket-opening rule as a scope, and a
+# rule renamed in grammar.js is a query that no longer compiles - which
+# the editor reports as no rainbow colours and nothing else. So it is
+# loaded against the same files, and it must MATCH: a query that
+# compiles and captures no bracket on a corpus of 500 files is a query
+# whose token list has drifted from the grammar's spelling.
+"$ts" query queries/rainbows.scm "${sources[@]}" > "$pre_gen/rainbows.out"
+rainbow_brackets=$(grep -c 'rainbow.bracket' "$pre_gen/rainbows.out" || true)
+if [[ "$rainbow_brackets" -lt 1000 ]]; then
+  echo "FAIL: queries/rainbows.scm captured $rainbow_brackets brackets over ${#sources[@]} files;" >&2
+  echo "      a corpus this size has tens of thousands, so the query has stopped matching" >&2
+  exit 1
+fi
+echo "ok   queries/rainbows.scm over ${#sources[@]} files, $rainbow_brackets brackets captured"

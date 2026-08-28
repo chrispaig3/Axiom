@@ -107,21 +107,22 @@ What the lifecycle does, and what it does not:
 
 ## Editor setup
 
-Three things are separate, and an editor can have any one of them
-without the others — which is the confusion worth naming before the
-configurations:
+Two things are separate, and an editor can have either without the
+other — which is the confusion worth naming before the configurations:
 
 | | What it gives | Which editors use it |
 |---|---|---|
-| the **language server** (`axiom lsp`) | every request in this document | all of them |
-| **semantic tokens**, a request the server answers | highlighting by what a name resolves to | Neovim, VS Code, `lsp-mode`; **not** Helix, **not** eglot |
-| the **tree-sitter grammar** (`tree-sitter-axiom/`) | highlighting from the syntax alone | Helix (its only source of colour), Neovim (beside the tokens), the `tree-sitter` CLI |
+| the **language server** (`axiom lsp`) | every request in this document: navigation, hover, completion, hints, formatting, fixes, expansion | all of them |
+| the **tree-sitter grammar** (`tree-sitter-axiom/`) | **all of the highlighting** — `highlights.scm` colours by syntactic role, `rainbows.scm` colours bracket pairs by depth | Helix, Neovim (nvim-treesitter), Emacs 29+ (`treesit`), Zed, the `tree-sitter` CLI |
 
-So: in Neovim and VS Code the server alone colours a buffer, and the
-grammar is an addition. In Helix the server colours nothing — install
-the grammar or the file stays plain text, however well the server is
-working. Every section below ends with the command that tells you which
-of the three you actually have.
+The server colours nothing: it offers no semantic tokens (0.3.5 did,
+and they came out again in favour of one source of colour — see
+`CHANGELOG.md`). So a buffer with the server attached and no grammar
+installed is plain text, however well every request is being
+answered; install the grammar or the file stays uncoloured. VS Code
+has no tree-sitter, so its highlighting needs a TextMate grammar, which
+this repository does not ship. Every section below ends with the
+command that tells you which of the two you actually have.
 
 The server is found through the editor's `PATH`, so `axiom` must be on
 it — or write the absolute path where the configurations below say
@@ -134,12 +135,10 @@ configuration below defines them where the editor can.
 
 ### Neovim
 
-Neovim's built-in client. Semantic tokens are requested automatically
-in 0.9 and later whenever a server advertises
-`semanticTokensProvider`; put the cursor on an identifier and run
-`:Inspect` — the *Semantic Tokens* section lists groups such as
-`@lsp.type.function.axiom` and `@lsp.mod.declaration.axiom`. Nothing
-below turns them on, because nothing has to.
+Neovim's built-in client, for every request; nvim-treesitter for the
+colour. Nothing in the client configuration turns highlighting on,
+because highlighting is not the server's — the grammar block after it
+is what colours the buffer.
 
 ```lua
 -- init.lua
@@ -198,17 +197,15 @@ vim.api.nvim_create_autocmd("LspAttach", {
 ```
 
 **Verify:** open a `.ax` file and run `:checkhealth vim.lsp` — the
-client must be listed as attached, and the capabilities it received
-must include `semanticTokensProvider`. Then put the cursor on a
-parameter and run `:Inspect`: a *Semantic Tokens* section naming
-`@lsp.type.parameter.axiom` is the proof that highlighting is coming
-from the server. If `:Inspect` shows nothing there, the client
-attached but the tokens did not arrive; `:lua =vim.lsp.get_clients()[1].server_capabilities.semanticTokensProvider`
-says whether the server offered them. Highlighting from the tree-sitter grammar is separate and
-optional — the semantic tokens colour a buffer with no grammar
-installed — and registering it is nvim-treesitter's business, pointed
-at [`tree-sitter-axiom/`](../tree-sitter-axiom/README.md) in a
-checkout:
+client must be listed as attached. Highlighting is the grammar's, so
+register it with nvim-treesitter, pointed at
+[`tree-sitter-axiom/`](../tree-sitter-axiom/README.md) in a checkout,
+and then `:Inspect` on any identifier must name a `@...axiom` capture
+such as `@function.call.axiom` — that is the proof colour is arriving.
+`:TSInstall axiom` failing, or `:Inspect` showing no treesitter
+capture, means the grammar is not built for this Neovim. For rainbow
+brackets, rainbow-delimiters.nvim reads `queries/rainbows.scm`'s
+capture names when pointed at it.
 
 ```lua
 require("nvim-treesitter.parsers").get_parser_configs().axiom = {
@@ -224,10 +221,9 @@ require("nvim-treesitter.parsers").get_parser_configs().axiom = {
 
 ### Helix
 
-Helix highlights with tree-sitter alone: it does **not** consume
-semantic tokens or code lenses, so the grammar is not optional here the
-way it is in an editor that has them, and the two lens commands are out
-of reach. Everything else — definition, references, rename, hover,
+Helix highlights with tree-sitter alone and does not consume code
+lenses, so the grammar is where every colour comes from and the two
+lens commands are out of reach. Everything else — definition, references, rename, hover,
 completion, signature help, inlay hints, document and workspace
 symbols, formatting, code actions — is the built-in client's.
 
@@ -274,12 +270,13 @@ from its runtime directory, **not** from the grammar's own `queries/`:
 ```bash
 mkdir -p ~/.config/helix/runtime/queries/axiom
 cp /path/to/axiom/tree-sitter-axiom/queries/highlights.scm \
-   ~/.config/helix/runtime/queries/axiom/highlights.scm
+   /path/to/axiom/tree-sitter-axiom/queries/rainbows.scm \
+   ~/.config/helix/runtime/queries/axiom/
 hx --grammar build            # compiles the [[grammar]] entries above
 ```
 
 **Verify, and do not skip this:** `hx --health axiom` must print a
-green tick on all three lines that matter.
+green tick on the server, the parser and the highlight queries.
 
 ```
 Configured language servers:
@@ -287,13 +284,19 @@ Configured language servers:
 Configured formatter: None          <- correct; the server formats
 Tree-sitter parser: ✓
 Highlight queries: ✓
+Rainbow queries: ✓
 ```
 
+Rainbow brackets — every `(`, `[` and `{` pair coloured by its nesting
+depth, from `rainbows.scm` — are off until `~/.config/helix/config.toml`
+says `[editor] rainbow-brackets = true`.
+
 `Tree-sitter parser: None` or `Highlight queries: ✘` means the buffer
-will render as plain text no matter what the language server answers,
-because Helix takes no colour from it. That is the whole failure mode:
-the server can be attached and answering every request while nothing in
-the file is coloured.
+will render as plain text no matter what the language server answers.
+That is the whole failure mode: the server can be attached and answering
+every request while nothing in the file is coloured — measured on
+2026-08-28, when it read exactly that way on a machine whose server was
+green.
 
 Capture names in `highlights.scm` follow nvim-treesitter's convention.
 Helix resolves a scope it does not spell by trimming the last segment —
@@ -311,11 +314,12 @@ display-inlay-hints = true
 
 ### Emacs (eglot)
 
-Eglot is in Emacs 29 and later. It consumes neither semantic tokens
-nor code lenses, so highlighting is whatever the major mode does and
-the `Run` lens is not reachable; `lsp-mode` does both, with
-`lsp-semantic-tokens-enable` and `lsp-lens-mode`, and is configured
-the same way with `lsp-register-client`. Definition is `M-.`,
+Eglot is in Emacs 29 and later. It does not consume code lenses, so
+the `Run` lens is not reachable (`lsp-mode` does, with `lsp-lens-mode`,
+and is configured the same way with `lsp-register-client`).
+Highlighting is the major mode's: Emacs 29's `treesit` can load the
+grammar built from `tree-sitter-axiom/` and use `highlights.scm`'s
+captures through a `treesit-font-lock-rules` mapping. Definition is `M-.`,
 references `M-?`, hover and signature help are `eldoc`, the outline is
 `imenu`, and `eglot-rename`, `eglot-code-actions` and
 `eglot-format-buffer` are the rest.
@@ -354,9 +358,12 @@ There is no published Axiom extension. What follows is a snippet to
 build one from: two files in a directory, `npm install`, then open the
 directory in VS Code and press F5 for an Extension Development Host
 with the extension loaded. `vscode-languageclient` asks the server for
-semantic tokens, inlay hints, code lenses and everything else it
-advertises without being told to; the two commands are the only code
-that is not boilerplate.
+inlay hints, code lenses and everything else it advertises without
+being told to; the two commands are the only code that is not
+boilerplate. Highlighting is NOT among what it gets: VS Code has no
+tree-sitter and the server sends no semantic tokens, so a `.ax` file is
+uncoloured until the extension contributes a TextMate grammar, which
+this repository does not ship.
 
 ```json
 {
@@ -407,20 +414,14 @@ module.exports = { activate, deactivate };
 ```
 
 **Verify:** with the Extension Development Host open on a `.ax` file,
-run *Developer: Inspect Editor Tokens and Scopes* from the command
-palette and put the cursor on a parameter — the popup's *semantic token
-type* row must read `parameter`. If that row says *no semantic token*,
-either the client did not connect (check the *Output* panel, channel
-*Axiom*, for the server's stderr) or semantic highlighting is off for
-your theme: set `"editor.semanticHighlighting.enabled": true` in
-settings, which some themes otherwise leave to themselves.
-
-Two things a builder adds next: a TextMate grammar under
-`contributes.grammars`, without which the semantic tokens are the whole
-of the highlighting — VS Code paints semantic tokens *over* a TextMate
-base, so with no grammar an unparsed region is uncoloured — and a
-`language-configuration.json` naming `;` as the line comment and the
-bracket pairs.
+hover a function name — a tooltip quoting its `(:: f T)` signature is
+the proof the client connected (the *Output* panel, channel *Axiom*,
+carries the server's stderr when it did not). Colour is a separate
+matter: *Developer: Inspect Editor Tokens and Scopes* shows a TextMate
+scope only once a grammar is contributed under `contributes.grammars`;
+until then the row reads *no grammar*. A `language-configuration.json`
+naming `;` as the line comment and the bracket pairs is the other file
+a builder adds.
 
 ## What each request answers
 
@@ -717,93 +718,23 @@ each invocation is expanded with every other removed. And a generated
 defect recorded beside `MAC-TOOL-3` in
 [macro-system.md](macro-system.md), not a printer choice.
 
-## Semantic tokens
+## Highlighting
 
-`textDocument/semanticTokens/full` and `/range` are the highlighting
-channel: every identifier coloured by WHAT IT RESOLVES TO — a
-parameter, a local, a function, a type, a constructor, a macro, an
-imported name — plus keywords, strings, numbers, comments, AXTAG
-decorators and operators from the bytes, so a document that does not
-parse is still highlighted. The capability is
-`semanticTokensProvider: {legend, range: true, full: true}`; there is
-no delta request. The check is the `SECTION HL TESTS` block of
-`tests/lsp/drive.py`, which decodes the delta array with a second
-implementation in Python, asserts the (type, modifiers) of anchors
-derived from a document holding every class, holds the invariants
-below over every token, and requires `range` over two lines to equal
-the tokens of `full` that start on them. A server built before that
-section answers the request with `-32601`, and an editor then falls
-back to its grammar.
-
-The legend, in the order the server advertises it:
-
-| Index | Type | When it is used |
-|---|---|---|
-| 0 | `namespace` | the module in `(import M)` and the `Mod` of `Mod::name`; an effect named by `handle` |
-| 1 | `type` | a `data`, `struct` or `type` name, at its declaration and in every type position; an uppercase-initial name outside head or pattern position that this document does not declare, or that nothing resolves |
-| 2 | `enumMember` | a constructor, at its declaration and in head or pattern position; an uppercase-initial head that this document does not declare |
-| 3 | `function` | a `fn` of this document; a head that resolves to an imported `fn`; in a document that does not parse, any head that is not a keyword or operator, and the name after `fn` or `::` |
-| 4 | `macro` | a `macro` name, at its declaration and its invocations |
-| 5 | `parameter` | a `fn` or `lambda` parameter, at its binder and every use |
-| 6 | `variable` | a `let` name or pattern variable and its uses; a lowercase name this document does not declare, outside head position; any identifier the rules above do not classify |
-| 7 | `keyword` | a head spelled in the parser's keyword list, `pub`, `mut`, `else`; `true` and `false` |
-| 8 | `string` | a string literal, one token per line, and a char literal |
-| 9 | `number` | an integer or float literal, a `-` immediately followed by a digit included |
-| 10 | `comment` | a `;` line comment and each line of a `#\| \|#` block |
-| 11 | `operator` | a head spelled entirely of operator bytes: `+`, `==`, `>=`, `&&`, `->` |
-| 12 | `property` | a field name followed by a single `:` inside a `struct` or constructor field list |
-| 13 | `decorator` | a `;@axiom:` line |
-
-The modifiers, as bits of the fifth integer of each token:
-
-| Bit | Modifier | When it is set |
-|---|---|---|
-| 1 | `declaration` | a binder; the name in a `fn`, `::`, `data`, `struct`, `type` or `macro` head; a constructor at its declaration |
-| 2 | `readonly` | a `let` binder that is not `mut` |
-| 4 | `modification` | the target of a `set` |
-| 8 | `defaultLibrary` | every name this document does not declare — imported or builtin |
-
-Rules a client can rely on: tokens are sorted by position and never
-overlap; lengths and columns are UTF-16 code units; a token never
-spans a line break, so a block comment or a multi-line string is one
-token per line; brackets, braces and `_` emit nothing; `Mod::name` is
-two tokens; an empty document answers `{data: []}`, never `null`; and
-`range` answers only the tokens that START inside the requested range,
-delta-encoded from the document's origin like `full`. In a document
-that does not parse the resolving rules give way to the lexical ones:
-a parameter is `variable`, a name followed by `:` is `property`, an
-uppercase-initial name is `type`, and the keyword tokens are
-unchanged. The cost is one parse, one line index, one occurrence walk,
-one byte scan and one bucket index over the occurrences; a client
-asks for `full` once on open and for ranges while scrolling.
-
-Where the types land in an editor's theme:
-
-| Type | Neovim group (default link) | VS Code TextMate scope (default map) |
-|---|---|---|
-| `namespace` | `@lsp.type.namespace` → `@module` | `entity.name.namespace` |
-| `type` | `@lsp.type.type` → `@type` | `entity.name.type`; with `defaultLibrary`, `support.type` |
-| `enumMember` | `@lsp.type.enumMember` → `@constant` | `variable.other.enummember` |
-| `function` | `@lsp.type.function` → `@function` | `entity.name.function`; with `defaultLibrary`, `support.function` |
-| `macro` | `@lsp.type.macro` → `@function.macro` | `entity.name.function.preprocessor` |
-| `parameter` | `@lsp.type.parameter` → `@variable.parameter` | `variable.parameter` |
-| `variable` | `@lsp.type.variable` → `@variable` | `variable.other.readwrite`; with `readonly`, `variable.other.constant` |
-| `keyword` | `@lsp.type.keyword` → `@keyword` | `keyword.control` |
-| `string` | `@lsp.type.string` → `@string` | `string` |
-| `number` | `@lsp.type.number` → `@number` | `constant.numeric` |
-| `comment` | `@lsp.type.comment` → `@comment` | `comment` |
-| `operator` | `@lsp.type.operator` → `@operator` | `keyword.operator` |
-| `property` | `@lsp.type.property` → `@property` | `variable.other.property` |
-| `decorator` | `@lsp.type.decorator` → `@attribute` | `entity.name.decorator` |
-
-Neovim also defines `@lsp.type.<type>.axiom`, `@lsp.mod.<modifier>.axiom`
-and `@lsp.typemod.<type>.<modifier>.axiom`, most specific first, and
-the modifier groups carry no colour until a colourscheme links them —
-`:hi link @lsp.mod.readonly.axiom Constant` is the whole of enabling
-one. VS Code exposes the modifiers to a theme's `semanticTokenColors`
-as rules such as `"*.declaration"` and `"variable.modification"`; only
-`readonly` and `defaultLibrary` map to a TextMate scope by default.
-Helix and Eglot do not consume this channel at all.
+The server offers no `textDocument/semanticTokens`. Release 0.3.5
+shipped them — every identifier coloured by what the occurrence walk
+resolved it to — and they came out again before the next release, by
+decision: one source of colour, the tree-sitter grammar, rather than
+two that can disagree about the same token. `tree-sitter-axiom/queries/
+highlights.scm` colours by syntactic role — a declaration's name by
+what it declares, an application's head as a call, a constructor in a
+pattern as a constructor, an AXTAG as an attribute rather than a
+comment — and `queries/rainbows.scm` colours every bracket pair by its
+nesting depth, with every bracket-opening rule of the grammar as a
+scope. `scripts/check-tree-sitter.sh` holds both against every `.ax`
+file in the repository. An editor that consumes semantic tokens but
+not tree-sitter (VS Code) therefore has no highlighting from this
+repository; one that consumes tree-sitter (Helix, Neovim, Emacs 29,
+Zed) has all of it.
 
 ## The cost rule
 

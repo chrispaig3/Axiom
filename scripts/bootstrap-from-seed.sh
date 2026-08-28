@@ -282,8 +282,18 @@ echo "ok   a program built by the seeded compiler runs correctly"
 
 if [[ -n "$install_dir" ]]; then
   mkdir -p "$install_dir" || fail "could not create $install_dir"
-  cp "$work/d3/axc" "$install_dir/axiom" || fail "could not install to $install_dir"
-  chmod +x "$install_dir/axiom"
+  # Written beside the target and renamed over it, never copied onto
+  # it. `cp` onto an existing executable truncates and rewrites the
+  # same inode, and on macOS a binary that was ever executed keeps its
+  # code signature cached by inode: the rewritten file passes
+  # `codesign -v` and is SIGKILLed (exit 137, no output) on every
+  # exec until it is replaced by a new inode. Measured 2026-08-28,
+  # while three gates shared one `.axiom-bin/axiom` - every `check`
+  # in the tree died silently for 45 minutes. A rename is atomic and
+  # gives the kernel a new inode.
+  cp "$work/d3/axc" "$install_dir/axiom.new.$$" || fail "could not install to $install_dir"
+  chmod +x "$install_dir/axiom.new.$$"
+  mv -f "$install_dir/axiom.new.$$" "$install_dir/axiom" || fail "could not install to $install_dir"
   # Installed only AFTER the fixpoint and the running program, so
   # `$install_dir/axiom` existing means every check above passed. A
   # gate that finds a compiler there has one that was verified, not

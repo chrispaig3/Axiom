@@ -16,6 +16,42 @@ its changelog too.
 
 ## Unreleased
 
+### Removed
+
+- **Semantic tokens.** 0.3.5's `textDocument/semanticTokens/full` and
+  `/range` are withdrawn, by decision rather than defect: the
+  tree-sitter grammar is the one source of colour, and two sources that
+  can disagree about the same token are worse than one. The SECTION HL
+  of `self_host/lsp.ax`, its drive.py block and its sweep entry are
+  gone; the capability object shrinks by one key and the eight goldens
+  are re-blessed for that alone. `docs/lsp.md` says which editors take
+  colour from the grammar (Helix, Neovim, Emacs 29, Zed) and which
+  therefore have none from this repository (VS Code, which has no
+  tree-sitter and for which no TextMate grammar is shipped).
+
+### Added
+
+- **Rainbow brackets in the grammar.** `tree-sitter-axiom/queries/
+  rainbows.scm` names every bracket-opening rule of the grammar as a
+  `@rainbow.scope` — 59 of them, checked against `src/node-types.json`
+  so a hidden or aliased rule cannot be named — and the six bracket
+  tokens as `@rainbow.bracket`; Helix colours each pair by its nesting
+  depth with `[editor] rainbow-brackets = true`, and
+  rainbow-delimiters.nvim reads the same captures. Measured on
+  `stdlib/Vec.ax`: 868 brackets in 288 scopes. `check-tree-sitter.sh`
+  loads it against every `.ax` file beside `highlights.scm`.
+
+### Fixed
+
+- **`bootstrap-from-seed.sh --install` copied the compiler onto the
+  binary it was replacing.** `cp` onto an existing executable rewrites
+  the same inode, and macOS keeps a signature cached per inode for a
+  binary that was ever run: the rewritten `.axiom-bin/axiom` passed
+  `codesign -v` and was SIGKILLed — exit 137, no output — on every
+  exec, so every `check` in the tree died silently for three quarters
+  of an hour while three gates shared it. The install is a copy beside
+  the target and a rename over it now, which is atomic and a new inode.
+
 ## 0.3.5 — 2026-08-28
 
 The language server grows from four questions to twenty-two, most of

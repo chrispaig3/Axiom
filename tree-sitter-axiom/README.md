@@ -9,6 +9,7 @@ tree-sitter-axiom/
 ├── src/scanner.c            the external scanner: nesting `#| ... |#`
 ├── src/parser.c             generated from grammar.js, committed
 ├── queries/highlights.scm   highlighting captures
+├── queries/rainbows.scm     bracket pairs by nesting depth (Helix `rainbow-brackets`, rainbow-delimiters.nvim)
 ├── test/corpus/             tree-shape tests
 └── tree-sitter.json         CLI configuration
 ```
