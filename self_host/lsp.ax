@@ -1273,7 +1273,9 @@
   )
 )
 
-; The form at `o`, from its `(` to its matching `)`.
+; The offset one past the `)` that closes the form opening at `o`, or
+; the document length when nothing closes it - a form half-typed at the
+; end of the file runs to EOF, which is what a reader expects of it.
 ;
 ; A DEPTH COUNT ALONE IS NOT ENOUGH, and that is the half this used to
 ; be missing: a `)` inside a string, a char literal, a `;` comment or a
@@ -1286,9 +1288,13 @@
 ; is an identifier byte and `f'` must not open a char literal. What
 ; that costs when it is got wrong is written out at length in
 ; lexer.ax: one apostrophe silently deleted every AXTAG after it.
-(pub :: lspFormText (-> String Int String))
+;
+; Factored out of `lspFormText` so that a section asking where a form
+; ENDS - folding, selection ranges, the argument count under a cursor
+; - asks the same scanner rather than a second copy of the rule.
+(pub :: lspFormEnd (-> String Int Int))
 
-(pub fn (lspFormText src o)
+(pub fn (lspFormEnd src o)
   (let (
     (n (strLen src))
     (mut i o)
@@ -1334,15 +1340,90 @@
             )
           )
         ))
-      (strSlice
-        src        o        (-
-          (if (< stop 0)
-            n
-            stop
-          )          o
-        )
+      (if (< stop 0)
+        n
+        stop
       )
     }
+  )
+)
+
+; The form at `o`, from its `(` to its matching `)`.
+(pub :: lspFormText (-> String Int String))
+
+(pub fn (lspFormText src o) (strSlice src o (- (lspFormEnd src o) o)))
+
+; Every `(` whose form CONTAINS `off`, outermost first, as a Vec of
+; byte offsets. A form contains `off` when it opens before `off` and
+; has not closed by `off`; a form opening exactly AT `off` is not in
+; the list, and a caller that wants it tests `(strByte src off)` for
+; `(` itself.
+;
+; One forward pass from the top-level form's own opener - the
+; column-zero rule of `lspFormStart` - so the cost is the length of ONE
+; top-level form and not of the document. The scanner is the one
+; `lspFormEnd` uses, for the reason it exists: a `(` inside a string or
+; a comment is not an opener.
+;
+; What this is for: the enclosing call under a cursor asking for
+; signature help, the chain of ranges a selection expands through, and
+; the forms a folding request lists - three questions with one answer,
+; which is why it sits here and not in any one section.
+(pub :: lspEnclosingOpens (-> String Int Int))
+
+(pub fn (lspEnclosingOpens src off)
+  (let (
+    (n (strLen src))
+    (stack vecNew)
+  )
+    (if (|| (== n 0) (> off n))
+      stack
+      (let ((mut i (lspFormStart src off)))
+        {
+          (while (< i off)
+            (let ((ch (strByte src i)))
+              (if (== ch 34)
+                (set i (skipStringBody src (+ i 1) n))
+                (if (isIdentStart ch)
+                  (set i (skipIdent src (+ i 1) n))
+                  (if (== ch 39)
+                    (set i (skipCharBody src (+ i 1) n))
+                    (if (&& (== ch 35) (isBlockOpen src i n))
+                      (set i (skipBlockComment src (+ i 2) n))
+                      (if (== ch 59)
+                        (set i (findNewline src i n))
+                        {
+                          (if (== ch 40)
+                            (vecPush stack i)
+                            0
+                          )
+                          (if (&& (== ch 41) (> (vecLen stack) 0))
+                            (vecPop stack)
+                            0
+                          )
+                          (set i (+ i 1))
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            ))
+          stack
+        }
+      )
+    )
+  )
+)
+
+; Whether a non-zero span covers `off` - the byte at `off` is inside
+; `[start, end)`. A span of 0 covers nothing.
+(pub :: lspSpanHas (-> Int Int Bool))
+
+(pub fn (lspSpanHas sp off)
+  (if (== sp 0)
+    false
+    (&& (>= off (spanStart sp)) (< off (spanEnd sp)))
   )
 )
 
