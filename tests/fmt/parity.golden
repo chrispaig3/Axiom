@@ -1,9 +1,28 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 40 cases: 17 rewrites and 23 refusals, which is why this
+# it formatted at all. 48 cases: 24 rewrites and 24 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# TWO CASES CHANGED SIDES on 2026-08-28, the other way round from the three
+# below, and for the same reason - this file records what the formatter DID,
+# not what the language allows:
+#
+#   070-keyword-in-expr     exit 1 -> 0   `(fn (f) (g data))`
+#   131-effect-alloc-kw     exit 1 -> 0   `(fn (f n) (handle n (alloc) 0))`
+#
+# Both refusals came from `fpIsReservedWord`, the retired Rust compiler's lexer
+# rule - every structural word reserved in every position - while the
+# self-hosted parser reserves a keyword only in the position its rule claims
+# (docs/reference.md, "Keywords"): `check` on the first complains only that `g`
+# is unbound (AX3001, the checker), and answers OK to the second as written,
+# because the checker accepts a lowercase `alloc` effect. check-fmt.sh met the
+# rule the day `self_host/lsp.ax` named a parameter `data` (f0a2fa3). 190-197
+# pin the rule in both directions: 190-193 and 195 are keyword-spelled
+# identifiers that now print; 194 (`mut` at a binding head, the marker), 196
+# (`consume`) and 197 (`begin`) are the refusals the parser shares - and 196
+# and 197 were REWRITES before, output `check` refuses with AX2004.
 #
 # THREE CASES CHANGED SIDES on 2026-08-09, and the reason is worth recording
 # here because this file is what recorded the wrong answer:
@@ -58,7 +77,8 @@
 (fn (f) -9223372036854775807)
 ### 060-splice-refused.axp (exit 1)
 ### 070-deriving-refused.axp (exit 1)
-### 070-keyword-in-expr.axp (exit 1)
+### 070-keyword-in-expr.axp (exit 0)
+(fn (f) (g data))
 ### 071-eq-in-expr.axp (exit 1)
 ### 080-dollar-is-bang.axp (exit 0)
 (fn (f x) (! x))
@@ -84,7 +104,10 @@
 (fn (f n)
   (handle n (Mut) 0)
 )
-### 131-effect-alloc-kw.axp (exit 1)
+### 131-effect-alloc-kw.axp (exit 0)
+(fn (f n)
+  (handle n (alloc) 0)
+)
 ### 132-effect-Alloc-ok.axp (exit 0)
 (fn (f n)
   (handle n (Alloc) 0)
@@ -133,3 +156,26 @@
 )
 ### 182-define-rewrites.axp (exit 0)
 (fn (legacy) 7)
+### 190-keyword-param.axp (exit 0)
+(fn (g data) data)
+### 191-keyword-let-binder.axp (exit 0)
+(fn (f)
+  (let ((match 1))
+    match
+  )
+)
+### 192-keyword-argument.axp (exit 0)
+(fn (f g) (g match let data where))
+### 193-keyword-pattern-var.axp (exit 0)
+(fn (f v)
+  (match v
+    (data data)
+  )
+)
+### 194-mut-binder-head-refused.axp (exit 1)
+### 195-effect-keyword-atom.axp (exit 0)
+(fn (f n)
+  (handle n (data) 0)
+)
+### 196-consume-head-refused.axp (exit 1)
+### 197-begin-head-refused.axp (exit 1)

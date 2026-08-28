@@ -246,6 +246,19 @@ its rule claims — the head of a form, and for `mut` the head of a
 `match`; `(cast e)` is read as the cast form whatever `cast` is bound
 to. Shadowing one is legal and a bad idea.
 
+`axiom fmt` prints by the same rule since 2026-08-28: a keyword in
+parameter, `let` binder, pattern, argument or effect-name position is
+printed as the identifier it is (`tests/fmt/parity/190-keyword-param.axp`
+through `195-effect-keyword-atom.axp`, and `070-keyword-in-expr.axp`,
+which pinned the refusal until then), and the formatter refuses exactly
+the heads the parser refuses - `consume` and `begin`, `AX2004`
+(`196-consume-head-refused.axp`, `197-begin-head-refused.axp`) - plus
+`mut` at a `let` binding's head, which is the marker and not a name
+(`194-mut-binder-head-refused.axp`, `AX2001` from `check` too). Until
+then the formatter reserved every word in this table in every position,
+which was the retired Rust compiler's lexer rule, and refused
+`(fn (g data) data)` while `check` accepted it.
+
 | Keyword | Purpose |
 |---|---|
 | `define` | Define a function (classic style) |

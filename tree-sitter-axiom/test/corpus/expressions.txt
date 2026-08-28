@@ -357,3 +357,30 @@ set writes a struct field through a dotted path
       body: (set_expression
         target: (identifier)
         value: (integer_literal)))))
+
+================================================================
+a keyword-spelled name is an identifier outside head position
+================================================================
+
+(:: g Int)
+(fn (g data)
+  (let ((match data))
+    (h match data)))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    subject: (identifier)
+    type: (builtin_type))
+  (function_definition
+    name: (identifier)
+    parameter: (identifier)
+    body: (let_expression
+      binding: (let_binding
+        pattern: (identifier)
+        value: (identifier))
+      body: (application
+        operand: (identifier)
+        operand: (identifier)
+        operand: (identifier)))))

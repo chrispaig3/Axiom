@@ -2371,112 +2371,42 @@
 ; ------------------------------------------------------------------
 ; Expressions.
 ; ------------------------------------------------------------------
-; Structural keywords, which stage0's lexer reserves: in expression or
-; pattern position each is a parse error there, so the printer refuses
-; rather than printing a program stage0's own `fmt` would not accept.
-; Type-name keywords (`Int`, `IO`, ...) are deliberately absent - they
-; are legal in name positions and the corpus never puts one in an
-; expression.
-(pub :: fpIsReservedWord (-> String Bool))
+; Which identifier heads the printer refuses, and why the list is two
+; words long. The lexer reserves nothing (docs/reference.md,
+; "Keywords"): a keyword is special only in the position its grammar
+; rule claims - the head of a form, `mut` at the head of a `let`
+; binding, `else` at the head of a `cond` clause, `where` inside a
+; `trait` or `impl` head - and an ordinary identifier everywhere else.
+; `parseIdentList` takes `data` as a parameter, `parseArmPattern` binds
+; it, `parseEffectNames` takes any identifier as an effect name, and
+; `parseInner` reads `(data 1)`, `(type 1)` and `(where 1)` as
+; applications of a variable; what such a name MEANS is the checker's
+; question (AX3001, AX3004, AX3016), never the parser's. So the printer
+; prints every identifier byte for byte, and the heads it refuses are
+; exactly the two `parseInner` refuses BY NAME: `consume` and `begin`,
+; both AX2004 - removed constructs with no spelling the printer could
+; migrate them to, so the two subcommands refuse together, as they do
+; for `deriving` in `fpDeriving`.
+;
+; This replaced `fpIsReservedWord` on 2026-08-28. That function
+; reproduced the RETIRED Rust compiler's lexer - thirty-two structural
+; words reserved in every position - and refused `(fn (g data) data)`
+; while `check` accepted it. check-fmt.sh found it the day
+; `self_host/lsp.ax` named a parameter `data` (f0a2fa3), and the parity
+; bank had pinned the wrong answer as 070-keyword-in-expr since the day
+; it was materialized. Measured on the compiler built from this tree
+; before the change: every non-head position - parameter, argument,
+; `let` binder, pattern variable, `lambda` and `macro` parameter, `set`
+; target, effect atom - was `check` OK (or a checker error) and `fmt`
+; "formatter refusal"; and in the other direction `fmt` printed
+; `(consume 1)` and `(begin 1)`, which `check` refuses at the parser.
+; tests/fmt/parity/190 to 197 pin both directions; 194 pins the one
+; binder position that IS a keyword's, `(let ((mut 1)) mut)`, AX2001
+; in `check` and refused here.
+(pub :: fpIsRefusedHead (-> String Bool))
 
-(pub fn (fpIsReservedWord t)
-  (if (strEq t "define")
-    true
-    (if (strEq t "lambda")
-      true
-      (if (strEq t "let")
-        true
-        (if (strEq t "if")
-          true
-          (if (strEq t "cond")
-            true
-            (if (strEq t "match")
-              true
-              (if (strEq t "fn")
-                true
-                (if (strEq t "data")
-                  true
-                  (if (strEq t "macro")
-                    true
-                    (if (strEq t "struct")
-                      true
-                      (if (strEq t "type")
-                        true
-                        (if (strEq t "newtype")
-                          true
-                          (if (strEq t "trait")
-                            true
-                            (if (strEq t "impl")
-                              true
-                              (if (strEq t "import")
-                                true
-                                (if (strEq t "foreign")
-                                  true
-                                  (if (strEq t "pub")
-                                    true
-                                    (if (strEq t "deriving")
-                                      true
-                                      (if (strEq t "where")
-                                        true
-                                        (if (strEq t "effect")
-                                          true
-                                          (if (strEq t "handle")
-                                            true
-                                            (if (strEq t "linear")
-                                              true
-                                              (if (strEq t "consume")
-                                                true
-                                                (if (strEq t "alloc")
-                                                  true
-                                                  (if (strEq t "sizeof")
-                                                    true
-                                                    (if (strEq t "alignof")
-                                                      true
-                                                      (if (strEq t "cast")
-                                                        true
-                                                        (if (strEq t "mut")
-                                                          true
-                                                          (if (strEq t "while")
-                                                            true
-                                                            (if (strEq t "set")
-                                                              true
-                                                              (if (strEq t "union")
-                                                                true
-                                                                (if (strEq t "region")
-                                                                  true
-                                                                  false
-                                                                )
-                                                              )
-                                                            )
-                                                          )
-                                                        )
-                                                      )
-                                                    )
-                                                  )
-                                                )
-                                              )
-                                            )
-                                          )
-                                        )
-                                      )
-                                    )
-                                  )
-                                )
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
+(pub fn (fpIsRefusedHead t)
+  (|| (strEq t "consume") (strEq t "begin"))
 )
 
 ; The operator spellings stage0's parser turns into expression values
@@ -3315,7 +3245,10 @@
       (let ((h (fnHeadText src n)))
         (if (isKeywordHead h)
           false
-          (if (fpIsReservedWord h)
+          ; A refused head stays whole, so `((consume 1) 2)` reaches
+          ; the refusal in `fpExpr` instead of being spliced past it
+          ; into `(consume 1 2)`.
+          (if (fpIsRefusedHead h)
             false
             (let ((elems (fpExprElems n 0)))
               (if (== (vecLen elems) 2)
@@ -3499,10 +3432,11 @@
                   (fpP p s)
                 )
               )
-              (if (fpIsReservedWord t)
-                (fpBad p)
-                (fpP p t)
-              )
+              ; A bare name prints as itself whatever it spells:
+              ; `data`, `match` and `where` are identifiers here, not
+              ; keywords - see `fpIsRefusedHead`, and the parity
+              ; cases beside 070-keyword-in-expr.
+              (fpP p t)
             )
           )
           (if (== tk FT_INT)
@@ -3652,17 +3586,14 @@
                                   (fpMatch p n)
                                   (if (strEq h "handle")
                                     (fpHandle p n)
-                                    (if (strEq h "consume")
-                                      (let ((elems (fpExprElems n 1)))
-                                        (if (== (vecLen elems) 1)
-                                          {
-                                            (fpP p "(consume ")
-                                            (fpExpr p (vecGet elems 0))
-                                            (fpP p ")")
-                                          }
-                                          (fpBad p)
-                                        )
-                                      )
+                                    ; `consume` and `begin` are the two identifier
+                                    ; heads `parseInner` refuses by name (AX2004), so
+                                    ; the printer refuses them with it. It used to
+                                    ; print `(consume e)` and `(begin e)` - output
+                                    ; `check` cannot read, which is the one thing
+                                    ; `fmt` may never emit.
+                                    (if (fpIsRefusedHead h)
+                                      (fpBad p)
                                       (if (strEq h "alloc")
                                         (let ((cnt (fpExprElems n 2)))
                                           (if (|| (< (fnLen n) 2) (> (vecLen cnt) 1))
@@ -3752,10 +3683,12 @@
                                                       )
                                                     )
                                                   )
-                                                  (if (fpIsReservedWord h)
-                                                    (fpBad p)
-                                                    (fpApp p n)
-                                                  )
+                                                  ; Any other identifier head is an
+                                                  ; application, as `parseInner` falls
+                                                  ; through to `parseAppForm`: `(data 1)`
+                                                  ; calls whatever `data` is bound to,
+                                                  ; and the checker says what that is.
+                                                  (fpApp p n)
                                                 )
                                               )
                                             )
@@ -5192,10 +5125,15 @@
   )
 )
 
-; Effect atoms print SEMANTICALLY, not verbatim: `mut` is the `Mut`
-; token and prints `Mut` (probed). Structural keywords other than
-; `mut` are parse errors in an effect list - `(alloc)` refuses even
-; though `Alloc` is fine - so they poison.
+; Effect atoms: `mut` is a migration - stage0's lexer had a `Mut` token
+; for it, and this checker knows no effect spelled `mut` (AX3016) - so
+; it prints `Mut`, the spelling that checks. Every other identifier
+; prints verbatim, because `parseEffectNames` takes ANY identifier and
+; the CHECKER decides: `(data)` is AX3016 there, and a lowercase
+; `(alloc)` is accepted outright (`isBuiltinEffect`). This printer used
+; to refuse both as reserved words - stage0's lexer again - and the
+; parity case 131-effect-alloc-kw pinned that refusal for a program
+; `check` answers OK to; it pins the rewrite now.
 (pub :: fpEffectAtoms (-> Int Int Int))
 
 (pub fn (fpEffectAtoms p grp)
@@ -5214,10 +5152,7 @@
               )
               (if (strEq t "mut")
                 (fpP p "Mut")
-                (if (fpIsReservedWord t)
-                  (fpBad p)
-                  (fpP p t)
-                )
+                (fpP p t)
               )
               (set j (+ j 1))
             }
