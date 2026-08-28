@@ -605,6 +605,9 @@ def build(cap, name, uri, text, p, rid):
        "typeDefinitionProvider":("textDocument/typeDefinition",{**td,"position":p}),
        "codeLensProvider":("textDocument/codeLens",td),
       }
+    if name=="semanticTokensProvider":
+        return [("textDocument/semanticTokens/full",td),
+                ("textDocument/semanticTokens/range",{**td,"range":{"start":p,"end":pos_of(text,min(len(text),len(text[:len(text)//2])))}})]
     if name=="renameProvider":
         return [("textDocument/prepareRename",{**td,"position":p}),
                 ("textDocument/rename",{**td,"position":p,"newName":"renamedName"})]

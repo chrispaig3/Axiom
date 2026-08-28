@@ -18,8 +18,8 @@ its changelog too.
 
 ## 0.3.5 — 2026-08-28
 
-The language server grows from four questions to twenty, most of what
-rust-analyzer answers for Rust. Every per-keystroke request is answered
+The language server grows from four questions to twenty-two, most of
+what rust-analyzer answers for Rust, syntax highlighting included. Every per-keystroke request is answered
 from the raw parse tree and the document's own bytes with no macro
 expansion (`MAC-TOOL-3`); the two that run the pipeline do so because
 the pipeline's output is the answer — a code action reads the checker's
@@ -28,7 +28,7 @@ question. Every request is gated by `scripts/check-lsp-selfhost.sh` two
 ways: a derived check that asks it the right question on a document the
 driver writes itself, and a sweep that asks every advertised request the
 wrong question at every kind of position. 28 passed, 0 failed; the sweep
-answers 10,564 requests over 19 providers.
+answers every advertised provider at every kind of position.
 
 No gate was added for this release: the thirty-seven gates that build
 the compiler under test through `gate_build_axc` already include
@@ -149,6 +149,35 @@ than a new one.
   `didOpen`: formatting 0.66x, codeAction 0.74x (1.39x before the
   is-there-a-signature question was asked before the walk),
   typeDefinition 0.50x, codeLens 0.18x, expandMacro 0.69x.
+
+- **Syntax highlighting, by what a name resolves to.**
+  `textDocument/semanticTokens/full` and `/range`, the protocol's
+  highlighting channel and the feature rust-analyzer is known by. Every
+  identifier is classified by WHAT IT RESOLVES TO — the same occurrence
+  walk that answers `references`, expanding nothing — and not by how it
+  is spelled: a parameter, a `let` (`readonly` unless `mut`,
+  `modification` at its `set`), this document's function, type or
+  macro, a constructor, an effect, or a name from elsewhere
+  (`defaultLibrary`). Keywords, strings, char literals, numbers, `;`
+  comments, `#| |#` blocks, AXTAG lines (`decorator`) and
+  operator-spelled names come from one byte scan in `lspFormEnd`'s
+  order, so nothing depends on a parse: on the keystroke that breaks
+  it, `(fn (add x y) ...)` keeps `add` a declared function and `y` a
+  parameter, and a parameter READ in the body falls to `variable`,
+  which is the honest answer once there is nothing to resolve it
+  against — highlighting that flickers on every unbalanced paren is
+  worse than none. The legend is fourteen types and four modifiers,
+  advertised in `initialize`; no delta request is offered.
+
+  Measured on the gate's 2,050-declaration document against a 0.023 s
+  `didOpen`: the full request, 22,556 tokens, 0.57x; a 60-line range,
+  0.07x. drive.py derives 54 anchors over all fourteen types from a
+  document written there, decodes the delta array by a second
+  implementation, holds every token sorted, non-overlapping, inside
+  its line and spelling its class, holds `range` equal to `full`'s
+  tokens on its lines, and holds the broken twin's keywords and
+  literals unchanged. The gate's sweep fires `full` and `range` with
+  every other request.
 
 - **One door for what the server learns next.** `lsp.ax`'s dispatch was
   a nested `if` chain and its capabilities one expression; both are now
