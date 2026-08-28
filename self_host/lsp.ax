@@ -2394,7 +2394,7 @@
 ; nothing calls.
 (pub :: lspCapabilities Int)
 
-(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions)) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.3.4"))))
+(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (lspFixCaps (lspViewCaps (lspNavCaps (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions))))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.3.4"))))
 
 ; `definitionProvider` and `hoverProvider` joined on 2026-08-15
 ; with the macro navigation they describe (MAC-TOOL-2). Both are
@@ -2442,6 +2442,100 @@
     )
   )
 )
+
+; ------------------------------------------------------------------
+; The extension door
+;
+; Three sections follow, each owning a set of requests and nothing
+; else: NAVIGATION (references, rename, highlights, the local-binding
+; half of definition), VIEWS (signature help, inlay hints, folding,
+; selection ranges, document links, workspace symbols) and FIXES
+; (formatting, code actions, macro expansion, code lenses, type
+; definition, diagnostics for imported modules). Each section answers
+; three questions in the same shape - does it handle `method`, what
+; does it reply, and what does it advertise - and `lspExtHandles` /
+; `lspExtDispatch` / `lspCapabilities` ask all three in a fixed order.
+; A method two sections both claimed would be answered by the first;
+; none does, and the gate's per-method checks would say so.
+; ------------------------------------------------------------------
+(pub :: lspExtHandles (-> String Bool))
+
+(pub fn (lspExtHandles method) (|| (lspNavHandles method) (|| (lspViewHandles method) (lspFixHandles method))))
+
+(pub :: lspExtDispatch (-> String Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspExtDispatch method id params uris texts)
+  (if (lspNavHandles method)
+    (lspNavDispatch method id params uris texts)
+    (if (lspViewHandles method)
+      (lspViewDispatch method id params uris texts)
+      (lspFixDispatch method id params uris texts)
+    )
+  )
+)
+
+; ==================================================================
+; SECTION NAV: references, rename, document highlights, local bindings
+; ==================================================================
+(pub :: lspNavHandles (-> String Bool))
+
+(pub fn (lspNavHandles method) false)
+
+(pub :: lspNavDispatch (-> String Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspNavDispatch method id params uris texts) (lspError id (- 0 32601) (strConcat "method not found: " method)))
+
+(pub :: lspNavCaps (-> Int Int))
+
+(pub fn (lspNavCaps caps) caps)
+
+; ==================================================================
+; END SECTION NAV
+; ==================================================================
+
+; ==================================================================
+; SECTION VIEW: signature help, inlay hints, folding, selection
+; ranges, document links, workspace symbols
+; ==================================================================
+(pub :: lspViewHandles (-> String Bool))
+
+(pub fn (lspViewHandles method) false)
+
+(pub :: lspViewDispatch (-> String Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspViewDispatch method id params uris texts) (lspError id (- 0 32601) (strConcat "method not found: " method)))
+
+(pub :: lspViewCaps (-> Int Int))
+
+(pub fn (lspViewCaps caps) caps)
+
+; ==================================================================
+; END SECTION VIEW
+; ==================================================================
+
+; ==================================================================
+; SECTION FIX: formatting, code actions, macro expansion, code
+; lenses, type definition, diagnostics for imported modules
+; ==================================================================
+(pub :: lspFixHandles (-> String Bool))
+
+(pub fn (lspFixHandles method) false)
+
+(pub :: lspFixDispatch (-> String Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspFixDispatch method id params uris texts) (lspError id (- 0 32601) (strConcat "method not found: " method)))
+
+(pub :: lspFixCaps (-> Int Int))
+
+(pub fn (lspFixCaps caps) caps)
+
+; ==================================================================
+; END SECTION FIX
+; ==================================================================
 
 ; ------------------------------------------------------------------
 ; The loop
@@ -2526,11 +2620,19 @@
                                             (lspPublish uri jsonArr)
                                           }
                                         )
-                                        ; Anything else: a request must be answered,
-                                        ; a notification must not be.
-                                        (if (== id 0)
-                                          0
-                                          (lspError id (- 0 32601) (strConcat "method not found: " method))
+                                        ; Everything the three extension sections
+                                        ; answer - navigation, views, fixes - is
+                                        ; dispatched through one door, so the chain
+                                        ; above stays the lifecycle and the four
+                                        ; original questions.
+                                        (if (lspExtHandles method)
+                                          (lspExtDispatch method id params uris texts)
+                                          ; Anything else: a request must be answered,
+                                          ; a notification must not be.
+                                          (if (== id 0)
+                                            0
+                                            (lspError id (- 0 32601) (strConcat "method not found: " method))
+                                          )
                                         )
                                       ))
                                     )

@@ -1241,6 +1241,35 @@ else:
     passed += 3
 shutil.rmtree(NAVDIR, ignore_errors=True)
 
+# =====================================================================
+# SECTION NAV TESTS: references, rename, document highlights, and the
+# local-binding half of definition. Owned by that section of
+# self_host/lsp.ax; every expected answer here is DERIVED from the
+# documents' own bytes, never read from a golden.
+# =====================================================================
+
+# =====================================================================
+# END SECTION NAV TESTS
+# =====================================================================
+
+# =====================================================================
+# SECTION VIEW TESTS: signature help, inlay hints, folding ranges,
+# selection ranges, document links, workspace symbols.
+# =====================================================================
+
+# =====================================================================
+# END SECTION VIEW TESTS
+# =====================================================================
+
+# =====================================================================
+# SECTION FIX TESTS: formatting, code actions, macro expansion, code
+# lenses, type definition, diagnostics for imported modules.
+# =====================================================================
+
+# =====================================================================
+# END SECTION FIX TESTS
+# =====================================================================
+
 # ---------------------------------------------------------------------
 # An editing session does not grow.
 #
