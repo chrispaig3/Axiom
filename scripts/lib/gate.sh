@@ -315,6 +315,7 @@ docs/macro-system.md
 docs/memory-model.md
 docs/agent-harness.md
 docs/compatibility.md
+docs/lsp.md
 docs/stdlib-api.md
 DOCS
 }

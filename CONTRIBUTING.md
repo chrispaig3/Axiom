@@ -87,7 +87,7 @@ axiom/
 │                       tools/ ffi/ docs/
 ├── scripts/            the gates, and lib/gate.sh, the preamble they share
 ├── docs/               reference.md, memory-model.md, macro-system.md,
-│                       diagnostics.md, error-model.md, ffi.md
+│                       diagnostics.md, error-model.md, ffi.md, lsp.md
 └── README.md
 ```
 
@@ -683,6 +683,7 @@ If you're unsure about how something works or where to make a change, open an is
 | [docs/error-model.md](docs/error-model.md) | How a program signals failure — `Result`, `Error`, `try!`, rules ERR-* |
 | [docs/diagnostics.md](docs/diagnostics.md) | AXDL, AXSYM, NID, AXTAG notation, the diagnostic-code ranges, and how to add a code |
 | [docs/ffi.md](docs/ffi.md) | The `extern` block, `axiom-bindgen`, and what may cross the boundary |
+| [docs/lsp.md](docs/lsp.md) | The language server — running `axiom lsp`, editor configurations, what each request answers and refuses, the semantic-token legend, the cost rule |
 | [tree-sitter-axiom/](tree-sitter-axiom/) | Editor grammar for syntax highlighting |
 
 Two documents were retired on 2026-08-23, once what they recorded had
