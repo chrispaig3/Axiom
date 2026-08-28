@@ -6792,18 +6792,2343 @@
 ; SECTION FIX: formatting, code actions, macro expansion, code
 ; lenses, type definition, diagnostics for imported modules
 ; ==================================================================
+; The requests that CHANGE or RUN code from the editor: the formatter
+; as one whole-document edit, the compiler's machine-applicable fixes
+; as quickfixes beside a signature assist, a `Run` lens on `main`, type
+; definition, and `axiom/expandMacro` - the analogue of
+; `rust-analyzer/expandMacro`, and the reason the AST printer at the
+; end of this section exists: nothing else in the compiler turns a
+; node back into source.
+;
+; TWO OF THESE EXPAND, and MAC-TOOL-3 is why that is said first.
+; `codeAction` and `expandMacro` run the pipeline `lspCheckDoc` runs -
+; preflight, `resolveImports`, `expandProgram`, `lowerImpls`, and for
+; code actions the checker - because a quickfix IS a checker
+; diagnostic and an expansion IS the expander's output; neither can be
+; read off the raw tree. Neither is a per-keystroke request either: a
+; client asks for code actions when the cursor rests and for an
+; expansion on demand, and each costs about one `didOpen` of the same
+; document, which the editor paid on the last keystroke anyway.
+; `formatting`, `codeLens` and `typeDefinition` read the raw tree and
+; expand nothing.
+;
+; `textDocument/rangeFormatting` is deliberately NOT offered: the
+; formatter is whole-document - `fmtFormat` proves its output a fixed
+; point of the whole file - and a range cut out of that output would
+; be a different formatter with a weaker proof.
+;
+; The formatter is imported HERE rather than in the file's preamble,
+; because this section is the only reader of it and an import is a
+; top-level declaration like any other: `parseTopForm` reads one
+; wherever it stands and `resolveImports` walks every `TAG_D_IMPORT`
+; node in the list. Keeping it beside its one caller is the same rule
+; that keeps the section's helpers inside the section.
+(import format)
+
 (pub :: lspFixHandles (-> String Bool))
 
-(pub fn (lspFixHandles method) false)
+(pub fn (lspFixHandles method) (|| (strEq method "textDocument/formatting") (|| (strEq method "textDocument/codeAction") (|| (strEq method "textDocument/typeDefinition") (|| (strEq method "textDocument/codeLens") (strEq method "axiom/expandMacro"))))))
 
 (pub :: lspFixDispatch (-> String Int Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (lspFixDispatch method id params uris texts) (lspError id (- 0 32601) (strConcat "method not found: " method)))
+(pub fn (lspFixDispatch method id params uris texts)
+  (let ((uri (lspParamsUri params)))
+    (let ((src (docText uris texts uri)))
+      (if (strEq method "textDocument/formatting")
+        (lspReply id (lspFormatting src))
+        (if (strEq method "textDocument/codeAction")
+          (lspReply id (lspCodeAction src uri params))
+          (if (strEq method "textDocument/typeDefinition")
+            (lspReply id (lspTypeDefinition src uri params))
+            (if (strEq method "textDocument/codeLens")
+              (lspReply id (lspCodeLens src uri))
+              (lspReply id (lspExpandMacro src uri params))
+            )
+          )
+        )
+      )
+    )
+  )
+)
 
+; `codeActionProvider` is an object rather than a boolean so a client
+; can see which kinds are on offer before it asks; `codeLensProvider`
+; says every lens is complete as sent, for the reason
+; `completionProvider` says the same of its items; `expandMacro` rides
+; under `experimental` because it is not a protocol method, which is
+; where rust-analyzer advertises its own.
 (pub :: lspFixCaps (-> Int Int))
 
-(pub fn (lspFixCaps caps) caps)
+(pub fn (lspFixCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "documentFormattingProvider" (jsonBool 1)) "codeActionProvider" (jsonObjPut jsonObj "codeActionKinds" (jsonArrPush (jsonArrPush jsonArr (jsonStr "quickfix")) (jsonStr "refactor.rewrite")))) "typeDefinitionProvider" (jsonBool 1)) "codeLensProvider" (jsonObjPut jsonObj "resolveProvider" (jsonBool 0))) "experimental" (jsonObjPut jsonObj "expandMacro" (jsonBool 1))))
+
+; ------------------------------------------------------------------
+; `textDocument/formatting`: the formatter's output as ONE edit over
+; the whole document.
+;
+; `fmtFormat` is the function `axiom fmt` runs, so what the editor
+; writes is byte for byte what the command would have written - the
+; gate formats a copy of its document with the command and holds the
+; edit's text equal to the file. A refusal - a document that does not
+; parse, or an output the formatter could not prove a fixed point - is
+; null, the protocol's "nothing to do here" and what a half-typed file
+; gets; an already-formatted document is an empty list, so the client
+; writes nothing. Pure: the formatter takes a string and answers one.
+; ------------------------------------------------------------------
+(pub :: lspFormatting (-> String Int))
+
+(pub fn (lspFormatting src)
+  (let ((r (fmtFormat src)))
+    (if (== (fzOk r) 0)
+      jsonNull
+      (let ((text (fzText r)))
+        (if (strEq text src)
+          jsonArr
+          (let ((ix (lspLineIndex src)))
+            (jsonArrPush jsonArr (jsonObjPut (jsonObjPut jsonObj "range" (jsonObjPut (jsonObjPut jsonObj "start" (lspPosIx src ix 0)) "end" (lspPosIx src ix (strLen src)))) "newText" (jsonStr text)))
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The expansion pipeline, once, for the two requests that need it.
+;
+; This is `lspCheckDoc`'s call order - preflight, `resolveImports`,
+; `expandProgram`, `lowerImpls` - with the DIAGNOSTIC HANDLES kept
+; rather than rendered, and `expandProgram`'s answer kept too: the
+; (name, macro) pairs of every declaration phase D generated, which is
+; what `expandMacro` attributes its output by and what `axiom symbols`
+; reads for `#generated=`. Answers 0 when an import cannot be read -
+; the resolver would exit the process on one, see `lspPreflight` - and
+; otherwise a five-word block: 0 the merged declaration list, 1 the
+; unit table, 2 the expansion diagnostics, 3 `gens`, 4 the frame table
+; `expAttachFrames` wants. The checker is NOT run here: one caller
+; refuses to run it and the other decides after reading word 2.
+; ------------------------------------------------------------------
+(pub :: lspFixExpand (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspFixExpand path src decls)
+  (let (
+    (bares vecNew)
+    (fulls vecNew)
+    (mods vecNew)
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+  )
+    (let ((units
+      (let ((v vecNew))
+        {
+          (vecPush
+            v            (cast Int (CUnit2
+              path              src              (cast String 0)
+            ))
+          )
+          v
+        }
+      )
+    ))
+      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+        (if (> (strLen missing) 0)
+          0
+          (let (
+            (allDecls (resolveImports
+              decls              bares              fulls              mods              tcode              entryDir              units
+            ))
+            (ftbl vecNew)
+            (eds vecNew)
+          )
+            (let ((gens (expandProgram
+              decls              allDecls              eds              ftbl              units              bares              fulls              mods
+            )))
+              (let ((b (memAlloc 40)))
+                {
+                  (lowerImpls allDecls eds)
+                  (memSetWord b 0 allDecls)
+                  (memSetWord b 1 units)
+                  (memSetWord b 2 eds)
+                  (memSetWord b 3 gens)
+                  (memSetWord b 4 ftbl)
+                  b
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/codeAction`: the fixes the compiler already knows how
+; to make, and one assist it can make from what the checker inferred.
+;
+; QUICKFIXES ARE THE DIAGNOSTICS' OWN. A help whose fix span is not 0
+; is a machine-applicable fix - what AXDL prints after `~>` - and it is
+; offered exactly as the diagnostic carries it: the title is the help's
+; text, the edit replaces the FIX span with the fix text, and the fix
+; span is not always the diagnostic's anchor. AX3012 anchors on the
+; `set` and fixes the BINDER three lines up with `mut x`; the gate
+; derives that binder's range from the document and holds the edit to
+; it. AX3001's typo suggestion and AX3003's constructor suggestion fix
+; the reference itself. Nothing here decides what a fix is: a code that
+; gains one in `typecheck.ax` gains a quickfix here without a line
+; changing.
+;
+; THE ASSIST is "Add type signature for `f`", for a `fn` in this
+; document with no `::` of its name, and the type it writes is the one
+; the checker inferred - `tcFns` word 1, the same entry `axiom symbols`
+; prints, so `symbols` is the reference an implementer checks this
+; against. Written in the PARSER's spelling, `(-> Int Int)`, not the
+; checker's `(Int -> Int)`: `tyRender` writes the latter and
+; `parseTypeParens` refuses it (probed: AX2001 at the arrow), and an
+; assist that inserts a line the compiler then rejects is worse than
+; none. It is refused when the inferred type has an unknown part; a
+; type variable the checker could not generalise is offered as
+; `symbols` would print it, and is that function's business.
+;
+; Both halves need the pipeline `lspCheckDoc` runs. Expansion's
+; refusals keep the checker from running, for the reason that function
+; gives: the tree it gave up on is one the checker has died on.
+; ------------------------------------------------------------------
+(pub :: lspCodeAction (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspCodeAction src uri params)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      jsonArr
+      (let (
+        (decls (memGetWord pr 1))
+        (ix (lspLineIndex src))
+      )
+        (let (
+          (want (lspRangeSpan src ix (jsonGet params "range")))
+          (rawVis (lspWrittenVis decls))
+        )
+          (let ((ex (lspFixExpand (lspUriToPath uri) src decls)))
+            (if (== ex 0)
+              jsonArr
+              (let ((eds (memGetWord ex 2)))
+                (let ((tc
+                  (if (> (countErrorDiags eds) 0)
+                    0
+                    (checkModuleTc decls (memGetWord ex 0) (memGetWord ex 1))
+                  )
+                ))
+                  (let ((ds
+                    (if (== tc 0)
+                      (orderDiags eds)
+                      (orderDiags
+                        (expMergeInto
+                          eds                          (let ((cds (tcOut tc)))
+                            {
+                              (expAttachFrames cds (memGetWord ex 4) (memGetWord ex 1))
+                              cds
+                            }
+                          )
+                        )
+                      )
+                    )
+                  ))
+                    (let ((out jsonArr))
+                      {
+                        (lspQuickfixes out ds src uri ix want)
+                        (if (== tc 0)
+                          0
+                          (lspSigAssists out decls rawVis (tcFns tc) src uri ix want)
+                        )
+                        out
+                      }
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The bytes a `range` parameter covers, as a span. A request with no
+; range - which a client may send - means the whole document.
+(pub :: lspRangeSpan (-> String Int Int Int))
+
+(pub fn (lspRangeSpan src ix range)
+  (if (== range 0)
+    (mkSpan 0 (strLen src))
+    (let (
+      (s (jsonGet range "start"))
+      (e (jsonGet range "end"))
+    )
+      (mkSpan
+        (if (== s 0)
+          0
+          (lspOffsetOf src ix s)
+        )        (if (== e 0)
+          (strLen src)
+          (lspOffsetOf src ix e)
+        )
+      )
+    )
+  )
+)
+
+; Whether a non-zero span touches the requested bytes. INCLUSIVE at
+; both ends, because a code action request is usually an empty range
+; at the caret, and a caret resting just after a name is asking about
+; that name.
+(pub :: lspSpanMeets (-> Int Int Bool))
+
+(pub fn (lspSpanMeets sp want)
+  (if (== sp 0)
+    false
+    (&& (<= (spanStart sp) (spanEnd want)) (>= (spanEnd sp) (spanStart want)))
+  )
+)
+
+; Only this document's diagnostics - `diagUnit` 0 - are asked, for the
+; reason `lspCheckDoc` publishes only those: a fix into an imported
+; module's bytes is an edit to a file the request did not name.
+(pub :: lspQuickfixes (-> Int Int String String Int Int Int))
+
+(pub fn (lspQuickfixes out ds src uri ix want)
+  (let (
+    (n (vecLen ds))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet ds i)))
+          {
+            (if (== (diagUnit d) 0)
+              (lspQuickfixesOf out d src uri ix want)
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+(pub :: lspQuickfixesOf (-> Int Int String String Int Int Int))
+
+(pub fn (lspQuickfixesOf out d src uri ix want)
+  (let (
+    (n (diagHelpCount d))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((fsp (diagHelpFixSpan d i)))
+          {
+            (if (&& (!= fsp 0) (|| (lspSpanMeets (diagSpan d) want) (lspSpanMeets fsp want)))
+              (jsonArrPush out (lspQuickfixJson d i fsp src uri ix))
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; `isPreferred` because a fix the compiler wrote is the fix; an editor
+; binds its "apply preferred fix" key to exactly this flag.
+(pub :: lspQuickfixJson (-> Int Int Int String String Int Int))
+
+(pub fn (lspQuickfixJson d i fsp src uri ix) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (diagHelpMsg d i))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix))) "isPreferred" (jsonBool 1)) "edit" (lspEditJson uri (lspRangeIx src ix fsp) (diagHelpFixText d i))))
+
+; A `WorkspaceEdit` of one `TextEdit` in one document.
+(pub :: lspEditJson (-> String Int String Int))
+
+(pub fn (lspEditJson uri range text) (jsonObjPut jsonObj "changes" (jsonObjPut jsonObj uri (jsonArrPush jsonArr (jsonObjPut (jsonObjPut jsonObj "range" range) "newText" (jsonStr text))))))
+
+; The visibility each declaration was WRITTEN with - `nodeVis` for a
+; spanned `fn`, -1 for everything else - taken BEFORE the pipeline
+; runs, because it does not survive it: `resolveImports` stamps every
+; written entry declaration `pub` in place (expand.ax records that
+; in its phase D header, and a probe of the assist on `(fn (twice x)
+; ...)` wrote `(pub :: twice ...)`). The list is positional, and stays
+; aligned with `decls` because phase D overwrites in place and appends
+; after; a product that overwrote an invocation is at an index this
+; list marks -1, so no assist is offered for a generated fn - its
+; "form" would be the invocation's.
+(pub :: lspWrittenVis (-> Int Int))
+
+(pub fn (lspWrittenVis decls)
+  (let (
+    (out vecNew)
+    (n (vecLen decls))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            (vecPush
+              out              (if (&& (== (nodeTag d) TAG_D_FN) (!= (nodeSpan d) 0))
+                (nodeVis d)
+                (- 0 1)
+              )
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; The cheap question first, in the order the questions cost: was it a
+; written `fn` (one word), does its form open at or before the range's
+; end (a scan back over `(pub fn (` to the column-zero paren - the
+; FORM's start and not the name's, because a caret at column 0 of the
+; fn's own line is inside the form and five bytes before the name),
+; does the form reach the range (a scan of that form), has it a
+; signature (a walk of the declaration list), what did the checker
+; infer (a walk of `tcFns`). A whole-document range on a document of
+; N unsigned functions pays the last two N times, which is the shape
+; `lspComplWants` refuses per keystroke; a code action request is per
+; SELECTION, and a selection is a few lines.
+(pub :: lspSigAssists (-> Int Int Int Int String String Int Int Int))
+
+(pub fn (lspSigAssists out decls rawVis fns src uri ix want)
+  (let (
+    (n (vecLen rawVis))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let (
+          (d (vecGet decls i))
+          (vis (vecGet rawVis i))
+        )
+          {
+            (if (&& (>= vis 0) (&& (== (nodeTag d) TAG_D_FN) (!= (nodeSpan d) 0)))
+              (let ((o (lspFormStart src (spanStart (nodeSpan d)))))
+                (if (&& (<= o (spanEnd want)) (>= (lspFormEnd src o) (spanStart want)))
+                  (if (lspHasSig decls i (nodeAName d))
+                    0
+                    (let ((e (lspFnEntry fns (nodeAName d) 0)))
+                      (if (== e 0)
+                        0
+                        (let ((ty (memGetWord e 1)))
+                          (if (lspTyKnown ty)
+                            (jsonArrPush out (lspSigAssistJson d vis ty src uri ix o))
+                            0
+                          )
+                        )
+                      )
+                    )
+                  )
+                  0
+                )
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; Whether the `fn` at `i` has a `::` of its name. The declaration
+; directly ABOVE is asked first, because that is where this language
+; writes a signature - `(pub :: bump ...)` then `(pub fn (bump x) ...)`
+; - and one comparison answers nearly every fn in a formatted file;
+; the walk of the whole list is for the rest. Measured on the gate's
+; 2,050-fn document with a whole-document range: 1.39x the `didOpen`
+; before this question was asked first, against 0.78x for a one-line
+; range, the difference being 2,050 walks of 4,100 declarations.
+(pub :: lspHasSig (-> Int Int String Bool))
+
+(pub fn (lspHasSig decls i name)
+  (if (if (> i 0)
+    (let ((p (vecGet decls (- i 1))))
+      (&& (== (nodeTag p) TAG_D_SIG) (strEq (nodeAName p) name))
+    )
+    false
+  )
+    true
+    (!= (lspFindSig decls name (- (vecLen decls) 1)) 0)
+  )
+)
+
+; The checker's entry for `name`: word 0 the name, word 1 the type
+; node - inferred when the function has no signature, which is the
+; only case this is asked about.
+(pub :: lspFnEntry (-> Int String Int Int))
+
+(pub fn (lspFnEntry fns name i)
+  (if (>= i (vecLen fns))
+    0
+    (let ((e (vecGet fns i)))
+      (if (strEq (memGetWordStr e 0) name)
+        e
+        (lspFnEntry fns name (+ i 1))
+      )
+    )
+  )
+)
+
+; The signature goes on its own line directly above the form, at the
+; form's own column - which is 0 for every declaration `lspFormStart`
+; found by its column-zero rule, and is where this language writes a
+; `::`: between the paragraph and the `fn`, so hover's paragraph rule
+; keeps working on the result.
+(pub :: lspSigAssistJson (-> Int Int Int String String Int Int Int))
+
+(pub fn (lspSigAssistJson d vis ty src uri ix o)
+  (let ((name (nodeAName d)))
+    (let ((text (strConcat
+      (strConcat
+        (strConcat
+          (if (== vis 1)
+            "(pub :: "
+            "(:: "
+          )          name
+        )        " "
+      )      (strConcat (lspRenderType ty) ")\n")
+    )))
+      (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Add type signature for `" name) "`"))) "kind" (jsonStr "refactor.rewrite")) "edit" (lspEditJson uri (jsonObjPut (jsonObjPut jsonObj "start" (lspPosIx src ix o)) "end" (lspPosIx src ix o)) text))
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/typeDefinition`: the declaration of the TYPE of the
+; name under the cursor.
+;
+; WHAT HAS A TYPE TO ASK ABOUT, from the raw tree, which records none
+; per expression:
+;
+;   * a `fn` PARAMETER, when the cursor is inside the fn's header -
+;     `(fn (area s) ...)` on `s` - is the k-th arrow position of the
+;     fn's signature, `nthParamTy`. The header is recovered from
+;     bytes: the parameter names carry no spans.
+;   * a `fn` with a `::` signature - this document first, then the
+;     imported modules, `definition`'s order - is the arrow's RESULT.
+;   * a CONSTRUCTOR is its `data`, directly.
+;
+; A `let` binding has no answer: nothing in the frontend records what
+; a local was inferred to be (typecheck.ax's scope entries die with the
+; walk), and guessing is not this server's habit. Then the type: only
+; a named constructor - `TAG_T_CON` - names a declaration, and only a
+; `data`, `struct` or `type` alias of that name with a span is one.
+; `Int`, a type variable, a tuple, a list, the prelude's spanless
+; `Option`: null, which the protocol reads as "nothing here".
+; ------------------------------------------------------------------
+(pub :: lspTypeDefinition (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspTypeDefinition src uri params)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      jsonNull
+      (let (
+        (decls (memGetWord pr 1))
+        (ix (lspLineIndex src))
+      )
+        (let ((off (lspOffsetOf src ix (jsonGet params "position"))))
+          (let ((wsp (lspWordSpan src off)))
+            (if (== wsp 0)
+              jsonNull
+              (let ((w (strSlice src (spanStart wsp) (- (spanEnd wsp) (spanStart wsp)))))
+                (let ((t (lspLocalTypeOf src decls off w)))
+                  (if (!= t 0)
+                    (lspTypeLocation (lspUriToPath uri) src uri decls "" t)
+                    (let ((data (lspFindCtorData decls w (- (vecLen decls) 1))))
+                      (if (!= data 0)
+                        (lspLocationJson uri src (nodeSpan data))
+                        (lspTypeLocation (lspUriToPath uri) src uri decls w 0)
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The type node this document alone can answer for the word at `off`:
+; a parameter in the header the cursor is in, else a signed `fn`'s
+; result. 0 when neither.
+(pub :: lspLocalTypeOf (-> String Int Int String Int))
+
+(pub fn (lspLocalTypeOf src decls off w)
+  (let ((p (lspParamTypeAt src decls off w)))
+    (if (!= p 0)
+      p
+      (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
+        (if (&& (!= d 0) (== (nodeTag d) TAG_D_FN))
+          (let ((sig (lspFindSig decls w (- (vecLen decls) 1))))
+            (if (== sig 0)
+              0
+              (lspArrowResult (nodeTy sig))
+            )
+          )
+          0
+        )
+      )
+    )
+  )
+)
+
+; The fn whose HEADER holds `off`, and the type of the parameter `w`
+; names in it. The header is the form opened by the `(` before the
+; fn's name - `(fn (area s) ...)` puts the name's span on `area`, and
+; the parameter list is that paren's form - so a cursor inside it is
+; on a parameter and nowhere else. Its index is the parameter's
+; position in the fn's own list, which is what `nthParamTy` counts.
+(pub :: lspParamTypeAt (-> String Int Int String Int))
+
+(pub fn (lspParamTypeAt src decls off w)
+  (let (
+    (n (vecLen decls))
+    (mut i 0)
+    (mut found 0)
+  )
+    {
+      (while (&& (< i n) (== found 0))
+        (let ((d (vecGet decls i)))
+          {
+            (if (&& (== (nodeTag d) TAG_D_FN) (&& (!= (nodeSpan d) 0) (<= (spanStart (nodeSpan d)) off)))
+              (let ((hs (lspHeaderOpen src (spanStart (nodeSpan d)))))
+                (if (&& (>= hs 0) (< off (lspFormEnd src hs)))
+                  (let ((k (strVecIdx (nodeB d) w)))
+                    (if (< k 0)
+                      0
+                      (let ((sig (lspFindSig decls (nodeAName d) (- (vecLen decls) 1))))
+                        (if (== sig 0)
+                          0
+                          {
+                            (set found (nthParamTy (nodeTy sig) k 0))
+                            0
+                          }
+                        )
+                      )
+                    )
+                  )
+                  0
+                )
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      found
+    }
+  )
+)
+
+; The `(` that opens the header whose first identifier starts at
+; `nameStart`, skipping the blanks a hand-written header may carry
+; between them; -1 when that byte is not a paren, which is the bare
+; nullary form `(fn answer 42)` - it has no parameter list to be in.
+(pub :: lspHeaderOpen (-> String Int Int))
+
+(pub fn (lspHeaderOpen src nameStart)
+  (let ((mut o (- nameStart 1)))
+    {
+      (while (if (> o 0)
+        (lspIsBlank (strByte src o))
+        false
+      )
+        (set o (- o 1)))
+      (if (&& (>= o 0) (== (strByte src o) 40))
+        o
+        (- 0 1)
+      )
+    }
+  )
+)
+
+; The RESULT of an arrow chain: `(-> A B C)` answers `C`, and a type
+; that is not an arrow answers itself - `(:: main Int)`'s `Int`.
+(pub :: lspArrowResult (-> Int Int))
+
+(pub fn (lspArrowResult t)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_T_ARR)
+      (lspArrowResult (nodeB t))
+      t
+    )
+  )
+)
+
+; The `data` declaring constructor `name` in this document, or 0.
+(pub :: lspFindCtorData (-> Int String Int Int))
+
+(pub fn (lspFindCtorData decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_DATA) (&& (!= (nodeSpan d) 0) (!= (lspCtorIndex (nodeB d) name 0) (- 0 1))))
+        d
+        (lspFindCtorData decls name (- i 1))
+      )
+    )
+  )
+)
+
+(pub :: lspCtorIndex (-> Int String Int Int))
+
+(pub fn (lspCtorIndex ctors name i)
+  (if (>= i (vecLen ctors))
+    (- 0 1)
+    (if (strEq (nodeAName (vecGet ctors i)) name)
+      i
+      (lspCtorIndex ctors name (+ i 1))
+    )
+  )
+)
+
+; A declaration a TYPE name can land on: `data`, `struct` or `type`.
+(pub :: lspIsTypeDecl (-> Int Bool))
+
+(pub fn (lspIsTypeDecl tag) (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (== tag TAG_D_ALIAS))))
+
+(pub :: lspFindTypeDecl (-> Int String Int Int))
+
+(pub fn (lspFindTypeDecl decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (lspIsTypeDecl (nodeTag d)) (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0)))
+        d
+        (lspFindTypeDecl decls name (- i 1))
+      )
+    )
+  )
+)
+
+; The same over the merged list, restricted to what an import brought
+; in. Type names are NOT mangled by `resolveImports` - a `data` keeps
+; its bare name in every module - so the comparison is exact rather
+; than through `bareOf`.
+(pub :: lspFindTypeImported (-> Int String Int Int))
+
+(pub fn (lspFindTypeImported decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (lspIsTypeDecl (nodeTag d)) (&& (!= (nodeModule d) 0) (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0))))
+        d
+        (lspFindTypeImported decls name (- i 1))
+      )
+    )
+  )
+)
+
+(pub :: lspLocationJson (-> String String Int Int))
+
+(pub fn (lspLocationJson uri src span) (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRange src span)))
+
+; The Location of type `t`'s declaration - or, when `t` is 0, of the
+; result type of the imported fn `w` names. This document's own
+; declarations are asked first, which is the language's shadowing rule
+; and `lspDefinition`'s order; the imports are resolved only when they
+; have to be, and once, whichever of the two questions is being asked.
+(pub :: lspTypeLocation (-> String String String Int String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspTypeLocation path src uri decls w t)
+  (let ((local
+    (if (== t 0)
+      0
+      (lspTypeLocalOf src uri decls t)
+    )
+  ))
+    (if (!= local 0)
+      local
+      (lspTypeLocationImported path src uri decls w t)
+    )
+  )
+)
+
+; A `TAG_T_CON` naming a declaration in this document, or 0.
+(pub :: lspTypeLocalOf (-> String String Int Int Int))
+
+(pub fn (lspTypeLocalOf src uri decls t)
+  (if (!= (nodeTag t) TAG_T_CON)
+    0
+    (let ((d (lspFindTypeDecl decls (nodeAName t) (- (vecLen decls) 1))))
+      (if (== d 0)
+        0
+        (lspLocationJson uri src (nodeSpan d))
+      )
+    )
+  )
+)
+
+; The import preamble of `lspDefinitionImported`, verbatim, and then
+; the two lookups it can answer: the result type of an imported signed
+; `fn` when `t` is 0, and the module declaring a type name.
+(pub :: lspTypeLocationImported (-> String String String Int String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspTypeLocationImported path src uri decls w given)
+  (let (
+    (bares vecNew)
+    (fulls vecNew)
+    (mods vecNew)
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+  )
+    (let ((units
+      (let ((v vecNew))
+        {
+          (vecPush
+            v            (cast Int (CUnit2
+              path              src              (cast String 0)
+            ))
+          )
+          v
+        }
+      )
+    ))
+      (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+        (if (> (strLen missing) 0)
+          jsonNull
+          (let ((allDecls (resolveImports
+            decls            bares            fulls            mods            tcode            entryDir            units
+          )))
+            (let ((t
+              (if (!= given 0)
+                given
+                (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
+                  (if (&& (!= d 0) (== (nodeTag d) TAG_D_FN))
+                    (let ((sig (lspFindSig allDecls (nodeAName d) (- (vecLen allDecls) 1))))
+                      (if (== sig 0)
+                        0
+                        (lspArrowResult (nodeTy sig))
+                      )
+                    )
+                    0
+                  )
+                )
+              )
+            ))
+              (if (== t 0)
+                jsonNull
+                (if (!= (nodeTag t) TAG_T_CON)
+                  jsonNull
+                  (let ((local (lspTypeLocalOf src uri decls t)))
+                    (if (!= local 0)
+                      local
+                      (let ((d (lspFindTypeImported allDecls (nodeAName t) (- (vecLen allDecls) 1))))
+                        (if (== d 0)
+                          jsonNull
+                          (let ((u (lspUnitOf units (nodeModule d))))
+                            (if (< u 0)
+                              jsonNull
+                              (let ((unit (vecGet units u)))
+                                (lspLocationJson (lspPathToUri (memGetWordStr unit 0)) (memGetWordStr unit 1) (nodeSpan d))
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `textDocument/codeLens`: a `▶ Run` over `main`, and `Expand macro`
+; over every `pub macro`.
+;
+; THE COMMANDS ARE THE CLIENT'S. A lens carries a command NAME and its
+; arguments, and the server never runs one: a VS Code extension binds
+; `axiom.run` to `axiom run <path>` in a terminal and
+; `axiom.expandMacro` to an `axiom/expandMacro` request at the
+; position given, which is exactly how rust-analyzer's `Run` lens
+; works - the server says where, the editor does it. `Run` is offered
+; for `(fn (main) ...)` alone, because that is what `axiom run` runs.
+; The macro lens names the DECLARATION's position, and
+; `lspExpandMacro` reads that position as "everything this macro
+; generated in this document"; on an invocation it answers that
+; invocation's own products. Raw tree, no expansion, no IO: the path
+; is decoded from the URI the request named.
+; ------------------------------------------------------------------
+(pub :: lspCodeLens (-> String String Int))
+
+(pub fn (lspCodeLens src uri)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      jsonArr
+      (let (
+        (decls (memGetWord pr 1))
+        (out jsonArr)
+        (ix (lspLineIndex src))
+        (n (vecLen (memGetWord pr 1)))
+        (mut i 0)
+      )
+        {
+          (while (< i n)
+            (let ((d (vecGet decls i)))
+              {
+                (if (== (nodeSpan d) 0)
+                  0
+                  (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) "main") (== (vecLen (nodeB d)) 0)))
+                    (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "▶ Run" "axiom.run" (jsonArrPush jsonArr (jsonStr (lspUriToPath uri)))))
+                    (if (&& (== (nodeTag d) TAG_D_MACRO) (== (nodeVis d) 1))
+                      (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "Expand macro" "axiom.expandMacro" (jsonArrPush (jsonArrPush jsonArr (jsonStr uri)) (lspPosIx src ix (spanStart (nodeSpan d))))))
+                      0
+                    )
+                  )
+                )
+                (set i (+ i 1))
+              }
+            ))
+          out
+        }
+      )
+    )
+  )
+)
+
+(pub :: lspLensJson (-> Int String String Int Int))
+
+(pub fn (lspLensJson range title command args) (jsonObjPut (jsonObjPut jsonObj "range" range) "command" (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr title)) "command" (jsonStr command)) "arguments" args)))
+
+; ------------------------------------------------------------------
+; `axiom/expandMacro`: what a macro generated, as source.
+;
+; WHERE IT ANSWERS. On a TOP-LEVEL invocation - a `TAG_D_MACROCALL`,
+; by its head's span or anywhere inside the form's bytes - it renders
+; that invocation's own products; on a macro DECLARATION, by its name
+; or its form, everything that macro generated in this document. An
+; expression-position invocation inside a body is not answered: phase
+; E rewrites the expression in place and records no product list, so
+; there is nothing to attribute, and a position elsewhere is null.
+;
+; HOW A PRODUCT IS KNOWN. `expandProgram` rewrites the declaration
+; list in place - the first product overwrites the invocation node,
+; the rest are appended - and answers `gens`, the (name, macro) pairs
+; of every declaration phase D made. So the expansion runs on a FRESH
+; parse, leaving the first parse as the record of what was WRITTEN,
+; and a declaration is a product when `gens` names it and its name is
+; not in the written list.
+;
+; WHICH INVOCATION made it is NOT a question a span can answer. A
+; product whose name was joined - `tagShape` from `(syntax/join tag
+; T)` - has no token to point at and carries span 0, which is why
+; `axiom symbols` prints `-` for its position; and `gens` is one flat
+; list in generation order with no count per invocation. Measured:
+; attributing by the invocation's own span, then by its form's byte
+; extent, both answered an empty expansion for `(deriveTag Shape)`
+; while the declaration answered its two products. So the fresh parse
+; is expanded with every OTHER top-level invocation removed from the
+; entry list first, and then everything phase D made is this
+; invocation's - nested invocations it generated included, which is
+; what "expand" means. What that leaves out is a macro whose template
+; QUERIES declarations another invocation would have generated
+; (`syntax/for` over the declaration list); that expansion is shown
+; without them.
+;
+; An expansion the expander refused is null: the tree it gave up on
+; is not one to show, and the refusal is already on screen as a
+; diagnostic.
+; ------------------------------------------------------------------
+(pub :: lspExpandMacro (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspExpandMacro src uri params)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      jsonNull
+      (let (
+        (decls (memGetWord pr 1))
+        (ix (lspLineIndex src))
+      )
+        (let ((site (lspMacroSiteAt src decls (lspOffsetOf src ix (jsonGet params "position")))))
+          (if (< site 0)
+            jsonNull
+            (lspExpandAt (lspUriToPath uri) src decls site)
+          )
+        )
+      )
+    )
+  )
+)
+
+; The INDEX of the invocation or macro declaration whose name or form
+; holds `off`, or -1. The name is asked first because it is one
+; comparison; the form is scanned only for a name the cursor is not
+; on. An index rather than the node, because the same position in the
+; fresh parse is how the invocation is found again.
+(pub :: lspMacroSiteAt (-> String Int Int Int))
+
+(pub fn (lspMacroSiteAt src decls off)
+  (let (
+    (n (vecLen decls))
+    (mut i 0)
+    (mut found (- 0 1))
+  )
+    {
+      (while (&& (< i n) (< found 0))
+        (let ((d (vecGet decls i)))
+          {
+            (if (&& (|| (== (nodeTag d) TAG_D_MACROCALL) (== (nodeTag d) TAG_D_MACRO)) (!= (nodeSpan d) 0))
+              (if (lspSpanHas (nodeSpan d) off)
+                (set found i)
+                (let ((o (lspFormStart src (spanStart (nodeSpan d)))))
+                  (if (&& (>= off o) (< off (lspFormEnd src o)))
+                    (set found i)
+                    0
+                  )
+                )
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      found
+    }
+  )
+)
+
+; The fresh parse's entry list with every top-level invocation but the
+; one at `idx` left out, so what phase D makes of it is one
+; invocation's expansion.
+(pub :: lspKeepOneCall (-> Int Int Int))
+
+(pub fn (lspKeepOneCall decls2 idx)
+  (let (
+    (out vecNew)
+    (n (vecLen decls2))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (if (|| (== i idx) (!= (nodeTag (vecGet decls2 i)) TAG_D_MACROCALL))
+            (vecPush out (vecGet decls2 i))
+            0
+          )
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+(pub :: lspExpandAt (-> String String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspExpandAt path src decls idx)
+  (let (
+    (site (vecGet decls idx))
+    (rawNames (lspDeclNames decls))
+    (pr2 (parseModuleWith (lex src) (scanAxtags src)))
+  )
+    (let (
+      (byCall (== (nodeTag site) TAG_D_MACROCALL))
+      (macName (nodeAName site))
+    )
+    (if (== (memGetWord pr2 0) 0)
+      jsonNull
+      (let ((decls2
+        (if byCall
+          (lspKeepOneCall (memGetWord pr2 1) idx)
+          (memGetWord pr2 1)
+        )
+      ))
+        (let ((ex (lspFixExpand path src decls2)))
+          (if (== ex 0)
+            jsonNull
+            (if (> (countErrorDiags (memGetWord ex 2)) 0)
+              jsonNull
+              (let (
+                (gens (memGetWord ex 3))
+                (parts vecNew)
+                (n (vecLen decls2))
+                (mut i 0)
+              )
+                {
+                  (while (< i n)
+                    (let ((g (vecGet decls2 i)))
+                      {
+                        (if (lspIsProductOf g gens macName byCall rawNames)
+                          {
+                            (if (> (vecLen parts) 0)
+                              (vecPush parts "\n\n")
+                              0
+                            )
+                            (vecPush parts (lspRenderDecl g 0))
+                            0
+                          }
+                          0
+                        )
+                        (set i (+ i 1))
+                      }
+                    ))
+                  (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr macName)) "expansion" (jsonStr (catStrs parts)))
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+    )
+  )
+)
+
+; Every name the raw parse declared. A `TAG_NIL` - what an empty
+; top-level form parses to - has no name to record.
+(pub :: lspDeclNames (-> Int Int))
+
+(pub fn (lspDeclNames decls)
+  (let (
+    (out vecNew)
+    (n (vecLen decls))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (if (!= (nodeTag (vecGet decls i)) TAG_NIL)
+            (vecPush out (nodeAName (vecGet decls i)))
+            0
+          )
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; A product: something `gens` names, not written by hand. Under an
+; invocation everything generated is its own (the list was cut down to
+; it); under a declaration, what `gens` attributes to that macro.
+(pub :: lspIsProductOf (-> Int Int String Bool Int Bool))
+
+(pub fn (lspIsProductOf g gens macName byCall rawNames)
+  (if (|| (== (nodeTag g) TAG_NIL) (== (nodeTag g) TAG_D_MACROCALL))
+    false
+    (let ((gm (expGenOf gens (nodeAName g))))
+      (if (==
+        (cast Int gm)        0
+      )
+        false
+        (if (!= (strVecHas rawNames (nodeAName g)) 0)
+          false
+          (if byCall
+            true
+            (strEq gm macName)
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The printer: an ASTNode back to Axiom source.
+;
+; Nothing else in the compiler does this. `lspFormText` re-slices the
+; document, and `tyRender` writes the CHECKER's notation - `(Int ->
+; Bool)`, which `parseTypeParens` refuses (probed: AX2001 at the
+; arrow) - so an expansion, which exists only as nodes, needs its own
+; writer, and so does the signature the assist inserts.
+;
+; WHAT IT PROMISES is that its output PARSES and means what the node
+; meant: the gate sends an expansion back to the server as a document
+; and requires a clean parse and exactly the generated names in its
+; outline. What it does not promise is anyone's layout. It has one
+; shape per form: a `let`, a `match`, a `fn`, a `lambda`, a `while`, a
+; `cond` and a `{ }` block put their bodies one form per line, two
+; spaces deeper; every other form is written inline unless a child
+; already spans lines, in which case each child takes a line. Nested
+; single-binding `let`s - which is what the parser makes of every
+; multi-binding one - are re-merged into one binding list when the
+; body is directly another `let`; curried single-parameter lambdas are
+; re-merged the same way. Both are the inverse of the parser's own
+; desugaring, and a `let` the author nested by hand merges too, which
+; means the same thing.
+;
+; TWO SPELLINGS ARE NOT THE NODE'S OWN, and both are said here rather
+; than discovered. A hygiene-renamed binder is `x.3` in the tree
+; (expand.ax, MAC-HYG) and `.` is the field-access token, so it is
+; written `x_3`: the rename stays visible and the text lexes. A
+; qualified reference is `Mod$name` in the tree (`mangledFromChain`)
+; and is written back as `Mod::name`, which is what the parser reads.
+;
+; WHAT IT CANNOT WRITE FAITHFULLY, said once: a float, whose node
+; holds IEEE-754 bits and no lexeme, is written to nine places and
+; trimmed - a literal that parses and is within a billionth of the
+; value; an `effect` declaration, whose operation signatures the
+; parser drops, is written as a comment naming it; an `impl` head
+; keeps only its type's NAME, as the parser kept it; a rule-form
+; macro's non-binder patterns are written as the `syntax/pat` marker
+; the parser stores; a generated struct's fields have no type in the
+; tree (see `lspRenderFields`) and are written untyped. A node with a
+; tag this printer does not know is written as
+; `(syntax/unrenderable N)`, which parses and says what it is.
+;
+; MEASURED on a template holding a `let` with a `mut`, a block, `set`,
+; `while`, `if`, `match` on a literal and a wildcard, `cond` with
+; `else`, a two-parameter lambda, a struct construction, field access,
+; a string with escapes, a char, a float, a negative literal, a
+; `match` over constructors, and a generated `data`, `type` and
+; `struct`: the rendering re-parsed clean, and `check` on it reported
+; exactly the diagnostics `check` reported on the template - which is
+; the printer meaning what the tree meant.
+; ------------------------------------------------------------------
+(pub :: lspPad (-> Int String))
+
+(pub fn (lspPad n)
+  (if (<= n 0)
+    ""
+    (strConcat " " (lspPad (- n 1)))
+  )
+)
+
+(pub :: lspHasNl (-> String Bool))
+
+(pub fn (lspHasNl s) (>= (strFindByte s 10 0) 0))
+
+; `(head a b)` inline, or one child per line at `ind + 2` when any
+; child already spans lines. `parts` holds the head first. Children
+; are rendered at `ind + 2` by every caller, so their continuation
+; lines are right in both layouts.
+(pub :: lspRenderForm (-> Int Int String))
+
+(pub fn (lspRenderForm parts ind)
+  (let (
+    (n (vecLen parts))
+    (out vecNew)
+    (broken (lspAnyNl parts 0))
+    (mut i 0)
+  )
+    {
+      (vecPush out "(")
+      (while (< i n)
+        {
+          (if (> i 0)
+            (vecPush
+              out              (if broken
+                (strConcat "\n" (lspPad (+ ind 2)))
+                " "
+              )
+            )
+            0
+          )
+          (vecPush out (vecGetStr parts i))
+          (set i (+ i 1))
+        })
+      (vecPush out ")")
+      (catStrs out)
+    }
+  )
+)
+
+(pub :: lspAnyNl (-> Int Int Bool))
+
+(pub fn (lspAnyNl parts i)
+  (if (>= i (vecLen parts))
+    false
+    (if (lspHasNl (vecGetStr parts i))
+      true
+      (lspAnyNl parts (+ i 1))
+    )
+  )
+)
+
+; The two spellings above: `$` to `::` once, at the module boundary,
+; and `.` to `_` in the name half only - a module path keeps its
+; dots.
+(pub :: lspRenderName (-> String String))
+
+(pub fn (lspRenderName s)
+  (let ((m (lspModOf s)))
+    (if (== (strLen m) 0)
+      (lspDeHygiene s)
+      (strConcat (strConcat m "::") (lspDeHygiene (bareOf s)))
+    )
+  )
+)
+
+(pub :: lspDeHygiene (-> String String))
+
+(pub fn (lspDeHygiene s)
+  (if (< (strFindByte s 46 0) 0)
+    s
+    (let (
+      (n (strLen s))
+      (out (strAlloc (strLen s)))
+      (mut i 0)
+    )
+      {
+        (while (< i n)
+          {
+            (__store8
+              (strData out)              i              (if (== (strByte s i) 46)
+                95
+                (strByte s i)
+              )
+            )
+            (set i (+ i 1))
+          })
+        (strSlice out 0 n)
+      }
+    )
+  )
+)
+
+; A declaration's name position: a join marker - the space-joined
+; `syntax/join tag T` a template stores - is written back as the form
+; it was.
+(pub :: lspRenderDeclName (-> String String))
+
+(pub fn (lspRenderDeclName s)
+  (if (!= (expIsJoinMarker s) 0)
+    (strConcat (strConcat "(" s) ")")
+    (lspRenderName s)
+  )
+)
+
+(pub :: lspRenderInt (-> Int String))
+
+(pub fn (lspRenderInt v)
+  (if (< v 0)
+    (strConcat "-" (decStr (- 0 v)))
+    (decStr v)
+  )
+)
+
+; A string node holds its LEXEME - quotes and escapes as written - so
+; it is written back as it was. One a macro built without quotes is
+; quoted and escaped with the seven escapes the lexer reads
+; (`isEscapeChar`), and no others.
+(pub :: lspRenderStr (-> String String))
+
+(pub fn (lspRenderStr s)
+  (if (&& (> (strLen s) 0) (== (strByte s 0) 34))
+    s
+    (let (
+      (n (strLen s))
+      (parts vecNew)
+      (mut i 0)
+    )
+      {
+        (vecPush parts "\"")
+        (while (< i n)
+          {
+            (vecPush parts (lspEscByte (strByte s i) 34 (strSlice s i 1)))
+            (set i (+ i 1))
+          })
+        (vecPush parts "\"")
+        (catStrs parts)
+      }
+    )
+  )
+)
+
+; One byte inside a literal delimited by `q`: the escape when the lexer
+; needs one, else `raw`, which the caller cut from the source.
+(pub :: lspEscByte (-> Int Int String String))
+
+(pub fn (lspEscByte b q raw)
+  (if (== b 92)
+    "\\\\"
+    (if (== b q)
+      (strConcat "\\" (strSlice "\"'" (if (== q 34)
+        0
+        1
+      ) 1))
+      (if (== b 10)
+        "\\n"
+        (if (== b 9)
+          "\\t"
+          (if (== b 13)
+            "\\r"
+            (if (== b 0)
+              "\\0"
+              raw
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspRenderChar (-> Int String))
+
+(pub fn (lspRenderChar cp) (strConcat (strConcat "'" (lspEscByte cp 39 (utf8FromChar cp))) "'"))
+
+; The bits reinterpreted, written to nine places and trimmed to the
+; last non-zero one. `__floatToInt` truncates, so the fraction is
+; taken from what remains and rounded half up; a carry into the next
+; whole number is folded back rather than left to print as `.1000000000`.
+(pub :: lspRenderFloat (-> Int String))
+
+(pub fn (lspRenderFloat bits)
+  (let ((x (cast Float bits)))
+    (if (< x 0.0)
+      (strConcat "-" (lspRenderFloatAbs (- 0.0 x)))
+      (lspRenderFloatAbs x)
+    )
+  )
+)
+
+(pub :: lspRenderFloatAbs (-> Float String))
+
+(pub fn (lspRenderFloatAbs x)
+  (let (
+    (whole (__floatToInt x))
+    (scale 1000000000)
+  )
+    (let ((scaled (__floatToInt (+ (* (- x (__intToFloat whole)) (__intToFloat scale)) 0.5))))
+      (let (
+        (carry
+          (if (>= scaled scale)
+            1
+            0
+          )
+        )
+      )
+        (strConcat (strConcat (decStr (+ whole carry)) ".") (lspTrimZeros (lspZeroPad (decStr (- scaled (* carry scale))) 9)))
+      )
+    )
+  )
+)
+
+(pub :: lspZeroPad (-> String Int String))
+
+(pub fn (lspZeroPad s width)
+  (if (>= (strLen s) width)
+    s
+    (lspZeroPad (strConcat "0" s) width)
+  )
+)
+
+(pub :: lspTrimZeros (-> String String))
+
+(pub fn (lspTrimZeros s)
+  (let ((mut e (strLen s)))
+    {
+      (while (if (> e 1)
+        (== (strByte s (- e 1)) 48)
+        false
+      )
+        (set e (- e 1)))
+      (strSlice s 0 e)
+    }
+  )
+)
+
+; Types in the PARSER's spelling - `parseTypeParens`'s grammar read
+; backwards: `(-> A B C)` with the right-nested arrows flattened, `(Con
+; a b)` for an application and `Con` alone for none, `[T]`, `(* T)`,
+; `()` for the empty tuple and `(A B)` otherwise. A type variable with
+; no name is the parser's wildcard for a field type it could not read
+; (`typeNodeOrWildcard`) and is written `_`.
+(pub :: lspRenderType (-> Int String))
+
+(pub fn (lspRenderType t)
+  (if (== t 0)
+    "{unknown}"
+    (let ((tag (nodeTag t)))
+      (if (== tag TAG_T_VAR)
+        (if (== (strLen (nodeAName t)) 0)
+          "_"
+          (nodeAName t)
+        )
+        (if (== tag TAG_T_CON)
+          (if (== (vecLen (nodeB t)) 0)
+            (nodeAName t)
+            (strConcat (strConcat (strConcat "(" (nodeAName t)) (lspRenderTypes (nodeB t) 0 " ")) ")")
+          )
+          (if (== tag TAG_T_ARR)
+            (strConcat (strConcat "(->" (lspRenderArrow t)) ")")
+            (if (== tag TAG_T_TUP)
+              (strConcat (strConcat "(" (lspRenderTypes (nodeA t) 0 "")) ")")
+              (if (== tag TAG_T_LIST)
+                (strConcat (strConcat "[" (lspRenderType (nodeA t))) "]")
+                (if (== tag TAG_T_PTR)
+                  (strConcat (strConcat "(* " (lspRenderType (nodeA t))) ")")
+                  "{unknown}"
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The parameters and result of an arrow chain, each preceded by a
+; space; the first element of a tuple gets none.
+(pub :: lspRenderTypes (-> Int Int String String))
+
+(pub fn (lspRenderTypes tys i lead)
+  (if (>= i (vecLen tys))
+    ""
+    (strConcat (strConcat lead (lspRenderType (vecGet tys i))) (lspRenderTypes tys (+ i 1) " "))
+  )
+)
+
+(pub :: lspRenderArrow (-> Int String))
+
+(pub fn (lspRenderArrow t)
+  (if (== t 0)
+    " {unknown}"
+    (if (== (nodeTag t) TAG_T_ARR)
+      (strConcat (strConcat " " (lspRenderType (nodeA t))) (lspRenderArrow (nodeB t)))
+      (strConcat " " (lspRenderType t))
+    )
+  )
+)
+
+; Whether every part of a type is known: no 0, no poison, no nameless
+; variable. What the assist refuses to write.
+(pub :: lspTyKnown (-> Int Bool))
+
+(pub fn (lspTyKnown t)
+  (if (== t 0)
+    false
+    (let ((tag (nodeTag t)))
+      (if (== tag TAG_T_VAR)
+        (> (strLen (nodeAName t)) 0)
+        (if (== tag TAG_T_CON)
+          (lspTysKnown (nodeB t) 0)
+          (if (== tag TAG_T_ARR)
+            (&& (lspTyKnown (nodeA t)) (lspTyKnown (nodeB t)))
+            (if (== tag TAG_T_TUP)
+              (lspTysKnown (nodeA t) 0)
+              (if (|| (== tag TAG_T_LIST) (== tag TAG_T_PTR))
+                (lspTyKnown (nodeA t))
+                false
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspTysKnown (-> Int Int Bool))
+
+(pub fn (lspTysKnown tys i)
+  (if (>= i (vecLen tys))
+    true
+    (if (lspTyKnown (vecGet tys i))
+      (lspTysKnown tys (+ i 1))
+      false
+    )
+  )
+)
+
+; An expression, at column `ind`; its continuation lines are indented
+; from there and its children are rendered at `ind + 2`.
+(pub :: lspRenderExpr (-> Int Int String))
+
+(pub fn (lspRenderExpr e ind)
+  (if (== e 0)
+    "(syntax/unrenderable 0)"
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_INT)
+        (lspRenderInt (nodeA e))
+        (if (== tag TAG_E_STR)
+          (lspRenderStr (nodeAName e))
+          (if (== tag TAG_E_CHAR)
+            (lspRenderChar (nodeA e))
+            (if (== tag TAG_E_FLT)
+              (lspRenderFloat (nodeA e))
+              (if (== tag TAG_E_VAR)
+                (lspRenderName (nodeAName e))
+                (if (== tag TAG_E_APP)
+                  (lspRenderApp e ind)
+                  (if (== tag TAG_E_LAM)
+                    (lspRenderLam e ind)
+                    (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                      (lspRenderLet e ind)
+                      (if (== tag TAG_E_IF)
+                        (lspRenderForm (lspParts4 "if" (lspRenderExpr (nodeA e) (+ ind 2)) (lspRenderExpr (nodeB e) (+ ind 2)) (lspRenderExpr (nodeC e) (+ ind 2))) ind)
+                        (if (== tag TAG_E_BEGIN)
+                          (lspRenderBlock (nodeA e) ind)
+                          (if (== tag TAG_E_MATCH)
+                            (lspRenderMatch e ind)
+                            (lspRenderExprMore e tag ind)
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The second half of the dispatch: the forms a body meets less often.
+(pub :: lspRenderExprMore (-> Int Int Int String))
+
+(pub fn (lspRenderExprMore e tag ind)
+  (if (== tag TAG_E_COND)
+    (lspRenderCond e ind)
+    (if (== tag TAG_E_SET)
+      (lspRenderForm (lspParts3 "set" (lspRenderName (nodeAName e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind)
+      (if (== tag TAG_E_WHILE)
+        (strConcat (strConcat (strConcat "(while " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeB e) (+ ind 2))) ")")
+        (if (== tag TAG_E_FIELD)
+          (strConcat (strConcat (lspRenderExpr (nodeA e) ind) ".") (nodeBName e))
+          (if (== tag TAG_E_SETF)
+            (lspRenderForm (lspParts3 "set" (strConcat (strConcat (lspRenderExpr (nodeA e) (+ ind 2)) ".") (nodeBName e)) (lspRenderExpr (nodeC e) (+ ind 2))) ind)
+            (if (== tag TAG_E_STRUCTCON)
+              (lspRenderForm (lspPartsExprs (lspParts2 "struct" (lspRenderName (nodeAName e))) (nodeB e) 0 (+ ind 2)) ind)
+              (if (== tag TAG_E_ALLOC)
+                (if (== (nodeB e) 0)
+                  (lspRenderForm (lspParts2 "alloc" (lspRenderType (nodeA e))) ind)
+                  (lspRenderForm (lspParts3 "alloc" (lspRenderType (nodeA e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind)
+                )
+                (if (== tag TAG_E_HANDLE)
+                  (lspRenderHandle e ind)
+                  (if (== tag TAG_E_QUOTE)
+                    (lspRenderForm (lspParts2 "quote" (lspRenderExpr (nodeA e) (+ ind 2))) ind)
+                    (if (== tag TAG_P_CON0)
+                      (strConcat (strConcat "(" (lspRenderName (nodeAName e))) ")")
+                      (if (== tag TAG_P_CONNAMED)
+                        (lspRenderConNamed e ind)
+                        (if (== tag TAG_M_FOR)
+                          (lspRenderSynFor e ind)
+                          (if (== tag TAG_M_ARM)
+                            (lspRenderArm e ind)
+                            (strConcat (strConcat "(syntax/unrenderable " (decStr tag)) ")")
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspParts2 (-> String String Int))
+
+(pub fn (lspParts2 a b)
+  (let ((v vecNew))
+    {
+      (vecPush v a)
+      (vecPush v b)
+      v
+    }
+  )
+)
+
+(pub :: lspParts3 (-> String String String Int))
+
+(pub fn (lspParts3 a b c)
+  (let ((v (lspParts2 a b)))
+    {
+      (vecPush v c)
+      v
+    }
+  )
+)
+
+(pub :: lspParts4 (-> String String String String Int))
+
+(pub fn (lspParts4 a b c d)
+  (let ((v (lspParts3 a b c)))
+    {
+      (vecPush v d)
+      v
+    }
+  )
+)
+
+; Every expression of `es` rendered onto `parts`, at `ind`.
+(pub :: lspPartsExprs (-> Int Int Int Int Int))
+
+(pub fn (lspPartsExprs parts es i ind)
+  (if (>= i (vecLen es))
+    parts
+    {
+      (vecPush parts (lspRenderExpr (vecGet es i) ind))
+      (lspPartsExprs parts es (+ i 1) ind)
+    }
+  )
+)
+
+; An application spine, flattened back to `(f a b)`: `(f x y)` parses
+; to App(App(f, x), y), so the arguments come off the spine in reverse
+; and the head is what is left when the tags run out.
+(pub :: lspRenderApp (-> Int Int String))
+
+(pub fn (lspRenderApp e ind)
+  (let (
+    (rev vecNew)
+    (mut h e)
+  )
+    {
+      (while (== (nodeTag h) TAG_E_APP)
+        {
+          (vecPush rev (nodeB h))
+          (set h (nodeA h))
+        })
+      (let (
+        (parts vecNew)
+        (mut i (- (vecLen rev) 1))
+      )
+        {
+          (vecPush parts (lspRenderExpr h (+ ind 2)))
+          (while (>= i 0)
+            {
+              (vecPush parts (lspRenderExpr (vecGet rev i) (+ ind 2)))
+              (set i (- i 1))
+            })
+          (lspRenderForm parts ind)
+        }
+      )
+    }
+  )
+)
+
+; `(lambda (x y) body)`: the curried chain of one-parameter lambdas
+; re-merged, and a zero-parameter one written `()`.
+(pub :: lspRenderLam (-> Int Int String))
+
+(pub fn (lspRenderLam e ind)
+  (let (
+    (names vecNew)
+    (mut body e)
+  )
+    {
+      (while (&& (== (nodeTag body) TAG_E_LAM) (== (vecLen (nodeA body)) 1))
+        {
+          (vecPush names (vecGetStr (nodeA body) 0))
+          (set body (nodeB body))
+        })
+      (if (== (vecLen names) 0)
+        (set body (nodeB e))
+        0
+      )
+      (strConcat (strConcat (strConcat (strConcat "(lambda (" (lspJoinNames names 0)) ")\n") (lspPad (+ ind 2))) (strConcat (lspRenderExpr body (+ ind 2)) ")"))
+    }
+  )
+)
+
+(pub :: lspJoinNames (-> Int Int String))
+
+(pub fn (lspJoinNames names i)
+  (if (>= i (vecLen names))
+    ""
+    (strConcat
+      (if (== i 0)
+        ""
+        " "
+      )      (strConcat (lspRenderName (vecGetStr names i)) (lspJoinNames names (+ i 1)))
+    )
+  )
+)
+
+; `(let ((x 1) (mut y 2))` and the body on its own line: the nested
+; single-binding lets re-merged while the body is directly another.
+(pub :: lspRenderLet (-> Int Int String))
+
+(pub fn (lspRenderLet e ind)
+  (let (
+    (binds vecNew)
+    (mut body e)
+  )
+    {
+      (while (|| (== (nodeTag body) TAG_E_LET) (== (nodeTag body) TAG_E_LETM))
+        {
+          (vecPush binds (strConcat (strConcat (strConcat (strConcat "(" (if (== (nodeTag body) TAG_E_LETM)
+            "mut "
+            ""
+          )) (lspRenderName (nodeAName body))) " ") (strConcat (lspRenderExpr (nodeB body) (+ ind 6)) ")")))
+          (set body (nodeC body))
+        })
+      (strConcat (strConcat (strConcat (strConcat "(let (" (lspJoinStrs binds 0 " ")) ")\n") (lspPad (+ ind 2))) (strConcat (lspRenderExpr body (+ ind 2)) ")"))
+    }
+  )
+)
+
+(pub :: lspJoinStrs (-> Int Int String String))
+
+(pub fn (lspJoinStrs xs i sep)
+  (if (>= i (vecLen xs))
+    ""
+    (strConcat
+      (if (== i 0)
+        ""
+        sep
+      )      (strConcat (vecGetStr xs i) (lspJoinStrs xs (+ i 1) sep))
+    )
+  )
+)
+
+; `{ }`: one expression per line.
+(pub :: lspRenderBlock (-> Int Int String))
+
+(pub fn (lspRenderBlock es ind) (strConcat (strConcat "{" (lspRenderLines es (+ ind 2))) (strConcat "\n" (strConcat (lspPad ind) "}"))))
+
+; Each of `es` on a line of its own at `ind`, every line led by its
+; newline so the caller's opener stays on the caller's line.
+(pub :: lspRenderLines (-> Int Int String))
+
+(pub fn (lspRenderLines es ind)
+  (let (
+    (parts vecNew)
+    (n (vecLen es))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (vecPush parts (strConcat (strConcat "\n" (lspPad ind)) (lspRenderExpr (vecGet es i) ind)))
+          (set i (+ i 1))
+        })
+      (catStrs parts)
+    }
+  )
+)
+
+(pub :: lspRenderMatch (-> Int Int String))
+
+(pub fn (lspRenderMatch e ind) (strConcat (strConcat (strConcat "(match " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeB e) (+ ind 2))) ")"))
+
+; One arm, `(pattern body)` - a `match` arm or a `cond` clause - with
+; the body on its own line when it spans lines.
+(pub :: lspRenderArm (-> Int Int String))
+
+(pub fn (lspRenderArm arm ind)
+  (let (
+    (pat (lspRenderExpr (nodeA arm) (+ ind 2)))
+    (body (lspRenderExpr (nodeB arm) (+ ind 2)))
+  )
+    (strConcat
+      (strConcat (strConcat "(" pat) (if (lspHasNl body)
+        (strConcat "\n" (lspPad (+ ind 2)))
+        " "
+      ))      (strConcat body ")")
+    )
+  )
+)
+
+; `(cond (test body) ... (else body))`; `(else ...)` only when the
+; node has one, as `parseCondClauses` stores it.
+(pub :: lspRenderCond (-> Int Int String))
+
+(pub fn (lspRenderCond e ind)
+  (strConcat
+    (strConcat "(cond" (lspRenderLines (nodeA e) (+ ind 2)))
+    (strConcat
+      (if (== (nodeB e) 0)
+        ""
+        (strConcat (strConcat (strConcat "\n" (lspPad (+ ind 2))) "(else ") (strConcat (lspRenderExpr (nodeB e) (+ ind 4)) ")"))
+      )      ")"
+    )
+  )
+)
+
+; `(handle body (Effect...) handler)`, the effect list left out when
+; it is empty - the parser reads it as optional.
+(pub :: lspRenderHandle (-> Int Int String))
+
+(pub fn (lspRenderHandle e ind)
+  (let ((parts (lspParts2 "handle" (lspRenderExpr (nodeA e) (+ ind 2)))))
+    {
+      (if (> (vecLen (nodeB e)) 0)
+        (vecPush parts (strConcat (strConcat "(" (lspJoinExprs (nodeB e) 0 ind)) ")"))
+        0
+      )
+      (vecPush parts (lspRenderExpr (nodeC e) (+ ind 2)))
+      (lspRenderForm parts ind)
+    }
+  )
+)
+
+(pub :: lspJoinExprs (-> Int Int Int String))
+
+(pub fn (lspJoinExprs es i ind)
+  (if (>= i (vecLen es))
+    ""
+    (strConcat
+      (if (== i 0)
+        ""
+        " "
+      )      (strConcat (lspRenderExpr (vecGet es i) ind) (lspJoinExprs es (+ i 1) ind))
+    )
+  )
+)
+
+; `(Rect { w = p, h = q })`: field names in `b`, sub-patterns aligned
+; in `c`.
+(pub :: lspRenderConNamed (-> Int Int String))
+
+(pub fn (lspRenderConNamed e ind)
+  (let (
+    (names (nodeB e))
+    (pats (nodeC e))
+    (parts vecNew)
+    (mut i 0)
+  )
+    {
+      (vecPush parts (strConcat (strConcat "(" (lspRenderName (nodeAName e))) " {"))
+      (while (< i (vecLen names))
+        {
+          (vecPush
+            parts            (if (== i 0)
+              " "
+              ", "
+            )
+          )
+          (vecPush parts (lspRenderName (nodeAName (vecGet names i))))
+          (vecPush parts " = ")
+          (vecPush parts (lspRenderExpr (vecGet pats i) (+ ind 2)))
+          (set i (+ i 1))
+        })
+      (vecPush parts " })")
+      (catStrs parts)
+    }
+  )
+)
+
+; `(syntax/for (x xs) ...)` in either position: the binding form is
+; the expression the parser stored, the elements are arms or
+; declarations by the node's tag.
+(pub :: lspRenderSynFor (-> Int Int String))
+
+(pub fn (lspRenderSynFor e ind)
+  (strConcat
+    (strConcat "(syntax/for " (lspRenderExpr (nodeB e) (+ ind 2)))
+    (strConcat
+      (if (== (nodeTag e) TAG_M_FOR)
+        (lspRenderLines (nodeC e) (+ ind 2))
+        (lspRenderDeclLines (nodeC e) (+ ind 2))
+      )      ")"
+    )
+  )
+)
+
+(pub :: lspRenderDeclLines (-> Int Int String))
+
+(pub fn (lspRenderDeclLines ds ind)
+  (let (
+    (parts vecNew)
+    (n (vecLen ds))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (vecPush parts (strConcat (strConcat "\n" (lspPad ind)) (lspRenderDecl (vecGet ds i) ind)))
+          (set i (+ i 1))
+        })
+      (catStrs parts)
+    }
+  )
+)
+
+; A declaration at column `ind` - 0 at the top level, deeper inside a
+; rule-form macro's template - with its `;@axiom:` lines above it,
+; each as the scanner stored it (`AxtagEnt`, word 1 the text after
+; the prefix), and `pub` from `nodeVis`.
+(pub :: lspRenderDecl (-> Int Int String))
+
+(pub fn (lspRenderDecl d ind)
+  (if (== d 0)
+    "; unrenderable declaration (no node)"
+    (strConcat (lspRenderAxtags (nodeAxtags d) ind) (lspRenderDeclBody d ind))
+  )
+)
+
+(pub :: lspRenderAxtags (-> Int Int String))
+
+(pub fn (lspRenderAxtags tags ind)
+  (if (== tags 0)
+    ""
+    (let (
+      (parts vecNew)
+      (n (vecLen tags))
+      (mut i 0)
+    )
+      {
+        (while (< i n)
+          {
+            (vecPush parts (strConcat (strConcat ";@axiom:" (memGetWordStr (vecGet tags i) 1)) (strConcat "\n" (lspPad ind))))
+            (set i (+ i 1))
+          })
+        (catStrs parts)
+      }
+    )
+  )
+)
+
+(pub :: lspPubOf (-> Int String))
+
+(pub fn (lspPubOf d)
+  (if (== (nodeVis d) 1)
+    "(pub "
+    "("
+  )
+)
+
+(pub :: lspRenderDeclBody (-> Int Int String))
+
+(pub fn (lspRenderDeclBody d ind)
+  (let ((tag (nodeTag d)))
+    (if (== tag TAG_D_FN)
+      (strConcat (strConcat (strConcat (strConcat (lspPubOf d) "fn (") (lspRenderDeclName (nodeAName d))) (strConcat (lspParamsOf (nodeB d)) ")\n")) (strConcat (lspPad (+ ind 2)) (strConcat (lspRenderExpr (nodeC d) (+ ind 2)) ")")))
+      (if (== tag TAG_D_SIG)
+        (strConcat (strConcat (strConcat (lspPubOf d) ":: ") (lspRenderDeclName (nodeAName d))) (strConcat (strConcat " " (lspRenderType (nodeTy d))) ")"))
+        (if (== tag TAG_D_DATA)
+          (lspRenderData d ind)
+          (if (== tag TAG_D_STRUCT)
+            (strConcat (strConcat (strConcat (lspPubOf d) "struct ") (lspRenderDeclName (nodeAName d))) (strConcat (lspRenderFields (nodeB d) (+ ind 2)) ")"))
+            (if (== tag TAG_D_MACRO)
+              (lspRenderMacro d ind)
+              (if (== tag TAG_D_IMPORT)
+                (strConcat
+                  (strConcat "(import " (nodeAName d))
+                  (strConcat
+                    (if (== (vecLen (nodeB d)) 0)
+                      ""
+                      (strConcat (strConcat " (" (lspJoinNames (nodeB d) 0)) ")")
+                    )                    ")"
+                  )
+                )
+                (if (== tag TAG_D_ALIAS)
+                  (strConcat (strConcat (strConcat (lspPubOf d) "type ") (lspRenderDeclName (nodeAName d))) (strConcat (strConcat (lspTyvarsOf (nodeC d)) " = ") (strConcat (lspRenderType (nodeB d)) ")")))
+                  (lspRenderDeclMore d tag ind)
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspRenderDeclMore (-> Int Int Int String))
+
+(pub fn (lspRenderDeclMore d tag ind)
+  (if (== tag TAG_D_TRAIT)
+    (strConcat
+      (strConcat (strConcat (lspPubOf d) "trait (") (strConcat (nodeAName d) (strConcat (lspTyvarsOf (nodeC d)) ")")))
+      (strConcat
+        (if (== (vecLen (nodeB d)) 0)
+          ""
+          (strConcat " where (" (strConcat (lspRenderTraitMethods (nodeB d) (+ ind 2)) ")"))
+        )        ")"
+      )
+    )
+    (if (== tag TAG_D_IMPL)
+      (strConcat
+        (strConcat (strConcat (lspPubOf d) "impl (") (strConcat (strConcat (nodeAName d) " ") (strConcat (nodeCName d) ")")))
+        (strConcat
+          (if (== (vecLen (nodeB d)) 0)
+            ""
+            (strConcat " where (" (strConcat (lspRenderImplMethods (nodeB d) (+ ind 2)) ")"))
+          )          ")"
+        )
+      )
+      (if (== tag TAG_D_EXTERN)
+        (strConcat (strConcat (strConcat (lspPubOf d) "extern \"") (strConcat (nodeAName d) "\"")) (strConcat (lspRenderExternItems (nodeC d) (+ ind 2)) ")"))
+        (if (== tag TAG_D_MACROCALL)
+          (lspRenderForm (lspPartsExprs (lspParts1 (lspRenderName (nodeAName d))) (nodeB d) 0 (+ ind 2)) ind)
+          (if (== tag TAG_D_SYNFOR)
+            (lspRenderSynFor d ind)
+            (if (== tag TAG_D_EFFECT)
+              (strConcat (strConcat "; (effect " (nodeAName d)) " ...) - the parser keeps its operation names and not their signatures, so it is not rendered")
+              (strConcat (strConcat "; unrenderable declaration (tag " (decStr tag)) ")")
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspParts1 (-> String Int))
+
+(pub fn (lspParts1 a)
+  (let ((v vecNew))
+    {
+      (vecPush v a)
+      v
+    }
+  )
+)
+
+; ` x y` for a parameter list, "" for none.
+(pub :: lspParamsOf (-> Int String))
+
+(pub fn (lspParamsOf names)
+  (if (== (vecLen names) 0)
+    ""
+    (strConcat " " (lspJoinNames names 0))
+  )
+)
+
+; ` (a b)` for a `data`'s type parameters; ` a b` bare for a `type`
+; or `trait`, which is what their parsers read; "" for none.
+(pub :: lspTyvarsOf (-> Int String))
+
+(pub fn (lspTyvarsOf tvs)
+  (if (== tvs 0)
+    ""
+    (if (== (vecLen tvs) 0)
+      ""
+      (strConcat " " (lspJoinStrs tvs 0 " "))
+    )
+  )
+)
+
+; `(data Name (a) ctor...)`: each constructor on its own line, a struct
+; variant with its named fields, a positional one with its field
+; types.
+(pub :: lspRenderData (-> Int Int String))
+
+(pub fn (lspRenderData d ind)
+  (let (
+    (ctors (nodeB d))
+    (parts vecNew)
+    (mut i 0)
+  )
+    {
+      (vecPush parts (strConcat (strConcat (lspPubOf d) "data ") (lspRenderDeclName (nodeAName d))))
+      (if (== (nodeTy d) 0)
+        0
+        (if (== (vecLen (nodeTy d)) 0)
+          0
+          (vecPush parts (strConcat (strConcat " (" (lspJoinStrs (nodeTy d) 0 " ")) ")"))
+        )
+      )
+      (while (< i (vecLen ctors))
+        {
+          (vecPush parts (strConcat (strConcat "\n" (lspPad (+ ind 2))) (lspRenderCtor (vecGet ctors i))))
+          (set i (+ i 1))
+        })
+      (vecPush parts ")")
+      (catStrs parts)
+    }
+  )
+)
+
+(pub :: lspRenderCtor (-> Int String))
+
+(pub fn (lspRenderCtor c)
+  (let (
+    (tys
+      (if (== (nodeTy c) 0)
+        vecNew
+        (nodeTy c)
+      )
+    )
+    (names (nodeFieldNames c))
+  )
+    (if (&& (!= names 0) (> (vecLen names) 0))
+      (strConcat (strConcat (strConcat "(" (lspRenderDeclName (nodeAName c))) " {") (strConcat (lspRenderNamedFields names tys 0) " })"))
+      (strConcat (strConcat "(" (lspRenderDeclName (nodeAName c))) (strConcat (lspRenderTypes tys 0 " ") ")"))
+    )
+  )
+)
+
+(pub :: lspRenderNamedFields (-> Int Int Int String))
+
+(pub fn (lspRenderNamedFields names tys i)
+  (if (>= i (vecLen names))
+    ""
+    (strConcat
+      (strConcat
+        (if (== i 0)
+          " "
+          ", "
+        )        (strConcat (vecGetStr names i) " : ")
+      )      (strConcat
+        (if (< i (vecLen tys))
+          (lspRenderType (vecGet tys i))
+          "_"
+        )        (lspRenderNamedFields names tys (+ i 1))
+      )
+    )
+  )
+)
+
+; A struct's `(name : Type)` fields, one per line - or `(name)`, the
+; parser's own spelling of a field with no type, when the tree holds
+; none. That is every field of a GENERATED struct, measured: the
+; expander's `expBuildStructFieldsIn` substitutes the parsed field's
+; slot `b` as its type, and the parser keeps the float FLAG there with
+; the type in `ty`, so the product carries 0 in both. The checker
+; reads a 0 as the wildcard; `(name)` parses back to the same
+; wildcard, where `{unknown}` parses to nothing.
+(pub :: lspRenderFields (-> Int Int String))
+
+(pub fn (lspRenderFields fields ind)
+  (let (
+    (parts vecNew)
+    (n (vecLen fields))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((f (vecGet fields i)))
+          {
+            (vecPush
+              parts              (strConcat
+                (strConcat (strConcat "\n" (lspPad ind)) (strConcat "(" (nodeAName f)))
+                (if (lspTyKnown (nodeTy f))
+                  (strConcat (strConcat " : " (lspRenderType (nodeTy f))) ")")
+                  ")"
+                )
+              )
+            )
+            (set i (+ i 1))
+          }
+        ))
+      (catStrs parts)
+    }
+  )
+)
+
+; `name :: Type` per trait method, one per line.
+(pub :: lspRenderTraitMethods (-> Int Int String))
+
+(pub fn (lspRenderTraitMethods ms ind)
+  (let (
+    (parts vecNew)
+    (n (vecLen ms))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((m (vecGet ms i)))
+          {
+            (vecPush parts (strConcat (strConcat (strConcat "\n" (lspPad ind)) (nodeAName m)) (strConcat " :: " (lspRenderType (nodeB m)))))
+            (set i (+ i 1))
+          }
+        ))
+      (catStrs parts)
+    }
+  )
+)
+
+; `(name expr)` per impl method, one per line.
+(pub :: lspRenderImplMethods (-> Int Int String))
+
+(pub fn (lspRenderImplMethods ms ind)
+  (let (
+    (parts vecNew)
+    (n (vecLen ms))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((m (vecGet ms i)))
+          {
+            (vecPush parts (strConcat (strConcat (strConcat "\n" (lspPad ind)) (strConcat "(" (nodeAName m))) (strConcat (strConcat " " (lspRenderExpr (nodeB m) (+ ind 2))) ")")))
+            (set i (+ i 1))
+          }
+        ))
+      (catStrs parts)
+    }
+  )
+)
+
+; `(name :: Type (symbol "s"))` per extern item, one per line.
+(pub :: lspRenderExternItems (-> Int Int String))
+
+(pub fn (lspRenderExternItems items ind)
+  (let (
+    (parts vecNew)
+    (n (vecLen items))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((it (vecGet items i)))
+          {
+            (vecPush parts (strConcat (strConcat (strConcat "\n" (lspPad ind)) (strConcat "(" (nodeAName it))) (strConcat (strConcat " :: " (lspRenderType (nodeB it))) (strConcat (strConcat " (symbol \"" (nodeCName it)) "\"))"))))
+            (set i (+ i 1))
+          }
+        ))
+      (catStrs parts)
+    }
+  )
+)
+
+; A macro in either of its two spellings: the head-list form `(macro
+; (name p...) body)` when word 3 holds a template expression, else the
+; rule form, one rule per line, read from word 9 as `parseDeclMacro`
+; stored it - each rule's slot 0 its parameter names and slot 1 its
+; template declarations.
+(pub :: lspRenderMacro (-> Int Int String))
+
+(pub fn (lspRenderMacro d ind)
+  (if (!= (nodeC d) 0)
+    (strConcat (strConcat (strConcat (strConcat (lspPubOf d) "macro (") (lspRenderName (nodeAName d))) (strConcat (lspParamsOf (nodeB d)) ")\n")) (strConcat (lspPad (+ ind 2)) (strConcat (lspRenderExpr (nodeC d) (+ ind 2)) ")")))
+    (let (
+      (rules (memGetWord d 9))
+      (parts vecNew)
+      (mut i 0)
+    )
+      {
+        (vecPush parts (strConcat (strConcat (lspPubOf d) "macro ") (lspRenderName (nodeAName d))))
+        (while (if (== rules 0)
+          false
+          (< i (vecLen rules))
+        )
+          (let ((rule (vecGet rules i)))
+            {
+              (vecPush parts (strConcat (strConcat (strConcat "\n" (lspPad (+ ind 2))) (strConcat "((" (lspRenderName (nodeAName d)))) (strConcat (lspParamsOf (vecGet rule 0)) ")")))
+              (vecPush parts (strConcat (lspRenderDeclLines (vecGet rule 1) (+ ind 4)) ")"))
+              (set i (+ i 1))
+            }
+          ))
+        (vecPush parts ")")
+        (catStrs parts)
+      }
+    )
+  )
+)
 
 ; ==================================================================
 ; END SECTION FIX

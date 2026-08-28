@@ -2298,7 +2298,574 @@ shutil.rmtree(VIEWDIR, ignore_errors=True)
 # SECTION FIX TESTS: formatting, code actions, macro expansion, code
 # lenses, type definition, diagnostics for imported modules.
 # =====================================================================
+#
+# The requests that CHANGE or RUN code, over one document written HERE,
+# with every expected answer DERIVED from its bytes or from the
+# compiler's own commands run on a copy of it:
+#
+#   * `formatting` must answer ONE edit over the whole document whose
+#     text equals, byte for byte, what `axiom fmt` writes to a copy of
+#     the same file - the command is the reference - and whose range is
+#     derived from the document's line count; the formatted text,
+#     opened as a document, must answer an empty list;
+#   * the two quickfixes must land where the document says: AX3012's on
+#     the BINDER `x` of `(let ((x 1)) ...)` - not the `set` the
+#     diagnostic anchors on - with the text `mut x`, and AX3001's on
+#     the misspelt call with the name of the declaration it meant;
+#   * the "Add type signature" assist must insert, at column 0 of the
+#     unsigned fn's line, a `::` whose type is what `axiom symbols`
+#     prints for that fn - rewritten from the checker's `(A -> B)` into
+#     the parser's `(-> A B)`, since only the latter parses. Then every
+#     quickfix and the assist are APPLIED here, the result is opened as
+#     a fresh document and must publish NO diagnostics, and `symbols` on
+#     it must print the same type for the fn - the check that the
+#     inserted line means what the assist claimed;
+#   * `typeDefinition` on a fn returning a local `data`, on a parameter
+#     of that type inside a fn header, and on one of its constructors
+#     must land on the data's NAME; on a fn returning `Int`, null;
+#   * the `Run` lens must sit over `main` with the document's path as
+#     its one argument, and the `Expand macro` lens over the macro's
+#     name with the URI and that name's position;
+#   * `expandMacro` on the invocation `(deriveTag Shape)` must name the
+#     macro and answer text that, opened as a fresh document, parses
+#     clean and has an outline of exactly the generated name - `tag` +
+#     the invocation's argument, derived here - and carries the
+#     template's literal; the same on the declaration's name; null on
+#     `main`;
+#   * every request on a document that does not parse answers null or
+#     an empty list, and every capability is advertised.
+#
+# TWO SESSIONS, not one, and the reason is in the assertions: the fixed
+# document and the expansion text are the FIRST session's answers, and
+# a pipe fed in one write cannot send back what it has not yet read.
+# The second session opens both and reads what the server publishes.
+FIXDIR = tempfile.mkdtemp(prefix="axiom-fix-")
+FIX = """; A shape, for typeDefinition to land on.
+(data Shape (Circle Int) (Square Int))
 
+; A macro that derives a tag function.
+(pub macro deriveTag
+  ((deriveTag T)
+   (pub :: (syntax/join tag T) Int)
+   (pub fn ((syntax/join tag T)) 7)))
+
+(deriveTag Shape)
+
+(:: helper (-> Int Int))
+(fn (helper n) (+ n 1))
+
+(:: mk (-> Int Shape))
+(fn (mk n) (Circle n))
+
+(:: area (-> Shape Int))
+(fn (area s) (match s ((Circle r) r) ((Square w) w)))
+
+(:: call Int)
+(fn (call) (helpr 1))
+
+(:: bump Int)
+(fn (bump) (let ((x 1)) { (set x 2) x }))
+
+(fn (twice x)   (+ x
+  x))
+
+(:: main Int)
+(fn (main) (+ (+ (tagShape) (area (mk 2))) (+ call (+ bump (twice 3)))))
+"""
+fix_path = os.path.join(FIXDIR, "fix-generated.ax")
+open(fix_path, "w", encoding="utf-8").write(FIX)
+fix_uri = "file://" + fix_path
+fmt_uri = "file://" + os.path.join(FIXDIR, "fix-formatted.ax")
+fixed_uri = "file://" + os.path.join(FIXDIR, "fix-fixed.ax")
+exp_uri = "file://" + os.path.join(FIXDIR, "fix-expansion.ax")
+
+
+def locate_in(src, context, name):
+    """`name` at its first occurrence INSIDE the first occurrence of
+    `context` - for a one-letter name the document holds in many
+    places, such as the binder `x` of `(let ((x 1)) ...)`."""
+    i = src.index(context)
+    k = src.index(name, i, i + len(context))
+    ln, text, col = line_of(src, k)
+    start = u16(text[:col])
+    return {"line": ln, "start": start, "end": start + u16(name)}
+
+
+def cut(src, before, after):
+    """The one TOKEN written between `before` and `after` - a name read
+    out of the document rather than written down beside it. A token,
+    not a slice from the first `before` to the next `after`: the first
+    `(fn (` in the document is not the fn the caller means."""
+    m = re.search(re.escape(before) + r"([^\s()]+)" + re.escape(after), src)
+    if not m:
+        sys.exit(f"FAIL: nothing in the FIX document sits between {before!r} "
+                 f"and {after!r} - an anchor has drifted from the text")
+    return m.group(1)
+
+
+# --- what the document says --------------------------------------------
+BINDER = locate_in(FIX, "(let ((x 1))", "x")       # AX3012's fix goes HERE
+SET_X = locate_in(FIX, "(set x 2)", "x")           # ...not where it anchors
+HELPR = locate(FIX, "helpr", 1)                    # AX3001's misspelt call
+HELPER_NAME = cut(FIX, "(fn (", " n) (+ n 1))")    # ...and the name it meant
+TWICE_NAME = cut(FIX, "(fn (", " x)   (+ x")       # the unsigned fn
+TWICE_LINE = locate(FIX, "(fn (" + TWICE_NAME, 1)["line"]
+MAIN_DECL = locate(FIX, "main", 2)                 # `(fn (main) ...)`; 1 is the `::`
+SHAPE_DECL = locate(FIX, "Shape", 1)               # `(data Shape ...)`
+MK_USE = locate_in(FIX, "(mk 2)", "mk")            # returns Shape
+HELPER_USE = locate_in(FIX, "(:: helper", "helper")  # returns Int
+PARAM_S = locate_in(FIX, "(area s)", "s")          # a parameter typed Shape
+CIRCLE_USE = locate_in(FIX, "(Circle n)", "Circle")  # a constructor of Shape
+DERIVE_DECL = locate(FIX, "deriveTag", 1)          # the macro's own name
+DERIVE_USE = locate(FIX, "deriveTag", 3)           # the invocation (2 is the rule head)
+MACRO_NAME = cut(FIX, "(pub macro ", "\n")
+INV_ARG = cut(FIX, "(" + MACRO_NAME + " ", ")\n\n(:: helper")
+GEN_NAME = cut(FIX, "(syntax/join ", " T)") + INV_ARG   # what the join makes
+TPL_LIT = cut(FIX, "(pub fn ((syntax/join tag T)) ", ")))")
+BROKEN_FIX = FIX + "\n("
+FIX_LINES = FIX.split("\n")
+WHOLE = {"start": {"line": 0, "character": 0},
+         "end": {"line": len(FIX_LINES) - 1, "character": u16(FIX_LINES[-1])}}
+
+# --- what the compiler's own commands say --------------------------------
+fmt_copy = os.path.join(FIXDIR, "fmt-copy.ax")
+open(fmt_copy, "w", encoding="utf-8").write(FIX)
+subprocess.run([stage1, "fmt", fmt_copy], capture_output=True, cwd=FIXDIR)
+FMT = open(fmt_copy, encoding="utf-8").read()
+
+
+def axsym_type(path, name):
+    """The quoted type `axiom symbols` prints for `name`, or "". The
+    command exits 1 on a file with errors and prints its table anyway,
+    so stdout is read whatever the status."""
+    p = subprocess.run([stage1, "--diagnostic-format=ai", "symbols", path],
+                       capture_output=True, cwd=FIXDIR)
+    for line in p.stdout.decode("utf-8", "replace").split("\n"):
+        m = re.match(r'F ' + re.escape(name) + r' \S+ "([^"]*)"', line)
+        if m:
+            return m.group(1)
+    return ""
+
+
+def to_source_type(s):
+    """The checker's notation, which `symbols` prints, rewritten into
+    the parser's: `(Int -> (Int -> Bool))` is `(-> Int Int Bool)`,
+    `Maybe Int` is `(Maybe Int)`, `[Int]`, `()` and `(A, B)` keep their
+    shapes, `*T` is `(* T)`. A second implementation of the server's
+    own type writer, from the grammar in parser.ax's parseTypeParens."""
+    toks = re.findall(r"->|\(|\)|\[|\]|,|\*mut|\*|[A-Za-z_][A-Za-z0-9_']*", s)
+    i = 0
+
+    def atom():
+        nonlocal i
+        t = toks[i]
+        i += 1
+        if t == "(":
+            groups, cur, arrow = [], [], False
+            while toks[i] != ")":
+                if toks[i] == "->":
+                    arrow, i = True, i + 1
+                    groups.append(cur)
+                    cur = []
+                elif toks[i] == ",":
+                    i += 1
+                    groups.append(cur)
+                    cur = []
+                else:
+                    cur.append(atom())
+            i += 1
+            groups.append(cur)
+            if arrow:
+                return ("arrow", [seq(g) for g in groups])
+            if groups == [[]]:
+                return ("unit",)
+            if len(groups) == 1:
+                return seq(groups[0])
+            return ("tuple", [seq(g) for g in groups])
+        if t == "[":
+            items = []
+            while toks[i] != "]":
+                items.append(atom())
+            i += 1
+            return ("list", seq(items))
+        if t in ("*", "*mut"):
+            return ("ptr", atom())
+        return ("name", t)
+
+    def seq(items):
+        return items[0] if len(items) == 1 else ("app", items)
+
+    def render(n):
+        if n[0] == "name":
+            return n[1]
+        if n[0] == "app":
+            return "(" + " ".join(render(x) for x in n[1]) + ")"
+        if n[0] == "arrow":
+            parts = list(n[1])
+            while parts[-1][0] == "arrow":       # right-nested arrows flatten
+                parts = parts[:-1] + list(parts[-1][1])
+            return "(-> " + " ".join(render(x) for x in parts) + ")"
+        if n[0] == "tuple":
+            return "(" + " ".join(render(x) for x in n[1]) + ")"
+        if n[0] == "unit":
+            return "()"
+        if n[0] == "list":
+            return "[" + render(n[1]) + "]"
+        return "(* " + render(n[1]) + ")"
+
+    items = []
+    while i < len(toks):
+        items.append(atom())
+    return render(seq(items))
+
+
+sym_copy = os.path.join(FIXDIR, "sym-copy.ax")
+open(sym_copy, "w", encoding="utf-8").write(FIX)
+AXSYM_TWICE = axsym_type(sym_copy, TWICE_NAME)
+SRC_TYPE = to_source_type(AXSYM_TWICE) if AXSYM_TWICE else ""
+ASSIST_TEXT = "(:: " + TWICE_NAME + " " + SRC_TYPE + ")\n"
+ASSIST_AT = {"line": TWICE_LINE, "character": 0}
+
+# Every derived string has to be non-empty and mean what it is used
+# for, or the assertions below compare "" against "".
+for what, text in (("formatted text", FMT), ("helper name", HELPER_NAME),
+                   ("unsigned fn name", TWICE_NAME), ("symbols type", AXSYM_TWICE),
+                   ("source type", SRC_TYPE), ("macro name", MACRO_NAME),
+                   ("generated name", GEN_NAME), ("template literal", TPL_LIT)):
+    if not text.strip():
+        sys.exit(f"FAIL: the derived {what} is empty - every FIX assertion "
+                 f"resting on it would compare nothing against nothing")
+if FMT == FIX:
+    sys.exit("FAIL: `fmt` left the FIX document unchanged, so a formatting "
+             "edit cannot be observed on it - restore the misformatted fn")
+if "->" not in AXSYM_TWICE:
+    sys.exit(f"FAIL: symbols printed {AXSYM_TWICE!r} for {TWICE_NAME}, not an "
+             f"arrow - the rewrite into the parser's spelling would be a no-op")
+if GEN_NAME in FIX.split("(fn (main)")[0]:
+    sys.exit(f"FAIL: {GEN_NAME!r} is written in the document above `main`, so "
+             f"the expansion check could not tell generated from written")
+
+
+def to_index(src, pos):
+    """A string index for an LSP position: the line's start plus as many
+    characters as it takes to reach `character` UTF-16 units."""
+    lines = src.split("\n")
+    base = sum(len(l) + 1 for l in lines[:pos["line"]])
+    line, units, k = lines[pos["line"]], 0, 0
+    while units < pos["character"]:
+        units += u16(line[k])
+        k += 1
+    return base + k
+
+
+def apply_edits(src, edits):
+    """Every (range, newText) applied to `src`, last first so the
+    earlier indices stay valid; the edits never overlap."""
+    spans = sorted(((to_index(src, e["range"]["start"]),
+                     to_index(src, e["range"]["end"]), e["newText"]) for e in edits),
+                   reverse=True)
+    for s, e, text in spans:
+        src = src[:s] + text + src[e:]
+    return src
+
+
+def fixreq(rid, method, params):
+    return {"jsonrpc": "2.0", "id": rid, "method": method, "params": params}
+
+
+def fixdoc(uri, extra=None):
+    p = {"textDocument": {"uri": uri}}
+    p.update(extra or {})
+    return p
+
+
+def at(p):
+    return {"line": p["line"], "character": p["start"]}
+
+
+def action_req(rid, rng):
+    return fixreq(rid, "textDocument/codeAction",
+                  fixdoc(fix_uri, {"range": rng, "context": {"diagnostics": []}}))
+
+
+def point(p):
+    return {"start": at(p), "end": at(p)}
+
+
+def line_range(ln):
+    return {"start": {"line": ln, "character": 0}, "end": {"line": ln, "character": 0}}
+
+
+HELPER_SIG_LINE = locate(FIX, "(:: helper", 1)["line"]
+fix_session = b"".join(frame(m) for m in [
+    fixreq(1, "initialize", {}),
+    {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+     "params": {"textDocument": {"uri": fix_uri, "languageId": "axiom",
+                                 "version": 1, "text": FIX}}},
+    fixreq(2, "textDocument/formatting",
+           fixdoc(fix_uri, {"options": {"tabSize": 2, "insertSpaces": True}})),
+    action_req(3, WHOLE),
+    action_req(4, line_range(HELPER_SIG_LINE)),
+    action_req(5, line_range(TWICE_LINE)),
+    fixreq(6, "textDocument/typeDefinition", fixdoc(fix_uri, {"position": at(MK_USE)})),
+    fixreq(7, "textDocument/typeDefinition", fixdoc(fix_uri, {"position": at(HELPER_USE)})),
+    fixreq(8, "textDocument/typeDefinition", fixdoc(fix_uri, {"position": at(PARAM_S)})),
+    fixreq(9, "textDocument/typeDefinition", fixdoc(fix_uri, {"position": at(CIRCLE_USE)})),
+    fixreq(10, "textDocument/codeLens", fixdoc(fix_uri)),
+    fixreq(11, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_USE)})),
+    fixreq(12, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_DECL)})),
+    fixreq(13, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(MAIN_DECL)})),
+    {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+     "params": {"textDocument": {"uri": fmt_uri, "languageId": "axiom",
+                                 "version": 1, "text": FMT}}},
+    fixreq(14, "textDocument/formatting", fixdoc(fmt_uri, {"options": {}})),
+    {"jsonrpc": "2.0", "method": "textDocument/didChange",
+     "params": {"textDocument": {"uri": fix_uri, "version": 2},
+                "contentChanges": [{"text": BROKEN_FIX}]}},
+    fixreq(20, "textDocument/formatting", fixdoc(fix_uri, {"options": {}})),
+    action_req(21, WHOLE),
+    fixreq(22, "textDocument/typeDefinition", fixdoc(fix_uri, {"position": at(MK_USE)})),
+    fixreq(23, "textDocument/codeLens", fixdoc(fix_uri)),
+    fixreq(24, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_USE)})),
+    fixreq(30, "shutdown", None),
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+fp = subprocess.run([stage1, "lsp"], input=fix_session, capture_output=True, cwd=FIXDIR)
+fmsgs, ftail = unframe(fp.stdout)
+fresp = {m["id"]: m for m in fmsgs if "id" in m}
+fcaps = (fresp.get(1, {}).get("result") or {}).get("capabilities") or {}
+
+
+def fres(rid):
+    return fresp.get(rid, {}).get("result")
+
+
+def action_of(rid, kind, code=None):
+    """The one action of `kind` (and, for a quickfix, of diagnostic
+    `code`) request `rid` answered, or None."""
+    for a in fres(rid) or []:
+        if a.get("kind") != kind:
+            continue
+        if code is None or [d.get("code") for d in a.get("diagnostics") or []] == [code]:
+            return a
+    return None
+
+
+def one_edit(action):
+    """The single TextEdit an action's WorkspaceEdit makes in fix_uri."""
+    changes = ((action or {}).get("edit") or {}).get("changes") or {}
+    edits = changes.get(fix_uri) or []
+    return edits[0] if len(edits) == 1 and len(changes) == 1 else None
+
+
+def edit_is(action, rng, text):
+    e = one_edit(action)
+    if e is None:
+        return f"has no single edit in the document ({action!r:.200})"
+    if e.get("range") != rng:
+        return f"edits {e.get('range')}, want {rng}"
+    if e.get("newText") != text:
+        return f"writes {e.get('newText')!r}, want {text!r}"
+    return ""
+
+
+def landed_in(rid, uri, at_, resp):
+    """`landed`, over THIS session's responses: did request `rid`
+    answer a Location at `at_` in `uri`? The reason it did not, or ""."""
+    r = resp.get(rid, {}).get("result")
+    if r is None:
+        return f"request {rid} answered null"
+    if r.get("uri") != uri:
+        return f"request {rid} answered {r.get('uri')}, want {uri}"
+    if r.get("range") != rng(at_):
+        return f"request {rid} answered range {r.get('range')}, want {rng(at_)}"
+    return ""
+
+
+def lens_named(rid, command):
+    for l in fres(rid) or []:
+        if (l.get("command") or {}).get("command") == command:
+            return l
+    return None
+
+
+ax3012 = action_of(3, "quickfix", "AX3012")
+ax3001 = action_of(3, "quickfix", "AX3001")
+assist = action_of(3, "refactor.rewrite")
+run_lens = lens_named(10, "axiom.run")
+exp_lens = lens_named(10, "axiom.expandMacro")
+r11 = fres(11) or {}
+fwhy = ""
+if fp.returncode != 0:
+    fwhy = f"the server exited {fp.returncode}: {fp.stderr[:200]!r}"
+elif ftail:
+    fwhy = f"{len(ftail)} trailing bytes after the last frame"
+elif fcaps.get("documentFormattingProvider") is not True:
+    fwhy = f"documentFormattingProvider is not advertised: {sorted(fcaps)}"
+elif (fcaps.get("codeActionProvider") or {}).get("codeActionKinds") != ["quickfix", "refactor.rewrite"]:
+    fwhy = f"codeActionProvider is {fcaps.get('codeActionProvider')!r}, want the two kinds"
+elif fcaps.get("typeDefinitionProvider") is not True:
+    fwhy = f"typeDefinitionProvider is not advertised: {sorted(fcaps)}"
+elif fcaps.get("codeLensProvider") != {"resolveProvider": False}:
+    fwhy = f"codeLensProvider is {fcaps.get('codeLensProvider')!r}"
+elif (fcaps.get("experimental") or {}).get("expandMacro") is not True:
+    fwhy = f"experimental.expandMacro is not advertised: {fcaps.get('experimental')!r}"
+# --- formatting ---------------------------------------------------------
+elif fres(2) != [{"range": WHOLE, "newText": FMT}]:
+    fwhy = (f"formatting answered {json.dumps(fres(2))[:300]}, want one edit over "
+            f"{WHOLE} whose text is what `fmt` wrote ({len(FMT)} bytes)")
+elif fres(14) != []:
+    fwhy = f"formatting an already-formatted document answered {fres(14)!r:.200}, want []"
+# --- code actions --------------------------------------------------------
+elif len(fres(3) or []) != 3:
+    fwhy = (f"the whole-document code action request answered {len(fres(3) or [])} "
+            f"action(s), want 2 quickfixes and 1 assist: {json.dumps(fres(3))[:400]}")
+elif ax3012 is None:
+    fwhy = f"no quickfix carrying the AX3012 diagnostic: {json.dumps(fres(3))[:400]}"
+elif edit_is(ax3012, rng(BINDER), "mut " + cut(FIX, "(let ((", " 1))")):
+    fwhy = ("the AX3012 quickfix " + edit_is(ax3012, rng(BINDER), "mut x")
+            + f" - the fix goes on the BINDER at {rng(BINDER)}, not the `set` at {rng(SET_X)}")
+elif ax3012.get("isPreferred") is not True:
+    fwhy = "the AX3012 quickfix is not isPreferred; a compiler-written fix is THE fix"
+elif ax3001 is None:
+    fwhy = f"no quickfix carrying the AX3001 diagnostic: {json.dumps(fres(3))[:400]}"
+elif edit_is(ax3001, rng(HELPR), HELPER_NAME):
+    fwhy = "the AX3001 quickfix " + edit_is(ax3001, rng(HELPR), HELPER_NAME)
+elif (ax3001["diagnostics"][0].get("range") != rng(HELPR)
+      or ax3001["diagnostics"][0].get("severity") != 1):
+    fwhy = f"the AX3001 quickfix carries diagnostic {ax3001['diagnostics'][0]!r:.200}"
+elif assist is None:
+    fwhy = f"no refactor.rewrite assist offered: {json.dumps(fres(3))[:400]}"
+elif assist.get("title") != "Add type signature for `" + TWICE_NAME + "`":
+    fwhy = f"the assist is titled {assist.get('title')!r}"
+elif edit_is(assist, {"start": ASSIST_AT, "end": ASSIST_AT}, ASSIST_TEXT):
+    fwhy = ("the assist " + edit_is(assist, {"start": ASSIST_AT, "end": ASSIST_AT}, ASSIST_TEXT)
+            + f" - symbols printed {AXSYM_TWICE!r}, which is {SRC_TYPE!r} in the parser's spelling")
+elif fres(4) != []:
+    fwhy = f"a range on a line with nothing to fix answered {fres(4)!r:.200}, want []"
+elif [a.get("kind") for a in fres(5) or []] != ["refactor.rewrite"]:
+    fwhy = f"a range on the unsigned fn's line answered {fres(5)!r:.300}, want the assist alone"
+# --- type definition -----------------------------------------------------
+elif landed_in(6, fix_uri, SHAPE_DECL, fresp):
+    fwhy = "typeDefinition on a fn returning `Shape`: " + landed_in(6, fix_uri, SHAPE_DECL, fresp)
+elif fres(7) is not None:
+    fwhy = f"typeDefinition on a fn returning Int answered {fres(7)!r}, want null"
+elif landed_in(8, fix_uri, SHAPE_DECL, fresp):
+    fwhy = "typeDefinition on a parameter typed `Shape`: " + landed_in(8, fix_uri, SHAPE_DECL, fresp)
+elif landed_in(9, fix_uri, SHAPE_DECL, fresp):
+    fwhy = "typeDefinition on a constructor of `Shape`: " + landed_in(9, fix_uri, SHAPE_DECL, fresp)
+# --- code lenses ---------------------------------------------------------
+elif len(fres(10) or []) != 2:
+    fwhy = f"codeLens answered {fres(10)!r:.300}, want a Run lens and an Expand lens"
+elif run_lens is None or run_lens.get("range") != rng(MAIN_DECL):
+    fwhy = f"the Run lens is {run_lens!r:.200}, want it over `main` at {rng(MAIN_DECL)}"
+elif run_lens["command"].get("arguments") != [fix_path]:
+    fwhy = f"the Run lens runs {run_lens['command'].get('arguments')!r}, want [{fix_path!r}]"
+elif not run_lens["command"].get("title"):
+    fwhy = "the Run lens has no title"
+elif exp_lens is None or exp_lens.get("range") != rng(DERIVE_DECL):
+    fwhy = f"the Expand lens is {exp_lens!r:.200}, want it over the macro's name at {rng(DERIVE_DECL)}"
+elif exp_lens["command"].get("arguments") != [fix_uri, at(DERIVE_DECL)]:
+    fwhy = f"the Expand lens carries {exp_lens['command'].get('arguments')!r}"
+# --- expand macro --------------------------------------------------------
+elif r11.get("name") != MACRO_NAME:
+    fwhy = f"expandMacro on the invocation answered {fres(11)!r:.300}, want name {MACRO_NAME!r}"
+elif GEN_NAME not in r11.get("expansion", ""):
+    fwhy = f"the expansion does not carry the generated name {GEN_NAME!r}: {r11.get('expansion')!r}"
+elif not re.search(r"\b" + re.escape(TPL_LIT) + r"\b", r11.get("expansion", "")):
+    fwhy = f"the expansion does not carry the template's literal {TPL_LIT!r}: {r11.get('expansion')!r}"
+elif fres(12) != r11:
+    fwhy = f"expandMacro on the declaration answered {fres(12)!r:.300}, want the invocation's products"
+elif fres(13) is not None:
+    fwhy = f"expandMacro on `main` answered {fres(13)!r:.200}, want null"
+# --- a document that does not parse ---------------------------------------
+elif fres(20) is not None:
+    fwhy = f"formatting an unparseable document answered {fres(20)!r:.200}, want null"
+elif fres(21) != []:
+    fwhy = f"codeAction on an unparseable document answered {fres(21)!r:.200}, want []"
+elif fres(22) is not None:
+    fwhy = f"typeDefinition on an unparseable document answered {fres(22)!r:.200}, want null"
+elif fres(23) != []:
+    fwhy = f"codeLens on an unparseable document answered {fres(23)!r:.200}, want []"
+elif fres(24) is not None:
+    fwhy = f"expandMacro on an unparseable document answered {fres(24)!r:.200}, want null"
+
+# The second session: the first one's answers, applied and opened.
+EXPANSION = r11.get("expansion", "") if not fwhy else ""
+FIXED = apply_edits(FIX, [one_edit(ax3012), one_edit(ax3001), one_edit(assist)]) if not fwhy else FIX
+fixed_diags = exp_diags = None
+gen_outline = []
+sym_after = ""
+if not fwhy:
+    if FIXED == FIX:
+        fwhy = "applying the three edits changed nothing"
+    else:
+        fixed_copy = os.path.join(FIXDIR, "fixed-copy.ax")
+        open(fixed_copy, "w", encoding="utf-8").write(FIXED)
+        sym_after = axsym_type(fixed_copy, TWICE_NAME)
+        second = b"".join(frame(m) for m in [
+            fixreq(1, "initialize", {}),
+            {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+             "params": {"textDocument": {"uri": fixed_uri, "languageId": "axiom",
+                                         "version": 1, "text": FIXED}}},
+            {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+             "params": {"textDocument": {"uri": exp_uri, "languageId": "axiom",
+                                         "version": 1, "text": EXPANSION}}},
+            fixreq(2, "textDocument/documentSymbol", fixdoc(exp_uri)),
+            fixreq(3, "shutdown", None),
+            {"jsonrpc": "2.0", "method": "exit", "params": None},
+        ])
+        sp = subprocess.run([stage1, "lsp"], input=second, capture_output=True, cwd=FIXDIR)
+        smsgs, stail = unframe(sp.stdout)
+        pubs = {m["params"]["uri"]: m["params"]["diagnostics"] for m in smsgs
+                if m.get("method") == "textDocument/publishDiagnostics"}
+        sresp = {m["id"]: m for m in smsgs if "id" in m}
+        fixed_diags = pubs.get(fixed_uri)
+        exp_diags = pubs.get(exp_uri)
+        gen_outline = sresp.get(2, {}).get("result")
+        parse_codes = [d.get("code") for d in exp_diags or []
+                       if str(d.get("code", "")).startswith(("AX1", "AX2"))]
+        if sp.returncode != 0 or stail:
+            fwhy = f"the second session exited {sp.returncode} with {len(stail)} trailing bytes"
+        elif fixed_diags != []:
+            fwhy = (f"the document with every quickfix and the assist applied still "
+                    f"publishes {[(d.get('code'), d['range']['start']) for d in fixed_diags or []]}"
+                    f"; the fixed text was:\n{FIXED}")
+        elif sym_after != AXSYM_TWICE:
+            fwhy = (f"after inserting {ASSIST_TEXT.strip()!r}, symbols prints "
+                    f"{sym_after!r} for {TWICE_NAME}, where it printed {AXSYM_TWICE!r} "
+                    f"before - the signature does not mean what the assist claimed")
+        elif parse_codes:
+            fwhy = f"the expansion text does not parse ({parse_codes}):\n{EXPANSION}"
+        elif not isinstance(gen_outline, list) or [s.get("name") for s in gen_outline] != [GEN_NAME]:
+            fwhy = (f"the expansion's outline is {gen_outline!r:.300}, want exactly "
+                    f"[{GEN_NAME!r}] - the one declaration the macro generated")
+        elif {s.get("kind") for s in gen_outline} != {12}:
+            fwhy = f"the generated declaration is not a Function in the outline: {gen_outline!r:.200}"
+
+if fwhy:
+    print(f"FAIL fix: {fwhy}")
+    failed += 1
+else:
+    print(f"ok   formatting (one edit over {len(FIX_LINES)} lines whose text is the "
+          f"{len(FMT)} bytes `fmt` wrote to a copy; [] on the formatted text; null "
+          f"when the document does not parse)")
+    print(f"ok   code-actions (AX3012 fixed at the BINDER {rng(BINDER)['start']} not the "
+          f"`set` at {rng(SET_X)['start']}, AX3001 fixed to {HELPER_NAME!r}, the assist "
+          f"inserting {ASSIST_TEXT.strip()!r} from symbols' {AXSYM_TWICE!r}; all three "
+          f"applied check clean and symbols agrees; [] off the fixes and when the "
+          f"document does not parse)")
+    print(f"ok   type-definition (a fn's result, a header parameter and a constructor "
+          f"all landing on `{cut(FIX, '(data ', ' ')}`; null for Int and for a document "
+          f"that does not parse)")
+    print(f"ok   code-lens (Run over `main` with {os.path.basename(fix_path)!r}, Expand "
+          f"over `{MACRO_NAME}`; [] when the document does not parse)")
+    print(f"ok   expand-macro (`{MACRO_NAME}` at its invocation and at its declaration "
+          f"rendering {GEN_NAME!r} with literal {TPL_LIT}; the text re-parses with an "
+          f"outline of exactly that name; null on `main` and when the document does "
+          f"not parse)")
+    passed += 5
+shutil.rmtree(FIXDIR, ignore_errors=True)
 # =====================================================================
 # END SECTION FIX TESTS
 # =====================================================================
