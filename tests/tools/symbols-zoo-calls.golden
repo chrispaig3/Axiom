@@ -95,6 +95,10 @@ F sigTerm stdlib/Sys/Platform.darwin.ax:690:9-16 "Int" @2b81ae936de3a146
 F sigInt stdlib/Sys/Platform.darwin.ax:694:9-15 "Int" @a8fba5915b585705
 F forkChildIsZero stdlib/Sys/Platform.darwin.ax:701:9-24 "Int" @d2e5b0de4127a1a5
 F acceptNonblockFlag stdlib/Sys/Platform.darwin.ax:716:9-27 "Int" @897180219612fc65
+F usesSyscallAbi stdlib/Sys/Platform.darwin.ax:733:9-23 "Int" @5239c4a4eebd381e
+F platformWriteFd stdlib/Sys/Platform.darwin.ax:737:9-24 "(Int -> (Int -> (Int -> Int)))" @06b4d89d48f5eb21 #pure #calls=-
+F platformReadFd stdlib/Sys/Platform.darwin.ax:742:9-23 "(Int -> (Int -> (Int -> Int)))" @27c65d2cf874d88a #pure #calls=-
+F platformExitWith stdlib/Sys/Platform.darwin.ax:747:9-25 "(Int -> Int)" @becafad07ae354fc #pure #calls=-
 F apply tests/fmt/syntax-zoo.ax:105:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:109:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:119:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure #calls=+,<,>

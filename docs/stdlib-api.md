@@ -593,7 +593,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 82 public names
+`stdlib/Sys/Platform.darwin.ax` — 86 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
