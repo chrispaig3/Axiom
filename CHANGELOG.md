@@ -16,6 +16,64 @@ its changelog too.
 
 ## Unreleased
 
+The enterprise readiness plan's two remaining buildable items land — the
+compile-time ceiling it called "a bug, not an architecture", and the
+`Fallible` effect it said costs nothing — and `check-name-scale.sh` now
+builds an ablated twin of the compiler to prove its new arm can fail,
+which makes it the thirty-eighth gate that builds the compiler under
+test through `gate_build_axc`: thirty-eight gates, up from thirty-seven.
+
+### Added
+
+- **`stdlib/Fallible.ax` — the batch loop's effect.** The plan's
+  fault-containment section said a `Fallible` effect whose operation
+  answers "skip / use this default" costs nothing today and needs no
+  compiler change; nothing in the tree spelled it. Now: one effect, one
+  operation, `(fallibleMalformed message)`, performed by the callee that
+  finds a malformed record and answered — tail-resumptive, no unwinding
+  — by whichever handler the loop installed: `fallibleSkip` (answers the
+  sentinel `fallibleSkipped`, which `fallibleIsSkipped` reads),
+  `(fallibleDefault d)`, or `(fallibleCounting tally next)` around
+  either, with `FallibleTally`/`fallibleTally`/`fallibleCount`. An
+  unhandled operation is still exit 71 (`ERR-REC-6` class ii).
+  `docs/error-model.md` `ERR-REC-7`; `tests/stdlib/410-fallible.ax` pins
+  both handlers, counting, nesting, a logging handler, the trap inside
+  and outside a recovery point, and four memory terms.
+  `examples/batch-fallible/` reads N generated records, every k-th
+  malformed, under both handlers, and `check-steady-state.sh` gains a
+  `batch` probe: 2,000,000 records under `fallibleSkip` hold 1,376 KiB,
+  the same as 200,000, with a `keeping` twin required to grow past 5×
+  (measured 25×).
+
+  The shape was chosen by measurement, not by the plan's sketch. With
+  the arena mark cell over 10,000 records: a one-argument operation with
+  a literal message costs **0 bytes per operation**; the two-argument
+  spelling `(op message fallback)` costs 32 — the inner closure of a
+  curried handler, never released; a message built per record costs 80
+  — a string a type-variable handler parameter hides from the release
+  walk. A batch loop has no arena reset (`MM-ALLOC-22`), so both would
+  have grown the process by every record. Both are compiler facts the
+  module documents rather than defects it fixes.
+
+### Changed
+
+- **The name map answers from an index, and doubling a module costs
+  1.9× rather than 3.9×.** `mangleHasIn` was a linear scan of every
+  bare name asked once per declaration being mangled — the quadratic
+  `check-name-scale.sh`'s header recorded at "55.7% of a check at
+  N=8000". Measured on the tree before the change, best of three: a
+  module of 8,000 declarations checked in 2.12 s (private helpers) /
+  3.26 s (public), doubling to 16,000 cost 3.25× / 3.58×. It was not
+  55.7% of a check; it was ~93%. A `MangleIdx` — an `Intern` over the
+  bare names plus a position vector, fed by the five writers and
+  threaded beside `bares` through the resolver — answers in 0.23 s /
+  0.22 s at 8,000, doubling at 1.91× / 1.93×; speedup 9.4× / 15×. Every
+  public signature keeps its shape. `check-name-scale.sh` gains the
+  plan's N→2N arm (bound 2.80, floor N=8,000) and builds a twin with the
+  scan put back, which must fail the arm (measured 3.24× / 3.41×) — and
+  the same script run inside a pristine `git archive` of the previous
+  release fails it at 3.25× / 3.58×.
+
 ## 0.3.6 — 2026-08-28
 
 The three compiler defects the language-server work found and 0.3.5
