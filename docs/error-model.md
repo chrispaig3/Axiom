@@ -212,7 +212,7 @@ design choice. The limitation is gone:
 ```
 
 Written 2026-08-16, that was `AX3004 type mismatch: expected struct or
-data type, found _t206` — the checker instantiated `(Result a
+data type, found _a` — the checker instantiated `(Result a
 Error)`'s constructor field to a fresh variable and never resolved it
 against the signature, so `y` had no fields as far as the arm was
 concerned. `ctorPatEnv` landed 2026-08-21 (`a388fc1`) and resolves
@@ -970,7 +970,7 @@ type is the INSTANTIATED one and only the checker has it.
 **B5 — a `match` binder over a polymorphic scrutinee has no type.
 FIXED 2026-08-21, RECORDED 2026-08-25.** `(match r ((Err y) y.code))`
 where `r : (Result a Error)` was `AX3004 expected struct or data type,
-found _t206`: the checker instantiated the constructor's field to a
+found _a`: the checker instantiated the constructor's field to a
 fresh variable and never resolved it against the signature, so the
 binder had no fields. Passing the binder to a function whose parameter
 is declared at the concrete type recovered it, which was `ERR-TYPE-3a`.

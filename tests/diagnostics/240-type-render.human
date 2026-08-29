@@ -6,19 +6,19 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
-[1;31merror[AX3004][0m[1m: type mismatch: expected function type, found _t3[0m
+[1;31merror[AX3004][0m[1m: type mismatch: expected function type, found _a[0m
   [1;34m--> [0m240-type-render.ax:16:6
 [1;34m   |[0m
 [1;34m16 |[0m     (p 1)
-[1;34m   |[0m      [1;31m^ this has type `_t3`, expected `function type`[0m
+[1;34m   |[0m      [1;31m^ this has type `_a`, expected `function type`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
-[1;31merror[AX3004][0m[1m: type mismatch: expected function type, found _t4[0m
+[1;31merror[AX3004][0m[1m: type mismatch: expected function type, found _a[0m
   [1;34m--> [0m240-type-render.ax:17:6
 [1;34m   |[0m
 [1;34m17 |[0m     (q 2)
-[1;34m   |[0m      [1;31m^ this has type `_t4`, expected `function type`[0m
+[1;34m   |[0m      [1;31m^ this has type `_a`, expected `function type`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 

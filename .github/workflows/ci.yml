@@ -840,10 +840,15 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # The Chocolatey `llvm` package is the official Windows release,
+      # which ships clang and lld but NOT `llc` - measured 2026-08-29 on
+      # this leg's first run: LLVM 20.1.8 "already installed", then
+      # `llc: command not found`. MSYS2's mingw-w64 LLVM ships every tool
+      # under one bin/, and the runner image carries MSYS2 at C:\msys64.
       - name: Install LLVM (llc, lld-link, llvm-dlltool, llvm-readobj)
         run: |
-          choco install llvm --no-progress -y
-          echo "C:\\Program Files\\LLVM\\bin" >> "$GITHUB_PATH"
+          C:/msys64/usr/bin/pacman.exe -S --noconfirm --needed mingw-w64-x86_64-llvm mingw-w64-x86_64-lld
+          echo "C:\\msys64\\mingw64\\bin" >> "$GITHUB_PATH"
       - name: The toolchain that ran
         run: llc --version && lld-link --version && command -v llvm-dlltool llvm-readobj
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0

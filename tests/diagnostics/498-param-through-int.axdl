@@ -1,1 +1,1 @@
-E AX3004 498-param-through-int.ax:37:15-17 type-mismatch "type mismatch: expected Int, found Result Int _t255" #"this has type `Result Int _t255`, expected `Int`"
+E AX3004 498-param-through-int.ax:37:15-17 type-mismatch "type mismatch: expected Int, found Result Int _a" #"this has type `Result Int _a`, expected `Int`"

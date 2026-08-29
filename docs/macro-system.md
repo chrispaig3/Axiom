@@ -1509,7 +1509,7 @@ The v1 surface, all of it measured
   type application needs an uppercase head, so `(syntax/join nm
   Handle)` fell into the tuple branch, and a generated signature took
   a three-tuple where its alias belonged. The failure surfaced at the
-  CALL SITE as `expected Int, found (_t321, {unknown}, {unknown})`,
+  CALL SITE as `expected Int, found (_a, {unknown}, {unknown})`,
   which is the shape of every defect this document keeps a list of:
   well-typed nonsense reported far from its cause. A constructor's
   name is a name position like any other, so `(syntax/join Off N)`

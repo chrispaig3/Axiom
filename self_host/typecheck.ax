@@ -94,28 +94,123 @@
 ;   [Int]                            list
 ;   *Any / *mut Any                  pointer
 ; ------------------------------------------------------------------
+; A type variable is born `_t<N>` from ONE counter that runs across the
+; whole program, standard library first, so the name a diagnostic showed
+; moved every time the library grew - fixture 498 read `_t255` until
+; `Html.ax` landed and `_t265` after, with nothing about the fixture
+; changed. Rendering names variables by order of first appearance
+; instead: `_a`, `_b`, ... `_z`, `_a1`, ... The table is built per
+; RENDER, and `emitMismatchTy` builds one table for both of a
+; mismatch's types, so the same variable on both sides is the same
+; letter and two different ones are not. Only the checker's own `_t<N>`
+; variables are renamed: a variable the program spelled (`a` in
+; `(-> a (Option a))`) keeps its spelling, in hover text and here. The
+; `_t<N>` name stays the variable's identity inside the checker.
 (pub :: tyRender (-> Int String))
 
 (pub fn (tyRender t)
+  (let ((names vecNew))
+    {
+      (tyVarsInto t names)
+      (tyRenderIn t names)
+    }
+  )
+)
+
+(pub :: tyVarIndex (-> Int String Int Int))
+
+(pub fn (tyVarIndex names name i)
+  (if (>= i (vecLen names))
+    (- 0 1)
+    (if (strEq (vecGetStr names i) name)
+      i
+      (tyVarIndex names name (+ i 1))
+    )
+  )
+)
+
+(pub :: tyVarLabel (-> Int String))
+
+(pub fn (tyVarLabel i)
+  (let ((letter (strFromByte (+ 97 (% i 26)))))
+    (if (< i 26)
+      (strConcat "_" letter)
+      (strConcat (strConcat "_" letter) (decStr (/ i 26)))
+    )
+  )
+)
+
+(pub :: tyVarsInto (-> Int Int Int))
+
+(pub fn (tyVarsInto t names)
+  (if (== t 0)
+    0
+    (let ((tag (nodeTag t)))
+      (if (== tag TAG_T_VAR)
+        (if (&& (strStartsWith (nodeAName t) "_t") (< (tyVarIndex names (nodeAName t) 0) 0))
+          (vecPush names (nodeAName t))
+          0
+        )
+        (if (== tag TAG_T_CON)
+          (tyVarsIntoAll (nodeB t) 0 names)
+          (if (== tag TAG_T_ARR)
+            {
+              (tyVarsInto (nodeA t) names)
+              (tyVarsInto (nodeB t) names)
+            }
+            (if (== tag TAG_T_TUP)
+              (tyVarsIntoAll (nodeA t) 0 names)
+              (if (|| (== tag TAG_T_LIST) (== tag TAG_T_PTR))
+                (tyVarsInto (nodeA t) names)
+                0
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tyVarsIntoAll (-> Int Int Int Int))
+
+(pub fn (tyVarsIntoAll xs i names)
+  (if (>= i (vecLen xs))
+    0
+    {
+      (tyVarsInto (vecGet xs i) names)
+      (tyVarsIntoAll xs (+ i 1) names)
+    }
+  )
+)
+
+(pub :: tyRenderIn (-> Int Int String))
+
+(pub fn (tyRenderIn t names)
   (if (== t 0)
     "{unknown}"
     (let ((tag (nodeTag t)))
       (if (== tag TAG_T_VAR)
-        (nodeAName t)
+        (let ((i (tyVarIndex names (nodeAName t) 0)))
+          (if (< i 0)
+            (nodeAName t)
+            (tyVarLabel i)
+          )
+        )
         (if (== tag TAG_T_CON)
-          (tyRenderApp (nodeAName t) (nodeB t) 0)
+          (tyRenderApp (nodeAName t) (nodeB t) 0 names)
           (if (== tag TAG_T_ARR)
-            (strConcat (strConcat (strConcat (strConcat "(" (tyRender (nodeA t))) " -> ") (tyRender (nodeB t))) ")")
+            (strConcat (strConcat (strConcat (strConcat "(" (tyRenderIn (nodeA t) names)) " -> ") (tyRenderIn (nodeB t) names)) ")")
             (if (== tag TAG_T_TUP)
-              (strConcat (strConcat "(" (tyRenderJoin (nodeA t) 0 "")) ")")
+              (strConcat (strConcat "(" (tyRenderJoin (nodeA t) 0 "" names)) ")")
               (if (== tag TAG_T_LIST)
-                (strConcat (strConcat "[" (tyRender (nodeA t))) "]")
+                (strConcat (strConcat "[" (tyRenderIn (nodeA t) names)) "]")
                 (if (== tag TAG_T_PTR)
                   (strConcat
                     (if (== (nodeB t) 1)
                       "*mut "
                       "*"
-                    )                    (tyRender (nodeA t))
+                    )                    (tyRenderIn (nodeA t) names)
                   )
                   "{unknown}"
                 )
@@ -128,25 +223,26 @@
   )
 )
 
-(pub :: tyRenderApp (-> String Int Int String))
+(pub :: tyRenderApp (-> String Int Int Int String))
 
-(pub fn (tyRenderApp acc args i)
+(pub fn (tyRenderApp acc args i names)
   (if (>= i (vecLen args))
     acc
-    (tyRenderApp (strConcat (strConcat acc " ") (tyRender (vecGet args i))) args (+ i 1))
+    (tyRenderApp (strConcat (strConcat acc " ") (tyRenderIn (vecGet args i) names)) args (+ i 1) names)
   )
 )
 
-(pub :: tyRenderJoin (-> Int Int String String))
+(pub :: tyRenderJoin (-> Int Int String Int String))
 
-(pub fn (tyRenderJoin xs i acc)
+(pub fn (tyRenderJoin xs i acc names)
   (if (>= i (vecLen xs))
     acc
     (tyRenderJoin
       xs      (+ i 1)      (if (== i 0)
-        (tyRender (vecGet xs 0))
-        (strConcat (strConcat acc ", ") (tyRender (vecGet xs i)))
+        (tyRenderIn (vecGet xs 0) names)
+        (strConcat (strConcat acc ", ") (tyRenderIn (vecGet xs i) names))
       )
+      names
     )
   )
 )
@@ -6358,6 +6454,19 @@
 ; zero span renders address zero, and a diagnostic stage1 cannot
 ; place is one it does not print.
 ; ------------------------------------------------------------------
+; Both types of one mismatch, named from one table - see `tyRender`.
+(pub :: emitMismatchTy (-> Int Int Int Int Int))
+
+(pub fn (emitMismatchTy tc want got span)
+  (let ((names vecNew))
+    {
+      (tyVarsInto want names)
+      (tyVarsInto got names)
+      (emitMismatch tc (tyRenderIn want names) (tyRenderIn got names) span)
+    }
+  )
+)
+
 (pub :: emitMismatch (-> Int String String Int Int))
 
 (pub fn (emitMismatch tc expected found span)
@@ -6945,7 +7054,7 @@
       (let ((elseTy (checkExprH tc (nodeC e) 0)))
         {
           (if (&& (== (tyIsErr thenTy) 0) (&& (== (tyIsErr elseTy) 0) (== (tyCompat thenTy elseTy) 0)))
-            (emitMismatch tc (tyRender thenTy) (tyRender elseTy) (spanOf (nodeC e)))
+            (emitMismatchTy tc thenTy elseTy (spanOf (nodeC e)))
             0
           )
           (if (== (tyIsErr thenTy) 1)
@@ -6971,7 +7080,7 @@
       (let ((elseTy (checkExprH tc (nodeB e) 0)))
         {
           (if (&& (== (tyIsErr resTy) 0) (&& (== (tyIsErr elseTy) 0) (== (tyCompat resTy elseTy) 0)))
-            (emitMismatch tc (tyRender resTy) (tyRender elseTy) (spanOf (nodeB e)))
+            (emitMismatchTy tc resTy elseTy (spanOf (nodeB e)))
             0
           )
           resTy
@@ -7774,7 +7883,7 @@
                           (if (== (nodeTag funcTy) TAG_T_ARR)
                             {
                               (if (== (tyCompat argTy (nodeA funcTy)) 0)
-                                (emitMismatch tc (tyRender (nodeA funcTy)) (tyRender argTy) (spanOf (nodeB e)))
+                                (emitMismatchTy tc (nodeA funcTy) argTy (spanOf (nodeB e)))
                                 0
                               )
                               ; The rest of the arrow, with this parameter's
@@ -10430,7 +10539,7 @@
       ))
         {
           (if (== (tyCompat aty fty) 0)
-            (emitMismatch tc (tyRender fty) (tyRender aty) (spanOf (vecGet args i)))
+            (emitMismatchTy tc fty aty (spanOf (vecGet args i)))
             0
           )
           (checkStructFields tc args fields (+ i 1))
@@ -10724,7 +10833,7 @@
                 {
                   (stampFieldStruct e ent)
                   (if (== (tyCompat vty fty) 0)
-                    (emitMismatch tc (tyRender fty) (tyRender vty) (spanOf (nodeC e)))
+                    (emitMismatchTy tc fty vty (spanOf (nodeC e)))
                     0
                   )
                 }
@@ -10801,7 +10910,7 @@
             ))
               {
                 (if (&& (== suppressed 0) (&& (== (tyIsErr valTy) 0) (&& (== (tyIsErr (sEntTy ent)) 0) (== (tyCompat valTy (sEntTy ent)) 0))))
-                  (emitMismatch tc (tyRender (sEntTy ent)) (tyRender valTy) (spanOf (nodeB e)))
+                  (emitMismatchTy tc (sEntTy ent) valTy (spanOf (nodeB e)))
                   0
                 )
                 (sEntTy ent)
@@ -12448,7 +12557,7 @@
     (if (== (tyCompat litTy scrutTy) 1)
       0
       {
-        (emitMismatch tc (tyRender litTy) (tyRender scrutTy) span)
+        (emitMismatchTy tc litTy scrutTy span)
         0
       }
     )
@@ -12571,7 +12680,7 @@
       )))
         {
           (if (&& (!= span 0) (== (ctorPatFits tc (memGetWord ctor 2) scrutTy) 0))
-            (emitMismatch tc (tyRender (memGetWord ctor 2)) (tyRender scrutTy) span)
+            (emitMismatchTy tc (memGetWord ctor 2) scrutTy span)
             0
           )
           (if (!= (vecLen args) (vecLen fieldTys))
@@ -14170,23 +14279,23 @@
               (if (== (tyIsSrcVar got) 1)
                 (if (strEq (nodeAName want) (nodeAName got))
                   0
-                  (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
+                  (emitMismatchTy tc want got (spanOf (nodeC d)))
                 )
                 0
               )
-              (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
+              (emitMismatchTy tc want got (spanOf (nodeC d)))
             )
             (if (== (nodeTag got) TAG_T_VAR)
               0
               (if (== (nodeTag want) TAG_T_ARR)
                 (if (== (nodeTag got) TAG_T_ARR)
                   0
-                  (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
+                  (emitMismatchTy tc want got (spanOf (nodeC d)))
                 )
                 (if (== (tyReprClash want got) 1)
-                  (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
+                  (emitMismatchTy tc want got (spanOf (nodeC d)))
                   (if (tyParamThroughInt want got)
-                    (emitMismatch tc (tyRender want) (tyRender got) (spanOf (nodeC d)))
+                    (emitMismatchTy tc want got (spanOf (nodeC d)))
                     0
                   )
                 )
