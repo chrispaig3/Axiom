@@ -1162,8 +1162,9 @@ panic handler (message to fd 2, exit 73), `rust_eh_personality` and
 even under `panic = "abort"` — the profile governs your crates, not the
 sysroot's), the six memory intrinsics (`memcpy`, `memmove`, `memset`,
 `memcmp`, `bzero`, `strlen`) LLVM assumes exist, and raw `write`/`exit`
-syscalls for the four targets Axiom emits for, numbered as
-`codegen.ax`'s own trap tables number them. Combining the feature with
+syscalls for the four POSIX targets Axiom emits for, numbered as
+`codegen.ax`'s own trap tables number them (windows-x86_64 has no
+syscall to number: its runtime calls kernel32). Combining the feature with
 `std` is a `compile_error!`.
 
 Rust's allocations then land **inside Axiom's arena**, counted by the

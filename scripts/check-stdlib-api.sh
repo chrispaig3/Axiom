@@ -31,9 +31,11 @@
 #      checked against a list `grep` derives from the sources, which is
 #      a second source. A generator that dropped a module would pass 1
 #      by being re-blessed and fails here.
-#   3. The three `Sys/Platform.*.ax` files declare the same public
+#   3. The four `Sys/Platform.*.ax` files declare the same public
 #      names. The document carries one of them, so this is what makes
-#      that safe rather than darwin-flavoured.
+#      that safe rather than darwin-flavoured - and it is what holds
+#      the Windows module, which is functions over kernel32 rather
+#      than a table of numbers, to the same public surface.
 #   4. A documentation-coverage floor, so a new public name with no
 #      comment above it is visible rather than a blank cell nobody
 #      counts.
@@ -54,10 +56,9 @@ ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 # The modules the reference covers, in the order it prints them. Named
-# rather than globbed: `Sys/Platform` has one file per platform table
-# declaring the same names, so a glob would print it four times, and
-# the choice of which one to carry is a decision this list makes
-# visible.
+# rather than globbed: `Sys/Platform` has one file per target declaring
+# the same names, so a glob would print it several times, and the choice
+# of which one to carry is a decision this list makes visible.
 modules="
 stdlib/Agent/Tags.ax
 stdlib/Err.ax
@@ -95,7 +96,7 @@ done <<< "$mod_list"
 tree_unlisted=""
 while IFS= read -r m; do
   case "$m" in
-    stdlib/Sys/Platform.linux-*|stdlib/Sys/Platform.freebsd.ax) continue ;;
+      stdlib/Sys/Platform.linux-*|stdlib/Sys/Platform.freebsd.ax|stdlib/Sys/Platform.windows.ax) continue ;;
   esac
   printf '%s\n' "$mod_list" | grep -qx "$m" || tree_unlisted="$tree_unlisted $m"
 done < <(cd "$repo_root" && find stdlib -name '*.ax' -type f | LC_ALL=C sort)
@@ -207,11 +208,14 @@ echo
 echo "== the four Sys/Platform files declare the same names =="
 # --------------------------------------------------------------------
 # The reference carries the darwin one. That is only safe while the
-# four agree, and nothing else in the tree checks that they do.
+# the platform files agree, and nothing else in the tree checks that they do. The
+# Windows one binds kernel32 in a NON-pub `extern` block and exports
+# the same names as the others; a `pub` on that block would widen its
+# surface and fail here, which is the point.
 plat_names() { sed -nE 's/^\(pub (:: |macro |data |struct |trait |type )\(?([A-Za-z0-9_!?*+/<>=-]+).*/\2/p' "$1" | LC_ALL=C sort; }
 plat_ok=1
 plat_names "$repo_root/stdlib/Sys/Platform.darwin.ax" > "$work/plat.darwin"
-for other in linux-aarch64 linux-x86_64 freebsd; do
+  for other in linux-aarch64 linux-x86_64 freebsd windows; do
   plat_names "$repo_root/stdlib/Sys/Platform.$other.ax" > "$work/plat.$other"
   if ! diff -q "$work/plat.darwin" "$work/plat.$other" >/dev/null; then
     bad "Sys/Platform.darwin.ax and Sys/Platform.$other.ax declare different names"

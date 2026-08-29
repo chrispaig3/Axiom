@@ -543,3 +543,35 @@
 (pub :: acceptNonblockFlag Int)
 
 (pub fn (acceptNonblockFlag) 2048)
+
+; ------------------------------------------------------------------
+; Which KIND of platform module this is.
+;
+; 1: a table of numbers, and `Sys.ax` makes every kernel call itself
+; through `__syscallN`. The three `platform*` functions below are then
+; never reached - `Sys.ax` tests this capability first - and answer
+; -ENOSYS (38 here), so a caller that reached one anyway would see
+; a failure and not a count. `Sys/Platform.windows.ax` is the other
+; kind: it answers 0 and does the work itself over `extern "kernel32"`
+; bindings, because Windows has no syscall ABI to put in a table. The
+; names are declared in every module so that the four declare one
+; public surface (`check-stdlib-api.sh`, `check-compat.sh`).
+; ------------------------------------------------------------------
+(pub :: usesSyscallAbi Int)
+
+(pub fn (usesSyscallAbi) 1)
+
+(pub :: platformWriteFd (-> Int Int Int Int))
+
+;@axiom:pure
+(pub fn (platformWriteFd fd buf count) (- 0 38))
+
+(pub :: platformReadFd (-> Int Int Int Int))
+
+;@axiom:pure
+(pub fn (platformReadFd fd buf count) (- 0 38))
+
+(pub :: platformExitWith (-> Int Int))
+
+;@axiom:pure
+(pub fn (platformExitWith code) (- 0 38))

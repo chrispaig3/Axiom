@@ -5515,13 +5515,24 @@
 ; the 0x2000000 Unix class bit), the MAP_PRIVATE|MAP_ANON flag value,
 ; and the platform module suffixes. Codes: 0 darwin-aarch64,
 ; 1 darwin-x86_64, 2 linux-aarch64, 3 linux-x86_64, 4 freebsd-x86_64,
-; 5 freebsd-aarch64; -1 is "unknown", refused loudly.
+; 5 freebsd-aarch64, 6 windows-x86_64; -1 is "unknown", refused
+; loudly. A code is an index into nothing, only a name for these
+; chains of `if`; 4-6 were assigned across two concurrent branches so
+; that both landed without renumbering the other.
 ;
 ; The two FreeBSD codes were added 2026-08-29 from a macOS host with
 ; no FreeBSD to run on. Every FreeBSD number below was read from
 ; stable/14's `sys/kern/syscalls.master` and headers rather than
 ; measured, and `stdlib/Sys/Platform.freebsd.ax` says the same of its
 ; own; the CI leg that executes them is what turns either into a fact.
+;
+; windows-x86_64 is the one target in this block that is not "the same
+; runtime with different numbers". There is no syscall ABI on Windows
+; to put numbers in a table for, so where the others carry a syscall
+; template and three syscall numbers it carries `targetUsesSyscallAsm`
+; = 0, and the emitted runtime reaches the kernel through kernel32.dll
+; instead - see `emitRuntimeMap`, `emitRuntimeWrite`, `emitRuntimeExit`
+; and `emitWinEntry` below, which are the whole of that difference.
 ; ------------------------------------------------------------------
 (pub :: targetCode (-> String Int))
 
@@ -5538,7 +5549,10 @@
             4
             (if (strEq name "freebsd-aarch64")
               5
-              (- 0 1)
+              (if (strEq name "windows-x86_64")
+                6
+                (- 0 1)
+              )
             )
           )
         )
@@ -5550,8 +5564,18 @@
 (pub :: targetTriple (-> Int String))
 
 (pub fn (targetTriple t)
-  (if (== t 0)
-    "arm64-apple-macosx14.0.0"
+  ; The MSVC triple, not `-gnu`: under `x86_64-pc-windows-gnu` LLVM
+  ; emits references to `__main` and `___chkstk_ms`, both libgcc, which
+  ; is a SECOND C runtime the freestanding gate would have to permit.
+  ; Under MSVC the only compiler-runtime symbol that can appear is
+  ; `__chkstk`, for a frame past 4 KiB, and the linker is `lld-link`,
+  ; which ships beside the `llc` the driver already shells out to. No
+  ; `target datalayout` line is emitted for it, as none is for the
+  ; others: llc derives the layout from the triple.
+  (if (== t 6)
+    "x86_64-pc-windows-msvc"
+    (if (== t 0)
+      "arm64-apple-macosx14.0.0"
     (if (== t 1)
       "x86_64-apple-macosx14.0.0"
       (if (== t 2)
@@ -5572,6 +5596,47 @@
         )
       )
     )
+  )
+  )
+)
+
+; Does this target reach the kernel through an inline-asm syscall
+; template? Every POSIX target does, and `targetSyscallAsm`,
+; `targetMmapNum`, `targetExitNum`, `targetWriteNum` and
+; `targetMapFlags` are consulted only where this answers 1. Windows has
+; no syscall ABI a program may use - the numbers move between builds
+; of one release and Microsoft documents none of them - so the emitted
+; runtime goes through kernel32.dll instead: `VirtualAlloc` where the
+; others `mmap`, `GetStdHandle`+`WriteFile` where they `write(2, ...)`,
+; `ExitProcess` where they `exit_group`.
+;
+; A capability rather than an OS test, in the spirit of
+; `Sys.Platform.openNeedsDirFd`; its standard-library twin is
+; `Sys.Platform.usesSyscallAbi`, and `check-platform-constants.sh`
+; holds the two answers to each other for every target.
+(pub :: targetUsesSyscallAsm (-> Int Int))
+
+(pub fn (targetUsesSyscallAsm t)
+  (if (== t 6)
+    0
+    1
+  )
+)
+
+; The symbol the linker starts the program at. `main` wherever a C
+; runtime calls it with argc and argv; `mainCRTStartup` on Windows,
+; where the program is linked with no C runtime at all
+; (`/entry:mainCRTStartup` - the name the MSVC CRT gives its own
+; console startup, kept so a Windows reader recognises it) and the
+; emitted entry shim reads the command line and the environment
+; itself. The backtracer stops its walk at this name, so it is asked
+; here rather than spelled in two places.
+(pub :: targetEntryName (-> Int String))
+
+(pub fn (targetEntryName t)
+  (if (== t 6)
+    "mainCRTStartup"
+    "main"
   )
 )
 
@@ -5602,6 +5667,13 @@
   ; matching stage0's STRING (stage0's comment claimed the narrow
   ; list while its string had been widened; the two compilers must
   ; match the string, because the string is what compiles).
+  ;
+  ; NO TEMPLATE on a target with no syscall ABI. Every emitter that
+  ; writes one asks `targetUsesSyscallAsm` first and takes the kernel32
+  ; door instead; an empty template reaching llc is a parse error,
+  ; which is the loud failure wanted from a caller that forgot to ask.
+  (if (== t 6)
+    ""
   (if (== t 0)
     "\"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x16},~{cc},~{memory}\""
     ; Darwin/x86-64 declares its argument registers clobbered, as
@@ -5644,6 +5716,7 @@
       )
     )
   )
+  )
 )
 
 ; Whether a target code is an AArch64 one. The frame read, the
@@ -5658,9 +5731,10 @@
 )
 
 ; Read the frame pointer. One instruction, and only two distinct
-; strings for six targets, because this is an architecture question
+; strings for seven targets, because this is an architecture question
 ; rather than an OS one: AArch64 keeps it in x29 and x86-64 in %rbp on
-; Darwin, Linux and FreeBSD alike.
+; Darwin, Linux, FreeBSD and Windows alike - Win64 establishes rbp the
+; same way when `"frame-pointer"="all"` forces one.
 ;
 ; `sideeffect` so the read is neither duplicated nor hoisted. It has no
 ; clobbers to declare - unlike `targetSyscallAsm` above, whose comment
@@ -5799,6 +5873,22 @@
   )
 )
 
+; ONE x86-64 ARM SERVES THREE TARGETS, Windows included, and the
+; argument is the same accounting as above. Win64's callee-saved set is
+; rbx, rbp, rdi, rsi, r12-r15 and xmm6-xmm15 - a SUPERSET of SysV's
+; rbx, rbp, r12-r15. Every register Win64 adds to it (rdi, rsi,
+; xmm6-15) is already in the CLOBBER half here, and declaring a
+; callee-saved register clobbered is always sound: LLVM answers by
+; spilling it in the enclosing function's own prologue, which is
+; strictly more conservative than the block preserving it. The register
+; file is the same sixteen-and-sixteen, so every register is still in
+; exactly one of the three sets. What is NOT the same on Windows is the
+; stack: it is committed lazily behind a guard page, and restoring rsp
+; to a SHALLOWER address - which is all `targetRecoverJumpAsm` ever does
+; - is safe; the hazard would be the reverse, and the mechanism never
+; goes deeper. Stated here so the day someone adds a deeper restore they
+; find the sentence.
+;
 ; The longjmp half. `$0` is the record (landing in the scratch register
 ; the block above reads its restores through), `$1` the saved stack
 ; pointer, `$2` the saved frame pointer, `$3` the address to branch to.
@@ -5814,6 +5904,9 @@
   )
 )
 
+; The three syscall numbers below and `targetMapFlags` are read only
+; where `targetUsesSyscallAsm` answers 1; windows-x86_64 (6) falls
+; through their chains to the linux-x86_64 answer and never spends it.
 (pub :: targetMmapNum (-> Int Int))
 
 (pub fn (targetMmapNum t)
@@ -5912,6 +6005,8 @@
 (pub :: targetOsArchSuffix (-> Int String))
 
 (pub fn (targetOsArchSuffix t)
+  (if (== t 6)
+    ".windows-x86_64.ax"
   (if (== t 0)
     ".darwin-aarch64.ax"
     (if (== t 1)
@@ -5932,11 +6027,19 @@
       )
     )
   )
+  )
 )
 
+; `.windows.ax` and not `.windows-x86_64.ax` for the platform module,
+; for the reason `Platform.darwin.ax` serves both Darwin targets: the
+; module is a set of kernel32 bindings and those are the same on
+; windows-aarch64, so a second Windows architecture would be a triple
+; and a recover-block clobber list, not a second platform module.
 (pub :: targetOsSuffix (-> Int String))
 
 (pub fn (targetOsSuffix t)
+  (if (== t 6)
+    ".windows.ax"
   (if (|| (== t 0) (== t 1))
     ".darwin.ax"
     (if (|| (== t 4) (== t 5))
@@ -5944,6 +6047,756 @@
       ".linux.ax"
     )
   )
+  )
+)
+
+; ------------------------------------------------------------------
+; The three things the emitted runtime asks the kernel for - a mapping,
+; a write to fd 2, an exit - behind one door each, so that the ten
+; sites which used to spell a syscall template by hand call a function
+; instead, and the one target whose kernel has no syscall ABI lives in
+; exactly three places.
+;
+; ON A SYSCALL TARGET EACH DOOR EMITS THE BYTES ITS SITE ALWAYS DID.
+; That is a hard constraint, not tidiness: `check-seed-provenance.sh`
+; regenerates the four POSIX seeds from source and byte-compares them,
+; and `bootstrap-from-seed.sh`'s ladder compares stage2 against stage3
+; the same way. Nothing on the POSIX path may move a byte, so the
+; strings below are the old sites' strings reassembled, and the
+; measurement that they are is a byte-compare of a stdlib case emitted
+; before and after (recorded in the commit that introduced them).
+;
+; ON WINDOWS each is a kernel32 call. `VirtualAlloc(NULL, size,
+; MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE)` answers NULL on failure,
+; which `emitAllocator`'s existing `%failed_low = icmp ult %addr, 4096`
+; already catches, so the control flow under `map:` is untouched; the
+; pages arrive zeroed, which the `%virgin_high` path assumes of `mmap`.
+; The write is `WriteFile(GetStdHandle(STD_ERROR_HANDLE), ptr, len,
+; &written, NULL)`: `lpNumberOfBytesWritten` may be NULL only when
+; `lpOverlapped` is NOT NULL (the design note had that backwards), so a
+; real DWORD cell, `@__axiom_win_written`, is passed on every call. The
+; exit is `ExitProcess`, which ends every thread - the analogue of
+; `exit_group`, and the distinction `targetExitNum`'s comment records
+; getting wrong once on Linux.
+;
+; Every kernel32 declare is `dllimport`, so the call goes through the
+; import address table directly and the name is visible in the IR text
+; - which is what lets `check-freestanding.sh` read the import surface
+; before anything links. Every one carries `#0`, for the reason
+; `emitExternDeclares` gives: without it `opt` may reason about a
+; declared name as a libc function it knows.
+; ------------------------------------------------------------------
+(pub :: emitRuntimeMap (-> Int String Int))
+
+(pub fn (emitRuntimeMap cg sizeExpr)
+  (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
+    (emitLine cg (strConcat (cat4 "  %addr = call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetMmapNum (memGetWord cg 26)))) (cat4 (cat3 ", i64 0, i64 " sizeExpr ", i64 3, i64 ") (fmtInt (targetMapFlags (memGetWord cg 26))) ", i64 -1, i64 0)" "")))
+    ; MEM_COMMIT|MEM_RESERVE = 0x3000 = 12288, PAGE_READWRITE = 4.
+    (emitLine cg (cat3 "  %addr = call i64 @VirtualAlloc(i64 0, i64 " sizeExpr ", i64 12288, i64 4)"))
+  )
+)
+
+; `ptrExpr` is a `%name` register; on Windows its name (less the `%`)
+; tags the two registers the call needs, so six writes in one function
+; stay distinct. `lenExpr` is a literal or a register.
+(pub :: emitRuntimeWrite (-> Int String String Int))
+
+(pub fn (emitRuntimeWrite cg ptrExpr lenExpr)
+  (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
+    (emitLine cg (cat4 (cat3 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 ") (fmtInt (targetWriteNum (memGetWord cg 26))) ", i64 2, i64 " (cat4 ptrExpr ", i64 " lenExpr ", i64 0, i64 0, i64 0)")))
+    (let ((tag (strSlice ptrExpr 1 (- (strLen ptrExpr) 1))))
+      {
+        ; STD_ERROR_HANDLE is -12.
+        (emitLine cg (cat3 "  %" tag "_h = call i64 @GetStdHandle(i64 -12)"))
+        (emitLine cg (cat4 (cat3 "  call i64 @WriteFile(i64 %" tag "_h, i64 ") ptrExpr (cat3 ", i64 " lenExpr ", i64 ptrtoint (ptr @__axiom_win_written to i64), i64 0)") ""))
+      }
+    )
+  )
+)
+
+(pub :: emitRuntimeExit (-> Int String Int))
+
+(pub fn (emitRuntimeExit cg status)
+  (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
+    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) (cat3 ", i64 " status ", i64 0, i64 0, i64 0, i64 0, i64 0)")))
+    (emitLine cg (cat3 "  call i64 @ExitProcess(i64 " status ")"))
+  )
+)
+
+; The symbols the runtime itself declares on a target, so that
+; `emitExternDeclares` does not declare one of them a second time when
+; a platform module's `extern "kernel32"` block binds it too. Empty on
+; a syscall target, whose runtime declares nothing. `GetCommandLineW`
+; and `GetEnvironmentStringsW` belong to the entry shim, which an
+; archive (`--emit-staticlib`) does not carry - so the list must say
+; exactly what was written, or a program's own binding of one of them
+; would be skipped and go undefined at the link.
+(pub :: runtimeDeclaredSyms (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (runtimeDeclaredSyms t)
+  (let ((v vecNew))
+    (if (== (targetUsesSyscallAsm t) 1)
+      v
+      {
+        (vecPush v "VirtualAlloc")
+        (vecPush v "GetStdHandle")
+        (vecPush v "WriteFile")
+        (vecPush v "ExitProcess")
+        (if cgStaticlib
+          0
+          {
+            (vecPush v "GetCommandLineW")
+            (vecPush v "GetEnvironmentStringsW")
+            0
+          }
+        )
+        v
+      }
+    )
+  )
+)
+
+; What a Windows module carries whether or not it has an entry: the
+; four kernel32 declares the allocator, the arena and the three traps
+; call, the DWORD cell `WriteFile` writes its count through, and the
+; trap `__syscallN` lowers to on a target that has no syscall ABI
+; (`emitPrimSyscall`). Status 74 is the fourth reserved status after
+; `MM-EXEC-16`'s 70, 71 and 72 - 73 is the FFI's - and its sentence is
+; 37 bytes, counted the way `emitUnhandledTrap` counts its own: llc
+; believes the array length.
+;
+; `; axiom-extern-lib kernel32` is the same line an `extern
+; "kernel32"` block writes, and it is what lets the driver link
+; `kernel32.lib` the way it links any other block's archive - the
+; runtime is, in effect, one more extern block.
+(pub :: emitWinRuntime (-> Int Int))
+
+(pub fn (emitWinRuntime cg)
+  {
+    (emitLine cg "; axiom-extern-lib kernel32")
+    (emitLine cg "declare dllimport i64 @VirtualAlloc(i64, i64, i64, i64) #0")
+    (emitLine cg "declare dllimport i64 @GetStdHandle(i64) #0")
+    (emitLine cg "declare dllimport i64 @WriteFile(i64, i64, i64, i64, i64) #0")
+    (emitLine cg "declare dllimport i64 @ExitProcess(i64) #0")
+    ; `_fltused` is the MSVC CRT's "this program uses floating point"
+    ; marker: LLVM references it from any COFF/MSVC object holding a
+    ; floating-point instruction, and the CRT would define it. There is
+    ; no CRT here, so the module defines it - a word of data, value
+    ; unread - and the link has one fewer unresolved name that is not
+    ; a real import. Measured 2026-08-29 on `010-hello`: `U _fltused`
+    ; in the object without this line, `D _fltused` with it.
+    (emitLine cg "@_fltused = global i32 1")
+    (emitLine cg "@__axiom_win_written = internal global i64 0")
+    (emitLine cg "@__axiom_nosys_msg = private unnamed_addr constant [37 x i8] c\"axiom: no syscall ABI on this target\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_no_syscall() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 74)")
+    (emitLine cg "  %nsp = ptrtoint ptr @__axiom_nosys_msg to i64")
+    (emitRuntimeWrite cg "%nsp" "37")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "74")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
+    cg
+  }
+)
+
+; ------------------------------------------------------------------
+; The Windows entry: `mainCRTStartup`, linked with no C runtime.
+;
+; WHAT IT HAS TO PRODUCE. `Sys.ax` reads the command line through
+; `__argc`/`__argv` and the environment as `argv[argc+1+i]` - the
+; POSIX process-stack layout,
+;
+;   argv[0..argc-1], NULL, envp[0..m-1], NULL
+;
+; contiguous, which every Linux and Darwin kernel lays out and which
+; nothing on Windows does. The design note proposed a new global and a
+; new `__envp` primitive for Windows; that is not available to this
+; tree, because the standard library is compiled by the COMMITTED SEED
+; and a primitive the seed does not know cannot appear in `Sys.ax`
+; until the seed moves. So the shim builds that exact vector instead,
+; and `Sys.ax` needs no change and no Windows arm: every existing
+; argv/env test proves the reader, and this is the only writer.
+;
+; UTF-16 IN, UTF-8 OUT, ONCE. `GetCommandLineW` and
+; `GetEnvironmentStringsW` answer UTF-16; everything above `sysArg`
+; reads bytes. Converting here, once, is what keeps `Str`, `Path`, `IO`
+; and `Sys` byte-oriented and untouched. A lone surrogate becomes
+; U+FFFD, the convention `Utf8.utf8Replacement` already sets.
+;
+; THE SPLIT IS HAND-ROLLED, AND kernel32 IS THE ONLY DLL. The
+; alternative was shell32's `CommandLineToArgvW`: one more DLL for
+; every Axiom binary to load, one more name on the import allowlist,
+; for forty lines of parsing. The rules implemented are the ones that
+; function documents, post-2008 msvcrt included: whitespace outside
+; quotes delimits; `"` toggles quoting; `2n` backslashes before a `"`
+; are `n` backslashes and the quote is a delimiter; `2n+1` are `n` and
+; a literal quote; backslashes not before a quote are literal; and a
+; `""` inside quotes is one literal quote, still inside. The program
+; name is special, as it is there: quotes delimit it and backslashes
+; never escape. Phase 4's `CreateProcessW` join must invert exactly
+; these rules, and the round-trip fixture that catches a drift is
+; named in the design note beside it.
+;
+; MEMORY comes from `axiom_alloc`, which is emitted in this same
+; module and initialises itself on first use through `VirtualAlloc` -
+; zeroed, so the two NULL terminators are written explicitly only for
+; a reader's sake. The environment block from
+; `GetEnvironmentStringsW` is never freed; it lives as long as the
+; process, which is exactly as long as `sysEnv` needs it.
+;
+; `ExitProcess(r)` at the end, because with `/entry:mainCRTStartup`
+; there is nothing above this function to return to.
+;
+; The parsers keep their state in `alloca` cells rather than `phi`
+; webs: at `--opt 0` that is a few stack words, at `--opt 1` and above
+; mem2reg makes them registers, and a state machine written as loads
+; and stores can be read against the rules above line by line.
+; ------------------------------------------------------------------
+(pub :: emitWinPeek (-> Int String Int))
+
+(pub fn (emitWinPeek cg tag)
+  {
+    (emitLine cg (cat3 "  %" tag "_i = load i64, ptr %ii"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_o = shl i64 %" tag "_i, 1"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_a = add i64 %cmd, %" tag "_o"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_p = inttoptr i64 %" tag "_a to ptr"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_w = load i16, ptr %" tag "_p"))
+    (emitLine cg (cat4 (cat2 "  %" tag) " = zext i16 %" tag "_w to i64"))
+    cg
+  }
+)
+
+(pub :: emitWinAdvance (-> Int String String Int))
+
+(pub fn (emitWinAdvance cg tag n)
+  {
+    (emitLine cg (cat3 "  %" tag "_ai = load i64, ptr %ii"))
+    (emitLine cg (cat4 (cat4 "  %" tag "_an = add i64 %" tag) "_ai, " n ""))
+    (emitLine cg (cat3 "  store i64 %" tag "_an, ptr %ii"))
+    cg
+  }
+)
+
+(pub :: emitWinPush (-> Int String String Int))
+
+(pub fn (emitWinPush cg tag unitExpr)
+  {
+    (emitLine cg (cat3 "  %" tag "_k = load i64, ptr %kk"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_ko = shl i64 %" tag "_k, 1"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_ka = add i64 %scratch, %" tag "_ko"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_kp = inttoptr i64 %" tag "_ka to ptr"))
+    (emitLine cg (cat4 (cat3 "  %" tag "_kt = trunc i64 ") unitExpr " to i16" ""))
+    (emitLine cg (cat4 (cat2 "  store i16 %" tag) "_kt, ptr %" tag "_kp"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_k1 = add i64 %" tag "_k, 1"))
+    (emitLine cg (cat3 "  store i64 %" tag "_k1, ptr %kk"))
+    cg
+  }
+)
+
+; Close the argument in `scratch`: narrow it into `strs` and record it
+; in `vec` when filling, count it either way. Falls out at the bottom
+; in block `<tag>_count`, so the caller writes the branch that follows.
+(pub :: emitWinFinish (-> Int String Int))
+
+(pub fn (emitWinFinish cg tag)
+  {
+    (emitLine cg (cat3 "  %" tag "_n = load i64, ptr %nn"))
+    (emitLine cg (cat3 "  %" tag "_v0 = icmp eq i64 %vec, 0"))
+    (emitLine cg (cat4 (cat3 "  br i1 %" tag "_v0, label %") tag (cat3 "_count, label %" tag "_fill") ""))
+    (emitLine cg (cat3 "" tag "_fill:"))
+    (emitLine cg (cat3 "  %" tag "_k = load i64, ptr %kk"))
+    (emitLine cg (cat3 "  %" tag "_c = load i64, ptr %cc"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_d = add i64 %strs, %" tag "_c"))
+    (emitLine cg (cat4 (cat3 "  %" tag "_b = call i64 @__axiom_win_narrow(i64 %scratch, i64 %") tag (cat3 "_k, i64 %" tag "_d)") ""))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_vo = shl i64 %" tag "_n, 3"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_va = add i64 %vec, %" tag "_vo"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_vp = inttoptr i64 %" tag "_va to ptr"))
+    (emitLine cg (cat4 (cat2 "  store i64 %" tag) "_d, ptr %" tag "_vp"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_b1 = add i64 %" tag "_b, 1"))
+    (emitLine cg (cat4 (cat4 "  %" tag "_c1 = add i64 %" tag) "_c, %" tag "_b1"))
+    (emitLine cg (cat3 "  store i64 %" tag "_c1, ptr %cc"))
+    (emitLine cg (cat3 "  br label %" tag "_count"))
+    (emitLine cg (cat3 "" tag "_count:"))
+    (emitLine cg (cat4 (cat2 "  %" tag) "_n1 = add i64 %" tag "_n, 1"))
+    (emitLine cg (cat3 "  store i64 %" tag "_n1, ptr %nn"))
+    cg
+  }
+)
+
+(pub :: emitWinEntry (-> Int Int))
+
+(pub fn (emitWinEntry cg)
+  {
+    (emitLine cg "declare dllimport i64 @GetCommandLineW() #0")
+    (emitLine cg "declare dllimport i64 @GetEnvironmentStringsW() #0")
+    (emitLine cg "")
+    ; UTF-16 code units before the NUL.
+    (emitLine cg "define internal i64 @__axiom_win_wlen(i64 %p) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %ip = alloca i64")
+    (emitLine cg "  store i64 %p, ptr %ip")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %cur = load i64, ptr %ip")
+    (emitLine cg "  %cp = inttoptr i64 %cur to ptr")
+    (emitLine cg "  %u = load i16, ptr %cp")
+    (emitLine cg "  %z = icmp eq i16 %u, 0")
+    (emitLine cg "  br i1 %z, label %done, label %next")
+    (emitLine cg "next:")
+    (emitLine cg "  %n = add i64 %cur, 2")
+    (emitLine cg "  store i64 %n, ptr %ip")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "done:")
+    (emitLine cg "  %d = sub i64 %cur, %p")
+    (emitLine cg "  %len = lshr i64 %d, 1")
+    (emitLine cg "  ret i64 %len")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; One code point as UTF-8 at `dst + o`; answers the new offset.
+    (emitLine cg "define internal i64 @__axiom_win_put(i64 %cp, i64 %dst, i64 %o) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %a0 = add i64 %dst, %o")
+    (emitLine cg "  %p0 = inttoptr i64 %a0 to ptr")
+    (emitLine cg "  %a1 = add i64 %a0, 1")
+    (emitLine cg "  %p1 = inttoptr i64 %a1 to ptr")
+    (emitLine cg "  %a2 = add i64 %a0, 2")
+    (emitLine cg "  %p2 = inttoptr i64 %a2 to ptr")
+    (emitLine cg "  %a3 = add i64 %a0, 3")
+    (emitLine cg "  %p3 = inttoptr i64 %a3 to ptr")
+    (emitLine cg "  %one = icmp ult i64 %cp, 128")
+    (emitLine cg "  br i1 %one, label %b1, label %t2")
+    (emitLine cg "b1:")
+    (emitLine cg "  %c1 = trunc i64 %cp to i8")
+    (emitLine cg "  store i8 %c1, ptr %p0")
+    (emitLine cg "  %o1 = add i64 %o, 1")
+    (emitLine cg "  ret i64 %o1")
+    (emitLine cg "t2:")
+    (emitLine cg "  %two = icmp ult i64 %cp, 2048")
+    (emitLine cg "  br i1 %two, label %b2, label %t3")
+    (emitLine cg "b2:")
+    (emitLine cg "  %h2 = lshr i64 %cp, 6")
+    (emitLine cg "  %h2b = or i64 %h2, 192")
+    (emitLine cg "  %h2c = trunc i64 %h2b to i8")
+    (emitLine cg "  store i8 %h2c, ptr %p0")
+    (emitLine cg "  %l2 = and i64 %cp, 63")
+    (emitLine cg "  %l2b = or i64 %l2, 128")
+    (emitLine cg "  %l2c = trunc i64 %l2b to i8")
+    (emitLine cg "  store i8 %l2c, ptr %p1")
+    (emitLine cg "  %o2 = add i64 %o, 2")
+    (emitLine cg "  ret i64 %o2")
+    (emitLine cg "t3:")
+    (emitLine cg "  %three = icmp ult i64 %cp, 65536")
+    (emitLine cg "  br i1 %three, label %b3, label %b4")
+    (emitLine cg "b3:")
+    (emitLine cg "  %h3 = lshr i64 %cp, 12")
+    (emitLine cg "  %h3b = or i64 %h3, 224")
+    (emitLine cg "  %h3c = trunc i64 %h3b to i8")
+    (emitLine cg "  store i8 %h3c, ptr %p0")
+    (emitLine cg "  %m3 = lshr i64 %cp, 6")
+    (emitLine cg "  %m3a = and i64 %m3, 63")
+    (emitLine cg "  %m3b = or i64 %m3a, 128")
+    (emitLine cg "  %m3c = trunc i64 %m3b to i8")
+    (emitLine cg "  store i8 %m3c, ptr %p1")
+    (emitLine cg "  %l3 = and i64 %cp, 63")
+    (emitLine cg "  %l3b = or i64 %l3, 128")
+    (emitLine cg "  %l3c = trunc i64 %l3b to i8")
+    (emitLine cg "  store i8 %l3c, ptr %p2")
+    (emitLine cg "  %o3 = add i64 %o, 3")
+    (emitLine cg "  ret i64 %o3")
+    (emitLine cg "b4:")
+    (emitLine cg "  %h4 = lshr i64 %cp, 18")
+    (emitLine cg "  %h4b = or i64 %h4, 240")
+    (emitLine cg "  %h4c = trunc i64 %h4b to i8")
+    (emitLine cg "  store i8 %h4c, ptr %p0")
+    (emitLine cg "  %m4 = lshr i64 %cp, 12")
+    (emitLine cg "  %m4a = and i64 %m4, 63")
+    (emitLine cg "  %m4b = or i64 %m4a, 128")
+    (emitLine cg "  %m4c = trunc i64 %m4b to i8")
+    (emitLine cg "  store i8 %m4c, ptr %p1")
+    (emitLine cg "  %n4 = lshr i64 %cp, 6")
+    (emitLine cg "  %n4a = and i64 %n4, 63")
+    (emitLine cg "  %n4b = or i64 %n4a, 128")
+    (emitLine cg "  %n4c = trunc i64 %n4b to i8")
+    (emitLine cg "  store i8 %n4c, ptr %p2")
+    (emitLine cg "  %l4 = and i64 %cp, 63")
+    (emitLine cg "  %l4b = or i64 %l4, 128")
+    (emitLine cg "  %l4c = trunc i64 %l4b to i8")
+    (emitLine cg "  store i8 %l4c, ptr %p3")
+    (emitLine cg "  %o4 = add i64 %o, 4")
+    (emitLine cg "  ret i64 %o4")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; `n` UTF-16 units at `src` to NUL-terminated UTF-8 at `dst`;
+    ; answers the byte count, NUL excluded. 0xFC00 = 64512, 0xD800 =
+    ; 55296, 0xDC00 = 56320, U+FFFD = 65533.
+    (emitLine cg "define internal i64 @__axiom_win_narrow(i64 %src, i64 %n, i64 %dst) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %ii = alloca i64")
+    (emitLine cg "  %oo = alloca i64")
+    (emitLine cg "  store i64 0, ptr %ii")
+    (emitLine cg "  store i64 0, ptr %oo")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %i = load i64, ptr %ii")
+    (emitLine cg "  %more = icmp ult i64 %i, %n")
+    (emitLine cg "  br i1 %more, label %unit, label %done")
+    (emitLine cg "unit:")
+    (emitLine cg "  %off = shl i64 %i, 1")
+    (emitLine cg "  %ua = add i64 %src, %off")
+    (emitLine cg "  %up = inttoptr i64 %ua to ptr")
+    (emitLine cg "  %u16 = load i16, ptr %up")
+    (emitLine cg "  %c = zext i16 %u16 to i64")
+    (emitLine cg "  %i1 = add i64 %i, 1")
+    (emitLine cg "  %hi = and i64 %c, 64512")
+    (emitLine cg "  %ishigh = icmp eq i64 %hi, 55296")
+    (emitLine cg "  br i1 %ishigh, label %pair, label %single")
+    (emitLine cg "pair:")
+    (emitLine cg "  %have = icmp ult i64 %i1, %n")
+    (emitLine cg "  br i1 %have, label %pair2, label %lone")
+    (emitLine cg "pair2:")
+    (emitLine cg "  %off2 = shl i64 %i1, 1")
+    (emitLine cg "  %ua2 = add i64 %src, %off2")
+    (emitLine cg "  %up2 = inttoptr i64 %ua2 to ptr")
+    (emitLine cg "  %u2 = load i16, ptr %up2")
+    (emitLine cg "  %c2 = zext i16 %u2 to i64")
+    (emitLine cg "  %lo2 = and i64 %c2, 64512")
+    (emitLine cg "  %islow = icmp eq i64 %lo2, 56320")
+    (emitLine cg "  br i1 %islow, label %combine, label %lone")
+    (emitLine cg "combine:")
+    (emitLine cg "  %hpart = sub i64 %c, 55296")
+    (emitLine cg "  %hsh = shl i64 %hpart, 10")
+    (emitLine cg "  %lpart = sub i64 %c2, 56320")
+    (emitLine cg "  %sum = add i64 %hsh, %lpart")
+    (emitLine cg "  %cpp = add i64 %sum, 65536")
+    (emitLine cg "  %i2 = add i64 %i, 2")
+    (emitLine cg "  store i64 %i2, ptr %ii")
+    (emitLine cg "  br label %emit")
+    (emitLine cg "lone:")
+    (emitLine cg "  store i64 %i1, ptr %ii")
+    (emitLine cg "  br label %emit")
+    (emitLine cg "single:")
+    (emitLine cg "  %islone = icmp eq i64 %hi, 56320")
+    (emitLine cg "  br i1 %islone, label %lone, label %ok")
+    (emitLine cg "ok:")
+    (emitLine cg "  store i64 %i1, ptr %ii")
+    (emitLine cg "  br label %emit")
+    (emitLine cg "emit:")
+    (emitLine cg "  %cp = phi i64 [ %cpp, %combine ], [ 65533, %lone ], [ %c, %ok ]")
+    (emitLine cg "  %o = load i64, ptr %oo")
+    (emitLine cg "  %o2 = call i64 @__axiom_win_put(i64 %cp, i64 %dst, i64 %o)")
+    (emitLine cg "  store i64 %o2, ptr %oo")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "done:")
+    (emitLine cg "  %of = load i64, ptr %oo")
+    (emitLine cg "  %ea = add i64 %dst, %of")
+    (emitLine cg "  %ep = inttoptr i64 %ea to ptr")
+    (emitLine cg "  store i8 0, ptr %ep")
+    (emitLine cg "  ret i64 %of")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; The split. `vec` = 0 counts; otherwise each argument is narrowed
+    ; into `strs` and its address stored at `vec[i]`. `scratch` holds
+    ; the unescaped units of the argument being built, in both modes.
+    (emitLine cg "define internal i64 @__axiom_win_args(i64 %cmd, i64 %vec, i64 %strs, i64 %scratch) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %ii = alloca i64")
+    (emitLine cg "  %kk = alloca i64")
+    (emitLine cg "  %qq = alloca i64")
+    (emitLine cg "  %nn = alloca i64")
+    (emitLine cg "  %cc = alloca i64")
+    (emitLine cg "  %bb = alloca i64")
+    (emitLine cg "  %ee = alloca i64")
+    (emitLine cg "  %rr = alloca i64")
+    (emitLine cg "  store i64 0, ptr %ii")
+    (emitLine cg "  store i64 0, ptr %kk")
+    (emitLine cg "  store i64 0, ptr %qq")
+    (emitLine cg "  store i64 0, ptr %nn")
+    (emitLine cg "  store i64 0, ptr %cc")
+    (emitLine cg "  store i64 0, ptr %bb")
+    (emitLine cg "  store i64 0, ptr %ee")
+    (emitLine cg "  store i64 0, ptr %rr")
+    (emitWinPeek cg "c0")
+    (emitLine cg "  %c0z = icmp eq i64 %c0, 0")
+    (emitLine cg "  br i1 %c0z, label %alldone, label %p0")
+    ; argv[0]: quotes delimit, backslashes never escape.
+    (emitLine cg "p0:")
+    (emitLine cg "  %c0q = icmp eq i64 %c0, 34")
+    (emitLine cg "  br i1 %c0q, label %p0q, label %p0loop")
+    (emitLine cg "p0q:")
+    (emitWinAdvance cg "a0" "1")
+    (emitLine cg "  br label %p0qloop")
+    (emitLine cg "p0qloop:")
+    (emitWinPeek cg "cq")
+    (emitLine cg "  %cqz = icmp eq i64 %cq, 0")
+    (emitLine cg "  %cqq = icmp eq i64 %cq, 34")
+    (emitLine cg "  %cqs = or i1 %cqz, %cqq")
+    (emitLine cg "  br i1 %cqs, label %p0qend, label %p0qtake")
+    (emitLine cg "p0qtake:")
+    (emitWinPush cg "pq" "%cq")
+    (emitWinAdvance cg "a1" "1")
+    (emitLine cg "  br label %p0qloop")
+    (emitLine cg "p0qend:")
+    (emitLine cg "  br i1 %cqq, label %p0skipq, label %p0done")
+    (emitLine cg "p0skipq:")
+    (emitWinAdvance cg "a2" "1")
+    (emitLine cg "  br label %p0done")
+    (emitLine cg "p0loop:")
+    (emitWinPeek cg "cb")
+    (emitLine cg "  %cbz = icmp eq i64 %cb, 0")
+    (emitLine cg "  %cbs = icmp eq i64 %cb, 32")
+    (emitLine cg "  %cbt = icmp eq i64 %cb, 9")
+    (emitLine cg "  %cbw = or i1 %cbs, %cbt")
+    (emitLine cg "  %cbe = or i1 %cbz, %cbw")
+    (emitLine cg "  br i1 %cbe, label %p0done, label %p0take")
+    (emitLine cg "p0take:")
+    (emitWinPush cg "pb" "%cb")
+    (emitWinAdvance cg "a3" "1")
+    (emitLine cg "  br label %p0loop")
+    (emitLine cg "p0done:")
+    (emitWinFinish cg "f0")
+    (emitLine cg "  br label %skipws")
+    ; Every later argument.
+    (emitLine cg "skipws:")
+    (emitWinPeek cg "cw")
+    (emitLine cg "  %cws = icmp eq i64 %cw, 32")
+    (emitLine cg "  %cwt = icmp eq i64 %cw, 9")
+    (emitLine cg "  %cww = or i1 %cws, %cwt")
+    (emitLine cg "  br i1 %cww, label %skipws_adv, label %argstart")
+    (emitLine cg "skipws_adv:")
+    (emitWinAdvance cg "a4" "1")
+    (emitLine cg "  br label %skipws")
+    (emitLine cg "argstart:")
+    (emitLine cg "  %cse = icmp eq i64 %cw, 0")
+    (emitLine cg "  br i1 %cse, label %alldone, label %argbegin")
+    (emitLine cg "argbegin:")
+    (emitLine cg "  store i64 0, ptr %kk")
+    (emitLine cg "  store i64 0, ptr %qq")
+    (emitLine cg "  br label %argloop")
+    (emitLine cg "argloop:")
+    (emitWinPeek cg "c")
+    (emitLine cg "  %cz = icmp eq i64 %c, 0")
+    (emitLine cg "  br i1 %cz, label %argend, label %notend")
+    (emitLine cg "notend:")
+    (emitLine cg "  %isbs = icmp eq i64 %c, 92")
+    (emitLine cg "  br i1 %isbs, label %bsrun, label %notbs")
+    ; A run of backslashes: literal unless a quote follows.
+    (emitLine cg "bsrun:")
+    (emitLine cg "  store i64 0, ptr %bb")
+    (emitLine cg "  br label %bsloop")
+    (emitLine cg "bsloop:")
+    (emitWinPeek cg "cb2")
+    (emitLine cg "  %isbs2 = icmp eq i64 %cb2, 92")
+    (emitLine cg "  br i1 %isbs2, label %bsmore, label %bsend")
+    (emitLine cg "bsmore:")
+    (emitLine cg "  %bbv = load i64, ptr %bb")
+    (emitLine cg "  %bbv1 = add i64 %bbv, 1")
+    (emitLine cg "  store i64 %bbv1, ptr %bb")
+    (emitWinAdvance cg "a5" "1")
+    (emitLine cg "  br label %bsloop")
+    (emitLine cg "bsend:")
+    (emitLine cg "  %nb = load i64, ptr %bb")
+    (emitLine cg "  %afterq = icmp eq i64 %cb2, 34")
+    (emitLine cg "  br i1 %afterq, label %bsq, label %bsplain")
+    (emitLine cg "bsplain:")
+    (emitLine cg "  store i64 %nb, ptr %ee")
+    (emitLine cg "  store i64 0, ptr %rr")
+    (emitLine cg "  br label %bsemit")
+    (emitLine cg "bsq:")
+    (emitLine cg "  %half = lshr i64 %nb, 1")
+    (emitLine cg "  store i64 %half, ptr %ee")
+    (emitLine cg "  store i64 1, ptr %rr")
+    (emitLine cg "  br label %bsemit")
+    (emitLine cg "bsemit:")
+    (emitLine cg "  %eev = load i64, ptr %ee")
+    (emitLine cg "  %eez = icmp eq i64 %eev, 0")
+    (emitLine cg "  br i1 %eez, label %bsemitted, label %bsone")
+    (emitLine cg "bsone:")
+    (emitWinPush cg "pe" "92")
+    (emitLine cg "  %eev1 = sub i64 %eev, 1")
+    (emitLine cg "  store i64 %eev1, ptr %ee")
+    (emitLine cg "  br label %bsemit")
+    (emitLine cg "bsemitted:")
+    (emitLine cg "  %rrv = load i64, ptr %rr")
+    (emitLine cg "  %rrq = icmp eq i64 %rrv, 1")
+    (emitLine cg "  br i1 %rrq, label %bsoddtest, label %argloop")
+    ; An odd run before a quote escapes it; an even run leaves the
+    ; quote to the quote rule below, unconsumed.
+    (emitLine cg "bsoddtest:")
+    (emitLine cg "  %nb2 = load i64, ptr %bb")
+    (emitLine cg "  %odd = and i64 %nb2, 1")
+    (emitLine cg "  %isodd = icmp ne i64 %odd, 0")
+    (emitLine cg "  br i1 %isodd, label %bsesc, label %argloop")
+    (emitLine cg "bsesc:")
+    (emitWinPush cg "pq2" "34")
+    (emitWinAdvance cg "a6" "1")
+    (emitLine cg "  br label %argloop")
+    (emitLine cg "notbs:")
+    (emitLine cg "  %isq = icmp eq i64 %c, 34")
+    (emitLine cg "  br i1 %isq, label %quote, label %notq")
+    (emitLine cg "quote:")
+    (emitLine cg "  %inq = load i64, ptr %qq")
+    (emitLine cg "  %inq1 = icmp ne i64 %inq, 0")
+    (emitLine cg "  br i1 %inq1, label %quote_in, label %quote_toggle")
+    ; `""` inside quotes is one literal quote, and quoting stays on.
+    (emitLine cg "quote_in:")
+    (emitLine cg "  %nx_i = load i64, ptr %ii")
+    (emitLine cg "  %nx_i1 = add i64 %nx_i, 1")
+    (emitLine cg "  %nx_o = shl i64 %nx_i1, 1")
+    (emitLine cg "  %nx_a = add i64 %cmd, %nx_o")
+    (emitLine cg "  %nx_p = inttoptr i64 %nx_a to ptr")
+    (emitLine cg "  %nx_w = load i16, ptr %nx_p")
+    (emitLine cg "  %nxt = zext i16 %nx_w to i64")
+    (emitLine cg "  %nxtq = icmp eq i64 %nxt, 34")
+    (emitLine cg "  br i1 %nxtq, label %quote_lit, label %quote_toggle")
+    (emitLine cg "quote_lit:")
+    (emitWinPush cg "pl" "34")
+    (emitWinAdvance cg "a7" "2")
+    (emitLine cg "  br label %argloop")
+    (emitLine cg "quote_toggle:")
+    (emitLine cg "  %inq2 = load i64, ptr %qq")
+    (emitLine cg "  %inq3 = xor i64 %inq2, 1")
+    (emitLine cg "  store i64 %inq3, ptr %qq")
+    (emitWinAdvance cg "a8" "1")
+    (emitLine cg "  br label %argloop")
+    (emitLine cg "notq:")
+    (emitLine cg "  %isws = icmp eq i64 %c, 32")
+    (emitLine cg "  %istab = icmp eq i64 %c, 9")
+    (emitLine cg "  %isw = or i1 %isws, %istab")
+    (emitLine cg "  %inq4 = load i64, ptr %qq")
+    (emitLine cg "  %inq4z = icmp eq i64 %inq4, 0")
+    (emitLine cg "  %delim = and i1 %isw, %inq4z")
+    (emitLine cg "  br i1 %delim, label %argend, label %take")
+    (emitLine cg "take:")
+    (emitWinPush cg "pt" "%c")
+    (emitWinAdvance cg "a9" "1")
+    (emitLine cg "  br label %argloop")
+    (emitLine cg "argend:")
+    (emitWinFinish cg "f1")
+    (emitLine cg "  br label %skipws")
+    (emitLine cg "alldone:")
+    (emitLine cg "  %argc = load i64, ptr %nn")
+    (emitLine cg "  ret i64 %argc")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; UTF-16 units in an environment block, its final double NUL
+    ; included: what sizing the UTF-8 copy needs.
+    (emitLine cg "define internal i64 @__axiom_win_blocklen(i64 %blk) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %pp = alloca i64")
+    (emitLine cg "  store i64 %blk, ptr %pp")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %p = load i64, ptr %pp")
+    (emitLine cg "  %len = call i64 @__axiom_win_wlen(i64 %p)")
+    (emitLine cg "  %z = icmp eq i64 %len, 0")
+    (emitLine cg "  br i1 %z, label %done, label %next")
+    (emitLine cg "next:")
+    (emitLine cg "  %len1 = add i64 %len, 1")
+    (emitLine cg "  %bytes = shl i64 %len1, 1")
+    (emitLine cg "  %p1 = add i64 %p, %bytes")
+    (emitLine cg "  store i64 %p1, ptr %pp")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "done:")
+    (emitLine cg "  %d = sub i64 %p, %blk")
+    (emitLine cg "  %units = lshr i64 %d, 1")
+    (emitLine cg "  %total = add i64 %units, 1")
+    (emitLine cg "  ret i64 %total")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; The environment: `NAME=value` entries to the double NUL, narrowed
+    ; into `strs` and recorded at `vec[i]`; `vec` = 0 counts.
+    (emitLine cg "define internal i64 @__axiom_win_env(i64 %blk, i64 %vec, i64 %strs) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %pp = alloca i64")
+    (emitLine cg "  %nn = alloca i64")
+    (emitLine cg "  %cc = alloca i64")
+    (emitLine cg "  store i64 %blk, ptr %pp")
+    (emitLine cg "  store i64 0, ptr %nn")
+    (emitLine cg "  store i64 0, ptr %cc")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %p = load i64, ptr %pp")
+    (emitLine cg "  %len = call i64 @__axiom_win_wlen(i64 %p)")
+    (emitLine cg "  %z = icmp eq i64 %len, 0")
+    (emitLine cg "  br i1 %z, label %done, label %one")
+    (emitLine cg "one:")
+    (emitLine cg "  %n = load i64, ptr %nn")
+    (emitLine cg "  %v0 = icmp eq i64 %vec, 0")
+    (emitLine cg "  br i1 %v0, label %skip, label %fill")
+    (emitLine cg "fill:")
+    (emitLine cg "  %c = load i64, ptr %cc")
+    (emitLine cg "  %dst = add i64 %strs, %c")
+    (emitLine cg "  %b = call i64 @__axiom_win_narrow(i64 %p, i64 %len, i64 %dst)")
+    (emitLine cg "  %vo = shl i64 %n, 3")
+    (emitLine cg "  %va = add i64 %vec, %vo")
+    (emitLine cg "  %vp = inttoptr i64 %va to ptr")
+    (emitLine cg "  store i64 %dst, ptr %vp")
+    (emitLine cg "  %b1 = add i64 %b, 1")
+    (emitLine cg "  %c1 = add i64 %c, %b1")
+    (emitLine cg "  store i64 %c1, ptr %cc")
+    (emitLine cg "  br label %skip")
+    (emitLine cg "skip:")
+    (emitLine cg "  %n1 = add i64 %n, 1")
+    (emitLine cg "  store i64 %n1, ptr %nn")
+    (emitLine cg "  %len1 = add i64 %len, 1")
+    (emitLine cg "  %bytes = shl i64 %len1, 1")
+    (emitLine cg "  %p1 = add i64 %p, %bytes")
+    (emitLine cg "  store i64 %p1, ptr %pp")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "done:")
+    (emitLine cg "  %count = load i64, ptr %nn")
+    (emitLine cg "  ret i64 %count")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; The entry itself. Sizes: a UTF-16 unit narrows to at most three
+    ; bytes, a pair of units to four, and every argument or entry
+    ; costs one NUL, so `4 * units + 16` covers the strings, and the
+    ; vector is `argc + 1 + envc + 1` words.
+    (emitLine cg "define i64 @mainCRTStartup() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %cmd = call i64 @GetCommandLineW()")
+    (emitLine cg "  %clen = call i64 @__axiom_win_wlen(i64 %cmd)")
+    (emitLine cg "  %clen1 = add i64 %clen, 1")
+    (emitLine cg "  %scrb = shl i64 %clen1, 1")
+    (emitLine cg "  %scratch = call i64 @axiom_alloc(i64 %scrb)")
+    (emitLine cg "  %argc = call i64 @__axiom_win_args(i64 %cmd, i64 0, i64 0, i64 %scratch)")
+    (emitLine cg "  %env = call i64 @GetEnvironmentStringsW()")
+    (emitLine cg "  %envc = call i64 @__axiom_win_env(i64 %env, i64 0, i64 0)")
+    (emitLine cg "  %n0 = add i64 %argc, %envc")
+    (emitLine cg "  %nwords = add i64 %n0, 2")
+    (emitLine cg "  %vbytes = shl i64 %nwords, 3")
+    (emitLine cg "  %vec = call i64 @axiom_alloc(i64 %vbytes)")
+    (emitLine cg "  %sb0 = shl i64 %clen, 2")
+    (emitLine cg "  %sbytes = add i64 %sb0, 16")
+    (emitLine cg "  %strs = call i64 @axiom_alloc(i64 %sbytes)")
+    (emitLine cg "  %argc2 = call i64 @__axiom_win_args(i64 %cmd, i64 %vec, i64 %strs, i64 %scratch)")
+    (emitLine cg "  %nullo = shl i64 %argc2, 3")
+    (emitLine cg "  %nulla = add i64 %vec, %nullo")
+    (emitLine cg "  %nullp = inttoptr i64 %nulla to ptr")
+    (emitLine cg "  store i64 0, ptr %nullp")
+    (emitLine cg "  %envvec = add i64 %nulla, 8")
+    (emitLine cg "  %eunits = call i64 @__axiom_win_blocklen(i64 %env)")
+    (emitLine cg "  %eb0 = shl i64 %eunits, 2")
+    (emitLine cg "  %ebytes = add i64 %eb0, 16")
+    (emitLine cg "  %estrs = call i64 @axiom_alloc(i64 %ebytes)")
+    (emitLine cg "  %envc2 = call i64 @__axiom_win_env(i64 %env, i64 %envvec, i64 %estrs)")
+    (emitLine cg "  %enullo = shl i64 %envc2, 3")
+    (emitLine cg "  %enulla = add i64 %envvec, %enullo")
+    (emitLine cg "  %enullp = inttoptr i64 %enulla to ptr")
+    (emitLine cg "  store i64 0, ptr %enullp")
+    (emitLine cg "  store i64 %argc2, ptr @__axiom_argc")
+    (emitLine cg "  store i64 %vec, ptr @__axiom_argv")
+    (emitLine cg "  %r = call i64 @__axiom_user_main()")
+    (emitLine cg "  call i64 @ExitProcess(i64 %r)")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
+    cg
+  }
 )
 
 ; ------------------------------------------------------------------
@@ -5973,18 +6826,29 @@
     ; links it has its own, and the module's `pub fn`s are what it
     ; calls. The runtime below is emitted in full - the allocator
     ; initialises on first use, so the host needs no init call.
+    ; The kernel32 declares, the no-syscall trap and the DWORD cell the
+    ; trap paths' `WriteFile` writes through - whether or not there is a
+    ; `main`, because the allocator below and the three traps need them
+    ; in an archive too.
+    (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
+      0
+      (emitWinRuntime cg)
+    )
     (if cgStaticlib
       0
-      {
-        (emitLine cg "define i64 @main(i64 %argc, i64 %argv) #0 {")
-        (emitLine cg "entry:")
-        (emitLine cg "  store i64 %argc, ptr @__axiom_argc")
-        (emitLine cg "  store i64 %argv, ptr @__axiom_argv")
-        (emitLine cg "  %r = call i64 @__axiom_user_main()")
-        (emitLine cg "  ret i64 %r")
-        (emitLine cg "}")
-        (emitLine cg "")
-      }
+      (if (strEq (targetEntryName (memGetWord cg 26)) "main")
+        {
+          (emitLine cg "define i64 @main(i64 %argc, i64 %argv) #0 {")
+          (emitLine cg "entry:")
+          (emitLine cg "  store i64 %argc, ptr @__axiom_argc")
+          (emitLine cg "  store i64 %argv, ptr @__axiom_argv")
+          (emitLine cg "  %r = call i64 @__axiom_user_main()")
+          (emitLine cg "  ret i64 %r")
+          (emitLine cg "}")
+          (emitLine cg "")
+        }
+        (emitWinEntry cg)
+      )
     )
     (emitLine cg "@__axiom_bump = internal global i64 0")
     (emitLine cg "@__axiom_bump_end = internal global i64 0")
@@ -6117,7 +6981,7 @@
     (emitLine cg "  store i64 %cnext, ptr %prevlinkp")
     (emitLine cg "  br label %install")
     (emitLine cg "map:")
-    (emitLine cg (strConcat (cat4 "  %addr = call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetMmapNum (memGetWord cg 26)))) (cat3 ", i64 0, i64 %chunk, i64 3, i64 " (fmtInt (targetMapFlags (memGetWord cg 26))) ", i64 -1, i64 0)")))
+    (emitRuntimeMap cg "%chunk")
     (emitLine cg "  %failed_low = icmp ult i64 %addr, 4096")
     (emitLine cg "  %failed_neg = icmp ugt i64 %addr, -4096")
     (emitLine cg "  %failed = or i1 %failed_low, %failed_neg")
@@ -6795,9 +7659,9 @@
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
     (emitLine cg "  %oomp = ptrtoint ptr @__axiom_oom_msg to i64")
-    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %oomp, i64 35, i64 0, i64 0, i64 0)"))
+    (emitRuntimeWrite cg "%oomp" "35")
     (emitLine cg "  call void @__axiom_backtrace()")
-    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)"))
+    (emitRuntimeExit cg "70")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     cg
@@ -6813,9 +7677,9 @@
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 72)")
     (emitLine cg "  %dzp = ptrtoint ptr @__axiom_divzero_msg to i64")
-    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %dzp, i64 24, i64 0, i64 0, i64 0)"))
+    (emitRuntimeWrite cg "%dzp" "24")
     (emitLine cg "  call void @__axiom_backtrace()")
-    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 72, i64 0, i64 0, i64 0, i64 0, i64 0)"))
+    (emitRuntimeExit cg "72")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     cg
@@ -7102,14 +7966,16 @@
   )
 )
 
-; One `write(2, ptr, len)` through the same inline-asm template the
-; three traps use. A helper because the walker makes six of these calls
-; and the template string is the one thing in the emitter that must not
-; be retyped by hand - `targetSyscallAsm`'s own comment records a
-; clobber list that was one register short and cost an infinite loop.
+; One `write(2, ptr, len)` through the same door the three traps use.
+; A helper because the walker makes six of these calls and the template
+; string is the one thing in the emitter that must not be retyped by
+; hand - `targetSyscallAsm`'s own comment records a clobber list that
+; was one register short and cost an infinite loop. The door itself is
+; `emitRuntimeWrite`, since 2026-08-29 the one place that knows how a
+; target writes to fd 2.
 (pub :: emitBtWrite (-> Int String String Int))
 
-(pub fn (emitBtWrite cg ptrExpr lenExpr) (emitLine cg (cat4 (cat3 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 ") (fmtInt (targetWriteNum (memGetWord cg 26))) ", i64 2, i64 " (cat4 ptrExpr ", i64 " lenExpr ", i64 0, i64 0, i64 0)"))))
+(pub fn (emitBtWrite cg ptrExpr lenExpr) (emitRuntimeWrite cg ptrExpr lenExpr))
 
 ; The name of one return address: the entry with the greatest address
 ; at or below it.
@@ -7304,9 +8170,11 @@
     ; wrapper for exactly that case. No function can be at address -1,
     ; so the comparison simply never matches and the walk ends on its
     ; other guards instead.
+    ; `main`, or `mainCRTStartup` on Windows: `targetEntryName` is the
+    ; one place the spelling lives.
     (emitLine
-      cg      (if (symtabHas names "main" 0)
-        "@__axiom_bt_mainaddr = internal constant i64 ptrtoint (ptr @main to i64)"
+      cg      (if (symtabHas names (targetEntryName (memGetWord cg 26)) 0)
+        (cat3 "@__axiom_bt_mainaddr = internal constant i64 ptrtoint (ptr @" (targetEntryName (memGetWord cg 26)) " to i64)")
         "@__axiom_bt_mainaddr = internal constant i64 -1"
       )
     )
@@ -7454,7 +8322,7 @@
     (emitLine cg "  %need = add i64 %sz, 16")
     (emitLine cg "  %rounded0 = add i64 %need, 65535")
     (emitLine cg "  %want = and i64 %rounded0, -65536")
-    (emitLine cg (strConcat (cat4 "  %addr = call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetMmapNum (memGetWord cg 26)))) (cat3 ", i64 0, i64 %want, i64 3, i64 " (fmtInt (targetMapFlags (memGetWord cg 26))) ", i64 -1, i64 0)")))
+    (emitRuntimeMap cg "%want")
     (emitLine cg "  %failed_low = icmp ult i64 %addr, 4096")
     (emitLine cg "  %failed_neg = icmp ugt i64 %addr, -4096")
     (emitLine cg "  %failed = or i1 %failed_low, %failed_neg")
@@ -7575,7 +8443,7 @@
 (pub fn (checkedTargetCode target)
   (let ((tcode (targetCode target)))
     (if (< tcode 0)
-      (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, or freebsd-aarch64): " target)
+      (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, freebsd-aarch64, or windows-x86_64): " target)
       tcode
     )
   )
@@ -7669,7 +8537,11 @@
       ; emitters that contributes one (`@__axiom_unhandled_effect`),
       ; which is why the scan follows it rather than opening this
       ; branch.
-      (let ((tailCg (emitExternDeclares decls (emitRecoverSlotHelpers (emitEffectGlobals (emitStringGlobals nextCg 0) 0)) 0 vecNew)))
+      ; Seeded with the symbols the RUNTIME already declared, so an
+      ; `extern "kernel32"` block binding `WriteFile` does not declare
+      ; it a second time - a repeated `declare` is an LLVM parse error,
+      ; and the Windows platform module binds four of the runtime's six.
+      (let ((tailCg (emitExternDeclares decls (emitRecoverSlotHelpers (emitEffectGlobals (emitStringGlobals nextCg 0) 0)) 0 (runtimeDeclaredSyms (memGetWord nextCg 26)))))
         (renderCG (emitLine (emitBacktrace tailCg (symtabNames (memGetWord tailCg 0))) "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }"))
       )
       (emitModuleTail decls nextCg (+ i 1))
@@ -11057,9 +11929,9 @@
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 71)")
     (emitLine cg "  %uep = ptrtoint ptr @__axiom_unhandled_msg to i64")
-    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetWriteNum (memGetWord cg 26)))) ", i64 2, i64 %uep, i64 24, i64 0, i64 0, i64 0)"))
+    (emitRuntimeWrite cg "%uep" "24")
     (emitLine cg "  call void @__axiom_backtrace()")
-    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) ", i64 71, i64 0, i64 0, i64 0, i64 0, i64 0)"))
+    (emitRuntimeExit cg "71")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     cg
@@ -12560,7 +13432,19 @@
   )
     (let ((r (regStr rn)))
       {
-        (emitLine cg1 (cat4 (cat3 (cat2 "  " r) (cat4 " = call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg1 26)) "(i64 " "") at) pad ")" ""))
+        ; On a target with no syscall ABI the primitive is a TRAP, not
+        ; a wrong instruction: `__axiom_no_syscall` writes a sentence to
+        ; fd 2 and exits 74 (`emitWinRuntime`). The arguments were
+        ; evaluated above for their effects and are dropped. This is
+        ; what `Sys.ax`'s syscall arms compile to on windows-x86_64,
+        ; where `Sys.Platform.usesSyscallAbi` is 0 and keeps them
+        ; unreached; a program that calls `__syscallN` itself reaches
+        ; it and dies saying why, rather than executing a `syscall`
+        ; instruction the OS gives no meaning to.
+        (if (== (targetUsesSyscallAsm (memGetWord cg1 26)) 1)
+          (emitLine cg1 (cat4 (cat3 (cat2 "  " r) (cat4 " = call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg1 26)) "(i64 " "") at) pad ")" ""))
+          (emitLine cg1 (cat3 (cat2 "  " r) " = call i64 @__axiom_no_syscall()" ""))
+        )
         (memSetWord cg1 2 r)
         cg1
       }

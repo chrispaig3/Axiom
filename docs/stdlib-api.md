@@ -545,6 +545,10 @@ See [reference.md](reference.md) for the language, and
 | `sigInt` | value | `Int` |  |  |
 | `forkChildIsZero` | value | `Int` |  | Whether `fork` answers 0 in the child, which is the POSIX convention and what Linux does. Darwin answers the child's pid to both, so `sysForkProcess` normalises; see `sysFork` above for the measurement. |
 | `acceptNonblockFlag` | value | `Int` |  | The flag `netAccept` passes to make the accepted socket non-blocking. Darwin's `accept` HAS no such flag - it has no `accept4` at all - so this is 0 and `Sys.ax` reaches for `fcntl` afterwards instead. |
+| `usesSyscallAbi` | value | `Int` |  |  |
+| `platformWriteFd` | value | `(-> Int Int Int Int)` |  |  |
+| `platformReadFd` | value | `(-> Int Int Int Int)` |  |  |
+| `platformExitWith` | value | `(-> Int Int)` |  |  |
 
 ## `Test`
 

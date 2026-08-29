@@ -639,15 +639,23 @@ jobs:
       # ends a thread and the process stays alive.
       #
       # It runs in the matrix like its neighbours but is not really a
-      # per-runner check - it reads all four targets from whichever
+      # per-runner check - it reads all five targets from whichever
       # host it is on, out of `emit-llvm` rather than out of the
-      # sources, so darwin-x86_64 (which has no runner anywhere in this
-      # file) is covered three times over rather than never. About
-      # eight seconds, almost all of it building the compiler under
-      # test, which it must: the codegen table is half of what it
-      # compares.
+      # sources, so darwin-x86_64 and windows-x86_64 (which have no
+      # runner anywhere in this file) are covered three times over
+      # rather than never. About eight seconds, almost all of it
+      # building the compiler under test, which it must: the codegen
+      # table is half of what it compares.
       - name: The two tables of syscall numbers agree
         run: ./scripts/check-platform-constants.sh
+
+      # The Windows entry shim's command-line and environment parsers,
+      # cut out of the emitted Windows IR and executed HERE, on the
+      # host, against known answers - the one part of a Windows binary
+      # this matrix can run before a Windows leg exists, and the part
+      # whose wrong answers look plausible rather than crash.
+      - name: The Windows entry shim's parsers answer on this host
+        run: ./scripts/check-windows-entry.sh
 
       # The native human and JSON diagnostic renderers, pinned without a
       # second compiler: checked-in goldens, cross-checked against the

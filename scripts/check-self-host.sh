@@ -181,13 +181,15 @@ if [[ -z "$filter" ]]; then
 fi
 
 # Every target stage1 claims must actually assemble: emit the
-# syscall-heavy case for each of the six and run llc under that
+# syscall-heavy case for each of the seven and run llc under that
 # target's own triple. A wrong register convention or syscall number
 # is invisible on the host - the mmap number 9 assembles fine on
-# darwin - so the check is per-triple, not host-only.
+# darwin - so the check is per-triple, not host-only. windows-x86_64
+# makes no syscall at all: its `sysWriteFd` goes through kernel32, and
+# a wrong `dllimport` declare is what llc would refuse here.
 if [[ -z "$filter" ]]; then
   cp "$repo_root/tests/selfhost/230-syscall.ax" "$work/in.ax"
-  all_targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64"
+  all_targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64"
   for tgt in $all_targets; do
     case "$tgt" in
       darwin-aarch64)  triple=arm64-apple-macosx14.0.0 ;;
@@ -196,6 +198,7 @@ if [[ -z "$filter" ]]; then
       linux-x86_64)    triple=x86_64-unknown-linux-gnu ;;
       freebsd-x86_64)  triple=x86_64-unknown-freebsd14.0 ;;
       freebsd-aarch64) triple=aarch64-unknown-freebsd14.0 ;;
+      windows-x86_64)  triple=x86_64-pc-windows-msvc ;;
     esac
     if (cd "$work" && ./stage1 in.ax "$tgt" >"out-$tgt.ll" 2>tgt.err) \
        && llc -mtriple="$triple" -relocation-model=pic "$work/out-$tgt.ll" -o /dev/null 2>"$work/llc-$tgt.err"; then
@@ -213,11 +216,11 @@ if [[ -z "$filter" ]]; then
   # `aarch64-unknown-linux-gnu`, because `svc #0x80` is a valid AArch64
   # instruction whatever the OS and `{x16}` allocates fine. So if stage1
   # ever stopped honouring the target argument, this loop would emit the
-  # same Darwin IR six times and still report several of the six green -
+  # same Darwin IR seven times and still report several of the seven green -
   # while every Linux binary carried Darwin syscall numbers.
   #
-  # Requiring the six to be pairwise distinct is what closes that. It
-  # is satisfiable today (the six differ), so it is an assertion about
+  # Requiring the seven to be pairwise distinct is what closes that. It
+  # is satisfiable today (the seven differ), so it is an assertion about
   # the compiler rather than an aspiration - and for one pair it is a
   # DERIVED fact rather than an obvious one: freebsd-x86_64 reuses
   # darwin-x86_64's syscall template byte for byte (both kernels
@@ -246,7 +249,7 @@ if [[ -z "$filter" ]]; then
     done
   done
   if [[ "$dupes" == 0 ]]; then
-    echo "ok   the six targets emit six different modules"
+    echo "ok   the seven targets emit seven different modules"
     passed=$((passed + 1))
   else
     failed=$((failed + 1))

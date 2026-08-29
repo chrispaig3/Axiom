@@ -31,7 +31,7 @@ gate_init
 # THE COMPILER UNDER TEST, and it used to be `$axiom` - which in CI is
 # what `bootstrap-from-seed.sh` builds from the COMMITTED SEED. What
 # this gate asserts is that the EMITTER produces assemblable,
-# position-independent code for six targets, so the emitter it asks
+# position-independent code for seven targets, so the emitter it asks
 # has to be the one in the tree. Asking the seed's had a hard
 # consequence rather than a philosophical one: a fixture exercising
 # anything the seed does not know could not be emitted here at all, and
@@ -46,7 +46,13 @@ gate_build_axc axc
 # array must drive `$axc`, the compiler built from this tree, and not
 # `$axiom`. The one loop below that needs the SEED's opinion keeps its
 # own literal list of the targets the seed can emit.
-targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64)
+# windows-x86_64 joined 2026-08-29. It is the one target here with no
+# syscall template - its runtime calls kernel32 - so the sections below
+# that are ABOUT syscall templates treat it from the other direction,
+# and say so where they do. llc must still accept every case at every
+# level; that is what makes a wrong `dllimport` or a mis-typed kernel32
+# declare visible on a host that cannot run the result.
+targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64)
 
 # Optimisation levels the driver actually assembles with. A relocation
 # bug that appears at only one of them is still a shipped bug.
@@ -231,6 +237,11 @@ for case_file in tests/stdlib/*.ax; do
 
       # Mach-O relocation names differ from ELF's and Darwin is
       # position-independent unconditionally, so the absolute-relocation
+      # question only arises for ELF. COFF is the third answer: x86-64
+      # Windows code is RIP-relative and a 64-bit absolute in data is
+      # rewritten by the loader through the base-relocation table, the
+      # same mechanism `.data.rel.ro` is for ELF, so the question does
+      # not arise there either.
       # question only arises for ELF - which is Linux AND FreeBSD. A
       # guard that named only `linux-*` would assemble the FreeBSD
       # objects and never look at their relocations, and the
@@ -265,10 +276,11 @@ done
 # LLVM scheduled a countdown loop's `adds` before the `svc` and its
 # flag-consuming branch after - an infinite loop, measured 2026-08-07
 # at every opt level, on the shape every clock and polling loop has.
-# Checked here because this gate already emits IR for every target;
-# both compilers' templates are asserted, since the linux-x86_64 one
-# had silently drifted (stage1 matched stage0's stale COMMENT, not its
-# string).
+# Checked here because this gate already emits IR for all seven
+# targets; both compilers' templates are asserted, since the linux-
+# x86_64 one had silently drifted (stage1 matched stage0's stale
+# COMMENT, not its string). The six syscall targets are looped below;
+# windows-x86_64, which has no template to check, follows the loop.
 echo "--- syscall templates declare ~{cc} on every target ---"
 ccwork="$(mktemp -d)"
 trap 'rm -rf "$ccwork"' EXIT
@@ -335,6 +347,40 @@ for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x8
   fi
 done
 
+# windows-x86_64 emits NO syscall template - it has no syscall ABI, and
+# its runtime reaches kernel32 by call - so the loop above would have
+# reported "the probe emitted no inline-asm syscall at all (the
+# assertion checked nothing)": the right sentence for the wrong reason.
+# It is asserted from the other direction instead, and in BOTH
+# directions, because "Windows emits no syscall" is exactly the silence
+# a broken branch, an empty file or a mistyped grep also produces: zero
+# `svc`/`syscall` templates in the Windows IR of the probe, and at least
+# one in the linux-x86_64 IR of the same probe from the same compiler,
+# through the same `syscall_asm` function. Only the tree's compiler is
+# asked - the seed refuses the target's name.
+if "$ccwork/stage1" --target=windows-x86_64 emit-llvm "$ccwork/cc.ax" -o "$ccwork/win.ll" >/dev/null 2>&1 \
+   && "$ccwork/stage1" --target=linux-x86_64 emit-llvm "$ccwork/cc.ax" -o "$ccwork/lin.ll" >/dev/null 2>&1; then
+  win_asms="$(syscall_asm "$ccwork/win.ll" | grep -c . || true)"
+  lin_asms="$(syscall_asm "$ccwork/lin.ll" | grep -c . || true)"
+  win_k32="$(grep -cE 'call i64 @(VirtualAlloc|WriteFile|ExitProcess)\(' "$ccwork/win.ll" || true)"
+  if [[ "$lin_asms" -lt 1 ]]; then
+    echo "FAIL [windows-x86_64]: the control emitted no syscall template on linux-x86_64, so a zero on Windows would mean nothing"
+    status=1
+  elif [[ "$win_asms" -ne 0 ]]; then
+    echo "FAIL [windows-x86_64]: $win_asms syscall template(s) in the Windows IR - a target with no syscall ABI emitted one"
+    syscall_asm "$ccwork/win.ll" | head -3 | cut -c1-100 | sed 's/^/    /'
+    status=1
+  elif [[ "$win_k32" -lt 3 ]]; then
+    echo "FAIL [windows-x86_64]: only $win_k32 kernel32 call(s) in the Windows IR; the runtime's map/write/exit doors are not all there"
+    status=1
+  else
+    echo "ok   [windows-x86_64] 0 syscall templates (linux-x86_64 control: $lin_asms), $win_k32 kernel32 calls in their place"
+  fi
+else
+  echo "FAIL [windows-x86_64]: the syscall-template probe would not emit"
+  status=1
+fi
+
 # ---------------------------------------------------------------
 # An object must not record the path it was assembled from.
 #
@@ -360,6 +406,18 @@ done
 #      hazard the convention in (1) exists to defuse. If a future LLVM
 #      stops recording it, this fails and someone removes the assertion
 #      deliberately, rather than (1) quietly becoming a no-op.
+#
+# COFF is the third answer and it was MEASURED rather than assumed
+# (2026-08-29, LLVM 23): llc writes the input path into a COFF object as
+# a `.file` symbol, exactly as ELF does - the same module assembled as
+# `axc.ll` and as `other.ll` gave objects that differ, and the same
+# basename from two directories gave identical bytes. So windows-x86_64
+# takes the ELF arm below, and the same-basename convention protects it
+# for the same reason.
+#
+# The tree's compiler emits the probe, not the seed: the seed does not
+# know windows-x86_64, and which compiler emits is immaterial to a
+# section whose subject is what llc writes.
 # ---------------------------------------------------------------
 echo "--- an object does not record the path it was assembled from ---"
 pework="$(mktemp -d)"
@@ -408,9 +466,9 @@ for target in "${targets[@]}"; do
   # `if ! producer | grep -q` read as "no match" exactly when there was
   # one.
   case "$target" in
-    linux-*|freebsd-*)
+    linux-*|freebsd-*|windows-*)
       if ! grep -a -q 'axc\.ll' "$pework/d2/axc.o"; then
-        echo "FAIL [$target]: this ELF object no longer records its input filename -"
+        echo "FAIL [$target]: this ELF or COFF object no longer records its input filename -"
         echo "     the same-basename convention above is now protecting against nothing."
         echo "     Re-measure, then delete this half deliberately if it is truly gone."
         status=1

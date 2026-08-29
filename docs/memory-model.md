@@ -522,6 +522,7 @@ runtime and **MUST NOT** be reused by a program as a normal result:
 | 70 | allocator out of memory (`mmap` failed) | measured: `tests/stdlib/314-out-of-memory.ax` asks for 2^47 bytes, the run prints `axiom: out of memory (mmap failed)` to fd 2 and exits 70 |
 | 71 | operation performed with no handler in extent | measured (`MM-EXEC-10`) |
 | 72 | division by zero | measured: `(fn (main) (/ 10 0))` — `check` says `OK`, the run prints `axiom: division by zero` to fd 2 and exits 72 |
+| 74 | a `__syscallN` reached on a target with no syscall ABI (windows-x86_64) | emitted, not yet executed: `emitPrimSyscall` lowers the primitive there to `__axiom_no_syscall`, which prints `axiom: no syscall ABI on this target` (37 bytes) and exits 74; 73 is the FFI's (`ffiHandleClose`) |
 
 Each writes nothing to **stdout**. What each writes to **fd 2** is not
 uniform, and the row above is the place to say so rather than leave it
@@ -3506,9 +3507,12 @@ aliases, `MM-EXEC-6b`'s self-TCO (which `reference.md` misattributed to
 LLVM until 2026-08-14 — a fixture would keep it from drifting back),
 and `MM-LIFE-3`'s cycles stated *as* a property.
 
-**All three of `MM-EXEC-16`'s exit statuses are gated**: 71 by
+**All three of `MM-EXEC-16`'s POSIX exit statuses are gated**: 71 by
 `tests/stdlib/310-effect-unhandled.ax`, 72 by the division fixtures, and
-70 by `tests/stdlib/314-out-of-memory.ax`. This paragraph said 70 was
+70 by `tests/stdlib/314-out-of-memory.ax`. The fourth row, 74, is
+windows-x86_64's and is gated by nothing that executes: `scripts/check-platform-constants.sh`
+reads its emission, and README's *Targets* section says no runner runs
+that target yet. This paragraph said 70 was
 "the one no fixture can reach without exhausting memory", which was
 false in the strong direction: `314` reaches it **deterministically and
 without exhausting anything**, by asking for 2^47 bytes — past the user

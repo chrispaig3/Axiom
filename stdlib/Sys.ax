@@ -10,6 +10,21 @@
 ; module (`openNeedsDirFd`) rather than on an OS name keeps this file
 ; from growing a platform list.
 ;
+; ONE EXCEPTION TO "THE PLATFORM MODULE IS A TABLE", stated here because
+; this is where the rule is. `Sys/Platform.windows.ax` is not a table
+; of syscall numbers - Windows has no syscall ABI a program may use -
+; so it answers the capability `usesSyscallAbi` 0 and DOES THE WORK
+; ITSELF over `extern "kernel32"` bindings. This file still names no
+; OS: where it would call `__syscallN` it asks `usesSyscallAbi` and,
+; when the answer is 0, calls the platform module's own function
+; (`platformWriteFd`, `platformReadFd`, `platformExitWith`) instead.
+; The asymmetry - three modules of constants, one of functions - is
+; accepted rather than levelled, because levelling it would move every
+; syscall in this file into four copies of the platform layer. What is
+; NOT yet routed that way (files, processes, sockets, the clock,
+; entropy, signals) reaches its `__syscallN` arm on Windows, which the
+; compiler lowers there to a trap that says so (`emitPrimSyscall`).
+;
 ; Return values are raw kernel results, not exceptions: a successful
 ; result as-is, or `-errno` on failure. That convention holds on every
 ; supported platform because the backend's BSD syscall sequences
@@ -121,7 +136,12 @@
 (pub :: sysWriteFd (-> Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (sysWriteFd fd buf count) (__syscall3 sysWrite fd buf count))
+(pub fn (sysWriteFd fd buf count)
+  (if (== usesSyscallAbi 1)
+    (__syscall3 sysWrite fd buf count)
+    (platformWriteFd fd buf count)
+  )
+)
 
 (pub :: sysWriteAllFd (-> Int Int Int Int Int))
 
@@ -144,7 +164,12 @@
 (pub :: sysReadFd (-> Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (sysReadFd fd buf count) (__syscall3 sysRead fd buf count))
+(pub fn (sysReadFd fd buf count)
+  (if (== usesSyscallAbi 1)
+    (__syscall3 sysRead fd buf count)
+    (platformReadFd fd buf count)
+  )
+)
 
 (pub :: sysOpenPath (-> Int Int Int))
 
@@ -178,7 +203,10 @@
 ;@axiom:effect(io)
 (pub fn (sysExitWith code)
   {
-    (__syscall1 sysExit code)
+    (if (== usesSyscallAbi 1)
+      (__syscall1 sysExit code)
+      (platformExitWith code)
+    )
     0
   }
 )
@@ -910,6 +938,9 @@
 ;
 ; `Sys.Platform.spawnUsesPosixSpawn` is the capability selecting between
 ; them, in keeping with `openNeedsDirFd`: nothing here names an OS.
+; (Nor does `usesSyscallAbi`, the capability under which a platform
+; module does this work itself - see the header - which is how a third
+; shape of process creation will arrive without a third arm here.)
 ; ------------------------------------------------------------------
 ; Start `path` with argument vector `argv` and environment `envp`.
 ; `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means

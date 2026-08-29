@@ -2335,6 +2335,8 @@ What puts a name on that list is stated once, in README's *Targets* section: a C
 
 `--target` also accepts `freebsd-x86_64` and `freebsd-aarch64` (since 2026-08-29). They are cross-only - assembled under their own triples by `scripts/check-cross-targets.sh` on every PR, never executed, with no seed and no artifact - and neither joins the list above until a CI leg runs what the compiler emits there. FreeBSD 12 is the floor the syscall numbers need; the triple pins 14.
 
+`--target=windows-x86_64` is accepted and emits (`x86_64-pc-windows-msvc`), and is not on the list: nothing links or executes it yet. It is the one target without a syscall ABI, so the emitted runtime and `stdlib/Sys/Platform.windows.ax` reach kernel32 by call (`Sys.Platform.usesSyscallAbi` is 0 there, and `Sys.ax` calls the platform module's own `platformWriteFd`/`platformReadFd`/`platformExitWith` instead of `__syscallN`), the program enters at `mainCRTStartup` with no C runtime, and a `__syscallN` the program reaches anyway exits 74 after `axiom: no syscall ABI on this target`.
+
 ---
 
 ## Optimisation

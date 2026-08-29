@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 531 `.ax` files in the repository apart from the two named below,
+the 537 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -275,7 +275,8 @@ be a framework a reader had to learn before reading a single gate.
 | `check-tree-sitter.sh` | the checked-in grammar parses every `.ax` file in the repository, and the documentation's Axiom blocks balance their delimiters (compiling them is `check-tools-selfhost.sh`) |
 | `run-stdlib-tests.sh` | every case in `tests/stdlib` compiles, runs, prints its `.out` and exits as its `.exit` says |
 | `check-freestanding.sh` | generated code needs no C library |
-| `check-platform-constants.sh` | the syscall numbers the backend emits and the ones `stdlib/Sys/Platform.*.ax` declares are the same numbers, on all six targets - they disagreed silently once |
+| `check-platform-constants.sh` | the syscall numbers the backend emits and the ones `stdlib/Sys/Platform.*.ax` declares are the same numbers on the six POSIX targets, and on windows-x86_64 the same kernel32 entry points; and on every target the two halves agree on whether a syscall ABI exists at all - they disagreed silently once |
+| `check-windows-entry.sh` | the Windows entry shim's command-line and environment parsers, cut out of the emitted Windows IR and executed on THIS host against known answers, with two rules ablated to show the golden move |
 | `check-self-host.sh` | every case in `tests/selfhost` compiles, assembles, runs and exits as the fixture says — the only gate that drives the compiler end to end |
 | `check-driver.sh` | `axiom build`: the command-line surface, and that a failing `llc` fails the build while a missing `opt` does not |
 | `check-stdlib-selfhost.sh` | both corpora compiled *and run* through the identical `llc`/`cc` pipeline at `-O0` and `-O2` |

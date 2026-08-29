@@ -14,6 +14,29 @@
 #      carry the same syscalls for the STANDARD LIBRARY, as `sysExit`,
 #      `sysWrite` and their neighbours.
 #
+# AND ON WINDOWS THE SAME TWO TABLES ARE NAMES, NOT NUMBERS. windows-
+# x86_64 has no syscall ABI: `self_host/codegen.ax`'s runtime exits
+# through `ExitProcess`, writes through `WriteFile` and maps through
+# `VirtualAlloc` (`emitRuntimeExit`/`emitRuntimeWrite`/`emitRuntimeMap`),
+# and `stdlib/Sys/Platform.windows.ax` exits and writes through
+# `platformExitWith`/`platformWriteFd`, which are functions over an
+# `extern "kernel32"` block. The fact with two copies is then WHICH
+# kernel32 entry point each half reaches, and the disagreement this
+# gate would catch is the same one as on Linux with different spelling:
+# a runtime that `TerminateProcess`es where the library `ExitProcess`es.
+# The Windows arm below reads the calls out of the emitted module as
+# the POSIX arm reads the syscall operands, and its census is a floor
+# the same way. `VirtualAlloc` is emitted-only, as `mmap` is.
+#
+# ONE MORE FACT WITH TWO COPIES, on every target: whether the target
+# HAS a syscall ABI at all. `targetUsesSyscallAsm` in codegen decides
+# whether the runtime emits syscall templates; `Sys.Platform.
+# usesSyscallAbi` decides whether `Sys.ax` calls `__syscallN` or the
+# platform module's own functions. The last section before the probes
+# reads both out of each module and requires them to agree - a platform
+# module claiming a syscall ABI its runtime does not emit would send
+# every `Sys.ax` call into the `__syscallN` trap.
+#
 # Nothing compared them, and they had already disagreed. The comment
 # above `targetExitNum` in `self_host/codegen.ax` records it: the
 # emitted abort paths exited through Linux `exit` (93 on aarch64, 60 on
@@ -84,7 +107,7 @@ gate_init
 # exists to watch it. About eight seconds.
 gate_build_axc axc
 
-targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64)
+targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64)
 
 # Which platform module serves a target, for the failure message to
 # name. The mapping is `targetOsArchSuffix` then `targetOsSuffix` in
@@ -95,6 +118,7 @@ platform_file() {
   case "$1" in
     darwin-*)  echo "stdlib/Sys/Platform.darwin.ax" ;;
     freebsd-*) echo "stdlib/Sys/Platform.freebsd.ax" ;;
+    windows-*) echo "stdlib/Sys/Platform.windows.ax" ;;
     *)         echo "stdlib/Sys/Platform.$1.ax" ;;
   esac
 }
@@ -131,6 +155,10 @@ done
 #   * `main` names the two constants under test, so a rename in
 #     `Sys.Platform` fails the probe's own compile with a diagnostic
 #     instead of quietly removing a comparison.
+#   * on windows-x86_64 the platform module's functions are emitted
+#     whether or not the probe calls them, so the shims' kernel32 calls
+#     are in the module to read; and `main`'s two constants are 0 there
+#     (there is no number), which the Windows arm never reads.
 probe="$work/platform-constants-probe.ax"
 cat > "$probe" <<'PROBE'
 (import Sys.Platform)
@@ -398,6 +426,124 @@ platform_table_report() {
   ' "$ir"
 }
 
+# The Windows shape of the same comparison. The runtime's kernel32
+# calls are read out of the functions the emitter writes (`axiom_alloc`,
+# `__axiom_*`, `mainCRTStartup`), the library's out of `@Sys.Platform$*`,
+# and everything else in the module is ignored - the probe's own `main`
+# calls platform constants, which are not kernel32. A CamelCase call in
+# a runtime function that is not one of the six the emitter is known to
+# make is a FAIL, not a skip, for the reason the POSIX classifier gives
+# about an unread syscall.
+#
+# Reports through its output and exits 0, like `platform_table_report`.
+kernel32_table_report() {
+  local target="$1" ir="$2" platfile="$3"
+  awk -v target="$target" -v platfile="$platfile" '
+    BEGIN {
+      std_of["VirtualAlloc"] = "-";                cg_of["VirtualAlloc"] = "emitRuntimeMap"
+      std_of["ExitProcess"]  = "platformExitWith"; cg_of["ExitProcess"]  = "emitRuntimeExit"
+      std_of["WriteFile"]    = "platformWriteFd";  cg_of["WriteFile"]    = "emitRuntimeWrite"
+      # The census, as a floor: two maps (allocator, arena); the three
+      # traps exit, plus the entry and the no-syscall trap; the traps
+      # and the backtracer write.
+      floor_of["VirtualAlloc"] = 2
+      floor_of["ExitProcess"]  = 3
+      floor_of["WriteFile"]    = 2
+      known["VirtualAlloc"] = 1; known["ExitProcess"] = 1; known["WriteFile"] = 1
+      known["GetStdHandle"] = 1; known["GetCommandLineW"] = 1; known["GetEnvironmentStringsW"] = 1
+    }
+    /^define / {
+      fn = $0
+      sub(/^.*@/, "", fn)
+      sub(/\(.*$/, "", fn)
+      inplat = (fn ~ /^Sys\.Platform\$/)
+      inrt = (fn ~ /^(axiom_alloc$|__axiom_|mainCRTStartup$)/)
+      next
+    }
+    /asm sideeffect/ && /"[^"]*(svc #|syscall)[^"]*"/ { asmsys++; next }
+    / call [a-z0-9]+ @[A-Z][A-Za-z0-9]*\(/ {
+      name = $0
+      sub(/^.* call [a-z0-9]+ @/, "", name)
+      sub(/\(.*$/, "", name)
+      if (inplat) { shim[fn] = shim[fn] " " name; next }
+      if (!inrt) next
+      if (!(name in known)) {
+        printf "FAIL [%s] the emitted runtime calls @%s in @%s, which this gate cannot classify.\n", target, name, fn
+        printf "     Teach the classifier - an unread kernel32 entry point is an uncompared one.\n"
+        next
+      }
+      count[name]++
+      site[name] = site[name] " " fn
+      next
+    }
+    END {
+      if (asmsys > 0)
+        printf "FAIL [%s] the Windows module carries %d syscall template(s); a target with no syscall ABI emitted one\n", target, asmsys
+      nn = split("VirtualAlloc ExitProcess WriteFile", ord, " ")
+      for (i = 1; i <= nn; i++) {
+        name = ord[i]
+        sn = std_of[name]
+        if (count[name] < floor_of[name]) {
+          printf "FAIL [%s] %s: the emitted runtime has %d call(s), against a census of %d.\n", \
+                 target, name, count[name] + 0, floor_of[name]
+          printf "     An abort path, the entry or an allocator mapping has gone, and what this\n"
+          printf "     gate compares went with it.\n"
+          continue
+        }
+        if (sn == "-") {
+          printf "ok   [%s] %-12s %d emitted site(s); no Sys.Platform counterpart, by design\n", target, name, count[name]
+          continue
+        }
+        sf = "Sys.Platform$" sn
+        if (!(sf in shim)) {
+          printf "FAIL [%s] %s: %s exposes no function `%s` that calls into kernel32, so this gate\n", target, name, platfile, sn
+          printf "     read nothing to compare the emitted %s against.\n", name
+          continue
+        }
+        if (index(shim[sf], " " name) == 0) {
+          printf "FAIL [%s] %s: the emitted runtime reaches @%s (%s), Sys.Platform.%s reaches%s\n", \
+                 target, name, name, cg_of[name], sn, shim[sf]
+          printf "     - one fact, two copies, and they now disagree the way `exit` and `exit_group` once did.\n"
+          continue
+        }
+        printf "ok   [%s] %-12s %d emitted site(s) and Sys.Platform.%s both reach @%s\n", target, name, count[name], sn, name
+      }
+    }
+  ' "$ir"
+}
+
+# Does a module say it has a syscall ABI? `1`/`0` from the platform
+# constant, or empty when the constant is missing or not a literal.
+uses_syscall_abi_of() {
+  awk '
+    /^define / { fn = $0; sub(/^.*@/, "", fn); sub(/\(.*$/, "", fn); armed = (fn == "Sys.Platform$usesSyscallAbi") }
+    armed && $1 == "ret" { if ($3 ~ /^-?[0-9]+$/) print $3; armed = 0 }
+  ' "$1"
+}
+syscall_templates_of() {
+  grep 'asm sideeffect' "$1" | grep -cE '"[^"]*(svc #|syscall)[^"]*"' || true
+}
+# `ok`/`FAIL` on its output, exit 0, like the two reports.
+syscall_abi_report() {
+  local target="$1" ir="$2" platfile="$3" uses templates
+  uses="$(uses_syscall_abi_of "$ir")"
+  templates="$(syscall_templates_of "$ir")"
+  if [[ -z "$uses" ]]; then
+    echo "FAIL [$target] $platfile exposes no integer constant \`usesSyscallAbi\`, so whether the"
+    echo "     library and the runtime agree on HAVING a syscall ABI was not read"
+  elif [[ "$uses" == 1 && "$templates" -eq 0 ]]; then
+    echo "FAIL [$target] Sys.Platform.usesSyscallAbi is 1 and the emitted runtime carries no syscall"
+    echo "     template: Sys.ax would call __syscallN on a target whose compiler lowers it to a trap"
+  elif [[ "$uses" == 0 && "$templates" -gt 0 ]]; then
+    echo "FAIL [$target] Sys.Platform.usesSyscallAbi is 0 and the emitted runtime carries $templates syscall template(s):"
+    echo "     the library would route past a syscall ABI the runtime uses"
+  elif [[ "$uses" != 0 && "$uses" != 1 ]]; then
+    echo "FAIL [$target] Sys.Platform.usesSyscallAbi is $uses; it is a capability and answers 0 or 1"
+  else
+    echo "ok   [$target] usesSyscallAbi = $uses and the runtime emits $templates syscall template(s): the two agree"
+  fi
+}
+
 status=0
 
 for target in "${targets[@]}"; do
@@ -408,7 +554,12 @@ for target in "${targets[@]}"; do
     status=1
     continue
   fi
-  report="$(platform_table_report "$target" "$ir" "$(platform_file "$target")")"
+  case "$target" in
+    windows-*) report="$(kernel32_table_report "$target" "$ir" "$(platform_file "$target")")" ;;
+    *)         report="$(platform_table_report "$target" "$ir" "$(platform_file "$target")")" ;;
+  esac
+  report="$report
+$(syscall_abi_report "$target" "$ir" "$(platform_file "$target")")"
   printf '%s\n' "$report"
   # `if`, not `&& status=1`: a failing `grep -q` at the end of an `&&`
   # list is the whole list failing, and `set -e` would end the run
@@ -593,6 +744,91 @@ else
   probe_expects "a Linux target whose syscall template negates" \
     "$work/p9.ll" 'negates on a Linux target'
 fi
+
+# ---------------------------------------------------------------
+# The Windows shape can fail too, and the syscall-ABI agreement can.
+#
+# Same discipline: real emitted modules, one edit each, the report
+# functions above run for real.
+# ---------------------------------------------------------------
+echo "--- negative probes: the Windows comparison can fail ---"
+wreal="$work/windows-x86_64.ll"
+wplat="stdlib/Sys/Platform.windows.ax"
+
+win_probe_expects() {
+  local label="$1" mutated="$2" want="$3" out
+  out="$(kernel32_table_report windows-x86_64 "$mutated" "$wplat")"
+  if ! grep '^FAIL' <<< "$out" | grep -qE "$want"; then
+    echo "FAIL negative probe: $label"
+    echo "    expected a FAIL line matching: $want"
+    printf '%s\n' "$out" | sed 's/^/    /' | head -8
+    probe_failures=$((probe_failures + 1))
+  else
+    echo "ok   negative probe: $label"
+  fi
+}
+
+# w0. The control.
+if grep -q '^FAIL' <<< "$(kernel32_table_report windows-x86_64 "$wreal" "$wplat")"; then
+  echo "FAIL negative probe: the unmutated windows-x86_64 module already reports a violation"
+  probe_failures=$((probe_failures + 1))
+else
+  echo "ok   negative probe: the unmutated Windows module reports none"
+fi
+
+# w1. The runtime exits through a name the library does not: one
+#     `ExitProcess` site rewritten to `TerminateProcess` - a plausible
+#     wrong answer, it is a real kernel32 export - inside a runtime
+#     function, so the classifier meets a name it does not know.
+awk '/^define / { rt = ($0 ~ /@__axiom_out_of_memory/) }
+     rt && /call i64 @ExitProcess\(/ && !hit { sub(/@ExitProcess\(/, "@TerminateProcess("); hit = 1 }
+     { print }' "$wreal" > "$work/w1.ll"
+win_probe_expects "a runtime that exits through TerminateProcess is a name this gate cannot classify" \
+  "$work/w1.ll" 'calls @TerminateProcess in @__axiom_out_of_memory, which this gate cannot classify'
+
+# w2. Vacuity: a runtime with no VirtualAlloc calls at all is a census
+#     failure, not agreement.
+grep -v 'call i64 @VirtualAlloc(' "$wreal" > "$work/w2.ll"
+win_probe_expects "a runtime with no VirtualAlloc calls is not agreement" \
+  "$work/w2.ll" 'VirtualAlloc: the emitted runtime has 0 call\(s\), against a census of 2'
+
+# w3. The library's half: `platformExitWith` no longer reaches
+#     ExitProcess (its call rewritten to a name the runtime does not
+#     use), so the two copies disagree.
+awk '/^define / { sh = ($0 ~ /@Sys\.Platform\$platformExitWith\(/) }
+     sh && /call i64 @ExitProcess\(/ { sub(/@ExitProcess\(/, "@ExitThread(") }
+     { print }' "$wreal" > "$work/w3.ll"
+win_probe_expects "a platform module that exits through ExitThread where the runtime says ExitProcess" \
+  "$work/w3.ll" 'ExitProcess: the emitted runtime reaches @ExitProcess .*, Sys.Platform.platformExitWith reaches.*ExitThread'
+
+# w4. A syscall template appearing in a Windows module is reported.
+{ cat "$wreal"; printf 'define i64 @__axiom_stray() #0 {\n\n  %%r = call i64 asm sideeffect "syscall", "={ax},{ax},~{memory}"(i64 60)\n  ret i64 %%r\n}\n'; } > "$work/w4.ll"
+win_probe_expects "a syscall template in the Windows module is reported" \
+  "$work/w4.ll" 'carries 1 syscall template'
+
+# a1/a2. The syscall-ABI agreement, both directions, on real modules:
+#     the linux module claiming 0, the Windows module claiming 1.
+abi_probe_expects() {
+  local label="$1" target="$2" mutated="$3" plat="$4" want="$5" out
+  out="$(syscall_abi_report "$target" "$mutated" "$plat")"
+  if ! grep '^FAIL' <<< "$out" | grep -qE "$want"; then
+    echo "FAIL negative probe: $label"
+    echo "    expected a FAIL line matching: $want"
+    printf '%s\n' "$out" | sed 's/^/    /' | head -4
+    probe_failures=$((probe_failures + 1))
+  else
+    echo "ok   negative probe: $label"
+  fi
+}
+mutate_stdlib_constant usesSyscallAbi 0 < "$real" > "$work/a1.ll"
+abi_probe_expects "a linux module claiming no syscall ABI under a runtime full of templates" \
+  linux-aarch64 "$work/a1.ll" "$plat" 'usesSyscallAbi is 0 and the emitted runtime carries [0-9]+ syscall template'
+mutate_stdlib_constant usesSyscallAbi 1 < "$wreal" > "$work/a2.ll"
+abi_probe_expects "a Windows module claiming a syscall ABI its runtime does not emit" \
+  windows-x86_64 "$work/a2.ll" "$wplat" 'usesSyscallAbi is 1 and the emitted runtime carries no syscall'
+mutate_stdlib_constant usesSyscallAbi '%no_longer_a_constant' < "$real" > "$work/a3.ll"
+abi_probe_expects "a usesSyscallAbi that stopped being a literal reads as absent" \
+  linux-aarch64 "$work/a3.ll" "$plat" 'exposes no integer constant .usesSyscallAbi.'
 
 if [[ "$probe_failures" -gt 0 ]]; then
   echo "$probe_failures negative probe(s) failed - this gate is not proven able to go red" >&2

@@ -1,0 +1,502 @@
+; Sys.Platform - Windows, as kernel32 bindings rather than syscall numbers.
+;
+; Selected by the `.windows.ax` filename suffix when compiling for
+; `--target=windows-x86_64` (the arch-specific `.windows-x86_64.ax` is
+; tried first and does not exist: the bindings below are the same on
+; every Windows architecture, which is the reason `Platform.darwin.ax`
+; serves both Darwin targets).
+;
+; THIS IS THE OTHER KIND OF PLATFORM MODULE. The three POSIX modules are
+; tables of integers - syscall numbers and flags - and `Sys.ax` makes
+; every kernel call itself through `__syscallN`. Windows has no syscall
+; ABI a program may use: the numbers are private to each build of the
+; kernel and Microsoft documents none of them. So this module answers
+; `usesSyscallAbi` 0 and DOES THE WORK ITSELF, over an `extern
+; "kernel32"` block, in functions `Sys.ax` calls where it would
+; otherwise have called `__syscallN`. `Sys.ax`'s header records that
+; this is the one exception to "the platform module is a table", and
+; why.
+;
+; WHAT IS BOUND TODAY: the console and process half - `WriteFile`,
+; `ReadFile`, `GetStdHandle`, `ExitProcess`, `GetLastError` - which is
+; what a hello world and the three runtime traps need. Files,
+; directories, processes, the clock, sockets, entropy and signals are
+; a later phase; until then a `Sys.ax` function that needs one of them
+; reaches a `__syscallN` arm, which on this target the compiler lowers
+; to a trap (`axiom: no syscall ABI on this target`, status 74) rather
+; than to a `syscall` instruction the OS gives no meaning to. Loud, and
+; on purpose.
+;
+; THE 81 NAMES BELOW EXIST because `Sys.ax` names every one of them
+; and is checked against whichever platform module resolves. Every
+; syscall NUMBER is 0 and is never handed to a kernel - `usesSyscallAbi`
+; keeps the arms that would pass it unreached. Flags and errno values
+; keep their Linux spellings on purpose: `eExist`, `eIsDir`, `eAgain`
+; are what `IO.ax` and `Sys.ax` compare a failure against, so the
+; error-mapping shim (`winErrnoOf`) answers in those terms and the
+; comparisons above it stay portable.
+;
+; THE WORD-WIDTH RULE, which every shim here obeys and which
+; `docs/ffi.md` states for externs in general: every binding is `i64`
+; in and `i64` out. A Win32 function returning BOOL or DWORD writes
+; only eax and leaves the upper half of rax UNDEFINED, so a 32-bit
+; result is masked (`(& r 4294967295)`) before it is tested; a
+; function returning a HANDLE or a pointer answers a full 64-bit
+; value and is NOT masked - masking one would turn INVALID_HANDLE_VALUE
+; (-1) into 4294967295, which compares unequal to -1 and reads as
+; success. Which is which is written beside each binding.
+;
+; DESCRIPTORS. `Sys.ax` speaks in file descriptors; Windows in
+; HANDLEs. Descriptors 0, 1 and 2 map to `GetStdHandle(-10 / -11 /
+; -12)`; any other value is taken to BE a HANDLE. That is sound
+; because a Windows HANDLE is a multiple of 4, so 1 and 2 can never be
+; one, and 0 is the null handle, which no successful open answers.
+;
+; NOTE ON EFFECTS. The shims here perform I/O and say so; the POSIX
+; modules carry the same three names as pure stubs behind
+; `usesSyscallAbi` 1, which is what keeps the four modules declaring
+; one set of public names (`check-stdlib-api.sh` requires it).
+
+(pub :: sysRead Int)
+
+(pub fn (sysRead) 0)
+
+(pub :: sysWrite Int)
+
+(pub fn (sysWrite) 0)
+
+(pub :: sysOpen Int)
+
+(pub fn (sysOpen) 0)
+
+(pub :: sysClose Int)
+
+(pub fn (sysClose) 0)
+
+(pub :: sysExit Int)
+
+(pub fn (sysExit) 0)
+
+(pub :: sysLseek Int)
+
+(pub fn (sysLseek) 0)
+
+(pub :: openNeedsDirFd Int)
+
+(pub fn (openNeedsDirFd) 0)
+
+(pub :: atFdCwd Int)
+
+(pub fn (atFdCwd) 0)
+
+(pub :: oRdonly Int)
+
+(pub fn (oRdonly) 0)
+
+(pub :: oWronlyCreateTrunc Int)
+
+(pub fn (oWronlyCreateTrunc) 577)
+
+(pub :: oWronlyCreateAppend Int)
+
+(pub fn (oWronlyCreateAppend) 1089)
+
+(pub :: seekEnd Int)
+
+(pub fn (seekEnd) 2)
+
+(pub :: seekSet Int)
+
+(pub fn (seekSet) 0)
+
+(pub :: spawnUsesPosixSpawn Int)
+
+(pub fn (spawnUsesPosixSpawn) 0)
+
+(pub :: sysFork Int)
+
+(pub fn (sysFork) 0)
+
+(pub :: sysForkArg Int)
+
+(pub fn (sysForkArg) 0)
+
+(pub :: sysExecve Int)
+
+(pub fn (sysExecve) 0)
+
+(pub :: sysWait4 Int)
+
+(pub fn (sysWait4) 0)
+
+(pub :: sysPosixSpawn Int)
+
+(pub fn (sysPosixSpawn) 0)
+
+(pub :: sysUnlinkNum Int)
+
+(pub fn (sysUnlinkNum) 0)
+
+(pub :: sysMkdirNum Int)
+
+(pub fn (sysMkdirNum) 0)
+
+(pub :: sysRmdirNum Int)
+
+(pub fn (sysRmdirNum) 0)
+
+(pub :: sysRenameNum Int)
+
+(pub fn (sysRenameNum) 0)
+
+(pub :: sysGetdentsNum Int)
+
+(pub fn (sysGetdentsNum) 0)
+
+(pub :: dirReadNeedsPosition Int)
+
+(pub fn (dirReadNeedsPosition) 0)
+
+(pub :: direntNameOffset Int)
+
+(pub fn (direntNameOffset) 19)
+
+(pub :: cwdUsesFcntlPath Int)
+
+(pub fn (cwdUsesFcntlPath) 0)
+
+(pub :: sysCwdNum Int)
+
+(pub fn (sysCwdNum) 0)
+
+(pub :: fGetPath Int)
+
+(pub fn (fGetPath) 0)
+
+(pub :: eExist Int)
+
+(pub fn (eExist) 17)
+
+(pub :: eIsDir Int)
+
+(pub fn (eIsDir) 21)
+
+(pub :: sysGetPidNum Int)
+
+(pub fn (sysGetPidNum) 0)
+
+(pub :: sysClockNum Int)
+
+(pub fn (sysClockNum) 0)
+
+(pub :: clockIsGettimeofday Int)
+
+(pub fn (clockIsGettimeofday) 0)
+
+(pub :: clockHasMonotonic Int)
+
+(pub fn (clockHasMonotonic) 1)
+
+(pub :: sysSocketNum Int)
+
+(pub fn (sysSocketNum) 0)
+
+(pub :: sysBindNum Int)
+
+(pub fn (sysBindNum) 0)
+
+(pub :: sysListenNum Int)
+
+(pub fn (sysListenNum) 0)
+
+(pub :: sysAcceptNum Int)
+
+(pub fn (sysAcceptNum) 0)
+
+(pub :: sysConnectNum Int)
+
+(pub fn (sysConnectNum) 0)
+
+(pub :: sysSetSockOptNum Int)
+
+(pub fn (sysSetSockOptNum) 0)
+
+(pub :: sysGetSockOptNum Int)
+
+(pub fn (sysGetSockOptNum) 0)
+
+(pub :: sysShutdownNum Int)
+
+(pub fn (sysShutdownNum) 0)
+
+(pub :: sysFcntlNum Int)
+
+(pub fn (sysFcntlNum) 0)
+
+(pub :: afInet Int)
+
+(pub fn (afInet) 2)
+
+(pub :: afInet6 Int)
+
+(pub fn (afInet6) 10)
+
+(pub :: sockStream Int)
+
+(pub fn (sockStream) 1)
+
+(pub :: solSocket Int)
+
+(pub fn (solSocket) 1)
+
+(pub :: soReuseAddr Int)
+
+(pub fn (soReuseAddr) 2)
+
+(pub :: soReusePort Int)
+
+(pub fn (soReusePort) 15)
+
+(pub :: soError Int)
+
+(pub fn (soError) 4)
+
+(pub :: fGetFl Int)
+
+(pub fn (fGetFl) 3)
+
+(pub :: fSetFl Int)
+
+(pub fn (fSetFl) 4)
+
+(pub :: oNonblock Int)
+
+(pub fn (oNonblock) 2048)
+
+(pub :: eAgain Int)
+
+(pub fn (eAgain) 11)
+
+(pub :: sockaddrHasLenByte Int)
+
+(pub fn (sockaddrHasLenByte) 0)
+
+(pub :: pollUsesKqueue Int)
+
+(pub fn (pollUsesKqueue) 0)
+
+(pub :: sysPollCreateNum Int)
+
+(pub fn (sysPollCreateNum) 0)
+
+(pub :: sysPollWaitNum Int)
+
+(pub fn (sysPollWaitNum) 0)
+
+(pub :: sysPollCtlNum Int)
+
+(pub fn (sysPollCtlNum) 0)
+
+(pub :: pollEventSize Int)
+
+(pub fn (pollEventSize) 12)
+
+(pub :: pollEventFdOffset Int)
+
+(pub fn (pollEventFdOffset) 4)
+
+(pub :: pollReadFilter Int)
+
+(pub fn (pollReadFilter) 1)
+
+(pub :: pollAddOp Int)
+
+(pub fn (pollAddOp) 1)
+
+(pub :: pollDelOp Int)
+
+(pub fn (pollDelOp) 2)
+
+(pub :: pollSigsetSize Int)
+
+(pub fn (pollSigsetSize) 8)
+
+(pub :: sysRandomNum Int)
+
+(pub fn (sysRandomNum) 0)
+
+(pub :: randomIsGetentropy Int)
+
+(pub fn (randomIsGetentropy) 0)
+
+(pub :: randomMaxChunk Int)
+
+(pub fn (randomMaxChunk) 256)
+
+(pub :: signalUsesSignalFd Int)
+
+(pub fn (signalUsesSignalFd) 1)
+
+(pub :: sysSigProcMaskNum Int)
+
+(pub fn (sysSigProcMaskNum) 0)
+
+(pub :: sigBlockHow Int)
+
+(pub fn (sigBlockHow) 0)
+
+(pub :: sigsetBytes Int)
+
+(pub fn (sigsetBytes) 8)
+
+(pub :: sysSignalFdNum Int)
+
+(pub fn (sysSignalFdNum) 0)
+
+(pub :: sigInfoSize Int)
+
+(pub fn (sigInfoSize) 128)
+
+(pub :: pollSignalFilter Int)
+
+(pub fn (pollSignalFilter) 0)
+
+(pub :: sysKillNum Int)
+
+(pub fn (sysKillNum) 0)
+
+(pub :: sigTerm Int)
+
+(pub fn (sigTerm) 15)
+
+(pub :: sigInt Int)
+
+(pub fn (sigInt) 2)
+
+(pub :: forkChildIsZero Int)
+
+(pub fn (forkChildIsZero) 1)
+
+(pub :: acceptNonblockFlag Int)
+
+(pub fn (acceptNonblockFlag) 2048)
+
+; ------------------------------------------------------------------
+; The capability, and the bindings behind it.
+; ------------------------------------------------------------------
+(pub :: usesSyscallAbi Int)
+
+(pub fn (usesSyscallAbi) 0)
+
+; Not `pub`: the raw bindings stay inside this file, so the public
+; surface of every platform module is one set of names. `#0` on the
+; emitted declares and the `dllimport` on the runtime's own copies of
+; four of these are the emitter's business (`emitWinRuntime`).
+(extern "kernel32"
+  ; HANDLE GetStdHandle(DWORD) - a HANDLE: not masked.
+  (winGetStdHandle :: (-> Int Int) (symbol "GetStdHandle"))
+  ; BOOL WriteFile(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED) - BOOL: masked.
+  (winWriteFile :: (-> Int Int Int Int Int Int) (symbol "WriteFile"))
+  ; BOOL ReadFile(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED) - BOOL: masked.
+  (winReadFile :: (-> Int Int Int Int Int Int) (symbol "ReadFile"))
+  ; void ExitProcess(UINT) - never returns.
+  (winExitProcess :: (-> Int Int) (symbol "ExitProcess"))
+  ; DWORD GetLastError(void) - DWORD: masked.
+  (winGetLastError :: Int (symbol "GetLastError")))
+
+; A descriptor to a HANDLE: see the header.
+(:: winHandleOf (-> Int Int))
+
+;@axiom:effect(io)
+(fn (winHandleOf fd)
+  (if (== fd 0)
+    (winGetStdHandle (- 0 10))
+    (if (== fd 1)
+      (winGetStdHandle (- 0 11))
+      (if (== fd 2)
+        (winGetStdHandle (- 0 12))
+        fd
+      )
+    )
+  )
+)
+
+; A Win32 error code as the errno `Sys.ax`'s callers already test for,
+; NEGATED, so every `sysFailed`/`sysErrno` comparison above this file
+; is unchanged. The table is the console-and-process half; the file
+; half (ERROR_ALREADY_EXISTS -> eExist, ERROR_DIRECTORY -> eIsDir, ...)
+; arrives with the bindings that can produce it. Anything unmapped is
+; EIO (5): a failure, named as a failure, never mistaken for a count.
+(:: winErrnoOf (-> Int Int))
+
+(fn (winErrnoOf code)
+  (if (|| (== code 2) (== code 3))
+    (- 0 2)
+    (if (== code 5)
+      (- 0 13)
+      (if (== code 6)
+        (- 0 9)
+        (if (== code 8)
+          (- 0 12)
+          (if (|| (== code 109) (== code 232))
+            (- 0 32)
+            (- 0 5)
+          )
+        )
+      )
+    )
+  )
+)
+
+; The DWORD out-cell `WriteFile`/`ReadFile` write their count through.
+; A fresh 8-byte word per call, zeroed by `__alloc`, so the upper half
+; of the word is 0 when the kernel has written only the lower four
+; bytes - the same hazard `sysWaitPid` zeroes its status cell against.
+; `lpNumberOfBytesWritten` may be NULL only when `lpOverlapped` is
+; not, so the cell is not optional.
+(:: winCell Int)
+
+(fn (winCell) (__alloc 8))
+
+; write(fd, buf, count): bytes written, or -errno.
+(pub :: platformWriteFd (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (platformWriteFd fd buf count)
+  (let ((cell winCell))
+    (let ((ok (& (winWriteFile (winHandleOf fd) buf count cell 0) 4294967295)))
+      (if (== ok 0)
+        (winErrnoOf (& winGetLastError 4294967295))
+        (& (__load64 cell 0) 4294967295)
+      )
+    )
+  )
+)
+
+; read(fd, buf, count): bytes read, 0 at end of file, or -errno. A
+; broken pipe (ERROR_BROKEN_PIPE, 109) on a read is end of file, which
+; is what a POSIX read of a closed pipe answers too.
+(pub :: platformReadFd (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (platformReadFd fd buf count)
+  (let ((cell winCell))
+    (let ((ok (& (winReadFile (winHandleOf fd) buf count cell 0) 4294967295)))
+      (if (== ok 0)
+        (let ((code (& winGetLastError 4294967295)))
+          (if (== code 109)
+            0
+            (winErrnoOf code)
+          )
+        )
+        (& (__load64 cell 0) 4294967295)
+      )
+    )
+  )
+)
+
+; exit(code): `ExitProcess` ends every thread, as `exit_group` does.
+(pub :: platformExitWith (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (platformExitWith code) (winExitProcess code))
