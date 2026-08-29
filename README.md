@@ -1097,8 +1097,15 @@ runtime). `check-cross-targets.sh` assembles every stdlib case for it
 at three levels, `check-platform-constants.sh` holds its runtime and
 its `Sys/Platform.windows.ax` to the same kernel32 entry points, and
 `check-windows-entry.sh` executes its command-line parser on the host.
-Nothing links a Windows executable yet and no runner executes one; a
-`__syscallN` reached on that target traps with status 74.
+`axiom build --target=windows-x86_64` links a `.exe` through `lld-link`
+(no C compiler on that path) given a `kernel32.lib` on a `--link-search`
+directory - the SDK's, or one `llvm-dlltool` generates from a `.def` -
+and `check-driver.sh` asserts every branch of that link on hosts that
+cannot run the result. A CI leg, `Tests (windows-x86_64)`, assembles,
+links and executes a hello world on `windows-latest` from modules the
+Linux `cross` job emitted; it runs under `continue-on-error` and the
+target is not supported until that line is removed. A `__syscallN`
+reached on that target traps with status 74.
 
 ### Optimisation and recursion depth
 

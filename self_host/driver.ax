@@ -289,6 +289,32 @@
   )
 )
 
+; ------------------------------------------------------------------
+; Which linker, which archive spelling, which suffix: the MODULE
+; decides, by the `target triple` line the emitter wrote first, not the
+; host. A Windows executable is linked on macOS and Linux (cross) long
+; before any Windows runner exists, and `uname` on those hosts would
+; answer for the wrong machine. The four POSIX targets share one
+; answer - `cc`, `lib<name>.a`, no suffix - and windows-x86_64 has the
+; other: `lld-link`, `<name>.lib`, `.exe`.
+; ------------------------------------------------------------------
+(pub :: irTargetIsWindows (-> String Bool))
+
+(pub fn (irTargetIsWindows ir) (>= (strFindSub ir "target triple = \"x86_64-pc-windows-msvc\"" 0) 0))
+
+; `<dir>/lib<name>.a`, or `<dir>/<name>.lib` where the link is
+; lld-link's: both the auto-link probe and the grounding pass spell an
+; archive's path through here, so the two cannot disagree about what a
+; library is called.
+(pub :: archivePathIn (-> String String Bool String))
+
+(pub fn (archivePathIn dir lib isWin)
+  (if isWin
+    (cat3 (cat2 dir "/") lib ".lib")
+    (cat2 (cat3 dir "/lib" lib) ".a")
+  )
+)
+
 ; Copy the caller's already-formatted link arguments (`-L<dir>`,
 ; `-l<name>`) onto the `cc` argument vector.
 (pub :: appendLinkArgs (-> Int Int Int Int))
@@ -306,12 +332,52 @@
   )
 )
 
+; The same arguments in lld-link's spelling: `-L<dir>` is
+; `/libpath:<dir>` and `-l<name>` is `<name>.lib`. Anything else is
+; copied as it came, which is what `cc` would have done with it too.
+(pub :: appendLinkArgsWindows (-> Int Int Int Int))
+
+(pub fn (appendLinkArgsWindows v linkArgs i)
+  (if (== linkArgs 0)
+    0
+    (if (>= i (vecLen linkArgs))
+      0
+      (let ((a
+        (cast String (vecGet linkArgs i))
+      ))
+        {
+          (if (strStartsWith a "-L")
+            (vecPush
+              v              (cast Int (cat2 "/libpath:" (strSlice a 2 (- (strLen a) 2))))
+            )
+            (if (strStartsWith a "-l")
+              (vecPush
+                v                (cast Int (cat2 (strSlice a 2 (- (strLen a) 2)) ".lib"))
+              )
+              (vecPush v (vecGet linkArgs i))
+            )
+          )
+          (appendLinkArgsWindows v linkArgs (+ i 1))
+        }
+      )
+    )
+  )
+)
+
 ; Assemble `llPath` to `objPath`, then link it to `outPath`.
 ; Answers 0, or `exitToolFailed`.
-(pub :: assembleAndLink (-> String String String Int Int Int))
+;
+; `isWin` selects the linker: `cc` for the four POSIX targets, and for
+; windows-x86_64 `lld-link /subsystem:console /entry:mainCRTStartup
+; /out:<out> <obj> <libs>` - no C compiler anywhere on that path, by
+; decision (the design's Q2), which is one tool fewer than the status
+; quo rather than one more. `--emit-staticlib` is refused there for
+; now: `ar` has no place in a Windows link and `llvm-lib` is a later
+; phase, and saying so beats half-supporting it (Q11).
+(pub :: assembleAndLink (-> String String String Int Int Bool Int))
 
 ;@axiom:effect(io)
-(pub fn (assembleAndLink llPath objPath outPath optLevel linkArgs)
+(pub fn (assembleAndLink llPath objPath outPath optLevel linkArgs isWin)
   (let ((lvl 
     (if (> optLevel 3)
       3
@@ -354,6 +420,44 @@
               "llc failed"
             )            "install LLVM and put `llc` on PATH; `--emit-llvm` keeps the IR so the step can be run by hand"
           )
+          (if isWin
+            (if cgStaticlib
+              (toolFailDiag
+                "`--emit-staticlib` is not supported for windows-x86_64 yet"                "the Windows link is lld-link's and `ar` has no place in it; an archive for a Windows host is a later phase of the Windows track"
+              )
+              (let ((linkArgsW
+                (let ((v vecNew))
+                  {
+                    (vecPush
+                      v                      (cast Int "/subsystem:console")
+                    )
+                    (vecPush
+                      v                      (cast Int "/entry:mainCRTStartup")
+                    )
+                    (vecPush
+                      v                      (cast Int (cat2 "/out:" outPath))
+                    )
+                    (vecPush
+                      v                      (cast Int objPath)
+                    )
+                    (appendLinkArgsWindows v linkArgs 0)
+                    v
+                  }
+                )
+              ))
+                (let ((rcw (runTool "lld-link" linkArgsW)))
+                  (if (!= rcw 0)
+                    (toolFailDiag
+                      (if (< rcw 0)
+                        "could not run `lld-link`"
+                        "lld-link failed"
+                      )                      "lld-link links a windows-x86_64 executable; it ships with LLVM's lld (`brew install lld`, `apt-get install lld`, choco's llvm) - put it on PATH, and put a `kernel32.lib` on a `--link-search` directory"
+                    )
+                    0
+                  )
+                )
+              )
+            )
           (if cgStaticlib
             ; `--emit-staticlib`: the object is ARCHIVED, not linked -
             ; a Rust (or C) host links it, and its `pub fn`s are the
@@ -430,6 +534,7 @@
               )
             )
           )
+          )
         )
       )
     )
@@ -489,7 +594,12 @@
               (refreshBindings dir stem module)
               0
             )
-            (if (libExistsIn (crateTargetDirs dir) stem 0)
+            ; A cargo staticlib is `lib<stem>.a` on every host this
+            ; driver runs on - the `.lib` spelling belongs to the import
+            ; libraries a WINDOWS LINK consumes, and `--crate` for a
+            ; Windows target is not a thing yet (docs/ffi.md has no
+            ; Windows story) - so the archive is looked for as `.a`.
+            (if (libExistsIn (crateTargetDirs dir) stem 0 false)
               0
               (buildCrate dir pkg)
             )
@@ -889,12 +999,13 @@
   )
 )
 
-; `-L<dir>` and `-l<name>` back into `<dir>/lib<name>.a` paths, every
-; directory crossed with every library, because the link line does not
-; say which archive lives where and neither does this.
-(pub :: archivePathsOf (-> Int Int))
+; `-L<dir>` and `-l<name>` back into `<dir>/lib<name>.a` paths - or
+; `<dir>/<name>.lib` for a Windows link - every directory crossed with
+; every library, because the link line does not say which archive
+; lives where and neither does this.
+(pub :: archivePathsOf (-> Int Bool Int))
 
-(pub fn (archivePathsOf linkArgs)
+(pub fn (archivePathsOf linkArgs isWin)
   (let (
     (dirs vecNew)
     (libs vecNew)
@@ -931,10 +1042,8 @@
               (while (< l (vecLen libs))
                 {
                   (vecPush
-                    out                    (cast Int (cat2
-                      (cat3
-                        (cast String (vecGet dirs d))                        "/lib"                        (cast String (vecGet libs l))
-                      )                      ".a"
+                    out                    (cast Int (archivePathIn
+                      (cast String (vecGet dirs d))                      (cast String (vecGet libs l))                      isWin
                     ))
                   )
                   (set l (+ l 1))
@@ -1066,7 +1175,7 @@
               (cast String (vecGet wanted j))
             ))
               (if (== (strIndexIn libs lib) (- 0 1))
-                (if (libExistsIn dirs lib 0)
+                (if (libExistsIn dirs lib 0 (irTargetIsWindows ir))
                   {
                     (vecPush
                       v                      (cast Int (cat2 "-l" lib))
@@ -1174,23 +1283,21 @@
   )
 )
 
-(pub :: libExistsIn (-> Int String Int Bool))
+(pub :: libExistsIn (-> Int String Int Bool Bool))
 
 ;@axiom:effect(io)
-(pub fn (libExistsIn dirs lib i)
+(pub fn (libExistsIn dirs lib i isWin)
   (if (>= i (vecLen dirs))
     false
     (if (sysFileExists
       (strCStr
-        (cat2
-          (cat3
-            (cast String (vecGet dirs i))            "/lib"            lib
-          )          ".a"
+        (archivePathIn
+          (cast String (vecGet dirs i))          lib          isWin
         )
       )
     )
       true
-      (libExistsIn dirs lib (+ i 1))
+      (libExistsIn dirs lib (+ i 1) isWin)
     )
   )
 )
@@ -1224,8 +1331,13 @@
 )
 
 ; A symbol is grounded by an archive when the archive's symbol tables
-; hold the WHOLE name: `\0_name\0` (Mach-O, a leading underscore) or
-; `\0name\0` (ELF). A bare substring scan - what this was until
+; hold the WHOLE name: `\0_name\0` (Mach-O, a leading underscore),
+; `\0name\0` (ELF), or `\0__imp_name\0` (a COFF import library, whose
+; members are import descriptors rather than code: the linker resolves
+; a call to `name` through `__imp_name`, and an import library made by
+; `llvm-dlltool` lists ONLY that spelling - measured 2026-08-29 on one
+; generated from a `.def`: `\0VirtualAlloc\0` 0 times, `__imp_
+; VirtualAlloc` 2). A bare substring scan - what this was until
 ; 2026-08-22 - let `axffi_trip` ground against `axffi_triple` and die
 ; in the linker with a message about `cc`.
 (pub :: symbolGrounded (-> Int String Int Bool))
@@ -1247,7 +1359,10 @@
 (pub fn (blobDefines blob name)
   (if (nulAfter blob (cat2 "_" name) 0)
     true
-    (nulAfter blob name 0)
+    (if (nulAfter blob (cat2 "__imp_" name) 0)
+      true
+      (nulAfter blob name 0)
+    )
   )
 )
 
@@ -1461,7 +1576,7 @@
   (let ((names (declareNamesOf ir)))
     (if (== (vecLen names) 0)
       0
-      (let ((paths (existingPaths (archivePathsOf linkArgs))))
+      (let ((paths (existingPaths (archivePathsOf linkArgs (irTargetIsWindows ir)))))
         (let ((blobs (readArchives paths)))
           (groundEachSpanned
             names            blobs            paths            decls            units            dfmt            0
@@ -1887,7 +2002,7 @@
   (let ((names (declareNamesOf ir)))
     (if (== (vecLen names) 0)
       0
-      (let ((blobs (readArchives (archivePathsOf linkArgs))))
+      (let ((blobs (readArchives (archivePathsOf linkArgs (irTargetIsWindows ir)))))
         (groundEach names blobs 0)
       )
     )
@@ -1930,11 +2045,17 @@
   (let ((ug (groundDeclares ir linkArgs)))
     (if (!= ug 0)
       ug
+      ; `.exe` for a Windows module, appended HERE and nowhere else -
+      ; unless the caller already spelled it. The intermediates keep
+      ; `outPath`'s stem either way, so `--emit-llvm` leaves `<out>.ll`
+      ; beside `<out>.exe` rather than `<out>.exe.ll`.
       (let (
+        (isWin (irTargetIsWindows ir))
         (llPath (cat2 outPath ".ll"))
         (objPath (cat2 outPath ".o"))
         (optPath (cat2 outPath ".opt.ll"))
       )
+      (let ((exePath (if (&& isWin (!= (endsWithExe outPath) 1)) (cat2 outPath ".exe") outPath)))
         (if (isErr (sysWriteFile (strCStr llPath) ir))
           (toolFailDiag "could not write LLVM IR" "check that the output directory exists and is writable")
           (let ((toAssemble (runOpt llPath optLevel optPath)))
@@ -1944,7 +2065,7 @@
                 (toolFailDiag "opt failed" "`opt` is optional - a PATH without it warns and builds - so this is a failure of the one that is installed")
               }
               (let ((rc (assembleAndLink
-                toAssemble                objPath                outPath                optLevel                linkArgs
+                toAssemble                objPath                exePath                optLevel                linkArgs                isWin
               )))
                 {
                   (unwrapOr (sysUnlink (strCStr objPath)) 0)
@@ -1963,6 +2084,21 @@
           )
         )
       )
+      )
+    )
+  )
+)
+
+; Does `p` already end in `.exe`? 1 or 0, so the test above reads as
+; the others in this file do.
+(pub :: endsWithExe (-> String Int))
+
+(pub fn (endsWithExe p)
+  (if (< (strLen p) 4)
+    0
+    (if (strEq (strSlice p (- (strLen p) 4) 4) ".exe")
+      1
+      0
     )
   )
 )
@@ -2010,7 +2146,7 @@
 ; is a compiler nobody gets past.
 (pub :: usageText String)
 
-(pub fn (usageText) (cat3 "axiom - the Axiom compiler, written in Axiom\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  test       run every `test`-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins, --calls too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n" "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default `output`)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64,\n                     linux-x86_64, freebsd-x86_64, freebsd-aarch64,\n                     windows-x86_64 (the last three emit and are not\n                     yet supported; README, Targets)\n  --opt <0-3>        optimisation level (build, run, test; default 1)\n  --filter <TEXT>    run only the tests whose name contains TEXT (test)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive instead of an executable: no\n                     `main` is needed, every `pub fn` of the file is a C\n                     symbol a Rust or C host can call (build)\n  --emit-rust-binding <PATH>  with --emit-staticlib, also write a Rust\n                     module binding the archive's `pub` functions (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --calls            also list each function's resolved call edges as\n                     `#calls=` - the graph behind `#effects=` (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n" "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc)\n"))
+(pub fn (usageText) (cat3 "axiom - the Axiom compiler, written in Axiom\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  test       run every `test`-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins, --calls too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n" "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default `output`;\n                     `.exe` is appended for windows-x86_64 unless already spelled)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, freebsd-aarch64, windows-x86_64\n                     (the last three emit and are not yet supported; README, Targets)\n  --opt <0-3>        optimisation level (build, run, test; default 1)\n  --filter <TEXT>    run only the tests whose name contains TEXT (test)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive instead of an executable: no\n                     `main` is needed, every `pub fn` of the file is a C\n                     symbol a Rust or C host can call (build)\n  --emit-rust-binding <PATH>  with --emit-staticlib, also write a Rust\n                     module binding the archive's `pub` functions (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --calls            also list each function's resolved call edges as\n                     `#calls=` - the graph behind `#effects=` (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n" "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for windows-x86_64)\n"))
 
 ; One command's help: its synopsis and the flags it actually reads.
 ;

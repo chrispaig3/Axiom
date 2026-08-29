@@ -277,6 +277,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-freestanding.sh` | generated code needs no C library; and on windows-x86_64, where the runtime must import kernel32, every symbol the IR declares is on `scripts/platform-allow.windows.txt`, a reviewed list that may not carry a libc name |
 | `check-platform-constants.sh` | the syscall numbers the backend emits and the ones `stdlib/Sys/Platform.*.ax` declares are the same numbers on the six POSIX targets, and on windows-x86_64 the same kernel32 entry points; and on every target the two halves agree on whether a syscall ABI exists at all - they disagreed silently once |
 | `check-windows-entry.sh` | the Windows entry shim's command-line and environment parsers, cut out of the emitted Windows IR and executed on THIS host against known answers, with two rules ablated to show the golden move |
+| `check-windows-hello.sh` | `--emit` on any host, `--run` on a Windows runner: a hello world assembled, linked with `lld-link` against `llvm-dlltool`-generated import libraries, its imports held to the allowlist, and EXECUTED against its golden; the leaky `MessageBoxA` probe must be refused. `--link` does everything but execute, for a host that cannot |
 | `check-self-host.sh` | every case in `tests/selfhost` compiles, assembles, runs and exits as the fixture says — the only gate that drives the compiler end to end |
 | `check-driver.sh` | `axiom build`: the command-line surface, and that a failing `llc` fails the build while a missing `opt` does not |
 | `check-stdlib-selfhost.sh` | both corpora compiled *and run* through the identical `llc`/`cc` pipeline at `-O0` and `-O2` |
@@ -340,9 +341,9 @@ written by hand and nothing compared it to the workflow.
 ## CI/CD
 
 Every push to `trunk` and every pull request runs
-`.github/workflows/ci.yml`. Eight jobs, staged so that a cheap failure
+`.github/workflows/ci.yml`. Nine jobs, staged so that a cheap failure
 is reported before an expensive one — the grammar job gates the other
-seven, because it is the only one that needs no compiler at all. Six of
+eight, because it is the only one that needs no compiler at all. Six of
 them provision a compiler through the same composite action,
 `.github/actions/provision`:
 
@@ -351,16 +352,20 @@ them provision a compiler through the same composite action,
 2. **Tests** — the gate battery above, on three platforms
    (linux-x86_64, linux-aarch64, darwin-aarch64). Each job provisions a
    compiler from `bootstrap/` first. A fourth leg, `Tests
-   (windows-x86_64)` on `windows-latest`, is **planned, not supported**:
-   it does not exist yet, and when it lands it runs `continue-on-error`
-   until it executes what the compiler emits there — the bar README's
-   *Targets* section sets for a target to be supported at all.
+   (windows-x86_64)` on `windows-latest`, exists and is **not
+   supported**: it takes the hello-world modules the cross-target job
+   emits on Linux, assembles, links and executes them
+   (`scripts/check-windows-hello.sh --run`), and runs
+   `continue-on-error` until the target clears the bar README's
+   *Targets* section sets — the line is removed when the leg is green,
+   and not before. It provisions no compiler: none hosts on Windows yet.
 3. **FFI** — `check-ffi.sh` on linux-x86_64 and darwin-aarch64: the
    `extern` boundary opens exactly the symbols it declares, the
    generated bindings match a fresh generation, and the `rust/`
    workspace's own suites run (`cargo test`).
 4. **Cross-target codegen** — every target's IR assembles from a single
    host, at `--opt` 0, 1 and 2, and all six committed seeds assemble.
+   It also emits the Windows hello and hands it to the Windows leg.
 5. **Self-hosting fixpoint** — `check-bootstrap.sh`: `stage2 ==
    stage3`, byte for byte, with the ladder rooted at the committed seed.
 6. **Seed provenance** — `check-seed-provenance.sh`: all six committed

@@ -35,14 +35,16 @@ on:
 # `grammar` job below while it ran an unpinned npm package's install
 # script, on every pull request, before any other job started.
 #
-# `contents: read` is enough for all seven jobs, checked rather than
+# `contents: read` is enough for every job, checked rather than
 # assumed: every one of them checks the tree out, provisions a compiler
 # from `bootstrap/`, and runs a script under `scripts/`. None pushes,
-# opens a comment, cuts a release, uploads an artifact or reads a
-# secret - `grep -nE 'GITHUB_TOKEN|secrets\.|upload-artifact|id-token|
-# packages:'` over this file and .github/actions/provision/action.yml
-# matches nothing. Adding a job that needs more should raise the scope
-# on THAT job, not here.
+# opens a comment, cuts a release or reads a secret - `grep -nE
+# 'GITHUB_TOKEN|secrets\.|id-token|packages:'` over this file and
+# .github/actions/provision/action.yml matches nothing. The one artifact
+# here - the Windows modules `cross` hands to the `windows` job - moves
+# on the workflow's own run-scoped token and needs no `permissions`
+# entry. Adding a job that needs more should raise the scope on THAT
+# job, not here.
 permissions:
   contents: read
 
@@ -795,6 +797,61 @@ jobs:
 
       - name: Assemble every target from one host
         run: ./scripts/check-cross-targets.sh
+
+      # The Windows hello, emitted here where the tree's compiler runs
+      # and handed to the `windows` job below, which cannot build the
+      # compiler (no seed, no hosting yet) but can assemble, link and
+      # RUN what this one emits. The golden and the allowlist travel
+      # with the modules, so the run compares against this commit's.
+      - name: Emit the Windows hello for the windows job
+        run: ./scripts/check-windows-hello.sh --emit windows-hello
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-hello
+          path: windows-hello
+          if-no-files-found: error
+          retention-days: 3
+
+  # ---------------------------------------------------------------
+  # The Windows leg. NOT SUPPORTED until the `continue-on-error` line
+  # below is removed: README's Targets section defines a supported
+  # target as one whose CI leg executes what the compiler emits there,
+  # and this job is that leg, running under `continue-on-error` while it
+  # proves itself. It cross-builds nothing - there is no Windows seed
+  # and the compiler does not host on Windows yet - so it takes the
+  # modules the `cross` job emitted on Linux, assembles them with
+  # `llc`, links them with `lld-link` against import libraries
+  # `llvm-dlltool` generates (no SDK), holds the imports to
+  # `scripts/platform-allow.windows.txt`, and EXECUTES hello.exe
+  # against `tests/stdlib/010-hello.out`. `.gitattributes` keeps the
+  # golden's bytes LF on checkout.
+  #
+  # LLVM comes from chocolatey rather than the image's preinstalled
+  # copy, because which LLVM the image ships changes under the job and
+  # the log should name the one that ran; `llc --version` prints it.
+  # ---------------------------------------------------------------
+  windows:
+    name: Tests (windows-x86_64)
+    needs: cross
+    runs-on: windows-latest
+    continue-on-error: true  # the target is not supported until this line is removed
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install LLVM (llc, lld-link, llvm-dlltool, llvm-readobj)
+        run: |
+          choco install llvm --no-progress -y
+          echo "C:\\Program Files\\LLVM\\bin" >> "$GITHUB_PATH"
+      - name: The toolchain that ran
+        run: llc --version && lld-link --version && command -v llvm-dlltool llvm-readobj
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-hello
+          path: windows-hello
+      - name: A hello world links, imports only kernel32's permitted names, and runs
+        run: ./scripts/check-windows-hello.sh --run windows-hello
 
   bootstrap:
     name: Self-hosting fixpoint

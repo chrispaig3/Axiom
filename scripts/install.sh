@@ -84,6 +84,8 @@ os="$(uname -s)"; arch="$(uname -m)"
 case "$os" in
   Darwin) os_name=darwin ;;
   Linux)  os_name=linux ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT)
+    die "no Axiom release runs on Windows yet. The compiler EMITS for windows-x86_64 (a Linux or macOS build links a .exe with --target=windows-x86_64), but hosting the compiler itself on Windows is a later phase of the Windows track: there is no Windows seed in bootstrap/ and nothing to install. README's Targets section says what is true today" ;;
   *) die "unsupported OS '$os'. Axiom targets darwin and linux; build from source with scripts/bootstrap-from-seed.sh" ;;
 esac
 case "$arch" in

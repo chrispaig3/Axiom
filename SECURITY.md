@@ -59,10 +59,11 @@ Said out loud rather than left unstated.
   is a program that takes a long time to compile.
 - **Windows.** Not a supported target. `README.md`'s *Targets* section
   states what supported means — a CI leg executes what the compiler
-  emits there — and no Windows leg exists: the compiler emits for
-  `windows-x86_64` and nothing links or runs the result, so there is no
-  Windows binary for this policy to cover. `scripts/check-doc-drift.sh`
-  holds this bullet to that list.
+  emits there — and the Windows leg runs under `continue-on-error`: the
+  compiler emits and links for `windows-x86_64`, no artifact is
+  published for it, and no Windows binary is something this policy
+  covers until the target is on that list. `scripts/check-doc-drift.sh`
+  holds this bullet to it.
 - **`rust/`'s example crates.** `rust/examples/` exists to exercise the
   FFI gate. It is not shipped and not a dependency of the compiler.
 

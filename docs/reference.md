@@ -2338,6 +2338,8 @@ What puts a name on that list is stated once, in README's *Targets* section: a C
 
 `--target=windows-x86_64` is accepted and emits (`x86_64-pc-windows-msvc`), and is not on the list: nothing links or executes it yet. It is the one target without a syscall ABI, so the emitted runtime and `stdlib/Sys/Platform.windows.ax` reach kernel32 by call (`Sys.Platform.usesSyscallAbi` is 0 there, and `Sys.ax` calls the platform module's own `platformWriteFd`/`platformReadFd`/`platformExitWith` instead of `__syscallN`), the program enters at `mainCRTStartup` with no C runtime, and a `__syscallN` the program reaches anyway exits 74 after `axiom: no syscall ABI on this target`.
 
+`axiom build --target=windows-x86_64 --input p.ax --output p` links `p.exe` with `lld-link` (`/subsystem:console /entry:mainCRTStartup`), which ships with LLVM's `lld`; `--link-search DIR` is translated to `/libpath:DIR` and `--link-lib NAME` to `NAME.lib`. The runtime's kernel32 imports are grounded like any `extern` block's, so a `kernel32.lib` must sit on a search directory: the Windows SDK's (`Lib\<ver>\um\x64`), or one generated anywhere with `llvm-dlltool -m i386:x86-64 -d kernel32.def -l kernel32.lib` from a `.def` naming the symbols on `scripts/platform-allow.windows.txt` - which is what the gates and the CI leg do. `--emit-staticlib` is refused for this target. Hosting the compiler itself on Windows is a later phase; `scripts/install.sh` and `scripts/bootstrap-from-seed.sh` say so.
+
 ---
 
 ## Optimisation
