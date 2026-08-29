@@ -49,32 +49,17 @@
 
 (import Str)
 
-; A decimal Int from a String. There is no parser in the standard
-; library and this needs three numbers off the command line, so it
-; carries its own: digits only, no sign, no overflow check, because the
-; only caller is the gate beside it.
-(:: parseInt (-> String Int))
+; The `i`th command-line argument as a decimal Int, or 0 when it is
+; not one. `Str.strParseInt` is the parser; this file carried a
+; private one until 2026-08-29, with a comment saying the library had
+; none.
+(:: argInt (-> Int Int))
 
-(fn (parseInt s)
-  (let ((mut i 0))
-    (let ((mut v 0))
-      {
-        (while (< i (strLen s))
-          {
-            (let ((c (strByte s i)))
-              (if (if (>= c 48)
-                (<= c 57)
-                false
-              )
-                (set v (+ (* v 10) (- c 48)))
-                0
-              )
-            )
-            (set i (+ i 1))
-          })
-        v
-      }
-    )
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) 0)
   )
 )
 
@@ -232,10 +217,10 @@
 
 ;@axiom:effect(io)
 (fn (main)
-  (let ((port (parseInt (sysArg 1))))
-    (let ((nworkers (parseInt (sysArg 2))))
-      (let ((arenaOn (parseInt (sysArg 3))))
-        (let ((varied (parseInt (sysArg 4))))
+  (let ((port (argInt 1)))
+    (let ((nworkers (argInt 2)))
+      (let ((arenaOn (argInt 3)))
+        (let ((varied (argInt 4)))
           (let ((addr (memAlloc netAddrMaxBytes)))
             (let (
               (setbuf (memAlloc 16))

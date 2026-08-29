@@ -506,3 +506,187 @@
     }
   )
 )
+
+; ------------------------------------------------------------------
+; Case, substring search, trimming and integer parsing.
+;
+; Four functions an HTTP parser needs and nothing here had - measured
+; by grep on 2026-08-29: no `strLower`, no substring search, no trim,
+; and an integer parser that `tests/net/echo-server.ax` carried
+; privately with a comment saying the library lacked one. They are
+; public and permanent (`scripts/check-compat.sh` holds them from
+; here on), and the two that can fail answer `Option` rather than a
+; sentinel: `compat/SENTINELS` may fall and never rise, and `Option`
+; is built in, so this costs `Str` no import.
+; ------------------------------------------------------------------
+; `s` with every ASCII upper-case byte lowered, or `s` itself when it
+; has none - so a header name already in the form a table wants is
+; not copied. Bytes above 127 pass through untouched: this is the
+; ASCII fold a case-insensitive header table needs, not a Unicode
+; case mapping.
+(pub :: strLower (-> String String))
+
+(pub fn (strLower s)
+  (let (
+    (len (strLen s))
+    (mut k 0)
+    (mut upper 0)
+  )
+    {
+      (while (< k len)
+        {
+          (if (&& (>= (strByte s k) 65) (<= (strByte s k) 90))
+            (set upper (+ upper 1))
+            0
+          )
+          (set k (+ k 1))
+        })
+      (if (== upper 0)
+        s
+        (let (
+          (out (strAlloc len))
+          (d (strData out))
+          (mut i 0)
+        )
+          {
+            (while (< i len)
+              (let ((c (strByte s i)))
+                {
+                  (__store8
+                    d                    i                    (if (&& (>= c 65) (<= c 90))
+                      (+ c 32)
+                      c
+                    )
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            out
+          }
+        )
+      )
+    }
+  )
+)
+
+; The index of the first occurrence of `needle` in `s` at or after
+; `from`, or `None`. An empty needle is found at `from` whenever
+; `from` is inside `s` or at its end, which is the rule that makes
+; `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than
+; nothing.
+(pub :: strFind (-> String String Int (Option Int)))
+
+(pub fn (strFind s needle from)
+  (let (
+    (len (strLen s))
+    (ln (strLen needle))
+    (mut i (if (< from 0)
+      0
+      from
+    ))
+    (mut found (- 0 1))
+  )
+    {
+      (while (&& (< found 0) (<= (+ i ln) len))
+        (if (== (memCmp (+ (strData s) i) (strData needle) ln) 0)
+          (set found i)
+          (set i (+ i 1))
+        ))
+      (if (< found 0)
+        None
+        (Some found)
+      )
+    }
+  )
+)
+
+; `s` without the `strIsSpace` bytes at either end, as a SLICE that
+; shares `s`'s storage - so it is not NUL-terminated unless it ends
+; where `s` does, exactly as `strSlice` says. A string that is all
+; space trims to "".
+(pub :: strTrim (-> String String))
+
+(pub fn (strTrim s)
+  (let (
+    (len (strLen s))
+    (mut lo 0)
+    (mut hi (strLen s))
+  )
+    {
+      (while (&& (< lo len) (strIsSpace (strByte s lo)))
+        (set lo (+ lo 1)))
+      (while (&& (> hi lo) (strIsSpace (strByte s (- hi 1))))
+        (set hi (- hi 1)))
+      (strSlice s lo (- hi lo))
+    }
+  )
+)
+
+; The decimal integer `s` spells - an optional `-`, then one or more
+; ASCII digits and nothing else - or `None`: for an empty string, a
+; sign alone, any other byte, and any value outside the 64-bit range.
+;
+; THE OVERFLOW TEST IS PER DIGIT, on the accumulator, and the
+; accumulator runs NEGATIVE so that the most negative Int is
+; representable on the way to it. `Rpc.ax` records what a parser
+; without the test accepted: `18446744073709551621` wrapped to 5 and
+; was taken as a length. Here it is `None`, and so is
+; `9223372036854775808`, while `9223372036854775807` and
+; `-9223372036854775808` both parse.
+(pub :: strParseInt (-> String (Option Int)))
+
+(pub fn (strParseInt s)
+  (let (
+    (len (strLen s))
+    (neg (== (strByte s 0) 45))
+    (mut i (if (== (strByte s 0) 45)
+      1
+      0
+    ))
+    (mut acc 0)
+    (mut bad 0)
+    (mut digits 0)
+  )
+    {
+      (while (&& (== bad 0) (< i len))
+        (let ((c (strByte s i)))
+          {
+            (if (strIsDigit c)
+              ; -922337203685477580 is the last accumulator a further
+              ; digit can extend; at exactly that value the digit may
+              ; be 7, or 8 when the sign is negative.
+              (let ((d (- c 48)))
+                (if (||
+                  (< acc (- 0 922337203685477580))                  (&&
+                    (== acc (- 0 922337203685477580))                    (>
+                      d                      (if neg
+                        8
+                        7
+                      )
+                    )
+                  )
+                )
+                  (set bad 1)
+                  {
+                    (set acc (- (* acc 10) d))
+                    (set digits (+ digits 1))
+                  }
+                )
+              )
+              (set bad 1)
+            )
+            (set i (+ i 1))
+          }
+        ))
+      (if (|| (== bad 1) (== digits 0))
+        None
+        (Some
+          (if neg
+            acc
+            (- 0 acc)
+          )
+        )
+      )
+    }
+  )
+)

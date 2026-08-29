@@ -1,0 +1,8 @@
+ok   </script> inside script is neutralised
+ok   </style> inside style is neutralised
+ok   every </ is rewritten, the last one too
+ok   JS operators are verbatim and only its </ moves
+ok   CSS with no </ is verbatim
+ok   <script> inside text is escaped
+ok   <script> inside raw is verbatim
+ok   an external script is attributes and an empty element

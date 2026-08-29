@@ -65,6 +65,7 @@ stdlib/Err.ax
 stdlib/Fallible.ax
 stdlib/Ffi.ax
 stdlib/Fmt.ax
+stdlib/Html.ax
 stdlib/IO.ax
 stdlib/Intern.ax
 stdlib/Job.ax

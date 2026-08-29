@@ -1,0 +1,20 @@
+ok   text escapes & < > and leaves the quotes
+ok   an attribute value escapes all five
+ok   raw writes its bytes unescaped
+ok   text with nothing to escape is unchanged
+ok   three deep
+ok   siblings in one block, in order
+ok   attr and flag are the escape hatches
+ok   el and elVoidA reach a tag outside the table
+ok   void elements close nothing
+ok   for binds the caller's name over three items
+ok   for over an empty vector writes nothing
+ok   forInt over Ints
+ok   a caller's i and n survive the loop template
+ok   a component is a function taking the builder
+ok   when, taken
+ok   when, not taken
+ok   a document built once is its hand-written bytes
+ok   hLen counts the bytes hFinish answers
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Items &amp; &lt;things&gt;</title><link rel="stylesheet" href="/static/site.css"></head><body><nav class="top"><a href="/">home</a><a href="/items?x=1&amp;y=2">items</a></nav><div class="card"><h1>Items &amp; &lt;things&gt;</h1><ul><li>one</li><li>t&lt;w&gt;o</li><li>three</li></ul><form action="/echo" method="get"><input name="q" type="text" placeholder="say &lt;hi&gt;"><button type="submit">Go</button></form></div></body></html>

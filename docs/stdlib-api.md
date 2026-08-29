@@ -157,6 +157,136 @@ See [reference.md](reference.md) for the language, and
 | `fmtFloat` | value | `(-> Float String)` | `Alloc,Mut` | `x` with six decimal places. |
 | `fmtFloatPrec` | value | `(-> Float Int String)` | `Alloc,Mut` | `x` with `places` decimal places, rounded half away from zero. |
 
+## `Html`
+
+`stdlib/Html.ax` — 123 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `HtmlBuf` | struct |  |  | A document under construction: a `Vec` of pieces and the running byte total, so that `hFinish` allocates the whole document once. Built by `hNew`, written through `hPut` and everything above it, finished once by `hFinish`. |
+| `hNew` | value | `HtmlBuf` | `Alloc,Mut` | A fresh builder. The piece vector is a leaf vector, as `Json.ax`'s serialiser keeps its pieces: the pieces are string literals and escaped copies, the document copies out of them once, and the arena scope around a request is what reclaims them (MM-ALLOC-22). |
+| `hPut` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | Append one piece, verbatim. Every writer in this module ends here; nothing is copied until `hFinish`. Answers 0, as every builder call does, so a `{ ... }` of them is an `Int` whatever it ends on. |
+| `hLen` | value | `(-> HtmlBuf Int)` |  | The bytes written so far. |
+| `hFinish` | value | `(-> HtmlBuf String)` | `Alloc,Mut` | The document: one allocation of `hLen` bytes, one `memCopy` per piece. The builder is spent afterwards - its pieces are garbage, and a second call copies them again into a second document. |
+| `hEscText` | value | `(-> String String)` | `Alloc,Mut` | Text-context escaping: `&` `<` `>` become `&amp;` `&lt;` `&gt;`. Quotes pass through, because text is not inside quotes. |
+| `hEscAttr` | value | `(-> String String)` | `Alloc,Mut` | Attribute-value escaping: the three above plus `"` as `&quot;` and `'` as `&#39;`. What `hAttr` applies to every value it writes. |
+| `hEscTagEnd` | value | `(-> String String)` | `Alloc,Mut` | `s` with every `</` rewritten `<\/`, or `s` itself when it holds none. The transform inline CSS and JS go through: a `</style` or `</script` inside either would end the element early and hand the rest of the string to the HTML parser as markup, and `<\/` means the same thing inside a JS string, a regex, a comment and a CSS string. A run-time rewrite, not a compile-time refusal (see the header). |
+| `hText` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | Escaped text: what `(text b s)` expands to. |
+| `hRaw` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | UNESCAPED bytes: what `(raw b s)` expands to. The only writer here that escapes nothing. |
+| `hCss` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | CSS, verbatim except `</` -> `<\/`. What `(style b css)` wraps. |
+| `hJs` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | JS, verbatim except `</` -> `<\/`. What `(script b js)` wraps. |
+| `hOpen` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | `<tag`, left open for attributes. |
+| `hOpenEnd` | value | `(-> HtmlBuf Int)` | `Alloc,Mut` | The `>` that ends an open tag. |
+| `hOpenSolo` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | `<tag>` in one step, for an element with no attributes. |
+| `hClose` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | `</tag>`. |
+| `hAttr` | value | `(-> HtmlBuf String String Int)` | `Alloc,Mut` | ` name="value"`, the value escaped for the attribute context. |
+| `hFlag` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | ` name` alone - a boolean attribute such as `disabled`. |
+| `hVecLen` | value | `(-> Int Int)` |  | The `Vec` length, as the `for` templates name it. This module's own so the templates' free identifiers all resolve here (MAC-HYG-7), and PUBLIC because a template's free identifier is checked for visibility at the INVOCATION: measured, a private `hVecLen` made every `(for ...)` in an importing file `AX3023 private-name Html::hVecLen`. See the header's third point. |
+| `hVecStr` | value | `(-> Int Int String)` |  | Element `i` of a `Vec` of Strings, as `for` reads it. |
+| `hVecWord` | value | `(-> Int Int Int)` |  | Element `i` of a `Vec` of Ints, as `forInt` reads it. |
+| `el` | macro |  |  | `(el b "tag" { children })` - an element with children and no attributes. The builder and the tag are bound first (MAC-SAFE-1): each is mentioned twice in the template. |
+| `elA` | macro |  |  | `(elA b "tag" { attributes } { children })` - an element with an attribute block, written between `<tag` and `>`, then its children. |
+| `elVoid` | macro |  |  | `(elVoid b "tag")` - a void element, `<br>`, with nothing inside and no closing tag. |
+| `elVoidA` | macro |  |  | `(elVoidA b "tag" { attributes })` - a void element with attributes, `<img src="..." alt="...">`. |
+| `html` | macro |  |  | `<html>` |
+| `htmlA` | macro |  |  | `<html ...>` |
+| `head` | macro |  |  | `<head>` |
+| `headA` | macro |  |  | `<head ...>` |
+| `title` | macro |  |  | `<title>` |
+| `titleA` | macro |  |  | `<title ...>` |
+| `body` | macro |  |  | `<body>` |
+| `bodyA` | macro |  |  | `<body ...>` |
+| `div` | macro |  |  | `<div>` |
+| `divA` | macro |  |  | `<div ...>` |
+| `p` | macro |  |  | `<p>` |
+| `pA` | macro |  |  | `<p ...>` |
+| `span` | macro |  |  | `<span>` |
+| `spanA` | macro |  |  | `<span ...>` |
+| `anchor` | macro |  |  | `<a>` - spelled `anchor`, because `a` is a type variable in the standard library's own signatures (the header's list). |
+| `anchorA` | macro |  |  | `<a href="...">` |
+| `ul` | macro |  |  | `<ul>` |
+| `ulA` | macro |  |  | `<ul ...>` |
+| `ol` | macro |  |  | `<ol>` |
+| `olA` | macro |  |  | `<ol ...>` |
+| `li` | macro |  |  | `<li>` |
+| `liA` | macro |  |  | `<li ...>` |
+| `h1` | macro |  |  | `<h1>` |
+| `h1A` | macro |  |  | `<h1 ...>` |
+| `h2` | macro |  |  | `<h2>` |
+| `h2A` | macro |  |  | `<h2 ...>` |
+| `h3` | macro |  |  | `<h3>` |
+| `h3A` | macro |  |  | `<h3 ...>` |
+| `strong` | macro |  |  | `<strong>` |
+| `strongA` | macro |  |  | `<strong ...>` |
+| `em` | macro |  |  | `<em>` |
+| `emA` | macro |  |  | `<em ...>` |
+| `pre` | macro |  |  | `<pre>` |
+| `preA` | macro |  |  | `<pre ...>` |
+| `code` | macro |  |  | `<code>` |
+| `codeA` | macro |  |  | `<code ...>` |
+| `table` | macro |  |  | `<table>` |
+| `tableA` | macro |  |  | `<table ...>` |
+| `tr` | macro |  |  | `<tr>` |
+| `trA` | macro |  |  | `<tr ...>` |
+| `td` | macro |  |  | `<td>` |
+| `tdA` | macro |  |  | `<td ...>` |
+| `th` | macro |  |  | `<th>` |
+| `thA` | macro |  |  | `<th ...>` |
+| `form` | macro |  |  | `<form>` |
+| `formA` | macro |  |  | `<form action="..." method="...">` |
+| `label` | macro |  |  | `<label>` |
+| `labelA` | macro |  |  | `<label ...>` - the `for` attribute is `(attr b "for" v)`. |
+| `select` | macro |  |  | `<select>` |
+| `selectA` | macro |  |  | `<select ...>` |
+| `option` | macro |  |  | `<option>` |
+| `optionA` | macro |  |  | `<option value="...">` |
+| `button` | macro |  |  | `<button>` |
+| `buttonA` | macro |  |  | `<button ...>` - the `type` attribute is `(attr b "type" v)`. |
+| `textarea` | macro |  |  | `<textarea>` |
+| `textareaA` | macro |  |  | `<textarea ...>` |
+| `nav` | macro |  |  | `<nav>` |
+| `navA` | macro |  |  | `<nav ...>` |
+| `header` | macro |  |  | `<header>` |
+| `headerA` | macro |  |  | `<header ...>` |
+| `footer` | macro |  |  | `<footer>` |
+| `footerA` | macro |  |  | `<footer ...>` |
+| `section` | macro |  |  | `<section>` |
+| `sectionA` | macro |  |  | `<section ...>` |
+| `article` | macro |  |  | `<article>` |
+| `articleA` | macro |  |  | `<article ...>` |
+| `br` | macro |  |  | `<br>` |
+| `hr` | macro |  |  | `<hr>` |
+| `img` | macro |  |  | `<img src="..." alt="...">` |
+| `input` | macro |  |  | `<input name="..." value="...">` - `type` is `(attr b "type" v)`. |
+| `link` | macro |  |  | `<link rel="stylesheet" href="...">` |
+| `meta` | macro |  |  | `<meta charset="utf-8">` |
+| `style` | macro |  |  | `<style>css</style>`, the CSS verbatim with `</` neutralised. |
+| `script` | macro |  |  | `<script>js</script>`, the JS verbatim with `</` neutralised. |
+| `scriptA` | macro |  |  | `<script src="..."></script>` - an external script, attributes only. |
+| `text` | macro |  |  | Escaped text: `(text b "5 < 6")` writes `5 &lt; 6`. The default, and the form every string a peer supplied goes through. |
+| `raw` | macro |  |  | UNESCAPED BYTES. THIS IS THE ONLY FORM THAT WRITES A STRING WITHOUT ESCAPING IT: `(raw b "<hr>")` writes `<hr>`, and `(raw b q)` with `q` from a request writes whatever the peer sent, markup and script included. Use it for markup the program itself wrote, never for data. |
+| `attr` | macro |  |  | ` name="value"` for any attribute name - the escape hatch for a name with no macro of its own (`type`, `for`, `title`, `style`, `data-*`, `aria-*`). The NAME is the author's literal and is written as it is. |
+| `flag` | macro |  |  | ` name` alone: a boolean attribute, `(flag b "disabled")`. |
+| `class` | macro |  |  | ` class="..."` |
+| `id` | macro |  |  | ` id="..."` |
+| `href` | macro |  |  | ` href="..."` |
+| `src` | macro |  |  | ` src="..."` |
+| `alt` | macro |  |  | ` alt="..."` |
+| `name` | macro |  |  | ` name="..."` |
+| `value` | macro |  |  | ` value="..."` |
+| `rel` | macro |  |  | ` rel="..."` |
+| `action` | macro |  |  | ` action="..."` |
+| `method` | macro |  |  | ` method="..."` |
+| `placeholder` | macro |  |  | ` placeholder="..."` |
+| `lang` | macro |  |  | ` lang="..."` |
+| `charset` | macro |  |  | ` charset="..."` |
+| `content` | macro |  |  | ` content="..."` |
+| `width` | macro |  |  | ` width="..."` |
+| `height` | macro |  |  | ` height="..."` |
+| `target` | macro |  |  | ` target="..."` |
+| `for` | macro |  |  | `(for x xs body)` - `body` once per element of the `Vec` of Strings `xs`, with `x` bound to each. `x` is the CALLER's name (MAC-HYG-10); `i`, `n` and `v` are the template's and are renamed, so a body that mentions `i` means its own. Answers 0. `vecGetStr` rather than `vecGet`, because a value out of the polymorphic accessor has no named type and reaches MAC-CAP-10.6's AX3025 the moment a body interpolates it. |
+| `forInt` | macro |  |  | `(forInt x xs body)` - the same over a `Vec` of Ints, `x` bound to each word. |
+
 ## `IO`
 
 `stdlib/IO.ax` — 24 public names
@@ -344,7 +474,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Str`
 
-`stdlib/Str.ax` — 26 public names
+`stdlib/Str.ax` — 30 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -374,6 +504,10 @@ See [reference.md](reference.md) for the language, and
 | `strSplit` | value | `(-> String Int Int)` | `Alloc,Mut` | Every segment of `s` between occurrences of `byte`, in order, as a Vec of Str handles. Empty segments are KEPT: a `PATH` entry of "" means the working directory, and a caller that wants them dropped can drop them, while a caller that needs them cannot get them back. `strSplit "" 58` answers one empty segment, and `strSplit "a:" 58` answers two - the same rule as splitting on a separator anywhere else, and the one that makes the segment count equal the separator count plus one. |
 | `strSplitFrom` | value | `(-> String Int Int Int Int)` | `Alloc,Mut` |  |
 | `strFromByte` | value | `(-> Int String)` | `Alloc,Mut` | A one-byte `Str` holding `b`. The compiler driver and the JSON encoder each had this three-line allocate-and-store under a private name; it is a `Str` constructor, so it lives with the others. |
+| `strLower` | value | `(-> String String)` | `Alloc,Mut` | `s` with every ASCII upper-case byte lowered, or `s` itself when it has none - so a header name already in the form a table wants is not copied. Bytes above 127 pass through untouched: this is the ASCII fold a case-insensitive header table needs, not a Unicode case mapping. |
+| `strFind` | value | `(-> String String Int (Option Int))` |  | The index of the first occurrence of `needle` in `s` at or after `from`, or `None`. An empty needle is found at `from` whenever `from` is inside `s` or at its end, which is the rule that makes `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than nothing. |
+| `strTrim` | value | `(-> String String)` | `Alloc,Mut` | `s` without the `strIsSpace` bytes at either end, as a SLICE that shares `s`'s storage - so it is not NUL-terminated unless it ends where `s` does, exactly as `strSlice` says. A string that is all space trims to "". |
+| `strParseInt` | value | `(-> String (Option Int))` |  | The decimal integer `s` spells - an optional `-`, then one or more ASCII digits and nothing else - or `None`: for an empty string, a sign alone, any other byte, and any value outside the 64-bit range. |
 
 ## `Sys`
 

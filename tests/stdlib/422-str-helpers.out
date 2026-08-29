@@ -1,0 +1,28 @@
+ok   strLower folds ASCII upper case
+ok   strLower leaves a lower-case string as it is
+ok   strLower passes non-letters and bytes above 127 through
+ok   strFind answers the first index
+ok   strFind searches from an index
+ok   strFind of an absent needle is None
+ok   strFind of a multi-byte needle
+ok   strFind past the end is None
+ok   strFind of an empty needle is where it started
+ok   strFind clamps a negative start
+ok   strTrim strips both ends
+ok   strTrim of all space is empty
+ok   strTrim of nothing is nothing
+ok   strTrim leaves the inside alone
+ok   strParseInt reads a number
+ok   strParseInt reads a negative number
+ok   strParseInt reads zero and leading zeros
+ok   strParseInt of nothing is None
+ok   strParseInt of a sign alone is None
+ok   strParseInt refuses a trailing byte
+ok   strParseInt refuses a leading space
+ok   strParseInt refuses a plus sign
+ok   strParseInt reads the largest Int
+ok   strParseInt reads the most negative Int
+ok   one past the largest Int is None
+ok   one past the most negative Int is None
+ok   the value that wrapped to 5 in Rpc.ax is None
+ok   a thousand nines is None, not a wrap

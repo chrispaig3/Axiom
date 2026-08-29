@@ -1,0 +1,98 @@
+; The four `Str` functions an HTTP parser needs: `strLower`,
+; `strFind`, `strTrim` and `strParseInt`.
+;
+; Each answers its documented value on the ordinary case and on the
+; edge its caller will meet. The parser cases are the ones that
+; matter: `Rpc.ax` records a peer's `18446744073709551621` wrapping to
+; 5 and being ACCEPTED as a length, and `9223372036854775808` is one
+; past the largest Int. Both are `None` here, while the two extreme
+; values that DO fit are `Some`.
+(import IO)
+
+(import Str)
+
+(import Fmt)
+
+(:: eq (-> String String String Int))
+
+;@axiom:effect(io)
+(fn (eq name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }
+  )
+)
+
+(:: eqInt (-> String Int Int Int))
+
+;@axiom:effect(io)
+(fn (eqInt name got want)
+  (if (== got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }
+  )
+)
+
+; An `Option Int` as text, so a `None` and a `Some` are both one
+; string the checks compare.
+(:: optText (-> (Option Int) String))
+
+(fn (optText o)
+  (match o
+    ((None) "None")
+    ((Some v) (strConcat "Some " (fmtInt v)))
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  ; --- strLower ------------------------------------------------
+  {
+    (eq "strLower folds ASCII upper case" (strLower "Content-LENGTH") "content-length")
+    (eq "strLower leaves a lower-case string as it is" (strLower "already") "already")
+    (eq "strLower passes non-letters and bytes above 127 through" (strLower "A-1_ZÉ") "a-1_zÉ")
+    ; --- strFind -------------------------------------------------
+    (eq "strFind answers the first index" (optText (strFind "hello world" "o" 0)) "Some 4")
+    (eq "strFind searches from an index" (optText (strFind "hello world" "o" 5)) "Some 7")
+    (eq "strFind of an absent needle is None" (optText (strFind "hello world" "zz" 0)) "None")
+    (eq "strFind of a multi-byte needle" (optText (strFind "a\r\n\r\nb" "\r\n\r\n" 0)) "Some 1")
+    (eq "strFind past the end is None" (optText (strFind "abc" "c" 3)) "None")
+    (eq "strFind of an empty needle is where it started" (optText (strFind "abc" "" 3)) "Some 3")
+    (eq "strFind clamps a negative start" (optText (strFind "abc" "a" (- 0 5))) "Some 0")
+    ; --- strTrim -------------------------------------------------
+    (eq "strTrim strips both ends" (strTrim "  a b \t\r\n") "a b")
+    (eq "strTrim of all space is empty" (strTrim " \t ") "")
+    (eq "strTrim of nothing is nothing" (strTrim "") "")
+    (eq "strTrim leaves the inside alone" (strTrim "a  b") "a  b")
+    ; --- strParseInt ---------------------------------------------
+    (eq "strParseInt reads a number" (optText (strParseInt "42")) "Some 42")
+    (eq "strParseInt reads a negative number" (optText (strParseInt "-7")) "Some -7")
+    (eq "strParseInt reads zero and leading zeros" (optText (strParseInt "0007")) "Some 7")
+    (eq "strParseInt of nothing is None" (optText (strParseInt "")) "None")
+    (eq "strParseInt of a sign alone is None" (optText (strParseInt "-")) "None")
+    (eq "strParseInt refuses a trailing byte" (optText (strParseInt "12a")) "None")
+    (eq "strParseInt refuses a leading space" (optText (strParseInt " 12")) "None")
+    (eq "strParseInt refuses a plus sign" (optText (strParseInt "+12")) "None")
+    (eq "strParseInt reads the largest Int" (optText (strParseInt "9223372036854775807")) "Some 9223372036854775807")
+    (eq "strParseInt reads the most negative Int" (optText (strParseInt "-9223372036854775808")) "Some -9223372036854775808")
+    (eq "one past the largest Int is None" (optText (strParseInt "9223372036854775808")) "None")
+    (eq "one past the most negative Int is None" (optText (strParseInt "-9223372036854775809")) "None")
+    (eq "the value that wrapped to 5 in Rpc.ax is None" (optText (strParseInt "18446744073709551621")) "None")
+    (eq "a thousand nines is None, not a wrap" (optText (strParseInt "99999999999999999999999999999999")) "None")
+    0
+  }
+)

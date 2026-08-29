@@ -2566,6 +2566,57 @@ nicety: without an expansion backtrace, the author of `(machine Door
 ...)` reads a diagnostic about a constructor they never wrote, in a
 `match` they never wrote, at a line that contains neither.
 
+### 10.6 A DSL that ships: `stdlib/Html.ax`
+
+The HTML templating layer is the first DSL in the standard library
+written in this macro system, and its module header is the proof of
+which rule each part rests on. It is pinned by
+`tests/stdlib/420-html-render.ax` (rendering, escaping in both
+contexts, iteration, hygiene, a component, a whole document) and
+`421-html-script.ax` (`</script>` neutralised at run time), each
+compared against bytes written by hand. What it exercises, rule by
+rule:
+
+- **`MAC-EXP-7`** is the reason an element is a macro and not a
+  function: `(div b { children })` must write `<div>` BEFORE its
+  children run, and only substitution-as-syntax evaluates an argument
+  where its parameter stands. Children are a `{ ... }` block, which
+  `MAC-CAP-1` admits as a template form and the parser admits as an
+  argument, so a fixed-arity macro takes any number of them.
+- **`MAC-HYG-10`** is what makes `(for it items body)` writable: `it`
+  is a parameter in binder position and keeps the caller's spelling,
+  while the template's `i` and `n` are renamed (`MAC-HYG-3`) — 420's
+  hygiene check surrounds a `for` with a caller's own `i` and `n`.
+- **`MAC-HYG-6`/`MAC-HYG-7`** resolve every helper a template names at
+  the definition site, and the module keeps a rule because of it:
+  every such helper is declared in `Html.ax` — and declared `pub`,
+  which was measured rather than assumed. `MAC-LANG-10` judges a
+  template's private *macro* at the definition site, but a private
+  *function* named by a template is refused at the invocation with
+  `AX3023` `private-name`; the visibility of a free identifier is
+  judged where the macro is used. Not yet a numbered rule, recorded
+  here so it is not rediscovered.
+- **`MAC-SAFE-1`** is applied in `el`/`elA`: the builder and the tag
+  are each mentioned twice, so both are bound first.
+- **`MAC-LANG-13`** decides that escaping is a run-time function
+  (`hEscText`, `hEscAttr`) and that `</` inside `script`/`style` is
+  rewritten at run time rather than refused at `check`.
+- The limits it works around, each named in the header: no variadic
+  expression macro (`MAC-LANG-14`'s decision, so children are a
+  block), no macro generating a macro (`MAC-CAP-8`'s `AX3021`, so the
+  tag table is written out, two lines per tag), no `{}` (so `div` and
+  `divA` are two macros), no `:class` (the lexer), no dispatch on a
+  head's spelling (`MAC-LANG-17`, so one macro per attribute name plus
+  `attr`), and `MAC-EXP-14a`'s literal spans, of which the ~70 string
+  literals in its templates are the densest exposure in the tree.
+- **One measured refusal worth knowing before naming a macro**: a bare
+  identifier that names a macro is a zero-argument invocation
+  (`MAC-LANG-3`), and the expander reads TYPE positions too — a macro
+  named `a` made every `(-> Int a Int)` in `Vec.ax` report `AX3018
+  macro a takes 2 arguments, but was given 0`. The anchor element is
+  therefore `anchor`, and `a`, `b`, `e`, `f` are unusable as macro
+  names while any signature in scope spells them as type variables.
+
 ---
 
 ## 11. Conformance summary

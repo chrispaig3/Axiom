@@ -519,7 +519,7 @@ primitives. When adding a new stdlib function:
 
 1. **Add it to the appropriate module** in `stdlib/` — `Pre`, `Mem`,
    `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`,
-   `Rpc`, `Utf8`, `Show`, `Err`, `Job`, `Ffi`.
+   `Rpc`, `Utf8`, `Show`, `Err`, `Job`, `Html`, `Ffi`.
 2. **Use `::` for the type signature** and `fn` for the definition, with
    `pub` on both if the function is part of the module's surface.
 3. **If the function performs I/O**, annotate it with

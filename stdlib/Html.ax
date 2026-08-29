@@ -1,0 +1,976 @@
+; Html - a templating DSL for HTML, written in the macro system.
+;
+; A page is built into a builder `b` and finished once:
+;
+;     (let ((b hNew))
+;       {
+;         (raw b "<!DOCTYPE html>\n")
+;         (html b
+;           { (head b { (title b { (text b heading) }) })
+;             (body b
+;               { (divA b { (class b "card") }
+;                   { (h1 b { (text b heading) })
+;                     (ul b (for it items (li b { (text b it) }))) }) }) })
+;         (hFinish b)
+;       })
+;
+; Every element form is a MACRO, every attribute form is a macro, the
+; iteration form is a macro, and the escaping they all reach is a set
+; of ordinary functions. Everything escapes by default: `text` and
+; every attribute value pass through `hEscText`/`hEscAttr`, `raw` is
+; the ONLY way to emit unescaped bytes, and `style`/`script` are
+; verbatim except that `</` becomes `<\/`, so a closing tag cannot be
+; smuggled out of them.
+;
+; ------------------------------------------------------------------
+; THE PROOF: WHICH CAPABILITY OF docs/macro-system.md EACH PART RESTS
+; ON, AND WHICH IT WORKS AROUND
+; ------------------------------------------------------------------
+;
+; 1. AN ELEMENT IS A MACRO OVER AN EXPLICIT BUILDER, AND ITS CHILDREN
+;    ARE A `{ ... }` BLOCK. The macro exists rather than a function
+;    because it must write the open tag BEFORE its children run, and
+;    a function cannot: a function's arguments are evaluated first.
+;    That is MAC-EXP-7 - an argument is substituted as SYNTAX and
+;    evaluated where its parameter stands, not at all if the template
+;    drops it (tests/selfhost/360-macro.ax's double-evaluation term
+;    measures it). Delete the macro and write `el` as a function, and
+;    the markup comes out inside out. The block is an ordinary
+;    expression and a valid argument (self_host/parser.ax: `parseExpr`
+;    dispatches TK_LBRACE to `parseBlock`, and MAC-CAP-1's fixture
+;    tests/selfhost/362-macro-coverage.ax holds `let mut`, `while` and
+;    `set` inside a template's block), which is how a macro of fixed
+;    arity takes any number of children.
+;
+; 2. ITERATION IS A MACRO OVER A BINDER PARAMETER. `(for it items
+;    body)` binds `it` for the body, and `it` keeps the CALLER's
+;    spelling because a macro parameter in binder position takes the
+;    argument's name and is not renamed - MAC-HYG-10, `expBinderParam`
+;    in self_host/expand.ax, the rule `Err.ax`'s `try!` depends on and
+;    tests/stdlib/371-err-module.ax cannot compile without. The
+;    template's own `i` and `n` ARE renamed (MAC-HYG-1/2/3,
+;    tests/selfhost/361-macro-hygiene.ax), so a body that names `i`
+;    means its own. An argument that is not a bare name is AX3035 at
+;    the invocation (tests/diagnostics/590-macro-binder-target.ax).
+;
+; 3. A FREE IDENTIFIER IN A TEMPLATE MEANS WHAT IT MEANS HERE.
+;    `hOpenSolo`, `hClose`, `hAttr`, `hVecLen` and the rest resolve at
+;    the definition site - MAC-HYG-6, tests/selfhost/364-macro-
+;    definition-site.ax (157) - because import resolution has already
+;    spelled them `Html$name` and the expander rewrites the reference
+;    to that spelling when this module declares it (MAC-HYG-7). The
+;    rule this file keeps because of it: EVERY helper a template names
+;    is declared in Html.ax, AND IS `pub`. The `for` templates call
+;    `hVecLen` and `hVecStr`, declared below, rather than `Vec`'s own
+;    `vecLen` and `vecGetStr`; a name this module merely imports is
+;    resolved by the fallback of MAC-HYG-8.4, which declines when two
+;    modules declare it, and MAC-CAP-10.5 records what a bare name in
+;    a template costs (an entry file's own `strConcat` captured the
+;    format lowering's, silently and wrongly). `pub` is measured, not
+;    chosen: MAC-LANG-10 judges a template's PRIVATE MACRO at the
+;    definition site, but a private FUNCTION named by a template is
+;    refused at the invocation - `AX3023 private-name Html::hVecLen`
+;    from tests/stdlib/420-html-render.ax while it was private.
+;
+; 4. ESCAPING IS A RUN-TIME CALL. A macro cannot escape, concatenate
+;    or read a literal's bytes at expansion time: MAC-LANG-13 refuses
+;    evaluation of user code and the query vocabulary is closed
+;    (MAC-CAP-6), so `(text b s)` expands to `(hText b s)` and the
+;    escape runs when the page renders. The same rule makes the `</`
+;    rewrite in `style`/`script` a run-time guarantee, stated below
+;    where a reader might have assumed a compile-time one.
+;
+; 5. THE TAG TABLE IS WRITTEN OUT BY HAND, two lines per tag. A macro
+;    cannot generate a macro - a nested `macro` template is AX3021 at
+;    the macro's own line (MAC-CAP-8, tests/diagnostics/510-decl-macro-
+;    template-kind.ax) - and there is no variadic EXPRESSION macro: the
+;    ellipsis belongs to the rule form, which generates declarations
+;    (MAC-LANG-14's decision of 2026-08-15; tests/selfhost/393-macro-
+;    ellipsis.ax is all declaration templates). So `(div b k)` and
+;    `(divA b attrs k)` are two one-line macros each forwarding to `el`
+;    / `elA`, and a tag not in the table is `(el b "tag" k)`.
+;
+; 6. TWO SPELLINGS PER TAG, because "no attributes" cannot be written
+;    `{}` - the empty block is refused (scripts/check-degenerate.sh,
+;    `empty-brace`), so `(divA b {} k)` is not writable and `div`
+;    exists beside `divA`.
+;
+; 7. ATTRIBUTES ARE MACROS INSIDE A BLOCK, `{ (class b "x") (id b
+;    "y") }`, because `:class "x"` cannot lex: `:` is TK_COLON to
+;    self_host/lexer.ax and the parser accepts it in three declaration
+;    positions only. One macro per common attribute name, because a
+;    macro cannot dispatch on a head's SPELLING (MAC-LANG-17 is P, on
+;    scope sets; tests/selfhost/392-macro-patterns.ax's `defOp` is the
+;    measurement), and `(attr b "name" v)` for every other name.
+;
+; 8. TAG AND ATTRIBUTE NAMES ARE STRING LITERALS IN THE TEMPLATES,
+;    written a second time beside the macro's own name, because the
+;    only source-to-string bridge is `syntax/name` and it takes a bare
+;    identifier in expression position (MAC-CAP-5's row) - there is no
+;    `syntax/concat` to build `"<div>"` from `div`. Each literal keeps
+;    THIS file's byte offsets when a diagnostic lands on it
+;    (MAC-EXP-14a, held-but-defective): a type error inside a template
+;    may report a span in the user's file computed from Html.ax's
+;    bytes. Measured while building this module - AX3018 reported
+;    `main.ax:41:19894-19895` in a 50-line file.
+;
+; NAMES THAT CANNOT BE MACROS, measured rather than listed from taste:
+;
+;   - the heads self_host/parser.ax dispatches on before the macro
+;     table is read: `fn`, `lambda`, `let`, `if`, `match`, `cond`,
+;     `while`, `set`, `struct`, `alloc`, `handle`, `cast`, `pub`,
+;     `data`, `import`, `macro`, `effect`, `type`, `trait`, `impl`,
+;     `extern`, and the reserved `begin`/`consume`/`union`/`region`/
+;     `foreign`. So the `<input type=...>` attribute is `(attr b
+;     "type" "text")`.
+;   - a name any signature in scope uses as a TYPE VARIABLE. A bare
+;     identifier naming a macro is a zero-argument invocation
+;     (MAC-LANG-3), and the expander reads type positions: a macro
+;     named `a` made every `(-> Int a Int)` in Vec.ax report
+;     `AX3018 macro a takes 2 arguments, but was given 0`. The
+;     standard library's signatures spell `a`, `b`, `e` and `f`, so
+;     the anchor element is `anchor`/`anchorA`, never `a`.
+;   - `main`: the entry file's `main` would win a bare invocation
+;     (MAC-HYG-8.3) and the element would be unreachable by its own
+;     name. `<main>` is `(el b "main" k)`.
+;   - `title` and `style` are TAGS here, so the attributes of those
+;     names are `(attr b "title" v)` and `(attr b "style" v)`; `for`
+;     is the iteration form, so `<label for=...>` is `(attr b "for"
+;     v)`.
+;
+; ONE EXPANSION, END TO END, the way docs/macro-system.md shows them.
+; Source:
+;
+;     (divA b { (class b "card") } { (h1 b { (text b heading) }) })
+;
+; MAC-EXP-6 step 1 expands each argument. `b` is `b`. The attribute
+; block's `(class b "card")` is a macro and becomes
+; `(hAttr b "class" "card")`. The child block's `(h1 b {...})` is the
+; template `(el b "h1" k)` with `k` the block, re-expanded through
+; `el`, so the argument is
+;
+;     { { (let ((bb b) (tt "h1")) { (hOpenSolo bb tt) { (hText b heading) } (hClose bb tt) }) } }
+;
+; Step 2 substitutes into `divA`'s template `(elA b "div" attrs k)`,
+; and step 3 expands THAT, which is the fixpoint:
+;
+;     (let ((bb.7 b) (tt.8 "div"))
+;       { (hOpen bb.7 tt.8)
+;         { (hAttr b "class" "card") }
+;         (hOpenEnd bb.7)
+;         { { (let ((bb.5 b) (tt.6 "h1"))
+;               { (hOpenSolo bb.5 tt.6) { (hText b heading) } (hClose bb.5 tt.6) }) } }
+;         (hClose bb.7 tt.8) })
+;
+; `bb` and `tt` are the template's binders and are gensymed
+; (MAC-HYG-3: `.` cannot lex inside an identifier, so no source can
+; collide with `bb.7`); `b` and `heading` are the caller's names,
+; arriving through parameters and never renamed. The `let` is
+; MAC-SAFE-1: the builder and the tag are each mentioned twice in the
+; template, and binding them first is what makes `(div (mkPage) ...)`
+; build one page rather than two. At run time the calls fire left to
+; right and the bytes come out `<div class="card"><h1>...</h1></div>`,
+; which the function-shaped `elA` could not produce: its `attrs` and
+; `k` would both run before `hOpen`.
+;
+; MEASURED, so the shape is a decision and not a habit. The builder
+; is `Json.ax`'s piece vector plus one measure-then-fill copy in
+; `hFinish` (Json.ax `jsonJoin`), never `strConcat` accumulation -
+; the quadratic shape tests/net/echo-server.ax builds ON PURPOSE to
+; have garbage to reclaim. Bytes the allocator's bump moved to render
+; one `<ul>` of N escaped items, read off `__axiom_arena_mark`'s cell
+; in a fresh chunk (2026-08-29):
+;
+;     N     page bytes   pieces + hFinish   strConcat chain
+;     20         543          6,736            21,600
+;     100      2,623         28,784           419,360
+;     1000    26,923        254,224         > 1 MiB (crossed the chunk)
+;
+; Linear against quadratic: 3.2x at 20 items, 14.6x at 100. The
+; per-request arena scope (docs/memory-model.md MM-ALLOC-22) reclaims
+; either, which is exactly why the memory gate cannot see the
+; difference and this table has to.
+;
+; WHAT THIS MODULE DOES NOT PROMISE. `style` and `script` neutralise
+; `</` at RUN TIME; nothing here refuses a dangerous literal at
+; `check`. `raw` escapes nothing, ever. A builder is single-use:
+; `hFinish` answers the document once, and the pieces it copied from
+; are garbage for the enclosing arena scope to take. `Pre.ax`'s
+; `when`/`unless` are the conditional forms - they answer 0 on the
+; untaken arm, which is what a builder call answers too, so
+; `(when cond (p b { ... }))` sits in a child block unchanged.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+; ------------------------------------------------------------------
+; The builder
+; ------------------------------------------------------------------
+; A document under construction: a `Vec` of pieces and the running
+; byte total, so that `hFinish` allocates the whole document once.
+; Built by `hNew`, written through `hPut` and everything above it,
+; finished once by `hFinish`.
+(pub struct HtmlBuf
+  (pieces : Int)
+  (len : Int))
+
+; A fresh builder. The piece vector is a leaf vector, as `Json.ax`'s
+; serialiser keeps its pieces: the pieces are string literals and
+; escaped copies, the document copies out of them once, and the arena
+; scope around a request is what reclaims them (MM-ALLOC-22).
+(pub :: hNew HtmlBuf)
+
+(pub fn (hNew) (HtmlBuf (vecWithCapacity 64) 0))
+
+; Append one piece, verbatim. Every writer in this module ends here;
+; nothing is copied until `hFinish`. Answers 0, as every builder call
+; does, so a `{ ... }` of them is an `Int` whatever it ends on.
+(pub :: hPut (-> HtmlBuf String Int))
+
+(pub fn (hPut b s)
+  {
+    (vecPush b.pieces s)
+    (set b.len (+ b.len (strLen s)))
+    0
+  }
+)
+
+; The bytes written so far.
+(pub :: hLen (-> HtmlBuf Int))
+
+(pub fn (hLen b) b.len)
+
+; The document: one allocation of `hLen` bytes, one `memCopy` per
+; piece. The builder is spent afterwards - its pieces are garbage, and
+; a second call copies them again into a second document.
+(pub :: hFinish (-> HtmlBuf String))
+
+(pub fn (hFinish b)
+  (let (
+    (out (strAlloc b.len))
+    (mut k 0)
+    (mut off 0)
+  )
+    {
+      (while (< k (vecLen b.pieces))
+        (let ((p (vecGetStr b.pieces k)))
+          {
+            (memCopy (+ (strData out) off) (strData p) (strLen p))
+            (set off (+ off (strLen p)))
+            (set k (+ k 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Escaping - on by default, five bytes, two contexts.
+;
+; Two walks over the bytes, exactly `Json.ax`'s `jsonEscapeLen` /
+; `jsonEscapeFill`: measure the escaped length, answer the input
+; itself when nothing in it needs escaping, otherwise allocate once
+; and fill. `&` is in the table first and always, or the `&` of a
+; replacement would be a byte to escape again.
+; ------------------------------------------------------------------
+; The entity for byte `c`, or "" when `c` passes through. Text escapes
+; `&`, `<` and `>`; an attribute value escapes `"` and `'` as well,
+; because attribute values are always written in double quotes and
+; the single quote is belt-and-braces for a template that ever writes
+; them the other way.
+(:: hEntity (-> Int Bool String))
+
+(fn (hEntity c inAttr)
+  (if (== c 38)
+    "&amp;"
+    (if (== c 60)
+      "&lt;"
+      (if (== c 62)
+        "&gt;"
+        (if inAttr
+          (if (== c 34)
+            "&quot;"
+            (if (== c 39)
+              "&#39;"
+              ""
+            )
+          )
+          ""
+        )
+      )
+    )
+  )
+)
+
+; `s` with every byte `hEntity` names replaced, or `s` itself when
+; there is nothing to replace - the common case for a tag name, a
+; class, or a heading, and it costs no allocation.
+(:: hEscape (-> String Bool String))
+
+(fn (hEscape s inAttr)
+  (let (
+    (len (strLen s))
+    (mut k 0)
+    (mut n 0)
+  )
+    {
+      (while (< k len)
+        (let ((e (hEntity (strByte s k) inAttr)))
+          {
+            (set n (+
+              n              (if (== (strLen e) 0)
+                1
+                (strLen e)
+              )
+            ))
+            (set k (+ k 1))
+          }
+        ))
+      (if (== n len)
+        s
+        (let (
+          (out (strAlloc n))
+          (d (strData out))
+          (mut i 0)
+          (mut off 0)
+        )
+          {
+            (while (< i len)
+              (let (
+                (c (strByte s i))
+                (e (hEntity c inAttr))
+              )
+                {
+                  (if (== (strLen e) 0)
+                    {
+                      (__store8 d off c)
+                      (set off (+ off 1))
+                    }
+                    {
+                      (memCopy (+ d off) (strData e) (strLen e))
+                      (set off (+ off (strLen e)))
+                    }
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            out
+          }
+        )
+      )
+    }
+  )
+)
+
+; Text-context escaping: `&` `<` `>` become `&amp;` `&lt;` `&gt;`.
+; Quotes pass through, because text is not inside quotes.
+(pub :: hEscText (-> String String))
+
+(pub fn (hEscText s) (hEscape s false))
+
+; Attribute-value escaping: the three above plus `"` as `&quot;` and
+; `'` as `&#39;`. What `hAttr` applies to every value it writes.
+(pub :: hEscAttr (-> String String))
+
+(pub fn (hEscAttr s) (hEscape s true))
+
+; `s` with every `</` rewritten `<\/`, or `s` itself when it holds
+; none. The transform inline CSS and JS go through: a `</style` or
+; `</script` inside either would end the element early and hand the
+; rest of the string to the HTML parser as markup, and `<\/` means the
+; same thing inside a JS string, a regex, a comment and a CSS string.
+; A run-time rewrite, not a compile-time refusal (see the header).
+(pub :: hEscTagEnd (-> String String))
+
+(pub fn (hEscTagEnd s)
+  (let (
+    (len (strLen s))
+    (mut k 0)
+    (mut hits 0)
+  )
+    {
+      (while (< k len)
+        {
+          (if (&& (== (strByte s k) 60) (== (strByte s (+ k 1)) 47))
+            (set hits (+ hits 1))
+            0
+          )
+          (set k (+ k 1))
+        })
+      (if (== hits 0)
+        s
+        (let (
+          (out (strAlloc (+ len hits)))
+          (d (strData out))
+          (mut i 0)
+          (mut off 0)
+        )
+          {
+            (while (< i len)
+              (let ((c (strByte s i)))
+                (if (&& (== c 60) (== (strByte s (+ i 1)) 47))
+                  {
+                    (__store8 d off 60)
+                    (__store8 d (+ off 1) 92)
+                    (__store8 d (+ off 2) 47)
+                    (set off (+ off 3))
+                    (set i (+ i 2))
+                  }
+                  {
+                    (__store8 d off c)
+                    (set off (+ off 1))
+                    (set i (+ i 1))
+                  }
+                )
+              ))
+            out
+          }
+        )
+      )
+    }
+  )
+)
+
+; Escaped text: what `(text b s)` expands to.
+(pub :: hText (-> HtmlBuf String Int))
+
+(pub fn (hText b s) (hPut b (hEscText s)))
+
+; UNESCAPED bytes: what `(raw b s)` expands to. The only writer here
+; that escapes nothing.
+(pub :: hRaw (-> HtmlBuf String Int))
+
+(pub fn (hRaw b s) (hPut b s))
+
+; CSS, verbatim except `</` -> `<\/`. What `(style b css)` wraps.
+(pub :: hCss (-> HtmlBuf String Int))
+
+(pub fn (hCss b s) (hPut b (hEscTagEnd s)))
+
+; JS, verbatim except `</` -> `<\/`. What `(script b js)` wraps.
+(pub :: hJs (-> HtmlBuf String Int))
+
+(pub fn (hJs b s) (hPut b (hEscTagEnd s)))
+
+; ------------------------------------------------------------------
+; Element primitives - the functions the macros call.
+;
+; The tag name is the author's own literal and is written as it is;
+; an attribute NAME likewise. An attribute VALUE is data and goes
+; through `hEscAttr`.
+; ------------------------------------------------------------------
+; `<tag`, left open for attributes.
+(pub :: hOpen (-> HtmlBuf String Int))
+
+(pub fn (hOpen b tag)
+  {
+    (hPut b "<")
+    (hPut b tag)
+  }
+)
+
+; The `>` that ends an open tag.
+(pub :: hOpenEnd (-> HtmlBuf Int))
+
+(pub fn (hOpenEnd b) (hPut b ">"))
+
+; `<tag>` in one step, for an element with no attributes.
+(pub :: hOpenSolo (-> HtmlBuf String Int))
+
+(pub fn (hOpenSolo b tag)
+  {
+    (hPut b "<")
+    (hPut b tag)
+    (hPut b ">")
+  }
+)
+
+; `</tag>`.
+(pub :: hClose (-> HtmlBuf String Int))
+
+(pub fn (hClose b tag)
+  {
+    (hPut b "</")
+    (hPut b tag)
+    (hPut b ">")
+  }
+)
+
+; ` name="value"`, the value escaped for the attribute context.
+(pub :: hAttr (-> HtmlBuf String String Int))
+
+(pub fn (hAttr b name value)
+  {
+    (hPut b " ")
+    (hPut b name)
+    (hPut b "=\"")
+    (hPut b (hEscAttr value))
+    (hPut b "\"")
+  }
+)
+
+; ` name` alone - a boolean attribute such as `disabled`.
+(pub :: hFlag (-> HtmlBuf String Int))
+
+(pub fn (hFlag b name)
+  {
+    (hPut b " ")
+    (hPut b name)
+  }
+)
+
+; The `Vec` length, as the `for` templates name it. This module's own
+; so the templates' free identifiers all resolve here (MAC-HYG-7), and
+; PUBLIC because a template's free identifier is checked for
+; visibility at the INVOCATION: measured, a private `hVecLen` made
+; every `(for ...)` in an importing file `AX3023 private-name
+; Html::hVecLen`. See the header's third point.
+(pub :: hVecLen (-> Int Int))
+
+(pub fn (hVecLen v) (vecLen v))
+
+; Element `i` of a `Vec` of Strings, as `for` reads it.
+(pub :: hVecStr (-> Int Int String))
+
+(pub fn (hVecStr v i) (vecGetStr v i))
+
+; Element `i` of a `Vec` of Ints, as `forInt` reads it.
+(pub :: hVecWord (-> Int Int Int))
+
+(pub fn (hVecWord v i) (vecGet v i))
+
+; ------------------------------------------------------------------
+; The element forms. Four macros define the whole vocabulary; the tag
+; table below is one line per spelling forwarding to one of them.
+; ------------------------------------------------------------------
+; `(el b "tag" { children })` - an element with children and no
+; attributes. The builder and the tag are bound first (MAC-SAFE-1):
+; each is mentioned twice in the template.
+(pub macro (el b tag body) (let (
+  (bb b)
+  (tt tag)
+)
+  {
+    (hOpenSolo bb tt)
+    body
+    (hClose bb tt)
+  }
+))
+
+; `(elA b "tag" { attributes } { children })` - an element with an
+; attribute block, written between `<tag` and `>`, then its children.
+(pub macro (elA b tag attrs body) (let (
+  (bb b)
+  (tt tag)
+)
+  {
+    (hOpen bb tt)
+    attrs
+    (hOpenEnd bb)
+    body
+    (hClose bb tt)
+  }
+))
+
+; `(elVoid b "tag")` - a void element, `<br>`, with nothing inside
+; and no closing tag.
+(pub macro (elVoid b tag) (hOpenSolo b tag))
+
+; `(elVoidA b "tag" { attributes })` - a void element with attributes,
+; `<img src="..." alt="...">`.
+(pub macro (elVoidA b tag attrs) (let ((bb b))
+  {
+    (hOpen bb tag)
+    attrs
+    (hOpenEnd bb)
+  }
+))
+
+; ------------------------------------------------------------------
+; The tag table: `(tag b { children })` and `(tagA b { attributes }
+; { children })` for each. Written out by hand, for the header's fifth
+; point. A tag that is not here is `(el b "tag" ...)`.
+; ------------------------------------------------------------------
+; `<html>`
+(pub macro (html b k) (el b "html" k))
+
+; `<html ...>`
+(pub macro (htmlA b attrs k) (elA b "html" attrs k))
+
+; `<head>`
+(pub macro (head b k) (el b "head" k))
+
+; `<head ...>`
+(pub macro (headA b attrs k) (elA b "head" attrs k))
+
+; `<title>`
+(pub macro (title b k) (el b "title" k))
+
+; `<title ...>`
+(pub macro (titleA b attrs k) (elA b "title" attrs k))
+
+; `<body>`
+(pub macro (body b k) (el b "body" k))
+
+; `<body ...>`
+(pub macro (bodyA b attrs k) (elA b "body" attrs k))
+
+; `<div>`
+(pub macro (div b k) (el b "div" k))
+
+; `<div ...>`
+(pub macro (divA b attrs k) (elA b "div" attrs k))
+
+; `<p>`
+(pub macro (p b k) (el b "p" k))
+
+; `<p ...>`
+(pub macro (pA b attrs k) (elA b "p" attrs k))
+
+; `<span>`
+(pub macro (span b k) (el b "span" k))
+
+; `<span ...>`
+(pub macro (spanA b attrs k) (elA b "span" attrs k))
+
+; `<a>` - spelled `anchor`, because `a` is a type variable in the
+; standard library's own signatures (the header's list).
+(pub macro (anchor b k) (el b "a" k))
+
+; `<a href="...">`
+(pub macro (anchorA b attrs k) (elA b "a" attrs k))
+
+; `<ul>`
+(pub macro (ul b k) (el b "ul" k))
+
+; `<ul ...>`
+(pub macro (ulA b attrs k) (elA b "ul" attrs k))
+
+; `<ol>`
+(pub macro (ol b k) (el b "ol" k))
+
+; `<ol ...>`
+(pub macro (olA b attrs k) (elA b "ol" attrs k))
+
+; `<li>`
+(pub macro (li b k) (el b "li" k))
+
+; `<li ...>`
+(pub macro (liA b attrs k) (elA b "li" attrs k))
+
+; `<h1>`
+(pub macro (h1 b k) (el b "h1" k))
+
+; `<h1 ...>`
+(pub macro (h1A b attrs k) (elA b "h1" attrs k))
+
+; `<h2>`
+(pub macro (h2 b k) (el b "h2" k))
+
+; `<h2 ...>`
+(pub macro (h2A b attrs k) (elA b "h2" attrs k))
+
+; `<h3>`
+(pub macro (h3 b k) (el b "h3" k))
+
+; `<h3 ...>`
+(pub macro (h3A b attrs k) (elA b "h3" attrs k))
+
+; `<strong>`
+(pub macro (strong b k) (el b "strong" k))
+
+; `<strong ...>`
+(pub macro (strongA b attrs k) (elA b "strong" attrs k))
+
+; `<em>`
+(pub macro (em b k) (el b "em" k))
+
+; `<em ...>`
+(pub macro (emA b attrs k) (elA b "em" attrs k))
+
+; `<pre>`
+(pub macro (pre b k) (el b "pre" k))
+
+; `<pre ...>`
+(pub macro (preA b attrs k) (elA b "pre" attrs k))
+
+; `<code>`
+(pub macro (code b k) (el b "code" k))
+
+; `<code ...>`
+(pub macro (codeA b attrs k) (elA b "code" attrs k))
+
+; `<table>`
+(pub macro (table b k) (el b "table" k))
+
+; `<table ...>`
+(pub macro (tableA b attrs k) (elA b "table" attrs k))
+
+; `<tr>`
+(pub macro (tr b k) (el b "tr" k))
+
+; `<tr ...>`
+(pub macro (trA b attrs k) (elA b "tr" attrs k))
+
+; `<td>`
+(pub macro (td b k) (el b "td" k))
+
+; `<td ...>`
+(pub macro (tdA b attrs k) (elA b "td" attrs k))
+
+; `<th>`
+(pub macro (th b k) (el b "th" k))
+
+; `<th ...>`
+(pub macro (thA b attrs k) (elA b "th" attrs k))
+
+; `<form>`
+(pub macro (form b k) (el b "form" k))
+
+; `<form action="..." method="...">`
+(pub macro (formA b attrs k) (elA b "form" attrs k))
+
+; `<label>`
+(pub macro (label b k) (el b "label" k))
+
+; `<label ...>` - the `for` attribute is `(attr b "for" v)`.
+(pub macro (labelA b attrs k) (elA b "label" attrs k))
+
+; `<select>`
+(pub macro (select b k) (el b "select" k))
+
+; `<select ...>`
+(pub macro (selectA b attrs k) (elA b "select" attrs k))
+
+; `<option>`
+(pub macro (option b k) (el b "option" k))
+
+; `<option value="...">`
+(pub macro (optionA b attrs k) (elA b "option" attrs k))
+
+; `<button>`
+(pub macro (button b k) (el b "button" k))
+
+; `<button ...>` - the `type` attribute is `(attr b "type" v)`.
+(pub macro (buttonA b attrs k) (elA b "button" attrs k))
+
+; `<textarea>`
+(pub macro (textarea b k) (el b "textarea" k))
+
+; `<textarea ...>`
+(pub macro (textareaA b attrs k) (elA b "textarea" attrs k))
+
+; `<nav>`
+(pub macro (nav b k) (el b "nav" k))
+
+; `<nav ...>`
+(pub macro (navA b attrs k) (elA b "nav" attrs k))
+
+; `<header>`
+(pub macro (header b k) (el b "header" k))
+
+; `<header ...>`
+(pub macro (headerA b attrs k) (elA b "header" attrs k))
+
+; `<footer>`
+(pub macro (footer b k) (el b "footer" k))
+
+; `<footer ...>`
+(pub macro (footerA b attrs k) (elA b "footer" attrs k))
+
+; `<section>`
+(pub macro (section b k) (el b "section" k))
+
+; `<section ...>`
+(pub macro (sectionA b attrs k) (elA b "section" attrs k))
+
+; `<article>`
+(pub macro (article b k) (el b "article" k))
+
+; `<article ...>`
+(pub macro (articleA b attrs k) (elA b "article" attrs k))
+
+; ------------------------------------------------------------------
+; Void elements: no children, no closing tag.
+; ------------------------------------------------------------------
+; `<br>`
+(pub macro (br b) (elVoid b "br"))
+
+; `<hr>`
+(pub macro (hr b) (elVoid b "hr"))
+
+; `<img src="..." alt="...">`
+(pub macro (img b attrs) (elVoidA b "img" attrs))
+
+; `<input name="..." value="...">` - `type` is `(attr b "type" v)`.
+(pub macro (input b attrs) (elVoidA b "input" attrs))
+
+; `<link rel="stylesheet" href="...">`
+(pub macro (link b attrs) (elVoidA b "link" attrs))
+
+; `<meta charset="utf-8">`
+(pub macro (meta b attrs) (elVoidA b "meta" attrs))
+
+; ------------------------------------------------------------------
+; Inline CSS and JS, and the `</script>` problem.
+;
+; `(style b css)` and `(script b js)` write their string VERBATIM
+; except that every `</` becomes `<\/` (`hEscTagEnd`), so the closing
+; tag cannot appear inside the element however the string was built.
+; That is a RUN-TIME rewrite: a macro cannot read a literal's bytes at
+; expansion (MAC-LANG-13), so nothing here refuses `"</script>"` at
+; `check`. tests/stdlib/421-html-script.ax pins the rewrite.
+; ------------------------------------------------------------------
+; `<style>css</style>`, the CSS verbatim with `</` neutralised.
+(pub macro (style b css) (let ((bb b))
+  {
+    (hRaw bb "<style>")
+    (hCss bb css)
+    (hRaw bb "</style>")
+  }
+))
+
+; `<script>js</script>`, the JS verbatim with `</` neutralised.
+(pub macro (script b js) (let ((bb b))
+  {
+    (hRaw bb "<script>")
+    (hJs bb js)
+    (hRaw bb "</script>")
+  }
+))
+
+; `<script src="..."></script>` - an external script, attributes only.
+(pub macro (scriptA b attrs) (let ((bb b))
+  {
+    (hOpen bb "script")
+    attrs
+    (hOpenEnd bb)
+    (hClose bb "script")
+  }
+))
+
+; ------------------------------------------------------------------
+; Text
+; ------------------------------------------------------------------
+; Escaped text: `(text b "5 < 6")` writes `5 &lt; 6`. The default,
+; and the form every string a peer supplied goes through.
+(pub macro (text b s) (hText b s))
+
+; UNESCAPED BYTES. THIS IS THE ONLY FORM THAT WRITES A STRING WITHOUT
+; ESCAPING IT: `(raw b "<hr>")` writes `<hr>`, and `(raw b q)` with `q`
+; from a request writes whatever the peer sent, markup and script
+; included. Use it for markup the program itself wrote, never for
+; data.
+(pub macro (raw b s) (hRaw b s))
+
+; ------------------------------------------------------------------
+; Attributes, for the block between `<tag` and `>`. Each is
+; `(name b value)` and writes ` name="value"` with the value escaped.
+; ------------------------------------------------------------------
+; ` name="value"` for any attribute name - the escape hatch for a name
+; with no macro of its own (`type`, `for`, `title`, `style`, `data-*`,
+; `aria-*`). The NAME is the author's literal and is written as it is.
+(pub macro (attr b name value) (hAttr b name value))
+
+; ` name` alone: a boolean attribute, `(flag b "disabled")`.
+(pub macro (flag b name) (hFlag b name))
+
+; ` class="..."`
+(pub macro (class b v) (hAttr b "class" v))
+
+; ` id="..."`
+(pub macro (id b v) (hAttr b "id" v))
+
+; ` href="..."`
+(pub macro (href b v) (hAttr b "href" v))
+
+; ` src="..."`
+(pub macro (src b v) (hAttr b "src" v))
+
+; ` alt="..."`
+(pub macro (alt b v) (hAttr b "alt" v))
+
+; ` name="..."`
+(pub macro (name b v) (hAttr b "name" v))
+
+; ` value="..."`
+(pub macro (value b v) (hAttr b "value" v))
+
+; ` rel="..."`
+(pub macro (rel b v) (hAttr b "rel" v))
+
+; ` action="..."`
+(pub macro (action b v) (hAttr b "action" v))
+
+; ` method="..."`
+(pub macro (method b v) (hAttr b "method" v))
+
+; ` placeholder="..."`
+(pub macro (placeholder b v) (hAttr b "placeholder" v))
+
+; ` lang="..."`
+(pub macro (lang b v) (hAttr b "lang" v))
+
+; ` charset="..."`
+(pub macro (charset b v) (hAttr b "charset" v))
+
+; ` content="..."`
+(pub macro (content b v) (hAttr b "content" v))
+
+; ` width="..."`
+(pub macro (width b v) (hAttr b "width" v))
+
+; ` height="..."`
+(pub macro (height b v) (hAttr b "height" v))
+
+; ` target="..."`
+(pub macro (target b v) (hAttr b "target" v))
+
+; ------------------------------------------------------------------
+; Iteration
+; ------------------------------------------------------------------
+; `(for x xs body)` - `body` once per element of the `Vec` of Strings
+; `xs`, with `x` bound to each. `x` is the CALLER's name (MAC-HYG-10);
+; `i`, `n` and `v` are the template's and are renamed, so a body that
+; mentions `i` means its own. Answers 0. `vecGetStr` rather than
+; `vecGet`, because a value out of the polymorphic accessor has no
+; named type and reaches MAC-CAP-10.6's AX3025 the moment a body
+; interpolates it.
+(pub macro (for x xs body) (let ((v xs))
+  (let ((mut i 0))
+    (let ((n (hVecLen v)))
+      {
+        (while (< i n)
+          {
+            (let ((x (hVecStr v i)))
+              body
+            )
+            (set i (+ i 1))
+          })
+        0
+      }
+    )
+  )
+))
+
+; `(forInt x xs body)` - the same over a `Vec` of Ints, `x` bound to
+; each word.
+(pub macro (forInt x xs body) (let ((v xs))
+  (let ((mut i 0))
+    (let ((n (hVecLen v)))
+      {
+        (while (< i n)
+          {
+            (let ((x (hVecWord v i)))
+              body
+            )
+            (set i (+ i 1))
+          })
+        0
+      }
+    )
+  )
+))
