@@ -7427,7 +7427,7 @@
 ; where rust-analyzer advertises its own.
 (pub :: lspFixCaps (-> Int Int))
 
-(pub fn (lspFixCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "documentFormattingProvider" (jsonBool 1)) "codeActionProvider" (jsonObjPut jsonObj "codeActionKinds" (jsonArrPush (jsonArrPush jsonArr (jsonStr "quickfix")) (jsonStr "refactor.rewrite")))) "typeDefinitionProvider" (jsonBool 1)) "codeLensProvider" (jsonObjPut jsonObj "resolveProvider" (jsonBool 0))) "experimental" (jsonObjPut jsonObj "expandMacro" (jsonBool 1))))
+(pub fn (lspFixCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "documentFormattingProvider" (jsonBool 1)) "codeActionProvider" (jsonObjPut jsonObj "codeActionKinds" (jsonArrPush (jsonArrPush (jsonArrPush jsonArr (jsonStr "quickfix")) (jsonStr "refactor.rewrite")) (jsonStr "refactor.extract")))) "typeDefinitionProvider" (jsonBool 1)) "codeLensProvider" (jsonObjPut jsonObj "resolveProvider" (jsonBool 0))) "experimental" (jsonObjPut jsonObj "expandMacro" (jsonBool 1))))
 
 ; ------------------------------------------------------------------
 ; `textDocument/formatting`: the formatter's output as ONE edit over
@@ -7539,6 +7539,17 @@
 ; Both halves need the pipeline `lspCheckDoc` runs. Expansion's
 ; refusals keep the checker from running, for the reason that function
 ; gives: the tree it gave up on is one the checker has died on.
+;
+; THREE MORE, added 2026-08-29 and described at their own banner
+; below: an import for an AX3001 name another module declares, `pub`
+; for an AX3023 name, and an extraction to a `let`. The first two
+; hang off the same diagnostic list the quickfixes read; the third
+; reads the WRITTEN tree and is asked BEFORE the pipeline runs,
+; because phase D rewrites the declaration list in place - an
+; invocation becomes its first product - and NAV's occurrence walk
+; over a rewritten list would anchor binders at bytes a product
+; copied from its template. It is pushed last so a client that shows
+; actions in the order sent keeps the compiler's fixes first.
 ; ------------------------------------------------------------------
 (pub :: lspCodeAction (-> String String Int Int))
 
@@ -7555,44 +7566,56 @@
           (want (lspRangeSpan src ix (jsonGet params "range")))
           (rawVis (lspWrittenVis decls))
         )
-          (let ((ex (lspFixExpand (lspUriToPath uri) src decls)))
-            (if (== ex 0)
-              jsonArr
-              (let ((eds (memGetWord ex 2)))
-                (let ((tc
-                  (if (> (countErrorDiags eds) 0)
-                    0
-                    (checkModuleTc decls (memGetWord ex 0) (memGetWord ex 1))
-                  )
-                ))
-                  (let ((ds
-                    (if (== tc 0)
-                      (orderDiags eds)
-                      (orderDiags
-                        (expMergeInto
-                          eds                          (let ((cds (tcOut tc)))
-                            {
-                              (expAttachFrames cds (memGetWord ex 4) (memGetWord ex 1))
-                              cds
-                            }
+          (let (
+            (extract (lspExtractAction src uri decls ix want))
+            (path (lspUriToPath uri))
+            (out jsonArr)
+          )
+            (let ((ex (lspFixExpand path src decls)))
+              {
+                (if (== ex 0)
+                  0
+                  (let ((eds (memGetWord ex 2)))
+                    (let ((tc
+                      (if (> (countErrorDiags eds) 0)
+                        0
+                        (checkModuleTc decls (memGetWord ex 0) (memGetWord ex 1))
+                      )
+                    ))
+                      (let ((ds
+                        (if (== tc 0)
+                          (orderDiags eds)
+                          (orderDiags
+                            (expMergeInto
+                              eds                              (let ((cds (tcOut tc)))
+                                {
+                                  (expAttachFrames cds (memGetWord ex 4) (memGetWord ex 1))
+                                  cds
+                                }
+                              )
+                            )
                           )
                         )
-                      )
-                    )
-                  ))
-                    (let ((out jsonArr))
-                      {
-                        (lspQuickfixes out ds src uri ix want)
-                        (if (== tc 0)
+                      ))
+                        {
+                          (lspQuickfixes out ds src uri ix want)
+                          (if (== tc 0)
+                            0
+                            (lspSigAssists out decls rawVis (lspViewSigIndex decls) (lspFixEntryIndex (tcFns tc)) src uri ix want)
+                          )
+                          (lspNameAssists out ds src uri ix want decls path (memGetWord ex 0) (memGetWord ex 1))
                           0
-                          (lspSigAssists out decls rawVis (lspViewSigIndex decls) (lspFixEntryIndex (tcFns tc)) src uri ix want)
-                        )
-                        out
-                      }
+                        }
+                      )
                     )
                   )
                 )
-              )
+                (if (== extract 0)
+                  0
+                  (jsonArrPush out extract)
+                )
+                out
+              }
             )
           )
         )
@@ -7866,6 +7889,1146 @@
     )))
       (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Add type signature for `" name) "`"))) "kind" (jsonStr "refactor.rewrite")) "edit" (lspEditJson uri (jsonObjPut (jsonObjPut jsonObj "start" (lspPosIx src ix o)) "end" (lspPosIx src ix o)) text))
     )
+  )
+)
+
+; ------------------------------------------------------------------
+; Three assists the compiler does not write, and what each one reads.
+;
+; IMPORT A NAME - `quickfix`, on an AX3001 whose reference is a bare
+; name. The name is looked for as a `pub` declaration in every module
+; the resolver could reach: the directories `moduleSearchDirs`
+; answers, in its order - the entry file's own, the manifest's
+; `depend` dirs, `AXIOM_PATH`, `AXIOM_STDLIB` - each walked three
+; levels down, because a nested `Sys/Platform.darwin.ax` is a module
+; too. A file is a candidate under the name the resolver would give
+; it (`Sys.Platform`, the platform suffix folded through
+; `targetOsSuffix`), and it counts only when `moduleSrcPath` resolves
+; that name to THIS file - which is the ladder's own shadowing rule,
+; asked rather than restated: a `Str.ax` beside the entry file hides
+; the stdlib's. The cheap question first: the file's bytes must spell
+; the name as a whole word before it is lexed and parsed, because a
+; parse is the expensive step and a file that never writes the name
+; cannot declare it. One action per module found, titled
+; ``Import `name` from `Mod` ``; its edit adds the name to an existing
+; `(import Mod (...))` list, else writes `(import Mod (name))` on its
+; own line after the last import, else at the top of the file. Nothing
+; is kept across requests - the arena rule. Measured with the stdlib on
+; `AXIOM_STDLIB` and a five-file entry directory: 0.035 s for the
+; whole request against 0.004 s without the search, on a document too
+; small to time `didOpen` on; the walk is one `sysReadDir` per
+; directory, one read per `.ax` file, and a parse per file that
+; spells the name.
+;
+; MAKE A NAME PUBLIC - `quickfix`, on AX3023. The diagnostic names
+; the module and the name in backticks, in either order (the checker
+; has two sites: the import's name list, and the reference itself),
+; so both readings are tried against the merged declaration list and
+; the one that finds a declaration in that module wins. The
+; declaration's WRITTEN visibility is read from its own file's bytes -
+; `resolveImports` overwrites `nodeVis` with "exported", which says
+; whether the import's list admits the name, not whether `pub` was
+; written. Measured: `check` needs BOTH the `fn` and its `::` to be
+; `pub` (either alone still reports AX3023), so the edit inserts
+; `pub ` after the opening paren of each, in the module's own file -
+; a `WorkspaceEdit` keyed by that file's URI. A name written `pub`
+; that AX3023 still reports is one the document's import list left
+; out - measured: `(import M (a))` beside a call of the exported `b`
+; reports `` `b` is private to module `M` `` - and the honest edit is
+; then the import list's, offered under the import title.
+;
+; EXTRACT TO `let` - `refactor.extract`, on a range and no diagnostic.
+; The range, trimmed of whitespace, must be EXACTLY one item of the
+; document - a form to its closer, a brace block, a literal or an
+; identifier, by VIEW's item scanner - inside the body of a `fn` of
+; this document. The item is found by descending from the body
+; through the item that holds it at each level; the STATEMENT it is
+; hoisted above is the innermost item on that path that is a direct
+; child of a `{ }` block, else the body itself. What is hoisted must
+; be evaluated exactly once, unconditionally, whenever the statement
+; is, so every form strictly between the statement and the item must
+; be one whose argument at that position is: any call; the test of an
+; `if`, the scrutinee of a `match`, the first operand of `&&` or
+; `||`; the body of a `let`, the value of a `set`, the operand of a
+; `cast` or `alloc`; a field of a `struct` construction. A `lambda`,
+; `while`, `cond` or `handle` between them, a head position, or a
+; binding list refuses. Then NAV's occurrence walk: every local
+; reference inside the item must be bound OUTSIDE the statement (or
+; inside the item), or the binding would be out of scope at the new
+; site - `(let ((y 1)) (+ y 2))` does not extract `(+ y 2)`. The
+; binder is `extracted`, or `extracted2`, `extracted3` ... past every
+; name the document spells. The statement is replaced by `(let ((x
+; E)) S')` with `x` for `E` in `S'`. What this changes on purpose: the
+; item now runs before whatever the statement evaluated ahead of it.
+; ------------------------------------------------------------------
+(pub :: lspNameAssists (-> Int Int String String Int Int Int String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspNameAssists out ds src uri ix want decls path allDecls units)
+  (let (
+    (n (vecLen ds))
+    (seen vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet ds i)))
+          {
+            (if (&& (== (diagUnit d) 0) (lspSpanMeets (diagSpan d) want))
+              (if (strEq (diagCode d) "AX3001")
+                (lspImportAssists out d src uri ix decls path seen)
+                (if (strEq (diagCode d) "AX3023")
+                  (lspPublicAssist out d src uri ix decls allDecls units seen)
+                  0
+                )
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; A CodeAction carrying one diagnostic and one WorkspaceEdit.
+(pub :: lspFixActionJson (-> String String Int String Int Int Int))
+
+(pub fn (lspFixActionJson title kind d src ix edit) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr title)) "kind" (jsonStr kind)) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix))) "edit" edit))
+
+; One zero-width TextEdit at byte `at` of the text `ix` indexes.
+(pub :: lspFixTextEdit (-> String Int Int String Int))
+
+(pub fn (lspFixTextEdit text ix at s) (jsonObjPut (jsonObjPut jsonObj "range" (jsonObjPut (jsonObjPut jsonObj "start" (lspPosIx text ix at)) "end" (lspPosIx text ix at))) "newText" (jsonStr s)))
+
+; The same, as a whole WorkspaceEdit in `uri`.
+(pub :: lspFixInsert (-> String String Int Int String Int))
+
+(pub fn (lspFixInsert uri src ix at s) (jsonObjPut jsonObj "changes" (jsonObjPut jsonObj uri (jsonArrPush jsonArr (lspFixTextEdit src ix at s)))))
+
+(pub :: lspFixImportTitle (-> String String String))
+
+(pub fn (lspFixImportTitle mod name) (strConcat (strConcat (strConcat "Import `" name) "` from `") (strConcat mod "`")))
+
+; The name AX3001 reports is the reference's own bytes; a qualified
+; `Mod::name` spans its first segment alone, and names its module
+; already, so it is not this assist's question.
+(pub :: lspImportAssists (-> Int Int String String Int Int String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspImportAssists out d src uri ix decls path seen)
+  (let ((sp (diagSpan d)))
+    (if (== sp 0)
+      0
+      (let ((name (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))))
+        (if (|| (== (strLen name) 0) (lspFixIsQualified src (spanEnd sp)))
+          0
+          (let (
+            (mods (lspFixSearch name path))
+            (mut i 0)
+          )
+            {
+              (while (< i (vecLen mods))
+                {
+                  (lspImportOffer out d src uri ix decls (vecGetStr mods i) name seen)
+                  (set i (+ i 1))
+                })
+              0
+            }
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspFixIsQualified (-> String Int Bool))
+
+(pub fn (lspFixIsQualified src e) (&& (< (+ e 1) (strLen src)) (&& (== (strByte src e) 58) (== (strByte src (+ e 1)) 58))))
+
+; One action per (module, name), whatever the number of diagnostics
+; that asked for it - a whole-document range meets every one.
+(pub :: lspImportOffer (-> Int Int String String Int Int String String Int Int))
+
+(pub fn (lspImportOffer out d src uri ix decls mod name seen)
+  (let ((key (strConcat mod (strConcat "$" name))))
+    (if (>= (strVecIdx seen key) 0)
+      0
+      (let ((edit (lspImportEdit src uri ix decls mod name)))
+        (if (== edit 0)
+          0
+          {
+            (vecPush seen key)
+            (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src ix edit))
+            0
+          }
+        )
+      )
+    )
+  )
+)
+
+; The import edit, in this document: the name added to `Mod`'s
+; existing list, else a new import line after the last one, else the
+; first line of the file. A module imported WITHOUT a list already
+; exports everything it can, so there is nothing to write - 0.
+(pub :: lspImportEdit (-> String String Int Int String String Int))
+
+(pub fn (lspImportEdit src uri ix decls mod name)
+  (let ((imp (lspFixFindImport decls mod (- (vecLen decls) 1))))
+    (if (!= imp 0)
+      (if (== (vecLen (nodeB imp)) 0)
+        0
+        (let ((o (lspFormStart src (spanStart (nodeSpan imp)))))
+          (let (
+            (e (lspFormEnd src o))
+            (lo (strFindByte src 40 (+ o 1)))
+          )
+            (if (|| (< lo 0) (>= lo e))
+              0
+              (lspFixInsert uri src ix (- (lspFormEnd src lo) 1) (strConcat " " name))
+            )
+          )
+        )
+      )
+      (let ((last (lspFixLastImport decls (- (vecLen decls) 1))))
+        (if (== last 0)
+          (lspFixInsert uri src ix 0 (strConcat (lspFixImportLine mod name) "\n"))
+          (lspFixInsert uri src ix (lspFormEnd src (lspFormStart src (spanStart (nodeSpan last)))) (strConcat "\n" (lspFixImportLine mod name)))
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspFixImportLine (-> String String String))
+
+(pub fn (lspFixImportLine mod name) (strConcat (strConcat "(import " mod) (strConcat (strConcat " (" name) "))")))
+
+; This document's import of `mod`, last wins, or 0.
+(pub :: lspFixFindImport (-> Int String Int Int))
+
+(pub fn (lspFixFindImport decls mod i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_IMPORT) (&& (!= (nodeSpan d) 0) (strEq (nodeAName d) mod)))
+        d
+        (lspFixFindImport decls mod (- i 1))
+      )
+    )
+  )
+)
+
+(pub :: lspFixLastImport (-> Int Int Int))
+
+(pub fn (lspFixLastImport decls i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_IMPORT) (!= (nodeSpan d) 0))
+        d
+        (lspFixLastImport decls (- i 1))
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The search: every module the resolver could reach that declares
+; `name` `pub`, as a Vec of module names in the resolver's order.
+; ------------------------------------------------------------------
+(pub :: lspFixSearch (-> String String Int))
+
+;@axiom:effect(io)
+(pub fn (lspFixSearch name path)
+  (let (
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+    (found vecNew)
+    (seen vecNew)
+  )
+    (let (
+      (dirs (moduleSearchDirs entryDir))
+      (mut i 0)
+    )
+      {
+        (while (< i (vecLen dirs))
+          {
+            (lspFixScanDir (vecGetStr dirs i) "" "" 0 name path tcode entryDir found seen)
+            (set i (+ i 1))
+          })
+        found
+      }
+    )
+  )
+)
+
+; One directory, `rel` below the search root `dir`: every `.ax` entry
+; is a candidate module `modPrefix` + its stem; every other entry that
+; is a directory with a module-segment name is walked, three levels
+; deep at most. Dot-files and dot-directories are skipped. A root of
+; "" is the working directory - `moduleSearchDirs` pushes it for an
+; entry file named with no directory - and is listed as `./`.
+(pub :: lspFixScanDir (-> String String String Int String String Int String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspFixScanDir dir rel modPrefix depth name path tcode entryDir found seen)
+  (let ((names (sysReadDir (strCStr (if (== (strLen dir) 0)
+    (strConcat "./" rel)
+    (strConcat dir rel)
+  )))))
+    (let (
+      (n (vecLen names))
+      (mut i 0)
+    )
+      {
+        (while (< i n)
+          (let ((nm (vecGetStr names i)))
+            {
+              (if (|| (== (strLen nm) 0) (== (strByte nm 0) 46))
+                0
+                (let ((full (strConcat dir (strConcat rel nm))))
+                  (if (lspFixEndsWith nm ".ax")
+                    (let ((stem (lspFixStemOf nm tcode)))
+                      (if (== (strLen stem) 0)
+                        0
+                        (lspFixConsider full (strConcat modPrefix stem) name path tcode entryDir found seen)
+                      )
+                    )
+                    (if (&& (< depth 3) (&& (lspFixIsSegment nm) (sysIsDir (strCStr full))))
+                      (lspFixScanDir dir (strConcat rel (strConcat nm "/")) (strConcat modPrefix (strConcat nm ".")) (+ depth 1) name path tcode entryDir found seen)
+                      0
+                    )
+                  )
+                )
+              )
+              (set i (+ i 1))
+            }
+          ))
+        0
+      }
+    )
+  )
+)
+
+; The module stem of a file name, under this target's suffix ladder -
+; `Platform.darwin.ax` is `Platform` on darwin and nothing on linux -
+; or "" for a name the resolver could not be asked for.
+(pub :: lspFixStemOf (-> String Int String))
+
+(pub fn (lspFixStemOf nm tcode)
+  (let ((stem
+    (if (lspFixEndsWith nm (targetOsArchSuffix tcode))
+      (lspFixDropEnd nm (strLen (targetOsArchSuffix tcode)))
+      (if (lspFixEndsWith nm (targetOsSuffix tcode))
+        (lspFixDropEnd nm (strLen (targetOsSuffix tcode)))
+        (if (lspFixEndsWith nm ".ax")
+          (lspFixDropEnd nm 3)
+          ""
+        )
+      )
+    )
+  ))
+    (if (lspFixIsSegment stem)
+      stem
+      ""
+    )
+  )
+)
+
+; A module-path segment: what `parseModPath` reads between the dots,
+; which is an identifier - so a stem holding another target's suffix
+; (`Platform.linux`) is refused by its dot.
+(pub :: lspFixIsSegment (-> String Bool))
+
+(pub fn (lspFixIsSegment s) (&& (> (strLen s) 0) (&& (isIdentStart (strByte s 0)) (lspAllIdentBytes s 0))))
+
+(pub :: lspFixEndsWith (-> String String Bool))
+
+(pub fn (lspFixEndsWith s suf) (&& (>= (strLen s) (strLen suf)) (strEq (strSlice s (- (strLen s) (strLen suf)) (strLen suf)) suf)))
+
+(pub :: lspFixDropEnd (-> String Int String))
+
+(pub fn (lspFixDropEnd s k) (strSlice s 0 (- (strLen s) k)))
+
+; One candidate file. Not the document itself; not a module already
+; decided; read, and parsed only when its bytes spell the name as a
+; whole word; and counted only when the resolver would pick THIS
+; file for the module name, which is the ladder's shadowing rule.
+(pub :: lspFixConsider (-> String String String String Int String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspFixConsider full mod name path tcode entryDir found seen)
+  (if (|| (strEq full path) (>= (strVecIdx seen mod) 0))
+    0
+    (let ((text (sysReadFile (strCStr full))))
+      (if (lspFixHasWord text name)
+        (if (strEq (moduleSrcPath mod tcode entryDir) full)
+          {
+            (vecPush seen mod)
+            (let ((pr (parseModuleWith (lex text) (scanAxtags text))))
+              (if (== (memGetWord pr 0) 0)
+                0
+                (if (lspFixDeclaresPub (memGetWord pr 1) name)
+                  {
+                    (vecPush found mod)
+                    0
+                  }
+                  0
+                )
+              )
+            )
+          }
+          0
+        )
+        0
+      )
+    )
+  )
+)
+
+; Whether `text` spells `name` with a non-identifier byte (or an
+; edge) on each side. The lexer's own identifier rule, so `strLen`
+; is not found in `strLength`.
+(pub :: lspFixHasWord (-> String String Bool))
+
+(pub fn (lspFixHasWord text name)
+  (let (
+    (n (strLen text))
+    (k (strLen name))
+    (mut i 0)
+    (mut found false)
+  )
+    {
+      (while (if found
+        false
+        (&& (> k 0) (<= (+ i k) n))
+      )
+        (let ((j (strFindByte text (strByte name 0) i)))
+          (if (|| (< j 0) (> (+ j k) n))
+            (set i n)
+            {
+              (if (&& (lspFixBytesEq text j name k) (lspFixWordEdges text j k))
+                {
+                  (set found true)
+                  0
+                }
+                0
+              )
+              (set i (+ j 1))
+            }
+          )
+        ))
+      found
+    }
+  )
+)
+
+(pub :: lspFixBytesEq (-> String Int String Int Bool))
+
+(pub fn (lspFixBytesEq text j name k)
+  (let (
+    (mut m 0)
+    (mut same true)
+  )
+    {
+      (while (if same
+        (< m k)
+        false
+      )
+        {
+          (if (== (strByte text (+ j m)) (strByte name m))
+            0
+            {
+              (set same false)
+              0
+            }
+          )
+          (set m (+ m 1))
+        })
+      same
+    }
+  )
+)
+
+(pub :: lspFixWordEdges (-> String Int Int Bool))
+
+(pub fn (lspFixWordEdges text j k)
+  (&&
+    (if (== j 0)
+      true
+      (lspNavNot (isIdentChar (strByte text (- j 1))))
+    )    (if (>= (+ j k) (strLen text))
+      true
+      (lspNavNot (isIdentChar (strByte text (+ j k))))
+    )
+  )
+)
+
+; Whether a raw declaration list makes `name` leave its module: a
+; `pub` fn, macro, struct or alias of that name, a `pub` data with a
+; constructor of it, a `pub` extern block with an item of it, or a
+; `pub` trait with a method of it. Measured: a `pub ::` beside a
+; private `fn` does not export the fn, so a signature alone is not
+; counted.
+(pub :: lspFixDeclaresPub (-> Int String Bool))
+
+(pub fn (lspFixDeclaresPub decls name)
+  (let (
+    (n (vecLen decls))
+    (mut i 0)
+    (mut found false)
+  )
+    {
+      (while (if found
+        false
+        (< i n)
+      )
+        (let ((d (vecGet decls i)))
+          {
+            (if (&& (== (nodeVis d) 1) (lspFixDeclNames d name))
+              {
+                (set found true)
+                0
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      found
+    }
+  )
+)
+
+(pub :: lspFixDeclNames (-> Int String Bool))
+
+(pub fn (lspFixDeclNames d name)
+  (let ((tag (nodeTag d)))
+    (if (|| (== tag TAG_D_FN) (|| (== tag TAG_D_MACRO) (|| (== tag TAG_D_STRUCT) (== tag TAG_D_ALIAS))))
+      (strEq (nodeAName d) name)
+      (if (== tag TAG_D_DATA)
+        (>= (lspCtorIndex (nodeB d) name 0) 0)
+        (if (== tag TAG_D_EXTERN)
+          (== (strVecHas (nodeB d) name) 1)
+          (if (== tag TAG_D_TRAIT)
+            (lspFixFieldNamed (nodeB d) name 0)
+            false
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: lspFixFieldNamed (-> Int String Int Bool))
+
+(pub fn (lspFixFieldNamed fields name i)
+  (if (>= i (vecLen fields))
+    false
+    (if (strEq (nodeAName (vecGet fields i)) name)
+      true
+      (lspFixFieldNamed fields name (+ i 1))
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `pub` for an AX3023 name.
+; ------------------------------------------------------------------
+(pub :: lspPublicAssist (-> Int Int String String Int Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspPublicAssist out d src uri ix decls allDecls units seen)
+  (let (
+    (a (lspFixBacktick (diagMsg d) 0))
+    (b (lspFixBacktick (diagMsg d) 1))
+  )
+    (if (|| (== (strLen a) 0) (== (strLen b) 0))
+      0
+      (let ((first (lspFixDeclIn allDecls a (lspFixAfterColons b) (- (vecLen allDecls) 1))))
+        (if (!= first 0)
+          (lspPublicOffer out d src uri ix decls allDecls units a (lspFixAfterColons b) first seen)
+          (let ((second (lspFixDeclIn allDecls b (lspFixAfterColons a) (- (vecLen allDecls) 1))))
+            (if (== second 0)
+              0
+              (lspPublicOffer out d src uri ix decls allDecls units b (lspFixAfterColons a) second seen)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The `k`-th backticked run of a message, or "".
+(pub :: lspFixBacktick (-> String Int String))
+
+(pub fn (lspFixBacktick msg k)
+  (let (
+    (n (strLen msg))
+    (mut i 0)
+    (mut count 0)
+    (mut out "")
+    (mut go 1)
+  )
+    {
+      (while (if (== go 1)
+        (< i n)
+        false
+      )
+        (let ((a (strFindByte msg 96 i)))
+          (if (< a 0)
+            (set go 0)
+            (let ((b (strFindByte msg 96 (+ a 1))))
+              (if (< b 0)
+                (set go 0)
+                {
+                  (if (== count k)
+                    {
+                      (set out (strSlice msg (+ a 1) (- b (+ a 1))))
+                      (set go 0)
+                    }
+                    0
+                  )
+                  (set count (+ count 1))
+                  (set i (+ b 1))
+                }
+              )
+            )
+          )
+        ))
+      out
+    }
+  )
+)
+
+; The name after the last `::` - `srcSpelling` writes a qualified
+; reference that way - or the whole string.
+(pub :: lspFixAfterColons (-> String String))
+
+(pub fn (lspFixAfterColons s)
+  (let ((i (lspFixLastColons s (- (strLen s) 2))))
+    (if (< i 0)
+      s
+      (strSlice s (+ i 2) (- (strLen s) (+ i 2)))
+    )
+  )
+)
+
+(pub :: lspFixLastColons (-> String Int Int))
+
+(pub fn (lspFixLastColons s i)
+  (if (< i 0)
+    (- 0 1)
+    (if (&& (== (strByte s i) 58) (== (strByte s (+ i 1)) 58))
+      i
+      (lspFixLastColons s (- i 1))
+    )
+  )
+)
+
+; The declaration of bare `name` that module `mod` carries in the
+; merged list, or 0. Over the outline's kinds, as `lspFindImported`
+; is, and by the module's own stamp rather than the mangled prefix.
+(pub :: lspFixDeclIn (-> Int String String Int Int))
+
+(pub fn (lspFixDeclIn allDecls mod name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet allDecls i)))
+      (if (&& (!= (nodeModule d) 0) (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeSpan d) 0) (&& (strEq (nodeModuleName d) mod) (strEq (bareOf (nodeAName d)) name)))))
+        d
+        (lspFixDeclIn allDecls mod name (- i 1))
+      )
+    )
+  )
+)
+
+(pub :: lspPublicOffer (-> Int Int String String Int Int Int Int String String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspPublicOffer out d src uri ix decls allDecls units mod name decl seen)
+  (let ((key (strConcat mod (strConcat "$" name))))
+    (if (>= (strVecIdx seen key) 0)
+      0
+      (let ((u (lspUnitOf units (nodeModule decl))))
+        (if (< u 0)
+          0
+          (let (
+            (hsrc (memGetWordStr (vecGet units u) 1))
+            (hpath (memGetWordStr (vecGet units u) 0))
+          )
+            (let ((o (lspFormStart hsrc (spanStart (nodeSpan decl)))))
+              (if (strEq (lspViewHeadAt hsrc o) "pub")
+                (let ((edit (lspImportEdit src uri ix decls mod name)))
+                  (if (== edit 0)
+                    0
+                    {
+                      (vecPush seen key)
+                      (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src ix edit))
+                      0
+                    }
+                  )
+                )
+                (let (
+                  (hix (lspLineIndex hsrc))
+                  (edits jsonArr)
+                  (sig (lspFindSig allDecls (nodeAName decl) (- (vecLen allDecls) 1)))
+                )
+                  {
+                    (jsonArrPush edits (lspFixTextEdit hsrc hix (+ o 1) "pub "))
+                    (if (== sig 0)
+                      0
+                      (let ((so (lspFormStart hsrc (spanStart (nodeSpan sig)))))
+                        (if (strEq (lspViewHeadAt hsrc so) "pub")
+                          0
+                          (jsonArrPush edits (lspFixTextEdit hsrc hix (+ so 1) "pub "))
+                        )
+                      )
+                    )
+                    (vecPush seen key)
+                    (jsonArrPush out (lspFixActionJson (strConcat (strConcat (strConcat "Make `" name) "` public in `") (strConcat mod "`")) "quickfix" d src ix (jsonObjPut jsonObj "changes" (jsonObjPut jsonObj (lspPathToUri hpath) edits))))
+                    0
+                  }
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; Extract to `let`.
+; ------------------------------------------------------------------
+(pub :: lspExtractAction (-> String String Int Int Int Int))
+
+(pub fn (lspExtractAction src uri decls ix want)
+  (let ((sel (lspFixTrim src want)))
+    (if (== sel 0)
+      0
+      (let (
+        (ws (spanStart sel))
+        (we (spanEnd sel))
+      )
+        (if (!= (lspViewItemEnd src ws (strLen src)) we)
+          0
+          (let ((o (lspFixFnFormAt src decls ws we)))
+            (if (< o 0)
+              0
+              (let ((kids (lspFixKids src o)))
+                (let ((nk (vecLen kids)))
+                  ; `(fn header body)` is three items - six words - and
+                  ; `(pub fn ...)` four; the body is the last item and
+                  ; the word two items before it must be `fn`.
+                  (if (< nk 6)
+                    0
+                    (let (
+                      (bs (vecGet kids (- nk 2)))
+                      (be (vecGet kids (- nk 1)))
+                      (ks (vecGet kids (- nk 6)))
+                      (ke (vecGet kids (- nk 5)))
+                    )
+                      (if (lspNavNot (strEq (strSlice src ks (- ke ks)) "fn"))
+                        0
+                        (if (|| (> bs ws) (> we be))
+                          0
+                          (lspExtractIn src uri decls ix ws we bs be)
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The range without its surrounding whitespace, clamped to the
+; document, or 0 when nothing is left.
+(pub :: lspFixTrim (-> String Int Int))
+
+(pub fn (lspFixTrim src want)
+  (let (
+    (n (strLen src))
+    (mut s (spanStart want))
+    (mut e (spanEnd want))
+  )
+    {
+      (if (> e n)
+        (set e n)
+        0
+      )
+      (if (< s 0)
+        (set s 0)
+        0
+      )
+      (while (if (< s e)
+        (lspIsSpace (strByte src s))
+        false
+      )
+        (set s (+ s 1)))
+      (while (if (> e s)
+        (lspIsSpace (strByte src (- e 1)))
+        false
+      )
+        (set e (- e 1)))
+      (if (>= s e)
+        0
+        (mkSpan s e)
+      )
+    }
+  )
+)
+
+; The `(` of the top-level form holding [ws, we), when that form is a
+; `fn` declaration of this document; -1 otherwise.
+(pub :: lspFixFnFormAt (-> String Int Int Int Int))
+
+(pub fn (lspFixFnFormAt src decls ws we)
+  (let ((o (lspFormStart src ws)))
+    (let ((e (lspFormEnd src o)))
+      (if (|| (> we e) (== (lspFixFnDeclIn decls o e 0) 0))
+        (- 0 1)
+        o
+      )
+    )
+  )
+)
+
+(pub :: lspFixFnDeclIn (-> Int Int Int Int Int))
+
+(pub fn (lspFixFnDeclIn decls o e i)
+  (if (>= i (vecLen decls))
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (&& (!= (nodeSpan d) 0) (&& (>= (spanStart (nodeSpan d)) o) (< (spanStart (nodeSpan d)) e))))
+        d
+        (lspFixFnDeclIn decls o e (+ i 1))
+      )
+    )
+  )
+)
+
+; The items of the form or brace block opening at `o`, as a flat Vec
+; of (start, end) pairs - the head included, comments left out. The
+; scanner is VIEW's, which is `lspFormEnd`'s.
+(pub :: lspFixKids (-> String Int Int))
+
+(pub fn (lspFixKids src o)
+  (let (
+    (n (strLen src))
+    (out vecNew)
+    (mut i (+ o 1))
+    (mut go 1)
+  )
+    {
+      (while (if (== go 1)
+        (< i n)
+        false
+      )
+        (let ((ch (strByte src i)))
+          (if (lspIsSpace ch)
+            (set i (+ i 1))
+            (if (== ch 59)
+              (set i (findNewline src i n))
+              (if (&& (== ch 35) (isBlockOpen src i n))
+                (set i (skipBlockComment src (+ i 2) n))
+                (if (|| (== ch 41) (== ch 125))
+                  (set go 0)
+                  (let ((e (lspViewItemEnd src i n)))
+                    {
+                      (vecPush out i)
+                      (vecPush out e)
+                      (set i e)
+                    }
+                  )
+                )
+              )
+            )
+          )
+        ))
+      out
+    }
+  )
+)
+
+(pub :: lspExtractIn (-> String String Int Int Int Int Int Int Int))
+
+(pub fn (lspExtractIn src uri decls ix ws we bs be)
+  (let ((chain vecNew))
+    (if (lspNavNot (lspFixDescend src bs be ws we chain))
+      0
+      (let ((fi (lspFixStatementAt src chain)))
+        (let (
+          (fs
+            (if (< fi 0)
+              bs
+              (vecGet chain (+ (* fi 4) 2))
+            )
+          )
+          (fe
+            (if (< fi 0)
+              be
+              (vecGet chain (+ (* fi 4) 3))
+            )
+          )
+        )
+          (if (lspNavNot (lspFixPathIsPlain src chain (+ fi 1)))
+            0
+            (let ((occs (lspNavOccurrences src decls)))
+              (if (lspNavNot (lspFixFreeIn occs ws we fs fe))
+                0
+                (lspExtractJson src uri ix ws we fs fe (lspFixFreshName occs))
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; From the body down to the item, one level at a time: the item of
+; the current form that holds [ws, we) becomes the current form.
+; Each step records (parent, index, start, end) on `chain`. True when
+; the descent lands exactly on the item; false when it meets an atom
+; or a string first, or a level where no single item holds the
+; range - which is a range across two items.
+(pub :: lspFixDescend (-> String Int Int Int Int Int Bool))
+
+(pub fn (lspFixDescend src bs be ws we chain)
+  (let (
+    (mut cs bs)
+    (mut ce be)
+    (mut go 1)
+    (mut done 0)
+  )
+    {
+      (while (&& (== go 1) (== done 0))
+        (if (&& (== cs ws) (== ce we))
+          (set done 1)
+          (if (|| (== (strByte src cs) 40) (== (strByte src cs) 123))
+            (let ((kids (lspFixKids src cs)))
+              (let ((k (lspFixKidHolding kids ws we 0)))
+                (if (< k 0)
+                  (set go 0)
+                  {
+                    (vecPush chain cs)
+                    (vecPush chain k)
+                    (vecPush chain (vecGet kids (* k 2)))
+                    (vecPush chain (vecGet kids (+ (* k 2) 1)))
+                    (set cs (vecGet kids (* k 2)))
+                    (set ce (vecGet kids (+ (* k 2) 1)))
+                  }
+                )
+              )
+            )
+            (set go 0)
+          )
+        ))
+      (== done 1)
+    }
+  )
+)
+
+(pub :: lspFixKidHolding (-> Int Int Int Int Int))
+
+(pub fn (lspFixKidHolding kids ws we k)
+  (if (>= (* k 2) (vecLen kids))
+    (- 0 1)
+    (if (&& (<= (vecGet kids (* k 2)) ws) (>= (vecGet kids (+ (* k 2) 1)) we))
+      k
+      (lspFixKidHolding kids ws we (+ k 1))
+    )
+  )
+)
+
+; The chain index of the innermost item whose parent is a brace
+; block - the statement - or -1 when the body itself is it.
+(pub :: lspFixStatementAt (-> String Int Int))
+
+(pub fn (lspFixStatementAt src chain)
+  (let (
+    (n (/ (vecLen chain) 4))
+    (mut j 0)
+    (mut at (- 0 1))
+  )
+    {
+      (while (< j n)
+        {
+          (if (== (strByte src (vecGet chain (* j 4))) 123)
+            (set at j)
+            0
+          )
+          (set j (+ j 1))
+        })
+      at
+    }
+  )
+)
+
+; Every level from `from` down to the item: a form whose argument at
+; the recorded index is evaluated exactly once whenever the form is.
+(pub :: lspFixPathIsPlain (-> String Int Int Bool))
+
+(pub fn (lspFixPathIsPlain src chain from)
+  (let (
+    (n (/ (vecLen chain) 4))
+    (mut j from)
+    (mut ok true)
+  )
+    {
+      (while (if ok
+        (< j n)
+        false
+      )
+        (let ((p (vecGet chain (* j 4))))
+          {
+            (if (== (strByte src p) 40)
+              (if (lspFixArgIsPlain (lspViewHeadAt src p) (vecGet chain (+ (* j 4) 1)))
+                0
+                {
+                  (set ok false)
+                  0
+                }
+              )
+              {
+                (set ok false)
+                0
+              }
+            )
+            (set j (+ j 1))
+          }
+        ))
+      ok
+    }
+  )
+)
+
+(pub :: lspFixArgIsPlain (-> String Int Bool))
+
+(pub fn (lspFixArgIsPlain head k)
+  (if (<= k 0)
+    false
+    (if (== (strLen head) 0)
+      false
+      (if (|| (strEq head "if") (|| (strEq head "match") (|| (strEq head "&&") (strEq head "||"))))
+        (== k 1)
+        (if (|| (strEq head "let") (|| (strEq head "set") (|| (strEq head "cast") (strEq head "alloc"))))
+          (== k 2)
+          (if (strEq head "struct")
+            (>= k 2)
+            (if (|| (strEq head "fn") (|| (strEq head "lambda") (|| (strEq head "while") (|| (strEq head "cond") (|| (strEq head "handle") (|| (strEq head "quote") (|| (strEq head "pub") (strStartsWith head "syntax/"))))))))
+              false
+              true
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Every local reference inside the item is bound outside the
+; statement, or inside the item itself. A key `@N` anchors its binder
+; at byte N; a `~` key is a binder no byte anchors, and is refused
+; because its place cannot be told.
+(pub :: lspFixFreeIn (-> Int Int Int Int Int Bool))
+
+(pub fn (lspFixFreeIn occs ws we fs fe)
+  (let (
+    (n (vecLen occs))
+    (mut i 0)
+    (mut ok true)
+  )
+    {
+      (while (if ok
+        (< i n)
+        false
+      )
+        (let ((o (vecGet occs i)))
+          {
+            (if (&& (!= (memGetWord o 1) 0) (&& (>= (spanStart (memGetWord o 1)) ws) (<= (spanEnd (memGetWord o 1)) we)))
+              (if (|| (== (memGetWord o 2) NAV_READ) (== (memGetWord o 2) NAV_WRITE))
+                (let ((key (memGetWordStr o 3)))
+                  (if (== (strLen key) 0)
+                    0
+                    (if (== (strByte key 0) 126)
+                      {
+                        (set ok false)
+                        0
+                      }
+                      (if (== (strByte key 0) 64)
+                        (let ((at (strToInt (strSlice key 1 (- (strLen key) 1)))))
+                          (if (&& (>= at fs) (&& (< at fe) (|| (< at ws) (>= at we))))
+                            {
+                              (set ok false)
+                              0
+                            }
+                            0
+                          )
+                        )
+                        0
+                      )
+                    )
+                  )
+                )
+                0
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      ok
+    }
+  )
+)
+
+(pub :: lspFixFreshName (-> Int String))
+
+(pub fn (lspFixFreshName occs)
+  (let (
+    (mut name "extracted")
+    (mut k 2)
+  )
+    {
+      (while (lspNavNamed occs name)
+        {
+          (set name (strConcat "extracted" (decStr k)))
+          (set k (+ k 1))
+        })
+      name
+    }
+  )
+)
+
+(pub :: lspExtractJson (-> String String Int Int Int Int Int String Int))
+
+(pub fn (lspExtractJson src uri ix ws we fs fe name)
+  (let ((parts vecNew))
+    {
+      (vecPush parts "(let ((")
+      (vecPush parts name)
+      (vecPush parts " ")
+      (vecPush parts (strSlice src ws (- we ws)))
+      (vecPush parts ")) ")
+      (vecPush parts (strSlice src fs (- ws fs)))
+      (vecPush parts name)
+      (vecPush parts (strSlice src we (- fe we)))
+      (vecPush parts ")")
+      (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr "Extract to `let`")) "kind" (jsonStr "refactor.extract")) "edit" (lspEditJson uri (lspRangeIx src ix (mkSpan fs fe)) (catStrs parts)))
+    }
   )
 )
 

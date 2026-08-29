@@ -2859,8 +2859,8 @@ elif ftail:
     fwhy = f"{len(ftail)} trailing bytes after the last frame"
 elif fcaps.get("documentFormattingProvider") is not True:
     fwhy = f"documentFormattingProvider is not advertised: {sorted(fcaps)}"
-elif (fcaps.get("codeActionProvider") or {}).get("codeActionKinds") != ["quickfix", "refactor.rewrite"]:
-    fwhy = f"codeActionProvider is {fcaps.get('codeActionProvider')!r}, want the two kinds"
+elif (fcaps.get("codeActionProvider") or {}).get("codeActionKinds") != ["quickfix", "refactor.rewrite", "refactor.extract"]:
+    fwhy = f"codeActionProvider is {fcaps.get('codeActionProvider')!r}, want the three kinds"
 elif fcaps.get("typeDefinitionProvider") is not True:
     fwhy = f"typeDefinitionProvider is not advertised: {sorted(fcaps)}"
 elif fcaps.get("codeLensProvider") != {"resolveProvider": False}:
@@ -3067,6 +3067,417 @@ else:
           f"and when the document does not parse)")
     passed += 5
 shutil.rmtree(FIXDIR, ignore_errors=True)
+
+# ---------------------------------------------------------------------
+# CODE ACTIONS, THE THREE ASSISTS THE COMPILER DOES NOT WRITE: an
+# import for a name another module declares (on AX3001), `pub` for a
+# name a module keeps private (on AX3023), and an extraction to a
+# `let` (on a range, with no diagnostic). A helper module and five
+# documents written HERE, into a temp directory the server resolves
+# imports from, with every expected edit DERIVED from their bytes and
+# every applied result handed back to the compiler's own commands:
+#
+#   * on `(shout 1)` in a document with no import at all, the import
+#     quickfix must insert `(import CaHelper (shout))` as the FIRST
+#     line, and on `(strLen "ab")` in the same document `(import Str
+#     (strLen))` - the sibling-directory leg and the `AXIOM_STDLIB` leg
+#     of the resolver's own search; the request over `shout` must not
+#     carry `strLen`'s action; with both applied, `check` must answer
+#     OK;
+#   * on `(whisper 2)` beside `(import CaHelper (shout))`, the name IS
+#     public and the list lacks it - AX3023, measured - so the edit
+#     adds ` whisper` just inside the list's closing paren;
+#   * on `(shout 1)` beneath `(import IO)`, the new import goes on its
+#     own line after the last import, not at the top;
+#   * on `(quiet 1)`, imported by name from a module that declares it
+#     without `pub`, ONE action whether asked at the call or at the
+#     import's own diagnostic, whose edit is keyed by the HELPER's URI
+#     and inserts `pub ` after the opening paren of BOTH the `fn` and
+#     its `::` - `check` refuses either alone, measured - and a
+#     whole-document range, which meets both diagnostics, still answers
+#     it once; applied to copies of both files, `check` must answer OK;
+#   * on `(tick 3)`, a call whose side effect the program performs
+#     exactly once, the extraction must replace the STATEMENT holding
+#     it - the block child, not the fn body - by a `let` naming the call
+#     `extracted2`, because the document already binds `extracted`; the
+#     result, run with `axiom run`, must print the same bytes and exit
+#     with the same status as the original, which prints `tick` once
+#     and exits 3 = (3+1) + (4+5) - 10, so a duplicated call is a
+#     second `tick` line; on `(> n 0)`, the test of an `if`, the whole
+#     `if` is the statement. On `tick 3` (two items), `(tick n)` (a
+#     branch of an `if`), `(+ y 2)` (its `y` bound inside the
+#     statement), the `+` head, an empty range and an unparseable
+#     document: no extraction.
+# ---------------------------------------------------------------------
+CADIR = tempfile.mkdtemp(prefix="axiom-ca-")
+CA_HELPER = """; The module the assists reach into.
+(pub :: shout (-> Int Int))
+(pub fn (shout x) (+ x 1))
+
+(pub :: whisper (-> Int Int))
+(pub fn (whisper x) (- x 1))
+
+(:: quiet (-> Int Int))
+(fn (quiet x) (* x 2))
+"""
+CA_IMPORT = """(:: main Int)
+(fn (main) (+ (shout 1) (strLen "ab")))
+"""
+CA_LISTED = """(import CaHelper (shout))
+
+(:: main Int)
+(fn (main) (+ (shout 1) (whisper 2)))
+"""
+CA_AFTER = """(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) {
+  (println "x")
+  (shout 1)
+})
+"""
+CA_PUBLIC = """(import CaHelper (quiet))
+
+(:: main Int)
+(fn (main) (quiet 1))
+"""
+CA_EXTRACT = """(import IO)
+
+(:: tick (-> Int Int))
+;@axiom:effect(io)
+(fn (tick n) {
+  (println "tick")
+  (+ n 1)
+})
+
+(:: keep (-> Int Int))
+(fn (keep n) (let ((extracted 5)) (+ n extracted)))
+
+(:: pick (-> Int Int))
+;@axiom:effect(io)
+(fn (pick n) (if (> n 0) (tick n) 0))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) {
+  (println "start")
+  (let ((y 1)) (+ y 2))
+  (- (+ (tick 3) (keep 4)) 10)
+})
+"""
+CA_DOCS = {"ca-import.ax": CA_IMPORT, "ca-listed.ax": CA_LISTED, "ca-after.ax": CA_AFTER,
+           "ca-public.ax": CA_PUBLIC, "ca-extract.ax": CA_EXTRACT}
+HELPER_FILE = "CaHelper.ax"
+open(os.path.join(CADIR, HELPER_FILE), "w", encoding="utf-8").write(CA_HELPER)
+for ca_name, ca_text in CA_DOCS.items():
+    open(os.path.join(CADIR, ca_name), "w", encoding="utf-8").write(ca_text)
+
+
+def ca_uri(name):
+    return "file://" + os.path.join(CADIR, name)
+
+
+HELPER_URI = ca_uri(HELPER_FILE)
+HELPER_MOD = HELPER_FILE[:-3]                       # the name the resolver gives the file
+SHOUT = cut(CA_HELPER, "(pub fn (", " x) (+ x 1))")
+WHISPER = cut(CA_HELPER, "(pub fn (", " x) (- x 1))")
+QUIET = cut(CA_HELPER, "(fn (", " x) (* x 2))")     # the private one
+STRLEN = cut(CA_IMPORT, "(", " \"ab\")")
+IMP_SHOUT = locate(CA_IMPORT, SHOUT, 1)
+IMP_STRLEN = locate(CA_IMPORT, STRLEN, 1)
+LISTED_WHISPER = locate(CA_LISTED, WHISPER, 1)
+LIST_FORM = locate(CA_LISTED, "(" + SHOUT + ")", 1)   # the import's name list
+LIST_INSERT = {"line": LIST_FORM["line"], "character": LIST_FORM["end"] - 1}
+AFTER_SHOUT = locate(CA_AFTER, SHOUT, 1)
+AFTER_IMPORT = locate(CA_AFTER, "(import IO)", 1)
+AFTER_INSERT = {"line": AFTER_IMPORT["line"], "character": AFTER_IMPORT["end"]}
+# The import-list diagnostic anchors on the import's MODULE token
+# (measured: `m.ax:1:9-17` for `(import CaHelper (quiet))`), not on
+# the listed name, so that is where "the import's own diagnostic" is.
+PUB_LISTED = locate(CA_PUBLIC, HELPER_MOD, 1)
+PUB_CALL = locate(CA_PUBLIC, QUIET, 2)              # the call; 1 is in the list
+H_SIG = locate(CA_HELPER, "(:: " + QUIET, 1)
+H_FN = locate(CA_HELPER, "(fn (" + QUIET, 1)
+PUB_INSERTS = sorted([(H_SIG["line"], 1, "pub "), (H_FN["line"], 1, "pub ")])
+EX_CALL = locate(CA_EXTRACT, "(tick 3)", 1)
+EX_STMT = CA_EXTRACT.split("\n")[EX_CALL["line"]].strip()   # the block child holding it
+EX_STMT_AT = locate(CA_EXTRACT, EX_STMT, 1)
+PICK = cut(CA_EXTRACT, "(fn (", " n) (if")
+IF_TEST = locate(CA_EXTRACT, "(> n 0)", 1)
+IF_LINE = CA_EXTRACT.split("\n")[IF_TEST["line"]]
+IF_STMT = IF_LINE[len("(fn (" + PICK + " n) "):-1]           # the fn's body, an `if`
+IF_STMT_AT = locate(CA_EXTRACT, IF_STMT, 1)
+EX_TWO = locate(CA_EXTRACT, "tick 3", 1)
+EX_BRANCH = locate(CA_EXTRACT, "(tick n)", 1)
+EX_BOUND = locate(CA_EXTRACT, "(+ y 2)", 1)
+EX_HEAD = locate_in(CA_EXTRACT, "(+ (tick 3)", "+")
+
+
+def ca_fresh(src):
+    """The binder the extraction must choose: `extracted`, or the first
+    `extractedN` the document does not spell - a second implementation
+    of the server's rule."""
+    name, k = "extracted", 2
+    while re.search(r"(?<![\w'-])" + re.escape(name) + r"(?![\w'-])", src):
+        name = "extracted%d" % k
+        k += 1
+    return name
+
+
+EX_NAME = ca_fresh(CA_EXTRACT)
+EX_NEW = "(let ((" + EX_NAME + " (tick 3))) " + EX_STMT.replace("(tick 3)", EX_NAME) + ")"
+IF_NEW = "(let ((" + EX_NAME + " (> n 0))) " + IF_STMT.replace("(> n 0)", EX_NAME) + ")"
+EX_LINES = CA_EXTRACT.split("\n")
+PUB_LINES = CA_PUBLIC.split("\n")
+PUB_WHOLE = {"start": {"line": 0, "character": 0},
+             "end": {"line": len(PUB_LINES) - 1, "character": u16(PUB_LINES[-1])}}
+for what, text in (("public fn name", SHOUT), ("second public fn name", WHISPER),
+                   ("private fn name", QUIET), ("stdlib name", STRLEN),
+                   ("statement", EX_STMT), ("if statement", IF_STMT),
+                   ("fresh binder", EX_NAME)):
+    if not text.strip():
+        sys.exit(f"FAIL: the derived {what} is empty - every assist assertion "
+                 f"resting on it would compare nothing against nothing")
+if EX_NAME == "extracted":
+    sys.exit("FAIL: the extract document no longer binds `extracted`, so the "
+             "fresh-name rule would go untested")
+if not IF_STMT.startswith("(if ") or "(tick 3)" not in EX_STMT:
+    sys.exit(f"FAIL: the derived statements {IF_STMT!r} / {EX_STMT!r} are not "
+             f"the forms the extract checks describe")
+
+
+def ca_req(rid, name, rng_):
+    return fixreq(rid, "textDocument/codeAction",
+                  fixdoc(ca_uri(name), {"range": rng_, "context": {"diagnostics": []}}))
+
+
+def zero_at(pos):
+    return {"start": pos, "end": pos}
+
+
+ca_session = b"".join(frame(m) for m in [
+    fixreq(1, "initialize", {}),
+] + [
+    {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+     "params": {"textDocument": {"uri": ca_uri(n), "languageId": "axiom",
+                                 "version": 1, "text": t}}}
+    for n, t in CA_DOCS.items()
+] + [
+    ca_req(2, "ca-import.ax", rng(IMP_SHOUT)),
+    ca_req(3, "ca-import.ax", rng(IMP_STRLEN)),
+    ca_req(4, "ca-listed.ax", rng(LISTED_WHISPER)),
+    ca_req(5, "ca-after.ax", rng(AFTER_SHOUT)),
+    ca_req(6, "ca-public.ax", rng(PUB_CALL)),
+    ca_req(7, "ca-public.ax", rng(PUB_LISTED)),
+    ca_req(8, "ca-public.ax", PUB_WHOLE),
+    ca_req(9, "ca-extract.ax", rng(EX_CALL)),
+    ca_req(10, "ca-extract.ax", rng(IF_TEST)),
+    ca_req(11, "ca-extract.ax", rng(EX_TWO)),
+    ca_req(12, "ca-extract.ax", rng(EX_BRANCH)),
+    ca_req(13, "ca-extract.ax", rng(EX_BOUND)),
+    ca_req(14, "ca-extract.ax", rng(EX_HEAD)),
+    ca_req(15, "ca-extract.ax", point(EX_CALL)),
+    {"jsonrpc": "2.0", "method": "textDocument/didChange",
+     "params": {"textDocument": {"uri": ca_uri("ca-extract.ax"), "version": 2},
+                "contentChanges": [{"text": CA_EXTRACT + "\n("}]}},
+    ca_req(16, "ca-extract.ax", rng(EX_CALL)),
+    fixreq(17, "shutdown", None),
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+cp = subprocess.run([stage1, "lsp"], input=ca_session, capture_output=True, cwd=CADIR)
+cmsgs, ctail = unframe(cp.stdout)
+cresp = {m["id"]: m for m in cmsgs if "id" in m}
+ccaps = (cresp.get(1, {}).get("result") or {}).get("capabilities") or {}
+
+
+def cres(rid):
+    return cresp.get(rid, {}).get("result")
+
+
+def ca_actions(rid, kind, title=None):
+    return [a for a in cres(rid) or [] if a.get("kind") == kind
+            and (title is None or a.get("title") == title)]
+
+
+def ca_edits(action, uri):
+    """Every TextEdit an action makes in `uri`, as (line, character,
+    newText) triples of zero-width inserts - or the reason it is not
+    a single-document WorkspaceEdit of inserts."""
+    changes = ((action or {}).get("edit") or {}).get("changes") or {}
+    if list(changes) != [uri]:
+        return f"edits {sorted(changes)}, want exactly [{uri}]"
+    out = []
+    for e in changes[uri]:
+        r = e.get("range") or {}
+        if r.get("start") != r.get("end"):
+            return f"has a non-insert edit {e!r:.200}"
+        out.append((r["start"]["line"], r["start"]["character"], e.get("newText")))
+    return sorted(out)
+
+
+def ca_import_is(rid, name, mod, code, at, text):
+    """Request `rid` must answer exactly one import action for `name`
+    from `mod`, on a diagnostic of `code`, inserting `text` at `at` in
+    the request's own document."""
+    title = f"Import `{name}` from `{mod}`"
+    acts = ca_actions(rid, "quickfix", title)
+    if len(acts) != 1:
+        return f"request {rid} answered {len(acts)} action(s) titled {title!r}: {json.dumps(cres(rid))[:300]}"
+    a = acts[0]
+    if [d.get("code") for d in a.get("diagnostics") or []] != [code]:
+        return f"{title!r} carries diagnostics {a.get('diagnostics')!r:.200}, want one {code}"
+    uri = ca_uri({2: "ca-import.ax", 3: "ca-import.ax", 4: "ca-listed.ax", 5: "ca-after.ax"}[rid])
+    got = ca_edits(a, uri)
+    if got != [(at["line"], at["character"], text)]:
+        return f"{title!r} edits {got!r}, want one insert of {text!r} at {at}"
+    return ""
+
+
+def ca_check(path):
+    """`check`'s verdict on `path`: "" for OK, else what it printed."""
+    p = subprocess.run([stage1, "--diagnostic-format=ai", "check", path],
+                       capture_output=True, cwd=os.path.dirname(path))
+    if p.returncode == 0 and not p.stderr:
+        return ""
+    return f"exit {p.returncode}: {p.stderr.decode('utf-8', 'replace')[:300]}"
+
+
+def ca_run(path):
+    p = subprocess.run([stage1, "run", path], capture_output=True, cwd=os.path.dirname(path))
+    return p.stdout, p.returncode
+
+
+def ca_import_edits(rid, name, imported, mod):
+    """The TextEdits the import action for `imported` from `mod` makes
+    in document `name` - selected by TITLE, because the compiler's own
+    typo quickfix sits beside it when a similar name is in scope
+    (measured: `shout` beneath `(import IO)` also offers `stdout`)."""
+    acts = ca_actions(rid, "quickfix", f"Import `{imported}` from `{mod}`")
+    changes = ((acts[0] if acts else {}).get("edit") or {}).get("changes") or {}
+    return changes.get(ca_uri(name)) or []
+
+
+def ca_apply(rid, name, imported, mod):
+    return apply_edits(CA_DOCS[name], ca_import_edits(rid, name, imported, mod))
+
+
+pub_title = f"Make `{QUIET}` public in `{HELPER_MOD}`"
+pub6 = ca_actions(6, "quickfix", pub_title)
+pub7 = ca_actions(7, "quickfix", pub_title)
+ex9 = ca_actions(9, "refactor.extract")
+ex10 = ca_actions(10, "refactor.extract")
+cawhy = ""
+if cp.returncode != 0:
+    cawhy = f"the server exited {cp.returncode}: {cp.stderr[:200]!r}"
+elif ctail:
+    cawhy = f"{len(ctail)} trailing bytes after the last frame"
+elif (ccaps.get("codeActionProvider") or {}).get("codeActionKinds") != ["quickfix", "refactor.rewrite", "refactor.extract"]:
+    cawhy = f"codeActionProvider is {ccaps.get('codeActionProvider')!r}, want quickfix, refactor.rewrite and refactor.extract"
+# --- import ----------------------------------------------------------------
+elif ca_import_is(2, SHOUT, HELPER_MOD, "AX3001", {"line": 0, "character": 0}, f"(import {HELPER_MOD} ({SHOUT}))\n"):
+    cawhy = "import, no import present: " + ca_import_is(2, SHOUT, HELPER_MOD, "AX3001", {"line": 0, "character": 0}, f"(import {HELPER_MOD} ({SHOUT}))\n")
+elif len(cres(2) or []) != 1:
+    cawhy = f"the request over `{SHOUT}` answered {len(cres(2))} actions, want its import alone: {json.dumps(cres(2))[:300]}"
+elif ca_import_is(3, STRLEN, "Str", "AX3001", {"line": 0, "character": 0}, f"(import Str ({STRLEN}))\n"):
+    cawhy = "import from the stdlib: " + ca_import_is(3, STRLEN, "Str", "AX3001", {"line": 0, "character": 0}, f"(import Str ({STRLEN}))\n")
+elif ca_import_is(4, WHISPER, HELPER_MOD, "AX3023", LIST_INSERT, " " + WHISPER):
+    cawhy = "import, a public name the list lacks: " + ca_import_is(4, WHISPER, HELPER_MOD, "AX3023", LIST_INSERT, " " + WHISPER)
+elif ca_import_is(5, SHOUT, HELPER_MOD, "AX3001", AFTER_INSERT, f"\n(import {HELPER_MOD} ({SHOUT}))"):
+    cawhy = "import after the last import: " + ca_import_is(5, SHOUT, HELPER_MOD, "AX3001", AFTER_INSERT, f"\n(import {HELPER_MOD} ({SHOUT}))")
+# --- make public -----------------------------------------------------------
+elif len(pub6) != 1:
+    cawhy = f"the request at the private call answered {len(pub6)} action(s) titled {pub_title!r}: {json.dumps(cres(6))[:300]}"
+elif [d.get("code") for d in pub6[0].get("diagnostics") or []] != ["AX3023"]:
+    cawhy = f"{pub_title!r} carries diagnostics {pub6[0].get('diagnostics')!r:.200}, want one AX3023"
+elif ca_edits(pub6[0], HELPER_URI) != PUB_INSERTS:
+    cawhy = (f"{pub_title!r} edits {ca_edits(pub6[0], HELPER_URI)!r}, want `pub ` inserted at "
+             f"{PUB_INSERTS} of the helper - both the `::` and the `fn`, in the helper's own file")
+elif len(pub7) != 1 or pub7[0].get("edit") != pub6[0].get("edit"):
+    cawhy = f"the request at the import's own diagnostic answered {json.dumps(cres(7))[:300]}, want the same action"
+elif [a.get("title") for a in cres(8) or []] != [pub_title]:
+    cawhy = f"a whole-document range answered {[a.get('title') for a in cres(8) or []]}, want the one action once"
+# --- extract ---------------------------------------------------------------
+elif [a.get("kind") for a in cres(9) or []] != ["refactor.extract"]:
+    cawhy = f"the range over `(tick 3)` answered {json.dumps(cres(9))[:300]}, want one refactor.extract"
+elif ex9[0].get("title") != "Extract to `let`":
+    cawhy = f"the extraction is titled {ex9[0].get('title')!r}"
+elif ((ex9[0].get("edit") or {}).get("changes") or {}).get(ca_uri("ca-extract.ax")) != [{"range": rng(EX_STMT_AT), "newText": EX_NEW}]:
+    cawhy = (f"the extraction edits {json.dumps((ex9[0].get('edit') or {}).get('changes'))[:400]}, want the "
+             f"statement at {rng(EX_STMT_AT)} replaced by {EX_NEW!r}")
+elif len(ex10) != 1 or ((ex10[0].get("edit") or {}).get("changes") or {}).get(ca_uri("ca-extract.ax")) != [{"range": rng(IF_STMT_AT), "newText": IF_NEW}]:
+    cawhy = (f"the range over an `if`'s test answered {json.dumps(cres(10))[:400]}, want the whole "
+             f"`if` at {rng(IF_STMT_AT)} replaced by {IF_NEW!r}")
+elif any(ca_actions(rid, "refactor.extract") for rid in (11, 12, 13, 14, 15)):
+    cawhy = ("an extraction was offered where none applies: " +
+             str({rid: cres(rid) for rid in (11, 12, 13, 14, 15) if ca_actions(rid, "refactor.extract")})[:400])
+elif cres(16) != []:
+    cawhy = f"codeAction on the unparseable extract document answered {cres(16)!r:.200}, want []"
+
+# The applied results, handed to the compiler.
+CADIR2 = tempfile.mkdtemp(prefix="axiom-ca2-")
+run0 = run1 = (b"", -1)
+if not cawhy:
+    fixed_import = apply_edits(CA_IMPORT, ca_import_edits(2, "ca-import.ax", SHOUT, HELPER_MOD)
+                               + ca_import_edits(3, "ca-import.ax", STRLEN, "Str"))
+    applied = {"ca-import-fixed.ax": fixed_import,
+               "ca-listed-fixed.ax": ca_apply(4, "ca-listed.ax", WHISPER, HELPER_MOD),
+               "ca-after-fixed.ax": ca_apply(5, "ca-after.ax", SHOUT, HELPER_MOD)}
+    for ca_name, ca_text in applied.items():
+        if ca_text == CA_DOCS[ca_name.replace("-fixed", "")]:
+            cawhy = f"applying the import edit to {ca_name} changed nothing"
+            break
+        open(os.path.join(CADIR, ca_name), "w", encoding="utf-8").write(ca_text)
+        verdict = ca_check(os.path.join(CADIR, ca_name))
+        if verdict:
+            cawhy = f"{ca_name}, the import applied, does not check clean ({verdict}); the text was:\n{ca_text}"
+            break
+if not cawhy:
+    helper_changes = ((pub6[0].get("edit") or {}).get("changes") or {})
+    fixed_helper = apply_edits(CA_HELPER, helper_changes.get(HELPER_URI) or [])
+    open(os.path.join(CADIR2, HELPER_FILE), "w", encoding="utf-8").write(fixed_helper)
+    open(os.path.join(CADIR2, "ca-public.ax"), "w", encoding="utf-8").write(CA_PUBLIC)
+    verdict = ca_check(os.path.join(CADIR2, "ca-public.ax"))
+    if fixed_helper == CA_HELPER:
+        cawhy = "applying the make-public edit to the helper changed nothing"
+    elif verdict:
+        cawhy = f"with `pub ` applied, the importing document does not check clean ({verdict}); the helper was:\n{fixed_helper}"
+if not cawhy:
+    extracted = apply_edits(CA_EXTRACT, [{"range": rng(EX_STMT_AT), "newText": EX_NEW}])
+    open(os.path.join(CADIR, "ca-extract-fixed.ax"), "w", encoding="utf-8").write(extracted)
+    v0 = ca_check(os.path.join(CADIR, "ca-extract.ax"))
+    v1 = ca_check(os.path.join(CADIR, "ca-extract-fixed.ax"))
+    run0 = ca_run(os.path.join(CADIR, "ca-extract.ax"))
+    run1 = ca_run(os.path.join(CADIR, "ca-extract-fixed.ax"))
+    if v0 != v1:
+        cawhy = f"`check` says {v1!r} of the extracted document and {v0!r} of the original"
+    elif run0[1] != 3:
+        cawhy = f"the original extract document exits {run0[1]}, want 3 - the run that the extraction is compared against is not the one the document describes"
+    elif run0[0].count(b"tick") != 1:
+        cawhy = f"the original prints `tick` {run0[0].count(b'tick')} time(s), want exactly once so a duplicated call would show: {run0[0]!r:.200}"
+    elif run1 != run0:
+        cawhy = (f"the extracted program printed {run1[0]!r:.200} and exited {run1[1]}, where the original "
+                 f"printed {run0[0]!r:.200} and exited {run0[1]}; the extracted text was:\n{extracted}")
+
+if cawhy:
+    print(f"FAIL code-action-assists: {cawhy}")
+    failed += 1
+else:
+    print(f"ok   import-assist (`{SHOUT}` from `{HELPER_MOD}` as the first line, `{STRLEN}` from "
+          f"`Str` beside it, `{WHISPER}` added to an existing list, `{SHOUT}` on its own line "
+          f"after `(import IO)`; each applied checks OK; the request over one name carries "
+          f"only that name's action)")
+    print(f"ok   make-public-assist (`{QUIET}` in `{HELPER_MOD}`: `pub ` inserted at lines "
+          f"{PUB_INSERTS[0][0]} and {PUB_INSERTS[1][0]} of the helper's own file, the same "
+          f"action from the call and from the import's diagnostic, once over the whole "
+          f"document; applied, the importer checks OK)")
+    print(f"ok   extract-assist (`(tick 3)` to `{EX_NAME}` over its statement, an `if`'s test "
+          f"over the whole `if`; the extracted program prints the same {len(run0[0])} bytes "
+          f"and exits {run0[1]}; nothing for two items, a branch, a captured binder, a head, "
+          f"an empty range or an unparseable document)")
+    passed += 3
+shutil.rmtree(CADIR, ignore_errors=True)
+shutil.rmtree(CADIR2, ignore_errors=True)
 # =====================================================================
 # END SECTION FIX TESTS
 # =====================================================================

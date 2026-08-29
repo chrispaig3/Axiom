@@ -643,19 +643,56 @@ formatter proves its output a fixed point of the whole file, and a
 range cut out of that would be a different formatter with a weaker
 proof.
 
-**`textDocument/codeAction`.** Two kinds, both advertised in
+**`textDocument/codeAction`.** Three kinds, all advertised in
 `codeActionKinds`. `quickfix`: every machine-applicable fix the
 compiler attaches to a diagnostic in the range — a help carrying a
 fix span, exactly what AXDL prints after `~>` — as a preferred action,
 so a code that gains a fix in `typecheck.ax` gains a quickfix without
-a line changing in `lsp.ax`. `refactor.rewrite`: *Add type signature
-for `f`* on a `fn` with no `::`, written from the type the checker
-inferred in the parser's own spelling `(-> Int Int)`, with an
-unresolved type variable lettered in order of appearance. This request
-runs the pipeline (see [The cost rule](#the-cost-rule)); `[]` on a
-document that does not parse. The gate applies AX3012's `mut x` at the
-BINDER, AX3001's respelling at the call, and the assist, in Python,
-reopens the result and requires no diagnostics at all.
+a line changing in `lsp.ax`; and two the server writes itself. *Import
+`name` from `Mod`*, on an AX3001 whose reference is a bare name: every
+module the resolver could reach — the entry file's directory,
+`axiom.pkg`'s `depend` directories, `AXIOM_PATH`, `AXIOM_STDLIB`, each
+walked three levels deep for a nested `Sys.Platform` — is a candidate
+under the name `moduleSrcPath` would resolve it by, so a `Str.ax`
+beside the entry file shadows the stdlib's exactly as it does for the
+compiler; a file is parsed only when its bytes spell the name as a
+whole word, and one action is offered per module that declares it
+`pub`. The edit adds the name to an existing `(import Mod (...))`
+list, else writes `(import Mod (name))` on its own line after the last
+import, else as the first line. A qualified `Mod::name` gets no
+action: it names its module already. *Make `name` public in `Mod`*, on
+AX3023: a `WorkspaceEdit` keyed by the **declaring file's** URI that
+inserts `pub ` after the opening paren of the `fn` and of its `::` —
+`check` refuses either alone — with the written visibility read from
+that file's bytes, since the resolver's `nodeVis` records exportedness
+rather than what was written; an AX3023 on a name that IS written
+`pub` is one the document's import list left out, and gets the import
+action instead. `refactor.rewrite`: *Add type signature for `f`* on a
+`fn` with no `::`, written from the type the checker inferred in the
+parser's own spelling `(-> Int Int)`, with an unresolved type variable
+lettered in order of appearance. `refactor.extract`: *Extract to
+`let`*, with no diagnostic, when the range trimmed of whitespace is
+exactly one item — a form, a brace block, a literal or an identifier —
+inside the body of a `fn` of this document. The statement it is
+hoisted above is the innermost enclosing item that is a direct child
+of a `{ }` block, else the fn body; it becomes `(let ((x E)) S')` with
+`x` for `E`, where `x` is `extracted` or the first `extractedN` the
+document does not spell. It is refused wherever hoisting would change
+how often or whether `E` runs — under a `lambda`, `while`, `cond` or
+`handle`, in a branch of an `if` or an arm of a `match` (the test and
+the scrutinee are fine), in a head position or a binding list — and
+whenever `E` references a binder bound inside the statement. What it
+changes on purpose: `E` now runs before whatever the statement
+evaluated ahead of it. This request runs the pipeline for the
+diagnostic-attached kinds (see [The cost rule](#the-cost-rule)) and
+the raw tree for the extraction; `[]` on a document that does not
+parse. The gate applies AX3012's `mut x` at the BINDER, AX3001's
+respelling at the call, and the signature assist, in Python, reopens
+the result and requires no diagnostics at all; applies each import and
+the `pub ` edits and requires `check` to answer OK; and runs the
+extracted program to require the same output and exit status as the
+original, on a document whose extracted call performs a side effect
+exactly once.
 
 **`textDocument/codeLens`.** A `▶ Run` lens over `(fn (main) ...)`
 when `main` takes no parameters — that is what `axiom run` runs — and
