@@ -200,6 +200,14 @@
 
 (pub fn (clockHasMonotonic) 1)
 
+; CLOCK_MONOTONIC's id, which `Sys.ax` passes to `clock_gettime` above.
+; 1 here, and it was a literal 1 in `Sys.ax` until FreeBSD arrived,
+; where 1 is CLOCK_VIRTUAL - process CPU time, which never runs
+; backwards either, so nothing would have caught the substitution.
+(pub :: clockMonotonicId Int)
+
+(pub fn (clockMonotonicId) 1)
+
 ; --------------------------------------------------------------------
 ; Sockets
 ;

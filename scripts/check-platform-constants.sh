@@ -10,7 +10,7 @@
 #      allocator OOM, division by zero, and an unhandled effect - write
 #      a line to fd 2 and exit through the other two.
 #
-#   2. `stdlib/Sys/Platform.{darwin,linux-aarch64,linux-x86_64}.ax`
+#   2. `stdlib/Sys/Platform.{darwin,linux-aarch64,linux-x86_64,freebsd}.ax`
 #      carry the same syscalls for the STANDARD LIBRARY, as `sysExit`,
 #      `sysWrite` and their neighbours.
 #
@@ -63,6 +63,14 @@
 # against; the guard for that is in the report below and fails the day
 # `Sys.Platform` grows an mmap number without this gate being told, so
 # the intersection cannot quietly shrink out from under the comparison.
+#
+# AND ONE THING THAT IS NOT A NUMBER: since 2026-08-29 every syscall
+# template the runtime emits is read for its errno convention - the
+# branch-and-negate epilogue that the BSD targets (Darwin, FreeBSD)
+# need and the Linux targets must not have. It lives here because
+# this is the gate that already reads every emitted syscall site per
+# target, and because the day it was needed no other gate could see
+# it: the comment at the classifier records the ablation.
 
 set -euo pipefail
 
@@ -76,16 +84,18 @@ gate_init
 # exists to watch it. About eight seconds.
 gate_build_axc axc
 
-targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64)
+targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64)
 
 # Which platform module serves a target, for the failure message to
 # name. The mapping is `targetOsArchSuffix` then `targetOsSuffix` in
 # `self_host/codegen.ax`: `.{os}-{arch}.ax` if it exists, otherwise
-# `.{os}.ax`. Only the linux modules are split by arch today.
+# `.{os}.ax`. Only the linux modules are split by arch today; Darwin
+# and FreeBSD each serve both architectures from one file.
 platform_file() {
   case "$1" in
-    darwin-*) echo "stdlib/Sys/Platform.darwin.ax" ;;
-    *)        echo "stdlib/Sys/Platform.$1.ax" ;;
+    darwin-*)  echo "stdlib/Sys/Platform.darwin.ax" ;;
+    freebsd-*) echo "stdlib/Sys/Platform.freebsd.ax" ;;
+    *)         echo "stdlib/Sys/Platform.$1.ax" ;;
   esac
 }
 
@@ -231,7 +241,7 @@ platform_table_report() {
         # would be a syscall nobody compared.
         #
         # The arm is deliberately narrow. An empty argument list is
-        # the one shape that cannot be a syscall on any of the four
+        # the one shape that cannot be a syscall on any of the six
         # targets, because every one of them passes the number as the
         # first operand. A template with arguments this gate does not
         # recognise still fails, as it must.
@@ -247,7 +257,7 @@ platform_table_report() {
         # argument list is not empty.
         #
         # `svc` on AArch64 and `syscall` on x86-64 are the only two
-        # instructions that can make a syscall on the four targets, and
+        # instructions that can make a syscall on the six targets, and
         # `check-cross-targets.sh` already asserts that every syscall
         # template carries one of them - that is the same discriminator
         # this arm reads, so the two gates agree on what a syscall
@@ -267,10 +277,48 @@ platform_table_report() {
       }
       count[name]++
       site[name] = site[name] " " a[1] "@" fn
+
+      # THE ERRNO CONVENTION, read off the template BODY. `Sys.ax`
+      # promises `-errno` on every target, and the BSD kernels - Darwin
+      # and FreeBSD - do not answer that way: they set the carry flag
+      # and leave a POSITIVE errno in the result register. So the
+      # template of a BSD target must carry the branch-and-negate
+      # epilogue (`b.cc 1f` / `jnc 1f`, then a negate) and the template
+      # of a Linux target must not, or every failed syscall reads as
+      # success on the one and every failure is negated twice on the
+      # other.
+      #
+      # ADDED 2026-08-29 BECAUSE NOTHING ELSE COULD SEE IT. With the
+      # freebsd-aarch64 template replaced by the linux-aarch64 one -
+      # `svc #0`, no epilogue - `check-cross-targets.sh` assembled it
+      # (the string is valid AArch64 and clobbers `cc`), and
+      # `check-self-host.sh` still found six pairwise-distinct modules,
+      # because the triple and the numbers keep the pair apart with or
+      # without the epilogue. Distinctness proves the target argument
+      # is honoured and nothing about template content. This is the
+      # assertion that does, and probes 8 and 9 below show it failing
+      # in both directions.
+      bsd = (target ~ /^(darwin|freebsd)-/)
+      epi = ($0 ~ /b\.cc 1f|jnc 1f/)
+      if (bsd && !epi) {
+        printf "FAIL [%s] %s: the syscall template in @%s has no carry epilogue on a BSD target;\n", target, name, fn
+        printf "     the kernel answers a positive errno with the carry flag set, and without\n"
+        printf "     `b.cc`/`jnc` and a negate, `Sys.ax` reads every failure as success.\n"
+        badconv++
+      } else if (!bsd && epi) {
+        printf "FAIL [%s] %s: the syscall template in @%s negates on a Linux target;\n", target, name, fn
+        printf "     Linux already answers -errno, so this turns every failure positive.\n"
+        badconv++
+      } else {
+        conv++
+      }
       next
     }
 
     END {
+      if (badconv == 0 && conv > 0)
+        printf "ok   [%s] %d syscall template(s) carry the %s errno form\n", \
+               target, conv, (target ~ /^(darwin|freebsd)-/) ? "BSD carry-and-negate" : "Linux -errno"
       # Fixed order, because `for (x in array)` has none and a gate
       # whose output reorders itself is a gate nobody diffs.
       nn = split("mmap exit write", ord, " ")
@@ -425,13 +473,14 @@ mutate_emitted_exits() {
   '
 }
 
-# `probe_expects <label> <ir> <regex it must report>`; the regex is
-# matched against the FAIL lines only, so a probe cannot be satisfied by
-# an `ok` line that happens to contain the same digits.
+# `probe_expects <label> <ir> <regex it must report> [target] [platfile]`;
+# the regex is matched against the FAIL lines only, so a probe cannot be
+# satisfied by an `ok` line that happens to contain the same digits. The
+# target defaults to linux-aarch64; probe 8 names a BSD one.
 probe_failures=0
 probe_expects() {
-  local label="$1" mutated="$2" want="$3" out
-  out="$(platform_table_report linux-aarch64 "$mutated" "$plat")"
+  local label="$1" mutated="$2" want="$3" tgt="${4:-linux-aarch64}" pf="${5:-$plat}" out
+  out="$(platform_table_report "$tgt" "$mutated" "$pf")"
   if ! grep '^FAIL' <<< "$out" | grep -qE "$want"; then
     echo "FAIL negative probe: $label"
     echo "    expected a FAIL line matching: $want"
@@ -516,6 +565,34 @@ awk '/asm sideeffect/ && !hit {
      { print }' "$real" > "$work/p7.ll"
 probe_expects "an unrecognised syscall shape is reported, not skipped" \
   "$work/p7.ll" 'cannot classify'
+
+# 8. THE ERRNO CONVENTION, BSD side: a FreeBSD module whose AArch64
+#    template lost its carry epilogue - which is exactly the module the
+#    linux-aarch64 string would produce under the FreeBSD triple, the
+#    ablation that showed no other gate could see this. The mutation
+#    must have matched, or the probe would be comparing the module to
+#    itself.
+bsdreal="$work/freebsd-aarch64.ll"
+bsdplat="stdlib/Sys/Platform.freebsd.ax"
+sed 's/svc #0\\0Ab\.cc 1f\\0Aneg x0, x0\\0A1:/svc #0/g' "$bsdreal" > "$work/p8.ll"
+if cmp -s "$bsdreal" "$work/p8.ll"; then
+  echo "FAIL negative probe: the carry-epilogue mutation matched nothing in $bsdreal"
+  probe_failures=$((probe_failures + 1))
+else
+  probe_expects "a BSD target whose syscall template has no carry epilogue" \
+    "$work/p8.ll" 'no carry epilogue on a BSD target' freebsd-aarch64 "$bsdplat"
+fi
+
+# 9. And the Linux side: the same epilogue grafted onto linux-aarch64's
+#    template, which would negate an errno the kernel already negated.
+sed 's/"svc #0", /"svc #0\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:", /g' "$real" > "$work/p9.ll"
+if cmp -s "$real" "$work/p9.ll"; then
+  echo "FAIL negative probe: the epilogue graft matched nothing in $real"
+  probe_failures=$((probe_failures + 1))
+else
+  probe_expects "a Linux target whose syscall template negates" \
+    "$work/p9.ll" 'negates on a Linux target'
+fi
 
 if [[ "$probe_failures" -gt 0 ]]; then
   echo "$probe_failures negative probe(s) failed - this gate is not proven able to go red" >&2

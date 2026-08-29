@@ -54,9 +54,10 @@ ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 # The modules the reference covers, in the order it prints them. Named
-# rather than globbed: `Sys/Platform` has one file per target declaring
-# the same names, so a glob would print it three times, and the choice
-# of which one to carry is a decision this list makes visible.
+# rather than globbed: `Sys/Platform` has one file per platform table
+# declaring the same names, so a glob would print it four times, and
+# the choice of which one to carry is a decision this list makes
+# visible.
 modules="
 stdlib/Agent/Tags.ax
 stdlib/Err.ax
@@ -83,7 +84,7 @@ stdlib/Vec.ax
 mod_list="$(printf '%s' "$modules" | grep -v '^$')"
 
 # Every module named here must be in the tree, and every stdlib module
-# except the two other `Platform` files must be named here. Both
+# except the three other `Platform` files must be named here. Both
 # directions, because a list that is checked in one direction rots in
 # the other - which is the lesson `gate_prose_docs` carries.
 checks=$((checks + 1))
@@ -94,7 +95,7 @@ done <<< "$mod_list"
 tree_unlisted=""
 while IFS= read -r m; do
   case "$m" in
-    stdlib/Sys/Platform.linux-*) continue ;;
+    stdlib/Sys/Platform.linux-*|stdlib/Sys/Platform.freebsd.ax) continue ;;
   esac
   printf '%s\n' "$mod_list" | grep -qx "$m" || tree_unlisted="$tree_unlisted $m"
 done < <(cd "$repo_root" && find stdlib -name '*.ax' -type f | LC_ALL=C sort)
@@ -203,14 +204,14 @@ fi
 
 # --------------------------------------------------------------------
 echo
-echo "== the three Sys/Platform files declare the same names =="
+echo "== the four Sys/Platform files declare the same names =="
 # --------------------------------------------------------------------
 # The reference carries the darwin one. That is only safe while the
-# three agree, and nothing else in the tree checks that they do.
+# four agree, and nothing else in the tree checks that they do.
 plat_names() { sed -nE 's/^\(pub (:: |macro |data |struct |trait |type )\(?([A-Za-z0-9_!?*+/<>=-]+).*/\2/p' "$1" | LC_ALL=C sort; }
 plat_ok=1
 plat_names "$repo_root/stdlib/Sys/Platform.darwin.ax" > "$work/plat.darwin"
-for other in linux-aarch64 linux-x86_64; do
+for other in linux-aarch64 linux-x86_64 freebsd; do
   plat_names "$repo_root/stdlib/Sys/Platform.$other.ax" > "$work/plat.$other"
   if ! diff -q "$work/plat.darwin" "$work/plat.$other" >/dev/null; then
     bad "Sys/Platform.darwin.ax and Sys/Platform.$other.ax declare different names"
@@ -218,7 +219,7 @@ for other in linux-aarch64 linux-x86_64; do
     plat_ok=0
   fi
 done
-(( plat_ok )) && ok "all three Platform files declare the same $(grep -c . "$work/plat.darwin") names"
+(( plat_ok )) && ok "all four Platform files declare the same $(grep -c . "$work/plat.darwin") names"
 
 # --------------------------------------------------------------------
 echo

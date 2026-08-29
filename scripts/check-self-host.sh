@@ -181,18 +181,21 @@ if [[ -z "$filter" ]]; then
 fi
 
 # Every target stage1 claims must actually assemble: emit the
-# syscall-heavy case for each of the four and run llc under that
+# syscall-heavy case for each of the six and run llc under that
 # target's own triple. A wrong register convention or syscall number
 # is invisible on the host - the mmap number 9 assembles fine on
 # darwin - so the check is per-triple, not host-only.
 if [[ -z "$filter" ]]; then
   cp "$repo_root/tests/selfhost/230-syscall.ax" "$work/in.ax"
-  for tgt in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+  all_targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64"
+  for tgt in $all_targets; do
     case "$tgt" in
-      darwin-aarch64) triple=arm64-apple-macosx14.0.0 ;;
-      darwin-x86_64)  triple=x86_64-apple-macosx14.0.0 ;;
-      linux-aarch64)  triple=aarch64-unknown-linux-gnu ;;
-      linux-x86_64)   triple=x86_64-unknown-linux-gnu ;;
+      darwin-aarch64)  triple=arm64-apple-macosx14.0.0 ;;
+      darwin-x86_64)   triple=x86_64-apple-macosx14.0.0 ;;
+      linux-aarch64)   triple=aarch64-unknown-linux-gnu ;;
+      linux-x86_64)    triple=x86_64-unknown-linux-gnu ;;
+      freebsd-x86_64)  triple=x86_64-unknown-freebsd14.0 ;;
+      freebsd-aarch64) triple=aarch64-unknown-freebsd14.0 ;;
     esac
     if (cd "$work" && ./stage1 in.ax "$tgt" >"out-$tgt.ll" 2>tgt.err) \
        && llc -mtriple="$triple" -relocation-model=pic "$work/out-$tgt.ll" -o /dev/null 2>"$work/llc-$tgt.err"; then
@@ -210,15 +213,31 @@ if [[ -z "$filter" ]]; then
   # `aarch64-unknown-linux-gnu`, because `svc #0x80` is a valid AArch64
   # instruction whatever the OS and `{x16}` allocates fine. So if stage1
   # ever stopped honouring the target argument, this loop would emit the
-  # same Darwin IR four times and still report three of the four green -
+  # same Darwin IR six times and still report several of the six green -
   # while every Linux binary carried Darwin syscall numbers.
   #
-  # Requiring the four to be pairwise distinct is what closes that. It
-  # is satisfiable today (the four differ), so it is an assertion about
-  # the compiler rather than an aspiration.
+  # Requiring the six to be pairwise distinct is what closes that. It
+  # is satisfiable today (the six differ), so it is an assertion about
+  # the compiler rather than an aspiration - and for one pair it is a
+  # DERIVED fact rather than an obvious one: freebsd-x86_64 reuses
+  # darwin-x86_64's syscall template byte for byte (both kernels
+  # answer through the carry flag), and the two modules differ only
+  # in the triple and the syscall numbers.
+  #
+  # WHAT THIS CHECK CANNOT SEE, measured 2026-08-29: with
+  # freebsd-aarch64's syscall template replaced by linux-aarch64's -
+  # `svc #0` with no carry epilogue, so every failed syscall on
+  # FreeBSD would answer a positive errno that `sysFailed` reads as
+  # success - all six modules still emitted, still assembled, and
+  # this check still reported "six different modules", because the
+  # triple and the numbers keep that pair apart on their own. So
+  # distinctness proves the target argument is honoured and nothing
+  # about the template's CONTENT; `check-platform-constants.sh`'s
+  # carry-epilogue assertion is what holds the content, and that
+  # ablation is recorded there as the probe that made it exist.
   dupes=0
-  for a in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
-    for b in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+  for a in $all_targets; do
+    for b in $all_targets; do
       [[ "$a" < "$b" ]] || continue
       if cmp -s "$work/out-$a.ll" "$work/out-$b.ll"; then
         echo "FAIL emit [$a] and [$b] are byte-identical: the target argument is being ignored"
@@ -227,7 +246,7 @@ if [[ -z "$filter" ]]; then
     done
   done
   if [[ "$dupes" == 0 ]]; then
-    echo "ok   the four targets emit four different modules"
+    echo "ok   the six targets emit six different modules"
     passed=$((passed + 1))
   else
     failed=$((failed + 1))

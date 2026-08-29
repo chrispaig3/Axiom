@@ -627,15 +627,18 @@ reserved_on() {
 
 triple_of() {
   case "$1" in
-    darwin-aarch64) echo "arm64-apple-macosx14.0.0" ;;
-    darwin-x86_64)  echo "x86_64-apple-macosx14.0.0" ;;
-    linux-aarch64)  echo "aarch64-unknown-linux-gnu" ;;
-    linux-x86_64)   echo "x86_64-unknown-linux-gnu" ;;
+    darwin-aarch64)  echo "arm64-apple-macosx14.0.0" ;;
+    darwin-x86_64)   echo "x86_64-apple-macosx14.0.0" ;;
+    linux-aarch64)   echo "aarch64-unknown-linux-gnu" ;;
+    linux-x86_64)    echo "x86_64-unknown-linux-gnu" ;;
+    freebsd-x86_64)  echo "x86_64-unknown-freebsd14.0" ;;
+    freebsd-aarch64) echo "aarch64-unknown-freebsd14.0" ;;
   esac
 }
 
 acct_checked=0
-for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+acct_targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64"
+for target in $acct_targets; do
   ir="$work/acct-$target.ll"
   if ! "$axc" --target="$target" emit-llvm tests/stdlib/403-recover-div.ax -o "$ir" >/dev/null 2>&1; then
     echo "FAIL [$target] could not emit IR for the register-accounting check"
@@ -704,8 +707,8 @@ for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
     acct_checked=$((acct_checked + 1))
   fi
 done
-if (( acct_checked != 4 )); then
-  echo "FAIL only $acct_checked of 4 targets reached the register-accounting check"
+if (( acct_checked != 6 )); then
+  echo "FAIL only $acct_checked of 6 targets reached the register-accounting check"
   status=1
 fi
 # ABLATED 2026-08-25, which is the only thing that makes the four `ok`
@@ -730,6 +733,24 @@ fi
 # pass on linux-aarch64 with the bug present, and only `402-recover-oom`
 # faults. A gate that waits for a fixture to get unlucky is a gate that
 # reports the bug it already shipped.
+#
+# ABLATED AGAIN 2026-08-29, the day the two FreeBSD targets joined the
+# loop, with the x18 predicate in `targetRecoverArmAsm` set back to
+# `(== t 2)` - linux-aarch64 only, which is what a port that copied
+# the Linux list without reading it would ship:
+#
+#     ok   [darwin-aarch64]  every register is clobbered, saved, or reserved
+#     ok   [darwin-x86_64]   every register is clobbered, saved, or reserved
+#     ok   [linux-aarch64]   every register is clobbered, saved, or reserved
+#     ok   [linux-x86_64]    every register is clobbered, saved, or reserved
+#     ok   [freebsd-x86_64]  every register is clobbered, saved, or reserved
+#     FAIL [freebsd-aarch64] registers in no set - not clobbered, not saved,
+#          not reserved: x18
+#     FAIL only 5 of 6 targets reached the register-accounting check
+#
+# Again one target and the right one: llc reserves x18 under
+# `arm64-apple` and not under `aarch64-unknown-freebsd`, and nothing in
+# this file had to be told which.
 
 # ------------------------------------------------------------------
 # 6. The negative probe the gate cannot run for itself.

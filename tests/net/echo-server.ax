@@ -131,7 +131,7 @@
     (peer (memAlloc netAddrMaxBytes))
     (lenb (memAlloc 8))
   )
-    (let ((setbuf (memAlloc 8)))
+    (let ((setbuf (memAlloc 16)))
       (let ((scratch (memAlloc 256)))
         (let ((buf (memAlloc (netPollBufBytes 64))))
           (let ((byte (memAlloc 8)))
@@ -238,7 +238,7 @@
         (let ((varied (parseInt (sysArg 4))))
           (let ((addr (memAlloc netAddrMaxBytes)))
             (let (
-              (setbuf (memAlloc 8))
+              (setbuf (memAlloc 16))
               (optb (memAlloc 4))
             )
               (let ((pids vecNew))

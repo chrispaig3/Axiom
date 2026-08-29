@@ -1,0 +1,597 @@
+; Sys.Platform - FreeBSD syscall numbers and flags.
+;
+; Selected by the `.freebsd.ax` filename suffix when compiling for
+; `--target=freebsd-x86_64` or `--target=freebsd-aarch64` (see the
+; compiler's module resolution). One file serves both architectures for
+; the reason one Darwin file does: FreeBSD's `sys/sys/syscall.h` is
+; generated once from `sys/kern/syscalls.master` with no architecture
+; conditional in it, and every struct this file describes is
+; fixed-width or pointer-sized, so amd64 and arm64 - both LP64 - lay it
+; out identically. Linux is the odd one out, with a table per
+; architecture, which is why its two files sit beside this one.
+;
+; FreeBSD is BSD, so the numbers here are Darwin's neighbours - `read`
+; is 3, `write` 4, `open` 5 on both - WITHOUT Darwin's 0x2000000 class
+; bit, and the kernel answers an error the BSD way, through the carry
+; flag with a positive errno, which the backend's FreeBSD syscall
+; templates normalise into `-errno` exactly as the Darwin ones do (see
+; `targetSyscallAsm` in `self_host/codegen.ax`).
+;
+; NOTHING IN THIS FILE HAS BEEN EXECUTED. It was written 2026-08-29 on
+; a macOS host with no FreeBSD to run on, every number read from
+; stable/14's `sys/kern/syscalls.master` and the headers under
+; `sys/sys/`, and each legacy near-miss checked against the table
+; rather than assumed - the ones that assemble, run and half-work are
+; named beside the number they must not be confused with. The CI leg
+; that runs `tests/stdlib` on a real FreeBSD kernel is what turns any
+; line here into a measurement; until it exists this target is
+; assembled and never run, exactly as darwin-x86_64 is.
+;
+; FLOOR: FreeBSD 12. `kevent` 560 with the 64-byte record, `getrandom`
+; 563 and the current `struct dirent` all arrived in 12; the compiler
+; pins the triple at 14.0.
+; read(fd, buf, count) - 3
+(pub :: sysRead Int)
+
+(pub fn (sysRead) 3)
+
+; write(fd, buf, count) - 4
+(pub :: sysWrite Int)
+
+(pub fn (sysWrite) 4)
+
+; open(path, flags, mode) - 5
+(pub :: sysOpen Int)
+
+(pub fn (sysOpen) 5)
+
+; close(fd) - 6
+(pub :: sysClose Int)
+
+(pub fn (sysClose) 6)
+
+; exit(status) - 1, and it ends the PROCESS. FreeBSD has no
+; `exit_group`; the thread-only call is `thr_exit` (431). This is the
+; number `targetExitNum` in `self_host/codegen.ax` also carries for the
+; emitted abort paths, and `scripts/check-platform-constants.sh` is the
+; gate that keeps the two copies equal.
+(pub :: sysExit Int)
+
+(pub fn (sysExit) 1)
+
+; lseek(fd, offset, whence) - 478. NOT 199, which is `freebsd6_lseek`
+; (COMPAT6): the pre-7 entry with a padding word in its argument list,
+; which reads the offset from the wrong register and seeks somewhere
+; plausible.
+(pub :: sysLseek Int)
+
+(pub fn (sysLseek) 478)
+
+; FreeBSD has a real `open`, so no `openat` indirection is needed.
+(pub :: openNeedsDirFd Int)
+
+(pub fn (openNeedsDirFd) 0)
+
+; AT_FDCWD is -100 here as on Linux. Unused (see `openNeedsDirFd`),
+; defined so `Sys.ax` type-checks against every platform module, and
+; carrying the real value rather than a placeholder so that flipping
+; the capability above is one edit.
+(pub :: atFdCwd Int)
+
+(pub fn (atFdCwd) (- 0 100))
+
+(pub :: oRdonly Int)
+
+(pub fn (oRdonly) 0)
+
+; O_WRONLY | O_CREAT | O_TRUNC = 0x0001 | 0x0200 | 0x0400. These are
+; BSD's flag values, the same as Darwin's and NOT Linux's 577: Linux
+; puts O_CREAT at 0x40 and O_TRUNC at 0x200, so a copied 577 here is
+; O_WRONLY | O_TRUNC | 0x40, which is O_NOCTTY - a file that is
+; truncated and never created.
+(pub :: oWronlyCreateTrunc Int)
+
+(pub fn (oWronlyCreateTrunc) 1537)
+
+; O_WRONLY | O_CREAT | O_APPEND = 0x0001 | 0x0200 | 0x0008. See the
+; Darwin file for why append is a flag and not a seek.
+(pub :: oWronlyCreateAppend Int)
+
+(pub fn (oWronlyCreateAppend) 521)
+
+(pub :: seekEnd Int)
+
+(pub fn (seekEnd) 2)
+
+(pub :: seekSet Int)
+
+(pub fn (seekSet) 0)
+
+; ------------------------------------------------------------------
+; Starting a child process.
+;
+; FreeBSD has NO `posix_spawn` syscall - libc's `posix_spawn` is built
+; over `vfork`/`execve` - so the fork/exec pair is the only route, and
+; it is the easy one: `fork` answers 0 in the child through the return
+; register, as `forkChildIsZero` at the end of this file records.
+(pub :: spawnUsesPosixSpawn Int)
+
+(pub fn (spawnUsesPosixSpawn) 0)
+
+; Unused here (see `spawnUsesPosixSpawn`), defined so `Sys.ax`
+; type-checks against every platform module.
+(pub :: sysPosixSpawn Int)
+
+(pub fn (sysPosixSpawn) 0)
+
+; wait4(pid, status, options, rusage) - 7.
+(pub :: sysWait4 Int)
+
+(pub fn (sysWait4) 7)
+
+; fork() - 2. Takes no arguments; `sysForkArg` exists for AArch64
+; Linux, where fork is spelled `clone(SIGCHLD)`, and is ignored here.
+(pub :: sysFork Int)
+
+(pub fn (sysFork) 2)
+
+(pub :: sysForkArg Int)
+
+(pub fn (sysForkArg) 0)
+
+; execve(path, argv, envp) - 59.
+(pub :: sysExecve Int)
+
+(pub fn (sysExecve) 59)
+
+; unlink(path) - 10.
+(pub :: sysUnlinkNum Int)
+
+(pub fn (sysUnlinkNum) 10)
+
+; mkdir(path, mode) - 136. The plain call, so `openNeedsDirFd` is 0
+; and `sysMkdir` uses the two-argument form.
+(pub :: sysMkdirNum Int)
+
+(pub fn (sysMkdirNum) 136)
+
+; rmdir(path) - 137.
+(pub :: sysRmdirNum Int)
+
+(pub fn (sysRmdirNum) 137)
+
+; rename(from, to) - 128.
+(pub :: sysRenameNum Int)
+
+(pub fn (sysRenameNum) 128)
+
+; ------------------------------------------------------------------
+; Reading a directory.
+;
+; `getdirentries(fd, buf, nbytes, off_t *basep)` - 554, and NOT 196,
+; which is `freebsd11_getdirentries` (COMPAT11): the pre-12 entry
+; returning the 32-bit-inode `struct dirent`, a different layout that
+; this file's `direntNameOffset` would read a name out of the middle
+; of.
+;
+; The fourth argument is the same in/out position cookie Darwin's
+; `getdirentries64` takes, so `dirReadNeedsPosition` sends `Sys.ax`
+; down the Darwin branch. `basep` is optional to the kernel and always
+; passed here.
+(pub :: sysGetdentsNum Int)
+
+(pub fn (sysGetdentsNum) 554)
+
+(pub :: dirReadNeedsPosition Int)
+
+(pub fn (dirReadNeedsPosition) 1)
+
+; Where the name starts inside one record. FreeBSD 12's `dirent` is
+;
+;   u64 d_fileno; s64 d_off; u16 d_reclen; u8 d_type; u8 d_pad0;
+;   u16 d_namlen; u16 d_pad1; char d_name[];
+;
+; so d_reclen sits at 16, as it does on Darwin and Linux - the one
+; offset the portable decoder relies on - and the name begins at 24: a
+; THIRD value, against Darwin's 21 and Linux's 19, because of the two
+; padding fields. Records are padded to 8 and the shortest the kernel
+; emits is `_GENERIC_DIRLEN(1)` = 32 bytes, so `Sys.ax`'s
+; `reclen > direntNameOffset` guard is satisfied by every conforming
+; record.
+(pub :: direntNameOffset Int)
+
+(pub fn (direntNameOffset) 24)
+
+; ------------------------------------------------------------------
+; The working directory.
+;
+; `__getcwd(buf, buflen)` - 326 - is a REAL SYSCALL here, and this is
+; the one place FreeBSD is easier than Darwin, whose table has a hole
+; at that number (see the Darwin file). It writes the NUL-terminated
+; path left-aligned into `buf` and answers 0, not a length; `Sys.ax`
+; reads the bytes rather than the result, which is the one reading
+; both this and Linux's length-answering `getcwd` support. So no
+; descriptor and no `fcntl` detour.
+(pub :: cwdUsesFcntlPath Int)
+
+(pub fn (cwdUsesFcntlPath) 0)
+
+(pub :: sysCwdNum Int)
+
+(pub fn (sysCwdNum) 326)
+
+; Unused here (see `cwdUsesFcntlPath`), defined so `Sys.ax`
+; type-checks against every platform module.
+(pub :: fGetPath Int)
+
+(pub fn (fGetPath) 0)
+
+; ------------------------------------------------------------------
+; The two errno values portable code above compares against. Both
+; agree with Darwin and Linux; `eAgain` below does not, which is why
+; all three are names.
+(pub :: eExist Int)
+
+(pub fn (eExist) 17)
+
+(pub :: eIsDir Int)
+
+(pub fn (eIsDir) 21)
+
+; getpid() - 20
+(pub :: sysGetPidNum Int)
+
+(pub fn (sysGetPidNum) 20)
+
+; clock_gettime(clockid, ts) - 232. timespec is {tv_sec i64, tv_nsec
+; i64} on both 64-bit architectures, the layout `Sys.ax` reads.
+(pub :: sysClockNum Int)
+
+(pub fn (sysClockNum) 232)
+
+(pub :: clockIsGettimeofday Int)
+
+(pub fn (clockIsGettimeofday) 0)
+
+; `clock_gettime` answers CLOCK_MONOTONIC here, so `sysNowMonotonic` is
+; answerable and `sysNowMicros` is monotonic on this platform, as on
+; Linux. Darwin's copy of this file explains why the capability is not
+; simply assumed.
+(pub :: clockHasMonotonic Int)
+
+(pub fn (clockHasMonotonic) 1)
+
+; CLOCK_MONOTONIC IS 4 HERE, AND THIS CONSTANT EXISTS BECAUSE OF THAT.
+; Until 2026-08-29 `Sys.ax` passed the clock id to `clock_gettime` as
+; the literal 1, which is CLOCK_MONOTONIC on Linux - and CLOCK_VIRTUAL
+; on FreeBSD, the process's consumed CPU time. A FreeBSD port that
+; set `clockHasMonotonic` and changed nothing else would have handed
+; every timeout a clock that never runs backwards, so no assertion
+; catches it, and that runs at the ratio of CPU time to wall time.
+; `sys/sys/_clock_id.h`: REALTIME 0, VIRTUAL 1, PROF 2, MONOTONIC 4.
+(pub :: clockMonotonicId Int)
+
+(pub fn (clockMonotonicId) 4)
+
+; --------------------------------------------------------------------
+; Sockets
+;
+; BSD numbers without Darwin's class bit, so every syscall below is the
+; Darwin file's number minus 0x2000000; the flag and option values are
+; BSD's too, and agree with Darwin's throughout this group EXCEPT
+; `afInet6`. Not one of them was executed here.
+; --------------------------------------------------------------------
+; socket(domain, type, protocol) - 97.
+(pub :: sysSocketNum Int)
+
+(pub fn (sysSocketNum) 97)
+
+; bind(fd, addr, addrlen) - 104. addrlen is 16 for `sockaddr_in`, 28
+; for `sockaddr_in6`; `Sys.ax` reads it off the family in the buffer.
+(pub :: sysBindNum Int)
+
+(pub fn (sysBindNum) 104)
+
+; listen(fd, backlog) - 106.
+(pub :: sysListenNum Int)
+
+(pub fn (sysListenNum) 106)
+
+; accept(fd, addr, addrlen) - 30. FreeBSD does have `accept4` (541,
+; with SOCK_NONBLOCK = 0x20000000) and it is deliberately not used:
+; `acceptNonblockFlag` is 0 and `Sys.ax` takes the Darwin shape - a
+; plain `accept`, then `fcntl` - so that the two BSDs share one path
+; and the flag value is not a third thing to get wrong. The fourth
+; argument `Sys.ax` passes is ignored, as Darwin ignores it.
+(pub :: sysAcceptNum Int)
+
+(pub fn (sysAcceptNum) 30)
+
+; connect(fd, addr, addrlen) - 98.
+(pub :: sysConnectNum Int)
+
+(pub fn (sysConnectNum) 98)
+
+; setsockopt(fd, level, name, val, len) - 105.
+(pub :: sysSetSockOptNum Int)
+
+(pub fn (sysSetSockOptNum) 105)
+
+; getsockopt(fd, level, name, val, lenptr) - 118.
+(pub :: sysGetSockOptNum Int)
+
+(pub fn (sysGetSockOptNum) 118)
+
+; shutdown(fd, how) - 134.
+(pub :: sysShutdownNum Int)
+
+(pub fn (sysShutdownNum) 134)
+
+; fcntl(fd, cmd, arg) - 92. Distinct from `sysCwdNum`, which is
+; `__getcwd` here and `fcntl(F_GETPATH)` on Darwin.
+(pub :: sysFcntlNum Int)
+
+(pub fn (sysFcntlNum) 92)
+
+(pub :: afInet Int)
+
+(pub fn (afInet) 2)
+
+; AF_INET6 IS 28 - A THIRD VALUE, against Darwin's 30 and Linux's 10,
+; and the one constant in this group that agrees with neither
+; neighbour. `afInet` is 2 everywhere, and the Darwin file already
+; calls that agreement a trap; here it is a trap twice over, because
+; the rest of this group DOES agree with Darwin and a reader who
+; generalises from that copies 30. A wrong family fails loudly at
+; `socket` with -47 EAFNOSUPPORT (measured on Darwin for the reverse
+; mistake), which is the one mercy. `scripts/check-net.sh`'s IPv6 arm
+; - a listener on `::1` and a round-tripped connection - is the probe,
+; on the day a FreeBSD leg runs it.
+(pub :: afInet6 Int)
+
+(pub fn (afInet6) 28)
+
+(pub :: sockStream Int)
+
+(pub fn (sockStream) 1)
+
+; BSD's socket-option numbers, shared with Darwin: `SOL_SOCKET` is
+; 0xffff, and `SO_*` are bitmask-style constants where Linux's are
+; small sequential integers. A Linux number here sets some other
+; option rather than failing.
+(pub :: solSocket Int)
+
+(pub fn (solSocket) 65535)
+
+; SO_REUSEADDR 0x0004.
+(pub :: soReuseAddr Int)
+
+(pub fn (soReuseAddr) 4)
+
+; SO_REUSEPORT 0x0200.
+(pub :: soReusePort Int)
+
+(pub fn (soReusePort) 512)
+
+; SO_ERROR 0x1007.
+(pub :: soError Int)
+
+(pub fn (soError) 4103)
+
+; fcntl's file-status commands, and the flag a non-blocking socket sets.
+; `O_NONBLOCK` is 4 here, as on Darwin, and 2048 on Linux.
+(pub :: fGetFl Int)
+
+(pub fn (fGetFl) 3)
+
+(pub :: fSetFl Int)
+
+(pub fn (fSetFl) 4)
+
+(pub :: oNonblock Int)
+
+(pub fn (oNonblock) 4)
+
+; EAGAIN, 35 here as on Darwin; 11 on Linux.
+(pub :: eAgain Int)
+
+(pub fn (eAgain) 35)
+
+; `sockaddr_in` opens with a length byte, as every BSD's does:
+;
+;   0:1 sin_len=16 | 1:1 sin_family=2 | 2:2 sin_port (BE) | 4:4 addr
+;
+; and `sockaddr_in6` likewise: sin6_len=28, sin6_family=28 at offset
+; 1, then port, flowinfo, the sixteen address bytes and scope_id - 28
+; bytes. The Darwin file carries both layouts against Linux's.
+(pub :: sockaddrHasLenByte Int)
+
+(pub fn (sockaddrHasLenByte) 1)
+
+; --------------------------------------------------------------------
+; Readiness
+;
+; kqueue, which FreeBSD invented and Darwin took: one call both
+; registers interest and collects events. `Sys.ax` branches on
+; `pollUsesKqueue` and takes the same path it takes on Darwin - with
+; ONE difference, the record size, below.
+; --------------------------------------------------------------------
+(pub :: pollUsesKqueue Int)
+
+(pub fn (pollUsesKqueue) 1)
+
+; kqueue() - 362. Takes no arguments.
+(pub :: sysPollCreateNum Int)
+
+(pub fn (sysPollCreateNum) 362)
+
+; kevent(kq, changelist, nchanges, eventlist, nevents, timeout) - 560,
+; and NOT 363, which is `freebsd11_kevent` (COMPAT11): the pre-12 entry
+; that reads and writes the 32-byte `struct freebsd11_kevent`. That one
+; assembles, runs and returns records into a 64-byte-strided buffer at
+; the wrong stride, so every event after the first is read from the
+; middle of the one before it. Both of epoll's calls are this number,
+; because registering is this call with an eventlist of nothing.
+(pub :: sysPollWaitNum Int)
+
+(pub fn (sysPollWaitNum) 560)
+
+(pub :: sysPollCtlNum Int)
+
+(pub fn (sysPollCtlNum) 560)
+
+; `struct kevent` is 64 BYTES here, not Darwin's 32:
+;
+;   0:8 ident (uintptr) | 8:2 filter (int16) | 10:2 flags (uint16)
+;   12:4 fflags (uint32) | 16:8 data (int64) | 24:8 udata (ptr)
+;   32:32 ext[4] (uint64)
+;
+; The first 32 bytes are Darwin's byte for byte, and `netPollRec`
+; writes only `ident`, `filter` and `flags`, all inside that prefix;
+; `memSet rec 0 pollEventSize` zeroes `ext`, which is what the kernel
+; requires of an unused extension. So no portable code changes - only
+; the stride, which `netPollFdAt` and `netPollBufBytes` read from here.
+(pub :: pollEventSize Int)
+
+(pub fn (pollEventSize) 64)
+
+(pub :: pollEventFdOffset Int)
+
+(pub fn (pollEventFdOffset) 0)
+
+; EVFILT_READ, -1: kqueue's filters are negative small integers written
+; into a SIGNED 16-bit field, which `Sys.ax` masks to two bytes.
+(pub :: pollReadFilter Int)
+
+(pub fn (pollReadFilter) (- 0 1))
+
+; EV_ADD and EV_DELETE, 1 and 2.
+(pub :: pollAddOp Int)
+
+(pub fn (pollAddOp) 1)
+
+(pub :: pollDelOp Int)
+
+(pub fn (pollDelOp) 2)
+
+; The size of the mask argument epoll_pwait takes and kevent does not.
+; Zero here because nothing reads it.
+(pub :: pollSigsetSize Int)
+
+(pub fn (pollSigsetSize) 0)
+
+; --------------------------------------------------------------------
+; Entropy
+;
+; getrandom(buf, len, flags) - 563, FreeBSD 12+. It is Linux's call by
+; name and by shape - it answers the NUMBER OF BYTES written and may
+; answer short - so `randomIsGetentropy` is 0 and `Sys.ax` takes the
+; Linux loop. FreeBSD's `getentropy` is a libc function over this
+; syscall, not a syscall of its own.
+; --------------------------------------------------------------------
+(pub :: sysRandomNum Int)
+
+(pub fn (sysRandomNum) 563)
+
+(pub :: randomIsGetentropy Int)
+
+(pub fn (randomIsGetentropy) 0)
+
+(pub :: randomMaxChunk Int)
+
+(pub fn (randomMaxChunk) 256)
+
+; --------------------------------------------------------------------
+; Signals
+;
+; No `signalfd` - it is a Linux invention - so a signal is delivered
+; through the same kqueue as a socket, with `EVFILT_SIGNAL`, exactly as
+; on Darwin; `Sys.ax` takes that branch unchanged.
+; --------------------------------------------------------------------
+(pub :: signalUsesSignalFd Int)
+
+(pub fn (signalUsesSignalFd) 0)
+
+; sigprocmask(how, set, oset) - 340. Three arguments; the fourth
+; `Sys.ax` passes is ignored, as Darwin ignores it.
+(pub :: sysSigProcMaskNum Int)
+
+(pub fn (sysSigProcMaskNum) 340)
+
+; SIG_BLOCK, which is 1 here as on Darwin and 0 on Linux. The Darwin
+; file records what the wrong one does: 0 is not a value here at all,
+; and the kernel answers EINVAL - which is the loud failure, and better
+; than Linux's 1, which on Darwin is SIG_UNBLOCK and lets the signal
+; kill the process.
+(pub :: sigBlockHow Int)
+
+(pub fn (sigBlockHow) 1)
+
+; `sigset_t` IS SIXTEEN BYTES HERE - `__uint32_t __bits[4]` - a THIRD
+; width against Darwin's 4 and Linux's 8, and the kernel copies all
+; sixteen in on `sigprocmask`. `Sys.ax` writes the mask as one 64-bit
+; word at offset 0, which puts signal N at bit N-1 of `__bits[0..1]`
+; on this little-endian layout, and zeroes the rest of the set to this
+; width first, so the caller's buffer has to hold sixteen bytes - the
+; contract on `sysSignalBlock` says so.
+(pub :: sigsetBytes Int)
+
+(pub fn (sigsetBytes) 16)
+
+; EVFILT_SIGNAL, -6, the filter that marks an event as a signal rather
+; than a readable socket.
+(pub :: pollSignalFilter Int)
+
+(pub fn (pollSignalFilter) (- 0 6))
+
+; Unused here (see `signalUsesSignalFd`), defined so `Sys.ax`
+; type-checks against every platform module.
+(pub :: sysSignalFdNum Int)
+
+(pub fn (sysSignalFdNum) 0)
+
+(pub :: sigInfoSize Int)
+
+(pub fn (sigInfoSize) 0)
+
+; kill(pid, sig) - 37.
+(pub :: sysKillNum Int)
+
+(pub fn (sysKillNum) 37)
+
+; SIGTERM and SIGINT agree on every target; SIGUSR1 is 30 here, as on
+; Darwin, and 10 on Linux, which is why these two are named and that
+; one is not.
+(pub :: sigTerm Int)
+
+(pub fn (sigTerm) 15)
+
+(pub :: sigInt Int)
+
+(pub fn (sigInt) 2)
+
+; `fork` answers 0 in the child and the child's pid in the parent, the
+; POSIX convention, so `sysForkProcess` passes the result through.
+; This is asserted from the kernel source rather than measured:
+; `cpu_fork` sets the child's return register to 0 and clears the
+; carry bit on both amd64 (`tf_rax = 0`) and arm64 (`tf_x[0] = 0`) -
+; the BSD two-register convention Darwin exposes puts the "am I the
+; child" flag in the SECOND register, and FreeBSD's first register
+; still answers 0 to the child. If this is wrong, the failure is the
+; one `Sys.ax`'s `sysSpawn` guards against: the child returns into the
+; caller as a second copy of the driver. The FreeBSD leg's first
+; `sysRun` is the measurement.
+(pub :: forkChildIsZero Int)
+
+(pub fn (forkChildIsZero) 1)
+
+; The flag `netAccept` passes to make the accepted socket non-blocking.
+; 0: `accept4` exists here but is not used (see `sysAcceptNum`), so
+; `Sys.ax` reaches for `fcntl` afterwards, as on Darwin. Whether an
+; accepted socket INHERITS the listener's `O_NONBLOCK` here is not
+; measured; `netAccept` sets the flag explicitly either way, which is
+; the reason the Darwin file gives for defining the answer rather than
+; reporting it.
+(pub :: acceptNonblockFlag Int)
+
+(pub fn (acceptNonblockFlag) 0)

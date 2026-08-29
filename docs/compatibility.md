@@ -189,10 +189,11 @@ Said out loud rather than left unstated:
   Nothing in `compat/` covers it.
 - **The IR.** Emitted LLVM text is not a function of source and flags
   alone (`docs/agent-harness.md`), and nothing pins its shape.
-- **`Sys/Platform` per-target values.** The three platform files
-  declare the same names, and the baseline folds them to one entry, so
-  the surface is identical on all three CI legs. The *values* behind
-  those names are a target's, not a promise.
+- **`Sys/Platform` per-target values.** The four platform files
+  (darwin, linux-x86_64, linux-aarch64, freebsd) declare the same
+  names, and the baseline folds them to one entry, so the surface is
+  identical on all three CI legs. The *values* behind those names are
+  a target's, not a promise.
 - **A registry, a lockfile, or version constraints.** A dependency is
   a path on this machine (`self_host/pkg.ax` states this deliberately).
   Nothing here changes that.

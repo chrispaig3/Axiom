@@ -12,11 +12,12 @@
 ;
 ; Return values are raw kernel results, not exceptions: a successful
 ; result as-is, or `-errno` on failure. That convention holds on every
-; supported platform because the backend's Darwin syscall sequence
-; normalises Darwin's carry-flag/positive-errno protocol into a negative
-; result (see `targetSyscallAsm` in `self_host/codegen.ax`, whose Darwin
-; templates branch on carry and negate), so `sysFailed` is a
-; single portable comparison rather than a per-OS special case.
+; supported platform because the backend's BSD syscall sequences
+; normalise the carry-flag/positive-errno protocol Darwin and FreeBSD
+; share into a negative result (see `targetSyscallAsm` in
+; `self_host/codegen.ax`, whose BSD templates branch on carry and
+; negate), so `sysFailed` is a single portable comparison rather than
+; a per-OS special case.
 (import Sys.Platform)
 
 ; ------------------------------------------------------------------
@@ -464,11 +465,13 @@
 ; Four questions about a file that need no new syscall.
 ;
 ; `stat` is the obvious way to ask them and it is NOT here on purpose:
-; its answer is a struct whose layout differs on every one of the four
-; targets - offsets, widths and padding all move - so a portable
-; `stat` is four record layouts, not one syscall number. `open`,
-; `read` and `lseek` answer all four with calls this module already
-; makes, and the three targets nothing here can execute stay honest.
+; its answer is a struct whose layout differs by kernel, and on Linux
+; by architecture - offsets, widths and padding all move - so a
+; portable `stat` is a record layout per platform table, not one
+; syscall number; FreeBSD's (551, since 12) differs from both of its
+; neighbours' and is one more reason not to start. `open`, `read` and
+; `lseek` answer all four questions with calls this module already
+; makes, and the targets nothing here can execute stay honest.
 ; ------------------------------------------------------------------
 ; 1 when `path` names something that can be opened for reading.
 ;
@@ -690,14 +693,16 @@
 ;
 ; The third was missing until 2026-08-23, and the two that were here
 ; said nothing about where the NAME starts. `direntNameOffset` is 21 on
-; Darwin and 19 on Linux, so a `d_reclen` of 1 through 18 satisfied both
-; of them - `off + 18 <= n` and `off + reclen <= n` - and the NUL scan
-; then began at `off + 21`, past the last byte the kernel wrote, and ran
-; on through whatever the buffer happened to hold until it met a zero.
-; `reclen > direntNameOffset` in place of `reclen > 0` puts the name's
-; first byte inside the record, which the fit test has already put
-; inside `n`; the shortest record either kernel emits is 24 bytes, so
-; nothing a conforming one returns is refused by it.
+; Darwin, 19 on Linux and 24 on FreeBSD, so a `d_reclen` of 1 through
+; 18 satisfied both of the original conditions - `off + 18 <= n` and
+; `off + reclen <= n` - and the NUL scan then began at `off + 21`,
+; past the last byte the kernel wrote, and ran on through whatever the
+; buffer happened to hold until it met a zero. `reclen >
+; direntNameOffset` in place of `reclen > 0` puts the name's first
+; byte inside the record, which the fit test has already put inside
+; `n`; the shortest record any of the three kernels emits is 24 bytes
+; (Linux; Darwin's and FreeBSD's is 32), so nothing a conforming one
+; returns is refused by it.
 (:: sysReadDirDecode (-> Int Int Int Int Int))
 
 (fn (sysReadDirDecode buf off n out)
@@ -758,8 +763,8 @@
 
 ;@axiom:effect(io)
 (pub fn (sysGetCwd)
-  ; PATH_MAX is 4096 on Linux and 1024 on Darwin; one buffer at the
-  ; larger figure serves both, and a path too long for it comes back
+  ; PATH_MAX is 4096 on Linux and 1024 on Darwin and FreeBSD; one
+  ; buffer at the larger figure serves all, and a path too long for it comes back
   ; as "" (ERANGE) rather than truncated.
   (let ((buf (memAlloc 4097)))
     (if (== cwdUsesFcntlPath 1)
@@ -1268,7 +1273,12 @@
 
 ; Microseconds now, from the platform's cheapest correct clock: Darwin
 ; answers gettimeofday's timeval (realtime; Darwin's syscall table has
-; no clock_gettime), Linux answers CLOCK_MONOTONIC via clock_gettime.
+; no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via
+; clock_gettime - under the id `clockMonotonicId` names, because the
+; id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is
+; CLOCK_VIRTUAL, the process's CPU time. That one was a literal here
+; until 2026-08-29, and a clock that measures CPU time never runs
+; backwards either, so nothing would have caught it.
 ;
 ; SO ITS CLOCK CLASS DIFFERS BY PLATFORM, and that is a hazard rather
 ; than a detail. A duration computed from two of these is monotonic on
@@ -1293,7 +1303,7 @@
         (+ (* (memGetWord buf 0) 1000000) (& (memGetWord buf 1) 4294967295))
       )
     )
-    (let ((r (__syscall3 sysClockNum 1 buf 0)))
+    (let ((r (__syscall3 sysClockNum clockMonotonicId buf 0)))
       (if (< r 0)
         r
         (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000))
@@ -1326,7 +1336,7 @@
 (pub fn (sysNowMonotonic buf)
   (if (== clockHasMonotonic 0)
     (- 0 78)
-    (let ((r (__syscall3 sysClockNum 1 buf 0)))
+    (let ((r (__syscall3 sysClockNum clockMonotonicId buf 0)))
       (if (< r 0)
         r
         (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000))
@@ -1401,9 +1411,9 @@
 ; buffer that must take either has to be.
 ;
 ; THESE ARE SIZES, NOT PLATFORM NUMBERS. `sockaddr_in` is 16 and
-; `sockaddr_in6` is 28 on all three targets, and they agree for a
-; reason rather than by luck: Darwin spends its first byte on a length
-; and one on the family where Linux spends two on the family, so the
+; `sockaddr_in6` is 28 on every target, and they agree for a reason
+; rather than by luck: the BSDs spend their first byte on a length and
+; one on the family where Linux spends two on the family, so the
 ; divergence `sockaddrHasLenByte` names is inside the first four bytes
 ; and the totals land together. That is why they live here and not in
 ; `Sys.Platform`.
@@ -1428,7 +1438,7 @@
 ; `port` IS WRITTEN BIG-ENDIAN, which is the opposite of everything else
 ; this file stores and the reason it is two `memPutByte`s rather than a
 ; word write: the wire order for `sin_port` and `sin_addr` is network
-; order, while all four targets this compiler emits for are
+; order, while all six targets this compiler emits for are
 ; little-endian machines. Port 8080 is 0x1F90 and goes down as 0x1F
 ; then 0x90.
 (pub :: netAddr4 (-> Int Int Int Int Int Int Int))
@@ -2062,8 +2072,8 @@
 
 ; Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes.
 ;
-; On Darwin this is `kevent` with a changelist of one and an eventlist
-; of none, which registers without collecting; on Linux it is
+; On the BSDs this is `kevent` with a changelist of one and an
+; eventlist of none, which registers without collecting; on Linux it is
 ; `epoll_ctl`. The argument orders do not correspond, which is why the
 ; branch is here rather than in the numbers.
 (pub :: netPollAddRead (-> Int Int Int Int))
@@ -2136,10 +2146,11 @@
 
 ; The descriptor named by event `i` of a buffer `netPollWait` filled.
 ;
-; Reading it is the one place the three layouts are all visible at once:
-; the field is kqueue's `ident` at 0, epoll's `data` at 4 on x86_64 and
-; at 8 on aarch64, and the record stride is 32, 12 or 16. Both come from
-; `Sys.Platform`; a literal here would be right on one target.
+; Reading it is the one place the four layouts are all visible at once:
+; the field is kqueue's `ident` at 0 on both BSDs, epoll's `data` at 4
+; on x86_64 and at 8 on aarch64, and the record stride is 32 (Darwin),
+; 64 (FreeBSD, whose `kevent` carries `ext[4]`), 12 or 16. Both come
+; from `Sys.Platform`; a literal here would be right on one target.
 (pub :: netPollFdAt (-> Int Int Int))
 
 (pub fn (netPollFdAt buf i) (netGetWord buf (+ (* i pollEventSize) pollEventFdOffset)))
@@ -2218,9 +2229,10 @@
 ; signal into the event loop instead removes the handler ABI, async-
 ; signal-safety and re-entrancy against a bump allocator in one move.
 ;
-; THE TWO PLATFORMS DELIVER IT DIFFERENTLY AND THE SEAM IS VISIBLE.
-; Darwin registers `EVFILT_SIGNAL` on the SAME readiness descriptor the
-; sockets are on, and the event carries the signal number in `ident`.
+; THE TWO KERNEL FAMILIES DELIVER IT DIFFERENTLY AND THE SEAM IS
+; VISIBLE. The BSDs - Darwin and FreeBSD - register `EVFILT_SIGNAL` on
+; the SAME readiness descriptor the sockets are on, and the event
+; carries the signal number in `ident`.
 ; Linux makes the signal a readable descriptor of its own, adds THAT to
 ; the epoll set, and answers a 128-byte record when it is read. So a
 ; woken event names a signal on one platform and a descriptor on the
@@ -2237,14 +2249,21 @@
 (pub fn (sysSigBit signo) (<< 1 (- signo 1)))
 
 ; Block the signals in `mask` so they become observable instead of
-; fatal. `setbuf` is caller scratch of at least 8 bytes.
+; fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is
+; written as one 64-bit word, and the kernel then copies ITS OWN
+; `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on
+; Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target,
+; and the bytes between the word and that width are zeroed here rather
+; than left to whatever the caller's buffer held, because on FreeBSD
+; they are signals 65 through 128 and a stale byte there blocks one.
 (pub :: sysSignalBlock (-> Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (sysSignalBlock mask setbuf)
   {
+    (memSet setbuf 0 sigsetBytes)
     (netPutWord setbuf 0 mask)
-    ; Darwin's `sigprocmask` takes three arguments and Linux's
+    ; The BSDs' `sigprocmask` takes three arguments and Linux's
     ; `rt_sigprocmask` takes a fourth, the mask's size, which it checks
     ; exactly. Passing it unconditionally is the shape `netAccept`
     ; already uses for `accept` against `accept4`.
@@ -2256,9 +2275,10 @@
 
 ; Watch the signals in `mask` on the readiness descriptor `pfd`, and
 ; answer a HANDLE to pass back to `netPollSignalAt` - the signal
-; descriptor on Linux, and 0 on Darwin, which needs none.
+; descriptor on Linux, and 0 on the BSDs, which need none.
 ;
-; `rec` is scratch of `pollEventSize` bytes and `setbuf` of at least 8.
+; `rec` is scratch of `pollEventSize` bytes and `setbuf` of at least
+; 16, for the reason `sysSignalBlock` gives.
 (pub :: netSignalOpen (-> Int Int Int Int Int))
 
 ;@axiom:effect(io)
@@ -2287,7 +2307,7 @@
         )
       )
     }
-    ; Darwin has no signal descriptor: each signal is its own filter
+    ; The BSDs have no signal descriptor: each signal is its own filter
     ; registration on the readiness descriptor, so the mask is walked a
     ; bit at a time. Signals are 1..31; bit N-1 is signal N.
     (let ((mut signo 1))
@@ -2327,7 +2347,7 @@
 ; signal at all. `sigHandle` is what `netSignalOpen` answered and
 ; `scratch` is caller scratch of at least `sigInfoSize` bytes.
 ;
-; THIS IS THE ONE FUNCTION THAT KNOWS THE SEAM. On Darwin the event's
+; THIS IS THE ONE FUNCTION THAT KNOWS THE SEAM. On the BSDs the event's
 ; own filter says it is a signal and its `ident` IS the signal number,
 ; so nothing is read. On Linux the event names the signal descriptor and
 ; the number has to be read out of it - four bytes at offset 0 of a
@@ -2347,7 +2367,7 @@
         )
       )
     )
-    ; Darwin: compare the record's own 16-bit filter field, byte for
+    ; kqueue: compare the record's own 16-bit filter field, byte for
     ; byte, rather than sign-extending it back to an Int.
     (let ((off (* i pollEventSize)))
       (if (== (memGetByte buf (+ off 8)) (& pollSignalFilter 255))

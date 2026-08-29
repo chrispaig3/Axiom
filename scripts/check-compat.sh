@@ -131,15 +131,15 @@ echo "== the module list and stdlib/ agree =="
 # join `stdlib/` and stay entirely outside this gate - its whole public
 # surface invisible, with every check below still green. That is
 # `check-stdlib-api.sh`'s rule and the reason it gives: a list checked
-# one way rots the other. The three per-target `Sys/Platform` files are
-# the one exception, named rather than globbed because which one the
-# baseline carries is a decision worth seeing.
+# one way rots the other. The four per-platform `Sys/Platform` files
+# are the one exception, named rather than globbed because which one
+# the baseline carries is a decision worth seeing.
 checks=$((checks + 1))
 listed="$work/mods.listed"
 intree="$work/mods.tree"
 python3 "$helper" modules "$axc" "$work" | LC_ALL=C sort > "$listed"
 (cd "$repo_root" && find stdlib -name '*.ax' -type f) \
-  | grep -v 'stdlib/Sys/Platform\.linux-' | LC_ALL=C sort > "$intree"
+  | grep -vE 'stdlib/Sys/Platform\.(linux-|freebsd)' | LC_ALL=C sort > "$intree"
 if diff -q "$listed" "$intree" > /dev/null; then
   ok "the module list and stdlib/ agree, $(grep -c . "$listed") modules"
 else

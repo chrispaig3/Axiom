@@ -5508,13 +5508,20 @@
 ; Everything per-target in one place, mirroring stage0's
 ; `axiom-codegen/src/target.rs` value for value: the triple, the
 ; syscall inline-assembly (register conventions differ per arch, and
-; Darwin returns a positive errno with the carry flag set where Linux
-; returns -errno, so the Darwin templates branch on carry and negate -
-; `result < 0` is then a complete failure test on all four targets),
-; the mmap/exit syscall numbers (Darwin's carry the 0x2000000 Unix
-; class bit), the MAP_PRIVATE|MAP_ANON flag value, and the platform
-; module suffixes. Codes: 0 darwin-aarch64, 1 darwin-x86_64,
-; 2 linux-aarch64, 3 linux-x86_64; -1 is "unknown", refused loudly.
+; the BSD kernels - Darwin and FreeBSD - return a positive errno with
+; the carry flag set where Linux returns -errno, so the BSD templates
+; branch on carry and negate - `result < 0` is then a complete failure
+; test on every target), the mmap/exit syscall numbers (Darwin's carry
+; the 0x2000000 Unix class bit), the MAP_PRIVATE|MAP_ANON flag value,
+; and the platform module suffixes. Codes: 0 darwin-aarch64,
+; 1 darwin-x86_64, 2 linux-aarch64, 3 linux-x86_64, 4 freebsd-x86_64,
+; 5 freebsd-aarch64; -1 is "unknown", refused loudly.
+;
+; The two FreeBSD codes were added 2026-08-29 from a macOS host with
+; no FreeBSD to run on. Every FreeBSD number below was read from
+; stable/14's `sys/kern/syscalls.master` and headers rather than
+; measured, and `stdlib/Sys/Platform.freebsd.ax` says the same of its
+; own; the CI leg that executes them is what turns either into a fact.
 ; ------------------------------------------------------------------
 (pub :: targetCode (-> String Int))
 
@@ -5527,7 +5534,13 @@
         2
         (if (strEq name "linux-x86_64")
           3
-          (- 0 1)
+          (if (strEq name "freebsd-x86_64")
+            4
+            (if (strEq name "freebsd-aarch64")
+              5
+              (- 0 1)
+            )
+          )
         )
       )
     )
@@ -5543,7 +5556,20 @@
       "x86_64-apple-macosx14.0.0"
       (if (== t 2)
         "aarch64-unknown-linux-gnu"
-        "x86_64-unknown-linux-gnu"
+        (if (== t 3)
+          "x86_64-unknown-linux-gnu"
+          ; A major version is pinned, as `arm64-apple-macosx14.0.0`
+          ; above pins one: an unversioned `x86_64-unknown-freebsd`
+          ; lets LLVM choose per-release defaults that move under the
+          ; committed seed. 14 is the pin; 12 is the floor the numbers
+          ; need (`kevent` 560 with the 64-byte record, `getrandom`
+          ; 563 and the current `struct dirent` are all 12+), and
+          ; `Platform.freebsd.ax` records that beside each.
+          (if (== t 4)
+            "x86_64-unknown-freebsd14.0"
+            "aarch64-unknown-freebsd14.0"
+          )
+        )
       )
     )
   )
@@ -5588,16 +5614,53 @@
       "\"syscall\\0Ajnc 1f\\0Anegq %rax\\0A1:\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}\""
       (if (== t 2)
         "\"svc #0\", \"={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}\""
-        "\"syscall\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}\""
+        (if (== t 3)
+          "\"syscall\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}\""
+          ; FreeBSD is BSD on both architectures: the kernel answers
+          ; through the carry flag with a positive errno, as Darwin
+          ; does, so both of its templates carry the branch-and-negate
+          ; epilogue that keeps `Sys.ax`'s `result < 0` contract. On
+          ; x86-64 that makes the template darwin-x86_64's BYTE FOR
+          ; BYTE - same registers, same instruction, same epilogue.
+          ; The two targets' modules still differ, because the triple
+          ; and the numbers do (mmap 477 against 33554629, write 4
+          ; against 33554436, exit 1 against 33554433), and
+          ; `check-self-host.sh`'s pairwise-distinctness rule now rests
+          ; on THAT rather than on the syscall string; a later
+          ; "simplification" that merged the triples or the numbers
+          ; would collapse two targets into one module and that gate
+          ; would report the target argument being ignored.
+          (if (== t 4)
+            "\"syscall\\0Ajnc 1f\\0Anegq %rax\\0A1:\", \"={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}\""
+            ; freebsd-aarch64 is the one genuinely new string: the
+            ; Linux register set - the number in x8, `svc #0` - under
+            ; Darwin's epilogue. Neither existing template can serve
+            ; it: the Linux one reads a -errno the kernel never
+            ; produces, and the Darwin one puts the number in x16,
+            ; which FreeBSD does not read.
+            "\"svc #0\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}\""
+          )
+        )
       )
     )
   )
 )
 
+; Whether a target code is an AArch64 one. The frame read, the
+; recovery arm and the recovery jump are architecture questions, and
+; each spelled the membership for itself - `(|| (== t 0) (== t 2))` -
+; so a new AArch64 target had three places to be forgotten in. It is
+; stated once.
+(pub :: targetIsAArch64 (-> Int Bool))
+
+(pub fn (targetIsAArch64 t)
+  (|| (== t 0) (|| (== t 2) (== t 5)))
+)
+
 ; Read the frame pointer. One instruction, and only two distinct
-; strings for four targets, because this is an architecture question
+; strings for six targets, because this is an architecture question
 ; rather than an OS one: AArch64 keeps it in x29 and x86-64 in %rbp on
-; both Darwin and Linux.
+; Darwin, Linux and FreeBSD alike.
 ;
 ; `sideeffect` so the read is neither duplicated nor hoisted. It has no
 ; clobbers to declare - unlike `targetSyscallAsm` above, whose comment
@@ -5614,7 +5677,7 @@
 (pub :: targetFrameAsm (-> Int String))
 
 (pub fn (targetFrameAsm t)
-  (if (|| (== t 0) (== t 2))
+  (if (targetIsAArch64 t)
     "\"mov $0, x29\", \"=r\""
     "\"movq %rbp, $0\", \"=r\""
   )
@@ -5670,14 +5733,18 @@
 (pub :: targetRecoverArmAsm (-> Int String))
 
 (pub fn (targetRecoverArmAsm t)
-  (if (|| (== t 0) (== t 2))
+  (if (targetIsAArch64 t)
     ; ONE BODY, TWO CLOBBER LISTS, and the difference is a single
-    ; register whose ABI role is not the same on the two AArch64
+    ; register whose ABI role is not the same across the AArch64
     ; targets. `x18` is the PLATFORM REGISTER: reserved on Darwin, where
     ; LLVM never allocates it and naming it in a clobber list is a false
     ; statement llc warns about ("clobber list contains reserved
     ; registers: X18"), and an ordinary allocatable caller-saved
-    ; temporary on Linux.
+    ; temporary on Linux AND ON FREEBSD. LLVM reserves x18 for Darwin,
+    ; Android, Fuchsia, Windows and OHOS, and `aarch64-unknown-freebsd`
+    ; is in none of those - so freebsd-aarch64 takes the Linux list
+    ; below, and `check-recover.sh` asks llc whether the register is
+    ; reserved under each triple rather than trusting this sentence.
     ;
     ; The invariant this list keeps is "the clobber half IS the
     ; caller-saved set", so a register that is caller-saved on one
@@ -5717,10 +5784,13 @@
     ; produced NO stderr on ubuntu-24.04-arm in CI runs 32811091535 and
     ; 32811530545 while passing on linux-x86_64 and darwin-aarch64 -
     ; the signature of a register that exists only on AArch64 and is
-    ; allocatable only on Linux. With `~{x18}` the pointer moves to x20,
-    ; which the block already saves and restores.
+    ; allocatable only off Darwin. With `~{x18}` the pointer moves to
+    ; x20, which the block already saves and restores. The predicate
+    ; below is "AArch64 and x18 allocatable", which today is
+    ; linux-aarch64 and freebsd-aarch64; a `(== t 2)` here would ship
+    ; freebsd-aarch64 with exactly this bug, silently.
     (cat3
-      "\"stp x19, x20, [$0, #48]\\0Astp x21, x22, [$0, #64]\\0Astp x23, x24, [$0, #80]\\0Astp x25, x26, [$0, #96]\\0Astp x27, x28, [$0, #112]\\0Amov x9, sp\\0Astr x9, [$0]\\0Astr x29, [$0, #8]\\0Aadr x9, 1f\\0Astr x9, [$0, #16]\\0Ab 2f\\0A1:\\0Aldp x19, x20, [x9, #48]\\0Aldp x21, x22, [x9, #64]\\0Aldp x23, x24, [x9, #80]\\0Aldp x25, x26, [x9, #96]\\0Aldp x27, x28, [x9, #112]\\0A2:\", \"r,~{x0},~{x1},~{x2},~{x3},~{x4},~{x5},~{x6},~{x7},~{x8},~{x9},~{x10},~{x11},~{x12},~{x13},~{x14},~{x15},~{x16},~{x17},~{lr}"      (if (== t 2)
+      "\"stp x19, x20, [$0, #48]\\0Astp x21, x22, [$0, #64]\\0Astp x23, x24, [$0, #80]\\0Astp x25, x26, [$0, #96]\\0Astp x27, x28, [$0, #112]\\0Amov x9, sp\\0Astr x9, [$0]\\0Astr x29, [$0, #8]\\0Aadr x9, 1f\\0Astr x9, [$0, #16]\\0Ab 2f\\0A1:\\0Aldp x19, x20, [x9, #48]\\0Aldp x21, x22, [x9, #64]\\0Aldp x23, x24, [x9, #80]\\0Aldp x25, x26, [x9, #96]\\0Aldp x27, x28, [x9, #112]\\0A2:\", \"r,~{x0},~{x1},~{x2},~{x3},~{x4},~{x5},~{x6},~{x7},~{x8},~{x9},~{x10},~{x11},~{x12},~{x13},~{x14},~{x15},~{x16},~{x17},~{lr}"      (if (|| (== t 2) (== t 5))
         ",~{x18}"
         ""
       )      ",~{v0},~{v1},~{v2},~{v3},~{v4},~{v5},~{v6},~{v7},~{v8},~{v9},~{v10},~{v11},~{v12},~{v13},~{v14},~{v15},~{v16},~{v17},~{v18},~{v19},~{v20},~{v21},~{v22},~{v23},~{v24},~{v25},~{v26},~{v27},~{v28},~{v29},~{v30},~{v31},~{memory},~{cc}\""
@@ -5738,7 +5808,7 @@
 (pub :: targetRecoverJumpAsm (-> Int String))
 
 (pub fn (targetRecoverJumpAsm t)
-  (if (|| (== t 0) (== t 2))
+  (if (targetIsAArch64 t)
     "\"mov x9, $0\\0Amov sp, $1\\0Amov x29, $2\\0Abr $3\", \"r,r,r,r,~{x9},~{memory}\""
     "\"movq $0, %rax\\0Amovq $1, %rsp\\0Amovq $2, %rbp\\0Ajmpq *$3\", \"r,r,r,r,~{rax},~{memory}\""
   )
@@ -5753,7 +5823,15 @@
       33554629
       (if (== t 2)
         222
-        9
+        (if (== t 3)
+          9
+          ; FreeBSD's `mmap` is 477 on every architecture - its table
+          ; is generated once from `syscalls.master` - and NOT 197,
+          ; which is `freebsd6_mmap`, a COMPAT6 entry with a padded
+          ; argument list that assembles, runs, and reads its
+          ; arguments from the wrong registers.
+          477
+        )
       )
     )
   )
@@ -5782,14 +5860,23 @@
       33554433
       (if (== t 2)
         94
-        231
+        (if (== t 3)
+          231
+          ; FreeBSD's `exit` (1) ends the PROCESS: there is no
+          ; `exit_group`, and the thread-only call is `thr_exit`
+          ; (431). So 1 keeps the property the Linux arms above were
+          ; corrected for, and `Platform.freebsd.ax` carries the same
+          ; 1 for `check-platform-constants.sh` to compare.
+          1
+        )
       )
     )
   )
 )
 
 ; `write`, per target, for the runtime traps. Darwin BSD 4 is
-; 0x2000004; linux-x86_64 is 1 and linux-aarch64 is 64.
+; 0x2000004; linux-x86_64 is 1 and linux-aarch64 is 64; FreeBSD is
+; the bare BSD 4 on both architectures, with no class bit.
 (pub :: targetWriteNum (-> Int Int))
 
 (pub fn (targetWriteNum t)
@@ -5799,16 +5886,22 @@
       33554436
       (if (== t 2)
         64
-        1
+        (if (== t 3)
+          1
+          4
+        )
       )
     )
   )
 )
 
+; MAP_PRIVATE|MAP_ANON. The value is the kernel family's, not the
+; architecture's: MAP_ANON is 0x1000 on both BSDs and 0x20 on Linux,
+; so Darwin and FreeBSD share 4098 and the two Linux targets share 34.
 (pub :: targetMapFlags (-> Int Int))
 
 (pub fn (targetMapFlags t)
-  (if (|| (== t 0) (== t 1))
+  (if (|| (== t 0) (|| (== t 1) (|| (== t 4) (== t 5))))
     4098
     34
   )
@@ -5825,7 +5918,17 @@
       ".darwin-x86_64.ax"
       (if (== t 2)
         ".linux-aarch64.ax"
-        ".linux-x86_64.ax"
+        (if (== t 3)
+          ".linux-x86_64.ax"
+          ; No `Platform.freebsd-*.ax` exists, and that is correct:
+          ; FreeBSD's syscall table is generated once for every
+          ; architecture, so the ladder falls through to
+          ; `.freebsd.ax`, the arrangement Darwin already has.
+          (if (== t 4)
+            ".freebsd-x86_64.ax"
+            ".freebsd-aarch64.ax"
+          )
+        )
       )
     )
   )
@@ -5836,7 +5939,10 @@
 (pub fn (targetOsSuffix t)
   (if (|| (== t 0) (== t 1))
     ".darwin.ax"
-    ".linux.ax"
+    (if (|| (== t 4) (== t 5))
+      ".freebsd.ax"
+      ".linux.ax"
+    )
   )
 )
 
@@ -7421,7 +7527,7 @@
 ; `target` is a NAME (`darwin-aarch64`, ...), not a triple: the code it
 ; maps to drives the triple, the syscall asm, the allocator's numbers,
 ; and which platform module the imports resolved. An unknown name is
-; refused with the four that exist, not defaulted - emitting the wrong
+; refused with the six that exist, not defaulted - emitting the wrong
 ; target's syscall convention is a binary that dies at its first write.
 ; The convenience entry point, for a caller with no path to derive a
 ; module search directory from; imports resolve against `self_host/`
@@ -7469,7 +7575,7 @@
 (pub fn (checkedTargetCode target)
   (let ((tcode (targetCode target)))
     (if (< tcode 0)
-      (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, or linux-x86_64): " target)
+      (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, or freebsd-aarch64): " target)
       tcode
     )
   )

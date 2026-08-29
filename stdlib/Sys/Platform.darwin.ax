@@ -308,6 +308,17 @@
 
 (pub fn (clockHasMonotonic) 0)
 
+; The id `clock_gettime` is asked for the monotonic clock, where there
+; is one. Unused here - `clockIsGettimeofday` sends both readers to
+; `gettimeofday`, and `clockHasMonotonic` above says why - and 0 so
+; that nobody reads a Linux number out of this file. The constant
+; exists because the id is NOT portable: 1 is CLOCK_MONOTONIC on Linux
+; and CLOCK_VIRTUAL, process CPU time, on FreeBSD, and `Sys.ax` carried
+; the 1 as a literal until 2026-08-29.
+(pub :: clockMonotonicId Int)
+
+(pub fn (clockMonotonicId) 0)
+
 ; --------------------------------------------------------------------
 ; Sockets
 ;

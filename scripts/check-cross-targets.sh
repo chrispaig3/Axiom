@@ -31,7 +31,7 @@ gate_init
 # THE COMPILER UNDER TEST, and it used to be `$axiom` - which in CI is
 # what `bootstrap-from-seed.sh` builds from the COMMITTED SEED. What
 # this gate asserts is that the EMITTER produces assemblable,
-# position-independent code for four targets, so the emitter it asks
+# position-independent code for six targets, so the emitter it asks
 # has to be the one in the tree. Asking the seed's had a hard
 # consequence rather than a philosophical one: a fixture exercising
 # anything the seed does not know could not be emitted here at all, and
@@ -40,7 +40,13 @@ gate_init
 # and run. In CI this is a cache hit.
 gate_build_axc axc
 
-targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64)
+# Every target the tree's compiler knows. The two FreeBSD targets
+# (2026-08-29) are here from the commit that taught `targetCode` their
+# names - which is BEFORE any seed knows them, so every loop over this
+# array must drive `$axc`, the compiler built from this tree, and not
+# `$axiom`. The one loop below that needs the SEED's opinion keeps its
+# own literal list of the targets the seed can emit.
+targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64)
 
 # Optimisation levels the driver actually assembles with. A relocation
 # bug that appears at only one of them is still a shipped bug.
@@ -225,8 +231,12 @@ for case_file in tests/stdlib/*.ax; do
 
       # Mach-O relocation names differ from ELF's and Darwin is
       # position-independent unconditionally, so the absolute-relocation
-      # question only arises for ELF.
-      if [[ "$target" == linux-* ]]; then
+      # question only arises for ELF - which is Linux AND FreeBSD. A
+      # guard that named only `linux-*` would assemble the FreeBSD
+      # objects and never look at their relocations, and the
+      # `R_X86_64_32S`-against-`.bss` bug this script exists for is
+      # exactly as reachable there.
+      if [[ "$target" == linux-* || "$target" == freebsd-* ]]; then
         # Relocations are judged against the section they apply to, so
         # `llvm-readobj`'s output is walked with the current section in
         # hand rather than flattened with `grep -o`. `awk` prints
@@ -255,10 +265,10 @@ done
 # LLVM scheduled a countdown loop's `adds` before the `svc` and its
 # flag-consuming branch after - an infinite loop, measured 2026-08-07
 # at every opt level, on the shape every clock and polling loop has.
-# Checked here because this gate already emits IR for all four
-# targets; both compilers' templates are asserted, since the linux-
-# x86_64 one had silently drifted (stage1 matched stage0's stale
-# COMMENT, not its string).
+# Checked here because this gate already emits IR for every target;
+# both compilers' templates are asserted, since the linux-x86_64 one
+# had silently drifted (stage1 matched stage0's stale COMMENT, not its
+# string).
 echo "--- syscall templates declare ~{cc} on every target ---"
 ccwork="$(mktemp -d)"
 trap 'rm -rf "$ccwork"' EXIT
@@ -269,6 +279,15 @@ export AXIOM_STDLIB="${AXIOM_STDLIB:-$(pwd)/stdlib}"
 # The other side is `$axc`, which is what a build of `self_host/` by
 # `$axiom` produces - this used to build it a second time under its own
 # name.
+#
+# THIS LIST IS NOT `${targets[@]}`, and deliberately: one side of the
+# differential is `$axiom`, and `$axiom` is the seed's descendant,
+# which can only emit the targets the seed knew. A target added to the
+# tree lands here only once `scripts/reseed.sh` has minted its seed -
+# the FreeBSD pair wait for that - so this literal list lags the array
+# above by exactly one reseed, and a run that widened it early would
+# fail with "the two compilers emit different syscall templates"
+# against an empty `s0.ll`, naming the wrong defect.
 cp "$axc" "$ccwork/stage1"
 for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
   "$axiom" --target="$target" emit-llvm "$ccwork/cc.ax" -o "$ccwork/s0.ll" >/dev/null 2>&1
@@ -348,8 +367,13 @@ pework="$(mktemp -d)"
 trap 'rm -rf "$pework" "$ccwork" "$work"' EXIT
 mkdir -p "$pework/d2" "$pework/d3"
 printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$pework/pe.ax"
+# `$axc`, not `$axiom`: the question is about `llc` and the object it
+# writes, not about the seed, and only the tree's compiler can emit a
+# target the seed predates. This drove `$axiom` until 2026-08-29, which
+# would have failed the day the FreeBSD targets joined `targets` with a
+# message - "would not compile" - pointing at the wrong thing.
 for target in "${targets[@]}"; do
-  if ! "$axiom" --target="$target" emit-llvm "$pework/pe.ax" -o "$pework/pe.ll" >/dev/null 2>&1; then
+  if ! "$axc" --target="$target" emit-llvm "$pework/pe.ax" -o "$pework/pe.ll" >/dev/null 2>&1; then
     echo "FAIL [$target]: the path-independence probe would not compile"
     status=1
     continue
@@ -383,7 +407,7 @@ for target in "${targets[@]}"; do
   # `if ! producer | grep -q` read as "no match" exactly when there was
   # one.
   case "$target" in
-    linux-*)
+    linux-*|freebsd-*)
       if ! grep -a -q 'axc\.ll' "$pework/d2/axc.o"; then
         echo "FAIL [$target]: this ELF object no longer records its input filename -"
         echo "     the same-basename convention above is now protecting against nothing."
@@ -400,8 +424,8 @@ done
 # ---------------------------------------------------------------
 # The committed seeds assemble.
 #
-# `bootstrap/` holds four `.ll` files, one per target, and until this
-# check the CI matrix assembled exactly the three it runs on: there is
+# `bootstrap/` holds one `.ll` file per target that has a seed, and
+# until this check the CI matrix assembled exactly the three it runs on: there is
 # no macos-13 runner, so `bootstrap/axiom-darwin-x86_64.ll` was verified
 # by its SHA256 and by nothing else. A SHA256 says the bytes are the
 # bytes somebody committed; it does not say `llc` accepts them. A seed

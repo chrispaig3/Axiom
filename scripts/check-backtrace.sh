@@ -342,9 +342,9 @@ for pair in "oom:70:__axiom_out_of_memory" "ue:71:__axiom_unhandled_effect"; do
 done
 
 echo
-echo "--- 5. the frame pointer is kept on all four targets, and the attribute is why ---"
+echo "--- 5. the frame pointer is kept on every target, and the attribute is why ---"
 
-# THREE OF THE FOUR TARGETS CANNOT BE RUN HERE, but all four can be
+# FIVE OF THE SIX TARGETS CANNOT BE RUN HERE, but all six can be
 # ASSEMBLED here, which is the technique `check-cross-targets.sh`
 # already rests on. So the assertion is made on the prologue `llc`
 # emits rather than on a program that ran.
@@ -371,7 +371,7 @@ echo "--- 5. the frame pointer is kept on all four targets, and the attribute is
 # them.
 for arch in AArch64 X86; do
   llc --version | grep -q "$arch" || {
-    echo "error: this llc has no $arch backend; cannot verify all four targets" >&2
+    echo "error: this llc has no $arch backend; cannot verify every target" >&2
     exit 1
   }
 done
@@ -390,7 +390,7 @@ fp_probe() { # fp_probe <target> <ir> -> prints "kept" or "omitted"
 }
 
 ablated=0
-for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64; do
   "$axc" --target="$target" emit-llvm "$work/chain.ax" -o "$work/t.ll" >/dev/null 2>&1
 
   grep -q '"frame-pointer"="all"' "$work/t.ll" \
@@ -417,14 +417,15 @@ for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
 done
 
 # An ablation that never fires is not an ablation. All four
-# discriminated on 2026-08-24; the floor is three, so that a future
-# toolchain making one target keep frame pointers by default is not a
-# spurious failure, while a run where the attribute has stopped
+# discriminated on 2026-08-24, and all six on 2026-08-29 when the
+# FreeBSD pair joined; the floor is one below the count, so that a
+# future toolchain making one target keep frame pointers by default is
+# not a spurious failure, while a run where the attribute has stopped
 # mattering anywhere still goes red.
-if (( ablated >= 3 )); then
-  ok "the ablation discriminates on $ablated of 4 targets (4 on 2026-08-24)"
+if (( ablated >= 5 )); then
+  ok "the ablation discriminates on $ablated of 6 targets (6 on 2026-08-29)"
 else
-  bad "the ablation changed nothing on $((4 - ablated)) of 4 targets - it proves nothing"
+  bad "the ablation changed nothing on $((6 - ablated)) of 6 targets - it proves nothing"
 fi
 
 echo

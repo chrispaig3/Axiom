@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 528 `.ax` files in the repository apart from the two named below,
+the 531 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -275,7 +275,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-tree-sitter.sh` | the checked-in grammar parses every `.ax` file in the repository, and the documentation's Axiom blocks balance their delimiters (compiling them is `check-tools-selfhost.sh`) |
 | `run-stdlib-tests.sh` | every case in `tests/stdlib` compiles, runs, prints its `.out` and exits as its `.exit` says |
 | `check-freestanding.sh` | generated code needs no C library |
-| `check-platform-constants.sh` | the syscall numbers the backend emits and the ones `stdlib/Sys/Platform.*.ax` declares are the same numbers, on all four targets - they disagreed silently once |
+| `check-platform-constants.sh` | the syscall numbers the backend emits and the ones `stdlib/Sys/Platform.*.ax` declares are the same numbers, on all six targets - they disagreed silently once |
 | `check-self-host.sh` | every case in `tests/selfhost` compiles, assembles, runs and exits as the fixture says — the only gate that drives the compiler end to end |
 | `check-driver.sh` | `axiom build`: the command-line surface, and that a failing `llc` fails the build while a missing `opt` does not |
 | `check-stdlib-selfhost.sh` | both corpora compiled *and run* through the identical `llc`/`cc` pipeline at `-O0` and `-O2` |
@@ -292,7 +292,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-render-selfhost.sh` | the human and JSON renderers, cross-checked against the AXDL goldens and against the palette `self_host/style.ax` declares |
 | `check-repl-selfhost.sh` | the REPL, piped session by piped session |
 | `check-lsp-selfhost.sh` | the language server: its framed session bytes, every published position converted into LSP's 0-based UTF-16, every request's answer derived from documents the driver writes itself, and a sweep of every advertised request at every kind of position over a real module, a truncated one and an empty one |
-| `check-stdlib-api.sh` | `docs/stdlib-api.md` is generated - by `examples/axdoc/axdoc.ax`, an Axiom program - and this regenerates it and requires byte-identity, plus that every `(pub` name a `grep` finds in `stdlib/` appears in it exactly once, that the three `Sys/Platform.*.ax` files declare the same names, and a documentation-coverage ratchet. Its negative probe adds a public name to a COPY of the library and requires the regenerated document to carry it |
+| `check-stdlib-api.sh` | `docs/stdlib-api.md` is generated - by `examples/axdoc/axdoc.ax`, an Axiom program - and this regenerates it and requires byte-identity, plus that every `(pub` name a `grep` finds in `stdlib/` appears in it exactly once, that the four `Sys/Platform.*.ax` files declare the same names, and a documentation-coverage ratchet. Its negative probe adds a public name to a COPY of the library and requires the regenerated document to carry it |
 | `check-doc-drift.sh` | this file and its ten siblings against the tree: every stated count recomputed, and every fixture a doc or a comment names must exist |
 | `check-agent-policy.sh` | the standard library performs exactly the effects it declares, and the set of declarations performing any is the one in `tests/agent/stdlib-effects.allow` — `docs/agent-harness.md` §3.4's policy, as a gate over AXSYM rather than a compiler mode, on `check-ffi.sh`'s allowlist model |
 | `check-frontend-parity.sh` | the frontend's five consumers agree — on the value, not only on the verdict |
