@@ -1,0 +1,31 @@
+ok   int
+ok   string bare at top level
+ok   bool
+ok   float
+ok   char
+ok   char newline
+ok   char quote
+ok   char non-ascii
+ok   char four bytes
+ok   nullary
+ok   one field
+ok   two fields
+ok   nullary among fieldful
+ok   struct variant is positional
+ok   option some
+ok   option none
+ok   option nested
+ok   one renderer per instantiation
+ok   and another
+ok   struct
+ok   struct in a hole
+ok   string quoted inside a structure
+ok   struct inside data
+ok   string inside data
+ok   char inside data
+ok   three fields, mixed
+ok   recursive type in full
+ok   strings in a list
+ok   a value that reaches itself
+ok   written impl wins at the call
+ok   nested field renders structurally

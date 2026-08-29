@@ -1727,8 +1727,8 @@ mechanisms, and neither is a runtime check:
   function with a type, so a well-formed specifier applied to the
   wrong type is an ordinary `AX3004` at the invocation — `{s:.2}` on a
   `String` reaches `fmtFloatPrec`'s `Float` parameter. A hole naming
-  an unbound name is `AX3001`; one whose type has no `Show` instance
-  is `AX3025`.
+  an unbound name is `AX3001`; one whose type `show` cannot render — a
+  type variable, a function value, a `Foreign` — is `AX3025`.
 
 No specifier can be "ignored at run time", because none of them
 survives to run time.

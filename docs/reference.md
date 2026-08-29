@@ -1385,8 +1385,8 @@ return value is the operation's result, and execution continues.
   (log "hi")            ; dispatches to the lambda below
   (Console)
   ; `cast String`: a handler parameter's type is a variable, and
-  ; `println` is a macro over `show`, whose implementation is keyed on
-  ; a type NAME (AX3025).
+  ; `println` is a macro over `show`, which renders by the STATIC
+  ; type - a variable has no rendering (AX3025).
   (lambda (s) { (println (cast String s)) 0 }))
 ```
 
@@ -1658,7 +1658,7 @@ A hole names a binding **in scope at the call**. There is no argument
 list and no positional `{}`: the name goes in the string.
 
 ```
-{name}          render `name` through its `Show` instance
+{name}          render `name` with `show`
 {name:SPEC}     render it the way SPEC says
 {{   }}         a literal brace
 ```
@@ -1699,36 +1699,77 @@ string survives to run time.
   the string on the offending byte.
 - **Type** is the checker's: a specifier picks a function with a type,
   so `{s:.2}` on a `String` is `AX3004` on `fmtFloatPrec`'s `Float`
-  parameter. An unbound hole is `AX3001`; a type with no `Show`
-  instance is `AX3025`.
+  parameter. An unbound hole is `AX3001`; a hole `show` has no
+  rendering for — a type variable, a function value, a `Foreign`, or a
+  `data`/`struct` holding one of those — is `AX3025`.
 
 ### Rendering your own types
 
-`show` is an ordinary trait method, so a type becomes interpolable by
-implementing it. `Pre`'s `deriveShow` writes the function half:
+`show` is a compiler-known head (0.3.8). The checker resolves it from
+the argument's **static** type at the call — the way it already
+resolves `==` on two `String`s into a content comparison — and a
+`data` or `struct` needs no declaration to be interpolable: its
+rendering is derived from the declaration, in the language's own
+spelling.
 
 ```scheme
 (import IO)
-(import Pre)
 
 (data Colour (Red) (Green) (Blue))
-(deriveShow Colour)                       ; gives showColour : Colour -> String
-
-(impl (Show Colour) where
-  ((show (lambda (v) (showColour v)))))
+(struct Point (x : Int) (y : Int))
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((c (Green)))
+  (let ((c (Green)) (p (Point 1 -2)))
     { (println "the colour is {c}")       ; the colour is Green
+      (println p)                         ; {x = 1, y = -2}
+      (println (Some p))                  ; (Some {x = 1, y = -2})
       0 }))
 ```
 
+| Static type | Renders as |
+|---|---|
+| `Int`, `Float` | `fmtInt`, `fmtFloat` — `42`, `2.500000` |
+| `Bool` | `true` / `false` |
+| `Char` | the character literal, escaped as the lexer spells it — `'x'`, `'\n'`, `'é'` |
+| `String` | its own bytes at top level, so `(println s)` means what it always meant; **quoted, with escapes**, inside a structure — `{name = "bo\"b"}` |
+| a `data` value | a constructor application, a nullary constructor bare — `(Some 3)`, `(Cons 1 (Cons 2 Nil))`, `None`; a struct-variant constructor positionally, as it is written — `(Circle 7)` |
+| a `struct` value | `{x = 1, y = 2}`, fields in declaration order |
+
+Nesting composes — `(Wrap {x = 3, y = 4} Green (Some "hi"))` — and a
+recursive type prints in full. A value that reaches *itself* (a struct
+field is assignable, so `(set c.next (Some c))` builds one) prints
+`...` at the back-edge instead of never returning:
+`{v = 7, next = (Some ...)}`. One renderer is generated per concrete
+type at its first use, as an ordinary function appended to the program
+and checked and compiled like anything written; `symbols` does not
+list it, because a generated name is not a symbol.
+`tests/stdlib/420-show-builtin.ax` pins every row of the table.
+
+**The rule, from 0.3.8: the compiler decides how a type prints, and a
+program cannot override it.** The escape hatch is a function whose
+result is interpolated:
+
+```scheme
+(:: showColour (-> Colour String))
+(fn (showColour c)
+  (match c ((Red) "red") ((Green) "green") ((Blue) "blue")))
+
+(let ((s (showColour c)))
+  (println "the colour is {s}"))          ; the colour is green
+```
+
+A written `(impl (Show T))` is still honoured in this release — at the
+call it wins over the derived rendering, and `Pre`'s `deriveShow` still
+writes the function half of one — but a value *inside* a structure is
+always rendered structurally, and the trait is on its way out with the
+rest of the trait machinery.
+
 ### When the type is not known
 
-Dispatch is on the **static** type, so a value whose type the compiler
-cannot name selects no instance and is `AX3025`. Two shapes do this:
+Rendering is by the **static** type, so a value whose type the compiler
+cannot name has no rendering and is `AX3025`. Two shapes do this:
 
 ```scheme
 (println (vecGet v 0))                    ; AX3025: vecGet answers `a`
@@ -1748,7 +1789,7 @@ Name the type and both work — which is exactly the information the old
 
 | Was | Now |
 |---|---|
-| `(println s)` where `s : String` | unchanged — `Show`'s `String` instance is the identity |
+| `(println s)` where `s : String` | unchanged — a `String` renders as its own bytes |
 | `(printlnInt n)` | `(println n)` |
 | `(printInt n)` | `(println n)`, or `(writeStr stdout (format "{n}"))` to keep the line open |
 | `(println (fmtInt n))` | `(println n)` |

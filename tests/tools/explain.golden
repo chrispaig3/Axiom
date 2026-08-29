@@ -605,12 +605,18 @@ not:
   - a method mentions the trait's parameter in no parameter position,
     so no argument can select an implementation - there is no
     return-type-directed dispatch
+  - `show`, which the compiler resolves itself where no implementation
+    claims the argument's type, has no rendering for it: a type
+    variable, a function value, a `Foreign`, or a `data`/`struct`
+    holding one of those - the message names the field type
 
 Dispatch is by the STATIC type of the argument at the call site, and it
 is resolved at compile time: the call becomes a direct call to that
 implementation, with no table and no indirection. A type variable is
 not a type, so a function that is generic over the trait cannot yet
-call its methods.
+call its methods - and `show`, whose rendering of a `data` or `struct`
+is derived from the declaration with no implementation written, cannot
+render one either.
 
 ### explain AX3026
 AX3026 - a name the emitted runtime owns

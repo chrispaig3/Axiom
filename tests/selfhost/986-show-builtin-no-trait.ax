@@ -1,0 +1,43 @@
+; expect 59
+; `show` with no `Show` trait in the program at all: neither `IO` nor
+; `Show` is imported, so `traitRewrite` finds no trait owning the name
+; and the builtin answers alone - which is the shape every program has
+; once `Show.ax`'s instances are gone, reachable today only like this.
+; Before the builtin this file was `AX3001 undefined variable show`.
+;
+; Only `Fmt` and `Str` are loaded, because they are what the rewrite
+; targets: `fmtInt`/`fmtFloat`, `strConcat`/`strByte`/`strFromByte`
+; (and `Vec`, which `Str` imports, for the ancestor stack). Each
+; rendering is measured by its length, and the sum is the exit status:
+;
+;   "123"                 3    fmtInt
+;   "abcd"                4    the call ELIDED - the String itself
+;   "true"                4    the spliced `if`
+;   "1.500000"            8    fmtFloat
+;   "'x'"                 3    the character literal
+;   "Green"               5    a nullary constructor, bare
+;   "{a = 1, b = \"x\"}"  16   a struct, its String field quoted
+;   "(Some Green)"        12   a constructor application
+;   "None"                4
+;                         59
+(import Fmt)
+
+(import Str)
+
+(data Colour
+  (Red)
+  (Green))
+
+(struct Pair
+  (a : Int)
+  (b : String))
+
+; a bare `None` is `(Option _t)`, which has no renderer; the
+; signature is what names the element type
+(:: noneInt (Option Int))
+
+(fn (noneInt) None)
+
+(:: main Int)
+
+(fn (main) (+ (strLen (show 123)) (+ (strLen (show "abcd")) (+ (strLen (show true)) (+ (strLen (show 1.5)) (+ (strLen (show 'x')) (+ (strLen (show Green)) (+ (strLen (show (Pair 1 "x"))) (+ (strLen (show (Some Green))) (strLen (show noneInt)))))))))))

@@ -1,0 +1,57 @@
+; What `show` refuses now that the checker resolves it (phase 0 of the
+; traits removal), every one under AX3025 so the code a reader already
+; looks for still finds it.
+;
+;   1  a type VARIABLE - a generic function's own `a` - is the refusal
+;      it always was, word for word: `Show.ax`'s instances still claim
+;      the name, so the trait path reports it before the builtin is
+;      asked
+;   2  a constructor applied to a type variable - `(Box a)` inside a
+;      generic function - is the builtin's own wording of shape 1,
+;      because no `(impl (Show Box))` exists to fall back on
+;   3  a `data` or `struct` the builtin cannot take apart: `Holder`
+;      holds a `Foreign`, and the refusal names the field type and
+;      lands at the CALL, before anything is generated
+(import IO)
+
+(:: generic (-> a Int))
+
+;@axiom:effect(io)
+(fn (generic x)
+  {
+    (println x)
+    0
+  }
+)
+
+(struct Holder
+  (f : Foreign))
+
+(data Box a
+  (MkBox a))
+
+(:: boxed (-> (Box a) Int))
+
+;@axiom:effect(io)
+(fn (boxed b)
+  {
+    (println b)
+    0
+  }
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((h 
+    (Holder
+      (cast Foreign 0)
+    )
+  ))
+    {
+      (println h)
+      0
+    }
+  )
+)

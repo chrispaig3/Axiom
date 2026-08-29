@@ -7606,7 +7606,16 @@
                         ; these in `tcFns` instead made
                         ; `symbols` print them as positionless
                         ; functions with no type.
-                        (if (|| (== (isBuiltinName name) 1) (|| (== (isMacroName tc name) 1) (|| (== (isEffectName tc name) 1) (!= (findTraitOwning (tcTraits tc) name 0) 0))))
+                        ;
+                        ; `show` AS A CALL HEAD is the builtin's
+                        ; (`showBuiltin`), which has already rewritten
+                        ; it or reported on it by the time the head is
+                        ; walked - so it is quiet here for the same
+                        ; reason a trait method is. Only as a head:
+                        ; `show` standing as a bare value is a
+                        ; reference nothing resolves, and stays the
+                        ; AX3001 it was.
+                        (if (|| (== (isBuiltinName name) 1) (|| (== (isMacroName tc name) 1) (|| (== (isEffectName tc name) 1) (|| (!= (findTraitOwning (tcTraits tc) name 0) 0) (&& (== inHead 1) (== (showIsHead name) 1))))))
                           mkSilentWild
                           (emitUndefinedVar tc name (nodeSpan e))
                         )
@@ -7856,13 +7865,23 @@
         0
       )
     ))
-      (let ((_td 
+      (let ((spliced
         (if (&& (== headIsVar 1) (&& (== inHead 0) (== (traitNameFree tc (nodeAName head)) 1)))
           (traitRewrite tc e head (nodeAName head))
           0
         )
       ))
-        (let ((hname 
+        ; A `show` the builtin SPLICED - a `String` argument stands
+        ; in for the call, a `Bool` becomes the two-literal `if`
+        ; (`showSplice`) - leaves `e` no longer an application, and
+        ; everything below reads `(nodeA e)` as a callee. So the
+        ; spliced node is checked afresh instead, which is also what
+        ; turns the probe's dropped diagnostics back into reported
+        ; ones. Answered by `traitRewrite`, which is 0 on every other
+        ; path it takes.
+        (if (== spliced 1)
+          (checkExprH tc e 0)
+        (let ((hname
           (if (== headIsVar 1)
             (nodeAName head)
             ""
@@ -7940,6 +7959,7 @@
               )
             )
           )
+        )
         )
       )
     )
@@ -8130,7 +8150,15 @@
 (pub fn (traitRewrite tc e head hname)
   (let ((tr (findTraitOwning (tcTraits tc) hname 0)))
     (if (== tr 0)
-      0
+      ; No trait claims the name. `show` is the compiler's own
+      ; (`showBuiltin`); every other free head is left for `checkVar`
+      ; to report, exactly as before.
+      (if (== (showIsHead hname) 1)
+        (showBuiltin
+          tc          e          head          0          1
+        )
+        0
+      )
       (let (
         (v (traitTyvar tr))
         (decl (findFieldNamed (nodeB tr) hname 0))
@@ -8246,8 +8274,38 @@
                               (memSetWord head 6 0)
                               0
                             }
-                            (traitDiag
-                              tc                              (spanOf (vecGet args di))                              (strConcat (strConcat (strConcat (strConcat "no implementation of `" (nodeAName tr)) "` for `") tn) "`")                              "write `(impl (Trait Type) where ((method ...)))` for it"                              "a trait method is dispatched on the type of its argument, and this type has no implementation"
+                            ; A WRITTEN implementation wins, and only
+                            ; its absence reaches the builtin: `show`
+                            ; on a type with no `(impl (Show T))`
+                            ; renders structurally (`showBuiltin`),
+                            ; and a shape the builtin cannot render
+                            ; either (-1) is still this trait's own
+                            ; refusal, worded as it always was.
+                            ;
+                            ; The builtin's answer is passed UP, not
+                            ; folded to 0: a `String` or `Bool` it
+                            ; splices leaves `e` no longer an
+                            ; application, and `checkExprH` re-checks
+                            ; the spliced node only when told (1).
+                            ; Folded, a user trait claiming `show`
+                            ; with no `String` instance read the
+                            ; spliced literal as a callee - measured,
+                            ; `AX3004 expected function type, found
+                            ; ()` where AX3025 had been.
+                            (let ((r
+                              (if (&& (== (showIsHead hname) 1) (== di 0))
+                                (showBuiltin
+                                  tc                                  e                                  head                                  at                                  0
+                                )
+                                (- 0 1)
+                              )
+                            ))
+                              (if (== r (- 0 1))
+                                (traitDiag
+                                  tc                                  (spanOf (vecGet args di))                                  (strConcat (strConcat (strConcat (strConcat "no implementation of `" (nodeAName tr)) "` for `") tn) "`")                                  "write `(impl (Trait Type) where ((method ...)))` for it"                                  "a trait method is dispatched on the type of its argument, and this type has no implementation"
+                                )
+                                r
+                              )
                             )
                           )
                         )
@@ -8319,6 +8377,1177 @@
     0
   }
 )
+
+; ------------------------------------------------------------------
+; `show` as a compiler-known head.
+;
+; `(show x)` is what every `{hole}` and every `(println expr)` lowers
+; to (`syntax/format`, expand.ax), and until 2026-08-29 the only thing
+; that could answer it was a trait: `stdlib/Show.ax` declares `Show`
+; with four instances, and `traitRewrite` above selects one by the
+; argument's static type or refuses with AX3025. That is the whole of
+; what traits were used for in this repository - one trait, four
+; impls, one file - and the plan is to remove the machinery
+; (docs/reference.md, "Printing and Formatting"). This is phase 0 of
+; that plan: `show` becomes a head the CHECKER resolves, the way
+; `checkNumeric` already resolves `==` on two `String`s into
+; `__streq` - by rewriting the head node in place from the operand's
+; static type, with no table and no runtime tag.
+;
+; THE RESOLUTION ORDER, and why it is this one. A written `impl` still
+; wins: `traitRewrite` runs first, and the builtin answers only where
+; it found no implementation (or no trait at all). So while `Show.ax`
+; still declares its four instances nothing a program could observe
+; moves - `(println 42)` is `Show#Int#show` exactly as it was - and
+; the builtin is reachable only from programs that were AX3025 (a
+; `data` or `struct` with no instance) or AX3001 (`show` with `Show`
+; not loaded) yesterday. Measured before this landed:
+;
+;   (println p) on a struct           AX3025 no implementation of `Show` for `Point`
+;   (show 123) with only Fmt loaded   AX3001 undefined variable `show`
+;
+; WHAT THE BUILTIN ANSWERS, by the argument's static type:
+;
+;   String   the call is ELIDED - the argument's node stands in for
+;            the application (`showSplice`), so 585 `(println s)`
+;            sites stop paying for an identity call
+;   Bool     `(if b "true" "false")`, spliced the same way
+;   Int      `Fmt.fmtInt`      Float   `Fmt.fmtFloat`
+;   Char     the character literal - `'x'`, `'\n'`, `'é'` - through a
+;            generated helper, since no `Fmt` function renders one
+;   data     a constructor application in the language's own
+;            spelling: `(Some 3)`, `(Cons 1 (Cons 2 Nil))`, a nullary
+;            constructor bare - `None`; a struct-variant constructor
+;            positionally, which is how it is written
+;   struct   `{x = 1, y = 2}`, in declaration order; `{}` for none
+;
+; and INSIDE a structure a `String` is quoted with the lexer's own
+; escapes (`{name = "bob"}`, `"a\"b"`, `"\n"`) where at top level it
+; is bare, because at top level `(println s)` means the bytes of `s`
+; and always has. A `Char` is the literal in both positions.
+;
+; The structural renderer is GENERATED, once per concrete type, as an
+; ordinary `::`/`fn` pair appended to the merged declaration list -
+; the same way `lowerImpls` appends `Trait#Type#method` and for the
+; same reason: what is generated is then checked and emitted like
+; anything written. Its name is `show#<type>` (`show#Point`,
+; `show#(Option Int)`), and `#` is what keeps it out of `symbols`
+; (`smGenerated`): a generated name is not a symbol. A parameterised
+; type gets one renderer per INSTANTIATION, because `(Option Int)`
+; and `(Option Bool)` render their field differently and a type
+; variable cannot be rendered at all.
+;
+; TWO VISITED SETS, one at each time a walk can fail to end:
+;
+;   - at GENERATION, the registry itself: the renderer's signature is
+;     registered before its body is built, so a recursive `data`
+;     (`(Cons a (List a))`) meets its own name and calls it, and a
+;     pair of mutually recursive types terminates for the same
+;     reason. Keyed on the rendered type, not the call site.
+;   - at RUN TIME, an ancestor stack: a struct field is assignable
+;     (`(set c.next (Some c))`), so a value can reach itself, and a
+;     renderer that followed it would not return. Every structural
+;     renderer takes a `seen` vector of the blocks above it, pushes
+;     its own before rendering its fields and pops after, and a
+;     value already on the stack renders as `...`. Measured: the
+;     cell above prints `{v = 1, next = (Some ...)}`. The stack is
+;     fresh per top-level `show` - `(show#T x vecNew)` - and a
+;     nullary-only type takes it and never reads it.
+;
+; WHAT IT REFUSES, all AX3025 so the code a reader already looks for
+; still finds it: a type variable (the same refusal as before, since
+; a rendering is chosen from the STATIC type and a variable is not
+; one), a function value, a `Foreign`, a tuple, and a `data`/`struct`
+; holding any of those - reported at the call, naming the offending
+; field type, BEFORE anything is generated (`showDerivable`), so a
+; generated body never has to report on the caller's behalf. And a
+; `show` in a program that has not loaded the library module the
+; rewrite needs - `Str` for `strConcat`, `Fmt` for `fmtInt` - is a
+; diagnostic naming that module, not a call to a symbol that does not
+; exist: the builtin is a rewrite to library functions, not a runtime.
+;
+; Free identifiers in a generated body are the library's QUALIFIED
+; spellings (`Str$strConcat`), which is what makes them immune to the
+; capture `tests/selfhost/383-format-capture.ax` pins for the
+; expander's own `show`/`strConcat`.
+; ------------------------------------------------------------------
+(pub :: showIsHead (-> String Int))
+
+(pub fn (showIsHead hname)
+  (if (strEq (bareOf hname) "show")
+    1
+    0
+  )
+)
+
+; Resolve `(show x)`, `e` the application and `head` its var node.
+; `at0` is the argument's type when the caller has already probed it
+; (the trait path), 0 to probe here - silently, the way `traitRewrite`
+; probes, because the ordinary argument walk reports a moment later.
+;
+; Answers 1 when the call was SPLICED (`e` is no longer an application
+; and must be re-checked), 0 when the head was rewritten or a
+; diagnostic was emitted, and -1 when the argument's shape has no
+; rendering and `report` was 0 - the trait path owns that refusal.
+(pub :: showBuiltin (-> Int Int Int Int Int Int))
+
+(pub fn (showBuiltin tc e head at0 report)
+  (let ((args (spineArgVec e vecNew)))
+    (if (!= (vecLen args) 1)
+      ; With no trait to fall back on this is the only report the
+      ; call gets - `checkVar` is quiet on a `show` head - so it is
+      ; made here. Under a trait the trait's own arity rules apply.
+      (if (== report 1)
+        (showDiag
+          tc          (spanOf e)          (strConcat "`show` renders exactly one value, and this call passes " (decStr (vecLen args)))          "write `(show x)`; to render several values interpolate them: `(format \"{a} {b}\")`"          "`show` is a compiler-known head, resolved from its one argument's static type"
+        )
+        (- 0 1)
+      )
+      (let ((arg (vecGet args 0)))
+        (let ((at
+          (if (== at0 0)
+            (let ((mark (tcOutMark tc)))
+              (let ((probed (checkExprH tc arg 0)))
+                {
+                  (tcOutTrunc tc mark)
+                  probed
+                }
+              )
+            )
+            at0
+          )
+        ))
+          (let ((r (showResolve tc e head arg at)))
+            (if (&& (== r (- 0 1)) (== report 1))
+              (showNoRenderingDiag tc arg at)
+              r
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: showResolve (-> Int Int Int Int Int Int))
+
+(pub fn (showResolve tc e head arg at)
+  (if (== at 0)
+    (showUnknownDiag tc arg at)
+    (if (== (tyIsErr at) 1)
+      ; poison: a diagnostic about this argument has already been
+      ; reported (the cascade rule)
+      0
+      (let ((ty (tyExpandAliases tc at 0)))
+        (if (!= (nodeTag ty) TAG_T_CON)
+          (if (== (nodeTag ty) TAG_T_VAR)
+            (showUnknownDiag tc arg ty)
+            (- 0 1)
+          )
+          (if (== (showTyGround ty) 0)
+            (showUnknownDiag tc arg ty)
+            (let ((n (nodeAName ty)))
+              (if (strEq n "String")
+                (showSplice e arg)
+                (if (strEq n "Bool")
+                  (showSpliceBool e arg)
+                  (if (strEq n "Int")
+                    (showRewriteTo
+                      tc                      head                      "Fmt"                      "fmtInt"                      (spanOf e)
+                    )
+                    (if (strEq n "Float")
+                      (showRewriteTo
+                        tc                        head                        "Fmt"                        "fmtFloat"                        (spanOf e)
+                      )
+                      (if (strEq n "Char")
+                        (showRewriteGen
+                          tc                          e                          head                          arg                          ty                          0
+                        )
+                        (if (|| (!= (findData tc n) 0) (!= (findStruct tc n) 0))
+                          (showRewriteGen
+                            tc                            e                            head                            arg                            ty                            1
+                          )
+                          (- 0 1)
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The argument's own node takes the application's place: every word
+; copied, so the parent that points at `e` now sees the argument.
+; The argument node itself is left as it was - nothing else points
+; at it, and an AST node is never released (MM-LIFE-2c).
+(pub :: showSplice (-> Int Int Int))
+
+(pub fn (showSplice e arg)
+  (let ((mut i 0))
+    {
+      (while (< i 12)
+        {
+          (memSetWord e i (memGetWord arg i))
+          (set i (+ i 1))
+        })
+      1
+    }
+  )
+)
+
+; `(if b "true" "false")` in the application's place. Word 6 is the
+; stamp the `show` head may have been given and is cleared with it.
+(pub :: showSpliceBool (-> Int Int Int))
+
+(pub fn (showSpliceBool e arg)
+  (let ((sp (nodeSpan e)))
+    {
+      (memSetWord e 0 TAG_E_IF)
+      (memSetWord e 1 arg)
+      (memSetWord e 2 (showLit "true" sp))
+      (memSetWord e 3 (showLit "false" sp))
+      (memSetWord e 6 0)
+      1
+    }
+  )
+)
+
+; The head renamed to a library function, resolved to the spelling the
+; program actually holds (`showHelperName`).
+(pub :: showRewriteTo (-> Int Int String String Int Int))
+
+(pub fn (showRewriteTo tc head mod name sp)
+  (let ((full (showHelperName tc mod name sp)))
+    (if (== (strLen full) 0)
+      0
+      {
+        (memSetWord head 1 full)
+        (memSetWord head 6 0)
+        0
+      }
+    )
+  )
+)
+
+; The head renamed to the generated renderer for `ty`, generating it
+; first when this is the type's first use. `withSeen` adds the
+; ancestor stack as a second argument: `(show x)` becomes
+; `(show#T x vecNew)`, the inner application built here and the outer
+; node `e` re-pointed at it.
+(pub :: showRewriteGen (-> Int Int Int Int Int Int Int))
+
+(pub fn (showRewriteGen tc e head arg ty withSeen)
+  (let ((nm (showEnsure tc ty (spanOf e))))
+    (if (== (strLen nm) 0)
+      0
+      {
+        (memSetWord head 1 nm)
+        (memSetWord head 6 0)
+        (if (== withSeen 1)
+          (let ((fresh (showHelperName tc "Vec" "vecNew" (spanOf e))))
+            (if (== (strLen fresh) 0)
+              0
+              (let ((inner (mkNodeAt
+                TAG_E_APP                head                arg                0                (nodeSpan e)
+              )))
+                {
+                  (memSetWord e 1 inner)
+                  (memSetWord e 2 (mkEVarAt fresh (nodeSpan e)))
+                  0
+                }
+              )
+            )
+          )
+          0
+        )
+        0
+      }
+    )
+  )
+)
+
+; The name a library function is registered under in THIS program:
+; `Mod$name` for an imported module, the bare name when that module is
+; the file being compiled, and "" - after a diagnostic - when it is
+; not loaded at all.
+(pub :: showHelperName (-> Int String String Int String))
+
+(pub fn (showHelperName tc mod name sp)
+  (let ((full (strConcat (strConcat mod "$") name)))
+    (if (!= (fnEntExact tc full) 0)
+      full
+      (if (!= (fnEntExact tc name) 0)
+        name
+        {
+          (showDiag
+            tc            sp            (strConcat (strConcat (strConcat (strConcat "`show` renders with `" mod) "`'s `") name) (strConcat (strConcat "`, and `" mod) "` is not loaded here"))            (strConcat (strConcat "(import " mod) ") - `IO` imports it, so a program that prints already has it")            "the builtin `show` is a rewrite to the standard library's own functions, not a runtime of its own"
+          )
+          ""
+        }
+      )
+    )
+  )
+)
+
+; Every renderer's refusal, under the code readers already know.
+(pub :: showDiag (-> Int Int String String String Int))
+
+(pub fn (showDiag tc sp msg help note)
+  (if (== sp 0)
+    0
+    {
+      (emitDiag tc (diagSetLabel (mkDiagNote
+        SEV_ERROR        "AX3025"        "trait-impl"        sp        msg        0        0        help        note
+      ) "no rendering derived"))
+      0
+    }
+  )
+)
+
+; The argument's type is not a type: absent, a variable, or a
+; constructor applied to one. The trait path words its own version of
+; this refusal; this one is reached when no trait claims `show`.
+(pub :: showUnknownDiag (-> Int Int Int Int))
+
+(pub fn (showUnknownDiag tc arg at)
+  (showDiag
+    tc    (spanOf arg)    (strConcat
+      "cannot render this argument with `show`: its type "      (if (== at 0)
+        "is not known here"
+        (if (== (nodeTag at) TAG_T_VAR)
+          "is a type variable, not a named type"
+          (strConcat (strConcat "is `" (tyRender at)) "`, which mentions a type variable")
+        )
+      )
+    )    "`show` renders by the STATIC type of its argument: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select a rendering either"    "a rendering is chosen at compile time from the argument's static type, and a type variable is not a type"
+  )
+)
+
+(pub :: showNoRenderingDiag (-> Int Int Int Int))
+
+(pub fn (showNoRenderingDiag tc arg at)
+  (showDiag
+    tc    (spanOf arg)    (strConcat (strConcat "`show` has no rendering for `" (tyRender at)) "`")    "`show` renders `Int`, `Float`, `Bool`, `Char` and `String`, and derives one for any `data` or `struct` whose fields it can render; for anything else write a function that renders it and interpolate its result"    "a rendering is derived from the static type at compile time, and a type the compiler cannot take apart has none"
+  )
+)
+
+; Does `t` mention no type variable at all? Only a ground type has a
+; renderer: a variable's rendering would have to be chosen at run
+; time from a tag no value carries.
+(pub :: showTyGround (-> Int Int))
+
+(pub fn (showTyGround t)
+  (if (== t 0)
+    0
+    (let ((tg (nodeTag t)))
+      (if (== tg TAG_T_VAR)
+        0
+        (if (== tg TAG_T_CON)
+          (showTyGroundVec (nodeB t) 0)
+          (if (== tg TAG_T_ARR)
+            (if (== (showTyGround (nodeA t)) 1)
+              (showTyGround (nodeB t))
+              0
+            )
+            (if (|| (== tg TAG_T_TUP) (== tg TAG_T_LIST))
+              (if (== tg TAG_T_TUP)
+                (showTyGroundVec (nodeA t) 0)
+                (showTyGround (nodeA t))
+              )
+              (if (== tg TAG_T_PTR)
+                (showTyGround (nodeA t))
+                1
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: showTyGroundVec (-> Int Int Int))
+
+(pub fn (showTyGroundVec xs i)
+  (if (== xs 0)
+    1
+    (if (>= i (vecLen xs))
+      1
+      (if (== (showTyGround (vecGet xs i)) 0)
+        0
+        (showTyGroundVec xs (+ i 1))
+      )
+    )
+  )
+)
+
+; The generated renderer's name for a type: `Point`, `(Option Int)`,
+; `(List (Option Int))` - parenthesised wherever a type is applied, so
+; two instantiations cannot spell the same name. `tyRender` is not
+; used because it drops the parentheses of a nested application.
+(pub :: showTyName (-> Int String))
+
+(pub fn (showTyName t)
+  (if (== t 0)
+    "?"
+    (let ((tg (nodeTag t)))
+      (if (== tg TAG_T_CON)
+        (if (== (vecLen (nodeB t)) 0)
+          (nodeAName t)
+          (strConcat (strConcat "(" (showTyNameVec (nodeAName t) (nodeB t) 0)) ")")
+        )
+        (if (== tg TAG_T_ARR)
+          (strConcat (strConcat (strConcat (strConcat "(-> " (showTyName (nodeA t))) " ") (showTyName (nodeB t))) ")")
+          (tyRender t)
+        )
+      )
+    )
+  )
+)
+
+(pub :: showTyNameVec (-> String Int Int String))
+
+(pub fn (showTyNameVec acc xs i)
+  (if (>= i (vecLen xs))
+    acc
+    (showTyNameVec (strConcat (strConcat acc " ") (showTyName (vecGet xs i))) xs (+ i 1))
+  )
+)
+
+; The constructor's field types at THIS instantiation of its type:
+; `Some`'s `a` is `Int` over `(Option Int)`. `ctorPatEnv` pairs the
+; declaration's parameters with the type's arguments, which is what a
+; constructor pattern does for the same question.
+(pub :: showCtorFieldTys (-> Int Int Int Int))
+
+(pub fn (showCtorFieldTys tc ctor ty) (tyInstVec
+  tc  (memGetWord ctor 1)  (ctorPatEnv (memGetWord ctor 2) ty vecNew)  vecNew  0
+))
+
+; Can `ty` be rendered, transitively? Answers 0 when it can and the
+; first type that cannot otherwise: a variable, an arrow, a `Foreign`,
+; anything that is neither a scalar nor a declared `data`/`struct`.
+; `seen` is the generation-time visited set, keyed on the rendered
+; type, so a recursive type is asked once.
+(pub :: showDerivable (-> Int Int Int Int))
+
+(pub fn (showDerivable tc t seen)
+  (let ((ty (tyExpandAliases tc t 0)))
+    (if (== ty 0)
+      (mkTVar "?")
+      (if (!= (nodeTag ty) TAG_T_CON)
+        ty
+        (if (== (showTyGround ty) 0)
+          ty
+          (let ((n (nodeAName ty)))
+            (if (|| (strEq n "String") (|| (strEq n "Int") (|| (strEq n "Float") (|| (strEq n "Bool") (strEq n "Char")))))
+              0
+              (let ((key (showTyName ty)))
+                (if (== (showSeenName seen key 0) 1)
+                  0
+                  (let ((dent (findData tc n)))
+                    {
+                      (vecPush seen key)
+                      (if (!= dent 0)
+                        (showDerivableCtors
+                          tc                          (memGetWord dent 1)                          ty                          seen                          0
+                        )
+                        (let ((sent (findStruct tc n)))
+                          (if (!= sent 0)
+                            (showDerivableFields tc (memGetWord sent 1) seen 0)
+                            ty
+                          )
+                        )
+                      )
+                    }
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: showSeenName (-> Int String Int Int))
+
+(pub fn (showSeenName seen key i)
+  (if (>= i (vecLen seen))
+    0
+    (if (strEq (vecGetStr seen i) key)
+      1
+      (showSeenName seen key (+ i 1))
+    )
+  )
+)
+
+(pub :: showDerivableCtors (-> Int Int Int Int Int Int))
+
+(pub fn (showDerivableCtors tc ctors ty seen i)
+  (if (>= i (vecLen ctors))
+    0
+    (let ((bad (showDerivableVec tc (showCtorFieldTys tc (vecGet ctors i) ty) seen 0)))
+      (if (!= bad 0)
+        bad
+        (showDerivableCtors
+          tc          ctors          ty          seen          (+ i 1)
+        )
+      )
+    )
+  )
+)
+
+(pub :: showDerivableVec (-> Int Int Int Int Int))
+
+(pub fn (showDerivableVec tc tys seen i)
+  (if (>= i (vecLen tys))
+    0
+    (let ((bad (showDerivable tc (vecGet tys i) seen)))
+      (if (!= bad 0)
+        bad
+        (showDerivableVec tc tys seen (+ i 1))
+      )
+    )
+  )
+)
+
+; A struct's fields are the declaration's own TAG_FIELD nodes, typed
+; as written; a field with no type kept is the silent wildcard, which
+; has no rendering.
+(pub :: showDerivableFields (-> Int Int Int Int Int))
+
+(pub fn (showDerivableFields tc fields seen i)
+  (if (>= i (vecLen fields))
+    0
+    (let ((f (vecGet fields i)))
+      (let ((bad
+        (if (== (nodeTy f) 0)
+          (mkTVar "?")
+          (showDerivable tc (nodeTy f) seen)
+        )
+      ))
+        (if (!= bad 0)
+          bad
+          (showDerivableFields tc fields seen (+ i 1))
+        )
+      )
+    )
+  )
+)
+
+; The renderer for `ty`, by name - generated now if this is its first
+; use, "" after a diagnostic when it cannot be. The derivability
+; question is asked of the WHOLE type first, so that a body is only
+; ever generated for a type every field of which renders, and the
+; refusal lands at the call that asked rather than inside generated
+; code nobody wrote.
+(pub :: showEnsure (-> Int Int Int String))
+
+(pub fn (showEnsure tc ty sp)
+  (let ((nm (strConcat "show#" (showTyName ty))))
+    (if (!= (fnEntExact tc nm) 0)
+      nm
+      (let ((bad (showDerivable tc ty vecNew)))
+        (if (!= bad 0)
+          {
+            (showDiag
+              tc              sp              (strConcat
+                (strConcat (strConcat "`show` cannot render `" (tyRender ty)) "`: it holds ")                (if (== (nodeTag bad) TAG_T_VAR)
+                  "a value whose type is a type variable"
+                  (strConcat (strConcat "a `" (tyRender bad)) "`, which has no rendering")
+                )
+              )              "give the field a type `show` can render, or write a function that renders this type and interpolate its result"              "a rendering is derived from the static type at compile time, field by field, and a type the compiler cannot take apart has none"
+            )
+            ""
+          }
+          {
+            (showGenerate tc ty nm sp)
+            nm
+          }
+        )
+      )
+    )
+  )
+)
+
+; Append the pair `(:: nm ty)` / `(fn (nm params) 0)` to the merged
+; declaration list and register both, the body to be filled in by the
+; caller once it is built. Registration precedes the body on purpose:
+; it is the generation-time visited set. `tcWalkDecls` reads the list's
+; length afresh at every step, so a declaration appended during the
+; walk is checked by the same walk - after every declaration the
+; program wrote, which is where its spans (the call site's) can do no
+; harm. Module 0, the entry file's, is what `lowerImpls`' products
+; carry too; it is what lets the emitter record the name under
+; itself.
+(pub :: showDeclare (-> Int String Int Int Int Int))
+
+(pub fn (showDeclare tc nm ty params sp)
+  (let ((sig (mkNodeAt
+    TAG_D_SIG    nm    0    0    sp
+  )))
+    {
+      (memSetWord sig 6 ty)
+      (memSetWord sig 5 1)
+      (vecPush (memGetWord tc 10) sig)
+      (tcCollectSig tc sig)
+      (let ((fnd (mkNodeAt
+        TAG_D_FN        nm        params        0        sp
+      )))
+        {
+          (memSetWord fnd 5 1)
+          (vecPush (memGetWord tc 10) fnd)
+          (tcCollectFn tc fnd)
+          fnd
+        }
+      )
+    }
+  )
+)
+
+; The body, and then the row: `inferEffectsOne` is the fixpoint's own
+; per-declaration step, run once here because the fixpoint has already
+; finished. It writes the current-module and call-edge words for its
+; own walk and clears them; both belong to the function being checked
+; around this call, so they are put back.
+(pub :: showFinish (-> Int Int Int Int))
+
+(pub fn (showFinish tc fnd body)
+  (let (
+    (m (memGetWord tc 16))
+    (calls (memGetWord tc 29))
+  )
+    {
+      (memSetWord fnd 3 body)
+      (inferEffectsOne tc fnd)
+      (memSetWord tc 16 m)
+      (memSetWord tc 29 calls)
+      0
+    }
+  )
+)
+
+(pub :: showParams (-> String String Int))
+
+(pub fn (showParams a b)
+  (let ((ps vecNew))
+    {
+      (vecPush ps a)
+      (if (== (strLen b) 0)
+        0
+        (vecPush ps b)
+      )
+      ps
+    }
+  )
+)
+
+(pub :: showParams3 (-> String String String Int))
+
+(pub fn (showParams3 a b c)
+  (let ((ps (showParams a b)))
+    {
+      (vecPush ps c)
+      ps
+    }
+  )
+)
+
+; A string literal node spelled the way the lexer would have spelled
+; it: `text` is the LEXEME's body, escapes included, and the quotes go
+; on here (the emitter unescapes on the way out - see `expFmtLit`).
+; Word 2 is 1 for the same reason as there: a literal this pass built
+; is not source.
+(pub :: showLit (-> String Int Int))
+
+(pub fn (showLit text sp) (mkNodeAt
+  TAG_E_STR  (strConcat (strConcat "\"" text) "\"")  1  0  sp
+))
+
+(pub :: showVar (-> String Int Int))
+
+(pub fn (showVar n sp) (mkEVarAt n sp))
+
+(pub :: showCall1 (-> String Int Int Int))
+
+(pub fn (showCall1 f x sp) (mkEApp (mkEVarAt f sp) x))
+
+(pub :: showCall2 (-> String Int Int Int Int))
+
+(pub fn (showCall2 f x y sp) (mkEApp (mkEApp (mkEVarAt f sp) x) y))
+
+(pub :: showCall3 (-> String Int Int Int Int Int))
+
+(pub fn (showCall3 f x y z sp) (mkEApp (mkEApp (mkEApp (mkEVarAt f sp) x) y) z))
+
+; `(strConcat a b)`, through whatever `Str` is called here.
+(pub :: showCat (-> Int Int Int Int Int))
+
+(pub fn (showCat tc a b sp) (showCall2 (showHelperName tc "Str" "strConcat" sp) a b sp))
+
+; `(cast Int v)` - the block's address, or a nullary constructor's
+; immediate tag, which can never be an ancestor of anything and so
+; never matches.
+(pub :: showAddr (-> String Int Int))
+
+(pub fn (showAddr v sp) (showCall2 "cast" (showVar "Int" sp) (showVar v sp) sp))
+
+; What renders a value of type `fty` held INSIDE a structure, given
+; the expression `x` that reads it. Scalars take the builtin's own
+; rendering here rather than an instance - a `String` field is
+; quoted - and a nested `data`/`struct` takes the ancestor stack.
+(pub :: showFieldExpr (-> Int Int Int Int Int))
+
+(pub fn (showFieldExpr tc fty x sp)
+  (let ((ty (tyExpandAliases tc fty 0)))
+    (let ((n (nodeAName ty)))
+      (if (strEq n "String")
+        (showCall1 (showEnsureString tc sp) x sp)
+        (if (strEq n "Int")
+          (showCall1 (showHelperName tc "Fmt" "fmtInt" sp) x sp)
+          (if (strEq n "Float")
+            (showCall1 (showHelperName tc "Fmt" "fmtFloat" sp) x sp)
+            (if (strEq n "Bool")
+              (mkNodeAt
+                TAG_E_IF                x                (showLit "true" sp)                (showLit "false" sp)                sp
+              )
+              (if (strEq n "Char")
+                (showCall1 (showEnsure tc ty sp) x sp)
+                (showCall2 (showEnsure tc ty sp) x (showVar "seen" sp) sp)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Dispatch on the kind of type a renderer is being generated for.
+; `showDerivable` has already said yes to every field, so the three
+; arms are exhaustive over what reaches here.
+(pub :: showGenerate (-> Int Int String Int Int))
+
+(pub fn (showGenerate tc ty nm sp)
+  (let ((n (nodeAName ty)))
+    (if (strEq n "Char")
+      (showGenChar tc nm sp)
+      (let ((dent (findData tc n)))
+        (if (!= dent 0)
+          (showGenData tc ty nm sp dent)
+          (showGenStruct
+            tc            ty            nm            sp            (findStruct tc n)
+          )
+        )
+      )
+    )
+  )
+)
+
+; The renderer of a `data` type:
+;
+;   (fn (show#T v seen)
+;     (if (show#seen seen (cast Int v) 0)
+;       "..."
+;       { (vecPush seen (cast Int v))
+;         (let ((r (match v ((C) "C") ((D f0 f1) (strConcat "(D" ...))))
+;           { (vecPop seen) r }) }))
+;
+; and, for a type none of whose constructors carries a field, the
+; `match` alone: nothing to recurse into, nothing to guard.
+(pub :: showGenData (-> Int Int String Int Int Int))
+
+(pub fn (showGenData tc ty nm sp dent)
+  (let ((fnd (showDeclare
+    tc    nm    (mkTArr ty (mkTArr mkIntTy mkStringTy))    (showParams "v" "seen")    sp
+  )))
+    (let ((ctors (memGetWord dent 1)))
+      (let ((arms vecNew))
+        {
+          (showGenArms
+            tc            ctors            ty            arms            sp            0
+          )
+          (showFinish tc fnd (showGuarded
+            tc            (mkNodeAt
+              TAG_E_MATCH              (showVar "v" sp)              arms              0              sp
+            )            (showCtorsHaveFields ctors 0)            sp
+          ))
+        }
+      )
+    )
+  )
+)
+
+(pub :: showCtorsHaveFields (-> Int Int Int))
+
+(pub fn (showCtorsHaveFields ctors i)
+  (if (>= i (vecLen ctors))
+    0
+    (if (> (vecLen (memGetWord (vecGet ctors i) 1)) 0)
+      1
+      (showCtorsHaveFields ctors (+ i 1))
+    )
+  )
+)
+
+; The ancestor guard around a body, when the type has anything to
+; recurse into.
+(pub :: showGuarded (-> Int Int Int Int Int))
+
+(pub fn (showGuarded tc body hasFields sp)
+  (if (== hasFields 0)
+    body
+    (let ((seenFn (showEnsureSeen tc sp)))
+      (let ((steps vecNew))
+        {
+          (vecPush steps (showCall2 (showHelperName tc "Vec" "vecPush" sp) (showVar "seen" sp) (showAddr "v" sp) sp))
+          (vecPush
+            steps            (let ((after vecNew))
+              {
+                (vecPush after (showCall1 (showHelperName tc "Vec" "vecPop" sp) (showVar "seen" sp) sp))
+                (vecPush after (showVar "r" sp))
+                (mkELetAt
+                  "r"                  body                  (mkNodeAt
+                    TAG_E_BEGIN                    after                    0                    0                    sp
+                  )                  sp
+                )
+              }
+            )
+          )
+          (mkNodeAt
+            TAG_E_IF            (showCall3
+              seenFn              (showVar "seen" sp)              (showAddr "v" sp)              (mkEInt 0)              sp
+            )            (showLit "..." sp)            (mkNodeAt
+              TAG_E_BEGIN              steps              0              0              sp
+            )            sp
+          )
+        }
+      )
+    )
+  )
+)
+
+; One arm per constructor: `((C) "C")`, or `((D f0 f1) "(D " f0 " " f1 ")")`
+; with each field rendered by `showFieldExpr` at this instantiation.
+(pub :: showGenArms (-> Int Int Int Int Int Int Int))
+
+(pub fn (showGenArms tc ctors ty arms sp i)
+  (if (>= i (vecLen ctors))
+    0
+    (let ((ctor (vecGet ctors i)))
+      (let (
+        (cname (memGetWordStr ctor 0))
+        (ftys (showCtorFieldTys tc ctor ty))
+      )
+        {
+          (if (== (vecLen ftys) 0)
+            (vecPush arms (mkNodeAt
+              TAG_M_ARM              (mkNodeAt
+                TAG_P_CON0                cname                0                0                sp
+              )              (showLit cname sp)              0              sp
+            ))
+            (let ((pat (showBinderSpine (showVar cname sp) (vecLen ftys) sp 0)))
+              (let ((body (showCtorBody
+                tc                ftys                (showLit (strConcat "(" cname) sp)                sp                0
+              )))
+                (vecPush arms (mkNodeAt
+                  TAG_M_ARM                  pat                  (showCat tc body (showLit ")" sp) sp)                  0                  sp
+                ))
+              )
+            )
+          )
+          (showGenArms
+            tc            ctors            ty            arms            sp            (+ i 1)
+          )
+        }
+      )
+    )
+  )
+)
+
+; `(C f0 f1 ...)` as the parser builds a constructor pattern: a
+; left-nested application spine of variable nodes.
+(pub :: showBinderSpine (-> Int Int Int Int Int))
+
+(pub fn (showBinderSpine acc n sp i)
+  (if (>= i n)
+    acc
+    (showBinderSpine
+      (mkEApp acc (showVar (strConcat "f" (decStr i)) sp))      n      sp      (+ i 1)
+    )
+  )
+)
+
+(pub :: showCtorBody (-> Int Int Int Int Int Int))
+
+(pub fn (showCtorBody tc ftys acc sp i)
+  (if (>= i (vecLen ftys))
+    acc
+    (showCtorBody
+      tc      ftys      (showCat
+        tc        (showCat tc acc (showLit " " sp) sp)        (showFieldExpr tc (vecGet ftys i) (showVar (strConcat "f" (decStr i)) sp) sp)        sp
+      )      sp      (+ i 1)
+    )
+  )
+)
+
+; The renderer of a struct: `{x = 1, y = 2}` in declaration order,
+; each field read by name and rendered by its declared type, under
+; the same ancestor guard.
+(pub :: showGenStruct (-> Int Int String Int Int Int))
+
+(pub fn (showGenStruct tc ty nm sp sent)
+  (let ((fnd (showDeclare
+    tc    nm    (mkTArr ty (mkTArr mkIntTy mkStringTy))    (showParams "v" "seen")    sp
+  )))
+    (let ((fields (memGetWord sent 1)))
+      (showFinish tc fnd (if (== (vecLen fields) 0)
+        (showLit "{}" sp)
+        (showGuarded
+          tc          (showCat tc (showStructBody
+            tc            fields            (showLit "{" sp)            sp            0
+          ) (showLit "}" sp) sp)          1          sp
+        )
+      ))
+    )
+  )
+)
+
+(pub :: showStructBody (-> Int Int Int Int Int Int))
+
+(pub fn (showStructBody tc fields acc sp i)
+  (if (>= i (vecLen fields))
+    acc
+    (let ((f (vecGet fields i)))
+      (showStructBody
+        tc        fields        (showCat
+          tc          (showCat
+            tc            acc            (showLit
+              (strConcat
+                (if (== i 0)
+                  ""
+                  ", "
+                )                (strConcat (nodeAName f) " = ")
+              )              sp
+            )            sp
+          )          (showFieldExpr
+            tc            (nodeTy f)            (mkNodeAt
+              TAG_E_FIELD              (showVar "v" sp)              (nodeAName f)              0              sp
+            )            sp
+          )          sp
+        )        sp        (+ i 1)
+      )
+    )
+  )
+)
+
+; The ancestor test, one for the whole program:
+;
+;   (fn (show#seen seen x i)
+;     (if (>= i (vecLen seen)) false
+;       (if (== (vecGet seen i) x) true (show#seen seen x (+ i 1)))))
+(pub :: showEnsureSeen (-> Int Int String))
+
+(pub fn (showEnsureSeen tc sp)
+  (let ((nm "show#seen"))
+    (if (!= (fnEntExact tc nm) 0)
+      nm
+      (let ((fnd (showDeclare
+        tc        nm        (mkTArr mkIntTy (mkTArr mkIntTy (mkTArr mkIntTy mkBoolTy)))        (showParams3 "seen" "x" "i")        sp
+      )))
+        {
+          (showFinish tc fnd (mkNodeAt
+            TAG_E_IF            (showCall2 ">=" (showVar "i" sp) (showCall1 (showHelperName tc "Vec" "vecLen" sp) (showVar "seen" sp) sp) sp)            (showVar "false" sp)            (mkNodeAt
+              TAG_E_IF              (showCall2 "==" (showCall2 (showHelperName tc "Vec" "vecGet" sp) (showVar "seen" sp) (showVar "i" sp) sp) (showVar "x" sp) sp)              (showVar "true" sp)              (showCall3
+                nm                (showVar "seen" sp)                (showVar "x" sp)                (showCall2 "+" (showVar "i" sp) (mkEInt 1) sp)                sp
+              )              sp
+            )            sp
+          ))
+          nm
+        }
+      )
+    )
+  )
+)
+
+; A `String` inside a structure, quoted with the lexer's seven escapes
+; (`isEscapeChar`) minus the one a string never needs (`\'`), byte by
+; byte so a multi-byte character passes through untouched:
+;
+;   (fn (show#String#quoted s) (strConcat (show#String#from s 0 "\"") "\""))
+;   (fn (show#String#from s i acc)
+;     (if (>= i (strLen s)) acc
+;       (show#String#from s (+ i 1) (strConcat acc (show#String#byte (strByte s i))))))
+;   (fn (show#String#byte b) (if (== b 34) "\\\"" ... (strFromByte b)))
+(pub :: showEnsureString (-> Int Int String))
+
+(pub fn (showEnsureString tc sp)
+  (let ((nm "show#String#quoted"))
+    (if (!= (fnEntExact tc nm) 0)
+      nm
+      (let (
+        (fromNm "show#String#from")
+        (byteNm "show#String#byte")
+        (quoted (showDeclare
+          tc          nm          (mkTArr mkStringTy mkStringTy)          (showParams "s" "")          sp
+        ))
+        (from (showDeclare
+          tc          "show#String#from"          (mkTArr mkStringTy (mkTArr mkIntTy (mkTArr mkStringTy mkStringTy)))          (showParams3 "s" "i" "acc")          sp
+        ))
+        (byte (showDeclare
+          tc          "show#String#byte"          (mkTArr mkIntTy mkStringTy)          (showParams "b" "")          sp
+        ))
+      )
+        {
+          (showFinish tc quoted (showCat
+            tc            (showCall3
+              fromNm              (showVar "s" sp)              (mkEInt 0)              (showLit "\\\"" sp)              sp
+            )            (showLit "\\\"" sp)            sp
+          ))
+          (showFinish tc from (mkNodeAt
+            TAG_E_IF            (showCall2 ">=" (showVar "i" sp) (showCall1 (showHelperName tc "Str" "strLen" sp) (showVar "s" sp) sp) sp)            (showVar "acc" sp)            (showCall3
+              fromNm              (showVar "s" sp)              (showCall2 "+" (showVar "i" sp) (mkEInt 1) sp)              (showCat
+                tc                (showVar "acc" sp)                (showCall1 byteNm (showCall2 (showHelperName tc "Str" "strByte" sp) (showVar "s" sp) (showVar "i" sp) sp) sp)                sp
+              )              sp
+            )            sp
+          ))
+          ; Each `text` is the LEXEME body that unescapes to the two
+          ; bytes wanted at run time: `\"` is spelled `\\\"` in a
+          ; literal, and that spelling is itself a literal here.
+          (showFinish tc byte (showByteEscapes
+            tc            "b"            34            "\\\\\\\""            (showByteEscapes
+              tc              "b"              92              "\\\\\\\\"              (showByteEscapes
+                tc                "b"                10                "\\\\n"                (showByteEscapes
+                  tc                  "b"                  9                  "\\\\t"                  (showByteEscapes
+                    tc                    "b"                    13                    "\\\\r"                    (showByteEscapes
+                      tc                      "b"                      0                      "\\\\0"                      (showCall1 (showHelperName tc "Str" "strFromByte" sp) (showVar "b" sp) sp)                      sp
+                    )                    sp
+                  )                  sp
+                )                sp
+              )              sp
+            )            sp
+          ))
+          nm
+        }
+      )
+    )
+  )
+)
+
+; `(if (== v code) "text" rest)` - one rung of an escape ladder.
+(pub :: showByteEscapes (-> Int String Int String Int Int Int))
+
+(pub fn (showByteEscapes tc v code text rest sp) (mkNodeAt
+  TAG_E_IF  (showCall2 "==" (showVar v sp) (mkEInt code) sp)  (showLit text sp)  rest  sp
+))
+
+; A `Char` as its literal. A `Char` is a code point (reference.md), so
+; the bytes are UTF-8 encoded here with the arithmetic `Utf8.utf8FromChar`
+; would use - that module is not loaded by `IO` and the rewrite may not
+; assume it:
+;
+;   (fn (show#Char c) (let ((n (cast Int c))) (strConcat "'" (strConcat (show#Char#esc n) "'"))))
+;   (fn (show#Char#esc n) (if (== n 10) "\\n" ... (show#Char#utf8 n)))
+;   (fn (show#Char#utf8 n) (if (< n 128) (strFromByte n) (if (< n 2048) ... )))
+(pub :: showGenChar (-> Int String Int Int))
+
+(pub fn (showGenChar tc nm sp)
+  (let (
+    (escNm "show#Char#esc")
+    (utfNm "show#Char#utf8")
+    (lit (showDeclare
+      tc      nm      (mkTArr mkCharTy mkStringTy)      (showParams "c" "")      sp
+    ))
+    (esc (showDeclare
+      tc      "show#Char#esc"      (mkTArr mkIntTy mkStringTy)      (showParams "n" "")      sp
+    ))
+    (utf (showDeclare
+      tc      "show#Char#utf8"      (mkTArr mkIntTy mkStringTy)      (showParams "n" "")      sp
+    ))
+  )
+    {
+      (showFinish tc lit (mkELetAt
+        "n"        (showAddr "c" sp)        (showCat
+          tc          (showLit "'" sp)          (showCat tc (showCall1 escNm (showVar "n" sp) sp) (showLit "'" sp) sp)          sp
+        )        sp
+      ))
+      (showFinish tc esc (showByteEscapes
+        tc        "n"        10        "\\\\n"        (showByteEscapes
+          tc          "n"          9          "\\\\t"          (showByteEscapes
+            tc            "n"            13            "\\\\r"            (showByteEscapes
+              tc              "n"              92              "\\\\\\\\"              (showByteEscapes
+                tc                "n"                39                "\\\\'"                (showByteEscapes
+                  tc                  "n"                  0                  "\\\\0"                  (showCall1 utfNm (showVar "n" sp) sp)                  sp
+                )                sp
+              )              sp
+            )            sp
+          )          sp
+        )        sp
+      ))
+      (showFinish tc utf (showUtf8Ladder tc sp))
+      0
+    }
+  )
+)
+
+; `(+ base (% (/ n div) 64))` as one continuation byte, or the lead
+; byte when `mod` is 0 (no masking).
+(pub :: showUtf8Byte (-> Int Int Int Int Int Int))
+
+(pub fn (showUtf8Byte tc base div mask sp)
+  (let ((shifted
+    (if (== div 1)
+      (showVar "n" sp)
+      (showCall2 "/" (showVar "n" sp) (mkEInt div) sp)
+    )
+  ))
+    (showCall1
+      (showHelperName tc "Str" "strFromByte" sp)      (showCall2
+        "+"        (mkEInt base)        (if (== mask 0)
+          shifted
+          (showCall2 "%" shifted (mkEInt 64) sp)
+        )        sp
+      )      sp
+    )
+  )
+)
+
+(pub :: showUtf8Ladder (-> Int Int Int))
+
+; A continuation byte: `(+ 128 (% (/ n div) 64))`.
+(pub :: showUtf8Cont (-> Int Int Int Int))
+
+(pub fn (showUtf8Cont tc div sp) (showUtf8Byte
+  tc  128  div  1  sp
+))
+
+(pub fn (showUtf8Ladder tc sp) (mkNodeAt
+  TAG_E_IF  (showCall2 "<" (showVar "n" sp) (mkEInt 128) sp)  (showCall1 (showHelperName tc "Str" "strFromByte" sp) (showVar "n" sp) sp)  (mkNodeAt
+    TAG_E_IF    (showCall2 "<" (showVar "n" sp) (mkEInt 2048) sp)    (showCat
+      tc      (showUtf8Byte
+        tc        192        64        0        sp
+      )      (showUtf8Cont tc 1 sp)      sp
+    )    (mkNodeAt
+      TAG_E_IF      (showCall2 "<" (showVar "n" sp) (mkEInt 65536) sp)      (showCat
+        tc        (showUtf8Byte
+          tc          224          4096          0          sp
+        )        (showCat tc (showUtf8Cont tc 64 sp) (showUtf8Cont tc 1 sp) sp)        sp
+      )      (showCat
+        tc        (showUtf8Byte
+          tc          240          262144          0          sp
+        )        (showCat tc (showUtf8Cont tc 4096 sp) (showCat tc (showUtf8Cont tc 64 sp) (showUtf8Cont tc 1 sp) sp) sp)        sp
+      )      sp
+    )    sp
+  )  sp
+))
 
 ; Exactly `(op l r)` with a bare operator head - stage0's
 ; numeric_builtin_app is purely syntactic; no shadow check exists.

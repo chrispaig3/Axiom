@@ -1,0 +1,159 @@
+; `show` as a compiler-known head - phase 0 of the traits removal
+; (docs/reference.md, "Printing and Formatting"). Every `{hole}` and
+; every `(println x)` lowers to `(show x)`; the checker now answers it
+; from the argument's static type where no `(impl (Show T))` claims
+; the type, and this file pins the RENDERING that answer produces,
+; because it is a compatibility surface the moment it ships:
+;
+;   scalars      unchanged - `Show.ax`'s four instances still win
+;   Char         the character literal, escaped as the lexer spells it
+;   data         a constructor application in the language's own
+;                spelling, a nullary constructor bare
+;   struct       `{x = 1, y = 2}` in declaration order
+;   String       QUOTED with escapes inside a structure, BARE at top
+;                level, which is what `(println s)` always meant
+;   recursion    a recursive type prints in full; a value that reaches
+;                ITSELF (a struct field is assignable) prints `...`
+;                at the back-edge instead of never returning
+;
+; Self-grading, `340-json`'s shape: `verify-stdlib-out.py` reads the
+; `eq` calls below and forbids a `FAIL` line, so a re-blessed golden
+; cannot make a wrong rendering pass.
+(import IO)
+
+(import Show)
+
+(:: eq (-> String String String Int))
+
+;@axiom:effect(io)
+(fn (eq name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }
+  )
+)
+
+(struct Point
+  (x : Int)
+  (y : Int))
+
+(struct Named
+  (name : String)
+  (ok : Bool)
+  (c : Char)
+  (f : Float))
+
+(data Colour
+  (Red)
+  (Green)
+  (Blue))
+
+(data Shape
+  (Circle Int)
+  (Rect Int Int)
+  (Dot))
+
+(data Variant
+  (Circ { r : Int })
+  (Corner))
+
+(data List a
+  (Nil)
+  (Cons a (List a)))
+
+(data Box a
+  (MkBox a))
+
+(struct Cell
+  (v : Int)
+  (next : (Option Cell)))
+
+(data Wrap
+  (Wrap Point Colour (Option String)))
+
+; A bare `None` is `(Option _t)` - no element type, so no renderer
+; (a type variable is not a type); the signature is what names it.
+(:: noneInt (Option Int))
+
+(fn (noneInt) None)
+
+; A WRITTEN implementation still wins at the call - nothing a program
+; could observe moves while `Show.ax` declares its instances - but a
+; value INSIDE a structure is rendered structurally, so the rendering
+; of a nested field does not depend on machinery that is on its way
+; out.
+(data Custom
+  (Warm)
+  (Cold))
+
+(pub impl (Show Custom) where (
+  (show
+    (lambda (c) "custom")
+  )
+))
+
+(struct HasCustom
+  (c : Custom))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  ; scalars: the instances, unchanged
+  (let (
+    (p (Point 1 -2))
+    (n (Named "bo\"b\n" true 'x' 1.5))
+    (xs (Cons 1 (Cons 2 Nil)))
+    (c (Cell 7 None))
+    (w (Wrap (Point 3 4) Green (Some "hi")))
+    (bare "bo\"b")
+  )
+    {
+      (eq "int" (show 42) "42")
+      (eq "string bare at top level" (show bare) "bo\"b")
+      (eq "bool" (show true) "true")
+      (eq "float" (show 2.5) "2.500000")
+      ; Char: the literal, escaped
+      (eq "char" (show 'x') "'x'")
+      (eq "char newline" (show '\n') "'\\n'")
+      (eq "char quote" (show ''') "'\\''")
+      (eq "char non-ascii" (show 'é') "'é'")
+      (eq "char four bytes" (show '😀') "'😀'")
+      ; data
+      (eq "nullary" (show Red) "Red")
+      (eq "one field" (show (Circle 3)) "(Circle 3)")
+      (eq "two fields" (show (Rect 3 4)) "(Rect 3 4)")
+      (eq "nullary among fieldful" (show Dot) "Dot")
+      (eq "struct variant is positional" (show (Circ 7)) "(Circ 7)")
+      (eq "option some" (show (Some 3)) "(Some 3)")
+      (eq "option none" (show noneInt) "None")
+      (eq "option nested" (show (Some (Some 5))) "(Some (Some 5))")
+      (eq "one renderer per instantiation" (show (MkBox true)) "(MkBox true)")
+      (eq "and another" (show (MkBox 3)) "(MkBox 3)")
+      ; struct
+      (eq "struct" (show p) "{x = 1, y = -2}")
+      (eq "struct in a hole" (format "p = {p}") "p = {x = 1, y = -2}")
+      (eq "string quoted inside a structure" (show n) "{name = \"bo\\\"b\\n\", ok = true, c = 'x', f = 1.500000}")
+      ; nested
+      (eq "struct inside data" (show (Some p)) "(Some {x = 1, y = -2})")
+      (eq "string inside data" (show (Some "top")) "(Some \"top\")")
+      (eq "char inside data" (show (Some 'q')) "(Some 'q')")
+      (eq "three fields, mixed" (show w) "(Wrap {x = 3, y = 4} Green (Some \"hi\"))")
+      ; recursion
+      (eq "recursive type in full" (show xs) "(Cons 1 (Cons 2 Nil))")
+      (eq "strings in a list" (show (Cons "a\tb" (Cons "c" Nil))) "(Cons \"a\\tb\" (Cons \"c\" Nil))")
+      (set c.next (Some c))
+      (eq "a value that reaches itself" (show c) "{v = 7, next = (Some ...)}")
+      ; a written impl
+      (eq "written impl wins at the call" (show Warm) "custom")
+      (eq "nested field renders structurally" (show (HasCustom Cold)) "{c = Cold}")
+      0
+    }
+  )
+)

@@ -45,11 +45,19 @@
 ; explicit label or a failure that says only "want 3, got 4" with
 ; nothing to say WHERE. The label is the honest half.
 ;
-; WHY THE COMPARISONS ARE MONOMORPHIC. `(:: assertEq (-> String a a
-; Int))` would type-check and could not print its operands: `println`
-; is a macro over `show`, whose implementation is keyed on a type NAME
-; (`AX3025`), so a type variable has no instance to select. One
-; function per printable type is the same trade `Show` already makes.
+; WHY THE COMPARISONS ARE MONOMORPHIC, STILL. This used to say that
+; `show`'s implementation was keyed on a type NAME, so a type variable
+; had no instance to select. Since 2026-08-29 `show` is the compiler's
+; own head, resolved from the argument's static type with no instance
+; involved (docs/reference.md, "Rendering your own types"), and that
+; constraint is gone. What has not gone is that the type is the
+; STATIC one at the call: inside `(:: assertEq (-> String a a Int))`
+; the operands are `a`, and `a` has no rendering (`AX3025`). One
+; polymorphic assertion is therefore a MACRO's job - expanded at the
+; call, where the types are concrete - and replacing these six
+; functions with one is a `CHANGED` row on six public names, deferred
+; to a declared break (docs/compatibility.md COMPAT-4) rather than
+; made here.
 (import IO)
 
 (import Str)
