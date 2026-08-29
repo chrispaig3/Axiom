@@ -23,7 +23,7 @@ with a CI leg that runs it under `continue-on-error`, an HTML
 templating DSL written in the macro system, and the `cgThreads` flag
 the concurrency work will turn on. Two gates join the ones that build
 the compiler under test, `check-windows-entry.sh` and
-`check-windows-hello.sh`: forty gates, up from thirty-eight.
+`check-windows-hello.sh` - and, from the web track, `check-web.sh`: forty-one gates, up from thirty-eight.
 
 - **FreeBSD** (`02ff76b`, `79c8ebc`): codes 4 and 5, triple
   `*-unknown-freebsd14.0`, `stdlib/Sys/Platform.freebsd.ax` (syscall
