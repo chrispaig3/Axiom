@@ -12326,16 +12326,20 @@
   ; variable reference by the time it gets here. Without this it fell
   ; through to the undefined-name emission `%__argc`.
   ;
-  ; `__axiom_arena_mark` is the other one, and it was NOT handled -
+  ; `__axiom_arena_mark` was the second one, and it was NOT handled -
   ; the comment here named it while the code did not, so
   ; `tests/stdlib/160-arena.ax` emitted `%__axiom_arena_mark`, a
   ; value nothing defines, and llc rejected the module. stage0
   ; carries a comment about hitting exactly this, for exactly this
-  ; primitive, and calls it "the only one that could go wrong".
-  ; Both are nullary and neither is polymorphic, so the stamp a
-  ; bare reference cannot carry is the constant 0 here.
+  ; primitive, and calls it "the only one that could go wrong". Then
+  ; `__fence` was the third, on 2026-08-29, and did the same thing on
+  ; its first day: the set was two spellings written HERE, so the
+  ; next member did not know about it. The set is a definition now,
+  ; `isNullaryPrimName`, beside the other name tables. None of them
+  ; is polymorphic, so the stamp a bare reference cannot carry is
+  ; the constant 0 here.
   (let ((name (nodeAName node)))
-    (if (|| (strEq name "__argc") (strEq name "__axiom_arena_mark"))
+    (if (isNullaryPrimName name)
       (zeroFloat (emitPrim name vecNew cg 0))
       ; Same rule as `checkVar`: a reference a macro template produced
       ; is resolved at the scope the template was written in, and the
@@ -12919,9 +12923,9 @@
                                         true
                                         (if (strEq nm "__call_word")
                                           true
-                                          (if (isSyscallName nm)
+                                          (if (isAtomicPrimName nm)
                                             true
-                                            false
+                                            (isSyscallName nm)
                                           )
                                         )
                                       )
@@ -12950,6 +12954,53 @@
 (pub :: isSyscallName (-> String Bool))
 
 (pub fn (isSyscallName nm) (&& (== (strLen nm) 10) (strStartsWith nm "__syscall")))
+
+; The primitives invoked by WRITING THE NAME - registered
+; `(mkIntArrow 0)` in typecheck.ax - which reach the emitter as a bare
+; variable reference whether spelled `__argc` or `(__argc)`, so
+; `emitVar` asks this before it asks the symbol table. Until
+; 2026-08-29 the set was two spellings inside `emitVar`, and that is
+; how `__axiom_arena_mark` came to be named in the comment there and
+; missed by the code, and how `__fence` emitted `%__fence` on its
+; first day: a rule whose members are listed at the point of use is a
+; rule the next member does not know about. `tests/selfhost/131-
+; atomic-prim.ax` USES the fence's value, so a member this misses is
+; an llc error rather than a silent no-op in statement position.
+(pub :: isNullaryPrimName (-> String Bool))
+
+(pub fn (isNullaryPrimName nm)
+  (if (strEq nm "__argc")
+    true
+    (if (strEq nm "__axiom_arena_mark")
+      true
+      (strEq nm "__fence")
+    )
+  )
+)
+
+; The five atomic primitives, and the gate into `emitPrimAtomic`. The
+; two must agree: a name here that the dispatch does not know falls
+; through to the syscall template, which is `isPrimName`'s own shape
+; for everything it does not recognise, and a name the dispatch knows
+; that is not here is a bare variable reference - the miscompile the
+; arena pair's comment above records.
+(pub :: isAtomicPrimName (-> String Bool))
+
+(pub fn (isAtomicPrimName nm)
+  (if (strEq nm "__atomic_load")
+    true
+    (if (strEq nm "__atomic_store")
+      true
+      (if (strEq nm "__atomic_add")
+        true
+        (if (strEq nm "__atomic_cas")
+          true
+          (strEq nm "__fence")
+        )
+      )
+    )
+  )
+)
 
 (pub :: emitPrim (-> String Int Int Int Int))
 
@@ -12996,7 +13047,10 @@
                                           (emitPrimStrEq args cg 0)
                                           (if (strEq fnName "__call_word")
                                             (emitPrimCallWord args cg)
-                                            (emitPrimSyscall args cg)
+                                            (if (isAtomicPrimName fnName)
+                                              (emitPrimAtomic fnName args cg)
+                                              (emitPrimSyscall args cg)
+                                            )
                                           )
                                         )
                                       )
@@ -13449,6 +13503,166 @@
           (memSetWord cg1 14 0)
           cg1
         }
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The atomic primitives - one `emitLine` each, and no target arm.
+;
+; `(__atomic_load p)`, `(__atomic_store p v)`, `(__atomic_add p v)`,
+; `(__atomic_cas p expected new)` and `__fence`, each on the machine
+; word at BYTE ADDRESS `p` - the address itself, where `__load64` takes
+; a base and a word index - and each sequentially consistent. The
+; language has no memory-ordering vocabulary, MM-EXEC-11's determinism
+; proviso is already the weakest thing a reader has to hold in their
+; head, and a relaxed ordering that is wrong is invisible to every gate
+; in this repository; `seq_cst` is the one spelling a gate can be wrong
+; about only by being wrong. LLVM lowers all five inline on every
+; target here - `lock xadd`/`cmpxchg` on x86-64, a load/store-exclusive
+; loop or LSE on AArch64 - so `check-freestanding.sh`'s zero-symbol
+; sweep holds over the fixture that spells them
+; (tests/stdlib/440-atomics.ax), and `check-cross-targets.sh` assembles
+; that fixture at -O0, where `atomicrmw` on a global is the shape that
+; once emitted `R_X86_64_32S`.
+;
+; What each ANSWERS is the LLVM result and nothing friendlier. The add
+; and the compare-and-swap answer the word BEFORE the operation - a
+; CAS therefore reports success as "the answer equals `expected`" -
+; and the store and the fence answer 0, as `__store64` does. There is
+; no second thread for any of these to synchronise with yet
+; (docs/memory-model.md MM-PAR-1): they are MM-PAR-4's stated escape
+; for memory a program mapped itself, given an instruction, and the
+; first phase of MM-PAR-6's obligation.
+; ------------------------------------------------------------------
+(pub :: emitPrimAtomic (-> String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPrimAtomic fnName args cg)
+  (if (strEq fnName "__fence")
+    (emitPrimFence cg)
+    (if (strEq fnName "__atomic_load")
+      (emitPrimAtomicLoad args cg)
+      (if (strEq fnName "__atomic_store")
+        (emitPrimAtomicStore args cg)
+        (if (strEq fnName "__atomic_add")
+          (emitPrimAtomicAdd args cg)
+          (emitPrimAtomicCas args cg)
+        )
+      )
+    )
+  )
+)
+
+; The address operand, `inttoptr`ed into a register the caller names
+; in its own instruction - `narrowByte`'s shape, for an address.
+(pub :: emitAtomicPtr (-> Int String String))
+
+(pub fn (emitAtomicPtr cg addr)
+  (let ((pr (regStr (allocReg cg))))
+    {
+      (emitLine cg (cat4 (cat2 "  " pr) " = inttoptr i64 " addr " to ptr"))
+      pr
+    }
+  )
+)
+
+(pub :: emitPrimFence (-> Int Int))
+
+(pub fn (emitPrimFence cg)
+  {
+    (emitLine cg "  fence seq_cst")
+    (memSetWord cg 2 (constStr 0))
+    cg
+  }
+)
+
+(pub :: emitPrimAtomicLoad (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPrimAtomicLoad args cg)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((pr (emitAtomicPtr cg1 (strDup (memGetWordStr cg1 2)))))
+      (let ((vr (regStr (allocReg cg1))))
+        {
+          (emitLine cg1 (cat4 (cat2 "  " vr) " = load atomic i64, ptr " pr " seq_cst, align 8"))
+          (memSetWord cg1 2 vr)
+          cg1
+        }
+      )
+    )
+  )
+)
+
+(pub :: emitPrimAtomicStore (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPrimAtomicStore args cg)
+  (let (
+    (cg1 (emitExpr (vecGet args 0) cg))
+    (addr (strDup (memGetWordStr cg1 2)))
+    (cg2 (emitExpr (vecGet args 1) cg1))
+    (val (strDup (memGetWordStr cg2 2)))
+  )
+    (let ((pr (emitAtomicPtr cg2 addr)))
+      {
+        (emitLine cg2 (cat4 (cat2 "  store atomic i64 " val) ", ptr " pr " seq_cst, align 8"))
+        (memSetWord cg2 2 (constStr 0))
+        cg2
+      }
+    )
+  )
+)
+
+(pub :: emitPrimAtomicAdd (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPrimAtomicAdd args cg)
+  (let (
+    (cg1 (emitExpr (vecGet args 0) cg))
+    (addr (strDup (memGetWordStr cg1 2)))
+    (cg2 (emitExpr (vecGet args 1) cg1))
+    (val (strDup (memGetWordStr cg2 2)))
+  )
+    (let ((pr (emitAtomicPtr cg2 addr)))
+      (let ((vr (regStr (allocReg cg2))))
+        {
+          (emitLine cg2 (cat4 (cat3 (cat2 "  " vr) " = atomicrmw add ptr " pr) ", i64 " val " seq_cst, align 8"))
+          (memSetWord cg2 2 vr)
+          cg2
+        }
+      )
+    )
+  )
+)
+
+; `cmpxchg` answers a `{ i64, i1 }` pair - the word it found and
+; whether it matched - and the primitive answers the word alone: the
+; caller already holds `expected`, so the flag is one comparison away
+; and a second result would need a second word to travel in.
+(pub :: emitPrimAtomicCas (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPrimAtomicCas args cg)
+  (let (
+    (cg1 (emitExpr (vecGet args 0) cg))
+    (addr (strDup (memGetWordStr cg1 2)))
+    (cg2 (emitExpr (vecGet args 1) cg1))
+    (expected (strDup (memGetWordStr cg2 2)))
+    (cg3 (emitExpr (vecGet args 2) cg2))
+    (fresh (strDup (memGetWordStr cg3 2)))
+  )
+    (let ((pr (emitAtomicPtr cg3 addr)))
+      (let ((pairR (regStr (allocReg cg3))))
+        (let ((vr (regStr (allocReg cg3))))
+          {
+            (emitLine cg3 (cat4 (cat4 (cat2 "  " pairR) " = cmpxchg ptr " pr ", i64 ") expected (cat2 ", i64 " fresh) " seq_cst seq_cst, align 8"))
+            (emitLine cg3 (cat4 (cat2 "  " vr) " = extractvalue { i64, i1 } " pairR ", 0"))
+            (memSetWord cg3 2 vr)
+            cg3
+          }
+        )
       )
     )
   )

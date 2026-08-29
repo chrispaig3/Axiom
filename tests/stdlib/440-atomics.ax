@@ -1,0 +1,49 @@
+; The five atomic primitives, single-threaded: what each ANSWERS, and
+; that the atomic and the plain view of one word agree.
+;
+; There is no second thread for these to synchronise with yet
+; (`docs/memory-model.md` MM-PAR-1), so this case pins the half of
+; their meaning one thread can see - the half a threaded fixture would
+; take for granted and never check. `__atomic_add` and `__atomic_cas`
+; answer the word BEFORE the operation, so a compare-and-swap reports
+; success as "the answer equals what I expected"; one that finds the
+; wrong word stores nothing; `__atomic_load` takes a byte address where
+; `__load64` takes a base and a word index; a store and `__fence`
+; answer 0, as `__store64` does.
+;
+; What the gates add to the values here: `check-stdlib-selfhost.sh`
+; runs this at -O0 and -O2; `check-cross-targets.sh` assembles it for
+; all four targets at -O0, -O1 and -O2 and inspects the relocations -
+; `atomicrmw` at -O0 is the shape that once emitted `R_X86_64_32S`;
+; and `check-freestanding.sh` is what says the five lower inline
+; rather than to a `__atomic_*` libcall.
+;
+; EVERY LINE COMES FROM ONE `println` OF ONE PRIMITIVE'S ANSWER, with
+; that answer beside it, so the source-derived verifier reads each
+; claim from the line that makes it.
+(import IO)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((p (__alloc 16)))
+    {
+      (println (__atomic_store p 40))  ; 0
+      (println (__atomic_load p))  ; 40
+      (println (__atomic_add p 2))  ; 40
+      (println (__atomic_load p))  ; 42
+      (println (__atomic_cas p 42 50))  ; 42
+      (println (__atomic_load p))  ; 50
+      (println (__atomic_cas p 42 99))  ; 50
+      (println (__atomic_load p))  ; 50
+      (println (__load64 p 0))  ; 50
+      (println (__atomic_add p (- 0 3)))  ; 50
+      (println (__load64 p 0))  ; 47
+      (println (__store64 p 1 7))  ; 0
+      (println (__atomic_load (+ p 8)))  ; 7
+      (println __fence)  ; 0
+      0
+    }
+  )
+)

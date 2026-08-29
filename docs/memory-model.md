@@ -3047,10 +3047,32 @@ is an accepted tag with no meaning.
 
 ## 6. Parallelism
 
-**MM-PAR-1 (H, its reason amended 2026-08-24).** Axiom has **no
-language-level concurrency**: no threads, no tasks, no async, no
-scheduler, and no atomics. Nothing in this section is a compiler
-feature.
+**MM-PAR-1 (H, its reason amended 2026-08-24; its atomics clause
+withdrawn 2026-08-29).** Axiom has **no language-level concurrency**:
+no threads, no tasks, no async, and no scheduler. Nothing in this
+section is a compiler feature except the five atomic primitives, which
+are stated next because the clause that denied them was true until the
+day it was not.
+
+**The atomics clause is withdrawn, and only that clause.** Since
+2026-08-29 the emitter lowers `__atomic_load`, `__atomic_store`,
+`__atomic_add`, `__atomic_cas` and `__fence` as sequentially consistent
+LLVM atomics on one `i64` at a byte address — text-only, no target arm,
+and freestanding on every target, which
+`scripts/check-freestanding.sh` and `scripts/check-cross-targets.sh`
+measure over the fixture that spells them,
+`tests/stdlib/440-atomics.ax`. They are `MM-PAR-4`'s stated escape
+given an instruction: a program that maps `MAP_SHARED` memory itself
+now has a word it can update without a torn read. Nothing else moved.
+There is still no thread for them to synchronise with, no mutable
+global of the emitted runtime is touched by one, and `MM-PAR-3`'s
+by-construction argument stands as written. The four that write or
+order carry `Mut` (`MM-EXEC-9a`, asserted primitive by primitive in
+`scripts/check-agent-policy.sh`); `__atomic_load` deliberately does
+not, as `__load64` does not, and is the control that keeps the other
+four discriminating. They are the first phase of `MM-PAR-6`'s
+obligation being discharged; the rest of this rule — the price, and
+that it is chosen against — is unchanged until that obligation is.
 
 **The conclusion is unchanged and the argument for it was false.** It
 was carried in `MM-PAR-2`'s sentence rather than here: thread creation

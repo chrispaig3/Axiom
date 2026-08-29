@@ -641,7 +641,11 @@ echo "== the primitives that PERFORM, against the effect each performs =="
 # of its rows were one defect: a primitive that PERFORMS something,
 # registered like `__load64`, which computes. `__alloc` was corrected on
 # 2026-08-23; `__store8`/`__store64`, `__argc`/`__argv` and the three
-# arena primitives on 2026-08-25.
+# arena primitives on 2026-08-25. The five atomics of 2026-08-29 are the
+# first registered WITH their effects on arrival rather than corrected
+# later, and they are asserted here from that day for the same reason
+# the corrections are: a registration that is right today is a golden
+# tomorrow unless something other than a golden holds it.
 #
 # A population golden cannot hold that rule. Re-blessing the allow list
 # after a regression would make the gate agree with whatever the
@@ -692,6 +696,13 @@ prim_case "__argv"                      "(__argv n)"                           "
 prim_case "__axiom_arena_mark"          "(__axiom_arena_mark)"                 "Alloc"
 prim_case "__axiom_arena_reset"         "(__axiom_arena_reset n)"              "Alloc"
 prim_case "__axiom_arena_reset_keeping" "(__axiom_arena_reset_keeping n 0 0)"  "Alloc"
+# The atomics that WRITE or ORDER carry `Mut`: a store, an add and a
+# compare-and-swap write a word every alias of it sees, and a fence
+# exists only to order such writes. The load is a control, below.
+prim_case "__atomic_store"              "(__atomic_store n 42)"                "Mut"
+prim_case "__atomic_add"                "(__atomic_add n 1)"                   "Mut"
+prim_case "__atomic_cas"                "(__atomic_cas n 0 1)"                 "Mut"
+prim_case "__fence"                     "(__fence)"                            "Mut"
 # THE CONTROLS, and they are what make the eight above mean anything. A
 # registration that gave EVERY primitive an effect would satisfy all of
 # them and destroy the discrimination the whole mechanism is for. These
@@ -699,6 +710,11 @@ prim_case "__axiom_arena_reset_keeping" "(__axiom_arena_reset_keeping n 0 0)"  "
 # must report nothing.
 prim_case "__load64 (control)"          "(__load64 n 0)"                       ""
 prim_case "__load8 (control)"           "(__load8 n 0)"                        ""
+# `__atomic_load` is the control among the atomics: it reads a word as
+# `__load64` does, and the atomic spelling changes the instruction's
+# ordering, not what the function performs. It must stay silent, or
+# the four above are measuring the prefix `__atomic` and not the write.
+prim_case "__atomic_load (control)"     "(__atomic_load n)"                    ""
 # And `__retain`/`__release` are the deliberate omission `MM-EXEC-9a`
 # names: their writes are the runtime's own bookkeeping, and giving them
 # `Mut` marks every function that touches a reference.

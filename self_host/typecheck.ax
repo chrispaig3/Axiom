@@ -2296,6 +2296,28 @@
       (regFnEff fns "__axiom_arena_mark" (mkIntArrow 0) (builtinEff "Alloc"))
       (regFnEff fns "__axiom_arena_reset" (mkIntArrow 1) (builtinEff "Alloc"))
       (regFnEff fns "__axiom_arena_reset_keeping" (mkIntArrow 3) (builtinEff "Alloc"))
+      ; The five atomic primitives (2026-08-29): the machine word at a
+      ; BYTE ADDRESS, read, written, added to, compared-and-swapped and
+      ; fenced, sequentially consistent (codegen.ax `emitPrimAtomic`).
+      ; Registered with their effects on arrival, which is the shape
+      ; the comment above asks for and the first time it was met
+      ; rather than corrected. The four that WRITE or ORDER carry
+      ; `Mut`, for `__store64`'s reason: a store, an add and a
+      ; compare-and-swap write a word every alias sees, and a fence
+      ; exists only to order such writes. `__atomic_load` deliberately
+      ; does not: it reads a word exactly as `__load64` does, and what
+      ; the atomic spelling changes is the instruction's ordering, not
+      ; what the function PERFORMS. Giving the load `Mut` would mark
+      ; every reader of a shared counter the way `Mut` on `__retain`
+      ; would mark every reader of a reference - the discrimination the
+      ; comment above buys, deleted - and it is the control that lets
+      ; `check-agent-policy.sh` tell "the atomics that write carry Mut"
+      ; from "everything spelled `__atomic` does".
+      (regFn fns "__atomic_load" (mkIntArrow 1))
+      (regFnEff fns "__atomic_store" (mkIntArrow 2) (builtinEff "Mut"))
+      (regFnEff fns "__atomic_add" (mkIntArrow 2) (builtinEff "Mut"))
+      (regFnEff fns "__atomic_cas" (mkIntArrow 3) (builtinEff "Mut"))
+      (regFnEff fns "__fence" (mkIntArrow 0) (builtinEff "Mut"))
       (regFn fns "__addr" (mkTArr mkStringTy mkIntTy))
       ; Not spellable in source - `checkNumeric` rewrites `==`/`!=`
       ; into these. They are registered anyway because the rewritten
