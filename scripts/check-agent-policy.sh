@@ -431,6 +431,9 @@ echo "== completeness: no effect row is only a lower bound =="
 cat > "$work/incomplete.exempt" <<'INCOMPLETE'
 vecSortBy     Vec.ax  calls the comparator the CALLER supplies, so its row is a lower bound by construction; the first higher-order function in this library and the first entry here
 vecSiftDownBy Vec.ax  the same call one frame down, `vecSortBy`'s own helper
+httpCall      Http.ax calls the handler a ROUTE holds - a function value the program registered with `routeAdd`, matched out of an `HttpHandler` cell - so its row is the router's lower bound by construction
+routeDispatch Http.ax `httpCall` one frame up: the dispatcher hands the socket to whichever handler the table names
+httpServeOne  Http.ax `routeDispatch` one frame up: read, dispatch, or write the parser's refusal
 INCOMPLETE
 awk 'NF { print $1, $2 }' "$work/incomplete.exempt" | LC_ALL=C sort -u > "$work/incomplete.exempted"
 grep -F '#effects-incomplete' "$work/rows" | axsym_name_file > "$work/incomplete" || true
@@ -728,4 +731,4 @@ echo
 echo "check-agent-policy: the standard library performs what it declares,"
 echo "                    the set that performs anything is the one on file,"
 echo "                    and the only rows the checker could not finish are"
-echo "                    the two higher-order ones it is told about by name"
+echo "                    the higher-order ones it is told about by name"

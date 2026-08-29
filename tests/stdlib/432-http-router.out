@@ -1,0 +1,28 @@
+ok   an exact route is hit
+ok   the handler sees the query
+ok   the same path routes by method
+ok   a path with a route for another method is 405
+ok   a path nothing matched is the default 404
+ok   the not-found handler can be replaced
+ok   a static file is served with its type
+ok   an unknown extension is octet-stream
+ok   a missing file is 404
+ok   a directory is 404
+ok   the prefix alone is 404
+ok   POST under the static prefix is 405
+ok   the secret is served through its own prefix
+ok   .. as a segment is refused
+ok   .. deeper in is refused
+ok   an empty segment is refused
+ok   a backslash is refused
+ok   a path not starting with / is refused
+ok   ..x is a name, not a traversal
+ok   a trailing slash on a route path is a different path
+ok   a NUL byte in the path is refused
+ok   httpPathSafe accepts a plain path
+ok   httpPathSafe accepts a trailing slash
+ok   httpPathSafe accepts the root
+ok   httpPathSafe refuses the empty path
+ok   httpPathSafe refuses /..
+ok   httpPathSafe refuses a/../b
+ok   httpPathSafe accepts a single dot segment

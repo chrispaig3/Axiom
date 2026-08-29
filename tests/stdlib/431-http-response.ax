@@ -1,0 +1,142 @@
+; The response writer and the content-type table, with no socket:
+; every response is written to a file and read back, and the bytes
+; are compared against a literal written by hand.
+;
+; What is pinned: the status line, the header ORDER, `Content-Length`
+; equal to the body's byte count, `Connection: close`, CRLF CRLF, no
+; other header; a body holding a NUL byte written WHOLE through
+; `httpRespondRaw` (the strCStr truncation the address-and-length
+; signature exists to prevent - the negative probe routes `httpRespond`
+; through `strCStr` and this check goes red at the NUL); `httpFail`'s
+; plain-text body; `httpStatusText` for the statuses the parser and
+; the router answer; and `httpContentType` over every named
+; extension, a name with none, and an unknown one, which must be
+; `application/octet-stream` and never `text/html`.
+(import IO)
+
+(import Sys)
+
+(import Str)
+
+(import Mem)
+
+(import Http)
+
+(:: eq (-> String String String Int))
+
+;@axiom:effect(io)
+(fn (eq name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }
+  )
+)
+
+(:: eqInt (-> String Int Int Int))
+
+;@axiom:effect(io)
+(fn (eqInt name got want)
+  (if (== got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }
+  )
+)
+
+; The bytes `httpRespond` writes for a status, a type and a body.
+(:: captured (-> Int String String String))
+
+;@axiom:effect(io)
+(fn (captured status ctype body)
+  (let ((fd (sysOpenPath (__addr "resp.tmp") oWronlyCreateTrunc)))
+    {
+      (httpRespond fd status ctype body)
+      (sysCloseFd fd)
+      (sysReadFile (__addr "resp.tmp"))
+    }
+  )
+)
+
+; The bytes `httpFail` writes.
+(:: capturedFail (-> Int String String))
+
+;@axiom:effect(io)
+(fn (capturedFail status why)
+  (let ((fd (sysOpenPath (__addr "fail.tmp") oWronlyCreateTrunc)))
+    {
+      (httpFail fd status why)
+      (sysCloseFd fd)
+      (sysReadFile (__addr "fail.tmp"))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  ; --- the shape of a response -------------------------------
+  {
+    (eq "a 200 with a text body" (captured 200 "text/plain; charset=utf-8" "hello\n") "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\n")
+    (eq "a 404 with an HTML body" (captured 404 "text/html; charset=utf-8" "<h1>gone</h1>") "HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 13\r\nConnection: close\r\n\r\n<h1>gone</h1>")
+    (eq "an empty body is Content-Length: 0" (captured 204 "text/plain; charset=utf-8" "") "HTTP/1.1 204 No Content\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+    (eq "Content-Length counts bytes, not characters" (captured 200 "text/plain; charset=utf-8" "héllo") "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhéllo")
+    (eq "httpFail is a plain-text status and reason" (capturedFail 405 "no route for this method") "HTTP/1.1 405 Method Not Allowed\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 49\r\nConnection: close\r\n\r\n405 Method Not Allowed: no route for this method\n")
+    ; --- a binary body is written whole ------------------------
+    (let ((bin (strAlloc 5)))
+      {
+        (__store8 (strData bin) 0 80)
+        (__store8 (strData bin) 1 78)
+        (__store8 (strData bin) 2 0)
+        (__store8 (strData bin) 3 71)
+        (__store8 (strData bin) 4 10)
+        (let ((got (captured 200 "image/png" bin)))
+          (let ((head "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 5\r\nConnection: close\r\n\r\n"))
+            {
+              (eqInt "a body with a NUL byte is written whole" (strLen got) (+ (strLen head) 5))
+              (eq "and its head says five bytes" (strSlice got 0 (strLen head)) head)
+              (eqInt "the NUL byte is in place" (strByte got (+ (strLen head) 2)) 0)
+              (eqInt "and the byte after it too" (strByte got (+ (strLen head) 3)) 71)
+            }
+          )
+        )
+      }
+    )
+    ; --- status texts ------------------------------------------
+    (eq "200" (httpStatusText 200) "OK")
+    (eq "400" (httpStatusText 400) "Bad Request")
+    (eq "404" (httpStatusText 404) "Not Found")
+    (eq "405" (httpStatusText 405) "Method Not Allowed")
+    (eq "413" (httpStatusText 413) "Content Too Large")
+    (eq "431" (httpStatusText 431) "Request Header Fields Too Large")
+    (eq "500" (httpStatusText 500) "Internal Server Error")
+    (eq "501" (httpStatusText 501) "Not Implemented")
+    (eq "505" (httpStatusText 505) "HTTP Version Not Supported")
+    (eq "an unnamed status is Unknown" (httpStatusText 299) "Unknown")
+    ; --- content types by extension ----------------------------
+    (eq ".html" (httpContentType "index.html") "text/html; charset=utf-8")
+    (eq ".css" (httpContentType "static/site.css") "text/css; charset=utf-8")
+    (eq ".js" (httpContentType "/a/b/app.js") "text/javascript; charset=utf-8")
+    (eq ".svg" (httpContentType "logo.svg") "image/svg+xml")
+    (eq ".png" (httpContentType "logo.png") "image/png")
+    (eq ".ico" (httpContentType "favicon.ico") "image/vnd.microsoft.icon")
+    (eq ".txt" (httpContentType "robots.txt") "text/plain; charset=utf-8")
+    (eq ".json" (httpContentType "data.json") "application/json")
+    (eq "an unknown extension is octet-stream, not text/html" (httpContentType "payload.exe") "application/octet-stream")
+    (eq "no extension is octet-stream" (httpContentType "README") "application/octet-stream")
+    (eq "a dot in a directory is not an extension" (httpContentType "v1.0/README") "application/octet-stream")
+    (eq "the extension is case-sensitive" (httpContentType "PAGE.HTML") "application/octet-stream")
+    0
+  }
+)

@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch. The tree is kept in the
 formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 545 `.ax` files in the repository apart from the two named below,
+the 549 `.ax` files in the repository apart from the two named below,
 and, measured 2026-08-24, six more that were committed unformatted;
 `axiom fmt --check` over every `.ax` file names them. No gate does:
 `check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
@@ -532,7 +532,7 @@ primitives. When adding a new stdlib function:
 
 1. **Add it to the appropriate module** in `stdlib/` — `Pre`, `Mem`,
    `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`,
-   `Rpc`, `Utf8`, `Show`, `Err`, `Job`, `Html`, `Ffi`.
+   `Rpc`, `Utf8`, `Show`, `Err`, `Job`, `Html`, `Http`, `Ffi`.
 2. **Use `::` for the type signature** and `fn` for the definition, with
    `pub` on both if the function is part of the module's surface.
 3. **If the function performs I/O**, annotate it with

@@ -1,0 +1,1300 @@
+; Http - an HTTP/1.1 request parser, a response writer, a router and a
+; static-file server, over `Sys`'s sockets and file descriptors.
+;
+; One connection is one request and one response, and the response
+; says so: every reply carries `Connection: close` and the server
+; closes the socket. That is the whole of this module's concurrency
+; model and it is a decision rather than an omission - see KEEP-ALIVE
+; below. A server built on it is the shape tests/net/echo-server.ax
+; and examples/web/server.ax have: accept, `netSetBlocking`, mark the
+; arena, `httpServeOne`, close, reset (docs/memory-model.md
+; MM-ALLOC-22).
+;
+; READING. `Sys.sysReadFd` performs ONE `read`, and a read on a socket
+; answers whatever the peer has flushed: the request line, the
+; headers, the terminator and the first bytes of the body routinely
+; arrive together, and the rest of the body in several more reads - or
+; the request line alone, one byte at a time. So `httpRead` keeps a
+; buffer (`Rpc.ax`'s four-word reader, for the same reason its header
+; gives), refills until `\r\n\r\n` has arrived, parses the head out of
+; the buffer, and then reads exactly `Content-Length` bytes of body
+; into a buffer of exactly that size. The reader's buffer starts at
+; `httpReadCap` and doubles up to `httpMaxHead`; a head that has not
+; ended by then is refused.
+;
+; MEASURED, so the reader's size is a decision and not a habit. Bytes
+; the allocator's bump moved for ONE request, read off
+; `__axiom_arena_mark`'s cell between the accept and the close, one
+; process over the loopback (2026-08-29). The head is 70 bytes as
+; python's http.client sends it, or 764 bytes as Chrome sends it with
+; three cookies; the page is examples/web's index, 606 bytes:
+;
+;     httpRead alone, initial buffer    70-byte head   764-byte head
+;         8192                               9,600          12,432
+;         4096                               5,504               -
+;         2048                               3,456           6,288
+;         1024                               2,432           5,312
+;          256                               1,664               -
+;     rendering the page through Html        4,768
+;     httpRespond, a 6-byte text body          656
+;     httpServeOne, text route, at 8192     10,016
+;     httpServeOne, the page,   at 8192     14,752          17,552
+;     httpServeOne, text route, at 2048      3,872
+;     httpServeOne, the page,   at 2048      8,608          11,408
+;
+; At 8 KiB the EMPTY buffer was two thirds of everything a page
+; request allocated. `httpReadCap` is 2048: both heads fit in one read
+; with no growth, and a head above 2 KiB - many cookies - costs one
+; doubling and one 2 KiB copy. The arena reset reclaims all of it
+; either way (MM-ALLOC-22), which is exactly why the memory gate
+; cannot see this number and this header has to carry it.
+;
+; THREE REFUSALS THE PARSER CARRIES, all from `Rpc.ax`'s measured
+; lesson about a length field a peer writes:
+;
+;   - `Content-Length` above `httpMaxBody` (8 MiB) is refused as 413,
+;     and refused BY `Str.strParseInt`, which tests overflow per digit
+;     and answers `None` for `18446744073709551621` - the value that
+;     wrapped to 5 and was ACCEPTED by an accumulator with no test;
+;   - a request head above `httpMaxHead` (16 KiB) is refused as 431,
+;     so a peer cannot make the reader grow without bound;
+;   - a header line with no `:` is refused as 400 rather than skipped,
+;     as is a bare `\n` line ending, a request line that is not three
+;     tokens, and a version that is not HTTP/1.0 or HTTP/1.1 (505).
+;
+; The error a refusal answers carries the HTTP STATUS as its code, so
+; `httpServeOne` writes the refusal to the peer with no table between
+; the parser and the wire.
+;
+; WRITING. `httpRespond` writes the status line, `Content-Type`,
+; `Content-Length` (the body's `strLen`, in bytes), `Connection:
+; close`, the blank line and the body, through `Sys.sysWriteAllFd` -
+; never `sysWriteFd`, because a short write on a socket is normal and
+; a writer that took one for success would truncate the reply. No
+; `Date` header: it would make every golden non-reproducible, and a
+; server with no cache does not need one. `httpRespondRaw` takes an
+; address and a length rather than a `String` for one reason:
+; `strCStr` stops at the first NUL, so a `.png` served through any
+; C-string path is silently corrupt. Binary bodies go out as
+; `(strData s)` and `(strLen s)`.
+;
+; ROUTING. A router holds exact `(method, path)` routes with a
+; handler each, static prefixes mapped to directories, and a
+; not-found handler. A handler is a function VALUE, `(-> Int HttpReq
+; Int)` taking the socket and the request, held in an `HttpHandler`
+; cell because a `Vec` holds words and a word is not a type. Write it
+; as `(HttpFn (lambda (fd r) (index fd r)))`: a top-level function
+; of two parameters is not a value by itself (AX3013), and a lambda
+; parameter has no type until it is passed to a signed function, so
+; the lambda is a thin wrapper and the handler proper is an ordinary
+; signed `fn` - which is also what gives it a real effect row and a
+; place in docs/stdlib-api.md. The router is built ONCE, before the
+; fork and before any arena mark, exactly as a worker's poll buffers
+; are: it is the state a request must not allocate.
+;
+; STATIC FILES, AND THE ORDER OF THE CHECKS. `routeDispatch` refuses a
+; path before ANY route is consulted and before ANY filesystem call:
+; it must start with `/`, hold no NUL byte and no `\`, no empty
+; segment (`//`) and no `..` segment (`httpPathSafe`). The content
+; type is chosen by extension (`httpContentType`) and an unknown
+; extension is `application/octet-stream`, never `text/html` - serving
+; an unknown file as HTML is the stored-XSS route. A path under a
+; static prefix that names nothing, or names a directory, is 404.
+;
+; KEEP-ALIVE IS NOT HERE, and the reasons are in order of weight.
+; MM-ALLOC-22 scopes its own claim to the stateless request: "keep-
+; alive, where per-connection state outlives the request, is outside
+; the measurement and outside this rule's claim". The reader's buffer
+; is allocated inside the request's arena scope, so a second request
+; on the same connection would read from reclaimed memory - the hazard
+; `Rpc.rdReseat` and `__axiom_arena_reset_keeping` exist to answer,
+; and answering it here is a second feature with its own memory arm,
+; not a flag. `scripts/check-web.sh` measures one connection per
+; request, which is the thing it can see. And closing makes every
+; response self-terminating for a client that ignores
+; `Content-Length`. RFC 9112 9.6 lets a server close after any
+; response, so answering a keep-alive request with `close` conforms.
+; The follow-up is stated so it is not rediscovered: `httpRead` over a
+; reader re-seated after the reset (`consumed`/`filled` are kept
+; relative for it), `__axiom_arena_reset_keeping` for the bytes of the
+; next request already read, a per-connection loop, and a keep-alive
+; arm in `check-web.sh` whose ablation must grow.
+;
+; A SPELLING RULE THIS FILE FOLLOWS, learned while writing it: a
+; `set` is not a value. Its type is the field's or the binding's own,
+; and an `if` whose one arm is a bare `(set x v)` and whose other arm
+; is `0` is AX3004 - so every `set` here sits in a `{ ... 0 }` block,
+; and every loop flag is an Int compared with `==`, never a Bool.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import Fmt)
+
+(import Sys)
+
+(import Path)
+
+(import Err)
+
+; ------------------------------------------------------------------
+; Limits
+; ------------------------------------------------------------------
+; The largest request head - request line plus headers plus the blank
+; line - `httpRead` will buffer, in bytes: 16 KiB. A head that has not
+; ended by then is refused as 431.
+(pub :: httpMaxHead Int)
+
+(pub fn (httpMaxHead) 16384)
+
+; The largest `Content-Length` `httpRead` accepts, in bytes: 8 MiB.
+; Larger is 413, and so is a value the parser cannot represent.
+(pub :: httpMaxBody Int)
+
+(pub fn (httpMaxBody) 8388608)
+
+; The reader's initial buffer, in bytes: 2 KiB, which holds a
+; browser's request head with a few cookies in one read (measured in
+; the header); the buffer doubles up to `httpMaxHead` when a head does
+; not fit.
+(pub :: httpReadCap Int)
+
+(pub fn (httpReadCap) 2048)
+
+; `Bool` negation. `==` compares Ints, so `(not b)` is spelled as an
+; `if`; one spelling here rather than a dozen inline.
+(:: httpNot (-> Bool Bool))
+
+(fn (httpNot x)
+  (if x
+    false
+    true
+  )
+)
+
+; ------------------------------------------------------------------
+; The reader
+; ------------------------------------------------------------------
+; A buffered reader over a socket: the descriptor, a buffer whose
+; `strLen` is its capacity, how much of it holds data, and how far the
+; parser has consumed. Bytes between `consumed` and `filled` are the
+; request in progress.
+(pub struct HttpReader
+  (fd : Int)
+  (buf : String)
+  (filled : Int)
+  (consumed : Int))
+
+; A reader over `fd` with the default buffer.
+(pub :: httpReaderNew (-> Int HttpReader))
+
+(pub fn (httpReaderNew fd) (httpReaderWith fd httpReadCap))
+
+; A reader over `fd` whose buffer starts at `cap` bytes (at least 1).
+; A capacity of 1 makes every `read` answer one byte, which is how
+; tests/stdlib/430-http-parse.ax drives the refill loop through every
+; boundary a slow peer could put a read on, deterministically and in
+; one process.
+(pub :: httpReaderWith (-> Int Int HttpReader))
+
+(pub fn (httpReaderWith fd cap)
+  (HttpReader
+    fd    (strAlloc
+      (if (< cap 1)
+        1
+        cap
+      )
+    )    0    0
+  )
+)
+
+; Bytes read but not yet consumed.
+(:: httpAvail (-> HttpReader Int))
+
+(fn (httpAvail r) (- r.filled r.consumed))
+
+; Move the live region to the front, then double the buffer if it is
+; still full and the ceiling allows. Answers nothing useful.
+(:: httpGrow (-> HttpReader Int))
+
+(fn (httpGrow r)
+  {
+    (if (> r.consumed 0)
+      {
+        (memCopy (strData r.buf) (+ (strData r.buf) r.consumed) (- r.filled r.consumed))
+        (set r.filled (- r.filled r.consumed))
+        (set r.consumed 0)
+        0
+      }
+      0
+    )
+    (if (&& (>= r.filled (strLen r.buf)) (< (strLen r.buf) httpMaxHead))
+      (let ((want 
+        (if (> (* (strLen r.buf) 2) httpMaxHead)
+          httpMaxHead
+          (* (strLen r.buf) 2)
+        )
+      ))
+        (let ((bigger (strAlloc want)))
+          {
+            (memCopy (strData bigger) (strData r.buf) r.filled)
+            (set r.buf bigger)
+            0
+          }
+        )
+      )
+      0
+    )
+    0
+  }
+)
+
+; One `read` into the free tail, growing first when the buffer is
+; full. Answers the count read: 0 at end of stream, -2 when the buffer
+; is full at the ceiling and nothing more can be taken, and the
+; syscall's own negative answer for a failed read.
+(:: httpFill (-> HttpReader Int))
+
+;@axiom:effect(io)
+(fn (httpFill r)
+  {
+    (if (>= r.filled (strLen r.buf))
+      (httpGrow r)
+      0
+    )
+    (if (>= r.filled (strLen r.buf))
+      (- 0 2)
+      (let ((n (sysReadFd r.fd (+ (strData r.buf) r.filled) (- (strLen r.buf) r.filled))))
+        {
+          (if (> n 0)
+            {
+              (set r.filled (+ r.filled n))
+              0
+            }
+            0
+          )
+          n
+        }
+      )
+    )
+  }
+)
+
+; The offset of `\r\n\r\n` within the unconsumed region, relative to
+; `consumed` (`Rpc.ax` says why relative: a fill may compact), or -1.
+(:: httpHeadEnd (-> HttpReader Int))
+
+(fn (httpHeadEnd r)
+  (let (
+    (buf r.buf)
+    (base r.consumed)
+    (n (httpAvail r))
+    (mut i 0)
+    (mut found (- 0 1))
+  )
+    {
+      (while (&& (< found 0) (<= (+ i 4) n))
+        {
+          (if (&& (== (strByte buf (+ base i)) 13) (&& (== (strByte buf (+ (+ base i) 1)) 10) (&& (== (strByte buf (+ (+ base i) 2)) 13) (== (strByte buf (+ (+ base i) 3)) 10))))
+            {
+              (set found i)
+              0
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      found
+    }
+  )
+)
+
+; Is there a `\n` not preceded by `\r` in `s` between `from` and `to`?
+(:: httpBareLf (-> String Int Int Bool))
+
+(fn (httpBareLf s from to)
+  (let (
+    (mut i from)
+    (mut bare 0)
+  )
+    {
+      (while (&& (< i to) (== bare 0))
+        {
+          (if (&& (== (strByte s i) 10) (|| (== i from) (!= (strByte s (- i 1)) 13)))
+            {
+              (set bare 1)
+              0
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      (== bare 1)
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The request
+; ------------------------------------------------------------------
+; One parsed request. `path` is percent-decoded with the query
+; stripped; `query` is the raw bytes after `?` (empty when there were
+; none); `hnames` and `hvals` are parallel `Vec`s of Strings, the
+; names ASCII-lowercased, so `httpHeader` needs one spelling; `body`
+; is exactly `Content-Length` bytes, or empty. Every String here is a
+; COPY, never a slice of the reader's buffer, which a later fill may
+; move.
+(pub struct HttpReq
+  (method : String)
+  (path : String)
+  (query : String)
+  (version : String)
+  (hnames : Int)
+  (hvals : Int)
+  (body : String))
+
+; The index of header `name` (lowercased on both sides), or -1.
+(:: httpHeaderIndex (-> HttpReq String Int))
+
+(fn (httpHeaderIndex r name)
+  (let (
+    (want (strLower name))
+    (n (vecLen r.hnames))
+    (mut i 0)
+    (mut found (- 0 1))
+  )
+    {
+      (while (&& (< found 0) (< i n))
+        {
+          (if (strEq (vecGetStr r.hnames i) want)
+            {
+              (set found i)
+              0
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      found
+    }
+  )
+)
+
+; The value of header `name` (any case; compared lowercased), or
+; `dflt` when the request did not carry it. A header sent twice
+; answers its first value.
+(pub :: httpHeader (-> HttpReq String String String))
+
+(pub fn (httpHeader r name dflt)
+  (let ((i (httpHeaderIndex r name)))
+    (if (< i 0)
+      dflt
+      (vecGetStr r.hvals i)
+    )
+  )
+)
+
+; Whether the request carried header `name`, in any case.
+(pub :: httpHasHeader (-> HttpReq String Bool))
+
+(pub fn (httpHasHeader r name) (>= (httpHeaderIndex r name) 0))
+
+; Whether the two bytes after a `%` at `i` are hex digits.
+(:: httpEscapeAt (-> String Int Bool))
+
+(fn (httpEscapeAt s i) (&& (== (strByte s i) 37) (&& (>= (strHexVal (strByte s (+ i 1))) 0) (>= (strHexVal (strByte s (+ i 2))) 0))))
+
+; `s` percent-decoded: every `%XX` with two hex digits becomes the byte
+; `XX`, and when `plusSpace` is set every `+` becomes a space - the
+; rule for a query string, and not for a path. A `%` that does not
+; start a valid escape is kept as it is rather than refused, so a
+; caller that must refuse one compares the answer with the input. Also
+; answers `s` itself when there is nothing to decode.
+(pub :: httpDecode (-> String Bool String))
+
+(pub fn (httpDecode s plusSpace)
+  (let (
+    (len (strLen s))
+    (mut k 0)
+    (mut escapes 0)
+    (mut pluses 0)
+  )
+    {
+      (while (< k len)
+        (if (httpEscapeAt s k)
+          {
+            (set escapes (+ escapes 1))
+            (set k (+ k 3))
+            0
+          }
+          {
+            (if (&& plusSpace (== (strByte s k) 43))
+              {
+                (set pluses (+ pluses 1))
+                0
+              }
+              0
+            )
+            (set k (+ k 1))
+            0
+          }
+        ))
+      (if (&& (== escapes 0) (== pluses 0))
+        s
+        (let (
+          (out (strAlloc (- len (* escapes 2))))
+          (d (strData out))
+          (mut i 0)
+          (mut off 0)
+        )
+          {
+            (while (< i len)
+              (if (httpEscapeAt s i)
+                {
+                  (__store8 d off (+ (* (strHexVal (strByte s (+ i 1))) 16) (strHexVal (strByte s (+ i 2)))))
+                  (set off (+ off 1))
+                  (set i (+ i 3))
+                  0
+                }
+                {
+                  (__store8
+                    d                    off                    (if (&& plusSpace (== (strByte s i) 43))
+                      32
+                      (strByte s i)
+                    )
+                  )
+                  (set off (+ off 1))
+                  (set i (+ i 1))
+                  0
+                }
+              ))
+            out
+          }
+        )
+      )
+    }
+  )
+)
+
+; The value of query parameter `name`, decoded (`%XX` and `+`), or
+; `dflt` when the query does not carry it. `?q=a%20b&x=1` answers
+; `a b` for `q` and `1` for `x`; a pair with no `=` has the empty
+; value.
+(pub :: httpQueryParam (-> HttpReq String String String))
+
+(pub fn (httpQueryParam r name dflt)
+  (let (
+    (q r.query)
+    (len (strLen r.query))
+    (mut at 0)
+    (mut answer dflt)
+    (mut found 0)
+  )
+    {
+      (while (&& (== found 0) (< at len))
+        (let ((amp (strFindByte q 38 at)))
+          (let ((end 
+            (if (< amp 0)
+              len
+              amp
+            )
+          ))
+            (let ((eq (strFindByte q 61 at)))
+              (let ((keyEnd 
+                (if (|| (< eq 0) (> eq end))
+                  end
+                  eq
+                )
+              ))
+                {
+                  (if (strEq (httpDecode (strSlice q at (- keyEnd at)) true) name)
+                    {
+                      (set found 1)
+                      (set answer (if (< keyEnd end)
+                        (httpDecode (strSlice q (+ keyEnd 1) (- end (+ keyEnd 1))) true)
+                        ""
+                      ))
+                      0
+                    }
+                    0
+                  )
+                  (set at (+ end 1))
+                  0
+                }
+              )
+            )
+          )
+        ))
+      answer
+    }
+  )
+)
+
+; A refusal: the HTTP status as the error's code, and what the peer
+; will be told as its message.
+(:: httpRefuse (-> Int String (Result HttpReq Error)))
+
+(fn (httpRefuse status why) (Err (mkError status why)))
+
+; The header lines of a head that occupies `hdr` bytes past
+; `consumed`, starting at absolute offset `at` (just past the request
+; line), pushed lowercased into `names` and trimmed into `vals`.
+; Answers "" or what was wrong with the first bad line.
+(:: httpParseHeaders (-> HttpReader Int Int Int Int String))
+
+(fn (httpParseHeaders r hdr from names vals)
+  (let (
+    (buf r.buf)
+    (stop (+ r.consumed hdr))
+    (mut at from)
+    (mut problem "")
+  )
+    {
+      (while (&& (== (strLen problem) 0) (< at stop))
+        (let ((le (strFindByte buf 13 at)))
+          (let ((hl (strSlice buf at (- le at))))
+            (let ((colon (strFindByte hl 58 0)))
+              {
+                (if (< colon 1)
+                  {
+                    (set problem "header line without a name and a colon")
+                    0
+                  }
+                  (let ((nm (strSlice hl 0 colon)))
+                    (if (>= (strFindByte nm 32 0) 0)
+                      {
+                        (set problem "whitespace in a header name")
+                        0
+                      }
+                      {
+                        (vecPush names (strLower (strDup nm)))
+                        (vecPush vals (strDup (strTrim (strSlice hl (+ colon 1) (- (strLen hl) (+ colon 1))))))
+                        0
+                      }
+                    )
+                  )
+                )
+                (set at (+ le 2))
+                0
+              }
+            )
+          )
+        ))
+      problem
+    }
+  )
+)
+
+; The head of the request - request line and header lines - parsed
+; out of the reader's buffer, where the head occupies `hdr` bytes past
+; `consumed` and the terminator follows. Answers the request with an
+; empty body, or the refusal.
+(:: httpParseHead (-> HttpReader Int (Result HttpReq Error)))
+
+(fn (httpParseHead r hdr)
+  (let (
+    (buf r.buf)
+    (base r.consumed)
+  )
+    (if (httpBareLf buf base (+ base hdr))
+      (httpRefuse 400 "bare LF line ending in the request head")
+      (let ((eol (strFindByte buf 13 base)))
+        (let ((line (strSlice buf base (- eol base))))
+          (let ((sp1 (strFindByte line 32 0)))
+            (let ((sp2 
+              (if (< sp1 0)
+                (- 0 1)
+                (strFindByte line 32 (+ sp1 1))
+              )
+            ))
+              (if (|| (< sp1 1) (|| (< sp2 (+ sp1 2)) (|| (>= (strFindByte line 32 (+ sp2 1)) 0) (>= (+ sp2 1) (strLen line)))))
+                (httpRefuse 400 "request line is not METHOD TARGET VERSION")
+                (let (
+                  (method (strDup (strSlice line 0 sp1)))
+                  (target (strSlice line (+ sp1 1) (- sp2 (+ sp1 1))))
+                  (version (strDup (strSlice line (+ sp2 1) (- (strLen line) (+ sp2 1)))))
+                )
+                  (if (httpNot (|| (strEq version "HTTP/1.1") (strEq version "HTTP/1.0")))
+                    (httpRefuse 505 "only HTTP/1.0 and HTTP/1.1 are served")
+                    (let ((qm (strFindByte target 63 0)))
+                      (let (
+                        (path (httpDecode
+                          (strDup
+                            (if (< qm 0)
+                              target
+                              (strSlice target 0 qm)
+                            )
+                          )                          false
+                        ))
+                        (query (strDup
+                          (if (< qm 0)
+                            ""
+                            (strSlice target (+ qm 1) (- (strLen target) (+ qm 1)))
+                          )
+                        ))
+                        (names vecNew)
+                        (vals vecNew)
+                      )
+                        (let ((problem (httpParseHeaders
+                          r                          hdr                          (+ eol 2)                          names                          vals
+                        )))
+                          (if (> (strLen problem) 0)
+                            (httpRefuse 400 problem)
+                            (Ok (HttpReq
+                              method                              path                              query                              version                              names                              vals                              ""
+                            ))
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Read `n` bytes of body for `req` out of the reader and then straight
+; off the socket into a buffer of exactly `n` bytes, and answer the
+; request with its body, or the refusal when the peer closed first.
+(:: httpReadBody (-> HttpReader HttpReq Int (Result HttpReq Error)))
+
+;@axiom:effect(io)
+(fn (httpReadBody r req n)
+  (let (
+    (body (strAlloc n))
+    (have (if (> (httpAvail r) n)
+      n
+      (httpAvail r)
+    ))
+    (mut got 0)
+    (mut dead 0)
+  )
+    {
+      (memCopy (strData body) (+ (strData r.buf) r.consumed) have)
+      (set r.consumed (+ r.consumed have))
+      (set got have)
+      (while (&& (< got n) (== dead 0))
+        (let ((k (sysReadFd r.fd (+ (strData body) got) (- n got))))
+          (if (< k 1)
+            {
+              (set dead 1)
+              0
+            }
+            {
+              (set got (+ got k))
+              0
+            }
+          )
+        ))
+      (if (== dead 1)
+        (httpRefuse 400 "connection closed before Content-Length bytes of body arrived")
+        {
+          (set req.body body)
+          (Ok req)
+        }
+      )
+    }
+  )
+)
+
+; The body a parsed head calls for: none without `Content-Length`,
+; else exactly that many bytes, with the ceilings applied first.
+(:: httpReadRest (-> HttpReader HttpReq (Result HttpReq Error)))
+
+;@axiom:effect(io)
+(fn (httpReadRest r req)
+  (if (httpHasHeader req "transfer-encoding")
+    (httpRefuse 501 "Transfer-Encoding is not served; send Content-Length")
+    (if (httpHasHeader req "content-length")
+      (match (strParseInt (httpHeader req "content-length" ""))
+        ((None) (httpRefuse 400 "Content-Length is not a decimal integer"))
+        ((Some n)
+          (if (< n 0)
+            (httpRefuse 400 "Content-Length is negative")
+            (if (> n httpMaxBody)
+              (httpRefuse 413 "Content-Length above httpMaxBody")
+              (httpReadBody r req n)
+            )
+          )
+        )
+      )
+      (Ok req)
+    )
+  )
+)
+
+; Read one whole request from the reader: refill until the head has
+; ended, parse it, then read exactly `Content-Length` bytes of body.
+; The refusals answer an `Error` whose CODE is the HTTP status to
+; write back: 400 for a malformed head or a peer that closed early,
+; 413 for a body above `httpMaxBody` or a length the parser cannot
+; hold, 431 for a head above `httpMaxHead`, 501 for
+; `Transfer-Encoding` (chunked bodies are not read), 505 for a version
+; that is not HTTP/1.x.
+(pub :: httpRead (-> HttpReader (Result HttpReq Error)))
+
+;@axiom:effect(io)
+(pub fn (httpRead r)
+  (let (
+    (mut hdr (- 0 1))
+    (mut stop 0)
+  )
+    {
+      (while (&& (< hdr 0) (== stop 0))
+        {
+          (set hdr (httpHeadEnd r))
+          (if (< hdr 0)
+            (let ((n (httpFill r)))
+              (if (< n 1)
+                {
+                  (set stop (if (== n (- 0 2))
+                    431
+                    400
+                  ))
+                  0
+                }
+                0
+              )
+            )
+            0
+          )
+        })
+      (if (== stop 431)
+        (httpRefuse 431 "request head larger than httpMaxHead")
+        (if (== stop 400)
+          (httpRefuse 400 "connection closed before the request head was complete")
+          (match (httpParseHead r hdr)
+            ((Err e) (Err e))
+            ((Ok req)
+              {
+                (set r.consumed (+ r.consumed (+ hdr 4)))
+                (httpReadRest r req)
+              }
+            )
+          )
+        )
+      )
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The response
+; ------------------------------------------------------------------
+; The reason phrase for a status, or `Unknown` for one this module
+; does not name.
+(pub :: httpStatusText (-> Int String))
+
+(pub fn (httpStatusText status)
+  (if (== status 200)
+    "OK"
+    (if (== status 201)
+      "Created"
+      (if (== status 204)
+        "No Content"
+        (if (== status 301)
+          "Moved Permanently"
+          (if (== status 302)
+            "Found"
+            (if (== status 304)
+              "Not Modified"
+              (if (== status 400)
+                "Bad Request"
+                (if (== status 403)
+                  "Forbidden"
+                  (if (== status 404)
+                    "Not Found"
+                    (if (== status 405)
+                      "Method Not Allowed"
+                      (if (== status 413)
+                        "Content Too Large"
+                        (if (== status 431)
+                          "Request Header Fields Too Large"
+                          (if (== status 500)
+                            "Internal Server Error"
+                            (if (== status 501)
+                              "Not Implemented"
+                              (if (== status 505)
+                                "HTTP Version Not Supported"
+                                "Unknown"
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The `Content-Type` for a file name, by its extension: `.html`,
+; `.css`, `.js`, `.svg`, `.png`, `.ico`, `.txt` and `.json` are named,
+; and everything else is `application/octet-stream` - deliberately not
+; `text/html`, which is the stored-XSS route for an unknown file.
+(pub :: httpContentType (-> String String))
+
+(pub fn (httpContentType name)
+  (let ((ext (pathExt name)))
+    (if (strEq ext ".html")
+      "text/html; charset=utf-8"
+      (if (strEq ext ".css")
+        "text/css; charset=utf-8"
+        (if (strEq ext ".js")
+          "text/javascript; charset=utf-8"
+          (if (strEq ext ".svg")
+            "image/svg+xml"
+            (if (strEq ext ".png")
+              "image/png"
+              (if (strEq ext ".ico")
+                "image/vnd.microsoft.icon"
+                (if (strEq ext ".txt")
+                  "text/plain; charset=utf-8"
+                  (if (strEq ext ".json")
+                    "application/json"
+                    "application/octet-stream"
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The pieces of a `Vec` of Strings as one String: one allocation and
+; one copy per piece, `Json.ax`'s `jsonJoin`.
+(:: httpJoin (-> Int String))
+
+(fn (httpJoin pieces)
+  (let (
+    (mut k 0)
+    (mut total 0)
+  )
+    {
+      (while (< k (vecLen pieces))
+        {
+          (set total (+ total (strLen (vecGetStr pieces k))))
+          (set k (+ k 1))
+        })
+      (let (
+        (out (strAlloc total))
+        (mut j 0)
+        (mut off 0)
+      )
+        {
+          (while (< j (vecLen pieces))
+            (let ((p (vecGetStr pieces j)))
+              {
+                (memCopy (+ (strData out) off) (strData p) (strLen p))
+                (set off (+ off (strLen p)))
+                (set j (+ j 1))
+              }
+            ))
+          out
+        }
+      )
+    }
+  )
+)
+
+; The response head: status line, `Content-Type`, `Content-Length`,
+; `Connection: close`, blank line. CRLF throughout.
+(:: httpHead (-> Int String Int String))
+
+(fn (httpHead status ctype len)
+  (let ((pieces vecNew))
+    {
+      (vecPush pieces "HTTP/1.1 ")
+      (vecPush pieces (fmtInt status))
+      (vecPush pieces " ")
+      (vecPush pieces (httpStatusText status))
+      (vecPush pieces "\r\nContent-Type: ")
+      (vecPush pieces ctype)
+      (vecPush pieces "\r\nContent-Length: ")
+      (vecPush pieces (fmtInt len))
+      (vecPush pieces "\r\nConnection: close\r\n\r\n")
+      (httpJoin pieces)
+    }
+  )
+)
+
+; Write a whole response to `fd`: the head for `status` and `ctype`
+; with `Content-Length: len`, then the `len` bytes at `addr`. Every
+; write goes through `sysWriteAllFd`. Takes an address and a length
+; rather than a String so that a body holding a NUL byte - a PNG - is
+; written whole; `strCStr` would stop at the NUL. Answers what the
+; body's `sysWriteAllFd` answered, the head's when that one failed.
+(pub :: httpRespondRaw (-> Int Int String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (httpRespondRaw fd status ctype addr len)
+  (let ((head (httpHead status ctype len)))
+    (let ((w (sysWriteAllFd fd (strData head) (strLen head) 0)))
+      (if (< w (strLen head))
+        w
+        (sysWriteAllFd fd addr len 0)
+      )
+    )
+  )
+)
+
+; Write a whole response whose body is the String `body`:
+; `httpRespondRaw` over its bytes and its byte count.
+(pub :: httpRespond (-> Int Int String String Int))
+
+;@axiom:effect(io)
+(pub fn (httpRespond fd status ctype body) (httpRespondRaw
+  fd  status  ctype  (strData body)  (strLen body)
+))
+
+; A plain-text refusal or error page: `status` with its reason phrase
+; and `why` as the body, so a curl user reads the reason on the
+; terminal. Answers `status`.
+(pub :: httpFail (-> Int Int String Int))
+
+;@axiom:effect(io)
+(pub fn (httpFail fd status why)
+  (let ((pieces vecNew))
+    {
+      (vecPush pieces (fmtInt status))
+      (vecPush pieces " ")
+      (vecPush pieces (httpStatusText status))
+      (vecPush pieces ": ")
+      (vecPush pieces why)
+      (vecPush pieces "\n")
+      (httpRespond fd status "text/plain; charset=utf-8" (httpJoin pieces))
+      status
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The router
+; ------------------------------------------------------------------
+; A handler: a function of the socket and the request, answering an
+; Int the dispatcher passes back. Held in a cell because the router
+; keeps handlers in a `Vec` of words. Written as
+; `(HttpFn (lambda (fd r) (page fd r)))` around a signed `fn`.
+(pub data HttpHandler
+  (HttpFn (-> Int HttpReq Int)))
+
+; The routing table: exact routes as three parallel `Vec`s (method,
+; path, handler cell), static prefixes as two (URL prefix, directory),
+; and the handler for a path nothing matched.
+(pub struct HttpRouter
+  (methods : Int)
+  (paths : Int)
+  (handlers : Int)
+  (prefixes : Int)
+  (dirs : Int)
+  (missing : HttpHandler))
+
+; The default not-found handler: a plain-text 404.
+(:: httpDefaultMissing (-> Int HttpReq Int))
+
+;@axiom:effect(io)
+(fn (httpDefaultMissing fd r) (httpFail fd 404 "no route for this path"))
+
+; An empty router whose not-found handler writes a plain-text 404.
+; `IO`, because the checker charges a function with the effects of
+; the lambda it builds, and the default handler writes.
+(pub :: routerNew HttpRouter)
+
+;@axiom:effect(io)
+(pub fn (routerNew)
+  (HttpRouter
+    vecNew    vecNew    vecNew    vecNew    vecNew    (HttpFn
+      (lambda (fd r) (httpDefaultMissing fd r))
+    )
+  )
+)
+
+; Route `method` (`GET`, `POST`, ...) at exactly `path` to `h`. Routes
+; are tried in the order they were added. Answers the route's index.
+(pub :: routeAdd (-> HttpRouter String String HttpHandler Int))
+
+(pub fn (routeAdd rt method path h)
+  {
+    (vecPush rt.methods method)
+    (vecPush rt.paths path)
+    (vecPush rt.handlers h)
+    (- (vecLen rt.paths) 1)
+  }
+)
+
+; Serve GET requests under URL `prefix` (write it with its trailing
+; slash: `/static/`) from the files under directory `dir`. Answers the
+; mapping's index.
+(pub :: routeStatic (-> HttpRouter String String Int))
+
+(pub fn (routeStatic rt prefix dir)
+  {
+    (vecPush rt.prefixes prefix)
+    (vecPush rt.dirs dir)
+    (- (vecLen rt.prefixes) 1)
+  }
+)
+
+; Replace the not-found handler.
+(pub :: routeNotFound (-> HttpRouter HttpHandler Int))
+
+(pub fn (routeNotFound rt h)
+  {
+    (set rt.missing h)
+    0
+  }
+)
+
+; The handler cell at route `i`. The cast is at a RETURN inside a
+; signature that carries the type, the position `vecGetStr` uses.
+(:: routeHandlerAt (-> HttpRouter Int HttpHandler))
+
+(fn (routeHandlerAt rt i)
+  (cast HttpHandler (vecGet rt.handlers i))
+)
+
+; Call a handler cell.
+(:: httpCall (-> HttpHandler Int HttpReq Int))
+
+(fn (httpCall h fd r)
+  (match h
+    ((HttpFn f) (f fd r))
+  )
+)
+
+; Whether a request path may reach the filesystem or a route at all:
+; it starts with `/`, holds no NUL and no `\`, and has no empty
+; segment (`//`) and no `..` segment. Decided on the DECODED path, so
+; `%2e%2e` is `..` here.
+(pub :: httpPathSafe (-> String Bool))
+
+(pub fn (httpPathSafe p)
+  ; `seg` is where the current segment started; a segment ends at
+  ; every `/` and at the end of the path
+  (let (
+    (len (strLen p))
+    (mut i 1)
+    (mut ok (if (&& (> (strLen p) 0) (== (strByte p 0) 47))
+      1
+      0
+    ))
+    (mut seg 1)
+  )
+    {
+      (while (&& (== ok 1) (<= i len))
+        (let ((c 
+          (if (== i len)
+            47
+            (strByte p i)
+          )
+        ))
+          {
+            (if (|| (== c 0) (== c 92))
+              {
+                (set ok 0)
+                0
+              }
+              (if (== c 47)
+                {
+                  (if (&& (== seg i) (< i len))
+                    {
+                      (set ok 0)
+                      0
+                    }
+                    0
+                  )
+                  (if (&& (== (- i seg) 2) (&& (== (strByte p seg) 46) (== (strByte p (+ seg 1)) 46)))
+                    {
+                      (set ok 0)
+                      0
+                    }
+                    0
+                  )
+                  (set seg (+ i 1))
+                  0
+                }
+                0
+              )
+            )
+            (set i (+ i 1))
+            0
+          }
+        ))
+      (== ok 1)
+    }
+  )
+)
+
+; Serve the file that `req`'s path names under `prefix` out of `dir`
+; to `fd`: 400 when the path is unsafe, 404 when the rest of the path
+; is empty or names nothing or a directory, otherwise 200 with the
+; content type of its extension and its bytes written whole. The path
+; is checked before the filesystem is touched.
+(pub :: httpServeFile (-> Int HttpReq String String Int))
+
+;@axiom:effect(io)
+(pub fn (httpServeFile fd req prefix dir)
+  (if (httpPathSafe req.path)
+    (let ((rest (strSlice req.path (strLen prefix) (- (strLen req.path) (strLen prefix)))))
+      (if (== (strLen rest) 0)
+        (httpFail fd 404 "no file named")
+        (let ((full (pathJoin dir rest)))
+          (if (sysFileExists (strCStr full))
+            (if (sysIsDir (strCStr full))
+              (httpFail fd 404 "that is a directory")
+              (let ((bytes (sysReadFile (strCStr full))))
+                (httpRespondRaw
+                  fd                  200                  (httpContentType full)                  (strData bytes)                  (strLen bytes)
+                )
+              )
+            )
+            (httpFail fd 404 "no such file")
+          )
+        )
+      )
+    )
+    (httpFail fd 400 "unsafe path")
+  )
+)
+
+; The index of the exact route for `method` and `path`, or -1.
+(:: routeFind (-> HttpRouter String String Int))
+
+(fn (routeFind rt method path)
+  (let (
+    (n (vecLen rt.paths))
+    (mut i 0)
+    (mut found (- 0 1))
+  )
+    {
+      (while (&& (< found 0) (< i n))
+        {
+          (if (&& (strEq (vecGetStr rt.paths i) path) (strEq (vecGetStr rt.methods i) method))
+            {
+              (set found i)
+              0
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      found
+    }
+  )
+)
+
+; Whether any route, whatever its method, is at exactly `path` - the
+; 405 question.
+(:: routeHasPath (-> HttpRouter String Bool))
+
+(fn (routeHasPath rt path)
+  (let (
+    (n (vecLen rt.paths))
+    (mut i 0)
+    (mut found 0)
+  )
+    {
+      (while (&& (== found 0) (< i n))
+        {
+          (if (strEq (vecGetStr rt.paths i) path)
+            {
+              (set found 1)
+              0
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      (== found 1)
+    }
+  )
+)
+
+; The index of the static prefix `path` starts with, or -1.
+(:: routeFindStatic (-> HttpRouter String Int))
+
+(fn (routeFindStatic rt path)
+  (let (
+    (n (vecLen rt.prefixes))
+    (mut i 0)
+    (mut found (- 0 1))
+  )
+    {
+      (while (&& (< found 0) (< i n))
+        {
+          (if (strStartsWith path (vecGetStr rt.prefixes i))
+            {
+              (set found i)
+              0
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      found
+    }
+  )
+)
+
+; Answer `req` on `fd`: an unsafe path is 400 before anything else is
+; consulted; then the exact routes, in order; then the static
+; prefixes, for GET (405 otherwise); then 405 when the path has a
+; route for another method; then the not-found handler. Answers what
+; the handler answered.
+(pub :: routeDispatch (-> HttpRouter Int HttpReq Int))
+
+;@axiom:effect(io)
+(pub fn (routeDispatch rt fd req)
+  (if (httpPathSafe req.path)
+    (let ((i (routeFind rt req.method req.path)))
+      (if (>= i 0)
+        (httpCall (routeHandlerAt rt i) fd req)
+        (let ((s (routeFindStatic rt req.path)))
+          (if (>= s 0)
+            (if (strEq req.method "GET")
+              (httpServeFile fd req (vecGetStr rt.prefixes s) (vecGetStr rt.dirs s))
+              (httpFail fd 405 "static files are served for GET")
+            )
+            (if (routeHasPath rt req.path)
+              (httpFail fd 405 "no route for this method at this path")
+              (httpCall rt.missing fd req)
+            )
+          )
+        )
+      )
+    )
+    (httpFail fd 400 "unsafe path")
+  )
+)
+
+; One connection, start to finish: read the request off `fd`, and
+; either dispatch it or write the parser's refusal back with the
+; status the error carries. Answers the handler's answer, or the
+; status written for a refusal. The caller owns the socket - it set it
+; blocking, and it closes it - and the arena scope around this call is
+; the caller's too.
+(pub :: httpServeOne (-> HttpRouter Int Int))
+
+;@axiom:effect(io)
+(pub fn (httpServeOne rt fd)
+  (match (httpRead (httpReaderNew fd))
+    ((Ok req) (routeDispatch rt fd req))
+    ((Err e) (httpFail fd (errCode e) (errMessage e)))
+  )
+)

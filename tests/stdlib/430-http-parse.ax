@@ -1,0 +1,252 @@
+; The HTTP request parser over literal request bytes, fed through a
+; loopback socket in one process.
+;
+; NO SECOND PROCESS, for `307-socket-roundtrip.ax`'s reason: a case
+; with no second process cannot flake on one. There is no `pipe` in
+; `Sys.ax`, so the bytes go through a listener this process connects
+; to itself: write the whole request on the client end, shut its
+; write side so the server end sees end-of-stream after the bytes,
+; then read. THE PORT COMES FROM THE PID because the gates run cases
+; in parallel.
+;
+; PARTIAL READS ARE DRIVEN BY THE READER'S CAPACITY, not by timing.
+; Writing a request one byte at a time proves nothing here - the
+; kernel coalesces it and the first `read` answers all of it - so
+; the byte-at-a-time arm is `httpReaderWith con 1`: a one-byte
+; buffer, so every `read` answers one byte and the refill loop meets
+; every boundary a slow peer could put a read on, including the
+; buffer doubling eight times to hold the head. Capacity 8 puts the
+; boundary inside the body. The one-write arm at a capacity of 8 KiB,
+; which holds every request here in one read, must answer the same
+; rendering as both, which is what makes the three lines below one
+; claim.
+;
+; WHAT IS REFUSED, one line each, with the status the error carries:
+; bare `\n` endings (400), a header without a colon (400), a request
+; line of two tokens (400), HTTP/2 (505), `Content-Length:
+; 18446744073709551621` (400 - `strParseInt` answers None for the
+; value that wrapped to 5 in Rpc.ax), `9223372036854775800` (413,
+; above the 8 MiB ceiling), a 17,000-byte head (431), a peer that
+; closes mid-body (400), and Transfer-Encoding (501).
+;
+; The negative probes, run against a copy of Http.ax: the refill loop
+; cut to a single read fails the capacity-1 and capacity-8 arms and
+; leaves the one-write arm green; the header names left unlowered in
+; the parser fail the `CONTENT-TYPE` and `Content-Type` checks and
+; leave the lower-case one green; the body ceiling raised to the
+; largest Int does not make the 413 case answer anything - the
+; fixture DIES there, allocating the 9,223,372,036,854,775,800 bytes
+; the peer named, which is the failure the ceiling exists to refuse.
+(import IO)
+
+(import Sys)
+
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import Fmt)
+
+(import Err)
+
+(import Http)
+
+(:: eq (-> String String String Int))
+
+;@axiom:effect(io)
+(fn (eq name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }
+  )
+)
+
+(:: port Int)
+
+;@axiom:effect(io)
+(fn (port) (+ 30000 (% sysGetPid 9000)))
+
+; Accept, allowing for the connection not having landed on the queue
+; yet - `307-socket-roundtrip.ax`'s bounded retry.
+(:: acceptSoon (-> Int Int Int))
+
+;@axiom:effect(io)
+(fn (acceptSoon lsn tries)
+  (let ((c (netAccept lsn)))
+    (if (>= c 0)
+      c
+      (if (&& (netWouldBlock c) (> tries 0))
+        (acceptSoon lsn (- tries 1))
+        c
+      )
+    )
+  )
+)
+
+; `s` doubled until it covers `n` bytes, then cut to exactly `n`.
+(:: repeatTo (-> String Int String))
+
+(fn (repeatTo s n)
+  (if (>= (strLen s) n)
+    (strSlice s 0 n)
+    (repeatTo (strConcat s s) n)
+  )
+)
+
+; The headers of `r` as `name=value;...`, in order.
+(:: headersText (-> HttpReq String))
+
+(fn (headersText r)
+  (let (
+    (mut i 0)
+    (mut out "")
+  )
+    {
+      (while (< i (vecLen r.hnames))
+        {
+          (set out (strConcat out (strConcat (vecGetStr r.hnames i) (strConcat "=" (strConcat (vecGetStr r.hvals i) ";")))))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; One line describing a parse result: the request rendered, or the
+; refusal's status and message.
+(:: resultText (-> (Result HttpReq Error) String))
+
+(fn (resultText res)
+  (match res
+    ((Ok r) (strConcat r.method (strConcat " " (strConcat r.path (strConcat " query=" (strConcat r.query (strConcat " " (strConcat r.version (strConcat " [" (strConcat (headersText r) (strConcat "] body=" r.body)))))))))))
+    ((Err e) (strConcat "ERR " (strConcat (fmtInt (errCode e)) (strConcat " " (errMessage e)))))
+  )
+)
+
+; Write `request` through a loopback connection to `lsn` and parse it
+; on the accepted end with a reader of capacity `cap`, answering the
+; rendering. The client's write side is shut after the bytes so the
+; reader sees end-of-stream where a real peer would still be silent.
+(:: parseVia (-> Int String Int String))
+
+;@axiom:effect(io)
+(fn (parseVia lsn request cap)
+  (let (
+    (addr (memAlloc 16))
+    (cli netSocketTcp)
+  )
+    {
+      (netAddr4
+        addr        port        127        0        0        1
+      )
+      (if (< (netConnect cli addr) 0)
+        "ERR connect failed"
+        (let ((con (acceptSoon lsn 1000)))
+          (if (< con 0)
+            "ERR accept failed"
+            {
+              (netSetBlocking con)
+              (sysWriteAllFd cli (strData request) (strLen request) 0)
+              (netShutdown cli 1)
+              (let ((text (resultText (httpRead (httpReaderWith con cap)))))
+                {
+                  (sysCloseFd con)
+                  (sysCloseFd cli)
+                  text
+                }
+              )
+            }
+          )
+        )
+      )
+    }
+  )
+)
+
+; The same request parsed at three capacities must render the same.
+(:: sameAtAllCaps (-> Int String String String Int))
+
+;@axiom:effect(io)
+(fn (sameAtAllCaps lsn label request want)
+  {
+    (eq (strConcat label ", one read") (parseVia lsn request 8192) want)
+    (eq (strConcat label ", one byte per read") (parseVia lsn request 1) want)
+    (eq (strConcat label ", eight bytes per read") (parseVia lsn request 8) want)
+  }
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (addr (memAlloc 16))
+    (optb (memAlloc 4))
+    (lsn netSocketTcp)
+  )
+    {
+      (netSetOptInt
+        lsn        solSocket        soReuseAddr        1        optb
+      )
+      (netAddr4
+        addr        port        127        0        0        1
+      )
+      (if (!= (netBind lsn addr) 0)
+        (die "bind failed" 1)
+        0
+      )
+      (netListen lsn 16)
+      (netSetNonBlocking lsn)
+      ; --- a whole request, at three read granularities ----------
+      (sameAtAllCaps lsn "GET with headers" "GET /items?x=1&y=2 HTTP/1.1\r\nHost: example.test\r\nAccept: */*\r\n\r\n" "GET /items query=x=1&y=2 HTTP/1.1 [host=example.test;accept=*/*;] body=")
+      (sameAtAllCaps lsn "POST with a body" "POST /echo HTTP/1.1\r\nHost: h\r\nContent-Length: 11\r\nContent-Type: text/plain\r\n\r\nhello world" "POST /echo query= HTTP/1.1 [host=h;content-length=11;content-type=text/plain;] body=hello world")
+      ; --- header names are case-insensitive, values trimmed -------
+      (eq "CONTENT-TYPE reaches content-type" (parseVia lsn "GET / HTTP/1.1\r\nCONTENT-TYPE:   text/html  \r\n\r\n" 8192) "GET / query= HTTP/1.1 [content-type=text/html;] body=")
+      (eq "Content-Type reaches content-type" (parseVia lsn "GET / HTTP/1.1\r\nContent-Type: a\r\n\r\n" 8192) "GET / query= HTTP/1.1 [content-type=a;] body=")
+      (eq "content-type reaches content-type" (parseVia lsn "GET / HTTP/1.1\r\ncontent-type: b\r\n\r\n" 8192) "GET / query= HTTP/1.1 [content-type=b;] body=")
+      ; --- the path is decoded, the query is raw -------------------
+      (eq "percent-decoding in the path, not the query" (parseVia lsn "GET /a%20b/c%2Fd?q=x%20y HTTP/1.1\r\n\r\n" 8192) "GET /a b/c/d query=q=x%20y HTTP/1.1 [] body=")
+      (eq "HTTP/1.0 is served" (parseVia lsn "GET / HTTP/1.0\r\n\r\n" 8192) "GET / query= HTTP/1.0 [] body=")
+      (eq "a body longer than Content-Length is cut at the length" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\nabcdef" 8192) "POST / query= HTTP/1.1 [content-length=3;] body=abc")
+      (eq "Content-Length: 0 is an empty body" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n" 8192) "POST / query= HTTP/1.1 [content-length=0;] body=")
+      ; --- refusals, each with its status --------------------------
+      (eq "bare LF line endings are refused" (parseVia lsn "GET / HTTP/1.1\nHost: x\n\n" 8192) "ERR 400 connection closed before the request head was complete")
+      (eq "a bare LF inside a CRLF head is refused" (parseVia lsn "GET / HTTP/1.1\r\nHost: x\nY: z\r\n\r\n" 8192) "ERR 400 bare LF line ending in the request head")
+      (eq "a header with no colon is refused" (parseVia lsn "GET / HTTP/1.1\r\nHost example\r\n\r\n" 8192) "ERR 400 header line without a name and a colon")
+      (eq "a space before the colon is refused" (parseVia lsn "GET / HTTP/1.1\r\nHost : example\r\n\r\n" 8192) "ERR 400 whitespace in a header name")
+      (eq "a two-token request line is refused" (parseVia lsn "GET /\r\n\r\n" 8192) "ERR 400 request line is not METHOD TARGET VERSION")
+      (eq "a four-token request line is refused" (parseVia lsn "GET / HTTP/1.1 extra\r\n\r\n" 8192) "ERR 400 request line is not METHOD TARGET VERSION")
+      (eq "HTTP/2 is refused" (parseVia lsn "GET / HTTP/2\r\n\r\n" 8192) "ERR 505 only HTTP/1.0 and HTTP/1.1 are served")
+      (eq "the value that wrapped to 5 in Rpc.ax is refused" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: 18446744073709551621\r\n\r\nhello" 8192) "ERR 400 Content-Length is not a decimal integer")
+      (eq "a length above the ceiling is refused" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: 9223372036854775800\r\n\r\n{}" 8192) "ERR 413 Content-Length above httpMaxBody")
+      (eq "a negative length is refused" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: -1\r\n\r\n" 8192) "ERR 400 Content-Length is negative")
+      (eq "a peer that closes mid-body is refused" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc" 8192) "ERR 400 connection closed before Content-Length bytes of body arrived")
+      (eq "Transfer-Encoding is refused" (parseVia lsn "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n" 8192) "ERR 501 Transfer-Encoding is not served; send Content-Length")
+      (eq "a 17,000-byte head is refused" (parseVia lsn (strConcat "GET / HTTP/1.1\r\nX-Pad: " (strConcat (repeatTo "x" 17000) "\r\n\r\n")) 8192) "ERR 431 request head larger than httpMaxHead")
+      (eq "an empty stream is refused" (parseVia lsn "" 8192) "ERR 400 connection closed before the request head was complete")
+      ; --- the query accessor ----------------------------------
+      (let ((r (HttpReq
+        "GET"        "/"        "q=a%20b+c&x=1&flag&y="        "HTTP/1.1"        vecNew        vecNew        ""
+      )))
+        {
+          (eq "httpQueryParam decodes %20 and +" (httpQueryParam r "q" "?") "a b c")
+          (eq "httpQueryParam finds a later pair" (httpQueryParam r "x" "?") "1")
+          (eq "a pair with no = is empty" (httpQueryParam r "flag" "?") "")
+          (eq "a pair with an empty value is empty" (httpQueryParam r "y" "?") "")
+          (eq "an absent parameter is the default" (httpQueryParam r "zz" "?") "?")
+          (eq "httpHeader on a request with none is the default" (httpHeader r "host" "none") "none")
+        }
+      )
+      (sysCloseFd lsn)
+      0
+    }
+  )
+)

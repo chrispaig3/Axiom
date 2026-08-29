@@ -1,0 +1,220 @@
+; The router: exact routes, the static prefix, the traversal refusal,
+; 404 and 405, with no socket - requests are built directly and each
+; response is written to a file and read back.
+;
+; THE TRAVERSAL ARM IS THE POINT. A file is planted OUTSIDE the
+; static directory, `secret.txt`, and every spelling that would reach
+; it through the static prefix must answer 400 before the filesystem
+; is touched: `..` as a segment, `..` written `%2e%2e` (the parser
+; decodes before the router sees the path, so the router is handed
+; the dots), an empty segment `//` that would make `pathJoin` take
+; the rest as absolute, a backslash, a NUL byte. And the planted file
+; IS served when asked for honestly through its own prefix, because
+; a refusal test that never sees an acceptance is testing nothing -
+; the negative probe replaces `httpPathSafe`'s answer with `true` in a
+; copy of Http.ax and requires the `..` case to serve `secret.txt`.
+;
+; Also pinned: a route hit with the request's own query reaching the
+; handler; the same path with another method answering 405; a path
+; nothing matched answering the default 404 and then a replaced
+; not-found handler; a static file served with its extension's type;
+; an unknown extension as octet-stream; a directory and a missing
+; file as 404; the static prefix refusing POST with 405.
+(import IO)
+
+(import Sys)
+
+(import Str)
+
+(import Vec)
+
+(import Mem)
+
+(import Http)
+
+(:: eq (-> String String String Int))
+
+;@axiom:effect(io)
+(fn (eq name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }
+  )
+)
+
+; A request for `method` and `path`, as the parser would hand it over
+; with no headers and no body.
+(:: req (-> String String String HttpReq))
+
+(fn (req method path query) (HttpReq
+  method  path  query  "HTTP/1.1"  vecNew  vecNew  ""
+))
+
+; Dispatch `r` through `rt` into a file, and answer what was written.
+(:: dispatched (-> HttpRouter HttpReq String))
+
+;@axiom:effect(io)
+(fn (dispatched rt r)
+  (let ((fd (sysOpenPath (__addr "out.tmp") oWronlyCreateTrunc)))
+    {
+      (routeDispatch rt fd r)
+      (sysCloseFd fd)
+      (sysReadFile (__addr "out.tmp"))
+    }
+  )
+)
+
+; The response's status line and body, the headers between them
+; elided, so a check reads as `<status> | <body>`.
+(:: gist (-> String String))
+
+(fn (gist resp)
+  (let ((eol (strFindByte resp 13 0)))
+    (match (strFind resp "\r\n\r\n" 0)
+      ((None) resp)
+      ((Some blank) (strConcat (strSlice resp 0 eol) (strConcat " | " (strSlice resp (+ blank 4) (- (strLen resp) (+ blank 4))))))
+    )
+  )
+)
+
+; The handlers, as signed functions; the router holds lambdas that
+; call them.
+(:: index (-> Int HttpReq Int))
+
+;@axiom:effect(io)
+(fn (index fd r) (httpRespond fd 200 "text/html; charset=utf-8" "<p>index</p>"))
+
+(:: echo (-> Int HttpReq Int))
+
+;@axiom:effect(io)
+(fn (echo fd r) (httpRespond fd 200 "text/plain; charset=utf-8" (strConcat "q=" (httpQueryParam r "q" "none"))))
+
+(:: submit (-> Int HttpReq Int))
+
+;@axiom:effect(io)
+(fn (submit fd r) (httpRespond fd 201 "text/plain; charset=utf-8" "posted"))
+
+(:: lost (-> Int HttpReq Int))
+
+;@axiom:effect(io)
+(fn (lost fd r) (httpRespond fd 404 "text/html; charset=utf-8" (strConcat "<h1>nothing at " (strConcat r.path "</h1>"))))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  ; the files: a static directory with a stylesheet, a binary of
+  ; unknown extension and a subdirectory, and a secret beside it
+  (let ((rt routerNew))
+    {
+      (makeDir "pub")
+      (makeDir "pub/sub")
+      (writeFile "pub/site.css" "body { margin: 0 }\n")
+      (writeFile "pub/blob.bin" "not html")
+      (writeFile "secret.txt" "the secret\n")
+      (routeAdd
+        rt        "GET"        "/"        (HttpFn
+          (lambda (fd r) (index fd r))
+        )
+      )
+      (routeAdd
+        rt        "GET"        "/echo"        (HttpFn
+          (lambda (fd r) (echo fd r))
+        )
+      )
+      (routeAdd
+        rt        "POST"        "/echo"        (HttpFn
+          (lambda (fd r) (submit fd r))
+        )
+      )
+      (routeStatic rt "/static/" "pub")
+      (routeStatic rt "/open/" ".")
+      ; --- routes ------------------------------------------------
+      (eq "an exact route is hit" (gist (dispatched rt (req "GET" "/" ""))) "HTTP/1.1 200 OK | <p>index</p>")
+      (eq "the handler sees the query" (gist (dispatched rt (req "GET" "/echo" "q=hi+there"))) "HTTP/1.1 200 OK | q=hi there")
+      (eq "the same path routes by method" (gist (dispatched rt (req "POST" "/echo" ""))) "HTTP/1.1 201 Created | posted")
+      (eq "a path with a route for another method is 405" (gist (dispatched rt (req "DELETE" "/echo" ""))) "HTTP/1.1 405 Method Not Allowed | 405 Method Not Allowed: no route for this method at this path\n")
+      (eq "a path nothing matched is the default 404" (gist (dispatched rt (req "GET" "/nope" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no route for this path\n")
+      (routeNotFound
+        rt        (HttpFn
+          (lambda (fd r) (lost fd r))
+        )
+      )
+      (eq "the not-found handler can be replaced" (gist (dispatched rt (req "GET" "/nope" ""))) "HTTP/1.1 404 Not Found | <h1>nothing at /nope</h1>")
+      ; --- static files ------------------------------------------
+      (eq "a static file is served with its type" (dispatched rt (req "GET" "/static/site.css" "")) "HTTP/1.1 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Length: 19\r\nConnection: close\r\n\r\nbody { margin: 0 }\n")
+      (eq "an unknown extension is octet-stream" (gist (dispatched rt (req "GET" "/static/blob.bin" ""))) "HTTP/1.1 200 OK | not html")
+      (eq "a missing file is 404" (gist (dispatched rt (req "GET" "/static/none.css" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no such file\n")
+      (eq "a directory is 404" (gist (dispatched rt (req "GET" "/static/sub" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: that is a directory\n")
+      (eq "the prefix alone is 404" (gist (dispatched rt (req "GET" "/static/" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no file named\n")
+      (eq "POST under the static prefix is 405" (gist (dispatched rt (req "POST" "/static/site.css" ""))) "HTTP/1.1 405 Method Not Allowed | 405 Method Not Allowed: static files are served for GET\n")
+      ; --- the planted secret: reachable honestly, never by traversal
+      (eq "the secret is served through its own prefix" (gist (dispatched rt (req "GET" "/open/secret.txt" ""))) "HTTP/1.1 200 OK | the secret\n")
+      (eq ".. as a segment is refused" (gist (dispatched rt (req "GET" "/static/../secret.txt" ""))) "HTTP/1.1 400 Bad Request | 400 Bad Request: unsafe path\n")
+      (eq ".. deeper in is refused" (gist (dispatched rt (req "GET" "/static/sub/../../secret.txt" ""))) "HTTP/1.1 400 Bad Request | 400 Bad Request: unsafe path\n")
+      (eq "an empty segment is refused" (gist (dispatched rt (req "GET" "/static//secret.txt" ""))) "HTTP/1.1 400 Bad Request | 400 Bad Request: unsafe path\n")
+      (eq "a backslash is refused" (gist (dispatched rt (req "GET" "/static/..\\secret.txt" ""))) "HTTP/1.1 400 Bad Request | 400 Bad Request: unsafe path\n")
+      (eq "a path not starting with / is refused" (gist (dispatched rt (req "GET" "static/site.css" ""))) "HTTP/1.1 400 Bad Request | 400 Bad Request: unsafe path\n")
+      (eq "..x is a name, not a traversal" (gist (dispatched rt (req "GET" "/static/..x" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no such file\n")
+      (eq "a trailing slash on a route path is a different path" (gist (dispatched rt (req "GET" "/echo/" ""))) "HTTP/1.1 404 Not Found | <h1>nothing at /echo/</h1>")
+      ; a NUL byte cannot be spelled in a literal; build the path
+      (let ((nulPath (strAlloc 9)))
+        {
+          (memCopy (strData nulPath) (strData "/static/x") 9)
+          (__store8 (strData nulPath) 8 0)
+          (eq "a NUL byte in the path is refused" (gist (dispatched rt (req "GET" nulPath ""))) "HTTP/1.1 400 Bad Request | 400 Bad Request: unsafe path\n")
+        }
+      )
+      ; --- httpPathSafe directly -------------------------------
+      (eq
+        "httpPathSafe accepts a plain path"        (if (httpPathSafe "/a/b.c")
+          "yes"
+          "no"
+        )        "yes"
+      )
+      (eq
+        "httpPathSafe accepts a trailing slash"        (if (httpPathSafe "/a/")
+          "yes"
+          "no"
+        )        "yes"
+      )
+      (eq
+        "httpPathSafe accepts the root"        (if (httpPathSafe "/")
+          "yes"
+          "no"
+        )        "yes"
+      )
+      (eq
+        "httpPathSafe refuses the empty path"        (if (httpPathSafe "")
+          "yes"
+          "no"
+        )        "no"
+      )
+      (eq
+        "httpPathSafe refuses /.."        (if (httpPathSafe "/..")
+          "yes"
+          "no"
+        )        "no"
+      )
+      (eq
+        "httpPathSafe refuses a/../b"        (if (httpPathSafe "/a/../b")
+          "yes"
+          "no"
+        )        "no"
+      )
+      (eq
+        "httpPathSafe accepts a single dot segment"        (if (httpPathSafe "/a/./b")
+          "yes"
+          "no"
+        )        "yes"
+      )
+      0
+    }
+  )
+)

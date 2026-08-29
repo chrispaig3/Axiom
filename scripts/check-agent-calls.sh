@@ -24,10 +24,20 @@
 #
 #   TOTALITY. Every row whose effect set was INFERRED carries at least
 #   one edge accounting for it. A row with `#effects=IO` and no edge is
-#   an effect from nowhere. Two shapes legitimately have none and both
+#   an effect from nowhere. Three shapes legitimately have none and all
 #   are named below with the reason: an `extern`, whose row is
-#   CONSTRUCTED by `tcAddExtern` rather than walked, and a row with no
-#   effects at all.
+#   CONSTRUCTED by `tcAddExtern` rather than walked; a row with no
+#   effects at all; and a row whose whole effect set is `Mut` - the
+#   `set` of a struct field is the one effect-bearing FORM in the
+#   language that is not a call, so a function that assigns a field and
+#   calls nothing has `Mut` and no edge, by the walk's own definition.
+#   Measured 2026-08-29 (`stdlib/Http.ax`'s `routeNotFound` was the
+#   first such row in the library): `(fn (f c x) { (set c.v x) 0 })`
+#   prints `#effects=Mut` and no `#calls=`; the same `set` on a `mut`
+#   LOCAL prints no effect at all; and `__store64` prints `Mut` WITH a
+#   `__store64` edge, because a builtin is a `FnEnt`. Only the field
+#   form has no name to record, so only the exact set `{Mut}` is
+#   excused - `Alloc,Mut` with no edge is still an effect from nowhere.
 #
 #   SILENCE BY DEFAULT. Without `--calls`, no row carries the key.
 #   `tests/tools/symbols-zoo.golden` pins 147 rows byte for byte and
@@ -253,10 +263,14 @@ echo "== totality: an inferred effect has an edge that accounts for it =="
 # An `extern` item's row is CONSTRUCTED - `tcAddExtern` seeds `IO`
 # rather than inferring it - so it has no edge and must not have one.
 # Anchored on the SPAN field, not on the line, so a meta value spelling
-# `Ffi.ax` cannot inherit the exemption.
+# `Ffi.ax` cannot inherit the exemption. And a row whose effect set is
+# exactly `Mut` is the field-`set` form's own row (the header says how
+# that was measured); the match is on the whole value, so a row that
+# also carries `Alloc` or `IO` is still reported.
 missing=$(awk -v p="$stdlib_prefix" '
   $1 == "F" && index($3, p) == 1 &&
   /#effects=/ && !/#calls=/ &&
+  !/#effects=Mut( |$)/ &&
   index($3, p "Ffi.ax:") != 1 { print $2, $3 }' "$work/calls" | LC_ALL=C sort -u || true)
 if [[ -n "$missing" ]]; then
   echo "FAIL: these rows carry an inferred effect and no edge explaining it:"
@@ -266,7 +280,7 @@ if [[ -n "$missing" ]]; then
   echo '     `tcAddExtern` does - in which case name it in this gate.'
   exit 1
 fi
-echo "ok   every inferred effect row carries an edge, extern rows excepted"
+echo "ok   every inferred effect row carries an edge, extern rows and field-set rows excepted"
 
 echo
 echo "== negative probes: every assertion can go red =="
@@ -309,23 +323,29 @@ then
 fi
 echo "ok   a caller whose row omits a callee's effect fails containment"
 
-# TOTALITY can see an effect with no edge, and the Ffi exemption is
-# anchored to the span rather than to the line.
+# TOTALITY can see an effect with no edge, the Ffi exemption is
+# anchored to the span rather than to the line, and the field-set
+# exemption is the exact set `{Mut}`: zeta is excused, eta - `Mut` with
+# an `Alloc` beside it and no edge - is not.
 cat > "$work/tot.axsym" <<'TOT'
 F gamma /x/stdlib/B.ax:1:1-2 "(Int -> Int)" @c #effects=IO
 F delta /x/stdlib/Ffi.ax:1:1-2 "(Int -> Int)" @d #effects=IO
 F epsilon /x/stdlib/C.ax:1:1-2 "(Int -> Int)" @e #effects=IO #calls=Ffi.ax
+F zeta /x/stdlib/D.ax:1:1-2 "(Int -> Int)" @f #effects=Mut
+F eta /x/stdlib/D.ax:2:1-2 "(Int -> Int)" @g #effects=Alloc,Mut
 TOT
 hits=$(awk -v p="/x/stdlib/" '
   $1 == "F" && index($3, p) == 1 && /#effects=/ && !/#calls=/ &&
-  index($3, p "Ffi.ax:") != 1 { print $2 }' "$work/tot.axsym" || true)
-if [[ "$hits" != "gamma" ]]; then
-  echo "FAIL negative: the totality matcher reported '$hits', wanted exactly 'gamma'"
+  !/#effects=Mut( |$)/ &&
+  index($3, p "Ffi.ax:") != 1 { print $2 }' "$work/tot.axsym" | tr '\n' ' ' || true)
+if [[ "$hits" != "gamma eta " ]]; then
+  echo "FAIL negative: the totality matcher reported '$hits', wanted exactly 'gamma eta '"
   echo "               (delta is the anchored Ffi exemption; epsilon has an edge"
-  echo "                whose VALUE spells Ffi.ax and must not inherit it)"
+  echo "                whose VALUE spells Ffi.ax and must not inherit it; zeta"
+  echo "                is a field set, Mut alone; eta carries Alloc too)"
   exit 1
 fi
-echo "ok   totality sees an unexplained effect, and the Ffi exemption is anchored"
+echo "ok   totality sees an unexplained effect, the Ffi exemption is anchored, and only {Mut} is a field set"
 
 # SILENCE can see the key arriving unasked.
 printf 'F zeta /x/stdlib/D.ax:1:1-2 "Int" @f #effects=IO #calls=D$eta\n' > "$work/sil.axsym"

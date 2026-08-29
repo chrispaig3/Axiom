@@ -137,6 +137,13 @@
 ;     names are `(attr b "title" v)` and `(attr b "style" v)`; `for`
 ;     is the iteration form, so `<label for=...>` is `(attr b "for"
 ;     v)`.
+;   - and the rule cuts the other way for a macro of YOUR OWN: a
+;     template parameter named like a tag hides that tag inside the
+;     template. `(macro (page b body) ... (body b {...}) ...)` does
+;     not invoke `<body>` - substitution puts the caller's block where
+;     the head stands and the checker reports `expected function type,
+;     found Int` at the caller's first child. Measured on
+;     examples/web/server.ax's page frame, whose parameter is `kids`.
 ;
 ; ONE EXPANSION, END TO END, the way docs/macro-system.md shows them.
 ; Source:

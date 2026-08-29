@@ -1,0 +1,31 @@
+ok   a 200 with a text body
+ok   a 404 with an HTML body
+ok   an empty body is Content-Length: 0
+ok   Content-Length counts bytes, not characters
+ok   httpFail is a plain-text status and reason
+ok   a body with a NUL byte is written whole
+ok   and its head says five bytes
+ok   the NUL byte is in place
+ok   and the byte after it too
+ok   200
+ok   400
+ok   404
+ok   405
+ok   413
+ok   431
+ok   500
+ok   501
+ok   505
+ok   an unnamed status is Unknown
+ok   .html
+ok   .css
+ok   .js
+ok   .svg
+ok   .png
+ok   .ico
+ok   .txt
+ok   .json
+ok   an unknown extension is octet-stream, not text/html
+ok   no extension is octet-stream
+ok   a dot in a directory is not an extension
+ok   the extension is case-sensitive

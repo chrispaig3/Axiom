@@ -1,0 +1,33 @@
+ok   GET with headers, one read
+ok   GET with headers, one byte per read
+ok   GET with headers, eight bytes per read
+ok   POST with a body, one read
+ok   POST with a body, one byte per read
+ok   POST with a body, eight bytes per read
+ok   CONTENT-TYPE reaches content-type
+ok   Content-Type reaches content-type
+ok   content-type reaches content-type
+ok   percent-decoding in the path, not the query
+ok   HTTP/1.0 is served
+ok   a body longer than Content-Length is cut at the length
+ok   Content-Length: 0 is an empty body
+ok   bare LF line endings are refused
+ok   a bare LF inside a CRLF head is refused
+ok   a header with no colon is refused
+ok   a space before the colon is refused
+ok   a two-token request line is refused
+ok   a four-token request line is refused
+ok   HTTP/2 is refused
+ok   the value that wrapped to 5 in Rpc.ax is refused
+ok   a length above the ceiling is refused
+ok   a negative length is refused
+ok   a peer that closes mid-body is refused
+ok   Transfer-Encoding is refused
+ok   a 17,000-byte head is refused
+ok   an empty stream is refused
+ok   httpQueryParam decodes %20 and +
+ok   httpQueryParam finds a later pair
+ok   a pair with no = is empty
+ok   a pair with an empty value is empty
+ok   an absent parameter is the default
+ok   httpHeader on a request with none is the default
