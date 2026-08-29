@@ -47,8 +47,9 @@ ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 case "$(uname -s)" in
-  Darwin) os=darwin ;;
-  Linux)  os=linux ;;
+  Darwin)  os=darwin ;;
+  Linux)   os=linux ;;
+  FreeBSD) os=freebsd ;;
   *) echo "FAIL: unsupported OS $(uname -s)"; exit 1 ;;
 esac
 case "$(uname -m)" in

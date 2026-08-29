@@ -184,6 +184,19 @@ echo "--- 2. every optimisation level: every name printed is a real frame ---"
 # `llc` produced. A walker that printed a name it had invented, or read
 # a name out of the wrong table entry, passes every check that compares
 # its output against itself and fails this one.
+#
+# `symbol_names <binary>` prints one symbol name per line. `nm -j` is
+# the spelling Apple's and GNU's nm share; FreeBSD's base `nm` is ELF
+# Tool Chain's, which has no `-j` and exits 1 - under `set -eo
+# pipefail` that ended this gate silently after "--opt 0: 8 frames
+# named" on FreeBSD 14.4/arm64 (2026-08-29) - and FreeBSD's base
+# `llvm-nm` takes it. Whichever answers is the linker's table either
+# way; an empty answer fails the comparison below by construction,
+# because every printed frame is then a name no table has.
+symbol_names() {
+  nm -j "$1" 2>/dev/null && return 0
+  llvm-nm -j "$1" 2>/dev/null
+}
 for opt in 0 1 2 3; do
   build_at "$opt" "$work/c$opt"
   trace="$(run_err "$work/c$opt")"
@@ -221,7 +234,7 @@ for opt in 0 1 2 3; do
   #
   # Both spellings now go in the set, so a name matches whichever
   # platform spelled it.
-  nm -j "$work/c$opt" 2>/dev/null | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
+  symbol_names "$work/c$opt" | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
   unknown=""
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
@@ -291,19 +304,21 @@ echo "--- 4. all three traps, and each one names itself first ---"
 # all three must carry the trace; the unhandled-effect one is emitted
 # only when a program declares an effect, which is exactly the kind of
 # conditional emission that gets left behind.
-# 2^47, the size `tests/stdlib/314-out-of-memory.ax` uses and for the
+# 2^60, the size `tests/stdlib/314-out-of-memory.ax` uses and for the
 # reason it records: macOS overcommits, so a request for 1 TiB
-# SUCCEEDS and never reaches the failure path. 2^47 is past the user
-# address space on every target this compiler emits for, so the mapping
-# is refused rather than merely unbacked. A smaller number here made
-# this probe exit 0 and assert nothing, which is how the number was
-# rediscovered.
+# SUCCEEDS and never reaches the failure path, and the size has to be
+# past the user address space on every target so the mapping is
+# refused rather than merely unbacked. It was 2^47 until FreeBSD
+# 14.4/arm64 granted that (48-bit user space, no overcommit
+# accounting); a number that fits somewhere makes this probe exit 0
+# there and assert nothing, which is how the number was rediscovered
+# the first time too.
 cat > "$work/oom.ax" <<'PROBE'
 (import Mem)
 
 (pub :: outer Int)
 
-(pub fn (outer) (memAlloc 140737488355328))
+(pub fn (outer) (memAlloc 1152921504606846976))
 
 (pub :: main Int)
 
@@ -465,7 +480,7 @@ fi
 # `define` would be caught even if no frame ever landed on it.
 # Both spellings, for the reason §2 records: stripping the Mach-O
 # prefix unconditionally eats a real character on ELF.
-nm -j "$work/chain0" 2>/dev/null | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
+symbol_names "$work/chain0" | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
 missing=0
 while IFS= read -r sym; do
   [[ -n "$sym" ]] || continue

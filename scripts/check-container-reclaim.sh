@@ -60,9 +60,13 @@ report=0
 # skip when neither `time` answers. A measurement script that silently
 # measures nothing is how the last RSS regression hid.
 max_rss_kb() {
+  # `ru_maxrss` is bytes on Darwin and kilobytes elsewhere, FreeBSD's
+  # `time -l` included; the divisor is the kernel's, not the flag's.
+  local div=1
+  [[ "$(uname -s)" == Darwin ]] && div=1024
   if /usr/bin/time -l true >/dev/null 2>&1; then
     /usr/bin/time -l "$@" 2>&1 >/dev/null \
-      | awk '/maximum resident set size/ {print int($1/1024)}'
+      | awk -v div="$div" '/maximum resident set size/ {print int($1/div)}'
   elif /usr/bin/time -v true >/dev/null 2>&1; then
     /usr/bin/time -v "$@" 2>&1 >/dev/null \
       | awk -F: '/Maximum resident set size/ {print int($2)}'

@@ -67,10 +67,19 @@ status=0
 # reports kilobytes, and neither answering is a FAILURE rather than a
 # skip - a measurement script that silently measures nothing is how
 # the last RSS regression hid.
+#
+# THE UNIT IS THE KERNEL'S, NOT THE FLAG'S. `ru_maxrss` is bytes on
+# Darwin and kilobytes on every other kernel, FreeBSD included, and
+# FreeBSD's `time` takes `-l` too - so keying the division on the flag
+# read 1392 KiB as "1 KiB" on FreeBSD 14.4/arm64 (2026-08-29) and
+# failed the ablation as "cannot see the growth". The divisor is
+# Darwin's alone.
 max_rss_kb() {
+  local div=1
+  [[ "$(uname -s)" == Darwin ]] && div=1024
   if /usr/bin/time -l true >/dev/null 2>&1; then
     /usr/bin/time -l "$@" 2>&1 >/dev/null \
-      | awk '/maximum resident set size/ {print int($1/1024)}'
+      | awk -v div="$div" '/maximum resident set size/ {print int($1/div)}'
   elif /usr/bin/time -v true >/dev/null 2>&1; then
     /usr/bin/time -v "$@" 2>&1 >/dev/null \
       | awk -F: '/Maximum resident set size/ {print int($2)}'

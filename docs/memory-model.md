@@ -1081,11 +1081,13 @@ pre-forked pool that disappears while the supervisor respawns it and
 nothing anywhere says why. 70 now has the shape `emitDivTrap` already
 had for 72 (`MM-EXEC-16`).
 
-Pinned by `tests/stdlib/314-out-of-memory.ax`, which asks for 2^47
+Pinned by `tests/stdlib/314-out-of-memory.ax`, which asks for 2^60
 bytes: macOS overcommits, so a request for a terabyte SUCCEEDS and the
-failure path is never reached, and 2^47 is past the user address space
-on every target this compiler emits for, so the mapping is refused
-rather than merely unbacked. The sentence is pinned in that case's
+failure path is never reached, and the size has to be past the user
+address space on every target this compiler emits for, so the mapping
+is refused rather than merely unbacked. It asked for 2^47 until
+2026-08-29, when FreeBSD 14.4/arm64 - 48 bits of user address space,
+no overcommit accounting - granted it. The sentence is pinned in that case's
 `.err` and the status in its `.exit`, neither checked by the other — a
 program that printed the right sentence and exited 0 fails on the
 status, and one that exited 70 in silence, which is what this tree did
@@ -3515,8 +3517,9 @@ reads its emission, and README's *Targets* section says no runner runs
 that target yet. This paragraph said 70 was
 "the one no fixture can reach without exhausting memory", which was
 false in the strong direction: `314` reaches it **deterministically and
-without exhausting anything**, by asking for 2^47 bytes — past the user
-address space, so the kernel refuses the mapping outright and macOS's
+without exhausting anything**, by asking for 2^60 bytes — past the user
+address space on every target (2^47 was not: FreeBSD 14.4/arm64 granted
+it, 2026-08-29), so the kernel refuses the mapping outright and macOS's
 overcommit cannot swallow the request the way it swallows a terabyte.
 The message is pinned in the case's `.err` and the status in its
 `.exit`, neither checked by the other (`MM-ALLOC-7`). The sentence is

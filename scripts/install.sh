@@ -82,11 +82,12 @@ done
 # ---- platform -------------------------------------------------------
 os="$(uname -s)"; arch="$(uname -m)"
 case "$os" in
-  Darwin) os_name=darwin ;;
-  Linux)  os_name=linux ;;
+  Darwin)  os_name=darwin ;;
+  Linux)   os_name=linux ;;
+  FreeBSD) os_name=freebsd ;;
   MINGW*|MSYS*|CYGWIN*|Windows_NT)
     die "no Axiom release runs on Windows yet. The compiler EMITS for windows-x86_64 (a Linux or macOS build links a .exe with --target=windows-x86_64), but hosting the compiler itself on Windows is a later phase of the Windows track: there is no Windows seed in bootstrap/ and nothing to install. README's Targets section says what is true today" ;;
-  *) die "unsupported OS '$os'. Axiom targets darwin and linux; build from source with scripts/bootstrap-from-seed.sh" ;;
+  *) die "unsupported OS '$os'. Axiom targets darwin, linux and freebsd; build from source with scripts/bootstrap-from-seed.sh" ;;
 esac
 case "$arch" in
   arm64|aarch64) arch_name=aarch64 ;;
@@ -95,15 +96,22 @@ case "$arch" in
 esac
 target="$os_name-$arch_name"
 
-# The one combination that is built but never run. Saying this plainly
-# is the point; shipping it quietly would be the defect.
-if [[ "$target" == "darwin-x86_64" ]]; then
-  cat >&2 <<'NOTE'
-install.sh: there is no release binary for darwin-x86_64.
+# The combinations that are built but never released. Saying this
+# plainly is the point; shipping one quietly would be the defect.
+# darwin-x86_64 has no runner anywhere, so it has never been executed.
+# The two FreeBSD targets (2026-08-29) have seeds and a CI leg that
+# runs the compiler's output on FreeBSD 14; that leg is advisory until
+# it is green, no release job builds for FreeBSD, and no artifact
+# exists to fetch - so this refusal is what a FreeBSD host gets rather
+# than a 404.
+case "$target" in
+  darwin-x86_64|freebsd-x86_64|freebsd-aarch64)
+  cat >&2 <<NOTE
+install.sh: there is no release binary for $target.
 
-  It is assembled and byte-compared in CI, but no runner for it exists,
-  so it has never been executed and no artifact is published for it.
-  Publishing one would imply a support level that does not exist.
+  It is assembled and byte-compared in CI, but no release is built for
+  it, so no artifact is published. Publishing one would imply a support
+  level that does not exist.
 
   To build it yourself, which is supported:
 
@@ -111,8 +119,8 @@ install.sh: there is no release binary for darwin-x86_64.
     ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 
 NOTE
-  exit 1
-fi
+  exit 1 ;;
+esac
 
 # ---- the prefix this is allowed to overwrite ------------------------
 #

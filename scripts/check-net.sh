@@ -334,11 +334,24 @@ fi
 
 # THE CLAIM, IN ONE LINE. Both arms ran the same binary against the same
 # load and differ only in whether the handler was an arena scope, so the
-# ratio between them is the allocator's behaviour with the process
-# baseline cancelled out. Measured at 313x; the floor is 50x, which is
-# far enough below to survive a slower machine and far enough above to
+# ratio of their GROWTH - each arm's large run over its own small one -
+# is the allocator's behaviour with the process baseline cancelled out.
+# Measured at 313x on darwin-aarch64; the floor is 50x, which is far
+# enough below to survive a slower machine and far enough above to
 # catch an arena that stopped reclaiming.
-ratio=$(( n_large_rss / (a_large_rss > 0 ? a_large_rss : 1) ))
+#
+# GROWTH, NOT TOTALS, and that is a correction. This divided the two
+# arms' totals and called the baseline cancelled, which a quotient does
+# not do: on FreeBSD 14.4/arm64 (2026-08-29) the scoped worker sat at
+# 2208 KiB - the dynamic libc and rtld the base `cc` links in, resident
+# - against a few hundred on Darwin, and the same flat arena read as
+# "only 31x". Subtracting each arm's small run first leaves what the
+# handler's connections added, which is the quantity this sentence
+# was always about. A scoped arm whose growth is a fiftieth of the
+# unscoped arm's still fails, which is the case the floor exists for.
+unscoped_growth=$(( n_large_rss - n_small_rss ))
+scoped_growth=$(( a_large_rss - a_small_rss ))
+ratio=$(( unscoped_growth / (scoped_growth > 0 ? scoped_growth : 1) ))
 # ---------------------------------------------------------------
 # Fragmentation. Same binary, same arena, but the response size cycles
 # across three orders of magnitude, so free chunks of many sizes are
@@ -396,12 +409,12 @@ check_peers $((base_port + 7)) ::1 '[::1]' "$v6_src" "$peer_conns" \
   "IPv6" || status=1
 
 if (( ratio < 50 )); then
-  echo "FAIL: scoped (${a_large_rss} KiB) is only ${ratio}x below unscoped (${n_large_rss} KiB)."
+  echo "FAIL: scoped growth (${a_small_rss} -> ${a_large_rss} KiB) is only ${ratio}x below unscoped growth (${n_small_rss} -> ${n_large_rss} KiB)."
   echo "     The handler's garbage is outliving the connection - either the reset is"
   echo "     not rewinding, or something the handler allocates escaped the scope."
   status=1
 else
-  echo "ok   scoped uses ${ratio}x less than unscoped at $conns_large connections"
+  echo "ok   scoped grows ${ratio}x less than unscoped from $conns_small to $conns_large connections (scoped ${a_small_rss} -> ${a_large_rss} KiB, unscoped ${n_small_rss} -> ${n_large_rss} KiB)"
 fi
 
 if (( status == 0 )); then

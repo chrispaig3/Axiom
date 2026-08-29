@@ -104,7 +104,7 @@ for case_file in tests/selfhost/*.ax; do
     continue
   fi
 
-  if ! cc "$work/out.o" -o "$work/prog" -e _main 2>"$work/cc.err"; then
+  if ! cc "$work/out.o" -o "$work/prog" $link_entry 2>"$work/cc.err"; then
     echo "FAIL $name (link failed)"
     head -3 "$work/cc.err" | sed 's/^/    /'
     failed=$((failed + 1))

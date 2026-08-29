@@ -359,6 +359,12 @@ them provision a compiler through the same composite action,
    `continue-on-error` until the target clears the bar README's
    *Targets* section sets — the line is removed when the leg is green,
    and not before. It provisions no compiler: none hosts on Windows yet.
+   Two more jobs, `Tests
+   (freebsd-x86_64)` and `Tests (freebsd-aarch64)`, boot FreeBSD 14 in
+   a VM on the Ubuntu runner (`vmactions/freebsd-vm`, SHA-pinned) and
+   run the bootstrap plus the syscall-table gates there; both are
+   `continue-on-error` and neither target is supported until that line
+   is removed after the job has been seen green.
 3. **FFI** — `check-ffi.sh` on linux-x86_64 and darwin-aarch64: the
    `extern` boundary opens exactly the symbols it declares, the
    generated bindings match a fresh generation, and the `rust/`
@@ -435,7 +441,9 @@ There is deliberately **no `darwin-x86_64` artifact**. It is assembled
 and byte-compared by `check-cross-targets.sh` and executed by no runner
 anywhere, so publishing a binary for it would imply a support level
 that does not exist. `scripts/install.sh` says so and points at the
-seed, which is supported there.
+seed, which is supported there. The two FreeBSD targets are refused by
+the installer in the same words for as long as their CI jobs are
+advisory and no release job builds them.
 
 ---
 

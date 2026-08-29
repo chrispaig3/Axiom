@@ -303,6 +303,16 @@
 ; plain `accept`, then `fcntl` - so that the two BSDs share one path
 ; and the flag value is not a third thing to get wrong. The fourth
 ; argument `Sys.ax` passes is ignored, as Darwin ignores it.
+;
+; MEASURED 2026-08-29, FreeBSD 14.4 arm64, and it is the one place
+; this kernel and Darwin's disagree about the same call: with an
+; address buffer shorter than the peer's 16 bytes, `accept` writes the
+; COPIED length back - caps of 4, 8 and 12 answered 4, 8 and 12 -
+; where Darwin and Linux write the whole 16. The whole length still
+; arrives, in `sin_len` at byte 0, whenever one byte fits; `Sys.ax`'s
+; `netAcceptFrom` reads it back from there on every platform that has
+; the byte, which is what keeps `tests/stdlib/317-peer-address.ax`'s
+; "a short buffer still learns the address's real length" true here.
 (pub :: sysAcceptNum Int)
 
 (pub fn (sysAcceptNum) 30)
@@ -480,6 +490,21 @@
 
 (pub fn (pollSigsetSize) 0)
 
+; --------------------------------------------------------------------
+; Memory, and what "out of memory" means here.
+;
+; `vm.overcommit` is 0 by default, so an anonymous mapping that fits
+; the ADDRESS SPACE is granted whether or not RAM and swap could back
+; it, and a program that maps more than exists dies when it TOUCHES the
+; pages, not when it maps them. Measured 2026-08-29 on 14.4/arm64: a
+; `memAlloc` of 2^47 bytes - which Linux refuses under its overcommit
+; heuristic and Darwin refuses as past its user address space - was
+; granted, because arm64 FreeBSD has 48 bits of user address space.
+; The allocator's out-of-memory trap fires on a REFUSED mapping, so
+; here it fires for a request past the address space and not for one
+; past the machine; `tests/stdlib/314-out-of-memory.ax` asks for 2^60
+; for that reason.
+; --------------------------------------------------------------------
 ; --------------------------------------------------------------------
 ; Entropy
 ;

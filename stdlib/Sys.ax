@@ -1769,6 +1769,26 @@
       sysAcceptNum      fd      addr      lenbuf      acceptNonblockFlag
     ))))
       {
+        ; THE LENGTH THE KERNEL REPORTS IS NOT THE SAME FACT EVERYWHERE.
+        ; Linux and Darwin write the peer's WHOLE length into the cell
+        ; however much of the address fit, so `len > cap` is the
+        ; truncation test. FreeBSD writes the length it COPIED -
+        ; measured 2026-08-29 on 14.4/arm64: caps of 4, 8 and 12
+        ; answered 4, 8 and 12 against a 16-byte peer - and puts the
+        ; whole length where every BSD puts it, in the address's own
+        ; first byte, `sa_len`, which arrives whenever one byte fits.
+        ; So on a platform whose addresses carry a length byte, the
+        ; byte is the authority and the cell is raised to it; on Darwin
+        ; the two already agree, and Linux has no byte to read.
+        (if (&& (>= fd2 0) (&& (== sockaddrHasLenByte 1) (>= cap 1)))
+          (let ((whole (memGetByte addr 0)))
+            (if (> whole (netAddrLenRead lenbuf))
+              (netPutInt32 lenbuf 0 whole)
+              0
+            )
+          )
+          0
+        )
         (if (&& (>= fd2 0) (> (netAddrLenRead lenbuf) cap))
           (memSet addr 0 cap)
           0
@@ -1780,12 +1800,14 @@
 )
 
 ; The length the kernel wrote back into a `netAcceptFrom` cell - 16 for
-; a v4 peer, 28 for a v6 one. It is the REAL length of the peer's
-; address, which is not necessarily how much of it arrived: the kernel
-; copies what fits and reports the whole size either way, so a value
-; larger than the `cap` that went in means the address was cut short.
-; `netAcceptFrom` acts on that itself; a caller reads this to log the
-; family it could not store.
+; a v4 peer, 28 for a v6 one - as normalised by `netAcceptFrom`. It is
+; the REAL length of the peer's address, which is not necessarily how
+; much of it arrived: Linux and Darwin copy what fits and report the
+; whole size, FreeBSD reports the copied size and `netAcceptFrom` reads
+; the whole one back off the BSD length byte, so a value larger than
+; the `cap` that went in means the address was cut short on every
+; target. `netAcceptFrom` acts on that itself; a caller reads this to
+; log the family it could not store.
 ;
 ; IT CANNOT CONFIRM THE VALUE-RESULT ROUND TRIP, and this comment used
 ; to claim it could. The kernel writes the true length whatever was in

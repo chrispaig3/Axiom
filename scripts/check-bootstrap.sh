@@ -187,9 +187,10 @@ ln -s "$repo_root/self_host" "$work/self_host"
 # changed, which a link error three steps later does not.
 # ---------------------------------------------------------------
 case "$(uname -s)" in
-  Darwin) os=darwin ;;
-  Linux)  os=linux ;;
-  *) fail "unsupported OS $(uname -s): the seeds cover darwin and linux" ;;
+  Darwin)  os=darwin ;;
+  Linux)   os=linux ;;
+  FreeBSD) os=freebsd ;;
+  *) fail "unsupported OS $(uname -s): the seeds cover darwin, linux and freebsd" ;;
 esac
 case "$(uname -m)" in
   arm64|aarch64) arch=aarch64 ;;
@@ -234,7 +235,7 @@ echo "ok   the seeds match bootstrap/SHA256SUMS ($seed_ll is this host's)"
 llc -filetype=obj -relocation-model=pic "$(optimised "$seed_ll" "$work/seed.opt.ll")" \
     -o "$work/seed.o" 2>"$work/llc.err" \
   || { head -3 "$work/llc.err" >&2; fail "llc rejected $seed_ll"; }
-cc "$work/seed.o" -o "$work/seed" -e _main 2>"$work/cc.err" \
+cc "$work/seed.o" -o "$work/seed" $link_entry 2>"$work/cc.err" \
   || { head -3 "$work/cc.err" >&2; fail "could not link the seed"; }
 echo "ok   seed built for $target from $seed_ll (no Rust, no cargo)"
 
@@ -258,7 +259,7 @@ build_next() {
       "$(optimised "$work/$out_ll" "$work/$out_bin.opt.ll")" \
       -o "$work/$out_bin.o" 2>"$work/llc.err" \
     || { head -3 "$work/llc.err" >&2; fail "llc rejected the IR $from produced"; }
-  cc "$work/$out_bin.o" -o "$work/$out_bin" -e _main 2>"$work/cc.err" \
+  cc "$work/$out_bin.o" -o "$work/$out_bin" $link_entry 2>"$work/cc.err" \
     || { head -3 "$work/cc.err" >&2; fail "could not link $out_bin"; }
 }
 
@@ -276,7 +277,7 @@ check_runs() {
 CASE
   (cd "$work" && "./$stage" in.ax >"prog.ll" 2>/dev/null) || fail "$stage could not compile the probe"
   llc -filetype=obj -relocation-model=pic "$work/prog.ll" -o "$work/prog.o" 2>/dev/null || fail "$stage emitted IR llc rejects"
-  cc "$work/prog.o" -o "$work/prog" -e _main 2>/dev/null || fail "$stage emitted an object that will not link"
+  cc "$work/prog.o" -o "$work/prog" $link_entry 2>/dev/null || fail "$stage emitted an object that will not link"
   (cd "$work" && ./prog)
   local got=$?
   [[ "$got" == 42 ]] || fail "a program built by $stage answered $got, want 42"
@@ -541,10 +542,16 @@ echo "ok   a program built end to end by stage3 prints and exits correctly"
 # source the 16.9 GB was measured on.
 # ---------------------------------------------------------------
 peak_rss_kb() {
-  # Darwin's `time -l` reports bytes; GNU's `time -v` reports kilobytes.
+  # Darwin's `time -l` reports bytes; GNU's `time -v` reports kilobytes,
+  # and so does FreeBSD's `time -l` - `ru_maxrss` is the kernel's unit,
+  # bytes on Darwin alone, so the divisor is keyed on the kernel and
+  # not on which flag answered (see `max_rss_kb` in check-recover.sh
+  # for the measurement that found this).
+  local div=1
+  [[ "$(uname -s)" == Darwin ]] && div=1024
   if /usr/bin/time -l true >/dev/null 2>&1; then
     /usr/bin/time -l "$@" 2>&1 >"$work/peak.ll" \
-      | awk '/maximum resident set size/ { print int($1 / 1024) }'
+      | awk -v div="$div" '/maximum resident set size/ { print int($1 / div) }'
   elif /usr/bin/time -v true >/dev/null 2>&1; then
     /usr/bin/time -v "$@" 2>&1 >"$work/peak.ll" \
       | awk '/Maximum resident set size/ { print $NF }'

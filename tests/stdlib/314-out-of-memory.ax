@@ -15,11 +15,16 @@
 ; and nothing anywhere says why - which is the difference between a
 ; production incident somebody can diagnose and one they cannot.
 ;
-; THE SIZE IS 2^47 AND THAT IS NOT ARBITRARY. macOS overcommits: a
+; THE SIZE IS 2^60 AND THAT IS NOT ARBITRARY. macOS overcommits: a
 ; request for 1 TiB SUCCEEDS here and the failure path is never reached,
 ; so a smaller number would make this case pass by not testing anything.
-; 2^47 is past the user address space on the targets this compiler emits
-; for, so the mapping is refused rather than merely unbacked.
+; The size has to be past the user address space on every target this
+; compiler emits for, so that the mapping is refused rather than merely
+; unbacked - and 2^47, which this case asked for until 2026-08-29, is
+; not: FreeBSD 14.4/arm64 has 48 bits of user address space and
+; accounts no overcommit (`vm.overcommit` 0), so it GRANTED the
+; mapping and this case exited 0 with no message. 2^60 is past all six
+; targets' address spaces.
 ;
 ; The message is pinned in `314-out-of-memory.err` and the status in
 ; `.exit`. Neither is checked by the other: a program that printed the
@@ -36,7 +41,7 @@
 (fn (main)
   {
     (printlnLit (strCStr "asking for more than the address space holds"))
-    (memAlloc 140737488355328)
+    (memAlloc 1152921504606846976)
     ; NOT REACHED, and this line is deliberately the TAIL of `main`.
     ; `verify-stdlib-out.py` models a case's exit status from that tail
     ; when it is a bare numeral, so a `0` there is a claim that this

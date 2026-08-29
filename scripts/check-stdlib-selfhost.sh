@@ -345,7 +345,7 @@ for case_file in $corpus/*.ax; do
       ok=0; why="$why $opt(llc rejected the IR)"
       continue
     fi
-    if ! cc "$work/ir/$name$opt.o" -o "$work/ir/$name$opt.bin" -e _main \
+    if ! cc "$work/ir/$name$opt.o" -o "$work/ir/$name$opt.bin" $link_entry \
          2>"$work/ir/$name$opt.cc.err"; then
       ok=0; why="$why $opt(cc could not link it)"
       continue

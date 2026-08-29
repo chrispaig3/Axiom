@@ -145,7 +145,7 @@ jobs:
           # All four are recorded, not just the linux-x64 this job runs
           # on, so moving the job to another runner is an edit to
           # `runs-on` and not to the trust story - the same reason
-          # bootstrap/SHA256SUMS carries four seeds to run one.
+          # bootstrap/SHA256SUMS carries six seeds to run one.
           cat > "$work/RECORDED" <<'SUMS'
           d00ac0daefc4bf8c4b57842a5c0509927232faad1d83157b64fbad4e2e8d9a8b  tree-sitter-linux-x64.gz
           cfbf3d9aad8e326878ab1846885a9c2b782a0333273591616f34bf556d525586  tree-sitter-linux-arm64.gz
@@ -644,13 +644,14 @@ jobs:
       # ends a thread and the process stays alive.
       #
       # It runs in the matrix like its neighbours but is not really a
-      # per-runner check - it reads all five targets from whichever
+      # per-runner check - it reads all seven targets from whichever
       # host it is on, out of `emit-llvm` rather than out of the
-      # sources, so darwin-x86_64 and windows-x86_64 (which have no
-      # runner anywhere in this file) are covered three times over
-      # rather than never. About eight seconds, almost all of it
-      # building the compiler under test, which it must: the codegen
-      # table is half of what it compares.
+      # sources, so darwin-x86_64 (which has no runner anywhere in this
+      # file), the two FreeBSD targets and windows-x86_64 (whose jobs
+      # below are advisory) are covered three times over rather than
+      # never. About eight seconds, almost all of it building the
+      # compiler under test, which it must: the codegen table is half of
+      # what it compares.
       - name: The two tables of syscall numbers agree
         run: ./scripts/check-platform-constants.sh
 
@@ -781,6 +782,117 @@ jobs:
       # links an Axiom archive that check-ffi.sh builds, not cargo.
       - name: The FFI crates' own tests
         run: cd rust && cargo test --workspace --exclude axiom-host
+
+  # ---------------------------------------------------------------
+  # FreeBSD, EXECUTED. Every other job that meets the two FreeBSD
+  # targets assembles their IR and compares bytes; none runs it, and
+  # `release.yml` says in its own words why that is not support. This
+  # job boots a real FreeBSD 14 kernel in a VM on the Ubuntu runner
+  # (KVM-accelerated - the hosted runners expose /dev/kvm) and runs
+  # what the compiler emits there: the bootstrap from the committed
+  # `bootstrap/axiom-freebsd-x86_64.ll` to the fixpoint, then the gates
+  # that hold `stdlib/Sys/Platform.freebsd.ax`'s 82 numbers and two
+  # struct layouts to the kernel that owns them. `check-net.sh` is the
+  # one that matters most: it opens a real listener on `::1`, which is
+  # what falsifies `afInet6` = 28 and the 64-byte `struct kevent`
+  # stride, and no amount of assembling can.
+  #
+  # NOT SUPPORTED UNTIL `continue-on-error` BELOW IS REMOVED. While
+  # that line stands this job cannot fail the workflow, the README's
+  # Targets list does not name FreeBSD, `install.sh` refuses a FreeBSD
+  # host with the same paragraph darwin-x86_64 gets, and no release is
+  # built for it. Removing the line is the act that makes
+  # freebsd-x86_64 supported, and it is done AFTER the job has been
+  # seen green - not in the commit that adds it, which cannot have
+  # seen anything.
+  #
+  # PINNING, AND WHAT IT DOES NOT PIN. The action is pinned to a commit
+  # SHA like every other action in this file, which pins the
+  # JavaScript that boots the VM. It does not pin the disk image:
+  # vmactions builds its images from the official FreeBSD release VM
+  # images and the action fetches them from its own releases at run
+  # time, with `release: "14.4"` naming which. That is one step less
+  # than the tree-sitter binary above, which is checked against a
+  # recorded hash, and it is stated here rather than left implicit:
+  # what runs in this job is FreeBSD 14.4 as vmactions packaged it, and
+  # a compromise of that packaging would reach this job. What the job
+  # can reach is bounded the way every job here is - `permissions:
+  # contents: read`, no secret, no upload, no push.
+  #
+  # `prepare` and `run` execute under sh inside the VM (the action
+  # ignores `usesh` now). The gates are bash, and `llc`/`llvm-readobj`
+  # come from the LLVM package under `/usr/local/llvm*/bin`; `cc` is
+  # the base system's clang, `nm` its ELF Tool Chain one (no `-j`, so
+  # `check-backtrace.sh` falls back to the base `llvm-nm`), and
+  # `check-net.sh` drives its connections with python3. Nothing else
+  # from ports.
+  # ---------------------------------------------------------------
+  test-freebsd:
+    name: Tests (freebsd-x86_64)
+    needs: grammar
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Advisory until removed - see above. NOT SUPPORTED while this
+    # line is here.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Bootstrap from the seed and run the gates on FreeBSD 14
+        uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1.5.5
+        with:
+          release: "14.4"
+          copyback: false
+          prepare: |
+            pkg install -y bash llvm python3
+          run: |
+            set -e
+            export PATH="$(ls -d /usr/local/llvm*/bin | sort -V | tail -1):$PATH"
+            uname -a; llc --version | head -2; cc --version | head -1
+            ./scripts/bootstrap-from-seed.sh --install .axiom-bin
+            ./scripts/run-stdlib-tests.sh
+            ./scripts/check-freestanding.sh
+            ./scripts/check-net.sh
+            ./scripts/check-platform-constants.sh
+            ./scripts/check-recover.sh
+            ./scripts/check-backtrace.sh
+
+  # The aarch64 twin. The action's own documentation says the host for
+  # an `arch: aarch64` guest should still be the x86_64 runner and
+  # that `ubuntu-24.04-arm` is slower, so this guest is TCG-emulated
+  # either way - the 10-30x case - and the gate set is cut to what
+  # proves the syscall table executes: the bootstrap, the stdlib
+  # corpus, the two-table comparison, and the IPv6 listener. Advisory
+  # like its twin; freebsd-aarch64 stays cross-only in the README
+  # until this has been seen green, and if it never is, it ships as
+  # darwin-x86_64 does. Where it HAS executed is a FreeBSD 14.4 arm64
+  # VM under HVF on the maintainer's machine, 2026-08-29 - which is a
+  # measurement, not a leg.
+  test-freebsd-aarch64:
+    name: Tests (freebsd-aarch64)
+    needs: grammar
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    # Advisory until removed - see above. NOT SUPPORTED while this
+    # line is here.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Bootstrap from the seed and run the syscall-table gates on FreeBSD 14/arm64
+        uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1.5.5
+        with:
+          release: "14.4"
+          arch: aarch64
+          copyback: false
+          prepare: |
+            pkg install -y bash llvm python3
+          run: |
+            set -e
+            export PATH="$(ls -d /usr/local/llvm*/bin | sort -V | tail -1):$PATH"
+            uname -a; llc --version | head -2; cc --version | head -1
+            ./scripts/bootstrap-from-seed.sh --install .axiom-bin
+            ./scripts/run-stdlib-tests.sh
+            ./scripts/check-platform-constants.sh
+            ./scripts/check-net.sh
 
   cross:
     name: Cross-target codegen

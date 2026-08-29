@@ -73,9 +73,44 @@ gate_init() {
       || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
   fi
   (( want_stdlib )) && export AXIOM_STDLIB="$repo_root/stdlib"
+  link_entry="$(gate_link_entry)"
 
   work="$(mktemp -d)"
   trap 'rm -rf "$work"' EXIT
+}
+
+# gate_link_entry
+#
+# What a gate adds to `cc` when it links a compiler or a test program:
+# `-e _main` on Darwin, nothing anywhere else. `gate_init` puts it in
+# `$link_entry`, which the link lines pass UNQUOTED so that it
+# word-splits into two arguments on Darwin and into none elsewhere.
+#
+# Eight link lines passed `-e _main` unconditionally until 2026-08-29,
+# and nothing said why. On Mach-O it is ld64's default, so it was
+# never load-bearing. On Linux, GNU ld warns "cannot find entry symbol
+# _main; defaulting to <address>" and starts at the beginning of
+# `.text`, which is crt1's `_start` - green by luck, on every Linux
+# run this repository has had. FreeBSD's `/usr/bin/ld` is lld, and
+# lld's answer is different. Measured 2026-08-29 with LLD 23.1 on a
+# freebsd-x86_64 object of `tests/stdlib/010-hello.ax`:
+#
+#     ld.lld -e _main hello.o -o a.out
+#     ld.lld: warning: cannot find entry symbol _main; not setting start address
+#     exit 0;  llvm-readobj -h: Entry: 0x0
+#
+# with `main` in `.text` at 0x206090 and `-e main` landing there. So
+# under lld an unresolved `-e` is a link that SUCCEEDS and a binary
+# whose first instruction is at address 0: the seed would have linked
+# on the FreeBSD leg and died before `main`, and "could not link the
+# seed" would never have fired, because the link did not fail. The
+# flag is therefore Darwin's alone, and kept there rather than deleted
+# so that Darwin's link line is byte for byte what it has been.
+gate_link_entry() {
+  case "$(uname -s)" in
+    Darwin) echo "-e _main" ;;
+    *)      echo "" ;;
+  esac
 }
 
 # gate_source_stamp

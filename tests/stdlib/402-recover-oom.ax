@@ -17,12 +17,15 @@
 ; it can: an allocation, a store, and a load back, all through the
 ; arena that just refused a mapping.
 ;
-; THE SIZE IS 2^47 AND THAT IS NOT ARBITRARY - the argument is
+; THE SIZE IS 2^60 AND THAT IS NOT ARBITRARY - the argument is
 ; `314-out-of-memory.ax`'s and it transfers unchanged. macOS
 ; overcommits, so a request for 1 TiB succeeds here and the failure
-; path is never reached; 2^47 is past the user address space on every
-; target this compiler emits for, so the mapping is refused rather
-; than merely unbacked.
+; path is never reached; the size has to be past the user address
+; space on every target this compiler emits for, so that the mapping
+; is refused rather than merely unbacked. It was 2^47 until
+; 2026-08-29, when FreeBSD 14.4/arm64 GRANTED it - that kernel has 48
+; bits of user address space and accounts no overcommit - and this
+; case printed the address instead of 70. 2^60 is past all six.
 (import IO)
 
 (import Str)
@@ -31,7 +34,7 @@
 
 (:: ask (-> Int Int))
 
-(fn (ask x) (memAlloc 140737488355328))
+(fn (ask x) (memAlloc 1152921504606846976))
 
 (:: usable (-> Int Int))
 

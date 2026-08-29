@@ -238,7 +238,7 @@ if n != 1:
 PY
 if ! grep -q '^slabclear:' "$work/noscrub.ll"; then
   llc -filetype=obj -relocation-model=pic "$work/noscrub.ll" -o "$work/noscrub.o" 2>"$work/llc.err" \
-    && cc "$work/noscrub.o" -o "$work/noscrub" -e _main 2>"$work/cc.err"
+    && cc "$work/noscrub.o" -o "$work/noscrub" $link_entry 2>"$work/cc.err"
   if [[ -x "$work/noscrub" ]]; then
     t_nos="$(best_ms "$work/noscrub")"; a_nos="$(cat "$work/answer")"
     printf '     noscrub %10.2f ms  answer=%s\n' "$t_nos" "$a_nos"

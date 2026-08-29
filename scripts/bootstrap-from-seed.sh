@@ -107,11 +107,12 @@ optimised() {
 # compiler is COMPILED - which is exactly why there is one seed per
 # target rather than one seed.
 case "$(uname -s)" in
-  Darwin) os=darwin ;;
-  Linux)  os=linux ;;
+  Darwin)  os=darwin ;;
+  Linux)   os=linux ;;
+  FreeBSD) os=freebsd ;;
   MINGW*|MSYS*|CYGWIN*|Windows_NT)
     fail "no seed for Windows: bootstrap/ holds no axiom-windows-x86_64.ll, because hosting the compiler on Windows is a later phase of the Windows track (a Linux or macOS compiler cross-emits and links for windows-x86_64 today). README's Targets section says what is true" ;;
-  *) fail "unsupported OS $(uname -s): the seeds cover darwin and linux" ;;
+  *) fail "unsupported OS $(uname -s): the seeds cover darwin, linux and freebsd" ;;
 esac
 case "$(uname -m)" in
   arm64|aarch64) arch=aarch64 ;;
@@ -120,6 +121,16 @@ case "$(uname -m)" in
 esac
 target="$os-$arch"
 seed_ll="bootstrap/axiom-$target.ll"
+
+# The entry flag the two link lines below pass: `-e _main` on Darwin
+# and nothing anywhere else. This script does not source
+# `scripts/lib/gate.sh` (it is what that preamble runs when there is
+# no compiler yet), so the rule is restated here; `gate_link_entry`
+# there carries the measurement behind it.
+case "$os" in
+  darwin) link_entry="-e _main" ;;
+  *)      link_entry="" ;;
+esac
 [[ -f "$seed_ll" ]] || fail "no seed for this host at $seed_ll"
 
 work="$(mktemp -d)"
@@ -164,7 +175,7 @@ echo "ok   the seeds match bootstrap/SHA256SUMS"
 llc -filetype=obj -relocation-model=pic "$(optimised "$seed_ll" "$work/seed.opt.ll")" \
     -o "$work/seed.o" 2>"$work/llc.err" \
   || { head -3 "$work/llc.err" >&2; fail "llc rejected $seed_ll"; }
-cc "$work/seed.o" -o "$work/seed" -e _main 2>"$work/cc.err" \
+cc "$work/seed.o" -o "$work/seed" $link_entry 2>"$work/cc.err" \
   || { head -3 "$work/cc.err" >&2; fail "could not link the seed"; }
 echo "ok   seed built for $target from $seed_ll (no Rust)"
 
@@ -214,7 +225,7 @@ build_next() {
       "$(optimised "$work/$dir/axc.ll" "$work/$dir/axc.opt.ll")" \
       -o "$work/$dir/axc.o" 2>"$work/llc.err" \
     || { head -3 "$work/llc.err" >&2; fail "llc rejected the IR $from produced"; }
-  cc "$work/$dir/axc.o" -o "$work/$dir/axc" -e _main 2>"$work/cc.err" \
+  cc "$work/$dir/axc.o" -o "$work/$dir/axc" $link_entry 2>"$work/cc.err" \
     || { head -3 "$work/cc.err" >&2; fail "could not link $dir/axc"; }
 }
 

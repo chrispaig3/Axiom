@@ -81,13 +81,18 @@ if [[ ${#counts[@]} -eq 0 ]]; then
   if [[ "$gate" == 1 ]]; then counts=(2000); else counts=(10 80 500 2000); fi
 fi
 
-# Darwin's `time -l` reports bytes; GNU's `time -v` reports kilobytes.
-# Fail rather than skip when neither answers: a measurement script
-# that silently measures nothing is how the last RSS regression hid.
+# Darwin's `time -l` reports bytes; GNU's `time -v` reports kilobytes,
+# and so does FreeBSD's `time -l`: `ru_maxrss` is the kernel's unit,
+# bytes on Darwin alone, so the divisor is keyed on the kernel rather
+# than on which flag answered. Fail rather than skip when neither
+# answers: a measurement script that silently measures nothing is how
+# the last RSS regression hid.
 max_rss_kb() {
+  local div=1
+  [[ "$(uname -s)" == Darwin ]] && div=1024
   if /usr/bin/time -l true >/dev/null 2>&1; then
     /usr/bin/time -l "$@" 2>&1 >/dev/null \
-      | awk '/maximum resident set size/ {print int($1/1024)}'
+      | awk -v div="$div" '/maximum resident set size/ {print int($1/div)}'
   elif /usr/bin/time -v true >/dev/null 2>&1; then
     /usr/bin/time -v "$@" 2>&1 >/dev/null \
       | awk -F: '/Maximum resident set size/ {print int($2)}'
