@@ -298,7 +298,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-frontend-parity.sh` | the frontend's five consumers agree — on the value, not only on the verdict |
 | `check-memory-baseline.sh` | the managed Life probe holds RSS flat over 2000 generations where its unmanaged twin grows linearly |
 | `check-cross-targets.sh` | every target's IR assembles from one host, at every `--opt` level, with no non-position-independent object |
-| `check-seed-provenance.sh` | the other half of the seed's story: it IS the emission of source in this history. All four seeds are regenerated from the commit that last wrote the four `.ll` files and must come back byte-identical, after that commit's sources are required to hash to `bootstrap/STAMP`. Its own CI job, because it needs `fetch-depth: 0` and about five minutes |
+| `check-seed-provenance.sh` | the other half of the seed's story: it IS the emission of source in this history. All six seeds are regenerated from the commit that last wrote the six `.ll` files and must come back byte-identical, after that commit's sources are required to hash to `bootstrap/STAMP`. Its own CI job, because it needs `fetch-depth: 0` and about seven minutes |
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
@@ -355,10 +355,10 @@ them provision a compiler through the same composite action,
    generated bindings match a fresh generation, and the `rust/`
    workspace's own suites run (`cargo test`).
 4. **Cross-target codegen** — every target's IR assembles from a single
-   host, at `--opt` 0, 1 and 2, and all four committed seeds assemble.
+   host, at `--opt` 0, 1 and 2, and all six committed seeds assemble.
 5. **Self-hosting fixpoint** — `check-bootstrap.sh`: `stage2 ==
    stage3`, byte for byte, with the ladder rooted at the committed seed.
-6. **Seed provenance** — `check-seed-provenance.sh`: all four committed
+6. **Seed provenance** — `check-seed-provenance.sh`: all six committed
    seeds are regenerated from the commit that last wrote them and must
    come back byte-identical. Its own job because it needs
    `fetch-depth: 0` and about five minutes.

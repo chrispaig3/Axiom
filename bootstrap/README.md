@@ -1,6 +1,6 @@
 # The bootstrap seed
 
-The Axiom compiler is written in Axiom. These four files are how a
+The Axiom compiler is written in Axiom. These six files are how a
 clean checkout builds it without already having it.
 
 ```
@@ -8,9 +8,18 @@ axiom-darwin-aarch64.ll   the compiler, as LLVM IR, one file per target
 axiom-darwin-x86_64.ll
 axiom-linux-aarch64.ll
 axiom-linux-x86_64.ll
+axiom-freebsd-x86_64.ll
+axiom-freebsd-aarch64.ll
 SHA256SUMS                what each of them should hash to
 STAMP                     the hash of the source they were generated from
 ```
+
+The two FreeBSD seeds (2026-08-29) are emitted, hashed, regenerated
+and assembled exactly as the other four are, and have never been
+executed: no runner for FreeBSD exists in this repository yet. A seed
+is not evidence that its target runs - `darwin-x86_64`'s has sat here
+under the same gates since the beginning and ships no artifact for the
+same reason.
 
 `scripts/bootstrap-from-seed.sh` picks the file matching the host, runs
 `llc` and `cc` over it to get a `seed` compiler, has that seed compile
@@ -28,8 +37,8 @@ A binary would in fact be *smaller* than the IR that produces it. It is
 still the wrong artifact: it is opaque, so nobody can review what they
 are about to trust, and it would have to be rebuilt for every libc and
 linker anyone might have. The IR is text, so it is reviewable in a
-diff; `git` delta-compresses the four files against each other well,
-because they are one program compiled for four targets and differ only
+diff; `git` delta-compresses the six files against each other well,
+because they are one program compiled for six targets and differ only
 in the target triple, the syscall instruction and the syscall numbers;
 and the same `llc` invocation the project already relies on turns it
 into whatever the host needs.
@@ -38,7 +47,7 @@ Every one of those sizes moves with every reseed, so measure them
 rather than read them here:
 
 ```bash
-du -sh bootstrap                       # all four, plus SHA256SUMS and STAMP
+du -sh bootstrap                       # all six, plus SHA256SUMS and STAMP
 wc -l bootstrap/*.ll                   # lines per target
 ls -l .axiom-bin/axiom                 # what one of them turns into
 diff bootstrap/axiom-darwin-aarch64.ll \
@@ -67,7 +76,7 @@ byte-identical `stage2 == stage3`.
 Lagging the tree is not the same as corresponding to nothing, and the
 distinction is the whole of the next section. The seed is not the IR of
 the source *beside* it; it is the IR of the source at the commit that
-last wrote the four `.ll` files, and since 2026-08-25 that is asserted by
+last wrote the six `.ll` files, and since 2026-08-25 that is asserted by
 regenerating it (`scripts/check-seed-provenance.sh`). The lag is a lag
 in TIME, not a gap in provenance.
 
@@ -79,7 +88,7 @@ seed is reported here, by name, instead of as a link error three steps
 downstream.
 
 **The trust check is `scripts/check-seed-provenance.sh`**, added
-2026-08-25. It regenerates all four of these files from the source at
+2026-08-25. It regenerates all six of these files from the source at
 the commit that last wrote THEM - the `.ll` files, not this directory,
 which also holds metadata about them - and requires the result to be
 byte-identical - so the seed is not an artifact you have to take on
@@ -121,7 +130,7 @@ has just failed, so quietly attempting that again here would replace a
 clear "the seed is stale" with a confusing one. Name a compiler that
 works — the previous commit's `.axiom-bin/axiom` is the usual answer.
 
-Re-running `reseed.sh` against an unchanged tree leaves all four `.ll`
+Re-running `reseed.sh` against an unchanged tree leaves all six `.ll`
 files and `SHA256SUMS` byte-identical, because the compiler is
 deterministic. `scripts/check-reproducible.sh` is the gate that holds
 it to that: it compiles every case in `tests/stdlib/` twice, in
@@ -135,3 +144,10 @@ and the bug is the thing to fix rather than the diff to commit.
 hash. Both halves are read - the hash by
 `scripts/check-seed-provenance.sh`, which will not regenerate anything
 until the commit it found hashes to it.
+
+A seed may also land in a commit of its own, after the source change
+it answers to rather than with it - the FreeBSD seeds did, because
+only a compiler that already knows a target can emit that target's
+seed. Such a commit's parent is the same source tree and hashes the
+same, and the provenance gate compares STAMP against the nearest
+ancestor whose sources moved rather than against the parent.

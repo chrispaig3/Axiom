@@ -4,15 +4,18 @@
 # Run this when `scripts/bootstrap-from-seed.sh` fails because the
 # committed seed can no longer compile self_host/ - that is the seed
 # going stale, and it is the only routine reason to move it. Advancing
-# it otherwise is optional and costs 8.4 MB of generated text in the
-# diff, so do it on purpose.
+# it otherwise is optional and costs about 42 MB of generated text in
+# the diff - six files of 7.06 MB, measured 2026-08-29 - so do it on
+# purpose.
 #
 # The seeds are the compiler's own LLVM IR, one per target, produced by
 # the compiler currently in the tree. Every target is generated from a
 # single host, which is exactly what scripts/check-cross-targets.sh
 # already proves is sound - the target decides the syscall ABI and the
-# triple, not the machine doing the compiling. Measured: the four files
-# differ from one another in 193 lines of 61,473.
+# triple, not the machine doing the compiling. Measured 2026-08-29: the
+# six files differ from one another in at most 342 lines of 180,774
+# (darwin-aarch64 against linux-x86_64), and the two x86_64 BSDs, which
+# share a syscall template, in 139.
 #
 # Requires a working compiler to start from. It defaults to the one
 # every other script here defaults to - `.axiom-bin/axiom`, where
@@ -71,7 +74,12 @@ fi
 echo "generator built"
 
 mkdir -p bootstrap
-targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64"
+# Six since 2026-08-29. The FreeBSD pair were minted the commit after
+# `targetCode` learned their names, which is the only order that works:
+# a seed can be emitted only by a compiler that knows the target, and
+# `$axiom` here need not - `gen` below is built from THIS tree and is
+# what emits.
+targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64"
 cp "$repo_root/self_host/main.ax" "$work/in.ax"
 for t in $targets; do
   (cd "$work" && ./gen in.ax "$t" >"$work/out.ll" 2>"$work/out.err") \
@@ -100,7 +108,7 @@ echo "wrote bootstrap/SHA256SUMS"
 #
 # A hash of the bytes that were actually read cannot have that failure
 # mode. `scripts/check-seed-provenance.sh` resolves the commit the
-# other way - the one that last touched the four `.ll` files - and requires its
+# other way - the one that last touched the six `.ll` files - and requires its
 # sources to hash to this line before regenerating from them.
 stamp="$(gate_seed_source_stamp "$repo_root")"
 nfiles="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f | wc -l | tr -d ' ' )"
@@ -115,9 +123,9 @@ nfiles="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f | wc -l
   printf 'the `self_host/**.ax` and `stdlib/**.ax` bytes these seeds were\n'
   printf 'generated from: the path list, then every byte, hashed. It is the\n'
   printf 'CHECKABLE claim here, and `scripts/check-seed-provenance.sh` checks it -\n'
-  printf 'it finds the commit that last touched the four `.ll` files - not this\n'
+  printf 'it finds the commit that last touched the six `.ll` files - not this\n'
   printf 'directory, which also holds metadata about them - requires that\n'
-  printf "commit's sources to hash to this line, and then regenerates all four\n"
+  printf "commit's sources to hash to this line, and then regenerates all six\n"
   printf 'seeds from them and requires the result to be byte-identical.\n'
 } > bootstrap/STAMP
 cat bootstrap/STAMP

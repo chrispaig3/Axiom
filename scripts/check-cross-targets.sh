@@ -284,12 +284,13 @@ export AXIOM_STDLIB="${AXIOM_STDLIB:-$(pwd)/stdlib}"
 # differential is `$axiom`, and `$axiom` is the seed's descendant,
 # which can only emit the targets the seed knew. A target added to the
 # tree lands here only once `scripts/reseed.sh` has minted its seed -
-# the FreeBSD pair wait for that - so this literal list lags the array
-# above by exactly one reseed, and a run that widened it early would
-# fail with "the two compilers emit different syscall templates"
-# against an empty `s0.ll`, naming the wrong defect.
+# the FreeBSD pair joined one commit after their names did - so this
+# literal list lags the array above by exactly one reseed, and a run
+# that widened it early would fail with "the two compilers emit
+# different syscall templates" against an empty `s0.ll`, naming the
+# wrong defect.
 cp "$axc" "$ccwork/stage1"
-for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64; do
+for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64; do
   "$axiom" --target="$target" emit-llvm "$ccwork/cc.ax" -o "$ccwork/s0.ll" >/dev/null 2>&1
   # SYSCALL templates, not every inline-asm site. The emitted runtime
   # also carries `targetFrameAsm` - one instruction reading x29 or

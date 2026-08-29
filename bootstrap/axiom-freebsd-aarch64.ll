@@ -1,4 +1,4 @@
-target triple = "x86_64-apple-macosx14.0.0"
+target triple = "aarch64-unknown-freebsd14.0"
 
 @__axiom_argc = internal global i64 0
 @__axiom_argv = internal global i64 0
@@ -90,7 +90,7 @@ unlink_mid:
   store i64 %cnext, ptr %prevlinkp
   br label %install
 map:
-  %addr = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554629, i64 0, i64 %chunk, i64 3, i64 4098, i64 -1, i64 0)
+  %addr = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 477, i64 0, i64 %chunk, i64 3, i64 4098, i64 -1, i64 0)
   %failed_low = icmp ult i64 %addr, 4096
   %failed_neg = icmp ugt i64 %addr, -4096
   %failed = or i1 %failed_low, %failed_neg
@@ -417,7 +417,7 @@ fresh:
   %need = add i64 %sz, 16
   %rounded0 = add i64 %need, 65535
   %want = and i64 %rounded0, -65536
-  %addr = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554629, i64 0, i64 %want, i64 3, i64 4098, i64 -1, i64 0)
+  %addr = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 477, i64 0, i64 %want, i64 3, i64 4098, i64 -1, i64 0)
   %failed_low = icmp ult i64 %addr, 4096
   %failed_neg = icmp ugt i64 %addr, -4096
   %failed = or i1 %failed_low, %failed_neg
@@ -475,9 +475,9 @@ define internal i64 @__axiom_div_by_zero() #0 {
 entry:
   call i64 @__axiom_recover_abort(i64 72)
   %dzp = ptrtoint ptr @__axiom_divzero_msg to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %dzp, i64 24, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 4, i64 2, i64 %dzp, i64 24, i64 0, i64 0, i64 0)
   call void @__axiom_backtrace()
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554433, i64 72, i64 0, i64 0, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 1, i64 72, i64 0, i64 0, i64 0, i64 0, i64 0)
   unreachable
 }
 @__axiom_oom_msg = private unnamed_addr constant [35 x i8] c"axiom: out of memory (mmap failed)\0A"
@@ -485,9 +485,9 @@ define internal i64 @__axiom_out_of_memory() #0 {
 entry:
   call i64 @__axiom_recover_abort(i64 70)
   %oomp = ptrtoint ptr @__axiom_oom_msg to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %oomp, i64 35, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 4, i64 2, i64 %oomp, i64 35, i64 0, i64 0, i64 0)
   call void @__axiom_backtrace()
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554433, i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 1, i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)
   unreachable
 }
 
@@ -516,7 +516,7 @@ jump:
   store i64 %code, ptr %p5
   call i64 @__axiom_recover_load(i64 %top)
   call i64 @__axiom_arena_reset_fn(i64 %mark)
-  call void asm sideeffect "movq $0, %rax\0Amovq $1, %rsp\0Amovq $2, %rbp\0Ajmpq *$3", "r,r,r,r,~{rax},~{memory}"(i64 %top, i64 %sp, i64 %fp, i64 %pc)
+  call void asm sideeffect "mov x9, $0\0Amov sp, $1\0Amov x29, $2\0Abr $3", "r,r,r,r,~{x9},~{memory}"(i64 %top, i64 %sp, i64 %fp, i64 %pc)
   unreachable
 }
 define internal i64 @__axiom_str_eq(i64 %a, i64 %b) #0 {
@@ -2613,27 +2613,27 @@ define i64 @Host$hostTarget() #0 {
 }
 define i64 @Sys.Platform$sysRead() #0 {
 
-  ret i64 33554435
+  ret i64 3
 }
 define i64 @Sys.Platform$sysWrite() #0 {
 
-  ret i64 33554436
+  ret i64 4
 }
 define i64 @Sys.Platform$sysOpen() #0 {
 
-  ret i64 33554437
+  ret i64 5
 }
 define i64 @Sys.Platform$sysClose() #0 {
 
-  ret i64 33554438
+  ret i64 6
 }
 define i64 @Sys.Platform$sysExit() #0 {
 
-  ret i64 33554433
+  ret i64 1
 }
 define i64 @Sys.Platform$sysLseek() #0 {
 
-  ret i64 33554631
+  ret i64 478
 }
 define i64 @Sys.Platform$openNeedsDirFd() #0 {
 
@@ -2641,7 +2641,8 @@ define i64 @Sys.Platform$openNeedsDirFd() #0 {
 }
 define i64 @Sys.Platform$atFdCwd() #0 {
 
-  ret i64 0
+  %.t0 = sub i64 0, 100
+  ret i64 %.t0
 }
 define i64 @Sys.Platform$oRdonly() #0 {
 
@@ -2665,19 +2666,19 @@ define i64 @Sys.Platform$seekSet() #0 {
 }
 define i64 @Sys.Platform$spawnUsesPosixSpawn() #0 {
 
-  ret i64 1
+  ret i64 0
 }
 define i64 @Sys.Platform$sysPosixSpawn() #0 {
 
-  ret i64 33554676
+  ret i64 0
 }
 define i64 @Sys.Platform$sysWait4() #0 {
 
-  ret i64 33554439
+  ret i64 7
 }
 define i64 @Sys.Platform$sysFork() #0 {
 
-  ret i64 33554434
+  ret i64 2
 }
 define i64 @Sys.Platform$sysForkArg() #0 {
 
@@ -2685,27 +2686,27 @@ define i64 @Sys.Platform$sysForkArg() #0 {
 }
 define i64 @Sys.Platform$sysExecve() #0 {
 
-  ret i64 0
+  ret i64 59
 }
 define i64 @Sys.Platform$sysUnlinkNum() #0 {
 
-  ret i64 33554442
+  ret i64 10
 }
 define i64 @Sys.Platform$sysMkdirNum() #0 {
 
-  ret i64 33554568
+  ret i64 136
 }
 define i64 @Sys.Platform$sysRmdirNum() #0 {
 
-  ret i64 33554569
+  ret i64 137
 }
 define i64 @Sys.Platform$sysRenameNum() #0 {
 
-  ret i64 33554560
+  ret i64 128
 }
 define i64 @Sys.Platform$sysGetdentsNum() #0 {
 
-  ret i64 33554776
+  ret i64 554
 }
 define i64 @Sys.Platform$dirReadNeedsPosition() #0 {
 
@@ -2713,19 +2714,19 @@ define i64 @Sys.Platform$dirReadNeedsPosition() #0 {
 }
 define i64 @Sys.Platform$direntNameOffset() #0 {
 
-  ret i64 21
+  ret i64 24
 }
 define i64 @Sys.Platform$cwdUsesFcntlPath() #0 {
 
-  ret i64 1
+  ret i64 0
 }
 define i64 @Sys.Platform$sysCwdNum() #0 {
 
-  ret i64 33554524
+  ret i64 326
 }
 define i64 @Sys.Platform$fGetPath() #0 {
 
-  ret i64 50
+  ret i64 0
 }
 define i64 @Sys.Platform$eExist() #0 {
 
@@ -2737,59 +2738,59 @@ define i64 @Sys.Platform$eIsDir() #0 {
 }
 define i64 @Sys.Platform$sysGetPidNum() #0 {
 
-  ret i64 33554452
+  ret i64 20
 }
 define i64 @Sys.Platform$sysClockNum() #0 {
 
-  ret i64 33554548
+  ret i64 232
 }
 define i64 @Sys.Platform$clockIsGettimeofday() #0 {
 
-  ret i64 1
+  ret i64 0
 }
 define i64 @Sys.Platform$clockHasMonotonic() #0 {
 
-  ret i64 0
+  ret i64 1
 }
 define i64 @Sys.Platform$clockMonotonicId() #0 {
 
-  ret i64 0
+  ret i64 4
 }
 define i64 @Sys.Platform$sysSocketNum() #0 {
 
-  ret i64 33554529
+  ret i64 97
 }
 define i64 @Sys.Platform$sysBindNum() #0 {
 
-  ret i64 33554536
+  ret i64 104
 }
 define i64 @Sys.Platform$sysListenNum() #0 {
 
-  ret i64 33554538
+  ret i64 106
 }
 define i64 @Sys.Platform$sysAcceptNum() #0 {
 
-  ret i64 33554462
+  ret i64 30
 }
 define i64 @Sys.Platform$sysConnectNum() #0 {
 
-  ret i64 33554530
+  ret i64 98
 }
 define i64 @Sys.Platform$sysSetSockOptNum() #0 {
 
-  ret i64 33554537
+  ret i64 105
 }
 define i64 @Sys.Platform$sysGetSockOptNum() #0 {
 
-  ret i64 33554550
+  ret i64 118
 }
 define i64 @Sys.Platform$sysShutdownNum() #0 {
 
-  ret i64 33554566
+  ret i64 134
 }
 define i64 @Sys.Platform$sysFcntlNum() #0 {
 
-  ret i64 33554524
+  ret i64 92
 }
 define i64 @Sys.Platform$afInet() #0 {
 
@@ -2797,7 +2798,7 @@ define i64 @Sys.Platform$afInet() #0 {
 }
 define i64 @Sys.Platform$afInet6() #0 {
 
-  ret i64 30
+  ret i64 28
 }
 define i64 @Sys.Platform$sockStream() #0 {
 
@@ -2845,19 +2846,19 @@ define i64 @Sys.Platform$pollUsesKqueue() #0 {
 }
 define i64 @Sys.Platform$sysPollCreateNum() #0 {
 
-  ret i64 33554794
+  ret i64 362
 }
 define i64 @Sys.Platform$sysPollWaitNum() #0 {
 
-  ret i64 33554795
+  ret i64 560
 }
 define i64 @Sys.Platform$sysPollCtlNum() #0 {
 
-  ret i64 33554795
+  ret i64 560
 }
 define i64 @Sys.Platform$pollEventSize() #0 {
 
-  ret i64 32
+  ret i64 64
 }
 define i64 @Sys.Platform$pollEventFdOffset() #0 {
 
@@ -2882,11 +2883,11 @@ define i64 @Sys.Platform$pollSigsetSize() #0 {
 }
 define i64 @Sys.Platform$sysRandomNum() #0 {
 
-  ret i64 33554932
+  ret i64 563
 }
 define i64 @Sys.Platform$randomIsGetentropy() #0 {
 
-  ret i64 1
+  ret i64 0
 }
 define i64 @Sys.Platform$randomMaxChunk() #0 {
 
@@ -2898,7 +2899,7 @@ define i64 @Sys.Platform$signalUsesSignalFd() #0 {
 }
 define i64 @Sys.Platform$sysSigProcMaskNum() #0 {
 
-  ret i64 33554480
+  ret i64 340
 }
 define i64 @Sys.Platform$sigBlockHow() #0 {
 
@@ -2906,7 +2907,7 @@ define i64 @Sys.Platform$sigBlockHow() #0 {
 }
 define i64 @Sys.Platform$sigsetBytes() #0 {
 
-  ret i64 4
+  ret i64 16
 }
 define i64 @Sys.Platform$pollSignalFilter() #0 {
 
@@ -2923,7 +2924,7 @@ define i64 @Sys.Platform$sigInfoSize() #0 {
 }
 define i64 @Sys.Platform$sysKillNum() #0 {
 
-  ret i64 33554469
+  ret i64 37
 }
 define i64 @Sys.Platform$sigTerm() #0 {
 
@@ -2935,7 +2936,7 @@ define i64 @Sys.Platform$sigInt() #0 {
 }
 define i64 @Sys.Platform$forkChildIsZero() #0 {
 
-  ret i64 0
+  ret i64 1
 }
 define i64 @Sys.Platform$acceptNonblockFlag() #0 {
 
@@ -4941,7 +4942,7 @@ define i64 @Sys$stderr() #0 {
 define i64 @Sys$sysWriteFd(i64 %fd, i64 %buf, i64 %count) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysWrite()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %buf, i64 %count, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %buf, i64 %count, i64 0, i64 0, i64 0)
   ret i64 %.t1
 }
 define i64 @Sys$sysWriteAllFd(i64 %fd, i64 %buf, i64 %count, i64 %done) #0 {
@@ -5011,7 +5012,7 @@ define i64 @Sys$sysWriteAllFd(i64 %fd, i64 %buf, i64 %count, i64 %done) #0 {
 define i64 @Sys$sysReadFd(i64 %fd, i64 %buf, i64 %count) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysRead()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %buf, i64 %count, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %buf, i64 %count, i64 0, i64 0, i64 0)
   ret i64 %.t1
 }
 define i64 @Sys$sysOpenPath(i64 %path, i64 %flags) #0 {
@@ -5029,11 +5030,11 @@ define i64 @Sys$sysOpenPathMode(i64 %path, i64 %flags, i64 %mode) #0 {
 .L4:
   %.t7 = call i64 @Sys.Platform$sysOpen()
   %.t8 = call i64 @Sys.Platform$atFdCwd()
-  %.t9 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t7, i64 %.t8, i64 %path, i64 %flags, i64 %mode, i64 0, i64 0)
+  %.t9 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t7, i64 %.t8, i64 %path, i64 %flags, i64 %mode, i64 0, i64 0)
   br label %.L6
 .L5:
   %.t10 = call i64 @Sys.Platform$sysOpen()
-  %.t11 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t10, i64 %path, i64 %flags, i64 %mode, i64 0, i64 0, i64 0)
+  %.t11 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t10, i64 %path, i64 %flags, i64 %mode, i64 0, i64 0, i64 0)
   br label %.L6
 .L6:
   %.t12 = phi i64 [ %.t9, %.L4 ], [ %.t11, %.L5 ]
@@ -5042,19 +5043,19 @@ define i64 @Sys$sysOpenPathMode(i64 %path, i64 %flags, i64 %mode) #0 {
 define i64 @Sys$sysCloseFd(i64 %fd) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysClose()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 0, i64 0, i64 0, i64 0, i64 0)
   ret i64 %.t1
 }
 define i64 @Sys$sysSeek(i64 %fd, i64 %offset, i64 %whence) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysLseek()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %offset, i64 %whence, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %offset, i64 %whence, i64 0, i64 0, i64 0)
   ret i64 %.t1
 }
 define i64 @Sys$sysExitWith(i64 %code) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysExit()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %code, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %code, i64 0, i64 0, i64 0, i64 0, i64 0)
   ret i64 0
 }
 define i64 @Sys$sysFailed(i64 %result) #0 {
@@ -5282,11 +5283,11 @@ define i64 @Sys$sysRename(i64 %old, i64 %new) #0 {
   %.t8 = call i64 @Sys.Platform$sysRenameNum()
   %.t9 = call i64 @Sys.Platform$atFdCwd()
   %.t10 = call i64 @Sys.Platform$atFdCwd()
-  %.t11 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %old, i64 %.t10, i64 %new, i64 0, i64 0)
+  %.t11 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %old, i64 %.t10, i64 %new, i64 0, i64 0)
   br label %.L7
 .L6:
   %.t12 = call i64 @Sys.Platform$sysRenameNum()
-  %.t13 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t12, i64 %old, i64 %new, i64 0, i64 0, i64 0, i64 0)
+  %.t13 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t12, i64 %old, i64 %new, i64 0, i64 0, i64 0, i64 0)
   br label %.L7
 .L7:
   %.t14 = phi i64 [ %.t11, %.L5 ], [ %.t13, %.L6 ]
@@ -5305,11 +5306,11 @@ define i64 @Sys$sysUnlink(i64 %path) #0 {
 .L5:
   %.t8 = call i64 @Sys.Platform$sysUnlinkNum()
   %.t9 = call i64 @Sys.Platform$atFdCwd()
-  %.t10 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %path, i64 0, i64 0, i64 0, i64 0)
+  %.t10 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %path, i64 0, i64 0, i64 0, i64 0)
   br label %.L7
 .L6:
   %.t11 = call i64 @Sys.Platform$sysUnlinkNum()
-  %.t12 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t11, i64 %path, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t12 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t11, i64 %path, i64 0, i64 0, i64 0, i64 0, i64 0)
   br label %.L7
 .L7:
   %.t13 = phi i64 [ %.t10, %.L5 ], [ %.t12, %.L6 ]
@@ -5328,11 +5329,11 @@ define i64 @Sys$sysMkdir(i64 %path, i64 %mode) #0 {
 .L5:
   %.t8 = call i64 @Sys.Platform$sysMkdirNum()
   %.t9 = call i64 @Sys.Platform$atFdCwd()
-  %.t10 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %path, i64 %mode, i64 0, i64 0, i64 0)
+  %.t10 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %path, i64 %mode, i64 0, i64 0, i64 0)
   br label %.L7
 .L6:
   %.t11 = call i64 @Sys.Platform$sysMkdirNum()
-  %.t12 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t11, i64 %path, i64 %mode, i64 0, i64 0, i64 0, i64 0)
+  %.t12 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t11, i64 %path, i64 %mode, i64 0, i64 0, i64 0, i64 0)
   br label %.L7
 .L7:
   %.t13 = phi i64 [ %.t10, %.L5 ], [ %.t12, %.L6 ]
@@ -5355,11 +5356,11 @@ define i64 @Sys$sysRmdir(i64 %path) #0 {
 .L5:
   %.t8 = call i64 @Sys.Platform$sysRmdirNum()
   %.t9 = call i64 @Sys.Platform$atFdCwd()
-  %.t10 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %path, i64 512, i64 0, i64 0, i64 0)
+  %.t10 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %path, i64 512, i64 0, i64 0, i64 0)
   br label %.L7
 .L6:
   %.t11 = call i64 @Sys.Platform$sysRmdirNum()
-  %.t12 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t11, i64 %path, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t12 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t11, i64 %path, i64 0, i64 0, i64 0, i64 0, i64 0)
   br label %.L7
 .L7:
   %.t13 = phi i64 [ %.t10, %.L5 ], [ %.t12, %.L6 ]
@@ -5495,14 +5496,14 @@ define i64 @Sys$sysReadDirLoop(i64 %fd, i64 %buf, i64 %pos, i64 %out) #0 {
   %.t14 = load i64, ptr %.s2
   %.t15 = call i64 @Sys$sysDirBufBytes()
   %.t16 = load i64, ptr %.s3
-  %.t17 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t12, i64 %.t13, i64 %.t14, i64 %.t15, i64 %.t16, i64 0, i64 0)
+  %.t17 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t12, i64 %.t13, i64 %.t14, i64 %.t15, i64 %.t16, i64 0, i64 0)
   br label %.L11
 .L10:
   %.t18 = call i64 @Sys.Platform$sysGetdentsNum()
   %.t19 = load i64, ptr %.s1
   %.t20 = load i64, ptr %.s2
   %.t21 = call i64 @Sys$sysDirBufBytes()
-  %.t22 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t18, i64 %.t19, i64 %.t20, i64 %.t21, i64 0, i64 0, i64 0)
+  %.t22 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t18, i64 %.t19, i64 %.t20, i64 %.t21, i64 0, i64 0, i64 0)
   br label %.L11
 .L11:
   %.t23 = phi i64 [ %.t17, %.L9 ], [ %.t22, %.L10 ]
@@ -5623,7 +5624,7 @@ define i64 @Sys$sysGetCwd() #0 {
 .L13:
   %.t16 = call i64 @Sys.Platform$sysCwdNum()
   %.t17 = call i64 @Sys.Platform$fGetPath()
-  %.t18 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t16, i64 %.t9, i64 %.t17, i64 %.t0, i64 0, i64 0, i64 0)
+  %.t18 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t16, i64 %.t9, i64 %.t17, i64 %.t0, i64 0, i64 0, i64 0)
   %.t19 = call i64 @Sys$sysCloseFd(i64 %.t9)
   %.c20 = icmp slt i64 %.t18, 0
   %.t21 = zext i1 %.c20 to i64
@@ -5645,7 +5646,7 @@ define i64 @Sys$sysGetCwd() #0 {
   br label %.L7
 .L6:
   %.t31 = call i64 @Sys.Platform$sysCwdNum()
-  %.t32 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t31, i64 %.t0, i64 4096, i64 0, i64 0, i64 0, i64 0)
+  %.t32 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t31, i64 %.t0, i64 4096, i64 0, i64 0, i64 0, i64 0)
   %.c33 = icmp slt i64 %.t32, 0
   %.t34 = zext i1 %.c33 to i64
   %.t35 = icmp ne i64 %.t34, 0
@@ -5823,7 +5824,7 @@ define i64 @Sys$sysSpawn(i64 %path, i64 %argv, i64 %envp) #0 {
   %.t8 = call i64 @Mem$memAlloc(i64 8)
   %.t9 = call i64 @Mem$memSetWord(i64 %.t8, i64 0, i64 0, i64 0)
   %.t10 = call i64 @Sys.Platform$sysPosixSpawn()
-  %.t11 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t10, i64 %.t8, i64 %path, i64 0, i64 %argv, i64 %envp, i64 0)
+  %.t11 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t10, i64 %.t8, i64 %path, i64 0, i64 %argv, i64 %envp, i64 0)
   %.c12 = icmp slt i64 %.t11, 0
   %.t13 = zext i1 %.c12 to i64
   %.t14 = icmp ne i64 %.t13, 0
@@ -5872,9 +5873,9 @@ define i64 @Sys$sysSpawn(i64 %path, i64 %argv, i64 %envp) #0 {
   br i1 %.t46, label %.L47, label %.L48
 .L47:
   %.t50 = call i64 @Sys.Platform$sysExecve()
-  %.t51 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t50, i64 %path, i64 %argv, i64 %envp, i64 0, i64 0, i64 0)
+  %.t51 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t50, i64 %path, i64 %argv, i64 %envp, i64 0, i64 0, i64 0)
   %.t52 = call i64 @Sys.Platform$sysExit()
-  %.t53 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t52, i64 127, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t53 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t52, i64 127, i64 0, i64 0, i64 0, i64 0, i64 0)
   br label %.L49
 .L48:
   br label %.L49
@@ -5899,7 +5900,7 @@ define i64 @Sys$sysWaitPid(i64 %pid) #0 {
   %.t1 = call i64 @Mem$memAlloc(i64 8)
   %.t2 = call i64 @Mem$memSetWord(i64 %.t1, i64 0, i64 0, i64 0)
   %.t3 = call i64 @Sys.Platform$sysWait4()
-  %.t4 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t3, i64 %pid, i64 %.t1, i64 0, i64 0, i64 0, i64 0)
+  %.t4 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t3, i64 %pid, i64 %.t1, i64 0, i64 0, i64 0, i64 0)
   %.c5 = icmp slt i64 %.t4, 0
   %.t6 = zext i1 %.c5 to i64
   %.t7 = icmp ne i64 %.t6, 0
@@ -6295,7 +6296,7 @@ define i64 @Sys$sysRunSearch(i64 %name, i64 %argv, i64 %envp, i64 %path, i64 %fr
 define i64 @Sys$sysGetPid() #0 {
 
   %.t0 = call i64 @Sys.Platform$sysGetPidNum()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 0, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 0, i64 0, i64 0, i64 0, i64 0, i64 0)
   ret i64 %.t1
 }
 define i64 @Sys$sysNowMicros(i64 %buf) #0 {
@@ -6307,7 +6308,7 @@ define i64 @Sys$sysNowMicros(i64 %buf) #0 {
   br i1 %.t3, label %.L4, label %.L5
 .L4:
   %.t7 = call i64 @Sys.Platform$sysClockNum()
-  %.t8 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t7, i64 %buf, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t8 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t7, i64 %buf, i64 0, i64 0, i64 0, i64 0, i64 0)
   %.c9 = icmp slt i64 %.t8, 0
   %.t10 = zext i1 %.c9 to i64
   %.t11 = icmp ne i64 %.t10, 0
@@ -6327,7 +6328,7 @@ define i64 @Sys$sysNowMicros(i64 %buf) #0 {
 .L5:
   %.t21 = call i64 @Sys.Platform$sysClockNum()
   %.t22 = call i64 @Sys.Platform$clockMonotonicId()
-  %.t23 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t21, i64 %.t22, i64 %buf, i64 0, i64 0, i64 0, i64 0)
+  %.t23 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t21, i64 %.t22, i64 %buf, i64 0, i64 0, i64 0, i64 0)
   %.c24 = icmp slt i64 %.t23, 0
   %.t25 = zext i1 %.c24 to i64
   %.t26 = icmp ne i64 %.t25, 0
@@ -6367,7 +6368,7 @@ define i64 @Sys$sysNowMonotonic(i64 %buf) #0 {
 .L5:
   %.t8 = call i64 @Sys.Platform$sysClockNum()
   %.t9 = call i64 @Sys.Platform$clockMonotonicId()
-  %.t10 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %buf, i64 0, i64 0, i64 0, i64 0)
+  %.t10 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %buf, i64 0, i64 0, i64 0, i64 0)
   %.c11 = icmp slt i64 %.t10, 0
   %.t12 = zext i1 %.c11 to i64
   %.t13 = icmp ne i64 %.t12, 0
@@ -6399,7 +6400,7 @@ define i64 @Sys$netSocketTcp() #0 {
   %.t0 = call i64 @Sys.Platform$sysSocketNum()
   %.t1 = call i64 @Sys.Platform$afInet()
   %.t2 = call i64 @Sys.Platform$sockStream()
-  %.t3 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %.t1, i64 %.t2, i64 0, i64 0, i64 0, i64 0)
+  %.t3 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %.t1, i64 %.t2, i64 0, i64 0, i64 0, i64 0)
   ret i64 %.t3
 }
 define i64 @Sys$netSocketTcp6() #0 {
@@ -6407,7 +6408,7 @@ define i64 @Sys$netSocketTcp6() #0 {
   %.t0 = call i64 @Sys.Platform$sysSocketNum()
   %.t1 = call i64 @Sys.Platform$afInet6()
   %.t2 = call i64 @Sys.Platform$sockStream()
-  %.t3 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %.t1, i64 %.t2, i64 0, i64 0, i64 0, i64 0)
+  %.t3 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %.t1, i64 %.t2, i64 0, i64 0, i64 0, i64 0)
   ret i64 %.t3
 }
 define i64 @Sys$netAddr4Bytes() #0 {
@@ -6569,20 +6570,20 @@ define i64 @Sys$netBind(i64 %fd, i64 %addr) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysBindNum()
   %.t1 = call i64 @Sys$netAddrSize(i64 %addr)
-  %.t2 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %addr, i64 %.t1, i64 0, i64 0, i64 0)
+  %.t2 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %addr, i64 %.t1, i64 0, i64 0, i64 0)
   ret i64 %.t2
 }
 define i64 @Sys$netListen(i64 %fd, i64 %backlog) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysListenNum()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %backlog, i64 0, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %backlog, i64 0, i64 0, i64 0, i64 0)
   ret i64 %.t1
 }
 define i64 @Sys$netAccept(i64 %fd) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysAcceptNum()
   %.t1 = call i64 @Sys.Platform$acceptNonblockFlag()
-  %.t2 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 0, i64 0, i64 %.t1, i64 0, i64 0)
+  %.t2 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 0, i64 0, i64 %.t1, i64 0, i64 0)
   %.t3 = call i64 @Sys$netAcceptFinish(i64 %.t2)
   ret i64 %.t3
 }
@@ -6618,7 +6619,7 @@ define i64 @Sys$netAcceptFrom(i64 %fd, i64 %addr, i64 %cap, i64 %lenbuf) #0 {
   %.t1 = call i64 @Sys$netPutInt32(i64 %lenbuf, i64 0, i64 %cap)
   %.t2 = call i64 @Sys.Platform$sysAcceptNum()
   %.t3 = call i64 @Sys.Platform$acceptNonblockFlag()
-  %.t4 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t2, i64 %fd, i64 %addr, i64 %lenbuf, i64 %.t3, i64 0, i64 0)
+  %.t4 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t2, i64 %fd, i64 %addr, i64 %lenbuf, i64 %.t3, i64 0, i64 0)
   %.t5 = call i64 @Sys$netAcceptFinish(i64 %.t4)
   %.c6 = icmp sge i64 %.t5, 0
   %.t7 = zext i1 %.c6 to i64
@@ -6996,7 +6997,7 @@ define i64 @Sys$netSetBlocking(i64 %fd) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysFcntlNum()
   %.t1 = call i64 @Sys.Platform$fGetFl()
-  %.t2 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %.t1, i64 0, i64 0, i64 0, i64 0)
+  %.t2 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %.t1, i64 0, i64 0, i64 0, i64 0)
   %.c3 = icmp slt i64 %.t2, 0
   %.t4 = zext i1 %.c3 to i64
   %.t5 = icmp ne i64 %.t4, 0
@@ -7010,7 +7011,7 @@ define i64 @Sys$netSetBlocking(i64 %fd) #0 {
   %.t12 = sub i64 0, 1
   %.t13 = xor i64 %.t11, %.t12
   %.t14 = and i64 %.t2, %.t13
-  %.t15 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t9, i64 %fd, i64 %.t10, i64 %.t14, i64 0, i64 0, i64 0)
+  %.t15 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t9, i64 %fd, i64 %.t10, i64 %.t14, i64 0, i64 0, i64 0)
   br label %.L8
 .L8:
   %.t16 = phi i64 [ %.t2, %.L6 ], [ %.t15, %.L7 ]
@@ -7020,27 +7021,27 @@ define i64 @Sys$netConnect(i64 %fd, i64 %addr) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysConnectNum()
   %.t1 = call i64 @Sys$netAddrSize(i64 %addr)
-  %.t2 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %addr, i64 %.t1, i64 0, i64 0, i64 0)
+  %.t2 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %addr, i64 %.t1, i64 0, i64 0, i64 0)
   ret i64 %.t2
 }
 define i64 @Sys$netShutdown(i64 %fd, i64 %how) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysShutdownNum()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %how, i64 0, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %how, i64 0, i64 0, i64 0, i64 0)
   ret i64 %.t1
 }
 define i64 @Sys$netSetOptInt(i64 %fd, i64 %level, i64 %name, i64 %value, i64 %v) #0 {
 
   %.t0 = call i64 @Sys$netPutInt32(i64 %v, i64 0, i64 %value)
   %.t1 = call i64 @Sys.Platform$sysSetSockOptNum()
-  %.t2 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t1, i64 %fd, i64 %level, i64 %name, i64 %v, i64 4, i64 0)
+  %.t2 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t1, i64 %fd, i64 %level, i64 %name, i64 %v, i64 4, i64 0)
   ret i64 %.t2
 }
 define i64 @Sys$netSetNonBlocking(i64 %fd) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysFcntlNum()
   %.t1 = call i64 @Sys.Platform$fGetFl()
-  %.t2 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %.t1, i64 0, i64 0, i64 0, i64 0)
+  %.t2 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %fd, i64 %.t1, i64 0, i64 0, i64 0, i64 0)
   %.c3 = icmp slt i64 %.t2, 0
   %.t4 = zext i1 %.c3 to i64
   %.t5 = icmp ne i64 %.t4, 0
@@ -7052,7 +7053,7 @@ define i64 @Sys$netSetNonBlocking(i64 %fd) #0 {
   %.t10 = call i64 @Sys.Platform$fSetFl()
   %.t11 = call i64 @Sys.Platform$oNonblock()
   %.t12 = or i64 %.t2, %.t11
-  %.t13 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t9, i64 %fd, i64 %.t10, i64 %.t12, i64 0, i64 0, i64 0)
+  %.t13 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t9, i64 %fd, i64 %.t10, i64 %.t12, i64 0, i64 0, i64 0)
   br label %.L8
 .L8:
   %.t14 = phi i64 [ %.t2, %.L6 ], [ %.t13, %.L7 ]
@@ -7142,7 +7143,7 @@ define i64 @Sys$netPollBufBytes(i64 %n) #0 {
 define i64 @Sys$netPollCreate() #0 {
 
   %.t0 = call i64 @Sys.Platform$sysPollCreateNum()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 0, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 0, i64 0, i64 0, i64 0, i64 0, i64 0)
   ret i64 %.t1
 }
 define i64 @Sys$netPollRec(i64 %rec, i64 %fd, i64 %op) #0 {
@@ -7190,12 +7191,12 @@ define i64 @Sys$netPollAddRead(i64 %pfd, i64 %fd, i64 %rec) #0 {
   br i1 %.t5, label %.L6, label %.L7
 .L6:
   %.t9 = call i64 @Sys.Platform$sysPollWaitNum()
-  %.t10 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t9, i64 %pfd, i64 %rec, i64 1, i64 0, i64 0, i64 0)
+  %.t10 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t9, i64 %pfd, i64 %rec, i64 1, i64 0, i64 0, i64 0)
   br label %.L8
 .L7:
   %.t11 = call i64 @Sys.Platform$sysPollCtlNum()
   %.t12 = call i64 @Sys.Platform$pollAddOp()
-  %.t13 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t11, i64 %pfd, i64 %.t12, i64 %fd, i64 %rec, i64 0, i64 0)
+  %.t13 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t11, i64 %pfd, i64 %.t12, i64 %fd, i64 %rec, i64 0, i64 0)
   br label %.L8
 .L8:
   %.t14 = phi i64 [ %.t10, %.L6 ], [ %.t13, %.L7 ]
@@ -7212,12 +7213,12 @@ define i64 @Sys$netPollDelRead(i64 %pfd, i64 %fd, i64 %rec) #0 {
   br i1 %.t5, label %.L6, label %.L7
 .L6:
   %.t9 = call i64 @Sys.Platform$sysPollWaitNum()
-  %.t10 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t9, i64 %pfd, i64 %rec, i64 1, i64 0, i64 0, i64 0)
+  %.t10 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t9, i64 %pfd, i64 %rec, i64 1, i64 0, i64 0, i64 0)
   br label %.L8
 .L7:
   %.t11 = call i64 @Sys.Platform$sysPollCtlNum()
   %.t12 = call i64 @Sys.Platform$pollDelOp()
-  %.t13 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t11, i64 %pfd, i64 %.t12, i64 %fd, i64 %rec, i64 0, i64 0)
+  %.t13 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t11, i64 %pfd, i64 %.t12, i64 %fd, i64 %rec, i64 0, i64 0)
   br label %.L8
 .L8:
   %.t14 = phi i64 [ %.t10, %.L6 ], [ %.t13, %.L7 ]
@@ -7237,7 +7238,7 @@ define i64 @Sys$netPollWait(i64 %pfd, i64 %buf, i64 %maxEvents, i64 %timeoutMs, 
   br i1 %.t9, label %.L10, label %.L11
 .L10:
   %.t13 = call i64 @Sys.Platform$sysPollWaitNum()
-  %.t14 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t13, i64 %pfd, i64 0, i64 0, i64 %buf, i64 %maxEvents, i64 0)
+  %.t14 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t13, i64 %pfd, i64 0, i64 0, i64 %buf, i64 %maxEvents, i64 0)
   br label %.L12
 .L11:
   %.t15 = icmp eq i64 1000, 0
@@ -7258,7 +7259,7 @@ divok_22:
   %.t24 = mul i64 %.t23, 1000000
   %.t25 = call i64 @Sys$netPutWord(i64 %ts, i64 8, i64 %.t24)
   %.t26 = call i64 @Sys.Platform$sysPollWaitNum()
-  %.t27 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t26, i64 %pfd, i64 0, i64 0, i64 %buf, i64 %maxEvents, i64 %ts)
+  %.t27 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t26, i64 %pfd, i64 0, i64 0, i64 %buf, i64 %maxEvents, i64 %ts)
   br label %.L12
 .L12:
   %.t28 = phi i64 [ %.t14, %.L10 ], [ %.t27, %divok_22 ]
@@ -7266,7 +7267,7 @@ divok_22:
 .L5:
   %.t29 = call i64 @Sys.Platform$sysPollWaitNum()
   %.t30 = call i64 @Sys.Platform$pollSigsetSize()
-  %.t31 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t29, i64 %pfd, i64 %buf, i64 %maxEvents, i64 %timeoutMs, i64 0, i64 %.t30)
+  %.t31 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t29, i64 %pfd, i64 %buf, i64 %maxEvents, i64 %timeoutMs, i64 0, i64 %.t30)
   br label %.L6
 .L6:
   %.t32 = phi i64 [ %.t28, %.L12 ], [ %.t31, %.L5 ]
@@ -7327,7 +7328,7 @@ define i64 @Sys$sysRandomBytes(i64 %buf, i64 %n) #0 {
   %.t33 = call i64 @Sys.Platform$sysRandomNum()
   %.t34 = load i64, ptr %.s1
   %.t35 = add i64 %buf, %.t34
-  %.t36 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t33, i64 %.t35, i64 %.t32, i64 0, i64 0, i64 0, i64 0)
+  %.t36 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t33, i64 %.t35, i64 %.t32, i64 0, i64 0, i64 0, i64 0)
   %.c37 = icmp slt i64 %.t36, 0
   %.t38 = zext i1 %.c37 to i64
   %.t39 = icmp ne i64 %.t38, 0
@@ -7400,7 +7401,7 @@ define i64 @Sys$sysSignalBlock(i64 %mask, i64 %setbuf) #0 {
   %.t3 = call i64 @Sys.Platform$sysSigProcMaskNum()
   %.t4 = call i64 @Sys.Platform$sigBlockHow()
   %.t5 = call i64 @Sys.Platform$sigsetBytes()
-  %.t6 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t3, i64 %.t4, i64 %setbuf, i64 0, i64 %.t5, i64 0, i64 0)
+  %.t6 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t3, i64 %.t4, i64 %setbuf, i64 0, i64 %.t5, i64 0, i64 0)
   ret i64 %.t6
 }
 define i64 @Sys$netSignalOpen(i64 %pfd, i64 %mask, i64 %rec, i64 %setbuf) #0 {
@@ -7416,7 +7417,7 @@ define i64 @Sys$netSignalOpen(i64 %pfd, i64 %mask, i64 %rec, i64 %setbuf) #0 {
   %.t8 = call i64 @Sys.Platform$sysSignalFdNum()
   %.t9 = sub i64 0, 1
   %.t10 = call i64 @Sys.Platform$sigsetBytes()
-  %.t11 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %setbuf, i64 %.t10, i64 0, i64 0, i64 0)
+  %.t11 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t8, i64 %.t9, i64 %setbuf, i64 %.t10, i64 0, i64 0, i64 0)
   %.c12 = icmp slt i64 %.t11, 0
   %.t13 = zext i1 %.c12 to i64
   %.t14 = icmp ne i64 %.t13, 0
@@ -7428,7 +7429,7 @@ define i64 @Sys$netSignalOpen(i64 %pfd, i64 %mask, i64 %rec, i64 %setbuf) #0 {
   %.t19 = call i64 @Sys$netPollRec(i64 %rec, i64 %.t11, i64 %.t18)
   %.t20 = call i64 @Sys.Platform$sysPollCtlNum()
   %.t21 = call i64 @Sys.Platform$pollAddOp()
-  %.t22 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t20, i64 %pfd, i64 %.t21, i64 %.t11, i64 %rec, i64 0, i64 0)
+  %.t22 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t20, i64 %pfd, i64 %.t21, i64 %.t11, i64 %rec, i64 0, i64 0)
   %.c23 = icmp slt i64 %.t22, 0
   %.t24 = zext i1 %.c23 to i64
   %.t25 = icmp ne i64 %.t24, 0
@@ -7478,7 +7479,7 @@ define i64 @Sys$netSignalOpen(i64 %pfd, i64 %mask, i64 %rec, i64 %setbuf) #0 {
   %.t62 = call i64 @Mem$memPutByte(i64 %rec, i64 10, i64 %.t61)
   %.t63 = call i64 @Mem$memPutByte(i64 %rec, i64 11, i64 0)
   %.t64 = call i64 @Sys.Platform$sysPollWaitNum()
-  %.t65 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t64, i64 %pfd, i64 %rec, i64 1, i64 0, i64 0, i64 0)
+  %.t65 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t64, i64 %pfd, i64 %rec, i64 1, i64 0, i64 0, i64 0)
   %.c66 = icmp slt i64 %.t65, 0
   %.t67 = zext i1 %.c66 to i64
   %.t68 = icmp ne i64 %.t67, 0
@@ -7525,7 +7526,7 @@ define i64 @Sys$netPollSignalAt(i64 %buf, i64 %i, i64 %sigHandle, i64 %scratch) 
 .L12:
   %.t15 = call i64 @Sys.Platform$sysRead()
   %.t16 = call i64 @Sys.Platform$sigInfoSize()
-  %.t17 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t15, i64 %sigHandle, i64 %scratch, i64 %.t16, i64 0, i64 0, i64 0)
+  %.t17 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t15, i64 %sigHandle, i64 %scratch, i64 %.t16, i64 0, i64 0, i64 0)
   %.t18 = call i64 @Sys.Platform$sigInfoSize()
   %.c19 = icmp slt i64 %.t17, %.t18
   %.t20 = zext i1 %.c19 to i64
@@ -7595,14 +7596,14 @@ define i64 @Sys$netPollSignalAt(i64 %buf, i64 %i, i64 %sigHandle, i64 %scratch) 
 define i64 @Sys$sysKill(i64 %pid, i64 %signo) #0 {
 
   %.t0 = call i64 @Sys.Platform$sysKillNum()
-  %.t1 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %pid, i64 %signo, i64 0, i64 0, i64 0, i64 0)
+  %.t1 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %pid, i64 %signo, i64 0, i64 0, i64 0, i64 0)
   ret i64 %.t1
 }
 define i64 @Sys$sysForkProcess() #0 {
 
   %.t0 = call i64 @Sys.Platform$sysFork()
   %.t1 = call i64 @Sys.Platform$sysForkArg()
-  %.t2 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t0, i64 %.t1, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t2 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t0, i64 %.t1, i64 0, i64 0, i64 0, i64 0, i64 0)
   %.c3 = icmp slt i64 %.t2, 0
   %.t4 = zext i1 %.c3 to i64
   %.t5 = icmp ne i64 %.t4, 0
@@ -7619,7 +7620,7 @@ define i64 @Sys$sysForkProcess() #0 {
   br label %.L15
 .L14:
   %.t16 = call i64 @Sys.Platform$sysGetPidNum()
-  %.t17 = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 %.t16, i64 0, i64 0, i64 0, i64 0, i64 0, i64 0)
+  %.t17 = call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 %.t16, i64 0, i64 0, i64 0, i64 0, i64 0, i64 0)
   %.c18 = icmp eq i64 %.t2, %.t17
   %.t19 = zext i1 %.c18 to i64
   %.t20 = icmp ne i64 %.t19, 0
@@ -88675,7 +88676,7 @@ define i64 @codegen$targetCode(i64 %name) #0 {
 .L3:
   br label %.L5
 .L4:
-  %.t6 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_0, i64 0, i32 2) to i64
+  %.t6 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_999, i64 0, i32 2) to i64
   %.t7 = call i64 @Str$strEq(i64 %name, i64 %.t6)
   call void @axiom_release(i64 %.t6)
   %.t8 = icmp ne i64 %.t7, 0
@@ -88683,7 +88684,7 @@ define i64 @codegen$targetCode(i64 %name) #0 {
 .L9:
   br label %.L11
 .L10:
-  %.t12 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_999, i64 0, i32 2) to i64
+  %.t12 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1000, i64 0, i32 2) to i64
   %.t13 = call i64 @Str$strEq(i64 %name, i64 %.t12)
   call void @axiom_release(i64 %.t12)
   %.t14 = icmp ne i64 %.t13, 0
@@ -88691,7 +88692,7 @@ define i64 @codegen$targetCode(i64 %name) #0 {
 .L15:
   br label %.L17
 .L16:
-  %.t18 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1000, i64 0, i32 2) to i64
+  %.t18 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1001, i64 0, i32 2) to i64
   %.t19 = call i64 @Str$strEq(i64 %name, i64 %.t18)
   call void @axiom_release(i64 %.t18)
   %.t20 = icmp ne i64 %.t19, 0
@@ -88699,7 +88700,7 @@ define i64 @codegen$targetCode(i64 %name) #0 {
 .L21:
   br label %.L23
 .L22:
-  %.t24 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1001, i64 0, i32 2) to i64
+  %.t24 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1002, i64 0, i32 2) to i64
   %.t25 = call i64 @Str$strEq(i64 %name, i64 %.t24)
   call void @axiom_release(i64 %.t24)
   %.t26 = icmp ne i64 %.t25, 0
@@ -88707,7 +88708,7 @@ define i64 @codegen$targetCode(i64 %name) #0 {
 .L27:
   br label %.L29
 .L28:
-  %.t30 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1002, i64 0, i32 2) to i64
+  %.t30 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_0, i64 0, i32 2) to i64
   %.t31 = call i64 @Str$strEq(i64 %name, i64 %.t30)
   call void @axiom_release(i64 %.t30)
   %.t32 = icmp ne i64 %.t31, 0
@@ -169148,8 +169149,8 @@ define i64 @"Show#Float#show"(i64 %x) #0 {
   %.t0 = call i64 @Fmt$fmtFloat(i64 %x)
   ret i64 %.t0
 }
-@str_0 = private unnamed_addr constant [14 x i8]  c"\64\61\72\77\69\6E\2D\78\38\36\5F\36\34\00"
-@strhdr_0 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 13, ptr @str_0, i64 0 }, align 16
+@str_0 = private unnamed_addr constant [16 x i8]  c"\66\72\65\65\62\73\64\2D\61\61\72\63\68\36\34\00"
+@strhdr_0 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 15, ptr @str_0, i64 0 }, align 16
 @str_1 = private unnamed_addr constant [1 x i8]  c"\00"
 @strhdr_1 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 0, ptr @str_1, i64 0 }, align 16
 @str_2 = private unnamed_addr constant [8 x i8]  c"\20\77\68\69\6C\65\20\00"
@@ -171146,14 +171147,14 @@ define i64 @"Show#Float#show"(i64 %x) #0 {
 @strhdr_997 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 8, ptr @str_997, i64 0 }, align 16
 @str_998 = private unnamed_addr constant [15 x i8]  c"\64\61\72\77\69\6E\2D\61\61\72\63\68\36\34\00"
 @strhdr_998 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 14, ptr @str_998, i64 0 }, align 16
-@str_999 = private unnamed_addr constant [14 x i8]  c"\6C\69\6E\75\78\2D\61\61\72\63\68\36\34\00"
+@str_999 = private unnamed_addr constant [14 x i8]  c"\64\61\72\77\69\6E\2D\78\38\36\5F\36\34\00"
 @strhdr_999 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 13, ptr @str_999, i64 0 }, align 16
-@str_1000 = private unnamed_addr constant [13 x i8]  c"\6C\69\6E\75\78\2D\78\38\36\5F\36\34\00"
-@strhdr_1000 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 12, ptr @str_1000, i64 0 }, align 16
-@str_1001 = private unnamed_addr constant [15 x i8]  c"\66\72\65\65\62\73\64\2D\78\38\36\5F\36\34\00"
-@strhdr_1001 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 14, ptr @str_1001, i64 0 }, align 16
-@str_1002 = private unnamed_addr constant [16 x i8]  c"\66\72\65\65\62\73\64\2D\61\61\72\63\68\36\34\00"
-@strhdr_1002 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 15, ptr @str_1002, i64 0 }, align 16
+@str_1000 = private unnamed_addr constant [14 x i8]  c"\6C\69\6E\75\78\2D\61\61\72\63\68\36\34\00"
+@strhdr_1000 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 13, ptr @str_1000, i64 0 }, align 16
+@str_1001 = private unnamed_addr constant [13 x i8]  c"\6C\69\6E\75\78\2D\78\38\36\5F\36\34\00"
+@strhdr_1001 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 12, ptr @str_1001, i64 0 }, align 16
+@str_1002 = private unnamed_addr constant [15 x i8]  c"\66\72\65\65\62\73\64\2D\78\38\36\5F\36\34\00"
+@strhdr_1002 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 14, ptr @str_1002, i64 0 }, align 16
 @str_1003 = private unnamed_addr constant [25 x i8]  c"\61\72\6D\36\34\2D\61\70\70\6C\65\2D\6D\61\63\6F\73\78\31\34\2E\30\2E\30\00"
 @strhdr_1003 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 24, ptr @str_1003, i64 0 }, align 16
 @str_1004 = private unnamed_addr constant [26 x i8]  c"\78\38\36\5F\36\34\2D\61\70\70\6C\65\2D\6D\61\63\6F\73\78\31\34\2E\30\2E\30\00"
@@ -180718,27 +180719,27 @@ next:
   br label %scan
 emit:
   %atp = ptrtoint ptr @__axiom_bt_at to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %atp, i64 5, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 4, i64 2, i64 %atp, i64 5, i64 0, i64 0, i64 0)
   %found = icmp ne i64 %bn, 0
   br i1 %found, label %named, label %unknown
 named:
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %bn, i64 %bl, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 4, i64 2, i64 %bn, i64 %bl, i64 0, i64 0, i64 0)
   br label %eol
 unknown:
   %unp = ptrtoint ptr @__axiom_bt_unk to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %unp, i64 9, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 4, i64 2, i64 %unp, i64 9, i64 0, i64 0, i64 0)
   br label %eol
 eol:
   %nlp = ptrtoint ptr @__axiom_bt_nl to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %nlp, i64 1, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 4, i64 2, i64 %nlp, i64 1, i64 0, i64 0, i64 0)
   ret i64 %ba
 }
 
 define internal void @__axiom_backtrace() #0 {
 entry:
   %hp = ptrtoint ptr @__axiom_bt_hdr to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %hp, i64 42, i64 0, i64 0, i64 0)
-  %fpi = call i64 asm sideeffect "movq %rbp, $0", "=r"()
+  call i64 asm sideeffect "svc #0\0Ab.cc 1f\0Aneg x0, x0\0A1:", "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}"(i64 4, i64 2, i64 %hp, i64 42, i64 0, i64 0, i64 0)
+  %fpi = call i64 asm sideeffect "mov $0, x29", "=r"()
   br label %loop
 loop:
   %fp = phi i64 [ %fpi, %entry ], [ %nx, %frame ]

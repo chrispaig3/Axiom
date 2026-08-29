@@ -1,4 +1,4 @@
-target triple = "x86_64-apple-macosx14.0.0"
+target triple = "x86_64-unknown-freebsd14.0"
 
 @__axiom_argc = internal global i64 0
 @__axiom_argv = internal global i64 0
@@ -90,7 +90,7 @@ unlink_mid:
   store i64 %cnext, ptr %prevlinkp
   br label %install
 map:
-  %addr = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554629, i64 0, i64 %chunk, i64 3, i64 4098, i64 -1, i64 0)
+  %addr = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 477, i64 0, i64 %chunk, i64 3, i64 4098, i64 -1, i64 0)
   %failed_low = icmp ult i64 %addr, 4096
   %failed_neg = icmp ugt i64 %addr, -4096
   %failed = or i1 %failed_low, %failed_neg
@@ -417,7 +417,7 @@ fresh:
   %need = add i64 %sz, 16
   %rounded0 = add i64 %need, 65535
   %want = and i64 %rounded0, -65536
-  %addr = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554629, i64 0, i64 %want, i64 3, i64 4098, i64 -1, i64 0)
+  %addr = call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 477, i64 0, i64 %want, i64 3, i64 4098, i64 -1, i64 0)
   %failed_low = icmp ult i64 %addr, 4096
   %failed_neg = icmp ugt i64 %addr, -4096
   %failed = or i1 %failed_low, %failed_neg
@@ -475,9 +475,9 @@ define internal i64 @__axiom_div_by_zero() #0 {
 entry:
   call i64 @__axiom_recover_abort(i64 72)
   %dzp = ptrtoint ptr @__axiom_divzero_msg to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %dzp, i64 24, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 4, i64 2, i64 %dzp, i64 24, i64 0, i64 0, i64 0)
   call void @__axiom_backtrace()
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554433, i64 72, i64 0, i64 0, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 1, i64 72, i64 0, i64 0, i64 0, i64 0, i64 0)
   unreachable
 }
 @__axiom_oom_msg = private unnamed_addr constant [35 x i8] c"axiom: out of memory (mmap failed)\0A"
@@ -485,9 +485,9 @@ define internal i64 @__axiom_out_of_memory() #0 {
 entry:
   call i64 @__axiom_recover_abort(i64 70)
   %oomp = ptrtoint ptr @__axiom_oom_msg to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %oomp, i64 35, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 4, i64 2, i64 %oomp, i64 35, i64 0, i64 0, i64 0)
   call void @__axiom_backtrace()
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554433, i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 1, i64 70, i64 0, i64 0, i64 0, i64 0, i64 0)
   unreachable
 }
 
@@ -2613,27 +2613,27 @@ define i64 @Host$hostTarget() #0 {
 }
 define i64 @Sys.Platform$sysRead() #0 {
 
-  ret i64 33554435
+  ret i64 3
 }
 define i64 @Sys.Platform$sysWrite() #0 {
 
-  ret i64 33554436
+  ret i64 4
 }
 define i64 @Sys.Platform$sysOpen() #0 {
 
-  ret i64 33554437
+  ret i64 5
 }
 define i64 @Sys.Platform$sysClose() #0 {
 
-  ret i64 33554438
+  ret i64 6
 }
 define i64 @Sys.Platform$sysExit() #0 {
 
-  ret i64 33554433
+  ret i64 1
 }
 define i64 @Sys.Platform$sysLseek() #0 {
 
-  ret i64 33554631
+  ret i64 478
 }
 define i64 @Sys.Platform$openNeedsDirFd() #0 {
 
@@ -2641,7 +2641,8 @@ define i64 @Sys.Platform$openNeedsDirFd() #0 {
 }
 define i64 @Sys.Platform$atFdCwd() #0 {
 
-  ret i64 0
+  %.t0 = sub i64 0, 100
+  ret i64 %.t0
 }
 define i64 @Sys.Platform$oRdonly() #0 {
 
@@ -2665,19 +2666,19 @@ define i64 @Sys.Platform$seekSet() #0 {
 }
 define i64 @Sys.Platform$spawnUsesPosixSpawn() #0 {
 
-  ret i64 1
+  ret i64 0
 }
 define i64 @Sys.Platform$sysPosixSpawn() #0 {
 
-  ret i64 33554676
+  ret i64 0
 }
 define i64 @Sys.Platform$sysWait4() #0 {
 
-  ret i64 33554439
+  ret i64 7
 }
 define i64 @Sys.Platform$sysFork() #0 {
 
-  ret i64 33554434
+  ret i64 2
 }
 define i64 @Sys.Platform$sysForkArg() #0 {
 
@@ -2685,27 +2686,27 @@ define i64 @Sys.Platform$sysForkArg() #0 {
 }
 define i64 @Sys.Platform$sysExecve() #0 {
 
-  ret i64 0
+  ret i64 59
 }
 define i64 @Sys.Platform$sysUnlinkNum() #0 {
 
-  ret i64 33554442
+  ret i64 10
 }
 define i64 @Sys.Platform$sysMkdirNum() #0 {
 
-  ret i64 33554568
+  ret i64 136
 }
 define i64 @Sys.Platform$sysRmdirNum() #0 {
 
-  ret i64 33554569
+  ret i64 137
 }
 define i64 @Sys.Platform$sysRenameNum() #0 {
 
-  ret i64 33554560
+  ret i64 128
 }
 define i64 @Sys.Platform$sysGetdentsNum() #0 {
 
-  ret i64 33554776
+  ret i64 554
 }
 define i64 @Sys.Platform$dirReadNeedsPosition() #0 {
 
@@ -2713,19 +2714,19 @@ define i64 @Sys.Platform$dirReadNeedsPosition() #0 {
 }
 define i64 @Sys.Platform$direntNameOffset() #0 {
 
-  ret i64 21
+  ret i64 24
 }
 define i64 @Sys.Platform$cwdUsesFcntlPath() #0 {
 
-  ret i64 1
+  ret i64 0
 }
 define i64 @Sys.Platform$sysCwdNum() #0 {
 
-  ret i64 33554524
+  ret i64 326
 }
 define i64 @Sys.Platform$fGetPath() #0 {
 
-  ret i64 50
+  ret i64 0
 }
 define i64 @Sys.Platform$eExist() #0 {
 
@@ -2737,59 +2738,59 @@ define i64 @Sys.Platform$eIsDir() #0 {
 }
 define i64 @Sys.Platform$sysGetPidNum() #0 {
 
-  ret i64 33554452
+  ret i64 20
 }
 define i64 @Sys.Platform$sysClockNum() #0 {
 
-  ret i64 33554548
+  ret i64 232
 }
 define i64 @Sys.Platform$clockIsGettimeofday() #0 {
 
-  ret i64 1
+  ret i64 0
 }
 define i64 @Sys.Platform$clockHasMonotonic() #0 {
 
-  ret i64 0
+  ret i64 1
 }
 define i64 @Sys.Platform$clockMonotonicId() #0 {
 
-  ret i64 0
+  ret i64 4
 }
 define i64 @Sys.Platform$sysSocketNum() #0 {
 
-  ret i64 33554529
+  ret i64 97
 }
 define i64 @Sys.Platform$sysBindNum() #0 {
 
-  ret i64 33554536
+  ret i64 104
 }
 define i64 @Sys.Platform$sysListenNum() #0 {
 
-  ret i64 33554538
+  ret i64 106
 }
 define i64 @Sys.Platform$sysAcceptNum() #0 {
 
-  ret i64 33554462
+  ret i64 30
 }
 define i64 @Sys.Platform$sysConnectNum() #0 {
 
-  ret i64 33554530
+  ret i64 98
 }
 define i64 @Sys.Platform$sysSetSockOptNum() #0 {
 
-  ret i64 33554537
+  ret i64 105
 }
 define i64 @Sys.Platform$sysGetSockOptNum() #0 {
 
-  ret i64 33554550
+  ret i64 118
 }
 define i64 @Sys.Platform$sysShutdownNum() #0 {
 
-  ret i64 33554566
+  ret i64 134
 }
 define i64 @Sys.Platform$sysFcntlNum() #0 {
 
-  ret i64 33554524
+  ret i64 92
 }
 define i64 @Sys.Platform$afInet() #0 {
 
@@ -2797,7 +2798,7 @@ define i64 @Sys.Platform$afInet() #0 {
 }
 define i64 @Sys.Platform$afInet6() #0 {
 
-  ret i64 30
+  ret i64 28
 }
 define i64 @Sys.Platform$sockStream() #0 {
 
@@ -2845,19 +2846,19 @@ define i64 @Sys.Platform$pollUsesKqueue() #0 {
 }
 define i64 @Sys.Platform$sysPollCreateNum() #0 {
 
-  ret i64 33554794
+  ret i64 362
 }
 define i64 @Sys.Platform$sysPollWaitNum() #0 {
 
-  ret i64 33554795
+  ret i64 560
 }
 define i64 @Sys.Platform$sysPollCtlNum() #0 {
 
-  ret i64 33554795
+  ret i64 560
 }
 define i64 @Sys.Platform$pollEventSize() #0 {
 
-  ret i64 32
+  ret i64 64
 }
 define i64 @Sys.Platform$pollEventFdOffset() #0 {
 
@@ -2882,11 +2883,11 @@ define i64 @Sys.Platform$pollSigsetSize() #0 {
 }
 define i64 @Sys.Platform$sysRandomNum() #0 {
 
-  ret i64 33554932
+  ret i64 563
 }
 define i64 @Sys.Platform$randomIsGetentropy() #0 {
 
-  ret i64 1
+  ret i64 0
 }
 define i64 @Sys.Platform$randomMaxChunk() #0 {
 
@@ -2898,7 +2899,7 @@ define i64 @Sys.Platform$signalUsesSignalFd() #0 {
 }
 define i64 @Sys.Platform$sysSigProcMaskNum() #0 {
 
-  ret i64 33554480
+  ret i64 340
 }
 define i64 @Sys.Platform$sigBlockHow() #0 {
 
@@ -2906,7 +2907,7 @@ define i64 @Sys.Platform$sigBlockHow() #0 {
 }
 define i64 @Sys.Platform$sigsetBytes() #0 {
 
-  ret i64 4
+  ret i64 16
 }
 define i64 @Sys.Platform$pollSignalFilter() #0 {
 
@@ -2923,7 +2924,7 @@ define i64 @Sys.Platform$sigInfoSize() #0 {
 }
 define i64 @Sys.Platform$sysKillNum() #0 {
 
-  ret i64 33554469
+  ret i64 37
 }
 define i64 @Sys.Platform$sigTerm() #0 {
 
@@ -2935,7 +2936,7 @@ define i64 @Sys.Platform$sigInt() #0 {
 }
 define i64 @Sys.Platform$forkChildIsZero() #0 {
 
-  ret i64 0
+  ret i64 1
 }
 define i64 @Sys.Platform$acceptNonblockFlag() #0 {
 
@@ -88675,7 +88676,7 @@ define i64 @codegen$targetCode(i64 %name) #0 {
 .L3:
   br label %.L5
 .L4:
-  %.t6 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_0, i64 0, i32 2) to i64
+  %.t6 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_999, i64 0, i32 2) to i64
   %.t7 = call i64 @Str$strEq(i64 %name, i64 %.t6)
   call void @axiom_release(i64 %.t6)
   %.t8 = icmp ne i64 %.t7, 0
@@ -88683,7 +88684,7 @@ define i64 @codegen$targetCode(i64 %name) #0 {
 .L9:
   br label %.L11
 .L10:
-  %.t12 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_999, i64 0, i32 2) to i64
+  %.t12 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1000, i64 0, i32 2) to i64
   %.t13 = call i64 @Str$strEq(i64 %name, i64 %.t12)
   call void @axiom_release(i64 %.t12)
   %.t14 = icmp ne i64 %.t13, 0
@@ -88691,7 +88692,7 @@ define i64 @codegen$targetCode(i64 %name) #0 {
 .L15:
   br label %.L17
 .L16:
-  %.t18 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1000, i64 0, i32 2) to i64
+  %.t18 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1001, i64 0, i32 2) to i64
   %.t19 = call i64 @Str$strEq(i64 %name, i64 %.t18)
   call void @axiom_release(i64 %.t18)
   %.t20 = icmp ne i64 %.t19, 0
@@ -88699,7 +88700,7 @@ define i64 @codegen$targetCode(i64 %name) #0 {
 .L21:
   br label %.L23
 .L22:
-  %.t24 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_1001, i64 0, i32 2) to i64
+  %.t24 = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_0, i64 0, i32 2) to i64
   %.t25 = call i64 @Str$strEq(i64 %name, i64 %.t24)
   call void @axiom_release(i64 %.t24)
   %.t26 = icmp ne i64 %.t25, 0
@@ -169148,8 +169149,8 @@ define i64 @"Show#Float#show"(i64 %x) #0 {
   %.t0 = call i64 @Fmt$fmtFloat(i64 %x)
   ret i64 %.t0
 }
-@str_0 = private unnamed_addr constant [14 x i8]  c"\64\61\72\77\69\6E\2D\78\38\36\5F\36\34\00"
-@strhdr_0 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 13, ptr @str_0, i64 0 }, align 16
+@str_0 = private unnamed_addr constant [15 x i8]  c"\66\72\65\65\62\73\64\2D\78\38\36\5F\36\34\00"
+@strhdr_0 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 14, ptr @str_0, i64 0 }, align 16
 @str_1 = private unnamed_addr constant [1 x i8]  c"\00"
 @strhdr_1 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 0, ptr @str_1, i64 0 }, align 16
 @str_2 = private unnamed_addr constant [8 x i8]  c"\20\77\68\69\6C\65\20\00"
@@ -171146,12 +171147,12 @@ define i64 @"Show#Float#show"(i64 %x) #0 {
 @strhdr_997 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 8, ptr @str_997, i64 0 }, align 16
 @str_998 = private unnamed_addr constant [15 x i8]  c"\64\61\72\77\69\6E\2D\61\61\72\63\68\36\34\00"
 @strhdr_998 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 14, ptr @str_998, i64 0 }, align 16
-@str_999 = private unnamed_addr constant [14 x i8]  c"\6C\69\6E\75\78\2D\61\61\72\63\68\36\34\00"
+@str_999 = private unnamed_addr constant [14 x i8]  c"\64\61\72\77\69\6E\2D\78\38\36\5F\36\34\00"
 @strhdr_999 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 13, ptr @str_999, i64 0 }, align 16
-@str_1000 = private unnamed_addr constant [13 x i8]  c"\6C\69\6E\75\78\2D\78\38\36\5F\36\34\00"
-@strhdr_1000 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 12, ptr @str_1000, i64 0 }, align 16
-@str_1001 = private unnamed_addr constant [15 x i8]  c"\66\72\65\65\62\73\64\2D\78\38\36\5F\36\34\00"
-@strhdr_1001 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 14, ptr @str_1001, i64 0 }, align 16
+@str_1000 = private unnamed_addr constant [14 x i8]  c"\6C\69\6E\75\78\2D\61\61\72\63\68\36\34\00"
+@strhdr_1000 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 13, ptr @str_1000, i64 0 }, align 16
+@str_1001 = private unnamed_addr constant [13 x i8]  c"\6C\69\6E\75\78\2D\78\38\36\5F\36\34\00"
+@strhdr_1001 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 12, ptr @str_1001, i64 0 }, align 16
 @str_1002 = private unnamed_addr constant [16 x i8]  c"\66\72\65\65\62\73\64\2D\61\61\72\63\68\36\34\00"
 @strhdr_1002 = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 15, ptr @str_1002, i64 0 }, align 16
 @str_1003 = private unnamed_addr constant [25 x i8]  c"\61\72\6D\36\34\2D\61\70\70\6C\65\2D\6D\61\63\6F\73\78\31\34\2E\30\2E\30\00"
@@ -180718,26 +180719,26 @@ next:
   br label %scan
 emit:
   %atp = ptrtoint ptr @__axiom_bt_at to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %atp, i64 5, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 4, i64 2, i64 %atp, i64 5, i64 0, i64 0, i64 0)
   %found = icmp ne i64 %bn, 0
   br i1 %found, label %named, label %unknown
 named:
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %bn, i64 %bl, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 4, i64 2, i64 %bn, i64 %bl, i64 0, i64 0, i64 0)
   br label %eol
 unknown:
   %unp = ptrtoint ptr @__axiom_bt_unk to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %unp, i64 9, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 4, i64 2, i64 %unp, i64 9, i64 0, i64 0, i64 0)
   br label %eol
 eol:
   %nlp = ptrtoint ptr @__axiom_bt_nl to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %nlp, i64 1, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 4, i64 2, i64 %nlp, i64 1, i64 0, i64 0, i64 0)
   ret i64 %ba
 }
 
 define internal void @__axiom_backtrace() #0 {
 entry:
   %hp = ptrtoint ptr @__axiom_bt_hdr to i64
-  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 33554436, i64 2, i64 %hp, i64 42, i64 0, i64 0, i64 0)
+  call i64 asm sideeffect "syscall\0Ajnc 1f\0Anegq %rax\0A1:", "={ax},{ax},{di},{si},{dx},{r10},{r8},{r9},~{rdi},~{rsi},~{rdx},~{r10},~{r8},~{r9},~{rcx},~{r11},~{cc},~{memory}"(i64 4, i64 2, i64 %hp, i64 42, i64 0, i64 0, i64 0)
   %fpi = call i64 asm sideeffect "movq %rbp, $0", "=r"()
   br label %loop
 loop:

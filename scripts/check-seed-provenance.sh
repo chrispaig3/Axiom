@@ -19,7 +19,7 @@
 # it. See STAMP for what it said and what it should have said.
 #
 # WHAT IT PROVES, AND WHAT IT CANNOT. It proves the seed is a build
-# product of reviewable source, reproducibly, on four targets: a
+# product of reviewable source, reproducibly, on six targets: a
 # tampered seed now has to be a tamper somebody can find by reading
 # `.ax` files rather than 139,638 lines of LLVM IR. It does NOT answer
 # Ken Thompson - the compiler that regenerates the seed here is itself
@@ -37,7 +37,7 @@
 # half: the commit's sources must hash to it before anything is
 # regenerated.
 #
-# THE SEED IS THE FOUR `.ll` FILES, NOT THE DIRECTORY. The first
+# THE SEED IS THE SIX `.ll` FILES, NOT THE DIRECTORY. The first
 # version of this asked for the last commit to touch `bootstrap/`, and
 # it went red on the very commit that added this gate - because that
 # commit rewrote `bootstrap/STAMP` and `bootstrap/README.md`, which are
@@ -45,10 +45,11 @@
 # corrects a sentence in the README must not be read as a reseed. The
 # check caught its own author, which is the property this file is for.
 #
-# COST. One compiler build plus four whole-compiler emissions, about
-# five minutes. It is its own CI job for that reason, and it needs the
-# full history - `fetch-depth: 0` - because a shallow clone cannot see
-# the commit that introduced a file it did not fetch.
+# COST. One compiler build plus six whole-compiler emissions - four
+# took about five minutes, so budget seven. It is its own CI job for
+# that reason, and it needs the full history - `fetch-depth: 0` -
+# because a shallow clone cannot see the commit that introduced a file
+# it did not fetch.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -59,7 +60,7 @@ fail() { echo "FAIL: $*"; failed=$((failed + 1)); }
 
 command -v git >/dev/null || { echo "FAIL: git is not on PATH"; exit 1; }
 
-targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64"
+targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64"
 
 # --------------------------------------------------------------------
 echo "== STAMP states a source stamp, and it is well formed =="
@@ -98,7 +99,7 @@ if [[ -z "$commit" ]]; then
   echo "      A shallow clone cannot answer this - the job needs fetch-depth: 0."
   exit 1
 fi
-echo "ok   the four seeds were last written by ${commit:0:7}"
+echo "ok   the six seeds were last written by ${commit:0:7}"
 
 extract() {
   local sha="$1" dest="$2"
@@ -122,7 +123,7 @@ fi
 
 # --------------------------------------------------------------------
 echo
-echo "== regenerating all four seeds from those sources =="
+echo "== regenerating all six seeds from those sources =="
 # --------------------------------------------------------------------
 # `reseed.sh`'s own procedure, reproduced here rather than invoked,
 # because that script writes into `bootstrap/` and this one must not
@@ -194,7 +195,7 @@ else
       diff "$gen/axiom-$t.ll" "$repo_root/bootstrap/axiom-$t.ll" | head -8 | sed 's/^/       /'
     fi
   done
-  (( same == 4 )) && echo "     all four targets, $(wc -l <"$repo_root/bootstrap/axiom-darwin-aarch64.ll" | tr -d ' ') lines each"
+  (( same == 6 )) && echo "     all six targets, $(wc -l <"$repo_root/bootstrap/axiom-darwin-aarch64.ll" | tr -d ' ') lines each"
 fi
 
 # --------------------------------------------------------------------
@@ -265,15 +266,43 @@ echo "== negative probe: the wrong commit must be reported wrong =="
 # derivation silently landing on a tree that happens to hash right.
 # `${commit}^` is the tree the old STAMP named - the commit before the
 # seed - which is the exact mistake that was live until 2026-08-25.
+#
+# THE TREE COMPARED AGAINST IS THE ONE BEFORE THE SOURCES LAST MOVED.
+# `moved` is the commit that last touched a `.ax` file at or before the
+# seed commit; when a reseed rides in the commit that changed
+# `self_host/` - every reseed until 2026-08-29 - that IS the seed
+# commit and `${moved}^` is its parent, the old STAMP's mistake
+# exactly. It is further back when a commit carries the seed alone.
+# That happened the day the FreeBSD targets arrived: their names had to
+# land one commit BEFORE their seeds, because only a compiler that
+# knows a target can emit its seed, so the seed commit's parent was the
+# same source tree and the stamp agreed with it, as it must -
+# regenerating from either gives the same bytes. Comparing against the
+# parent read that agreement as "the stamp cannot tell them apart" and
+# went red on a seed that was exactly its source's emission. What this
+# asserts is that STAMP distinguishes TREES, and two commits with one
+# tree are one tree; so a seed-only commit's parent is REQUIRED to hash
+# the same, and the tree before the sources last moved is required not
+# to.
 parent="$(git -C "$repo_root" rev-parse --verify "${commit}^" 2>/dev/null || true)"
-if [[ -z "$parent" ]]; then
-  echo "warn: ${commit:0:7} has no parent - the wrong-commit probe cannot run here"
+moved="$(git -C "$repo_root" log -1 --format=%H "$commit" -- 'self_host/*.ax' 'stdlib/*.ax' 2>/dev/null || true)"
+before="$(git -C "$repo_root" rev-parse --verify "${moved}^" 2>/dev/null || true)"
+if [[ -z "$parent" || -z "$moved" || -z "$before" ]]; then
+  echo "warn: ${commit:0:7} has no ancestor before its sources last moved - the wrong-commit probe cannot run here"
 else
-  extract "$parent" "$work/parent"
-  if [[ "$(gate_seed_source_stamp "$work/parent")" == "$want_stamp" ]]; then
-    fail "${parent:0:7}'s sources hash the same as ${commit:0:7}'s - the stamp cannot tell them apart"
+  if [[ "$moved" != "$commit" ]]; then
+    extract "$parent" "$work/parent"
+    if [[ "$(gate_seed_source_stamp "$work/parent")" == "$want_stamp" ]]; then
+      echo "ok   ${commit:0:7} carries the seed alone; its parent ${parent:0:7} is the same source tree and hashes the same, as one tree must"
+    else
+      fail "${parent:0:7} touches no source file after ${moved:0:7} yet hashes differently from ${commit:0:7} - the stamp is reading something other than the sources"
+    fi
+  fi
+  extract "$before" "$work/before"
+  if [[ "$(gate_seed_source_stamp "$work/before")" == "$want_stamp" ]]; then
+    fail "${before:0:7}'s sources hash the same as ${commit:0:7}'s - the stamp cannot tell them apart"
   else
-    echo "ok   ${parent:0:7} hashes differently, so STAMP identifies one tree"
+    echo "ok   ${before:0:7}, the tree before the sources last moved (${moved:0:7}), hashes differently, so STAMP identifies one tree"
   fi
 fi
 
@@ -282,5 +311,5 @@ if (( failed > 0 )); then
   echo "check-seed-provenance: $failed check(s) failed"
   exit 1
 fi
-echo "check-seed-provenance: the seed is ${commit:0:7}'s emission, on all four targets,"
+echo "check-seed-provenance: the seed is ${commit:0:7}'s emission, on all six targets,"
 echo "                       and a one-byte source change is enough to say so"

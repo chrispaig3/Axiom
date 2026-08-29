@@ -1,6 +1,6 @@
-Source stamp:          8309eeda976a22e193bc60e6d23f6fb1289ad07a7400196cae619939bcd03a59
-Source files:          46
-Generated on:          2026-08-26T02:51:45Z
+Source stamp:          0772df25b032cefc4d6a2e3b9529a3f8ec50cfe2f22fec837eb30734b5862f26
+Source files:          49
+Generated on:          2026-08-29T19:34:13Z
 Regenerate with:       scripts/reseed.sh
 Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh
 
@@ -8,7 +8,7 @@ The source stamp is `gate_seed_source_stamp` (scripts/lib/gate.sh) over
 the `self_host/**.ax` and `stdlib/**.ax` bytes these seeds were
 generated from: the path list, then every byte, hashed. It is the
 CHECKABLE claim here, and `scripts/check-seed-provenance.sh` checks it -
-it finds the commit that last touched the four `.ll` files - not this
+it finds the commit that last touched the six `.ll` files - not this
 directory, which also holds metadata about them - requires that
-commit's sources to hash to this line, and then regenerates all four
+commit's sources to hash to this line, and then regenerates all six
 seeds from them and requires the result to be byte-identical.
