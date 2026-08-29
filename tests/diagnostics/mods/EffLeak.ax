@@ -1,0 +1,12 @@
+; A module whose exported function performs IO without saying so.
+; 367-effect-fix-imported.ax imports it: the AX3042 raised here must
+; carry NO fix, because a fix is a substitution in the ENTRY file's
+; bytes and this file is not it.
+(import IO)
+
+(pub :: leak (-> Int Int))
+(pub fn (leak n)
+  {
+    (println "leak")
+    n
+  })

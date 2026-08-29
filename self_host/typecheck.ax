@@ -10943,7 +10943,7 @@
                   (if (== dent 0)
                     0
                     {
-                      (checkExhaustiveMatrix tc (nodeB e) exhTy (spanOf (nodeA e)))
+                      (checkExhaustiveMatrix tc (nodeB e) exhTy (nodeA e))
                       1
                     }
                   )
@@ -11642,41 +11642,615 @@
   )
 )
 
-; One column wide, one row per arm - the entry point from checkMatch.
-(pub :: checkExhaustiveMatrix (-> Int Int Int Int Int))
+; ------------------------------------------------------------------
+; The fix AX3005 and AX3042 carry, and the bytes it is written against.
+;
+; A machine-applicable fix is a byte-range substitution in the file
+; the diagnostic names (docs/diagnostics.md, `~>`), and the checker
+; holds every unit's source: word 13 is the unit table, word 1 of each
+; entry its text. Only the ENTRY file is ever offered one from here. A
+; diagnostic on an imported module's declaration renders against that
+; module's bytes, and a fix into a file the request did not name is an
+; edit the editor would apply to the wrong document - lsp.ax's
+; `lspQuickfixes` keeps unit 0 for the same reason. `tcEntrySrc`
+; answers "" outside unit 0, and every fix site reads "" as "keep the
+; prose help alone".
+;
+; The scanners below are `lspFormEnd`'s, with the same string, char,
+; comment and identifier skips, so a `)` inside a literal or a comment
+; is not a paren. They live here rather than in lsp.ax because the
+; checker is what knows WHICH form: the language server only carries
+; what the diagnostic already says.
+; ------------------------------------------------------------------
+(pub :: tcEntrySrc (-> Int String))
 
-(pub fn (checkExhaustiveMatrix tc arms scrutTy span)
-  (if (== span 0)
-    0
-    (let (
-      (matrix (armsMatrix arms vecNew 0))
-      (types (vecPush vecNew scrutTy))
-      (missOut (memAlloc 8))
+(pub fn (tcEntrySrc tc)
+  (if (!= (memGetWord tc 14) 0)
+    ""
+    (let ((units (memGetWord tc 13)))
+      (if (== units 0)
+        ""
+        (if (== (vecLen units) 0)
+          ""
+          (let ((u (vecGet units 0)))
+            (if (== (memGetWord u 1) 0)
+              ""
+              (memGetWordStr u 1)
+            )
+          )
+        )
+      )
     )
-      {
-        (memSetWord missOut 0 vecNew)
-        (if (== (matExhaustive tc matrix types missOut) 1)
-          0
-          (let ((missing (memGetWord missOut 0)))
-            {
-              (emitDiag
-                tc                (diagSetLabel
-                  (mkDiag
-                    SEV_ERROR                    "AX3005"                    "non-exhaustive-match"                    span                    (if (== (vecLen missing) 0)
-                      "non-exhaustive pattern match: some values are not covered"
-                      (strConcat "non-exhaustive pattern match: missing " (joinComma missing 0 ""))
-                    )                    0                    0                    "add the missing arms, or a wildcard `_` arm to catch the rest"
-                  )                  (if (== (vecLen missing) 0)
-                    "this `match` does not cover every value"
-                    (strConcat "this `match` does not cover: " (joinComma missing 0 ""))
+  )
+)
+
+; The byte just past the `)` closing the form that opens at `o`, or
+; -1 when the source ends first.
+(pub :: formEndFrom (-> String Int Int))
+
+(pub fn (formEndFrom src o)
+  (let (
+    (n (strLen src))
+    (mut i o)
+    (mut depth 0)
+    (mut stop (- 0 1))
+  )
+    {
+      (while (if (< i n)
+        (< stop 0)
+        false
+      )
+        (let ((ch (strByte src i)))
+          (if (== ch 34)
+            (set i (skipStringBody src (+ i 1) n))
+            (if (isIdentStart ch)
+              (set i (skipIdent src (+ i 1) n))
+              (if (== ch 39)
+                (set i (skipCharBody src (+ i 1) n))
+                (if (&& (== ch 35) (isBlockOpen src i n))
+                  (set i (skipBlockComment src (+ i 2) n))
+                  (if (== ch 59)
+                    (set i (findNewline src i n))
+                    {
+                      (if (== ch 40)
+                        (set depth (+ depth 1))
+                        0
+                      )
+                      (if (== ch 41)
+                        {
+                          (set depth (- depth 1))
+                          (if (<= depth 0)
+                            (set stop (+ i 1))
+                            0
+                          )
+                        }
+                        0
+                      )
+                      (set i (+ i 1))
+                    }
                   )
                 )
               )
-              0
+            )
+          )
+        ))
+      stop
+    }
+  )
+)
+
+; The first byte at or after `i` that is neither whitespace nor a
+; comment, or -1 when only those remain.
+(pub :: skipTrivia (-> String Int Int))
+
+(pub fn (skipTrivia src i)
+  (let (
+    (n (strLen src))
+    (mut k i)
+    (mut go 1)
+  )
+    {
+      (while (&& (== go 1) (< k n))
+        (let ((ch (strByte src k)))
+          (if (|| (== ch 32) (|| (== ch 9) (|| (== ch 10) (== ch 13))))
+            (set k (+ k 1))
+            (if (== ch 59)
+              (set k (findNewline src k n))
+              (if (&& (== ch 35) (isBlockOpen src k n))
+                (set k (skipBlockComment src (+ k 2) n))
+                (set go 0)
+              )
+            )
+          )
+        ))
+      (if (< k n)
+        k
+        (- 0 1)
+      )
+    }
+  )
+)
+
+(pub :: isBlankByte (-> Int Bool))
+
+(pub fn (isBlankByte b) (|| (== b 32) (== b 9)))
+
+; The `(` opening the OUTERMOST form whose head token starts at `p`:
+; back over the run of `(` and blanks before `p`, then forward to the
+; first `(` of that run. -1 when no `(` sits between the previous
+; token and `p` - a bare token, which is its own form.
+(pub :: formOpenBefore (-> String Int Int))
+
+(pub fn (formOpenBefore src p)
+  (let ((mut i (- p 1)))
+    {
+      (while (if (>= i 0)
+        (|| (== (strByte src i) 40) (isBlankByte (strByte src i)))
+        false
+      )
+        (set i (- i 1)))
+      (let ((mut j (+ i 1)))
+        {
+          (while (if (< j p)
+            (isBlankByte (strByte src j))
+            false
+          )
+            (set j (+ j 1)))
+          (if (&& (< j p) (== (strByte src j) 40))
+            j
+            (- 0 1)
+          )
+        }
+      )
+    }
+  )
+)
+
+; The `(` opening the form `(kw ...)` whose second token starts at
+; `p` - `(match` before a scrutinee, `(import` before a module path -
+; or -1 when the word before `p` is not `kw` or no `(` precedes it.
+(pub :: headOpenBefore (-> String Int String Int))
+
+(pub fn (headOpenBefore src p kw)
+  (let ((mut i (- p 1)))
+    {
+      (while (if (>= i 0)
+        (|| (isBlankByte (strByte src i)) (|| (== (strByte src i) 10) (== (strByte src i) 13)))
+        false
+      )
+        (set i (- i 1)))
+      (let ((mut j i))
+        {
+          (while (if (>= j 0)
+            (isIdentChar (strByte src j))
+            false
+          )
+            (set j (- j 1)))
+          (if (strEq (strSlice src (+ j 1) (- i j)) kw)
+            (let ((mut k j))
+              {
+                (while (if (>= k 0)
+                  (isBlankByte (strByte src k))
+                  false
+                )
+                  (set k (- k 1)))
+                (if (&& (>= k 0) (== (strByte src k) 40))
+                  k
+                  (- 0 1)
+                )
+              }
+            )
+            (- 0 1)
+          )
+        }
+      )
+    }
+  )
+)
+
+(pub :: spacesOf (-> Int String))
+
+(pub fn (spacesOf n)
+  (if (<= n 0)
+    ""
+    (strConcat " " (spacesOf (- n 1)))
+  )
+)
+
+; ------------------------------------------------------------------
+; AX3005's fix: the missing arms, written.
+;
+; One arm per missing constructor, in declaration order, each
+; `((Ctor _ ...) (todo "Ctor"))` with one `_` per field. `IO.todo`
+; types as anything and never returns, so the arm checks against
+; whatever the other arms answer and the program says where it
+; stopped. The arms go before the match's closing `)`, each on its
+; own line at the column the first written arm holds; a match with no
+; arms yet takes the `(match` column plus two.
+;
+; WHERE THE CLOSING `)` IS. The match node carries no span (it is
+; `TAG_E_MATCH` with span 0) and the anchor is the scrutinee's head
+; token, so the paren is found from the LAST ARM: its pattern's head
+; token, back to the `(` that opens the arm, forward over the arm's
+; form, then past trivia - and the next byte must be `)`. With no
+; arms the scrutinee's own form is walked the same way, but only for
+; a scrutinee whose head token opens its own form (a name, a literal,
+; a call, a nullary constructor): `spanOf` answers a `let`'s BODY and
+; a field access's BASE, and walking forward from those lands on the
+; `)` of the inner form - probed, `(match (let ((x 1)) x))` would have
+; put the arms inside the `let`.
+;
+; REFUSED, with the prose help kept alone, when
+;   * the diagnostic is not on the entry file, or `missing` is empty;
+;   * a missing name is not a constructor of the scrutinee's own type,
+;     or column 0 already tests it. The witness `matExhaustive` hands
+;     back can come from a NESTED column - probed: `((Some (Some x))
+;     ..) ((None) ..)` over `(Option (Option Int))` reports `missing
+;     None`, the inner one - and an arm for it at the top level would
+;     be a duplicate, or a constructor of the wrong type;
+;   * the closing `)` or the arms' column cannot be read off the bytes.
+;
+; A SECOND FIX HELP brings `todo` into scope when the resolver cannot
+; see it. Measured before writing it: a name outside an import's list
+; is AX3023, and a second `(import IO ...)` beside a listed one is
+; refused too - so an existing `(import IO (...))` has ` todo` added
+; to its list, and only a file that imports IO nowhere gets a fresh
+; `(import IO (todo))`, after its last import or at byte 0 when it has
+; none.
+; ------------------------------------------------------------------
+(pub :: matchFixHelps (-> Int Int Int Int Int Int Int Int))
+
+(pub fn (matchFixHelps tc d arms scrutTy scrut matrix missing)
+  (let ((src (tcEntrySrc tc)))
+    (let ((close
+      (if (== (strLen src) 0)
+        (- 0 1)
+        (matchCloseAt src scrut arms)
+      )
+    ))
+      (let ((indent
+        (if (< close 0)
+          (- 0 1)
+          (matchArmIndent src scrut arms)
+        )
+      ))
+        (let ((text
+          (if (< indent 0)
+            ""
+            (missingArmsText tc scrutTy matrix missing indent)
+          )
+        ))
+          (if (== (strLen text) 0)
+            (diagAddHelp d "add the missing arms, or a wildcard `_` arm to catch the rest")
+            {
+              (diagAddFixHelp d "add the missing arms, each a `todo` until it is written" (mkSpan close close) text)
+              (if (== (findFnEnt tc "todo") 0)
+                (importTodoHelp tc d src)
+                0
+              )
             }
           )
         )
-      }
+      )
+    )
+  )
+)
+
+; The byte of the `)` closing the match, or -1.
+(pub :: matchCloseAt (-> String Int Int Int))
+
+(pub fn (matchCloseAt src scrut arms)
+  (let ((anchor
+    (if (== (vecLen arms) 0)
+      (scrutFormEnd src scrut)
+      (armFormEnd src (vecGet arms (- (vecLen arms) 1)))
+    )
+  ))
+    (if (< anchor 0)
+      (- 0 1)
+      (let ((k (skipTrivia src anchor)))
+        (if (&& (>= k 0) (== (strByte src k) 41))
+          k
+          (- 0 1)
+        )
+      )
+    )
+  )
+)
+
+; The `(` opening an arm, from its pattern's head token; -1 for a
+; `syntax/for` arm or a pattern with no span.
+(pub :: armOpenOf (-> String Int Int))
+
+(pub fn (armOpenOf src arm)
+  (if (!= (nodeTag arm) TAG_M_ARM)
+    (- 0 1)
+    (let ((sp (spanOf (nodeA arm))))
+      (if (== sp 0)
+        (- 0 1)
+        (formOpenBefore src (spanStart sp))
+      )
+    )
+  )
+)
+
+(pub :: armFormEnd (-> String Int Int))
+
+(pub fn (armFormEnd src arm)
+  (let ((o (armOpenOf src arm)))
+    (if (< o 0)
+      (- 0 1)
+      (formEndFrom src o)
+    )
+  )
+)
+
+; Whether `spanOf` this scrutinee is the head token of its own
+; outermost form - the shapes the zero-arm walk may start from.
+(pub :: scrutHeadIsOwn (-> Int Bool))
+
+(pub fn (scrutHeadIsOwn scrut)
+  (let ((tag (nodeTag scrut)))
+    (if (|| (== tag TAG_E_VAR) (|| (== tag TAG_E_INT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_CHAR) (|| (== tag TAG_E_FLT) (== tag TAG_P_CON0))))))
+      true
+      (if (== tag TAG_E_APP)
+        (let ((h (spineHead scrut)))
+          (|| (== (nodeTag h) TAG_E_VAR) (== (nodeTag h) TAG_E_LAM))
+        )
+        false
+      )
+    )
+  )
+)
+
+; The byte past the scrutinee's whole form, or -1.
+(pub :: scrutFormEnd (-> String Int Int))
+
+(pub fn (scrutFormEnd src scrut)
+  (if (scrutHeadIsOwn scrut)
+    (let ((sp (spanOf scrut)))
+      (let ((o (formOpenBefore src (spanStart sp))))
+        (if (< o 0)
+          (spanEnd sp)
+          (formEndFrom src o)
+        )
+      )
+    )
+    (- 0 1)
+  )
+)
+
+; The column the inserted arms take, or -1.
+(pub :: matchArmIndent (-> String Int Int Int))
+
+(pub fn (matchArmIndent src scrut arms)
+  (if (> (vecLen arms) 0)
+    (let ((o (armOpenOf src (vecGet arms 0))))
+      (if (< o 0)
+        (- 0 1)
+        (- o (lineStartOf src o))
+      )
+    )
+    (let ((p (spanStart (spanOf scrut))))
+      (let ((o2 (formOpenBefore src p)))
+        (let ((o (headOpenBefore
+          src          (if (< o2 0)
+            p
+            o2
+          )          "match"
+        )))
+          (if (< o 0)
+            (- 0 1)
+            (+ 2 (- o (lineStartOf src o)))
+          )
+        )
+      )
+    )
+  )
+)
+
+; The arms, or "" when one of the missing names is not this type's
+; own top-level hole.
+(pub :: missingArmsText (-> Int Int Int Int Int String))
+
+(pub fn (missingArmsText tc scrutTy matrix missing indent)
+  (let ((dent (findData tc (nodeAName scrutTy))))
+    (if (== dent 0)
+      ""
+      (let (
+        (ctors (memGetWord dent 1))
+        (pad (spacesOf indent))
+        (parts vecNew)
+        (mut i 0)
+        (mut ok 1)
+      )
+        {
+          (while (&& (== ok 1) (< i (vecLen missing)))
+            (let ((cn (vecGetStr missing i)))
+              (let ((arity (ctorArityIn ctors cn 0)))
+                {
+                  (if (|| (< arity 0) (== (colHasCtor matrix cn 0) 1))
+                    (set ok 0)
+                    (vecPush parts (strConcat "\n" (strConcat pad (todoArmText cn arity))))
+                  )
+                  (set i (+ i 1))
+                }
+              )
+            ))
+          (if (== ok 1)
+            (catStrs parts)
+            ""
+          )
+        }
+      )
+    )
+  )
+)
+
+; The field count of the constructor `cn` names among `ctors`
+; (CtorEnt word 1 is its field types), or -1.
+(pub :: ctorArityIn (-> Int String Int Int))
+
+(pub fn (ctorArityIn ctors cn i)
+  (if (>= i (vecLen ctors))
+    (- 0 1)
+    (let ((c (vecGet ctors i)))
+      (if (strEq (bareOf (memGetWordStr c 0)) cn)
+        (vecLen (memGetWord c 1))
+        (ctorArityIn ctors cn (+ i 1))
+      )
+    )
+  )
+)
+
+(pub :: todoArmText (-> String Int String))
+
+(pub fn (todoArmText cn arity) (strConcat (strConcat (strConcat "((" cn) (wildsOf arity)) (strConcat (strConcat ") (todo \"" cn) "\"))")))
+
+(pub :: wildsOf (-> Int String))
+
+(pub fn (wildsOf n)
+  (if (<= n 0)
+    ""
+    (strConcat " _" (wildsOf (- n 1)))
+  )
+)
+
+; The import that brings `todo` in, as a second fix help on the same
+; diagnostic. `mod` is the module the import must name, or "" for the
+; last import of any module.
+(pub :: importTodoHelp (-> Int Int String Int))
+
+(pub fn (importTodoHelp tc d src)
+  (let ((imp (lastImportOf (memGetWord tc 9) "IO" 0 0)))
+    (if (!= imp 0)
+      (let ((lo (importListOpen src imp)))
+        (if (< lo 0)
+          0
+          (let ((le (formEndFrom src lo)))
+            (if (< le 0)
+              0
+              (diagAddFixHelp d "add `todo` to the names imported from IO" (mkSpan (- le 1) (- le 1)) " todo")
+            )
+          )
+        )
+      )
+      (let ((last (lastImportOf (memGetWord tc 9) "" 0 0)))
+        (if (== last 0)
+          (diagAddFixHelp d "import `todo` from IO" (mkSpan 0 0) "(import IO (todo))\n")
+          (let ((o (headOpenBefore src (spanStart (nodeSpan last)) "import")))
+            (if (< o 0)
+              0
+              (let ((e (formEndFrom src o)))
+                (if (< e 0)
+                  0
+                  (diagAddFixHelp d "import `todo` from IO" (mkSpan e e) "\n(import IO (todo))")
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The entry file's LAST `(import ...)` by position - of module `mod`,
+; or of any module when `mod` is "" - or 0.
+(pub :: lastImportOf (-> Int String Int Int Int))
+
+(pub fn (lastImportOf decls mod i best)
+  (if (>= i (vecLen decls))
+    best
+    (let ((d (vecGet decls i)))
+      (lastImportOf
+        decls        mod        (+ i 1)        (if (&& (== (nodeTag d) TAG_D_IMPORT) (&& (!= (nodeSpan d) 0) (|| (== (strLen mod) 0) (strEq (nodeAName d) mod))))
+          (if (== best 0)
+            d
+            (if (> (spanStart (nodeSpan d)) (spanStart (nodeSpan best)))
+              d
+              best
+            )
+          )
+          best
+        )
+      )
+    )
+  )
+)
+
+; The `(` of an import's name list: past the rest of a dotted path
+; (the span covers its first segment only), then blanks. -1 for a
+; bare import, which has no list to extend.
+(pub :: importListOpen (-> String Int Int))
+
+(pub fn (importListOpen src imp)
+  (let (
+    (n (strLen src))
+    (mut i (spanEnd (nodeSpan imp)))
+  )
+    {
+      (while (if (< i n)
+        (|| (isIdentChar (strByte src i)) (== (strByte src i) 46))
+        false
+      )
+        (set i (+ i 1)))
+      (while (if (< i n)
+        (isBlankByte (strByte src i))
+        false
+      )
+        (set i (+ i 1)))
+      (if (&& (< i n) (== (strByte src i) 40))
+        i
+        (- 0 1)
+      )
+    }
+  )
+)
+
+; One column wide, one row per arm - the entry point from checkMatch.
+; `scrut` is the scrutinee NODE: its span is the anchor, and its shape
+; is what the fix reads when the match has no arms yet.
+(pub :: checkExhaustiveMatrix (-> Int Int Int Int Int))
+
+(pub fn (checkExhaustiveMatrix tc arms scrutTy scrut)
+  (let ((span (spanOf scrut)))
+    (if (== span 0)
+      0
+      (let (
+        (matrix (armsMatrix arms vecNew 0))
+        (types (vecPush vecNew scrutTy))
+        (missOut (memAlloc 8))
+      )
+        {
+          (memSetWord missOut 0 vecNew)
+          (if (== (matExhaustive tc matrix types missOut) 1)
+            0
+            (let ((missing (memGetWord missOut 0)))
+              (let ((d (mkDiag
+                SEV_ERROR                "AX3005"                "non-exhaustive-match"                span                (if (== (vecLen missing) 0)
+                  "non-exhaustive pattern match: some values are not covered"
+                  (strConcat "non-exhaustive pattern match: missing " (joinComma missing 0 ""))
+                )                0                0                0
+              )))
+                {
+                  (diagSetLabel
+                    d                    (if (== (vecLen missing) 0)
+                      "this `match` does not cover every value"
+                      (strConcat "this `match` does not cover: " (joinComma missing 0 ""))
+                    )
+                  )
+                  (matchFixHelps
+                    tc                    d                    arms                    scrutTy                    scrut                    matrix                    missing
+                  )
+                  (emitDiag tc d)
+                  0
+                }
+              )
+            )
+          )
+        }
+      )
     )
   )
 )
@@ -12736,14 +13310,89 @@
 ; implementation declared it", and only the second lets a reader learn
 ; what an impl does without reading its body.
 
+; The help carries the FIX since 2026-08-29: `;@axiom:effect(io)` on a
+; line of its own, inserted at the START OF THE LINE that holds the
+; declaration. A tag attaches to the next declaration after it, so
+; above the `fn` is right even when a `::` signature precedes it
+; (measured: the result checks clean), and a line start is right for
+; an indented declaration too - an `impl` member gets the tag inside
+; the impl, where `attachAxtags` reads it (358 pins that shape).
+;
+; Offered for the ENTRY file only (`tcEntrySrc`), and only when the
+; name's span sits where a declaration is WRITTEN: the byte before it
+; is `(`, or the word before it is `fn` (the bare nullary `(fn answer
+; 42)`). The other shape is a generated declaration named by a macro
+; ARGUMENT - `(pair alpha beta quiet loud)` in 361 anchors `loud`'s
+; AX3042 on that token - and a tag line above an invocation attaches
+; to nothing the diagnostic is about. The prose stays either way.
 (pub :: emitUndeclaredEffect (-> Int Int String Int))
 
 (pub fn (emitUndeclaredEffect tc d name)
   (if (== (nodeSpan d) 0)
     0
-    (emitDiag tc (mkDiag
-      SEV_ERROR      "AX3042"      "undeclared-effect"      (nodeSpan d)      (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` performs ") (strConcat name " and its declaration does not say so"))      0      0      "write `;@axiom:effect(io)` above the declaration. Effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring"
-    ))
+    (let (
+      (src (tcEntrySrc tc))
+      (dg (mkDiag
+        SEV_ERROR        "AX3042"        "undeclared-effect"        (nodeSpan d)        (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` performs ") (strConcat name " and its declaration does not say so"))        0        0        0
+      ))
+    )
+      (let ((at
+        (if (== (strLen src) 0)
+          (- 0 1)
+          (effectTagInsertAt src (spanStart (nodeSpan d)))
+        )
+      ))
+        {
+          (if (< at 0)
+            (diagAddHelp dg "write `;@axiom:effect(io)` above the declaration")
+            (diagAddFixHelp dg "write `;@axiom:effect(io)` above the declaration" (mkSpan at at) ";@axiom:effect(io)\n")
+          )
+          (diagAddHelp dg "effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring")
+          (emitDiag tc dg)
+        }
+      )
+    )
+  )
+)
+
+; The byte the tag line is inserted at for a declaration whose name
+; starts at `p`, or -1 when `p` is not where a declaration is written.
+(pub :: effectTagInsertAt (-> String Int Int))
+
+(pub fn (effectTagInsertAt src p)
+  (if (declNameWritten src p)
+    (lineStartOf src p)
+    (- 0 1)
+  )
+)
+
+(pub :: declNameWritten (-> String Int Bool))
+
+(pub fn (declNameWritten src p)
+  (let ((mut i (- p 1)))
+    {
+      (while (if (>= i 0)
+        (isBlankByte (strByte src i))
+        false
+      )
+        (set i (- i 1)))
+      (if (< i 0)
+        false
+        (if (== (strByte src i) 40)
+          true
+          (let ((mut j i))
+            {
+              (while (if (>= j 0)
+                (isIdentChar (strByte src j))
+                false
+              )
+                (set j (- j 1)))
+              (strEq (strSlice src (+ j 1) (- i j)) "fn")
+            }
+          )
+        )
+      )
+    }
   )
 )
 

@@ -1,0 +1,10 @@
+; The fix is offered for the ENTRY file only. `leak` lives in
+; mods/EffLeak.ax and performs IO undeclared: its AX3042 renders
+; against that file and carries the two prose helps and no `~>`. `main`
+; here calls it and is undeclared too, and ITS line carries the fix -
+; the same code, the same message, one with an edit and one without,
+; decided by which file the span indexes.
+(import EffLeak (leak))
+
+(:: main Int)
+(fn (main) (leak 1))

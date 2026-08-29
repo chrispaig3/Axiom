@@ -1,0 +1,11 @@
+[1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Rect, Dot[0m
+  [1;34m--> [0m364-match-fix.ax:26:10
+[1;34m   |[0m
+[1;34m26 |[0m   (match s
+[1;34m   |[0m          [1;31m^ this `match` does not cover: Rect, Dot[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~> \n    ((Rect _ _) (todo "Rect"))\n    ((Dot) (todo "Dot"))[0m
+  [1;34m = [0m[1;32mhelp: [0madd `todo` to the names imported from IO[1;35m ~>  todo[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
+
+compilation failed due to 1 previous error

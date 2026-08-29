@@ -1,0 +1,30 @@
+; AX3005 carries a machine-applicable fix: the missing arms, one per
+; constructor in declaration order, each `((Ctor _ ...) (todo
+; "Ctor"))` with one `_` per field, inserted before the match's
+; closing `)` at the column of the first written arm. `todo` types as
+; anything and never returns, so the arm checks against what the
+; other arms answer.
+;
+; A SECOND fix help on the same line brings `todo` into scope. This
+; file imports IO with a name list that lacks it - measured, a name
+; outside the list is AX3023, and a second `(import IO ...)` beside
+; a listed one is refused - so the fix extends the list in place:
+; ` todo` before the list's `)`.
+;
+; Applied while this case was written, both edits leave AX3042 on
+; `area` and on `main` above it, whose own fixes write the tag lines;
+; the third round checks clean - the two codes chain.
+(import IO (exit))
+
+(data Shape
+  (Circle Int)
+  (Rect Int Int)
+  (Dot))
+
+(:: area (-> Shape Int))
+(fn (area s)
+  (match s
+    ((Circle r) (* r r))))
+
+(:: main Int)
+(fn (main) (area (Circle 2)))

@@ -505,3 +505,46 @@
     (exit code)
   }
 )
+
+; ------------------------------------------------------------------
+; A hole with a name.
+;
+; `(todo "Rect")` types as ANY result and never returns: it prints
+; `todo: Rect` to standard error and exits 70, `die`'s shape, so a
+; match arm, a branch or a body can be left unwritten without lying
+; about its type, and the program says where it stopped. `(-> String
+; a)` is the result-only signature AX3040 refuses elsewhere; it is
+; admitted here for the reason tests/selfhost/976-diverging-tyvar.ax
+; records: the tail is a `cast` of a call that never returns, and a
+; value nobody is resumed to read is not fabricated (typecheck.ax
+; `divTailOk`).
+;
+; This is what AX3005's quickfix writes into every arm it inserts -
+; `((Rect _ _) (todo "Rect"))` - and it performs IO, so the function
+; holding that arm must carry `;@axiom:effect(io)`. That is AX3042,
+; whose quickfix writes exactly that line: in an editor the two chain,
+; fill the match, then declare the effect.
+;
+; WRITTEN WITH `writeStr` AND `exit`, NOT `die`, and the reason is a
+; measurement. `die`'s effect row is an UPPER BOUND in the checker's
+; table (`symbols` prints `#effects-overapprox` on it - the `show` its
+; `eprintln` expands to is a trait dispatch, which the walk cannot
+; pin), and AX3042 does not accuse a caller on an upper bound. A
+; `todo` routed through `die` inherited the marker, and an untagged
+; function holding a `(todo ...)` arm checked CLEAN - the chain above
+; never started. The two primitives below carry exact rows, so this
+; one does too.
+; ------------------------------------------------------------------
+; Exit 70 with `todo: <what>` on standard error; types as any result and never returns.
+(pub :: todo (-> String a))
+
+;@axiom:effect(io)
+(pub fn (todo what)
+  (cast
+    a
+    {
+      (writeStr stderr (strConcat (strConcat "todo: " what) "\n"))
+      (exit 70)
+    }
+  )
+)

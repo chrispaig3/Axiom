@@ -159,7 +159,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `IO`
 
-`stdlib/IO.ax` — 23 public names
+`stdlib/IO.ax` — 24 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -186,6 +186,7 @@ See [reference.md](reference.md) for the language, and
 | `cwd` | value | `String` | `Alloc,IO,Mut` | The process's working directory as an absolute path, or "" if it cannot be determined. See `Sys.sysGetCwd` for why this is two different syscalls underneath. |
 | `exit` | value | `(-> Int Int)` | `IO` |  |
 | `die` | value | `(-> String Int Int)` | `Alloc,IO,Mut` | Print `s` to standard error and exit with `code`. Never returns. |
+| `todo` | value | `(-> String a)` | `Alloc,IO,Mut` | Exit 70 with `todo: <what>` on standard error; types as any result and never returns. |
 
 ## `Intern`
 

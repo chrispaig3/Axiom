@@ -1,0 +1,25 @@
+; AX3042 carries a machine-applicable fix: the tag line, inserted at
+; the start of the line that holds the declaration - `~>` with a
+; zero-width span, which AXDL spells `L:C` with no end column.
+;
+; `greet` has a `::` signature on the line above its `fn`, and the
+; fix still lands at the `fn` line: a tag attaches to the NEXT
+; declaration after it, so between the signature and the `fn` is
+; where this language writes one. Applied by hand while this case was
+; written, the result checks clean.
+;
+; The prose is now two helps: the one that carries the fix says only
+; what to write, because an editor shows a fix's help as the action's
+; title; the transitivity paragraph follows as a second help.
+(import IO)
+
+(:: greet (-> String Int))
+(fn (greet who)
+  {
+    (println who)
+    0
+  })
+
+(:: main Int)
+
+(fn (main) (greet "hi"))

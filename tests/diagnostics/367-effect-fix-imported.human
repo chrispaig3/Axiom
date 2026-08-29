@@ -1,0 +1,21 @@
+[1;31merror[AX3042][0m[1m: `leak` performs IO and its declaration does not say so[0m
+ [1;34m--> [0mEffLeak.ax:8:10
+[1;34m  |[0m
+[1;34m8 |[0m (pub fn (leak n)
+[1;34m  |[0m          [1;31m^^^^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration
+ [1;34m = [0m[1;32mhelp: [0meffects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3042` for a full explanation
+
+[1;31merror[AX3042][0m[1m: `main` performs IO and its declaration does not say so[0m
+  [1;34m--> [0m367-effect-fix-imported.ax:10:6
+[1;34m   |[0m
+[1;34m10 |[0m (fn (main) (leak 1))
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration[1;35m ~> ;@axiom:effect(io)\n[0m
+  [1;34m = [0m[1;32mhelp: [0meffects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3042` for a full explanation
+
+compilation failed due to 2 previous errors

@@ -1,0 +1,30 @@
+; expect 70
+; `IO.todo` at run time, in exactly the shape AX3005's quickfix
+; writes: an arm `((Rect _ _) (todo "Rect"))` per missing constructor,
+; the function tagged `;@axiom:effect(io)` because `todo` exits.
+;
+; `(todo "Rect")` types as `Int` here because the other arm does, and
+; is never returned from: `main` builds a `Rect`, the arm is hit, the
+; process writes `todo: Rect` to standard error and exits 70 - which
+; is what `; expect 70` reads. The `Circle` arm is the control: a
+; program that reached it would answer 4 and this case would fail.
+(import IO (todo))
+
+(data Shape
+  (Circle Int)
+  (Rect Int Int)
+  (Dot))
+
+(:: area (-> Shape Int))
+
+;@axiom:effect(io)
+(fn (area s)
+  (match s
+    ((Circle r) (* r r))
+    ((Rect _ _) (todo "Rect"))
+    ((Dot) (todo "Dot"))))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (area (Rect 1 2)))

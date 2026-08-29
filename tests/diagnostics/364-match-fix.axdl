@@ -1,0 +1,1 @@
+E AX3005 364-match-fix.ax:26:10-11 non-exhaustive-match "non-exhaustive pattern match: missing Rect, Dot" #"this `match` does not cover: Rect, Dot" ?27:25:"add the missing arms, each a `todo` until it is written"~>"\n    ((Rect _ _) (todo \"Rect\"))\n    ((Dot) (todo \"Dot\"))" ?17:17:"add `todo` to the names imported from IO"~>" todo"

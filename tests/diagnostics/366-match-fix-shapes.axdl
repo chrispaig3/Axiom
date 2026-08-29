@@ -1,0 +1,3 @@
+E AX3005 366-match-fix-shapes.ax:25:10-11 non-exhaustive-match "non-exhaustive pattern match: missing None" #"this `match` does not cover: None" ?"add the missing arms, or a wildcard `_` arm to catch the rest"
+E AX3005 366-match-fix-shapes.ax:31:10-11 non-exhaustive-match "non-exhaustive pattern match: missing Circle, Dot" #"this `match` does not cover: Circle, Dot" ?31:11:"add the missing arms, each a `todo` until it is written"~>"\n    ((Circle _) (todo \"Circle\"))\n    ((Dot) (todo \"Dot\"))"
+E AX3005 366-match-fix-shapes.ax:34:18-19 non-exhaustive-match "non-exhaustive pattern match: missing Circle" #"this `match` does not cover: Circle" ?34:29:"add the missing arms, each a `todo` until it is written"~>"\n                   ((Circle _) (todo \"Circle\"))"

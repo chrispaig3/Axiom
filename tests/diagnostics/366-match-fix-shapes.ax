@@ -1,0 +1,37 @@
+; The three shapes AX3005's fix has to decide, in one file.
+;
+; `f`: a NESTED hole. The walk's witness is the inner `None` of
+; `(Option (Option Int))`, and column 0 already tests `None`, so an
+; arm for it at the top level would be a duplicate: the fix is
+; REFUSED and the prose help stands alone.
+;
+; `g`: a match with NO ARMS yet. There is no first arm to take a
+; column from, so the arms go at the `(match` column plus two, and
+; the closing `)` is found from the scrutinee's own form.
+;
+; `h`: a ONE-LINE match. The arms are inserted before the `)` that
+; ends the line, at the column of `((Dot)`.
+;
+; `(import IO)` brings `todo` in already, so no second help appears on
+; any of the three - the resolver, not the import form, decides.
+(import IO)
+
+(data Shape
+  (Circle Int)
+  (Dot))
+
+(:: f (-> (Option (Option Int)) Int))
+(fn (f o)
+  (match o
+    ((Some (Some x)) x)
+    ((None) 0)))
+
+(:: g (-> Shape Int))
+(fn (g s)
+  (match s))
+
+(:: h (-> Shape Int))
+(fn (h s) (match s ((Dot) 0)))
+
+(:: main Int)
+(fn (main) (+ (f (Some (Some 1))) (+ (g (Dot)) (h (Dot)))))

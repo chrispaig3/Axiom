@@ -2,5 +2,5 @@ E AX3004 995-match-ctor-scrutinee-type.ax:42:7-10 type-mismatch "type mismatch: 
 E AX3004 995-match-ctor-scrutinee-type.ax:51:7-10 type-mismatch "type mismatch: expected Color, found Int" #"this has type `Int`, expected `Color`"
 E AX3004 995-match-ctor-scrutinee-type.ax:60:7-10 type-mismatch "type mismatch: expected Color, found Shape" #"this has type `Shape`, expected `Color`"
 E AX3004 995-match-ctor-scrutinee-type.ax:70:6-13 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"
-E AX3005 995-match-ctor-scrutinee-type.ax:80:14-15 non-exhaustive-match "non-exhaustive pattern match: missing Blue" #"this `match` does not cover: Blue" ?"add the missing arms, or a wildcard `_` arm to catch the rest"
+E AX3005 995-match-ctor-scrutinee-type.ax:80:14-15 non-exhaustive-match "non-exhaustive pattern match: missing Blue" #"this `match` does not cover: Blue" ?83:7:"add the missing arms, each a `todo` until it is written"~>"\n        ((Blue) (todo \"Blue\"))" ?1:1:"import `todo` from IO"~>"(import IO (todo))\n"
 E AX3004 995-match-ctor-scrutinee-type.ax:103:12-15 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"

@@ -4,7 +4,8 @@
 [1;34m29 |[0m   quiet :: (-> a Int) = (lambda (x) (__syscall3 1 1 x 0))
 [1;34m   |[0m   [1;31m^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration. Effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration
+  [1;34m = [0m[1;32mhelp: [0meffects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3042` for a full explanation
 
 compilation failed due to 1 previous error
