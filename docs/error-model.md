@@ -596,6 +596,12 @@ and exits 71 rather than answering. So an `effect` cannot express
 gets a trap where it wanted a `catch`. `effect` is for *capabilities*;
 `Result` is for *failure*.
 
+The capability that LOOKS like an error channel and is not: asking the
+caller what to do with a malformed record, and continuing with the
+answer. That is `ERR-REC-7`, and `stdlib/Fallible.ax` ships it — the
+handler decides per record, it cannot abort, and the loop it serves
+never learns anything happened.
+
 **ERR-REC-4 (P). `main` renders an error and exits with a code
 reserved for the purpose.** A `main` answering `(Result Int Error)`
 writes `axiom: {message}` — and `context` when it is non-empty — to fd
@@ -677,6 +683,67 @@ asserts those three properties separately at `opt -O1`, rather than
 asserting a line count, because P1's symbol table takes the address of
 every function a module defines and so keeps three names alive in every
 program either way.
+
+**ERR-REC-7 (H, gated, 2026-08-29). A batch loop's malformed record
+is a question for the loop's handler, answered at the point it arises,
+and the answer costs the record nothing.** `stdlib/Fallible.ax`
+declares one effect with one operation, `(fallibleMalformed message)`,
+answering an `Int`: a callee any depth below the loop performs it on a
+record it cannot parse and continues with what the innermost handler
+answers. Three handlers ship, each a value a program hands to `handle`.
+`fallibleSkip` answers `fallibleSkipped` — the most negative `Int`,
+which `fallibleIsSkipped` reads and the loop checks once per record —
+`(fallibleDefault d)` answers `d`, and `(fallibleCounting tally next)`
+counts in `tally` and answers as `next` would. Nesting shadows and
+restores as `handle` always has: an inner `fallibleSkip` wins while
+its `handle` is live and the outer `(fallibleDefault 100)` answers
+again after it exits. `tests/stdlib/410-fallible.ax` pins all of that
+line by line, and pins the two halves of `ERR-REC-3` this rule does
+not move: the handler cannot abort, and an operation performed with no
+handler is class (ii) of `ERR-REC-6` — 71 to a recovery point,
+`axiom: unhandled effect` and exit 71 outside one.
+
+*The cost is the rule.* A batch loop has no request boundary, so there
+is no arena reset (`MM-ALLOC-22`) and a byte per record is a byte the
+process keeps for the run. Measured 2026-08-29 by the arena mark cell,
+`370-error-propagation.ax`'s instrument, over 10,000 records of which
+1,428 performed the operation:
+
+| operation shape | bytes per operation |
+|---|---|
+| one argument, a literal message | **0** |
+| one argument, an `Int` | **0** |
+| two arguments, `(op message fallback)` | 32 — the curried handler's inner closure, never released |
+| one argument, a message built per record | 80 — the string, which a handler parameter (a type variable) hides from the release walk |
+
+So the operation takes one argument, the fallback comes from the
+handler — `(fallibleDefault d)` allocates its closure once, at the
+`handle` — and a program **MUST** pass a literal, or a value it already
+holds, never a message built for the record: the loop knows which
+record it is on. `410`'s four memory terms hold the three handlers at
+0 bytes per record and require a handler that KEEPS a string per
+record to move the same instrument. `scripts/check-steady-state.sh`'s
+`batch` probe is the RSS half: 2,000,000 records under `fallibleSkip`
+at **1,376 KiB**, the same as 200,000, with its `keeping` twin
+required to grow past 5×; and the gate builds
+`examples/batch-fallible/batch-fallible.ax`, the same loop reading
+every record as text, and holds it to the same band at 100,000 and
+1,000,000 records (1,392 KiB at both).
+
+*Why a sentinel and not `Option`.* `(Some v)` on every WELL-FORMED
+record is a block per record, allocated and released a million times
+where a sentinel is one comparison — and a `handle` expression's own
+type is the checker's wildcard, so the `Option` would arrive through
+a `cast` at every site. A program whose records can hold the most
+negative `Int` writes its own one-line handler answering its own
+sentinel.
+
+*What this does not change.* `ERR-REC-3` stands: the handler answers,
+it does not unwind. The two costs in the table are facts about the
+dispatch that the module documents rather than defects it fixes — a
+compiler that released the closure and the string would make both
+spellings free, and this rule's obligation would shrink to a
+preference.
 
 **ERR-REC-5 (P, program obligation). A recovered error MUST NOT be
 discarded silently.** `(match r ((Ok x) x) ((Err _) 0))` compiles and
@@ -955,13 +1022,14 @@ term 2, which now carries both spellings and compares them.
 | `ERR-REC-2` | **H, partly gated** | `371-err-module.ax` terms 64 and 32; `remChecked`/`shrChecked` unpinned |
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
+| `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — twelve values, four of them memory terms with an ablation; `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
 | `ERR-DIAG-2`, `3` | P | — `AX3043`, `AX3045`, `AX3046` not constructed; gated against collision (`AX3042` was, and renumbered `discarded-result`) |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
 
-Nineteen rules hold, ten of them named by a fixture that carries an
+Twenty rules hold, eleven of them named by a fixture that carries an
 ablation — and one of those ten, `ERR-REC-2`, has a fixture that
 reaches two of its four operators, which the row says. What remains is
 `ERR-PROP-4`, `ERR-REC-4`/`5`, `ERR-DIAG-2`/`3` and the migration

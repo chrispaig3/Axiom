@@ -1,0 +1,170 @@
+; Fallible - the effect a batch loop's deep callee performs on a
+; malformed record, and the handlers that answer it without unwinding.
+;
+; WHAT THIS IS FOR. A batch job reads four million records and the
+; 4,000,001st is malformed. The function that noticed is six calls
+; below the loop, and what should happen next - skip the record, use a
+; default, count it and carry on - is the LOOP's decision, not the
+; parser's. `Result` (`Err.ax`) would carry the fault up six frames by
+; hand, one `match` per frame, and then hand the loop a value it can
+; only inspect after the frames are gone. An effect operation asks the
+; question at the point it arises and continues with the answer:
+;
+;   (fallibleMalformed "quantity is not a number")
+;
+; dispatches to the innermost handler, and the handler's return value
+; IS the operation's result (reference.md, Handling Effects). Nothing
+; unwinds, nothing is retried, no frame between the loop and the
+; parser knows anything happened. That is `ERR-REC-3`'s distinction
+; exactly - `effect` is for capabilities, `Result` is for failure - and
+; the capability here is "ask the loop what to do with this record".
+; `docs/error-model.md` `ERR-REC-7` states the rule and the fixture
+; that holds it (`tests/stdlib/410-fallible.ax`).
+;
+; ONE ARGUMENT, AND IT IS A LITERAL. Both were decided by measurement
+; against the alternatives, on 2026-08-29, with the arena mark cell as
+; the instrument (`370-error-propagation.ax`'s method: word 0 is the
+; bump, word 2 the chunk) over 10,000 records of which 1,428 performed
+; the operation, inside one chunk:
+;
+;   one argument, a literal message       0 bytes per operation
+;   one argument, an `Int` index          0 bytes per operation
+;   two arguments (message, fallback)    32 bytes per operation
+;   one argument, a message BUILT         80 bytes per operation
+;     per record (`strConcat`/`fmtInt`)
+;
+; A two-argument operation's handler is a curried chain, so answering
+; one allocates the inner closure, 32 bytes, and the dispatch never
+; releases it. A message built per record leaks through the dispatch
+; whole: a handler parameter's type is a variable, so the release walk
+; cannot classify it and nothing frees the string. The plan this
+; module comes from says why either would be disqualifying - a batch
+; loop has no request boundary, so there is no arena reset
+; (`memory-model.md` MM-ALLOC-22) and every byte a record costs is a
+; byte the process keeps. So the operation takes the message alone,
+; the fallback value comes from the HANDLER (`fallibleDefault` is
+; built once, at the `handle`), and the message is a literal that says
+; what was wrong, not which record - the loop knows which record it is
+; on. `scripts/check-steady-state.sh`'s `batch` probe holds the
+; consequence: 2,000,000 records under `fallibleSkip` at the same RSS
+; as 200,000.
+;
+; "SKIP" IS A SENTINEL THE LOOP CHECKS. The operation answers an
+; `Int`, so a handler that means "skip this one" has to answer
+; SOMETHING; `fallibleSkipped` is that value and `fallibleIsSkipped` is
+; how a loop reads it. It is the most negative `Int` - a value no
+; record quantity takes, no heap address is, and `Err.intMin` spells
+; the same way - rather than an `Option`, because `(Some v)` on every
+; WELL-FORMED record is a block per record, which is the cost this
+; module exists to avoid. A program whose records really can hold that
+; value writes its own handler answering its own sentinel; a handler is
+; a one-line lambda.
+;
+; THE HANDLERS COMPOSE. `fallibleCounting` counts and delegates to the
+; handler it was given, so "count them, and skip" and "count them, and
+; use 0" are both one expression. It delegates by calling the closure
+; it holds rather than by performing `fallibleMalformed` again - a
+; handler that re-performs its own effect dispatches OUTWARD to the
+; next handler, which is correct and traps when there is none, and a
+; counting handler that only works inside another handler is a trap
+; waiting for the first program to install it alone.
+;
+; WHAT AN UNHANDLED OPERATION DOES. Exits 71, `axiom: unhandled effect`
+; on fd 2 - `ERR-REC-6`'s class (ii), a programmer error and not a
+; record's fault - and inside a recovery point it answers 71 to the
+; arming call. The fixture pins both. This is also why the effect is
+; declared without `pub`: an `effect` is exported unconditionally
+; (reference.md, Modules), so the operation is callable from any file
+; that imports `Fallible`, with or without a name list.
+;
+; The effect. One operation, because the compiler handles
+; single-operation effects dynamically and one custom effect per
+; `handle` (reference.md, Handling Effects); a program wanting two
+; kinds of question declares two effects and nests the handles.
+(effect Fallible
+  (fallibleMalformed :: (-> String Int)))
+
+; ------------------------------------------------------------------
+; The skip protocol
+; ------------------------------------------------------------------
+; The value a handler answers to mean "skip this record": the most
+; negative `Int`. A loop compares the value it got against this, or
+; asks `fallibleIsSkipped`.
+(pub :: fallibleSkipped Int)
+
+(pub fn (fallibleSkipped) (- (- 0 9223372036854775807) 1))
+
+; Whether a value is the skip sentinel. The comparison a batch loop
+; makes once per record; it allocates nothing.
+(pub :: fallibleIsSkipped (-> Int Bool))
+
+(pub fn (fallibleIsSkipped v) (== v fallibleSkipped))
+
+; ------------------------------------------------------------------
+; The ready handlers. Each is a value a program passes to `handle`:
+;
+;   (handle (processAll records) (Fallible) fallibleSkip)
+;   (handle (processAll records) (Fallible) (fallibleDefault 0))
+;   (handle (processAll records) (Fallible Mut)
+;     (fallibleCounting tally fallibleSkip))
+;
+; A `handle` expression's own type is the checker's wildcard, so the
+; result wants `(cast Int ...)` where a `Show` instance is selected -
+; `(println (cast Int (handle ...)))` - exactly as
+; `300-effect-handlers.ax` spells it.
+; ------------------------------------------------------------------
+; Skip every malformed record: answer `fallibleSkipped`, whatever the
+; message. A one-parameter top-level function is a value, so it is
+; passed bare.
+(pub :: fallibleSkip (-> String Int))
+
+(pub fn (fallibleSkip msg) fallibleSkipped)
+
+; Use `d` in place of every malformed record. Built ONCE, at the
+; `handle`, which is why the fallback is here and not an argument of
+; the operation: the closure holding `d` is allocated when the handler
+; is installed, not when a record is bad. One parameter, answering the
+; handler - the type is spelled flat because every function type is
+; curried and that is the formatter's normal form; `mkAdder` in
+; `280-function-application.ax` is the precedent.
+(pub :: fallibleDefault (-> Int String Int))
+
+(pub fn (fallibleDefault d)
+  (lambda (msg) d)
+)
+
+; ------------------------------------------------------------------
+; Counting
+; ------------------------------------------------------------------
+; How many records were malformed. A struct rather than a bare `Int`
+; because the handler has to write it from inside a closure, and a
+; field store is the one mutation visible through every holder of the
+; value (reference.md, Built-in Effects: `Mut`).
+(pub struct FallibleTally
+  (count : Int))
+
+; A fresh tally at zero.
+(pub :: fallibleTally FallibleTally)
+
+(pub fn (fallibleTally) (FallibleTally 0))
+
+; What a tally holds.
+(pub :: fallibleCount (-> FallibleTally Int))
+
+(pub fn (fallibleCount t) t.count)
+
+; Count every malformed record in `tally`, then answer as `next` would:
+; `(fallibleCounting t fallibleSkip)` skips and counts,
+; `(fallibleCounting t (fallibleDefault 0))` substitutes and counts.
+; The `handle` installing it lists `Mut` beside `Fallible`, because a
+; handler's own effects count at the site that installs it.
+(pub :: fallibleCounting (-> FallibleTally (-> String Int) String Int))
+
+(pub fn (fallibleCounting tally next)
+  (lambda (msg)
+    {
+      (set tally.count (+ tally.count 1))
+      (next msg)
+    }
+  )
+)

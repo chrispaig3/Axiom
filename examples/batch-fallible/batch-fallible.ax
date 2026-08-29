@@ -1,0 +1,158 @@
+; batch-fallible - a batch job over N generated records, every k-th of
+; them malformed, totalled under the `Fallible` handlers.
+;
+; This is the workload the enterprise plan's fault-containment section
+; describes: "record 4,000,001 is malformed, skip it". The record is
+; read as text, the parser six calls down finds a byte that is not a
+; digit, and what happens next is decided by the handler the LOOP
+; installed - not by the parser, and not by unwinding. The parser
+; performs `fallibleMalformed` and continues with the answer; the loop
+; installed `fallibleSkip`, or `(fallibleDefault 1)`, or a counting
+; handler around either (`stdlib/Fallible.ax`, `docs/error-model.md`
+; ERR-REC-7).
+;
+; The program prints three numbers and they are checkable by
+; arithmetic, which is how `scripts/check-steady-state.sh` reads them:
+; with m = N / k malformed records,
+;
+;   skip total     N(N+1)/2 - k * m(m+1)/2      the malformed ones
+;                                               contribute nothing
+;   default total  skip total + m               1 in place of each
+;   malformed      m                            the tally, counted
+;                                               under the skip run
+;
+; MEMORY IS THE POINT. A batch loop has no request boundary, so there
+; is no arena reset (`memory-model.md` MM-ALLOC-22): whatever a record
+; costs, the process keeps for the run. Every record here allocates
+; its text (`fmtInt`) and drops it; the malformed ones perform the
+; operation with a LITERAL message, because a message built per record
+; leaks 80 bytes through the dispatch and a two-argument operation
+; leaks its handler's inner closure - both measured, both in the
+; module's header. The gate builds this program and runs it at
+; 100,000 and 1,000,000 records, and requires the two peak RSS
+; readings to land within one band of each other.
+;
+; Usage:
+;   batch-fallible [N [k]]        defaults 1000000 and 7
+(import IO)
+
+(import Str)
+
+(import Fmt)
+
+(import Sys)
+
+(import Fallible)
+
+; The decimal digits of `s` from byte `i`, or -1 at the first byte
+; that is not a digit. The parser for a record and for an argument
+; alike; only the record parser asks a handler about the -1.
+(:: digitsFrom (-> String Int Int Int))
+
+(fn (digitsFrom s i acc)
+  (if (>= i (strLen s))
+    acc
+    (let ((b (strByte s i)))
+      (if (&& (>= b 48) (<= b 57))
+        (digitsFrom s (+ i 1) (+ (* acc 10) (- b 48)))
+        (- 0 1)
+      )
+    )
+  )
+)
+
+; Argument `i` as a number, or `d` when it is absent or not one.
+(:: argOr (-> Int Int Int))
+
+;@axiom:effect(io)
+(fn (argOr i d)
+  (if (> sysArgc i)
+    (let ((v (digitsFrom (sysArg i) 0 0)))
+      (if (< v 0)
+        d
+        v
+      )
+    )
+    d
+  )
+)
+
+; Record `i` as the text a reader would hand us: its quantity in
+; decimal, except that every k-th record says `n/a` where a number
+; belongs.
+(:: record (-> Int Int String))
+
+(fn (record i k)
+  (if (== (% i k) 0)
+    "n/a"
+    (fmtInt i)
+  )
+)
+
+; The deep callee. It does not know what the loop wants done with a
+; bad record; it says what was wrong and continues with the answer.
+(:: quantity (-> String Int))
+
+(fn (quantity s)
+  (let ((v (digitsFrom s 0 0)))
+    (if (< v 0)
+      (fallibleMalformed "quantity is not a number")
+      v
+    )
+  )
+)
+
+; The batch loop: one record at a time, one `fallibleIsSkipped` per
+; record, and nothing kept between records.
+(:: sumRecords (-> Int Int Int))
+
+(fn (sumRecords n k)
+  (let (
+    (mut i 1)
+    (mut acc 0)
+  )
+    {
+      (while (<= i n)
+        (let ((v (quantity (record i k))))
+          {
+            (set acc (if (fallibleIsSkipped v)
+              acc
+              (+ acc v)
+            ))
+            (set i (+ i 1))
+          }
+        ))
+      acc
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (n (argOr 1 1000000))
+    (k (argOr 2 7))
+    (tally fallibleTally)
+  )
+    (let (
+      ; `cast Int`: a `handle` expression's type is the checker's
+      ; wildcard, and `println` selects a `Show` instance by type.
+      (skipTotal
+        (cast Int (handle (sumRecords n k) (Fallible Alloc Mut) (fallibleCounting tally fallibleSkip)))
+      )
+      (defaultTotal
+        (cast Int (handle (sumRecords n k) (Fallible Alloc Mut) (fallibleDefault 1)))
+      )
+      (malformed (fallibleCount tally))
+    )
+      {
+        (println "skip total {skipTotal}")
+        (println "default total {defaultTotal}")
+        (println "malformed {malformed}")
+        0
+      }
+    )
+  )
+)

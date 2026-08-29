@@ -24,8 +24,21 @@
 #              overwrite path is the subject, and it is a different one:
 #              `mapInsert` handing back the value it displaces.
 #
-# Neither shape appears in `check-container-reclaim.sh`, which frees
-# containers whole and never removes or overwrites an element.
+#   batch      $n records, every seventh malformed, totalled under
+#              `stdlib/Fallible.ax`'s skip handler - the plan's batch
+#              workload ("record 4,000,001 is malformed, skip it"),
+#              with NO container at all: the live set is an
+#              accumulator and a handler, and every record must cost
+#              nothing. `docs/error-model.md` ERR-REC-7 is the rule;
+#              a two-argument operation or a message built per record
+#              would each put bytes on every record (32 and 80,
+#              measured in the module's header), and this is the arm
+#              that would see them.
+#
+# Neither of the first two shapes appears in
+# `check-container-reclaim.sh`, which frees containers whole and never
+# removes or overwrites an element; the third has no container to
+# free.
 #
 # THREE MAGNITUDES, NOT TWO, and that is the difference between "steady
 # state" and "sublinear". A program that grows as log n passes any
@@ -44,6 +57,21 @@
 #                     and the two arms print the SAME ANSWER - which is
 #                     what says they did the same work and differ only
 #                     in what they hand back.
+#   batch/keeping     `fallibleSkip` replaced by a handler that KEEPS a
+#                     fresh String per malformed record and skips it
+#                     all the same. One form, the same answer, and a
+#                     live set that grows by one string in seven
+#                     records - so this twin runs at 2,000,000 records
+#                     to keep 285,714 strings, the count the other two
+#                     keep at 200,000. Measured at 200,000 it held
+#                     4,592 KiB against 1,376: real growth, 3.3x, and
+#                     under the 5x bar that keeps noise out.
+#
+# AND THE EXAMPLE PROGRAM, `examples/batch-fallible/batch-fallible.ax`,
+# built and run at 100,000 and at 1,000,000 records - the plan's own
+# number - with its three printed answers checked against arithmetic
+# and its peak RSS held to the same band and ceiling. That is what
+# gates the example; nothing else compiles it.
 #
 # Usage:
 #   scripts/check-steady-state.sh           # gate (the default)
@@ -135,7 +163,55 @@ AX
 (fn (main) { (println (churn $ctor 0 $n)) 0 })
 AX
       ;;
+    batch)
+      # The ablation is the HANDLER and nothing else. Both spellings
+      # declare `kept`; the live one never touches it, so the two
+      # programs are the same shape and the same answer, and differ in
+      # what one of them holds on to.
+      local handler='fallibleSkip'
+      [[ "$variant" == keeping ]] && handler='(lambda (m) { (vecPush kept (strDup "record malformed")) fallibleSkipped })'
+      cat > "$out" <<AX
+; $n records, every seventh malformed, totalled under a Fallible
+; handler, with no arena reset anywhere. Variant: $variant.
+(import IO)
+(import Str)
+(import Vec)
+(import Fallible)
+
+(:: parseRecord (-> Int Int))
+(fn (parseRecord i)
+  (if (== (% i 7) 0) (fallibleMalformed "record malformed") i))
+
+(:: total (-> Int Int))
+(fn (total n)
+  (let ((mut i 1) (mut acc 0))
+    {
+      (while (<= i n)
+        (let ((v (parseRecord i)))
+          {
+            (set acc (if (fallibleIsSkipped v) acc (+ acc v)))
+            (set i (+ i 1))
+          }))
+      acc
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((kept vecNewRef))
+    { (println (cast Int (handle (total $n) (Fallible Alloc Mut) $handler))) 0 }))
+AX
+      ;;
   esac
+}
+
+# What the batch probe must print: the sum of 1..n with every multiple
+# of seven left out. Arithmetic, not a golden, so a loop that stopped
+# early or a handler that answered 0 instead of the sentinel is a
+# different number.
+batch_answer() {  # <n>
+  local n="$1" m=$(( $1 / 7 ))
+  echo $(( n * (n + 1) / 2 - 7 * (m * (m + 1) / 2) ))
 }
 
 # The gate's own precondition. `check-memory-baseline.sh` owns the
@@ -193,14 +269,34 @@ small=20000
 mid=200000
 large=2000000
 
-for probe in cache aggregate; do
-  live=owning; [[ "$probe" == cache ]] && live=evicting
+live_of() {  # <probe> -> the live variant's name
+  case "$1" in
+    cache) echo evicting ;;
+    aggregate) echo owning ;;
+    batch) echo skipping ;;
+  esac
+}
+dead_of() {  # <probe> -> the ablated twin's name
+  case "$1" in
+    cache) echo hoarding ;;
+    aggregate) echo leaking ;;
+    batch) echo keeping ;;
+  esac
+}
+twin_n() {  # <probe> -> the magnitude its twin runs at
+  case "$1" in
+    batch) echo "$large" ;;
+    *) echo "$mid" ;;
+  esac
+}
+
+for probe in cache aggregate batch; do
+  live="$(live_of "$probe")"
   for n in "$small" "$mid" "$large"; do
     run_probe "$probe" "$live" "$n"
   done
+  run_probe "$probe" "$(dead_of "$probe")" "$(twin_n "$probe")"
 done
-run_probe cache hoarding "$mid"
-run_probe aggregate leaking "$mid"
 
 rssof() {
   local v
@@ -211,12 +307,13 @@ outof() { getv "$1_out"; }
 
 if (( report )); then
   printf '\n%-26s %8s %8s %8s\n' "probe/variant" "n=$small" "n=$mid" "n=$large"
-  for k in cache_evicting aggregate_owning; do
+  for k in cache_evicting aggregate_owning batch_skipping; do
     printf '%-26s %8s %8s %8s\n' "$k" "$(rssof "${k}_$small")" "$(rssof "${k}_$mid")" "$(rssof "${k}_$large")"
   done
   for k in cache_hoarding aggregate_leaking; do
     printf '%-26s %8s %8s %8s\n' "$k" "-" "$(rssof "${k}_$mid")" "-"
   done
+  printf '%-26s %8s %8s %8s\n' batch_keeping "-" "-" "$(rssof "batch_keeping_$large")"
   echo
 fi
 
@@ -241,9 +338,11 @@ answer_is() {
 for n in "$small" "$mid" "$large"; do
   answer_is "cache/evicting at n=$n holds its window" "$(outof "cache_evicting_$n")" 256
   answer_is "aggregate/owning at n=$n holds its keys" "$(outof "aggregate_owning_$n")" 64
+  answer_is "batch/skipping at n=$n skipped every seventh" "$(outof "batch_skipping_$n")" "$(batch_answer "$n")"
 done
 answer_is "cache/hoarding at n=$mid holds everything" "$(outof "cache_hoarding_$mid")" "$mid"
 answer_is "aggregate/leaking at n=$mid does the same work" "$(outof "aggregate_leaking_$mid")" 64
+answer_is "batch/keeping at n=$large does the same work" "$(outof "batch_keeping_$large")" "$(batch_answer "$large")"
 
 # ------------------------------------------------------------------
 # 2. THE PLATEAU. Ten times the work, then a hundred times, and the
@@ -257,7 +356,7 @@ answer_is "aggregate/leaking at n=$mid does the same work" "$(outof "aggregate_l
 #    1328 / 1344 KiB. The bands are 0 and 16.
 # ------------------------------------------------------------------
 band=256
-for pair in "cache evicting" "aggregate owning"; do
+for pair in "cache evicting" "aggregate owning" "batch skipping"; do
   set -- $pair
   probe="$1" variant="$2"
   a="$(rssof "${probe}_${variant}_$mid")"
@@ -288,7 +387,7 @@ done
 #    1 MiB arena and wrote a line to stdout, and far above the zero this
 #    exists to refuse.
 # ------------------------------------------------------------------
-for pair in "cache evicting" "aggregate owning"; do
+for pair in "cache evicting" "aggregate owning" "batch skipping"; do
   set -- $pair
   r="$(rssof "${1}_${2}_$large")"
   if (( r < 64 )); then
@@ -312,13 +411,14 @@ done
 #    (24x), aggregate/leaking 16,976 KiB against 1,328 (12x). The bar
 #    is 5x, far below both and far above any noise.
 # ------------------------------------------------------------------
-for pair in "cache evicting hoarding" "aggregate owning leaking"; do
+for pair in "cache evicting hoarding" "aggregate owning leaking" "batch skipping keeping"; do
   set -- $pair
   probe="$1" live="$2" dead="$3"
-  l="$(rssof "${probe}_${live}_$mid")"
-  d="$(rssof "${probe}_${dead}_$mid")"
+  tn="$(twin_n "$probe")"
+  l="$(rssof "${probe}_${live}_$tn")"
+  d="$(rssof "${probe}_${dead}_$tn")"
   if (( l <= 0 )); then
-    echo "FAIL: $probe/$live has no denominator at n=$mid - that arm did not measure"
+    echo "FAIL: $probe/$live has no denominator at n=$tn - that arm did not measure"
     failed=1
   elif (( d < l * 5 )); then
     echo "FAIL: $probe/$dead peaked at ${d} KiB against $probe/$live's ${l} KiB:"
@@ -381,6 +481,84 @@ done
 #   between the two probes rather than a hole in one, and it is why
 #   there are two.
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# 6. THE EXAMPLE PROGRAM, at the plan's own number.
+#
+# `examples/batch-fallible/batch-fallible.ax` is the batch probe as a
+# program a reader would write: N records read as TEXT, every k-th
+# saying `n/a` where a number belongs, the parser performing
+# `fallibleMalformed` on the bad byte, and the loop totalling under
+# the skip handler with a tally and then under `(fallibleDefault 1)`.
+# It allocates a String per record and drops it, which the probe above
+# does not, so its flat line is a second claim and not a repeat.
+#
+# Three answers, by arithmetic: with m = N / k, the skip total is
+# N(N+1)/2 - k*m(m+1)/2, the default total is that plus m, and the
+# tally is m. Then the plateau, between 100,000 and 1,000,000 records,
+# against the same band the probes use.
+#
+# Measured 2026-08-29 on darwin-aarch64: 1,376 KiB at both sizes, 0 KiB
+# apart.
+# ------------------------------------------------------------------
+example="$repo_root/examples/batch-fallible/batch-fallible.ax"
+ex_bin="$work/batch-fallible"
+ex_small=100000
+ex_large=1000000
+if [[ ! -f "$example" ]]; then
+  echo "FAIL: $example is missing - the batch example has nothing to gate"
+  failed=1
+else
+  assert_reset_free "$example"
+  if ! "$axc" build --input "$example" --output "$ex_bin" --opt 2 >"$work/batch-fallible.log" 2>&1; then
+    echo "FAIL: examples/batch-fallible did not build"
+    tail -5 "$work/batch-fallible.log" | sed 's/^/    /'
+    failed=1
+  else
+    for n in "$ex_small" "$ex_large"; do
+      m=$(( n / 7 ))
+      skip=$(( n * (n + 1) / 2 - 7 * (m * (m + 1) / 2) ))
+      want="$(printf 'skip total %s\ndefault total %s\nmalformed %s' "$skip" $(( skip + m )) "$m")"
+      got="$("$ex_bin" "$n" 7)"
+      rc=$?
+      if (( rc != 0 )); then
+        echo "FAIL: examples/batch-fallible exited $rc at N=$n"
+        failed=1
+        continue
+      fi
+      answer_is "examples/batch-fallible at N=$n, k=7" "$got" "$want"
+      r="$(max_rss_kb "$ex_bin" "$n" 7)" || { failed=1; continue; }
+      if [[ -z "$r" || "$r" -le 0 ]]; then
+        echo "FAIL: examples/batch-fallible at N=$n measured no RSS at all ('$r')"
+        failed=1
+        continue
+      fi
+      setv "example_$n" "$r"
+    done
+    a="$(getv "example_$ex_small")"; b="$(getv "example_$ex_large")"
+    if [[ -z "$a" || -z "$b" ]]; then
+      echo "FAIL: examples/batch-fallible did not measure at both sizes"
+      failed=1
+    else
+      d=$(( b > a ? b - a : a - b ))
+      if (( d > band )); then
+        echo "FAIL: examples/batch-fallible moved ${a} -> ${b} KiB over ten times the records - that is not a plateau"
+        failed=1
+      else
+        echo "ok   examples/batch-fallible plateaus: ${a} KiB at N=$ex_small, ${b} KiB at N=$ex_large (${d} KiB apart)"
+      fi
+      if (( b < 64 )); then
+        echo "FAIL: examples/batch-fallible measured ${b} KiB at N=$ex_large, under the 64 KiB floor - that is not a running program"
+        failed=1
+      elif (( b > 4096 )); then
+        echo "FAIL: examples/batch-fallible holds ${b} KiB at N=$ex_large, past the 4096 KiB ceiling"
+        failed=1
+      else
+        echo "ok   examples/batch-fallible holds ${b} KiB at N=$ex_large, inside 64..4096 KiB"
+      fi
+    fi
+  fi
+fi
+
 if (( failed )); then
   echo "check-steady-state: FAILED"
   exit 1

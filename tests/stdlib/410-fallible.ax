@@ -1,0 +1,204 @@
+; exit 71 (see .exit)
+; `Fallible` - the effect a batch loop's callee performs on a malformed
+; record, answered by the loop's handler without unwinding
+; (`docs/error-model.md` ERR-REC-7, `stdlib/Fallible.ax`).
+;
+; Twenty records whose value is their index, every seventh malformed
+; (7 and 14), so the arithmetic is checkable by hand: 210 in all, 21
+; of it malformed. Each line below has a way to be wrong that the line
+; before cannot see:
+;
+;   189  skip: the two malformed records contribute nothing, and the
+;        loop kept going past both - a handler that could unwind would
+;        have answered 0 or 6;
+;   389  default: 100 in place of each of the two, so the decision is
+;        the HANDLER's and the same callee answers differently under a
+;        different one;
+;   189  counting composes with skip: same total as the first line...
+;     2  ...and the tally counted both;
+;   389  counting composes with default;
+;   578  nesting: an inner `fallibleSkip` wins while its handle is
+;        live (189) and the outer `(fallibleDefault 100)` answers again
+;        after it exits (389); a lowering that forgot the restore gives
+;        378 here;
+;        a handler that logs and skips prints the message twice - the
+;        parameter arrives as a type variable and is `cast String` to
+;        print, as 300-effect-handlers.ax does;
+;   189  ...and still answers the skip total;
+;    71  with no handler the operation is a trap: inside a recovery
+;        point it answers 71 to the arming call (ERR-REC-6 class ii),
+;        and the last line of `main` performs it outside one, which is
+;        the exit status and the two lines on fd 2 the goldens pin.
+;
+; THE MEMORY TERMS, which are the reason the operation has one
+; argument and a literal message. 10,000 records - 1,428 operations -
+; inside one chunk, read by the arena mark cell exactly as
+; 370-error-propagation.ax reads it: word 0 is the bump, word 2 the
+; chunk, and a flat term requires the chunk unchanged AND the bump
+; moved less than one probe gap (4096). Measured 2026-08-29 with the
+; two-argument spelling `(fallibleMalformed msg fallback)` these read
+; 32 bytes per operation, the inner closure of a curried handler, and
+; with a message built per record 80 - see the module's header. A
+; batch loop has no arena reset, so a byte per record is a byte kept.
+;
+;     1  skip allocates nothing per record
+;     1  default allocates nothing per record
+;     1  counting allocates nothing per record
+;     1  and the instrument is not blind: a handler that KEEPS a fresh
+;        String per malformed record moves the same probe pair past
+;        the gap or across a chunk - 1,428 strings of 32 bytes is
+;        68 KB, seventeen gaps
+(import IO)
+
+(import Str)
+
+(import Vec)
+
+(import Fallible)
+
+; The deep callee. It does not know what the loop wants done; it says
+; what was wrong and continues with whatever it is told.
+(:: parseRecord (-> Int Int))
+
+(fn (parseRecord i)
+  (if (== (% i 7) 0)
+    (fallibleMalformed "record malformed")
+    i
+  )
+)
+
+; The batch loop. A `while`, so it runs the same at -O0 and -O2 with
+; no tail-call question, and one `fallibleIsSkipped` per record.
+(:: total (-> Int Int))
+
+(fn (total n)
+  (let (
+    (mut i 1)
+    (mut acc 0)
+  )
+    {
+      (while (<= i n)
+        (let ((v (parseRecord i)))
+          {
+            (set acc (if (fallibleIsSkipped v)
+              acc
+              (+ acc v)
+            ))
+            (set i (+ i 1))
+          }
+        ))
+      acc
+    }
+  )
+)
+
+; 1 when the bump barely moved and the chunk is the same one.
+(:: flat (-> Int Int Int))
+
+(fn (flat m1 m2)
+  (if (&&
+    (== (__load64 m2 2) (__load64 m1 2))    (< (- (__load64 m2 0) (__load64 m1 0)) 4096)
+  )
+    1
+    0
+  )
+)
+
+; 1 when the bump moved past a gap, or the chunk changed - a crossing
+; IS growth for this direction.
+(:: grew (-> Int Int Int))
+
+(fn (grew m1 m2)
+  (if (||
+    (!= (__load64 m2 2) (__load64 m1 2))    (> (- (__load64 m2 0) (__load64 m1 0)) 4096)
+  )
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (tSkip fallibleTally)
+    (tDefault fallibleTally)
+    (kept vecNewRef)
+  )
+    {
+      (println (cast Int (handle (total 20) (Fallible) fallibleSkip)))  ; 189
+      (println (cast Int (handle (total 20) (Fallible) (fallibleDefault 100))))  ; 389
+      (println
+        (cast Int (handle (total 20) (Fallible Mut) (fallibleCounting tSkip fallibleSkip)))
+      )  ; 189
+      (println (fallibleCount tSkip))  ; 2
+      (println
+        (cast Int (handle (total 20) (Fallible Mut) (fallibleCounting tDefault (fallibleDefault 100))))
+      )  ; 389
+      (println
+        (cast Int (handle (let (
+          (inner (cast Int (handle (total 20) (Fallible) fallibleSkip)))
+          (outer (total 20))
+        )
+          (+ inner outer)
+        ) (Fallible Alloc) (fallibleDefault 100)))
+      )  ; 578
+      (println
+        (cast Int (handle (total 20) (Fallible IO) (lambda (m)
+          {
+            (println
+              (cast String m)
+            )
+            fallibleSkipped
+          }
+        )))
+      )  ; 189
+      (println
+        (__axiom_recover
+          __axiom_arena_mark          (lambda (x) (total 20))
+        )
+      )  ; 71
+      (let ((a1 __axiom_arena_mark))
+        (let ((r (cast Int (handle (total 10000) (Fallible) fallibleSkip))))
+          (let ((a2 __axiom_arena_mark))
+            (println (flat a1 a2))  ; 1
+          )
+        )
+      )
+      (let ((b1 __axiom_arena_mark))
+        (let ((r (cast Int (handle (total 10000) (Fallible) (fallibleDefault 0)))))
+          (let ((b2 __axiom_arena_mark))
+            (println (flat b1 b2))  ; 1
+          )
+        )
+      )
+      (let ((c1 __axiom_arena_mark))
+        (let ((r
+          (cast Int (handle (total 10000) (Fallible Mut) (fallibleCounting fallibleTally fallibleSkip)))
+        ))
+          (let ((c2 __axiom_arena_mark))
+            (println (flat c1 c2))  ; 1
+          )
+        )
+      )
+      (let ((d1 __axiom_arena_mark))
+        (let ((r
+          (cast Int (handle (total 10000) (Fallible Alloc Mut) (lambda (m)
+            {
+              (vecPush kept (strDup "0123456789abcdef0123456789abcdef"))
+              fallibleSkipped
+            }
+          )))
+        ))
+          (let ((d2 __axiom_arena_mark))
+            (println (grew d1 d2))  ; 1
+          )
+        )
+      )
+      ; Outside every handler and every recovery point: 71 on fd 2,
+      ; and the program stops here.
+      (parseRecord 7)
+    }
+  )
+)

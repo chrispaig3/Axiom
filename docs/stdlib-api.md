@@ -101,6 +101,22 @@ See [reference.md](reference.md) for the language, and
 | `shrChecked` | value | `(-> Int Int (Result Int Error))` |  |  |
 | `try!` | macro |  |  | ERR-SUGAR-2: the propagation form. |
 
+## `Fallible`
+
+`stdlib/Fallible.ax` — 9 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `Fallible` | effect |  |  | Fallible - the effect a batch loop's deep callee performs on a malformed record, and the handlers that answer it without unwinding. |
+| `fallibleSkipped` | value | `Int` |  | The value a handler answers to mean "skip this record": the most negative `Int`. A loop compares the value it got against this, or asks `fallibleIsSkipped`. |
+| `fallibleIsSkipped` | value | `(-> Int Bool)` |  | Whether a value is the skip sentinel. The comparison a batch loop makes once per record; it allocates nothing. |
+| `fallibleSkip` | value | `(-> String Int)` |  | Skip every malformed record: answer `fallibleSkipped`, whatever the message. A one-parameter top-level function is a value, so it is passed bare. |
+| `fallibleDefault` | value | `(-> Int String Int)` |  | Use `d` in place of every malformed record. Built ONCE, at the `handle`, which is why the fallback is here and not an argument of the operation: the closure holding `d` is allocated when the handler is installed, not when a record is bad. One parameter, answering the handler - the type is spelled flat because every function type is curried and that is the formatter's normal form; `mkAdder` in `280-function-application.ax` is the precedent. |
+| `FallibleTally` | struct |  |  | How many records were malformed. A struct rather than a bare `Int` because the handler has to write it from inside a closure, and a field store is the one mutation visible through every holder of the value (reference.md, Built-in Effects: `Mut`). |
+| `fallibleTally` | value | `FallibleTally` |  | A fresh tally at zero. |
+| `fallibleCount` | value | `(-> FallibleTally Int)` |  | What a tally holds. |
+| `fallibleCounting` | value | `(-> FallibleTally (-> String Int) String Int)` | `Mut` | Count every malformed record in `tally`, then answer as `next` would: `(fallibleCounting t fallibleSkip)` skips and counts, `(fallibleCounting t (fallibleDefault 0))` substitutes and counts. The `handle` installing it lists `Mut` beside `Fallible`, because a handler's own effects count at the site that installs it. |
+
 ## `Ffi`
 
 `stdlib/Ffi.ax` — 16 public names

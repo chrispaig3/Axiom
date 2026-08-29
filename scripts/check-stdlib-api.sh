@@ -60,6 +60,7 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 modules="
 stdlib/Agent/Tags.ax
 stdlib/Err.ax
+stdlib/Fallible.ax
 stdlib/Ffi.ax
 stdlib/Fmt.ax
 stdlib/IO.ax
