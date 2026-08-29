@@ -4889,6 +4889,42 @@
 ;@axiom:effect(io)
 (pub fn (cgStaticlib) (argHas "--emit-staticlib" 1))
 
+; `cgThreads` - does the module being emitted spawn a thread? This is
+; the one predicate the emitted runtime's storage classes will consult
+; (docs/memory-model.md MM-PAR-6): true, and the six allocator words,
+; `@__axiom_recover_top` and every `@__axiom_ev_<Effect>` slot are
+; emitted `thread_local(localexec) global` with the thread runtime
+; beside them; false, and every one of them is the `internal global`
+; it is today and no thread primitive is emitted at all. The second
+; half is the property worth more than the first: a program that
+; spawns no thread must stay byte-identical on every target, Darwin
+; included, where a thread-local global is an indirect call through
+; libSystem's `__tlv_bootstrap` and would move MM-FFI-1's tier-1 count
+; off zero for every program in the tree.
+;
+; It answers false for every program, by construction and not by a
+; check: no `__thread_spawn` exists for a program to name, so there is
+; nothing for the predicate to find. What will compute it is a scan of
+; the resolved declarations for that primitive, taken before
+; `emitAllocator` runs - the runtime globals precede every body in the
+; module (`emitResolved`), so the answer cannot come from lowering the
+; call - and what will read it is the storage class at each of the
+; eight global sites. Neither is here yet. The flag lands first, and
+; OFF, so that the byte-identity gates - check-freestanding,
+; check-cross-targets, check-bootstrap, check-reproducible - pin the
+; no-thread emission before anything consults it: the order ERR-REC-6's
+; recovery global took, where a mechanism a program never asks for was
+; measured to cost that program nothing rather than argued to.
+;
+; Not a command-line flag, deliberately, though `cgStaticlib` beside it
+; is one: whether a program spawns a thread is a fact about the program,
+; and a flag would let a spawning program be emitted with shared
+; allocator words - the corruption MM-PAR-3's negative probe exists to
+; demonstrate, not a mode a user should be able to select.
+(pub :: cgThreads Bool)
+
+(pub fn (cgThreads) false)
+
 (pub :: argHas (-> String Int Bool))
 
 ;@axiom:effect(io)
