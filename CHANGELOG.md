@@ -55,6 +55,30 @@ test through `gate_build_axc`: thirty-eight gates, up from thirty-seven.
   have grown the process by every record. Both are compiler facts the
   module documents rather than defects it fixes.
 
+- **Two more diagnostics carry a machine-applicable fix, and `IO.todo`.**
+  `AX3042` (a function performs IO and does not say so) now carries
+  `;@axiom:effect(io)` as a line of its own at the start of the
+  declaration's line — right below a `::` signature, since a tag
+  attaches to the next declaration, and inside an indented `impl`
+  member; offered for the entry file only, and only where the name is
+  written as a declaration, so a macro-generated function keeps the
+  prose. `AX3005` (non-exhaustive match) now carries the missing arms,
+  one per constructor in declaration order, `((Ctor _ ...) (todo
+  "Ctor"))` with one `_` per field, inserted before the match's closing
+  `)` at the first arm's column, with a second fix bringing `todo` into
+  scope — appended to an existing `(import IO (...))` list, else a new
+  import line. A nested hole is refused rather than guessed at.
+  `IO.todo` is `(-> String a)`: `todo: <what>` on standard error and
+  exit 70 — written with `writeStr` and `exit` rather than `die`,
+  because `die`'s effect row is an upper bound the checker will not
+  accuse a caller on, and a `todo` routed through it left an untagged
+  function holding the arm checking clean. `tests/diagnostics/363`,
+  `364`, `366`, `367` pin the `~>` fields; applying the compiler's own
+  fixes to `364` in rounds gives AX3005, then AX3042 on the functions
+  the arms made effectful, then a clean file. In the editor these
+  arrive as quickfixes with no server change: `lspQuickfixesOf`
+  surfaces every help that carries a span.
+
 - **Three code actions the compiler does not write.** The language
   server's `textDocument/codeAction` answered only what the checker
   carried — a help with a fix span — and one assist from what it
