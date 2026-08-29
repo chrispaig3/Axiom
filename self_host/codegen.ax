@@ -5288,34 +5288,34 @@
 
 ; Every entry-file function maps to itself, recorded ahead of every
 ; import so that a collision resolves to the file being compiled.
-(pub :: recordEntryFns (-> Int Int Int Int Int))
+(pub :: recordEntryFns (-> Int Int Int Int Int Int))
 
-(pub fn (recordEntryFns decls bares fulls i)
+(pub fn (recordEntryFns decls idx bares fulls i)
   (if (>= i (vecLen decls))
     0
     {
       (let ((d (vecGet decls i)))
         (if (== (nodeTag d) TAG_D_FN)
-          (mangleRecord bares fulls (nodeAName d) (nodeAName d))
+          (mangleRecord idx bares fulls (nodeAName d) (nodeAName d))
           ; An `extern` item maps its AXIOM name to its LINKER SYMBOL,
           ; which is what makes the call site need no new code at all:
           ; `mangledFor` already resolves through these two vectors, so
           ; `emitPlainCall` emits its usual `call i64 @<sym>(...)` and
           ; the symbol it names is the Rust one.
           (if (== (nodeTag d) TAG_D_EXTERN)
-            (recordExternSyms bares fulls (nodeC d) 0)
+            (recordExternSyms idx bares fulls (nodeC d) 0)
             0
           )
         )
       )
-      (recordEntryFns decls bares fulls (+ i 1))
+      (recordEntryFns decls idx bares fulls (+ i 1))
     }
   )
 )
 
-(pub :: recordExternSyms (-> Int Int Int Int Int))
+(pub :: recordExternSyms (-> Int Int Int Int Int Int))
 
-(pub fn (recordExternSyms bares fulls items i)
+(pub fn (recordExternSyms idx bares fulls items i)
   (if (== items 0)
     0
     (if (>= i (vecLen items))
@@ -5324,9 +5324,9 @@
       ; parser resolved (defaulting to the Axiom name).
       {
         (let ((f (vecGet items i)))
-          (mangleRecord bares fulls (nodeAName f) (nodeCName f))
+          (mangleRecord idx bares fulls (nodeAName f) (nodeCName f))
         )
-        (recordExternSyms bares fulls items (+ i 1))
+        (recordExternSyms idx bares fulls items (+ i 1))
       }
     )
   )
@@ -5336,12 +5336,19 @@
 
 ;@axiom:effect(io)
 (pub fn (resolveImports decls bares fulls mods tcode entryDir units)
-  {
-    (recordEntryFns decls bares fulls 0)
-    (resolveDecls
-      decls      vecNew      vecNew      0      (cast String 0)      bares      fulls      mods      0      tcode      entryDir      units
-    )
-  }
+  ; The index over `bares` lives exactly as long as this pass: it is
+  ; created here, over whatever `bares` already holds, and threaded
+  ; beside `bares` to every record the pass makes (namespace.ax,
+  ; `MangleIdx`). The callers' `bares` stays the plain Vec they
+  ; allocated, so nothing they do with it afterwards changes.
+  (let ((idx mangleIdxNew))
+    {
+      (recordEntryFns decls idx bares fulls 0)
+      (resolveDecls
+        decls        vecNew        vecNew        0        (cast String 0)        idx        bares        fulls        mods        0        tcode        entryDir        units
+      )
+    }
+  )
 )
 
 ; Append every non-import declaration reachable from `decls` onto `acc`,
@@ -5360,13 +5367,13 @@
 ; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
 ; place and returns the same handle, so both stay stable across the whole
 ; traversal and siblings observe each other's additions.
-(pub :: resolveDecls (-> Int Int Int Int String Int Int Int Int Int String Int Int))
+(pub :: resolveDecls (-> Int Int Int Int String Int Int Int Int Int Int String Int Int))
 
 ;@axiom:effect(io)
-(pub fn (resolveDecls decls acc seen i modName bares fulls mods filter tcode entryDir units) (resolveDeclsPhase
+(pub fn (resolveDecls decls acc seen i modName idx bares fulls mods filter tcode entryDir units) (resolveDeclsPhase
   decls  (resolveDeclsPhase
-    decls    acc    seen    i    modName    bares    fulls    mods    filter    tcode    entryDir    units    0
-  )  seen  i  modName  bares  fulls  mods  filter  tcode  entryDir  units  1
+    decls    acc    seen    i    modName    idx    bares    fulls    mods    filter    tcode    entryDir    units    0
+  )  seen  i  modName  idx  bares  fulls  mods  filter  tcode  entryDir  units  1
 ))
 
 ; Two passes: stage0 partitions a module's imports into
@@ -5381,22 +5388,22 @@
 ; One pass: phase 0 consumes only the `(import ...)` entries (each
 ; imported module resolving BOTH its phases depth-first), phase 1 only
 ; the module's own declarations.
-(pub :: resolveDeclsPhase (-> Int Int Int Int String Int Int Int Int Int String Int Int Int))
+(pub :: resolveDeclsPhase (-> Int Int Int Int String Int Int Int Int Int Int String Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (resolveDeclsPhase decls acc seen i modName bares fulls mods filter tcode entryDir units phase)
+(pub fn (resolveDeclsPhase decls acc seen i modName idx bares fulls mods filter tcode entryDir units phase)
   (if (>= i (vecLen decls))
     acc
     (let ((first (vecGet decls i)))
       (if (== (nodeTag first) TAG_D_IMPORT)
         (if (== phase 1)
           (resolveDeclsPhase
-            decls            acc            seen            (+ i 1)            modName            bares            fulls            mods            filter            tcode            entryDir            units            phase
+            decls            acc            seen            (+ i 1)            modName            idx            bares            fulls            mods            filter            tcode            entryDir            units            phase
           )
           (let ((name (memGetWordStr first 1)))
             (if (seenHas seen name)
               (resolveDeclsPhase
-                decls                acc                seen                (+ i 1)                modName                bares                fulls                mods                filter                tcode                entryDir                units                phase
+                decls                acc                seen                (+ i 1)                modName                idx                bares                fulls                mods                filter                tcode                entryDir                units                phase
               )
               {
                 (vecPush seen name)
@@ -5424,8 +5431,8 @@
                     (modFilterRecord mods name subFilter)
                     (resolveDeclsPhase
                       decls                      (resolveDecls
-                        modDecls                        acc                        seen                        0                        name                        bares                        fulls                        mods                        subFilter                        tcode                        entryDir                        units
-                      )                      seen                      (+ i 1)                      modName                      bares                      fulls                      mods                      filter                      tcode                      entryDir                      units                      phase
+                        modDecls                        acc                        seen                        0                        name                        idx                        bares                        fulls                        mods                        subFilter                        tcode                        entryDir                        units
+                      )                      seen                      (+ i 1)                      modName                      idx                      bares                      fulls                      mods                      filter                      tcode                      entryDir                      units                      phase
                     )
                   }
                 )
@@ -5435,7 +5442,7 @@
         )
         (if (== phase 0)
           (resolveDeclsPhase
-            decls            acc            seen            (+ i 1)            modName            bares            fulls            mods            filter            tcode            entryDir            units            phase
+            decls            acc            seen            (+ i 1)            modName            idx            bares            fulls            mods            filter            tcode            entryDir            units            phase
           )
           ; `pub` and the import's name list decide which BARE
           ; NAMES are visible, not which declarations exist. They
@@ -5482,10 +5489,10 @@
               ; visible; nothing imports them.
               (memSetWord first 5 exported)
               (mangleDecl
-                first                modName                bares                fulls                exported
+                first                modName                idx                bares                fulls                exported
               )
               (resolveDeclsPhase
-                decls                (vecPush acc first)                seen                (+ i 1)                modName                bares                fulls                mods                filter                tcode                entryDir                units                phase
+                decls                (vecPush acc first)                seen                (+ i 1)                modName                idx                bares                fulls                mods                filter                tcode                entryDir                units                phase
               )
             }
           )

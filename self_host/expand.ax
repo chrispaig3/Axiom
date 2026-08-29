@@ -163,7 +163,8 @@
   (callbs : Int)
   (seqbinds : Int)
   (tplbinds : Int)
-  (declnodes : Int))
+  (declnodes : Int)
+  (midx : Int))
 
 ; The two budgets on the OUTPUT, which the parser's
 ; own AX2005 guard cannot see: it measures the source,
@@ -323,6 +324,16 @@
 (pub :: expMods (-> Int Int))
 
 (pub fn (expMods env) (memGetWord env 16))
+
+; The index over `bares` (namespace.ax's `MangleIdx`), created fresh
+; for this expansion and catching up from whatever `bares` holds on
+; its first question, so phase D's records cost what the resolver's
+; did rather than a scan of `bares` per generated declaration. Unused
+; when `bares` is 0 - both sites that would ask it are guarded on
+; that already.
+(pub :: expMidx (-> Int Int))
+
+(pub fn (expMidx env) (memGetWord env 23))
 
 ; The output limits, and why these numbers.
 ;
@@ -5669,7 +5680,7 @@
 (pub fn (expandProgram entryDecls decls out frames units bares fulls mods)
   (let ((env 
     (cast Int (MEnv
-      (expCollectMacros decls vecNew 0)      out      0      0      decls      0      0      0      0      0      frames      0      units      vecNew      bares      fulls      mods      0      vecNew      0      vecNew      vecNew      0
+      (expCollectMacros decls vecNew 0)      out      0      0      decls      0      0      0      0      0      frames      0      units      vecNew      bares      fulls      mods      0      vecNew      0      vecNew      vecNew      0      mangleIdxNew
     ))
   ))
     {
@@ -7104,7 +7115,7 @@
           ; After the stamps, because it rewrites the name the
           ; filter was asked about.
           (mangleDecl
-            g            (cast String mod)            (expBares env)            (expFulls env)            exported
+            g            (cast String mod)            (expMidx env)            (expBares env)            (expFulls env)            exported
           )
           (expModuleizeIn
             made            env            mod            filter            (+ i 1)            (if (== i 0)
@@ -7191,7 +7202,7 @@
       0
       {
         (if (== (nodeTag (vecGet made i)) TAG_D_FN)
-          (mangleRecordEntry (expBares env) (expFulls env) (nodeAName (vecGet made i)))
+          (mangleRecordEntry (expMidx env) (expBares env) (expFulls env) (nodeAName (vecGet made i)))
           0
         )
         (expClaimEntryNames made env (+ i 1))

@@ -13,23 +13,140 @@
 ; drift.
 ;
 ; Everything here is a pure function over the two lockstep Vecs the
-; resolver threads (`bares` / `fulls`), the import filters it records,
-; and the AST nodes it renames.
+; resolver threads (`bares` / `fulls`), the index it keeps beside them
+; (`MangleIdx`, below), the import filters it records, and the AST
+; nodes it renames.
 (import Mem)
 
 (import Str)
 
 (import Vec)
 
+(import Intern)
+
 (import parser)
+
+; ------------------------------------------------------------------
+; The name index.
+;
+; Every declaration the resolver records asks `bares` once or twice
+; whether a name is already claimed, and `bares` used to answer by
+; scanning itself - so resolving a module of N declarations was N
+; scans of a vector growing to N, quadratic in the declaration count.
+; Measured on the generated modules `scripts/check-name-scale.sh`
+; builds, with the compiler at df60fdb: checking the public module
+; took 0.24 s at N=2000, 0.83 s at N=4000 and 3.26 s at N=8000, a
+; per-doubling ratio of 3.45x and then 3.93x, on its way to 4x; the
+; private module went 0.18 s, 0.56 s, 2.12 s (3.14x, 3.78x). That
+; gate's own header recorded the scan as 55.7% of a check at N=8000
+; and declined to gate a doubling ratio because of it. With this
+; index the same modules read 0.08 s, 0.12 s, 0.22 s public and
+; 0.08 s, 0.12 s, 0.23 s private - 1.63x/1.76x and 1.58x/1.83x per
+; doubling - so at N=8000 the scan was fifteen times the rest of the
+; check, not 55.7% of it, and the gate now asserts the ratio.
+;
+; WHY IT IS NOT INSIDE `bares`. `bares` is a plain `Vec` that every
+; caller of `resolveImports` (main.ax, repl.ax, lsp.ax) allocates
+; with `vecNew`, and a `Vec` header is four words with no spare one;
+; Axiom has no global state to keep a side table in. So the index is
+; a separate structure, created by `resolveImports` and by
+; `expandProgram` and threaded beside `bares` to every writer in this
+; module. The signatures those callers use - `resolveImports`,
+; `expandProgram`, `lspResolveFor` - are unchanged; what moved is the
+; writers' (`mangleRecord`, `mangleRecordSelf`, `mangleRecordEntry`,
+; `mangleExternItems`, `mangleDecl`), which take `idx` beside `bares`.
+;
+; WHY IT CANNOT GO STALE. `bares` is append-only: `vecPush` is the
+; only operation any writer applies to it (`mangleRecordEntry`'s
+; `vecSet` is on `fulls`). So the index records how much of `bares`
+; it has absorbed and catches up on every question, from that mark to
+; the end. An index created over a `bares` that already holds entries
+; is right from its first question, a push it did not see is absorbed
+; by the next one, and no writer carries a "keep the index in step"
+; obligation to forget - the failure `typecheck.ax`'s `tcPushFn`
+; prevents by routing every push through one door is prevented here
+; by there being nothing to keep in step.
+;
+; The table is a stdlib `Intern`: the structure `codegen.ax`'s
+; `buildNameIndexes` already keys `bares` with at emission, growing
+; itself (load factor 0.5, doubling) since the declaration count is
+; not known when the resolver starts, and carrying its own string
+; hash - which matters because the checker's `fnIdxHash` lives in
+; typecheck.ax and modules flow one way: this module is imported by
+; expand.ax and codegen.ax and cannot import the checker. Ids are
+; dense in first-interning order, so `pos` - intern id to the FIRST
+; index in `bares` carrying that name, what `mangleRecordEntry`'s
+; scan answered - is one push per new name.
+;
+;   names — Intern over bares[0..done)
+;   pos   — Vec, intern id -> first index in `bares`
+;   done  — entries of `bares` absorbed so far
+; ------------------------------------------------------------------
+(pub struct MangleIdx
+  (names : Int)
+  (pos : Int)
+  (done : Int))
+
+(pub :: mangleIdxNew Int)
+
+(pub fn (mangleIdxNew) (cast Int (MangleIdx internNew vecNew 0)))
+
+; Absorb every entry of `bares` from `done` to its end. Answers the
+; new `done`.
+(pub :: mangleIdxSync (-> Int Int Int))
+
+(pub fn (mangleIdxSync idx bares)
+  (let ((mut i (memGetWord idx 2)))
+    {
+      (while (< i (vecLen bares))
+        {
+          (let ((id (internIntern (memGetWord idx 0) (vecGetStr bares i))))
+            (if (== id (vecLen (memGetWord idx 1)))
+              (vecPush (memGetWord idx 1) i)
+              0
+            )
+          )
+          (set i (+ i 1))
+        })
+      (memSetWord idx 2 i)
+      i
+    }
+  )
+)
+
+; Is `name` in `bares`? The indexed form of `mangleHasIn`, and the
+; one every writer here asks.
+(pub :: mangleIdxHas (-> Int Int String Bool))
+
+(pub fn (mangleIdxHas idx bares name)
+  {
+    (mangleIdxSync idx bares)
+    (>= (internFind (memGetWord idx 0) name) 0)
+  }
+)
+
+; The first index in `bares` holding `name`, or -1.
+(pub :: mangleIdxIndexOf (-> Int Int String Int))
+
+(pub fn (mangleIdxIndexOf idx bares name)
+  {
+    (mangleIdxSync idx bares)
+    (let ((id (internFind (memGetWord idx 0) name)))
+      (if (< id 0)
+        (- 0 1)
+        (vecGet (memGetWord idx 1) id)
+      )
+    )
+  }
+)
 
 ; Record how a bare reference reaches `full`, unless the bare name is
 ; already claimed. First-writer-wins is what makes the entry file win:
 ; `resolveImports` records every entry-file function before any import
 ; is read.
-(pub :: mangleRecord (-> Int Int String String Int))
+(pub :: mangleRecord (-> Int Int Int String String Int))
 
-(pub fn (mangleRecord bares fulls bare full)
+(pub fn (mangleRecord idx bares fulls bare full)
   ; The mangled name maps to itself, recorded whether or not the bare
   ; name was already claimed - which it usually is, by the entry
   ; file. This is how a reference made INSIDE a module asks whether
@@ -41,7 +158,7 @@
   ; stage1 already spells `Mod$name` and which already resolved to
   ; itself by falling off the end of the map.
   {
-    (if (|| (strEq bare full) (mangleHasIn bares full 0))
+    (if (|| (strEq bare full) (mangleIdxHas idx bares full))
       0
       {
         (vecPush bares full)
@@ -49,7 +166,7 @@
         0
       }
     )
-    (if (mangleHasIn bares bare 0)
+    (if (mangleIdxHas idx bares bare)
       0
       {
         (vecPush bares bare)
@@ -73,10 +190,10 @@
 ; Measured before this existed: an entry file generating `tagShape`
 ; answering 42, importing a module that generates its own `tagShape`
 ; answering 7, checked clean and answered 7.
-(pub :: mangleRecordEntry (-> Int Int String Int))
+(pub :: mangleRecordEntry (-> Int Int Int String Int))
 
-(pub fn (mangleRecordEntry bares fulls name)
-  (let ((i (mangleIndexOf bares name 0)))
+(pub fn (mangleRecordEntry idx bares fulls name)
+  (let ((i (mangleIdxIndexOf idx bares name)))
     (if (< i 0)
       {
         (vecPush bares name)
@@ -91,18 +208,11 @@
   )
 )
 
-(pub :: mangleIndexOf (-> Int String Int Int))
-
-(pub fn (mangleIndexOf bares name i)
-  (if (>= i (vecLen bares))
-    (- 0 1)
-    (if (strEq (vecGetStr bares i) name)
-      i
-      (mangleIndexOf bares name (+ i 1))
-    )
-  )
-)
-
+; Is `bare` in `bares`, by scanning it. The UN-INDEXED form, kept for
+; the one caller that holds no index: `mangledFor` in codegen.ax, the
+; emitter's fallback on the REPL's and LSP's partial paths before
+; `buildNameIndexes` has run. Every writer in this module asks
+; `mangleIdxHas` instead - see the note above `MangleIdx`.
 (pub :: mangleHasIn (-> Int String Int Bool))
 
 (pub fn (mangleHasIn bares bare i)
@@ -131,9 +241,9 @@
 ; reference that gets past it lands here as a name this map does not
 ; hold and is emitted unchanged - an undefined symbol reported by
 ; `opt` against generated code.
-(pub :: mangleDecl (-> Int String Int Int Int Int))
+(pub :: mangleDecl (-> Int String Int Int Int Int Int))
 
-(pub fn (mangleDecl node modName bares fulls exported)
+(pub fn (mangleDecl node modName idx bares fulls exported)
   (if (==
     (cast Int modName)    0
   )
@@ -152,8 +262,8 @@
           {
             (memSetWord node 1 full)
             (if (== exported 1)
-              (mangleRecord bares fulls bare full)
-              (mangleRecordSelf bares fulls full)
+              (mangleRecord idx bares fulls bare full)
+              (mangleRecordSelf idx bares fulls full)
             )
           }
         )
@@ -184,7 +294,7 @@
         ; reached from the one direction the entry-file fixtures could
         ; not see, because `recordEntryFns` covers only the entry file.
         (if (== (nodeTag node) TAG_D_EXTERN)
-          (mangleExternItems (nodeC node) 0 bares fulls)
+          (mangleExternItems (nodeC node) 0 idx bares fulls)
           0
         )
       )
@@ -196,18 +306,18 @@
 ; `(symbol "...")` clause the parser resolved. Visibility does not
 ; change the mapping - an unexported item is simply never referenced
 ; from outside, and recording it costs one entry.
-(pub :: mangleExternItems (-> Int Int Int Int Int))
+(pub :: mangleExternItems (-> Int Int Int Int Int Int))
 
-(pub fn (mangleExternItems items i bares fulls)
+(pub fn (mangleExternItems items i idx bares fulls)
   (if (== items 0)
     0
     (if (>= i (vecLen items))
       0
       {
         (let ((f (vecGet items i)))
-          (mangleRecord bares fulls (nodeAName f) (nodeCName f))
+          (mangleRecord idx bares fulls (nodeAName f) (nodeCName f))
         )
-        (mangleExternItems items (+ i 1) bares fulls)
+        (mangleExternItems items (+ i 1) idx bares fulls)
       }
     )
   )
@@ -216,10 +326,10 @@
 ; The half of `mangleRecord` that a private declaration gets: the
 ; mangled name maps to itself, and the bare slot is left for whoever
 ; can legitimately claim it.
-(pub :: mangleRecordSelf (-> Int Int String Int))
+(pub :: mangleRecordSelf (-> Int Int Int String Int))
 
-(pub fn (mangleRecordSelf bares fulls full)
-  (if (mangleHasIn bares full 0)
+(pub fn (mangleRecordSelf idx bares fulls full)
+  (if (mangleIdxHas idx bares full)
     0
     {
       (vecPush bares full)

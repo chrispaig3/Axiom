@@ -404,10 +404,12 @@ FLOOR="0.10"
 # ratio is the scan and nothing else.
 #
 # No imports, deliberately: `mangleDecl` runs only over IMPORTED
-# declarations and is itself quadratic in their count (see the note in
-# check-name-scale.sh about a per-doubling exponent that swamped the
-# thing being measured). A confound charged to both sides is still a
-# confound when it is that large; here there is none to charge.
+# declarations, and when this gate was written it was quadratic in
+# their count (the note in check-name-scale.sh about a per-doubling
+# exponent that swamped the thing being measured; that scan was
+# indexed on 2026-08-29 and the same gate now holds the exponent
+# down). A confound charged to both sides is still a confound when it
+# is that large; here there is none to charge.
 python3 - "$work" "$N" "$K" "$W" <<'PY'
 import sys
 work, n, k, w = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
