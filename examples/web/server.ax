@@ -1,0 +1,425 @@
+; examples/web - a small site on `Html` and `Http`: an index page
+; templated from a `Vec` of items, a `/hello?name=` page that renders
+; the query parameter back through the escaper, two static files off
+; the disk, and a 404 page the DSL renders too. The server
+; `scripts/check-web.sh` drives, and the program whose MEMORY is the
+; thing measured rather than its answer.
+;
+; It is `tests/net/echo-server.ax`'s pre-forked pool, verbatim in
+; shape: one listening socket created before the fork and inherited
+; by every worker, each worker waiting on a readiness descriptor that
+; carries both the listener and SIGTERM, and every connection
+; bracketed by `__axiom_arena_mark` and `__axiom_arena_reset` - the
+; request handler IS an arena scope (docs/memory-model.md
+; MM-ALLOC-22). Everything a request touches is allocated after the
+; mark: the reader's buffer, the parsed request, every piece of the
+; page, the finished document, the response head. Everything the
+; worker needs across requests - the poll buffers, the signal cell,
+; the router with its handlers, the item list, the static root - is
+; allocated before the fork and never reclaimed. The live set at the
+; reset is empty by construction, which is the rule's precondition.
+;
+; ARGV: <port> <workers> <arena 0|1>
+;
+; ENV: AXIOM_WEB_ROOT=<dir>  the directory holding `static/`
+;                            (default `examples/web`)
+;      AXIOM_WEB_NOESC=1     write the query parameter back UNESCAPED
+;
+; THE SPLIT IS echo-server.ax's: the positional arguments are what the
+; pool IS - which port, how many workers, whether the handler is a
+; scope - and the environment is which measurement arm is running.
+; `AXIOM_WEB_NOESC` exists for one reason, the gate's XSS ablation: a
+; check that `/hello?name=<script>` comes back as `&lt;script&gt;`
+; would also be satisfied by a 404, an empty body, or a server that
+; never started, so the gate runs this arm and requires the raw
+; `<script>` to come back, proving the assertion reached the escaper
+; and not a silence. Nothing else reads the variable.
+;
+; The parent prints one line - `pids p1 p2 ...` - and then only
+; reaps. The driver reads it to know whom to measure and whom to stop.
+(import IO)
+
+(import Sys)
+
+(import Err)
+
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import Path)
+
+(import Html)
+
+(import Http)
+
+; The `i`th command-line argument as a decimal Int, or 0.
+(:: argInt (-> Int Int))
+
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) 0)
+  )
+)
+
+; Whether an environment variable is set to exactly "1".
+(:: envOn (-> String Bool))
+
+;@axiom:effect(io)
+(fn (envOn name) (strEq (sysEnv name) "1"))
+
+; ------------------------------------------------------------------
+; The pages. Components are functions taking the builder; the page
+; frame is a macro because it takes the page's body as a BLOCK, and
+; `b` is a parameter in binder position so the block sees the builder
+; the frame introduces (MAC-HYG-10).
+; ------------------------------------------------------------------
+(:: navBar (-> HtmlBuf Int))
+
+(fn (navBar b)
+  (navA
+    b    (class b "top")    {
+      (anchorA b (href b "/") (text b "home"))
+      (anchorA b (href b "/hello?name=world") (text b "hello"))
+      (anchorA b (href b "/static/site.css") (text b "stylesheet"))
+    }
+  )
+)
+
+; The whole document for `heading` with `kids` as the card's contents.
+; Not `body`: a template parameter named like a tag macro hides that
+; tag inside the template - `(body b ...)` would have substituted the
+; caller's block for the head and applied it. Measured, and recorded
+; in Html.ax's header.
+(macro (pageOf b heading kids) (let ((b hNew))
+  {
+    (raw b "<!DOCTYPE html>\n")
+    (htmlA
+      b      (lang b "en")      {
+        (head
+          b          {
+            (meta b (charset b "utf-8"))
+            (title b (text b heading))
+            (link
+              b              {
+                (rel b "stylesheet")
+                (href b "/static/site.css")
+              }
+            )
+            (scriptA b (src b "/static/app.js"))
+          }
+        )
+        (body
+          b          {
+            (navBar b)
+            (divA
+              b              (class b "card")              {
+                (h1 b (text b heading))
+                kids
+              }
+            )
+          }
+        )
+      }
+    )
+    (hFinish b)
+  }
+))
+
+; A value the PEER supplied, written as text: escaped, unless the
+; ablation arm is on. This is the only place the flag is read.
+(:: userText (-> HtmlBuf String Bool Int))
+
+(fn (userText b s noesc)
+  (if noesc
+    (hRaw b s)
+    (hText b s)
+  )
+)
+
+; The same value as an attribute: ` value="..."` escaped for the
+; attribute context, or written raw under the ablation.
+(:: userValue (-> HtmlBuf String Bool Int))
+
+(fn (userValue b s noesc)
+  (if noesc
+    (hRaw b (strConcat " value=\"" (strConcat s "\"")))
+    (hAttr b "value" s)
+  )
+)
+
+(:: htmlType String)
+
+(fn (htmlType) "text/html; charset=utf-8")
+
+; GET / - the items, and the form that leads to /hello.
+(:: indexPage (-> Int HttpReq Int Int))
+
+;@axiom:effect(io)
+(fn (indexPage fd r items)
+  (httpRespond
+    fd    200    htmlType    (pageOf
+      b      "Items & <things>"      {
+        (p b (text b "Every item below came out of a Vec through `for`, escaped."))
+        (ul b (for it items (li b (text b it))))
+        (formA
+          b          {
+            (action b "/hello")
+            (method b "get")
+          }          {
+            (labelA b (attr b "for" "name") (text b "Your name"))
+            (input
+              b              {
+                (id b "name")
+                (name b "name")
+                (attr b "type" "text")
+                (placeholder b "a <name>")
+              }
+            )
+            (buttonA b (attr b "type" "submit") (text b "Say hello"))
+          }
+        )
+      }
+    )
+  )
+)
+
+; GET /hello?name=... - the parameter rendered back into a text node
+; AND an attribute value. This is the XSS case: `name` is the peer's
+; bytes, and both positions go through the escaper.
+(:: helloPage (-> Int HttpReq Bool Int))
+
+;@axiom:effect(io)
+(fn (helloPage fd r noesc)
+  (let ((who (httpQueryParam r "name" "stranger")))
+    (httpRespond
+      fd      200      htmlType      (pageOf
+        b        "Hello"        {
+          (p
+            b            {
+              (text b "Hello, ")
+              (strong b (userText b who noesc))
+              (text b "!")
+            }
+          )
+          (formA
+            b            {
+              (action b "/hello")
+              (method b "get")
+            }            {
+              (input
+                b                {
+                  (name b "name")
+                  (attr b "type" "text")
+                  (userValue b who noesc)
+                }
+              )
+              (buttonA b (attr b "type" "submit") (text b "Again"))
+            }
+          )
+        }
+      )
+    )
+  )
+)
+
+; Anything else - a 404 page the DSL renders, the path escaped.
+(:: notFoundPage (-> Int HttpReq Int))
+
+;@axiom:effect(io)
+(fn (notFoundPage fd r)
+  (httpRespond
+    fd    404    htmlType    (pageOf
+      b      "Not found"      (p
+        b        {
+          (text b "Nothing lives at ")
+          (code b (text b r.path))
+          (text b ".")
+        }
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The pool
+; ------------------------------------------------------------------
+; One worker: serve until the parent says stop, answering how many
+; connections it handled through its exit status. The poll buffers
+; and the signal cell are allocated here, above every mark. The wait
+; is INDEFINITE - a negative timeout, which `netPollWait` documents as
+; what an accept loop wants - so a worker leaves on SIGTERM or on a
+; failed wait and never on quiet. tests/net/echo-server.ax leaves
+; after ten seconds of quiet instead, and that is a fixture cleaning
+; up after a driver that died; a server that stopped answering
+; because nobody asked for ten seconds would not be one.
+(:: serve (-> Int HttpRouter Int Int))
+
+;@axiom:effect(io)
+(fn (serve lsn rt arenaOn)
+  (let (
+    (rec (memAlloc 64))
+    (ts (memAlloc 16))
+    (setbuf (memAlloc 8))
+    (scratch (memAlloc 256))
+    (buf (memAlloc (netPollBufBytes 64)))
+    (pfd netPollCreate)
+    (mut served 0)
+    (mut running 1)
+  )
+    {
+      (if (< (netPollAddRead pfd lsn rec) 0)
+        (sysExitWith 255)
+        0
+      )
+      (let ((sh (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf)))
+        (while (== running 1)
+          (let ((n (netPollWait
+            pfd            buf            64            (- 0 1)            ts
+          )))
+            (if (< n 0)
+              (set running 0)
+              (let ((mut e 0))
+                (while (< e n)
+                  {
+                    (if (>= (netPollSignalAt buf e sh scratch) 0)
+                      (set running 0)
+                      (let ((con (netAccept lsn)))
+                        (if (< con 0)
+                          0
+                          ; EVERYTHING THE CONNECTION ALLOCATES IS
+                          ; ABOVE THIS MARK, and the reset takes it.
+                          {
+                            (let ((m __axiom_arena_mark))
+                              {
+                                (netSetBlocking con)
+                                (httpServeOne rt con)
+                                (sysCloseFd con)
+                                (if (== arenaOn 1)
+                                  (__axiom_arena_reset m)
+                                  0
+                                )
+                              }
+                            )
+                            (set served (+ served 1))
+                          }
+                        )
+                      )
+                    )
+                    (set e (+ e 1))
+                  })
+              )
+            )
+          ))
+      )
+      (sysCloseFd pfd)
+      (% served 256)
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  ; The state every request reads and none allocates: the items,
+  ; the routes, the static root. Built once, before the fork.
+  (let (
+    (port (argInt 1))
+    (nworkers (argInt 2))
+    (arenaOn (argInt 3))
+    (noesc (envOn "AXIOM_WEB_NOESC"))
+    (root (if (== (strLen (sysEnv "AXIOM_WEB_ROOT")) 0)
+      "examples/web"
+      (sysEnv "AXIOM_WEB_ROOT")
+    ))
+    (items vecNew)
+    (rt routerNew)
+    (addr (memAlloc netAddrMaxBytes))
+    (setbuf (memAlloc 8))
+    (optb (memAlloc 4))
+    (pids vecNew)
+    (lsn netSocketTcp)
+  )
+    {
+      (vecPush items "a plain item")
+      (vecPush items "one with <angle> brackets")
+      (vecPush items "ampersands & \"quotes\"")
+      (routeAdd
+        rt        "GET"        "/"        (HttpFn
+          (lambda (fd r) (indexPage fd r items))
+        )
+      )
+      (routeAdd
+        rt        "GET"        "/hello"        (HttpFn
+          (lambda (fd r) (helloPage fd r noesc))
+        )
+      )
+      (routeStatic rt "/static/" (pathJoin root "static"))
+      (routeNotFound
+        rt        (HttpFn
+          (lambda (fd r) (notFoundPage fd r))
+        )
+      )
+      (netSetOptInt
+        lsn        solSocket        soReuseAddr        1        optb
+      )
+      (netAddr4
+        addr        port        127        0        0        1
+      )
+      (let ((rc (netBind lsn addr)))
+        (if (!= rc 0)
+          {
+            (println "bind failed: rc {rc} port {port}")
+            (sysExitWith 2)
+          }
+          0
+        )
+      )
+      (netListen lsn 512)
+      (netSetNonBlocking lsn)
+      ; Block BEFORE forking so every worker inherits the mask and none
+      ; can be killed by the shutdown signal before it has installed
+      ; its watch.
+      (sysSignalBlock (sysSigBit sigTerm) setbuf)
+      (let ((mut w 0))
+        (while (< w nworkers)
+          {
+            (let ((pid sysForkProcess))
+              (if (== pid 0)
+                (sysExitWith (serve lsn rt arenaOn))
+                (vecPush pids pid)
+              )
+            )
+            (set w (+ w 1))
+          })
+      )
+      ; One line the driver parses, then this process only reaps.
+      (let ((mut s "pids"))
+        (let ((mut k 0))
+          {
+            (while (< k (vecLen pids))
+              {
+                (set s (strConcat s (strConcat " " (fmtInt (vecGet pids k)))))
+                (set k (+ k 1))
+              })
+            (printlnLit (strCStr s))
+          }
+        )
+      )
+      (sysCloseFd lsn)
+      (let ((mut r 0))
+        (while (< r (vecLen pids))
+          {
+            (unwrapOr (sysWaitPid (vecGet pids r)) 0)
+            (set r (+ r 1))
+          })
+      )
+      0
+    }
+  )
+)

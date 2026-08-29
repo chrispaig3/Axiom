@@ -1,0 +1,4 @@
+/* examples/web - served from disk by the static route, byte for byte */
+body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 40rem; }
+nav.top a { margin-right: 1rem; }
+.card { padding: 1rem; border: 1px solid #ddd; border-radius: 6px; }
