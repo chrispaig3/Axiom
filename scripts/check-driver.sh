@@ -49,6 +49,49 @@ printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 1)\n' >badimport.ax
 "$s1" check hello.ax >/dev/null 2>&1 \
   && ok "check accepts a good program" || bad "check on a good program"
 
+# --- a piped input ---------------------------------------------------
+#
+# The front door used to PROBE the path before reading it - a one-byte
+# `read`, to tell a directory from an empty file - and then open it a
+# second time for the bytes. On a regular file the second open reads
+# the probed byte again; on a pipe that byte is gone. Measured
+# 2026-08-29: `printf '(fn (main) 0)\n' | axiom check /dev/stdin`
+# reported `AX2001 ... found \`fn\`` at 1:1 while the same bytes in a
+# file checked OK, and every consumer of `/dev/stdin` had learned to
+# prepend a newline. The probe runs after the read now, and only when
+# the read answered nothing (`main.ax`, `sourceReadErrnoFor`).
+#
+# The assertion is PARITY, not acceptance: a pipe and a file holding
+# the same bytes must report the same diagnostic at the same column.
+# The first case alone would pass on a compiler that lost the first
+# byte of a program whose first byte is a newline, which is the shape
+# every existing caller had been trained into.
+printf '(:: main Int)\n(fn (main) 17)\n' | "$s1" check /dev/stdin >pipe_ok.txt 2>&1
+[[ $? == 0 ]] && grep -q '^OK' pipe_ok.txt \
+  && ok "check reads a piped /dev/stdin from its first byte" \
+  || bad "check over a pipe (was: the probe ate the first byte)"
+
+"$s1" --diagnostic-format=ai check bad.ax >file_bad.txt 2>&1
+printf '(:: main Int)\n(fn (main) (nope 1))\n' \
+  | "$s1" --diagnostic-format=ai check /dev/stdin >pipe_bad.txt 2>&1
+grep -q 'AX3001 /dev/stdin:2:13-17 ' pipe_bad.txt \
+  && diff <(sed 's|/dev/stdin|bad.ax|' pipe_bad.txt) file_bad.txt >/dev/null \
+  && ok "a pipe and a file report the same diagnostic at the same column" \
+  || bad "pipe/file diagnostic parity"
+
+printf '(:: k (-> Int Int))\n(fn (k n) n)\n' \
+  | "$s1" --diagnostic-format=ai symbols /dev/stdin >pipe_sym.txt 2>&1
+grep -q '^F k /dev/stdin:1:5-6 ' pipe_sym.txt \
+  && ok "symbols reads a piped /dev/stdin from its first byte" \
+  || bad "symbols over a pipe"
+
+# The legacy spelling probes its positional a second time, to tell a
+# file from a typo'd subcommand - that probe is open-only now.
+printf '(:: main Int)\n(fn (main) 17)\n' | "$s1" /dev/stdin >pipe_legacy.ll 2>/dev/null
+grep -q 'define .*@main' pipe_legacy.ll \
+  && ok "the legacy FILE spelling reads a piped /dev/stdin from its first byte" \
+  || bad "legacy spelling over a pipe"
+
 "$s1" build --input hello.ax --output hi >/dev/null 2>&1 \
   && [[ -x hi ]] && [[ "$(./hi)" == "driver-ok" ]] \
   && ok "build produces a working executable" || bad "build"

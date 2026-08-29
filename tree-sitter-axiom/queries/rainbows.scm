@@ -29,7 +29,6 @@
   (struct_declaration)
   (field_declaration)
   (type_alias)
-  (newtype_declaration)
   (trait_declaration)
   (paren_group)
   (impl_declaration)

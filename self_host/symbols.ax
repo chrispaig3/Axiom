@@ -822,6 +822,25 @@
 
 (pub fn (smNid sm name variant) (saPut (memGetWord sm 12) (memGetWord sm 13) name variant))
 
+; The AXTAGs of one NAME are the UNION of the sets on every declaration
+; carrying it - a function has two, its `::` and its `fn`, and an author
+; may write a tag above either.
+;
+; This kept the LAST NON-EMPTY set until 2026-08-29. Measured, both
+; directions: `;@axiom:pure` above the `::` and `;@axiom:no_refactor`
+; above the `fn` rendered `#no_refactor` alone, and swapped they
+; rendered `#pure` alone. The checker was never affected - `checkAxtags`
+; reads the two sets separately - so this was a reporting loss, and it
+; is the measurement that made `axiom test` discovery a NAME rule
+; (main.ax). It stops being a reporting loss the moment a policy gate
+; reads a tag off AXSYM - which is what a `#restrict=` manifest does: a
+; restriction written above a signature would have been checked by the
+; compiler and invisible to the manifest.
+;
+; The union is built into a NEW Vec. The stored sets are the parser's
+; own declaration words, and a renderer that appended to one would be
+; mutating the AST to print it - the same rule `#calls=` follows below
+; when it sorts a copy.
 (pub :: smTags (-> Int Int String Int))
 
 (pub fn (smTags sm d name)
@@ -830,9 +849,69 @@
       (saPutSoft (memGetWord sm 14) (memGetWord sm 15) name 0)
       (if (== (vecLen tags) 0)
         (saPutSoft (memGetWord sm 14) (memGetWord sm 15) name tags)
-        (saPut (memGetWord sm 14) (memGetWord sm 15) name tags)
+        (let ((have (saGet (memGetWord sm 14) (memGetWord sm 15) name)))
+          (if (== have 0)
+            (saPut (memGetWord sm 14) (memGetWord sm 15) name tags)
+            (if (== (vecLen have) 0)
+              (saPut (memGetWord sm 14) (memGetWord sm 15) name tags)
+              (saPut (memGetWord sm 14) (memGetWord sm 15) name (smTagsUnion have tags))
+            )
+          )
+        )
       )
     )
+  )
+)
+
+; `have` first, in its own order, then every tag of `more` whose text
+; is not already present - so the row reads in source order, the
+; signature's tags before the function's, and a tag written on both
+; renders once.
+(pub :: smTagsUnion (-> Int Int Int))
+
+(pub fn (smTagsUnion have more)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen have))
+        {
+          (vecPush out (vecGet have i))
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i (vecLen more))
+        {
+          (if (== (smTagsHas out (memGetWordStr (vecGet more i) 1)) 1)
+            0
+            (vecPush out (vecGet more i))
+          )
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+(pub :: smTagsHas (-> Int String Int))
+
+(pub fn (smTagsHas tags txt)
+  (let (
+    (mut i 0)
+    (mut hit 0)
+  )
+    {
+      (while (< i (vecLen tags))
+        {
+          (if (strEq (memGetWordStr (vecGet tags i) 1) txt)
+            (set hit 1)
+            0
+          )
+          (set i (+ i 1))
+        })
+      hit
+    }
   )
 )
 

@@ -76,8 +76,6 @@
 (field_declaration name: (identifier) @variable.member)
 
 (type_alias name: (identifier) @type.definition)
-(newtype_declaration name: (identifier) @type.definition)
-(newtype_declaration constructor: (identifier) @constructor)
 
 (trait_declaration name: (identifier) @type)
 (trait_method name: (identifier) @function.method)
@@ -131,7 +129,6 @@
   "data"
   "struct"
   "type"
-  "newtype"
   "trait"
   "impl"
   "effect"

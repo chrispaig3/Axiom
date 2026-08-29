@@ -1,0 +1,38 @@
+; A key the compiler knows is never a near miss of another one.
+;
+; `pre` is one insertion from `pure`, and until 2026-08-29 every
+; `;@axiom:pre(...)` drew AX3039 "did you mean `pure`?" - measured. The
+; near-miss test now asks first whether the key is one the compiler
+; knows; `pre`, `post` and `restrict` are, so the three below draw
+; nothing. What still fires is a slip FROM a known key: `restrct`
+; suggests `restrict` - a suggestion that did not exist before, so a
+; compiler without the change fails this case in both directions - and
+; `pur` suggests `pure` as it always did, which is the control.
+;@axiom:pre((> n 0))
+(:: guarded (-> Int Int))
+
+(fn (guarded n) n)
+
+;@axiom:post((> result 0))
+(:: ensured (-> Int Int))
+
+(fn (ensured n) n)
+
+;@axiom:restrict(no-io)
+(:: confined (-> Int Int))
+
+(fn (confined n) n)
+
+;@axiom:restrct(no-io)
+(:: slipped (-> Int Int))
+
+(fn (slipped n) n)
+
+;@axiom:pur
+(:: control (-> Int Int))
+
+(fn (control n) n)
+
+(:: main Int)
+
+(fn (main) 0)

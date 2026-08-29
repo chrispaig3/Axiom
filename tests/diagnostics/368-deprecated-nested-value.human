@@ -1,0 +1,9 @@
+[1;33mwarning[AX3048][0m[1m: `oldLen` is deprecated[0m
+  [1;34m--> [0m368-deprecated-nested-value.ax:22:16
+[1;34m   |[0m
+[1;34m22 |[0m (fn (main) (+ (oldLen 7) (newLen 7)))
+[1;34m   |[0m                [1;33m^^^^^^ declared `;@axiom:deprecated(use (newLen v) instead)`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mthe declaration says: use (newLen v) instead. It still works, and it still compiles - a deprecation is a notice, not a refusal. It may be removed in a later release, and `compat/BREAKING`'s rule lets that happen without a declared break precisely because this notice shipped first
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3048` for a full explanation
+

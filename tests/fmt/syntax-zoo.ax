@@ -374,3 +374,14 @@
      (label : String))))
 
 (defRecTwin RecTwin)
+
+; --- AXTAGs split across the two halves of one function -------------
+; A tag attaches to the declaration it is written above, and a function
+; has two. `symbols` renders the UNION of both sets on the one row, in
+; source order - `#no_refactor #pure` for `splitTags`. It rendered the
+; last non-empty set alone until 2026-08-29 (`symbols.ax`, `smTags`):
+; `#pure` here, and `#no_refactor` with the two tags swapped.
+;@axiom:no_refactor
+(:: splitTags (-> Int Int))
+;@axiom:pure
+(fn (splitTags n) (+ n 1))

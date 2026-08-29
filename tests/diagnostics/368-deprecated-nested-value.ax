@@ -1,0 +1,22 @@
+; A `;@axiom:deprecated(...)` value containing parentheses of its own.
+;
+; Four readers slice an AXTAG value: `checkOneAxtag`, `symbols.ax`'s
+; `saAxMeta`, `format.ax`'s `fpAxtag`, and `axtagTextValue` - which
+; `axtagValueOf`, and so AX3048, are built on. Three used the LAST `)`;
+; the fourth stopped at the FIRST, so a replacement written as a call
+; reached the warning with a paren missing. Measured on the compiler
+; before the change: the label read `;@axiom:deprecated(use (newLen v)`
+; and the help "the declaration says: use (newLen v". The whole value
+; is what the author wrote, and that is what both fields quote now.
+;@axiom:deprecated(use (newLen v) instead)
+(pub :: oldLen (-> Int Int))
+
+(pub fn (oldLen v) 0)
+
+(:: newLen (-> Int Int))
+
+(fn (newLen v) 1)
+
+(:: main Int)
+
+(fn (main) (+ (oldLen 7) (newLen 7)))

@@ -200,7 +200,6 @@ module.exports = grammar({
       $.data_declaration,
       $.struct_declaration,
       $.type_alias,
-      $.newtype_declaration,
       $.trait_declaration,
       $.impl_declaration,
       $.import,
@@ -436,14 +435,17 @@ module.exports = grammar({
       ')',
     ),
 
-    newtype_declaration: $ => seq(
-      '(', optional(field('visibility', 'pub')), 'newtype',
-      field('name', $.identifier),
-      optional(field('type_parameters', $.type_parameters)),
-      field('constructor', $.identifier),
-      field('target', $._type),
-      ')',
-    ),
+    // There is no `newtype`. The compiler has never had the keyword -
+    // `(newtype ...)` answers AX3027, "neither a declaration keyword nor
+    // a visible macro" - and docs/error-model.md B3 records the
+    // reference's row for it as drift that was deleted rather than
+    // built. This grammar carried a `newtype_declaration` rule for as
+    // long as that row existed and for a week after, which is the
+    // failure the header of scripts/check-tree-sitter.sh names: an
+    // editor highlighting as valid a form the compiler refuses. The
+    // corpus sweep could not catch it, because no `.ax` file in the
+    // repository spells the keyword - a rule that matches nothing is
+    // invisible to a check that parses everything.
 
     // `(trait (Name tv) (supertraits) (effects) where (methods))`
     //

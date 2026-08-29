@@ -228,6 +228,35 @@
 ;@axiom:effect(io)
 (pub fn (sourceReadErrno fileName) (sysReadErrno (strData fileName)))
 
+; The errno behind an EMPTY read, or 0 - asked AFTER `sysReadFile`
+; answered, and only when it answered "". Every front door below reads
+; the source first and calls this second.
+;
+; It was the other way round until 2026-08-29: probe first, read
+; second. The probe is a one-byte `read` (`sysReadErrno`'s EISDIR
+; test), and on a regular file the second open reads that byte again -
+; but a PIPE hands a byte out once. Measured:
+;
+;     printf '(fn (main) 0)\n' | axiom check /dev/stdin
+;     E AX2001 /dev/stdin:1:1-3 unexpected-token "expected (, found `fn`"
+;
+; while the same bytes in a file checked OK. The compiler was judging a
+; program whose first byte it had thrown away, and every consumer of
+; `/dev/stdin` had learned to prepend a newline. A read that answered
+; bytes needs no explanation; an empty one costs the probe, and a pipe
+; that answered nothing has nothing left to lose. `check-driver.sh`
+; pins a pipe and a file reporting the same diagnostic at the same
+; column.
+(pub :: sourceReadErrnoFor (-> String String Int))
+
+;@axiom:effect(io)
+(pub fn (sourceReadErrnoFor fileName src)
+  (if (> (strLen src) 0)
+    0
+    (sourceReadErrno fileName)
+  )
+)
+
 ; One spelling of the read failure, everywhere.
 ;
 ; There were three. `fmt` and `symbols` said `Failed to read file 'F'`,
@@ -322,7 +351,8 @@
   ; file that caused them. A tree with no manifest pays one
   ; `sysFileExists` per directory level and gets nothing else.
   (let (
-    (rerr (sourceReadErrno fileName))
+    (src (sysReadFile (strData fileName)))
+    (rerr (sourceReadErrnoFor fileName src))
     (dfmt diagFormatArg)
     (_crates prepareCrates)
     (_pkg (pkgVerify (pathDir fileName)))
@@ -339,7 +369,6 @@
       ; Lexical errors come first, because lexing does - and because
       ; a file with a bad escape in it has not got a token stream
       ; worth parsing. stage0 reports them the same way round.
-      (let ((src (sysReadFile (strData fileName))))
         (let ((toks (lex src)))
           (let ((lexD (lexErrDiag toks src)))
             (let ((pr 
@@ -614,7 +643,6 @@
             )
           )
         )
-      )
     )
   )
 )
@@ -725,8 +753,8 @@
 ; `#test`, so it looked like the mechanism this repository would
 ; reach for. But an AXTAG attaches to the declaration group, and a
 ; test is normally two of them - a `::` signature and a `fn` - each
-; with its own tag set. `symbols.ax`'s `smTags` keeps the LAST
-; NON-EMPTY set, so
+; with its own tag set. `symbols.ax`'s `smTags` kept the LAST
+; NON-EMPTY set when this was decided, so
 ;
 ;     ;@axiom:test
 ;     (:: testOne Int)
@@ -734,12 +762,14 @@
 ;     ;@axiom:effect(io)
 ;     (fn (testOne) ...)
 ;
-; reports `#effect=io` and no `#test` at all - probed on 2026-08-25,
-; both spellings, and the tag is present only when the two are
+; reported `#effect=io` and no `#test` at all - probed on 2026-08-25,
+; both spellings, and the tag was present only when the two were
 ; stacked above the `fn`. A test that vanishes because its tag sits
 ; one declaration too high is a silently skipped test, which reads
 ; exactly like a passing one. A name cannot be attached to the wrong
-; half of anything.
+; half of anything. (`smTags` unions the two sets since 2026-08-29,
+; which closes that loss; the name rule stands as decided - it reads
+; no tag, so it has nothing to lose.)
 ;
 ; SO NOTHING IS SKIPPED IN SILENCE. The one way the name rule could
 ; skip something is a `test`-named function that takes parameters -
@@ -940,7 +970,10 @@
 
 ;@axiom:effect(io)
 (pub fn (testRunFile file filter)
-  (let ((rerr (sourceReadErrno file)))
+  (let (
+    (src (sysReadFile (strData file)))
+    (rerr (sourceReadErrnoFor file src))
+  )
     (if (!= rerr 0)
       {
         (die (readFailMsg file rerr) 1)
@@ -948,9 +981,11 @@
       }
       ; The check comes first so a diagnostic names the file the
       ; author wrote. It exits on any error, exactly as `check` does.
+      ; (The bytes were read above, before the check, so that the
+      ; errno probe runs after the read like every other front door;
+      ; a real file reads the same twice.)
       (let (
         (_chk (compileFile file (targetArg hostTarget) 0 0))
-        (src (sysReadFile (strData file)))
       )
         (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
           (if (== (memGetWord pr 0) 0)
@@ -1106,7 +1141,13 @@
     (if (< i 0)
       0
       (let ((w (sysArg i)))
-        (if (== (sourceReadErrno w) 0)
+        ; OPENED, never read: this asks whether the word names a path
+        ; at all, and `sysReadErrno`'s one-byte probe would consume the
+        ; first byte of a piped `/dev/stdin` before `compileFile` ever
+        ; saw it (the measurement is at `sourceReadErrnoFor`). A path
+        ; that opens and then cannot be read - a directory - is not a
+        ; typo either; `compileFile` reports it with its errno.
+        (if (sysFileExists (strData w))
           0
           (let ((near (nearestSubcommand w)))
             (if (== (strLen near) 0)
@@ -1292,17 +1333,18 @@
               ; value: the general positional walk treats any `--flag` as
               ; consuming its neighbour, which would swallow the file in
               ; `fmt --check FILE`. And the empty-versus-missing distinction
-              ; needs an open probe, because `sysReadFile` answers "" for
-              ; both: an empty file formats to an empty file with exit 0.
+              ; needs the errno probe AFTER the read answered "",
+              ; because `sysReadFile` answers "" for both: an empty
+              ; file formats to an empty file with exit 0.
               (let ((f (fmtInputArg 0)))
                 (if (== (strLen f) 0)
                   (die "error: fmt needs an input file\n" 1)
-                  (let ((rerr (sourceReadErrno f)))
+                  (let ((src (sysReadFile (strData f))))
+                    (let ((rerr (sourceReadErrnoFor f src)))
                     (if (!= rerr 0)
                       (die (readFailMsg f rerr) 1)
                       {
                         0
-                        (let ((src (sysReadFile (strData f))))
                           (let ((res (fmtFormat src)))
                             (if (== (fzOk res) 0)
                               (die (cat2 f " was not rewritten: formatter refusal\n") 1)
@@ -1326,10 +1368,10 @@
                               )
                             )
                           )
-                        )
                       }
                     )
                   )
+                )
                 )
               )
               (if (strEq cmd "symbols")
@@ -1344,10 +1386,10 @@
                 )
                   (if (== (strLen f) 0)
                     (die "error: symbols needs an input file\n" 1)
-                    (let ((rerr (sourceReadErrno f)))
+                    (let ((src (sysReadFile (strData f))))
+                      (let ((rerr (sourceReadErrnoFor f src)))
                       (if (!= rerr 0)
                         (die (readFailMsg f rerr) 1)
-                        (let ((src (sysReadFile (strData f))))
                           (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
                             (if (== (memGetWord pr 0) 0)
                               (die "compilation failed due to a syntax error\n" 1)

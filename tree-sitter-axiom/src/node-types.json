@@ -32,10 +32,6 @@
         "named": true
       },
       {
-        "type": "newtype_declaration",
-        "named": true
-      },
-      {
         "type": "struct_declaration",
         "named": true
       },
@@ -1431,62 +1427,6 @@
     }
   },
   {
-    "type": "newtype_declaration",
-    "named": true,
-    "fields": {
-      "constructor": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "target": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "_type",
-            "named": true
-          }
-        ]
-      },
-      "type_parameters": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "type_parameters",
-            "named": true
-          }
-        ]
-      },
-      "visibility": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "pub",
-            "named": false
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "paren_group",
     "named": true,
     "fields": {},
@@ -2493,10 +2433,6 @@
   },
   {
     "type": "mut",
-    "named": false
-  },
-  {
-    "type": "newtype",
     "named": false
   },
   {

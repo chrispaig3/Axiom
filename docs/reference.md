@@ -1140,12 +1140,19 @@ The key namespace is open: a key the compiler does not know is
 metadata, is recorded, and is not checked. `agent:readonly` draws
 nothing and is meant to.
 
-A key one edit - or one change of case - from `pure` or `effect` draws
-`AX3039`. `;@axiom:pur` is not a purity claim, so nothing checks it as
-one, and a body performing IO under it drew no `AX3010` at all: the tag
-read like a guarantee and bought silence. A key containing `:` is never
-reported, because a namespaced key is deliberate by construction and
-its distance from `pure` is not evidence about anything.
+A key one edit - or one change of case - from a key the compiler knows
+- `pure`, `effect`, `raw`, `pre`, `post`, `restrict` - draws `AX3039`.
+`;@axiom:pur` is not a purity claim, so nothing checks it as one, and a
+body performing IO under it drew no `AX3010` at all: the tag read like
+a guarantee and bought silence. A key the compiler knows is never a
+near miss of another one it knows: `pre` is one insertion from `pure`,
+and drew "did you mean `pure`?" until 2026-08-29. Knowing a key and
+checking it are separate: `pre`, `post` and `restrict` are known ahead
+of their checks, and until a key's check lands it is recorded and not
+checked exactly as an unknown one is - what knowing it buys is that a
+slip FROM it is reported. A key containing `:` is never reported,
+because a namespaced key is deliberate by construction and its
+distance from `pure` is not evidence about anything.
 
 Until 2026-08-22 neither happened. The sentinel that records an
 unresolved call had been in the source, skipped by two consumers and

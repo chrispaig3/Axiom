@@ -6187,6 +6187,14 @@
   )
 )
 
+; The value runs from the first `(` to the LAST `)` - `axtagCloseAt`,
+; the rule `checkOneAxtag`, `symbols.ax`'s `saAxMeta` and `format.ax`'s
+; `fpAxtag` all apply. This reader stopped at the FIRST `)` until
+; 2026-08-29, so it was the one reader of four that truncated: measured,
+; `;@axiom:deprecated(use (f x))` reached AX3048 as `use (f x` - the
+; help said "the declaration says: use (f x" and the label quoted a tag
+; with one paren fewer than the author wrote. A value with no `)` at
+; all still answers "", as it always did.
 (pub :: axtagTextValue (-> Int String))
 
 (pub fn (axtagTextValue t)
@@ -6194,8 +6202,8 @@
     (let ((op (strFindByte txt 40 0)))
       (if (< op 0)
         ""
-        (let ((cl (strFindByte txt 41 (+ op 1))))
-          (if (< cl 0)
+        (let ((cl (axtagCloseAt txt)))
+          (if (|| (>= cl (strLen txt)) (<= cl op))
             ""
             (strSlice txt (+ op 1) (- cl (+ op 1)))
           )
@@ -14840,10 +14848,13 @@
 )
 
 ; One pass over the declaration list, keeping the declarations that
-; carry the key. Both spellings are kept, because `smTags` loses a tag
-; above a `::` when the `fn` carries one - the measurement that made
-; `axiom test` discovery a NAME rule - so a reader must consult
-; whichever declaration has it.
+; carry the key. Both spellings are kept because a tag attaches to
+; whichever declaration it was written above, and the author may have
+; put it on the `::` or on the `fn`; the checker reads both
+; (`checkAxtags`), and so does this. (`symbols.ax`'s `smTags` used to
+; keep only the last non-empty set of the two, which is the measurement
+; that made `axiom test` discovery a NAME rule; it unions them since
+; 2026-08-29.)
 (pub :: deprecatedBuild (-> Int Int Int Int))
 
 (pub fn (deprecatedBuild decls acc i)
@@ -14998,20 +15009,69 @@
   )
 )
 
-; The two keys that are checked, and nothing else. `suggestThreshold`
+; The keys the compiler KNOWS, and nothing else. `suggestThreshold`
 ; is deliberately NOT reused: it scales with name length so a reader
 ; gets candidates for long identifiers, and at these lengths it admits
 ; distance-2, which pulls in words that are not slips.
+;
+; A KNOWN KEY IS NEVER A NEAR MISS, and the order of the two questions
+; is what makes that true. `pre` is one insertion from `pure`, so the
+; slip test alone answered "did you mean `pure`?" for every `pre` tag
+; - measured 2026-08-29, before `pre` was in this set. The exact test
+; runs first, so a key this compiler knows is silent here whatever its
+; distance from another one it knows.
+;
+; `pre`, `post` and `restrict` are the three keys the Ada-inspired
+; hardening introduces (`docs/reference.md`, AXTAG Keys). They are
+; known here before anything checks them, so that the first contract
+; or restriction written does not draw a false typo; which of them is
+; checked, and by what, is recorded beside the check.
+(pub :: axtagKnownKey (-> String Int))
+
+(pub fn (axtagKnownKey key)
+  (if (strEq key "pure")
+    1
+    (if (strEq key "effect")
+      1
+      (if (strEq key "raw")
+        1
+        (if (strEq key "pre")
+          1
+          (if (strEq key "post")
+            1
+            (if (strEq key "restrict")
+              1
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
 (pub :: axtagNearMiss (-> String String))
 
 (pub fn (axtagNearMiss key)
-  (if (== (axtagSlip key "pure") 1)
-    "pure"
-    (if (== (axtagSlip key "effect") 1)
-      "effect"
-      (if (== (axtagSlip key "raw") 1)
-        "raw"
-        ""
+  (if (== (axtagKnownKey key) 1)
+    ""
+    (if (== (axtagSlip key "pure") 1)
+      "pure"
+      (if (== (axtagSlip key "effect") 1)
+        "effect"
+        (if (== (axtagSlip key "raw") 1)
+          "raw"
+          (if (== (axtagSlip key "pre") 1)
+            "pre"
+            (if (== (axtagSlip key "post") 1)
+              "post"
+              (if (== (axtagSlip key "restrict") 1)
+                "restrict"
+                ""
+              )
+            )
+          )
+        )
       )
     )
   )

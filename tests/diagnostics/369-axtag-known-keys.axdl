@@ -1,0 +1,2 @@
+W AX3039 369-axtag-known-keys.ax:29:6-13 axtag-key-typo "AXTAG key typo on `slipped`: unrecognised key `restrct`; did you mean `restrict`?" ?"an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"
+W AX3039 369-axtag-known-keys.ax:34:6-13 axtag-key-typo "AXTAG key typo on `control`: unrecognised key `pur`; did you mean `pure`?" ?"an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"
