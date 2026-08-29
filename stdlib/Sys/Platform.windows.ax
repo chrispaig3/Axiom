@@ -500,3 +500,15 @@
 
 ;@axiom:effect(io)
 (pub fn (platformExitWith code) (winExitProcess code))
+
+; ------------------------------------------------------------------
+; The clock id `Sys.ax` hands to clock_gettime. Windows has no
+; clock_gettime and no syscall table; `Sys.ax` asks `usesSyscallAbi`
+; before it reaches the `__syscall3` that would take this id, so the
+; value is never read on this target. It is declared because every
+; platform module declares one public surface (`check-stdlib-api.sh`),
+; and 0 is the answer that would be wrong loudest if it ever were read.
+; ------------------------------------------------------------------
+(pub :: clockMonotonicId Int)
+
+(pub fn (clockMonotonicId) 0)

@@ -2,6 +2,8 @@
 
 ![GitHub CI](https://github.com/chrispaig3/axiom/actions/workflows/ci.yml/badge.svg)
 
+> **Like what you see?** [⭐ Star the repo](https://github.com/chrispaig3/axiom/stargazers) and [🍴 fork it](https://github.com/chrispaig3/axiom/fork) — a star helps other people find Axiom, and a fork is where your first contribution starts.
+
 <img width="1500" height="1024" alt="Image" src="https://github.com/user-attachments/assets/38a9afb6-3570-4797-ba57-488e004f4e66" />
 
 A functional systems programming language for humans and agents.

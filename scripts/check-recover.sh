@@ -540,7 +540,13 @@ if command -v opt >/dev/null 2>&1; then
     else
       zero=$((zero + 1))
     fi
-    calls="$(grep -c 'call[^;]*@__axiom_recover' "$work/hello.opt.ll" || true)"
+    # Anchored to an INSTRUCTION - `[%x = ][tail ]call ... @__axiom_recover` -
+    # because the backtrace symbol table is one line that names every
+    # function, the three recover helpers among them, and since
+    # `usesSyscallAbi` joined it (2026-08-29) a bare `call[^;]*` matched
+    # the "call" inside that name and reported a survivor that was a
+    # table entry.
+    calls="$(grep -cE '^[[:space:]]*(%[^ ]+ = )?(tail |musttail |notail )?call .*@__axiom_recover' "$work/hello.opt.ll" || true)"
     if (( calls != 0 )); then
       echo "FAIL $calls call(s) to the recovery point survive in a program that never arms one"
       grep -n 'call[^;]*@__axiom_recover' "$work/hello.opt.ll" | sed 's/^/    /' | head -4
