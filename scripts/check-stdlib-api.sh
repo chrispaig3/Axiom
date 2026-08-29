@@ -31,7 +31,7 @@
 #      checked against a list `grep` derives from the sources, which is
 #      a second source. A generator that dropped a module would pass 1
 #      by being re-blessed and fails here.
-#   3. The four `Sys/Platform.*.ax` files declare the same public
+#   3. The five `Sys/Platform.*.ax` files declare the same public
 #      names. The document carries one of them, so this is what makes
 #      that safe rather than darwin-flavoured - and it is what holds
 #      the Windows module, which is functions over kernel32 rather
@@ -224,7 +224,7 @@ plat_names "$repo_root/stdlib/Sys/Platform.darwin.ax" > "$work/plat.darwin"
     plat_ok=0
   fi
 done
-(( plat_ok )) && ok "all four Platform files declare the same $(grep -c . "$work/plat.darwin") names"
+(( plat_ok )) && ok "all five Platform files declare the same $(grep -c . "$work/plat.darwin") names"
 
 # --------------------------------------------------------------------
 echo

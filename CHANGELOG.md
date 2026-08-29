@@ -16,6 +16,43 @@ its changelog too.
 
 ## Unreleased
 
+Three new `--target`s the compiler emits for and CI assembles but does
+not yet execute - `freebsd-x86_64`, `freebsd-aarch64` and
+`windows-x86_64` - a Windows hello world linked through `lld-link`
+with a CI leg that runs it under `continue-on-error`, an HTML
+templating DSL written in the macro system, and the `cgThreads` flag
+the concurrency work will turn on. Two gates join the ones that build
+the compiler under test, `check-windows-entry.sh` and
+`check-windows-hello.sh`: forty gates, up from thirty-eight.
+
+- **FreeBSD** (`02ff76b`, `79c8ebc`): codes 4 and 5, triple
+  `*-unknown-freebsd14.0`, `stdlib/Sys/Platform.freebsd.ax` (syscall
+  numbers, `clockMonotonicId` 4 because 1 is CLOCK_VIRTUAL there),
+  `-e _main` confined to Darwin, and six committed seeds. No FreeBSD
+  binary has executed anywhere; README's Targets section says so.
+- **Windows** (`99f9ca2`, `90f3828`, `fe1b768`, `55076fd`): code 6,
+  triple `x86_64-pc-windows-msvc`. There is no syscall ABI, so
+  `Platform.windows.ax` is functions over an `extern "kernel32"` block
+  reached from `Sys.ax` through one capability, `usesSyscallAbi`; the
+  runtime's three kernel doors are functions behind
+  `targetUsesSyscallAsm`; the entry is `mainCRTStartup` with no C
+  runtime. `check-freestanding.sh` reads a PE's import table against
+  `scripts/platform-allow.windows.txt`; `axiom build` links a `.exe`
+  through `lld-link`, deciding from the module's own `target triple`,
+  never `uname`.
+- **The merge** (`99059d8`, `991e8bd`): the two tracks were built
+  concurrently and each grew the platform surface the other lacked;
+  both files now carry both sets, and the six seeds are regenerated
+  from the merged tree because a seed cherry-picked from a worktree
+  cut before 0.3.7 described sources trunk never had.
+- **`stdlib/Html.ax`** (`a821819`): elements, attributes, text with
+  escaping, and `<script>`/`<style>` bodies as a DSL whose every form
+  is a macro - the proof `docs/macro-system.md` now records - plus
+  four `Str` helpers a parser needs. Gates: `tests/stdlib/420-422`.
+- **`cgThreads`** (`0072b7a`): a codegen flag beside `cgStaticlib`,
+  off, with the proof that no program's IR moves while it is.
+- README: a star/fork call to action under the CI badge.
+
 ## 0.3.7 — 2026-08-29
 
 The enterprise readiness plan's two remaining buildable items land — the
