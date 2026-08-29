@@ -55,6 +55,27 @@ test through `gate_build_axc`: thirty-eight gates, up from thirty-seven.
   have grown the process by every record. Both are compiler facts the
   module documents rather than defects it fixes.
 
+- **Three code actions the compiler does not write.** The language
+  server's `textDocument/codeAction` answered only what the checker
+  carried — a help with a fix span — and one assist from what it
+  inferred. Three more, each in SECTION FIX of `lsp.ax`, each refused
+  where its condition does not hold: *Import `name` from `Mod`*
+  (quickfix on AX3001 with a bare name; every directory the resolver's
+  own `moduleSearchDirs` answers is searched, a file counted only when
+  `moduleSrcPath` resolves that name to it — the ladder's shadowing
+  rule asked rather than restated — and the edit adds the name to an
+  existing import list, else a new import line; 0.014 s for a stdlib
+  search); *Make `name` public in `Mod`* (quickfix on AX3023; a
+  WorkspaceEdit keyed by the DECLARING file's URI inserting `pub ` on
+  the `fn` and its `::`, because `check` refuses either alone —
+  measured); *Extract to `let`* (`refactor.extract` on a range covering
+  exactly one item in a fn body, hoisted above the innermost block
+  statement on the path, refused under a lambda, loop, branch or arm
+  and whenever the item references a binder bound inside that
+  statement, by NAV's occurrence walk). `codeActionKinds` gains
+  `refactor.extract`; drive.py applies each edit and requires `check`
+  clean or unchanged behaviour.
+
 ### Changed
 
 - **The name map answers from an index, and doubling a module costs
