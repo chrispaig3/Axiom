@@ -16,12 +16,17 @@ its changelog too.
 
 ## Unreleased
 
+## 0.3.7 — 2026-08-29
+
 The enterprise readiness plan's two remaining buildable items land — the
 compile-time ceiling it called "a bug, not an architecture", and the
 `Fallible` effect it said costs nothing — and `check-name-scale.sh` now
 builds an ablated twin of the compiler to prove its new arm can fail,
 which makes it the thirty-eighth gate that builds the compiler under
 test through `gate_build_axc`: thirty-eight gates, up from thirty-seven.
+Beside them, two more diagnostics carry a machine-applicable fix and
+the language server gains three assists of its own - the code-action
+surface an editor user reaches for most.
 
 ### Added
 

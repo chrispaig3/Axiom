@@ -903,7 +903,7 @@
 ;@axiom:effect(io)
 (pub fn (replBanner)
   {
-    (replOut "axiom (self-hosted) 0.3.6 - Axiom REPL\n")
+    (replOut "axiom (self-hosted) 0.3.7 - Axiom REPL\n")
     (replOut "Type :help for commands, :quit to exit\n\n")
     0
   }

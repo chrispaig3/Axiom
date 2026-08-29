@@ -2497,7 +2497,7 @@
 ; nothing calls.
 (pub :: lspCapabilities Int)
 
-(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (lspFixCaps (lspViewCaps (lspNavCaps (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions))))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.3.6"))))
+(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (lspFixCaps (lspViewCaps (lspNavCaps (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions))))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.3.7"))))
 
 ; `definitionProvider` and `hoverProvider` joined on 2026-08-15
 ; with the macro navigation they describe (MAC-TOOL-2). Both are
