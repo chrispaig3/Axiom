@@ -66,8 +66,9 @@
 #      into a full scan of the program's types AT EVERY TYPE
 #      REFERENCE - which is why the semantics and the index had to
 #      land in one change, and this section is what re-asks it. Two
-#      byte-identical programs but for four digits: 8,000 struct
-#      declarations and 48,000 type references, where one names the
+#      byte-identical programs but for four digits: 16,000 struct
+#      declarations and 192,000 type references (8,000 and 48,000
+#      until 2026-08-29; see the note at N/K), where one names the
 #      FIRST declaration in the table and the other the LAST. A scan
 #      pays one comparison against 8,000; a bucket keyed on the name
 #      pays one entry either way.
@@ -385,8 +386,15 @@ ok_clean dup one.ax "control: one \`type Amt\` is not a duplicate"
 # 5. scale: the lookup must not grow with the type table
 # ---------------------------------------------------------------
 echo "== scale: a type reference costs the same in a table twice the size =="
-N="${N:-4000}"
-K="${K:-6000}"
+# 8000 and 24000 since 2026-08-29: at 4000/6000 the darwin runner checked
+# either program in under the floor once phase D's name recording was
+# indexed (the same change that indexed mangleHasIn), and a ratio of two
+# timer-resolution numbers reports whatever it likes. Measured on the
+# development machine: 4000/6000 0.12 s a side, 8000/16000 0.28 s,
+# 8000/24000 0.36 s - the last is the default, three and a half floors
+# of margin on a runner that read under one.
+N="${N:-8000}"
+K="${K:-24000}"
 W="${W:-8}"
 BOUND="${BOUND:-1.40}"
 REPS="${REPS:-3}"
