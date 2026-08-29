@@ -349,7 +349,11 @@ them provision a compiler through the same composite action,
    file in the repository.
 2. **Tests** — the gate battery above, on three platforms
    (linux-x86_64, linux-aarch64, darwin-aarch64). Each job provisions a
-   compiler from `bootstrap/` first.
+   compiler from `bootstrap/` first. A fourth leg, `Tests
+   (windows-x86_64)` on `windows-latest`, is **planned, not supported**:
+   it does not exist yet, and when it lands it runs `continue-on-error`
+   until it executes what the compiler emits there — the bar README's
+   *Targets* section sets for a target to be supported at all.
 3. **FFI** — `check-ffi.sh` on linux-x86_64 and darwin-aarch64: the
    `extern` boundary opens exactly the symbols it declares, the
    generated bindings match a fresh generation, and the `rust/`

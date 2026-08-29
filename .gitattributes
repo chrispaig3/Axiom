@@ -1,0 +1,10 @@
+# Every file is checked out byte-for-byte. `* -text` turns off line-ending
+# conversion for the whole tree, and it is here for one reason: a Windows
+# checkout with `core.autocrlf=true` rewrites every `.ax` source and every
+# `.out` golden to CRLF, and then every byte-comparing gate in the
+# repository - the stdlib goldens, the formatter parity cases, the
+# self-hosting fixpoint - goes red at once for a reason that has nothing
+# to do with the compiler. The emitter writes `\n` and only `\n`, and the
+# goldens compare bytes, so the checkout has to be bytes too. Added ahead
+# of the first Windows CI leg rather than the morning after it.
+* -text

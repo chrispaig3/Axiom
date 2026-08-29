@@ -74,6 +74,15 @@
 #      `310-` cases for five days with every gate green. The number is
 #      the corpus's identity, so two files answering to it means every
 #      sentence citing it has two referents.
+#
+#   7  THE SUPPORTED-TARGET LIST IS ONE FACT. README.md and
+#      docs/reference.md carry it, the compiler's `--target` table must
+#      accept every name on it, an accepted name off it must be
+#      explained, and SECURITY.md's "not a supported target" bullet must
+#      cite a document that really states the rule. That bullet cited
+#      `CONTRIBUTING.md` for a sentence CONTRIBUTING.md never held, and
+#      no check above could see it: they resolve paths, and the path
+#      existed.
 # ---------------------------------------------------------------------
 set -uo pipefail
 
@@ -959,10 +968,142 @@ elif (( failed == types_before )); then
   echo "ok   all $row_n documented types lower to what README's LLVM column says"
 fi
 
+# --------------------------------------------------------------------
+echo "== targets: one supported list, the compiler's table, and SECURITY.md's exclusion =="
+# --------------------------------------------------------------------
+# The supported-target list is one fact with copies: README.md's
+# `Supported:` line under `### Targets`, docs/reference.md's `Supported
+# targets:` line, the names `--help` accepts for `--target`, and, from
+# the other side, SECURITY.md's out-of-scope bullet saying an OS is NOT
+# on it. SECURITY.md said "`CONTRIBUTING.md` says so" about Windows for
+# as long as the bullet existed, and CONTRIBUTING.md said nothing of the
+# kind - a cross-file claim that no check above could see, because the
+# checks above resolve PATHS and this names a document that exists.
+#
+# So this reads the claim the way a reader would follow it:
+#
+#   1. the two prose copies of the list are the same set;
+#   2. every listed name is one the compiler accepts (`--help` names it
+#      and `emit-llvm --target=<name>` succeeds), so the list cannot
+#      promise a target the binary refuses;
+#   3. a name the compiler accepts and the list does NOT carry must be
+#      explained in the README's Targets section by its OS - a target
+#      that is emitted for but not supported is exactly the state the
+#      Windows and FreeBSD work passes through, and the README's rule
+#      says what it is; silence would read as "supported";
+#   4. SECURITY.md's "**<OS>.** Not a supported target" bullet must name
+#      the document that states the rule, that document must contain
+#      the rule's sentence, and no `<os>-*` name may be on the list.
+#
+# The negative probe is the one the bullet failed for real: point the
+# bullet at a document without the sentence and this goes red.
+python3 - "$axc" <<'PY'
+import re, subprocess, sys, tempfile, os
+axc = sys.argv[1]
+bad = 0
+RULE = "executes what the compiler emits there"
+
+def names_in(text, lead):
+    m = re.search(lead + r"((?:`[a-z0-9_]+-[a-z0-9_]+`(?:,\s*)?)+)\.", text)
+    if not m:
+        return None
+    return set(re.findall(r"`([a-z0-9_-]+)`", m.group(1)))
+
+readme = open("README.md", encoding="utf-8").read()
+sec = re.search(r"^### Targets\n(.*?)(?=^### )", readme, re.S | re.M)
+if not sec:
+    print("FAIL targets: README.md has no `### Targets` section"); sys.exit(1)
+targets_section = sec.group(1)
+# Prose wraps at 72 columns, so a sentence is compared with its
+# whitespace folded; a rule split across a line break is still the rule.
+def flat(t): return " ".join(t.split())
+readme_list = names_in(targets_section, r"Supported: ")
+ref_list = names_in(open("docs/reference.md", encoding="utf-8").read(), r"Supported targets: ")
+if readme_list is None or ref_list is None:
+    print("FAIL targets: the `Supported:` line is not where this gate looks (README.md's "
+          "Targets section, docs/reference.md) - reword the gate with the sentence")
+    sys.exit(1)
+if len(readme_list) < 3:
+    print(f"FAIL targets: README lists only {len(readme_list)} supported target(s); the floor is 3")
+    bad += 1
+if readme_list != ref_list:
+    print(f"FAIL targets: README.md lists {sorted(readme_list)}, docs/reference.md lists "
+          f"{sorted(ref_list)} - one fact, two copies, and they disagree")
+    bad += 1
+if RULE not in flat(targets_section):
+    print(f"FAIL targets: README's Targets section no longer states the rule ({RULE!r}); "
+          f"every other document points at it")
+    bad += 1
+
+# 2. the compiler's own table, both by `--help` and by doing it.
+help_text = subprocess.run([axc, "--help"], capture_output=True, text=True).stdout
+m = re.search(r"--target <NAME>\s+([a-z0-9_, -]+)\n", help_text)
+if not m:
+    print("FAIL targets: `axiom --help` has no `--target <NAME>` line to read the accepted names from")
+    sys.exit(1)
+accepted = {n.strip() for n in m.group(1).split(",") if n.strip()}
+work = tempfile.mkdtemp()
+probe = os.path.join(work, "t.ax")
+open(probe, "w").write("(:: main Int)\n\n(fn (main) 0)\n")
+for name in sorted(readme_list):
+    if name not in accepted:
+        print(f"FAIL targets: README lists `{name}` as supported, and `--help` does not accept it")
+        bad += 1
+    r = subprocess.run([axc, f"--target={name}", "emit-llvm", probe, "-o", os.path.join(work, "t.ll")],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"FAIL targets: README lists `{name}` as supported, and the compiler refuses it: "
+              f"{(r.stderr or r.stdout).strip()[:120]}")
+        bad += 1
+
+# 3. accepted but not listed: the README must say what it is.
+for name in sorted(accepted - readme_list):
+    osname = name.split("-", 1)[0]
+    if not re.search(r"\b" + osname + r"\b", targets_section, re.I):
+        print(f"FAIL targets: the compiler accepts `--target={name}` and README's Targets section "
+              f"neither lists it as supported nor mentions {osname} - an unexplained target reads as a supported one")
+        bad += 1
+
+# 4. SECURITY.md's exclusion, followed the way a reader follows it.
+security = open("SECURITY.md", encoding="utf-8").read()
+bullets = re.findall(r"- \*\*([A-Z][A-Za-z]+)\.\*\* Not a supported target\.?(.*?)(?=\n- |\n\n)", security, re.S)
+if not bullets:
+    print("FAIL targets: SECURITY.md has no `**<OS>.** Not a supported target` bullet - the sentence "
+          "this section was written for has moved; reword the gate with it")
+    bad += 1
+for osname, rest in bullets:
+    cited = re.findall(r"`([A-Za-z0-9_./-]+\.md)`", rest)
+    if not cited:
+        print(f"FAIL targets: SECURITY.md's {osname} bullet names no document for the rule it leans on")
+        bad += 1
+        continue
+    doc = cited[0]
+    if not os.path.exists(doc):
+        print(f"FAIL targets: SECURITY.md's {osname} bullet cites {doc}, which does not exist")
+        bad += 1
+        continue
+    if RULE not in flat(open(doc, encoding="utf-8").read()):
+        print(f"FAIL targets: SECURITY.md's {osname} bullet says {doc} states the rule, and {doc} "
+              f"does not contain {RULE!r} - the cross-reference is dangling, which is the defect "
+              f"this section exists for")
+        bad += 1
+    on_list = sorted(n for n in readme_list if n.startswith(osname.lower() + "-"))
+    if on_list:
+        print(f"FAIL targets: SECURITY.md says {osname} is not a supported target, and README's list "
+              f"carries {on_list}")
+        bad += 1
+if not bad:
+    print(f"ok   {len(readme_list)} supported targets, listed identically twice, all accepted by the "
+          f"compiler; {len(accepted - readme_list)} accepted-but-unsupported name(s) explained; "
+          f"{len(bullets)} SECURITY.md exclusion(s) resolve to the rule")
+sys.exit(1 if bad else 0)
+PY
+[[ $? -eq 0 ]] || failed=$((failed+1))
+
 echo
 if (( failed )); then
   echo "check-doc-drift: $failed section(s) failed"
   exit 1
 fi
 echo "check-doc-drift: registry, counts, status rows, fixture paths, case"
-echo "                 numbering and the diagnostic showcase all agree with the tree"
+echo "                 numbering, the diagnostic showcase and the target list all agree with the tree"

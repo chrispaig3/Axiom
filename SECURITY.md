@@ -57,8 +57,11 @@ Said out loud rather than left unstated.
   parser has a nesting limit (`AX2005`) and the expander a node budget
   (`AX3024`); beyond those, a program that takes a long time to compile
   is a program that takes a long time to compile.
-- **Windows.** Not a supported target — `CONTRIBUTING.md` says so, and
-  there is no build for it to be vulnerable.
+- **Windows.** Not a supported target. `README.md`'s *Targets* section
+  states what supported means — a CI leg executes what the compiler
+  emits there — and no Windows leg exists, so there is no Windows build
+  for this policy to cover. `scripts/check-doc-drift.sh` holds this
+  bullet to that list.
 - **`rust/`'s example crates.** `rust/examples/` exists to exercise the
   FFI gate. It is not shipped and not a dependency of the compiler.
 

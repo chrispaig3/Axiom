@@ -1066,9 +1066,17 @@ axiom --target=linux-x86_64 emit-llvm main.ax -o main.ll
 Supported: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`,
 `linux-x86_64`. Defaults to the host.
 
-FreeBSD and Windows are being added as targets (decided 2026-08-29);
-neither is supported until its CI leg executes what the compiler emits
-there, and this list will grow only when that is true.
+**A target joins that list when a CI leg executes what the compiler
+emits there.** That is the definition of *supported* in this
+repository, stated here once; `docs/reference.md`, `SECURITY.md` and
+`CONTRIBUTING.md` point at this paragraph rather than restating it, and
+`scripts/check-doc-drift.sh` holds the copies of the list to each other
+and to the compiler's own `--target` table. Everything in the list is
+emitted for and assembled by `check-cross-targets.sh` from one host;
+`darwin-x86_64` predates the rule and is executed by no runner, which
+is why it ships no artifact (see *Install*). FreeBSD and Windows are
+being added as targets (decided 2026-08-29); neither is supported until
+its leg executes, and the list grows only when that is true.
 
 `--target` already accepts `freebsd-x86_64` and `freebsd-aarch64`.
 They are cross-only: `scripts/check-cross-targets.sh` assembles every

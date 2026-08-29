@@ -2331,6 +2331,8 @@ axiom --target=linux-x86_64 emit-llvm main.ax -o main.ll
 
 Supported targets: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x86_64`. Defaults to the host.
 
+What puts a name on that list is stated once, in README's *Targets* section: a CI leg executes what the compiler emits there. This line is a copy of the README's, and `scripts/check-doc-drift.sh` requires the two to agree.
+
 `--target` also accepts `freebsd-x86_64` and `freebsd-aarch64` (since 2026-08-29). They are cross-only - assembled under their own triples by `scripts/check-cross-targets.sh` on every PR, never executed, with no seed and no artifact - and neither joins the list above until a CI leg runs what the compiler emits there. FreeBSD 12 is the floor the syscall numbers need; the triple pins 14.
 
 ---
