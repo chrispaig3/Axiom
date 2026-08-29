@@ -1797,7 +1797,7 @@ Memory comes from the backend's `mmap`-backed bump allocator. There is no `free`
 
 ## Standard Library
 
-Axiom ships a standard library written **in Axiom**. It reaches the operating system through raw syscalls, not through C, so a program that links nothing else contains no call to libc — `scripts/check-freestanding.sh` is the gate on that, and an `extern` block linking a Rust crate is the deliberate exception ([ffi.md](ffi.md) §15).
+Axiom ships a standard library written **in Axiom**. It reaches the operating system through raw syscalls, not through C, so a program that links nothing else contains no call to libc — `scripts/check-freestanding.sh` is the gate on that, and an `extern` block linking a Rust crate is the deliberate exception ([ffi.md](ffi.md) §15). On `windows-x86_64` there is no syscall ABI and the same library reaches the OS through kernel32; there the gate turns around and holds every import to `scripts/platform-allow.windows.txt`, eight names, a list that may not carry a libc name.
 
 ### Modules at a Glance
 

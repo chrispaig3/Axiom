@@ -14,6 +14,22 @@
 # runtime startup stub even when nothing in the program calls into it;
 # there, the check is that no *libc function* is imported, not that no
 # library is linked.
+#
+# WINDOWS IS THE SAME RELAXATION ONE NOTCH FURTHER, AND STRICTER FOR IT.
+# A windows-x86_64 program imports kernel32 - there is no syscall ABI,
+# so `VirtualAlloc` stands where `mmap` does and `WriteFile` where
+# `write` does - and the claim becomes "no libc function is imported,
+# and every non-libc import is on a reviewed list":
+# `scripts/platform-allow.windows.txt`, one name per line, checked in,
+# so a runtime that starts needing one more kernel32 entry point
+# changes a reviewed file rather than silently widening the boundary
+# (the mechanism is `check-ffi.sh`'s manifest, verbatim). Linux and
+# macOS assert a NEGATIVE - no name from the sixty below; Windows
+# asserts a POSITIVE - nothing outside the list. The list may not
+# launder a libc name, and it is allowed to shrink and not to grow
+# silently. Today the Windows half reads the IR's `declare`s - the
+# import surface before anything links - and the PE reader below is
+# what the executable half will use when a Windows executable exists.
 
 set -euo pipefail
 
@@ -93,10 +109,10 @@ libc_names="$libc_names"'|getentropy|getrandom|arc4random|arc4random_buf|rand|sr
 libc_names="$libc_names"'|signal|sigaction|sigprocmask|pthread_sigmask|sigemptyset|sigaddset'
 libc_names="$libc_names"'|kill|raise|signalfd|sigwait|sigwaitinfo|sigsuspend|alarm'
 
-# The undefined symbols an executable imports, as bare names, on either
-# platform. ONE COPY, because the negative probe below runs the same
-# function the sweep does - a probe against a second copy of a pipeline
-# proves the copy works and nothing else.
+# The undefined symbols an executable imports, as bare names, on any
+# of the three object formats. ONE COPY, because the negative probes
+# below run the same function the sweep does - a probe against a second
+# copy of a pipeline proves the copy works and nothing else.
 #
 # `sed 's/@.*//'` IS THE ELF HALF OF THE COMPARISON, and without it this
 # check could not fail on Linux. GNU `nm -D --undefined-only` prints a
@@ -107,11 +123,22 @@ libc_names="$libc_names"'|kill|raise|signalfd|sigwait|sigwaitinfo|sigsuspend|ala
 # stripped instead; each platform gets the one edit its own convention
 # requires, which is the lesson `check-backtrace.sh` records after
 # applying Mach-O's to ELF.
-imports_of() {
-  case "$(uname -s)" in
-    Darwin) nm -u "$1" 2>/dev/null | sed 's/^_//' || true ;;
-    *)      nm -D --undefined-only "$1" 2>/dev/null | awk '{print $NF}' | sed 's/@.*//' || true ;;
-  esac
+#
+# THE READER MOVED to `scripts/lib/imports.sh` on 2026-08-29, when a
+# third format arrived and a second script needed to read it: it
+# dispatches on the object's own magic - MZ, ELF, Mach-O - rather than
+# on the host, and the Windows hello gate reads a `.exe` through the
+# same function. `permitted_windows`, `unpermitted_imports` and
+# `declares_of` live beside it for the same reason.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/imports.sh"
+
+# The Windows import allowlist.
+win_allow="scripts/platform-allow.windows.txt"
+# The names an allowlist would launder: anything on it that is a libc
+# name is refused whatever the list says, exactly as check-ffi.sh's
+# `never_permitted` refuses a manifest.
+manifest_launders() {
+  permitted_windows "$1" | grep -E "^($libc_names)$" || true
 }
 
 status=0
@@ -157,6 +184,71 @@ for case_file in tests/stdlib/*.ax; do
 
   echo "ok   $name (no libc in IR or imports)"
 done
+
+# ---------------------------------------------------------------
+# The Windows half: every case, emitted for windows-x86_64, calls no
+# libc function and declares nothing outside the allowlist.
+#
+# The list is read first and held to two rules before a single case is
+# compared against it: it must permit at least the four names the
+# emitted runtime cannot do without (a list that parsed to nothing would
+# pass every `comm` below vacuously), and it may not carry a libc name.
+# ---------------------------------------------------------------
+echo "--- windows-x86_64: every declare is on $win_allow ---"
+if [[ ! -f "$win_allow" ]]; then
+  echo "FAIL $win_allow is missing; the Windows import surface is enumerated there"
+  status=1
+else
+  n_permitted_win="$(permitted_windows "$win_allow" | grep -c . || true)"
+  laundered="$(manifest_launders "$win_allow")"
+  if (( n_permitted_win < 4 )); then
+    echo "FAIL $win_allow permits only $n_permitted_win name(s); the runtime alone needs VirtualAlloc, GetStdHandle, WriteFile and ExitProcess"
+    status=1
+  elif [[ -n "$laundered" ]]; then
+    echo "FAIL $win_allow permits libc name(s), which no list may:"
+    printf '%s\n' "$laundered" | sed 's/^/    /'
+    status=1
+  else
+    for case_file in tests/stdlib/*.ax; do
+      name="$(basename "$case_file" .ax)"
+      wir="$work/$name.win.ll"
+      if ! "$axc" --target=windows-x86_64 emit-llvm "$case_file" -o "$wir" > "$work/$name.win.emit" 2>&1; then
+        echo "FAIL $name [windows-x86_64]: emit-llvm"
+        sed 's/^/    /' "$work/$name.win.emit" | head -5
+        status=1
+        continue
+      fi
+      if grep -nE "call[^\"]*@($libc_names)\(" "$wir" > "$work/$name.win.hits"; then
+        echo "FAIL $name [windows-x86_64]: generated IR calls libc"
+        sed 's/^/    /' "$work/$name.win.hits"
+        status=1
+        continue
+      fi
+      if grep -nE "@llvm\.(memset|memcpy|memmove)\." "$wir" > "$work/$name.win.intr"; then
+        echo "FAIL $name [windows-x86_64]: generated IR uses an llvm.mem* intrinsic, which lowers to libc"
+        sed 's/^/    /' "$work/$name.win.intr"
+        status=1
+        continue
+      fi
+      declares_of "$wir" > "$work/$name.win.declares"
+      n_decl="$(grep -c . "$work/$name.win.declares" || true)"
+      if (( n_decl < 4 )); then
+        echo "FAIL $name [windows-x86_64]: the reader found $n_decl declare(s); the runtime alone writes four, so the emitter moved and this check stopped reading it"
+        status=1
+        continue
+      fi
+      unexpected="$(unpermitted_imports "$work/$name.win.declares" "$win_allow")"
+      if [[ -n "$unexpected" ]]; then
+        echo "FAIL $name [windows-x86_64]: the IR declares symbols $win_allow does not permit:"
+        printf '%s\n' "$unexpected" | sed 's/^/    /'
+        echo "    (a kernel32 entry point the runtime or Sys/Platform.windows.ax now needs is added to the list, in a reviewed diff)"
+        status=1
+        continue
+      fi
+      echo "ok   $name [windows-x86_64] (no libc in IR; $n_decl declares, all of $n_permitted_win permitted)"
+    done
+  fi
+fi
 
 # WHICH COMPILER ANSWERS FOR THIS, and why there used to be two passes.
 #
@@ -368,6 +460,99 @@ else
   else
     echo "ok   negative probe: the imports check catches a C program importing ${probe_hits% }"
   fi
+fi
+
+# ------------------------------------------------------------------
+# THE WINDOWS HALF'S NEGATIVE PROBES, four of them, matching the count
+# above. Everything in the Windows clause asserts silence - no libc, no
+# unpermitted name - and a PE arm that answered nothing, an allowlist
+# that matched everything, or a manifest check that never ran would
+# all be silent too.
+#
+# 1. THE PE READER SEES IMPORTS AT ALL. A real PE that imports
+#    `MessageBoxA` from user32 is linked here - `llc` under the Windows
+#    triple, `lld-link` against an import library `llvm-dlltool`
+#    generates from a four-line `.def`, no Windows SDK anywhere - and
+#    `imports_of` must answer that name. This is the ELF `@GLIBC` trap
+#    over again: a reader that silently reads zero imports passes the
+#    allowlist vacuously. Written in IR rather than C because the
+#    Windows path has no C compiler in it, by decision, and llc and
+#    lld-link are the whole toolchain.
+# 2. THE ALLOWLIST REFUSES. `HeapAlloc` - a plausible wrong answer to
+#    "how does the runtime get memory" - fed to the same comparison the
+#    sweep uses must come back unpermitted.
+# 3. THE ALLOWLIST DISCRIMINATES. `VirtualAlloc`, in the same list, must
+#    not.
+# 4. THE LAUNDER RULE WINS. A copy of the real list with `malloc`
+#    appended must be refused by the same function the sweep runs.
+# ------------------------------------------------------------------
+for tool in lld-link llvm-dlltool llvm-readobj; do
+  if ! command -v "$tool" > /dev/null 2>&1; then
+    echo "FAIL negative probe: $tool is not on PATH; it ships with LLVM (lld-link with lld) and the PE probe links with it"
+    status=1
+  fi
+done
+if command -v lld-link > /dev/null 2>&1 && command -v llvm-dlltool > /dev/null 2>&1; then
+  pew="$work/pe-probe"
+  mkdir -p "$pew"
+  cat > "$pew/probe.ll" <<'IR'
+target triple = "x86_64-pc-windows-msvc"
+
+declare dllimport i32 @MessageBoxA(ptr, ptr, ptr, i32)
+
+define i32 @mainCRTStartup() {
+entry:
+  %r = call i32 @MessageBoxA(ptr null, ptr null, ptr null, i32 0)
+  ret i32 0
+}
+IR
+  printf 'LIBRARY user32.dll\nEXPORTS\nMessageBoxA\n' > "$pew/user32.def"
+  if ! llc -filetype=obj -relocation-model=pic "$pew/probe.ll" -o "$pew/probe.o" >"$pew/log" 2>&1 \
+     || ! llvm-dlltool -m i386:x86-64 -d "$pew/user32.def" -l "$pew/user32.lib" >>"$pew/log" 2>&1 \
+     || ! lld-link /subsystem:console /entry:mainCRTStartup "/out:$pew/probe.exe" "$pew/probe.o" "$pew/user32.lib" >>"$pew/log" 2>&1; then
+    echo "FAIL negative probe: could not link the PE that imports MessageBoxA"
+    sed 's/^/    /' "$pew/log" | head -5
+    status=1
+  else
+    pe_imports="$(imports_of "$pew/probe.exe" || true)"
+    if ! grep -qx 'MessageBoxA' <<< "$pe_imports"; then
+      echo "FAIL negative probe: the PE reader does NOT see a Windows executable's imports"
+      echo "     it read $(printf '%s\n' "$pe_imports" | grep -c . || true) name(s) from probe.exe and MessageBoxA was not one of them"
+      status=1
+    else
+      echo "ok   negative probe: the PE reader sees MessageBoxA imported by a linked Windows executable"
+    fi
+    # And the same executable against the real allowlist: MessageBoxA is
+    # not on it and must come back as the one unpermitted name.
+    printf '%s\n' "$pe_imports" > "$pew/imports"
+    if [[ "$(unpermitted_imports "$pew/imports" "$win_allow" | tr '\n' ' ')" == "MessageBoxA " ]]; then
+      echo "ok   negative probe: a linked executable importing MessageBoxA is refused by $win_allow"
+    else
+      echo "FAIL negative probe: MessageBoxA in a real PE was not the one unpermitted import: '$(unpermitted_imports "$pew/imports" "$win_allow" | tr '\n' ' ')'"
+      status=1
+    fi
+  fi
+fi
+
+printf 'VirtualAlloc\nHeapAlloc\n' > "$work/synthetic-imports"
+got="$(unpermitted_imports "$work/synthetic-imports" "$win_allow" | tr '\n' ' ')"
+if [[ "$got" == "HeapAlloc " ]]; then
+  echo "ok   negative probe: the allowlist refuses HeapAlloc and permits VirtualAlloc"
+else
+  echo "FAIL negative probe: expected HeapAlloc alone to be unpermitted, got '$got'"
+  status=1
+fi
+
+{ cat "$win_allow"; printf 'malloc\n'; } > "$work/laundering-allow.txt"
+if [[ "$(manifest_launders "$work/laundering-allow.txt" | tr '\n' ' ')" == "malloc " ]]; then
+  echo "ok   negative probe: an allowlist carrying malloc is refused whatever it says"
+else
+  echo "FAIL negative probe: an allowlist carrying malloc was not refused"
+  status=1
+fi
+if [[ -n "$(manifest_launders "$win_allow")" ]]; then
+  echo "FAIL negative probe: the real allowlist launders a libc name, so the probe above proves nothing"
+  status=1
 fi
 
 exit "$status"

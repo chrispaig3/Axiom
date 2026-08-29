@@ -350,6 +350,9 @@ jobs:
       - name: Server memory holds across ten thousand connections
         run: ./scripts/check-net.sh
 
+      # Both halves on every leg: no libc on this host, and every
+      # windows-x86_64 declare on the reviewed allowlist - the Windows
+      # IR is emitted cross, so each leg reads it.
       - name: Freestanding check
         run: ./scripts/check-freestanding.sh
 

@@ -1,0 +1,34 @@
+# Every symbol a windows-x86_64 Axiom executable may import, by name.
+#
+# This is the Windows half of check-freestanding.sh's second claim.
+# Linux and macOS assert a NEGATIVE - no libc name among the imports;
+# Windows has no syscall ABI, so its runtime must import SOMETHING, and
+# the claim there is a POSITIVE: nothing outside this list. Every name
+# here is one the emitted runtime or `stdlib/Sys/Platform.windows.ax`
+# reaches by call where the other targets make a syscall, and the gate
+# refuses a libc name on this list whatever it says (`libc_names`), so
+# the list cannot launder one. It may shrink; it grows only in a
+# reviewed diff.
+#
+# MEASURED, not guessed, 2026-08-29: every one of the 82 stdlib cases
+# emitted for windows-x86_64 and assembled at -O0, -O1 and -O2 (246
+# objects) imports exactly the eight names below and nothing else.
+# `__chkstk` - the Win64 stack probe LLVM emits for a frame past 4 KiB,
+# compiler-runtime rather than libc - appeared in none of the 246, so it
+# is NOT pre-permitted: a dead allowlist entry is a hole nobody
+# re-examines. The day a frame that large is emitted, the gate goes red
+# and the entry is added with that measurement beside it.
+
+# The emitted runtime (self_host/codegen.ax, emitRuntimeMap /
+# emitRuntimeWrite / emitRuntimeExit / emitWinEntry): one kernel32 call
+# for each syscall the other targets make through inline asm.
+VirtualAlloc             # mmap: the allocator's and the arena's chunks
+GetStdHandle             # the fd-2 constant, and fds 0/1 in Sys/Platform.windows.ax
+WriteFile                # write(2, ...) on the three trap paths and the backtracer
+ExitProcess              # exit_group: ends every thread
+GetCommandLineW          # the kernel's argv on the stack
+GetEnvironmentStringsW   # argv[argc+1...]: the environment block
+
+# stdlib/Sys/Platform.windows.ax, the console-and-process half.
+ReadFile                 # read(fd, ...)
+GetLastError             # errno, negated into the contract every caller tests
