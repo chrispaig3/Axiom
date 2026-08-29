@@ -1065,13 +1065,9 @@ axiom --target=linux-x86_64 emit-llvm main.ax -o main.ll
 Supported: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`,
 `linux-x86_64`. Defaults to the host.
 
-**Windows is not a target, and not a plan.** It is out until a named
-customer needs it — said here so the question is closed rather than
-open. What it would cost is not a code generator (the emitter already
-takes its syscall ABI from `--target`) but a second standard-library
-platform layer under `stdlib/Sys/`, a fourth CI leg, and a release
-artifact nobody would run, which is exactly the promise this repository
-refuses to make ahead of the machinery to keep it.
+FreeBSD and Windows are being added as targets (decided 2026-08-29);
+neither is supported until its CI leg executes what the compiler emits
+there, and this list will grow only when that is true.
 
 ### Optimisation and recursion depth
 
