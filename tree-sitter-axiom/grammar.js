@@ -520,8 +520,16 @@ module.exports = grammar({
       ')',
     ),
 
+    // An operation is `(name :: Type)`; the parser also reads a bare
+    // `(name)` (the checker refuses it, AX3055) and a `::` whose right
+    // side it cannot read as a type (the same field left at 0), so the
+    // grammar accepts a literal there too - the fixture that pins
+    // AX3055 spells `(notAType :: 5)`. The grammar follows the parser;
+    // the refusal is the checker's.
     effect_operation: $ => seq(
-      '(', field('name', $.identifier), '::', field('type', $._type), ')',
+      '(', field('name', $.identifier),
+      optional(seq('::', field('type', choice($._type, $._literal)))),
+      ')',
     ),
 
     // `(extern "lib" (name :: Type (symbol "s")) ...)` - the Rust FFI
