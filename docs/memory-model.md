@@ -224,9 +224,20 @@ observable effects:
 
 **MM-EXEC-9 (H).** Effects are **inferred transitively** — a fixpoint
 over every function body, so a syscall three calls down counts — and
-reported by `axiom symbols` as `#effects=...`. Effects do **not** appear
-in function types. `;@axiom:effect(...)` and `;@axiom:pure` are
-*claims*, validated against the inference; a refuted claim is
+reported by `axiom symbols` as `#effects=...`. Since 2026-08-30 it is a
+**worklist**: round 1 is a forward pass and a reverse pass, which is
+also what records every call edge, and rounds 2+ re-examine only the
+callers of a function whose row grew. The order it exists for is the
+one a GENERATOR emits — a helper beside each of its callers, `f2 f1 f4
+f3 …` — which defeats both passes at once and cost 56 s on an
+8,000-function chain against 0.09 s for the same call graph declared in
+order; it is 0.10 s now. `scripts/check-effect-fixpoint.sh` holds it as
+a RATIO between those two orders, and holds `symbols --calls`
+byte-identical across an ablation of the frontier, because a wrong
+worklist is a missing effect on one row rather than a crash.
+
+Effects do **not** appear in function types. `;@axiom:effect(...)` and
+`;@axiom:pure` are *claims*, validated against the inference; a refuted claim is
 `AX3010`, an **error**. They are not opt-in: an untagged function
 claims to perform no `IO`, and a body that performs it anyway is
 `AX3042`. `Alloc` and `Mut` stay ambient and are never required.

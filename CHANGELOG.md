@@ -16,6 +16,60 @@ its changelog too.
 
 ## Unreleased
 
+- **The effect fixpoint is a worklist.** `inferEffects` is a monotone
+  fixpoint over the call graph, and every round re-walked EVERY body.
+  One round of two passes in opposite directions (2026-08-25) collapses
+  a linear chain in either declaration order to a single round, which
+  is why both orders a human writes are fast — and its own note said
+  what it did not do: "a graph that is not a chain can still need
+  several rounds, and the general fix is a WORKLIST over the reverse
+  call graph." This is that.
+  **The shape it costs**, measured on one chain of N functions with the
+  effect at the bottom, only the declaration order varying:
+
+  | n | callers first | pairs swapped | pairs swapped, after |
+  |---|---|---|---|
+  | 1000 | 0.02 s | 1.34 s | 0.02 s |
+  | 2000 | 0.03 s | 3.88 s | 0.03 s |
+  | 4000 | 0.05 s | 14.33 s | 0.06 s |
+  | 8000 | 0.09 s | 56.05 s | 0.10 s |
+
+  **560× at n=8000**, and the pathological order now costs what the
+  plain one does. The order that defeats both passes at once is
+  `f2 f1 f4 f3 f6 f5 …` — a helper emitted beside each of its callers,
+  which is what a GENERATOR produces, not what a person writes: the
+  forward pass meets `f2` before `f3`, the reverse pass meets `f5`
+  before `f6`, and each round advanced the frontier by one pair while
+  paying for a full walk. 3.8× per doubling where the fixed orders are
+  2×.
+  Round 1 is the pass pair unchanged — it is also what records every
+  edge, since `tcNoteCall` writes into word 7 while `collectEffects`
+  runs — and rounds 2+ walk only the callers of what grew, through a
+  reverse index built once from those edges. An index rather than an
+  `FnEnt` field, because the memory note prices a new field at about 6%
+  of a self-check and one walk needs this.
+  **The frontier is a LIST, not a flag per declaration**, and that is
+  the complexity argument rather than a detail: a flag vector must be
+  allocated or cleared once per round, which is O(N) of bookkeeping in
+  a round whose real content is one body walk — so the quadratic comes
+  straight back after being removed from the analysis. Measured with a
+  flag vector per round: 0.06 / 0.17 / 0.60 s at n=1000/2000/4000,
+  still 3.5× per doubling. The marks vector is allocated once and left
+  all-zero at every round boundary, because the round that sets a mark
+  is the round that clears it.
+  Nothing about the answer moves: `symbols --calls` is byte-identical
+  over every `.ax` file in `stdlib/`, `self_host/`, `tests/` and
+  `examples/` — 565 of them swept, 0 differing.
+  Gates: `check-effect-fixpoint` (new) asserts a RATIO,
+  `swap/fwd ≤ 3`, so a slow runner cannot fail it; requires
+  `--calls` over `self_host/main.ax` byte-identical between the tree's
+  compiler and one with `nextFrontier` ablated to "every declaration is
+  dirty"; and requires that ablated compiler to read `swap/fwd > 10`,
+  because assertions 1 and 2 are both satisfied by a compiler that
+  never had a worklist. Its first draft measured `fwd` COLD and got
+  `ratio 0.1x` — a pass arrived at by mismeasuring the denominator
+  tenfold — so both sides are warmed before they are timed.
+  Forty-four gates call `gate_build_axc`, up from forty-three.
 - **`AX3053`: an operation the program reaches with no handler.**
   `docs/agent-harness.md` recorded the gap in its own words — "there is
   no whole-program discharge check, so this remains a runtime failure":

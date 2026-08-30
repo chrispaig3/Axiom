@@ -212,7 +212,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Forty-three of the gates below build the compiler under test from
+    # Forty-four of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -610,6 +610,23 @@ jobs:
       # did not.
       - name: A closure chain's intermediate record is reclaimed, and one word in each walker is what does it
         run: ./scripts/check-closure-reclaim.sh
+
+      # The effect fixpoint's worklist. One round of two passes in
+      # opposite directions collapses a linear chain in either
+      # declaration order, which is why the two orders a human writes
+      # are both fast; it does not collapse the order a GENERATOR
+      # produces - a helper emitted beside each of its callers - where
+      # each round advanced the frontier by one pair and paid for a
+      # full walk of every body. 56s at n=8000, against 0.09s for the
+      # same call graph declared in order. This asserts a RATIO, so a
+      # slow runner cannot fail it, and then ablates the one line that
+      # chooses the frontier and requires the ratio to come back: an
+      # assertion that passes with the feature removed is testing
+      # nothing. It also requires `symbols --calls` to be byte-identical
+      # across that ablation, because a wrong frontier shows up as one
+      # missing effect in 3,496 rows rather than as a crash.
+      - name: The effect fixpoint is a worklist, and the frontier is what makes it one
+        run: ./scripts/check-effect-fixpoint.sh
 
       # And what a reset COSTS, which is the roadmap's P8 and the one
       # thing no gate here measured: every timing gate asserts a ratio,

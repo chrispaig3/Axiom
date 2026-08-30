@@ -11870,13 +11870,15 @@
 ; from what is here. That is a larger change than this one and is not
 ; made here.
 (pub fn (inferEffectsRound tc decls round limit)
-  (if (>= round limit)
+  (if (== (inferEffectsPassFwd tc decls 0) 0)
     0
-    (if (== (inferEffectsPassFwd tc decls 0) 0)
+    (if (== (inferEffectsPass tc decls 0) 0)
       0
-      (if (== (inferEffectsPass tc decls 0) 0)
-        0
-        (inferEffectsRound tc decls (+ round 1) limit)
+      ; Round 1 is over and every edge is recorded, so the reverse
+      ; graph is buildable and rounds 2+ are a worklist. See THE
+      ; WORKLIST below for the shape this costs when it is not one.
+      (inferEffectsWork
+        tc        decls        (callersIdxBuild tc decls)        (allIndexes (vecLen decls))        (flagsNew (vecLen decls))        (+ round 1)        limit
       )
     )
   )
@@ -11974,6 +11976,414 @@
       (if (== (inferEffectsPassFwd tc decls (+ i 1)) 1)
         1
         here
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; THE WORKLIST.
+;
+; The two-direction round above collapses a linear chain in EITHER
+; declaration order to one round, and its own note says what it does
+; not do: "a graph that is not a chain can still need several rounds,
+; and the general fix is a WORKLIST over the reverse call graph - when
+; a row grows, re-examine that function's callers and nothing else."
+; This is that.
+;
+; THE SHAPE IT COSTS, measured on this tree before the change. One
+; chain of N functions, `f1` calling `f2` calling ... with the effect
+; at the bottom, and only the DECLARATION ORDER varying:
+;
+;   n      callers first   callees first   pairs swapped
+;   500        0.02 s          0.02 s          0.55 s
+;   1000       0.02 s          0.02 s          1.32 s
+;   2000       0.03 s          0.03 s          3.84 s
+;   4000       0.06 s          0.06 s         14.53 s
+;
+; Both plain orders are one round and linear. The pair-swapped order -
+; `f2 f1 f4 f3 f6 f5 ...`, which is the shape a generator produces
+; when it emits a helper beside each of its callers - defeats both
+; passes at once: the forward pass meets `f2` before `f3`, the reverse
+; pass meets `f5` before `f6`, and each round advances the frontier by
+; one PAIR while paying for a full walk of every body. 242x at n=4000,
+; and 3.8x per doubling where the fixed orders are 2x.
+;
+; The rounds are the same rounds. What changes is who is IN them:
+; round 1 is the pass pair unchanged - it is also what records every
+; edge, since `tcNoteCall` writes into word 7 while `collectEffects`
+; runs - and rounds 2+ walk only the DIRTY set, the callers of every
+; function whose row or eparam set grew in the pass before. A frontier
+; of one function per round then costs one body walk per round rather
+; than N, which is the whole of the difference.
+;
+; Termination is the monotone argument unchanged: every pass can only
+; ADD, the dirty set is empty exactly when nothing grew, and the
+; `len(decls)+1` bound stays as the safety net it always was.
+; Determinism does not rest on the order either: the dirty set is
+; walked in DECLARATION order, `effSorted` sorts every rendered row,
+; and `#calls=` is recorded in round 1 regardless - and the gate
+; asserts byte-identical `symbols --calls` against a compiler with the
+; filter ablated rather than taking that argument's word for it.
+
+; A callee's callers, by the resolved name every edge already carries.
+(pub struct CallerEnt
+  (name : String)
+  (idxs : Int))
+
+; The reverse call graph, as buckets over `CallerEnt` on the same hash
+; the other three indexes use.
+;
+; An INDEX rather than a field on `FnEnt`: the memory note prices a
+; new FnEnt word at about 6% of a self-check, and this one is needed
+; by a single walk that already holds the declaration list.
+(pub :: callersIdxBuild (-> Int Int Int))
+
+(pub fn (callersIdxBuild tc decls)
+  (let (
+    (nb (fnIdxBuckets (vecLen decls)))
+    (bs vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i nb)
+        {
+          (vecPush bs 0)
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i (vecLen decls))
+        {
+          (callersIdxAddDecl
+            tc            bs            decls            i
+          )
+          (set i (+ i 1))
+        })
+      bs
+    }
+  )
+)
+
+; Every edge decl `i` records, as an entry in the callee's caller list.
+;
+; `restrictOwnEnt` for the lookup, and for the reason
+; `inferEffectsOne` states: a private function is invisible to a
+; lookup made from nowhere, so the module has to be set first.
+(pub :: callersIdxAddDecl (-> Int Int Int Int Int))
+
+(pub fn (callersIdxAddDecl tc bs decls i)
+  (let ((d (vecGet decls i)))
+    (if (!= (nodeTag d) TAG_D_FN)
+      0
+      (let ((ent (restrictOwnEnt tc d)))
+        (if (== ent 0)
+          0
+          (callersIdxAddEdges bs (memGetWord ent 7) 0 i)
+        )
+      )
+    )
+  )
+)
+
+(pub :: callersIdxAddEdges (-> Int Int Int Int Int))
+
+(pub fn (callersIdxAddEdges bs calls i who)
+  (if (== calls 0)
+    0
+    (if (>= i (vecLen calls))
+      0
+      {
+        (callersIdxPut bs (vecGetStr calls i) who)
+        (callersIdxAddEdges
+          bs          calls          (+ i 1)          who
+        )
+      }
+    )
+  )
+)
+
+(pub :: callersIdxPut (-> Int String Int Int))
+
+(pub fn (callersIdxPut bs name who)
+  (let ((e (callersIdxFind bs name)))
+    (if (== e 0)
+      (let ((v vecNew))
+        {
+          (vecPush v who)
+          (callersIdxInsert bs name v)
+        }
+      )
+      {
+        (intPushUnique (memGetWord e 1) who)
+        0
+      }
+    )
+  )
+)
+
+(pub :: callersIdxInsert (-> Int String Int Int))
+
+(pub fn (callersIdxInsert bs name v)
+  (let ((b (% (fnIdxHash name) (vecLen bs))))
+    (let ((ent 
+      (cast Int (CallerEnt
+        name        v
+      ))
+    ))
+      (if (== (vecGet bs b) 0)
+        (let ((nv vecNew))
+          {
+            (vecPush nv ent)
+            (vecSet bs b nv)
+            0
+          }
+        )
+        {
+          (vecPush (vecGet bs b) ent)
+          0
+        }
+      )
+    )
+  )
+)
+
+(pub :: callersIdxFind (-> Int String Int))
+
+(pub fn (callersIdxFind bs name)
+  (if (== bs 0)
+    0
+    (let ((v (vecGet bs (% (fnIdxHash name) (vecLen bs)))))
+      (if (== v 0)
+        0
+        (callersIdxFindIn v name 0)
+      )
+    )
+  )
+)
+
+(pub :: callersIdxFindIn (-> Int String Int Int))
+
+(pub fn (callersIdxFindIn v name i)
+  (if (>= i (vecLen v))
+    0
+    (if (strEq (memGetWordStr (vecGet v i) 0) name)
+      (vecGet v i)
+      (callersIdxFindIn v name (+ i 1))
+    )
+  )
+)
+
+; A declaration index appended once. The edge list `tcNoteCall` builds
+; is already deduplicated per caller, but one caller may reach the same
+; callee under two spellings, so the guard is here rather than assumed.
+(pub :: intPushUnique (-> Int Int Int))
+
+(pub fn (intPushUnique v x)
+  (if (== (intInVec v x 0) 1)
+    0
+    {
+      (vecPush v x)
+      1
+    }
+  )
+)
+
+; A Vec of `n` zeroes: the membership marks the frontier is
+; deduplicated through.
+;
+; THE DIRTY SET IS A LIST AND NOT A FLAG PER DECLARATION, and the
+; difference is the whole complexity argument rather than a detail. A
+; flag vector has to be allocated or cleared once per ROUND, which is
+; O(N) of work in a round whose real content is one body walk - and a
+; chain needs N rounds, so the quadratic comes straight back in the
+; bookkeeping after being removed from the analysis. Measured on the
+; pair-swapped chain with a flag vector per round: 0.06 / 0.17 / 0.60 s
+; at n=1000 / 2000 / 4000, still 3.5x per doubling. The list costs one
+; allocation per round proportional to the FRONTIER, and `marks` is
+; allocated once and left all-zero at every round boundary, because the
+; round that sets a mark is the round that clears it.
+(pub :: flagsNew (-> Int Int))
+
+(pub fn (flagsNew n)
+  (let (
+    (v vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (vecPush v 0)
+          (set i (+ i 1))
+        })
+      v
+    }
+  )
+)
+
+; Every declaration index, ascending: round 2's frontier, because
+; round 1 reported only THAT something grew and not what.
+(pub :: allIndexes (-> Int Int))
+
+(pub fn (allIndexes n)
+  (let (
+    (v vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (vecPush v i)
+          (set i (+ i 1))
+        })
+      v
+    }
+  )
+)
+
+; One dirty pass over `work`, a list of declaration indexes in
+; ASCENDING order. Runs `inferEffectsOne` on each and collects the
+; callers of every one that grew into `next`. Answers 1 when anything
+; grew.
+;
+; Ascending is the same order `inferEffectsPassFwd` walks, so a
+; declaration still sees its earlier siblings' rows first; and it is
+; what makes the walk independent of the order the reverse index
+; happens to have collected callers in.
+(pub :: inferEffectsDirtyPass (-> Int Int Int Int Int Int Int Int))
+
+(pub fn (inferEffectsDirtyPass tc decls bs work marks next i)
+  (if (>= i (vecLen work))
+    0
+    (let ((rest (inferEffectsDirtyPass
+      tc      decls      bs      work      marks      next      (+ i 1)
+    )))
+      (if (== (inferEffectsOne tc (vecGet decls (vecGet work i))) 0)
+        rest
+        {
+          (markCallers
+            tc            bs            marks            next            (vecGet decls (vecGet work i))
+          )
+          1
+        }
+      )
+    )
+  )
+)
+
+; The callers of the function `d` declares, added to the next
+; frontier. A declaration whose entry has gone is not an error here -
+; the same `0` guard `inferEffectsOne` makes - it simply has no callers
+; to wake.
+(pub :: markCallers (-> Int Int Int Int Int Int))
+
+(pub fn (markCallers tc bs marks next d)
+  (let ((ent (restrictOwnEnt tc d)))
+    (if (== ent 0)
+      0
+      (let ((e (callersIdxFind bs (memGetWordStr ent 0))))
+        (if (== e 0)
+          0
+          (markEach marks next (memGetWord e 1) 0)
+        )
+      )
+    )
+  )
+)
+
+(pub :: markEach (-> Int Int Int Int Int))
+
+(pub fn (markEach marks next idxs i)
+  (if (>= i (vecLen idxs))
+    0
+    {
+      (let ((x (vecGet idxs i)))
+        (if (== (vecGet marks x) 1)
+          0
+          {
+            (vecSet marks x 1)
+            (intPushSorted next x)
+          }
+        )
+      )
+      (markEach
+        marks        next        idxs        (+ i 1)
+      )
+    }
+  )
+)
+
+; Insert `x` into an ascending list, in place. The frontier is small -
+; the callers of what grew in one round - so an insertion is the right
+; shape and a sort at the end would be the wrong one.
+(pub :: intPushSorted (-> Int Int Int))
+
+(pub fn (intPushSorted v x)
+  (let ((mut i (vecLen v)))
+    {
+      (vecPush v x)
+      (while (if (> i 0)
+        (> (vecGet v (- i 1)) x)
+        false
+      )
+        {
+          (vecSet v i (vecGet v (- i 1)))
+          (set i (- i 1))
+        })
+      (vecSet v i x)
+      0
+    }
+  )
+)
+
+; The marks this round set, put back to 0 so the next round starts on
+; an all-zero vector without paying a walk of the whole declaration
+; list to find out which entries to clear.
+(pub :: clearMarks (-> Int Int Int Int))
+
+(pub fn (clearMarks marks idxs i)
+  (if (>= i (vecLen idxs))
+    0
+    {
+      (vecSet marks (vecGet idxs i) 0)
+      (clearMarks marks idxs (+ i 1))
+    }
+  )
+)
+
+; WHICH DECLARATIONS THE NEXT ROUND WALKS, and this one line is the
+; whole of the worklist: `next` is the frontier the pass just built,
+; the callers of everything whose row grew.
+;
+; It is a function rather than the argument itself so that
+; `scripts/check-effect-fixpoint.sh` has one line to ablate. Replacing
+; the body with `(allIndexes (vecLen decls))` - every declaration is
+; dirty, every round - is exactly the behaviour this replaced, and the
+; gate requires the pair-swapped chain to go back over ten times the
+; cost of the same call graph declared in order. A ratio that did not
+; move under that ablation would mean the frontier was never what the
+; measurement was measuring, which is the failure a bare timing gate
+; cannot see.
+(pub :: nextFrontier (-> Int Int Int))
+
+(pub fn (nextFrontier next decls) next)
+
+; Rounds 2..limit, each over the previous round's frontier.
+(pub :: inferEffectsWork (-> Int Int Int Int Int Int Int Int))
+
+(pub fn (inferEffectsWork tc decls bs work marks round limit)
+  (if (>= round limit)
+    0
+    (let ((next vecNew))
+      (if (== (inferEffectsDirtyPass
+        tc        decls        bs        work        marks        next        0
+      ) 0)
+        0
+        {
+          (clearMarks marks next 0)
+          (inferEffectsWork
+            tc            decls            bs            (nextFrontier next decls)            marks            (+ round 1)            limit
+          )
+        }
       )
     )
   )
