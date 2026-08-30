@@ -5665,16 +5665,28 @@
           (let ((had (< i (fnLen n))))
             {
               (while (< i (fnLen n))
+                ; An operation is `(name :: TYPE)` or, as the parser also
+                ; reads it, a bare `(name)` - the checker refuses that one
+                ; (AX3055) and a type it cannot read is the same field
+                ; left at 0, so `(name :: 5)` parses too. The formatter
+                ; follows the parser: both print as written, through the
+                ; expression printer where the type printer would refuse,
+                ; and the checker keeps the refusal. This used to `fpBad`
+                ; both shapes, which made the fixture that pins AX3055
+                ; unformattable (check-fmt, 2026-08-29).
                 (let ((op (fnKid n i)))
                   (if (||
                     (!= (fnKind op) FN_PAREN)                    (||
-                      (!= (fnLen op) 3)                      (||
-                        (if (fpIsIdentAtom (fnKid op 0))
-                          false
-                          true
-                        )                        (if (fpIsDColonAtom (fnKid op 1))
-                          false
-                          true
+                      (if (fpIsIdentAtom (fnKid op 0))
+                        false
+                        true
+                      )                      (if (== (fnLen op) 1)
+                        false
+                        (||
+                          (!= (fnLen op) 3)                          (if (fpIsDColonAtom (fnKid op 1))
+                            false
+                            true
+                          )
                         )
                       )
                     )
@@ -5688,8 +5700,16 @@
                       (foEmitIndent o)
                       (fpP p "(")
                       (fpP p (fnText src (fnKid op 0)))
-                      (fpP p " :: ")
-                      (fpType p (fnKid op 2))
+                      (if (== (fnLen op) 3)
+                        {
+                          (fpP p " :: ")
+                          (if (|| (fpIsIdentAtom (fnKid op 2)) (== (fnKind (fnKid op 2)) FN_PAREN))
+                            (fpType p (fnKid op 2))
+                            (fpExpr p (fnKid op 2))
+                          )
+                        }
+                        p
+                      )
                       (fpP p ")")
                       (set i (+ i 1))
                     }
