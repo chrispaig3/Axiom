@@ -1203,7 +1203,8 @@ metadata, is recorded, and is not checked. `agent:readonly` draws
 nothing and is meant to.
 
 A key one edit - or one change of case - from a key the compiler knows
-- `pure`, `effect`, `raw`, `pre`, `post`, `restrict` - draws `AX3039`.
+- `pure`, `effect`, `raw`, `pre`, `post`, `restrict`, `unhandled` -
+draws `AX3039`.
 `;@axiom:pur` is not a purity claim, so nothing checks it as one, and a
 body performing IO under it drew no `AX3010` at all: the tag read like
 a guarantee and bought silence. A key the compiler knows is never a
@@ -1301,6 +1302,33 @@ declaration, where `symbols` shows it. A `restrict` tag is not an
 effect claim and does not stand in for one: a restricted function
 that performs IO without `effect(io)` draws `AX3042` like any other,
 and `restrict(no-io)` over it draws `AX3049` as well.
+
+#### `unhandled(trap)` - an effect whose unhandled operation is the design
+
+`;@axiom:unhandled(trap)` is written above an `(effect ...)`
+declaration and is the one AXTAG key that belongs to a declaration
+other than a function or a signature. It says that reaching an
+operation of this effect with no handler installed is a **deliberate
+abort** rather than a missing handler, and it is what `AX3053` reads
+before deciding whether to report one.
+
+The value is exactly `trap`. Any other word leaves the check on -
+`unhandled(abort)` buys no silence - which is the visible failure
+rather than the quiet one, and a key one slip from `unhandled` draws
+`AX3039` at the effect declaration like any other near miss. `symbols`
+renders the tag on the effect's own row as `#unhandled=trap`, so a
+policy gate over the AXSYM stream can list which effects a program
+allows to abort.
+
+`stdlib/Test.ax` carries it on `Assert`, and load-bearingly: `axiom
+test` generates a `main` that runs each test inside its own recovery
+point, so every assertion in a file under test reaches that `main`
+undischarged, and the 71 an unhandled `assertFail` raises is exactly
+how a failed assertion ends one test while the tests declared after it
+still run. `stdlib/Fallible.ax` deliberately does NOT carry it - its
+own header calls an unhandled operation "a programmer error and not a
+record's fault" - so a batch loop that forgets its handler is named at
+compile time.
 
 `tests/diagnostics/371`-`379` pin each restriction with the controls
 that keep it from being a blanket refusal - a callee that casts under
@@ -1586,7 +1614,19 @@ The rules that make this predictable:
   static story, since a handler's own effects propagate past its own
   `handle`.
 - **No handler in dynamic extent is a trap.** The program exits with
-  code 71 rather than continuing on a value nothing produced.
+  code 71 rather than continuing on a value nothing produced — and the
+  compiler now says so where it can see it. A `handle` is the only
+  construct that discharges a custom effect, so an effect still in
+  `main`'s row when inference finishes is one nothing handled, and that
+  is `AX3053`, a WARNING. Two approximations decide its severity rather
+  than caution: a lambda's operations count where the lambda is
+  *written*, so a worker bound before the `handle` that covers its call
+  is reported although it runs (exit 20); and the `let` of a `handle`
+  form is an opaque local, so a closure built inside a handle and called
+  after it pops is *not* reported although it traps (exit 71). An error
+  would refuse the first and accept the second.
+  `;@axiom:unhandled(trap)` on the `effect` declaration says the trap is
+  the design and silences it; see "AXTAG Keys" above.
 - **A multi-argument operation's handler is a curried chain** -
   `(lambda (a) (lambda (b) ...))` - because application is one
   argument per step. A flat `(lambda (a b) ...)` is the same chain -

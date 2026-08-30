@@ -355,7 +355,14 @@ through.
   an operation it performs itself dispatches outward, never back into
   itself;
 - an operation performed with no handler in extent exits the process
-  with status **71**;
+  with status **71** — and since 2026-08-30 the compiler says so first,
+  where it can see it: `AX3053` reports a custom effect still in `main`'s
+  row after inference, which is an effect no `handle` discharged. A
+  WARNING, because the two closure shapes make the evidence one-sided in
+  both directions (`tests/diagnostics/severity.policy`), and silenced by
+  `;@axiom:unhandled(trap)` on the `effect` declaration for an effect
+  whose unhandled operation is a deliberate abort, as `stdlib/Test.ax`'s
+  `Assert` is;
 - a handler **cannot abort** the computation it handles. There is no
   non-local exit from a handler; the only way out is process exit;
 - installation is **dynamic extent, not lexical capture**: a closure

@@ -4,6 +4,13 @@
 ; value nothing produced. The handle around `covered` proves the trap
 ; really is about dynamic extent: the same operation, one line earlier,
 ; dispatched fine and printed nothing.
+;
+; The tag is this fixture's subject written down. AX3053 reports an
+; operation reaching `main` with no handler, and it reports this one -
+; correctly, since the program does exit 71. `;@axiom:unhandled(trap)`
+; is how a program says the trap is what it wants, which is what this
+; file has always meant.
+;@axiom:unhandled(trap)
 (effect Console
   (log :: (-> String Int)))
 

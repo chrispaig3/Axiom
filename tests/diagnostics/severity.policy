@@ -162,3 +162,37 @@ AX3051
 #          in the release that announces the change, which is the one
 #          release in which their code must still build.
 AX3048
+# AX3053 `unhandled-operation` - `main`'s effect row still carries a
+#          custom effect, so an operation of it would find the evidence
+#          slot empty and the process would exit 71. A warning by
+#          DESIGN, like AX3048 above and unlike the four staged ones,
+#          and the reason is that the evidence is one-sided in BOTH
+#          directions at once. Measured on the two closure shapes, on
+#          the tree that introduced the code:
+#
+#            (let ((g (lambda (x) (ask x)))) (handle (g 2) (Ask Alloc) h))
+#              check OK, runs, exit 20 - a CORRECT program, and
+#              reported, because a lambda's operations count where the
+#              lambda is WRITTEN and `Ask` is therefore in `main`'s row;
+#
+#            a closure BUILT inside the handle and CALLED after the
+#              handler pops - check OK, SILENT, runs, exit 71 - a
+#              TRAPPING program, and not reported, because the `let` of
+#              a `handle` form is an opaque local and the row is a
+#              lower bound (`#effects-incomplete`) there.
+#
+#          An error would refuse the first and accept the second, which
+#          is `docs/agent-harness.md`'s own objection to promoting a
+#          check that refuses correct programs, landing on both sides of
+#          one rule. As a warning the first costs a line of output and
+#          no build, and the hole the code closes - a program that
+#          compiles clean and exits 71 - is named at compile time
+#          instead of at run time.
+#
+#          The exemption is a claim, not a switch: `;@axiom:unhandled(trap)`
+#          on the `effect` declaration says the trap is the design, and
+#          `scripts/check-test-runner.sh` removes that tag from a shadow
+#          copy of `stdlib/Test.ax` and requires this warning to appear,
+#          so the one tag the standard library depends on cannot be
+#          deleted quietly.
+AX3053

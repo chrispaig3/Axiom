@@ -75,6 +75,18 @@
 ; 0))` turns every failed assertion into a value and lets the test
 ; carry on - and that is a deliberate escape for a test whose whole
 ; subject is a failing assertion. `tests/tools/` uses it.
+;
+; MOST programs install no handler, and the trap that follows is the
+; DESIGN rather than an omission: `axiom test` generates a `main` that
+; runs each test inside its own recovery point, and the 71 an unhandled
+; `assertFail` raises is precisely how a failed assertion ends one test
+; while the tests declared after it still run (ERR-REC-6). AX3053
+; reports an effect that reaches `main` with no handler, so it would
+; report the whole generated runner; the tag below is the claim that
+; says the trap is intended, and it is answered rather than assumed -
+; `scripts/check-test-runner.sh` builds a shadow copy of this file with
+; the tag deleted and requires the warning to appear there.
+;@axiom:unhandled(trap)
 (effect Assert
   (assertFail :: (-> String Int)))
 

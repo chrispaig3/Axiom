@@ -823,8 +823,23 @@ type variable the parser answers for a missing `:`, so the field
 leaves the block's reference map and `MM-LIFE-2c` event 5, and a value
 stored into it is freed under the program, measured at exit 139). It
 too was taken from the free end, above `AX3053` and `AX3054`, which
-stay reserved - the eleventh reconciliation and the third from the
+stayed reserved - the eleventh reconciliation and the third from the
 free end.
+
+`AX3053` was SPENT on 2026-08-30 by `unhandled-operation`: a custom
+effect still in `main`'s effect row when inference finishes, which - a
+`handle` being the only construct that discharges one - means nothing
+handled it, and an operation of it would write `axiom: unhandled
+effect` on fd 2 and exit 71. It is the first number this section has
+recorded as a WARNING that was DESIGNED as one rather than staged
+toward an error, alongside `AX3048`, and the reason is in
+`tests/diagnostics/severity.policy`: on the two closure shapes the
+evidence is one-sided in both directions at once, so an error would
+refuse a program that runs and accept one that traps. This is a
+reserved number reaching its own proposal rather than a
+reconciliation - the first time in this section - so the count of
+reconciliations stays at eleven. `AX3054` remains reserved for
+`effect-name-reserved`.
 
 `AX3047` is the ninth number this section has had to reconcile, and the
 first one it allocated rather than surrendered: it was taken from the
@@ -1045,7 +1060,7 @@ term 2, which now carries both spellings and compares them.
 | `ERR-REC-2` | **H, partly gated** | `371-err-module.ax` terms 64 and 32; `remChecked`/`shrChecked` unpinned |
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
-| `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — twelve values, four of them memory terms with an ablation; `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
+| `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — thirteen values, four of them memory terms with an ablation; `389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time since 2026-08-30 (410 gave up its two undischarged terms to it); `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
 | `ERR-DIAG-2`, `3` | P | — `AX3043`, `AX3045`, `AX3046` not constructed; gated against collision (`AX3042` was, and renumbered `discarded-result`) |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |

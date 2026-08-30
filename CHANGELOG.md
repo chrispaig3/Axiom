@@ -16,6 +16,80 @@ its changelog too.
 
 ## Unreleased
 
+- **`AX3053`: an operation the program reaches with no handler.**
+  `docs/agent-harness.md` recorded the gap in its own words — "there is
+  no whole-program discharge check, so this remains a runtime failure":
+  an operation reached with no `handle` for its effect anywhere compiled
+  clean, and the process wrote `axiom: unhandled effect` on fd 2 and
+  exited 71. There is a check now, and it needed no new analysis. A
+  `handle` is the only construct that DISCHARGES a custom effect, so an
+  effect still in `main`'s row when `inferEffects` reaches its fixpoint
+  is one nothing handled — the row was already answering the question
+  and nobody was asking it.
+  **A WARNING, and the reason is measured rather than cautious.** On the
+  two closure shapes the evidence is one-sided in both directions at
+  once. `(let ((g (lambda (x) (ask x)))) (handle (g 2) (Ask Alloc) h))`
+  runs and answers **20** — the handler is installed when `g` is called
+  — and is reported, because a lambda's operations count where the
+  lambda is WRITTEN. Its mirror, a closure built INSIDE the handle and
+  called after the handler pops, exits **71** and is NOT reported,
+  because the `let` of a `handle` form is an opaque local and the row is
+  a lower bound there. An error would refuse the program that runs and
+  accept the one that traps, which is this repository's own standing
+  objection to promoting a check that refuses correct programs, landing
+  on both sides of one rule. `tests/diagnostics/severity.policy` carries
+  the measurement beside the code.
+  The exemption is a claim rather than a switch:
+  **`;@axiom:unhandled(trap)`** above an `(effect ...)` declaration says
+  the trap is the design. `stdlib/Test.ax` carries it on `Assert` and it
+  is load-bearing — `axiom test` generates a `main` that runs each test
+  inside a recovery point, so every assertion reaches that `main`
+  undischarged and the 71 is exactly how a failed assertion ends one
+  test while the rest still run. `scripts/check-test-runner.sh` deletes
+  the tag from a shadow copy of `stdlib/Test.ax` and requires the
+  warning to appear, which is what makes the tag answered rather than
+  assumed. The value is exactly `trap`; `unhandled(abort)` buys no
+  silence, and `unhandld(trap)` draws `AX3039` — an `effect`
+  declaration's tags were parsed, attached to word 7 and read by NOBODY
+  before this, so a slip in the one key that now matters was silent.
+  `symbols` renders the tag on the effect's own `E` row as
+  `#unhandled=trap`, the first metadata that row has ever carried.
+  **What it cost the corpus, and what that bought.** Four effect
+  declarations gained the tag because the trap is their subject
+  (`Test.ax`'s `Assert`, `mixed-tests.ax`'s `Console`, `310` and `401`).
+  `stdlib/Fallible.ax` deliberately did NOT: its own header calls an
+  unhandled operation "a programmer error and not a record's fault", so
+  a batch loop that forgets its handler is now named at compile time —
+  which is what `docs/error-model.md` ERR-REC-7 wanted and could not
+  have. `tests/stdlib/410-fallible.ax` gave up the two terms that
+  reached the operation undischarged, its recovery-point term and its
+  last line, because the compiler refuses to be silent about the
+  arrangement they demonstrated; `tests/diagnostics/389-unhandled-at-main.ax`
+  pins the replacement on that effect by name, and the runtime half is
+  still pinned twice (`310` for the status and the fd-2 lines, `401`
+  with `check-recover.sh` for the 71 a recovery point answers).
+  The witness path reuses the restriction track's `graphWitness` rather
+  than building a second one, which took one guard: an effect OPERATION
+  has an FnEnt with its own effect seeded, so counted as a callee it
+  made every function performing an operation not the source of it and
+  the walk answered no path at all — `main -> mid -> deep` came back
+  empty. A related span is attached only when the witness is declared in
+  the same module: a span carries no unit, and the runner's cross-module
+  witness rendered as `143:1476-1484` of the generated driver, with a
+  caret 1,476 columns out under an elided line. Gates:
+  `check-diagnostics` (`389`, eight arms of which three are silent, plus
+  `369`'s new silent `unhandled` case), `check-test-runner` (the
+  removal arm), `check-render-selfhost`, `check-tools-selfhost`
+  (`explain AX3053`), `check-doc-drift`, `run-stdlib-tests`,
+  `check-lsp-selfhost` (`070`/`080` carry the `AX3039` help sentence).
+  `tests/fmt/corpus-fmt.golden` was regenerated - 562 entries from 451 -
+  because it is keyed by SOURCE hash, so eleven edited files retire
+  eleven mappings, and a clean trunk already stood at 59 unpinned files
+  against a ceiling of 60. The formatter it was taken from is the one
+  the same run proved: `check-fmt` had just formatted all 568 `.ax`
+  files and re-run every suite against the formatted copy, and
+  `check-fmt-selfhost`'s zoo and parity halves - which do not read that
+  file - were green on the same binary.
 - **A curried chain's intermediate record is reclaimed** (`MM-LIFE-2c`
   event 5b). An application through a closure gave back nothing, where
   a direct call has given back its owned temporaries since

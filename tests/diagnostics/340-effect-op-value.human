@@ -1,3 +1,12 @@
+[1;33mwarning[AX3053][0m[1m: `main` reaches operation `ask` of effect `Ask` with no handler: the process would write `axiom: unhandled effect` and exit 71 there - in `main`'s own body[0m
+  [1;34m--> [0m340-effect-op-value.ax:10:6
+[1;34m   |[0m
+[1;34m10 |[0m (fn (main)
+[1;34m   |[0m      [1;33m^^^^ reaches `Ask` with nothing handling it[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0minstall one - `(handle BODY (E) HANDLER)` around the call - or, if an unhandled operation of this effect is a deliberate abort as `Assert`'s is, write `;@axiom:unhandled(trap)` above its `effect` declaration
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3053` for a full explanation
+
 [1;31merror[AX3017][0m[1m: effect operation `ask` cannot be used as a bare value; call it, or wrap it: `(lambda (x) (ask x))`[0m
   [1;34m--> [0m340-effect-op-value.ax:11:18
 [1;34m   |[0m

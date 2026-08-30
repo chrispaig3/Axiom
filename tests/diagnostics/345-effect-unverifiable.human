@@ -1,3 +1,15 @@
+[1;33mwarning[AX3053][0m[1m: `main` reaches operation `log` of effect `Console` with no handler: the process would write `axiom: unhandled effect` and exit 71 there - main -> viaDirect -> usesLog[0m
+  [1;34m--> [0m345-effect-unverifiable.ax:55:6
+[1;34m   |[0m
+[1;34m30 |[0m (fn (usesLog n)
+[1;34m   |[0m      [1;36m------- `usesLog` performs it[0m
+[1;34m...[0m
+[1;34m55 |[0m (fn (main) (+ (viaDirect 1) (viaField install)))
+[1;34m   |[0m      [1;33m^^^^ reaches `Console` with nothing handling it[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0minstall one - `(handle BODY (E) HANDLER)` around the call - or, if an unhandled operation of this effect is a deliberate abort as `Assert`'s is, write `;@axiom:unhandled(trap)` above its `effect` declaration
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3053` for a full explanation
+
 [1;33mwarning[AX3038][0m[1m: handled effects cannot be checked: the body calls a value the compiler could not resolve[0m
   [1;34m--> [0m345-effect-unverifiable.ax:50:12
 [1;34m   |[0m

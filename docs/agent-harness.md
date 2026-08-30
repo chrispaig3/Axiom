@@ -105,7 +105,7 @@ is no executable.
 
 `tests/diagnostics/severity.policy` is a hand-maintained allowlist of
 the codes permitted to render as warnings: `AX3037`, `AX3038`,
-`AX3039`, `AX3048` and `AX3051`.
+`AX3039`, `AX3048`, `AX3051` and `AX3053`.
 
 `AX3037`, `AX3038`, `AX3039` and `AX3051` are the AXTAG family's
 UNANSWERABLE half, and that split is the whole rule for them - a claim
@@ -122,6 +122,23 @@ It warns because the release that ANNOUNCES a removal is the one
 release in which the callers must still build, and promoting it would
 make deprecation and removal the same event - the distinction the
 notice exists to draw. See `docs/compatibility.md` COMPAT-7.
+
+`AX3053` is on it for a third reason, and it is the only member whose
+warrant is a MEASUREMENT rather than an argument. An operation the
+program reaches with no handler is perfectly determinate at run time -
+the process exits 71 - and the check that names it reads `main`'s
+finished effect row. What is not determinate is which side the
+approximation falls on, and it falls on both: a lambda's operations
+count where the lambda is WRITTEN, so a worker bound before the
+`handle` that covers its call is reported although it runs (exit 20);
+and the `let` of a `handle` form is an opaque local, so a closure built
+inside a handle and called after it pops is not reported although it
+traps (exit 71). An error would refuse the first and accept the second
+- §6's objection to a check that refuses correct programs, arriving on
+both sides of one rule at once. `;@axiom:unhandled(trap)` on an
+`effect` declaration is the claim that the trap is the design, and
+`stdlib/Test.ax` carries it because `axiom test`'s generated `main`
+would otherwise be reported on every suite.
 
 `AX3040` left the list the same day, when the compiler learned to tell a
 function that never returns from one that fabricates a value; `AX3010`
@@ -267,16 +284,31 @@ change in this document" is made, and an `Agent.Policy` reading a build
 that SUCCEEDED is reading a `#pure` the compiler stood behind. What is
 still advisory is the smaller and differently-shaped set below.
 
-Two further holes bound what `Agent.Safe` can promise, both measured:
+One further hole bounds what `Agent.Safe` can promise, and the second
+one this section carried is closed:
 
 - A function value that goes through memory — a struct field or a
   `let`-bound local — escapes both the `;@axiom:pure` claim and the
   `(Pure)` boundary. `AX3037`/`AX3038` now report it, as warnings.
-- An effect operation reached with no handler anywhere compiles clean and
-  the process aborts at run time with status 71, printing `axiom:
-  unhandled effect` on stderr. There is no whole-program discharge
-  check, so this remains a runtime failure - one that now says which
-  kind it is, rather than a bare status.
+- **CLOSED 2026-08-30.** "An effect operation reached with no handler
+  anywhere compiles clean and the process aborts at run time with status
+  71 … there is no whole-program discharge check, so this remains a
+  runtime failure." There is one now: `AX3053` reads `main`'s finished
+  effect row, and a `handle` is the only construct that discharges a
+  custom effect, so an effect still in that row is one nothing handled.
+  It is a **warning**, not an error, and the reason is measured rather
+  than cautious — on the two closure shapes the evidence is one-sided in
+  both directions at once, so an error would refuse a program that runs
+  (a lambda performing the operation, bound before the `handle` that
+  covers its call: exit 20) and accept one that traps (a closure built
+  inside the `handle` and called after it pops: exit 71). That is this
+  document's own §6 objection landing on both sides of one rule.
+  `tests/diagnostics/severity.policy` carries the measurement;
+  `;@axiom:unhandled(trap)` on an `effect` declaration is how a program
+  says the trap is the design, and `stdlib/Test.ax` uses it so that
+  `axiom test`'s generated `main` stays silent
+  (`scripts/check-test-runner.sh` deletes the tag from a shadow copy and
+  requires the warning, so the claim is answered rather than assumed).
 
 ### 3.4 `Agent.Policy` — a gate, not a build mode
 

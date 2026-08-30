@@ -326,6 +326,7 @@ cat > "$work/oom.ax" <<'PROBE'
 PROBE
 
 cat > "$work/ue.ax" <<'PROBE'
+;@axiom:unhandled(trap)
 (effect Ask (ask :: (-> Int Int)))
 
 (pub :: main Int)

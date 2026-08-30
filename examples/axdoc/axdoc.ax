@@ -209,7 +209,7 @@
   (if (strStartsWith line ";")
     (if (strStartsWith line "; ---")
       false
-      (if (strStartsWith line ";@")
+      (if (isTagLine line)
         false
         true
       )
@@ -237,6 +237,29 @@
 ; glued to that declaration - measured on `stdlib/Test.ax`, whose
 ; `assertEq` came out summarised by a paragraph about the whole
 ; section. The convention is in CONTRIBUTING.md; this is why it exists.
+; An AXTAG line. It sits BETWEEN a declaration's comment block and the
+; declaration, and `isDocLine` answers false for it, so the upward walk
+; below used to stop there and answer the empty string. For a function
+; that was invisible - a value's summary is read from the comment above
+; its `::`, and the tag sits above the `fn` - and it became visible the
+; day an `effect` declaration grew one: `Assert`'s summary in
+; `docs/stdlib-api.md` went blank, because an `effect` has no separate
+; signature to carry the prose.
+(:: isTagLine (-> String Bool))
+
+(fn (isTagLine line) (strStartsWith line ";@"))
+
+; A line the comment block above a declaration is made of: prose, or a
+; tag written under it.
+(:: isBlockLine (-> String Bool))
+
+(fn (isBlockLine line)
+  (if (isDocLine line)
+    true
+    (isTagLine line)
+  )
+)
+
 (:: docAbove (-> Int Int String))
 
 (fn (docAbove lines i)
@@ -247,27 +270,41 @@
   )
     {
       (while (if (>= start 0)
-        (isDocLine (vecGetStr lines start))
+        (isBlockLine (vecGetStr lines start))
         false
       )
         (set start (- start 1)))
       (set start (+ start 1))
-      ; ...then down again, stopping at the paragraph break.
-      (let ((mut j start))
-        (while (if (< j i)
-          (let ((t (commentText (vecGetStr lines j))))
-            (if (== (strLen t) 0)
-              false
-              true
-            )
-          )
+      ; ...then down again, stopping at the paragraph break and
+      ; STEPPING OVER the AXTAGs, which are part of the block for the
+      ; purpose of finding its top and no part of its prose.
+      (let (
+        (mut j start)
+        (mut stop false)
+      )
+        (while (if stop
           false
+          (< j i)
         )
           {
-            (set out (if (== (strLen out) 0)
-              (commentText (vecGetStr lines j))
-              (strConcat (strConcat out " ") (commentText (vecGetStr lines j)))
-            ))
+            (if (isTagLine (vecGetStr lines j))
+              0
+              (let ((t (commentText (vecGetStr lines j))))
+                (if (== (strLen t) 0)
+                  {
+                    (set stop true)
+                    0
+                  }
+                  {
+                    (set out (if (== (strLen out) 0)
+                      t
+                      (strConcat (strConcat out " ") t)
+                    ))
+                    0
+                  }
+                )
+              )
+            )
             (set j (+ j 1))
           })
       )

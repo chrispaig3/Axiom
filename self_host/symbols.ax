@@ -779,9 +779,20 @@
                         ; Operation types, keyed under both spellings the checker
                         ; registers ops with - AND the effect's own name, which
                         ; had no row until 2026-08-26.
+                        ;
+                        ; `smTags` is the call every other declaration arm above
+                        ; makes and this one did not, so an `effect`'s AXTAGs
+                        ; reached the table and were rendered by nobody: the
+                        ; `E` row printed no metas at all. It matters from the
+                        ; day `;@axiom:unhandled(trap)` became a claim the
+                        ; compiler acts on - a policy gate reading AXSYM has to
+                        ; be able to list which effects are allowed to abort,
+                        ; and `#unhandled=trap` on this row is where it reads
+                        ; that.
                         (let (
                           (fields (nodeC d))
                           (mut i 0)
+                          (_t (smTags sm d name))
                           (_e (saPut2
                             (memGetWord sm 23)                            (memGetWord sm 24)                            (memGetWord sm 25)                            name                            (nodeSpan d)                            u
                           ))

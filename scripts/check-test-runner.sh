@@ -223,6 +223,77 @@ fi
 
 # --------------------------------------------------------------------
 echo
+echo '== the Assert tag is load-bearing =='
+# --------------------------------------------------------------------
+# `stdlib/Test.ax` declares its `Assert` effect under
+# `;@axiom:unhandled(trap)`, and that tag is the only reason the
+# generated runner compiles without a diagnostic. AX3053 reports a
+# custom effect that reaches `main` with no handler; the driver this
+# gate builds wraps every test in a lambda inside its `main`, so every
+# assertion in the file under test reaches `main` undischarged, which
+# is exactly the shape AX3053 names. Without the tag the runner draws
+# it on every suite.
+#
+# A tag nothing checks is a comment, so this is checked BY REMOVAL: a
+# shadow tree with its own `stdlib/` (the resolver looks in
+# `<file>/../stdlib/`), the tag line deleted from that copy alone, and
+# the warning required to appear. The positive control runs first and
+# is the half that matters most - a compiler that reported AX3053 on
+# every suite would satisfy the removal arm and fail this one.
+shadow="$work/shadow"
+mkdir -p "$shadow/stdlib" "$shadow/suite"
+cp -R "$repo_root/stdlib/." "$shadow/stdlib/"
+cp "$fixtures/pass-tests.ax" "$shadow/suite/"
+
+# `AXIOM_STDLIB` IS THE WHOLE TRICK, AND IT ALMOST ATE THIS ARM.
+# `gate_init` exports it at the repository root so that a compiler
+# invoked from anywhere resolves THIS checkout's stdlib; it wins over
+# the path search, so the first version of this arm deleted the tag
+# from a copy the compiler never opened. Both runs read the real
+# `stdlib/Test.ax`, both were silent, the positive control passed - for
+# the wrong reason - and only the removal arm went red, which is the
+# vacuous check this repository names as its commonest defect, caught
+# by the one assertion written to fail.
+shadow_test() {
+  ( cd "$shadow" && AXIOM_STDLIB="$shadow/stdlib" \
+      "$axc" --diagnostic-format=ai test suite/pass-tests.ax ) 2>&1
+}
+
+tagged_out="$(shadow_test)"
+if printf '%s\n' "$tagged_out" | grep -q 'AX3053'; then
+  bad "with the tag in place, the runner still draws AX3053"
+  printf '%s\n' "$tagged_out" | grep 'AX3053' | sed 's/^/     /'
+else
+  ok 'with ;@axiom:unhandled(trap) on Assert, the generated runner is silent'
+fi
+
+# The tag line, and only it. `grep -c` first, so a rename upstream is a
+# loud failure here rather than a silently vacuous removal.
+tagline=';@axiom:unhandled(trap)'
+n="$(grep -c -F -x "$tagline" "$shadow/stdlib/Test.ax" || true)"
+if [[ "$n" != 1 ]]; then
+  bad "stdlib/Test.ax holds $n copies of '$tagline'; this arm expects exactly 1"
+else
+  grep -v -F -x "$tagline" "$shadow/stdlib/Test.ax" > "$shadow/Test.ax.stripped"
+  mv "$shadow/Test.ax.stripped" "$shadow/stdlib/Test.ax"
+  stripped_out="$(shadow_test)"
+  if printf '%s\n' "$stripped_out" | grep -q 'AX3053.*effect `Assert`'; then
+    ok 'with the tag deleted, the same suite draws AX3053 naming Assert'
+  else
+    bad "the tag was deleted and no AX3053 appeared: the claim is not load-bearing"
+    printf '%s\n' "$stripped_out" | head -5 | sed 's/^/     /'
+  fi
+  # And the suite still RAN - the warning must not have cost the build.
+  if printf '%s\n' "$stripped_out" | grep -qx "5 test(s), 0 failed"; then
+    ok 'and it is a warning: the suite still built and all 5 tests ran'
+  else
+    bad "the suite did not run under the warning"
+    printf '%s\n' "$stripped_out" | tail -3 | sed 's/^/     /'
+  fi
+fi
+
+# --------------------------------------------------------------------
+echo
 echo "== nothing is left behind =="
 # --------------------------------------------------------------------
 # The generated driver and the built executable are both scratch, and

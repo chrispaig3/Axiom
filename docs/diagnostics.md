@@ -427,7 +427,12 @@ Metadata keys actually emitted today:
 | `calls` | `F` | **Only with `--calls`.** The call edges the effect walk resolved to derive the `#effects=` row beside it, sorted and comma-separated. Names the *resolved* entry - `Mod$name` where the checker mangled it, which is also the symbol codegen emits - so an edge says which `writeStr`. A bare reference is an edge too, because the effect walk attributes one exactly as it attributes a call. Absent by default: it would otherwise land on every row of every golden. See [agent-harness.md](agent-harness.md) §3.5 |
 
 AXTAG keys (`#effect=io`, `#pure`, ...) join these on `F`, `D`, `S`,
-`A` and `T`; see the AXTAG section below.
+`A` and `T` - and, since 2026-08-30, on `E`: an `effect` declaration's
+tags were parsed, attached and rendered by nobody until
+`;@axiom:unhandled(trap)` became a claim the compiler acts on, so
+`#unhandled=trap` on the `E` row is how a policy gate reading this
+stream lists the effects a program allows to abort. See the AXTAG
+section below.
 
 `KIND` letters are deliberately disjoint from the severity sigils `E`/`W`/`N`/`H`, so the first character of a line is never ambiguous about which notation (or which command) produced it even if AXDL and AXSYM output were ever concatenated into one stream.
 

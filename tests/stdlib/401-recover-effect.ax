@@ -34,6 +34,12 @@
 
 (import Str)
 
+; `shout` performs `log` with no handler anywhere, which is the trap
+; this fixture contains: tagged, because AX3053 would otherwise report
+; the arrangement the file exists to demonstrate. A recovery point is
+; NOT a handler (ERR-REC-6) - it contains the trap and does not change
+; dispatch - so the tag is the only way to say this is deliberate.
+;@axiom:unhandled(trap)
 (effect Console
   (log :: (-> String Int)))
 

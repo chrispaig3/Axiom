@@ -1,0 +1,154 @@
+; AX3053: an operation the program reaches with no handler.
+;
+; A `handle` is the only construct that DISCHARGES a custom effect, so
+; an effect still in `main`'s row at the end of the fixpoint is one
+; nothing installed a handler for - and the operation's dispatch would
+; find the evidence slot empty, write `axiom: unhandled effect` on fd 2
+; and exit 71 (MM-EXEC-16). Until this code existed that program
+; compiled clean; `docs/agent-harness.md` recorded the gap as "there is
+; no whole-program discharge check".
+;
+; Every arm, and the SILENT ones are what keep it from being a blanket
+; refusal:
+;
+;   `Loud`     reached through `deep`, nothing handles it -> AX3053,
+;              with the path `main -> viaLoud -> deep`
+;   `Quiet`    the same shape under a `handle`             -> silent
+;   `Trapping` unhandled, and its declaration says the trap
+;              is the design (`;@axiom:unhandled(trap)`)   -> silent
+;   `Sloppy`   the tag with a value that is not `trap`     -> AX3053:
+;              an unrecognised value buys no silence
+;   `Typo`     `;@axiom:unhandld(trap)`  -> AX3039 at the effect
+;              declaration, AND AX3053, because a key one slip from a
+;              known one made no claim
+;   `Stored`   reached ONLY through a struct field, so it arrives in
+;              the row as POSSIBLE                         -> silent at
+;              `main` (AX3038's territory: unverified, not unwriteable)
+;   `Written`  a lambda performing the operation BOUND before the
+;              `handle` that covers its call               -> AX3053,
+;              on a program that RUNS
+;   `Fallible` the STANDARD LIBRARY's effect, reached undischarged
+;                                                          -> AX3053,
+;              and this arm is why the code exists at all
+;
+; THE LAST ARM IS WHY THIS IS A WARNING. `viaWritten` answers 20: the
+; handler is installed when `g` is called, so the program is correct
+; and this reports it, because a lambda's operations count where the
+; lambda is WRITTEN. Its mirror - a closure built INSIDE a handle and
+; called after the handler pops - traps 71 and is NOT reported, because
+; the `let` of a `handle` form is an opaque local and the row is a lower
+; bound there. An error would refuse the program that runs and accept
+; the one that traps; that is why `AX3053` is in
+; tests/diagnostics/severity.policy, with the measurement.
+;
+; THE `Fallible` ARM IS THE ONE THAT PAYS FOR THE REST.
+; `stdlib/Fallible.ax` is the effect a batch loop's deep callee
+; performs on a malformed record, and its header calls an unhandled
+; operation "a programmer error and not a record's fault" - so it
+; carries no `unhandled(trap)`, and a loop that forgets its handler is
+; named here rather than at exit 71 after the run. That is what
+; `docs/error-model.md` ERR-REC-7 wanted and could not have;
+; `tests/stdlib/410-fallible.ax` used to demonstrate the arrangement at
+; run time and gave those two terms up to this line.
+(import Fallible)
+
+(effect Loud
+  (shout :: (-> String Int)))
+
+(effect Quiet
+  (whisper :: (-> String Int)))
+
+;@axiom:unhandled(trap)
+(effect Trapping
+  (bail :: (-> String Int)))
+
+;@axiom:unhandled(abort)
+(effect Sloppy
+  (slip :: (-> String Int)))
+
+;@axiom:unhandld(trap)
+(effect Typo
+  (oops :: (-> String Int)))
+
+(effect Stored
+  (ping :: (-> Int Int)))
+
+(effect Written
+  (ask :: (-> Int Int)))
+
+(struct Box
+  (f : (-> Int Int)))
+
+(:: deep (-> Int Int))
+
+(fn (deep n) (shout "from deep"))
+
+(:: viaLoud (-> Int Int))
+
+(fn (viaLoud n) (deep n))
+
+(:: viaQuiet (-> Int Int))
+
+(fn (viaQuiet n)
+  (cast Int (handle (whisper "covered") (Quiet) (lambda (s) 0)))
+)
+
+(:: viaTrapping (-> Int Int))
+
+(fn (viaTrapping n) (bail "deliberate"))
+
+(:: viaSloppy (-> Int Int))
+
+(fn (viaSloppy n) (slip "not trap"))
+
+(:: viaTypo (-> Int Int))
+
+(fn (viaTypo n) (oops "one slip"))
+
+(:: usesPing (-> Int Int))
+
+(fn (usesPing n) (ping n))
+
+(:: install Box)
+
+(fn (install) (Box usesPing))
+
+(:: viaField (-> Box Int))
+
+(fn (viaField b)
+  (cast Int (handle (b.f 7) (Alloc) (lambda (v) 0)))
+)
+
+; The standard library's own effect, undischarged.
+(:: viaFallible (-> Int Int))
+
+(fn (viaFallible n) (fallibleMalformed "quantity is not a number"))
+
+(:: viaWritten (-> Int Int))
+
+(fn (viaWritten n)
+  (let ((g (lambda (x) (ask x))))
+    (cast Int (handle (g n) (Written Alloc) (lambda (v) (* v 10))))
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (+
+    (viaLoud 1)
+    (+
+      (viaQuiet 1)
+      (+
+        (viaTrapping 1)
+        (+
+          (viaSloppy 1)
+          (+
+            (viaTypo 1)
+            (+ (viaField install) (+ (viaFallible 1) (viaWritten 2)))
+          )
+        )
+      )
+    )
+  )
+)

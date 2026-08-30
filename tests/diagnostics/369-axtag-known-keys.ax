@@ -3,8 +3,12 @@
 ; `pre` is one insertion from `pure`, and until 2026-08-29 every
 ; `;@axiom:pre(...)` drew AX3039 "did you mean `pure`?" - measured. The
 ; near-miss test now asks first whether the key is one the compiler
-; knows; `pre`, `post` and `restrict` are, so the three below draw
-; nothing. What still fires is a slip FROM a known key: `restrct`
+; knows; `pre`, `post`, `restrict` and `unhandled` are, so the four
+; below draw nothing - and `unhandled` is checked on an `effect`
+; declaration, which is the only declaration kind whose tags are
+; walked for this at all (`checkEffectDeclAxtags`), so its silence here
+; is evidence about that walk and not only about the key set.
+; What still fires is a slip FROM a known key: `restrct`
 ; suggests `restrict` - a suggestion that did not exist before, so a
 ; compiler without the change fails this case in both directions - and
 ; `pur` suggests `pure` as it always did, which is the control.
@@ -23,6 +27,10 @@
 
 (fn (confined n) n)
 
+;@axiom:unhandled(trap)
+(effect Declared
+  (announce :: (-> String Int)))
+
 ;@axiom:restrct(no-io)
 (:: slipped (-> Int Int))
 
@@ -35,4 +43,4 @@
 
 (:: main Int)
 
-(fn (main) 0)
+(fn (main) (cast Int (handle (announce "x") (Declared) (lambda (s) 0))))

@@ -2422,6 +2422,12 @@
           ; AX3011 at a handle asks what the body performs and the
           ; answer may come from a function declared later.
           (inferEffects tc allDecls)
+          ; Both of these read the finished row, so they run here
+          ; rather than in `tcWalkDecls`: the row is what says whether
+          ; an effect reached `main` with nothing handling it, and it
+          ; is not final until the fixpoint above has closed.
+          (checkEffectDeclAxtags tc allDecls 0)
+          (checkUnhandledAtMain tc allDecls)
           tc
         }
       )
@@ -15621,10 +15627,36 @@
   )
 )
 
+; An effect KIND as the row spells it. The restriction checks ask this
+; walk for "IO" and "Alloc", which are built-in and tagged `b:`; item
+; 3's `checkUnhandledAtMain` asks it for a CUSTOM effect's name, which
+; is tagged `c:`. `isBuiltinEffect` is the same question the handle
+; list asks, so the two readings cannot drift apart.
+;
+; "extern" and "cast" never reach here - `graphSeeds` answers them
+; before the row is consulted - and neither names an effect, so an
+; encoding for them would be a fiction.
+(pub :: graphEffKey (-> String String))
+
+(pub fn (graphEffKey kind)
+  (if (== (isBuiltinEffect kind) 1)
+    (builtinEff kind)
+    (customEff kind)
+  )
+)
+
 ; The witness: the nearest entry reachable from `start` at which
 ; `kind` ENTERS the graph, with the path to it. `kind` is "IO",
-; "Alloc", "extern" or "cast". Answers a Vec of entries from `start`
-; to the witness inclusive, or 0 when nothing reachable qualifies.
+; "Alloc", "extern", "cast", or the NAME of a declared custom effect.
+; Answers a Vec of entries from `start` to the witness inclusive, or 0
+; when nothing reachable qualifies.
+;
+; A custom effect has no seed of its own: an operation is not a
+; function and `tcNoteCall` records no edge for it, so the entry that
+; PERFORMS one is exactly the entry `graphOwnSource` describes - the
+; row carries the effect and no callee does. That is why the custom
+; case needs no arm in `graphSeeds`: it is already the shape the
+; `(alloc T n)`-in-this-body case was written for.
 ;
 ; Breadth-first, so the witness is the one at the fewest hops; `seen`
 ; is keyed by the resolved name every edge already carries; a parent
@@ -15701,7 +15733,7 @@
       )
       (if (&& (strEq kind "IO") (|| (== (isSyscallPrim (memGetWordStr ent 0)) 1) (== (memGetWord ent 4) 2)))
         1
-        (if (&& (== (memGetWord ent 3) 1) (== (effIn (memGetWord ent 5) (builtinEff kind)) 1))
+        (if (&& (== (memGetWord ent 3) 1) (== (effIn (memGetWord ent 5) (graphEffKey kind)) 1))
           1
           0
         )
@@ -15725,7 +15757,7 @@
       0
       (if (!= (memGetWord ent 4) 0)
         0
-        (if (== (effIn (memGetWord ent 5) (builtinEff kind)) 0)
+        (if (== (effIn (memGetWord ent 5) (graphEffKey kind)) 0)
           0
           (if (== (graphAnyCalleeCarries tc (memGetWord ent 7) 0 kind) 1)
             0
@@ -15737,6 +15769,21 @@
   )
 )
 
+; AN EFFECT OPERATION IS NOT A CALLEE THAT CARRIES THE EFFECT - it is
+; the effect ENTERING, which is the distinction this whole predicate
+; exists to draw. `tcAddEffectOp` gives an operation an FnEnt with word
+; 4 = 1 and its own effect already seeded in word 5, so `(log "x")`
+; records a `#calls=log` edge to a stub with `c:Console` in its row and
+; no body behind it. Counted as a callee, that stub made every function
+; performing an operation NOT the source of it, the walk ran off the
+; end of the graph, and `graphWitness` answered 0 for every custom
+; effect - measured: `main -> mid -> deep` came back as no path at all.
+;
+; The three kinds that predate this are unaffected either way: an
+; operation's seeded row holds `c:E` and never `b:IO` or `b:Alloc`, and
+; `graphSeeds` answers 0 for it under every kind, so before this guard
+; an operation was already counted by neither arm for IO, Alloc,
+; `extern` or `cast`. It changes exactly the custom case.
 (pub :: graphAnyCalleeCarries (-> Int Int Int String Int))
 
 (pub fn (graphAnyCalleeCarries tc calls i kind)
@@ -15745,11 +15792,14 @@
     (let ((c (fnEntExact tc (vecGetStr calls i))))
       (if (== c 0)
         (graphAnyCalleeCarries tc calls (+ i 1) kind)
-        (if (== (graphSeeds tc c kind 1) 1)
-          1
-          (if (== (effIn (memGetWord c 5) (builtinEff kind)) 1)
+        (if (== (memGetWord c 4) 1)
+          (graphAnyCalleeCarries tc calls (+ i 1) kind)
+          (if (== (graphSeeds tc c kind 1) 1)
             1
-            (graphAnyCalleeCarries tc calls (+ i 1) kind)
+            (if (== (effIn (memGetWord c 5) (graphEffKey kind)) 1)
+              1
+              (graphAnyCalleeCarries tc calls (+ i 1) kind)
+            )
           )
         )
       )
@@ -16558,6 +16608,294 @@
   )
 )
 
+; ------------------------------------------------------------------
+; AX3053: an operation the program reaches with no handler.
+;
+; The hole this closes is the one `docs/agent-harness.md` records as
+; "there is no whole-program discharge check, so this remains a runtime
+; failure": an operation reached with no `handle` for its effect
+; anywhere compiles clean, and the program writes `axiom: unhandled
+; effect` on fd 2 and exits 71 (MM-EXEC-16). `main`'s row already
+; answers the question - a `handle` DISCHARGES a custom effect, so an
+; effect still in the row at `main` is one nothing handled.
+;
+; A WARNING, AND WHY. Measured on the two closure shapes, the error
+; this started as refuses the program that runs and accepts the one
+; that traps:
+;
+;   (let ((g (lambda (x) (ask x)))) (handle (g 2) (Ask Alloc) h))
+;       runs, answers 20 - and `Ask` is in `main`'s row, because a
+;       lambda's operations count where the lambda is WRITTEN;
+;   a closure BUILT inside the handle and CALLED after it pops
+;       traps 71 - and `Ask` is NOT in `main`'s row, because the
+;       `let` of a `handle` form is an opaque local and the row is
+;       a lower bound there.
+;
+; So the evidence is one-sided in both directions at once, which is
+; the objection `docs/agent-harness.md` records against promoting a
+; check that refuses correct programs. As a warning the two shapes
+; cost a line of output and no build; as an error the first is
+; unwriteable. The severity is recorded in
+; `tests/diagnostics/severity.policy` with this paragraph's reason.
+;
+; What it does NOT report, each a consequence of a rule already
+; recorded: an effect that reaches the row only as POSSIBLE (`~c:E`,
+; AX3038's territory - unverified rather than unwriteable); an effect
+; behind a call the walk could not follow (`?:incomplete`, the hole
+; everywhere else has); and an effect whose declaration says the trap
+; is the design.
+; ------------------------------------------------------------------
+
+; Does this effect's declaration say that reaching an operation with
+; no handler is a deliberate abort? `;@axiom:unhandled(trap)` above
+; `(effect E ...)`.
+;
+; The value is EXACTLY `trap`. Any other value leaves the check on,
+; which is the visible failure rather than the silent one: an author
+; who writes `unhandled(abort)` sees AX3053 still reported and can
+; correct the spelling, where accepting it would buy silence for a
+; word the compiler never agreed to.
+(pub :: effectDeclTraps (-> Int String Int))
+
+(pub fn (effectDeclTraps tc name)
+  (let ((d (findEffectDecl tc name)))
+    (if (== d 0)
+      0
+      (if (strEq (axtagValueOf d "unhandled") "trap")
+        1
+        0
+      )
+    )
+  )
+)
+
+; The entry file's `main`, or 0. `nodeAName` is the MANGLED name for
+; an imported declaration (`Mod$name`), so a bare `main` belongs to the
+; module being compiled and to no other - the same test `declsHaveMain`
+; makes before AX4001.
+(pub :: entryMainDecl (-> Int Int Int))
+
+(pub fn (entryMainDecl decls i)
+  (if (>= i (vecLen decls))
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeAName d) "main"))
+        d
+        (entryMainDecl decls (+ i 1))
+      )
+    )
+  )
+)
+
+(pub :: checkUnhandledAtMain (-> Int Int Int))
+
+(pub fn (checkUnhandledAtMain tc decls)
+  (let ((d (entryMainDecl decls 0)))
+    (if (== d 0)
+      0
+      (let ((ent (restrictOwnEnt tc d)))
+        (if (== ent 0)
+          0
+          (checkUnhandledRow
+            tc            d            ent            (memGetWord ent 5)            0
+          )
+        )
+      )
+    )
+  )
+)
+
+; One row entry. A DEFINITE CUSTOM effect is exactly an entry that
+; spells itself back: `c:Console` renders `Console` and `customEff`
+; re-encodes it unchanged, where `b:IO` re-encodes to `c:IO`, the
+; possible `~c:Console` to `c:Console`, and the marker `?:incomplete`
+; to `c:incomplete`. So one equality skips the builtins, the possible
+; spellings and the marker together, and it cannot fall behind a new
+; tag the way three separate tests could.
+(pub :: checkUnhandledRow (-> Int Int Int Int Int Int))
+
+(pub fn (checkUnhandledRow tc d ent eff i)
+  (if (>= i (vecLen eff))
+    0
+    {
+      (let ((e (vecGetStr eff i)))
+        (if (strEq e (customEff (effRender e)))
+          (emitUnhandledAtMain
+            tc            d            ent            (effRender e)
+          )
+          0
+        )
+      )
+      (checkUnhandledRow
+        tc        d        ent        eff        (+ i 1)
+      )
+    }
+  )
+)
+
+(pub :: emitUnhandledAtMain (-> Int Int Int String Int))
+
+(pub fn (emitUnhandledAtMain tc d ent name)
+  (if (== (effectDeclTraps tc name) 1)
+    0
+    (if (== (nodeSpan d) 0)
+      0
+      (let ((path (graphWitness tc ent name)))
+        (emitDiag tc (diagSetLabel (mkDiag
+          SEV_WARNING          "AX3053"          "unhandled-operation"          (nodeSpan d)          (strConcat (strConcat (strConcat (strConcat "`main` reaches " (unhandledOpText tc name)) " with no handler: the process would write `axiom: unhandled effect` and exit 71 there") (unhandledPathText path)) (unhandledElsewhereText tc d path))          (unhandledRelSpan tc d path)          (unhandledRelText path)          "install one - `(handle BODY (E) HANDLER)` around the call - or, if an unhandled operation of this effect is a deliberate abort as `Assert`'s is, write `;@axiom:unhandled(trap)` above its `effect` declaration"
+        ) (strConcat (strConcat "reaches `" name) "` with nothing handling it")))
+      )
+    )
+  )
+)
+
+; `operation `log` of effect `Console`` where the effect declares one
+; operation, and the effect alone where it declares several - a
+; multi-operation effect cannot be handled at all (AX3017), so naming
+; one of its operations would point at the wrong half of the problem.
+(pub :: unhandledOpText (-> Int String String))
+
+(pub fn (unhandledOpText tc name)
+  (let ((decl (findEffectDecl tc name)))
+    (if (== decl 0)
+      (strConcat (strConcat "effect `" name) "`")
+      (if (== (vecLen (nodeB decl)) 1)
+        (strConcat (strConcat (strConcat (strConcat "operation `" (vecGetStr (nodeB decl) 0)) "` of effect `") name) "`")
+        (strConcat (strConcat "effect `" name) "`")
+      )
+    )
+  )
+)
+
+; The path, in `graphRender`'s spelling, so it cross-checks
+; `symbols --calls` hop for hop as AX3049's does. A path of one entry
+; is `main` performing the operation itself.
+(pub :: unhandledPathText (-> Int String))
+
+(pub fn (unhandledPathText path)
+  (if (== path 0)
+    ""
+    (if (<= (vecLen path) 1)
+      " - in `main`'s own body"
+      (strConcat " - " (graphRender path))
+    )
+  )
+)
+
+; The witness's declaration span, and ONLY when the witness is
+; declared in the same module as `main`.
+;
+; A span is an offset into ONE unit and carries no unit with it, so a
+; related span naming a declaration in an imported module is rendered
+; against the wrong bytes. Measured before this guard, on the runner's
+; generated driver with `Assert`'s tag removed: the witness was
+; `Test$assertEq`, the related span rendered as `143:1476-1484` of the
+; DRIVER - a line that is 3 characters long - and the human surface
+; drew a caret 1,476 columns out under an elided line. The path in the
+; message names `Test$assertEq` in `symbols --calls`' own spelling and
+; is the whole answer in that case; a related span that points at the
+; wrong file is worse than none.
+(pub :: unhandledRelSpan (-> Int Int Int Int))
+
+(pub fn (unhandledRelSpan tc d path)
+  (if (== path 0)
+    0
+    (if (<= (vecLen path) 1)
+      0
+      (let ((dd (declByName (memGetWord tc 10) (memGetWordStr (vecGet path (- (vecLen path) 1)) 0) 0)))
+        (if (== dd 0)
+          0
+          (if (== (nodeModule dd) (nodeModule d))
+            (nodeSpan dd)
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+; A String either way: `mkDiagFix2` reads this position only when the
+; related SPAN is non-zero, which is the predicate `unhandledRelSpan`
+; answers, so the empty string is never rendered.
+(pub :: unhandledRelText (-> Int String))
+
+(pub fn (unhandledRelText path)
+  (if (== path 0)
+    ""
+    (if (<= (vecLen path) 1)
+      ""
+      (strConcat (strConcat "`" (bareOf (memGetWordStr (vecGet path (- (vecLen path) 1)) 0))) "` performs it")
+    )
+  )
+)
+
+; The witness's own module, when it is not `main`'s: the sentence that
+; replaces a related span the renderer could not place, so the report
+; still says WHERE without pointing at the wrong bytes.
+(pub :: unhandledElsewhereText (-> Int Int Int String))
+
+(pub fn (unhandledElsewhereText tc d path)
+  (if (== (unhandledRelSpan tc d path) 0)
+    (if (== path 0)
+      ""
+      (if (<= (vecLen path) 1)
+        ""
+        (strConcat (strConcat ", and `" (bareOf (memGetWordStr (vecGet path (- (vecLen path) 1)) 0))) "` is what performs it")
+      )
+    )
+    ""
+  )
+)
+
+; AX3039 over the tags on `(effect ...)` declarations.
+;
+; `checkAxtags` runs under `tcWalkDecls`' TAG_D_FN arm and nowhere
+; else, so before this walk existed a tag above an `effect` was parsed,
+; attached to word 7, and read by nobody: `;@axiom:unhandld(trap)`
+; checked OK, silently, and the effect kept the check it looked
+; exempted from. That is the exact shape AX3039's own note calls worse
+; than writing nothing - the tag reads like a guarantee and buys
+; silence - so the key that made effect declarations worth tagging
+; brings the typo check with it.
+;
+; The KEY only. The AXTAG namespace is open by decision, and an
+; `effect` declaration is as free to carry metadata as a function is;
+; what is checked here is the one slip that costs something.
+(pub :: checkEffectDeclAxtags (-> Int Int Int Int))
+
+(pub fn (checkEffectDeclAxtags tc decls i)
+  (if (>= i (vecLen decls))
+    0
+    {
+      (let ((d (vecGet decls i)))
+        (if (== (nodeTag d) TAG_D_EFFECT)
+          (checkEffectDeclTags tc d (memGetWord d 7) 0)
+          0
+        )
+      )
+      (checkEffectDeclAxtags tc decls (+ i 1))
+    }
+  )
+)
+
+(pub :: checkEffectDeclTags (-> Int Int Int Int Int))
+
+(pub fn (checkEffectDeclTags tc d tags i)
+  (if (== tags 0)
+    0
+    (if (>= i (vecLen tags))
+      0
+      {
+        (axtagKeyTypo tc d (axtagKeyOf (vecGet tags i)))
+        (checkEffectDeclTags
+          tc          d          tags          (+ i 1)
+        )
+      }
+    )
+  )
+)
+
 ; The keys the compiler KNOWS, and nothing else. `suggestThreshold`
 ; is deliberately NOT reused: it scales with name length so a reader
 ; gets candidates for long identifiers, and at these lengths it admits
@@ -16576,6 +16914,14 @@
 ; their check, so that a contract does not draw a false typo; until
 ; the contracts work lands they are recorded and not checked, exactly
 ; as an unknown key is.
+;
+; `unhandled` is the one key here that is written on an `(effect ...)`
+; declaration rather than on a function, and it is read by
+; `effectDeclTraps`: `;@axiom:unhandled(trap)` says an operation of
+; this effect reaching no handler is a deliberate abort, which is what
+; `AX3053` declines to report. A tag on a declaration no walk visits is
+; a tag nothing can typo-check, so `checkEffectDeclAxtags` walks them -
+; see its own note.
 (pub :: axtagKnownKey (-> String Int))
 
 (pub fn (axtagKnownKey key)
@@ -16591,7 +16937,10 @@
             1
             (if (strEq key "restrict")
               1
-              0
+              (if (strEq key "unhandled")
+                1
+                0
+              )
             )
           )
         )
@@ -16617,7 +16966,10 @@
               "post"
               (if (== (axtagSlip key "restrict") 1)
                 "restrict"
-                ""
+                (if (== (axtagSlip key "unhandled") 1)
+                  "unhandled"
+                  ""
+                )
               )
             )
           )
@@ -16656,7 +17008,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure`, `effect(...)` and `restrict(...)`"
+      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure`, `effect(...)`, `restrict(...)` and `unhandled(trap)` on an `effect` declaration"
     ))
   )
 )

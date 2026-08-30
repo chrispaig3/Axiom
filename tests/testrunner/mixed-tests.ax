@@ -35,6 +35,13 @@
 ; An effect the program declares itself, performed with no handler in
 ; dynamic extent: status 71, by the same mechanism a failed assertion
 ; uses and with no `Assert` anywhere near it.
+;
+; Tagged, because the trap is this test's whole subject. The generated
+; runner wraps every test in a lambda inside its `main`, so a lambda's
+; operations count at `main` and this `say` reaches it undischarged -
+; AX3053's exact subject, and here the right answer is the claim rather
+; than a handler, which would delete the case.
+;@axiom:unhandled(trap)
 (effect Console
   (say :: (-> String Int)))
 
