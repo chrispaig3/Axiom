@@ -301,6 +301,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-memory-baseline.sh` | the managed Life probe holds RSS flat over 2000 generations where its unmanaged twin grows linearly |
 | `check-cross-targets.sh` | every target's IR assembles from one host, at every `--opt` level, with no non-position-independent object |
 | `check-seed-provenance.sh` | the other half of the seed's story: it IS the emission of source in this history. All six seeds are regenerated from the commit that last wrote the six `.ll` files and must come back byte-identical, after that commit's sources are required to hash to `bootstrap/STAMP`. Its own CI job, because it needs `fetch-depth: 0` and about seven minutes |
+| `check-seed-lineage.sh` | the seed's ancestry, back to a compiler no Axiom seed touched: `bootstrap/CHAIN` names, for every seed ever committed, the seed it reproduces from and how, and this replays it - the previous seed built with `llc` and `cc` compiles the next seed's tree and the emission, or its re-emission, must be the next seed byte for byte; the first row is the Rust compiler at `bb730db` reproducing the first seed. The newest row on every run, every row under `--full` (the nightly job, with cargo). Its probes flip one byte of a copy of the seed, re-point the newest row at another predecessor, change one byte of the Rust anchor's codegen and one byte of the `.ax` tree it compiles - each must go red, and each is asserted applied first |
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
@@ -336,18 +337,20 @@ written by hand and nothing compared it to the workflow.
 | `bench-compile.sh` | prints where a compile spends its time. A profile, not an assertion |
 | `bench-datastructures.sh` | prints `Vec`, `Map` and `Intern` against the Rust equivalents. `--check` enforces the roadmap's "within 2×" criterion; unconditionally, a wall-clock threshold on a shared runner is a flaky test |
 | `measure-memory-baseline.sh` | prints the before/after numbers the memory-model schedule is driven by |
-| `reseed.sh` | a maintenance tool rather than a gate: it regenerates `bootstrap/` when the committed seed can no longer compile `self_host/` |
+| `reseed.sh` | a maintenance tool rather than a gate: it regenerates `bootstrap/` with a generator built from the committed seed - never from a compiler of unrecorded ancestry - and appends the link to `bootstrap/CHAIN`; when the committed seed cannot compile the tree it stops and says so, and `--bridge` records the link as one that still needs certifying |
 
 ---
 
 ## CI/CD
 
 Every push to `trunk` and every pull request runs
-`.github/workflows/ci.yml`. Nine jobs, staged so that a cheap failure
+`.github/workflows/ci.yml`. Ten jobs, staged so that a cheap failure
 is reported before an expensive one — the grammar job gates the other
-eight, because it is the only one that needs no compiler at all. Six of
+nine, because it is the only one that needs no compiler at all. Seven of
 them provision a compiler through the same composite action,
-`.github/actions/provision`:
+`.github/actions/provision`. An eleventh, the full lineage replay,
+runs on the nightly `schedule:` and on `workflow_dispatch` only, and
+on those triggers it is the only job that runs:
 
 1. **Tree-sitter grammar** — the checked-in grammar parses every `.ax`
    file in the repository.
@@ -390,6 +393,13 @@ them provision a compiler through the same composite action,
    `bootstrap/` with only `llc` and `cc`. If this fails, the repository
    cannot be built at all, and a stale seed is the usual reason
    (`scripts/reseed.sh`).
+9. **Seed lineage** — `check-seed-lineage.sh`: the newest row of
+   `bootstrap/CHAIN` replayed - the previous seed compiles the tree of
+   the seed in the tree and must reproduce it - on every push or pull
+   request that touches `bootstrap/`, and skipped by name otherwise.
+   Its own job because it needs `fetch-depth: 0`. The nightly
+   **Seed lineage (full)** job replays every row with `--full`, cargo
+   installed for the Rust anchor - about forty minutes.
 
 The `push:` trigger names `trunk`, which is this repository's only
 branch.

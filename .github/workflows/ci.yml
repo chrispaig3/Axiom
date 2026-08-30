@@ -18,6 +18,16 @@ on:
     # success.
     branches: [trunk]
   pull_request:
+  # The nightly and the button exist for ONE job, `seed-lineage-full`:
+  # replaying every row of `bootstrap/CHAIN` from the Rust anchor is
+  # forty minutes and needs cargo, which is a poor neighbour for a pull
+  # request and the wrong cadence for a table that moves at a reseed.
+  # Every other job `needs: grammar`, and `grammar` is skipped on these
+  # two triggers, so they run nothing else - a skipped `needs` skips
+  # its dependents.
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
 
 # No `env:` block. It used to set `CARGO_TERM_COLOR` and `RUSTFLAGS: -D
 # warnings`, both of which outlived the Rust compiler they configured.
@@ -68,6 +78,9 @@ jobs:
   # parser is the failure this catches before anything expensive runs.
   grammar:
     name: Tree-sitter grammar
+    # Not on the nightly or the button: those are `seed-lineage-full`'s,
+    # and skipping this job skips the nine that need it.
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -1007,6 +1020,77 @@ jobs:
 
       - name: Regenerate all six seeds from the source they came from
         run: ./scripts/check-seed-provenance.sh
+
+  # The seed's ANCESTRY. `seed-provenance` proves the seed is its own
+  # tree's emission; this proves the compiler that emitted it is on a
+  # chain that begins outside Axiom - the newest row of
+  # `bootstrap/CHAIN`, replayed: the previous seed built with `llc` and
+  # `cc` compiles the tree of the seed in the tree and must reproduce it.
+  # `scripts/check-seed-lineage.sh` reads the whole table's structure
+  # every time it runs; the replay is one or two minutes.
+  #
+  # Only when the push or pull request touched `bootstrap/`. A
+  # workflow-level `paths:` filter would gate every job here, and a
+  # third-party changed-files action is a supply-chain decision this
+  # file does not make lightly, so the step asks git: the diff against
+  # the pull request's base, or against the push's `before`. When
+  # neither is answerable (a new branch's first push) it runs, which
+  # is the safe direction. The skip is printed by name.
+  seed-lineage:
+    name: The seed reproduces from the seed before it
+    needs: grammar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Did this change touch bootstrap/?
+        id: touched
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            range="origin/$BASE_REF...HEAD"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE" 2>/dev/null; then
+            range="$BEFORE..HEAD"
+          else
+            echo "no base to diff against; replaying"
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$range" -- bootstrap/ | grep -q .; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip: $range touches nothing under bootstrap/; the newest link was replayed when it landed"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./.github/actions/provision
+        if: steps.touched.outputs.run == 'true'
+      - name: The newest row of bootstrap/CHAIN replays
+        if: steps.touched.outputs.run == 'true'
+        run: ./scripts/check-seed-lineage.sh
+
+  # Every row, from the Rust anchor: cargo builds the compiler at
+  # `bb730db`, it reproduces the first seed, and each seed after that
+  # is reproduced from the one before - thirteen links and a
+  # sixty-three-commit walk, about forty minutes. Nightly, and on the
+  # button; `grammar` is skipped on both triggers so nothing else runs.
+  # `dtolnay/rust-toolchain` is pinned to the same SHA the `ffi` job
+  # pins, for the reason stated above it.
+  seed-lineage-full:
+    name: The seed lineage replays from the Rust anchor
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        with:
+          toolchain: stable
+      - uses: ./.github/actions/provision
+      - name: Every row of bootstrap/CHAIN replays, and the anchor's probes go red
+        run: ./scripts/check-seed-lineage.sh --full
 
   reproducible:
     name: Reproducible build

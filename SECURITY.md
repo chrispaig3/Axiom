@@ -33,10 +33,13 @@ cut.
   (`stdlib/`) — a program that compiles to something other than what it
   says, or a library function that reads or writes memory it was not
   given.
-- **The seed** (`bootstrap/`) — the four checked-in `.ll` files every
+- **The seed** (`bootstrap/`) — the six checked-in `.ll` files every
   build descends from. `scripts/check-seed-provenance.sh` regenerates
-  all four from the source at the commit that last wrote them and
-  requires byte-identity; a way to defeat that is in scope.
+  all six from the source at the commit that last wrote them and
+  requires byte-identity, and `scripts/check-seed-lineage.sh` replays
+  `bootstrap/CHAIN` - every seed ever committed reproduced from the one
+  before it, back to a Rust compiler no Axiom seed touched; a way to
+  defeat either is in scope.
 - **The installer** (`scripts/install.sh`) — what `curl | bash` runs.
   It verifies a SHA-256 against a published checksum file, and
   `scripts/check-install.sh` proves that comparison is what refuses a
@@ -69,13 +72,27 @@ Said out loud rather than left unstated.
 
 ## The supply chain
 
-The compiler is self-hosted, so the seed is the trust root and Thompson's
-attack stands against it: the compiler that regenerates the seed is
-itself seed-descended. `docs/` records this as an open property rather
-than a solved one — answering it needs a second, independent
-implementation, and this repository deleted the one it had (`430a138`).
+The compiler is self-hosted, so the seed is the trust root, and
+Thompson's attack stands against any single seed: the compiler that
+regenerates it is itself seed-descended. What answers that is a root
+that is not an Axiom seed. The Rust implementation this repository
+deleted (`430a138`) is still in its history at `bb730db`, still builds
+with `cargo`, and compiles the first seed commit's `self_host/` into a
+compiler whose emission is the first seed byte for byte; every seed
+since reproduces from the one before it. `bootstrap/CHAIN` is that
+lineage and `scripts/check-seed-lineage.sh` replays it - the newest
+link on every push that touches `bootstrap/`, all of it nightly.
+Three historical seeds that nothing reproduces are named there as
+orphans and bypassed; `bootstrap/README.md` states the gap.
 
-What *is* checked: the seed reproduces byte-identically from a named
-source hash (`bootstrap/STAMP`), every release binary carries a build id
-over every `.ax` byte under `self_host/` and `stdlib/`, and the release
-workflow refuses to publish a binary that says `(build unstamped)`.
+The trust base of that replay is `git`, `llc` and `cc`, `cargo` and
+`rustc` and the crates `bb730db`'s `Cargo.lock` pins, and the Rust
+source at `bb730db` - which shares an author with `self_host/`. No
+Axiom binary is called before the comparison. Taking `llc` and `cc`
+out of that list is a separate track and is not claimed here.
+
+What *is* checked besides: the seed reproduces byte-identically from a
+named source hash (`bootstrap/STAMP`), every release binary carries a
+build id over every `.ax` byte under `self_host/` and `stdlib/`, and
+the release workflow refuses to publish a binary that says
+`(build unstamped)`.

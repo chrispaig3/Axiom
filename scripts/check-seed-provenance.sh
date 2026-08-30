@@ -25,8 +25,9 @@
 # Ken Thompson - the compiler that regenerates the seed here is itself
 # seed-descended, so a compiler that reproduces a backdoor in its own
 # output reproduces it here too. Nothing a single implementation can
-# check answers that, which is `bootstrap/README.md`'s standing
-# paragraph and stays true.
+# check answers that. `check-seed-lineage.sh` is the answer that exists:
+# it replays every seed from the one before it, back to the Rust
+# compiler at `bb730db`, which no Axiom seed ever touched.
 #
 # WHY THE COMMIT IS FOUND RATHER THAN READ. The seed's provenance
 # commit cannot be recorded by `reseed.sh`, because it does not exist

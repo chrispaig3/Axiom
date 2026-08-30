@@ -30,8 +30,10 @@
 # What a tampered seed would have to survive: compiling the whole
 # compiler from source, then having ITS output compile the compiler
 # again to a byte-identical fixpoint, then having that build and run a
-# working program. Ken Thompson's attack still applies, as it does to
-# every bootstrapped compiler; everything short of it does not.
+# working program. Ken Thompson's attack still applies to THIS ladder,
+# as it does to every bootstrapped compiler; `scripts/check-seed-lineage.sh`
+# is what answers it, by replaying the seed's ancestry from the Rust
+# compiler at `bb730db`, which no Axiom seed ever touched.
 #
 # Requires: llc, cc. Not cargo, not rustc.
 

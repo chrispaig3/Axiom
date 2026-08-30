@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Regenerate the checked-in bootstrap seeds from the current tree.
+# Regenerate the checked-in bootstrap seeds from the current tree, with
+# a compiler descended from the COMMITTED seed, and record the link.
 #
 # Run this when `scripts/bootstrap-from-seed.sh` fails because the
 # committed seed can no longer compile self_host/ - that is the seed
@@ -17,22 +18,40 @@
 # (darwin-aarch64 against linux-x86_64), and the two x86_64 BSDs, which
 # share a syscall template, in 139.
 #
-# Requires a working compiler to start from. It defaults to the one
-# every other script here defaults to - `.axiom-bin/axiom`, where
-# `bootstrap-from-seed.sh --install` puts it - and AXIOM names another:
+# WHO GENERATES. The generator is built here, from the committed seed
+# and nothing else: the host's `bootstrap/axiom-<target>.ll` through
+# `llc` and `cc` is the previous compiler, it compiles this tree, and
+# the result - `gen` - emits the six seeds. So the seed about to be
+# committed is, by construction, the previous seed's emission of this
+# tree or that emission's own re-emission, which is what
+# `scripts/check-seed-lineage.sh` replays and what a row of
+# `bootstrap/CHAIN` records. This script writes that row.
 #
-#   AXIOM=/path/to/compiler scripts/reseed.sh
+# It used to build `gen` with whatever `$AXIOM` named - "the previous
+# commit's `.axiom-bin/axiom` is the usual answer", the comment said -
+# and five of the fourteen reseeds in this repository's history were
+# generated that way from a compiler built out of an UNCOMMITTED tree:
+# three of the committed seeds (`1c682ef`, `24bdf29`, `79c8ebc`) are
+# not their own tree's emission and cannot be reproduced from anything
+# in the history, measured 2026-08-29 by replaying every link. A seed
+# nothing can reproduce is a seed that has to be taken on trust, which
+# is the one thing `bootstrap/` exists not to ask.
 #
-# It does NOT bootstrap one itself, unlike the gates. The routine
-# reason to run this is that the committed seed can no longer compile
-# self_host/ - so a bootstrap from that seed is exactly the thing that
-# has just failed, and silently attempting it here would replace a
-# clear "the seed is stale" with a confusing one. Name a compiler that
-# works: the previous commit's `.axiom-bin/axiom` is the usual answer.
+# WHEN THE COMMITTED SEED CANNOT COMPILE THE TREE - the routine reason
+# to be here - this script says so and STOPS. That is the moment a link
+# would break, and it must be recorded rather than papered over:
+#
+#   scripts/reseed.sh --bridge /path/to/a/compiler/that/can
+#
+# generates with the named compiler and writes the row as
+# `bridge-needed`, which the gate refuses until it is replaced by a
+# method that replays (a `mixed-tree` or a `walk`; see the CHAIN header).
+# The way to never need it is the seed-skew rule: land the construct
+# the compiler must learn, reseed, THEN use it.
 #
 # The seeds are REPRODUCIBLE - scripts/check-reproducible.sh is the gate
 # that says so - which means re-running this against an unchanged tree
-# brings the four `.ll` files and `SHA256SUMS` back byte-identical. If
+# brings the six `.ll` files and `SHA256SUMS` back byte-identical. If
 # one of THOSE moves without the compiler moving, the compiler has a
 # nondeterminism bug and that is the thing to fix.
 #
@@ -45,31 +64,109 @@
 
 set -uo pipefail
 
+# Not `gate_init`: that preamble bootstraps a compiler from the
+# committed seed when none is installed, and refuses when it cannot -
+# which is exactly the situation this script exists to handle, and it
+# must be the one to say so. The helpers are all that is needed.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
-gate_init
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root" || exit 1
+link_entry="$(gate_link_entry)"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-[[ -x "$axiom" ]] || fail "no compiler at $axiom - set AXIOM to one"
+bridge=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --bridge) bridge="${2:-}"; [[ -x "$bridge" ]] || fail "--bridge needs an executable compiler"; shift 2 ;;
+    *) fail "unknown argument $1 (usage: $0 [--bridge COMPILER])" ;;
+  esac
+done
+
+command -v git >/dev/null || fail "git is not on PATH"
+command -v llc >/dev/null || fail "llc is not on PATH"
+command -v cc  >/dev/null || fail "cc is not on PATH"
+have_opt=0; command -v opt >/dev/null && have_opt=1
+
+case "$(uname -s)" in
+  Darwin)  os=darwin ;;
+  Linux)   os=linux ;;
+  FreeBSD) os=freebsd ;;
+  *) fail "no seed for $(uname -s)" ;;
+esac
+case "$(uname -m)" in
+  arm64|aarch64) arch=aarch64 ;;
+  x86_64|amd64)  arch=x86_64 ;;
+  *) fail "unsupported architecture $(uname -m)" ;;
+esac
+host="$os-$arch"
+
+targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64"
+
+# --------------------------------------------------------------------
+# The previous seed: the commit that last wrote the six `.ll` files,
+# and the files in the tree must be that commit's - a seed edited in
+# the working tree has no lineage to record.
+# --------------------------------------------------------------------
+prev="$(git log -1 --format=%h -- 'bootstrap/*.ll' 2>/dev/null || true)"
+[[ -n "$prev" ]] || fail "no commit in history touches bootstrap/*.ll (a shallow clone cannot reseed)"
+if ! git diff --quiet HEAD -- 'bootstrap/*.ll'; then
+  fail "bootstrap/*.ll differs from HEAD in the working tree; restore the committed seed first (git checkout -- bootstrap/), or the row this writes would name a seed nothing wrote"
+fi
+echo "the committed seed is ${prev}'s"
 
 ln -s "$repo_root/stdlib"    "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
+cp "$repo_root/self_host/main.ax" "$work/in.ax"
 
-# The seed is emitted by a compiler built from THIS tree, never by
-# `$axiom` directly - `$axiom` is only trusted to be new enough to
-# compile self_host/, not to be what the seed should record. So the
-# first thing that happens here is building the compiler; the seeds
-# come out of THAT.
-#
-# This used to fall back to a hand-rolled llc/cc pipeline when
-# `build --input` failed, for a `$axiom` old enough not to have the
-# driver. No such compiler can exist any more - every one is descended
-# from a seed this script wrote - and the fallback's only effect was to
-# turn a real build failure into "llc rejected the IR", which names the
-# wrong tool and hides the build log.
-if ! "$axiom" build --input self_host/main.ax --output "$work/gen" >"$work/build.log" 2>&1; then
-  tail -20 "$work/build.log" >&2
-  fail "could not build a compiler with $axiom"
+optimised() {
+  if (( have_opt )) && opt -O1 "$1" -S -o "$2" 2>/dev/null; then printf '%s' "$2"; else printf '%s' "$1"; fi
+}
+build_compiler() {  # <in.ll> <out>
+  llc -filetype=obj -relocation-model=pic "$(optimised "$1" "$2.opt.ll")" -o "$2.o" 2>"$2.err" \
+    && cc "$2.o" -o "$2" $link_entry 2>>"$2.err"
+}
+emit() {  # <compiler> <target> <out.ll>: the shape every seed is emitted in
+  ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" "$1" in.ax "$2" > "$3" 2> "$3.err" ) || return 1
+  grep -q '^target triple' "$3" || return 1
+  (( $(wc -l < "$3") > 10000 )) || return 1
+}
+
+# --------------------------------------------------------------------
+# The generator, from the committed seed.
+# --------------------------------------------------------------------
+method="seed"; stage=""; generator=""
+t0=$SECONDS
+build_compiler "bootstrap/axiom-$host.ll" "$work/seed" \
+  || { head -3 "$work/seed.err" >&2; fail "the committed $host seed does not build"; }
+echo "the $prev seed is built ($((SECONDS - t0))s)"
+if emit "$work/seed" "$host" "$work/d1.ll"; then
+  build_compiler "$work/d1.ll" "$work/gen" \
+    || { head -3 "$work/gen.err" >&2; fail "the ${prev} seed compiled this tree, but the result does not build"; }
+  echo "the $prev seed compiled this tree into the generator ($((SECONDS - t0))s)"
+else
+  echo "the committed seed (${prev}) cannot compile this tree:" >&2
+  sed 's/\x1b\[[0-9;]*m//g' "$work/d1.ll.err" | grep -iE 'error|fault' | head -5 | sed 's/^/    /' >&2
+  [[ -s "$work/d1.ll.err" ]] || echo "    (no diagnostic; $(wc -l < "$work/d1.ll" | tr -d ' ') lines emitted)" >&2
+  if [[ -z "$bridge" ]]; then
+    echo >&2
+    echo "The link from the ${prev} seed to the seed you are about to generate needs a" >&2
+    echo "bridge, and this script will not build one silently. Either land the construct" >&2
+    echo "the seed cannot compile in a form the seed CAN compile first (the seed-skew" >&2
+    echo "rule: definition, reseed, then use), or generate with a compiler that can:" >&2
+    echo "    scripts/reseed.sh --bridge /path/to/compiler" >&2
+    echo "which records the row as \`bridge-needed\` for scripts/check-seed-lineage.sh to" >&2
+    echo "refuse until the link is certified (bootstrap/CHAIN's header says how)." >&2
+    exit 1
+  fi
+  echo "generating with the bridge compiler $bridge instead, and recording that"
+  if ! "$bridge" build --input self_host/main.ax --output "$work/gen" >"$work/build.log" 2>&1; then
+    tail -20 "$work/build.log" >&2
+    fail "could not build a generator with $bridge either"
+  fi
+  method="bridge-needed"; stage="-"; generator="generator=$(gate_sha "$bridge" | cut -c1-12)"
 fi
 echo "generator built"
 
@@ -77,20 +174,22 @@ mkdir -p bootstrap
 # Six since 2026-08-29. The FreeBSD pair were minted the commit after
 # `targetCode` learned their names, which is the only order that works:
 # a seed can be emitted only by a compiler that knows the target, and
-# `$axiom` here need not - `gen` below is built from THIS tree and is
-# what emits.
-targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64"
-cp "$repo_root/self_host/main.ax" "$work/in.ax"
+# `gen` here is built from THIS tree and is what emits.
 for t in $targets; do
-  (cd "$work" && ./gen in.ax "$t" >"$work/out.ll" 2>"$work/out.err") \
-    || { head -3 "$work/out.err" >&2; fail "could not emit the seed for $t"; }
-  # A seed that is empty, or that is the wrong target, is worse than no
-  # seed: it fails far away from here. Check both before writing.
-  grep -q "^target triple" "$work/out.ll" || fail "the $t seed has no target triple"
-  lines="$(wc -l <"$work/out.ll")"
-  (( lines > 10000 )) || fail "the $t seed is only $lines lines - the emit was truncated"
-  mv "$work/out.ll" "bootstrap/axiom-$t.ll"
-  printf '  %-16s %8d bytes  %7d lines\n' "$t" "$(wc -c <"bootstrap/axiom-$t.ll")" "$lines"
+  emit "$work/gen" "$t" "$work/out-$t.ll" \
+    || { head -3 "$work/out-$t.ll.err" >&2; fail "could not emit the seed for $t (a seed that is empty or the wrong target fails far from here)"; }
+done
+# The stage the link will replay at: the previous seed's own emission
+# of this tree is stage1, and equals the new seed when the two
+# compilers agree byte for byte; otherwise the generator's emission is
+# the new seed and the link is stage2, by construction.
+if [[ "$method" == seed ]]; then
+  if cmp -s "$work/d1.ll" "$work/out-$host.ll"; then stage="stage1"; else stage="stage2"; fi
+fi
+secs=$((SECONDS - t0))
+for t in $targets; do
+  mv "$work/out-$t.ll" "bootstrap/axiom-$t.ll"
+  printf '  %-16s %8d bytes  %7d lines\n' "$t" "$(wc -c <"bootstrap/axiom-$t.ll")" "$(wc -l <"bootstrap/axiom-$t.ll")"
 done
 
 ( cd bootstrap && { command -v sha256sum >/dev/null && sha256sum axiom-*.ll || shasum -a 256 axiom-*.ll; } ) \
@@ -117,7 +216,7 @@ nfiles="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f | wc -l
   printf 'Source files:          %s\n' "$nfiles"
   printf 'Generated on:          %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'Regenerate with:       scripts/reseed.sh\n'
-  printf 'Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh\n'
+  printf 'Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh, scripts/check-seed-lineage.sh\n'
   printf '\n'
   printf 'The source stamp is `gate_seed_source_stamp` (scripts/lib/gate.sh) over\n'
   printf 'the `self_host/**.ax` and `stdlib/**.ax` bytes these seeds were\n'
@@ -130,5 +229,37 @@ nfiles="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f | wc -l
 } > bootstrap/STAMP
 cat bootstrap/STAMP
 
+# --------------------------------------------------------------------
+# The row. The seed's own commit does not exist yet - the same reason
+# STAMP records a hash - so the row says `next`, and the gate resolves
+# it to the commit that last wrote the `.ll` files. The NEXT reseed
+# replaces `next` with the hash it can then see. A `next` row whose
+# `from` is still the committed seed is a reseed that was never
+# committed, and is replaced rather than chained from.
+# --------------------------------------------------------------------
+chain="bootstrap/CHAIN"
+[[ -f "$chain" ]] || fail "$chain is missing; every seed since 2026-08-29 has a row, and this one must too"
+row="next $prev $method $stage $secs${generator:+ $generator}"
+last="$(grep -vE '^[[:space:]]*(#|$)' "$chain" | tail -1)"
+set -- $last
+if [[ "${1:-}" == next ]]; then
+  if [[ "${2:-}" == "$prev" ]]; then
+    echo "the last row of $chain is an uncommitted reseed from $prev; replacing it"
+    n="$(grep -nvE '^[[:space:]]*(#|$)' "$chain" | tail -1 | cut -d: -f1)"
+    sed "${n}d" "$chain" > "$chain.new" && mv "$chain.new" "$chain"
+  else
+    echo "the last row of $chain was written as \`next\` and its seed is now ${prev}; naming it"
+    awk -v h="$prev" '{ if ($1 == "next") { $1 = h; print; } else print }' "$chain" > "$chain.new" && mv "$chain.new" "$chain"
+  fi
+fi
+printf '%s\n' "$row" >> "$chain"
+echo "appended to $chain: $row"
+
 echo
-echo "seeds regenerated; run scripts/bootstrap-from-seed.sh before committing them"
+if [[ "$method" == seed ]]; then
+  echo "seeds regenerated from the ${prev} seed's own compile of this tree ($stage);"
+  echo "run scripts/bootstrap-from-seed.sh before committing them, and commit bootstrap/ whole"
+else
+  echo "seeds regenerated with a BRIDGE compiler; scripts/check-seed-lineage.sh is red until the"
+  echo "\`bridge-needed\` row in $chain is replaced by a method that replays"
+fi
