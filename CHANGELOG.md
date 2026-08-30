@@ -98,6 +98,28 @@ the compiler under test, `check-windows-entry.sh` and
   `restrict(no-recursion)` renders a call-graph cycle from the claim to
   the function met twice; `tests/agent/restrictions.allow` lists every
   restricted declaration in the tree with the verdict the compiler gave.
+- **The effect system, items 1 and 2 of seven** (`c25cdad`, `2c5b60d`):
+  a handler is held to its operation's declared arrow, `handle` answers
+  its body's type, and an operation must declare its type (`AX3055`) -
+  three programs that checked clean and segfaulted now refuse; and
+  over-approximation is per effect rather than per row, so a `?:byref`
+  marker on one effect no longer switches AX3042 off for every caller
+  (`#effects=` stays the union; `#effects-possible=` names the possible
+  ones; `restrict(no-io)`/`no-foreign` read the per-effect answer).
+- **The seed has a lineage** (`85a9d91`..`2e2d13b`): `bootstrap/CHAIN`
+  records every committed seed back to the deleted Rust compiler at
+  `bb730db`, whose stage1 emits the first seed byte for byte - Wheeler's
+  diverse double-compile at the root; `check-seed-lineage.sh` replays
+  the newest link on every seed change and every link under `--full`
+  (nightly), including the bridged 63-step walk; `reseed.sh` now
+  generates from the committed seed so every future link is the
+  `stage1 == seed` kind. The trust base is stated in bootstrap/README.md.
+- **The corpus stops spelling `Show`** (`1d2bc7f`): every test and
+  example that wrote an `impl Show`, `deriveShow` or `showOr` for a type
+  the builtin renders uses `show` - traits phase 1, ahead of the
+  deprecation.
+- The formatter and the tree-sitter grammar read an effect operation as
+  the parser does (`9c4a9d6`, `7f73151`).
 - **Type variables in messages** (`dd18cde`): the checker's own
   variables render as `_a`, `_b`, ... by order of first appearance, one
   table per mismatch, instead of `_t<N>` from a program-wide counter
