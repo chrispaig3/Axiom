@@ -1,0 +1,28 @@
+[1;31merror[AX3056][0m[1m: field `msg` of struct `NoColon` declares no type; a field's type is what decides whether the release path follows it[0m
+  [1;34m--> [0m388-struct-field-untyped.ax:28:4
+[1;34m   |[0m
+[1;34m28 |[0m   (msg String))
+[1;34m   |[0m    [1;31m^^^ no `:` type after the field's name[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `(msg : Type)` - the `:` is what makes this a field declaration
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3056` for a full explanation
+
+[1;31merror[AX3056][0m[1m: field `odd` of struct `NotAType` declares no type; a field's type is what decides whether the release path follows it[0m
+  [1;34m--> [0m388-struct-field-untyped.ax:32:4
+[1;34m   |[0m
+[1;34m32 |[0m   (odd : 5))
+[1;34m   |[0m    [1;31m^^^ no `:` type after the field's name[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `(odd : Type)` - the `:` is what makes this a field declaration
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3056` for a full explanation
+
+[1;31merror[AX3056][0m[1m: field `msg` of struct `BareName` declares no type; a field's type is what decides whether the release path follows it[0m
+  [1;34m--> [0m388-struct-field-untyped.ax:36:4
+[1;34m   |[0m
+[1;34m36 |[0m   (msg))
+[1;34m   |[0m    [1;31m^^^ no `:` type after the field's name[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `(msg : Type)` - the `:` is what makes this a field declaration
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3056` for a full explanation
+
+compilation failed due to 3 previous errors

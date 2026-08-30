@@ -816,7 +816,15 @@ and `effect-name-reserved`, and it was taken from the free end because
 the number that design named for it, `AX3052`, had been spent by the
 restrictions first - the tenth number this section has had to
 reconcile, and the second allocated from the free end rather than
-surrendered.
+surrendered. `AX3056` was spent on 2026-08-30 by `struct-field-untyped`
+(a struct field whose type the parser could not read - an error, for
+AX3055's reason one form over: `fldClass` cannot classify the empty
+type variable the parser answers for a missing `:`, so the field
+leaves the block's reference map and `MM-LIFE-2c` event 5, and a value
+stored into it is freed under the program, measured at exit 139). It
+too was taken from the free end, above `AX3053` and `AX3054`, which
+stay reserved - the eleventh reconciliation and the third from the
+free end.
 
 `AX3047` is the ninth number this section has had to reconcile, and the
 first one it allocated rather than surrendered: it was taken from the

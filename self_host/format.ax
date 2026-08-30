@@ -4850,14 +4850,32 @@
                             0
                           )
                         ))
+                          ; A field is `({mut }name : Type)` or, as the
+                          ; parser also reads it, `(name Type)` with no
+                          ; colon or a bare `(name)` - the checker refuses
+                          ; both (AX3056), and a type it cannot read is
+                          ; the same field left at the empty variable, so
+                          ; `(name : 5)` parses too. The formatter follows
+                          ; the parser: all three print as written, the
+                          ; unreadable type through the expression printer
+                          ; where the type printer would refuse, and the
+                          ; checker keeps the refusal. This used to `fpBad`
+                          ; all three, which made the fixture that pins
+                          ; AX3056 unformattable - the same shape the
+                          ; effect printer above was given for AX3055.
                           (if (||
-                            (!= (fnLen f) (+ fb 3))                            (||
-                              (if (fpIsIdentAtom (fnKid f fb))
-                                false
-                                true
-                              )                              (if (fpIsColonAtom (fnKid f (+ fb 1)))
-                                false
-                                true
+                            (< (fnLen f) (+ fb 1))                            (||
+                              (> (fnLen f) (+ fb 3))                              (||
+                                (if (fpIsIdentAtom (fnKid f fb))
+                                  false
+                                  true
+                                )                                (if (== (fnLen f) (+ fb 3))
+                                  (if (fpIsColonAtom (fnKid f (+ fb 1)))
+                                    false
+                                    true
+                                  )
+                                  false
+                                )
                               )
                             )
                           )
@@ -4875,8 +4893,19 @@
                                 )
                               )
                               (fpP p (fnText src (fnKid f fb)))
-                              (fpP p " : ")
-                              (fpType p (fnKid f (+ fb 2)))
+                              (if (== (fnLen f) (+ fb 3))
+                                {
+                                  (fpP p " : ")
+                                  (fpFieldTy p (fnKid f (+ fb 2)))
+                                }
+                                (if (== (fnLen f) (+ fb 2))
+                                  {
+                                    (fpP p " ")
+                                    (fpFieldTy p (fnKid f (+ fb 1)))
+                                  }
+                                  p
+                                )
+                              )
                               (fpP p ")")
                               (set i (+ i 1))
                             }
@@ -5725,6 +5754,19 @@
         }
       )
     )
+  )
+)
+
+; A field's type slot, printed as written. `fpType` refuses anything
+; that is not a type, and the two shapes AX3056 names put something
+; else there - so an unreadable slot goes through the expression
+; printer instead, exactly as an effect operation's does for AX3055.
+(pub :: fpFieldTy (-> Int Int Int))
+
+(pub fn (fpFieldTy p t)
+  (if (|| (fpIsIdentAtom t) (== (fnKind t) FN_PAREN))
+    (fpType p t)
+    (fpExpr p t)
   )
 )
 

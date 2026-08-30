@@ -3863,6 +3863,12 @@
       ; `p.f` arithmetic picks float instructions - and the full
       ; structure now rides in the ty slot for the checker. The
       ; flag rule and every token position are unchanged.
+      ;
+      ; WITH THE NAME'S SPAN, for the reason `parseEffectOps` gives
+      ; for an operation's: `mkField` leaves span 0 and a spanless
+      ; diagnostic is a suppressed one, so AX3056 - a field whose
+      ; type the parser could not read - had nowhere to point and
+      ; said nothing at all.
       (let (
         (fieldName (memGetWord nr 1))
         (nextPos (memGetWord nr 2))
@@ -3876,11 +3882,11 @@
           (if (&& (peekIs tokens nextPos TK_COLON) (peekIs tokens (advance nextPos) TK_IDENT))
             (let ((fl (identIsFloat tokens (advance nextPos))))
               (if (peekIs tokens (advance (advance nextPos)) TK_RPAREN)
-                (pOk (setNodeTy (mkField fieldName fl) fieldTy) (advance (advance (advance nextPos))))
+                (pOk (setNodeSpan (setNodeTy (mkField fieldName fl) fieldTy) (tokenSpan (vecGet tokens pos))) (advance (advance (advance nextPos))))
                 (let ((r (skipParens tokens (advance (advance nextPos)) 1)))
                   (if (== (memGetWord r 0) 0)
                     r
-                    (pOk (setNodeTy (mkField fieldName fl) fieldTy) (memGetWord r 2))
+                    (pOk (setNodeSpan (setNodeTy (mkField fieldName fl) fieldTy) (tokenSpan (vecGet tokens pos))) (memGetWord r 2))
                   )
                 )
               )
@@ -3888,7 +3894,7 @@
             (let ((afterSkip (skipParens tokens nextPos 1)))
               (if (== (memGetWord afterSkip 0) 0)
                 afterSkip
-                (pOk (setNodeTy (mkField fieldName 0) fieldTy) (memGetWord afterSkip 2))
+                (pOk (setNodeSpan (setNodeTy (mkField fieldName 0) fieldTy) (tokenSpan (vecGet tokens pos))) (memGetWord afterSkip 2))
               )
             )
           )

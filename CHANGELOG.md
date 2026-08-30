@@ -16,6 +16,48 @@ its changelog too.
 
 ## Unreleased
 
+- **`AX3056`: a struct field must declare its type.**
+  `(struct Box (msg String))` — no `:` — was accepted, the written type
+  skipped and the field left at the empty type variable that
+  `typeNodeOrWildcard` answers. Nothing downstream refused it:
+  `fldClass` cannot classify a variable, so the field was left OUT of
+  the block's reference map and out of `MM-LIFE-2c` event 5, the retain
+  a store into a reference field takes — and a value stored there was
+  released by its own owner while the field still pointed at the block.
+  Measured before the code existed, with a callee storing its argument
+  into such a field: `check` reported nothing, the field read back 38
+  NUL bytes where the message was, and the program exited **139**.
+  Memory-unsafe code out of a program `check` accepted, which is
+  `AX3055`'s own sentence one form over, and `AX3055` was spent on it
+  three commits earlier. An error now, at the field's name, on all
+  three spellings that reach the empty variable — no `:`, a `:` whose
+  type is not a type, and a bare `(x)`. Two supporting changes the
+  report needed: `mkField` left every struct field spanless and a
+  spanless diagnostic is a suppressed one, so a field now carries its
+  name's span the way an effect operation's has since `2c5b60d`; and
+  the struct printer used to `fpBad` all three shapes, which would have
+  made the fixture unformattable, so it prints them as written exactly
+  as the effect printer does. A `data` struct-variant without the colon
+  was already refused (`AX2003`), so the class is closed. Population in
+  tree: 0 — every struct in `stdlib/`, `self_host/`, `tests/` and
+  `examples/` spells the colon, which is why nothing had reported it.
+  Gates: `check-diagnostics`
+  (`tests/diagnostics/388-struct-field-untyped.ax`, all three shapes
+  and a control), `check-render-selfhost`, `check-tools-selfhost`
+  (`explain AX3056`), `check-fmt`.
+- **The CLI says Axiom and its version** (`40f1e1a`, which landed after
+  `0.4.3` was cut and is recorded here rather than left unstated):
+  `axiom --help`, `axiom version` and the REPL greeting were three
+  spellings of one fact, each a separate literal the version bump had
+  to rewrite. All three now compose from one literal, `axiomVersion` in
+  `self_host/build.ax` — `Axiom 0.4.3`, `Axiom 0.4.3 (build …)`,
+  `Axiom 0.4.3 - REPL` — so the site count falls by one.
+  `check-driver.sh` asks for the shape `Axiom <semver>` rather than
+  grepping for the word `axiom`, which a banner that had lost the name
+  entirely would still have satisfied. Gates: `check-version`,
+  `check-build-id`, `check-repl-selfhost`, `check-driver`,
+  `check-doc-drift`, `check-install`, `check-fmt`.
+
 ## 0.4.3 — 2026-08-29
 
 Three new `--target`s the compiler emits for and CI assembles but does

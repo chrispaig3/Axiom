@@ -2587,6 +2587,13 @@
                     )
                     0
                   )
+                  ; A field with no readable type: AX3056, before the
+                  ; struct registers. `fldClass` cannot classify an
+                  ; empty type variable, so such a field is dropped
+                  ; from the block's reference map and from event 5's
+                  ; store retain - a use-after-free out of a program
+                  ; `check` accepted (exit 139).
+                  (checkStructFieldTyped tc (nodeB d) (nodeAName d))
                   (let ((sent 
                     (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d)))
                   ))
@@ -2753,6 +2760,76 @@
           })
         0
       }
+    )
+  )
+)
+
+; A struct field must DECLARE its type, and the reason is the same one
+; AX3055 gives for an operation's arrow: a declaration nothing stands
+; on is not a weaker check, it is no check. `(struct Box (msg String))`
+; omits the `:` that makes the form a declaration at all
+; (`tree-sitter-axiom/grammar.js`: "a distinction that only becomes
+; visible at the `:`"), and `parseOneFieldNamed` answers a field whose
+; type is `(mkTVar "")` with the written type skipped. Nothing then
+; refuses it: `fldClass` cannot classify a variable, so the field is
+; left OUT of the block's reference map and out of `MM-LIFE-2c` event
+; 5's store retain, and an owned value stored into it is released by
+; its own owner while the field still points at the block.
+;
+; Measured before this code existed, on a compiler built from the
+; parent, with `(struct Box (msg String))` and a callee storing its
+; argument into `b.msg`: `check` reported nothing, the field read back
+; 38 NUL bytes where the message was, and the program exited 139 -
+; SIGSEGV. The same spelled `(msg : String)` is correct. Three shapes
+; reach the empty variable and all three ran 139: no `:` at all, a `:`
+; whose type the parser could not read (`(msg : 5)`), and a bare
+; `(msg)`. A wildcard `(msg : _)` is a different node and is already
+; refused at its use sites, so it is not this code's business.
+;
+; AX3056, an ERROR, at the field's name, once per field. Population in
+; tree: 0 - every struct in `stdlib/`, `self_host/`, `tests/` and
+; `examples/` spells the colon, which is why this went unreported.
+(pub :: checkStructFieldTyped (-> Int Int String Int))
+
+(pub fn (checkStructFieldTyped tc fields structName)
+  (if (== fields 0)
+    0
+    (let ((mut i 0))
+      {
+        (while (< i (vecLen fields))
+          {
+            (let ((f (vecGet fields i)))
+              (if (&& (== (fieldTyIsUnread f) 1) (!= (nodeSpan f) 0))
+                (emitDiag tc (diagSetLabel (mkDiag
+                  SEV_ERROR                  "AX3056"                  "struct-field-untyped"                  (nodeSpan f)                  (strConcat (strConcat (strConcat (strConcat "field `" (nodeAName f)) "` of struct `") structName) "` declares no type; a field's type is what decides whether the release path follows it")                  0                  0                  (strConcat (strConcat "write `(" (nodeAName f)) " : Type)` - the `:` is what makes this a field declaration")
+                ) "no `:` type after the field's name"))
+                0
+              )
+            )
+            (set i (+ i 1))
+          })
+        0
+      }
+    )
+  )
+)
+
+; The field type the parser could not read, in either of the two ways
+; it fails to: no node at all, or the empty type variable
+; `typeNodeOrWildcard` answers for a missing `:` and for a `:` whose
+; type is not a type. A NAMED variable cannot arrive here - a struct
+; takes no type parameters (`(struct Box a (v : a))` is AX2001) - so
+; an empty name is the whole test.
+(pub :: fieldTyIsUnread (-> Int Int))
+
+(pub fn (fieldTyIsUnread f)
+  (let ((t (nodeTy f)))
+    (if (== t 0)
+      1
+      (if (&& (== (nodeTag t) TAG_T_VAR) (== (strLen (nodeAName t)) 0))
+        1
+        0
+      )
     )
   )
 )

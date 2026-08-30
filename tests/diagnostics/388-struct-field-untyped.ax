@@ -1,0 +1,44 @@
+; A struct field must declare its type, and the `:` is what makes the
+; form a field declaration at all - the grammar's own note is that the
+; reading "only becomes visible at the `:`". Without it the parser
+; answers a field whose type is the empty type variable and skips what
+; was written beside the name. Nothing downstream refuses that:
+; `fldClass` cannot classify a variable, so the field is left OUT of
+; the block's reference map and out of MM-LIFE-2c event 5, the retain
+; a store into a reference field takes - and a value stored there is
+; released by its own owner while the field still points at the block.
+; Measured before AX3056, with a callee storing its argument into such
+; a field: `check` reported nothing, the field read back NUL bytes,
+; and the program exited 139.
+;
+; Three spellings reach the same empty variable and all three draw it,
+; once per field: no `:` at all, a `:` whose type is not a type, and a
+; bare name. `Right` is the control and draws nothing. A wildcard
+; `(f : _)` is a different node, already refused at its use sites, and
+; is not this code's business.
+;
+; `BareName`'s untyped field is SECOND on purpose. A bare `(name)` in
+; first position is what the formatter reads as a type-parameter list
+; (`fpTyvarsEnd` tests the first kid only), so `(struct B (msg))`
+; formats to `(struct B msg)` - which the parser then refuses with
+; AX2001, structs taking no type parameters. The compiler reads it as
+; a field either way and draws AX3056 on it; the position here is what
+; keeps the fixture formattable.
+(struct NoColon
+  (msg String))
+
+(struct NotAType
+  (fine : Int)
+  (odd : 5))
+
+(struct BareName
+  (n : Int)
+  (msg))
+
+(struct Right
+  (msg : String)
+  (n : Int))
+
+(:: main Int)
+
+(fn (main) 0)

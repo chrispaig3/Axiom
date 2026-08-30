@@ -962,6 +962,21 @@ parentheses — not on the struct:
   (mut count : Int))
 ```
 
+**The `:` is not optional.** It is what makes the form a field
+declaration at all — the grammar's own note is that a declaration and
+a construction "only become visible at the `:`" — so `(x Int)` is not
+a shorter spelling of `(x : Int)`. It used to be accepted anyway, with
+the written type skipped and the field left at the empty type
+variable, and the consequence was not cosmetic: `fldClass` cannot
+classify a variable, so the field was left out of the block's
+reference map and out of `MM-LIFE-2c` event 5, and a value stored into
+it was released by its own owner while the field still pointed at the
+block — a use-after-free out of a program `check` accepted, measured
+at exit 139. It is now `AX3056`, an error, at the field's name, on all
+three spellings that reach the empty variable: no `:`, a `:` whose
+type is not a type, and a bare `(x)`
+(`tests/diagnostics/388-struct-field-untyped.ax`).
+
 ---
 
 ## Type Aliases

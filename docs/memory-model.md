@@ -1952,7 +1952,15 @@ owned BY THE BLOCK, since the store that put it there took a share —
 previous pass — so handing that share back is arithmetic rather than
 a judgement about who else is holding it. The classification is
 `fldClass`'s, the same one that wrote the block's map, so the release
-set and the walk set cannot disagree. A thousand overwrites of one
+set and the walk set cannot disagree. What that argument rests on is
+that every field HAS a classifiable type, and until `AX3056`
+(2026-08-30) one did not have to: a field spelled without its `:` was
+given the empty type variable, which `fldClass` cannot classify, so it
+left the map and this retain together and a value stored into it was
+freed under the program — measured at exit 139
+(`tests/diagnostics/388-struct-field-untyped.ax`). A field that cannot
+be classified is now refused at its declaration, which is what makes
+the sentence above true rather than true of well-spelled programs. A thousand overwrites of one
 field with a fresh 48-byte string move the bump by under 4 KiB.
 
 **Event 4 emits since 2026-08-15**

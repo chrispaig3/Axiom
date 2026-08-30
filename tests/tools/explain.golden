@@ -63,6 +63,7 @@
   [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
   [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
   [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
+  [93mAX3056[0m  a struct field that declares no type  (struct-field-untyped)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1487,6 +1488,34 @@ The parser leaves the field empty for a type it could not read as
 well as for a missing `::`, so this also fires on an operation whose
 type is not a type.
 
+### explain AX3056
+AX3056 - a struct field that declares no type
+
+`(struct Box (msg String))` looks like a field declaration and is
+not one. The `:` is what makes it a declaration at all - the
+grammar's own note is that the reading "only becomes visible at the
+`:`" - so the parser answers a field named `msg` whose type is the
+empty variable, and the `String` beside it is skipped.
+
+Nothing downstream refuses that. `fldClass` cannot classify a type
+variable, so the field is left OUT of the block's reference map and
+out of MM-LIFE-2c event 5, the retain a store into a reference field
+takes. A value stored there is held by nobody: its own owner releases
+it, the block is filed by size class, and the field points into the
+free list.
+
+Measured before this code existed, with a callee storing its argument
+into such a field: `check` reported nothing, the field read back NUL
+bytes where the message was, and the program exited 139 - SIGSEGV.
+Memory-unsafe code from a program `check` accepted, which is what an
+error is for - the same sentence AX3055 was spent on, one form over.
+
+Write the type after a colon, `(msg : String)`. Three spellings reach
+the same empty variable and all three draw this: no `:` at all, a `:`
+whose type is not a type (`(msg : 5)`), and a bare `(msg)`. A
+wildcard `(msg : _)` is a different node, and its use sites already
+refuse it.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1663,6 +1692,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
   [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
   [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
+  [93mAX3056[0m  a struct field that declares no type  (struct-field-untyped)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
