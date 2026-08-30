@@ -371,9 +371,9 @@ Measured end to end:
 ;@axiom:effect(console)
 (fn (greet n) { (log "from deep") n })
 ;@axiom:effect(io)
-; `cast String`: a handler parameter's type is a variable, and `println`
-; is a macro over `show`, whose instance is keyed on a type NAME
-(fn (main) (handle (greet 7) (Console IO) (lambda (s) { (println (cast String s)) 0 })))
+; `s` is the `String` that `log` declares: the handler is checked against
+; the operation's arrow, so `println` renders it with no cast
+(fn (main) (handle (greet 7) (Console IO) (lambda (s) { (println s) 0 })))
 ```
 prints `from deep`, exits 7; with the `handle` removed, exits 71.
 

@@ -1784,12 +1784,13 @@ the fix has a test to flip rather than a paragraph to re-read.
 **MAC-CAP-10.6 — the dispatch cliff, and the two compiler bugs it
 exposed.** A hole becomes a *call*, and which instance it reaches is
 decided from the argument's **static type**. Where there is no named
-type there is no instance, and the corpus has two such shapes: a
-polymorphic accessor's return (`vecGet : (-> Int Int a)`) and an
-effect operation's result (the checker's silent wildcard). Both are
-now `AX3025` naming the situation; the fix is to name the type
-(`(println (cast Int (vecGet v 0)))`), which is exactly the
-information `printlnInt` used to carry.
+type there is no instance, and the corpus had two such shapes: a
+polymorphic accessor's return (`vecGet : (-> Int Int a)`) and, until
+2026-08-29, an effect operation's result - a `handle` answered the
+checker's silent wildcard; it is typed by its body now, so `(println
+(handle ..))` renders. The accessor is `AX3025` naming the situation;
+the fix is to name the type (`(println (cast Int (vecGet v 0)))`),
+which is exactly the information `printlnInt` used to carry.
 
 Reaching that cliff found two live defects that predate this work and
 were latent only because nothing in the repository had called a trait

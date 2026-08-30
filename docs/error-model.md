@@ -807,7 +807,16 @@ error; `restriction-unverifiable`, a warning in the same policy file;
 `AX3050` is RESERVED below for the contracts work that follows the
 restrictions, `AX3043` and `AX3045` are still unspent and stay where
 they are, `AX3044` is the namespace pass's, and `AX3032` is retired and
-**MUST NOT** be reused.
+**MUST NOT** be reused. `AX3055` was spent on 2026-08-29 by
+`effect-op-untyped` (an effect operation that declares no type - an
+error, because the handler check and the call's arity check both stand
+on that arrow); it sits above `AX3053` and `AX3054`, which the
+effect-system design of the same day names for `unhandled-operation`
+and `effect-name-reserved`, and it was taken from the free end because
+the number that design named for it, `AX3052`, had been spent by the
+restrictions first - the tenth number this section has had to
+reconcile, and the second allocated from the free end rather than
+surrendered.
 
 `AX3047` is the ninth number this section has had to reconcile, and the
 first one it allocated rather than surrendered: it was taken from the

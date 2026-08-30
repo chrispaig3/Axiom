@@ -1,0 +1,2 @@
+E AX3055 387-effect-op-untyped.ax:11:4-6 effect-op-untyped "operation `op` of effect `Untyped` declares no type; a handler is checked against it and a call is checked against its arity" #"no `::` type after the operation's name" ?"write `(op :: (-> Arg Result))`"
+E AX3055 387-effect-op-untyped.ax:15:4-12 effect-op-untyped "operation `notAType` of effect `Odd` declares no type; a handler is checked against it and a call is checked against its arity" #"no `::` type after the operation's name" ?"write `(notAType :: (-> Arg Result))`"

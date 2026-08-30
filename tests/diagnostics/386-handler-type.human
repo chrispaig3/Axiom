@@ -1,0 +1,33 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected (Int -> Int), found Int[0m
+  [1;34m--> [0m386-handler-type.ax:34:42
+[1;34m   |[0m
+[1;34m34 |[0m (fn (notAFunction) (handle (ask 1) (Ask) 0))
+[1;34m   |[0m                                          [1;31m^ this has type `Int`, expected `(Int -> Int)`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected (Int -> Int), found (Int -> String)[0m
+  [1;34m--> [0m386-handler-type.ax:38:42
+[1;34m   |[0m
+[1;34m38 |[0m (fn (wrongResult) (handle (ask 1) (Ask) (lambda (x) "not an int")))
+[1;34m   |[0m                                          [1;31m^^^^^^ this has type `(Int -> String)`, expected `(Int -> Int)`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected (Int -> Int), found (String -> Int)[0m
+  [1;34m--> [0m386-handler-type.ax:44:40
+[1;34m   |[0m
+[1;34m44 |[0m (fn (wrongParam) (handle (ask 1) (Ask) takesString))
+[1;34m   |[0m                                        [1;31m^^^^^^^^^^^ this has type `(String -> Int)`, expected `(Int -> Int)`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found String[0m
+  [1;34m--> [0m386-handler-type.ax:48:59
+[1;34m   |[0m
+[1;34m48 |[0m (fn (paramTyped) (handle (tell "x") (Tell) (lambda (s) (+ s 1))))
+[1;34m   |[0m                                                           [1;31m^ this has type `String`, expected `Int`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 4 previous errors

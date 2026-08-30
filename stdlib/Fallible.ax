@@ -108,10 +108,11 @@
 ;   (handle (processAll records) (Fallible Mut)
 ;     (fallibleCounting tally fallibleSkip))
 ;
-; A `handle` expression's own type is the checker's wildcard, so the
-; result wants `(cast Int ...)` where a `Show` instance is selected -
-; `(println (cast Int (handle ...)))` - exactly as
-; `300-effect-handlers.ax` spells it.
+; A `handle` expression's type is its body's, and each handler below
+; is checked against `fallibleMalformed`'s arrow, `(-> String Int)`:
+; `(println (handle ...))` renders the `Int` with no cast, a lambda
+; handler's `msg` IS a `String`, and a handler of another shape is
+; AX3004 at the `handle`.
 ; ------------------------------------------------------------------
 ; Skip every malformed record: answer `fallibleSkipped`, whatever the
 ; message. A one-parameter top-level function is a value, so it is

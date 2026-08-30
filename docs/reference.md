@@ -1411,6 +1411,11 @@ the choice.
 An `effect` declaration introduces each operation as a callable name:
 `(log "hi")` type-checks against the operation's signature and
 dispatches at runtime through the innermost installed handler (below).
+An operation must declare that signature: `(effect E (op))` is
+`AX3055`, an error, because the handler check and the call's arity
+check both stand on the arrow and on nothing else - without it the
+operation registered as a wildcard of arity -1, and `(op 1 2 3)` on a
+one-argument handler checked clean and SIGSEGVed.
 Calling an operation performs the effect - `log`'s callers infer
 `#effects=Console`, transitively, and `;@axiom:effect(console)` claims
 validate against it (custom tag values match declarations
@@ -1489,11 +1494,24 @@ return value is the operation's result, and execution continues.
 (handle
   (log "hi")            ; dispatches to the lambda below
   (Console)
-  ; `cast String`: a handler parameter's type is a variable, and
-  ; `println` is a macro over `show`, which renders by the STATIC
-  ; type - a variable has no rendering (AX3025).
-  (lambda (s) { (println (cast String s)) 0 }))
+  (lambda (s) { (println s) 0 }))   ; `s` is the `String` `log` declares
 ```
+
+The handler is checked against the operation's declared arrow. A
+lambda handler's parameters take the arrow's parameter types - `s`
+above is a `String`, so `println` renders it with no `cast` - and its
+result is held to the arrow's result; any other handler expression (a
+top-level function passed bare, a closure a call built, a literal) is
+checked as it is and its type compared. A handler that does not fit is
+`AX3004`: the integer `0` for a `(-> Int Int)` operation, or a lambda
+answering a `String` where the operation answers `Int`. Both checked
+clean until 2026-08-29 and were memory-unsafe at run time - a SIGSEGV
+when the dispatch applied `0`, a string's address plus one flowing into
+the caller's arithmetic (`tests/diagnostics/386-handler-type.ax`). The
+form's own type is its body's, so `(println (handle (ask 1) (Ask) h))`
+selects `show` on the `Int` that `ask` declares; until the same day the
+form answered the checker's wildcard, which is why every `handle` in the
+tree was spelled `(cast Int (handle ..))`.
 
 The rules that make this predictable:
 
@@ -1508,8 +1526,11 @@ The rules that make this predictable:
   code 71 rather than continuing on a value nothing produced.
 - **A multi-argument operation's handler is a curried chain** -
   `(lambda (a) (lambda (b) ...))` - because application is one
-  argument per step; a flat two-parameter lambda is tuple-typed and
-  refused by the handler type check.
+  argument per step. A flat `(lambda (a b) ...)` is the same chain -
+  the parser curries every multi-parameter lambda - and is checked
+  against `(-> A B R)` exactly as the nested spelling is; this bullet
+  said it was tuple-typed and refused, which was false, and
+  `386-handler-type.ax` pins both spellings accepted.
 - **In inference,** the handled effect subtracts from the body's
   contribution like a built-in, the handler's own effects count at the
   handle site (installing it entails maybe running it), and the form
@@ -1874,15 +1895,17 @@ rest of the trait machinery.
 ### When the type is not known
 
 Rendering is by the **static** type, so a value whose type the compiler
-cannot name has no rendering and is `AX3025`. Two shapes do this:
+cannot name has no rendering and is `AX3025`. One shape does this:
 
 ```scheme
 (println (vecGet v 0))                    ; AX3025: vecGet answers `a`
-(println (handle (ask 3 4) (Ask) h))      ; AX3025: an effect result
 ```
 
-Name the type and both work — which is exactly the information the old
-`printlnInt` carried in its name:
+A `handle` was the second until 2026-08-29 - `(println (handle (ask 3
+4) (Ask) h))` drew the same code because the form answered the
+checker's wildcard; it is typed by its body now and renders the `Int`
+that `ask` declares. Name the type and the accessor works too — which
+is exactly the information the old `printlnInt` carried in its name:
 
 ```scheme
 (println (cast Int (vecGet v 0)))

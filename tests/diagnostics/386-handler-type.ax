@@ -1,0 +1,69 @@
+; The handler of a `handle` is held to the operation's declared arrow.
+; Until 2026-08-29 nothing compared them: `checkHandle` checked the
+; handler as an expression and answered the silent wildcard, so the
+; integer `0` as a handler checked clean and SIGSEGVed when the dispatch
+; applied it (exit 139), and a `String`-answering handler for an `Int`
+; operation checked clean and handed its string's address plus one to
+; the caller's arithmetic. Both are AX3004 now - the type mismatch they
+; are - and so is a lambda whose parameter is used at the wrong type,
+; because the parameter carries the declared type rather than a fresh
+; variable.
+;
+; The accepted shapes pin the other half: `(strLen s)` on a `String`
+; operation checks without `(cast String s)`; a flat two-parameter
+; lambda for a two-argument operation is the curried chain (the parser
+; curries it - reference.md said it was tuple-typed and refused, which
+; was false); the form's own type is its body's, so `(println (handle
+; ..))` selects `show` on an `Int` with no cast; and a list naming no
+; declared effect has no operation to check against, so `(handle BODY
+; (Pure) 0)` - the agent-harness boundary - stays legal.
+(import IO)
+(import Str)
+
+(effect Ask
+  (ask :: (-> Int Int)))
+
+(effect Tell
+  (tell :: (-> String Int)))
+
+(effect Two
+  (two :: (-> Int Int Int)))
+
+; refused: not a function at all
+(:: notAFunction Int)
+(fn (notAFunction) (handle (ask 1) (Ask) 0))
+
+; refused: answers a String where the operation answers Int
+(:: wrongResult Int)
+(fn (wrongResult) (handle (ask 1) (Ask) (lambda (x) "not an int")))
+
+; refused: a top-level function value of the wrong parameter type
+(:: takesString (-> String Int))
+(fn (takesString s) 0)
+(:: wrongParam Int)
+(fn (wrongParam) (handle (ask 1) (Ask) takesString))
+
+; refused: `s` IS a String, so arithmetic on it is a mismatch inside the body
+(:: paramTyped Int)
+(fn (paramTyped) (handle (tell "x") (Tell) (lambda (s) (+ s 1))))
+
+; accepted: the parameter carries the declared type, no cast
+(:: typed Int)
+(fn (typed) (handle (tell "four") (Tell) (lambda (s) (strLen s))))
+
+; accepted: a flat two-parameter lambda for a two-argument operation
+(:: flat Int)
+(fn (flat) (handle (two 1 2) (Two) (lambda (a b) (+ a b))))
+
+; accepted: the curried spelling of the same
+(:: curried Int)
+(fn (curried) (handle (two 1 2) (Two) (lambda (a) (lambda (b) (+ a b)))))
+
+; accepted: no declared effect in the list, nothing to hold `0` to
+(:: boundary Int)
+(fn (boundary) (handle (+ 1 2) (Pure) 0))
+
+; accepted: the form's type is its body's, so `show` selects on Int
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) { (println (handle (ask 1) (Ask) (lambda (x) (* x 10)))) 0 })

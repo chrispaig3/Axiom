@@ -45,11 +45,9 @@
       0
     } (Console IO Alloc Mut) (lambda (s)
       {
-        ; `cast String`: a handler parameter's type is a variable, so it
-        ; selects no `Show` implementation (AX3025).
-        (println
-          (cast String s)
-        )
+        ; No `cast String`: the handler is checked against `log`'s
+        ; arrow, so `s` IS a String and `show` selects on it.
+        (println s)
         0
       }
     ))

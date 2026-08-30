@@ -2627,6 +2627,9 @@
                         ; types by emission); refused rather than silently
                         ; unevidenced. Population today: zero.
                         (checkEffectOpTyvars tc (nodeC d))
+                        ; An operation with no declared type: AX3055,
+                        ; before it registers (as poison) below.
+                        (checkEffectOpTyped tc (nodeC d) (nodeAName d))
                         ; Slot c, not slot b: the TYPES the parser kept
                         ; beside the names, so an operation is a callable
                         ; with a real arrow and a real arity. It used to
@@ -2717,6 +2720,43 @@
 ; are then collected and checked exactly like hand-written ones, which
 ; is the point - an impl body was previously never checked at all.
 ; ------------------------------------------------------------------
+; An operation must DECLARE its type. Two checks stand on that arrow
+; and on nothing else: the handler a `handle` installs is held to it
+; (`checkHandler`, AX3004), and a call to the operation is held to its
+; arity. A field the parser left at 0 - no `::`, or a type it could
+; not read - gave both nothing to stand on: the operation registered
+; as a silent wildcard at arity -1, so `(op 1 2 3)` on a one-argument
+; handler checked clean and, at run time, applied the handler's RESULT
+; as a function (exit 139, SIGSEGV). AX3055, an ERROR, at the
+; operation's name; `tcAddEffectOp` then registers the operation as
+; poison rather than a wildcard, so its uses stay quiet behind this
+; one report. Population in tree: 0 untyped operations (the syntax zoo
+; types all three of its own).
+(pub :: checkEffectOpTyped (-> Int Int String Int))
+
+(pub fn (checkEffectOpTyped tc fields effName)
+  (if (== fields 0)
+    0
+    (let ((mut i 0))
+      {
+        (while (< i (vecLen fields))
+          {
+            (let ((f (vecGet fields i)))
+              (if (&& (== (nodeB f) 0) (!= (nodeSpan f) 0))
+                (emitDiag tc (diagSetLabel (mkDiag
+                  SEV_ERROR                  "AX3055"                  "effect-op-untyped"                  (nodeSpan f)                  (strConcat (strConcat (strConcat (strConcat "operation `" (nodeAName f)) "` of effect `") effName) "` declares no type; a handler is checked against it and a call is checked against its arity")                  0                  0                  (strConcat (strConcat "write `(" (nodeAName f)) " :: (-> Arg Result))`")
+                ) "no `::` type after the operation's name"))
+                0
+              )
+            )
+            (set i (+ i 1))
+          })
+        0
+      }
+    )
+  )
+)
+
 ; `fields` is the effect declaration's `opFields` - TAG_FIELD nodes
 ; carrying the operation's NAME and its DECLARED TYPE. The parser has
 ; kept both since effects landed, and `symbols` walks exactly this
@@ -2767,16 +2807,21 @@
 ; one, because the lowering applies the handler to the operation's
 ; arguments and there is no partial application to preserve.
 ;
-; A type the parser could not read leaves 0 in the field, and that
-; keeps the old under-report: silent wildcard, arity -1, calls check
-; quietly. Under-report, never mis-report.
+; A type the parser could not read leaves 0 in the field. That field
+; has already drawn AX3055 (`checkEffectOpTyped`, in the same collect
+; arm), so the operation registers as POISON at arity -1: `tyCompat`
+; matches poison with anything and `repArity` answers -1, and every
+; use of the operation is quiet behind the one report at its
+; declaration. It used to register as a silent WILDCARD at arity -1,
+; which is the same silence with no report behind it - `(effect E
+; (op))` checked clean and `(op 1 2 3)` SIGSEGVed.
 (pub :: tcAddEffectOp (-> Int String Int String Int))
 
 (pub fn (tcAddEffectOp tc name ty effName)
   (tcPushFn
     tc    (cast Int (FnEnt
       name      (if (== ty 0)
-        mkSilentWild
+        mkTErr
         ty
       )      (if (== ty 0)
         (- 0 1)
@@ -7183,6 +7228,62 @@
   )
 )
 
+; A lambda checked AGAINST an arrow rather than inferred: the
+; parameter is bound to the arrow's parameter type instead of a fresh
+; variable, so inside a handler `s` IS the `String` the operation
+; declared and `show` resolves on it - where the fresh variable drew
+; AX3025 and forced `(cast String s)` at every use. Recurses through
+; the curried chain: `(-> Int Int Int)` is `(Int -> (Int -> Int))`,
+; and `(lambda (a b) ..)` is `(lambda (a) (lambda (b) ..))` by the
+; parser (`curryLam`), so a flat two-parameter lambda for a
+; two-argument operation is checked exactly as the nested spelling is.
+; Falls back to `checkLam` when there is nothing to bind to - the
+; arrow has run out (`(lambda (x y) ..)` for a one-argument operation:
+; the inner lambda infers, and the whole is then refused against the
+; arrow, `expected (Int -> Int), found (Int -> (_a -> ..))`) or the
+; parameter vector is not one name.
+;
+; Nothing is INFERRED here, which is what makes it safe under the
+; evidence-word hazard the type-inference note records: the arrow was
+; written by the author and AX3017 has already refused a type
+; variable in it, so every type bound is ground and its pointerhood
+; is exactly the declared one.
+(pub :: checkLamAgainst (-> Int Int Int Int))
+
+(pub fn (checkLamAgainst tc e arrow)
+  (let ((params (nodeA e)))
+    (if (|| (!= (vecLen params) 1) (!= (nodeTag arrow) TAG_T_ARR))
+      (checkLam tc e)
+      (let ((mark (vecLen (tcScope tc))))
+        {
+          (pushScope
+            (tcScope tc)            (vecGet params 0)            0            0            (nodeA arrow)
+          )
+          ; The lambda boundary for `checkSet`, saved and restored
+          ; exactly as `checkLam` does it.
+          (let ((savedLB (memGetWord tc 22)))
+            {
+              (memSetWord tc 22 mark)
+              (let ((bodyTy
+                (if (== (nodeTag (nodeB e)) TAG_E_LAM)
+                  (checkLamAgainst tc (nodeB e) (nodeB arrow))
+                  (checkExprH tc (nodeB e) 0)
+                )
+              ))
+                {
+                  (memSetWord tc 22 savedLB)
+                  (scopeTrunc (tcScope tc) mark)
+                  (mkTArr (nodeA arrow) bodyTy)
+                }
+              )
+            }
+          )
+        }
+      )
+    )
+  )
+)
+
 (pub :: bindLamParams (-> Int Int Int Int Int))
 
 (pub fn (bindLamParams tc params ptys i)
@@ -11561,6 +11662,87 @@
   )
 )
 
+; The declaration of the ONE handleable effect a `handle` list names
+; - declared, single-operation - or 0: none (a built-in-only list is
+; a measurement, and its handler is never evaluated), or more than
+; one (the shape `checkHandleEffects` refuses at the form with
+; AX3017; there is no one arrow to hold a single handler to). Reports
+; nothing: `checkHandleEffects` owns the list's diagnostics and runs
+; AFTER the handler is checked, which keeps stage0's order - body,
+; handler, list.
+(pub :: handleOpDecl (-> Int Int Int Int Int))
+
+(pub fn (handleOpDecl tc effs i found)
+  (if (>= i (vecLen effs))
+    found
+    (let ((n (nodeAName (vecGet effs i))))
+      (if (== (isBuiltinEffect n) 1)
+        (handleOpDecl tc effs (+ i 1) found)
+        (let ((d (findEffectDecl tc n)))
+          (if (|| (== d 0) (!= (vecLen (nodeB d)) 1))
+            (handleOpDecl tc effs (+ i 1) found)
+            (if (!= found 0)
+              0
+              (handleOpDecl tc effs (+ i 1) d)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The declared arrow of the operation a handler answers, or 0 when
+; there is none to hold it to: no single handleable effect
+; (`handleOpDecl`), or an operation that declares no type (AX3055 at
+; its declaration; its field is 0). The arrow rides in slot b of the
+; TAG_FIELD node in the declaration's slot c - the same slot
+; `tcAddEffectOp` registers the operation's callable type from.
+(pub :: handleOpType (-> Int Int Int))
+
+(pub fn (handleOpType tc effs)
+  (let ((d (handleOpDecl tc effs 0 0)))
+    (if (|| (== d 0) (== (nodeC d) 0))
+      0
+      (nodeB (vecGet (nodeC d) 0))
+    )
+  )
+)
+
+; The handler, held to the operation's arrow. A lambda literal is
+; checked AGAINST it (`checkLamAgainst`), so its parameters carry the
+; declared types; any other expression - a top-level function passed
+; bare, a closure a call built, a literal - is checked as it is and
+; its type compared. A mismatch is AX3004, the type mismatch it is.
+; Measured before this check existed: the integer `0` as a handler
+; checked clean and SIGSEGVed when the dispatch applied it; a
+; `String`-answering handler for an `Int` operation checked clean and
+; handed its string's address plus one to the caller's arithmetic.
+; With no arrow the handler is checked as an expression, exactly as
+; before - `(handle BODY (Pure) 0)`, the agent-harness boundary, stays
+; legal, and its `0` is never evaluated (`emitHandle`).
+(pub :: checkHandler (-> Int Int Int Int))
+
+(pub fn (checkHandler tc h arrow)
+  (if (|| (== h 0) (== arrow 0))
+    {
+      (checkExprH tc h 0)
+      0
+    }
+    (let ((hty
+      (if (== (nodeTag h) TAG_E_LAM)
+        (checkLamAgainst tc h arrow)
+        (checkExprH tc h 0)
+      )
+    ))
+      (if (== (tyCompat hty arrow) 0)
+        (emitMismatchTy tc arrow hty (spanOf h))
+        0
+      )
+    )
+  )
+)
+
 ; `(handle body (Effect...) handler)`. stage0's order is the whole
 ; rule and it is not the source order: the BODY is checked, then the
 ; HANDLER, and only then does the effect list produce diagnostics -
@@ -11571,18 +11753,26 @@
 ; names never become `Custom` in stage0's parser, so they are skipped
 ; here rather than looked up and refused.
 ;
-; Two shapes stay UNDER-reported and are recorded rather than
-; guessed. stage0 follows an unhandled effect with AX3011, which
-; needs the effect fixpoint stage1 does not run, and it checks the
-; handler's type against the operation's declared arrow (AX3004),
-; which needs the op type stage1's `effect` parser discards. Both
-; omit lines; neither reorders or invents one.
+; The form's own type is its BODY's: an operation's result is its
+; declared arrow's result, so `(handle (ask 1) (Ask) h)` is an `Int`
+; and `(println (handle ..))` selects `show` on it. It answered the
+; silent wildcard until 2026-08-29, which is why every fixture and
+; both stdlib effects spelled `(cast Int (handle ..))` and drew AX3025
+; without it.
+;
+; The handler is held to the operation's declared arrow
+; (`checkHandler`, AX3004). This comment recorded that check as
+; omitted - "which needs the op type stage1's `effect` parser
+; discards" - while the parser had kept the arrow in the TAG_FIELD
+; beside the name since effects landed and `tcAddEffectOp` registered
+; the callable from it. AX3011 is `checkUnhandled` below, over the
+; fixpoint this checker does run.
 (pub :: checkHandle (-> Int Int Int))
 
 (pub fn (checkHandle tc e)
+  (let ((bodyTy (checkExprH tc (nodeA e) 0)))
   {
-    (checkExprH tc (nodeA e) 0)
-    (checkExprH tc (nodeC e) 0)
+    (checkHandler tc (nodeC e) (handleOpType tc (nodeB e)))
     ; The form's own span is its BODY's - stage0's `Expr::span()`
     ; recurses into the first field of an EHandle exactly as it does
     ; for an application's head.
@@ -11616,8 +11806,9 @@
         (checkHandleIncomplete tc inner (spanOf (nodeA e)))
       }
     )
-    mkSilentWild
+    bodyTy
   }
+  )
 )
 
 ; AX3038: the handled-effects list could not be checked, because the

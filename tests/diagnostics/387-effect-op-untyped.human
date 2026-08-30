@@ -1,0 +1,19 @@
+[1;31merror[AX3055][0m[1m: operation `op` of effect `Untyped` declares no type; a handler is checked against it and a call is checked against its arity[0m
+  [1;34m--> [0m387-effect-op-untyped.ax:11:4
+[1;34m   |[0m
+[1;34m11 |[0m   (op))
+[1;34m   |[0m    [1;31m^^ no `::` type after the operation's name[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `(op :: (-> Arg Result))`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3055` for a full explanation
+
+[1;31merror[AX3055][0m[1m: operation `notAType` of effect `Odd` declares no type; a handler is checked against it and a call is checked against its arity[0m
+  [1;34m--> [0m387-effect-op-untyped.ax:15:4
+[1;34m   |[0m
+[1;34m15 |[0m   (notAType :: 5))
+[1;34m   |[0m    [1;31m^^^^^^^^ no `::` type after the operation's name[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `(notAType :: (-> Arg Result))`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3055` for a full explanation
+
+compilation failed due to 2 previous errors

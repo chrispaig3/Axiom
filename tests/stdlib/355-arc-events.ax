@@ -47,7 +47,7 @@
   )
 )
 
-(:: hspin (-> Int Int a Int))
+(:: hspin (-> Int Int (-> Int Int) Int))
 
 (fn (hspin n acc h)
   (if (<= n 0)

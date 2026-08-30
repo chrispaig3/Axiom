@@ -1,0 +1,4 @@
+E AX3004 386-handler-type.ax:34:42-43 type-mismatch "type mismatch: expected (Int -> Int), found Int" #"this has type `Int`, expected `(Int -> Int)`"
+E AX3004 386-handler-type.ax:38:42-48 type-mismatch "type mismatch: expected (Int -> Int), found (Int -> String)" #"this has type `(Int -> String)`, expected `(Int -> Int)`"
+E AX3004 386-handler-type.ax:44:40-51 type-mismatch "type mismatch: expected (Int -> Int), found (String -> Int)" #"this has type `(String -> Int)`, expected `(Int -> Int)`"
+E AX3004 386-handler-type.ax:48:59-60 type-mismatch "type mismatch: expected Int, found String" #"this has type `String`, expected `Int`"

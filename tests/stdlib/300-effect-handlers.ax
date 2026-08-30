@@ -36,16 +36,15 @@
 
 ;@axiom:effect(io)
 (fn (main)
-  ; `cast Int`: a `handle` expression's type is the checker's silent
-  ; wildcard - an effect operation's result is the one shape stage1
-  ; cannot represent - so it selects no `Show` implementation
-  ; (AX3025). Without the cast this compiled clean and died in `opt`
-  ; on a call to an undefined `@show`.
+  ; No `cast Int`: a `handle` expression's type is its BODY's, so
+  ; `show` selects on the `Int` that `ask` declares. Until 2026-08-29
+  ; the form answered the checker's silent wildcard, which selects no
+  ; implementation (AX3025), and every handle in the tree was wrapped.
   {
     (println
-      (cast Int (handle (ask 3 4) (Ask) (lambda (a)
+      (handle (ask 3 4) (Ask) (lambda (a)
         (lambda (b) (+ a b))
-      )))
+      ))
     )
     (handle {
       (log "outer-first")
@@ -60,11 +59,9 @@
       0
     } (Console IO Alloc) (lambda (s)
       {
-        ; `cast String`: a handler parameter's type is a variable, so it
-        ; selects no `Show` implementation (AX3025).
-        (println
-          (cast String s)
-        )
+        ; No `cast String`: the handler is checked against `log`'s
+        ; arrow, so `s` IS a String and `show` selects on it.
+        (println s)
         0
       }
     ))

@@ -1,0 +1,24 @@
+; An effect operation must declare its type. `(effect E (op))` used to
+; register `op` as a silent wildcard with arity -1, so `(op 1 2 3)` on a
+; one-argument handler checked clean and SIGSEGVed at run time - the
+; dispatch applied the handler's result as a function. AX3055 at the
+; operation's name, once per operation; the operation registers as
+; poison behind it, so the over-applied call below draws nothing
+; further - one report per cause. A type the parser cannot read is the
+; same field left at 0, so `notAType` draws it too. `Typed` is the
+; control: no diagnostic.
+(effect Untyped
+  (op))
+
+(effect Odd
+  (fine :: (-> Int Int))
+  (notAType :: 5))
+
+(effect Typed
+  (ask :: (-> Int Int)))
+
+(:: overApplied Int)
+(fn (overApplied) (handle (op 1 2 3) (Untyped) (lambda (x) (* x 10))))
+
+(:: main Int)
+(fn (main) (handle (ask 1) (Typed) (lambda (x) (* x 10))))

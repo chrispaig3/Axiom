@@ -1,0 +1,33 @@
+; expect 10
+; The type of a `handle` is its body's, and a handler's parameter is
+; typed by the operation's arrow: three casts this program does not
+; write. `(println (handle ..))` drew AX3025 before 2026-08-29 - the
+; form answered the checker's silent wildcard, which selects no `show`
+; - and `(println s)` inside a handler drew it too, the parameter being
+; a fresh variable. The exit status is the un-cast handle's value, so a
+; compiler that types the form as anything but its body's `Int` cannot
+; answer 10 here.
+(import IO)
+(import Str)
+
+(effect Ask
+  (ask :: (-> Int Int)))
+
+(effect Tell
+  (tell :: (-> String Int)))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (handle (ask 1) (Ask) (lambda (x) (* x 10))))
+    (handle (tell "typed") (Tell) (lambda (s)
+      {
+        (println s)
+        (strLen s)
+      }
+    ))
+    (handle (ask 1) (Ask) (lambda (x) (* x 10)))
+  }
+)

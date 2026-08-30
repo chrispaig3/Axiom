@@ -62,6 +62,7 @@
   [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)
   [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
   [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
+  [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1440,6 +1441,35 @@ same reason.
 
 Correct the name, or remove it from the list.
 
+### explain AX3055
+AX3055 - an effect operation that declares no type
+
+`(effect E (op))` names an operation and says nothing about what it
+takes or answers. Two checks stand on that arrow and on nothing else:
+the handler a `handle` installs is held to it - `(handle BODY (E)
+HANDLER)` checks HANDLER against `op`'s type (AX3004 when it does not
+fit) and binds a lambda handler's parameters to its parameter types -
+and a call to `op` is held to its arity. With no arrow, neither check
+has anything to say.
+
+Measured before this code existed: the untyped operation registered
+as a silent wildcard with arity -1, so `(op 1 2 3)` on a one-argument
+handler checked clean, and at run time the dispatch applied the
+handler's RESULT as a function - exit 139, SIGSEGV. Memory-unsafe
+code from a program `check` accepted, which is what an error is for.
+
+Write the type after the name, `(op :: (-> Arg Result))`; a
+multi-argument operation's type right-folds, so `(-> Int Int Int)` is
+a two-argument operation whose handler is a curried chain (or a flat
+`(lambda (a b) ..)`, which the parser curries). The type may not
+mention a type variable (AX3017): the handler is installed through a
+protocol that carries no evidence word, so every type in it has to be
+concrete (docs/memory-model.md MM-LIFE-2d).
+
+The parser leaves the field empty for a type it could not read as
+well as for a missing `::`, so this also fires on an operation whose
+type is not a type.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1615,6 +1645,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)
   [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
   [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
+  [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
