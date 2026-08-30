@@ -1,0 +1,71 @@
+; `restrict(no-io)`: a claim that this function and everything it
+; reaches performs no IO, answered from the effect row the checker
+; already computes - which is a transitive fixpoint, so the violation
+; below is two calls away from the tag.
+;
+; Every arm of the rule, because the ones that stay SILENT are what
+; keep it from being a blanket refusal:
+;
+;   `parseConfig` restricts no-io, reaches `println` via `readSection`
+;                                                        -> AX3049
+;   `pureMath`    restricts no-io, performs nothing       -> silent
+;   `sigTagged`   the tag on the `::`, the IO in the `fn` -> AX3049
+;   `allocates`   restricts no-io, allocates and mutates  -> silent:
+;                 `no-io` is not `pure`; `Alloc` and `Mut` are ambient
+;
+; `parseConfig` also declares `effect(io)`, which is TRUE - so it draws
+; no AX3042 and the one diagnostic on it is the restriction. Both tags
+; on one declaration is not a contradiction the compiler resolves; it
+; is two claims, one kept and one not.
+(import IO)
+
+(import Vec)
+
+;@axiom:restrict(no-io)
+(:: parseConfig (-> Int Int))
+
+;@axiom:effect(io)
+(fn (parseConfig n) (readSection n))
+
+(:: readSection (-> Int Int))
+
+;@axiom:effect(io)
+(fn (readSection n)
+  {
+    (println "section")
+    n
+  }
+)
+
+;@axiom:restrict(no-io)
+(:: pureMath (-> Int Int))
+
+(fn (pureMath n) (* n 2))
+
+;@axiom:restrict(no-io)
+(:: sigTagged (-> Int Int))
+
+;@axiom:effect(io)
+(fn (sigTagged n)
+  {
+    (println "direct")
+    n
+  }
+)
+
+(:: allocates (-> Int Int))
+
+;@axiom:restrict(no-io)
+(fn (allocates n)
+  (let ((v vecNew))
+    {
+      (vecPush v n)
+      (vecLen v)
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (+ (parseConfig 1) (+ (pureMath 2) (+ (sigTagged 3) (allocates 4)))))

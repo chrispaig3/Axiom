@@ -1,0 +1,37 @@
+[1;33mwarning[AX3051][0m[1m: `viaField` claims `restrict(no-io)` and the claim cannot be checked: the body calls a value the compiler could not resolve, so the effect row is a lower bound and the absence of `IO` from it is not evidence[0m
+  [1;34m--> [0m375-restrict-unverifiable.ax:41:6
+[1;34m   |[0m
+[1;34m41 |[0m (fn (viaField b n) ((b.f) n))
+[1;34m   |[0m      [1;33m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;33mwarning[AX3051][0m[1m: `handoff` claims `restrict(no-io)` and the claim cannot be checked: the effect row is an upper bound here - the body names a function without calling it, or calls a trait method with more than one implementation - so `IO` in it is not evidence the body performs it[0m
+  [1;34m--> [0m375-restrict-unverifiable.ax:46:6
+[1;34m   |[0m
+[1;34m46 |[0m (fn (handoff k) shout)
+[1;34m   |[0m      [1;33m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `leaks` claims `restrict(no-io)` and the body performs IO[0m
+  [1;34m--> [0m375-restrict-unverifiable.ax:52:6
+[1;34m   |[0m
+[1;34m52 |[0m (fn (leaks b n)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc` and `no-foreign` are transitive - the effect row and the call graph are fixpoints over every callee, so the violation may be anywhere below this body. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `cast` in the body of `casts`, which claims `restrict(no-cast)`[0m
+  [1;34m--> [0m375-restrict-unverifiable.ax:62:31
+[1;34m   |[0m
+[1;34m62 |[0m (fn (casts b n) (+ ((b.f) n) (cast Int b)))
+[1;34m   |[0m                               [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`no-cast` is LOCAL: a cast is an act this body performs, so it is refused where it is written, and a callee's casts are the callee's claim to make. `cast` is the one documented way to fabricate a value - a cast between two concrete types is unchecked - so under this restriction a type's guarantee holds, and without it, it holds of programs that did not write `cast`. Write the conversion the type system checks, or delete the tag
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 2 previous errors

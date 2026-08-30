@@ -1154,6 +1154,70 @@ slip FROM it is reported. A key containing `:` is never reported,
 because a namespaced key is deliberate by construction and its
 distance from `pure` is not evidence about anything.
 
+#### `restrict(...)` - what a declaration does NOT do
+
+`;@axiom:restrict(name, name, ...)` is a claim that this declaration
+does not do something, answered from analysis the checker already
+performs and used to throw away. The list is CLOSED - a name outside
+it is `AX3052`, an error, because inside the one key the compiler has
+said it checks an unknown name is a claim and not metadata. Four
+restrictions are checked:
+
+| Restriction | Decided by | Scope |
+|---|---|---|
+| `no-io` | `IO` is not in the effect row | transitive |
+| `no-alloc` | `Alloc` is not in the effect row | transitive |
+| `no-foreign` | no call-graph path reaches an `extern` item | transitive |
+| `no-cast` | no `cast` head in this body | LOCAL |
+
+Three are transitive by construction and one is not, and the
+difference is not a policy choice. `no-io` and `no-alloc` read the
+effect row, which is already a transitive fixpoint (effects are
+inferred transitively, above): a function calling an IO-performing
+function *has* `IO` in its row, and a check reading the row has no
+local reading available to it. `no-foreign` walks the call graph
+`symbols --calls` prints, through every implementation of a trait
+method the body calls, because the row cannot tell IO through a
+syscall from IO through an `extern` and the graph can. `no-cast` is
+lexical - a cast is an act the body that writes it performs, not a
+property that propagates - so it is checked in this body only and
+reported at the cast, and a callee's casts are the callee's claim to
+make. Measured: 653 `(cast ` in `self_host/` and `stdlib/` against
+3,196 `fn` declarations, so a transitive `no-cast` would refuse nearly
+every program that reaches the standard library. `sizeof` and
+`alignof` are not casts here: they read a layout and reinterpret
+nothing.
+
+A violation is `AX3049`, an **error** with no warning stage, for the
+argument that made `AX3010` one: the tag is a claim the author wrote,
+and a build shipping a false one publishes a guarantee the program
+does not keep. Deleting the tag silences it and *withdraws* the claim;
+an unrestricted function is never asked. A claim over a row the walk
+could not close is `AX3051`, a warning in
+`tests/diagnostics/severity.policy`, in exactly one direction per
+marker: an effect ABSENT from a row that is a lower bound
+(`#effects-incomplete`), or PRESENT in one that is an upper bound
+(`#effects-overapprox`). An effect present in a lower bound is a
+violation. `no-cast` never draws `AX3051`.
+
+A restriction is a **per-declaration** claim. A tag attaches to the
+declaration written below it, on the `::` or on the `fn`, and both
+are read as one set; `symbols` renders it as `#restrict=no-io,no-alloc`
+on the function's row. There is no module-wide form - measured, a tag
+above `(import IO)` attaches to the import and to no function's row -
+and module scope is deferred: a module-wide claim is written on each
+declaration, where `symbols` shows it. A `restrict` tag is not an
+effect claim and does not stand in for one: a restricted function
+that performs IO without `effect(io)` draws `AX3042` like any other,
+and `restrict(no-io)` over it draws `AX3049` as well.
+
+`tests/diagnostics/371`-`376` pin each restriction with the controls
+that keep it from being a blanket refusal - a callee that casts under
+`no-cast`, a syscall under `no-foreign`, `Alloc,Mut` under `no-io` -
+and `scripts/check-restrictions.sh` is the gate: a restriction changes
+no emitted byte, and a compiler whose `checkRestricts` answers nothing
+goes red.
+
 Until 2026-08-22 neither happened. The sentinel that records an
 unresolved call had been in the source, skipped by two consumers and
 produced by nobody since `f6ddc2e` removed its last producer, so an

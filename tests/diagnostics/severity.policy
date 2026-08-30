@@ -119,6 +119,28 @@ AX3039
 #          `353-callback-tyvar.ax` is that arm's fixture, with the
 #          higher-order control every ordinary callback has.
 
+# AX3051 - a `restrict(no-io | no-alloc | no-foreign)` claim over a body
+#          the effect walk could not close, in one of the two directions
+#          it cannot: the row is a LOWER bound (a call it did not resolve)
+#          and the effect is absent from it, or the row is an UPPER bound
+#          (a function named without being called, a trait method with
+#          more than one implementation) and the effect is present in
+#          it. A limit of the ANALYSIS rather than a defect in the
+#          program: `(fn (viaField b n) ((b.f) n))` over a pure `b.f` is
+#          a correct program, and refusing it would make dispatch through
+#          a stored function unwriteable under a restriction rather than
+#          unverified. This is AX3037's argument at one remove - same
+#          sentinels (`effIncomplete`, `effByRef`), same six corpus files
+#          carrying ten marks between them (`docs/reference.md`, AXTAG
+#          Keys), same standing risk: this list is for the unanswerable,
+#          and a code that becomes answerable leaves it. The answerable
+#          half is AX3049 - a restriction the walk refuted - which is an
+#          error from its first day, because the objections that held
+#          AX3010 back are already gone, and the effect either is in the
+#          row or is not. AX3052, a name that is not a restriction, is an
+#          error too: the list is closed, so an unknown name is a claim
+#          and not metadata.
+AX3051
 # AX3048 `deprecated-name` - a reference to a name its own declaration
 #          marks `;@axiom:deprecated(...)`. A warning by DESIGN and not
 #          as a staging step, which is the whole difference between

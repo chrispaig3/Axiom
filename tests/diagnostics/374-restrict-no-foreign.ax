@@ -1,0 +1,55 @@
+; `restrict(no-foreign)`: no call-graph path reaches an `extern` item.
+; The effect row cannot answer this - an extern contributes `IO`, and so
+; does a syscall - so this one walks the graph `symbols --calls` prints
+; for an entry `tcAddExtern` marked (word 4 = 2).
+;
+;   `bridges`   calls the extern `add` directly             -> AX3049
+;   `viaHelper` calls `wrap`, which calls the extern        -> AX3049:
+;               the graph is transitive
+;   `native`    performs IO through a SYSCALL, no extern    -> silent:
+;               this is the control that separates `no-foreign` from
+;               `no-io` - the row says IO for both, the graph does not
+;   `local`     arithmetic only                             -> silent
+;
+; Every IO-performing function here declares it, so the only
+; diagnostics are the restriction's.
+(pub extern "axiom_demo"
+  (add :: (-> Int Int Int) (symbol "axffi_add")))
+
+;@axiom:restrict(no-foreign)
+(:: bridges (-> Int Int))
+
+;@axiom:effect(io)
+(fn (bridges n) (add n 1))
+
+(:: wrap (-> Int Int))
+
+;@axiom:effect(io)
+(fn (wrap n) (add n 2))
+
+;@axiom:restrict(no-foreign)
+(:: viaHelper (-> Int Int))
+
+;@axiom:effect(io)
+(fn (viaHelper n) (wrap n))
+
+;@axiom:restrict(no-foreign)
+(:: native (-> Int Int))
+
+;@axiom:effect(io)
+(fn (native n)
+  {
+    (__syscall3 1 1 0 0)
+    n
+  }
+)
+
+;@axiom:restrict(no-foreign)
+(:: local (-> Int Int))
+
+(fn (local n) (- n 1))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (+ (bridges 1) (+ (viaHelper 2) (+ (native 3) (local 4)))))

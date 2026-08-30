@@ -1,0 +1,42 @@
+; A name inside `restrict(...)` that is not a restriction. The list is
+; CLOSED, unlike the key namespace AX3039 guards, so this is an ERROR
+; and not a near-miss warning: `no-fo` inside the one key the compiler
+; has said it checks would otherwise read like a guarantee and buy
+; silence.
+;
+;   `slipped`   restrict(no-fo)                     -> AX3052
+;   `mixed`     restrict(no-io, no-foo): the known name is checked and
+;               the unknown one refused, one line each; the blanks
+;               around the comma are not part of any name
+;                                                   -> AX3052 alone
+;   `empty`     restrict()                          -> AX3052: names none
+;   `twice`     restrict(no-io,no-io)               -> silent: a set
+;   `control`   restrict(no-io) satisfied           -> silent
+;@axiom:restrict(no-fo)
+(:: slipped (-> Int Int))
+
+(fn (slipped n) n)
+
+;@axiom:restrict(no-io, no-foo)
+(:: mixed (-> Int Int))
+
+(fn (mixed n) n)
+
+;@axiom:restrict()
+(:: empty (-> Int Int))
+
+(fn (empty n) n)
+
+;@axiom:restrict(no-io,no-io)
+(:: twice (-> Int Int))
+
+(fn (twice n) n)
+
+;@axiom:restrict(no-io)
+(:: control (-> Int Int))
+
+(fn (control n) n)
+
+(:: main Int)
+
+(fn (main) (+ (slipped 1) (+ (mixed 2) (+ (empty 3) (+ (twice 4) (control 5))))))

@@ -1,0 +1,39 @@
+; `restrict(no-alloc)`: `Alloc` is not in the effect row. Transitive
+; for the same reason `no-io` is - the row is a fixpoint - and it sees
+; the body's OWN allocation too, because `(alloc T n)` adds `Alloc` at
+; the site rather than through a call.
+;
+;   `builds`  calls `strConcat`, which allocates      -> AX3049
+;   `direct`  writes `(alloc Int 1)` itself           -> AX3049
+;   `sums`    arithmetic only                         -> silent
+;   `reads`   loads a word through a primitive        -> silent:
+;             `__load64` performs nothing, and the tag is on the `fn`
+(import Str)
+
+;@axiom:restrict(no-alloc)
+(:: builds (-> String String))
+
+(fn (builds s) (strConcat s "!"))
+
+;@axiom:restrict(no-alloc)
+(:: direct (-> Int Int))
+
+(fn (direct n)
+  (let ((p (alloc Int 1)))
+    n
+  )
+)
+
+;@axiom:restrict(no-alloc)
+(:: sums (-> Int Int Int))
+
+(fn (sums a b) (+ a b))
+
+(:: reads (-> Int Int))
+
+;@axiom:restrict(no-alloc)
+(fn (reads p) (__load64 p 0))
+
+(:: main Int)
+
+(fn (main) (+ (strLen (builds "a")) (+ (direct 1) (+ (sums 2 3) (reads (direct 0))))))

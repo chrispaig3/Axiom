@@ -14572,6 +14572,10 @@
               tc              d              own              0              eff              (bsEparams sc)
             )
           )
+          ; `restrict(...)` on either declaration, as a union - the
+          ; same two sets, read once more for a different kind of
+          ; claim. Runs on the same `eff` AX3010 and AX3042 read.
+          (checkRestricts tc d own sig eff)
           ; A declaration that made ANY effect claim belongs to AX3010,
           ; right or wrong. This arm is for the one that made none.
           (if (|| (== (axtagsClaimAny sig) 1) (== (axtagsClaimAny own) 1))
@@ -14582,6 +14586,572 @@
         }
       )
     )
+  )
+)
+
+; ------------------------------------------------------------------
+; `;@axiom:restrict(...)`: a claim that this declaration does NOT do
+; something, answered from analysis the checker already performs and
+; used to throw away.
+;
+; The value is a comma-separated list of restriction names. Four are
+; checked here:
+;
+;   no-io       `IO` is not in the effect row                 transitive
+;   no-alloc    `Alloc` is not in the effect row              transitive
+;   no-foreign  no call-graph path reaches an `extern` item   transitive
+;   no-cast     no `cast` head in THIS body                   local
+;
+; THREE ARE TRANSITIVE BY CONSTRUCTION AND ONE IS NOT, and the
+; difference is not a policy choice. `no-io` and `no-alloc` read the
+; effect row, which is already a transitive fixpoint (`inferEffects`):
+; a function calling an IO-performing function HAS `IO` in its row,
+; and a check that reads the row has no local reading available to
+; it. `no-foreign` walks the call graph the same fixpoint records
+; (`tcNoteCall`, FnEnt word 7), because the row cannot tell IO through
+; a syscall from IO through an `extern` and the graph can: an extern's
+; entry is the one `tcAddExtern` seeds with word 4 = 2, the
+; discriminator it writes for exactly this purpose. `no-cast` is
+; LEXICAL - a cast is an act performed by the body that writes it, not
+; a property that propagates - so it is a walk over this body's
+; expression tree, and a callee's casts are that callee's claim to
+; make. Measured: 653 `(cast ` in `self_host/` and `stdlib/` against
+; 3,196 `fn` declarations, so a transitive `no-cast` would refuse
+; nearly every program that reaches the standard library.
+;
+; `sizeof` and `alignof` share `cast`'s arity exemption in
+; `checkCastForm` and nothing else: they read a type's layout and
+; reinterpret no value. `isCastLike` groups the three for the
+; type-as-first-argument rule; this check asks the narrower question.
+;
+; A restriction is a PER-DECLARATION claim. A tag attaches to the
+; declaration it is written above, and a function has two - the `::`
+; and the `fn` - so the set checked is the union of both, exactly as
+; `checkAxtags` reads both for `pure`. There is no module-wide form:
+; measured, a tag above `(import IO)` attaches to the import and to no
+; function's row. Module scope is deferred (`docs/reference.md`, AXTAG
+; Keys); a module-wide claim is written on each declaration, and
+; `symbols` shows it there.
+;
+; THE VERDICT READS THE TWO MARKERS THE WAY `axtagContradicted` DOES,
+; and per direction. `effByRef` says the row may be an UPPER bound -
+; an effect arrived by NAMING an arrow-typed function without calling
+; it, or through a trait method with more than one implementation -
+; so an effect PRESENT under that mark is not evidence that the body
+; performs it. `effIncomplete` says the row is a LOWER bound - the walk
+; met a call it could not resolve - so an effect ABSENT under that
+; mark is not evidence that the body does not. Each mark is
+; unverifiable in exactly one direction: present-and-byref,
+; absent-and-incomplete. Present-and-incomplete is a VIOLATION,
+; because a lower bound that already contains the effect is the body
+; performing it whatever the unresolved call adds. Both unverifiable
+; answers are AX3051, a WARNING, for AX3037's reason: a limit of the
+; analysis is not a defect in the program, and refusing
+; `((b.f) 7)` under `restrict(no-io)` would make dispatch through a
+; stored function unwriteable rather than unverified.
+;
+; `no-cast` is checked under either marker, because a cast in this
+; body is this body's whether or not the walk resolved a call
+; elsewhere in it.
+;
+; A violation is AX3049, an ERROR with no warning stage, for the
+; argument that promoted AX3010 on 2026-08-25: the tag is a claim the
+; author WROTE, and a build shipping a false one publishes a guarantee
+; the program does not keep. Unlike AX3010's history there is no
+; conflated second shape to disentangle first - the row contains the
+; effect or it does not, the graph contains the edge or it does not.
+; Deleting the tag silences it and WITHDRAWS the claim; an
+; unrestricted function is never asked.
+;
+; A name that is not a restriction is AX3052, also an ERROR. The list
+; of restrictions is CLOSED, unlike the key namespace AX3039 guards,
+; so `no-fo` inside `restrict(...)` is not metadata: it is a claim that
+; reads like a guarantee and buys silence, in the one place the
+; compiler has said it checks. AX3016 refuses an unknown effect name
+; in a `handle` list for the same reason.
+(pub :: checkRestricts (-> Int Int Int Int Int Int))
+
+(pub fn (checkRestricts tc d own sig eff)
+  (let ((rs vecNew))
+    {
+      (restrictCollect sig rs 0)
+      (restrictCollect own rs 0)
+      (checkRestrictsFrom tc d rs 0 eff)
+    }
+  )
+)
+
+; Every name in every `restrict(...)` tag of `tags`, deduplicated, in
+; source order - the signature's first, because `checkRestricts` reads
+; it first. The value runs to the LAST `)` (`axtagCloseAt`, the rule
+; every reader applies since phase 0 of this work), and the names are
+; split on `,` with the blanks around each trimmed: a space is not a
+; restriction name, and reporting ` no-alloc` as unknown would be a
+; diagnostic about the author's typing rather than their claim.
+(pub :: restrictCollect (-> Int Int Int Int))
+
+(pub fn (restrictCollect tags rs i)
+  (if (== tags 0)
+    0
+    (if (>= i (vecLen tags))
+      0
+      (let ((content (memGetWordStr (vecGet tags i) 1)))
+        (let ((op (strFindByte content 40 0)))
+          {
+            (if (strEq
+              (if (< op 0)
+                content
+                (strSlice content 0 op)
+              )              "restrict"
+            )
+              (restrictSplit (axtagListValue content op) rs)
+              0
+            )
+            (restrictCollect tags rs (+ i 1))
+          }
+        )
+      )
+    )
+  )
+)
+
+; The bytes between `(` at `op` and the last `)`, or "" when there is
+; no value or the last `)` does not follow the `(`.
+(pub :: axtagListValue (-> String Int String))
+
+(pub fn (axtagListValue content op)
+  (if (< op 0)
+    ""
+    (let ((cl (axtagCloseAt content)))
+      (if (|| (>= cl (strLen content)) (<= cl op))
+        ""
+        (strSlice content (+ op 1) (- cl (+ op 1)))
+      )
+    )
+  )
+)
+
+; Split on `,`, trimming blanks, pushing each name once. A tag naming
+; NOTHING - `restrict` or `restrict()` - pushes the empty name, so
+; that it is reported (AX3052) rather than read as a claim of
+; nothing.
+(pub :: restrictSplit (-> String Int Int))
+
+(pub fn (restrictSplit val rs)
+  (let (
+    (mut start 0)
+    (mut i 0)
+    (mut any 0)
+  )
+    {
+      (while (<= i (strLen val))
+        {
+          (if (|| (== i (strLen val)) (== (strByte val i) 44))
+            {
+              (let ((name (strTrimBlanks (strSlice val start (- i start)))))
+                (if (> (strLen name) 0)
+                  {
+                    (set any 1)
+                    (if (== (strInVec rs name 0) 1)
+                      0
+                      (vecPush rs name)
+                    )
+                  }
+                  0
+                )
+              )
+              (set start (+ i 1))
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      (if (== any 0)
+        (vecPush rs "")
+        0
+      )
+    }
+  )
+)
+
+(pub :: strTrimBlanks (-> String String))
+
+(pub fn (strTrimBlanks s)
+  (let (
+    (mut a 0)
+    (mut b (strLen s))
+  )
+    {
+      (while (if (< a b)
+        (isBlankByte (strByte s a))
+        false
+      )
+        (set a (+ a 1)))
+      (while (if (< a b)
+        (isBlankByte (strByte s (- b 1)))
+        false
+      )
+        (set b (- b 1)))
+      (strSlice s a (- b a))
+    }
+  )
+)
+
+(pub :: checkRestrictsFrom (-> Int Int Int Int Int Int))
+
+(pub fn (checkRestrictsFrom tc d rs i eff)
+  (if (>= i (vecLen rs))
+    0
+    {
+      (checkOneRestrict tc d (vecGetStr rs i) eff)
+      (checkRestrictsFrom
+        tc        d        rs        (+ i 1)        eff
+      )
+    }
+  )
+)
+
+; The closed list. A name not matched here is AX3052; keep the help in
+; `emitRestrictUnknown` in step with these arms, because it is the
+; only place the list is stated to the author.
+(pub :: checkOneRestrict (-> Int Int String Int Int))
+
+(pub fn (checkOneRestrict tc d r eff)
+  (if (strEq r "no-io")
+    (restrictEffect tc d r eff "IO")
+    (if (strEq r "no-alloc")
+      (restrictEffect tc d r eff "Alloc")
+      (if (strEq r "no-cast")
+        (restrictNoCast tc d (nodeC d))
+        (if (strEq r "no-foreign")
+          (restrictNoForeign tc d r eff)
+          (emitRestrictUnknown tc d r)
+        )
+      )
+    )
+  )
+)
+
+; `no-io` and `no-alloc`: the effect row, read per direction as the
+; header explains.
+(pub :: restrictEffect (-> Int Int String Int String Int))
+
+(pub fn (restrictEffect tc d r eff e)
+  (if (== (effIn eff (builtinEff e)) 1)
+    (if (== (effOverApprox eff) 1)
+      (emitRestrictUnverifiable tc d r (strConcat (strConcat "the effect row is an upper bound here - the body names a function without calling it, or calls a trait method with more than one implementation - so `" e) "` in it is not evidence the body performs it"))
+      (emitRestrictViolated tc d r (strConcat "the body performs " e))
+    )
+    (if (== (effPartial eff) 1)
+      (emitRestrictUnverifiable tc d r (strConcat (strConcat "the body calls a value the compiler could not resolve, so the effect row is a lower bound and the absence of `" e) "` from it is not evidence"))
+      0
+    )
+  )
+)
+
+; `no-foreign`: a breadth-first walk over FnEnt word 7 from this
+; declaration's own entry, for an entry whose word 4 is 2. The graph
+; has an edge for every resolved call, every syscall primitive, and
+; every implementation of a trait method the body calls
+; (`traitUnionImpls`), so dispatch does not hide an extern. It also
+; has an edge for a function the body merely NAMES (`effRefSiteAt`
+; records the edge before deciding whether the reference is a call),
+; which is the same over-approximation `effByRef` marks on the row -
+; so an extern found under that mark is unverifiable, not violated.
+; What the graph does NOT have is the call the effect walk could not
+; resolve, the hole `effIncomplete` marks, so an extern NOT found under
+; that mark is unverifiable too.
+(pub :: restrictNoForeign (-> Int Int String Int Int))
+
+(pub fn (restrictNoForeign tc d r eff)
+  (let ((hit (graphFindExtern tc (restrictOwnEnt tc d))))
+    (if (!= hit 0)
+      (if (== (effOverApprox eff) 1)
+        (emitRestrictUnverifiable tc d r (strConcat (strConcat "the call graph reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call"))
+        (emitRestrictViolated tc d r (strConcat (strConcat "the body reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "`"))
+      )
+      (if (== (effPartial eff) 1)
+        (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, and the call graph has no edge for it")
+        0
+      )
+    )
+  )
+)
+
+; This declaration's own entry, looked up under its own module -
+; `inferEffectsOne` states why: a private function is invisible to a
+; lookup made from nowhere.
+(pub :: restrictOwnEnt (-> Int Int Int))
+
+(pub fn (restrictOwnEnt tc d)
+  (let ((_m (memSetWord tc 16 (nodeModule d))))
+    (let ((ent (findFnEnt tc (nodeAName d))))
+      {
+        (memSetWord tc 16 0)
+        ent
+      }
+    )
+  )
+)
+
+; The nearest entry reachable from `start` whose word 4 is 2, or 0.
+; Breadth-first, so the first hit is the one at the fewest hops, and
+; `seen` is keyed by the resolved name each edge already carries.
+; Every entry's word 7 is a Vec - `regFn`, `regFnEff`, `tcAddExtern`
+; and `tcAddEffectOp` all construct one - so the walk needs no guard
+; against a missing edge list.
+(pub :: graphFindExtern (-> Int Int Int))
+
+(pub fn (graphFindExtern tc start)
+  (if (== start 0)
+    0
+    (let (
+      (queue vecNew)
+      (seen vecNew)
+      (mut qi 0)
+      (mut hit 0)
+    )
+      {
+        (vecPush queue start)
+        (vecPush seen (memGetWordStr start 0))
+        (while (if (== hit 0)
+          (< qi (vecLen queue))
+          false
+        )
+          (let ((ent (vecGet queue qi)))
+            {
+              (set qi (+ qi 1))
+              (if (== (memGetWord ent 4) 2)
+                (set hit ent)
+                (graphPushCallees
+                  tc                  (memGetWord ent 7)                  0                  queue                  seen
+                )
+              )
+            }
+          ))
+        hit
+      }
+    )
+  )
+)
+
+; Enqueue every callee of `calls` not yet seen. `fnEntExact` and not
+; `findFnEnt`: an edge names the RESOLVED entry (`Mod$name`), which is
+; the exact-name index's key, and visibility was decided when the edge
+; was recorded.
+(pub :: graphPushCallees (-> Int Int Int Int Int Int))
+
+(pub fn (graphPushCallees tc calls i queue seen)
+  (if (>= i (vecLen calls))
+    0
+    {
+      (let ((name (vecGetStr calls i)))
+        (if (== (strInVec seen name 0) 1)
+          0
+          {
+            (vecPush seen name)
+            (let ((e (fnEntExact tc name)))
+              (if (== e 0)
+                0
+                (vecPush queue e)
+              )
+            )
+          }
+        )
+      )
+      (graphPushCallees
+        tc        calls        (+ i 1)        queue        seen
+      )
+    }
+  )
+)
+
+; `no-cast`: every `cast` head in this body, each reported at its own
+; span. The arms mirror `walkEffects` form for form, because a walk
+; that skips a form skips every cast under it; the literal leaves and
+; a bare name hold nothing. The head test is the checker's own
+; (`headIsVar` and the spelling `cast`), so what this refuses is
+; exactly what `checkCastForm` checks. An application's span is its
+; head's (`parser.ax`, `TAG_E_APP`), so the span reported covers the
+; word `cast` and the message leads with it.
+(pub :: restrictNoCast (-> Int Int Int Int))
+
+(pub fn (restrictNoCast tc d e)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_APP)
+        (let ((head (spineHead e)))
+          {
+            (if (== (nodeTag head) TAG_E_VAR)
+              (if (strEq (nodeAName head) "cast")
+                (emitRestrictCast tc d (nodeSpan e))
+                0
+              )
+              (restrictNoCast tc d head)
+            )
+            (restrictNoCastVec tc d (spineArgVec e vecNew) 0)
+          }
+        )
+        (if (== tag TAG_E_ALLOC)
+          (restrictNoCast tc d (nodeB e))
+          (if (== tag TAG_E_SETF)
+            {
+              (restrictNoCast tc d (nodeA e))
+              (restrictNoCast tc d (nodeC e))
+            }
+            (if (== tag TAG_E_HANDLE)
+              {
+                (restrictNoCast tc d (nodeA e))
+                (restrictNoCast tc d (nodeC e))
+              }
+              (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                {
+                  (restrictNoCast tc d (nodeB e))
+                  (restrictNoCast tc d (nodeC e))
+                }
+                (if (== tag TAG_E_LAM)
+                  (restrictNoCast tc d (nodeB e))
+                  (if (== tag TAG_E_IF)
+                    {
+                      (restrictNoCast tc d (nodeA e))
+                      (restrictNoCast tc d (nodeB e))
+                      (restrictNoCast tc d (nodeC e))
+                    }
+                    (if (== tag TAG_E_BEGIN)
+                      (restrictNoCastVec tc d (nodeA e) 0)
+                      (if (== tag TAG_E_WHILE)
+                        {
+                          (restrictNoCast tc d (nodeA e))
+                          (restrictNoCastVec tc d (nodeB e) 0)
+                        }
+                        (if (== tag TAG_E_SET)
+                          (restrictNoCast tc d (nodeB e))
+                          (if (== tag TAG_E_FIELD)
+                            (restrictNoCast tc d (nodeA e))
+                            (if (== tag TAG_E_STRUCTCON)
+                              (restrictNoCastVec tc d (nodeB e) 0)
+                              (if (== tag TAG_E_COND)
+                                (restrictNoCastCond tc d (nodeA e) 0)
+                                (if (== tag TAG_E_MATCH)
+                                  {
+                                    (restrictNoCast tc d (nodeA e))
+                                    (restrictNoCastArms tc d (nodeB e) 0)
+                                  }
+                                  0
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: restrictNoCastVec (-> Int Int Int Int Int))
+
+(pub fn (restrictNoCastVec tc d v i)
+  (if (>= i (vecLen v))
+    0
+    {
+      (restrictNoCast tc d (vecGet v i))
+      (restrictNoCastVec tc d v (+ i 1))
+    }
+  )
+)
+
+(pub :: restrictNoCastCond (-> Int Int Int Int Int))
+
+(pub fn (restrictNoCastCond tc d cls i)
+  (if (>= i (vecLen cls))
+    0
+    (let ((c (vecGet cls i)))
+      {
+        (restrictNoCast tc d (nodeA c))
+        (restrictNoCast tc d (nodeB c))
+        (restrictNoCastCond tc d cls (+ i 1))
+      }
+    )
+  )
+)
+
+(pub :: restrictNoCastArms (-> Int Int Int Int Int))
+
+(pub fn (restrictNoCastArms tc d arms i)
+  (if (>= i (vecLen arms))
+    0
+    (let ((a (vecGet arms i)))
+      {
+        (restrictNoCast tc d (nodeB a))
+        (restrictNoCastArms tc d arms (+ i 1))
+      }
+    )
+  )
+)
+
+; AX3049 at the DECLARATION, for the transitive three: the violation
+; may be anywhere below this body, and the declaration is where the
+; claim was written.
+(pub :: emitRestrictViolated (-> Int Int String String Int))
+
+(pub fn (emitRestrictViolated tc d r why)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR      "AX3049"      "restriction-violated"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and " why))      0      0      "a restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc` and `no-foreign` are transitive - the effect row and the call graph are fixpoints over every callee, so the violation may be anywhere below this body. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked"
+    ))
+  )
+)
+
+; AX3049 at the CAST, for the local one: it has a span, and the fix
+; is where the span is.
+(pub :: emitRestrictCast (-> Int Int Int Int))
+
+(pub fn (emitRestrictCast tc d span)
+  (if (== span 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR      "AX3049"      "restriction-violated"      span      (strConcat (strConcat "`cast` in the body of `" (bareOf (nodeAName d))) "`, which claims `restrict(no-cast)`")      0      0      "`no-cast` is LOCAL: a cast is an act this body performs, so it is refused where it is written, and a callee's casts are the callee's claim to make. `cast` is the one documented way to fabricate a value - a cast between two concrete types is unchecked - so under this restriction a type's guarantee holds, and without it, it holds of programs that did not write `cast`. Write the conversion the type system checks, or delete the tag"
+    ))
+  )
+)
+
+; AX3051: unverifiable, a warning - the claim is neither refuted nor
+; acquitted, and the reason is the analysis's rather than the body's.
+(pub :: emitRestrictUnverifiable (-> Int Int String String Int))
+
+(pub fn (emitRestrictUnverifiable tc d r why)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_WARNING      "AX3051"      "restriction-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))      0      0      "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved"
+    ))
+  )
+)
+
+; AX3052: a name outside the closed list. The help states the list,
+; and it is the one place the list is stated to the author - keep it
+; in step with `checkOneRestrict`'s arms.
+(pub :: emitRestrictUnknown (-> Int Int String Int))
+
+(pub fn (emitRestrictUnknown tc d r)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR      "AX3052"      "restriction-unknown"      (nodeSpan d)      (if (== (strLen r) 0)
+        (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict()`, which names no restriction")
+        (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction"))
+      )      0      0      "the restrictions this compiler checks are `no-cast`, `no-io`, `no-alloc` and `no-foreign`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
+    ))
   )
 )
 
@@ -14598,6 +15168,16 @@
 ; A `pure` tag counts as a claim even though it names no effect: it
 ; claims the ABSENCE of every effect, IO included, and a body
 ; performing IO under it already draws AX3010 `contradicted`.
+;
+; `restrict` IS NOT ONE, AND MUST NEVER JOIN THIS LIST. It reads like
+; an effect claim - `restrict(no-io)` names an effect - but it is a
+; claim about what the body does NOT reach, checked by `checkRestricts`
+; against the same row. Adding it here would switch AX3042 off for
+; every restricted function, silently and in the safe-looking
+; direction: a `restrict(no-alloc)` body performing undeclared IO would
+; draw nothing at all. A restricted function that performs IO and does
+; not declare it draws AX3042 like any other, and `restrict(no-io)`
+; over it draws AX3049 as well - two facts, two diagnostics.
 (pub :: axtagsClaimAny (-> Int Int))
 
 (pub fn (axtagsClaimAny tags)
@@ -15022,10 +15602,11 @@
 ; distance from another one it knows.
 ;
 ; `pre`, `post` and `restrict` are the three keys the Ada-inspired
-; hardening introduces (`docs/reference.md`, AXTAG Keys). They are
-; known here before anything checks them, so that the first contract
-; or restriction written does not draw a false typo; which of them is
-; checked, and by what, is recorded beside the check.
+; hardening introduces (`docs/reference.md`, AXTAG Keys). `restrict`
+; is checked by `checkRestricts`. `pre` and `post` are known ahead of
+; their check, so that a contract does not draw a false typo; until
+; the contracts work lands they are recorded and not checked, exactly
+; as an unknown key is.
 (pub :: axtagKnownKey (-> String Int))
 
 (pub fn (axtagKnownKey key)
@@ -15106,7 +15687,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure` and `effect(...)`"
+      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure`, `effect(...)` and `restrict(...)`"
     ))
   )
 )

@@ -1,0 +1,76 @@
+; A restriction over a row the walk could not close, in each direction
+; the two markers cover - and the shapes that are NOT unverifiable
+; beside them, because the same body under a different restriction
+; has an answer.
+;
+;   `viaField`   restrict(no-io), calls `(b.f)`: the row is a LOWER
+;                bound and IO is absent from it         -> AX3051 (W)
+;   `handoff`    restrict(no-io), NAMES `shout` without calling it:
+;                the row is an UPPER bound and IO is present
+;                                                       -> AX3051 (W)
+;   `leaks`      restrict(no-io), calls `(b.f)` AND `println`: a lower
+;                bound that already contains IO is IO   -> AX3049 (E)
+;   `casts`      restrict(no-cast) over the same `(b.f)` call, with a
+;                cast beside it: a cast is lexical      -> AX3049 (E),
+;                and no AX3051 - the incompleteness is not consulted
+;   `clean`      restrict(no-cast) over `(b.f)`, no cast -> silent
+;
+; `viaField` and `casts` are correct programs when `b.f` is pure, and
+; that is the reason AX3051 warns: refusing them would make dispatch
+; through a stored function unwriteable under a restriction rather
+; than unverified. `handoff` is the shape that blocked promoting
+; AX3010 - `(fn (handoff k) shout)` performs nothing - arriving here
+; through a restriction instead of a purity claim.
+(import IO)
+
+(struct Box (f : (-> Int Int)))
+
+(:: shout (-> Int Int))
+
+;@axiom:effect(io)
+(fn (shout n)
+  {
+    (println "shout")
+    n
+  }
+)
+
+;@axiom:restrict(no-io)
+(:: viaField (-> Box Int Int))
+
+(fn (viaField b n) ((b.f) n))
+
+;@axiom:restrict(no-io)
+(:: handoff (-> Int (-> Int Int)))
+
+(fn (handoff k) shout)
+
+;@axiom:restrict(no-io)
+(:: leaks (-> Box Int Int))
+
+;@axiom:effect(io)
+(fn (leaks b n)
+  {
+    (println "leak")
+    ((b.f) n)
+  }
+)
+
+;@axiom:restrict(no-cast)
+(:: casts (-> Box Int Int))
+
+(fn (casts b n) (+ ((b.f) n) (cast Int b)))
+
+;@axiom:restrict(no-cast)
+(:: clean (-> Box Int Int))
+
+(fn (clean b n) ((b.f) n))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((b (Box shout)))
+    (+ (viaField b 1) (+ ((handoff 2) 3) (+ (leaks b 4) (+ (casts b 5) (clean b 6)))))
+  )
+)

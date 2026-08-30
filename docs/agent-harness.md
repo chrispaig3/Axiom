@@ -105,12 +105,14 @@ is no executable.
 
 `tests/diagnostics/severity.policy` is a hand-maintained allowlist of
 the codes permitted to render as warnings: `AX3037`, `AX3038`,
-`AX3039` and `AX3048`.
+`AX3039`, `AX3048` and `AX3051`.
 
-The first three are the AXTAG family's UNANSWERABLE half, and that
-split is the whole rule for them - a claim the walk checked and refuted
-refuses the build; a claim it was not in a position to check informs
-and does not.
+`AX3037`, `AX3038`, `AX3039` and `AX3051` are the AXTAG family's
+UNANSWERABLE half, and that split is the whole rule for them - a claim
+the walk checked and refuted refuses the build; a claim it was not in a
+position to check informs and does not. `AX3051` joined on 2026-08-29
+with the `restrict(...)` tag: the answerable half of that claim is
+`AX3049`, an error from its first day.
 
 `AX3048` is on the list for a different reason, and it is the first
 member that is not a statement about what the compiler could not

@@ -552,8 +552,15 @@ Both NID and AXTAG are now implemented.
   `axtag-mismatch`, an **error** since 2026-08-25, so a build that
   succeeded is one whose claims the compiler stood behind rather than
   one an agent must re-read the warnings of. A claim it is not in a
-  position to check is `AX3037`, which remains a warning. Other tags (`no_refactor`, `owned(arena=frame)`, etc.) are
-  preserved and emitted but not yet validated.
+  position to check is `AX3037`, which remains a warning. A
+  `restrict(no-io | no-alloc | no-foreign | no-cast)` claim is checked
+  against the same effect row and the call graph: a violation is
+  `AX3049`, an error; a claim over a row the walk could not close is
+  `AX3051`, a warning; a name that is not a restriction is `AX3052`,
+  an error, because that list is closed
+  ([reference.md](reference.md), AXTAG Keys). Other tags
+  (`no_refactor`, `owned(arena=frame)`, etc.) are preserved and
+  emitted but not yet validated.
 
 AXSYM output for a file whose first declaration carries `;@axiom:pure`,
 whose second is an `extern` item and whose third is a data type - the

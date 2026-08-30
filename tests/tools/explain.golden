@@ -59,6 +59,9 @@
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
+  [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)
+  [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
+  [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1315,6 +1318,96 @@ has to ship a release before the removal for either to apply
 To silence it, stop calling the name - the help says what to use
 instead, because the tag's author wrote it there.
 
+### explain AX3049
+AX3049 - a restriction this declaration claimed, violated
+
+`;@axiom:restrict(no-io)` is a claim that this function and everything
+it reaches performs no IO. This is the compiler answering it. The tag
+takes a comma-separated list: `no-cast`, `no-io`, `no-alloc`,
+`no-foreign`.
+
+THREE OF THE FOUR ARE TRANSITIVE BY CONSTRUCTION and one is not, and
+the difference is not arbitrary. `no-io` and `no-alloc` read the
+effect row, which is already a transitive fixpoint (docs/reference.md,
+Effects): a function calling an IO-performing function HAS `IO` in its
+row, and there is no local reading available. `no-foreign` walks the
+call graph `symbols --calls` prints, for an edge that lands on an
+`extern` item - through every implementation of a trait method the
+body calls, because that is what dispatch means. `no-cast` is LEXICAL:
+a cast is an act, not a propagated property, so it is checked in this
+body only and reported at the cast itself. A callee's casts are the
+callee's claim to make - and 653 of this repository's own expressions
+are casts, against 3,196 functions, so a transitive reading would
+refuse nearly everything that reaches the standard library.
+
+`no-cast` is the one that makes the others worth having. `cast` is the
+one documented way to fabricate a value, and a cast between two
+concrete types is unchecked - a `Port` carrying 99999 and an `Int` read
+back as a `String` are the same one-word act. Under `restrict(no-cast)`
+a type's guarantee is true; without it, it is true of programs that
+did not write `cast`.
+
+This is an ERROR with no warning stage, for the argument that made
+AX3010 one: a restriction is a claim the author WROTE, and a build
+shipping a false one publishes a guarantee the program does not keep.
+A claim the walk is not in a position to check is AX3051 and stays a
+warning; this fires only where the walk has an answer.
+
+A restriction is a claim on ONE declaration - a tag attaches to the
+declaration below it, on the `::` or on the `fn`, and both are read.
+A module-wide claim is written on each declaration, and `symbols`
+shows `#restrict=` on each.
+
+Deleting the tag also silences this, and an unrestricted function is
+never checked - but that WITHDRAWS the claim rather than answering it.
+
+### explain AX3051
+AX3051 - a restriction claim the effect walk is not in a position to check
+
+`;@axiom:restrict(no-io)`, `no-alloc` or `no-foreign` over a body
+whose effect row the walk could not close. Two marks make a row
+unverifiable, each in one direction:
+
+  - the row is a LOWER bound - the body calls a value the walk could
+    not resolve (a struct field holding a function, an opaque local) -
+    so an effect ABSENT from it is not evidence the body avoids it;
+  - the row is an UPPER bound - the body names an arrow-typed function
+    without calling it, or calls a trait method with more than one
+    implementation - so an effect PRESENT in it is not evidence the
+    body performs it.
+
+An effect present in a lower bound IS evidence, and is AX3049.
+
+A WARNING, and the difference from AX3049 is the point: this is a
+limit of the ANALYSIS rather than a defect in the program. It is
+AX3037's argument at one remove, over the same two markers - a
+`(handle ((b.f) 7) ...)` over a pure `b.f` is a correct program, and
+refusing it would make dispatch through a stored function unwriteable
+rather than unverified. `no-cast` never draws this: a cast is lexical
+and is checked whether or not a call resolved.
+
+Name the function at the call, or drop the claim. This code is in
+tests/diagnostics/severity.policy, the list of the unanswerable, and
+a code that becomes answerable leaves it.
+
+### explain AX3052
+AX3052 - a name inside `restrict(...)` that is not a restriction
+
+The restrictions this compiler checks are `no-cast`, `no-io`,
+`no-alloc` and `no-foreign`, comma-separated inside one
+`restrict(...)`; a `restrict` naming nothing draws this too.
+
+An ERROR, and deliberately unlike AX3039, which warns about a key one
+slip from a known one and leaves the key namespace open. The list of
+restrictions is CLOSED. `restrict(no-fo)` is not metadata the compiler
+records and ignores - it is a claim inside the one key the compiler
+has said it checks, and accepting it would let a tag read like a
+guarantee and buy silence, which is the failure AX3039 exists to
+name. AX3016 refuses an unknown effect name in a `handle` list for the
+same reason.
+
+Correct the name, or remove it from the list.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1487,6 +1580,9 @@ run `axiom explain --list` to see all known codes
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
+  [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)
+  [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
+  [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

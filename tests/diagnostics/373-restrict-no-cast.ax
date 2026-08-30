@@ -1,0 +1,59 @@
+; `restrict(no-cast)`: no `cast` head in THIS body. The one restriction
+; that is LOCAL, and the controls are what pin that:
+;
+;   `fabricates`  writes `(cast Int m)`                  -> AX3049 AT THE
+;                 CAST - the span covers the word `cast`, not the name
+;   `nested`      a cast inside a `let` inside a `match` -> AX3049, the
+;                 walk reaching every form
+;   `delegates`   calls `unwrap`, which casts            -> silent: a
+;                 callee's casts are the callee's claim to make
+;   `measures`    writes `(sizeof Int)`                  -> silent: it
+;                 reads a layout and reinterprets nothing
+;   `honest`      the tag on the `::`, no cast anywhere  -> silent
+;
+; Two casts in one body are two diagnostics: each has its own span,
+; and the fix is where the span is.
+(data Meters (MkM Int))
+
+;@axiom:restrict(no-cast)
+(:: fabricates (-> Meters Int))
+
+(fn (fabricates m) (+ (cast Int m) (cast Int m)))
+
+;@axiom:restrict(no-cast)
+(:: nested (-> Meters Int))
+
+(fn (nested m)
+  (match m
+    ((MkM v) (let ((w (cast Int m))) (+ v w))))
+)
+
+(:: unwrap (-> Meters Int))
+
+(fn (unwrap m) (cast Int m))
+
+;@axiom:restrict(no-cast)
+(:: delegates (-> Meters Int))
+
+(fn (delegates m) (unwrap m))
+
+(:: measures (-> Int Int))
+
+;@axiom:restrict(no-cast)
+(fn (measures n) (+ n (sizeof Int)))
+
+;@axiom:restrict(no-cast)
+(:: honest (-> Meters Int))
+
+(fn (honest m)
+  (match m
+    ((MkM v) v))
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((m (MkM 7)))
+    (+ (fabricates m) (+ (nested m) (+ (delegates m) (+ (measures 1) (honest m)))))
+  )
+)

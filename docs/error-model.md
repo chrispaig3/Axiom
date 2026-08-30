@@ -793,16 +793,21 @@ can fail - a proposal whose number is already spent - so the next
 collision is a red gate rather than a paragraph nobody re-read. Found
 2026-08-25 while closing `AX3040`'s second shape.
 
-The next free semantic number is therefore `AX3049`: `AX3042` was
+The next free semantic number is therefore `AX3053`: `AX3042` was
 SPENT on 2026-08-25 by `undeclared-effect` (a function that performs IO
 and does not declare it), `AX3047` was spent on 2026-08-26 by
 `sized-integer-type` (a C or Rust primitive spelling in type position,
 which is a type VARIABLE and so was silently accepted), `AX3048` the
 same day by `deprecated-name` (a reference to a name its declaration
 marks `;@axiom:deprecated`, a warning by design - see
-`tests/diagnostics/severity.policy`), `AX3043` and
-`AX3045` are still unspent and stay where they are, `AX3044` is the
-namespace pass's, and `AX3032` is retired and **MUST NOT** be reused.
+`tests/diagnostics/severity.policy`), `AX3049`, `AX3051` and `AX3052`
+on 2026-08-29 by the `restrict(...)` AXTAG (`restriction-violated`, an
+error; `restriction-unverifiable`, a warning in the same policy file;
+`restriction-unknown`, an error - `docs/reference.md`, AXTAG Keys),
+`AX3050` is RESERVED below for the contracts work that follows the
+restrictions, `AX3043` and `AX3045` are still unspent and stay where
+they are, `AX3044` is the namespace pass's, and `AX3032` is retired and
+**MUST NOT** be reused.
 
 `AX3047` is the ninth number this section has had to reconcile, and the
 first one it allocated rather than surrendered: it was taken from the
@@ -822,6 +827,7 @@ what keeps it honest.
 | `AX3046` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning (was `AX3042` until that number was built as `undeclared-effect`) |
 | `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 | `AX3045` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
+| `AX3050` | `contract-malformed` | a `;@axiom:pre(...)`/`post(...)` whose value does not parse as an expression, does not type-check as `Bool` against the signature, or names `result` where the declared result is absent — error; reserved 2026-08-29 between two numbers the restrictions spent, so that the contracts land on the number their design names |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`

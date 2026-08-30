@@ -1,0 +1,28 @@
+[1;31merror[AX3049][0m[1m: `cast` in the body of `fabricates`, which claims `restrict(no-cast)`[0m
+  [1;34m--> [0m373-restrict-no-cast.ax:21:24
+[1;34m   |[0m
+[1;34m21 |[0m (fn (fabricates m) (+ (cast Int m) (cast Int m)))
+[1;34m   |[0m                        [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`no-cast` is LOCAL: a cast is an act this body performs, so it is refused where it is written, and a callee's casts are the callee's claim to make. `cast` is the one documented way to fabricate a value - a cast between two concrete types is unchecked - so under this restriction a type's guarantee holds, and without it, it holds of programs that did not write `cast`. Write the conversion the type system checks, or delete the tag
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `cast` in the body of `fabricates`, which claims `restrict(no-cast)`[0m
+  [1;34m--> [0m373-restrict-no-cast.ax:21:37
+[1;34m   |[0m
+[1;34m21 |[0m (fn (fabricates m) (+ (cast Int m) (cast Int m)))
+[1;34m   |[0m                                     [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`no-cast` is LOCAL: a cast is an act this body performs, so it is refused where it is written, and a callee's casts are the callee's claim to make. `cast` is the one documented way to fabricate a value - a cast between two concrete types is unchecked - so under this restriction a type's guarantee holds, and without it, it holds of programs that did not write `cast`. Write the conversion the type system checks, or delete the tag
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `cast` in the body of `nested`, which claims `restrict(no-cast)`[0m
+  [1;34m--> [0m373-restrict-no-cast.ax:28:24
+[1;34m   |[0m
+[1;34m28 |[0m     ((MkM v) (let ((w (cast Int m))) (+ v w))))
+[1;34m   |[0m                        [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`no-cast` is LOCAL: a cast is an act this body performs, so it is refused where it is written, and a callee's casts are the callee's claim to make. `cast` is the one documented way to fabricate a value - a cast between two concrete types is unchecked - so under this restriction a type's guarantee holds, and without it, it holds of programs that did not write `cast`. Write the conversion the type system checks, or delete the tag
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 3 previous errors

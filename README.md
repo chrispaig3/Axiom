@@ -36,7 +36,7 @@ Axiom is built for agents as first-class users. Three notations make this possib
 
 - **AXSYM** — A dense, one-line-per-symbol notation that tells an agent exactly what a file declares and the type of each symbol. Run `axiom --diagnostic-format=ai symbols` to see it; plain `axiom symbols` prints the same facts as an aligned table for a human reader. No re-reading files, no re-deriving signatures by eye.
 - **NID** — Stable node IDs: content-derived hashes of `(kind, name)` that survive edits and reformatting, unlike line numbers. Every named declaration gets one automatically.
-- **AXTAG** — Source-embedded agent metadata via `;@axiom:<key>(<value>)` comments above declarations. The compiler validates the claims it knows — `effect(io)`/`pure` are checked against the syscalls the body actually reaches — so an agent can annotate intent and have it verified. The key namespace is otherwise open by design: a key the compiler does not know is recorded, re-emitted on the symbol line, and not checked.
+- **AXTAG** — Source-embedded agent metadata via `;@axiom:<key>(<value>)` comments above declarations. The compiler validates the claims it knows — `effect(io)`/`pure` are checked against the syscalls the body actually reaches, and `restrict(no-io, no-alloc, no-foreign, no-cast)` against the same effect row, the call graph and the body (`AX3049` when violated, an error) — so an agent can annotate intent and have it verified. The key namespace is otherwise open by design: a key the compiler does not know is recorded, re-emitted on the symbol line, and not checked.
 
 ---
 
