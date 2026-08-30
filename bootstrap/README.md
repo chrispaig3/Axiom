@@ -150,6 +150,32 @@ tampering; each is explained by the line in `reseed.sh` that built the
 generator from an unrecorded compiler. But none can sit on a trusted
 path, and this paragraph is where that is said.
 
+**What the certification measured.** The plain walk over the 114
+source commits from `74a0680` to `8d266e8` - each tree compiled by the
+compiler built from the one before, no bridges - was run first and
+fails at its seventh step: the compiler built from `1c682ef`'s tree by
+its predecessor SIGSEGVs on any input, because that commit widened the
+`Str` header and the old compiler emits the new stdlib's literals in
+the old layout. That is the finding the bridges answer. The walk the
+row records takes a mixed tree there (`self_host@1c682ef` over the
+previous commit's `stdlib`) and, at `24bdf29`, where `__retainref` was
+defined and used in one commit, a seven-site patch that removes the
+uses in a copy so the previous compiler can build an intermediate that
+knows the primitive; the gate runs the plain step first at both and
+requires it to fail. The walk measures the two orphans as it passes -
+the compiler each bridge builds re-emits its own tree to a fixpoint 67
+lines (`1c682ef`) and 1,282 lines (`24bdf29`) from what was committed -
+and ends at `93a74e5` byte-identical (63 steps, 494 s). `79c8ebc`'s
+tree reaches a fixpoint from `c98924c` 87,624 lines from its seed. The
+first link, `60445dc -> 3b6d485`, cannot replay seed-to-seed (the
+commit changed which names leave a module); the mixed tree closes it
+and a 53-commit walk closes it independently (735 s, byte-identical).
+And reproduction at *stage2* is a property of the tree, not of the
+predecessor - any working compiler reaches the tree's own fixpoint, so
+a nearby seed reproduces a stage2 row as well as the named one does; a
+*stage1* row is the stronger statement, the previous seed's direct
+emission, and every reseed generated from the committed seed is one.
+
 ## Regenerating
 
 ```bash
