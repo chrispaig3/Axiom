@@ -1109,6 +1109,50 @@ unhandled effect` on stderr - which makes the fault legible without
 making it any less a runtime fault, and is why `AX3038` is still worth
 having.
 
+#### Definite and possible
+
+The opposite departure is an effect the body MAY perform without the
+walk being able to say it does, and it is recorded **per effect**, not
+per row. Two shapes produce it:
+
+| shape | example |
+|---|---|
+| a bare arrow-typed name outside argument position | `(fn (handoff k) shout)` - `shout` is handed back, not called |
+| a trait method with more than one implementation | `(show x)` under four `impl`s - dispatch picks one, the walk cannot say which |
+
+Every effect the referent's row carries arrives as *possible*: the
+body may perform it, through whoever calls the value or whichever
+implementation dispatch selects. An effect the body reaches by a call
+is *definite*. The two spellings of one effect can both be present -
+a body that calls `shout` and also names it - and each consumer reads
+the half it is entitled to:
+
+- `AX3042` and the *contradicted* arm of `AX3010` read the definite
+  half. An untagged function whose row holds IO only as possible is
+  not accused; a `;@axiom:pure` over it draws `AX3037`, cannot be
+  checked, exactly as over a lower bound. A definite IO beside a
+  possible `Alloc` is accused: until 2026-08-29 one row-global marker
+  excused the whole row, so every untagged function one hop above a
+  `println` with a `{hole}` compiled clean and printed - the hole goes
+  through `show`'s four implementations, and the excuse for their
+  `Alloc` was excusing the `writeStr`.
+- `AX3011`, the *missing* arm of `AX3010` and `restrict(...)` read the
+  union. A `handle` list must name what the body may reach, and a
+  claimed effect the body may perform is not missing.
+- `symbols` prints the union as `#effects=`, and when some member is
+  possible and not definite adds `#effects-overapprox` with
+  `#effects-possible=A,B` naming which. `(fn (handoff k) shout)`
+  renders `#effects=IO #effects-overapprox #effects-possible=IO`; a
+  function that prints `"n={n}"` renders `#effects=Alloc,IO,Mut` with
+  no admission, because everything `show` can contribute is also
+  definite there.
+
+One shape is a lower bound wearing an upper bound's clothes and is
+recorded as the lower bound it is: a call that supplies more arguments
+than the callee's own parameters - `((handoff 1) n)` - applies the
+callee's *result*, a value the walk cannot follow, so the row is
+`#effects-incomplete` as well.
+
 ### Trait Methods
 
 A trait method is dispatched on the static type of an argument, and
@@ -1121,10 +1165,13 @@ perform are the effects the call can perform.
 
 The union is a true upper bound, and usually exact - `traitRewrite` can
 only choose a name for which the implementation exists, so the set it
-could pick from is a subset of the ones unioned here. Trait *defaults*
-need no special case: a missing method is lowered through the same
-`traitImplName`, so it is an ordinary declaration by the time the
-fixpoint runs.
+could pick from is a subset of the ones unioned here. With one
+implementation it is exact and every effect arrives definite; with
+more than one, every effect any implementation contributes arrives
+*possible* (above), because dispatch will pick one and the walk cannot
+say which. Trait *defaults* need no special case: a missing method is
+lowered through the same `traitImplName`, so it is an ordinary
+declaration by the time the fixpoint runs.
 
 Before this, a trait-method call contributed nothing at all. A function
 calling one still drew its own `AX3010`, because the claim check
@@ -1223,10 +1270,11 @@ does not keep. Deleting the tag silences it and *withdraws* the claim;
 an unrestricted function is never asked. A claim over a row the walk
 could not close is `AX3051`, a warning in
 `tests/diagnostics/severity.policy`, in exactly one direction per
-marker: an effect ABSENT from a row that is a lower bound
-(`#effects-incomplete`), or PRESENT in one that is an upper bound
-(`#effects-overapprox`). An effect present in a lower bound is a
-violation. `no-cast` never draws `AX3051`.
+reading: an effect ABSENT from a row that is a lower bound
+(`#effects-incomplete`), or present only as a POSSIBLE effect
+(`#effects-possible=`, the row's `#effects-overapprox` admission). An
+effect present in a lower bound, or definite beside a possible one, is
+a violation. `no-cast` never draws `AX3051`.
 
 A restriction is a **per-declaration** claim. A tag attaches to the
 declaration written below it, on the `::` or on the `fn`, and both

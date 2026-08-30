@@ -1256,26 +1256,47 @@
                         ; `#effects=` at all, which is the honest
                         ; rendering of "the walk did not resolve a call
                         ; and found nothing else".
+                        ;
+                        ; `#effects=` is the UNION - every effect the
+                        ; body performs or may perform - so no reader
+                        ; of it moved when the possible spelling
+                        ; arrived (`typecheck.ax`, `effIsPossible`):
+                        ; `check-compat.sh` compares this key, and a
+                        ; widening in the possible half is a declared
+                        ; widening exactly as before. A row may carry
+                        ; both spellings of one effect and it prints
+                        ; once.
                         (let ((effs (memGetWord e 5)))
                           (if (== isB 0)
                             (let (
                               (disp vecNew)
+                              (poss vecNew)
                               (mut k 0)
                               (mut partial 0)
-                              (mut overapprox 0)
                             )
                               {
                                 (while (< k (vecLen effs))
-                                  {
-                                    (if (strEq (vecGetStr effs k) effIncomplete)
-                                      (set partial 1)
-                                      (if (strEq (vecGetStr effs k) effByRef)
-                                        (set overapprox 1)
-                                        (vecPush disp (effRender (vecGetStr effs k)))
+                                  (let ((ef (vecGetStr effs k)))
+                                    {
+                                      (if (== (effIsMarker ef) 1)
+                                        (set partial 1)
+                                        {
+                                          (if (== (strInVec disp (effRender ef) 0) 1)
+                                            0
+                                            (vecPush disp (effRender ef))
+                                          )
+                                          (if (&& (== (effIsPossible ef) 1) (== (effIn effs (effDefiniteOf ef)) 0))
+                                            (if (== (strInVec poss (effRender ef) 0) 1)
+                                              0
+                                              (vecPush poss (effRender ef))
+                                            )
+                                            0
+                                          )
+                                        }
                                       )
-                                    )
-                                    (set k (+ k 1))
-                                  })
+                                      (set k (+ k 1))
+                                    }
+                                  ))
                                 (if (> (vecLen disp) 0)
                                   (vecPush metas (strConcat "effects=" (saJoinComma (saSort disp))))
                                   0
@@ -1286,15 +1307,22 @@
                                 )
                                 ; The opposite admission. `-incomplete`
                                 ; says the row is a LOWER bound; this
-                                ; says it may be an UPPER one, because
-                                ; some of it was contributed by NAMING
-                                ; a function rather than calling one.
-                                ; Without it a reader sees
+                                ; says some member of it is only
+                                ; POSSIBLE - contributed by NAMING a
+                                ; function rather than calling one, or
+                                ; by a trait method with more than one
+                                ; implementation - and `-possible=`
+                                ; names which. Without it a reader sees
                                 ; `#effects=IO` on `(fn (handoff k)
                                 ; shout)` and believes a body that does
-                                ; no IO performs some.
-                                (if (== overapprox 1)
-                                  (vecPush metas "effects-overapprox")
+                                ; no IO performs some. A member that is
+                                ; ALSO definite is not listed: the body
+                                ; performs it whatever else it names.
+                                (if (> (vecLen poss) 0)
+                                  {
+                                    (vecPush metas "effects-overapprox")
+                                    (vecPush metas (strConcat "effects-possible=" (saJoinComma (saSort poss))))
+                                  }
                                   0
                                 )
                               }

@@ -420,6 +420,9 @@ Metadata keys actually emitted today:
 | `tyvars` | `A` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
 | `effects` | `F` | The effect row the checker derived, sorted and comma-separated, e.g. `#effects=IO`; absent when the function performs none. An `extern` item carries `#effects=IO` |
 | `effect-params` | `F` | For an effect-polymorphic signature, the parameters the row varies in, by their declared names |
+| `effects-incomplete` | `F` | The walk met a call it could not resolve - a struct field or an opaque local holding a function, or a call applying a callee's result - so `#effects=` is a LOWER bound. A row with nothing but this carries no `#effects=` at all |
+| `effects-overapprox` | `F` | Some member of `#effects=` is only POSSIBLE: contributed by naming an arrow-typed function without calling it, or by a trait method with more than one implementation. Always beside `effects-possible` |
+| `effects-possible` | `F` | Which members those are, sorted and comma-separated, e.g. `#effects-possible=IO` on `(fn (handoff k) shout)`. A member the body also performs definitely is not listed; `#effects=` stays the union either way (see [reference.md](reference.md), "Definite and possible") |
 | `generated` | `F` | The declaration macro that wrote this declaration, for a name no line of the file spells |
 | `calls` | `F` | **Only with `--calls`.** The call edges the effect walk resolved to derive the `#effects=` row beside it, sorted and comma-separated. Names the *resolved* entry - `Mod$name` where the checker mangled it, which is also the symbol codegen emits - so an edge says which `writeStr`. A bare reference is an edge too, because the effect walk attributes one exactly as it attributes a call. Absent by default: it would otherwise land on every row of every golden. See [agent-harness.md](agent-harness.md) §3.5 |
 

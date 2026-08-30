@@ -11,6 +11,13 @@
 ; The prose is now two helps: the one that carries the fix says only
 ; what to write, because an editor shows a fix's help as the action's
 ; title; the transitivity paragraph follows as a second help.
+;
+; `main` draws it too, since 2026-08-29, and did not before: `(println
+; who)` renders `who` through `show`, whose four implementations made
+; `greet`'s row carry one row-global over-approximation marker, and
+; `main` inherited the marker with the IO and was excused on it.
+; Over-approximation is per effect now, and the IO here is definite
+; (tests/diagnostics/377-effect-through-callee.ax is the full shape).
 (import IO)
 
 (:: greet (-> String Int))

@@ -2926,10 +2926,16 @@
 (pub fn (customEff n) (strConcat "c:" n))
 
 ; The name stage0's `Display for Effect` prints, which is what an
-; AX3011 message quotes: the tag's two bytes removed.
+; AX3011 message quotes: the tag's two bytes removed - and the `~` of
+; a possible spelling before them, because a name is a name whichever
+; way the effect arrived (`effIsPossible`).
 (pub :: effRender (-> String String))
 
-(pub fn (effRender e) (strSlice e 2 (- (strLen e) 2)))
+(pub fn (effRender e)
+  (let ((d (effDefiniteOf e)))
+    (strSlice d 2 (- (strLen d) 2))
+  )
+)
 
 (pub :: effIn (-> Int String Int))
 
@@ -10463,6 +10469,10 @@
 ; A declared effect still discharges, because a handler really does
 ; intercept its operations - that is the whole of what `handle` does
 ; for the effects it can do it for.
+;
+; Both spellings discharge: a handler installed for `Ask` intercepts
+; an operation whether the walk knew the body performs it or only
+; that it might (`effDefiniteOf`).
 (pub :: effDischargedBy (-> Int Int String Int Int))
 
 (pub fn (effDischargedBy tc effs e i)
@@ -10470,7 +10480,7 @@
     0
     (let ((n (nodeAName (vecGet effs i))))
       (if (&& (== (isBuiltinEffect n) 0) (!= (findEffectDecl tc n) 0))
-        (if (strEq (customEff n) e)
+        (if (strEq (customEff n) (effDefiniteOf e))
           1
           (effDischargedBy tc effs e (+ i 1))
         )
@@ -10483,6 +10493,10 @@
 ; Does this handle's effect-name list cover `e`? A name in the list
 ; is the built-in effect when it spells one and a custom effect
 ; otherwise - stage0's parser decides this, not the declarations.
+; Compared on the NAME, so a possible effect must be listed too:
+; AX3011 reads the upper bound, and a body that MAY reach `Ask`
+; through a bare `ask` needs a handler for it as much as one that
+; does (`340-effect-op-value.ax`).
 (pub :: effHandledBy (-> Int String Int Int))
 
 (pub fn (effHandledBy effs e i)
@@ -10498,7 +10512,7 @@
             )
           )
           (customEff n)
-        )        e
+        )        (effDefiniteOf e)
       )
         1
         (effHandledBy effs e (+ i 1))
@@ -10699,6 +10713,23 @@
             (instantiateEparams
               bound              (memGetWord ent 6)              args              0              acc
             )
+            ; OVER-APPLICATION. More arguments than the callee's own
+            ; parameters means the callee's RESULT is applied to the
+            ; rest - `((handoff 1) n)` spines to `handoff` with two
+            ; arguments against one - and that result is a value the
+            ; walk cannot follow: what calling it performs is nobody's
+            ; row. So the call is incomplete, the same hole a call
+            ; through an opaque local records, and the row an honest
+            ; lower bound. It used to inherit only the callee's row,
+            ; which for `handoff` is `shout`'s effects as POSSIBLE -
+            ; and an untagged `g` calling it read `#effects=IO
+            ; #effects-overapprox`, checked clean, and printed.
+            ; `repArity` is -1 for a primitive, whose arity the walk
+            ; cannot state, and the test is skipped there.
+            (if (&& (>= (repArity ent) 0) (> (vecLen args) (repArity ent)))
+              (effAdd acc effIncomplete)
+              0
+            )
           }
         )
       )
@@ -10839,27 +10870,29 @@
 )
 
 ; A bare reference in a position where the walk cannot see the value
-; being CALLED. Marks `?:byref` for an arrow-typed referent.
+; being CALLED. An arrow-typed referent's row arrives as POSSIBLE.
 (pub :: effRefSite (-> Int String Int Int Int))
 
 (pub fn (effRefSite tc n bound acc) (effRefSiteAt tc n bound acc 1))
 
-; The same rule with the over-approximation mark SUPPRESSED, for a
-; reference the walk can see being handed to something that calls it.
+; The same rule with the possible spelling SUPPRESSED - the referent's
+; row arrives definite - for a reference the walk can see being handed
+; to something that calls it.
 ;
 ; `mark` is 0 at exactly one place: an ARGUMENT of a call. Passing
 ; `shout` to `(apply shout n)` is not naming a function and walking
 ; away - it is handing it to a body that applies it, and `apply`'s own
-; row says so (`#effect-params=f`). Marking that byref suppressed
-; AX3042 for the whole call chain: measured, `(fn (main) (sneaky 1))`
-; compiled clean, printed "IO HAPPENED" at run time, and `symbols`
-; reported `#effects=IO #effects-overapprox` on `main` - the walk
-; KNEW, and the marker was the only reason nothing said so.
+; row says so (`#effect-params=f`). Reading that as possible
+; suppressed AX3042 for the whole call chain: measured, `(fn (main)
+; (sneaky 1))` compiled clean, printed "IO HAPPENED" at run time, and
+; `symbols` reported `#effects=IO #effects-overapprox` on `main` - the
+; walk KNEW, and the marker was the only reason nothing said so.
 ;
-; The shape the mark exists for survives: `(fn (handoff k) shout)`
-; RETURNS an effectful function without calling it, and a bare name in
-; that position still marks. The two differ by whether the walk can
-; see a call, which is exactly what argument position tells it.
+; The shape the possible spelling exists for survives: `(fn (handoff
+; k) shout)` RETURNS an effectful function without calling it, and a
+; bare name in that position still arrives possible. The two differ by
+; whether the walk can see a call, which is exactly what argument
+; position tells it.
 (pub :: effRefSiteAt (-> Int String Int Int Int Int))
 
 (pub fn (effRefSiteAt tc n bound acc mark)
@@ -10894,25 +10927,29 @@
             ; what removed that objection, and AX3010 was promoted on
             ; 2026-08-25.
             ;
-            ; So an arrow-typed referent contributes `effIncomplete`
-            ; instead. That is the honest claim: the value escaped, the
-            ; walk cannot bound what is done with it, and the row is a
-            ; LOWER bound rather than a wrong one. A `pure` claim over
-            ; it draws `AX3037` - cannot be checked - which is the
-            ; diagnostic that was always right for it.
+            ; So an arrow-typed referent's row arrives as POSSIBLE
+            ; (`effUnionPossible`): the value escaped, the walk cannot
+            ; bound what is done with it, and each effect it carries
+            ; is one the body MAY perform rather than one it does. A
+            ; `pure` claim over it draws `AX3037` - cannot be checked -
+            ; which is the diagnostic that was always right for it,
+            ; and `AX3011` still sees the upper bound it needs.
             ;
-            ; Measured over `stdlib/` and `self_host/`: ZERO rows lose
-            ; an effect and ZERO become incomplete. Nothing in this
-            ; repository names an arrow-typed function without calling
-            ; it, which is why the over-report went unnoticed - and why
-            ; correcting it costs nothing.
-            {
+            ; Per EFFECT, not per row. This used to add a row-global
+            ; `?:byref` marker beside a definite union, and every
+            ; reader of the marker excused the whole row - a definite
+            ; IO from a call was excused by a reference that had
+            ; nothing to do with it. The header above `effIsPossible`
+            ; records the measurement.
+            ;
+            ; Measured over `stdlib/` and `self_host/` when the
+            ; reference-site rule was corrected: ZERO rows lose an
+            ; effect. Nothing in this repository names an arrow-typed
+            ; function without calling it.
+            (if (&& (== mark 1) (== (tyIsArrow (memGetWord ent 1)) 1))
+              (effUnionPossible acc (memGetWord ent 5) 0)
               (effUnion acc (memGetWord ent 5) 0)
-              (if (&& (== mark 1) (== (tyIsArrow (memGetWord ent 1)) 1))
-                (effAdd acc effByRef)
-                0
-              )
-            }
+            )
           }
         )
       )
@@ -10991,9 +11028,9 @@
     (if (== tr 0)
       0
       {
-        ; MORE THAN ONE IMPL AND THE UNION IS AN UPPER BOUND, because
+        ; MORE THAN ONE IMPL AND EVERY EFFECT IS POSSIBLE, because
         ; dispatch picks exactly one of them and this walk cannot say
-        ; which. With a single impl it is exact and nothing is marked.
+        ; which. With a single impl the union is exact and definite.
         ;
         ; That distinction stopped being cosmetic the day AX3042 became
         ; an error. Measured: a `(Show Int)` impl that performs nothing
@@ -11003,15 +11040,22 @@
         ; AX3010 in the first place ("promoting that shape refuses
         ; correct programs"), arriving again through a different door.
         ;
-        ; Marking it routes the claim to AX3037 - cannot be checked -
-        ; and leaves the row itself unchanged, so `symbols` still
-        ; reports the union and AX3011 still sees the upper bound it
-        ; needs.
-        (if (> (traitUnionImpls
-          tc          (memGetWord tc 28)          (nodeAName tr)          (bareOf n)          acc          0
-        ) 1)
-          (effAdd acc effByRef)
-          0
+        ; The possible spelling routes a claim over it to AX3037 -
+        ; cannot be checked - and keeps the effect in the row, so
+        ; `symbols` still reports the union and AX3011 still sees the
+        ; upper bound it needs. What it no longer does is excuse a
+        ; DEFINITE effect beside it: `println "{n}"` unions four
+        ; `show` impls, and the `writeStr` in the same body used to be
+        ; excused by that union (the header above `effIsPossible`).
+        (let ((n0 (traitCountImpls
+          tc          (memGetWord tc 28)          (nodeAName tr)          (bareOf n)          0
+        )))
+          (traitUnionImpls
+            tc            (memGetWord tc 28)            (nodeAName tr)            (bareOf n)            acc            0            (if (> n0 1)
+              1
+              0
+            )
+          )
         )
         1
       }
@@ -11019,11 +11063,37 @@
   )
 )
 
-(pub :: traitUnionImpls (-> Int Int String String Int Int Int))
+; How many implementations `traitUnionImpls` will union - asked first,
+; because whether each one arrives definite or possible depends on the
+; count, and the count is not known until the loop has run.
+(pub :: traitCountImpls (-> Int Int String String Int Int))
 
-; Answers HOW MANY implementations it unioned, which is what tells the
-; caller whether the result is exact (one) or an upper bound (more).
-(pub fn (traitUnionImpls tc impls tname method acc i)
+(pub fn (traitCountImpls tc impls tname method i)
+  (if (>= i (vecLen impls))
+    0
+    (+
+      (let ((d (vecGet impls i)))
+        (if (strEq (nodeAName d) tname)
+          (if (== (fnEntExact tc (traitImplName tname (nodeCName d) method)) 0)
+            0
+            1
+          )
+          0
+        )
+      )
+      (traitCountImpls
+        tc        impls        tname        method        (+ i 1)
+      )
+    )
+  )
+)
+
+(pub :: traitUnionImpls (-> Int Int String String Int Int Int Int))
+
+; Unions every implementation's row into `acc` - as possible when
+; `possible` is 1, definite otherwise - and answers how many it
+; unioned.
+(pub fn (traitUnionImpls tc impls tname method acc i possible)
   (if (>= i (vecLen impls))
     0
     (+
@@ -11041,7 +11111,10 @@
               ; an IO no edge accounts for.
               {
                 (tcNoteCall tc (memGetWordStr e 0))
-                (effUnion acc (memGetWord e 5) 0)
+                (if (== possible 1)
+                  (effUnionPossible acc (memGetWord e 5) 0)
+                  (effUnion acc (memGetWord e 5) 0)
+                )
                 1
               }
             )
@@ -11050,47 +11123,207 @@
         )
       )
       (traitUnionImpls
-        tc        impls        tname        method        acc        (+ i 1)
+        tc        impls        tname        method        acc        (+ i 1)        possible
       )
     )
   )
 )
 
-; Set when a row's effects include some contributed by NAMING a
-; function that takes arguments, rather than by calling one.
+; ------------------------------------------------------------------
+; POSSIBLE effects. A row distinguishes what a body DEFINITELY performs
+; from what it MAY perform through a value it named or a dispatch the
+; walk could not resolve. The second kind is spelled with a `~` in
+; front of the effect's own tag - `~b:IO`, `~c:Ask` - and rides the
+; same Vec, so `effUnion` carries it into every caller unchanged: an
+; effect that is only possible in a callee is only possible in the
+; caller.
 ;
-; `effIncomplete` says the row is a LOWER bound. This says the opposite:
-; the row may be an UPPER one. Both are departures from "these are
-; exactly the effects", and they have to be separate words because the
-; two consumers want opposite things from them.
-(pub :: effByRef String)
+; This replaced the row-global `?:byref` marker on 2026-08-29, and the
+; difference is the whole of the AX3042 bypass it closes. `?:byref`
+; said "SOME of this row arrived by reference", and every consumer
+; that read it excused the WHOLE row: `shout`, printing `"n={n}"`,
+; carried the marker because `show` has four implementations, and the
+; definite IO from `writeStr` in the same row was excused by an
+; over-approximation about `Alloc` and `Mut` that had nothing to do
+; with it. Measured: an untagged `relay` calling `shout` checked OK and
+; printed at run time, while the same `relay` over a literal `println`
+; drew AX3042. Per effect, an excuse reaches only the effect it is
+; about.
+;
+; Two sites produce the spelling, exactly the two that produced the
+; marker: `effRefSiteAt` for a bare arrow-typed name outside argument
+; position, and `traitUnionEffects` for a method with more than one
+; implementation. Both spellings of one effect may be present at once
+; - a body that calls `shout` and also names it - and the predicates
+; below are what every consumer asks instead of raw `effIn`:
+;
+;   effDefinite v X      `b:X`/`c:X` present - the body performs X
+;   effPossible v X      `~b:X`/`~c:X` present - it may
+;   effMay v X           either - the upper bound AX3011 needs
+;   effPossibleOnly v X  possible and not definite - the excuse
+;   effPartial v         unchanged: `?:incomplete`, a LOWER bound
+;
+; `X` is always the DEFINITE spelling (`builtinEff`/`customEff`); the
+; possible spelling is derived here and never written by a caller.
+; ------------------------------------------------------------------
+(pub :: effIsPossible (-> String Int))
 
-(pub fn (effByRef) "?:byref")
+(pub fn (effIsPossible e)
+  (if (== (strByte e 0) 126)
+    1
+    0
+  )
+)
+
+; The possible spelling of an entry. A marker has no possible form -
+; a lower bound named without being called is still a lower bound on
+; what calling it would do - and travels as itself.
+(pub :: effPossibleOf (-> String String))
+
+(pub fn (effPossibleOf e)
+  (if (== (effIsPossible e) 1)
+    e
+    (if (== (effIsMarker e) 1)
+      e
+      (strConcat "~" e)
+    )
+  )
+)
+
+(pub :: effDefiniteOf (-> String String))
+
+(pub fn (effDefiniteOf e)
+  (if (== (effIsPossible e) 1)
+    (strSlice e 1 (- (strLen e) 1))
+    e
+  )
+)
+
+(pub :: effDefinite (-> Int String Int))
+
+(pub fn (effDefinite v x) (effIn v x))
+
+(pub :: effPossible (-> Int String Int))
+
+(pub fn (effPossible v x) (effIn v (effPossibleOf x)))
+
+(pub :: effMay (-> Int String Int))
+
+(pub fn (effMay v x)
+  (if (== (effIn v x) 1)
+    1
+    (effPossible v x)
+  )
+)
+
+(pub :: effPossibleOnly (-> Int String Int))
+
+(pub fn (effPossibleOnly v x)
+  (if (== (effIn v x) 1)
+    0
+    (effPossible v x)
+  )
+)
+
+; Is some member of the row possible and not definite? This is what
+; `symbols` renders as `#effects-overapprox`, and `effPossibleNames`
+; is the `#effects-possible=` list beside it.
+(pub :: effAnyPossibleOnly (-> Int Int))
+
+(pub fn (effAnyPossibleOnly v) (effAnyPossibleOnlyFrom v 0))
+
+(pub :: effAnyPossibleOnlyFrom (-> Int Int Int))
+
+(pub fn (effAnyPossibleOnlyFrom v i)
+  (if (>= i (vecLen v))
+    0
+    (let ((e (vecGetStr v i)))
+      (if (&& (== (effIsPossible e) 1) (== (effIn v (effDefiniteOf e)) 0))
+        1
+        (effAnyPossibleOnlyFrom v (+ i 1))
+      )
+    )
+  )
+)
+
+; The definite entries alone, in row order: what a claim of absence is
+; contradicted BY, and what `effJoinDefinite` renders into the AX3010
+; message - a possible effect in that sentence would be a mis-report.
+(pub :: effDefiniteOnly (-> Int Int))
+
+(pub fn (effDefiniteOnly v)
+  (let ((out vecNew))
+    {
+      (effDefiniteOnlyInto out v 0)
+      out
+    }
+  )
+)
+
+(pub :: effDefiniteOnlyInto (-> Int Int Int Int))
+
+(pub fn (effDefiniteOnlyInto out v i)
+  (if (>= i (vecLen v))
+    0
+    {
+      (let ((e (vecGetStr v i)))
+        (if (|| (== (effIsMarker e) 1) (== (effIsPossible e) 1))
+          0
+          (vecPush out e)
+        )
+      )
+      (effDefiniteOnlyInto out v (+ i 1))
+    }
+  )
+)
+
+(pub :: effHasDefinite (-> Int Int))
+
+(pub fn (effHasDefinite v)
+  (if (> (vecLen (effDefiniteOnly v)) 0)
+    1
+    0
+  )
+)
+
+(pub :: effJoinDefinite (-> Int String))
+
+(pub fn (effJoinDefinite v) (effJoin (effDefiniteOnly v)))
+
+; Union `src` into `acc` as POSSIBLE: every definite entry arrives in
+; its possible spelling, a possible one stays possible, and the
+; incompleteness marker travels as itself. Answers 1 when anything was
+; added, as `effUnion` does.
+(pub :: effUnionPossible (-> Int Int Int Int))
+
+(pub fn (effUnionPossible acc src i)
+  (if (>= i (vecLen src))
+    0
+    (let ((rest (effUnionPossible acc src (+ i 1))))
+      (if (== (effAdd acc (effPossibleOf (vecGetStr src i))) 1)
+        1
+        rest
+      )
+    )
+  )
+)
 
 ; Is this entry a MARKER rather than an effect?
 ;
-; Markers ride the same Vec as effects, tagged `?:` where a builtin is
-; `b:` and a custom one `c:`. The rule every consumer has to follow is
-; in `checkUnhandled`'s own comment - "every consumer that renders an
-; effect has to skip it" - and it was written when there was one marker
-; and one place to forget it. There are two now, so the test is a
-; function: a consumer that renders or handles an effect asks this, and
-; a consumer that cares WHICH marker asks for that one by name.
+; A marker rides the same Vec as effects, tagged `?:` where a builtin
+; is `b:` and a custom one `c:`. The rule every consumer has to follow
+; is in `checkUnhandled`'s own comment - "every consumer that renders
+; an effect has to skip it". There is one marker since 2026-08-29:
+; `?:byref` became the per-effect possible spelling above, which is
+; an EFFECT to every renderer and is not skipped.
 (pub :: effIsMarker (-> String Int))
 
 (pub fn (effIsMarker e)
   (if (strEq e effIncomplete)
     1
-    (if (strEq e effByRef)
-      1
-      0
-    )
+    0
   )
 )
-
-(pub :: effOverApprox (-> Int Int))
-
-(pub fn (effOverApprox v) (effIn v effByRef))
 
 (pub :: effPartial (-> Int Int))
 
@@ -11131,16 +11364,34 @@
 
 (pub :: effSortInto (-> Int Int Int Int))
 
+; Deduplicated BY NAME: a row may carry both spellings of one effect
+; (`b:IO` and `~b:IO`), and it is one effect to every sentence that
+; renders this.
 (pub fn (effSortInto out v i)
   (if (>= i (vecLen v))
     0
     {
       (if (== (effIsMarker (vecGetStr v i)) 1)
         0
-        (effInsertSorted out (vecGet v i))
+        (if (== (effNameIn out (effRender (vecGetStr v i)) 0) 1)
+          0
+          (effInsertSorted out (vecGet v i))
+        )
       )
       (effSortInto out v (+ i 1))
     }
+  )
+)
+
+(pub :: effNameIn (-> Int String Int Int))
+
+(pub fn (effNameIn v name i)
+  (if (>= i (vecLen v))
+    0
+    (if (strEq (effRender (vecGetStr v i)) name)
+      1
+      (effNameIn v name (+ i 1))
+    )
   )
 )
 
@@ -11842,14 +12093,21 @@
     ; a local. Every consumer that renders an effect has to skip
     ; it, and no file in the swept trees calls through a local
     ; inside a handle body, so only the probe bank saw it.
+    ;
+    ; A POSSIBLE spelling is an effect and is checked - the list has to
+    ; name what the body may reach - but not twice: when the definite
+    ; twin is in the same set, that one reports it.
     {
       (if (== (effIsMarker (vecGetStr inner i)) 1)
         0
-        (if (&& (== (effHandledBy effs (vecGetStr inner i) 0) 0) (!= span 0))
-          (emitDiag tc (mkDiag
-            SEV_ERROR            "AX3011"            "effect-mismatch"            span            (strConcat (strConcat "effect mismatch: unhandled effect `" (effRender (vecGetStr inner i))) "`")            0            0            0
-          ))
+        (if (&& (== (effIsPossible (vecGetStr inner i)) 1) (== (effIn inner (effDefiniteOf (vecGetStr inner i))) 1))
           0
+          (if (&& (== (effHandledBy effs (vecGetStr inner i) 0) 0) (!= span 0))
+            (emitDiag tc (mkDiag
+              SEV_ERROR              "AX3011"              "effect-mismatch"              span              (strConcat (strConcat "effect mismatch: unhandled effect `" (effRender (vecGetStr inner i))) "`")              0              0              0
+            ))
+            0
+          )
         )
       )
       (checkUnhandled
@@ -14854,22 +15112,24 @@
 ; Keys); a module-wide claim is written on each declaration, and
 ; `symbols` shows it there.
 ;
-; THE VERDICT READS THE TWO MARKERS THE WAY `axtagContradicted` DOES,
-; and per direction. `effByRef` says the row may be an UPPER bound -
-; an effect arrived by NAMING an arrow-typed function without calling
-; it, or through a trait method with more than one implementation -
-; so an effect PRESENT under that mark is not evidence that the body
-; performs it. `effIncomplete` says the row is a LOWER bound - the walk
-; met a call it could not resolve - so an effect ABSENT under that
-; mark is not evidence that the body does not. Each mark is
-; unverifiable in exactly one direction: present-and-byref,
-; absent-and-incomplete. Present-and-incomplete is a VIOLATION,
-; because a lower bound that already contains the effect is the body
-; performing it whatever the unresolved call adds. Both unverifiable
-; answers are AX3051, a WARNING, for AX3037's reason: a limit of the
-; analysis is not a defect in the program, and refusing
-; `((b.f) 7)` under `restrict(no-io)` would make dispatch through a
-; stored function unwriteable rather than unverified.
+; THE VERDICT READS THE ROW THE WAY `axtagContradicted` DOES, per
+; effect and per direction. An effect that is DEFINITE in the row
+; (`effDefinite`) is one the body performs, and the claim is
+; violated. One that is only POSSIBLE (`effPossible`, not definite) -
+; it arrived by NAMING an arrow-typed function without calling it, or
+; through a trait method with more than one implementation - is not
+; evidence that the body performs it. `effIncomplete` says the row is
+; a LOWER bound - the walk met a call it could not resolve - so an
+; effect ABSENT under that mark is not evidence that the body does
+; not. Each reading is unverifiable in exactly one direction:
+; present-only-as-possible, absent-and-incomplete.
+; Present-and-incomplete is a VIOLATION, because a lower bound that
+; already contains the effect is the body performing it whatever the
+; unresolved call adds. Both unverifiable answers are AX3051, a
+; WARNING, for AX3037's reason: a limit of the analysis is not a
+; defect in the program, and refusing `((b.f) 7)` under
+; `restrict(no-io)` would make dispatch through a stored function
+; unwriteable rather than unverified.
 ;
 ; `no-cast` is checked under either marker, because a cast in this
 ; body is this body's whether or not the walk resolved a call
@@ -15066,14 +15326,14 @@
 (pub :: restrictEffect (-> Int Int String Int String Int))
 
 (pub fn (restrictEffect tc d r eff e)
-  (if (== (effIn eff (builtinEff e)) 1)
-    (if (== (effOverApprox eff) 1)
-      (emitRestrictUnverifiable tc d r (strConcat (strConcat "the effect row is an upper bound here - the body names a function without calling it, or calls a trait method with more than one implementation - so `" e) "` in it is not evidence the body performs it"))
-      (emitRestrictViolated tc d r (strConcat (strConcat "the body performs " e) (witnessText tc d e)))
-    )
-    (if (== (effPartial eff) 1)
-      (emitRestrictUnverifiable tc d r (strConcat (strConcat "the body calls a value the compiler could not resolve, so the effect row is a lower bound and the absence of `" e) "` from it is not evidence"))
-      0
+  (if (== (effDefinite eff (builtinEff e)) 1)
+    (emitRestrictViolated tc d r (strConcat (strConcat "the body performs " e) (witnessText tc d e)))
+    (if (== (effPossible eff (builtinEff e)) 1)
+      (emitRestrictUnverifiable tc d r (strConcat (strConcat "`" e) "` reaches the effect row only as a possible effect - the body names a function without calling it, or calls a trait method with more than one implementation - so its presence is not evidence the body performs it"))
+      (if (== (effPartial eff) 1)
+        (emitRestrictUnverifiable tc d r (strConcat (strConcat "the body calls a value the compiler could not resolve, so the effect row is a lower bound and the absence of `" e) "` from it is not evidence"))
+        0
+      )
     )
   )
 )
@@ -15085,8 +15345,13 @@
 ; (`traitUnionImpls`), so dispatch does not hide an extern. It also
 ; has an edge for a function the body merely NAMES (`effRefSiteAt`
 ; records the edge before deciding whether the reference is a call),
-; which is the same over-approximation `effByRef` marks on the row -
-; so an extern found under that mark is unverifiable, not violated.
+; and the graph does not say which edges those are. The row does, for
+; the one effect an extern carries: an extern is seeded `IO`, so an
+; extern reached through a named-not-called function puts IO into
+; this row as POSSIBLE (`effPossible`), and an extern found while IO
+; is possible here is unverifiable, not violated - whether or not IO
+; is also definite, because the graph cannot say which path the hit
+; is on. IO nowhere possible means every edge to the hit is a call.
 ; What the graph does NOT have is the call the effect walk could not
 ; resolve, the hole `effIncomplete` marks, so an extern NOT found under
 ; that mark is unverifiable too.
@@ -15096,7 +15361,7 @@
   (let ((path (graphWitness tc (restrictOwnEnt tc d) "extern")))
     (if (!= path 0)
       (let ((hit (vecGet path (- (vecLen path) 1))))
-        (if (== (effOverApprox eff) 1)
+        (if (== (effPossible eff (builtinEff "IO")) 1)
           (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat (strConcat "the call graph reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)) ""))
           (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the body reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path)))
         )
@@ -15120,7 +15385,7 @@
   (let ((path (graphCycle tc (restrictOwnEnt tc d))))
     (if (!= path 0)
       (let ((again (vecGet path (- (vecLen path) 1))))
-        (if (== (effOverApprox eff) 1)
+        (if (== (effAnyPossibleOnly eff) 1)
           (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)))
           (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "`: ") (graphRender path)))
         )
@@ -15566,7 +15831,7 @@
       (let ((path (graphWitness tc (restrictOwnEnt tc d) "cast")))
         (if (!= path 0)
           (let ((hit (vecGet path (- (vecLen path) 1))))
-            (if (== (effOverApprox eff) 1)
+            (if (== (effAnyPossibleOnly eff) 1)
               (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat "the closure reaches a cast in `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)))
               (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the closure reaches a cast in the body of `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path)))
             )
@@ -15849,20 +16114,21 @@
 ; `handle`/`(Pure)` still measure them, so nothing that could observe
 ; them lost the ability to.
 ;
-; `effOverApprox` is the same suppression `axtagContradicted` makes,
-; and for the same reason: a row that may be an UPPER bound - IO
-; present only because the body NAMES an arrow-typed function without
-; calling it - is not evidence that the body performs IO, and
-; accusing an author on it refuses a correct program.
+; `effDefinite` is the same reading `axtagContradicted` makes, and
+; for the same reason: IO that reaches the row only as POSSIBLE -
+; because the body NAMES an arrow-typed function without calling it,
+; or calls a trait method with more than one implementation - is not
+; evidence that the body performs IO, and accusing an author on it
+; refuses a correct program. IO the body performs is accused whatever
+; else the row carries: this used to decline on a row-global marker,
+; and every caller of a function printing a `{hole}` compiled clean
+; and printed (the header above `effIsPossible`).
 (pub :: checkUndeclaredIO (-> Int Int Int Int))
 
 (pub fn (checkUndeclaredIO tc d eff)
-  (if (== (effOverApprox eff) 1)
+  (if (== (effDefinite eff (builtinEff "IO")) 1)
+    (emitUndeclaredEffect tc d "IO")
     0
-    (if (== (effIn eff (builtinEff "IO")) 1)
-      (emitUndeclaredEffect tc d "IO")
-      0
-    )
   )
 )
 
@@ -16370,10 +16636,10 @@
 (pub :: axtagContradicted (-> Int Int String Int Int))
 
 (pub fn (axtagContradicted tc d label eff)
-  ; AN OVER-APPROXIMATED ROW CANNOT CONTRADICT ANYTHING, and this is
-  ; the arm `docs/agent-harness.md` §6 named as the reason `AX3010`
-  ; could not be promoted: it fired on `(fn (handoff k) shout)`, which
-  ; performs nothing and merely hands `shout` back.
+  ; A POSSIBLE EFFECT CANNOT CONTRADICT ANYTHING, and this is the arm
+  ; `docs/agent-harness.md` §6 named as the reason `AX3010` could not
+  ; be promoted: it fired on `(fn (handoff k) shout)`, which performs
+  ; nothing and merely hands `shout` back.
   ;
   ; `effRefSite` unions a referent's effects, which is EXACT for a
   ; nullary referent - this language invokes `vecNew` and `__argc` by
@@ -16388,22 +16654,24 @@
   ;
   ; So the two consumers get different answers from the same walk.
   ; `AX3011` keeps the upper bound. This arm, which accuses the AUTHOR
-  ; of writing a false claim, declines to do so on evidence that may be
-  ; the analysis's rather than the body's, and says `AX3037` instead -
-  ; the diagnostic that already means "cannot be checked".
-  (if (== (effOverApprox eff) 1)
-    (emitAxtagUnverifiable tc d label)
-    (if (== (vecLen (effSorted eff)) 0)
-      ; Nothing concrete contradicts the claim - which acquits it only
-      ; when the walk resolved every call it met. Where it did not, the
-      ; empty set is the analysis's silence and not the body's, and
-      ; reading one as the other is exactly how `((b.f) x)` passed as
-      ; `pure` while it wrote to stdout.
-      (if (== (effPartial eff) 1)
-        (emitAxtagUnverifiable tc d label)
-        0
-      )
-      (emitAxtag tc d (strConcat (strConcat label " contradicted: body performs ") (effJoin eff)))
+  ; of writing a false claim, accuses on DEFINITE effects and on
+  ; nothing else: a row holding only possible ones, or only the
+  ; incompleteness marker, is `AX3037` - the diagnostic that already
+  ; means "cannot be checked". Until 2026-08-29 a row-global marker
+  ; made the whole row unverifiable the moment any effect in it was
+  ; possible, so a body that printed a `{hole}` AND wrote to stdout
+  ; under `pure` drew a warning where the `writeStr` is a plain lie.
+  (if (== (effHasDefinite eff) 1)
+    (emitAxtag tc d (strConcat (strConcat label " contradicted: body performs ") (effJoinDefinite eff)))
+    ; Nothing definite contradicts the claim - which acquits it only
+    ; when the walk resolved every call it met and named nothing it
+    ; could not follow. Where it did not, the empty set is the
+    ; analysis's silence and not the body's, and reading one as the
+    ; other is exactly how `((b.f) x)` passed as `pure` while it
+    ; wrote to stdout.
+    (if (|| (== (effAnyPossibleOnly eff) 1) (== (effPartial eff) 1))
+      (emitAxtagUnverifiable tc d label)
+      0
     )
   )
 )
@@ -16419,7 +16687,10 @@
   (let ((want (axtagEffectOf tc val)))
     (if (== (strLen want) 0)
       0
-      (if (== (effIn eff want) 1)
+      ; `effMay`: a claimed effect the body MAY perform - through a
+      ; value it named, or a dispatch the walk could not resolve - is
+      ; not missing. The claim reads the upper bound, as AX3011 does.
+      (if (== (effMay eff want) 1)
         0
         ; stage0 suppresses a claimed-but-absent effect when a
         ; CALLBACK could still supply it: the function has

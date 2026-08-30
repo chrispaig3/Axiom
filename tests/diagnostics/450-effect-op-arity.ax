@@ -14,6 +14,14 @@
 ; arity question by the time it is asked: `(-> Int Int Int)` right-folds
 ; to `(-> Int (-> Int Int))`, so the third argument is applied to the
 ; `Int` the second one produced.
+;
+; The effect walk sees the same over-application and, since
+; 2026-08-29, records it as a call it cannot follow - a callee's
+; RESULT is applied, and what applying a value performs is nobody's
+; row - so `over`'s handle draws AX3038 beside the type error. The
+; walk runs before any body is typed and does not know the result is
+; an `Int`; the warning is honest about that, and the error beside it
+; is what refuses the program.
 (effect Two
   (two :: (-> Int Int Int)))
 

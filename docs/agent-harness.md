@@ -559,16 +559,22 @@ remains, a call the compiler cannot resolve, and it announces itself as
   that does not name what the body can reach.
 
   So the same walk answers its two consumers differently. A
-  contribution made by NAMING an arrow-typed function now also sets
-  `?:byref`, a marker beside `?:incomplete` and its opposite:
-  `?:incomplete` says the row is a lower bound, `?:byref` says it may be
-  an upper one. `AX3011` keeps the upper bound and is unchanged. The
-  `contradicted` arm — the one that accuses an author of writing a false
-  claim — declines to do so on evidence that may be the analysis's
-  rather than the body's, and emits `AX3037` *cannot be checked*
-  instead. `handoff` draws that; a function that really performs IO
-  under a `pure` tag still draws `AX3010`. Measured across `stdlib/`
-  and `self_host/`: **zero** of 3,034 effect rows changed.
+  contribution made by NAMING an arrow-typed function arrives as
+  *possible* — each effect spelled `~b:IO` beside the definite `b:IO`,
+  so the row says per effect what `?:incomplete` says per row in the
+  other direction: `?:incomplete` says the row is a lower bound, a
+  possible effect says the body may perform it. `AX3011` keeps the
+  upper bound and is unchanged. The `contradicted` arm — the one that
+  accuses an author of writing a false claim — accuses on definite
+  effects only, and over a row holding nothing definite emits `AX3037`
+  *cannot be checked* instead. `handoff` draws that; a function that
+  really performs IO under a `pure` tag still draws `AX3010`. Measured
+  across `stdlib/` and `self_host/` when the rule landed: **zero** of
+  3,034 effect rows changed. (Until 2026-08-29 the possibility was one
+  row-global marker, `?:byref`, and every reader of it excused the
+  whole row — which is how an untagged function one hop above a
+  `println` with a `{hole}` compiled clean; `reference.md`, "Definite
+  and possible".)
 
   And the cost lands in exactly the wrong place. `symbols` folds every
   failure into exit 1 and prints no table, so making the claim an error

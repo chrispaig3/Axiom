@@ -1,0 +1,68 @@
+; Over-approximation is PER EFFECT, not per row - the AX3042 bypass.
+;
+; `shout` prints `"n={n}"`. The hole goes through `show`, which has
+; four implementations, so the walk unions all four and the `Alloc`
+; and `Mut` they contribute are only POSSIBLE. The `writeStr` behind
+; `println` is DEFINITE IO in the same row. Until 2026-08-29 the row
+; carried one marker for the whole of it, `?:byref`, and every reader
+; of the marker excused the whole row: an untagged `relay` calling
+; `shout` checked OK and printed at run time, while the same `relay`
+; over a literal `println` drew AX3042. The excuse for `Alloc` was
+; excusing the IO.
+;
+;   `relay`, `relay2`, `main`  untagged, above `shout`   -> AX3042 each
+;   `handoff`                  NAMES `shout`, calls nothing: IO is
+;                              possible only, untagged     -> silent
+;   `g`                        applies `handoff`'s RESULT, which the
+;                              walk cannot follow: a lower bound,
+;                              `;@axiom:pure` over it      -> AX3037
+;   `liar`                     `writeStr` under `pure`, the control
+;                              from 355                    -> AX3010
+;
+; `handoff` and `g` are the shape 355 pins from the claim side, here
+; from the silence side: nothing definite reaches either row, so an
+; untagged `handoff` is not accused, and `g`'s claim cannot be checked
+; rather than being contradicted. `symbols` prints `handoff` as
+; `#effects=IO #effects-overapprox #effects-possible=IO`.
+(import IO)
+
+(:: shout (-> Int Int))
+
+;@axiom:effect(io)
+(fn (shout n)
+  {
+    (println "n={n}")
+    n
+  }
+)
+
+(:: relay (-> Int Int))
+
+(fn (relay n) (shout n))
+
+(:: relay2 (-> Int Int))
+
+(fn (relay2 n) (relay n))
+
+(:: handoff (-> Int (-> Int Int)))
+
+(fn (handoff k) shout)
+
+(:: g (-> Int Int))
+
+;@axiom:pure
+(fn (g n) ((handoff 1) n))
+
+(:: liar (-> Int Int))
+
+;@axiom:pure
+(fn (liar n)
+  {
+    (writeStr 1 "!\n")
+    n
+  }
+)
+
+(:: main Int)
+
+(fn (main) (+ (relay2 1) (liar 2)))

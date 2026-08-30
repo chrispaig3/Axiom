@@ -7,7 +7,7 @@
   [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
 
-[1;33mwarning[AX3051][0m[1m: `handoff` claims `restrict(no-io)` and the claim cannot be checked: the effect row is an upper bound here - the body names a function without calling it, or calls a trait method with more than one implementation - so `IO` in it is not evidence the body performs it[0m
+[1;33mwarning[AX3051][0m[1m: `handoff` claims `restrict(no-io)` and the claim cannot be checked: `IO` reaches the effect row only as a possible effect - the body names a function without calling it, or calls a trait method with more than one implementation - so its presence is not evidence the body performs it[0m
   [1;34m--> [0m375-restrict-unverifiable.ax:46:6
 [1;34m   |[0m
 [1;34m46 |[0m (fn (handoff k) shout)

@@ -955,6 +955,15 @@ never gives one a function type. The marker is set regardless, since
 the alternative spelling would CLAIM the binder was attributed
 somewhere, and it is not.
 
+The other route is a row with no DEFINITE effect and some POSSIBLE
+one: the body names an arrow-typed function without calling it
+(`(fn (handoff k) shout)`), or calls a trait method with more than
+one implementation. Whether such a body performs anything depends on
+what a caller does with the value, or which implementation dispatch
+selects, so a claim of absence over it is this too
+(tests/diagnostics/355-tag-over-approximated.ax). A definite effect
+beside a possible one is AX3010: the body performs it.
+
 This is not the claim being wrong. It is the claim being unCHECKABLE
 here, and the two need different answers - correct the tag, or resolve
 the call - which is why this is not AX3010.
@@ -1206,14 +1215,20 @@ field. A declaration required on those distinguishes nothing from
 nothing. `Alloc` and `Mut` stay ambient and stay inferred: `symbols`
 still reports them and `handle`/`(Pure)` still measure them.
 
-Two shapes do not draw this. A body whose IO may be an
-over-approximation - the row is an upper bound because the body
-NAMES an arrow-typed function without calling it - is not evidence
-that it performs IO. And a trait-method IMPLEMENTATION has no place
-to put a tag: `attachAxtags` gives tags to top-level declarations,
-and an impl's members are nested inside the impl node. The effect is
-not lost - the walk unions every impl at a call site, so the CALLER
-of a trait method that performs IO must declare it.
+One shape does not draw this. IO that reaches the row only as
+POSSIBLE - the body NAMES an IO-performing function without calling
+it, or calls a trait method with more than one implementation - is
+not evidence that the body performs IO, and an untagged function
+holding nothing more is silent; `;@axiom:pure` over it is AX3037.
+The reading is PER EFFECT: IO the body performs is accused whatever
+else the row carries. Until 2026-08-29 one row-global marker excused
+the whole row, so every untagged function one hop above a `println`
+with a `{hole}` - four `show` implementations, all possible - checked
+clean and printed.
+
+A trait-method IMPLEMENTATION draws this like any other function.
+Its tag is written inside the `impl`, above the member
+(tests/diagnostics/358-impl-effect-declared.ax).
 
 ### explain AX3044
 AX3044 - a bare type name is declared in more than one imported module
@@ -1393,22 +1408,24 @@ never checked - but that WITHDRAWS the claim rather than answering it.
 AX3051 - a restriction claim the effect walk is not in a position to check
 
 `;@axiom:restrict(no-io)`, `no-alloc`, `no-foreign` or `no-recursion`
-over a body whose effect row the walk could not close. Two marks make a row
+over a body whose effect row the walk could not close. Two readings make a claim
 unverifiable, each in one direction:
 
   - the row is a LOWER bound - the body calls a value the walk could
-    not resolve (a struct field holding a function, an opaque local) -
-    so an effect ABSENT from it is not evidence the body avoids it;
-  - the row is an UPPER bound - the body names an arrow-typed function
-    without calling it, or calls a trait method with more than one
-    implementation - so an effect PRESENT in it is not evidence the
-    body performs it.
+    not resolve (a struct field holding a function, an opaque local,
+    a call applying a callee's result) - so an effect ABSENT from it
+    is not evidence the body avoids it;
+  - the effect is only POSSIBLE - it arrived by naming an arrow-typed
+    function without calling it, or through a trait method with more
+    than one implementation - so its presence is not evidence the
+    body performs it. `symbols` prints these as `#effects-possible=`.
 
-An effect present in a lower bound IS evidence, and is AX3049.
+An effect present in a lower bound IS evidence, and is AX3049; so is
+an effect the body performs beside one it may.
 
 A WARNING, and the difference from AX3049 is the point: this is a
 limit of the ANALYSIS rather than a defect in the program. It is
-AX3037's argument at one remove, over the same two markers - a
+AX3037's argument at one remove, over the same two readings - a
 `(handle ((b.f) 7) ...)` over a pure `b.f` is a correct program, and
 refusing it would make dispatch through a stored function unwriteable
 rather than unverified. `no-cast` never draws this: a cast is lexical

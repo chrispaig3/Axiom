@@ -130,9 +130,13 @@ AX3039
 #          a correct program, and refusing it would make dispatch through
 #          a stored function unwriteable under a restriction rather than
 #          unverified. This is AX3037's argument at one remove - same
-#          sentinels (`effIncomplete`, `effByRef`), same six corpus files
-#          carrying ten marks between them (`docs/reference.md`, AXTAG
-#          Keys), same standing risk: this list is for the unanswerable,
+#          readings (`effPartial` for the lower bound, `effPossible`
+#          for an effect the body may perform; the row-global `effByRef`
+#          they replaced excused a definite effect beside a possible
+#          one, and every caller of a `{hole}`-printing function read
+#          as unverifiable), same corpus files carrying the marks
+#          (`docs/reference.md`, AXTAG Keys), same standing risk:
+#          this list is for the unanswerable,
 #          and a code that becomes answerable leaves it. The answerable
 #          half is AX3049 - a restriction the walk refuted - which is an
 #          error from its first day, because the objections that held
