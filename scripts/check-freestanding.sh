@@ -509,7 +509,7 @@ IR
   printf 'LIBRARY user32.dll\nEXPORTS\nMessageBoxA\n' > "$pew/user32.def"
   if ! llc -filetype=obj -relocation-model=pic "$pew/probe.ll" -o "$pew/probe.o" >"$pew/log" 2>&1 \
      || ! llvm-dlltool -m i386:x86-64 -d "$pew/user32.def" -l "$pew/user32.lib" >>"$pew/log" 2>&1 \
-     || ! lld-link /subsystem:console /entry:mainCRTStartup "/out:$pew/probe.exe" "$pew/probe.o" "$pew/user32.lib" >>"$pew/log" 2>&1; then
+     || ! lld-link -subsystem:console -entry:mainCRTStartup "-out:$pew/probe.exe" "$pew/probe.o" "$pew/user32.lib" >>"$pew/log" 2>&1; then
     echo "FAIL negative probe: could not link the PE that imports MessageBoxA"
     sed 's/^/    /' "$pew/log" | head -5
     status=1

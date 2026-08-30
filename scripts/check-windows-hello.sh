@@ -121,7 +121,12 @@ AX
       local name="$1"; shift
       llc -filetype=obj -O1 -relocation-model=pic "$dir/$name.ll" -o "$work/$name.obj" 2>"$work/$name.llc.err" \
         || { echo "FAIL $name: llc refused the module"; sed 's/^/    /' "$work/$name.llc.err" | head -5; return 1; }
-      if ! lld-link /subsystem:console /entry:mainCRTStartup "/out:$work/$name.exe" "$work/$name.obj" "$work/kernel32.lib" "$@" >"$work/$name.link.log" 2>&1; then
+      # Dash-form flags, not `/out:`: under Git-bash on the Windows leg,
+      # MSYS converts an argument that begins with `/` into a Windows
+      # path, and `/out:x.exe` reached lld-link as
+      # `C:\Program Files\Git\out;...\x.exe` (the leg's first run,
+      # 2026-08-29). lld-link accepts both spellings everywhere.
+      if ! lld-link -subsystem:console -entry:mainCRTStartup "-out:$work/$name.exe" "$work/$name.obj" "$work/kernel32.lib" "$@" >"$work/$name.link.log" 2>&1; then
         echo "FAIL $name: lld-link failed"
         grep -o 'undefined symbol: [A-Za-z_][A-Za-z0-9_]*' "$work/$name.link.log" | sed 's/^/    /' | sort -u
         sed 's/^/    /' "$work/$name.link.log" | head -5

@@ -287,7 +287,13 @@ expect_bytes() {
   return 1
 }
 
-base_port=$(( 40000 + ($$ % 3000) ))
+# Below every kernel's ephemeral range (Linux 32768-60999, Darwin
+# 49152-65535) and beside check-net.sh's 21000-23999: a listener bound
+# INSIDE that range collides with the TIME_WAIT left by a previous
+# gate's ten thousand client connections - on the linux-x86_64 runner,
+# 40000 + pid answered EADDRINUSE (-98) on three ports in a row while
+# check-net, which had just run, was fine (2026-08-29).
+base_port=$(( 24000 + ($$ % 3000) ))
 
 echo "== every page and file, byte for byte =="
 if start_server $((base_port + 0)) 1; then
