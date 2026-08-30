@@ -120,6 +120,24 @@ module.exports = grammar({
     // has to resolve: `(struct P (x))` is a parameter list or a
     // construction whose argument is `(x)`.
     [$.type_parameters, $._expression],
+    // `(struct S (msg String))`: with the `:` gone, a field declaration
+    // and an application of `msg` to `String` are the same tokens, and
+    // they diverge nowhere - the whole point of the `:` is that it is
+    // what separates them, which is why the compiler refuses the form
+    // (AX3056) rather than choosing a reading. The grammar still has to
+    // PARSE it, because the fixture pinning that refusal is a `.ax`
+    // file like any other and check-tree-sitter parses all of them. So
+    // the ambiguity is declared and rule order decides, exactly as it
+    // does for the empty `(struct Point)` body above: either answer
+    // highlights identically, and neither is a claim about which
+    // reading is right.
+    [$.field_declaration, $._expression],
+    // And the same three-way, because a `(` after a struct's name may
+    // still be opening the type-parameter list: `(struct S (msg
+    // String))` is a parameter list, a field declaration and an
+    // application until the body ends.
+    [$.type_parameters, $.field_declaration, $._expression],
+    [$.type_parameters, $.field_declaration],
     // `(handle body (foo) handler)`: is `(foo)` a one-element custom effect
     // list, or is it an application that serves as the handler? Nothing in
     // the form settles it, and the language itself is ambiguous here -
@@ -414,13 +432,25 @@ module.exports = grammar({
       ')',
     ),
 
-    // `(name : Type)` with an optional `mut` before the name.
+    // `(name : Type)` with an optional `mut` before the name. The
+    // parser also reads three shapes it should not - `(name Type)` with
+    // no colon, a `:` whose right side is not a type, and a bare
+    // `(name)` - and the checker refuses all three as AX3056, since a
+    // field type it cannot classify silently leaves the block's
+    // reference map. The grammar follows the parser here for the reason
+    // `effect_operation` does: the fixture that pins the code has to
+    // parse, and the refusal is the checker's to make, not the
+    // grammar's. `(name)` alone is left out - after a struct's name it
+    // is a type-parameter list, which is the reading the formatter
+    // takes and this rule must not fight.
     field_declaration: $ => seq(
       '(',
       optional('mut'),
       field('name', $.identifier),
-      ':',
-      field('type', $._type),
+      optional(choice(
+        seq(':', field('type', choice($._type, $._literal))),
+        field('type', $._type),
+      )),
       ')',
     ),
 
