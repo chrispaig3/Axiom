@@ -1,0 +1,85 @@
+; `restrict(no-cast:deep)`: the closure, opted into by spelling it.
+; This body's casts are reported at their spans exactly as `no-cast`
+; reports them; the closure is reported ONCE, at the declaration, for
+; the nearest reachable function whose body casts, with the path.
+;
+;   `deepCaller`  calls `unwrap`, which casts          -> AX3049 at the
+;                 declaration: deepCaller -> unwrap
+;   `deepFar`     reaches `unwrap` two hops down       -> AX3049, the
+;                 path naming both hops
+;   `deepLocal`   casts in its own body AND reaches `unwrap`
+;                                                      -> two AX3049s:
+;                 the local one at the cast, the closure's at the decl
+;   `deepClean`   a closure with no cast in it         -> silent
+;   `shallow`     `no-cast` (local) calling `unwrap`   -> silent: the
+;                 control that keeps the two spellings distinct
+;   `deepPartial` `((b.f) n)` with a clean closure     -> AX3051: the
+;                 closure cannot be enumerated
+;   `deepRefuted` `((b.f) n)` beside a call to `unwrap`
+;                                                      -> AX3049 alone:
+;                 a cast found refutes the claim whatever the walk
+;                 could not close
+(data Meters (MkM Int))
+
+(struct Box (f : (-> Int Int)))
+
+(:: unwrap (-> Meters Int))
+
+(fn (unwrap m) (cast Int m))
+
+(:: viaUnwrap (-> Meters Int))
+
+(fn (viaUnwrap m) (unwrap m))
+
+;@axiom:restrict(no-cast:deep)
+(:: deepCaller (-> Meters Int))
+
+(fn (deepCaller m) (unwrap m))
+
+;@axiom:restrict(no-cast:deep)
+(:: deepFar (-> Meters Int))
+
+(fn (deepFar m) (viaUnwrap m))
+
+;@axiom:restrict(no-cast:deep)
+(:: deepLocal (-> Meters Int))
+
+(fn (deepLocal m) (+ (cast Int m) (unwrap m)))
+
+(:: plain (-> Meters Int))
+
+(fn (plain m)
+  (match m
+    ((MkM v) v))
+)
+
+;@axiom:restrict(no-cast:deep)
+(:: deepClean (-> Meters Int))
+
+(fn (deepClean m) (plain m))
+
+;@axiom:restrict(no-cast)
+(:: shallow (-> Meters Int))
+
+(fn (shallow m) (unwrap m))
+
+;@axiom:restrict(no-cast:deep)
+(:: deepPartial (-> Box Int Int))
+
+(fn (deepPartial b n) ((b.f) n))
+
+;@axiom:restrict(no-cast:deep)
+(:: deepRefuted (-> Box Meters Int))
+
+(fn (deepRefuted b m) (+ ((b.f) 1) (unwrap m)))
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (m (MkM 7))
+    (b (Box (lambda (x) x)))
+  )
+    (+ (deepCaller m) (+ (deepFar m) (+ (deepLocal m) (+ (deepClean m) (+ (shallow m) (+ (deepPartial b 1) (deepRefuted b m)))))))
+  )
+)

@@ -131,6 +131,7 @@ Fn       unitArg              (() -> Int)                              [tests/fm
 Fn       integerName          (Int -> Int)                             [tests/fmt/syntax-zoo.ax:346:5-16]
 Fn       negatives            Int                                      [tests/fmt/syntax-zoo.ax:352:5-14]
 Fn       splitTags            (Int -> Int)                             [tests/fmt/syntax-zoo.ax:385:5-14]
+Fn       restrictedTwice      (Int -> Int)                             [tests/fmt/syntax-zoo.ax:395:5-20]
 Data     Option               data Option                              [builtin]
 Ctor     Some                 (a -> Option a)                          [builtin]
 Ctor     None                 Option a                                 [builtin]

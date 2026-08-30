@@ -1,0 +1,114 @@
+; The witness path: every transitive violation names the chain of
+; resolved calls from the claiming declaration to where the effect
+; enters, in the spellings `symbols --calls` prints, so each hop
+; cross-checks `#calls=`. Five shapes the renderer has to get right,
+; and the control that stays silent:
+;
+;   `viaTrait`    the path crosses a trait method: the hop is the
+;                 lowered impl, `Emit#Loud#emit`, and the impl's own
+;                 body reaches the syscall           -> AX3049 with path
+;   `viaModule`   the path crosses a module boundary: the hop is the
+;                 imported spelling, `RestrictLeaf$leafWrite`
+;                                                    -> AX3049 with path
+;   `viaBuiltin`  the path ends at a builtin whose row is SEEDED,
+;                 `__argc` - not a syscall, not an extern, but where
+;                 IO enters all the same             -> AX3049 with path
+;   `viaForm`     `no-alloc`, and the callee's allocation is an `alloc`
+;                 FORM - no `__alloc` edge exists, the row carries
+;                 `Alloc` and no callee does, so the path ends at the
+;                 callee and says "in its own body"  -> AX3049 with path
+;   `ownForm`     `no-alloc` over a body holding the form itself: a
+;                 path of one, "in its own body"     -> AX3049
+;   `viaCallback` `(apply shout n)`: the walk records an edge to the
+;                 named callback, so the path goes through `shout`
+;                 and not through `apply`            -> AX3049 with path
+;   `quiet`       reaches none of it                 -> silent
+;
+; Every IO-performing function here declares it, so the only
+; diagnostics are the restriction's.
+(import RestrictLeaf)
+
+(trait (Emit a) where (
+  emit :: (-> a Int)
+))
+
+(data Loud (MkLoud Int))
+
+(impl (Emit Loud) where (
+  ;@axiom:effect(io)
+  (emit
+    (lambda (v) { (__syscall3 1 1 0 0) 1 })
+  )
+))
+
+;@axiom:restrict(no-io)
+(:: viaTrait (-> Loud Int))
+
+;@axiom:effect(io)
+(fn (viaTrait l) (emit l))
+
+;@axiom:restrict(no-io)
+(:: viaModule (-> Int Int))
+
+;@axiom:effect(io)
+(fn (viaModule n) (leafWrite n))
+
+;@axiom:restrict(no-io)
+(:: viaBuiltin (-> Int Int))
+
+;@axiom:effect(io)
+(fn (viaBuiltin n) (+ n __argc))
+
+(:: makes (-> Int Int))
+
+(fn (makes n)
+  (let ((p (alloc Int 1)))
+    n
+  )
+)
+
+;@axiom:restrict(no-alloc)
+(:: viaForm (-> Int Int))
+
+(fn (viaForm n) (makes n))
+
+;@axiom:restrict(no-alloc)
+(:: ownForm (-> Int Int))
+
+(fn (ownForm n)
+  (let ((p (alloc Int 1)))
+    n
+  )
+)
+
+(:: shout (-> Int Int))
+
+;@axiom:effect(io)
+(fn (shout n)
+  {
+    (__syscall3 1 1 0 0)
+    n
+  }
+)
+
+(:: apply (-> (-> Int Int) Int Int))
+
+(fn (apply f x) (f x))
+
+;@axiom:restrict(no-io)
+(:: viaCallback (-> Int Int))
+
+;@axiom:effect(io)
+(fn (viaCallback n) (apply shout n))
+
+;@axiom:restrict(no-io,no-alloc)
+(:: quiet (-> Int Int))
+
+(fn (quiet n) (apply (lambda (x) (+ x 1)) n))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (+ (viaTrait (MkLoud 1)) (+ (viaModule 2) (+ (viaBuiltin 3) (+ (viaForm 4) (+ (ownForm 5) (+ (viaCallback 6) (quiet 7)))))))
+)

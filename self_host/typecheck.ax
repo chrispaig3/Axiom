@@ -14594,13 +14594,28 @@
 ; something, answered from analysis the checker already performs and
 ; used to throw away.
 ;
-; The value is a comma-separated list of restriction names. Four are
+; The value is a comma-separated list of restriction names. Five are
 ; checked here:
 ;
-;   no-io       `IO` is not in the effect row                 transitive
-;   no-alloc    `Alloc` is not in the effect row              transitive
-;   no-foreign  no call-graph path reaches an `extern` item   transitive
-;   no-cast     no `cast` head in THIS body                   local
+;   no-io        `IO` is not in the effect row                 transitive
+;   no-alloc     `Alloc` is not in the effect row              transitive
+;   no-foreign   no call-graph path reaches an `extern` item   transitive
+;   no-cast      no `cast` head in THIS body                   local
+;   no-cast:deep no `cast` head in this body or any reachable  transitive,
+;                one                                           opt-in
+;
+; EVERY TRANSITIVE VIOLATION NAMES ITS PATH. `graphWitness` walks the
+; call graph breadth-first from the claiming declaration to the
+; nearest entry where the effect ENTERS - a syscall primitive, an
+; extern, a builtin whose row is seeded (`__argc`, `__alloc`), or a
+; function whose row carries the effect while no callee does, which is
+; a form in its own body - and the message renders the hops with the
+; RESOLVED spellings `tcNoteCall` recorded (`Mod$name`,
+; `Trait#Type#method`), so a path cross-checks against `#calls=` hop
+; for hop. The path is the whole diagnostic: a restriction on a leaf
+; is easy to check by reading, a restriction on a call chain is what a
+; call graph is for, and printing the chain is the difference between
+; "somewhere below you" and a place to put the fix.
 ;
 ; THREE ARE TRANSITIVE BY CONSTRUCTION AND ONE IS NOT, and the
 ; difference is not a policy choice. `no-io` and `no-alloc` read the
@@ -14617,7 +14632,11 @@
 ; expression tree, and a callee's casts are that callee's claim to
 ; make. Measured: 653 `(cast ` in `self_host/` and `stdlib/` against
 ; 3,196 `fn` declarations, so a transitive `no-cast` would refuse
-; nearly every program that reaches the standard library.
+; nearly every program that reaches the standard library - which is
+; why the transitive reading is the OPT-IN spelling `no-cast:deep`: the
+; body's own casts at their spans, and the nearest reachable function
+; whose body casts, once, at the declaration, with the path (a span in
+; another unit cannot be rendered against this one's source).
 ;
 ; `sizeof` and `alignof` share `cast`'s arity exemption in
 ; `checkCastForm` and nothing else: they read a type's layout and
@@ -14813,7 +14832,9 @@
 
 ; The closed list. A name not matched here is AX3052; keep the help in
 ; `emitRestrictUnknown` in step with these arms, because it is the
-; only place the list is stated to the author.
+; only place the list is stated to the author. `no-cast:deep` is a
+; separate name and not a modifier: `no-cast` alone is local by
+; design, and the deep reading is opted into by spelling it.
 (pub :: checkOneRestrict (-> Int Int String Int Int))
 
 (pub fn (checkOneRestrict tc d r eff)
@@ -14822,10 +14843,13 @@
     (if (strEq r "no-alloc")
       (restrictEffect tc d r eff "Alloc")
       (if (strEq r "no-cast")
-        (restrictNoCast tc d (nodeC d))
-        (if (strEq r "no-foreign")
-          (restrictNoForeign tc d r eff)
-          (emitRestrictUnknown tc d r)
+        (restrictNoCast tc d r (nodeC d))
+        (if (strEq r "no-cast:deep")
+          (restrictNoCastDeep tc d r eff)
+          (if (strEq r "no-foreign")
+            (restrictNoForeign tc d r eff)
+            (emitRestrictUnknown tc d r)
+          )
         )
       )
     )
@@ -14840,7 +14864,7 @@
   (if (== (effIn eff (builtinEff e)) 1)
     (if (== (effOverApprox eff) 1)
       (emitRestrictUnverifiable tc d r (strConcat (strConcat "the effect row is an upper bound here - the body names a function without calling it, or calls a trait method with more than one implementation - so `" e) "` in it is not evidence the body performs it"))
-      (emitRestrictViolated tc d r (strConcat "the body performs " e))
+      (emitRestrictViolated tc d r (strConcat (strConcat "the body performs " e) (witnessText tc d e)))
     )
     (if (== (effPartial eff) 1)
       (emitRestrictUnverifiable tc d r (strConcat (strConcat "the body calls a value the compiler could not resolve, so the effect row is a lower bound and the absence of `" e) "` from it is not evidence"))
@@ -14849,7 +14873,7 @@
   )
 )
 
-; `no-foreign`: a breadth-first walk over FnEnt word 7 from this
+; `no-foreign`: `graphWitness` over FnEnt word 7 from this
 ; declaration's own entry, for an entry whose word 4 is 2. The graph
 ; has an edge for every resolved call, every syscall primitive, and
 ; every implementation of a trait method the body calls
@@ -14864,15 +14888,44 @@
 (pub :: restrictNoForeign (-> Int Int String Int Int))
 
 (pub fn (restrictNoForeign tc d r eff)
-  (let ((hit (graphFindExtern tc (restrictOwnEnt tc d))))
-    (if (!= hit 0)
-      (if (== (effOverApprox eff) 1)
-        (emitRestrictUnverifiable tc d r (strConcat (strConcat "the call graph reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call"))
-        (emitRestrictViolated tc d r (strConcat (strConcat "the body reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "`"))
+  (let ((path (graphWitness tc (restrictOwnEnt tc d) "extern")))
+    (if (!= path 0)
+      (let ((hit (vecGet path (- (vecLen path) 1))))
+        (if (== (effOverApprox eff) 1)
+          (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat (strConcat "the call graph reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)) ""))
+          (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the body reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path)))
+        )
       )
       (if (== (effPartial eff) 1)
         (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, and the call graph has no edge for it")
         0
+      )
+    )
+  )
+)
+
+; The suffix a `no-io`/`no-alloc` violation carries: `: a -> b -> c`,
+; ending at the entry where the effect enters; or, when the walk ends
+; at a function whose row carries the effect and whose callees do not,
+; the note that it is a form in that body. `graphWitness` cannot fail
+; to find a path for an effect the row carries - every source of `IO`
+; is a seed and every source of `Alloc` is a seed or a form - but the
+; fallback says so rather than rendering nothing, because a message
+; that silently lost its evidence is the AX3039 shape in another coat.
+(pub :: witnessText (-> Int Int String String))
+
+(pub fn (witnessText tc d e)
+  (let ((path (graphWitness tc (restrictOwnEnt tc d) e)))
+    (if (== path 0)
+      " (the walk found no path to a source of it)"
+      (let ((last (vecGet path (- (vecLen path) 1))))
+        (if (== (graphSeeds tc last e 1) 1)
+          (strConcat ": " (graphRender path))
+          (if (== (vecLen path) 1)
+            " in its own body (an `alloc` form, or a `handle` installing a handler)"
+            (strConcat (strConcat (strConcat ": " (graphRender path)) ", in ") (strConcat (strConcat "`" (bareOf (memGetWordStr last 0))) "`'s own body"))
+          )
+        )
       )
     )
   )
@@ -14894,54 +14947,149 @@
   )
 )
 
-; The nearest entry reachable from `start` whose word 4 is 2, or 0.
-; Breadth-first, so the first hit is the one at the fewest hops, and
-; `seen` is keyed by the resolved name each edge already carries.
+; The witness: the nearest entry reachable from `start` at which
+; `kind` ENTERS the graph, with the path to it. `kind` is "IO",
+; "Alloc", "extern" or "cast". Answers a Vec of entries from `start`
+; to the witness inclusive, or 0 when nothing reachable qualifies.
+;
+; Breadth-first, so the witness is the one at the fewest hops; `seen`
+; is keyed by the resolved name every edge already carries; a parent
+; index is kept per queue slot so the path reads back from the hit.
 ; Every entry's word 7 is a Vec - `regFn`, `regFnEff`, `tcAddExtern`
-; and `tcAddEffectOp` all construct one - so the walk needs no guard
-; against a missing edge list.
-(pub :: graphFindExtern (-> Int Int Int))
+; and `tcCollectFn` all construct one - so no edge list needs a guard.
+(pub :: graphWitness (-> Int Int String Int))
 
-(pub fn (graphFindExtern tc start)
+(pub fn (graphWitness tc start kind)
   (if (== start 0)
     0
     (let (
       (queue vecNew)
+      (parent vecNew)
       (seen vecNew)
       (mut qi 0)
-      (mut hit 0)
+      (mut hit (- 0 1))
     )
       {
         (vecPush queue start)
+        (vecPush parent (- 0 1))
         (vecPush seen (memGetWordStr start 0))
-        (while (if (== hit 0)
+        (while (if (< hit 0)
           (< qi (vecLen queue))
           false
         )
           (let ((ent (vecGet queue qi)))
             {
-              (set qi (+ qi 1))
-              (if (== (memGetWord ent 4) 2)
-                (set hit ent)
-                (graphPushCallees
-                  tc                  (memGetWord ent 7)                  0                  queue                  seen
+              (if (== (graphSeeds tc ent kind qi) 1)
+                (set hit qi)
+                (if (== (graphOwnSource tc ent kind) 1)
+                  (set hit qi)
+                  (graphEnqueue
+                    tc                    (memGetWord ent 7)                    0                    queue                    parent                    seen                    qi
+                  )
                 )
               )
+              (set qi (+ qi 1))
             }
           ))
-        hit
+        (if (< hit 0)
+          0
+          (graphReadBack queue parent hit vecNew)
+        )
       }
     )
   )
 )
 
-; Enqueue every callee of `calls` not yet seen. `fnEntExact` and not
-; `findFnEnt`: an edge names the RESOLVED entry (`Mod$name`), which is
-; the exact-name index's key, and visibility was decided when the edge
-; was recorded.
-(pub :: graphPushCallees (-> Int Int Int Int Int Int))
+; Where `kind` ENTERS rather than being inherited:
+;
+;   extern  an entry `tcAddExtern` marked, word 4 = 2;
+;   IO      a syscall primitive - its row is EMPTY, `walkCallHead` adds
+;           the effect at the call site, so `isSyscallPrim` and not the
+;           row is the test - or an extern, or a builtin whose seeded
+;           row carries it (`__argc`, `__argv`);
+;   Alloc   a builtin whose seeded row carries it (`__alloc`, the
+;           arena primitives);
+;   cast    a function other than the start (`depth` > 0; the start's
+;           own casts are reported at their spans by the local walk)
+;           whose declaration's body holds a `cast` head.
+(pub :: graphSeeds (-> Int Int String Int Int))
 
-(pub fn (graphPushCallees tc calls i queue seen)
+(pub fn (graphSeeds tc ent kind depth)
+  (if (strEq kind "extern")
+    (if (== (memGetWord ent 4) 2)
+      1
+      0
+    )
+    (if (strEq kind "cast")
+      (if (> depth 0)
+        (graphDeclCasts tc ent)
+        0
+      )
+      (if (&& (strEq kind "IO") (|| (== (isSyscallPrim (memGetWordStr ent 0)) 1) (== (memGetWord ent 4) 2)))
+        1
+        (if (&& (== (memGetWord ent 3) 1) (== (effIn (memGetWord ent 5) (builtinEff kind)) 1))
+          1
+          0
+        )
+      )
+    )
+  )
+)
+
+; A function whose row carries the effect while NO callee seeds or
+; carries it: the effect came from a form in its own body - `(alloc T
+; n)`, or a `handle` installing a handler - which the row cannot name
+; and the graph cannot reach past. Only an effect kind has this shape;
+; an extern is reached or it is not, and a cast is a seed by
+; definition.
+(pub :: graphOwnSource (-> Int Int String Int))
+
+(pub fn (graphOwnSource tc ent kind)
+  (if (|| (strEq kind "extern") (strEq kind "cast"))
+    0
+    (if (!= (memGetWord ent 3) 0)
+      0
+      (if (!= (memGetWord ent 4) 0)
+        0
+        (if (== (effIn (memGetWord ent 5) (builtinEff kind)) 0)
+          0
+          (if (== (graphAnyCalleeCarries tc (memGetWord ent 7) 0 kind) 1)
+            0
+            1
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: graphAnyCalleeCarries (-> Int Int Int String Int))
+
+(pub fn (graphAnyCalleeCarries tc calls i kind)
+  (if (>= i (vecLen calls))
+    0
+    (let ((c (fnEntExact tc (vecGetStr calls i))))
+      (if (== c 0)
+        (graphAnyCalleeCarries tc calls (+ i 1) kind)
+        (if (== (graphSeeds tc c kind 1) 1)
+          1
+          (if (== (effIn (memGetWord c 5) (builtinEff kind)) 1)
+            1
+            (graphAnyCalleeCarries tc calls (+ i 1) kind)
+          )
+        )
+      )
+    )
+  )
+)
+
+; Enqueue every callee of `calls` not yet seen, each with `from` as
+; its parent slot. `fnEntExact` and not `findFnEnt`: an edge names the
+; RESOLVED entry (`Mod$name`), which is the exact-name index's key,
+; and visibility was decided when the edge was recorded.
+(pub :: graphEnqueue (-> Int Int Int Int Int Int Int Int))
+
+(pub fn (graphEnqueue tc calls i queue parent seen from)
   (if (>= i (vecLen calls))
     0
     {
@@ -14953,92 +15101,226 @@
             (let ((e (fnEntExact tc name)))
               (if (== e 0)
                 0
-                (vecPush queue e)
+                {
+                  (vecPush queue e)
+                  (vecPush parent from)
+                }
               )
             )
           }
         )
       )
-      (graphPushCallees
-        tc        calls        (+ i 1)        queue        seen
+      (graphEnqueue
+        tc        calls        (+ i 1)        queue        parent        seen        from
       )
     }
   )
 )
 
-; `no-cast`: every `cast` head in this body, each reported at its own
-; span. The arms mirror `walkEffects` form for form, because a walk
-; that skips a form skips every cast under it; the literal leaves and
-; a bare name hold nothing. The head test is the checker's own
-; (`headIsVar` and the spelling `cast`), so what this refuses is
-; exactly what `checkCastForm` checks. An application's span is its
-; head's (`parser.ax`, `TAG_E_APP`), so the span reported covers the
-; word `cast` and the message leads with it.
-(pub :: restrictNoCast (-> Int Int Int Int))
+; The path from the start to slot `i`, start first: recurse to the
+; parent, then push.
+(pub :: graphReadBack (-> Int Int Int Int Int))
 
-(pub fn (restrictNoCast tc d e)
-  (if (== e 0)
+(pub fn (graphReadBack queue parent i acc)
+  (if (< i 0)
+    acc
+    {
+      (graphReadBack queue parent (vecGet parent i) acc)
+      (vecPush acc (vecGet queue i))
+      acc
+    }
+  )
+)
+
+; `a -> b -> c`, in the resolved spellings the edges carry, so a path
+; cross-checks `#calls=` hop for hop.
+(pub :: graphRender (-> Int String))
+
+(pub fn (graphRender path) (graphRenderFrom path 0 ""))
+
+(pub :: graphRenderFrom (-> Int Int String String))
+
+(pub fn (graphRenderFrom path i acc)
+  (if (>= i (vecLen path))
+    acc
+    (graphRenderFrom
+      path      (+ i 1)      (if (== i 0)
+        (memGetWordStr (vecGet path i) 0)
+        (strConcat (strConcat acc " -> ") (memGetWordStr (vecGet path i) 0))
+      )
+    )
+  )
+)
+
+; Does the declaration behind `ent` hold a `cast`? The entry is found
+; back in the declaration list by its resolved name - a lowered impl
+; method is a top-level `fn` by the time this runs, so
+; `Trait#Type#method` is found like any other - and a builtin or an
+; extern has no declaration and casts nothing.
+(pub :: graphDeclCasts (-> Int Int Int))
+
+(pub fn (graphDeclCasts tc ent)
+  (if (!= (memGetWord ent 3) 0)
     0
-    (let ((tag (nodeTag e)))
-      (if (== tag TAG_E_APP)
-        (let ((head (spineHead e)))
-          {
-            (if (== (nodeTag head) TAG_E_VAR)
-              (if (strEq (nodeAName head) "cast")
-                (emitRestrictCast tc d (nodeSpan e))
-                0
-              )
-              (restrictNoCast tc d head)
-            )
-            (restrictNoCastVec tc d (spineArgVec e vecNew) 0)
-          }
+    (if (!= (memGetWord ent 4) 0)
+      0
+      (let ((dd (declByName (memGetWord tc 10) (memGetWordStr ent 0) 0)))
+        (if (== dd 0)
+          0
+          (if (> (vecLen (castScanInto (nodeC dd) vecNew)) 0)
+            1
+            0
+          )
         )
-        (if (== tag TAG_E_ALLOC)
-          (restrictNoCast tc d (nodeB e))
-          (if (== tag TAG_E_SETF)
+      )
+    )
+  )
+)
+
+(pub :: declByName (-> Int String Int Int))
+
+(pub fn (declByName decls name i)
+  (if (>= i (vecLen decls))
+    0
+    (let ((dd (vecGet decls i)))
+      (if (&& (== (nodeTag dd) TAG_D_FN) (strEq (nodeAName dd) name))
+        dd
+        (declByName decls name (+ i 1))
+      )
+    )
+  )
+)
+
+; `no-cast`: every `cast` head in this body, each reported at its own
+; span. `castScanInto` collects them; the arms mirror `walkEffects`
+; form for form, because a walk that skips a form skips every cast
+; under it; the literal leaves and a bare name hold nothing. The head
+; test is the checker's own (`headIsVar` and the spelling `cast`), so
+; what this refuses is exactly what `checkCastForm` checks. An
+; application's span is its head's (`parser.ax`, `TAG_E_APP`), so the
+; span reported covers the word `cast` and the message leads with it.
+(pub :: restrictNoCast (-> Int Int String Int Int))
+
+(pub fn (restrictNoCast tc d r e) (restrictEmitCasts tc d r (castScanInto e vecNew) 0))
+
+(pub :: restrictEmitCasts (-> Int Int String Int Int Int))
+
+(pub fn (restrictEmitCasts tc d r casts i)
+  (if (>= i (vecLen casts))
+    0
+    {
+      (emitRestrictCast tc d r (nodeSpan (vecGet casts i)))
+      (restrictEmitCasts tc d r casts (+ i 1))
+    }
+  )
+)
+
+; `no-cast:deep`: this body's casts at their spans, exactly as
+; `no-cast`; then the closure, for the NEAREST reachable function
+; whose body casts, reported once at the declaration with the path -
+; a span in another unit cannot be rendered against this one's
+; source, and one path is what an author needs to decide whether the
+; tag or the callee is wrong. A cast found is a refutation whatever
+; the walk could not close; only a closure with no cast in it and a
+; call the walk could not resolve is unverifiable, and a cast reached
+; only through a function the body names without calling (`effByRef`)
+; is unverifiable for the reason `no-foreign` gives.
+(pub :: restrictNoCastDeep (-> Int Int String Int Int))
+
+(pub fn (restrictNoCastDeep tc d r eff)
+  (let ((local (castScanInto (nodeC d) vecNew)))
+    {
+      (restrictEmitCasts tc d r local 0)
+      (let ((path (graphWitness tc (restrictOwnEnt tc d) "cast")))
+        (if (!= path 0)
+          (let ((hit (vecGet path (- (vecLen path) 1))))
+            (if (== (effOverApprox eff) 1)
+              (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat "the closure reaches a cast in `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)))
+              (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the closure reaches a cast in the body of `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path)))
+            )
+          )
+          (if (&& (== (vecLen local) 0) (== (effPartial eff) 1))
+            (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, so its closure cannot be enumerated")
+            0
+          )
+        )
+      )
+    }
+  )
+)
+
+; Every `cast` application under `e`, in source order, pushed into
+; `acc`; answers `acc`.
+(pub :: castScanInto (-> Int Int Int))
+
+(pub fn (castScanInto e acc)
+  (if (== e 0)
+    acc
+    (let ((tag (nodeTag e)))
+      {
+        (if (== tag TAG_E_APP)
+          (let ((head (spineHead e)))
             {
-              (restrictNoCast tc d (nodeA e))
-              (restrictNoCast tc d (nodeC e))
-            }
-            (if (== tag TAG_E_HANDLE)
-              {
-                (restrictNoCast tc d (nodeA e))
-                (restrictNoCast tc d (nodeC e))
-              }
-              (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+              (if (== (nodeTag head) TAG_E_VAR)
+                (if (strEq (nodeAName head) "cast")
+                  (vecPush acc e)
+                  0
+                )
                 {
-                  (restrictNoCast tc d (nodeB e))
-                  (restrictNoCast tc d (nodeC e))
+                  (castScanInto head acc)
+                  0
                 }
-                (if (== tag TAG_E_LAM)
-                  (restrictNoCast tc d (nodeB e))
-                  (if (== tag TAG_E_IF)
-                    {
-                      (restrictNoCast tc d (nodeA e))
-                      (restrictNoCast tc d (nodeB e))
-                      (restrictNoCast tc d (nodeC e))
-                    }
-                    (if (== tag TAG_E_BEGIN)
-                      (restrictNoCastVec tc d (nodeA e) 0)
-                      (if (== tag TAG_E_WHILE)
-                        {
-                          (restrictNoCast tc d (nodeA e))
-                          (restrictNoCastVec tc d (nodeB e) 0)
-                        }
-                        (if (== tag TAG_E_SET)
-                          (restrictNoCast tc d (nodeB e))
-                          (if (== tag TAG_E_FIELD)
-                            (restrictNoCast tc d (nodeA e))
-                            (if (== tag TAG_E_STRUCTCON)
-                              (restrictNoCastVec tc d (nodeB e) 0)
-                              (if (== tag TAG_E_COND)
-                                (restrictNoCastCond tc d (nodeA e) 0)
-                                (if (== tag TAG_E_MATCH)
-                                  {
-                                    (restrictNoCast tc d (nodeA e))
-                                    (restrictNoCastArms tc d (nodeB e) 0)
-                                  }
-                                  0
+              )
+              (castScanVec (spineArgVec e vecNew) 0 acc)
+            }
+          )
+          (if (== tag TAG_E_ALLOC)
+            (castScanIn (nodeB e) acc)
+            (if (== tag TAG_E_SETF)
+              {
+                (castScanIn (nodeA e) acc)
+                (castScanIn (nodeC e) acc)
+              }
+              (if (== tag TAG_E_HANDLE)
+                {
+                  (castScanIn (nodeA e) acc)
+                  (castScanIn (nodeC e) acc)
+                }
+                (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                  {
+                    (castScanIn (nodeB e) acc)
+                    (castScanIn (nodeC e) acc)
+                  }
+                  (if (== tag TAG_E_LAM)
+                    (castScanIn (nodeB e) acc)
+                    (if (== tag TAG_E_IF)
+                      {
+                        (castScanIn (nodeA e) acc)
+                        (castScanIn (nodeB e) acc)
+                        (castScanIn (nodeC e) acc)
+                      }
+                      (if (== tag TAG_E_BEGIN)
+                        (castScanVec (nodeA e) 0 acc)
+                        (if (== tag TAG_E_WHILE)
+                          {
+                            (castScanIn (nodeA e) acc)
+                            (castScanVec (nodeB e) 0 acc)
+                          }
+                          (if (== tag TAG_E_SET)
+                            (castScanIn (nodeB e) acc)
+                            (if (== tag TAG_E_FIELD)
+                              (castScanIn (nodeA e) acc)
+                              (if (== tag TAG_E_STRUCTCON)
+                                (castScanVec (nodeB e) 0 acc)
+                                (if (== tag TAG_E_COND)
+                                  (castScanCond (nodeA e) 0 acc)
+                                  (if (== tag TAG_E_MATCH)
+                                    {
+                                      (castScanIn (nodeA e) acc)
+                                      (castScanArms (nodeB e) 0 acc)
+                                    }
+                                    0
+                                  )
                                 )
                               )
                             )
@@ -15052,47 +15334,59 @@
             )
           )
         )
-      )
-    )
-  )
-)
-
-(pub :: restrictNoCastVec (-> Int Int Int Int Int))
-
-(pub fn (restrictNoCastVec tc d v i)
-  (if (>= i (vecLen v))
-    0
-    {
-      (restrictNoCast tc d (vecGet v i))
-      (restrictNoCastVec tc d v (+ i 1))
-    }
-  )
-)
-
-(pub :: restrictNoCastCond (-> Int Int Int Int Int))
-
-(pub fn (restrictNoCastCond tc d cls i)
-  (if (>= i (vecLen cls))
-    0
-    (let ((c (vecGet cls i)))
-      {
-        (restrictNoCast tc d (nodeA c))
-        (restrictNoCast tc d (nodeB c))
-        (restrictNoCastCond tc d cls (+ i 1))
+        acc
       }
     )
   )
 )
 
-(pub :: restrictNoCastArms (-> Int Int Int Int Int))
+; `castScanInto` for effect, answering 0 - the arms above sequence
+; several of these in a block.
+(pub :: castScanIn (-> Int Int Int))
 
-(pub fn (restrictNoCastArms tc d arms i)
+(pub fn (castScanIn e acc)
+  {
+    (castScanInto e acc)
+    0
+  }
+)
+
+(pub :: castScanVec (-> Int Int Int Int))
+
+(pub fn (castScanVec v i acc)
+  (if (>= i (vecLen v))
+    0
+    {
+      (castScanIn (vecGet v i) acc)
+      (castScanVec v (+ i 1) acc)
+    }
+  )
+)
+
+(pub :: castScanCond (-> Int Int Int Int))
+
+(pub fn (castScanCond cls i acc)
+  (if (>= i (vecLen cls))
+    0
+    (let ((c (vecGet cls i)))
+      {
+        (castScanIn (nodeA c) acc)
+        (castScanIn (nodeB c) acc)
+        (castScanCond cls (+ i 1) acc)
+      }
+    )
+  )
+)
+
+(pub :: castScanArms (-> Int Int Int Int))
+
+(pub fn (castScanArms arms i acc)
   (if (>= i (vecLen arms))
     0
     (let ((a (vecGet arms i)))
       {
-        (restrictNoCast tc d (nodeB a))
-        (restrictNoCastArms tc d arms (+ i 1))
+        (castScanIn (nodeB a) acc)
+        (castScanArms arms (+ i 1) acc)
       }
     )
   )
@@ -15107,20 +15401,20 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_ERROR      "AX3049"      "restriction-violated"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and " why))      0      0      "a restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc` and `no-foreign` are transitive - the effect row and the call graph are fixpoints over every callee, so the violation may be anywhere below this body. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked"
+      SEV_ERROR      "AX3049"      "restriction-violated"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and " why))      0      0      "a restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked"
     ))
   )
 )
 
 ; AX3049 at the CAST, for the local one: it has a span, and the fix
 ; is where the span is.
-(pub :: emitRestrictCast (-> Int Int Int Int))
+(pub :: emitRestrictCast (-> Int Int String Int Int))
 
-(pub fn (emitRestrictCast tc d span)
+(pub fn (emitRestrictCast tc d r span)
   (if (== span 0)
     0
     (emitDiag tc (mkDiag
-      SEV_ERROR      "AX3049"      "restriction-violated"      span      (strConcat (strConcat "`cast` in the body of `" (bareOf (nodeAName d))) "`, which claims `restrict(no-cast)`")      0      0      "`no-cast` is LOCAL: a cast is an act this body performs, so it is refused where it is written, and a callee's casts are the callee's claim to make. `cast` is the one documented way to fabricate a value - a cast between two concrete types is unchecked - so under this restriction a type's guarantee holds, and without it, it holds of programs that did not write `cast`. Write the conversion the type system checks, or delete the tag"
+      SEV_ERROR      "AX3049"      "restriction-violated"      span      (strConcat (strConcat (strConcat (strConcat "`cast` in the body of `" (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")      0      0      "`no-cast` is LOCAL: a cast is an act this body performs, so it is refused where it is written, and a callee's casts are the callee's claim to make. `cast` is the one documented way to fabricate a value - a cast between two concrete types is unchecked - so under this restriction a type's guarantee holds, and without it, it holds of programs that did not write `cast`. Write the conversion the type system checks, or delete the tag"
     ))
   )
 )
@@ -15150,7 +15444,7 @@
       SEV_ERROR      "AX3052"      "restriction-unknown"      (nodeSpan d)      (if (== (strLen r) 0)
         (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict()`, which names no restriction")
         (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction"))
-      )      0      0      "the restrictions this compiler checks are `no-cast`, `no-io`, `no-alloc` and `no-foreign`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
+      )      0      0      "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc` and `no-foreign`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
     ))
   )
 )

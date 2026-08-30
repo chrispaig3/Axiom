@@ -1,0 +1,55 @@
+[1;31merror[AX3049][0m[1m: `viaTrait` claims `restrict(no-io)` and the body performs IO: viaTrait -> Emit#Loud#emit -> __syscall3[0m
+  [1;34m--> [0m377-restrict-witness-path.ax:48:6
+[1;34m   |[0m
+[1;34m48 |[0m (fn (viaTrait l) (emit l))
+[1;34m   |[0m      [1;31m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `viaModule` claims `restrict(no-io)` and the body performs IO: viaModule -> RestrictLeaf$leafWrite -> __syscall3[0m
+  [1;34m--> [0m377-restrict-witness-path.ax:54:6
+[1;34m   |[0m
+[1;34m54 |[0m (fn (viaModule n) (leafWrite n))
+[1;34m   |[0m      [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `viaBuiltin` claims `restrict(no-io)` and the body performs IO: viaBuiltin -> __argc[0m
+  [1;34m--> [0m377-restrict-witness-path.ax:60:6
+[1;34m   |[0m
+[1;34m60 |[0m (fn (viaBuiltin n) (+ n __argc))
+[1;34m   |[0m      [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `viaForm` claims `restrict(no-alloc)` and the body performs Alloc: viaForm -> makes, in `makes`'s own body[0m
+  [1;34m--> [0m377-restrict-witness-path.ax:73:6
+[1;34m   |[0m
+[1;34m73 |[0m (fn (viaForm n) (makes n))
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `ownForm` claims `restrict(no-alloc)` and the body performs Alloc in its own body (an `alloc` form, or a `handle` installing a handler)[0m
+  [1;34m--> [0m377-restrict-witness-path.ax:78:6
+[1;34m   |[0m
+[1;34m78 |[0m (fn (ownForm n)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `viaCallback` claims `restrict(no-io)` and the body performs IO: viaCallback -> shout -> __syscall3[0m
+   [1;34m--> [0m377-restrict-witness-path.ax:102:6
+[1;34m    |[0m
+[1;34m102 |[0m (fn (viaCallback n) (apply shout n))
+[1;34m    |[0m      [1;31m^^^^^^^^^^^[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 6 previous errors

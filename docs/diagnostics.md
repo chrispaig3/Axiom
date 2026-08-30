@@ -553,9 +553,10 @@ Both NID and AXTAG are now implemented.
   succeeded is one whose claims the compiler stood behind rather than
   one an agent must re-read the warnings of. A claim it is not in a
   position to check is `AX3037`, which remains a warning. A
-  `restrict(no-io | no-alloc | no-foreign | no-cast)` claim is checked
-  against the same effect row and the call graph: a violation is
-  `AX3049`, an error; a claim over a row the walk could not close is
+  `restrict(no-io | no-alloc | no-foreign | no-cast | no-cast:deep)`
+  claim is checked against the same effect row and the call graph: a
+  violation is `AX3049`, an error, whose message renders the path of
+  resolved calls to where the effect enters; a claim over a row the walk could not close is
   `AX3051`, a warning; a name that is not a restriction is `AX3052`,
   an error, because that list is closed
   ([reference.md](reference.md), AXTAG Keys). Other tags

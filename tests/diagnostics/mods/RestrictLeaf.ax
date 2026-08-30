@@ -1,0 +1,12 @@
+; A module whose one export writes to stdout through the syscall
+; directly, so a path that crosses the module boundary ends here in
+; one hop: `... -> RestrictLeaf$leafWrite -> __syscall3`.
+(pub :: leafWrite (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (leafWrite n)
+  {
+    (__syscall3 1 1 0 0)
+    n
+  }
+)

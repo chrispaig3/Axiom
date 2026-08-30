@@ -1169,6 +1169,20 @@ restrictions are checked:
 | `no-alloc` | `Alloc` is not in the effect row | transitive |
 | `no-foreign` | no call-graph path reaches an `extern` item | transitive |
 | `no-cast` | no `cast` head in this body | LOCAL |
+| `no-cast:deep` | no `cast` head in this body or in any function it reaches | transitive, opt-in |
+
+Every transitive violation names its path. The checker walks the call
+graph breadth-first from the claiming declaration to the nearest entry
+where the effect *enters* - a syscall primitive, an `extern`, a builtin
+whose row is seeded (`__argc`, `__alloc`), or a function whose row
+carries the effect while no callee does, which is an `alloc` form or a
+`handle` in that body and is said so - and renders the hops in the
+resolved spellings `symbols --calls` prints, `Mod$name` and
+`Trait#Type#method`, so a path cross-checks `#calls=` hop for hop:
+
+```
+E AX3049 ... "`parseConfig` claims `restrict(no-io)` and the body performs IO: parseConfig -> readSection -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3"
+```
 
 Three are transitive by construction and one is not, and the
 difference is not a policy choice. `no-io` and `no-alloc` read the
@@ -1184,8 +1198,11 @@ property that propagates - so it is checked in this body only and
 reported at the cast, and a callee's casts are the callee's claim to
 make. Measured: 653 `(cast ` in `self_host/` and `stdlib/` against
 3,196 `fn` declarations, so a transitive `no-cast` would refuse nearly
-every program that reaches the standard library. `sizeof` and
-`alignof` are not casts here: they read a layout and reinterpret
+every program that reaches the standard library - which is why the
+transitive reading is the separate, opt-in spelling `no-cast:deep`:
+this body's casts at their spans, and the nearest reachable function
+whose body casts, once, at the declaration, with the path. `sizeof`
+and `alignof` are not casts here: they read a layout and reinterpret
 nothing.
 
 A violation is `AX3049`, an **error** with no warning stage, for the
@@ -1211,12 +1228,16 @@ effect claim and does not stand in for one: a restricted function
 that performs IO without `effect(io)` draws `AX3042` like any other,
 and `restrict(no-io)` over it draws `AX3049` as well.
 
-`tests/diagnostics/371`-`376` pin each restriction with the controls
+`tests/diagnostics/371`-`378` pin each restriction with the controls
 that keep it from being a blanket refusal - a callee that casts under
 `no-cast`, a syscall under `no-foreign`, `Alloc,Mut` under `no-io` -
-and `scripts/check-restrictions.sh` is the gate: a restriction changes
-no emitted byte, and a compiler whose `checkRestricts` answers nothing
-goes red.
+and the path through a trait impl, a module boundary, a seeded builtin,
+a callback and an `alloc` form. `scripts/check-restrictions.sh` is the
+gate: a restriction changes no emitted byte, a compiler whose
+`checkRestricts` answers nothing goes red, and every restricted
+declaration in the tree is on `tests/agent/restrictions.allow` with
+the verdict the compiler gave it - the manifest is why `symbols` had
+to union a signature's tags with the function's.
 
 Until 2026-08-22 neither happened. The sentinel that records an
 unresolved call had been in the source, skipped by two consumers and

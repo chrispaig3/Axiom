@@ -469,3 +469,13 @@
 
 ;@axiom:pure
 (fn (splitTags n) (+ n 1))
+
+; --- a restriction, rendered on the AXSYM row ------------------------
+; `restrict(...)` takes a comma-separated list; `symbols` renders it as
+; `#restrict=no-io,no-cast`, the value byte for byte, before the
+; compiler's own derived keys - so a policy gate can read the claim and
+; the checker's row off one line (`scripts/check-restrictions.sh`).
+;@axiom:restrict(no-io,no-cast)
+(:: restrictedTwice (-> Int Int))
+
+(fn (restrictedTwice n) (* n 3))

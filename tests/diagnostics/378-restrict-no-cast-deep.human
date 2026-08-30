@@ -1,0 +1,55 @@
+[1;33mwarning[AX3051][0m[1m: `deepPartial` claims `restrict(no-cast:deep)` and the claim cannot be checked: the body calls a value the compiler could not resolve, so its closure cannot be enumerated[0m
+  [1;34m--> [0m378-restrict-no-cast-deep.ax:69:6
+[1;34m   |[0m
+[1;34m69 |[0m (fn (deepPartial b n) ((b.f) n))
+[1;34m   |[0m      [1;33m^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `deepCaller` claims `restrict(no-cast:deep)` and the closure reaches a cast in the body of `unwrap`: deepCaller -> unwrap[0m
+  [1;34m--> [0m378-restrict-no-cast-deep.ax:37:6
+[1;34m   |[0m
+[1;34m37 |[0m (fn (deepCaller m) (unwrap m))
+[1;34m   |[0m      [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `deepFar` claims `restrict(no-cast:deep)` and the closure reaches a cast in the body of `unwrap`: deepFar -> viaUnwrap -> unwrap[0m
+  [1;34m--> [0m378-restrict-no-cast-deep.ax:42:6
+[1;34m   |[0m
+[1;34m42 |[0m (fn (deepFar m) (viaUnwrap m))
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `cast` in the body of `deepLocal`, which claims `restrict(no-cast:deep)`[0m
+  [1;34m--> [0m378-restrict-no-cast-deep.ax:47:23
+[1;34m   |[0m
+[1;34m47 |[0m (fn (deepLocal m) (+ (cast Int m) (unwrap m)))
+[1;34m   |[0m                       [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`no-cast` is LOCAL: a cast is an act this body performs, so it is refused where it is written, and a callee's casts are the callee's claim to make. `cast` is the one documented way to fabricate a value - a cast between two concrete types is unchecked - so under this restriction a type's guarantee holds, and without it, it holds of programs that did not write `cast`. Write the conversion the type system checks, or delete the tag
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `deepLocal` claims `restrict(no-cast:deep)` and the closure reaches a cast in the body of `unwrap`: deepLocal -> unwrap[0m
+  [1;34m--> [0m378-restrict-no-cast-deep.ax:47:6
+[1;34m   |[0m
+[1;34m47 |[0m (fn (deepLocal m) (+ (cast Int m) (unwrap m)))
+[1;34m   |[0m      [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `deepRefuted` claims `restrict(no-cast:deep)` and the closure reaches a cast in the body of `unwrap`: deepRefuted -> unwrap[0m
+  [1;34m--> [0m378-restrict-no-cast-deep.ax:74:6
+[1;34m   |[0m
+[1;34m74 |[0m (fn (deepRefuted b m) (+ ((b.f) 1) (unwrap m)))
+[1;34m   |[0m      [1;31m^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 5 previous errors

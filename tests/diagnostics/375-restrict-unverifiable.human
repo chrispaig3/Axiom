@@ -16,13 +16,13 @@
   [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
 
-[1;31merror[AX3049][0m[1m: `leaks` claims `restrict(no-io)` and the body performs IO[0m
+[1;31merror[AX3049][0m[1m: `leaks` claims `restrict(no-io)` and the body performs IO: leaks -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3[0m
   [1;34m--> [0m375-restrict-unverifiable.ax:52:6
 [1;34m   |[0m
 [1;34m52 |[0m (fn (leaks b n)
 [1;34m   |[0m      [1;31m^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc` and `no-foreign` are transitive - the effect row and the call graph are fixpoints over every callee, so the violation may be anywhere below this body. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `cast` in the body of `casts`, which claims `restrict(no-cast)`[0m

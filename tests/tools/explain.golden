@@ -1322,9 +1322,21 @@ instead, because the tag's author wrote it there.
 AX3049 - a restriction this declaration claimed, violated
 
 `;@axiom:restrict(no-io)` is a claim that this function and everything
-it reaches performs no IO. This is the compiler answering it. The tag
-takes a comma-separated list: `no-cast`, `no-io`, `no-alloc`,
-`no-foreign`.
+it reaches performs no IO. This is the compiler answering it, with the
+path:
+
+    parseConfig -> readSection -> IO$writeStr -> ... -> __syscall3
+
+The path is the whole diagnostic. A restriction on a leaf is easy to
+check by reading; a restriction on a call chain is what a call graph
+is for, and printing the chain is the difference between "somewhere
+below you" and a place to put the fix. Every hop is the RESOLVED
+spelling the checker recorded - `Mod$name`, `Trait#Type#method` - so
+it cross-checks `symbols --calls` hop for hop; the last hop is where
+the effect enters (a syscall primitive, an `extern`, `__alloc`), or
+the function whose own body holds the `alloc` form, said so. The tag
+takes a comma-separated list: `no-cast`, `no-cast:deep`, `no-io`,
+`no-alloc`, `no-foreign`.
 
 THREE OF THE FOUR ARE TRANSITIVE BY CONSTRUCTION and one is not, and
 the difference is not arbitrary. `no-io` and `no-alloc` read the
@@ -1338,7 +1350,10 @@ a cast is an act, not a propagated property, so it is checked in this
 body only and reported at the cast itself. A callee's casts are the
 callee's claim to make - and 653 of this repository's own expressions
 are casts, against 3,196 functions, so a transitive reading would
-refuse nearly everything that reaches the standard library.
+refuse nearly everything that reaches the standard library. Write
+`restrict(no-cast:deep)` for the closure, and expect that: it reports
+this body's casts at their spans and the nearest reachable function
+whose body casts, once, with the path.
 
 `no-cast` is the one that makes the others worth having. `cast` is the
 one documented way to fabricate a value, and a cast between two
@@ -1384,7 +1399,10 @@ AX3037's argument at one remove, over the same two markers - a
 `(handle ((b.f) 7) ...)` over a pure `b.f` is a correct program, and
 refusing it would make dispatch through a stored function unwriteable
 rather than unverified. `no-cast` never draws this: a cast is lexical
-and is checked whether or not a call resolved.
+and is checked whether or not a call resolved. `no-cast:deep` draws it
+only when no cast was found in this body or the closure the walk
+could enumerate - a cast found refutes the claim whatever else the
+walk could not close.
 
 Name the function at the call, or drop the claim. This code is in
 tests/diagnostics/severity.policy, the list of the unanswerable, and
@@ -1393,9 +1411,11 @@ a code that becomes answerable leaves it.
 ### explain AX3052
 AX3052 - a name inside `restrict(...)` that is not a restriction
 
-The restrictions this compiler checks are `no-cast`, `no-io`,
-`no-alloc` and `no-foreign`, comma-separated inside one
+The restrictions this compiler checks are `no-cast`, `no-cast:deep`,
+`no-io`, `no-alloc` and `no-foreign`, comma-separated inside one
 `restrict(...)`; a `restrict` naming nothing draws this too.
+`no-cast:deep` is a name of its own, not a modifier: `no-cast` is
+local by design and the closure is opted into by spelling it.
 
 An ERROR, and deliberately unlike AX3039, which warns about a key one
 slip from a known one and leaves the key namespace open. The list of

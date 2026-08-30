@@ -35,7 +35,7 @@
 #      comparison to notice.
 #
 #   2. THE FIXTURES ANSWER, AND THE CONTROLS ARE SILENT. Each of
-#      `tests/diagnostics/371`-`376` must draw the restriction code
+#      `tests/diagnostics/371`-`378` must draw the restriction code
 #      its header promises, and no diagnostic of any code may name a
 #      control declaration - `pureMath`, `delegates`, `native`,
 #      `measures` and the rest are the controls that keep each rule
@@ -65,12 +65,21 @@
 #      becomes a compiler against itself, "214 files swept, zero
 #      differences, exit 0, and nothing tested".
 #
-# What this gate does NOT assert, and where it is asserted instead:
-# which declarations in the tree carry a restriction and what each was
-# answered - that is a manifest (`tests/agent/restrictions.allow`),
-# kept the way `tests/agent/stdlib-effects.allow` is, and it belongs to
-# the commit that renders the witness path, because the manifest's
-# verdict column is what that path is for.
+#   5. THE MANIFEST. Every declaration in the tree carrying a
+#      `restrict` tag, with the restrictions it claims and the verdict
+#      the compiler gave - `ok`, `violated`, `unverifiable`, `unknown`,
+#      or several - is derived from `symbols` (the `#restrict=` meta,
+#      which is why `smTags` had to union a signature's tags with the
+#      function's) and `check`, and compared against
+#      `tests/agent/restrictions.allow`, kept the way
+#      `tests/agent/stdlib-effects.allow` is: derived, checked in, and
+#      blessed when the diff is what you meant. A restricted
+#      declaration appearing, disappearing, or changing its verdict is
+#      a line in a diff somebody reads. The probe adds one restricted
+#      declaration in a file outside the tree and requires the derived
+#      set to differ; a second check asks the file whether it is in C
+#      collation order, for the locale reason `check-agent-policy.sh`
+#      records.
 
 set -euo pipefail
 
@@ -236,6 +245,16 @@ else
   bad "negative probe: no swept program has a column-0 \`(fn (main)\` to alter"
 fi
 
+# A run directory shared by sections 2 and 5, mirroring
+# `check-diagnostics.sh`'s: helper modules copied flat (a module name
+# is its file stem), `stdlib/` and `self_host/` reachable, and each
+# case COPIED in, so that a fixture's `(import Mod)` resolves as it
+# does under that gate - 377 imports `RestrictLeaf` from `mods/`.
+mkdir -p "$work/run"
+cp "$repo_root"/tests/diagnostics/mods/*.ax "$work/run/" 2>/dev/null || true
+ln -s "$repo_root/stdlib" "$work/run/stdlib"
+ln -s "$repo_root/self_host" "$work/run/self_host"
+
 echo
 echo "== 2. the fixtures answer, and the controls are silent =="
 # `<case> <codes expected, min count> <control names>`
@@ -247,6 +266,8 @@ fixture_expectations() {
 374-restrict-no-foreign  AX3049 2 native local
 375-restrict-unverifiable AX3051 2 clean
 376-restrict-unknown-name AX3052 3 twice control
+377-restrict-witness-path AX3049 6 quiet
+378-restrict-no-cast-deep AX3049 5 deepClean shallow plain
 EXP
 }
 
@@ -258,8 +279,9 @@ fixtures_answer() {
   local axc_="$1" rc=0
   while read -r case code min controls; do
     [[ -z "$case" ]] && continue
-    local f="tests/diagnostics/$case.ax"
-    ( cd "$work" && "$axc_" --diagnostic-format=ai check "$repo_root/$f" ) > /dev/null 2> "$work/$case.err" || true
+    cp "$repo_root/tests/diagnostics/$case.ax" "$work/run/$case.ax"
+    ( cd "$work/run" && "$axc_" --diagnostic-format=ai check "$case.ax" ) > /dev/null 2> "$work/$case.err" || true
+    rm -f "$work/run/$case.ax"
     local got
     got="$(awk -v c="$code" '$2 == c' "$work/$case.err" | wc -l | tr -d ' ')"
     if (( got < min )); then
@@ -275,7 +297,7 @@ fixtures_answer() {
 }
 
 if fixtures_answer "$axc"; then
-  ok "371-376 draw their codes and every control is silent"
+  ok "371-378 draw their codes and every control is silent"
 else
   bad "a restriction fixture did not answer as its header promises (above)"
 fi
@@ -403,11 +425,121 @@ PY
     if fixtures_answer "$work/ablate/axc" > "$work/ablate/answer.log" 2>&1; then
       bad "negative probe: a compiler with checkRestricts unhooked still passes section 2 (the section cannot fail)"
     else
-      ok "negative probe: with checkRestricts unhooked, section 2 fails ($(grep -c 'wanted at least' "$work/ablate/answer.log") fixtures stop answering)"
+      ok "negative probe: with checkRestricts unhooked, section 2 fails ($(grep -c 'wanted at least' "$work/ablate/answer.log" || true) fixtures stop answering)"
     fi
   else
     bad "negative probe: the ablated compiler did not build"
     head -5 "$work/ablate/build.log" | sed 's/^/     /'
+  fi
+fi
+
+echo
+echo "== 5. the manifest: every restricted declaration in the tree, and its verdict =="
+allow="tests/agent/restrictions.allow"
+mkdir -p "$work/manifest"
+
+# `derive_manifest <file-list> <out>`: one line per restricted
+# declaration, `name file restrictions verdict`, C-collated.
+derive_manifest() {
+  local list="$1" out="$2"
+  : > "$out.raw"
+  while read -r f; do
+    [[ -z "$f" ]] && continue
+    local base; base="$(basename "$f")"
+    cp "$f" "$work/run/$base"
+    ( cd "$work/run" && "$axc" --diagnostic-format=ai symbols "$base" ) > "$work/manifest/sym" 2>/dev/null || true
+    ( cd "$work/run" && "$axc" --diagnostic-format=ai check "$base" ) > /dev/null 2> "$work/manifest/err" || true
+    # `name restrictions` from the rows carrying the meta, anchored on
+    # the field so a value cannot smuggle one in. `%20` is AXSYM's
+    # escape of a blank the author wrote around a comma; the checker
+    # trims it, and it is not part of any name.
+    awk '$1 == "F" { for (i = 5; i <= NF; i++) if ($i ~ /^#restrict=/) { sub(/^#restrict=/, "", $i); gsub(/%20/, "", $i); print $2, $i } }' "$work/manifest/sym"       > "$work/manifest/rows"
+    while read -r name rs; do
+      [[ -z "$name" ]] && continue
+      # The declaration a restriction diagnostic names: the first
+      # backticked name, except the cast form, which leads with
+      # `cast` and names the declaration second.
+      local v=""
+      local named
+      named="$(awk -v n="$name" '
+        ($2 == "AX3049" || $2 == "AX3051" || $2 == "AX3052") {
+          m = $0; sub(/^[^"]*"/, "", m)
+          if (m ~ /^`cast` in the body of `/) { sub(/^`cast` in the body of `/, "", m) } else { sub(/^`/, "", m) }
+          sub(/`.*/, "", m)
+          if (m == n) print $2 }' "$work/manifest/err" | LC_ALL=C sort -u | tr '\n' ' ')"
+      [[ "$named" == *AX3049* ]] && v="${v}violated,"
+      [[ "$named" == *AX3051* ]] && v="${v}unverifiable,"
+      [[ "$named" == *AX3052* ]] && v="${v}unknown,"
+      [[ -z "$v" ]] && v="ok,"
+      printf '%s %s %s %s\n' "$name" "${f#$repo_root/}" "$rs" "${v%,}" >> "$out.raw"
+    done < "$work/manifest/rows"
+    rm -f "$work/run/$base"
+  done < "$list"
+  LC_ALL=C sort -u "$out.raw" > "$out"
+}
+
+# Every `.ax` in the tree carrying a restriction tag - the whole tree,
+# not a directory list, so a restricted declaration is covered the day
+# it lands.
+( cd "$repo_root" && grep -rlE '^[[:space:]]*;@axiom:restrict' --include='*.ax' . 2>/dev/null \
+    | grep -v '^\./\.git/' | sed 's|^\./||' | LC_ALL=C sort ) > "$work/manifest/files"
+nfiles=$(wc -l < "$work/manifest/files" | tr -d ' ')
+if (( nfiles < 6 )); then
+  bad "only $nfiles files in the tree carry a restrict tag; the fixtures alone are more than that (the sweep found nothing)"
+else
+  ok "$nfiles files in the tree carry a restrict tag"
+fi
+sed "s|^|$repo_root/|" "$work/manifest/files" > "$work/manifest/files.abs"
+derive_manifest "$work/manifest/files.abs" "$work/manifest/derived"
+
+if [[ "${AXIOM_BLESS:-0}" == 1 ]]; then
+  cp "$work/manifest/derived" "$repo_root/$allow"
+  echo "blessed $allow"
+fi
+if [[ ! -f "$repo_root/$allow" ]]; then
+  bad "$allow is missing; run with AXIOM_BLESS=1"
+elif ! diff -u "$repo_root/$allow" "$work/manifest/derived" > "$work/manifest/diff"; then
+  bad "the derived manifest differs from $allow"
+  head -40 "$work/manifest/diff" | sed 's/^/     /'
+  echo '     a + line is a restricted declaration that appeared or changed'
+  echo '     its verdict; a - line is one that vanished or stopped being'
+  echo '     checked. Bless with AXIOM_BLESS=1 when the delta is what you meant.'
+else
+  ok "$(wc -l < "$repo_root/$allow" | tr -d ' ') restricted declarations, each with the verdict $allow says"
+fi
+if [[ -f "$repo_root/$allow" ]]; then
+  if LC_ALL=C sort -c "$repo_root/$allow" 2>/dev/null; then
+    ok "$allow is in C collation order, so it reads the same on every runner"
+  else
+    bad "$allow is not in C collation order"
+  fi
+  # Every verdict word is one this gate writes; a manifest edited by
+  # hand into a word the derivation never produces would otherwise
+  # compare equal to nothing and fail nowhere.
+  if awk '{ split($4, vs, ","); for (k in vs) if (vs[k] != "ok" && vs[k] != "violated" && vs[k] != "unverifiable" && vs[k] != "unknown") exit 1 }' "$repo_root/$allow"; then
+    ok "every verdict in $allow is one of ok, violated, unverifiable, unknown"
+  else
+    bad "$allow carries a verdict word this gate never writes"
+  fi
+  if ! grep -q ' violated' "$repo_root/$allow" || ! grep -q ' unverifiable' "$repo_root/$allow" || ! grep -q ' ok$' "$repo_root/$allow"; then
+    bad "$allow does not carry all three of violated, unverifiable and ok - the fixtures produce each, so a derivation missing one is not reading the compiler"
+  else
+    ok "$allow carries violated, unverifiable and ok verdicts (the fixtures produce each)"
+  fi
+fi
+
+# The probe: a restricted declaration in a file outside the tree,
+# added to the sweep, must change the derived set.
+printf ';@axiom:restrict(no-io)\n(:: probeRestricted (-> Int Int))\n\n(fn (probeRestricted n) n)\n\n(:: main Int)\n\n(fn (main) (probeRestricted 1))\n' > "$work/manifest/zz-probe.ax"
+{ cat "$work/manifest/files.abs"; echo "$work/manifest/zz-probe.ax"; } > "$work/manifest/files.probe"
+derive_manifest "$work/manifest/files.probe" "$work/manifest/derived.probe"
+if cmp -s "$work/manifest/derived" "$work/manifest/derived.probe"; then
+  bad "negative probe: a restricted declaration added to the sweep left the derived manifest unchanged"
+else
+  if grep -q '^probeRestricted .* no-io ok$' "$work/manifest/derived.probe"; then
+    ok "negative probe: a restricted declaration added to the sweep appears in the derived manifest, verdict ok"
+  else
+    bad "negative probe: the added declaration appears with the wrong row: $(grep probeRestricted "$work/manifest/derived.probe" || echo '(absent)')"
   fi
 fi
 
@@ -417,5 +549,6 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-restrictions: $checks checks - a restriction changes no emitted"
-echo "                    byte, refuses exactly what it names, and a compiler"
-echo "                    that stops asking is caught"
+echo "                    byte, refuses exactly what it names with the path,"
+echo "                    a compiler that stops asking is caught, and every"
+echo "                    restricted declaration in the tree is on the manifest"
