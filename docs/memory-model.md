@@ -1941,6 +1941,32 @@ directly-built construction discarded in statement position
 releases on the spot. Every retain this slice emits is one an
 EXISTING map can return - that is the slice's rule.
 
+**Event 5b — the closure half — emits since 2026-08-30**
+(`tests/stdlib/460-closure-reclaim.ax`, 63 against the unfixed
+compiler's 7; `scripts/check-closure-reclaim.sh`): an application
+through a CLOSURE gives back the intermediate record a curried chain
+builds. Every function value absorbs exactly one argument, so a
+two-argument handler is a chain, the record its first step answers is
+born at count 1, nothing else ever holds it, and once the next step
+has loaded its code pointer and called it that share is the walk's to
+return. Its balance is local in event 5's sense — no escape analysis,
+because the record is one this walk made — and the two walkers carry
+`recOwned` to tell it from the record the caller handed in (a handler
+out of the evidence slot, or a closure value someone else's `let`
+holds), which is never theirs to release.
+
+Unreleased it was **32 bytes per application**, and the cost was not
+only bytes: `stdlib/Fallible.ax` names it as the reason its operation
+takes ONE argument, so a compiler defect had become a language design
+decision. That row now reads 0. The other half of the closure gap —
+the owned ARGUMENT a closure application consumes, which a direct call
+has released since `MM-LIFE-2g` — is still open, and is 96 bytes for a
+message built per record. What it waits on is a measurement, recorded
+here because it contradicts what was assumed: a lifted lambda does
+**not** retain what it returns, so releasing the argument is only
+sound where the application's result class is known to be a word, and
+that guard is the rule rather than a refinement of it.
+
 **Event 5 emits since 2026-08-15** (`tests/stdlib/361-arc-field-store.ax`,
 63 against the unfixed compiler's 7): `(set e.f v)` into a reference
 field retains the new value and releases the one it overwrites, in

@@ -11866,6 +11866,26 @@
 (pub :: emitApplyRegs (-> Int Int String Int Int))
 
 (pub fn (emitApplyRegs regs cg rec i)
+  (emitApplyRegsOwned regs cg rec i 0)
+)
+
+; The walk, carrying whether THIS walk produced `rec`. `recOwned` is 0
+; for the record the caller handed in - the handler loaded out of the
+; evidence record, or a closure value someone else's `let` holds - and
+; 1 for every record a previous step of this same walk returned.
+;
+; MM-LIFE-2c: an intermediate record of a curried chain is born at
+; count 1 by the inner `lambda` and nothing else ever holds it, so
+; once the next step has loaded its code pointer and called it, its
+; share is the caller's to give back. Measured before the rule: the
+; count on the intermediate reads 1 after the step that made it and 1
+; after the step that consumed it, so the release takes it to 0 and
+; the block files. Unreleased it was 31-32 bytes per two-argument
+; operation, which is the whole of `Fallible.ax`'s "two arguments
+; (message, fallback) 32 bytes per operation" row.
+(pub :: emitApplyRegsOwned (-> Int Int String Int Int Int))
+
+(pub fn (emitApplyRegsOwned regs cg rec i recOwned)
   (if (>= i (vecLen regs))
     {
       (memSetWord cg 2 rec)
@@ -11873,7 +11893,14 @@
       cg
     }
     (let ((cgR (applyOneArg cg rec (vecGetStr regs i))))
-      (emitApplyRegs regs cgR (strDup (memGetWordStr cgR 2)) (+ i 1))
+      (let ((cgD 
+        (if (== recOwned 1)
+          (emitReleaseOf cgR rec)
+          cgR
+        )
+      ))
+        (emitApplyRegsOwned regs cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1)
+      )
     )
   )
 )
@@ -12819,6 +12846,19 @@
 
 ;@axiom:effect(io)
 (pub fn (emitApplyChain args cg rec i)
+  (emitApplyChainOwned args cg rec i 0)
+)
+
+; `emitApplyRegsOwned`'s rule, for the walker that evaluates each
+; argument just before applying it. Same `recOwned` convention, and
+; the two call sites that start this walk at an index other than 0
+; (`emitApp`'s two-argument operator path, and the partial-application
+; path that drops the arity prefix) still hand in a record they did
+; not make, so they start at 0 like everyone else.
+(pub :: emitApplyChainOwned (-> Int Int String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitApplyChainOwned args cg rec i recOwned)
   (if (>= i (vecLen args))
     {
       (memSetWord cg 2 rec)
@@ -12828,7 +12868,14 @@
     (let ((cgA (emitExpr (vecGet args i) cg)))
       (let ((a (strDup (memGetWordStr cgA 2))))
         (let ((cgR (applyOneArg cgA rec a)))
-          (emitApplyChain args cgR (strDup (memGetWordStr cgR 2)) (+ i 1))
+          (let ((cgD 
+            (if (== recOwned 1)
+              (emitReleaseOf cgR rec)
+              cgR
+            )
+          ))
+            (emitApplyChainOwned args cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1)
+          )
         )
       )
     )

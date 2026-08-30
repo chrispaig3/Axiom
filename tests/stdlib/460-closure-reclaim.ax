@@ -1,0 +1,178 @@
+; exit 63 (see .exit)
+; MM-LIFE-2c, the closure half: an application THROUGH A CLOSURE now
+; gives back the intermediate record a curried chain builds, which a
+; direct call's `releaseOwnedArgs` has done for its arguments since
+; MM-LIFE-2g.
+;
+; The instrument is the arena mark cell, as `370-error-propagation.ax`
+; uses it: word 0 is the bump, word 2 the chunk. 10,000 iterations of
+; which 1,428 apply, inside one chunk, so a per-application cost shows
+; up as a bump delta and a flat line is a flat line.
+;
+;   32  a two-argument CLOSURE applied through a curried chain moves
+;       the bump by less than one BLOCK over 1,428 applications. It
+;       used to move it 45,664 bytes - 32 a call, the inner closure
+;       the first step returns, which nothing released.
+;   16  a two-argument effect OPERATION, whose handler is the same
+;       curried chain reached through the evidence slot, the same.
+;    8  three deep, because the rule is per step and not per call: two
+;       intermediates a chain, both given back.
+;    4  and they still ANSWER correctly - a released record that was
+;       still live would answer garbage here, or not return at all,
+;       which is the half a byte count cannot see.
+;    2  a ONE-argument application allocates no intermediate and is
+;       unchanged: it must not have become a release of a record the
+;       caller still owns.
+;    1  every step above ran.
+;
+; The bytes are held by scripts/check-closure-reclaim.sh, which
+; rebuilds the compiler with the release ablated and requires 32, 16
+; and 8 to go red and 4, 2 and 1 to stay green - the term-by-term
+; comparison being what says the ablation restored the defect rather
+; than broke something else.
+(import Str)
+
+(effect Two
+  (bad2 :: (-> String Int Int)))
+
+(effect Three
+  (bad3 :: (-> String Int Int Int)))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+; Under one BLOCK of drift over the whole run, and the same chunk
+; throughout - `370-error-propagation.ax`'s own threshold. The point is
+; per-application cost: 1,428 applications leaking one 32-byte record
+; each move the bump 45,664 bytes, which is eleven blocks past this.
+(:: flat (-> Int Int Bool))
+
+(fn (flat m1 m2)
+  (&&
+    (== (__load64 m2 2) (__load64 m1 2))
+    (< (- (__load64 m2 0) (__load64 m1 0)) 4096)
+  )
+)
+
+(:: loopC2 (-> (-> String Int Int) Int Int))
+
+(fn (loopC2 h n)
+  (let ((mut i 1) (mut acc 0))
+    {
+      (while (<= i n)
+        {
+          (set acc (+ acc (if (== (% i 7) 0) (h "malformed" 0) i)))
+          (set i (+ i 1))
+        })
+      acc
+    }
+  )
+)
+
+(:: loopC3 (-> (-> String Int Int Int) Int Int))
+
+(fn (loopC3 h n)
+  (let ((mut i 1) (mut acc 0))
+    {
+      (while (<= i n)
+        {
+          (set acc (+ acc (if (== (% i 7) 0) (h "malformed" 0 1) i)))
+          (set i (+ i 1))
+        })
+      acc
+    }
+  )
+)
+
+(:: loopC1 (-> (-> String Int) Int Int))
+
+(fn (loopC1 h n)
+  (let ((mut i 1) (mut acc 0))
+    {
+      (while (<= i n)
+        {
+          (set acc (+ acc (if (== (% i 7) 0) (h "malformed") i)))
+          (set i (+ i 1))
+        })
+      acc
+    }
+  )
+)
+
+(:: loop2 (-> Int Int))
+
+(fn (loop2 n)
+  (let ((mut i 1) (mut acc 0))
+    {
+      (while (<= i n)
+        {
+          (set acc (+ acc (if (== (% i 7) 0) (bad2 "malformed" 0) i)))
+          (set i (+ i 1))
+        })
+      acc
+    }
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((mut acc 0) (mut steps 0))
+    {
+      ; 32 - a two-argument closure chain
+      (let ((h2 (lambda (m) (lambda (d) d))))
+        (let ((a1 __axiom_arena_mark))
+          (let ((r (loopC2 h2 10000)))
+            (let ((a2 __axiom_arena_mark))
+              {
+                (set acc (+ acc (* 32 (b2i (flat a1 a2)))))
+                (set steps (+ steps 1))
+              }))))
+      ; 16 - the same chain reached through an effect operation
+      (let ((b1 __axiom_arena_mark))
+        (let ((r (handle (loop2 10000) (Two Alloc) (lambda (m) (lambda (d) d)))))
+          (let ((b2 __axiom_arena_mark))
+            {
+              (set acc (+ acc (* 16 (b2i (flat b1 b2)))))
+              (set steps (+ steps 1))
+            })))
+      ; 8 - three deep, two intermediates a call
+      (let ((h3 (lambda (m) (lambda (d) (lambda (e) e)))))
+        (let ((c1 __axiom_arena_mark))
+          (let ((r (loopC3 h3 10000)))
+            (let ((c2 __axiom_arena_mark))
+              {
+                (set acc (+ acc (* 8 (b2i (flat c1 c2)))))
+                (set steps (+ steps 1))
+              }))))
+      ; 4 - and the chains still answer what the handler says
+      (let ((ha (lambda (m) (lambda (d) 5))))
+        (let ((hb (lambda (m) (lambda (d) (lambda (e) 6)))))
+          {
+            ; 21 is the sum of the six iterations that do not apply; the
+            ; seventh adds what the handler answered.
+            (set acc (+ acc (* 4 (b2i (&& (== (loopC2 ha 7) 26) (== (loopC3 hb 7) 27))))))
+            (set steps (+ steps 1))
+          }))
+      ; 2 - a one-argument application builds no intermediate
+      (let ((h1 (lambda (m) 0)))
+        (let ((d1 __axiom_arena_mark))
+          (let ((r (loopC1 h1 10000)))
+            (let ((d2 __axiom_arena_mark))
+              {
+                (set acc (+ acc (* 2 (b2i (&& (flat d1 d2) (== (loopC1 (lambda (m) 9) 7) 30))))))
+                (set steps (+ steps 1))
+              }))))
+      (if (== steps 5)
+        (+ acc 1)
+        acc
+      )
+    }
+  )
+)

@@ -594,6 +594,23 @@ jobs:
       - name: A fallible call's block is reclaimed, and one word is what does it
         run: ./scripts/check-fallible-reclaim.sh
 
+      # The same argument for the application through a CLOSURE, which
+      # gave back nothing at all where a direct call has given back its
+      # owned temporaries since MM-LIFE-2g. A two-argument handler is a
+      # curried chain, and the record its first step answers was simply
+      # dropped - 32 bytes an application, which `stdlib/Fallible.ax`
+      # had written down as a REASON ITS OPERATION TAKES ONE ARGUMENT.
+      # A language decision resting on a compiler defect.
+      # `460-closure-reclaim.ax`'s byte terms assert it is given back;
+      # this gate asserts the compiler is why, by ablating the one word
+      # in each of the two walkers and requiring the fixture to go red
+      # at the byte terms and green at the two that check the chains
+      # still ANSWER correctly - so an ablation that broke the program
+      # instead of restoring the leak reads differently from one that
+      # did not.
+      - name: A closure chain's intermediate record is reclaimed, and one word in each walker is what does it
+        run: ./scripts/check-closure-reclaim.sh
+
       # And what a reset COSTS, which is the roadmap's P8 and the one
       # thing no gate here measured: every timing gate asserts a ratio,
       # deliberately, so a slow runner cannot fail it - which left rate

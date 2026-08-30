@@ -16,6 +16,31 @@ its changelog too.
 
 ## Unreleased
 
+- **A curried chain's intermediate record is reclaimed** (`MM-LIFE-2c`
+  event 5b). An application through a closure gave back nothing, where
+  a direct call has given back its owned temporaries since
+  `MM-LIFE-2g`. Every function value absorbs exactly one argument, so a
+  two-argument handler is a curried chain, and the record its first
+  step answers — born at count 1, held by nothing else — was simply
+  dropped: **32 bytes per application**. Both walkers now release it
+  once the next step has consumed it, carrying `recOwned` to tell a
+  record this walk made from one the caller handed in, which is never
+  theirs to release. Measured over 1,428 applications: 45,664 bytes
+  before, 80 after. The cost was not only bytes — `stdlib/Fallible.ax`
+  gives the 32 as a reason its operation takes ONE argument, so a
+  compiler defect had hardened into a language design decision; that
+  row now reads 0 and the header says which of its two stated causes
+  was right. The one it got wrong is corrected in the same place: the
+  96-byte built-message row blamed "a handler parameter's type is a
+  variable, so the release walk cannot classify it", and a fully-typed
+  NAMED function passed as a value leaks the same 96, so the type has
+  nothing to do with it. That half is still open. Gates:
+  `check-closure-reclaim` (new — `tests/stdlib/460-closure-reclaim.ax`,
+  63 against the unfixed compiler's 7, the difference being exactly the
+  three byte terms with both correctness terms green either way),
+  `check-fallible-reclaim`, `check-container-reclaim`,
+  `check-steady-state`, `check-self-host`. Forty-three gates call
+  `gate_build_axc`, up from forty-two.
 - **`AX3056`: a struct field must declare its type.**
   `(struct Box (msg String))` — no `:` — was accepted, the written type
   skipped and the field left at the empty type variable that
@@ -41,10 +66,16 @@ its changelog too.
   was already refused (`AX2003`), so the class is closed. Population in
   tree: 0 — every struct in `stdlib/`, `self_host/`, `tests/` and
   `examples/` spells the colon, which is why nothing had reported it.
-  Gates: `check-diagnostics`
+  A third component had to learn the same three shapes and was missed
+  on the first pass: `field_declaration` in the tree-sitter grammar
+  demanded `(name : Type)`, so the Tree-sitter job went red on the
+  commit that carried the fixture — the second time that job has gone
+  red for exactly this, `7f73151` having been the same fix for
+  `effect_operation`. Closed in `05945ed`, parser regenerated. Gates:
+  `check-diagnostics`
   (`tests/diagnostics/388-struct-field-untyped.ax`, all three shapes
   and a control), `check-render-selfhost`, `check-tools-selfhost`
-  (`explain AX3056`), `check-fmt`.
+  (`explain AX3056`), `check-fmt`, `check-tree-sitter`.
 - **The CLI says Axiom and its version** (`40f1e1a`, which landed after
   `0.4.3` was cut and is recorded here rather than left unstated):
   `axiom --help`, `axiom version` and the REPL greeting were three

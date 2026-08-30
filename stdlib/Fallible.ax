@@ -33,11 +33,32 @@
 ;   one argument, a message BUILT         80 bytes per operation
 ;     per record (`strConcat`/`fmtInt`)
 ;
-; A two-argument operation's handler is a curried chain, so answering
-; one allocates the inner closure, 32 bytes, and the dispatch never
-; releases it. A message built per record leaks through the dispatch
-; whole: a handler parameter's type is a variable, so the release walk
-; cannot classify it and nothing frees the string. The plan this
+; TWO OF THOSE ROWS HAVE MOVED SINCE, and the reasons written under
+; them were not both right. Re-measured 2026-08-30 on the same
+; instrument:
+;
+;   two arguments (message, fallback)     0 bytes per operation
+;   one argument, a message BUILT        80 bytes per operation
+;
+; The two-argument row was correct about its cause - a two-argument
+; operation's handler is a curried chain, answering one allocates the
+; inner closure, and the dispatch never released it - and that is now
+; fixed: both chain walkers release the record a previous step
+; returned once the next step has consumed it, so an intermediate is
+; born at count 1 and files at 0 (`emitApplyRegsOwned`,
+; `emitApplyChainOwned`; `scripts/check-closure-reclaim.sh`).
+;
+; The BUILT-MESSAGE row's stated cause is FALSE and is corrected here
+; rather than left standing. It said "a handler parameter's type is a
+; variable, so the release walk cannot classify it and nothing frees
+; the string". Measured: a fully-typed NAMED function passed as a
+; value leaks the same 96 bytes, and so does a lambda whose parameter
+; is `String` - the type has nothing to do with it. What leaks is that
+; an APPLICATION THROUGH A CLOSURE never releases its owned argument
+; at all, where a direct call has released it since MM-LIFE-2g
+; (`releaseOwnedArgs`); the handler's typing, which landed separately,
+; moved no bytes. That half is not fixed yet, so the rule below still
+; holds for messages and the row above still reads 80. The plan this
 ; module comes from says why either would be disqualifying - a batch
 ; loop has no request boundary, so there is no arena reset
 ; (`memory-model.md` MM-ALLOC-22) and every byte a record costs is a
