@@ -1170,6 +1170,7 @@ restrictions are checked:
 | `no-foreign` | no call-graph path reaches an `extern` item | transitive |
 | `no-cast` | no `cast` head in this body | LOCAL |
 | `no-cast:deep` | no `cast` head in this body or in any function it reaches | transitive, opt-in |
+| `no-recursion` | no cycle in the call graph reachable from this declaration | transitive |
 
 Every transitive violation names its path. The checker walks the call
 graph breadth-first from the claiming declaration to the nearest entry
@@ -1183,6 +1184,16 @@ resolved spellings `symbols --calls` prints, `Mod$name` and
 ```
 E AX3049 ... "`parseConfig` claims `restrict(no-io)` and the body performs IO: parseConfig -> readSection -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3"
 ```
+
+`no-recursion` is a cycle, which is global by definition: a
+depth-first walk over the same graph, and the diagnostic renders the
+walk from the declaration to the repeated function -
+`ping -> pong -> pang -> ping`, or `entry -> countdown -> countdown`
+when the cycle is below the claim. A `while` loop is not recursion. It
+pairs with `scripts/check-stack-depth.sh`, which measures the
+compiler's stack need dynamically: a region under `no-recursion` is
+one whose stack need is bounded by its depth rather than by its input,
+the same property from the static side.
 
 Three are transitive by construction and one is not, and the
 difference is not a policy choice. `no-io` and `no-alloc` read the
@@ -1228,11 +1239,13 @@ effect claim and does not stand in for one: a restricted function
 that performs IO without `effect(io)` draws `AX3042` like any other,
 and `restrict(no-io)` over it draws `AX3049` as well.
 
-`tests/diagnostics/371`-`378` pin each restriction with the controls
+`tests/diagnostics/371`-`379` pin each restriction with the controls
 that keep it from being a blanket refusal - a callee that casts under
 `no-cast`, a syscall under `no-foreign`, `Alloc,Mut` under `no-io` -
 and the path through a trait impl, a module boundary, a seeded builtin,
-a callback and an `alloc` form. `scripts/check-restrictions.sh` is the
+a callback and an `alloc` form; 379 pins direct, mutual-at-depth-three
+and through-a-trait-method recursion beside a four-deep chain and a
+`while` loop that stay silent. `scripts/check-restrictions.sh` is the
 gate: a restriction changes no emitted byte, a compiler whose
 `checkRestricts` answers nothing goes red, and every restricted
 declaration in the tree is on `tests/agent/restrictions.allow` with

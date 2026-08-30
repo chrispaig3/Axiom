@@ -5,6 +5,8 @@ casts tests/diagnostics/375-restrict-unverifiable.ax no-cast violated
 clean tests/diagnostics/375-restrict-unverifiable.ax no-cast ok
 confined tests/diagnostics/369-axtag-known-keys.ax no-io ok
 control tests/diagnostics/376-restrict-unknown-name.ax no-io ok
+countdown tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
+deep tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
 deepCaller tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep violated
 deepClean tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep ok
 deepFar tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep violated
@@ -13,17 +15,20 @@ deepPartial tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep unverifi
 deepRefuted tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep violated
 delegates tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 direct tests/diagnostics/372-restrict-no-alloc.ax no-alloc violated
+entry tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 fabricates tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 handoff tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
 honest tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 leaks tests/diagnostics/375-restrict-unverifiable.ax no-io violated
 local tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
+looped tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
 measures tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 mixed tests/diagnostics/376-restrict-unknown-name.ax no-io,no-foo unknown
 native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 ownForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 parseConfig tests/diagnostics/371-restrict-no-io.ax no-io violated
+ping tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 pureMath tests/diagnostics/371-restrict-no-io.ax no-io ok
 quiet tests/diagnostics/377-restrict-witness-path.ax no-io,no-alloc ok
 reads tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
@@ -41,3 +46,4 @@ viaForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 viaHelper tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
 viaModule tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaTrait tests/diagnostics/377-restrict-witness-path.ax no-io violated
+viaTrait tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated

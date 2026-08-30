@@ -1,0 +1,117 @@
+; `restrict(no-recursion)`: no cycle in the call graph reachable from
+; this declaration - a global property by definition, so the walk is a
+; depth-first search over the same graph the witness path uses, and
+; the cycle is the evidence, rendered whole.
+;
+;   `countdown`  calls itself                          -> AX3049:
+;                countdown -> countdown
+;   `ping`       ping -> pong -> pang -> ping, and the claim is on
+;                `ping`; the cycle is rendered from the declaration
+;                back to itself                          -> AX3049
+;   `viaTrait`   calls a trait method whose impl calls back into
+;                `viaTrait`: the edge is the lowered impl, so the
+;                cycle reads viaTrait -> Emit#Loud#emit -> viaTrait
+;                                                         -> AX3049
+;   `entry`      does not recurse, but reaches `countdown`, which
+;                does: the cycle is below the claim, and the path
+;                to it is rendered before it            -> AX3049
+;   `deep`       a chain of four calls with no cycle    -> silent: the
+;                control that keeps depth from reading as recursion
+;   `looped`     a `while` loop, no call to itself      -> silent: a
+;                loop is not recursion, and its stack is bounded
+;
+; The pairing with scripts/check-stack-depth.sh: that gate measures,
+; dynamically, how much stack the compiler needs; a `no-recursion`
+; region is one whose stack need is statically bounded, which is the
+; same property from the other side.
+(trait (Emit a) where (
+  emit :: (-> a Int)
+))
+
+(data Loud (MkLoud Int))
+
+;@axiom:restrict(no-recursion)
+(:: viaTrait (-> Loud Int))
+
+(fn (viaTrait l) (emit l))
+
+(impl (Emit Loud) where (
+  (emit
+    (lambda (v)
+      (match v
+        ((MkLoud n) (if (> n 0) (viaTrait (MkLoud (- n 1))) 0))))
+  )
+))
+
+;@axiom:restrict(no-recursion)
+(:: countdown (-> Int Int))
+
+(fn (countdown n)
+  (if (<= n 0)
+    0
+    (countdown (- n 1))
+  )
+)
+
+;@axiom:restrict(no-recursion)
+(:: ping (-> Int Int))
+
+(fn (ping n)
+  (if (<= n 0)
+    0
+    (pong (- n 1))
+  )
+)
+
+(:: pong (-> Int Int))
+
+(fn (pong n) (pang n))
+
+(:: pang (-> Int Int))
+
+(fn (pang n) (ping n))
+
+;@axiom:restrict(no-recursion)
+(:: entry (-> Int Int))
+
+(fn (entry n) (countdown n))
+
+(:: d4 (-> Int Int))
+
+(fn (d4 n) (+ n 1))
+
+(:: d3 (-> Int Int))
+
+(fn (d3 n) (d4 n))
+
+(:: d2 (-> Int Int))
+
+(fn (d2 n) (d3 n))
+
+(:: d1 (-> Int Int))
+
+(fn (d1 n) (d2 n))
+
+;@axiom:restrict(no-recursion)
+(:: deep (-> Int Int))
+
+(fn (deep n) (d1 n))
+
+;@axiom:restrict(no-recursion)
+(:: looped (-> Int Int))
+
+(fn (looped n)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        (set i (+ i 1)))
+      i
+    }
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (+ (viaTrait (MkLoud 2)) (+ (countdown 3) (+ (ping 4) (+ (entry 5) (+ (deep 6) (looped 7))))))
+)

@@ -46,6 +46,16 @@
 # compiler's own resource use, and the assertion is derived from the
 # process's exit status rather than from any output a re-bless could
 # rewrite.
+#
+# THE STATIC HALF OF THE SAME QUESTION is `;@axiom:restrict(no-recursion)`
+# (docs/reference.md, AXTAG Keys; scripts/check-restrictions.sh): a
+# declaration under it may reach no cycle in the call graph, which is
+# the property that makes a region's stack need bounded by its depth
+# rather than by its input. This gate measures the compiler's need
+# dynamically because the compiler is written in the recursive shape
+# above and claims no such restriction; a region that does claim one
+# is refused at `check` time with the cycle rendered, and needs no
+# measuring.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"

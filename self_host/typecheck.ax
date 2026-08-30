@@ -14594,7 +14594,7 @@
 ; something, answered from analysis the checker already performs and
 ; used to throw away.
 ;
-; The value is a comma-separated list of restriction names. Five are
+; The value is a comma-separated list of restriction names. Six are
 ; checked here:
 ;
 ;   no-io        `IO` is not in the effect row                 transitive
@@ -14603,6 +14603,17 @@
 ;   no-cast      no `cast` head in THIS body                   local
 ;   no-cast:deep no `cast` head in this body or any reachable  transitive,
 ;                one                                           opt-in
+;   no-recursion no cycle in the call graph reachable from     transitive
+;                this declaration
+;
+; `no-recursion` is a cycle, which is global by definition: a
+; depth-first walk over the same graph (`graphCycle`), rendered from
+; the declaration to the function the walk met twice - `ping -> pong
+; -> pang -> ping`, or `entry -> countdown -> countdown` when the
+; cycle is below the claim. A `while` loop is not recursion. It is the
+; static half of what `scripts/check-stack-depth.sh` measures
+; dynamically: a region under it has a stack need bounded by its depth
+; rather than by its input.
 ;
 ; EVERY TRANSITIVE VIOLATION NAMES ITS PATH. `graphWitness` walks the
 ; call graph breadth-first from the claiming declaration to the
@@ -14848,7 +14859,10 @@
           (restrictNoCastDeep tc d r eff)
           (if (strEq r "no-foreign")
             (restrictNoForeign tc d r eff)
-            (emitRestrictUnknown tc d r)
+            (if (strEq r "no-recursion")
+              (restrictNoRecursion tc d r eff)
+              (emitRestrictUnknown tc d r)
+            )
           )
         )
       )
@@ -14901,6 +14915,133 @@
         0
       )
     )
+  )
+)
+
+; `no-recursion`: `graphCycle` from this declaration's own entry. A
+; cycle found through an edge the body only NAMES (`effByRef`) is not
+; a call cycle the walk can vouch for, so it is unverifiable, as for
+; `no-foreign`; no cycle found beside a call the walk could not resolve
+; is unverifiable too, because the unresolved call may close one.
+(pub :: restrictNoRecursion (-> Int Int String Int Int))
+
+(pub fn (restrictNoRecursion tc d r eff)
+  (let ((path (graphCycle tc (restrictOwnEnt tc d))))
+    (if (!= path 0)
+      (let ((again (vecGet path (- (vecLen path) 1))))
+        (if (== (effOverApprox eff) 1)
+          (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)))
+          (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "`: ") (graphRender path)))
+        )
+      )
+      (if (== (effPartial eff) 1)
+        (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, and that call may close a cycle the graph does not show")
+        0
+      )
+    )
+  )
+)
+
+; The first cycle reachable from `start`, as the walk's own path: every
+; entry from `start` down to the one met twice, and that entry once
+; more at the end - so `ping -> pong -> pang -> ping` reads as the
+; cycle it is, and `entry -> countdown -> countdown` shows the hop to
+; a cycle below the claim. Or 0.
+;
+; Depth-first with an explicit stack of the entries on the current
+; path (`vecPush`/`vecPop`) and a `done` set of names whose subtrees
+; are closed, so the walk is linear in the graph and a node reached
+; twice by different paths is not searched twice. A callee ON THE
+; STACK is the cycle; a callee in `done` was searched from elsewhere
+; and closed no cycle through the stack as it stands - which is
+; sufficient, because any cycle reachable from it would have been
+; found when it was searched.
+(pub :: graphCycle (-> Int Int Int))
+
+(pub fn (graphCycle tc start)
+  (if (== start 0)
+    0
+    (graphCycleFrom tc start vecNew vecNew)
+  )
+)
+
+(pub :: graphCycleFrom (-> Int Int Int Int Int))
+
+(pub fn (graphCycleFrom tc ent stack done)
+  {
+    (vecPush stack ent)
+    (let ((found (graphCycleEdges tc (memGetWord ent 7) 0 stack done)))
+      {
+        (vecPop stack)
+        (if (== found 0)
+          (vecPush done (memGetWordStr ent 0))
+          0
+        )
+        found
+      }
+    )
+  }
+)
+
+(pub :: graphCycleEdges (-> Int Int Int Int Int Int))
+
+(pub fn (graphCycleEdges tc calls i stack done)
+  (if (>= i (vecLen calls))
+    0
+    (let ((name (vecGetStr calls i)))
+      (let ((on (graphStackIndex stack name 0)))
+        (if (>= on 0)
+          (graphCyclePath stack on (vecGet stack on) vecNew)
+          (if (== (strInVec done name 0) 1)
+            (graphCycleEdges tc calls (+ i 1) stack done)
+            (let ((e (fnEntExact tc name)))
+              (let ((found (if (== e 0)
+                0
+                (graphCycleFrom tc e stack done)
+              )))
+                (if (!= found 0)
+                  found
+                  (graphCycleEdges tc calls (+ i 1) stack done)
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The slot of `name` on the stack, or -1.
+(pub :: graphStackIndex (-> Int String Int Int))
+
+(pub fn (graphStackIndex stack name i)
+  (if (>= i (vecLen stack))
+    (- 0 1)
+    (if (strEq (memGetWordStr (vecGet stack i) 0) name)
+      i
+      (graphStackIndex stack name (+ i 1))
+    )
+  )
+)
+
+; The whole stack, root first, then the repeated entry once more.
+; The whole stack and not the stack from `on`: the hops above the
+; cycle are the path from the claim to it, which is what the reader
+; needs when the cycle is below the declaration that claimed.
+(pub :: graphCyclePath (-> Int Int Int Int Int))
+
+(pub fn (graphCyclePath stack on again acc)
+  (let ((mut i 0))
+    {
+      (while (< i (vecLen stack))
+        {
+          (vecPush acc (vecGet stack i))
+          (set i (+ i 1))
+        })
+      (vecPush acc again)
+      acc
+    }
   )
 )
 
@@ -15401,7 +15542,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_ERROR      "AX3049"      "restriction-violated"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and " why))      0      0      "a restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign` and `no-cast:deep` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked"
+      SEV_ERROR      "AX3049"      "restriction-violated"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and " why))      0      0      "a restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked"
     ))
   )
 )
@@ -15444,7 +15585,7 @@
       SEV_ERROR      "AX3052"      "restriction-unknown"      (nodeSpan d)      (if (== (strLen r) 0)
         (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict()`, which names no restriction")
         (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction"))
-      )      0      0      "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc` and `no-foreign`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
+      )      0      0      "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign` and `no-recursion`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
     ))
   )
 )

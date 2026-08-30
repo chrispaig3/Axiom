@@ -1336,7 +1336,19 @@ it cross-checks `symbols --calls` hop for hop; the last hop is where
 the effect enters (a syscall primitive, an `extern`, `__alloc`), or
 the function whose own body holds the `alloc` form, said so. The tag
 takes a comma-separated list: `no-cast`, `no-cast:deep`, `no-io`,
-`no-alloc`, `no-foreign`.
+`no-alloc`, `no-foreign`, `no-recursion`.
+
+`no-recursion` is a cycle, which is global by definition - a
+depth-first walk over the same graph - and the path is the walk from
+the declaration to the function it met twice:
+
+    ping -> pong -> pang -> ping
+    entry -> countdown -> countdown
+
+the second when the cycle is below the claim. A `while` loop is not
+recursion. This is the static half of what scripts/check-stack-depth.sh
+measures dynamically: a region under `no-recursion` has a stack need
+bounded by its depth rather than by its input.
 
 THREE OF THE FOUR ARE TRANSITIVE BY CONSTRUCTION and one is not, and
 the difference is not arbitrary. `no-io` and `no-alloc` read the
@@ -1379,8 +1391,8 @@ never checked - but that WITHDRAWS the claim rather than answering it.
 ### explain AX3051
 AX3051 - a restriction claim the effect walk is not in a position to check
 
-`;@axiom:restrict(no-io)`, `no-alloc` or `no-foreign` over a body
-whose effect row the walk could not close. Two marks make a row
+`;@axiom:restrict(no-io)`, `no-alloc`, `no-foreign` or `no-recursion`
+over a body whose effect row the walk could not close. Two marks make a row
 unverifiable, each in one direction:
 
   - the row is a LOWER bound - the body calls a value the walk could
@@ -1412,8 +1424,8 @@ a code that becomes answerable leaves it.
 AX3052 - a name inside `restrict(...)` that is not a restriction
 
 The restrictions this compiler checks are `no-cast`, `no-cast:deep`,
-`no-io`, `no-alloc` and `no-foreign`, comma-separated inside one
-`restrict(...)`; a `restrict` naming nothing draws this too.
+`no-io`, `no-alloc`, `no-foreign` and `no-recursion`, comma-separated
+inside one `restrict(...)`; a `restrict` naming nothing draws this too.
 `no-cast:deep` is a name of its own, not a modifier: `no-cast` is
 local by design and the closure is opted into by spelling it.
 
