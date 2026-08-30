@@ -328,7 +328,7 @@ AXEOF
 # asserting the bug; the subject of this probe - where the quoting
 # happens - is untouched either way.
 struct_probe effect-slot 42 <<'AXEOF'
-(effect E' (op' (-> Int Int)))
+(effect E' (op' :: (-> Int Int)))
 (:: user (-> Int Int))
 (fn (user n) (op' n))
 (:: main Int)

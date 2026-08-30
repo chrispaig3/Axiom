@@ -1,4 +1,9 @@
-; examples/web - a small site on `Html` and `Http`: an index page
+; examples/web - a small site on `Html` and `Http`. Run it from the
+; repository root - `axiom run examples/web/server.ax` listens on
+; http://127.0.0.1:8080/ with four workers; `axiom run
+; examples/web/server.ax 9000 2 1` picks the port, the worker count
+; and whether each request is an arena scope (1) or not (0, the
+; ablation `scripts/check-web.sh` measures against). An index page
 ; templated from a `Vec` of items, a `/hello?name=` page that renders
 ; the query parameter back through the escaper, two static files off
 ; the disk, and a 404 page the DSL renders too. The server
@@ -55,14 +60,28 @@
 
 (import Http)
 
-; The `i`th command-line argument as a decimal Int, or 0.
-(:: argInt (-> Int Int))
+; The `i`th command-line argument as a decimal Int, or `dflt` when the
+; argument was not given. An argument that is given and is not a number
+; is refused with the usage line rather than read as 0: read as 0, a
+; typo in the worker count forked no workers and the parent printed
+; its `pids` line and exited - which is what a bare `axiom run
+; examples/web/server.ax` did before the defaults existed, and what
+; the first person to try the example reported as a crash.
+(:: argInt (-> Int Int Int))
 
 ;@axiom:effect(io)
-(fn (argInt i)
-  (match (strParseInt (sysArg i))
-    ((Some v) v)
-    ((None) 0)
+(fn (argInt i dflt)
+  (if (>= i sysArgc)
+    dflt
+    (match (strParseInt (sysArg i))
+      ((Some v) v)
+      ((None)
+        {
+          (eprintln "usage: server [PORT [WORKERS [ARENA 0|1]]]   (defaults 8080 4 1)")
+          (exit 2)
+        }
+      )
+    )
   )
 )
 
@@ -329,9 +348,9 @@
   ; The state every request reads and none allocates: the items,
   ; the routes, the static root. Built once, before the fork.
   (let (
-    (port (argInt 1))
-    (nworkers (argInt 2))
-    (arenaOn (argInt 3))
+    (port (argInt 1 8080))
+    (nworkers (argInt 2 4))
+    (arenaOn (argInt 3 1))
     (noesc (envOn "AXIOM_WEB_NOESC"))
     (root (if (== (strLen (sysEnv "AXIOM_WEB_ROOT")) 0)
       "examples/web"
@@ -408,6 +427,10 @@
                 (set k (+ k 1))
               })
             (printlnLit (strCStr s))
+            ; The line a person reads; the `pids` line above is the
+            ; one `scripts/check-web.sh` parses, so it stays first and
+            ; on stdout.
+            (eprintln "examples/web: listening on http://127.0.0.1:{port}/ with {nworkers} workers (arena reset per request: {arenaOn}); Ctrl-C to stop")
           }
         )
       )
