@@ -1,0 +1,96 @@
+# The walk from the 74a0680 seed to the 93a74e5 seed: every commit
+# between them that touched self_host/ or stdlib/, oldest first, each
+# compiled by the compiler built from the one before. The list is
+# git's (`git log --reverse 74a0680..93a74e5 -- self_host stdlib`) and
+# scripts/check-seed-lineage.sh requires it to be.
+#
+# Two steps carry a bridge, because at those commits the compiler
+# built from the tree by its predecessor is not a working compiler:
+#
+#   1c682ef mixed-tree   the commit widened the Str header (the owner
+#                        word of MM-VAL-7): the old compiler emits the
+#                        new stdlib's literals in the old layout and the
+#                        new stdlib reads the new one, so the plain
+#                        stage1 SIGSEGVs on its own source. The
+#                        previous compiler compiles self_host@1c682ef
+#                        over stdlib@9bf6e61 into an intermediate, and
+#                        that compiles the full tree.
+#   24bdf29 patch        the commit defined `__retainref` and used it,
+#                        in parser.ax and Mem.ax, in the same commit, so
+#                        no committed tree separates definition from
+#                        use and the plain stage1's IR calls an
+#                        undefined `@__retainref`. 24bdf29-retainref.patch
+#                        removes the seven uses in a copy; the previous
+#                        compiler compiles that copy into an
+#                        intermediate that knows the primitive, and it
+#                        compiles the unpatched tree.
+#
+# At both, the gate runs the plain step first and requires it to fail.
+# Both commits also carry a seed, and the walk shows each to be an
+# orphan: the compiler the bridge builds re-emits its own tree to a
+# fixpoint 67 lines (1c682ef) and 1,282 lines (24bdf29) from what was
+# committed. The walk ends 93a74e5 byte-identical - measured
+# 2026-08-29, 63 steps, 494 s.
+18b485a
+fedc226
+7e4f512
+2a76a6d
+9bf6e61
+1c682ef mixed-tree
+a9b3741
+f1fed75
+ef9edf0
+64536ec
+c9a8f97
+ee51ab4
+46f3318
+24bdf29 patch 24bdf29-retainref.patch b4d87fa4b76eb817993d9ee2e05f95cb55669514d9b16dc86f1db0ecb3a3991d
+11c05e1
+48e429b
+fb1c756
+85ff8a1
+b120fb0
+bd1ef02
+c0c6f85
+59aa453
+9465eaa
+b57191b
+6055e94
+dba30f4
+f91405d
+3785dea
+6f0cd71
+4ad5267
+815e6a4
+56c61de
+468c4a0
+e6caa64
+1d5a579
+c89bd96
+de97e9e
+b13bf0d
+e0d251c
+ef3d0fb
+6d462ea
+d2694fd
+e0965ef
+a388fc1
+62662ab
+2dc0a53
+74cbcc8
+3a83f19
+c560b50
+3b52c05
+8b3a39f
+949d145
+eae081f
+797e324
+ad6154b
+132d60d
+84f8016
+5541fab
+dc20d77
+e2e2e92
+180a8be
+ee0e4e1
+93a74e5

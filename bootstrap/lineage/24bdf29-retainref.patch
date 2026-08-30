@@ -1,0 +1,37 @@
+--- a/self_host/parser.ax
++++ b/self_host/parser.ax
+@@ -248,17 +248,17 @@
+ (pub :: mkNode (-> Int a b c Int))
+ (pub fn (mkNode t a b c)
+   {
+-    (__retainref a)
+-    (__retainref b)
+-    (__retainref c)
++    a
++    b
++    c
+     (ASTNode t (cast Int a) (cast Int b) (cast Int c) 0 0 0 0 0 0)
+   })
+ (pub :: mkNodeAt (-> Int a b c Int Int))
+ (pub fn (mkNodeAt t a b c sp)
+   {
+-    (__retainref a)
+-    (__retainref b)
+-    (__retainref c)
++    a
++    b
++    c
+     (ASTNode t (cast Int a) (cast Int b) (cast Int c) sp 0 0 0 0 0)
+   })
+ (pub :: nodeSpan (-> Int Int))  (pub fn (nodeSpan n) (memGetWord n 4))
+--- a/stdlib/Mem.ax
++++ b/stdlib/Mem.ax
+@@ -202,7 +202,7 @@
+ (pub :: memSetWord (-> Int Int a Int))
+ (pub fn (memSetWord addr index value)
+   {
+-    (__retainref value)
++    value
+     (__store64 addr index (cast Int value))
+     addr
+   })
