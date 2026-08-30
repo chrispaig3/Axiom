@@ -4,11 +4,11 @@ version = 4
 
 [[package]]
 name = "axiom-abi"
-version = "0.4.3"
+version = "0.5.0"
 
 [[package]]
 name = "axiom-ffi"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "axiom-abi",
  "axiom-ffi-macros",
@@ -16,7 +16,7 @@ dependencies = [
 
 [[package]]
 name = "axiom-ffi-classify"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "quote",
  "syn",
@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "axiom-ffi-macros"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "axiom-ffi-classify",
  "proc-macro2",

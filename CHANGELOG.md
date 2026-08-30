@@ -16,6 +16,49 @@ its changelog too.
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.5.0 — 2026-08-30
+
+The effect system finished against its own design — six of the seven
+items that design listed, landing in three days — and the first
+compiler change the concurrency work needs. Two of them can fail a
+build that passed under `0.4.3`, which is why this is `0.5.0` and not
+`0.4.4`: **`Err` is no longer a built-in effect name**, so
+`(handle x (Err) 0)` draws `AX3016` where it used to compile clean, and
+**`(effect IO (op :: ...))` is now `AX3054`**, an error, where it used
+to be accepted and unusable. Neither touches the standard library's
+public surface — `compat/0.5.0.axsym` is byte-identical to
+`compat/0.4.3.axsym`, all 591 rows — so no `compat/BREAKING` line is
+owed; the breaks are in the language, and this paragraph is where they
+are declared.
+
+Three new diagnostics (`AX3053`, `AX3054`, `AX3056`), one of them a
+warning **by design and not as a staging step**. The effect fixpoint
+became a worklist and took the declaration order a generator emits from
+**56.05 s to 0.10 s** at 8,000 functions. The emitted runtime's eight
+mutable globals learned a storage class they do not yet use, byte for
+byte. And two measurement artifacts that had been quietly steering the
+work — the sentinel census and the bootstrap memory ceiling — were
+repriced against what the code does rather than what a comment said.
+
+Forty-five gates build the compiler under test, up from forty-two;
+fifty-three run in the battery.
+
+**Known and shipping, both documented, neither a regression.** A
+closure application does not release its owned argument — 96 bytes per
+operation, measured, with `stdlib/Fallible.ax`'s header carrying the
+number and the reason its operation takes one argument. And
+`sysWriteAllFd` answers a short non-negative count when `write` makes
+no progress, which its own doc comment names as "the classic way to
+silently truncate output"; it needs `write` to answer exactly 0 for a
+non-zero count, which a regular file cannot do and a non-blocking
+socket reports as `-EAGAIN` instead. Both predate every release from
+`0.2.0`. A third, smaller: `;@axiom:unhandled(trap)` is a contract and
+is not yet in the compat surface's key list, so `check-compat.sh`
+cannot see one being removed from a third-party effect —
+`check-test-runner.sh` guards the standard library's own.
+
 - **The documents made true** (effects item 7). This repository's style is
   falsifiable claims with the probe that established them, which makes a
   false claim a defect rather than a typo — the documents are the
@@ -430,6 +473,7 @@ its changelog too.
   entirely would still have satisfied. Gates: `check-version`,
   `check-build-id`, `check-repl-selfhost`, `check-driver`,
   `check-doc-drift`, `check-install`, `check-fmt`.
+
 
 ## 0.4.3 — 2026-08-29
 
