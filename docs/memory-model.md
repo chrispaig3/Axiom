@@ -2408,29 +2408,123 @@ twin and the only primitive whose signature is polymorphic on purpose.
 It retains exactly when its argument is a reference, and the call's
 evidence stamp (`MM-LIFE-2d`) answers that: a constant for a known
 type, a bit of the caller's own evidence word for a type variable, and
-**nothing emitted at all** for an `Int`.
+**nothing emitted at all** for an `Int`. That last case is why this is
+affordable on the hottest store in the compiler - a tag, a span or a
+length costs zero instructions. Measured: self-compile 1.22 s and peak
+RSS 492.6 MiB, against 1.24 s and 492.4 MiB without it.
 
-**A STATED HOLE, measured 2026-08-30: inside a LIFTED LAMBDA the stamp
-is the constant `0` whatever the argument's type.** `emitLamDef`
-emits `define i64 @_lam_N(i64 %.env, ...)` with no evidence parameter,
-so `emitEvwRead` falls back to its constant — "not a reference" — for a
-parameter that is one, and the share is not taken. One program holding
-the same `vecPush s` twice shows both readings, the trailing operand
-being the evidence word:
+**A STATED HOLE, measured 2026-08-30: a LIFTED LAMBDA'S OWN PARAMETER
+has no evidence.** `emitLamDef` emits
+`define i64 @_lam_N(i64 %.env, ...)` with no evidence parameter of its
+own, and `bindLamParams` binds the parameter to a MINTED placeholder,
+which `evClassOf` answers `-1` to — no `__retainref` is emitted at all,
+for a parameter that is a reference. One program holding the same
+`vecPush s` twice shows both readings, the trailing operand being the
+evidence word:
 
     in a named `fn`   call @Vec$vecPush(i64 %box, i64 %s, i64 1)
     in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 0)
 
-This is not observable today, and the reason is worth stating because
-it is load-bearing rather than lucky: nothing releases a closure's
-argument, so a block parked uncounted inside a lambda is kept alive by
-the very leak `MM-LIFE-2c`'s event-5b note calls open. The two cancel.
-Closing that leak without first giving a lifted lambda an evidence word
-turns 96 bytes per operation into a use-after-free, which
-`tests/stdlib/460-closure-reclaim.ax` term 64 exists to refuse. That last case is why this is
-affordable on the hottest store in the compiler - a tag, a span or a
-length costs zero instructions. Measured: self-compile 1.22 s and peak
-RSS 492.6 MiB, against 1.24 s and 492.4 MiB without it.
+The hole is the lambda's OWN parameter and nothing wider, which is
+worth stating precisely because the obvious wider claim is false.
+`capFromVec` captures `"__evw."` into the record of any lambda whose
+enclosing function is polymorphic, so the ENCLOSING function's
+variables reach a lifted lambda perfectly well: `emitEvwRead` finds
+the captured symbol and emits a conditional retain, not a constant.
+What has no word is the argument the closure is applied to.
+
+**THIS IS OBSERVABLE, AND IT IS A USE-AFTER-FREE.** The paragraph that
+stood here until 2026-08-30 said the opposite — that nothing releases a
+closure's argument, so an uncounted park is kept alive by the very leak
+`MM-LIFE-2c`'s event-5b note calls open, and "the two cancel". That
+reasoning covers only the release a *closure call* would emit. **Event
+5 is a release from a different frame that never consulted the
+closure**, and it is enough on its own.
+
+Measured at `07ee175`, three programs differing in one ingredient each,
+`strByte` of the recorded value, at `--opt 0` through `--opt 3` alike:
+
+| the closure parks | then | reads |
+|---|---|---|
+| a struct FIELD's value | the field is overwritten | **`z`** — a string allocated after |
+| a fresh temporary | the field is overwritten | `a` — correct |
+| a struct field's value | nothing | `a` — correct |
+
+Both ingredients are needed and neither is exotic: the field holds the
+only counted share, the closure's park takes none, and the overwrite
+releases the last one while the closure's container still points at the
+block. The program that does it is a factory returning a logging
+closure over a `Session` whose `name` is recorded and then reassigned —
+no `cast`, no `__load64`, no header arithmetic — and `axiom check`
+prints `OK`. The identical program with a named `fn` in place of the
+closure answers correctly, which is the whole diagnosis in one
+substitution.
+
+**WHAT CLOSES IT, AND WHAT IT DOES NOT REACH.** A lambda parameter is
+unknown only because `bindLamParams` binds it to a MINTED placeholder,
+which `evClassOf` answers with -1; a parameter bound to a type the
+author WROTE is answered `1` for a reference or `2+k` for a variable,
+and either one emits the retain. `checkLamAgainst` is the function that
+binds the written type, and since 2026-08-30 a `fn` whose declared
+result is an arrow and whose body is a lambda is checked through it,
+not through `checkLam`. That is the factory above, and it now answers
+`a`.
+
+It reaches no further, because there is nothing further to reach it
+WITH. This checker does not bind placeholders at all: `tyVarCompat`
+lets a minted variable match anything, and `pinArg` substitutes into
+the arrow it RETURNS without touching the placeholder node, so a
+lambda parameter is never resolved by use. Forcing it inside the body
+before the park — `(lambda (s) { (strLen s) (vecPush log s) })` —
+changes nothing. Only a declaration in the position the lambda
+actually sits in can ground it, and all but the first of these lack
+one — the last row has a declaration and still does not close, for a
+different reason worth reading:
+
+| the shape | where the lambda sits | reads |
+|---|---|---|
+| a factory's declared result | the body IS the lambda | `a` — closed |
+| a `let` inside the factory | bound, then returned | **`z`** |
+| an `if` in the factory | returned from an arm | **`z`** |
+| no factory at all | bound and applied in `main` | **`z`** |
+| a declared arrow PARAMETER | passed as an argument | **`z`** |
+| a declared result arrow carrying a TYPE VARIABLE | the body IS the lambda | **`z`** |
+
+The last row is the instructive one, because nothing is wrong with its
+code. `(:: mk (-> Int (-> a Int)))` binds the lambda's parameter to the
+source variable `a`, `evClassOf` answers `2+k`, and the emitted lambda
+loads the evidence word its factory stored in the closure record,
+shifts out bit k and retains under it — the whole chain, correct. It
+under-retains anyway, because `a` appears only in `mk`'s RESULT, so
+nothing at `mk`'s call site witnesses it and `main` passes the constant
+`0`. The value of type `a` does not exist until the closure is applied.
+That is the diagnosis in one line: **the evidence is contributed where
+the closure is BUILT, and the type is not known until it is CALLED.**
+
+Every row is ordinary Axiom that `axiom check` accepts, and every row
+but the first is a silent use-after-free today. **What closes them is
+one rule, not yet written into this document because it is not yet
+implemented: the evidence word contributed at the closure's
+APPLICATION rather than at its construction.** That is one rule for
+both defects the table shows — the rows with no declaration, whose
+parameter classifies `-1`, and the last row, whose parameter classifies
+correctly and is witnessed by nobody. Half the machinery is already
+there: `capFromVec` captures `"__evw."` into the record of any lambda
+whose enclosing function is polymorphic, and the last row's IR proves
+the read end works. What is missing is a word at the call. The sites
+are `emitLamDef` and `emitThunkDef` (the two definitions) and
+`applyOneArg` (the one call), and the change is an ABI one — every
+closure call gains an operand, thunks over named functions included.
+
+`tests/stdlib/460-closure-reclaim.ax` pins both halves. **Term 64** is
+the leak half: releasing a closure's argument is unsound while the park
+takes no share, and it does not reach the defect above — its parked
+value is an owned temporary that nothing else releases, and its lambda
+is an argument rather than a declared result, so `checkLamAgainst` does
+not ground it either. **Term 128** is the half that is closed: the
+factory of the table's first row, which read `z` before 2026-08-30 and
+reads `a` after. Reverting `checkLamAgainst`'s third caller strikes out
+term 128 and nothing else — 255 becomes 127.
 
 The share is deliberately **unbalanced**, and cannot be otherwise:
 nothing tells the unsafe layer when a word is overwritten or its block

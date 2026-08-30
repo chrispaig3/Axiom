@@ -42,14 +42,22 @@
 #
 # Measured 2026-08-30 on darwin-aarch64:
 #
-#   built from the tree      460 exits 127  closure chain delta 80 B
-#   built from the ablation  460 exits  71  closure chain delta 45,664 B
+#   built from the tree      460 exits 255  closure chain delta 80 B
+#   built from the ablation  460 exits 199  closure chain delta 45,664 B
 #
-# 127 - 71 = 56 = 32 + 16 + 8, which is every byte term and only the
+# 255 - 199 = 56 = 32 + 16 + 8, which is every byte term and only the
 # byte terms: the correctness terms, the parked-argument term and the
 # step count hold in both, so the ablation restores the defect rather
 # than breaking the program. 45,664 is 32 bytes x 1,428 applications,
 # the number Fallible.ax's table was written from, to the byte.
+#
+# The delta is what this gate asserts, not the totals, so a term added
+# for some other question moves both numbers and leaves 56 alone. Term
+# 128 was added the same day and did exactly that: 127/71 became
+# 255/199. Its own discrimination is a DIFFERENT ablation - revert
+# `checkLamAgainst`'s third caller in self_host/typecheck.ax and the
+# fixture exits 127, which is 255 with term 128 struck out and nothing
+# else moved.
 #
 # TERM 64 IS NOT ABOUT THIS FIX. It is about the one that comes next and
 # must not be written as its design says. A closure application still
@@ -65,11 +73,21 @@
 #   in a named `fn`   call @Vec$vecPush(i64 %box, i64 %s, i64 1)
 #   in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 0)
 #
-# So THE LEAK IS LOAD-BEARING: the two defects cancel today, and closing
-# one without the other turns 96 bytes into a use-after-free. Simulated
-# with `__release` at exactly the point `emitApplyChainOwned` would emit
-# it, term 64 reads 3 where it must read 16 and the fixture exits 63.
-# That is what this term is here to make impossible to ship quietly.
+# So THE LEAK IS LOAD-BEARING against the release a CLOSURE CALL would
+# emit: those two defects cancel, and closing one without the other
+# turns 96 bytes into a use-after-free. Simulated with `__release` at
+# exactly the point `emitApplyChainOwned` would emit it, term 64 reads
+# 3 where it must read 16. That is what the term is here to make
+# impossible to ship quietly.
+#
+# THE CANCELLATION IS NOT GENERAL, and term 128 is the half that says
+# so. It covers only a release the closure's own call site emits. A
+# release from a DIFFERENT frame - event 5, a struct field overwritten
+# by code that never heard of the closure - reaches the same block and
+# is answerable to nothing. That was a live use-after-free, not a
+# latent one, until `checkLamAgainst` was given its third caller on
+# 2026-08-30, and it remains one for every closure shape that caller
+# does not reach. `docs/memory-model.md` MM-LIFE-2g names them.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init

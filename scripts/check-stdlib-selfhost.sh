@@ -224,6 +224,8 @@ expected_exit_of() {
 # ---------------------------------------------------------------
 echo "== corpus: the goldens are present, distinguishable, and not empty =="
 cases=0
+headers=0
+header_fails=0
 for case_file in $corpus/*.ax; do
   name="$(basename "$case_file" .ax)"
   cases=$((cases + 1))
@@ -244,6 +246,23 @@ for case_file in $corpus/*.ax; do
   if [[ ! "$ex" =~ ^[0-9]+$ ]]; then
     echo "FAIL $name: $corpus/$name.exit is not a number ($ex)"
     failed=$((failed + 1))
+  fi
+  # THE HEADER AGAINST THE GOLDEN. 27 cases open with a
+  # `; exit N (see .exit)` line, which is what a reader of the source
+  # sees before anything else - and until 2026-08-30 nothing compared
+  # it to `.exit`. It had already drifted: `460-closure-reclaim.ax`
+  # said 63 while its golden said 127, because the commit that added
+  # term 64 moved the golden and not the header. A stale header is
+  # worse than none, since the two disagreeing is exactly the state a
+  # reader cannot detect by reading.
+  hdr="$(sed -n '1s/^; exit \([0-9][0-9]*\).*/\1/p' "$case_file")"
+  if [[ -n "$hdr" ]]; then
+    headers=$((headers + 1))
+    if [[ "$hdr" != "$ex" ]]; then
+      echo "FAIL $name: the source header says exit $hdr, the golden says $ex"
+      failed=$((failed + 1))
+      header_fails=$((header_fails + 1))
+    fi
   fi
 done
 
@@ -270,6 +289,17 @@ if [[ "$distinct_exits" -lt 3 ]]; then
   failed=$((failed + 1))
 fi
 echo "ok   $cases cases, $distinct_goldens distinct goldens, $distinct_exits distinct expected exit statuses"
+# Named rather than left silent: the header check above prints only on
+# failure, and a sweep whose passing output is nothing is a sweep no
+# reader can tell ran. The count is the evidence that it did.
+if [[ "$headers" -lt 25 ]]; then
+  echo "FAIL: only $headers cases carry a '; exit N' header (expected at least 25) - the header sweep has stopped seeing the corpus"
+  failed=$((failed + 1))
+elif [[ "$header_fails" -eq 0 ]]; then
+  echo "ok   $headers source headers agree with their .exit golden"
+else
+  echo "     $header_fails of $headers source headers disagree with their golden"
+fi
 
 # ---------------------------------------------------------------
 # the goldens against the sources - no compiler needed

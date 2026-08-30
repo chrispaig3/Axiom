@@ -1,4 +1,4 @@
-; exit 63 (see .exit)
+; exit 255 (see .exit)
 ; MM-LIFE-2c, the closure half: an application THROUGH A CLOSURE now
 ; gives back the intermediate record a curried chain builds, which a
 ; direct call's `releaseOwnedArgs` has done for its arguments since
@@ -23,6 +23,13 @@
 ;    2  a ONE-argument application allocates no intermediate and is
 ;       unchanged: it must not have become a release of a record the
 ;       caller still owns.
+;   64  a parked argument SURVIVES the application, which is what
+;       makes releasing it unsound: the park takes no share, so the
+;       release would free a block the Vec still points at. This term
+;       is about the fix that comes NEXT, and refuses its design.
+;  128  and a park by a lambda whose parameter type the AUTHOR WROTE
+;       does take its share - the other half of the same question,
+;       and a live use-after-free until 2026-08-30.
 ;    1  every step above ran.
 ;
 ; The bytes are held by scripts/check-closure-reclaim.sh, which
@@ -170,6 +177,35 @@
   }
 )
 
+; TERM 128 IS TERM 64'S OPPOSITE HALF, and the two are worth reading
+; together. Term 64 says a park inside a lifted lambda takes NO share,
+; which is why releasing the argument would free live memory. This one
+; says that when the lambda's parameter type is one the AUTHOR WROTE,
+; the share IS taken - and until 2026-08-30 it was not, which was a
+; live use-after-free rather than a leak.
+;
+; `mkLogger` is a factory: it answers a lambda that records what it is
+; given. `main` hands it a struct FIELD's value, then overwrites the
+; field. The overwrite is event 5, a release from a frame that never
+; consulted the closure, and it drops the only counted share while the
+; Vec still points at the block. Measured before the fix, at every
+; optimisation level: `strByte` reads 122 - `z`, the first byte of a
+; string allocated after the free - where 97 is the `a` that was
+; recorded. No `cast`, no `__load64`, no header arithmetic, and
+; `axiom check` printed OK.
+;
+; What closes it is that `checkLamAgainst` now binds the lambda's
+; parameter to the DECLARED `String` instead of a minted placeholder,
+; so `evClassOf` answers 1 rather than -1 and `__retainref` is emitted.
+; The same program with a named `fn` in place of the lambda was always
+; correct, which is the whole diagnosis in one substitution.
+(struct Session
+  (name : String))
+
+(:: mkLogger (-> Int (-> String Int)))
+
+(fn (mkLogger log) (lambda (s) (vecPush log s)))
+
 (:: main Int)
 
 (fn (main)
@@ -229,7 +265,20 @@
           (set acc (+ acc (* 64 (b2i (== (strLen (vecGetStr box 0)) 16)))))
           (set steps (+ steps 1))
         })
-      (if (== steps 6)
+      ; 128 - a closure over a struct field, the field then overwritten
+      (let ((log vecNew))
+        (let ((rec (mkLogger log)))
+          (let ((s (Session (strDup "alice"))))
+            {
+              (rec s.name)
+              (set s.name (strDup "bob"))
+              ; Allocated after the release, so a freed block would be
+              ; handed back here and the read below would see it.
+              (strDup "zzzzz")
+              (set acc (+ acc (* 128 (b2i (== (strByte (vecGetStr log 0) 0) 97)))))
+              (set steps (+ steps 1))
+            })))
+      (if (== steps 7)
         (+ acc 1)
         acc
       )

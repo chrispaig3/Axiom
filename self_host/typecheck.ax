@@ -7382,9 +7382,36 @@
 ;
 ; Nothing is INFERRED here, which is what makes it safe under the
 ; evidence-word hazard the type-inference note records: the arrow was
-; written by the author and AX3017 has already refused a type
-; variable in it, so every type bound is ground and its pointerhood
-; is exactly the declared one.
+; written by the author, so every type it binds is one the author
+; named rather than one this checker minted. A minted placeholder is
+; what `evClassOf` answers -1 to, and -1 emits no `__retainref` at
+; all - MM-LIFE-2g's hole, and a live use-after-free, not a leak.
+;
+; WHAT THE ARROW MAY CONTAIN, which changed on 2026-08-30 when a third
+; caller arrived. The two original callers were both the handler at a
+; `handle`, where AX3017 has already refused a type variable, so every
+; type bound was GROUND and this comment said so flatly. A `fn` whose
+; declared result is an arrow is under no such rule:
+;
+;     (:: mk (-> Int (-> String Int)))   binds `String`   - ground
+;     (:: mk (-> Int (-> a Int)))        binds `a`        - a SOURCE
+;                                                           variable
+;
+; Both are safe here, and neither is safe for the same reason. A
+; ground type classifies 1 and the retain is unconditional. A source
+; variable classifies `2+k`, and the emitted code is correct all the
+; way down - measured on the second signature above, the lambda loads
+; the evidence word its factory stored in the closure record, shifts
+; out bit k and retains under it. What it is NOT is EFFECTIVE: `a`
+; appears only in `mk`'s result, so nothing at `mk`'s call site
+; witnesses it and the caller passes the constant 0. The value of type
+; `a` arrives later, at the closure's own application, which is a site
+; the evidence word does not reach today. So the second signature
+; still under-retains, and under-retaining is the leaking direction
+; rather than the freeing one.
+;
+; The rule to keep, therefore, is narrower than "the arrow is ground":
+; bind what the author WROTE, whatever it is, and never a placeholder.
 (pub :: checkLamAgainst (-> Int Int Int Int))
 
 (pub fn (checkLamAgainst tc e arrow)
@@ -17868,9 +17895,59 @@
           (bindFnParams
             tc            params            ptys            sigTy            0
           )
-          (let ((bodyTy (checkExprH tc (nodeC d) 0)))
+          ; A LAMBDA BODY IS CHECKED AGAINST THE DECLARED RESULT, for the
+          ; reason `checkHandler` gives one line for one: `bindLamParams`
+          ; binds every parameter to a FRESH TYPE VARIABLE, and
+          ; `checkLamAgainst` binds it to the type the author wrote.
+          ;
+          ; That difference is memory safety, not precision. MM-LIFE-2g
+          ; says a type-erasing store SHALL take a share; the share is
+          ; stamped from MM-LIFE-2d's evidence word, and a MINTED
+          ; placeholder is what `evClassOf` answers -1 to - no
+          ; `__retainref` is emitted at all, for a parameter that is a
+          ; reference. Measured at `07ee175`, a factory returning a
+          ; logging closure over a struct field, the field then
+          ; reassigned: the log reads back a string allocated after it -
+          ; 122, `z` - at every optimisation level, with `check`
+          ; printing OK. The same program with a named `fn` in place of
+          ; the closure answers 97. `tests/stdlib/460-closure-reclaim.ax`
+          ; term 128 is that program.
+          ;
+          ; `checkLamAgainst` had exactly two callers before this and
+          ; both were the handler at a `handle`, which is why an inline
+          ; handler was always sound and every other lambda was not.
+          ;
+          ; WHAT THIS DOES NOT REACH, because a narrow fix that reads
+          ; like a general one is worse than none. The guard below is
+          ; syntactic: the body must BE a lambda and the declared result
+          ; must BE an arrow. Every other position where a lambda can
+          ; sit has no declaration to bind against, and this checker
+          ; cannot recover one by inference - `tyVarCompat` lets a
+          ; minted placeholder match anything and `pinArg` substitutes
+          ; into the arrow it RETURNS without touching the placeholder
+          ; node, so a lambda parameter is never resolved by use.
+          ; Measured the same day, all reading 122 at `--opt 0` and
+          ; `--opt 3` alike: a lambda bound in a `let` inside the
+          ; factory; one returned from an `if`; one bound and applied
+          ; in `main` with no declaration anywhere; one passed to a
+          ; declared arrow PARAMETER; and one whose factory's declared
+          ; result arrow carries a type variable rather than a ground
+          ; type - that last is emitted correctly and still under-
+          ; retains, because nothing at the factory's call site
+          ; witnesses the variable and the caller passes 0.
+          ;
+          ; They need an evidence word contributed at the closure's
+          ; APPLICATION rather than at its construction, which
+          ; `docs/memory-model.md` MM-LIFE-2g states as the open half.
+          (let ((resTy (peelArrows sigTy (vecLen params))))
+          (let ((bodyTy
+            (if (&& (!= (nodeC d) 0) (&& (== (nodeTag (nodeC d)) TAG_E_LAM) (&& (!= resTy 0) (== (nodeTag resTy) TAG_T_ARR))))
+              (checkLamAgainst tc (nodeC d) resTy)
+              (checkExprH tc (nodeC d) 0)
+            )
+          ))
             {
-              (checkDeclaredReturn tc d (peelArrows sigTy (vecLen params)) bodyTy)
+              (checkDeclaredReturn tc d resTy bodyTy)
               (if (&& (!= ent 0) (&& (!= (memGetWord ent 1) 0) (== (nodeTag (memGetWord ent 1)) TAG_T_VAR)))
                 (memSetWord ent 1 (ctorArrowOf ptys bodyTy (- (vecLen ptys) 1)))
                 0
@@ -17880,6 +17957,7 @@
               (memSetWord tc 23 0)
               (memSetWord tc 24 0)
             }
+          )
           )
         }
       )
