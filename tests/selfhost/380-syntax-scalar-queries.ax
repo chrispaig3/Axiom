@@ -1,6 +1,6 @@
 ; expect 41
 ; MAC-CAP-5's three SCALAR queries, each landing with the library
-; macro that needs it (MAC-CAP-6's closure rule: a vocabulary entry
+; macro that needed it (MAC-CAP-6's closure rule: a vocabulary entry
 ; with no consumer is one nothing measures).
 ;
 ;   (syntax/name C)      the constructor's spelling as a String
@@ -26,12 +26,22 @@
 ;                        generated declaration callable from a macro
 ;                        rather than only nameable.
 ;
+; `deriveShow` and `showOr` are deprecated since 0.3.8: `show` is a
+; head the checker resolves and renders a value IN FULL - `(Rect 1 2)`
+; - where `deriveShow`'s product answered the constructor's NAME alone
+; - `Rect` - and that name is what this file measures, because it is
+; what `syntax/name` answers and nothing else does. So the two
+; templates live here, verbatim (`deriveCtorName`, `ctorNameOr`), and
+; the queries keep a measured consumer after the prelude's macros go.
+; `deriveArity` is not deprecated and is still the prelude's.
+;
 ;   16  strLen (showShape (Rect 1 2))  = 4, times 4
 ;    9  arityShape (Rect 1 2)          = 2, plus 7
 ;   12  arityShape (Dot)               = 0, plus 12
-;    3  showOr Shape (Dot) -> showShape (Dot) = "Dot", strLen 3
-;    1  showOr Colour ... -> the fallback, because no deriveShow
-;                            Colour was invoked: strLen "?" = 1
+;    3  ctorNameOr Shape (Dot) -> showShape (Dot) = "Dot", strLen 3
+;    1  ctorNameOr Colour ... -> the fallback, because no
+;                            deriveCtorName Colour was invoked:
+;                            strLen "?" = 1
 ;
 ; 16 + 9 + 12 + 3 + 1 = 41.
 ;
@@ -50,10 +60,27 @@
   (Red)
   (Green))
 
-(deriveShow Shape)
+; `stdlib/Pre.ax`'s `deriveShow`, as it shipped: one arm per
+; constructor, arity-many binders ignored, the name as a literal.
+(macro deriveCtorName ((deriveCtorName T)
+   (:: (syntax/join show T) (-> T String))
+   (fn ((syntax/join show T) v)
+     (match v
+       (syntax/for (C (syntax/constructors T))
+         ((C (syntax/binders C f)) (syntax/name C)))))))
+
+; and its `showOr`: the branch is decided at expansion time, and the
+; losing one - which names a declaration the other program does not
+; have - is deleted rather than compiled.
+(macro (ctorNameOr T x fallback) (if (syntax/defined (syntax/join show T))
+  (syntax/join show T x)
+  fallback
+))
+
+(deriveCtorName Shape)
 
 (deriveArity Shape)
 
 (:: main Int)
 
-(fn (main) (+ (* 4 (strLen (showShape (Rect 1 2)))) (+ (+ 7 (arityShape (Rect 1 2))) (+ (+ 12 (arityShape Dot)) (+ (strLen (showOr Shape Dot "?")) (strLen (showOr Colour Red "?")))))))
+(fn (main) (+ (* 4 (strLen (showShape (Rect 1 2)))) (+ (+ 7 (arityShape (Rect 1 2))) (+ (+ 12 (arityShape Dot)) (+ (strLen (ctorNameOr Shape Dot "?")) (strLen (ctorNameOr Colour Red "?")))))))

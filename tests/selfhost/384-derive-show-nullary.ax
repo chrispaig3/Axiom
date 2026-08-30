@@ -1,6 +1,7 @@
 ; expect 63
-; `deriveShow` over a data type whose constructors are ALL nullary -
-; the shape no fixture derived over, and the shape that was wrong.
+; `deriveShow`'s template over a data type whose constructors are ALL
+; nullary - the shape no fixture derived over, and the shape that was
+; wrong.
 ;
 ; `(syntax/binders C f)` supplies arity-many binders so that one
 ; template covers every arity (MAC-CAP-5). At arity 0 it supplies
@@ -23,18 +24,30 @@
 ; The mixed type is here too: a wildcard in a MIDDLE arm swallows the
 ; constructors after it, which is the failure a last-position-only
 ; test cannot produce.
+;
+; The template is this file's own since `deriveShow` was deprecated
+; (0.3.8): the builtin `show` renders `(Mid 7)` in full, and this file
+; is about the constructor's NAME - `Mid` - reaching a running program
+; through `syntax/name` with `syntax/binders` supplying the arity, so
+; it keeps the shape that exercised the bug rather than the rendering
+; that would not.
 (import IO)
 
-(import Pre)
-
 (import Str)
+
+(macro deriveCtorName ((deriveCtorName T)
+   (:: (syntax/join show T) (-> T String))
+   (fn ((syntax/join show T) v)
+     (match v
+       (syntax/for (C (syntax/constructors T))
+         ((C (syntax/binders C f)) (syntax/name C)))))))
 
 (data Colour
   (Red)
   (Green)
   (Blue))
 
-(deriveShow Colour)
+(deriveCtorName Colour)
 
 ; Nullary FIRST and LAST, with a fieldful constructor between them, so
 ; a wildcard in arm 1 would swallow `Mid` and `Last` alike.
@@ -43,7 +56,7 @@
   (Mid Int)
   (Last))
 
-(deriveShow Mixed)
+(deriveCtorName Mixed)
 
 (:: bit (-> Bool Int Int))
 

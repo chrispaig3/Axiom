@@ -924,7 +924,7 @@ program (codegen's re-expansion, the REPL's type probe) carries no
 mangling records, and a module-side invocation reaching it is
 `AX3027` naming that rather than generating a declaration nothing can
 name. `tests/selfhost/388-module-side-decl-macro.ax` (239) is the
-positive gate — the prelude's `deriveEq` and `deriveShow` spent by a
+positive gate — the prelude's `deriveEq` and `deriveArity` spent by a
 module on its own type, a private product the module calls, and an
 entry-file `eqSignal` coexisting with the module's mangled one — and
 `tests/diagnostics/515-decl-macro-in-module.ax` pins the visibility
@@ -2683,7 +2683,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/378-derive-eq-impl.ax` (30) | CAP-8's impl templates + §10.2's fieldful form verbatim — derived instances COMPOSE through MAC-INT-4 dispatch |
 | `tests/selfhost/379-derive-imported.ax` (30) | CAP-9's shipped library — stdlib/Pre.ax's deriveEq over an entry-file type and an imported one |
 | `tests/diagnostics/550-derive-private-type.ax` | the query visibility rule — a private subject refuses at the invocation, one diagnostic in the right place |
-| `tests/selfhost/380-syntax-scalar-queries.ax` (41) | CAP-5's scalar rows — `syntax/name`, `syntax/arity`, `syntax/defined`, and a join standing as a callable reference; `stdlib/Pre.ax`'s `deriveShow`/`deriveArity`/`showOr` are the consumers |
+| `tests/selfhost/380-syntax-scalar-queries.ax` (41) | CAP-5's scalar rows — `syntax/name`, `syntax/arity`, `syntax/defined`, and a join standing as a callable reference; `stdlib/Pre.ax`'s `deriveArity` and the fixture's own copies of `deriveShow`/`showOr` are the consumers (the prelude's two are deprecated since 0.3.8, because the builtin `show` renders a value in full where they answered the constructor's name) |
 | `tests/diagnostics/560-syntax-scalar-misuse.ax` | the scalar rows' refusals — an arity of nothing (naming `syntax/arity`, not the counter it shares a slot with), a bare query head, a non-identifier argument, a one-part join |
 | `tests/diagnostics/520-syntax-query-misuse.ax` | CAP-6's closure — unknown query, wrong-kind subject, missing subject, all AX3028 |
 | `tests/selfhost/382-format-macros.ax` (255) | CAP-10's lowering — eight independent claims, one bit each, so a partial regression names itself in the exit status: interpolation, escaped braces, the three alignments, signed zero-padding, both hex cases, precision, conversion-inside-padding, and the degenerate literals |

@@ -15,9 +15,10 @@
 ;
 ;    1  the entry file calls a function the MODULE derived
 ;       (`eqSignal`, from the prelude's `pub` template)
-;    2  and the second derived family too (`showSignal`), so the
-;       module's phase-D round generated more than one invocation's
-;       worth
+;    2  and the second derived family too (`aritySignal`; it was
+;       `showSignal` until `deriveShow` was deprecated in 0.3.8), so
+;       the module's phase-D round generated more than one
+;       invocation's worth
 ;    4  the module calls its OWN generated declaration, from a
 ;       template that is not `pub` - privacy is about what leaves the
 ;       module, and `localSum` never does
@@ -96,7 +97,7 @@
     (mine (ModDerive::eqSignal
       Red      Red
     ))
-    (shown (strEq (showSignal Amber) "Amber"))
+    (shown (== (aritySignal Amber) 0))
     (local (== (localSum Green) 1))
     (ours (eqSignal Red Red))
     (entry (eqLocal Yes Yes))

@@ -27,5 +27,3 @@ ok   three fields, mixed
 ok   recursive type in full
 ok   strings in a list
 ok   a value that reaches itself
-ok   written impl wins at the call
-ok   nested field renders structurally

@@ -1,0 +1,44 @@
+; expect 24
+; A WRITTEN instance wins at the call, and only its absence reaches
+; the builtin - the resolution order phase 0 of the traits removal
+; promised, pinned here with a trait of this file's own so that the
+; pin outlives `stdlib/Show.ax`'s deprecation (an `impl` of THAT trait
+; draws AX3048, and the corpus the compiler must find nothing to
+; report in cannot carry one). The trait is spelled `Show` and the
+; method `show` deliberately: the preference is keyed on the METHOD
+; name the builtin owns, and nothing else about the trait matters.
+;
+; Three renderings, measured by length, summed into the exit status:
+;
+;   "custom"        6   the instance for `Custom`, not the derived `Warm`
+;   "{c = Cold}"   10   a `Custom` INSIDE a struct renders structurally -
+;                       the instance is consulted at the call and never
+;                       for a nested field, so a nested rendering does
+;                       not depend on machinery that is on its way out
+;   "(Some 3)"      8   no instance for `Option`: the builtin answers
+;                       24
+;
+; This is a trait fixture and goes with the trait machinery when that
+; is deleted; until then it is the one runtime pin of the preference.
+; `Fmt` is loaded because the builtin is a rewrite onto it - `3`
+; inside `(Some 3)` is `fmtInt` - and nothing else here imports it.
+(import Str)
+
+(import Fmt)
+
+(trait (Show a) where
+  (show :: (-> a String)))
+
+(data Custom
+  (Warm)
+  (Cold))
+
+(impl (Show Custom) where
+  ((show (lambda (c) "custom"))))
+
+(struct HasCustom
+  (c : Custom))
+
+(:: main Int)
+
+(fn (main) (+ (strLen (show Warm)) (+ (strLen (show (HasCustom Cold))) (strLen (show (Some 3))))))

@@ -9,11 +9,14 @@
   (Amber)
   (Green))
 
-; the prelude's macro, invoked on the module's own type - its template
-; declares its products `pub`, so they leave this module
+; the prelude's macros, invoked on the module's own type - their
+; templates declare their products `pub`, so they leave this module.
+; (`deriveArity` rather than `deriveShow` since 0.3.8: that one is
+; deprecated with the builtin `show`, and this file is about a module
+; spending the prelude's derivers, not about which one.)
 (deriveEq Signal)
 
-(deriveShow Signal)
+(deriveArity Signal)
 
 ; a module-local macro whose template does NOT say `pub`: the product
 ; is this module's business, and naming it from outside is AX3023
