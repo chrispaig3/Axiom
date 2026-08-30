@@ -4904,17 +4904,28 @@
 ;
 ; It answers false for every program, by construction and not by a
 ; check: no `__thread_spawn` exists for a program to name, so there is
-; nothing for the predicate to find. What will compute it is a scan of
-; the resolved declarations for that primitive, taken before
-; `emitAllocator` runs - the runtime globals precede every body in the
-; module (`emitResolved`), so the answer cannot come from lowering the
-; call - and what will read it is the storage class at each of the
-; eight global sites. Neither is here yet. The flag lands first, and
-; OFF, so that the byte-identity gates - check-freestanding,
-; check-cross-targets, check-bootstrap, check-reproducible - pin the
-; no-thread emission before anything consults it: the order ERR-REC-6's
-; recovery global took, where a mechanism a program never asks for was
-; measured to cost that program nothing rather than argued to.
+; nothing for the predicate to find.
+;
+; THE READER IS HERE; THE COMPUTATION IS NOT. `cgMutGlobal` below is
+; what the eight global sites consult, and they consult it now - the
+; five allocator words and the slab array in `emitAllocator`,
+; `@__axiom_recover_top` in `emitRecoverRuntime`, and every
+; `@__axiom_ev_<Effect>` in `emitEffectGlobals`. What is still owed is
+; the predicate's body: a scan of the resolved declarations for
+; `__thread_spawn`, taken before `emitAllocator` runs, because the
+; runtime globals precede every body in the module (`emitResolved`) and
+; the answer therefore cannot come from lowering the call. That primitive
+; does not exist yet, so neither does the scan.
+;
+; The flag landed OFF and stays OFF, so the byte-identity gates -
+; check-freestanding, check-cross-targets, check-bootstrap,
+; check-reproducible - pin the no-thread emission before anything can
+; turn it on: the order ERR-REC-6's recovery global took, where a
+; mechanism a program never asks for was measured to cost that program
+; nothing rather than argued to. `scripts/check-thread-local.sh` is
+; where the ON path is measured, by ablating this function's body,
+; because a storage class no program can select is a storage class no
+; ordinary gate can reach.
 ;
 ; Not a command-line flag, deliberately, though `cgStaticlib` beside it
 ; is one: whether a program spawns a thread is a fact about the program,
@@ -4924,6 +4935,51 @@
 (pub :: cgThreads Bool)
 
 (pub fn (cgThreads) false)
+
+; The storage class of a mutable runtime global, which is the ONE thing
+; `cgThreads` decides. Eight globals read it: the five allocator words,
+; the slab array, `@__axiom_recover_top`, and one evidence slot per
+; declared effect. `@__axiom_argc`/`@__axiom_argv` deliberately do not -
+; they are written once in `@main`'s prologue, before any thread can
+; exist, and never again - and neither does any constant, which is
+; shareable by construction.
+;
+; `internal thread_local(localexec) global`, in that order, because
+; that is the order LLVM's grammar takes: linkage, then the
+; thread-local specifier, then the kind.
+;
+; LOCAL-EXEC IS MANDATORY AND NOT A PREFERENCE. A bare `thread_local`
+; takes the general-dynamic model, which imports `__tls_get_addr@PLT`
+; on both Linux targets - and `scripts/check-freestanding.sh` requires
+; ZERO undefined symbols, so the default model would fail the gate that
+; defines what this language means by freestanding. Local-exec is the
+; only model a statically linked executable can use, and it is what a
+; program with no dynamic loader has always been able to use.
+;
+; What it costs, measured on `llc` with `-O2 -relocation-model=pic`
+; against a plain global with a load:
+;
+;   linux-x86_64    movq g(%rip)  ->  movq %fs:g@TPOFF      +0 insns
+;   linux-aarch64   adrp + ldr    ->  mrs TPIDR_EL0 + 2 add + ldr  +2
+;   freebsd-x86_64  movq g(%rip)  ->  movq %fs:0 + TPOFF    +1
+;   darwin, both    adrp + ldr    ->  an INDIRECT CALL through
+;                                     libSystem's __tlv_bootstrap
+;
+; Darwin is why the OFF path matters more than the ON one. A thread-
+; local access there is a call, `axiom_alloc` touches four of these on
+; its fast path, and every program in the tree would leave MM-FFI-1's
+; tier 1 - zero undefined symbols - for a feature it never asked for.
+; So the rule is the one `ERR-REC-6` already established for recovery
+; points: a program that does not use the mechanism pays nothing for
+; it, byte for byte, and that is measured rather than argued.
+(pub :: cgMutGlobal String)
+
+(pub fn (cgMutGlobal)
+  (if cgThreads
+    "internal thread_local(localexec) global"
+    "internal global"
+  )
+)
 
 (pub :: argHas (-> String Int Bool))
 
@@ -6886,8 +6942,8 @@
         (emitWinEntry cg)
       )
     )
-    (emitLine cg "@__axiom_bump = internal global i64 0")
-    (emitLine cg "@__axiom_bump_end = internal global i64 0")
+    (emitLine cg (cat3 "@__axiom_bump = " cgMutGlobal " i64 0"))
+    (emitLine cg (cat3 "@__axiom_bump_end = " cgMutGlobal " i64 0"))
     ; Every mapped chunk carries a two-word header - its total size and
     ; the chunk mapped before it - so the chunks form a list in
     ; allocation order. `@__axiom_chunk` is its head; a reset walks it
@@ -6896,13 +6952,13 @@
     ; a reset could only restore a waterline, so every chunk mapped
     ; after the mark was stranded: 576 KiB per iteration measured on a
     ; loop whose body crosses a chunk boundary.
-    (emitLine cg "@__axiom_chunk = internal global i64 0")
-    (emitLine cg "@__axiom_free = internal global i64 0")
+    (emitLine cg (cat3 "@__axiom_chunk = " cgMutGlobal " i64 0"))
+    (emitLine cg (cat3 "@__axiom_free = " cgMutGlobal " i64 0"))
     ; How far into the current chunk memory has ever been handed out.
     ; Above it is still the zeroes `mmap` gave us; below it is whatever
     ; the program wrote, and has to be scrubbed before it is handed out
     ; again - see `handout`.
-    (emitLine cg "@__axiom_high = internal global i64 0")
+    (emitLine cg (cat3 "@__axiom_high = " cgMutGlobal " i64 0"))
     ; MM-LIFE-2e: one free-list head per 16-byte size class, classes
     ; 16..65536 (index = size/16; slot 0 unused). Release at zero
     ; pushes a block - header included - onto its class; the
@@ -6928,7 +6984,7 @@
     ; Int-typed and events 2 and 3 do not emit. What the ceiling costs
     ; is this array (4097 words of BSS, 352 bytes of binary) and the
     ; per-reset scrub below.
-    (emitLine cg "@__axiom_slabs = internal global [4097 x i64] zeroinitializer")
+    (emitLine cg (cat3 "@__axiom_slabs = " cgMutGlobal " [4097 x i64] zeroinitializer"))
     (emitLine cg "")
     (emitLine cg "define i64 @axiom_alloc(i64 %size) #0 {")
     (emitLine cg "entry:")
@@ -7571,7 +7627,7 @@
 (pub fn (emitRecoverRuntime cg)
   {
     (emitLine cg "")
-    (emitLine cg "@__axiom_recover_top = internal global i64 0")
+    (emitLine cg (cat3 "@__axiom_recover_top = " cgMutGlobal " i64 0"))
     (emitLine cg "define internal i64 @__axiom_recover_abort(i64 %code) #0 {")
     (emitLine cg "entry:")
     (emitLine cg "  %top = load i64, ptr @__axiom_recover_top")
@@ -11933,7 +11989,7 @@
       ; `emitHandle`/`emitEffectOp` quote the same way.
       {
         (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
-          (emitLine cg (cat3 "@" (llvmSym (effSlot (vecGet tbl i))) " = internal global i64 0"))
+          (emitLine cg (cat4 "@" (llvmSym (effSlot (vecGet tbl i))) " = " (cat2 cgMutGlobal " i64 0")))
           0
         )
         (emitEffectGlobals cg (+ i 1))

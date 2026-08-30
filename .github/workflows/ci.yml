@@ -212,7 +212,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Forty-four of the gates below build the compiler under test from
+    # Forty-five of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -627,6 +627,25 @@ jobs:
       # missing effect in 3,496 rows rather than as a crash.
       - name: The effect fixpoint is a worklist, and the frontier is what makes it one
         run: ./scripts/check-effect-fixpoint.sh
+
+      # The emitted runtime's eight mutable globals and the one
+      # predicate that decides their storage class. Under `fork`,
+      # MM-PAR-3 gets memory safety for free - every process-wide
+      # mutable global is private after the fork. Under threads it is
+      # BOUGHT, by making the identical set thread-local, and the set is
+      # an enumeration rather than a sentence. The half worth more is
+      # the one that does nothing: a program that spawns no thread must
+      # be byte-identical, because on Darwin a thread-local access is an
+      # indirect call through libSystem's `__tlv_bootstrap` and would
+      # take every program in the tree out of MM-FFI-1's tier 1. And
+      # local-exec is mandatory rather than preferred - the default
+      # model needs a dynamic resolver, which check-freestanding
+      # refuses - so the gate requires the resolver absent AND requires
+      # it to appear when `(localexec)` is dropped, on both Linux
+      # targets, whose markers differ: x86-64 calls `__tls_get_addr`,
+      # AArch64 uses TLS descriptors and never names it.
+      - name: The runtime's mutable globals move under the thread flag, and nothing else does
+        run: ./scripts/check-thread-local.sh
 
       # And what a reset COSTS, which is the roadmap's P8 and the one
       # thing no gate here measured: every timing gate asserts a ratio,

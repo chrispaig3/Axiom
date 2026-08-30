@@ -3204,6 +3204,48 @@ The allocator therefore needs no atomics, no lock and no thread-local
 storage, and the effect slots inherit correctly for free. This is why
 `Job` needed no compiler change at all.
 
+**The same set is what threads would have to buy, and since 2026-08-30
+the emitter can spell the purchase.** Under `fork` the property is
+free; under threads it is bought by making the identical globals
+thread-local, one for one — the five allocator words, the size-class
+array, `@__axiom_recover_top`, and one evidence slot per declared
+effect. **Eight**, and the number is an enumeration of `@__axiom_` in
+`self_host/codegen.ax` rather than a restatement of the sentence above,
+which is how the roadmap's "all seven" came to be short by two.
+`@__axiom_argc`/`@__axiom_argv` are **not** among them and the reason
+is worth stating rather than leaving symmetric: they are written once
+in `@main`'s prologue, before any thread can exist, and never again.
+Every constant — the symbol table, `@__axiom_bt_mainaddr`, the four
+trap messages — is shareable by construction.
+
+`cgThreads` (`codegen.ax`) is the one predicate that decides, and it
+answers **false for every program**: no `__thread_spawn` exists for it
+to find, so the emitted module is byte-identical to what it was before
+the machinery existed, on every target. That half is worth more than
+the other. On Darwin a thread-local access is not an addressing mode
+but an indirect call through libSystem's `__tlv_bootstrap` — measured
+at **1 undefined symbol** with the flag on against **0** with it off —
+and `axiom_alloc` touches four of these globals on its fast path, so a
+language that made every program pay for a feature it never used would
+have taken the whole tree out of `MM-FFI-1`'s tier 1. This is
+`ERR-REC-6`'s shape exactly: a mechanism a program does not ask for
+costs it nothing, and `scripts/check-thread-local.sh` measures that
+rather than arguing it.
+
+The storage class is `internal thread_local(localexec) global`, and
+**local-exec is mandatory rather than preferred**: a bare
+`thread_local` takes the general-dynamic model, which needs a dynamic
+resolver, which is a dynamic link, which `scripts/check-freestanding.sh`
+refuses at zero undefined symbols. With local-exec the cost is
+`%fs:…@TPOFF` on linux-x86_64 (**+0 instructions**), `mrs TPIDR_EL0` on
+linux-aarch64, `@TPOFF` on freebsd-x86_64. The gate requires no dynamic
+resolver on those three **and** requires one to appear when
+`(localexec)` is dropped, on both Linux targets — whose markers differ,
+which is a fact a reader would guess wrongly: x86-64 calls
+`__tls_get_addr`, AArch64 uses TLS **descriptors** and never names it,
+so a check grepping for the first alone would pass an AArch64 build
+that imports `__tlsdesc_resolve` through the PLT.
+
 **MM-PAR-4 (H, with a stated escape).** **Nothing the language or the
 standard library provides shares mutable memory between processes.**
 Values cross a process boundary as bytes, through a file descriptor or

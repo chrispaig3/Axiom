@@ -16,6 +16,58 @@ its changelog too.
 
 ## Unreleased
 
+- **The emitted runtime's mutable globals move under one predicate**
+  (concurrency Phase 2; `MM-PAR-3`, `MM-ALLOC-1`, `MM-ALLOC-2`). Under
+  `fork`, memory safety across processes is free: every process-wide
+  mutable global is private after the fork, which is why `stdlib/Job.ax`
+  needed no compiler change at all. Under THREADS it is **bought**, by
+  making the identical set thread-local — and the set is an enumeration
+  of `@__axiom_` in `codegen.ax` rather than a sentence anyone wrote.
+  There are eight: the five allocator words (`@__axiom_bump`,
+  `_bump_end`, `_chunk`, `_free`, `_high`), the 4,097-word slab array,
+  `@__axiom_recover_top`, and one `@__axiom_ev_<Effect>` per declared
+  effect. `@__axiom_argc`/`@__axiom_argv` are deliberately not among
+  them: written once in `@main`'s prologue, before any thread can
+  exist, and never again.
+  **The half worth more is the one that does nothing.** `cgThreads`
+  answers false for every program — no `__thread_spawn` exists for the
+  predicate to find — and the emitted module is byte-identical to what
+  it was: `self_host/main.ax` emits the same 198,670 lines, and a
+  program reaching all eight globals links **0 undefined symbols**.
+  Darwin is why that matters: a thread-local access there is not an
+  addressing mode but an **indirect call** through libSystem's
+  `__tlv_bootstrap`, measured at 1 undefined symbol with the flag on
+  against 0 with it off, and `axiom_alloc` touches four of these on its
+  fast path. A language that made every program pay that for a feature
+  it never used would have taken the whole tree out of `MM-FFI-1`'s
+  tier 1. This is `ERR-REC-6`'s shape: a mechanism a program does not
+  ask for costs it nothing, measured rather than argued.
+  **`(localexec)` is mandatory, not preferred.** A bare `thread_local`
+  takes the general-dynamic model, which needs a dynamic resolver,
+  which is a dynamic link, which `check-freestanding` refuses at zero
+  undefined symbols. With it: `%fs:…@TPOFF` on linux-x86_64 (**+0
+  instructions**), `mrs TPIDR_EL0` on linux-aarch64, `@TPOFF` on
+  freebsd-x86_64 — no resolver on any of the three.
+  Gate: `check-thread-local.sh` (new), 12 checks. The ON path is
+  reached by **ablating the flag's own body**, because `cgThreads` is
+  deliberately not a command-line switch — whether a program spawns a
+  thread is a fact about the program, and a switch would let a spawning
+  one be emitted with shared allocator words. It requires exactly **16
+  changed IR lines** (eight globals, one line each side) and that
+  `argc`/`argv` are not among them; that the program still answers the
+  same on one thread; that no dynamic-TLS marker appears on the three
+  non-Darwin targets; **and** that dropping `(localexec)` makes the
+  markers appear, because an assertion that a symbol is absent is
+  satisfied by a compiler that emits nothing. That last arm caught its
+  own near-miss: **the marker differs by architecture** — x86-64 calls
+  `__tls_get_addr` (×13) where AArch64 uses TLS descriptors (`tlsdesc`,
+  ×160) and never names it — so a gate grepping only for the first
+  would have passed an AArch64 build importing `__tlsdesc_resolve`
+  through the PLT. Both markers are checked on both targets.
+  What is still owed is the predicate's body: a scan of the resolved
+  declarations for `__thread_spawn`, which does not exist yet. The
+  reader is wired; the writer is Phase 3. Forty-five gates call
+  `gate_build_axc`, up from forty-four.
 - **`AX3054`: an effect declared with a built-in effect's name, and the
   `Err` phantom retired.** `(effect IO (emit :: (-> Int Int)))` was
   ACCEPTED, and the acceptance was useless in a way nothing reported. A
