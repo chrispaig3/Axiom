@@ -57,8 +57,21 @@
 ; an APPLICATION THROUGH A CLOSURE never releases its owned argument
 ; at all, where a direct call has released it since MM-LIFE-2g
 ; (`releaseOwnedArgs`); the handler's typing, which landed separately,
-; moved no bytes. That half is not fixed yet, so the rule below still
-; holds for messages and the row above still reads 80. The plan this
+; moved no bytes.
+;
+; THAT HALF IS NOT FIXED, AND IT IS NOT MERELY UNFINISHED - THE LEAK IS
+; LOAD-BEARING. The rule it was to be closed with (release the argument
+; where the application's result class is a word, since a word answer
+; cannot BE the argument) is unsound, measured 2026-08-30: a lambda that
+; PARKS its argument and answers `0` satisfies it, and the park takes no
+; share, because a lifted lambda gets no evidence word and `__retainref`
+; is then stamped with the constant 0 - "not a reference" - for a
+; parameter that is one. Today nothing releases the argument, so the
+; uncounted park is harmless; closing the leak is exactly what makes the
+; two meet, and a parked 16-byte String then reads back as 3.
+; `tests/stdlib/460-closure-reclaim.ax` term 64 refuses it, and
+; `docs/memory-model.md` MM-LIFE-2g carries the hole. So the rule below
+; still holds for messages and the row above still reads 80. The plan this
 ; module comes from says why either would be disqualifying - a batch
 ; loop has no request boundary, so there is no arena reset
 ; (`memory-model.md` MM-ALLOC-22) and every byte a record costs is a

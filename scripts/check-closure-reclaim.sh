@@ -42,14 +42,34 @@
 #
 # Measured 2026-08-30 on darwin-aarch64:
 #
-#   built from the tree      460 exits 63   closure chain delta 80 B
-#   built from the ablation  460 exits  7   closure chain delta 45,664 B
+#   built from the tree      460 exits 127  closure chain delta 80 B
+#   built from the ablation  460 exits  71  closure chain delta 45,664 B
 #
-# 63 - 7 = 56 = 32 + 16 + 8, which is every byte term and only the byte
-# terms: the two correctness terms and the step count hold in both, so
-# the ablation restores the defect rather than breaking the program.
-# 45,664 is 32 bytes x 1,428 applications, the number Fallible.ax's
-# table was written from, to the byte.
+# 127 - 71 = 56 = 32 + 16 + 8, which is every byte term and only the
+# byte terms: the correctness terms, the parked-argument term and the
+# step count hold in both, so the ablation restores the defect rather
+# than breaking the program. 45,664 is 32 bytes x 1,428 applications,
+# the number Fallible.ax's table was written from, to the byte.
+#
+# TERM 64 IS NOT ABOUT THIS FIX. It is about the one that comes next and
+# must not be written as its design says. A closure application still
+# does not release its owned ARGUMENT - 96 bytes an operation - and the
+# design closes it by releasing when the application's RESULT CLASS is a
+# word, on the reasoning that a word answer cannot be the argument.
+# Measured 2026-08-30, that rule is UNSOUND: a lambda that PARKS its
+# argument and answers `0` passes it, and the park takes no share,
+# because `emitLamDef` gives a lifted lambda no evidence parameter and
+# `emitEvwRead` then stamps `__retainref` with the constant 0 - "not a
+# reference" - for a parameter that is one.
+#
+#   in a named `fn`   call @Vec$vecPush(i64 %box, i64 %s, i64 1)
+#   in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 0)
+#
+# So THE LEAK IS LOAD-BEARING: the two defects cancel today, and closing
+# one without the other turns 96 bytes into a use-after-free. Simulated
+# with `__release` at exactly the point `emitApplyChainOwned` would emit
+# it, term 64 reads 3 where it must read 16 and the fixture exits 63.
+# That is what this term is here to make impossible to ship quietly.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init

@@ -32,6 +32,8 @@
 ; than broke something else.
 (import Str)
 
+(import Vec)
+
 (effect Two
   (bad2 :: (-> String Int Int)))
 
@@ -120,6 +122,54 @@
   )
 )
 
+; THE ARGUMENT HALF IS NOT DONE, AND THIS TERM IS WHY IT MUST NOT BE
+; DONE THE WAY ITS DESIGN SAYS.
+;
+; A closure application still does not release its owned ARGUMENT - 96
+; bytes an operation, `stdlib/Fallible.ax`'s header carries the number.
+; The design for closing it says: release when the application's RESULT
+; CLASS is a word, because then the closure cannot be answering the
+; argument. That rule is UNSOUND, and this is the program that refutes
+; it.
+;
+; `park` answers `0`, an Int. Its result class is a word, so the rule
+; fires. But it stores its argument into a `Vec` first, and a store
+; inside a LIFTED LAMBDA takes no share: `MM-LIFE-2g`'s `__retainref`
+; is stamped from the evidence word (`MM-LIFE-2d`), and `emitLamDef`
+; gives a lifted lambda no evidence parameter, so `emitEvwRead` falls
+; back to the constant 0 - "not a reference" - for a parameter that is
+; one. Measured, one program containing the same `vecPush s` twice:
+;
+;   in a named `fn`   call @Vec$vecPush(i64 %box, i64 %s, i64 1)
+;   in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 0)
+;
+; So the box holds the String uncounted. Release the argument and the
+; block files to its size class, the next `strConcat` pops it back, and
+; the Vec's element points at someone else's header. Measured with the
+; release simulated by `__release`: this term reads 3 - the length of
+; the string allocated after it - where it must read 16.
+;
+; THE LEAK IS LOAD-BEARING. Today the two defects cancel: the park
+; takes no share, and nothing ever releases the argument, so the box's
+; element stays alive by accident. Closing the leak without first
+; giving lifted lambdas an evidence word turns 96 bytes into a
+; use-after-free. This term goes red the moment that happens.
+(:: parked (-> Int Int))
+
+(fn (parked box)
+  {
+    ((lambda (m)
+      {
+        (vecPush box m)
+        0
+      }
+    ) (strConcat "abcdefgh" "ijklmnop"))
+    ; Allocated AFTER the application, so a freed block would be
+    ; handed back here and the read below would see these bytes.
+    (strLen (strConcat "xy" "z"))
+  }
+)
+
 (:: main Int)
 
 (fn (main)
@@ -169,7 +219,17 @@
                 (set acc (+ acc (* 2 (b2i (&& (flat d1 d2) (== (loopC1 (lambda (m) 9) 7) 30))))))
                 (set steps (+ steps 1))
               }))))
-      (if (== steps 5)
+      ; 64 - a parked argument survives the application. The closure
+      ; answers a word and stores its argument, so the design's
+      ; "release when the result is a word" rule would free a block the
+      ; Vec still points at. 16 is the length it must read back.
+      (let ((box vecNewRef))
+        {
+          (parked box)
+          (set acc (+ acc (* 64 (b2i (== (strLen (vecGetStr box 0)) 16)))))
+          (set steps (+ steps 1))
+        })
+      (if (== steps 6)
         (+ acc 1)
         acc
       )
