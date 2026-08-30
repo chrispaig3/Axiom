@@ -1012,9 +1012,13 @@ module.exports = grammar({
     boolean_literal: _ => choice('true', 'false'),
 
     // Escapes recognised by the lexer: \n \t \r \\ \" \' \0.
+    // A bare quote is a character too: the lexer (`stepCharToken`)
+    // reads quote + one character + quote and never asks what the
+    // character is, so `'''` is the quote character - and
+    // tests/stdlib/450-show-builtin.ax spells it that way.
     character_literal: _ => token(seq(
       "'",
-      choice(/[^'\\]/, seq('\\', /[ntr\\'"0]/)),
+      choice(/[^'\\]/, "'", seq('\\', /[ntr\\'"0]/)),
       "'",
     )),
 

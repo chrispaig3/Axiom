@@ -1091,14 +1091,19 @@ They are not supported: `scripts/check-cross-targets.sh` assembles
 every standard-library case for both under their own triples on every
 PR, `check-platform-constants.sh` holds the emitted runtime's syscall
 numbers to `stdlib/Sys/Platform.freebsd.ax`'s, `bootstrap/` carries a
-seed for each, and `ci.yml` has a job per target - `Tests
-(freebsd-x86_64)` and its aarch64 twin - that boots FreeBSD 14 in a VM
-and runs the bootstrap and the syscall-table gates there. Both jobs are
-`continue-on-error` and say so: a target joins the list above when its
-job has been seen green and that line is removed, and until then no
-release is built for either and `scripts/install.sh` refuses a FreeBSD
-host as it refuses darwin-x86_64. FreeBSD 12 is the floor the numbers
-need; the triple pins 14.
+seed for each, and `ci.yml` has a job for `freebsd-x86_64` - `Tests
+(freebsd-x86_64)` - that boots FreeBSD 14 in a VM and runs the
+bootstrap and the syscall-table gates there. The job is
+`continue-on-error` and says so: the target joins the list above when
+the job has been seen green and that line is removed. `freebsd-aarch64`
+has no job - an aarch64 guest is TCG-emulated on every runner GitHub
+offers, a 300-minute budget measured and dropped on 2026-08-29 - and
+ships as darwin-x86_64 does: assembled and relocation-checked, executed
+by no runner (it has run, once, in a FreeBSD 14.4 arm64 VM on the
+maintainer's machine, which is a measurement and not a leg). Until a
+leg is green no release is built for either and `scripts/install.sh`
+refuses a FreeBSD host as it refuses darwin-x86_64. FreeBSD 12 is the
+floor the numbers need; the triple pins 14.
 
 Where Windows stands: `--target=windows-x86_64` is accepted and emits,
 cross, from any host (triple `x86_64-pc-windows-msvc`; the runtime

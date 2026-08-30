@@ -52,6 +52,37 @@ the compiler under test, `check-windows-entry.sh` and
 - **`cgThreads`** (`0072b7a`): a codegen flag beside `cgStaticlib`,
   off, with the proof that no program's IR moves while it is.
 - README: a star/fork call to action under the CI badge.
+- **FreeBSD, phase 3** (`eb8a84d`): an advisory `Tests (freebsd-x86_64)`
+  leg (`vmactions/freebsd-vm`, FreeBSD 14.4, `continue-on-error`) that
+  bootstraps from the seed and runs the syscall-table gates in the VM,
+  and the six defects a real kernel found before any runner did.
+  `freebsd-aarch64` ships cross-only: an aarch64 guest is TCG-emulated
+  on every runner GitHub offers - a 300-minute budget, measured and
+  dropped the same day.
+- **Atomics** (`5536e72`): `__atomic_load`, `__atomic_store`,
+  `__atomic_add`, `__atomic_cas` and `__atomic_fence` lower to one
+  instruction each behind `cgThreads`; the nullary-primitive set
+  becomes a definition `check-agent-policy.sh` reads.
+- **`show` is a head the checker resolves** (`0287b3b`): a `data` or
+  `struct` prints itself in the language's own spelling - `(Some 3)`,
+  `{x = 1, y = 2}` - with written `Show` impls still preferred. Phase 0
+  of the trait removal; zero surface change, `AX3025` for what `show`
+  refuses (fixture 620).
+- **Five repairs** (`25fc5a0`) the Ada-inspired restriction work would
+  have tripped over, each a bug on its own: `axtagTextValue` stopped
+  at the first `)`, `smTags` kept only the last non-empty tag set, an
+  unknown AXTAG key drew a near-miss for `pre`, a nested `deprecated`
+  value was lost, and `newtype` was in the tree-sitter grammar but not
+  the language.
+- **`stdlib/Http.ax`** (`36b08aa`) - an HTTP/1.1 server: a buffered
+  request parser, a writer that closes, a router, and the checks that
+  come before the filesystem - and **`examples/web`** (`975d812`), a
+  small site on `Html` and `Http`, pre-forked, every request an arena
+  scope.
+- **Type variables in messages** (`dd18cde`): the checker's own
+  variables render as `_a`, `_b`, ... by order of first appearance, one
+  table per mismatch, instead of `_t<N>` from a program-wide counter
+  that moved whenever the standard library grew.
 
 ## 0.3.7 — 2026-08-29
 

@@ -647,8 +647,8 @@ jobs:
       # per-runner check - it reads all seven targets from whichever
       # host it is on, out of `emit-llvm` rather than out of the
       # sources, so darwin-x86_64 (which has no runner anywhere in this
-      # file), the two FreeBSD targets and windows-x86_64 (whose jobs
-      # below are advisory) are covered three times over rather than
+      # file), freebsd-aarch64 (executed by no runner either),
+      # freebsd-x86_64 and windows-x86_64 (whose jobs below are advisory) are covered three times over rather than
       # never. About eight seconds, almost all of it building the
       # compiler under test, which it must: the codegen table is half of
       # what it compares.
@@ -856,43 +856,15 @@ jobs:
             ./scripts/check-recover.sh
             ./scripts/check-backtrace.sh
 
-  # The aarch64 twin. The action's own documentation says the host for
-  # an `arch: aarch64` guest should still be the x86_64 runner and
-  # that `ubuntu-24.04-arm` is slower, so this guest is TCG-emulated
-  # either way - the 10-30x case - and the gate set is cut to what
-  # proves the syscall table executes: the bootstrap, the stdlib
-  # corpus, the two-table comparison, and the IPv6 listener. Advisory
-  # like its twin; freebsd-aarch64 stays cross-only in the README
-  # until this has been seen green, and if it never is, it ships as
-  # darwin-x86_64 does. Where it HAS executed is a FreeBSD 14.4 arm64
-  # VM under HVF on the maintainer's machine, 2026-08-29 - which is a
-  # measurement, not a leg.
-  test-freebsd-aarch64:
-    name: Tests (freebsd-aarch64)
-    needs: grammar
-    runs-on: ubuntu-latest
-    timeout-minutes: 300
-    # Advisory until removed - see above. NOT SUPPORTED while this
-    # line is here.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Bootstrap from the seed and run the syscall-table gates on FreeBSD 14/arm64
-        uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1.5.5
-        with:
-          release: "14.4"
-          arch: aarch64
-          copyback: false
-          prepare: |
-            pkg install -y bash llvm python3
-          run: |
-            set -e
-            export PATH="$(ls -d /usr/local/llvm*/bin | sort -V | tail -1):$PATH"
-            uname -a; llc --version | head -2; cc --version | head -1
-            ./scripts/bootstrap-from-seed.sh --install .axiom-bin
-            ./scripts/run-stdlib-tests.sh
-            ./scripts/check-platform-constants.sh
-            ./scripts/check-net.sh
+  # There is no freebsd-aarch64 job. The action's own documentation
+  # says the host for an `arch: aarch64` guest is still the x86_64
+  # runner and that `ubuntu-24.04-arm` is slower, so the guest would be
+  # TCG-emulated either way - the 10-30x case, a 300-minute budget for
+  # a bootstrap plus four gates, measured 2026-08-29 and dropped the
+  # same day. freebsd-aarch64 ships as darwin-x86_64 does: assembled
+  # and relocation-checked by `cross` below, executed by no runner.
+  # Where it HAS executed is a FreeBSD 14.4 arm64 VM under HVF on the
+  # maintainer's machine, 2026-08-29 - a measurement, not a leg.
 
   cross:
     name: Cross-target codegen

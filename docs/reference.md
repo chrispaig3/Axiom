@@ -1752,7 +1752,7 @@ field is assignable, so `(set c.next (Some c))` builds one) prints
 type at its first use, as an ordinary function appended to the program
 and checked and compiled like anything written; `symbols` does not
 list it, because a generated name is not a symbol.
-`tests/stdlib/420-show-builtin.ax` pins every row of the table.
+`tests/stdlib/450-show-builtin.ax` pins every row of the table.
 
 **The rule, from 0.3.8: the compiler decides how a type prints, and a
 program cannot override it.** The escape hatch is a function whose
@@ -2384,7 +2384,7 @@ Supported targets: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x8
 
 What puts a name on that list is stated once, in README's *Targets* section: a CI leg executes what the compiler emits there. This line is a copy of the README's, and `scripts/check-doc-drift.sh` requires the two to agree.
 
-`--target` also accepts `freebsd-x86_64` and `freebsd-aarch64` (since 2026-08-29). Neither is supported: each is assembled under its own triple by `scripts/check-cross-targets.sh` on every PR, has a seed in `bootstrap/`, and has an advisory CI job (`Tests (freebsd-x86_64)` and its aarch64 twin, `continue-on-error`) that boots FreeBSD 14 in a VM and runs the bootstrap and the syscall-table gates there. A target joins the list above when its job has been seen green and that line is removed; until then no release is built for it and the installer refuses a FreeBSD host. FreeBSD 12 is the floor the syscall numbers need; the triple pins 14.
+`--target` also accepts `freebsd-x86_64` and `freebsd-aarch64` (since 2026-08-29). Neither is supported: each is assembled under its own triple by `scripts/check-cross-targets.sh` on every PR, has a seed in `bootstrap/`, and and - for `freebsd-x86_64` alone - has an advisory CI job (`Tests (freebsd-x86_64)`, `continue-on-error`) that boots FreeBSD 14 in a VM and runs the bootstrap and the syscall-table gates there. `freebsd-aarch64` has no job (an aarch64 guest is TCG-emulated on every runner GitHub offers; measured at a 300-minute budget and dropped) and ships as darwin-x86_64 does. A target joins the list above when its job has been seen green and that line is removed; until then no release is built for it and the installer refuses a FreeBSD host. FreeBSD 12 is the floor the syscall numbers need; the triple pins 14.
 
 `--target=windows-x86_64` is accepted and emits (`x86_64-pc-windows-msvc`), and is not on the list: nothing links or executes it yet. It is the one target without a syscall ABI, so the emitted runtime and `stdlib/Sys/Platform.windows.ax` reach kernel32 by call (`Sys.Platform.usesSyscallAbi` is 0 there, and `Sys.ax` calls the platform module's own `platformWriteFd`/`platformReadFd`/`platformExitWith` instead of `__syscallN`), the program enters at `mainCRTStartup` with no C runtime, and a `__syscallN` the program reaches anyway exits 74 after `axiom: no syscall ABI on this target`.
 

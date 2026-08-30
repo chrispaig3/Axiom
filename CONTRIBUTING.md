@@ -359,12 +359,15 @@ them provision a compiler through the same composite action,
    `continue-on-error` until the target clears the bar README's
    *Targets* section sets — the line is removed when the leg is green,
    and not before. It provisions no compiler: none hosts on Windows yet.
-   Two more jobs, `Tests
-   (freebsd-x86_64)` and `Tests (freebsd-aarch64)`, boot FreeBSD 14 in
-   a VM on the Ubuntu runner (`vmactions/freebsd-vm`, SHA-pinned) and
-   run the bootstrap plus the syscall-table gates there; both are
-   `continue-on-error` and neither target is supported until that line
-   is removed after the job has been seen green.
+   One more job, `Tests
+   (freebsd-x86_64)`, boots FreeBSD 14 in a VM on the Ubuntu runner
+   (`vmactions/freebsd-vm`, SHA-pinned) and runs the bootstrap plus the
+   syscall-table gates there; it is `continue-on-error` and the target
+   is not supported until that line is removed after the job has been
+   seen green. `freebsd-aarch64` has no job: an aarch64 guest is
+   TCG-emulated on every runner GitHub offers (a 300-minute budget,
+   measured and dropped 2026-08-29), so it ships as darwin-x86_64 does -
+   assembled and relocation-checked, executed by no runner.
 3. **FFI** — `check-ffi.sh` on linux-x86_64 and darwin-aarch64: the
    `extern` boundary opens exactly the symbols it declares, the
    generated bindings match a fresh generation, and the `rust/`
