@@ -424,6 +424,17 @@ jobs:
       - name: The AXDL corpus, and every span against the fixtures
         run: ./scripts/check-diagnostics.sh
 
+      # `;@axiom:restrict(...)` is a claim the checker refuses when the
+      # analysis it already performed contradicts it. The gate tags every
+      # fn of 168 corpus programs restricted and requires identical IR,
+      # AXSYM and diagnostics - except AX3051 on exactly the rows the
+      # fixpoint marks incomplete - then plants five violations and
+      # requires one diagnostic each, then removes the hook and requires
+      # the six fixtures to stop answering. The Ada track wrote the gate
+      # and not this step (2026-08-29); a gate no job runs is a script.
+      - name: Restriction claims are answered, and a restricted corpus does not move
+        run: ./scripts/check-restrictions.sh
+
       # Degenerate input answers with a diagnostic, not with a signal.
       # `axiom check` on `(fn (main) ())` was SIGSEGV - exit 139, no
       # output, nothing on stderr - and so were twenty-two other

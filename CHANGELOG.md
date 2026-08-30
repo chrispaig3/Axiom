@@ -79,6 +79,16 @@ the compiler under test, `check-windows-entry.sh` and
   come before the filesystem - and **`examples/web`** (`975d812`), a
   small site on `Html` and `Http`, pre-forked, every request an arena
   scope.
+- **`;@axiom:restrict(no-cast | no-io | no-alloc | no-foreign)`**
+  (`05fb064`, Ada-inspired hardening, round 1 phase 2): a claim about
+  what a declaration does NOT do, answered from the analysis the
+  checker already performed - `no-io`/`no-alloc` read the effect row,
+  `no-foreign` walks the call graph to an `extern`, `no-cast` walks
+  this body for a `cast` head. `AX3049 restriction-violated` (error),
+  `AX3051 restriction-unverifiable` (warning, on rows the fixpoint
+  marks incomplete or over-approximated), `AX3052 restriction-unknown`
+  (error; the list is closed). `check-restrictions.sh` tags every fn
+  of 168 corpus programs restricted and requires nothing to move.
 - **Type variables in messages** (`dd18cde`): the checker's own
   variables render as `_a`, `_b`, ... by order of first appearance, one
   table per mismatch, instead of `_t<N>` from a program-wide counter
