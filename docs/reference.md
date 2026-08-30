@@ -1041,10 +1041,14 @@ what it inferred. A refuted claim is an **error** (`AX3010`); one the
 walk was not in a position to check is a warning (`AX3037`). Effects do
 not appear in function types. Untagged functions ARE policed: silence
 is the claim "performs no IO", and a body performing IO under it is
-`AX3042`, an error. Only `IO` is declarable - `Alloc` and `Mut` are
-ambient, inferred and reported but never required, because 1,382 of
-the 1,911 effectful functions in this repository perform exactly those
-two. `axiom symbols --diagnostic-format
+`AX3042`, an error. Only `IO` is REQUIRED - `Alloc` and `Mut` are
+ambient, inferred and reported but never demanded, because 1,664 of
+the 2,095 effectful functions in this repository perform exactly those
+two. They are still DECLARABLE, and checked when declared:
+`;@axiom:effect(mut)` over a body that writes a field is accepted, and
+over one that does not it is `AX3010`. The same holds for a custom
+effect. What is special about `IO` is that its absence is itself a
+claim. `axiom symbols --diagnostic-format
 ai` reports the inferred set as `#effects=...` beside any declared
 tags; the default `human` table has no metadata column and shows
 neither.

@@ -406,6 +406,8 @@ top-level declaration:
 | `S` | Struct |
 | `A` | Type alias |
 | `T` | Trait |
+| `E` | Effect declaration |
+| `M` | Macro |
 
 Real output for a file declaring a `data`, a `struct`, a `trait` and two
 functions:

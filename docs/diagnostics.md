@@ -402,7 +402,7 @@ answering with something else, since the flag selects the format of
 
 | Field | Meaning |
 |---|---|
-| `KIND` | One letter: `F` function, `D` data type, `C` constructor, `S` struct, `A` type alias, `T` trait |
+| `KIND` | One letter: `F` function, `D` data type, `C` constructor, `S` struct, `A` type alias, `T` trait, `E` effect declaration, `M` macro |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same source map in [`self_host/diag.ax`](../self_host/diag.ax) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for a name with no source span at all: the 18 built-in operators (`+`, `==`, `&&`, ...) and the 26 primitives (`__syscall0`, `__alloc`, ...), which `axiom symbols` omits unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid), and the built-in `Option` type with its two constructors, which is always listed because a file's own code names it |

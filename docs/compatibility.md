@@ -61,16 +61,24 @@ it is contract-independent: it did not move when a signature went from
 `(Int -> Int)` to `(Int -> (Int -> Int))`. So a diff can separate *this
 name is gone* from *this name changed* with no heuristic.
 
-**COMPAT-3 (H, with a recorded hole).** Thirteen public names are
-outside the symbol stream: twelve macros — `println` and `format` among
-them — and one effect declaration. `self_host/symbols.ax` has no arm
-for `TAG_D_MACRO` and none for `TAG_D_IMPL`, and its `TAG_D_EFFECT` arm
-registers the effect's operations rather than the effect.
+**COMPAT-3 (H, and the hole it recorded is CLOSED).** This rule used to
+read: "Thirteen public names are outside the symbol stream: twelve
+macros — `println` and `format` among them — and one effect
+declaration. `self_host/symbols.ax` has no arm for `TAG_D_MACRO` and
+none for `TAG_D_IMPL`, and its `TAG_D_EFFECT` arm registers the
+effect's operations rather than the effect."
 
-They are listed in `compat/UNCOVERED` and compared as a **set**, not a
-count: a fourteenth invisible name fails the gate, and closing the hole
-is that file becoming empty. A count would let one name leave the
-stream while another joined it.
+That was true until 2026-08-26, when `symbols.ax` gained a
+`TAG_D_MACRO` arm and an arm recording an `(effect ...)` declaration's
+own name. `compat/UNCOVERED` has been **empty** since, and says so in
+its own header; `docs/diagnostics.md`'s KIND table now lists `M` and
+`E` beside the other six. The rule below is what the emptiness is
+worth.
+
+The file is still **compared as a set**, not a count, and it stays in
+the tree precisely because it is empty: an empty file is the assertion
+that nothing has *left* the stream, which a deleted file could not
+make. A count would let one name leave while another joined.
 
 **What is deliberately NOT in the surface.** `#calls=` is the graph
 *behind* the effect row, not part of the promise — a function may

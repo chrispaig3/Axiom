@@ -16687,14 +16687,20 @@
 ; AX3042: a body reaches the outside world and its declaration does
 ; not say so.
 ;
-; WHY ONLY `IO`, measured. Of 3,040 functions in `self_host/` and
-; `stdlib/`, 1,911 perform something and 1,382 of those perform
-; exactly `Alloc,Mut` - every function that touches a String or a Vec,
-; because allocating is what an expression DOES here and `Mut` is set
-; by writing any struct field. A declaration required on those is
-; 1,382 annotations that distinguish nothing from nothing. `IO` is on
-; 299, and each one of those says the thing a caller actually needs to
-; know: this reaches outside the process. `Alloc` and `Mut` stay
+; WHY ONLY `IO` IS REQUIRED, measured. Recounted 2026-08-30: of 3,421
+; functions in `self_host/` and `stdlib/`, 2,095 perform something and
+; 1,664 of those perform exactly `Alloc,Mut` - every function that
+; touches a String or a Vec, because allocating is what an expression
+; DOES here and `Mut` is set by writing any struct field. A declaration
+; required on those is 1,664 annotations that distinguish nothing from
+; nothing. `IO` is on 332, and each one of those says the thing a
+; caller actually needs to know: this reaches outside the process.
+;
+; REQUIRED is not DECLARABLE, and the documents said the second for a
+; while. `;@axiom:effect(mut)` over a body that writes a field is
+; accepted, and over one that does not it is `AX3010`. Alloc, Mut and
+; every custom effect are declarable and checked; what is special about
+; `IO` is that its ABSENCE is a claim. `Alloc` and `Mut` stay
 ; ambient and stay INFERRED - `symbols` still reports them, and
 ; `handle`/`(Pure)` still measure them, so nothing that could observe
 ; them lost the ability to.
@@ -17627,13 +17633,18 @@
 ; wording from the unresolved-call case on purpose: "the compiler does
 ; not infer this" and "the compiler could not follow your call" send a
 ; reader to different places, and only one of them is about their code.
-; The built-in effect names NOTHING PRODUCES. `Div` and `Err` are both
-; spellable - a handle list may write them, and they are not custom
-; effects - and the walk has no producer for either: measured over
-; `self_host/` and `stdlib/`, ZERO of 3,040 rows carry one.
+; The built-in effect name NOTHING PRODUCES. `Div` is spellable - a
+; handle list may write it, and it is not a custom effect - and the walk
+; has no producer for it: measured over `self_host/` and `stdlib/`, ZERO
+; of 3,421 rows carry it.
 ;
-; So `missing Div`/`missing Err` was never a fact about the body. Keep
-; this list honest: an effect that gains a producer must LEAVE it, or
+; `Err` WAS THE OTHER ONE and is no longer a built-in effect name at all
+; (`AX3054`'s commit, 2026-08-30): nothing inferred it, and its own tag
+; spelling could not even reach it, so a handle list naming it now draws
+; `AX3016` like any other undeclared name.
+;
+; So `missing Div` was never a fact about the body. Keep this list
+; honest: an effect that gains a producer must LEAVE it, or
 ; a real mismatch starts reporting as unverifiable.
 (pub :: effNeverInferred (-> String Int))
 

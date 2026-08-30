@@ -1209,12 +1209,16 @@ place a reader would otherwise have to open the callee to learn it.
 If the effect is not wanted there, the fix is to stop performing it
 rather than to stop saying so.
 
-ONLY `IO` IS DECLARABLE, and the reason is a measurement. Of 3,040
-functions in this compiler and its standard library, 1,911 perform
-something and 1,382 of those perform exactly `Alloc,Mut` - every
+ONLY `IO` IS REQUIRED, and the reason is a measurement. Of 3,421
+functions in this compiler and its standard library, 2,095 perform
+something and 1,664 of those perform exactly `Alloc,Mut` - every
 function that touches a String or a Vec, because allocating is what
 an expression does here and `Mut` is set by writing any struct
-field. A declaration required on those distinguishes nothing from
+field. REQUIRED is not DECLARABLE: `;@axiom:effect(mut)` over a body
+that writes a field is accepted, and over one that does not it is
+AX3010. Alloc, Mut and every custom effect are declarable and
+checked - what is special about `IO` is that its ABSENCE is a claim.
+A declaration required on those distinguishes nothing from
 nothing. `Alloc` and `Mut` stay ambient and stay inferred: `symbols`
 still reports them and `handle`/`(Pure)` still measure them.
 

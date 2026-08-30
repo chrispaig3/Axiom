@@ -16,6 +16,53 @@ its changelog too.
 
 ## Unreleased
 
+- **The documents made true** (effects item 7). This repository's style is
+  falsifiable claims with the probe that established them, which makes a
+  false claim a defect rather than a typo — the documents are the
+  specification, and work is planned from them. Seven were measurably
+  false, and each is corrected where it stood:
+  **`;@axiom:effect(IO)` does not become a custom effect.**
+  `docs/agent-harness.md` carried it as a **Hazard**: "silently
+  reinterpreted as a *custom* effect named `IO` and reported `missing
+  IO`". Measured — it checks **OK**, and `symbols` gives it
+  `#effect=IO #effects=IO`. Custom tag values match declarations
+  case-insensitively, so the value folds to the built-in and there was
+  never a trap to case-fold around.
+  **"Only `IO` is declarable" was the wrong word, in four places**
+  (`README.md`, `docs/reference.md`, `docs/agent-harness.md`,
+  `explain AX3042`). Only `IO` is **required**: `;@axiom:effect(mut)`
+  over a body that writes a field checks OK, and over one that does not
+  it is `AX3010`, an error. `Alloc`, `Mut` and every custom effect are
+  declarable and checked. What is special about `IO` is that its
+  **absence** is itself a claim.
+  **The effect census was stale in five places** — `README.md`,
+  `docs/agent-harness.md`, `explain AX3042` and two `typecheck.ax` help
+  strings all read 3,040 / 1,911 / 1,382 / 299. Recomputed:
+  **3,421 / 2,095 / 1,664 / 332**.
+  **The AXSYM `KIND` table was missing two of its eight letters.**
+  `docs/diagnostics.md` and `.claude/skills/axiom-helper/SKILL.md` both
+  listed `F D C S A T`; `E` (effect declaration) and `M` (macro) have
+  been emitted since 2026-08-26.
+  **`COMPAT-3`'s recorded hole is closed.** It read "Thirteen public
+  names are outside the symbol stream… `symbols.ax` has no arm for
+  `TAG_D_MACRO`". It has had one since 2026-08-26, `compat/UNCOVERED`
+  has been **empty** since and says so in its own header, and the rule
+  now explains why an empty file is worth keeping: it is the assertion
+  that nothing has *left* the stream, which a deleted file could not
+  make.
+  **`check-agent-policy.sh` called `AX3010` a warning.** It has been an
+  error since 2026-08-25 — a forged claim fails the build before the
+  gate reads a line of stderr.
+  **And a note this month's own work left stale**: `typecheck.ax`'s
+  never-inferred list still described `Err` as a spellable built-in.
+  `AX3054`'s commit retired it four commits ago.
+  **`README.md`'s Effects row said Complete** while the design it was
+  measured against had seven open items. It now says what holds — the
+  handler checked against its operation's arrow, per-effect
+  over-approximation, `AX3053`, `AX3054`, the worklist — and what does
+  not: a closure application still does not release its owned argument,
+  96 bytes per operation. Gates: `check-doc-drift`,
+  `check-tools-selfhost` (`explain.golden`), `check-render-selfhost`.
 - **The sentinel census counts what the code does, not what a comment
   says.** `compat/SENTINELS` sizes the `-errno`/`-1` → `Result`
   migration and `scripts/check-compat.sh` gates its direction — a module

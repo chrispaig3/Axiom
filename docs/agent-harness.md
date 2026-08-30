@@ -224,12 +224,16 @@ checked key is an edit to the AXTAG value map and a new diagnostic in the
 `AX30xx` band, with its long-form text in `self_host/explain.ax` before
 it can ship - `check-tools-selfhost.sh` fails otherwise.
 
-**Hazard:** `effect(...)` values are lowercase-only. `;@axiom:effect(IO)`
-is silently reinterpreted as a *custom* effect named `IO` and reported
-"missing IO" - a message textually identical to the built-in failure.
-An agent-authored tag is the likeliest place for this, so `agent:*` value
-parsing must be case-folded at the point of entry, not left to the same
-trap.
+**Not a hazard, and this paragraph used to say it was.** It read:
+"`effect(...)` values are lowercase-only. `;@axiom:effect(IO)` is
+silently reinterpreted as a *custom* effect named `IO` and reported
+'missing IO'." Measured 2026-08-30 — `;@axiom:effect(IO)` above a body
+that prints checks **OK**, and `symbols` gives it `#effect=IO
+#effects=IO`. Custom tag values match declarations **case-insensitively**
+(`docs/reference.md`, Effects), so the value folds to the built-in and
+there is no trap to case-fold around. The corrected fact is worth
+keeping in its place: a tag's value is compared without regard to case,
+which is why `effect(io)` and `effect(IO)` are one claim.
 
 ### 3.3 `Agent.Safe` — built on `handle`, not on types
 
@@ -656,10 +660,15 @@ remains, a call the compiler cannot resolve, and it announces itself as
   that volunteered no tag was never asked what it performed; that one
   line WAS the opt-in. Silence is now the claim *"performs no IO"* and
   is checked like any other, so effects are enforced for every
-  function. Only `IO` is declarable — measured: 1,382 of the 1,911
-  effectful functions here perform exactly `Alloc,Mut`, so requiring a
-  declaration on those distinguishes nothing from nothing, and both
-  stay ambient. §"Effect rows in signatures" below is therefore about
+  function. Only `IO` is **required** — measured 2026-08-30, 1,664 of
+  the 2,095 effectful functions here perform exactly `Alloc,Mut`, so
+  requiring a declaration on those distinguishes nothing from nothing,
+  and both stay ambient. (This said "only `IO` is declarable", which is
+  a different and false claim: `;@axiom:effect(mut)` over a body that
+  writes a field checks **OK**, and over one that does not it is
+  `AX3010`, an error. `Alloc`, `Mut` and every custom effect are
+  declarable and checked; `IO` is the one whose absence is itself a
+  claim.) §"Effect rows in signatures" below is therefore about
   putting effects in *types*, which is a different and still-open
   question from whether they are enforced.
 

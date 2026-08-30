@@ -81,8 +81,12 @@
 #   4. THE CHECKER'S OWN WARNINGS. The compiler has a second channel for
 #      the same doubt - `AX3037` (a claim that cannot be checked),
 #      `AX3038` (a handled-effects list that cannot be checked) and
-#      `AX3010` (a claim the derivation contradicts) - and all three are
-#      WARNINGS on stderr. This script used to send that stderr to
+#      `AX3010` (a claim the derivation contradicts). This said "all
+#      three are WARNINGS on stderr", and `AX3010` has been an ERROR
+#      since 2026-08-25 - it is not in `tests/diagnostics/severity.policy`
+#      and a build carrying one fails. Two are warnings; the third is a
+#      failed build, which reaches this gate through the exit status as
+#      well as through stderr. This script used to send that stderr to
 #      `/dev/null`, so the `viaField` module above emitted
 #      `W AX3037 ... 'pure' claim cannot be checked` and the gate never
 #      saw it. stderr is now captured and any of the three, on a span
@@ -91,8 +95,10 @@
 #      `AX3010` is in the set even though the finding that prompted this
 #      only named 3037/3038: it is the diagnostic that fires on a FORGED
 #      claim (see the anchoring note below), and discarding it was the
-#      same defect. This does not promote the diagnostic - it is still a
-#      warning to the compiler; it is this GATE that refuses it.
+#      same defect. What HAS changed since is the severity: `AX3010`
+#      became an error in the compiler on 2026-08-25, so a forged claim
+#      now fails the build before this gate reads a line of stderr, and
+#      this arm is the belt to that brace.
 #
 # `extern` items are exempt from the second assertion and named in the
 # manifest for the first. The compiler gives every `extern` item
