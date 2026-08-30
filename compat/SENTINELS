@@ -1,38 +1,84 @@
-# Public functions whose own doc-comment states a sentinel contract,
-# per module. The `Result` migration's size, and its DIRECTION.
+# Public functions whose BODY answers a sentinel, per module:
 #
-# `docs/error-model.md` sizes this with a `grep` proxy over
-# `errno|sentinel|(- 0 1)` and tells the reader to recompute rather
-# than quote. Recomputed 2026-08-26 that proxy reads 89 over 15 files,
-# not the 64 recorded - and around sixty of those are COMMENT lines.
-# `
+#     <module> <failure> <absence>
 #
-# 2026-08-26, and the metric moved with the data: THE SIGNATURE
-# DECIDES. A doc-comment mentioning `-errno` is prose, not a sentinel -
-# `removeFile`'s explains which errno the kernel answers for a
-# directory, and `IO.ioResult`'s explains the whole convention it
-# converts AWAY from. Both counted on the comment alone, so porting a
-# function to `Result` left it in the census: the number would have
-# reported the migration making no progress while it made all of it.
-# A declaration answering `Result` is not a sentinel whatever its
-# comment says.
+# `failure` answers a raw syscall result - a negative errno - and is
+# what `Result` is for. `absence` answers -1 for "not found", which is
+# not a failure at all and wants `Option`. `docs/error-model.md`
+# ERR-REC-3 draws that line; this file is the first artifact to count
+# the two separately, because counting them as one number made the
+# migration's size a number nobody could act on.
 #
-# WHAT THIS NUMBER WILL NOT REACH, and why a reader watching it fall
-# should know: it counts sentinels of BOTH kinds. Of the thirteen left,
-# eight report ABSENCE (`internFind`, `strFindByte`, `pathLastSlash`
-# and friends answer -1 for "not found") and want `Option`, not
-# `Result`. The five that report FAILURE are all decided already -
-# `IO.writeStr` and the three `net` calls sit on hot paths where an
-# `(Ok n)` block allocates per call or per poll wake, outside the
-# per-request arena scope, and `check-net.sh` asserts memory ratios on
-# exactly that server; `sysRandomNum` is a platform shim below `Err`.
+# REGENERATED 2026-08-30, AND THE METRIC CHANGED UNDER IT. The count
+# rose from 13 to 38, and no line of stdlib/ moved. What moved is that
+# the census stopped reading DOC-COMMENTS and started reading BODIES.
+# `tests/compat/verify-compat.py`'s `sentinel_census` carries the full
+# reasoning; the four findings that forced it:
 #
-# So this stops at thirteen until someone decides the `Option`
-# migration. `docs/error-model.md` 10.1 has the measurement.
-stdlib/Agent/Tags.ax 3
-stdlib/IO.ax 1
-stdlib/Intern.ax 1
-stdlib/Path.ax 2
-stdlib/Str.ax 2
-stdlib/Sys.ax 3
-stdlib/Sys/Platform.darwin.ax 1
+#   * THE OLD METRIC REWARDED SILENCE. `netListen` forwards
+#     `__syscall3` and hands back a raw fd-or-negative-errno. It was
+#     UNCOUNTED, because nobody had written the sentence. Writing the
+#     house line above it would have taken stdlib/Sys.ax from 3 to 4
+#     and failed `check-compat.sh` for a commit that changed no
+#     contract. A gate that goes red when you DOCUMENT an existing
+#     sentinel is a gate asking you not to.
+#
+#   * IT UNDERCOUNTED BY ROUGHLY FOUR TIMES. 13 over 7 modules by
+#     prose; 38 over 7 by body. stdlib/Sys.ax alone goes 3 -> 26,
+#     because almost every `net*` and `sys*` call forwards a syscall
+#     result and almost none of them says so in the house phrasing.
+#
+#   * ONE OF ITS SIX PATTERNS MATCHED NOTHING. `answers 0, or` appears
+#     nowhere in stdlib/ - the tree writes "Answers" - so the only
+#     0-sentinel arm was dead.
+#
+#   * IT COUNTED A CONSTANT. `sysRandomNum` is
+#     `(pub fn (sysRandomNum) 33554932)`, the getentropy SYSCALL
+#     NUMBER, with no bad path. The comment walk climbed a `; ---`
+#     banner into prose describing getentropy's `0 or -errno` contract
+#     twelve lines above. That was the whole of this file's old
+#     `Sys/Platform.darwin.ax 1`, and the error had already been
+#     inherited by `docs/error-model.md`, which named it as one of five
+#     failures. The real entropy call, `sysRandomBytes`, was ported
+#     long ago and answers `(Result Int Error)`.
+#
+# THE DIRECTION RULE IS UNCHANGED AND NOW APPLIES PER KIND: neither
+# number may rise for a module. Porting a `failure` to `Result` lowers
+# the first; porting an `absence` to `Option` lowers the second. Both
+# are checked, which the old file could not do - it had a `Result` skip
+# and no `Option` skip, so an in-place port of `strFindByte` to
+# `(Option Int)` would have left its line exactly where it was, which
+# is the regression the `Result` skip existed to prevent.
+#
+# WHAT A READER WATCHING THESE NUMBERS SHOULD KNOW.
+#
+# The nine `absence` rows are NOT `Result` debt and two of them cannot
+# become `Result` at all: `stdlib/Str.ax` cannot import `Err`, because
+# `Err` imports `Str`. Nor is `Option` free - measured 2026-08-30 over
+# 20,000,000 calls at `--opt 2`, a `-1` return costs 1.4 ns and a
+# `(Some v)` costs 10.4 ns, 7.4x, because the block is allocated,
+# stored, matched and released. The arena bump moves ZERO bytes for
+# that loop - the block is recycled through its size class - so a
+# bytes-only measurement reports `Option` as free and is wrong. The
+# cost is instructions. `strFindByte` has 62 call sites on the
+# compiler's own scanning path.
+#
+# The 29 `failure` rows are the migration proper, and 26 of them are in
+# one module. None is free: `netSocketTcp` has 17 call sites, seven of
+# which never test the result at all, which is the reason the migration
+# exists rather than an argument against it.
+#
+# WHAT THIS NUMBER STILL DOES NOT REACH, stated rather than left to be
+# discovered: the literal-`0` sentinel (`vecGet`, `vecPop`, `vecLast`,
+# `strByte`, `jsonGet`, `jsonArrGet`); 114 public MACROS, among them
+# `println`, whose value is `writeStr`'s bytes-or-errno Int with 804
+# expansions in the tree; and members of `pub extern`, `pub trait` and
+# `effect` declarations. About 21% of the public surface is in a form
+# `(pub :: ` at column 0 does not match. This is a FLOOR.
+stdlib/Agent/Tags.ax 0 2
+stdlib/Intern.ax 0 1
+stdlib/Path.ax 0 2
+stdlib/Str.ax 0 2
+stdlib/Sys.ax 26 0
+stdlib/Sys/Platform.darwin.ax 3 0
+stdlib/Utf8.ax 0 2

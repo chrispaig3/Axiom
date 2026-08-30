@@ -250,64 +250,235 @@ def uncovered(root, axiom, work):
 
 # --- the sentinel census ------------------------------------------
 #
-# `docs/error-model.md` sizes the `Result` migration with a `grep`
-# proxy over `errno|sentinel|\(- 0 1\)` and tells the reader to
-# RECOMPUTE it rather than quote it. Recomputed 2026-08-26 it reads 89
-# over 15 files, not the recorded 64 - and roughly sixty of those are
-# COMMENT lines. `stdlib/IO.ax` has eleven matches and zero in code.
+# WHAT THIS COUNTS, AND WHY IT STOPPED COUNTING PROSE.
 #
-# So a per-file "no file may rise" rule over that proxy would gate
-# PROSE, and the migration's own explanatory comments would break it on
-# the first commit. R5's rule is to gate the direction before porting
-# anything; a gate over the wrong metric is worse than no gate, because
-# it reads as coverage.
+# `docs/error-model.md` sizes the `-errno`/`-1` -> `Result` migration and
+# tells the reader to RECOMPUTE rather than quote. This is the
+# recomputation, and it is now derived from the DECLARED TYPE and the
+# BODY. It used to be derived from the doc-comment: a public function
+# whose comment block matched
 #
-# The unit here is a PUBLIC FUNCTION whose own doc-comment block states
-# a sentinel contract - which is the thing the migration actually ports
-# and the thing a caller actually depends on. Measured the same day:
-# 40 overall, 31 across `IO.ax` and `Sys.ax`, which matches the
-# document's own "32 sites" for that slice closely enough to believe
-# both.
-SENTINEL_PROSE = re.compile(
-    r"-errno|answers 0, or|or `-1`|, or -1|negative errno|a negative/errno")
+#     -errno|answers 0, or|or `-1`|, or -1|negative errno|a negative/errno
+#
+# was counted. That metric was audited on 2026-08-30 and every one of the
+# findings below is why it is gone.
+#
+#   * IT REWARDED SILENCE. `netListen` (stdlib/Sys.ax) forwards
+#     `__syscall3` and answers a raw fd-or-negative-errno. It was
+#     UNCOUNTED, because nobody had written the sentence. Writing the
+#     house line above it would have taken stdlib/Sys.ax from 3 to 4 and
+#     failed `check-compat.sh` for a commit that changed no contract. A
+#     metric that goes red when you document an existing sentinel is a
+#     metric that asks you not to.
+#
+#   * IT UNDERCOUNTED BY ROUGHLY FOUR TIMES. The prose rule found 13
+#     public functions over 7 modules. Reading bodies finds 38 over 7 -
+#     29 that answer a raw syscall result and 9 that answer -1 for "not
+#     found" - and stdlib/Sys.ax alone goes from 3 to 26.
+#
+#   * ONE ALTERNATIVE MATCHED NOTHING AT ALL. `answers 0, or` appears
+#     nowhere in stdlib/ (the tree writes "Answers"), so the pattern's
+#     only 0-sentinel arm was dead, which is why every 0-sentinel in the
+#     library was invisible to it.
+#
+#   * THE BLOCK WAS "WHATEVER IS ABOVE". The walk climbed through blank
+#     lines and `; ---` section banners, so a declaration inherited the
+#     banner's prose. That produced the one false positive the old
+#     baseline recorded: `sysRandomNum`, which is
+#     `(pub fn (sysRandomNum) 33554932)` - the getentropy SYSCALL NUMBER,
+#     a constant with no bad path - counted because the "Entropy" banner
+#     twelve lines above describes getentropy's `0 or -errno` contract.
+#     `docs/error-model.md` and the old `compat/SENTINELS` header both
+#     inherited that error and called it one of five failures.
+#
+#   * THE BLOCK WAS JOINED IN REVERSE SOURCE ORDER, so a phrase spanning
+#     a line break could never match. Two exist in the tree today.
+#
+#   * THE `Result` SKIP WAS A SUBSTRING TEST on the declaration line, not
+#     a reading of the return type, and there was no `Option` skip at
+#     all - so porting one of the nine absence functions to `(Option Int)`
+#     in place would have left the count exactly where it was, which is
+#     the regression the `Result` skip was added to prevent.
+#
+# THE RULE NOW. A public declaration is counted when BOTH hold:
+#
+#   1. Its declared RETURN carries no channel. The return is the last
+#      element of the top-level arrow (or the whole type for a nullary),
+#      PARSED rather than substring-matched, and it must not be
+#      `(Result ...)`, `(Option ...)` or `Bool`. Reading the type this way
+#      is what makes an in-place port to either channel lower the count.
+#
+#   2. Its body answers a designated value: a `(- 0 n)` literal in RETURN
+#      position, or an unwrapped forward of a `__syscallN` / `platform*`
+#      primitive.
+#
+# and it is classified `failure` when the body reaches a syscall and
+# `absence` otherwise. That split is the one `docs/error-model.md`
+# ERR-REC-3 draws: `Result` is for failure, and "not found" is absence,
+# which wants `Option`. Of the nine absence rows, two are in stdlib/Str.ax
+# - which CANNOT import `Err`, because `Err` imports `Str` - so counting
+# them as `Result` debt was counting work that cannot be done.
+#
+# WHAT THE RULE DELIBERATELY DOES NOT COUNT, each measured against a real
+# declaration that the prose rule got wrong or would have:
+#
+#   a named CONSTANT - `fallibleSkipped` and `intMin` are Int::MIN, and
+#     `pollReadFilter` is -1 because that is EVFILT_READ. Their bodies are
+#     a literal with no branch to be the bad path of;
+#   a value the CALLER supplies - `symTagFrom` and `netAddrText` each
+#     contain a `(- 0 1)` that is the seed ARGUMENT of a fold, and each
+#     answers a String. Counting them puts a return-channel migration's
+#     name on a parameter, so the enclosing form's head is read: `if`,
+#     `match` or a block is an answer, any other name is an argument to
+#     it;
+#   a call that never comes BACK - `sysExitWith`;
+#   a syscall that cannot FAIL - `getpid`, named rather than guessed.
+#
+# ONE HOP THROUGH A THIN PRIVATE FORWARD, and only a thin one. The public
+# name is what a caller depends on, but the sentinel is often produced a
+# level down in a private worker: `pathLastSlash` is
+# `(pathLastSlashFrom p ...)` and every -1 is in the helper; `internFind`
+# is `internFindFrom`. A body with a BRANCH of its own is consuming that
+# sentinel rather than passing it on - `pathExt` is
+# `(if (< (pathExtIndex p) 0) "" ...)` and answers a String, `mapGet`
+# substitutes a caller-supplied default - and those are the migration's
+# beneficiaries, not its subjects.
+#
+# WHAT IT STILL DOES NOT REACH, stated rather than left to be found:
+#   * the literal-`0` sentinel. `vecGet`, `vecPop`, `vecLast`, `strByte`,
+#     `jsonGet` and `jsonArrGet` answer 0 for absence, and telling that 0
+#     from a computed 0 needs the guard read, not the literal;
+#   * 114 public MACROS, among them `println` and `eprintln`, whose value
+#     is `writeStr`'s bytes-or-errno Int, with 804 expansions in the tree.
+#     `PUB` above already matches `macro`; this census does not use it;
+#   * members of `pub extern`, `pub trait` and `effect` declarations,
+#     which are public and are not `(pub :: ` at column 0.
+# Together those are about 21% of the public surface. The number below is
+# a floor on the migration, and it is a floor that is now derived from
+# what the code DOES.
+SENTINEL_DECL = re.compile(r'^\(pub :: ([A-Za-z0-9_!?*+/<>=-]+) (.*)\)\s*$')
+SENTINEL_NEG = re.compile(r'\(- 0 \d+\)')
+SENTINEL_SYSCALL = re.compile(r'__syscall\d|platform[A-Z]\w*|__winapi')
+SENTINEL_BRANCH = re.compile(r'\((?:if|match)[ \n]')
+SENTINEL_NORETURN = re.compile(r'sysExit\b|sysExitNum|ExitProcess')
+SENTINEL_INFALLIBLE = re.compile(r'sysGetPidNum|sysGetPpidNum')
+
+
+def sentinel_return_type(ty):
+    """The declared RETURN: the last element of the top-level arrow, or
+    the whole type for a nullary. Parsed, because a substring test on the
+    line is what let four `Err.ax` declarations be skipped for mentioning
+    `Result` in a PARAMETER."""
+    ty = ty.strip()
+    if not ty.startswith("(-> "):
+        return ty
+    inner, depth, parts, cur = ty[4:-1], 0, [], ""
+    for ch in inner:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == " " and depth == 0:
+            if cur:
+                parts.append(cur)
+                cur = ""
+        else:
+            cur += ch
+    if cur:
+        parts.append(cur)
+    return parts[-1] if parts else ty
+
+
+def sentinel_has_channel(ret):
+    r = ret.strip()
+    return r.startswith("(Result") or r.startswith("(Option") or r == "Bool"
+
+
+def sentinel_body(lines, name):
+    """The text of `name`'s definition, to its closing paren."""
+    pat = re.compile(r'^\(?(?:pub )?fn \(' + re.escape(name) + r'[ )]')
+    for i, l in enumerate(lines):
+        if pat.match(l):
+            depth, out = 0, []
+            for l2 in lines[i:]:
+                out.append(l2)
+                depth += l2.count("(") - l2.count(")")
+                if depth <= 0:
+                    break
+            return "\n".join(out)
+    return None
+
+
+def sentinel_returns(body):
+    """Every `(- 0 n)` in RETURN position rather than argument position,
+    decided by the enclosing form's head."""
+    out = []
+    for m in re.finditer(r'\(- 0 \d+\)', body):
+        depth, j, head = 0, m.start() - 1, None
+        while j >= 0:
+            ch = body[j]
+            if ch == ')':
+                depth += 1
+            elif ch == '(':
+                if depth == 0:
+                    k = j + 1
+                    while k < len(body) and body[k] in ' \n':
+                        k += 1
+                    e = k
+                    while e < len(body) and body[e] not in ' \n()':
+                        e += 1
+                    head = body[k:e]
+                    break
+                depth -= 1
+            elif ch == '{' and depth == 0:
+                head = '{'
+                break
+            j -= 1
+        if head in ('if', 'match', '{', None, '-'):
+            out.append(m)
+    return out
 
 
 def sentinel_census(root):
-    """{module: count of public functions with a sentinel contract}."""
+    """{module: (failure_count, absence_count)}, from the body."""
     out = {}
     for m in MODULES:
         path = os.path.join(root, m + ".ax")
+        if not os.path.exists(path):
+            continue
         lines = open(path, encoding="utf-8").read().split("\n")
-        n = 0
-        for i, line in enumerate(lines):
-            if not line.startswith("(pub :: "):
+        fail = absent = 0
+        for line in lines:
+            mt = SENTINEL_DECL.match(line)
+            if not mt:
                 continue
-            block, j = [], i - 1
-            while j >= 0 and (lines[j].startswith(";") or not lines[j].strip()):
-                if lines[j].startswith(";"):
-                    block.append(lines[j])
-                j -= 1
-                if len(block) > 14:
-                    break
-            # THE SIGNATURE DECIDES, and the comment only narrows.
-            #
-            # A doc-comment is prose, and prose about a sentinel is not
-            # a sentinel: `removeFile`'s comment explains which errno
-            # the kernel answers for a directory, and `ioResult`'s
-            # explains the whole convention it CONVERTS AWAY FROM.
-            # Both matched on the comment alone, so porting a function
-            # to `Result` left it counted - the census would have
-            # reported the migration making no progress while it made
-            # all of it.
-            #
-            # A declaration answering `Result` is not a sentinel
-            # whatever its comment says, and that is checkable.
-            if "Result" in line:
+            name, ty = mt.group(1), mt.group(2)
+            if sentinel_has_channel(sentinel_return_type(ty)):
                 continue
-            if SENTINEL_PROSE.search("\n".join(block)):
-                n += 1
-        if n:
-            out["stdlib/" + m + ".ax"] = n
+            body = sentinel_body(lines, name)
+            if body is None:
+                continue
+            if not (SENTINEL_NEG.search(body) or SENTINEL_SYSCALL.search(body)) \
+                    and not SENTINEL_BRANCH.search(body):
+                for callee in sorted(set(re.findall(r'\(([a-z][A-Za-z0-9_]*)[ )]', body)) - {name}):
+                    helper = sentinel_body(lines, callee)
+                    if helper and (SENTINEL_NEG.search(helper) or SENTINEL_SYSCALL.search(helper)):
+                        body = body + "\n" + helper
+                        break
+            if SENTINEL_NORETURN.search(body):
+                continue
+            neg = bool(sentinel_returns(body))
+            sysc = SENTINEL_SYSCALL.search(body) and not SENTINEL_INFALLIBLE.search(body)
+            if neg and not SENTINEL_BRANCH.search(body) and not sysc:
+                continue
+            if not (neg or sysc):
+                continue
+            if sysc:
+                fail += 1
+            else:
+                absent += 1
+        if fail or absent:
+            out["stdlib/" + m + ".ax"] = (fail, absent)
     return out
 
 
@@ -329,8 +500,8 @@ def main(argv):
                 print(row)
             return 0
         if cmd == "sentinels":
-            for mod, n in sorted(sentinel_census(argv[4]).items()):
-                print(f"{mod} {n}")
+            for mod, (f, a) in sorted(sentinel_census(argv[4]).items()):
+                print(f"{mod} {f} {a}")
             return 0
         if cmd == "modules":
             # Printed rather than duplicated in the gate: a second copy

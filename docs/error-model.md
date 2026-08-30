@@ -1232,20 +1232,59 @@ changes what "finishing the migration" means.
 
 | | absence (wants `Option`) | failure (wants `Result`) |
 |---|---|---|
-| `stdlib/`, the 13 remaining | 8 | 5 |
+| `stdlib/`, by the census that read prose | 8 | 5 |
+| `stdlib/`, by the census that reads bodies | **9** | **29** |
 | `self_host/`, slice 4's 25 | 21 | 1 |
 
-And all five stdlib failures are already decided: `IO.writeStr` and the
-three `net` calls are **deliberately excluded** — they sit on hot paths
-where an `(Ok n)` block allocates per call or per poll wake, outside
-the per-request arena scope, and `scripts/check-net.sh` asserts memory
-ratios on exactly that server. `sysRandomNum` is a platform shim below
-`Err`.
+**THE ROW ABOVE IT WAS WRONG IN BOTH COLUMNS, AND THIS SECTION DREW THE
+WRONG CONCLUSION FROM IT.** Audited 2026-08-30. The census those numbers
+came from matched a doc-comment against six phrases; the one that
+replaced it reads the declared return type and the body. Three things
+follow.
 
-**So the `Result` migration is complete.** What `ERR-ADOPT-1` still
-counts is a different migration: twenty-nine lookups that answer `-1`
-or `0` for "not found" and want **`Option`**, which is built in, needs
-no import (§1), and is what §5's table already assigns to that class.
+*The five failures were four.* `sysRandomNum` is
+`(pub fn (sysRandomNum) 33554932)` — the `getentropy` **syscall
+number**, a constant with no bad path. It was counted because the
+comment walk climbed a `; ---` banner into prose describing
+`getentropy`'s `0 or -errno` contract twelve lines above. The sentence
+below that named it "a platform shim below `Err`" was this document
+inheriting a measurement error. The real entropy call,
+`sysRandomBytes`, answers `(Result Int Error)` and was ported long ago.
+
+*And four were twenty-nine.* Almost every `net*` and `sys*` call
+forwards a raw syscall result and says so in wording the six phrases
+did not match, so it went uncounted: `netListen`, `netAccept`,
+`netBind`, `netConnect`, `sysWriteFd`, `sysReadFd`, `sysOpenPath`,
+`sysCloseFd` and eighteen more. `stdlib/Sys.ax` alone is 26. **The old
+metric rewarded silence** — writing the house sentence above any one of
+them would have taken its module's count up and failed
+`scripts/check-compat.sh` for a commit that changed no contract.
+
+*So the `Result` migration is NOT complete, and this section's claim
+that it was is withdrawn.* What remains is 29 public functions handing
+a caller a negative errno, and none of them is free: `netSocketTcp` has
+17 call sites, **seven of which never test the result at all**, which is
+the reason the migration exists rather than an argument against it. The
+hot-path exclusions still stand on their own measurement — `IO.writeStr`
+and the `net` polling calls allocate an `(Ok n)` per call or per wake
+outside the per-request arena scope, and `scripts/check-net.sh` holds
+the ratios — but "excluded" is a decision about four of twenty-nine, not
+a description of the whole.
+
+The other half is unchanged in kind and one larger in count: **nine**
+lookups in `stdlib/` that answer `-1` for "not found" and want
+**`Option`**, which is built in and needs no import (§1). Two of the
+nine are in `stdlib/Str.ax`, which **cannot** import `Err` — `Err`
+imports `Str` — so they could never have been `Result` debt.
+
+**And `Option` is not free.** Measured 2026-08-30 over 20,000,000 calls
+at `--opt 2`: a `-1` return costs **1.4 ns** and a `(Some v)` costs
+**10.4 ns**, 7.4×, for the allocate/store/match/release round trip. The
+arena bump moves **zero bytes** for that loop — the block is recycled
+through its size class — so a bytes-only measurement reports `Option` as
+free and is wrong; the cost is instructions. `strFindByte` has 62 call
+sites on the compiler's own scanning path. That is the measurement the
+`Option` decision turns on, and it is why it stays a decision.
 
 That is a decision to take deliberately, not a slice to grind. It is
 recorded here rather than acted on because renumbering the slices is a

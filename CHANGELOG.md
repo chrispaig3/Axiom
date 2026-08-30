@@ -16,6 +16,80 @@ its changelog too.
 
 ## Unreleased
 
+- **The sentinel census counts what the code does, not what a comment
+  says.** `compat/SENTINELS` sizes the `-errno`/`-1` → `Result`
+  migration and `scripts/check-compat.sh` gates its direction — a module
+  may never gain a sentinel. The metric matched a **doc-comment** against
+  six phrases. Audited 2026-08-30, it was wrong in four ways that
+  compound:
+  **It rewarded silence.** `netListen` forwards `__syscall3` and hands
+  back a raw fd-or-negative-errno. It was *uncounted*, because nobody had
+  written the sentence. Writing the house line above it would have taken
+  `stdlib/Sys.ax` from 3 to 4 and **failed the gate for a commit that
+  changed no contract**. A gate that goes red when you document an
+  existing sentinel is a gate asking you not to.
+  **It undercounted by roughly four times** — 13 public functions over 7
+  modules by prose, **38 over 7 by body**, with `stdlib/Sys.ax` alone
+  going 3 → 26, because almost every `net*`/`sys*` call forwards a
+  syscall result and almost none says so in the house phrasing.
+  **One of its six patterns matched nothing at all**: `answers 0, or`
+  appears nowhere in `stdlib/` (the tree writes "Answers"), so its only
+  0-sentinel arm was dead.
+  **And it counted a constant.** `sysRandomNum` is
+  `(pub fn (sysRandomNum) 33554932)` — the `getentropy` **syscall
+  number**, no bad path — counted because the comment walk climbed a
+  `; ---` section banner into prose about `getentropy` twelve lines
+  above. That was the whole of the old `Sys/Platform.darwin.ax 1`, and
+  `docs/error-model.md` had already inherited the error and named it one
+  of five failures.
+  **The new rule reads the declared return type and the body.** A public
+  declaration counts when its return carries no channel — not
+  `(Result …)`, `(Option …)` or `Bool`, *parsed* rather than
+  substring-matched — and its body answers a designated value: a
+  `(- 0 n)` in **return** position, or an unwrapped forward of a
+  `__syscallN`/`platform*` primitive. It is classified `failure` when it
+  reaches a syscall and `absence` otherwise, which is `ERR-REC-3`'s own
+  line: `Result` is for failure, "not found" is absence and wants
+  `Option`. Both numbers are gated per module, which the old file could
+  not do — it had a `Result` skip and **no `Option` skip**, so an
+  in-place port of `strFindByte` to `(Option Int)` would have left its
+  count exactly where it was, the regression the `Result` skip existed to
+  prevent.
+  It excludes, mechanically, what the audit had to argue about: a named
+  **constant** (`fallibleSkipped`, `intMin`, and `pollReadFilter`, which
+  is `-1` because that is `EVFILT_READ`) — a literal body with no branch
+  to be the bad path of; a value the **caller supplies** (`symTagFrom`
+  and `netAddrText` each hold a `(- 0 1)` that is the seed *argument* of
+  a fold, and each answers a `String`) — decided by reading the enclosing
+  form's head; a call that never comes **back**; and a syscall that
+  cannot **fail**. It follows one hop through a *thin* private forward,
+  because `pathLastSlash` is `(pathLastSlashFrom p …)` and every `-1` is
+  in the helper — but not through a body with a branch of its own, which
+  is *consuming* the sentinel (`pathExt`, `mapGet`).
+  **`docs/error-model.md` claimed "the `Result` migration is complete."
+  Withdrawn.** 29 public functions still hand a caller a negative errno,
+  26 of them in one module, and none is free: `netSocketTcp` has 17 call
+  sites, **seven of which never test the result at all** — which is the
+  reason the migration exists, not an argument against it.
+  **And `Option` is not free either**, measured over 20,000,000 calls at
+  `--opt 2`: a `-1` return costs **1.4 ns**, a `(Some v)` **10.4 ns**,
+  7.4×. The arena bump moves **zero bytes** for that loop — the block is
+  recycled through its size class — so a bytes-only measurement reports
+  `Option` as free and is *wrong*; the cost is instructions, and
+  `strFindByte` has 62 call sites on the compiler's own scanning path.
+  The floor also grew teeth: it failed only when fewer than **three
+  modules** matched, so the census could have collapsed from 13 functions
+  to 3 and still printed `ok`. It is a function count now, under today's
+  38 by the margin a real port would move it.
+  What the rule still does not reach is stated rather than left to be
+  found: the literal-`0` sentinel (`vecGet`, `vecPop`, `vecLast`,
+  `strByte`, `jsonGet`, `jsonArrGet`); 114 public **macros**, among them
+  `println`, whose value is `writeStr`'s bytes-or-errno `Int` with 804
+  expansions in the tree; and members of `pub extern`, `pub trait` and
+  `effect` declarations. About 21% of the public surface is in a form
+  `(pub :: ` at column 0 does not match. The number is a **floor**.
+  Gates: `check-compat` (30 checks, and its own negative probes
+  unchanged).
 - **The emitted runtime's mutable globals move under one predicate**
   (concurrency Phase 2; `MM-PAR-3`, `MM-ALLOC-1`, `MM-ALLOC-2`). Under
   `fork`, memory safety across processes is free: every process-wide
