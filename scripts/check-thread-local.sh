@@ -117,15 +117,43 @@ fi
 
 # --------------------------------------------------------------------
 echo
-echo "== 2. off: and links nothing =="
+echo "== 2. off: and imports no thread-local machinery =="
 # --------------------------------------------------------------------
+# THE CLAIM IS ABOUT TLS, NOT ABOUT ZERO, and the first version of this
+# arm said zero. It asserted `nm -u` was empty, which is a DARWIN fact:
+# on Linux the same program imports six symbols by construction - four
+# weak crt hooks (`_ITM_*`, `__gmon_start__`, `__cxa_finalize`) and two
+# real ones (`__libc_start_main`, `abort`) - so the arm failed CI on
+# both Linux legs for a program that was behaving exactly as intended.
+# Measured there: SIX off and SIX on, identical, which is the property
+# this gate actually exists to hold and which "zero" could not express.
+#
+# So the assertion is the one the flag is about: a program that spawns
+# no thread imports no TLS RUNTIME SYMBOL, on any format. `imports_of`
+# is `check-freestanding.sh`'s reader, which dispatches on the object's
+# own magic rather than on the host and strips ELF's `@GLIBC_2.34`
+# versions and Mach-O's leading underscore - the edit each convention
+# requires. Assertion 4 then holds the delta, which is where Darwin's
+# one extra symbol shows up.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/imports.sh"
+tls_syms='__tlv_bootstrap|__tls_get_addr|__tlsdesc_resolve|_tlv_bootstrap'
+
 "$axc" build --input "$probe" --output "$work/off.bin" >/dev/null 2>&1
-u_off="$(nm -u "$work/off.bin" 2>/dev/null | grep -c . || true)"
-if [[ "$u_off" == 0 ]]; then
-  ok "0 undefined symbols - MM-FFI-1 tier 1, unchanged"
+imports_of "$work/off.bin" | LC_ALL=C sort > "$work/off.imports"
+n_off="$(grep -c . "$work/off.imports" || true)"
+tls_off="$(grep -cE "^($tls_syms)$" "$work/off.imports" || true)"
+if [[ "$tls_off" == 0 ]]; then
+  ok "no TLS runtime symbol imported ($n_off import(s) on this host, all of them the platform's own)"
 else
-  bad "$u_off undefined symbol(s) in a program that spawns no thread"
-  nm -u "$work/off.bin" 2>/dev/null | head -5 | sed 's/^/     /'
+  bad "$tls_off TLS symbol(s) imported by a program that spawns no thread"
+  grep -E "^($tls_syms)$" "$work/off.imports" | sed 's/^/     /'
+fi
+# And the floor: a reader that answered nothing would satisfy the line
+# above whatever the binary held.
+if [[ "$n_off" -gt 0 || "$(uname -s)" == Darwin ]]; then
+  ok "the import reader answers for this object format ($n_off import(s))"
+else
+  bad "imports_of read 0 symbols from a linked executable - the reader, not the binary"
 fi
 
 # --------------------------------------------------------------------
@@ -204,8 +232,28 @@ PY
     else
       bad "behaviour moved: off exit $r_off [$o_off], on exit $r_on [$o_on]"
     fi
-    u_on="$(nm -u "$work/on.bin" 2>/dev/null | grep -c . || true)"
-    echo "     (this host: $u_off undefined off, $u_on on$( [[ "$u_on" != 0 ]] && printf ' - %s' "$(nm -u "$work/on.bin" 2>/dev/null | tr -d ' ' | tr '\n' ' ')" ))"
+    # THE DELTA IS THE MEASUREMENT. What the flag costs is exactly the
+    # symbols the ON binary imports that the OFF one does not, and on
+    # Darwin that is `__tlv_bootstrap` - a thread-local access there is
+    # an indirect call through libSystem, not an addressing mode. On
+    # Linux and FreeBSD local-exec TLS needs no resolver, so the delta
+    # is EMPTY and the six crt imports are identical on both sides.
+    # Anything else appearing here is the flag pulling in machinery
+    # nobody asked it for.
+    imports_of "$work/on.bin" | LC_ALL=C sort > "$work/on.imports"
+    comm -13 "$work/off.imports" "$work/on.imports" > "$work/added"
+    n_added="$(grep -c . "$work/added" || true)"
+    stray="$(grep -vE "^($tls_syms)$" "$work/added" || true)"
+    if [[ -z "$stray" ]]; then
+      if [[ "$n_added" == 0 ]]; then
+        ok "the flag adds no import at all on this host"
+      else
+        ok "the flag adds only TLS runtime symbol(s): $(tr '\n' ' ' < "$work/added")"
+      fi
+    else
+      bad "the flag added an import that is not thread-local machinery:"
+      printf '%s\n' "$stray" | sed 's/^/     /'
+    fi
 
     # ----------------------------------------------------------------
     echo
@@ -274,6 +322,8 @@ if (( failed > 0 )); then
   echo "check-thread-local: $failed of $((checks + failed)) checks failed"
   exit 1
 fi
-echo "check-thread-local: $checks checks - eight globals move under the flag and nothing else does,"
-echo "                    a program that spawns no thread is unchanged and links nothing,"
-echo "                    and the model is local-exec on every target that has one"
+echo "check-thread-local: $checks checks - eight globals move under the flag and nothing"
+echo "                    else does, a program that spawns no thread imports no TLS"
+echo "                    machinery, the flag's cost is exactly the TLS symbols it adds"
+echo "                    (one on Darwin, none elsewhere), and the model is local-exec"
+echo "                    on every target that has one"

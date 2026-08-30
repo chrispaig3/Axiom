@@ -16,7 +16,29 @@ its changelog too.
 
 ## Unreleased
 
-Nothing yet.
+- **`check-thread-local.sh` asserted a Darwin fact as a universal one.**
+  Its second arm required `nm -u` to be **empty** for a program that
+  spawns no thread. That holds on Darwin and is false by construction on
+  Linux, where the same program imports six symbols — four weak crt
+  hooks (`_ITM_*`, `__gmon_start__`, `__cxa_finalize`) and two real ones
+  (`__libc_start_main`, `abort`). Both Linux CI legs went red on a
+  program behaving exactly as intended. The measurement that fixes it
+  was in the failure text: **six off and six on, identical** — the flag
+  adds nothing, which is the property the gate exists to hold and which
+  "zero" could not express.
+  The arm now asserts what the flag is actually about: a program that
+  spawns no thread imports **no TLS runtime symbol**, read through
+  `imports_of` — `check-freestanding.sh`'s reader, which dispatches on
+  the object's own magic rather than the host and strips ELF's
+  `@GLIBC_2.34` versions and Mach-O's leading underscore. And the cost
+  is now measured as a **delta**: the ON binary's imports minus the OFF
+  binary's must be TLS symbols and nothing else — one on Darwin
+  (`_tlv_bootstrap`), none on Linux or FreeBSD, where local-exec needs
+  no resolver. That is a stronger claim than the one it replaces, and a
+  portable one. 14 checks, up from 12.
+  This is the second time in one release that a gate of mine assumed one
+  platform's shape was universal; the first was grepping only for
+  `__tls_get_addr`, which AArch64 never emits.
 
 ## 0.5.0 — 2026-08-30
 
