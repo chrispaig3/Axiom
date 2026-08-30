@@ -651,7 +651,47 @@ floor=8192       # 8 MiB
 # number is set to keep - and the `ok` line prints that margin now, so
 # the next reader watches it shrink instead of meeting the run that
 # finally crosses it.
-ceiling=393216   # 384 MiB, over a measured 323
+#
+# 384 -> 448 MiB on 2026-08-30, and this is the entry the one above
+# predicted it would have to write: "the next reader watches it shrink
+# instead of meeting the run that finally crosses it" - nobody watched,
+# and the run that finally crossed it was a clean checkout of trunk.
+# Measured here rather than assumed, because the failure text says
+# "suspect an accumulator that copies" and that is a claim to answer:
+#
+#   clean trunk (ddc4430), this gate           384 MiB  -> FAILS
+#   the same tree plus the AX3053 slice        385 MiB
+#
+# so the ceiling was already crossed by a tree with nothing new in it.
+# The three-way split the 340 -> 384 entry established, on the
+# `axiom build`-produced binary rather than the ladder's:
+#
+#   trunk's compiler on trunk's source        394,304 KiB
+#   the NEW compiler on trunk's source        394,304 KiB   +0.00%
+#   trunk's compiler on the NEW source        395,424 KiB   +0.28%
+#   the NEW compiler on the NEW source        395,424 KiB   +0.28%
+#
+# The compiler CHANGE costs EXACTLY nothing on identical input - the
+# two pairs are byte-for-byte equal - and the 0.28% is 366 more source
+# lines. And the shape the ceiling actually guards, on synthetic inputs
+# of 2,000 / 4,000 / 8,000 independent declarations:
+#
+#   before   68,112 -> 117,040 -> 215,696 KiB   (x1.72, x1.84)
+#   after    68,112 -> 117,040 -> 215,696 KiB   (x1.72, x1.84)
+#
+# Identical at every size, and sub-linear in the declaration count.
+# Nothing here copies.
+#
+# WHAT ACTUALLY MOVED IS THE COMPILER'S OWN SIZE, and it moved a long
+# way. `self_host/` was 64,490 lines on 2026-08-25, when 323 MiB was
+# measured and 384 was set to leave 15% over it; it is 81,138 lines on
+# trunk today. That is +25.8% of source against +18.9% of peak, so the
+# cost per source line FELL - 5.13 KiB/line then, 4.85 KiB/line now -
+# which is the opposite of the regression this number exists to catch,
+# and it is why the answer is a bigger ceiling rather than a hunt.
+# 448 leaves 14% over the measured 385, the margin the entries above
+# settled on.
+ceiling=458752   # 448 MiB, over a measured 385
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi
