@@ -838,8 +838,17 @@ evidence is one-sided in both directions at once, so an error would
 refuse a program that runs and accept one that traps. This is a
 reserved number reaching its own proposal rather than a
 reconciliation - the first time in this section - so the count of
-reconciliations stays at eleven. `AX3054` remains reserved for
-`effect-name-reserved`.
+reconciliations stays at eleven. `AX3054` was SPENT on the same day by
+`effect-name-reserved` — an `effect` declared with a built-in effect's
+name, which a handle list resolves to the built-in, so the declaration
+can never be handled and the row it produces says the program reaches
+the outside world when it does not. An error with no warning stage,
+because there is no correct program on the other side of it. The same
+commit retired `Err` as a sixth built-in effect name: nothing inferred
+it, and its own AXTAG spelling could not reach it, so a handle list
+naming it draws `AX3016` like any other undeclared name. The reserved
+block below is now empty and the next free semantic number is
+`AX3057`.
 
 `AX3047` is the ninth number this section has had to reconcile, and the
 first one it allocated rather than surrendered: it was taken from the

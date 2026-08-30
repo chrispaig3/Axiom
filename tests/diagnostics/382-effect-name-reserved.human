@@ -1,0 +1,28 @@
+[1;31merror[AX3054][0m[1m: `IO` names a built-in effect, and an effect declared with that name can never be handled: a handle list naming it reads as the built-in[0m
+  [1;34m--> [0m382-effect-name-reserved.ax:40:9
+[1;34m   |[0m
+[1;34m40 |[0m (effect IO
+[1;34m   |[0m         [1;31m^^ `IO` is a built-in effect[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mchoose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut` and `Div`, and `alloc` is a second spelling of one of them
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3054` for a full explanation
+
+[1;31merror[AX3054][0m[1m: `alloc` names a built-in effect, and an effect declared with that name can never be handled: a handle list naming it reads as the built-in[0m
+  [1;34m--> [0m382-effect-name-reserved.ax:43:9
+[1;34m   |[0m
+[1;34m43 |[0m (effect alloc
+[1;34m   |[0m         [1;31m^^^^^ `alloc` is a built-in effect[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mchoose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut` and `Div`, and `alloc` is a second spelling of one of them
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3054` for a full explanation
+
+[1;31merror[AX3016][0m[1m: unknown effect `Err`[0m
+  [1;34m--> [0m382-effect-name-reserved.ax:57:37
+[1;34m   |[0m
+[1;34m57 |[0m (fn (viaErr n) (cast Int (handle n (Err) 0)))
+[1;34m   |[0m                                     [1;31m^^^ no effect named `Err` is declared[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mdeclare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3016` for a full explanation
+
+compilation failed due to 3 previous errors

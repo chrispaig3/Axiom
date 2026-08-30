@@ -1516,8 +1516,16 @@ definition (`AX3006`, `tests/diagnostics/455-effect-op-collision.ax`),
 cross-module collisions resolve by the one-bare-name rule,
 and an operation cannot be used as a bare value - wrap it in a lambda
 (`(lambda (x) (log x))`) where a function value is needed. Declaring
-an effect named after a built-in (`IO`, `Alloc`, ...) is **accepted**:
-nothing refuses the shadowing.
+an effect named after a built-in (`IO`, `Pure`, `Alloc`, `Mut`, `Div`,
+or the lowercase `alloc`) is **`AX3054`**, an error. It used to be
+accepted, and the acceptance was useless in a way nothing reported: a
+handle list resolves a built-in name to the BUILT-IN, so the custom
+effect could never be handled - `(handle (emit 1) (IO) h)` around its
+own call drew `AX3011 unhandled effect IO`, on the handle that names
+it. Without a handle it was quieter and worse: an untagged `main`
+performing the custom `IO` read `#effects=IO` with no `#effect=io` and
+drew nothing, so the row said the program reached the outside world
+when it did nothing of the kind.
 
 ### Annotating Functions with Effects
 

@@ -18,14 +18,18 @@
 ; which is the point: the walk does not infer divergence for a body
 ; that HAS it either. The claim is recorded and nothing validates it.
 ;
-; `Err` is NOT in the same position, which is worth stating because
-; the effect table reads as though it were. `Err` is spellable in a
-; HANDLE list, but the AXTAG claim path lowercases its value and finds
-; no declaration, so `;@axiom:effect(err)` is read as an undeclared
-; CUSTOM effect and reports `missing err`. That is already the right
-; answer - you named an effect that does not exist - and it needs no
-; special case. `div` is the only value that resolves to a built-in
-; nothing produces.
+; `Err` USED TO BE in a position that looked like this one and was
+; not, and it is gone. It was spellable in a HANDLE list and nothing
+; ever inferred it, so the name resolved and denoted nothing - while
+; the AXTAG claim path lowercases its value and found no declaration,
+; so `;@axiom:effect(err)` was read as an undeclared CUSTOM effect and
+; reported `missing err`. The two spellings disagreed about whether the
+; name existed. `Err` was retired as a built-in effect name on
+; 2026-08-30 (`AX3054`'s commit): a handle list naming it draws
+; `AX3016` like any other undeclared name, which is what the tag path
+; was already saying. `div` is now the only value that resolves to a
+; built-in nothing produces, which is what makes this fixture's subject
+; a class of one.
 ;
 ; `honest` is the control. A claim naming an effect that HAS a
 ; producer stays AX3010 when the body does not support it - the split

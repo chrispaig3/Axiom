@@ -1,0 +1,61 @@
+; AX3054: an effect declared with a built-in effect's name, and the
+; retirement of the `Err` phantom.
+;
+; `(effect IO (emit :: (-> Int Int)))` was ACCEPTED, and the acceptance
+; was useless in a way nothing reported. A handle list resolves a
+; built-in name to the BUILT-IN, so the custom effect can never be
+; handled. Measured before this code existed, on that declaration with
+; `(handle (emit 1) (IO) h)` around its own call:
+;
+;   E AX3011 effect mismatch: unhandled effect `IO`
+;
+; at the handle - the list named the built-in, the body performs the
+; custom one - and, since AX3053, a second report at `main` saying the
+; operation reaches no handler. Two diagnostics, both pointing away
+; from the name that caused them. An untagged `main` performing it
+; reads `#effects=IO` with no `#effect=io` and draws nothing at all, so
+; the row says the program reaches the outside world when it does
+; nothing of the kind.
+;
+; The reserved set is `isBuiltinEffect`'s, which is the same question a
+; handle list asks, so the two cannot drift: `IO`, `Pure`, `Alloc`,
+; `Mut`, `Div`, and the lowercase `alloc` the checker also answers for.
+; `Err` is NOT in it any more.
+;
+;   IO       an effect declared with a built-in's name  -> AX3054
+;   alloc    the lowercase spelling, same answer        -> AX3054
+;   Err      a handle list naming the retired phantom   -> AX3016
+;   Console  an ordinary effect, handled                -> silent
+;
+; THE `Err` PHANTOM. `Err` was accepted as a sixth built-in effect name
+; - a handle list could write it - and nothing in the compiler ever
+; inferred it. Measured before its removal: `(handle 5 (Err) 0)`
+; checked `OK`, and `;@axiom:effect(err)` drew `AX3010 missing err`,
+; because the AXTAG path lowercases the value and finds no declaration,
+; so the one spelling that resolved to the name and the one that did
+; not disagreed about whether it existed. A name a list may write, that
+; nothing produces, and that its own tag spelling cannot reach, is not
+; a built-in effect; it is a hole in a table. `AX3016` is what a handle
+; list naming something undeclared has always drawn.
+(effect IO
+  (emit :: (-> Int Int)))
+
+(effect alloc
+  (grab :: (-> Int Int)))
+
+(effect Console
+  (log :: (-> String Int)))
+
+(:: viaConsole (-> Int Int))
+
+(fn (viaConsole n)
+  (cast Int (handle (log "covered") (Console) (lambda (s) 0)))
+)
+
+(:: viaErr (-> Int Int))
+
+(fn (viaErr n) (cast Int (handle n (Err) 0)))
+
+(:: main Int)
+
+(fn (main) (+ (viaConsole 1) (viaErr 2)))

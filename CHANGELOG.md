@@ -16,6 +16,47 @@ its changelog too.
 
 ## Unreleased
 
+- **`AX3054`: an effect declared with a built-in effect's name, and the
+  `Err` phantom retired.** `(effect IO (emit :: (-> Int Int)))` was
+  ACCEPTED, and the acceptance was useless in a way nothing reported. A
+  handle list resolves a built-in name to the BUILT-IN, so the custom
+  effect can never be handled. Measured on this tree before the code
+  existed, on that declaration with `(handle (emit 1) (IO) h)` around
+  its own call:
+
+  ```
+  W AX3053  `main` reaches operation `emit` of effect `IO` ...
+  E AX3011  effect mismatch: unhandled effect `IO`
+  ```
+
+  Two diagnostics, neither of them about the name that caused both.
+  Without the handle it is quieter and worse: an untagged `main`
+  performing the custom `IO` reads `#effects=IO` with no `#effect=io`
+  and draws nothing at all, so the symbol row says the program reaches
+  the outside world when it does nothing of the kind. An **error** with
+  no warning stage, and the usual objection has no instance: there is
+  no correct program on the other side of it, the declaration is
+  unusable in every direction, and the fix is a rename. The reserved
+  set is read from `isBuiltinEffect` — the same function a handle list
+  asks — so the refusal and the resolution cannot drift apart.
+  **`Err` is no longer one of the names.** It was accepted as a sixth
+  built-in effect name — `(handle 5 (Err) 0)` checked clean — and
+  nothing in the compiler ever inferred it, so the name resolved and
+  denoted nothing. Its own AXTAG spelling could not even reach it: the
+  tag path lowercases the value, so `;@axiom:effect(err)` looked for a
+  CUSTOM effect named `err` and answered `AX3010 missing err`. The two
+  spellings disagreed about whether the name existed. A handle list
+  naming `Err` now draws `AX3016`, which is what a list naming
+  something undeclared has always drawn, and `Err` is an ordinary name
+  again — `(effect Err ...)` declares an ordinary effect. `Div` is now
+  the only value that resolves to a built-in nothing produces, which is
+  what makes `359-div-not-inferred.ax` a class of one and is said there.
+  Population in tree: **0** — of 50 `effect` declarations none is named
+  after a built-in, and no handle list writes `Err`, which is why
+  neither had ever been reported. Gates: `check-diagnostics`
+  (`382-effect-name-reserved.ax`, four arms of which one is a silent
+  control; `359`'s golden and its prose), `check-render-selfhost`,
+  `check-tools-selfhost` (`explain AX3054`), `check-doc-drift`.
 - **The effect fixpoint is a worklist.** `inferEffects` is a monotone
   fixpoint over the call graph, and every round re-walked EVERY body.
   One round of two passes in opposite directions (2026-08-25) collapses

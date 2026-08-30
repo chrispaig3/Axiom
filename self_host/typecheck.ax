@@ -2643,6 +2643,9 @@
                         ; An operation with no declared type: AX3055,
                         ; before it registers (as poison) below.
                         (checkEffectOpTyped tc (nodeC d) (nodeAName d))
+                        ; And the effect's own name: AX3054 when it is
+                        ; one a handle list would resolve to a built-in.
+                        (checkEffectNameReserved tc d)
                         ; Slot c, not slot b: the TYPES the parser kept
                         ; beside the names, so an operation is a callable
                         ; with a real arrow and a real arity. It used to
@@ -6784,10 +6787,7 @@
                                                           1
                                                           (if (strEq n "Div")
                                                             1
-                                                            (if (strEq n "Err")
-                                                              1
-                                                              0
-                                                            )
+                                                            0
                                                           )
                                                         )
                                                       )
@@ -7020,11 +7020,27 @@
   )
 )
 
-; The six built-in effect names a handle list may name. stage0 lexes
-; `IO`/`Pure`/`Mut`/`Div` as keyword tokens and special-cases
-; `Alloc`/`alloc` and `Err` out of the identifier path, so none of
-; them is ever a `Custom` effect - and only `Custom` entries are
-; subject to AX3016 and AX3017.
+; The five built-in effect names a handle list may name, plus the
+; lowercase `alloc` the checker also answers for. stage0 lexed
+; `IO`/`Pure`/`Mut`/`Div` as keyword tokens and special-cased `Alloc`
+; and `alloc` out of the identifier path, so none of them is ever a
+; `Custom` effect - and only `Custom` entries are subject to AX3016 and
+; AX3017.
+;
+; `Err` WAS A SIXTH AND IS NOT ONE. It was accepted here, which made
+; `(handle 5 (Err) 0)` check clean, and nothing in the compiler ever
+; inferred it - so the name resolved and denoted nothing. Its own AXTAG
+; spelling did not even reach it: the tag path lowercases the value, so
+; `;@axiom:effect(err)` looked for a CUSTOM effect named `err` and drew
+; `AX3010 missing err`. A name a handle list may write, that nothing
+; produces, and that its own tag cannot name, is a hole in a table
+; rather than an effect. `AX3016` is what a list naming something
+; undeclared has always drawn, and that is what `(Err)` draws now.
+;
+; This set is also the reserved set `checkEffectNameReserved` refuses a
+; declaration for, and deliberately the same function: a handle list
+; resolves a built-in name to the built-in, so any name in here is a
+; name an `effect` declaration could never be handled under.
 (pub :: isBuiltinEffect (-> String Int))
 
 (pub fn (isBuiltinEffect n)
@@ -7040,14 +7056,46 @@
             1
             (if (strEq n "alloc")
               1
-              (if (strEq n "Err")
-                1
-                0
-              )
+              0
             )
           )
         )
       )
+    )
+  )
+)
+
+; AX3054: an effect declared with a built-in effect's name.
+;
+; `(effect IO (emit :: (-> Int Int)))` was ACCEPTED, and the acceptance
+; was useless in a way nothing reported. Measured on this tree before
+; the code existed, with `(handle (emit 1) (IO) h)` around its own call:
+;
+;   W AX3053  `main` reaches operation `emit` of effect `IO` ...
+;   E AX3011  effect mismatch: unhandled effect `IO`
+;
+; Two diagnostics, neither of them about the name that caused both. A
+; handle list resolves `IO` to the BUILT-IN, so the list names one
+; effect while the body performs another that happens to share its
+; spelling, and the custom effect can never be handled at all. Without
+; the handle it is worse than a wrong message: an untagged `main`
+; performing the custom `IO` reads `#effects=IO` with no `#effect=io`
+; and draws nothing, so the row says the program reaches the outside
+; world when it does nothing of the kind.
+;
+; An ERROR with no warning stage. There is no correct program on the
+; other side of it - the declaration is unusable by construction, in
+; every direction, and the fix is a rename.
+(pub :: checkEffectNameReserved (-> Int Int Int))
+
+(pub fn (checkEffectNameReserved tc d)
+  (if (== (isBuiltinEffect (nodeAName d)) 0)
+    0
+    (if (== (nodeSpan d) 0)
+      0
+      (emitDiag tc (diagSetLabel (mkDiag
+        SEV_ERROR        "AX3054"        "effect-name-reserved"        (nodeSpan d)        (strConcat (strConcat "`" (nodeAName d)) "` names a built-in effect, and an effect declared with that name can never be handled: a handle list naming it reads as the built-in")        0        0        "choose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut` and `Div`, and `alloc` is a second spelling of one of them"
+      ) (strConcat (strConcat "`" (nodeAName d)) "` is a built-in effect")))
     )
   )
 )
@@ -17592,10 +17640,7 @@
 (pub fn (effNeverInferred want)
   (if (strEq want (builtinEff "Div"))
     1
-    (if (strEq want (builtinEff "Err"))
-      1
-      0
-    )
+    0
   )
 )
 
@@ -17605,7 +17650,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3037"      "axtag-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (strConcat (strConcat "`effect(" val) ")` cannot be checked: nothing in the compiler infers that effect, so no body ever supplies it"))      0      0      "`Div` and `Err` are spellable and never inferred - zero of this repository's 3,040 effect rows carry either. The claim is recorded and nothing validates it. Divergence is not inferred because the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating; `(handle BODY (Pure) 0)` is the construct that does refuse, and it measures IO, Alloc and Mut"
+      SEV_WARNING      "AX3037"      "axtag-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (strConcat (strConcat "`effect(" val) ")` cannot be checked: nothing in the compiler infers that effect, so no body ever supplies it"))      0      0      "`Div` is spellable and never inferred - zero of this repository's 2,094 effectful rows carry it. The claim is recorded and nothing validates it. Divergence is not inferred because the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating; `(handle BODY (Pure) 0)` is the construct that does refuse, and it measures IO, Alloc and Mut"
     ))
   )
 )

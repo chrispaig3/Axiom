@@ -63,6 +63,7 @@
   [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
   [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
   [93mAX3053[0m  an operation the program reaches with no handler  (unhandled-operation)
+  [93mAX3054[0m  an effect declared with a built-in effect's name  (effect-name-reserved)
   [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
   [93mAX3056[0m  a struct field that declares no type  (struct-field-untyped)
   [93mAX4001[0m  no `main` function  (missing-main)
@@ -1515,6 +1516,47 @@ program relying on one to catch an unhandled capability operation is
 what this reports; an effect whose unhandled operation is that class
 declares it.
 
+### explain AX3054
+AX3054 - an effect declared with a built-in effect's name
+
+`(effect IO (emit :: (-> Int Int)))` declares a custom effect called
+`IO`, and nothing can ever handle it. A handle list resolves a
+built-in name to the BUILT-IN, so `(handle (emit 1) (IO) h)` names one
+effect while the body performs another that happens to share its
+spelling.
+
+Measured before this code existed, on exactly that program:
+
+  W AX3053  `main` reaches operation `emit` of effect `IO` ...
+  E AX3011  effect mismatch: unhandled effect `IO`
+
+Two diagnostics, neither of them about the name that caused both.
+Without the handle it is quieter and worse: an untagged `main`
+performing the custom `IO` reads `#effects=IO` with no `#effect=io`
+and draws nothing at all, so the symbol row says the program reaches
+the outside world when it does nothing of the kind.
+
+An ERROR with no warning stage, and the reason is that there is no
+correct program on the other side of it. The usual objection to
+promoting a check - that it refuses a program which works - has no
+instance here: the declaration is unusable in every direction, and
+the fix is a rename.
+
+The reserved names are `IO`, `Pure`, `Alloc`, `Mut` and `Div`, plus
+`alloc`, a second spelling of `Alloc` the checker also answers for.
+They are read from `isBuiltinEffect`, the same function a handle list
+asks, so the refusal and the resolution cannot drift apart.
+
+`Err` IS NO LONGER ONE OF THEM. It used to be accepted as a sixth
+built-in name - `(handle 5 (Err) 0)` checked clean - and nothing in
+the compiler ever inferred it, so the name resolved and denoted
+nothing. Its own tag spelling could not even reach it: the AXTAG path
+lowercases the value, so `;@axiom:effect(err)` looked for a CUSTOM
+effect named `err` and answered `AX3010 missing err`. A handle list
+naming `Err` now draws `AX3016`, which is what a list naming
+something undeclared has always drawn - and `(effect Err ...)` is an
+ordinary declaration, because `Err` is an ordinary name again.
+
 ### explain AX3055
 AX3055 - an effect operation that declares no type
 
@@ -1748,6 +1790,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
   [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
   [93mAX3053[0m  an operation the program reaches with no handler  (unhandled-operation)
+  [93mAX3054[0m  an effect declared with a built-in effect's name  (effect-name-reserved)
   [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
   [93mAX3056[0m  a struct field that declares no type  (struct-field-untyped)
   [93mAX4001[0m  no `main` function  (missing-main)
