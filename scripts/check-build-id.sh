@@ -147,7 +147,7 @@ else
 fi
 # `check-version.sh`'s extractor, run here rather than described, so a
 # banner change that breaks it fails in the commit that made it.
-if printf '%s' "$plain" | grep -qE 'axiom \(self-hosted\) [0-9]+\.[0-9]+\.[0-9]+'; then
+if printf '%s' "$plain" | grep -qE 'Axiom [0-9]+\.[0-9]+\.[0-9]+ \(build'; then
   ok "check-version.sh's own pattern still matches the banner"
 else
   bad "check-version.sh's pattern no longer matches: $plain"

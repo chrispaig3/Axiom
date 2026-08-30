@@ -326,7 +326,7 @@ cat > "$work/oom.ax" <<'PROBE'
 PROBE
 
 cat > "$work/ue.ax" <<'PROBE'
-(effect Ask (ask (-> Int Int)))
+(effect Ask (ask :: (-> Int Int)))
 
 (pub :: main Int)
 

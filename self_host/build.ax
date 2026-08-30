@@ -36,6 +36,14 @@
 ; string would read as an answer. This one reads as its own absence,
 ; and `scripts/check-build-id.sh` asserts that a plain
 ; `axiom build --input self_host/main.ax` produces exactly it.
+; THE VERSION, once. `axiom --help`, `axiom version` and the REPL banner
+; all compose "Axiom <version>" from this one literal, so the number
+; is stated in exactly one place in the compiler and
+; `scripts/check-version.sh` holds that place to `VERSION`.
+(pub :: axiomVersion String)
+
+(pub fn (axiomVersion) "0.4.3")
+
 (pub :: axiomBuildId String)
 
 (pub fn (axiomBuildId) "unstamped")

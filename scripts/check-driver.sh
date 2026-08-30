@@ -43,7 +43,11 @@ printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 1)\n' >badimport.ax
 
 "$s1" --help >help.txt 2>&1 && grep -q 'USAGE:' help.txt \
   && ok "--help prints usage" || bad "--help"
-"$s1" version >ver.txt 2>&1 && grep -q 'axiom' ver.txt \
+# `Axiom <version> (build <id>)` since 0.4.3 - the banner names the
+# LANGUAGE and the version, not the executable and a sentence about
+# itself. A case-insensitive grep would keep passing if the name went
+# away entirely, so this asks for the shape it prints.
+"$s1" version >ver.txt 2>&1 && grep -qE 'Axiom [0-9]+\.[0-9]+\.[0-9]+' ver.txt \
   && ok "version prints a version" || bad "version"
 
 "$s1" check hello.ax >/dev/null 2>&1 \
@@ -645,7 +649,7 @@ rm -f oo
 # A flag the help documents and the binary ignores is the same defect as
 # a diagnostic code nothing constructs.
 "$s1" -V >v.out 2>v.err; rc=$?
-[[ $rc == 0 ]] && grep -q 'axiom' v.out \
+[[ $rc == 0 ]] && grep -qE 'Axiom [0-9]+\.[0-9]+\.[0-9]+' v.out \
   && ok "\`-V\` prints the version" || bad "\`-V\` (rc=$rc)"
 
 printf '(:: main Int)\n(fn (main) 1)\n' >./-weird.ax
@@ -874,8 +878,11 @@ else
       ver_bad=$((ver_bad + 1))
     fi
   }
-  ver_check "the REPL banner" "self_host/repl.ax" \
-    "$(grep -oE 'axiom \(self-hosted\) [0-9]+\.[0-9]+\.[0-9]+' "$repo_root/self_host/repl.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  # The REPL banner, `axiom version` and `--help` all compose their
+  # "Axiom <version>" from the one literal in build.ax since 0.4.3, so
+  # the source copy to hold the binary to is that literal.
+  ver_check "the version literal" "self_host/build.ax" \
+    "$(grep -oE '\(pub fn \(axiomVersion\) "[0-9]+\.[0-9]+\.[0-9]+"\)' "$repo_root/self_host/build.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   ver_check "the LSP serverInfo" "self_host/lsp.ax" \
     "$(grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"' "$repo_root/self_host/lsp.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   ver_check "the crate version" "rust/Cargo.toml" \

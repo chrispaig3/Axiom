@@ -27,7 +27,8 @@
 # site add both halves.
 
 # --- readers: print every version the file states, one per line -------
-ax_version()   { grep -oE 'axiom \(self-hosted\) [0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
+ax_version()   { grep -oE 'Axiom [0-9]+\.[0-9]+\.[0-9]+ (\(build|- REPL)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
+axv_version()  { grep -oE '\(pub fn \(axiomVersion\) "[0-9]+\.[0-9]+\.[0-9]+"\)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 lsp_version()  { grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"\)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 toml_version() { grep -oE '^version = "[0-9]+\.[0-9]+\.[0-9]+"|version = "[0-9]+\.[0-9]+\.[0-9]+" }' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 json_version() { grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
@@ -75,7 +76,8 @@ _rewrite() { # _rewrite <file> <sed-expr>
   rm -f "$t"
 }
 
-ax_replace()   { _rewrite "$1" "s/(axiom \(self-hosted\) )[0-9]+\.[0-9]+\.[0-9]+/\1$2/g"; }
+ax_replace()   { _rewrite "$1" "s/(Axiom )[0-9]+\.[0-9]+\.[0-9]+( (\(build|- REPL))/\1$2\2/g"; }
+axv_replace()  { _rewrite "$1" "s/(\(pub fn \(axiomVersion\) \")[0-9]+\.[0-9]+\.[0-9]+(\"\))/\1$2\2/g"; }
 lsp_replace()  { _rewrite "$1" "s/(\"version\" \(jsonStr \")[0-9]+\.[0-9]+\.[0-9]+(\"\))/\1$2\2/g"; }
 json_replace() { _rewrite "$1" "s/(\"version\": \")[0-9]+\.[0-9]+\.[0-9]+(\")/\1$2\2/g"; }
 lspg_replace() { _rewrite "$1" "s/(\"version\":\")[0-9]+\.[0-9]+\.[0-9]+(\")/\1$2\2/g"; }
@@ -118,8 +120,7 @@ toml_replace() {
 # that stopped matching are invisible to a test that only asks whether
 # the file said the number at all.
 VERSION_SITES="
-self_host/main.ax|1|ax_version|ax_replace
-self_host/repl.ax|1|ax_version|ax_replace
+self_host/build.ax|1|axv_version|axv_replace
 self_host/lsp.ax|1|lsp_version|lsp_replace
 rust/Cargo.toml|4|toml_version|toml_replace
 rust/Cargo.lock|7|lock_version|lock_replace
