@@ -478,11 +478,16 @@ derive_manifest() {
   LC_ALL=C sort -u "$out.raw" > "$out"
 }
 
-# Every `.ax` in the tree carrying a restriction tag - the whole tree,
-# not a directory list, so a restricted declaration is covered the day
-# it lands.
-( cd "$repo_root" && grep -rlE '^[[:space:]]*;@axiom:restrict' --include='*.ax' . 2>/dev/null \
-    | grep -v '^\./\.git/' | sed 's|^\./||' | LC_ALL=C sort ) > "$work/manifest/files"
+# Every tracked `.ax` in the tree carrying a restriction tag - the
+# whole tree, not a directory list, so a restricted declaration is
+# covered the day it lands. TRACKED, through `git ls-files`, because
+# a `grep -r .` also reads whatever else sits under the checkout: on
+# 2026-08-29 the agent worktrees under `.claude/worktrees/` each
+# carried the six fixtures, and the derived manifest grew from 43 rows
+# to 270, all of them the same declarations seven times over.
+( cd "$repo_root" && git ls-files -z -- '*.ax' \
+    | xargs -0 grep -lE '^[[:space:]]*;@axiom:restrict' 2>/dev/null \
+    | LC_ALL=C sort ) > "$work/manifest/files"
 nfiles=$(wc -l < "$work/manifest/files" | tr -d ' ')
 if (( nfiles < 6 )); then
   bad "only $nfiles files in the tree carry a restrict tag; the fixtures alone are more than that (the sweep found nothing)"
