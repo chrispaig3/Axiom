@@ -40,13 +40,33 @@
 # passes. A gate that compares two timings is as load-sensitive as one
 # that reads a clock, and the tell is the RATIO, not the clock.
 #
-# THIS RUNS THE SAME GATES THE SAME WAY. It does not pass them flags,
-# skip any, or interpret their output beyond the exit status. A gate
-# that fails here fails when run by hand.
+# THIS RUNS THE SAME GATES THE SAME WAY. It does not pass them flags
+# or interpret their output beyond the exit status. A gate that fails
+# here fails when run by hand.
+#
+# ONE GATE CANNOT BE RUN THAT WAY, and it is NAMED rather than skipped
+# quietly. `check-windows-hello.sh` is two halves on two machines - it
+# emits for windows-x86_64 on any host under `--emit DIR` and links and
+# EXECUTES on a Windows runner under `--run DIR` - so a bare invocation
+# is a usage error, not a result. Globbed in and run bare it failed in
+# 0s on every local run, which made this battery permanently red and
+# taught its reader to skim the FAILED list instead of reading it. That
+# is the cost being paid here: a gate whose failure means nothing
+# devalues the ones whose failure means something.
+#
+# So it is listed below, excluded from the run, and PRINTED as not run
+# with the reason. Not run and silent would be the worse defect of the
+# two - the whole point of naming it is that the reader can see the
+# battery is not the whole story.
 
 set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+# Gates a bare invocation cannot run at all, with the reason each is
+# printed with. Excluded from the run and reported, never silent.
+NOTRUN_RE='check-(windows-hello)\.sh$'
+NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a bare run is a usage error, not a result'
 
 # Gates whose result depends on having the machine to themselves.
 SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost)\.sh$'
@@ -69,14 +89,19 @@ if (( $# )); then
   [[ " $* " == *" --list "* ]] || all=("${filtered[@]}")
 fi
 
-par=(); ser=()
+par=(); ser=(); notrun=()
 for g in "${all[@]}"; do
-  if [[ "$g" =~ $SERIAL_RE ]]; then ser+=("$g"); else par+=("$g"); fi
+  if [[ "$g" =~ $NOTRUN_RE ]]; then notrun+=("$g")
+  elif [[ "$g" =~ $SERIAL_RE ]]; then ser+=("$g")
+  else par+=("$g"); fi
 done
 
 if [[ " $* " == *" --list "* ]]; then
   echo "parallel (${#par[@]}, $jobs at a time):"; printf '  %s\n' "${par[@]##*/}"
   echo "serial (${#ser[@]}), because they measure or drive cargo:"; printf '  %s\n' "${ser[@]##*/}"
+  if (( ${#notrun[@]} )); then
+    echo "not run here (${#notrun[@]}), $NOTRUN_WHY:"; printf '  %s\n' "${notrun[@]##*/}"
+  fi
   exit 0
 fi
 
@@ -134,6 +159,11 @@ pass="$(awk '/^PASS/{n++} END{print n+0}' "$out/RESULTS" 2>/dev/null)"
 fail="$(awk '/^FAIL/{n++} END{print n+0}' "$out/RESULTS" 2>/dev/null)"
 
 echo
+if (( ${#notrun[@]} )); then
+  echo "NOT RUN HERE (${#notrun[@]}), $NOTRUN_WHY:"
+  printf '  %s\n' "${notrun[@]##*/}"
+  echo
+fi
 sort -k2 -rn "$out/RESULTS" | head -5 | while read -r st sec nm; do
   printf '   %4ss  %s\n' "$sec" "$nm"
 done
