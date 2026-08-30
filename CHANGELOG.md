@@ -16,6 +16,8 @@ its changelog too.
 
 ## Unreleased
 
+## 0.4.3 — 2026-08-29
+
 Three new `--target`s the compiler emits for and CI assembles but does
 not yet execute - `freebsd-x86_64`, `freebsd-aarch64` and
 `windows-x86_64` - a Windows hello world linked through `lld-link`
