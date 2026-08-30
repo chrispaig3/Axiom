@@ -89,6 +89,15 @@ the compiler under test, `check-windows-entry.sh` and
   marks incomplete or over-approximated), `AX3052 restriction-unknown`
   (error; the list is closed). `check-restrictions.sh` tags every fn
   of 168 corpus programs restricted and requires nothing to move.
+- **Restriction witnesses and `no-recursion`** (`7540524`, `e9f26e0`,
+  Ada round 1 phases 3-4): a transitive restriction refusal names its
+  path hop by hop from the claim to where the effect enters
+  (`parseConfig -> readSection -> IO$writeStr -> ... -> __syscall3`),
+  cross-checkable against `symbols --calls`; `restrict(no-cast:deep)`
+  reaches the nearest reachable cast with its path;
+  `restrict(no-recursion)` renders a call-graph cycle from the claim to
+  the function met twice; `tests/agent/restrictions.allow` lists every
+  restricted declaration in the tree with the verdict the compiler gave.
 - **Type variables in messages** (`dd18cde`): the checker's own
   variables render as `_a`, `_b`, ... by order of first appearance, one
   table per mismatch, instead of `_t<N>` from a program-wide counter
