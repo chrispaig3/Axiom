@@ -18458,9 +18458,36 @@
                       0
                     )
                   )
-                  (if (== (tyCompat want got) 0)
-                    (emitMismatchTy tc want got (spanOf (nodeC d)))
+                  ; A DECLARED RESULT THAT MENTIONS A SOURCE TYPE
+                  ; VARIABLE ANYWHERE stays permitted, and this arm is
+                  ; why the rule above is safe to state at all.
+                  ;
+                  ; `tyIsSrcVar` two arms up catches a BARE variable -
+                  ; `(:: f (-> a b a))`. It does not catch one nested
+                  ; inside a type argument, and that shape is
+                  ; deliberately lenient here:
+                  ;
+                  ;   (:: mk (-> Int (Holder (-> a Int))))
+                  ;   (fn (mk n) (H bump))     bump : (-> Int Int)
+                  ;
+                  ; An arrow nested in a type ARGUMENT of the result
+                  ; puts its variable on a LEFT side - the callee does
+                  ; not produce an `a`, whoever calls the returned
+                  ; callback supplies it - so refusing the concrete
+                  ; instantiation is a false positive. That leniency is
+                  ; a decision `scripts/check-diverging-tyvar.sh`
+                  ; records and gates, against the AX3040 rule that
+                  ; used to refuse it; comparing by `tyCompat` here
+                  ; reverses it silently, which is not this rule's to
+                  ; do. Measured: without this arm the gate reports
+                  ; `expected Holder (a -> Int), found Holder
+                  ; (Int -> Int)` and its lenient direction goes red.
+                  (if (== (tyHasSrcVar want) 1)
                     0
+                    (if (== (tyCompat want got) 0)
+                      (emitMismatchTy tc want got (spanOf (nodeC d)))
+                      0
+                    )
                   )
                 )
               )
