@@ -99,6 +99,25 @@ F usesSyscallAbi stdlib/Sys/Platform.darwin.ax:733:9-23 "Int" @5239c4a4eebd381e
 F platformWriteFd stdlib/Sys/Platform.darwin.ax:737:9-24 "(Int -> (Int -> (Int -> Int)))" @06b4d89d48f5eb21 #pure #calls=-
 F platformReadFd stdlib/Sys/Platform.darwin.ax:742:9-23 "(Int -> (Int -> (Int -> Int)))" @27c65d2cf874d88a #pure #calls=-
 F platformExitWith stdlib/Sys/Platform.darwin.ax:747:9-25 "(Int -> Int)" @becafad07ae354fc #pure #calls=-
+F ttyUsesTermios stdlib/Sys/Platform.darwin.ax:782:9-23 "Int" @c35c43360059ea61
+F sysIoctlNum stdlib/Sys/Platform.darwin.ax:789:9-20 "Int" @8604ef6ad1e274c3
+F tcGetAttrReq stdlib/Sys/Platform.darwin.ax:803:9-21 "Int" @92b4b419b6a552d3
+F tcSetAttrReq stdlib/Sys/Platform.darwin.ax:825:9-21 "Int" @8aa7eddbdc97ffb7
+F tcWinSizeReq stdlib/Sys/Platform.darwin.ax:840:9-21 "Int" @534179f86cd0f933
+F termiosBytes stdlib/Sys/Platform.darwin.ax:852:9-21 "Int" @073edd856e0cda49
+F termiosFlagBytes stdlib/Sys/Platform.darwin.ax:862:9-25 "Int" @a4e2f9d35892fff7
+F termiosCcOff stdlib/Sys/Platform.darwin.ax:868:9-21 "Int" @df76fb2b24f9095d
+F termiosVminIdx stdlib/Sys/Platform.darwin.ax:879:9-23 "Int" @3ec4607ebe1ed537
+F termiosVtimeIdx stdlib/Sys/Platform.darwin.ax:883:9-24 "Int" @5fce3f6e95e90f58
+F tiosEcho stdlib/Sys/Platform.darwin.ax:894:9-17 "Int" @65a7f3c40cdea1df
+F tiosIcanon stdlib/Sys/Platform.darwin.ax:898:9-19 "Int" @a7a7b7a695f6dca0
+F tiosIsig stdlib/Sys/Platform.darwin.ax:902:9-17 "Int" @db1ec3a614428392
+F tiosIexten stdlib/Sys/Platform.darwin.ax:906:9-19 "Int" @12172e2edd790507
+F tiosBrkint stdlib/Sys/Platform.darwin.ax:920:9-19 "Int" @92fd342d7152edf4
+F tiosIcrnl stdlib/Sys/Platform.darwin.ax:924:9-18 "Int" @17a01ebc5d026842
+F tiosIstrip stdlib/Sys/Platform.darwin.ax:928:9-19 "Int" @60570a6831aba481
+F tiosIxon stdlib/Sys/Platform.darwin.ax:932:9-17 "Int" @187fe9a6373cf8d2
+F tiosOpost stdlib/Sys/Platform.darwin.ax:945:9-18 "Int" @4880ccf70baf4fc5
 F apply tests/fmt/syntax-zoo.ax:91:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:95:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:105:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure #calls=+,<,>
