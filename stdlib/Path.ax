@@ -33,15 +33,27 @@
 ; ------------------------------------------------------------------
 (import Str)
 
-; The last `/` in `p`, or -1. Everything below is a decision about
-; this one index.
+; The last `/` in `p`, or `None`. Everything below is a decision about
+; this one index. `compat/SENTINELS`'s direction rule is "absence
+; wants `Option`", and this is the primitive every caller in this file
+; goes through - `pathExtIndex` is the one exception, and it goes
+; straight to the raw `-1` helper below because it needs the sentinel
+; back in arithmetic (`(+ slash 1)` is 0, correctly, when there is no
+; slash at all), not a value to branch on.
 ;
 ; Scanned backwards rather than with `strFindByte`'s forward walk,
 ; because the LAST separator is what splits a path and finding it
 ; forwards means finding all the others first.
-(pub :: pathLastSlash (-> String Int))
+(pub :: pathLastSlash (-> String (Option Int)))
 
-(pub fn (pathLastSlash p) (pathLastSlashFrom p (- (strLen p) 1)))
+(pub fn (pathLastSlash p)
+  (let ((i (pathLastSlashFrom p (- (strLen p) 1))))
+    (if (< i 0)
+      None
+      (Some i)
+    )
+  )
+)
 
 (:: pathLastSlashFrom (-> String Int Int))
 
@@ -66,11 +78,9 @@
 (pub :: pathDir (-> String String))
 
 (pub fn (pathDir p)
-  (let ((i (pathLastSlash p)))
-    (if (< i 0)
-      ""
-      (strDup (strSlice p 0 (+ i 1)))
-    )
+  (match (pathLastSlash p)
+    ((None) "")
+    ((Some i) (strDup (strSlice p 0 (+ i 1))))
   )
 )
 
@@ -82,11 +92,9 @@
 (pub :: pathBase (-> String String))
 
 (pub fn (pathBase p)
-  (let ((i (pathLastSlash p)))
-    (if (< i 0)
-      (strDup p)
-      (strDup (strSlice p (+ i 1) (- (strLen p) (+ i 1))))
-    )
+  (match (pathLastSlash p)
+    ((None) (strDup p))
+    ((Some i) (strDup (strSlice p (+ i 1) (- (strLen p) (+ i 1)))))
   )
 )
 
@@ -127,7 +135,7 @@
   )
 )
 
-; The index of the extension's `.` within `p`, or -1.
+; The index of the extension's `.` within `p`, or `None`.
 ;
 ; A dot only starts an extension if it is INSIDE the base name and not
 ; the first byte of it. So `".axiomrc"` has no extension - the dot is
@@ -135,14 +143,20 @@
 ; `"src/v1.0/README"` has none either, because its only dot is in a
 ; directory component. Both are cases a naive "find the last dot" gets
 ; wrong, and both occur in this repository.
-(pub :: pathExtIndex (-> String Int))
+;
+; Goes to `pathLastSlashFrom` directly rather than through
+; `pathLastSlash`: the -1-or-index it answers is used right below as
+; an ARGUMENT, not a value this function returns, and `(+ slash 1)`
+; being 0 exactly when there is no slash is what makes one `<=` cover
+; both "no directory" and "a directory with no dot inside it".
+(pub :: pathExtIndex (-> String (Option Int)))
 
 (pub fn (pathExtIndex p)
-  (let ((slash (pathLastSlash p)))
+  (let ((slash (pathLastSlashFrom p (- (strLen p) 1))))
     (let ((dot (pathLastDotFrom p (- (strLen p) 1) slash)))
       (if (<= dot (+ slash 1))
-        (- 0 1)
-        dot
+        None
+        (Some dot)
       )
     )
   )
@@ -169,11 +183,9 @@
 (pub :: pathExt (-> String String))
 
 (pub fn (pathExt p)
-  (let ((i (pathExtIndex p)))
-    (if (< i 0)
-      ""
-      (strDup (strSlice p i (- (strLen p) i)))
-    )
+  (match (pathExtIndex p)
+    ((None) "")
+    ((Some i) (strDup (strSlice p i (- (strLen p) i))))
   )
 )
 
@@ -182,11 +194,9 @@
 (pub :: pathStem (-> String String))
 
 (pub fn (pathStem p)
-  (let ((i (pathExtIndex p)))
-    (if (< i 0)
-      (pathBase p)
-      (pathBase (strSlice p 0 i))
-    )
+  (match (pathExtIndex p)
+    ((None) (pathBase p))
+    ((Some i) (pathBase (strSlice p 0 i)))
   )
 )
 
@@ -201,11 +211,9 @@
 (pub :: pathReplaceExt (-> String String String))
 
 (pub fn (pathReplaceExt p ext)
-  (let ((i (pathExtIndex p)))
-    (if (< i 0)
-      (strConcat p ext)
-      (strConcat (strSlice p 0 i) ext)
-    )
+  (match (pathExtIndex p)
+    ((None) (strConcat p ext))
+    ((Some i) (strConcat (strSlice p 0 i) ext))
   )
 )
 

@@ -146,46 +146,50 @@
 
 (pub fn (axsymEscapable b) (|| (< b 33) (|| (== b 34) (|| (== b 35) (|| (== b 37) (== b 127))))))
 
-; One hex digit's value, or -1. Both cases are accepted: the emitter
-; writes upper, and a reader that took only what one emitter happens to
-; write is pinned to that emitter rather than to the notation.
-(pub :: axsymHexVal (-> Int Int))
+; One hex digit's value, or `None`. Both cases are accepted: the
+; emitter writes upper, and a reader that took only what one emitter
+; happens to write is pinned to that emitter rather than to the
+; notation. Absence, not failure - `docs/error-model.md` ERR-REC-3 -
+; and `Option` is built in, so this costs the module no import.
+(pub :: axsymHexVal (-> Int (Option Int)))
 
 (pub fn (axsymHexVal b)
   (if (&& (>= b 48) (<= b 57))
-    (- b 48)
+    (Some (- b 48))
     (if (&& (>= b 65) (<= b 70))
-      (- b 55)
+      (Some (- b 55))
       (if (&& (>= b 97) (<= b 102))
-        (- b 87)
-        (- 0 1)
+        (Some (- b 87))
+        None
       )
     )
   )
 )
 
-; The byte a `%XX` at `i` stands for, or -1 where there is no complete
-; escape. STRICT, and that is the point: only the bytes `saAxSafe`
-; escapes decode, so a literal `%` standing in a value the COMPILER
-; built - a rendered type, a generated `Trait#Type#method` name - is
-; never mistaken for an escape. `%41` stays `%41`.
-(pub :: axsymPctAt (-> String Int Int))
+; The byte a `%XX` at `i` stands for, or `None` where there is no
+; complete escape. STRICT, and that is the point: only the bytes
+; `saAxSafe` escapes decode, so a literal `%` standing in a value the
+; COMPILER built - a rendered type, a generated `Trait#Type#method`
+; name - is never mistaken for an escape. `%41` stays `%41`.
+(pub :: axsymPctAt (-> String Int (Option Int)))
 
 (pub fn (axsymPctAt s i)
   (if (!= (strByte s i) axsymPercent)
-    (- 0 1)
+    None
     (if (>= (+ i 2) (strLen s))
-      (- 0 1)
-      (let (
-        (hi (axsymHexVal (strByte s (+ i 1))))
-        (lo (axsymHexVal (strByte s (+ i 2))))
-      )
-        (if (|| (< hi 0) (< lo 0))
-          (- 0 1)
-          (let ((b (+ (* hi 16) lo)))
-            (if (axsymEscapable b)
-              b
-              (- 0 1)
+      None
+      (match (axsymHexVal (strByte s (+ i 1)))
+        ((None) None)
+        ((Some hi)
+          (match (axsymHexVal (strByte s (+ i 2)))
+            ((None) None)
+            ((Some lo)
+              (let ((b (+ (* hi 16) lo)))
+                (if (axsymEscapable b)
+                  (Some b)
+                  None
+                )
+              )
             )
           )
         )
@@ -213,11 +217,9 @@
 (pub fn (axsymUnpctFrom s i acc)
   (if (>= i (strLen s))
     acc
-    (let ((b (axsymPctAt s i)))
-      (if (< b 0)
-        (axsymUnpctFrom s (+ i 1) (strConcat acc (strSlice s i 1)))
-        (axsymUnpctFrom s (+ i 3) (strConcat acc (strFromByte b)))
-      )
+    (match (axsymPctAt s i)
+      ((None) (axsymUnpctFrom s (+ i 1) (strConcat acc (strSlice s i 1))))
+      ((Some b) (axsymUnpctFrom s (+ i 3) (strConcat acc (strFromByte b))))
     )
   )
 )

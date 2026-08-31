@@ -369,18 +369,18 @@
       (vecPush items "one with <angle> brackets")
       (vecPush items "ampersands & \"quotes\"")
       (routeAdd
-        rt        "GET"        "/"        (HttpFn
+        rt        "GET"        "/"        (HttpHandler
           (lambda (fd r) (indexPage fd r items))
         )
       )
       (routeAdd
-        rt        "GET"        "/hello"        (HttpFn
+        rt        "GET"        "/hello"        (HttpHandler
           (lambda (fd r) (helloPage fd r noesc))
         )
       )
       (routeStatic rt "/static/" (pathJoin root "static"))
       (routeNotFound
-        rt        (HttpFn
+        rt        (HttpHandler
           (lambda (fd r) (notFoundPage fd r))
         )
       )
