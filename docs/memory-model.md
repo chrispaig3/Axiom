@@ -2413,36 +2413,22 @@ affordable on the hottest store in the compiler - a tag, a span or a
 length costs zero instructions. Measured: self-compile 1.22 s and peak
 RSS 492.6 MiB, against 1.24 s and 492.4 MiB without it.
 
-**A STATED HOLE, measured 2026-08-30: a LIFTED LAMBDA'S OWN PARAMETER
-has no evidence.** `emitLamDef` emits
-`define i64 @_lam_N(i64 %.env, ...)` with no evidence parameter of its
-own, and `bindLamParams` binds the parameter to a MINTED placeholder,
-which `evClassOf` answers `-1` to — no `__retainref` is emitted at all,
-for a parameter that is a reference. One program holding the same
-`vecPush s` twice shows both readings, the trailing operand being the
-evidence word:
+**THE HOLE, and how it was closed on 2026-08-30.** `bindLamParams`
+binds a lambda parameter to a MINTED placeholder, and `evClassOf`
+answers a placeholder `-1` — "says nothing", not "not a reference" — so
+no `__retainref` was emitted at all for a parameter that is one. The
+share was not taken, and a parked reference sat in its container
+uncounted.
 
-    in a named `fn`   call @Vec$vecPush(i64 %box, i64 %s, i64 1)
-    in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 0)
-
-The hole is the lambda's OWN parameter and nothing wider, which is
-worth stating precisely because the obvious wider claim is false.
-`capFromVec` captures `"__evw."` into the record of any lambda whose
-enclosing function is polymorphic, so the ENCLOSING function's
-variables reach a lifted lambda perfectly well: `emitEvwRead` finds
-the captured symbol and emits a conditional retain, not a constant.
-What has no word is the argument the closure is applied to.
-
-**THIS IS OBSERVABLE, AND IT IS A USE-AFTER-FREE.** The paragraph that
-stood here until 2026-08-30 said the opposite — that nothing releases a
+That was **observable, and a use-after-free**. The paragraph that stood
+here until 2026-08-30 said the opposite — that nothing releases a
 closure's argument, so an uncounted park is kept alive by the very leak
 `MM-LIFE-2c`'s event-5b note calls open, and "the two cancel". That
 reasoning covers only the release a *closure call* would emit. **Event
 5 is a release from a different frame that never consulted the
-closure**, and it is enough on its own.
-
-Measured at `07ee175`, three programs differing in one ingredient each,
-`strByte` of the recorded value, at `--opt 0` through `--opt 3` alike:
+closure**, and it is enough on its own. Measured at `07ee175`, three
+programs differing in one ingredient each, `strByte` of the recorded
+value, at `--opt 0` through `--opt 3` alike:
 
 | the closure parks | then | reads |
 |---|---|---|
@@ -2453,78 +2439,75 @@ Measured at `07ee175`, three programs differing in one ingredient each,
 Both ingredients are needed and neither is exotic: the field holds the
 only counted share, the closure's park takes none, and the overwrite
 releases the last one while the closure's container still points at the
-block. The program that does it is a factory returning a logging
-closure over a `Session` whose `name` is recorded and then reassigned —
-no `cast`, no `__load64`, no header arithmetic — and `axiom check`
-prints `OK`. The identical program with a named `fn` in place of the
-closure answers correctly, which is the whole diagnosis in one
-substitution.
+block. The program is a factory returning a logging closure over a
+`Session` whose `name` is recorded and then reassigned — no `cast`, no
+`__load64`, no header arithmetic — and `axiom check` prints `OK`.
 
-**WHAT CLOSES IT, AND WHAT IT DOES NOT REACH.** A lambda parameter is
-unknown only because `bindLamParams` binds it to a MINTED placeholder,
-which `evClassOf` answers with -1; a parameter bound to a type the
-author WROTE is answered `1` for a reference or `2+k` for a variable,
-and either one emits the retain. `checkLamAgainst` is the function that
-binds the written type, and since 2026-08-30 a `fn` whose declared
-result is an arrow and whose body is a lambda is checked through it,
-not through `checkLam`. That is the factory above, and it now answers
-`a`.
+**TWO CHANGES CLOSE IT, and they close different things.**
 
-It reaches no further, because there is nothing further to reach it
-WITH. This checker does not bind placeholders at all: `tyVarCompat`
-lets a minted variable match anything, and `pinArg` substitutes into
-the arrow it RETURNS without touching the placeholder node, so a
-lambda parameter is never resolved by use. Forcing it inside the body
-before the park — `(lambda (s) { (strLen s) (vecPush log s) })` —
-changes nothing. Only a declaration in the position the lambda
-actually sits in can ground it, and all but the first of these lack
-one — the last row has a declaration and still does not close, for a
-different reason worth reading:
+`checkLamAgainst` binds the type the AUTHOR WROTE rather than a
+placeholder, and a `fn` whose declared result is an arrow and whose
+body is a lambda now checks through it. That reaches the factory above
+and nothing else, because the guard is syntactic.
 
-| the shape | where the lambda sits | reads |
+**The evidence word reaches the rest.** A lifted lambda takes a hidden
+`%__evwa.h` for its own argument, and the APPLICATION passes it —
+`applyOneArg` emits a third operand, `emitLamDef` and `emitThunkDef`
+both declare it (every code pointer a closure record can hold must take
+it, whether it reads it or not), and `emitEvWordVal` turns the witness
+`EV_LAMARG` into a retain under bit 0 of that word. The checker names
+the one placeholder an application can witness — `curLamVar`, the
+innermost lambda's own parameter — and records each application's
+argument class on the `E_APP` node for `walkAppChain` to read back
+beside the arguments.
+
+The two together move six of the seven shapes measured that day, at
+`--opt 0` and `--opt 3` alike:
+
+| the shape | before | after |
 |---|---|---|
-| a factory's declared result | the body IS the lambda | `a` — closed |
-| a `let` inside the factory | bound, then returned | **`z`** |
-| an `if` in the factory | returned from an arm | **`z`** |
-| no factory at all | bound and applied in `main` | **`z`** |
-| a declared arrow PARAMETER | passed as an argument | **`z`** |
-| a declared result arrow carrying a TYPE VARIABLE | the body IS the lambda | **`z`** |
+| a factory's declared result — the body IS the lambda | `z` | **`a`** |
+| a `let` inside the factory | `z` | **`a`** |
+| an `if` in the factory | `z` | **`a`** |
+| no factory at all — bound and applied in `main` | `z` | **`a`** |
+| passed to a declared arrow PARAMETER | `z` | **`a`** |
+| forced by a use in its own body before the park | `z` | **`a`** |
+| a declared result arrow carrying a TYPE VARIABLE | `z` | `z` |
 
-The last row is the instructive one, because nothing is wrong with its
-code. `(:: mk (-> Int (-> a Int)))` binds the lambda's parameter to the
-source variable `a`, `evClassOf` answers `2+k`, and the emitted lambda
-loads the evidence word its factory stored in the closure record,
-shifts out bit k and retains under it — the whole chain, correct. It
-under-retains anyway, because `a` appears only in `mk`'s RESULT, so
-nothing at `mk`'s call site witnesses it and `main` passes the constant
-`0`. The value of type `a` does not exist until the closure is applied.
-That is the diagnosis in one line: **the evidence is contributed where
-the closure is BUILT, and the type is not known until it is CALLED.**
+**WHY THE LAST ROW IS STILL OPEN, and it is not the obvious reason.**
+`(:: mk (-> Int (-> a Int)))` emits correctly end to end: `mk` takes
+`%__evw.h`, stores it in the closure record, and the lambda loads it,
+shifts bit k and retains under it. It under-retains anyway, because `a`
+appears only in `mk`'s RESULT, so nothing at MK'S CALL SITE witnesses
+it and the caller passes the constant `0`. The application does know
+the answer — but the parameter is bound to a SOURCE variable, and a
+source variable cannot be identified by NAME the way a minted
+placeholder can: `a` may denote other values in the same body, and
+stamping the application's word onto one of those would be wrong in the
+freeing direction. Closing it needs value identity, not a name match.
 
-Every row is ordinary Axiom that `axiom check` accepts, and every row
-but the first is a silent use-after-free today. **What closes them is
-one rule, not yet written into this document because it is not yet
-implemented: the evidence word contributed at the closure's
-APPLICATION rather than at its construction.** That is one rule for
-both defects the table shows — the rows with no declaration, whose
-parameter classifies `-1`, and the last row, whose parameter classifies
-correctly and is witnessed by nobody. Half the machinery is already
-there: `capFromVec` captures `"__evw."` into the record of any lambda
-whose enclosing function is polymorphic, and the last row's IR proves
-the read end works. What is missing is a word at the call. The sites
-are `emitLamDef` and `emitThunkDef` (the two definitions) and
-`applyOneArg` (the one call), and the change is an ABI one — every
-closure call gains an operand, thunks over named functions included.
+Two more applications still pass `0`, for reasons of their own: the
+**effect-operation path**, whose handler is a runtime load out of the
+evidence slot with no application node to read, and the **outer
+parameter of a curried lambda**, which the parser has already made a
+capture rather than an argument by the time the store runs. Both
+under-retain, which leaks.
+
+**WHAT THIS UNBLOCKS.** The argument half of the closure-reclamation
+design — release a closure's owned argument when the application's
+result class is a word — was refused because the park took no share.
+It now takes one wherever the application classifies its argument, and
+the `__release` probe that read **3** before reads **16** after. The
+rule is therefore available for those applications and still unsound
+for the three above, so a release written without consulting the same
+evidence is the identical use-after-free in a new place.
 
 `tests/stdlib/460-closure-reclaim.ax` pins both halves. **Term 64** is
-the leak half: releasing a closure's argument is unsound while the park
-takes no share, and it does not reach the defect above — its parked
-value is an owned temporary that nothing else releases, and its lambda
-is an argument rather than a declared result, so `checkLamAgainst` does
-not ground it either. **Term 128** is the half that is closed: the
-factory of the table's first row, which read `z` before 2026-08-30 and
-reads `a` after. Reverting `checkLamAgainst`'s third caller strikes out
-term 128 and nothing else — 255 becomes 127.
+the parked argument surviving its application — true by accident
+before, true because the park is counted now. **Term 128** is the
+struct-field factory, `z` before and `a` after. Reverting
+`checkLamAgainst`'s third caller strikes out term 128 and nothing else:
+255 becomes 127.
 
 The share is deliberately **unbalanced**, and cannot be otherwise:
 nothing tells the unsafe layer when a word is overwritten or its block

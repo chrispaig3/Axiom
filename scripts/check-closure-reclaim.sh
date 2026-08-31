@@ -59,35 +59,47 @@
 # fixture exits 127, which is 255 with term 128 struck out and nothing
 # else moved.
 #
-# TERM 64 IS NOT ABOUT THIS FIX. It is about the one that comes next and
-# must not be written as its design says. A closure application still
-# does not release its owned ARGUMENT - 96 bytes an operation - and the
-# design closes it by releasing when the application's RESULT CLASS is a
-# word, on the reasoning that a word answer cannot be the argument.
-# Measured 2026-08-30, that rule is UNSOUND: a lambda that PARKS its
-# argument and answers `0` passes it, and the park takes no share,
-# because `emitLamDef` gives a lifted lambda no evidence parameter and
-# `emitEvwRead` then stamps `__retainref` with the constant 0 - "not a
-# reference" - for a parameter that is one.
+# TERMS 64 AND 128 ARE NOT ABOUT THIS FIX. They are about the store
+# inside a lifted lambda, and both changed meaning on 2026-08-30.
+#
+# A store inside a lifted lambda used to take NO share. `MM-LIFE-2g`'s
+# `__retainref` is stamped from an evidence word, and a lambda had none
+# for its own parameter, so a parked reference sat in the container
+# uncounted. Two consequences, one latent and one live:
+#
+#   TERM 64, latent. A closure application does not release its owned
+#   ARGUMENT - 96 bytes an operation - and the design for closing it
+#   releases when the application's RESULT CLASS is a word. Under an
+#   uncounted park that frees a block the container still points at.
+#   Simulated with `__release` at exactly the point
+#   `emitApplyChainOwned` would emit it, the term read 3 where it must
+#   read 16, so the leak was load-bearing against that release.
+#
+#   TERM 128, live. Event 5 - a struct field overwritten by code that
+#   never heard of the closure - reaches the same block from a frame
+#   the closure never consulted, and answers to nothing. `check`
+#   printed OK and the program read a string allocated after the free.
+#
+# BOTH ARE CLOSED. `checkLamAgainst` binds a declared parameter type
+# instead of a minted placeholder, and a lifted lambda now takes an
+# evidence word for its own argument, passed by the APPLICATION:
 #
 #   in a named `fn`   call @Vec$vecPush(i64 %box, i64 %s, i64 1)
-#   in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 0)
+#   in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 %.t5)
 #
-# So THE LEAK IS LOAD-BEARING against the release a CLOSURE CALL would
-# emit: those two defects cancel, and closing one without the other
-# turns 96 bytes into a use-after-free. Simulated with `__release` at
-# exactly the point `emitApplyChainOwned` would emit it, term 64 reads
-# 3 where it must read 16. That is what the term is here to make
-# impossible to ship quietly.
+# with `%.t5` bit 0 of `%__evwa.h`. The `__release` probe now reads 16
+# against the 3 it read before, so TERM 64 NO LONGER REFUSES THE
+# RELEASE and the argument half is unblocked wherever the application
+# classifies its argument.
 #
-# THE CANCELLATION IS NOT GENERAL, and term 128 is the half that says
-# so. It covers only a release the closure's own call site emits. A
-# release from a DIFFERENT frame - event 5, a struct field overwritten
-# by code that never heard of the closure - reaches the same block and
-# is answerable to nothing. That was a live use-after-free, not a
-# latent one, until `checkLamAgainst` was given its third caller on
-# 2026-08-30, and it remains one for every closure shape that caller
-# does not reach. `docs/memory-model.md` MM-LIFE-2g names them.
+# IT IS NOT UNBLOCKED IN GENERAL. Three applications still pass 0 and
+# still leave the park uncounted: the effect-operation path, whose
+# handler is a runtime load with no application node to read; a lambda
+# whose parameter is bound to a SOURCE type variable; and the outer
+# parameter of a curried lambda, a capture rather than an argument by
+# the time the store runs. `docs/memory-model.md` MM-LIFE-2g names
+# them, and a release written without consulting them is the same
+# use-after-free in a new place.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
@@ -141,7 +153,7 @@ s = open(p).read()
 # instead of - or as well as - these two.
 pairs = [
     ("""(pub fn (emitApplyRegsOwned regs cg rec i recOwned)""", "emitApplyRegsOwned"),
-    ("""(pub fn (emitApplyChainOwned args cg rec i recOwned)""", "emitApplyChainOwned"),
+    ("""(pub fn (emitApplyChainOwned args cg rec i recOwned evs)""", "emitApplyChainOwned"),
 ]
 for head, name in pairs:
     if s.count(head) != 1:

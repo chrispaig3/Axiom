@@ -834,6 +834,18 @@
 ; 2+k the enclosing signature's own variable k. The 0 default is the
 ; safe direction everywhere - a missed bit under-reclaims, a wrong
 ; bit is a use-after-free.
+; The witness for "this lifted lambda's own argument", read at run time
+; out of the evidence word its APPLICATION passes. It is a code in the
+; same small-int space as the others - 0 not a reference, 1 a
+; reference, `2+k` bit k of the enclosing function's word, -1 says
+; nothing - and it is negative so that it cannot collide with a `2+k`
+; for any k. `evMeet` needs no case for it: -1 takes it by the
+; first-set rule, agreement keeps it, and any disagreement collapses to
+; 0, which is exactly right for a lambda applied at two types.
+(pub :: EV_LAMARG Int)
+
+(pub fn (EV_LAMARG) (- 0 2))
+
 (pub :: evClassOf (-> Int Int Int))
 
 (pub fn (evClassOf tc t)
@@ -853,14 +865,27 @@
               )
             )
           )
-          ; a placeholder says NOTHING about the class, and the
-          ; meet must not hear it as "a scalar": inside
+          ; THE INNERMOST LAMBDA'S OWN PARAMETER is the one
+          ; placeholder whose class something will know: not here,
+          ; where the lambda is checked, but at the closure's
+          ; APPLICATION, which is the only place the argument's type
+          ; exists. It answers `EV_LAMARG`, and codegen turns that
+          ; into a retain under bit 0 of the word the application
+          ; passes.
+          ;
+          ; Any OTHER placeholder still says NOTHING about the class,
+          ; and the meet must not hear it as "a scalar": inside
           ; `(fn (singleton x) (PCons x (PNil)))` the `(PNil)`
           ; argument's `(PL _t)` met x's bit k and collapsed the
           ; site to 0, so the cell stored x uncounted with no map
           ; bit while the flow model trusted the store (event 6)
           ; and the caller released the temporary under it
-          (- 0 1)
+          (let ((lv (memGetWord tc 32)))
+            (if (&& (!= lv 0) (strEq (nodeAName t) (cast String lv)))
+              EV_LAMARG
+              (- 0 1)
+            )
+          )
         )
         (if (== tg TAG_T_ARR)
           1
@@ -1912,7 +1937,23 @@
   ; asked at EVERY resolved reference: scanning it there is the O(n^2)
   ; this compiler has already written once. Ask the cheap question
   ; first - `vecLen` of a table that is empty in every program today.
-  (deprecated : Int))
+  (deprecated : Int)
+  ; The NAME of the innermost lambda's parameter placeholder, or 0
+  ; outside a lambda body. `evClassOf` answers `-1` to a minted
+  ; placeholder - "says nothing" - and -1 emits no `__retainref`; this
+  ; is what lets it answer `EV_LAMARG` instead for the one placeholder
+  ; the closure's own application will witness. Saved and restored
+  ; around a lambda body exactly as `lamBase` is, so nesting keeps the
+  ; innermost.
+  ;
+  ; INNERMOST, and only the innermost. `(lambda (a b) ..)` is
+  ; `(lambda (a) (lambda (b) ..))` by the parser, so inside the inner
+  ; lambda `a` is a CAPTURE rather than a parameter, and its evidence
+  ; would have to travel in the closure record under a name the inner
+  ; lambda's own word does not shadow. Until that exists `a` stays -1,
+  ; which under-retains - the leaking direction, and what it already
+  ; did.
+  (curLamVar : Int))
 
 ; The module whose body is being checked, or 0 for the
 ; entry file. A bare reference inside it resolves to
@@ -2369,7 +2410,7 @@
       ; missing every alias, and missing it silently.
       (let ((tc 
         (cast Int (TC
-          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0          0
+          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0          0          0
         ))
       ))
         {
@@ -7343,12 +7384,27 @@
       ; The lambda boundary for `checkSet`: entries below `mark` are
       ; captured (by value, MM-VAL-16), and assigning one is refused.
       ; Saved and restored so nesting keeps the innermost boundary.
-      (let ((savedLB (memGetWord tc 22)))
+      ;
+      ; `curLamVar` rides the same save/restore, and for the same
+      ; reason: it names THIS lambda's parameter placeholder so that
+      ; `evClassOf` can answer `EV_LAMARG` for it, and a nested lambda
+      ; must shadow rather than inherit it. Set only for a
+      ; one-parameter lambda - the parser curries, so that is the
+      ; lifted shape, and a flat multi-parameter spelling would name
+      ; the wrong placeholder.
+      (let ((savedLB (memGetWord tc 22)) (savedLV (memGetWord tc 32)))
         {
           (memSetWord tc 22 mark)
+          (memSetWord
+            tc            32            (if (== (vecLen ptys) 1)
+              (cast Int (nodeAName (vecGet ptys 0)))
+              0
+            )
+          )
           (let ((bodyTy (checkExprH tc (nodeB e) 0)))
             {
               (memSetWord tc 22 savedLB)
+              (memSetWord tc 32 savedLV)
               (scopeTrunc (tcScope tc) mark)
               (if (== (vecLen ptys) 0)
                 (mkTArr mkUnitTy bodyTy)
@@ -7425,9 +7481,19 @@
           )
           ; The lambda boundary for `checkSet`, saved and restored
           ; exactly as `checkLam` does it.
-          (let ((savedLB (memGetWord tc 22)))
+          ;
+          ; `curLamVar` is CLEARED rather than set: this lambda's
+          ; parameter is bound to the type the author wrote, so
+          ; `evClassOf` classifies it directly and there is no
+          ; placeholder to answer `EV_LAMARG` for. Leaving an enclosing
+          ; lambda's name in place would be worse than useless - the
+          ; name would still match that outer placeholder wherever the
+          ; body mentions it, and stamp this lambda's application word
+          ; onto a value the application does not witness.
+          (let ((savedLB (memGetWord tc 22)) (savedLV (memGetWord tc 32)))
             {
               (memSetWord tc 22 mark)
+              (memSetWord tc 32 0)
               (let ((bodyTy
                 (if (== (nodeTag (nodeB e)) TAG_E_LAM)
                   (checkLamAgainst tc (nodeB e) (nodeB arrow))
@@ -7436,6 +7502,7 @@
               ))
                 {
                   (memSetWord tc 22 savedLB)
+                  (memSetWord tc 32 savedLV)
                   (scopeTrunc (tcScope tc) mark)
                   (mkTArr (nodeA arrow) bodyTy)
                 }
@@ -8194,6 +8261,35 @@
                       (let ((argTy (checkExprH tc (nodeB e) 0)))
                         {
                           (evStampFill tc e funcTy argTy)
+                          ; THE CLOSURE-APPLICATION EVIDENCE, recorded on
+                          ; this application node for `walkAppChain` to
+                          ; read back. It answers the one question a call
+                          ; through a code pointer cannot ask a signature:
+                          ; is the word being handed over a reference?
+                          ;
+                          ; Written for every application, and read only
+                          ; for one through a closure - a direct call has
+                          ; `releaseOwnedArgs` and the callee's own
+                          ; declared types, and does not consult it. The
+                          ; node's `ty` slot is free for a `TAG_E_APP`:
+                          ; `resolveStructField` reads it for a field and
+                          ; `emitFnDef` for a declaration, and neither is
+                          ; an application.
+                          ;
+                          ; `EV_LAMARG` and "says nothing" both record 0.
+                          ; The first cannot be forwarded - this frame
+                          ; would have to know the class of a value its
+                          ; own caller has not named - and the second is
+                          ; not knowledge. Both under-retain, which
+                          ; leaks.
+                          (setNodeTy
+                            e                            (let ((c (evClassOf tc argTy)))
+                              (if (< c 0)
+                                0
+                                c
+                              )
+                            )
+                          )
                           (if (== (nodeTag funcTy) TAG_T_ARR)
                             {
                               (if (== (tyCompat argTy (nodeA funcTy)) 0)

@@ -412,7 +412,18 @@
   (tailRetain : Int)
   (pendingOwned : Int)
   (allocaMark : Int)
-  (hoisted : Int))
+  (hoisted : Int)
+  ; The evidence class of each spine argument, pushed in lockstep with
+  ; `argVec` by `walkAppChain` and read back beside it. It exists
+  ; because an application THROUGH A CLOSURE has to tell the callee
+  ; whether the word it is handing over is a reference, and the callee
+  ; is reached through a code pointer - there is no signature to ask.
+  ;
+  ; The checker writes the class onto each `E_APP` node's `ty` slot,
+  ; which is otherwise unused for an application (`resolveStructField`
+  ; reads it for a FIELD, `emitFnDef` for a declaration). Codegen
+  ; cannot compute it: it has no types.
+  (argEv : Int))
 
 ; ------------------------------------------------------------------
 ; Tail-call optimisation, fields 27-31.
@@ -483,7 +494,7 @@
         ts        "None"        TF_DATA        0        1        2        vecNew
       )
       (CG
-        vecNew        0        ""        ts        2        vecNew        vecNew        vecNew        0        ""        vecNew        "entry"        vecNew        vecNew        0        vecNew        vecNew        0        0        vecNew        vecNew        vecNew        0        vecNew        vecNew        0        0        0        vecNew        ""        0        0        vecNew        vecNew        0        vecNew        0        0        vecNew        0        vecNew        vecNew        vecNew        (- 0 1)        vecNew
+        vecNew        0        ""        ts        2        vecNew        vecNew        vecNew        0        ""        vecNew        "entry"        vecNew        vecNew        0        vecNew        vecNew        0        0        vecNew        vecNew        vecNew        0        vecNew        vecNew        0        0        0        vecNew        ""        0        0        vecNew        vecNew        0        vecNew        0        0        vecNew        0        vecNew        vecNew        vecNew        (- 0 1)        vecNew        vecNew
       )
     }
   )
@@ -3284,6 +3295,31 @@
 ; direct param register, or a load when TCO parked it in a slot. A
 ; monomorphic caller answers the constant 0 (unreachable from a
 ; checked stamp; defensive).
+; The LIFTED LAMBDA's own evidence word - what its application passed,
+; not what its enclosing function knows. A body with no such symbol
+; answers the constant 0, which under-retains and therefore leaks; that
+; is the honest answer for a lambda reached without one.
+(pub :: emitEvwaRead (-> Int Int))
+
+(pub fn (emitEvwaRead cg)
+  (let ((symReg (lookupSym cg "__evwa.")))
+    (if (== symReg 0)
+      {
+        (memSetWord cg 2 (constStr 0))
+        cg
+      }
+      {
+        (memSetWord
+          cg          2          (strDup
+            (cast String symReg)
+          )
+        )
+        cg
+      }
+    )
+  )
+)
+
 (pub :: emitEvwRead (-> Int Int))
 
 (pub fn (emitEvwRead cg)
@@ -3340,6 +3376,13 @@
       (mut c 0)
       (mut hasHigh 0)
       (mut hasSym 0)
+      ; A witness of `EV_LAMARG` (-2) is the enclosing LIFTED LAMBDA's
+      ; own argument: its class is not known here and not known where
+      ; the lambda was built, only where the closure was APPLIED. The
+      ; word that application passed is `%__evwa.h`, and bit 0 of it is
+      ; the answer - one bit, because a lifted lambda absorbs exactly
+      ; one argument.
+      (mut hasLam 0)
     )
       {
         (let ((mut i 0))
@@ -3355,14 +3398,19 @@
                     (cast Int v)                    2
                   )
                     (set hasSym 1)
-                    0
+                    (if (==
+                      (cast Int v)                      (- 0 2)
+                    )
+                      (set hasLam 1)
+                      0
+                    )
                   )
                 )
               )
               (set i (+ i 1))
             })
         )
-        (if (&& (== hasSym 0) (== hasHigh 0))
+        (if (&& (== hasLam 0) (&& (== hasSym 0) (== hasHigh 0)))
           {
             (memSetWord cg 2 (constStr c))
             cg
@@ -3378,8 +3426,20 @@
                 (strDup (memGetWordStr cgR 2))
                 ""
               ))
+            )
+            (let ((cgL 
+              (if (== hasLam 1)
+                (emitEvwaRead cgR)
+                cgR
+              )
+            ))
+            (let (
+              (lamSrc (if (== hasLam 1)
+                (strDup (memGetWordStr cgL 2))
+                ""
+              ))
               (mut acc (constStr c))
-              (mut cgX cgR)
+              (mut cgX cgL)
             )
               {
                 (if (== hasHigh 1)
@@ -3436,7 +3496,30 @@
                               )
                             )
                           )
-                          0
+                          (if (== v2 (- 0 2))
+                            (let ((bn3 (allocReg cgX)))
+                              (let ((br3 (regStr bn3)))
+                                (let ((cgB3 (emitLine cgX (cat3 (cat2 "  " br3) " = and i64 " (cat2 lamSrc ", 1")))))
+                                  (let ((sn3 (allocReg cgB3)))
+                                    (let ((sr3 (regStr sn3)))
+                                      (let ((cgS3 (emitLine cgB3 (cat4 (cat3 (cat2 "  " sr3) " = shl i64 " br3) ", " (constStr i2) ""))))
+                                        (let ((on3 (allocReg cgS3)))
+                                          (let ((or3 (regStr on3)))
+                                            {
+                                              (set cgX (emitLine cgS3 (cat4 (cat3 (cat2 "  " or3) " = or i64 " acc) ", " sr3 "")))
+                                              (set acc or3)
+                                              0
+                                            }
+                                          )
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                            0
+                          )
                         )
                       )
                       (set i2 (+ i2 1))
@@ -3445,6 +3528,8 @@
                 (memSetWord cgX 2 acc)
                 cgX
               }
+            )
+            )
             )
           )
         )
@@ -10868,12 +10953,27 @@
       (_5 (memSetWord cg 17 lparams))
       (_6 (memSetWord cg 18 0))
     )
+      ; MM-LIFE-2g: the evidence word for THIS lambda's own argument,
+      ; appended to the rendered parameter list only - the AST param
+      ; vec is untouched, so every arity computation stays blind to it,
+      ; exactly as `emitFnDef` treats `%__evw.h`. It is a DIFFERENT
+      ; symbol from `"__evw."`, which a lambda may also have captured
+      ; from a polymorphic enclosing function: that one carries the
+      ; enclosing function's variables, this one carries the argument
+      ; the application is handing over, and a lambda can need both.
+      ;
+      ; EVERY code pointer a closure record can hold must take it,
+      ; whether it reads it or not - `applyOneArg` passes three
+      ; operands and cannot know which definition it is reaching. That
+      ; is why `emitThunkDef` grows the same parameter.
       (let ((hdr 
         (strConcat
           (cat4
-            "define i64 @"            (strDup lname)            "(i64 %.env"            (if (== (strLen paramStr) 0)
-              ""
-              (cat2 ", " paramStr)
+            "define i64 @"            (strDup lname)            "(i64 %.env"            (cat2
+              (if (== (strLen paramStr) 0)
+                ""
+                (cat2 ", " paramStr)
+              )              ", i64 %__evwa.h"
             )
           )          ") #0 {"
         )
@@ -10888,7 +10988,9 @@
             )
           )
         ))
-          (let ((cg1b cg1))
+          (let ((cg1b (bindSym
+            cg1            "__evwa."            "%__evwa.h"            0            0
+          )))
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
               (let ((cg2 (emitExpr body cg1c)))
                 (let ((ret (cat3 "  ret i64 " (strDup (memGetWordStr cg2 2)) "")))
@@ -10984,7 +11086,12 @@
     (full (vecGetStr (memGetWord cg 23) i))
     (ar (vecGet (memGetWord cg 24) i))
   )
-    (let ((cg1 (emitLine cg (strConcat (cat4 "define i64 @_thunk_" (fmtInt i) "(i64 %.env" (thunkParamStr ar 0)) ") #0 {"))))
+    ; The trailing `%__evwa.h` is IGNORED here and still declared: a
+    ; thunk is reached through the same code pointer a lambda is, and
+    ; `applyOneArg` passes three operands to both. A two-parameter
+    ; definition called with three would leave the callee reading a
+    ; register nobody set.
+    (let ((cg1 (emitLine cg (strConcat (cat4 "define i64 @_thunk_" (fmtInt i) "(i64 %.env" (thunkParamStr ar 0)) ", i64 %__evwa.h) #0 {"))))
       (let ((evTail 
         (if (== (fnTakesEvw cg1 full) 1)
           (if (==
@@ -11948,7 +12055,11 @@
       (memSetWord cg 14 0)
       cg
     }
-    (let ((cgR (applyOneArg cg rec (vecGetStr regs i))))
+    ; 0, and STATED rather than defaulted: the handler here is a
+    ; runtime load out of the effect's evidence slot, so there is no
+    ; application node whose class the checker could have recorded.
+    ; Under-retaining leaks; the alternative would be to guess.
+    (let ((cgR (applyOneArg cg rec (vecGetStr regs i) (constStr 0))))
       (let ((cgD 
         (if (== recOwned 1)
           (emitReleaseOf cgR rec)
@@ -12677,6 +12788,7 @@
 (pub fn (emitApp node cg)
   {
     (memSetWord cg 5 vecNew)
+    (memSetWord cg 45 vecNew)
     (walkAppChain node cg)
   }
 )
@@ -12691,6 +12803,13 @@
   )
     {
       (vecPush (memGetWord cg 5) argNode)
+      ; In LOCKSTEP with the line above, and reversed with it: the
+      ; class the checker recorded for THIS application step, which is
+      ; the only thing that can tell a closure call whether the word it
+      ; passes is a reference. 0 for every node the checker did not
+      ; stamp, which is every application that is not through a closure
+      ; - and 0 is "not a reference", the direction that leaks.
+      (vecPush (memGetWord cg 45) (nodeTy node))
       (if (== (nodeTag fnNode) TAG_E_VAR)
         ; the stamp is snapshotted HERE, validated against the
         ; declaration being emitted, and threaded as a parameter - a
@@ -12716,11 +12835,18 @@
           ; otherwise overwrite the accumulator they live in; and the
           ; tail flag is cleared, because a call through a computed head
           ; is never the self tail call the optimiser rewrites.
-          (let ((args (reverseVec (memGetWord cg 5))))
+          ; The evidence classes are snapshotted HERE, beside the
+          ; arguments and for the identical reason the comment above
+          ; gives for them: lowering the head re-enters `emitApp` and
+          ; resets `argEv`. `((lambda (m) ..) x)` is this branch, and
+          ; it is the shape `tests/stdlib/460-closure-reclaim.ax`
+          ; term 64 is written in - a closure applied where it stands,
+          ; with no name in between.
+          (let ((args (reverseVec (memGetWord cg 5))) (evs (spineEvs cg)))
             {
               (memSetWord cg 30 0)
               (let ((cgH (emitExpr fnNode cg)))
-                (emitApplyChain args cgH (strDup (memGetWordStr cgH 2)) 0)
+                (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs)
               )
             }
           )
@@ -12893,8 +13019,16 @@
 
 ;@axiom:effect(io)
 (pub fn (emitIndirectCall fnName args cg)
-  (let ((cgH (emitVar (mkEVar fnName) cg)))
-    (emitApplyChain args cgH (strDup (memGetWordStr cgH 2)) 0)
+  ; THE SNAPSHOT IS TAKEN HERE, before the head is lowered and before
+  ; any argument is emitted. Both of those re-enter `emitApp`, which
+  ; resets `argEv`; a read after them is a read of somebody else's
+  ; spine. This is the closure path and the only one that has a class
+  ; to pass - a direct call reaches a declaration and does not need
+  ; one.
+  (let ((evs (spineEvs cg)))
+    (let ((cgH (emitVar (mkEVar fnName) cg)))
+      (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs)
+    )
   )
 )
 
@@ -12902,7 +13036,37 @@
 
 ;@axiom:effect(io)
 (pub fn (emitApplyChain args cg rec i)
-  (emitApplyChainOwned args cg rec i 0)
+  (emitApplyChainOwned args cg rec i 0 vecNew)
+)
+
+; The evidence classes for a spine, SNAPSHOTTED before the walk begins
+; and for the same reason the stamp is: emitting an argument re-enters
+; `emitApp`, which resets `argEv`, so a walker that read the stash per
+; step would read the innermost nested application's classes instead of
+; its own. Reversed here because `walkAppChain` pushes outermost-first,
+; exactly as `dispatchCall` reverses `argVec`.
+(pub :: spineEvs (-> Int Int))
+
+(pub fn (spineEvs cg) (reverseVec (memGetWord cg 45)))
+
+; The operand for step `i`: the class the checker recorded, as an LLVM
+; literal. Anything the checker did not classify is 0 - "not a
+; reference" - which under-retains and therefore leaks.
+(pub :: evOperandAt (-> Int Int String))
+
+(pub fn (evOperandAt evs i)
+  (if (>= i (vecLen evs))
+    (constStr 0)
+    (let ((c 
+      (cast Int (vecGet evs i)
+      )
+    ))
+      (if (== c 1)
+        (constStr 1)
+        (constStr 0)
+      )
+    )
+  )
 )
 
 ; `emitApplyRegsOwned`'s rule, for the walker that evaluates each
@@ -12911,30 +13075,31 @@
 ; (`emitApp`'s two-argument operator path, and the partial-application
 ; path that drops the arity prefix) still hand in a record they did
 ; not make, so they start at 0 like everyone else.
-(pub :: emitApplyChainOwned (-> Int Int String Int Int Int))
+(pub :: emitApplyChainOwned (-> Int Int String Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitApplyChainOwned args cg rec i recOwned)
+(pub fn (emitApplyChainOwned args cg rec i recOwned evs)
   (if (>= i (vecLen args))
     {
       (memSetWord cg 2 rec)
       (memSetWord cg 14 0)
       cg
     }
+    (let ((ev (evOperandAt evs i)))
     (let ((cgA (emitExpr (vecGet args i) cg)))
       (let ((a (strDup (memGetWordStr cgA 2))))
-        (let ((cgR (applyOneArg cgA rec a)))
+        (let ((cgR (applyOneArg cgA rec a ev)))
           (let ((cgD 
             (if (== recOwned 1)
               (emitReleaseOf cgR rec)
               cgR
             )
           ))
-            (emitApplyChainOwned args cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1)
+            (emitApplyChainOwned args cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1 evs)
           )
         )
       )
-    )
+    ))
   )
 )
 
@@ -12947,9 +13112,9 @@
 ; before applying it, `emitApplyRegs` takes registers already
 ; evaluated, which is what an effect operation needs so that an
 ; argument's side effects happen before a missing handler traps.
-(pub :: applyOneArg (-> Int String String Int))
+(pub :: applyOneArg (-> Int String String String Int))
 
-(pub fn (applyOneArg cg rec a)
+(pub fn (applyOneArg cg rec a ev)
   (let ((cgL (loadWordAt cg rec 0)))
     (let (
       (cp (strDup (memGetWordStr cgL 2)))
@@ -12962,7 +13127,7 @@
       )
         {
           (emitLine cgL (cat4 (cat2 "  " fp) " = inttoptr i64 " cp " to ptr"))
-          (emitLine cgL (strConcat (cat4 (cat3 (cat2 "  " r) " = call i64 " fp) "(i64 " (strDup rec) (cat2 ", i64 " a)) ")"))
+          (emitLine cgL (strConcat (cat4 (cat3 (cat2 "  " r) " = call i64 " fp) "(i64 " (strDup rec) (cat2 ", i64 " a)) (cat3 (cat2 ", i64 " ev) ")" "")))
           (memSetWord cgL 2 r)
           cgL
         }
@@ -13270,7 +13435,16 @@
           (emitRetainOf cg1 v)
           (if (>= wv 2)
             (emitRetainIfEvBit cg1 v (- wv 2))
-            cg1
+            ; -2 is `EV_LAMARG`: the value is this lifted lambda's own
+            ; argument, whose class only the APPLICATION knows. The
+            ; retain runs under bit 0 of the word the application
+            ; passed. A lambda that has no such word - one reached
+            ; some way that predates this, or a `-1` "says nothing" -
+            ; falls through to `cg1` and emits nothing, which leaks.
+            (if (== wv (- 0 2))
+              (emitRetainIfLamArg cg1 v)
+              cg1
+            )
           )
         )
       ))
@@ -13423,7 +13597,7 @@
               (emitRetainOf cgT f)
             )
           ))
-            (let ((cgA (applyOneArg cgO f (constStr 0))))
+            (let ((cgA (applyOneArg cgO f (constStr 0) (constStr 0))))
               (let (
                 (r (strDup (memGetWordStr cgA 2)))
                 (_20 (emitReleaseOf cgA (strDup f)))
@@ -14981,6 +15155,31 @@
 ; retain V only when bit k of the enclosing evidence word is set -
 ; the conditional twin every symbolic witness needs (a retain on a
 ; non-reference word is a wild count, so the guard is soundness).
+; Retain `v` when bit 0 of THIS lambda's own evidence word is set -
+; the word `applyOneArg` passes and `emitLamDef` declares. Bit 0 and
+; only bit 0: a lifted lambda absorbs exactly one argument, because
+; the parser curries, so there is one class to carry and no index to
+; encode.
+;
+; A body emitted outside a lambda has no such symbol. That cannot
+; happen from `EV_LAMARG`, which `evClassOf` answers only for the
+; innermost lambda's own parameter placeholder, but the constant 0 is
+; the answer if it ever does - the leaking direction.
+(pub :: emitRetainIfLamArg (-> Int String Int))
+
+(pub fn (emitRetainIfLamArg cg v)
+  (let ((symReg (lookupSym cg "__evwa.")))
+    (if (== symReg 0)
+      cg
+      (emitRcIfBitOf
+        cg        v        0        (strDup
+          (cast String symReg)
+        )        1
+      )
+    )
+  )
+)
+
 (pub :: emitRetainIfEvBit (-> Int String Int Int))
 
 (pub fn (emitRetainIfEvBit cg v k)

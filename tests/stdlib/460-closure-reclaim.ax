@@ -23,13 +23,14 @@
 ;    2  a ONE-argument application allocates no intermediate and is
 ;       unchanged: it must not have become a release of a record the
 ;       caller still owns.
-;   64  a parked argument SURVIVES the application, which is what
-;       makes releasing it unsound: the park takes no share, so the
-;       release would free a block the Vec still points at. This term
-;       is about the fix that comes NEXT, and refuses its design.
-;  128  and a park by a lambda whose parameter type the AUTHOR WROTE
-;       does take its share - the other half of the same question,
-;       and a live use-after-free until 2026-08-30.
+;   64  a parked argument SURVIVES the application. It used to survive
+;       by accident - an uncounted park that nothing released - and it
+;       now survives because the park is COUNTED, the lambda taking an
+;       evidence word for its own argument.
+;  128  and a closure over a struct FIELD reads back what it recorded
+;       after the field is overwritten: event 5, a release from a frame
+;       that never heard of the closure. A live use-after-free until
+;       2026-08-30.
 ;    1  every step above ran.
 ;
 ; The bytes are held by scripts/check-closure-reclaim.sh, which
@@ -129,38 +130,41 @@
   )
 )
 
-; THE ARGUMENT HALF IS NOT DONE, AND THIS TERM IS WHY IT MUST NOT BE
-; DONE THE WAY ITS DESIGN SAYS.
+; A PARKED ARGUMENT SURVIVES THE APPLICATION, AND THE REASON CHANGED
+; ON 2026-08-30. The term is the same; what makes it true is not.
 ;
-; A closure application still does not release its owned ARGUMENT - 96
-; bytes an operation, `stdlib/Fallible.ax`'s header carries the number.
-; The design for closing it says: release when the application's RESULT
-; CLASS is a word, because then the closure cannot be answering the
-; argument. That rule is UNSOUND, and this is the program that refutes
-; it.
+; It used to be true BY ACCIDENT. A store inside a lifted lambda took
+; no share - `MM-LIFE-2g`'s `__retainref` is stamped from an evidence
+; word, and a lambda had none for its own parameter - so the box held
+; the String uncounted, and nothing released it either. Two defects
+; cancelling. That is why this term was written: the design for
+; releasing a closure's owned argument fires when the application's
+; RESULT CLASS is a word, `park` answers `0`, and releasing under an
+; uncounted park frees a block the Vec still points at. Measured then,
+; with the release simulated by `__release`: 3, the length of the
+; string allocated into the freed block, where it must read 16.
 ;
-; `park` answers `0`, an Int. Its result class is a word, so the rule
-; fires. But it stores its argument into a `Vec` first, and a store
-; inside a LIFTED LAMBDA takes no share: `MM-LIFE-2g`'s `__retainref`
-; is stamped from the evidence word (`MM-LIFE-2d`), and `emitLamDef`
-; gives a lifted lambda no evidence parameter, so `emitEvwRead` falls
-; back to the constant 0 - "not a reference" - for a parameter that is
-; one. Measured, one program containing the same `vecPush s` twice:
+; It is now true BECAUSE THE PARK IS COUNTED. A lifted lambda takes an
+; evidence word for its own argument, passed by the APPLICATION, and
+; the same program shows both readings:
 ;
 ;   in a named `fn`   call @Vec$vecPush(i64 %box, i64 %s, i64 1)
-;   in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 0)
+;   in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 %.t5)
 ;
-; So the box holds the String uncounted. Release the argument and the
-; block files to its size class, the next `strConcat` pops it back, and
-; the Vec's element points at someone else's header. Measured with the
-; release simulated by `__release`: this term reads 3 - the length of
-; the string allocated after it - where it must read 16.
+; where `%.t5` is bit 0 of `%__evwa.h`. The same `__release` probe now
+; reads 16 against the 3 it read before, so THIS TERM NO LONGER REFUSES
+; THE RELEASE, and the argument half is unblocked for every application
+; that classifies its argument.
 ;
-; THE LEAK IS LOAD-BEARING. Today the two defects cancel: the park
-; takes no share, and nothing ever releases the argument, so the box's
-; element stays alive by accident. Closing the leak without first
-; giving lifted lambdas an evidence word turns 96 bytes into a
-; use-after-free. This term goes red the moment that happens.
+; IT DOES NOT UNBLOCK THE RELEASE IN GENERAL, which is the part a
+; reader must not skip. An application that cannot classify its
+; argument still passes 0, the park is still uncounted, and releasing
+; would still free live memory. Three of those remain: the effect
+; operation path, whose handler is a runtime load with no application
+; node to read; a lambda whose parameter is bound to a SOURCE type
+; variable; and the outer parameter of a curried lambda, which is a
+; capture rather than an argument by the time the store happens.
+; `docs/memory-model.md` MM-LIFE-2g names them.
 (:: parked (-> Int Int))
 
 (fn (parked box)
@@ -177,12 +181,13 @@
   }
 )
 
-; TERM 128 IS TERM 64'S OPPOSITE HALF, and the two are worth reading
-; together. Term 64 says a park inside a lifted lambda takes NO share,
-; which is why releasing the argument would free live memory. This one
-; says that when the lambda's parameter type is one the AUTHOR WROTE,
-; the share IS taken - and until 2026-08-30 it was not, which was a
-; live use-after-free rather than a leak.
+; TERM 128 IS THE OTHER FRAME'S RELEASE, and it is worth reading beside
+; term 64. Term 64 releases the argument from the application's own
+; frame; this one never touches the closure at all - a struct field is
+; simply overwritten by code that has no idea a closure is holding its
+; old value. That is event 5, and an uncounted park has no answer to
+; it. Until 2026-08-30 this was a live use-after-free rather than a
+; leak.
 ;
 ; `mkLogger` is a factory: it answers a lambda that records what it is
 ; given. `main` hands it a struct FIELD's value, then overwrites the
@@ -194,9 +199,13 @@
 ; recorded. No `cast`, no `__load64`, no header arithmetic, and
 ; `axiom check` printed OK.
 ;
-; What closes it is that `checkLamAgainst` now binds the lambda's
-; parameter to the DECLARED `String` instead of a minted placeholder,
-; so `evClassOf` answers 1 rather than -1 and `__retainref` is emitted.
+; Two changes close it, and this shape is reached by the first alone.
+; `checkLamAgainst` binds the lambda's parameter to the DECLARED
+; `String` instead of a minted placeholder, so `evClassOf` answers 1
+; rather than -1 and `__retainref` is emitted. The evidence word then
+; closes the five shapes that have no declaration to bind - a lambda in
+; a `let`, out of an `if`, applied with no declaration anywhere, passed
+; to a declared arrow parameter, or forced by a use in its own body.
 ; The same program with a named `fn` in place of the lambda was always
 ; correct, which is the whole diagnosis in one substitution.
 (struct Session
