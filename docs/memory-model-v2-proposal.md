@@ -417,10 +417,60 @@ refusals, joining `foreign`, `union`, `region`, `linear` and `consume`.
 (§0.3's first kind — nothing about this form ever shipped correctly),
 closing the "appears in no column" defect §9 currently records.
 
-**Cost.** A parser/checker refusal, mechanically identical to the
+**Cost — the sentence below was wrong, and this is the correction.**
+It said: "A parser/checker refusal, mechanically identical to the
 `linear`/`consume` refusal added 2026-08-25. No runtime, no codegen
-change. The corpus population of the unsafe shape is already
-documented as zero (`MM-VAL-21`'s own text).
+change. The corpus population of the unsafe shape is already documented
+as zero (`MM-VAL-21`'s own text)."
+
+**The population is not zero and never was.** Measured 2026-08-31:
+
+```
+$ grep -rn '(alloc ' --include='*.ax' . | grep -v ':[0-9]*: *;'
+tests/diagnostics/330-axtag-mismatch.ax:10:    (alloc Int 1)
+tests/diagnostics/340-axtag-pure-io.ax:7:    (alloc Int 1)
+tests/diagnostics/341-axtag-above-signature.ax:23:    (alloc Int 1)
+tests/diagnostics/372-restrict-no-alloc.ax:22:  (let ((p (alloc Int 1)))
+tests/diagnostics/377-restrict-witness-path.ax:67:  (let ((p (alloc Int 1)))
+tests/diagnostics/377-restrict-witness-path.ax:81:  (let ((p (alloc Int 1)))
+tests/fmt/syntax-zoo.ax:180,181,271                (three)
+tests/fmt/syntax-zoo.expected.ax:220,221,328       (three)
+tests/selfhost/730-struct-con-expr.ax:30:    (z (cast Int (alloc Int 8)))
+```
+
+Fourteen hits, and the fourteenth is the interesting one. Thirteen are
+`(alloc ...)` expressions in eight corpus files, across four gates
+(`check-diagnostics`, `check-fmt`, `check-restrictions`,
+`check-self-host`). The last, `self_host/format.ax:3629`, is not a use
+site: it is the FORMATTER's printer for the form. `axiom fmt` has its
+own grammar, so refusing `alloc` in the parser leaves a printer that
+still knows how to write it, and `tests/fmt/syntax-zoo.ax` — six of the
+thirteen — is the fixture that would then be unformattable rather than
+merely unacceptable. This is not staleness: `git grep -c '(alloc ' 6cfa571`
+returns the same nine files, so the claim was already false on the
+commit this document was written against. It was inherited verbatim
+from `MM-VAL-21`, whose own `doc-gate:negative-exempt` comment says the
+quiet part — "a population count, not an existence claim. What
+falsifies it is any .ax file spelling the form ... The honest probe is
+a corpus counter, which this gate does not have yet." Nobody ran one.
+
+**And the cost is worse than the count.** `(alloc T)` is one of only two
+forms that introduce `Alloc` **at the site** rather than through a call
+(`self_host/typecheck.ax`'s own table: `(alloc T)`, and a `handle`
+naming a resolved custom effect). `tests/diagnostics/372-restrict-no-alloc.ax`
+exists to distinguish those two routes — its `direct` case is there
+precisely because "`(alloc T n)` adds `Alloc` at the site rather than
+through a call" — and refusing the form deletes the only cheap way to
+write that case. So P1 is not the cheapest proposal here; it is a
+refusal plus a fourteen-site migration plus the loss of a diagnostic
+capability with no stated replacement.
+
+**Status: NOT TAKEN, 2026-08-31**, and the reason is worth more than the
+implementation would have been. Re-scope it as: (a) decide what replaces
+`alloc` as the site-level `Alloc` witness, (b) migrate the fourteen
+sites, (c) then refuse. The `MM-VAL-21` corpus counter the doc-gate
+comment asks for should land first, so that this number is a gate rather
+than a paragraph.
 
 **Gate (once built).** A diagnostics fixture named for the rule it pins, mirroring
 `495-widthless-types.ax`'s shape: assert `AX2004` on `(alloc T)` and on
@@ -436,15 +486,58 @@ today's compiler and pass only once the refusal lands.
 diagnostic if one exists), the same closure `linear`/`consume` already
 received. `docs/reference.md`'s AXTAG table drops the row.
 
-**Cost.** Near zero — the tag is parsed and currently ignored;
-refusing it is a lookup-table change in whatever validates AXTAG keys.
+**Cost — there is no lookup table, and the namespace is open by an
+explicit decision.** Measured 2026-08-31: the string `owned` does not
+appear anywhere in `self_host/` or `stdlib/` in an AXTAG sense
+(`grep -rn '\bowned\b' self_host/*.ax stdlib/*.ax` finds only
+`codegen.ax`'s ownership-inference prose). `owned(...)` is not an
+accepted key; it is an **unknown** key, and unknown keys are accepted on
+purpose. `AX3039`'s own explain text states the policy:
+
+> The AXTAG key namespace is OPEN on purpose: a key the compiler does
+> not know is metadata, it is recorded, and nothing checks it.
+
+and `AX3052`'s contrasts it deliberately — "the list of restrictions is
+CLOSED ... deliberately unlike AX3039, which warns about a key one slip
+from a known one and leaves the key namespace open." So refusing
+`owned(...)` is not a table edit. It is closing one name in an
+intentionally open namespace, which needs a blocklist the compiler does
+not have and a reason that does not equally apply to `no_refactor`, the
+other unenforced key in the same documented table.
+
+**The defect is real and it is documentation.** `docs/reference.md`'s
+*Common AXTAG Keys* table lists `owned(arena=frame)` beside `pure` and
+`effect(io)` — the two keys that ARE checked — which is exactly the
+"reads like a guarantee and buys silence" failure `AX3039` was written
+to name, committed by the reference manual rather than by a program.
+Both `(alloc T)` payloads measured on this build still check `OK`, so
+§2.4's observation stands; what does not stand is its proposed remedy.
+
+**Status: NOT TAKEN as written, 2026-08-31.** Re-scope it as a
+`docs/reference.md` edit (drop the row, or move both unenforced keys to
+a clearly-labelled "recorded, never checked" list), and, if a refusal is
+still wanted afterwards, as a decision about whether the AXTAG key
+namespace stays open at all — which is a language decision with
+`agent:*` and every user's own metadata downstream of it, not a
+lookup-table change.
 
 **Gate.** A diagnostics fixture asserting the refusal on both a
 well-formed (`arena=frame`) and garbage (`nonsense=whatever`) payload.
 Ablate by re-accepting it and confirming both are silently accepted
 (measured above on this build).
 
-### P3 — Fix the duplicate rule identifiers
+### P3 — Fix the duplicate rule identifiers  — **BUILT 2026-08-31**
+
+**There were three, not two.** The grep this proposal asks for, run
+before any edit, found `MM-ALLOC-17` defined twice as well — a **W**
+rule (the implicit per-activation arena, 2026-08-14) and an **H** rule
+(a trap may abort to a mark, 2026-08-25) — which §9's own admission had
+never noticed. That is the argument for the gate, made by the gate
+before it was written down. All three pairs moved the later,
+lower-cited member: `MM-VAL-22`, `MM-VAL-23`, `MM-ALLOC-23`. The check
+is `check-doc-drift.sh` section 8, floor 200, 274 definitions today;
+ablated against `docs/memory-model.md` at `9116167`, it prints three
+FAIL lines and exits 1.
 
 **What.** Renumber §3.5's `MM-LIFE-2e`/`MM-LIFE-2f` (the `cast`/typed-
 accessor pair, one citation each) to fresh identifiers — e.g.
@@ -465,7 +558,14 @@ document's own §9 admission that the duplicate exists is the only
 thing catching it.
 
 ### P4 — Retire `MM-ALLOC-8`'s replaceable-allocator seam from Planned
-to Refused
+to Refused  — **BUILT 2026-08-31**
+
+Done as specified. `MM-ALLOC-8` is **R**, §9's Planned column is
+`ALLOC-20` alone, and `MM-ALLOC-22`'s "one refusal survives" exception
+went with it — that rule's **MUST NOT** is now unconditional.
+`AX3026`'s explain text, which told a reader the seam was "re-decided
+with the reclamation work", says the decision instead
+(`tests/tools/explain.golden`).
 
 **What.** `MM-ALLOC-8` (a program-supplied `axiom_alloc` seam) has been
 **P** since before the arena was chosen as the strategy, and its own
@@ -486,7 +586,26 @@ P6 and P7 included) still needs.
 claim. If a future revision wants it back, it re-enters as a fresh **P**
 rule with its own acceptance criteria, per §0.1.
 
-### P5 — Trap on an invalid arena-mark reset (MM-ALLOC-16a: SHOULD → MUST)
+### P5 — Trap on an invalid arena-mark reset (MM-ALLOC-16a: SHOULD → MUST)  — **BUILT 2026-08-31**
+
+Done as specified, with one correction to the gate this section asks
+for. **"Reset the same mark twice" cannot trap, and must not.** Measured
+before implementing: after the first reset `@__axiom_chunk` IS the
+marked chunk, so `@__axiom_arena_reset_fn` takes its equal-chunk fast
+path and the unwind walk — where `%ranout` lives — is never entered.
+`emitArenaHelpers`'s own comment states this as a design property ("the
+cell ... sits below its own waterline: a reset never reclaims it, so
+the same mark can be reset twice"). A fixture asserting a trap there
+would have been asserting against the design, so
+`tests/stdlib/166-arena-bad-mark.ax` asserts the **silence** instead,
+beside the legal nested shape, and traps only on the inner-after-outer
+shape `MM-ALLOC-16a` actually names.
+
+The cost was A/B'd, not assumed: with the split branch
+2.146/2.142/2.517/3.012 µs per reset, with the merged one
+2.849/2.200 µs, two interleaving sets on a loaded machine — the
+benchmark takes the equal-chunk fast path, whose emitted IR is
+byte-identical either way.
 
 **What.** In `@__axiom_arena_reset_fn` (`self_host/codegen.ax:8396`–
 `8452`), branch on `%reached` specifically — not the merged `%stop` —
@@ -678,18 +797,23 @@ whole withdrawal history first.
 
 | # | Proposal | Deletes / Adds | Cost | Status if built |
 |---|---|---|---|---|
-| P1 | Refuse `alloc`/`*mut T` | deletes MM-VAL-21's gap | near zero | closes a defect §9 already lists |
-| P2 | Refuse `owned(...)` AXTAG | deletes a silent-accept | near zero | closes a documented-inert surface |
-| P3 | Renumber the duplicate rule pair | fixes §0.1 violation | doc-only | closes a self-admitted defect |
-| P4 | `MM-ALLOC-8`: P → R | deletes a stale Planned row | doc-only | shrinks Planned to just ALLOC-20 |
-| P5 | Trap on invalid mark reset | turns SHOULD into MUST | small, re-measure | I8 becomes enforced |
+| P1 | Refuse `alloc`/`*mut T` | deletes MM-VAL-21's gap | ~~near zero~~ **14 sites, 4 gates, and the only site-level `Alloc` witness** | **NOT TAKEN** — the zero-population premise is false and was false at `6cfa571` |
+| P2 | Refuse `owned(...)` AXTAG | deletes a silent-accept | ~~near zero~~ **closes a deliberately open namespace** | **NOT TAKEN as written** — no lookup table exists; the defect is `docs/reference.md`'s table |
+| P3 | Renumber the duplicate rule pair | fixes §0.1 violation | doc-only + a new gate | **BUILT** — three pairs, not two; `check-doc-drift` section 8 |
+| P4 | `MM-ALLOC-8`: P → R | deletes a stale Planned row | doc-only | **BUILT** — Planned is `ALLOC-20` alone |
+| P5 | Trap on invalid mark reset | turns SHOULD into MUST | one branch, measured at zero | **BUILT** — status 75, `tests/stdlib/166-arena-bad-mark.ax` |
 | P6 | Ownership-aware Mut/Alloc | precision, not new rules | medium, pass-order risk | closes the real ERR-ADOPT-1 blocker |
 | P7 | Uncurry closures | deletes EV_LAMARG-by-depth, event 5b | large, own milestone | removes the bug class outright |
 | P8 | Reframe the narrative | zero rule changes | doc-only | model reads as one thing |
 
-P1–P4 are buildable this week at near-zero cost and directly close gaps
-this specification already names as defects. P5 is a same-scale,
-concrete safety win with a precise, cited change site. P6 and P8 are
+P3–P5 were built on 2026-08-31. P1 and P2 were not, and the reason in
+both cases is the one this document already learned from P7: a scoping
+sentence that nobody re-ran. Three of this document's eight proposals
+rested on a measurement that did not survive being taken again — P1's
+"corpus population is zero", P2's "a lookup-table change", and P7's
+"zero partially-applied lambdas" — which is a property of the document,
+not of the tree, and the reader's rule for the remaining proposals
+should be to re-run before believing. P6 and P8 are
 where "ergonomic" and "coherent" actually live, and both are honestly
 priced as harder than they look. P7 is the one structural change that
 would make the model feel designed rather than inherited — and the

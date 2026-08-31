@@ -83,6 +83,18 @@
 #      `CONTRIBUTING.md` for a sentence CONTRIBUTING.md never held, and
 #      no check above could see it: they resolve paths, and the path
 #      existed.
+#
+#   8  NO RULE IDENTIFIER IS DEFINED TWICE. `memory-model.md` 0.1 says a
+#      rule id is "never renamed, never reused", and on 2026-08-31 three
+#      of them were: two `MM-LIFE-2e`, two `MM-LIFE-2f`, two
+#      `MM-ALLOC-17`. The document's own section 9 admitted the first
+#      pair and declined to repair it; nothing at all knew about the
+#      third, which had sat there since 2026-08-25 with a W rule and an
+#      H rule answering to one number. A duplicate id is worse than a
+#      typo: every citation resolves by number, so half of them point at
+#      the wrong rule and no reader can tell which half. This is the
+#      cheapest possible check for it and it found a defect the prose
+#      had not.
 # ---------------------------------------------------------------------
 set -uo pipefail
 
@@ -1167,10 +1179,79 @@ sys.exit(1 if bad else 0)
 PY
 [[ $? -eq 0 ]] || failed=$((failed+1))
 
+# ---------------------------------------------------------------
+# 8. no rule identifier is defined twice
+# ---------------------------------------------------------------
+# A rule is DEFINED by a line-start bold identifier - `**MM-ALLOC-16a
+# (H).**`, `**ERR-REC-6 (H).**`, `**MAC-CAP-10.3 - ...**` - and the
+# fifteen memory-model invariants by their table row, `| **I8** |`.
+# Every other appearance of an id is a citation, which is supposed to
+# repeat.
+#
+# THE FLOOR IS WHAT KEEPS THIS FROM GOING VACUOUS. A regex that stopped
+# matching would find no duplicates and report success, which is this
+# repository's most common defect. 274 definitions on 2026-08-31 across
+# three documents; the floor is 200, low enough that ordinary editing
+# does not trip it and high enough that a broken pattern cannot pass.
+#
+# THE ABLATION, run 2026-08-31 against `docs/memory-model.md` as it
+# stood at `9116167`, before the renumbering:
+#
+#     FAIL rules: docs/memory-model.md defines `MM-ALLOC-17` 2 times ...
+#     FAIL rules: docs/memory-model.md defines `MM-LIFE-2e` 2 times ...
+#     FAIL rules: docs/memory-model.md defines `MM-LIFE-2f` 2 times ...
+#
+# and the section exits 1. It is green only against the repaired
+# document.
+echo "== documents: no rule identifier is defined twice =="
+if ! python3 - $(gate_prose_docs) <<'RULEIDS'
+import collections, os, re, sys
+
+# `MM-ALLOC-16a`, `ERR-REC-6`, `MAC-CAP-10.3` - two or more
+# dash-separated upper-case segments, then a number, then an optional
+# dotted sub-number and an optional letter suffix. The dotted form is
+# load-bearing: without it `MAC-CAP-10.1` through `10.6` all truncate to
+# `MAC-CAP-10` and this check invents six duplicates that do not exist.
+RULE = re.compile(r"^\*\*(?P<id>[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+-[0-9]+(?:\.[0-9]+)*[a-z]?)\b", re.M)
+# The memory model's invariants live in a table, not in prose headers.
+INV = re.compile(r"^\| \*\*(?P<id>I[0-9]+)\*\*", re.M)
+
+bad = 0
+total = 0
+for doc in sys.argv[1:]:
+    if not os.path.exists(doc):
+        print(f"FAIL rules: {doc} is in the prose-document list and does not exist")
+        bad += 1
+        continue
+    text = open(doc, encoding="utf-8").read()
+    where = collections.defaultdict(list)
+    for pat in (RULE, INV):
+        for m in pat.finditer(text):
+            where[m.group("id")].append(text.count("\n", 0, m.start()) + 1)
+    total += sum(len(v) for v in where.values())
+    for rid, lines in sorted(where.items()):
+        if len(lines) > 1:
+            print(f"FAIL rules: {doc} defines `{rid}` {len(lines)} times, at lines "
+                  f"{', '.join(str(n) for n in lines)} - a rule id is never reused "
+                  f"(memory-model.md 0.1), and every citation of it resolves to "
+                  f"whichever definition the reader happens to find first")
+            bad += 1
+if total < 200:
+    print(f"FAIL rules: only {total} rule definitions found across the prose documents; "
+          f"the floor is 200 (274 on 2026-08-31). The pattern has stopped matching, and "
+          f"a pattern that matches nothing finds no duplicates")
+    bad += 1
+elif not bad:
+    print(f"ok   {total} rule definitions, each identifier defined exactly once")
+sys.exit(1 if bad else 0)
+RULEIDS
+then failed=$((failed+1)); fi
+
 echo
 if (( failed )); then
   echo "check-doc-drift: $failed section(s) failed"
   exit 1
 fi
 echo "check-doc-drift: registry, counts, status rows, fixture paths, case"
-echo "                 numbering, the diagnostic showcase and the target list all agree with the tree"
+echo "                 numbering, the diagnostic showcase, the target list and the"
+echo "                 rule-identifier namespace all agree with the tree"

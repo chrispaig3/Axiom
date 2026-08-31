@@ -16,6 +16,56 @@ its changelog too.
 
 ## Unreleased
 
+### Memory model v2, proposals 3, 4 and 5
+
+`docs/memory-model-v2-proposal.md` landed in 0.6.0 as a document. Three
+of its eight proposals are now implemented; two were dropped because
+re-measuring their premises against the merged tree falsified them, and
+that is recorded in the proposal itself.
+
+- **P5 — an invalid arena-mark reset traps (`MM-ALLOC-16a`: SHOULD ->
+  MUST).** `@__axiom_arena_reset_fn`'s unwind walk computed two reasons
+  to stop — the marked chunk found, and the walk falling off the active
+  chunk list without finding it — and merged them into one branch, so
+  the second restored an allocator position describing memory the
+  allocator no longer owned. It now traps: `axiom: arena reset to an
+  invalid mark` on fd 2 and exit **75**, a fourth member of the family
+  70/71/72 open (`emitBadMarkTrap`). Gated by
+  `tests/stdlib/166-arena-bad-mark.ax`, whose first two blocks pin the
+  legal shapes that must stay silent — nested marks reset innermost
+  first, and the same mark reset twice. Ablated by restoring the merged
+  branch: the fixture then prints `UNREACHABLE: the invalid reset was
+  accepted` and a value read out of a chunk the same call had freed.
+  The cost was A/B'd rather than assumed —
+  `scripts/check-arena-reset-rate.sh`, alternating two compilers one
+  branch apart: 2.146/2.142/2.517/3.012 µs with the split against
+  2.849/2.200 µs without, two interleaving sets, because the
+  equal-chunk fast path the benchmark takes is byte-identical in the
+  emitted IR.
+
+- **P3 — three reused rule identifiers, repaired, and a gate that
+  refuses a fourth.** `docs/memory-model.md` §0.1 says a rule id is
+  "never renamed, never reused"; three were. §9 admitted two of them
+  (`MM-LIFE-2e`, `MM-LIFE-2f`) and declined to repair them; nothing knew
+  about the third, `MM-ALLOC-17`, a **W** rule and an **H** rule sharing
+  one number since 2026-08-25. The lower-cited and later member of each
+  pair moved — `MM-VAL-22`, `MM-VAL-23`, `MM-ALLOC-23` — and
+  `scripts/check-doc-drift.sh` gained a section that refuses a rule
+  header defined twice, with a floor of 200 definitions so a regex that
+  stops matching fails rather than passes. 274 definitions across three
+  documents today. Ablated against `docs/memory-model.md` at `9116167`:
+  three FAIL lines, exit 1.
+
+- **P4 — `MM-ALLOC-8`'s replaceable-allocator seam moves from Planned to
+  Refused.** It had been **P** since before the arena was chosen as the
+  reclamation strategy, and its own text conceded that building it
+  "would be re-decided against" the release path. A program that wants
+  control over reclamation has `MM-ALLOC-22`'s three primitives; a
+  second, independent allocator identity underneath them is a different,
+  unspecified feature, and §9's Planned column is now `ALLOC-20` alone.
+  `AX3026`'s explain text, which cited the rule as undecided, says so
+  too (`tests/tools/explain.golden`).
+
 ## 0.6.0 — 2026-08-31
 
 - **KNOWN ISSUE: module resolution matches case-insensitively on macOS, so

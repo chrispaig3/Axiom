@@ -1481,14 +1481,14 @@ you.** Making all fourteen concrete produces 1,223 type errors, and
 writing `(cast T ...)` at each site fixes every one of them - while
 classifying that value's evidence 0, which suppresses its retain where
 the parameter is a type variable and its release where it is concrete.
-Measured both ways in [memory-model.md](memory-model.md) MM-LIFE-2e.
+Measured both ways in [memory-model.md](memory-model.md) MM-VAL-22.
 That would have traded a type-system unsoundness for a memory-model
 regression, 1,223 times, in silence.
 
 The vehicle that works is a **typed accessor**: the cast goes at a
 RETURN, inside a function whose declared type carries the truth, so
 callers see that type and the evidence word is computed from it
-(MM-LIFE-2f). Each raw reader was split into the word and a view -
+(MM-VAL-23). Each raw reader was split into the word and a view -
 `nodeA`/`nodeAName`, `memGetWord`/`memGetWordStr`,
 `vecGet`/`vecGetStr` - and the call sites renamed, driven by the
 compiler's own `AX3004`s and verified one flip at a time.
@@ -2889,7 +2889,7 @@ as before. Points nest and an abort takes the innermost armed one.
 The abort restores the stack pointer, resets the arena to `mark`, and
 restores every evidence slot — that last one is why this is sound where
 calling `__axiom_arena_reset` by hand across a live `handle` is not
-(`memory-model.md` `MM-ALLOC-16b`, `MM-ALLOC-17`). Nothing runs on the
+(`memory-model.md` `MM-ALLOC-16b`, `MM-ALLOC-23`). Nothing runs on the
 way out: there are no destructors to call and no landing pads. It is not
 a `catch` and cannot contain a memory-safety fault — a SIGSEGV is not a
 trap and asks nothing. `error-model.md` `ERR-REC-6` states the whole

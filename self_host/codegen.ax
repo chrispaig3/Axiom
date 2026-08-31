@@ -7543,6 +7543,7 @@
     (emitLine cg "}")
     (emitLine cg "")
     (emitArenaHelpers cg)
+    (emitBadMarkTrap cg)
     (emitDivTrap cg)
     (emitOomTrap cg)
     (emitRecoverRuntime cg)
@@ -7869,6 +7870,47 @@
     (emitRuntimeWrite cg "%dzp" "24")
     (emitLine cg "  call void @__axiom_backtrace()")
     (emitRuntimeExit cg "72")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  }
+)
+
+; ------------------------------------------------------------------
+; MM-ALLOC-16a's trap: status 75, `__axiom_arena_reset` handed a mark
+; whose chunk is no longer on the active list.
+;
+; The fourth member of the family `emitDivTrap` opened for 72,
+; `emitOomTrap` joined for 70 and `emitUnhandledTrap` for 71, emitted
+; the same way: a private constant whose declared length is the
+; message's byte count EXACTLY - 38, counting the trailing newline,
+; because llc believes the declared length and a wrong one truncates
+; the sentence or writes bytes past it.
+;
+; IT DOES NOT ARM `__axiom_recover_abort`, and that is the one place
+; it departs from its three siblings. A recovery point's abort IS an
+; arena reset (`emitPrimRecover` calls `@__axiom_arena_reset_fn` on the
+; arming mark, `MM-ALLOC-23`), so answering an invalid reset by
+; performing another reset asks the corrupted structure the same
+; question again. By the time this is reached the unwind walk has
+; already pushed every chunk it passed onto the free list looking for
+; a chunk that was not there, so the list an abort would reset through
+; is exactly the one that just proved untrustworthy. 70, 71 and 72 are
+; conditions a program can be written to survive; this one is a
+; violation of `I8`, and `docs/error-model.md`'s recovery table names
+; three statuses, not four.
+(pub :: emitBadMarkTrap (-> Int Int))
+
+(pub fn (emitBadMarkTrap cg)
+  {
+    (emitLine cg "")
+    (emitLine cg "@__axiom_badmark_msg = private unnamed_addr constant [38 x i8] c\"axiom: arena reset to an invalid mark\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_bad_mark() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %bmp = ptrtoint ptr @__axiom_badmark_msg to i64")
+    (emitRuntimeWrite cg "%bmp" "38")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "75")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     cg
@@ -8427,12 +8469,48 @@
     ; now, so it goes back on the free list. The marked chunk is then
     ; dirty from the restored waterline to its end - it was abandoned
     ; because it filled up - and saying so is one store.
+    ;
+    ; MM-ALLOC-16a, ENFORCED. The walk has two ways to stop and they
+    ; mean opposite things. `%reached` is the marked chunk still being
+    ; on the active list, which is the whole point of the walk.
+    ; `%ranout` is falling off the end of that list WITHOUT finding it -
+    ; the mark's chunk was already returned to the free list by an
+    ; outer reset, so the saved bump/end/chunk triple describes memory
+    ; the allocator no longer owns.
+    ;
+    ; Until 2026-08-31 both merged into one `%stop` and both fell
+    ; through to `tail`/`restore`, which restored that stale triple
+    ; unconditionally. Measured on this build before the split, with
+    ; the shape `MM-ALLOC-16a` names - mark outer, allocate past a
+    ; chunk boundary, mark inner, reset outer, reset inner:
+    ;
+    ;     111
+    ;     987654321
+    ;     exit 0
+    ;
+    ; - a program that read and wrote a chunk this very call had just
+    ; pushed onto the free list, and said nothing. The specification
+    ; said "the implementation does not trap, and a conforming
+    ; implementation SHOULD". It does now, and the SHOULD is a MUST.
+    ;
+    ; The two comparisons are the same two; only the merge is gone, so
+    ; the loop's per-iteration work does not grow. What this DOES NOT
+    ; catch is resetting the same mark twice: after the first reset
+    ; `@__axiom_chunk` IS `%schunk`, so `%same` takes the fast path
+    ; above and the walk is never entered - which is the documented
+    ; design (the mark cell sits below its own waterline precisely so
+    ; that a mark can be reset twice), not an escape.
+    ; `tests/stdlib/166-arena-bad-mark.ax` pins both halves.
     (emitLine cg "unwind:")
     (emitLine cg "  %c = phi i64 [ %chead, %resetbody ], [ %cnext, %unwind_body ]")
     (emitLine cg "  %reached = icmp eq i64 %c, %schunk")
+    (emitLine cg "  br i1 %reached, label %tail, label %unwind_live")
+    (emitLine cg "unwind_live:")
     (emitLine cg "  %ranout = icmp eq i64 %c, 0")
-    (emitLine cg "  %stop = or i1 %reached, %ranout")
-    (emitLine cg "  br i1 %stop, label %tail, label %unwind_body")
+    (emitLine cg "  br i1 %ranout, label %badmark, label %unwind_body")
+    (emitLine cg "badmark:")
+    (emitLine cg "  call i64 @__axiom_bad_mark()")
+    (emitLine cg "  unreachable")
     (emitLine cg "unwind_body:")
     (emitLine cg "  %clink = add i64 %c, 8")
     (emitLine cg "  %clinkp = inttoptr i64 %clink to ptr")

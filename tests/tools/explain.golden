@@ -632,8 +632,11 @@ any of the names is two definitions of one symbol.
 Before this refusal that program passed `check` and died in `opt`
 with `invalid redefinition of function 'axiom_alloc'` - the
 documented "override seam" that never worked. The seam does not
-exist; whether it should is re-decided with the reclamation work.
-See docs/memory-model.md MM-ALLOC-8.
+exist and is not planned: MM-ALLOC-8 moved from Planned to REFUSED on
+2026-08-31, because a program that wants control over reclamation has
+the arena primitives (MM-ALLOC-22) and a second allocator identity
+underneath them is an unspecified feature. See docs/memory-model.md
+MM-ALLOC-8.
 
 Only an entry-file definition collides: a module's declaration is
 mangled to `Mod$axiom_alloc`, a different symbol.
