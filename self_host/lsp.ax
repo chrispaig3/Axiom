@@ -2580,7 +2580,8 @@
 )
 
 ; ==================================================================
-; SECTION NAV: references, rename, document highlights, local bindings
+; SECTION NAV: references, rename, document highlights, local
+; bindings, declarations, call hierarchy
 ; ==================================================================
 ; WHAT THIS SECTION KNOWS that the four original questions do not: what
 ; a NAME REFERS TO. `definition` and `hover` answered from the
@@ -2610,6 +2611,18 @@
 ; Two occurrences are the same name iff their keys are equal, which is
 ; the whole of what `references`, `documentHighlight`, `prepareRename`
 ; and `rename` ask.
+;
+; TWO MORE QUESTIONS ARE PROJECTIONS OF THE SAME WALK, and they sit at
+; the end of this section rather than beside `definition` because they
+; need what it knows. `textDocument/declaration` answers the `(:: f
+; T)` where `definition` answers the `(fn (f x) ...)` - a distinction
+; this language HAS and most do not - and asks the walk first, because
+; a local is declared by being bound. The three call-hierarchy
+; requests intersect this walk's occurrences with the head positions
+; `lspChHeads` finds in the bytes: an occurrence that resolved to a
+; top-level name AND stands first inside a `(` is a call, which is why
+; `(fn (apply k v) (k v))` reports no edge to a top-level `k` and
+; `(fn (handoff z) helper)` is not one of `helper`'s callers.
 ;
 ; WHAT IT COSTS: one parse, one line index, one walk that is linear in
 ; the tree. Resolution is a scope STACK - a Vec of (name, key) pairs
@@ -5080,11 +5093,726 @@
 )
 
 ; ------------------------------------------------------------------
+; `textDocument/declaration`: the SIGNATURE, where the language has
+; one to point at.
+;
+; This is not a synonym for `definition` in Axiom, and that is the
+; whole reason it exists. A function is written twice - `(:: f (-> Int
+; Int))` declares it and `(fn (f x) ...)` defines it - and the parser
+; keeps both, as TAG_D_SIG and TAG_D_FN nodes carrying their own name
+; spans. So `definition` lands on the `fn` (`lspFindDecl` skips
+; TAG_D_SIG deliberately, and its comment says why) and `declaration`
+; lands on the `::` above it. In C that distinction is a header and a
+; translation unit; here it is two lines of one file, and no other
+; request in this server answers it.
+;
+; THE LOOKUP ORDER IS `definition`'S, with one step inserted, because
+; the order is the language's scoping rule and not a preference:
+;
+;   1. A LOCAL BINDING - a `let`, a parameter, a pattern variable.
+;      A local is declared by being bound, so its declaration IS its
+;      definition and this answers exactly what `definition` does.
+;   2. THIS DOCUMENT'S `(:: name T)`, last one winning, which is
+;      `lspFindSig`'s rule and `lspFindDecl`'s.
+;   3. THIS DOCUMENT'S declaration of that name - a `fn` with no
+;      signature, a `data`, a `struct`, a macro. None of those is
+;      written twice, so the declaration is the definition and this
+;      answers what `definition` answers. Step 3 must come before any
+;      imported lookup: a module's own declaration shadows an imported
+;      one.
+;   4. THE IMPORTED MODULES, signature first and declaration second,
+;      resolved the way `lspDefinitionImported` resolves them.
+;
+; WHAT THAT MAKES TRUE, and it is the property the gate checks: this
+; request answers null exactly where `definition` answers null, and
+; differs from it exactly on the names that carry a `(:: ...)`.
+;
+; ONE CASE WHERE IT ANSWERS AND `definition` DOES NOT: a signature
+; with no `fn` under it - a half-written declaration, or one whose
+; body is still to come. There IS a declaration there, so saying where
+; it is beats saying nothing.
+(pub :: lspDeclaration (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspDeclaration src uri params)
+  (let ((decls (lspNavParse src)))
+    (if (== decls 0)
+      jsonNull
+      (let ((ix (lspLineIndex src)))
+        (let ((off (lspOffsetOf src ix (jsonGet params "position"))))
+          (let ((w (lspWordAt src off)))
+            (if (== (strLen w) 0)
+              jsonNull
+              (let ((loc (lspNavLocalDefinition src uri ix decls off)))
+                (if (!= loc 0)
+                  loc
+                  (let ((s (lspFindSig decls w (- (vecLen decls) 1))))
+                    (if (!= s 0)
+                      (lspNavLocOf uri src (nodeSpan s))
+                      (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
+                        (if (!= d 0)
+                          (lspNavLocOf uri src (nodeSpan d))
+                          (lspDeclarationImported (lspUriToPath uri) src decls w)
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; A Location, from a uri and a span into that uri's own text.
+(pub :: lspNavLocOf (-> String String Int Int))
+
+(pub fn (lspNavLocOf uri src span) (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRange src span)))
+
+; Steps 4 and 5, over the merged list `resolveImports` answers: the
+; signature the declaring module wrote, else its declaration. The
+; comparison is against `bareOf`, because an imported name is mangled
+; (`Vec$vecPush`) and `resolveImports` mangles a signature and its
+; definition the same way.
+(pub :: lspDeclarationImported (-> String String Int String Int))
+
+;@axiom:effect(io)
+(pub fn (lspDeclarationImported path src decls w)
+  (let ((r (lspResolveFor path src decls)))
+    (if (== r 0)
+      jsonNull
+      (let (
+        (allDecls (memGetWord r 0))
+        (units (memGetWord r 1))
+      )
+        (let ((s (lspFindImportedSig allDecls w (- (vecLen allDecls) 1))))
+          (if (!= s 0)
+            (lspUnitLocation units s)
+            (lspUnitLocation units (lspFindImported allDecls w (- (vecLen allDecls) 1)))
+          )
+        )
+      )
+    )
+  )
+)
+
+; The Location of an imported declaration, in the file that declares
+; it: the unit table says which file, and the span indexes that file's
+; bytes rather than this document's. 0 for "no declaration", and a
+; declaration the resolver did not attribute to a unit, which is what
+; `lspUnitOf`'s -1 means.
+(pub :: lspUnitLocation (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspUnitLocation units d)
+  (if (== d 0)
+    jsonNull
+    (let ((u (lspUnitOf units (nodeModule d))))
+      (if (< u 0)
+        jsonNull
+        (let ((unit (vecGet units u)))
+          (lspNavLocOf (lspPathToUri (memGetWordStr unit 0)) (memGetWordStr unit 1) (nodeSpan d))
+        )
+      )
+    )
+  )
+)
+
+; The last `(:: name T)` the MERGED list carries for `name`, under a
+; bare comparison - `lspFindSig` with `lspFindImported`'s two rules.
+(pub :: lspFindImportedSig (-> Int String Int Int))
+
+(pub fn (lspFindImportedSig decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_SIG) (&& (!= (nodeModule d) 0) (&& (strEq (bareOf (nodeAName d)) name) (!= (nodeSpan d) 0))))
+        d
+        (lspFindImportedSig decls name (- i 1))
+      )
+    )
+  )
+)
+
+; The last top-level `fn` this list declares under `name`. Call
+; hierarchy asks about functions and nothing else - a `data`, a
+; `struct` and a macro have no body to call out of - so this is
+; `lspFindDecl` narrowed to TAG_D_FN.
+(pub :: lspFindFn (-> Int String Int Int))
+
+(pub fn (lspFindFn decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0)))
+        d
+        (lspFindFn decls name (- i 1))
+      )
+    )
+  )
+)
+
+(pub :: lspFindImportedFn (-> Int String Int Int))
+
+(pub fn (lspFindImportedFn decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (&& (!= (nodeModule d) 0) (&& (strEq (bareOf (nodeAName d)) name) (!= (nodeSpan d) 0))))
+        d
+        (lspFindImportedFn decls name (- i 1))
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; CALL HIERARCHY: `textDocument/prepareCallHierarchy`,
+; `callHierarchy/incomingCalls` and `callHierarchy/outgoingCalls`.
+;
+; WHAT A CALL SITE IS HERE, and it is the whole of the design: an
+; occurrence that this section's walk already resolved to a top-level
+; name, standing in the HEAD position of a form. Two questions, two
+; existing answers, intersected by byte offset:
+;
+;   * WHAT DOES THIS NAME MEAN - `lspNavOccurrences`, the walk
+;     `references` and `rename` are projections of. It follows the
+;     language's scoping, so `(fn (apply k v) (k v))` does not report
+;     a call to a top-level `k`: the head's key is `@<offset>`, a
+;     local binder, and locals are dropped. It also gives the OWNER of
+;     every occurrence - the top-level declaration it sits in - which
+;     is the caller side of every edge below, for free.
+;   * IS IT A HEAD - `lspChHeads`, one linear scan of the bytes
+;     recording the first identifier after each `(`, with the scanner
+;     `lspFormEnd` uses so that a `(` inside a string, a char literal
+;     or a comment opens nothing. `(cons f g)` therefore names `f` and
+;     `g` and calls neither, which is what `#effects=` on a naming
+;     function had to learn separately (`effIsPossible`).
+;
+; WHY NOT `symbols --calls`. That key exists and this does not use it.
+; It is the CHECKER's edge set, harvested from the effect walk's
+; `FnEnt` word 7, so it costs a full typecheck and - the part that
+; settles it - it is a set of NAMES with no positions in it at all.
+; `CallHierarchyIncomingCall.fromRanges` is required by the protocol
+; and is a list of ranges, so the tree would have had to be walked for
+; them anyway; and a request an editor makes while someone reads code
+; should not run the checker (MAC-TOOL-3). The two answers agree on
+; what an edge is where they overlap, and this one is a strict subset:
+; naming a function without applying it is an edge to the effect walk
+; and is not a call here.
+;
+; WHAT IS DELIBERATELY NOT ANSWERED, because answering it would mean
+; guessing:
+;
+;   * PREPARE OVER AN IMPORTED NAME is null. The two requests that
+;     follow carry the ITEM and nothing else, so the server must be
+;     able to reach the item's document from the item's uri alone -
+;     true for a document the editor has open, and not true for a
+;     module it resolved once from a document it is no longer told
+;     about. Go to the definition first and ask there.
+;   * AN ITEM WHOSE DOCUMENT IS NOT OPEN is null, and null rather
+;     than `[]`: `[]` says "this function has no callers", which is a
+;     claim, and a server that cannot read the file has not earned it.
+;   * A CALLEE THAT IS NOT A `fn` this server can point at - a
+;     builtin, an operator, a constructor - is left out of the
+;     outgoing list rather than given an item with nowhere to jump.
+;
+; INCOMING CALLS READ THE OPEN DOCUMENTS AND NOTHING ELSE, which is
+; `references`'s rule and for its reason: the store is the workspace.
+; `lspNavImporters` says which of them import the item's file, and a
+; document that declares the name itself shadows the import, so its
+; sites are not the item's - the key is `?name` in an importer and
+; `name` in the item's own document, and that difference is the test.
+; ------------------------------------------------------------------
+; Every offset at which an identifier stands FIRST inside a `(`, as
+; the bucket table `lspNavLocalIndexHas` reads.
+;
+; One pass, the scanner `lspFormEnd` uses. `pending` survives a
+; comment, because `(  ; why\n  f x)` still has `f` as its head, and
+; survives blank space for the same reason; every other byte clears
+; it, so the `1` of `(1 2)` and the `(` of `((g 1) 2)` are not heads.
+(pub :: lspChHeads (-> String Int))
+
+(pub fn (lspChHeads src)
+  (let ((offs (lspChHeadOffsets src)))
+    (let (
+      (nb (fnIdxBuckets (vecLen offs)))
+      (bs vecNew)
+      (mut i 0)
+    )
+      {
+        (while (< i nb)
+          {
+            (vecPush bs 0)
+            (set i (+ i 1))
+          })
+        (set i 0)
+        (while (< i (vecLen offs))
+          {
+            (lspNavIntPut bs (vecGet offs i))
+            (set i (+ i 1))
+          })
+        bs
+      }
+    )
+  )
+)
+
+(pub :: lspChHeadOffsets (-> String Int))
+
+(pub fn (lspChHeadOffsets src)
+  (let (
+    (n (strLen src))
+    (out vecNew)
+    (mut i 0)
+    (mut pending 0)
+  )
+    {
+      (while (< i n)
+        (let ((ch (strByte src i)))
+          (if (== ch 34)
+            {
+              (set pending 0)
+              (set i (skipStringBody src (+ i 1) n))
+            }
+            (if (isIdentStart ch)
+              {
+                (if (== pending 1)
+                  (vecPush out i)
+                  0
+                )
+                (set pending 0)
+                (set i (skipIdent src (+ i 1) n))
+              }
+              (if (== ch 39)
+                {
+                  (set pending 0)
+                  (set i (skipCharBody src (+ i 1) n))
+                }
+                (if (&& (== ch 35) (isBlockOpen src i n))
+                  (set i (skipBlockComment src (+ i 2) n))
+                  (if (== ch 59)
+                    (set i (findNewline src i n))
+                    {
+                      (if (== ch 40)
+                        (set pending 1)
+                        (if (lspIsSpace ch)
+                          0
+                          (set pending 0)
+                        )
+                      )
+                      (set i (+ i 1))
+                    }
+                  )
+                )
+              )
+            )
+          )
+        ))
+      out
+    }
+  )
+)
+
+; Whether a key names something a call can reach: a top-level
+; declaration of this document, or a name this document does not
+; declare (imported, or a builtin). A constructor key carries `#` and
+; is not one - `(Just x)` in a pattern is a head and destructures
+; rather than calls - and a local key is not one either.
+(pub :: lspChCallable (-> String Bool))
+
+(pub fn (lspChCallable key)
+  (if (== (strLen key) 0)
+    false
+    (if (== (strByte key 0) 63)
+      true
+      (if (lspNavIsTop key)
+        (< (strFindByte key 35 0) 0)
+        false
+      )
+    )
+  )
+)
+
+; Every call site in one document, as the occurrence records
+; themselves - word 0 the callee's bare name, word 1 its span, word 5
+; the caller.
+(pub :: lspChSites (-> String Int Int))
+
+(pub fn (lspChSites src decls)
+  (let (
+    (occs (lspNavOccurrences src decls))
+    (heads (lspChHeads src))
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen occs))
+        (let ((o (vecGet occs i)))
+          {
+            (if (&& (== (memGetWord o 2) NAV_READ) (&& (!= (memGetWord o 1) 0) (&& (lspNavLocalIndexHas heads (spanStart (memGetWord o 1))) (lspChCallable (memGetWordStr o 3)))))
+              (vecPush out o)
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; A CallHierarchyItem for declaration `d` of `src`, at `uri`.
+;
+; `selectionRange` is the name, exactly as the outline publishes it,
+; and `range` is the whole form - from the `(` that opens it to its
+; matching `)`, both found by the scanner every other bracket question
+; here uses. The protocol requires the second to contain the first,
+; and a form contains its own name.
+(pub :: lspChItem (-> String Int String Int Int))
+
+(pub fn (lspChItem src ix uri d)
+  (let ((fs (lspFormStart src (spanStart (nodeSpan d)))))
+    (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (bareOf (nodeAName d)))) "kind" (jsonNum 12)) "uri" (jsonStr uri)) "range" (lspRangeIx src ix (mkSpan fs (lspFormEnd src fs)))) "selectionRange" (lspRangeIx src ix (nodeSpan d)))
+  )
+)
+
+; `textDocument/prepareCallHierarchy`: the one item a hierarchy can be
+; rooted at here - the top-level `fn` the cursor names, in THIS
+; document. A local, a `data`, a `struct`, a macro, an imported name
+; and a document that does not parse are all null, which is the
+; protocol's "nothing here".
+(pub :: lspPrepareCallHierarchy (-> String String Int Int))
+
+(pub fn (lspPrepareCallHierarchy src uri params)
+  (let ((decls (lspNavParse src)))
+    (if (== decls 0)
+      jsonNull
+      (let ((ix (lspLineIndex src)))
+        (let ((off (lspOffsetOf src ix (jsonGet params "position"))))
+          (let ((w (lspWordAt src off)))
+            (if (== (strLen w) 0)
+              jsonNull
+              (if (!= (lspNavLocalDefinition src uri ix decls off) 0)
+                jsonNull
+                (let ((d (lspFindFn decls w (- (vecLen decls) 1))))
+                  (if (== d 0)
+                    jsonNull
+                    (jsonArrPush jsonArr (lspChItem src ix uri d))
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The item a hierarchy request carries, as (uri, name), and the checks
+; both requests share: the document must be open, must parse, and must
+; declare `name` as a `fn`. Answers 0 when any of those fails, and
+; every caller turns that into null.
+(pub :: lspChSubject (-> Int Int Int Int))
+
+(pub fn (lspChSubject params uris texts)
+  (let ((item (jsonGet params "item")))
+    (let (
+      (uri (jsonGetStr item "uri"))
+      (name (jsonGetStr item "name"))
+    )
+      (let ((src (docText uris texts uri)))
+        (if (|| (== (strLen src) 0) (== (strLen name) 0))
+          0
+          (let ((decls (lspNavParse src)))
+            (if (== decls 0)
+              0
+              (let ((d (lspFindFn decls name (- (vecLen decls) 1))))
+                (if (== d 0)
+                  0
+                  (let ((r (memAlloc 40)))
+                    {
+                      (memSetWord r 0 uri)
+                      (memSetWord r 1 name)
+                      (memSetWord r 2 src)
+                      (memSetWord r 3 decls)
+                      (memSetWord r 4 d)
+                      r
+                    }
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; `callHierarchy/incomingCalls`: who calls this function.
+(pub :: lspIncomingCalls (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspIncomingCalls params uris texts)
+  (let ((s (lspChSubject params uris texts)))
+    (if (== s 0)
+      jsonNull
+      (let (
+        (uri (memGetWordStr s 0))
+        (name (memGetWordStr s 1))
+        (out jsonArr)
+      )
+        {
+          (lspChIncomingIn out uri (memGetWordStr s 2) (memGetWord s 3) name 0)
+          (lspChIncomingImporters out uri name uris texts)
+          out
+        }
+      )
+    )
+  )
+)
+
+; The callers inside ONE document. `foreign` is 0 for the item's own
+; document, where a call to it resolves to the key `name`, and 1 for a
+; document that imports it, where it resolves to `?name` - a document
+; that declares its own `name` shadows the import and its sites belong
+; to that declaration instead, which is exactly what the key says.
+(pub :: lspChIncomingIn (-> Int String String Int String Int Int))
+
+(pub fn (lspChIncomingIn out ouri osrc odecls name foreign)
+  (let (
+    (want
+      (if (== foreign 1)
+        (strConcat "?" name)
+        name
+      )
+    )
+    (oix (lspLineIndex osrc))
+    (sites (lspChSites osrc odecls))
+    (owners vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen sites))
+        (let ((o (vecGet sites i)))
+          {
+            (if (&& (strEq (memGetWordStr o 0) name) (strEq (memGetWordStr o 3) want))
+              (lspChGroupPush owners (memGetWordStr o 5) (memGetWord o 1))
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      (set i 0)
+      (while (< i (vecLen owners))
+        (let ((g (vecGet owners i)))
+          {
+            (let ((d (lspFindFn odecls (memGetWordStr g 0) (- (vecLen odecls) 1))))
+              (if (== d 0)
+                0
+                (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "from" (lspChItem osrc oix ouri d)) "fromRanges" (lspChRanges osrc oix (memGetWord g 1))))
+              )
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; The same, over every OPEN document that imports the item's file.
+(pub :: lspChIncomingImporters (-> Int String String Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspChIncomingImporters out uri name uris texts)
+  (let (
+    (imps (lspNavImporters uri uris texts))
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen imps))
+        (let ((pair (vecGet imps i)))
+          {
+            (lspChIncomingIn out (vecGetStr uris (memGetWord pair 0)) (vecGetStr texts (memGetWord pair 0)) (memGetWord pair 1) name 1)
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; A grouping table: a Vec of (key, Vec of spans) pairs, in first-seen
+; order. The protocol's shape is one entry per caller (or callee) with
+; every range under it, and a client that received the same function
+; twice would draw it twice.
+(pub :: lspChGroupPush (-> Int String Int Int))
+
+(pub fn (lspChGroupPush groups key span)
+  (let (
+    (n (vecLen groups))
+    (mut i 0)
+    (mut at (- 0 1))
+  )
+    {
+      (while (< i n)
+        {
+          (if (strEq (memGetWordStr (vecGet groups i) 0) key)
+            {
+              (set at i)
+              (set i n)
+            }
+            (set i (+ i 1))
+          )
+        })
+      (if (>= at 0)
+        (vecPush (memGetWord (vecGet groups at) 1) span)
+        (let ((g (memAlloc 16)))
+          {
+            (memSetWord g 0 key)
+            (memSetWord g 1 vecNew)
+            (vecPush (memGetWord g 1) span)
+            (vecPush groups g)
+            0
+          }
+        )
+      )
+      0
+    }
+  )
+)
+
+; A Vec of spans as a JSON array of Ranges into `src`.
+(pub :: lspChRanges (-> String Int Int Int))
+
+(pub fn (lspChRanges src ix spans)
+  (let (
+    (out jsonArr)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen spans))
+        {
+          (jsonArrPush out (lspRangeIx src ix (vecGet spans i)))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; `callHierarchy/outgoingCalls`: what this function calls.
+;
+; A callee this document declares is answered from this document; one
+; it imports is answered from the module that declares it, resolved
+; the way `lspDefinitionImported` resolves it - and paid for ONCE, on
+; the first callee that needs it, rather than per callee.
+(pub :: lspOutgoingCalls (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspOutgoingCalls params uris texts)
+  (let ((s (lspChSubject params uris texts)))
+    (if (== s 0)
+      jsonNull
+      (let (
+        (uri (memGetWordStr s 0))
+        (name (memGetWordStr s 1))
+        (src (memGetWordStr s 2))
+        (decls (memGetWord s 3))
+      )
+        (let (
+          (ix (lspLineIndex src))
+          (sites (lspChSites src decls))
+          (groups vecNew)
+          (out jsonArr)
+          (mut i 0)
+          (mut r (- 0 1))
+        )
+          {
+            (while (< i (vecLen sites))
+              (let ((o (vecGet sites i)))
+                {
+                  (if (strEq (memGetWordStr o 5) name)
+                    (lspChGroupPush groups (memGetWordStr o 0) (memGetWord o 1))
+                    0
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            (set i 0)
+            (while (< i (vecLen groups))
+              (let ((g (vecGet groups i)))
+                {
+                  (let ((d (lspFindFn decls (memGetWordStr g 0) (- (vecLen decls) 1))))
+                    (if (!= d 0)
+                      (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "to" (lspChItem src ix uri d)) "fromRanges" (lspChRanges src ix (memGetWord g 1))))
+                      {
+                        (if (< r 0)
+                          (set r (lspResolveFor (lspUriToPath uri) src decls))
+                          0
+                        )
+                        (if (<= r 0)
+                          0
+                          (let ((item (lspChImportedItem r (memGetWordStr g 0))))
+                            (if (== item 0)
+                              0
+                              (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "to" item) "fromRanges" (lspChRanges src ix (memGetWord g 1))))
+                            )
+                          )
+                        )
+                      }
+                    )
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            out
+          }
+        )
+      )
+    )
+  )
+)
+
+; The item for a callee an imported module declares, out of a resolved
+; `lspResolveFor` result: 0 when no module declares it as a `fn`, or
+; when the resolver did not attribute the declaration to a unit.
+(pub :: lspChImportedItem (-> Int String Int))
+
+;@axiom:effect(io)
+(pub fn (lspChImportedItem r name)
+  (let (
+    (allDecls (memGetWord r 0))
+    (units (memGetWord r 1))
+  )
+    (let ((d (lspFindImportedFn allDecls name (- (vecLen allDecls) 1))))
+      (if (== d 0)
+        0
+        (let ((u (lspUnitOf units (nodeModule d))))
+          (if (< u 0)
+            0
+            (let ((unit (vecGet units u)))
+              (lspChItem (memGetWordStr unit 1) (lspLineIndex (memGetWordStr unit 1)) (lspPathToUri (memGetWordStr unit 0)) d)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
 ; The section's three answers to the extension door.
 ; ------------------------------------------------------------------
 (pub :: lspNavHandles (-> String Bool))
 
-(pub fn (lspNavHandles method) (|| (strEq method "textDocument/references") (|| (strEq method "textDocument/documentHighlight") (|| (strEq method "textDocument/prepareRename") (strEq method "textDocument/rename")))))
+(pub fn (lspNavHandles method) (|| (strEq method "textDocument/references") (|| (strEq method "textDocument/documentHighlight") (|| (strEq method "textDocument/prepareRename") (|| (strEq method "textDocument/rename") (|| (strEq method "textDocument/declaration") (|| (strEq method "textDocument/prepareCallHierarchy") (|| (strEq method "callHierarchy/incomingCalls") (strEq method "callHierarchy/outgoingCalls")))))))))
 
 (pub :: lspNavDispatch (-> String Int Int Int Int Int))
 
@@ -5102,7 +5830,23 @@
           (lspReply id (lspPrepareRename src params))
           (if (strEq method "textDocument/rename")
             (lspReply id (lspRename src uri params uris texts))
-            (lspError id (- 0 32601) (strConcat "method not found: " method))
+            (if (strEq method "textDocument/declaration")
+              (lspReply id (lspDeclaration src uri params))
+              (if (strEq method "textDocument/prepareCallHierarchy")
+                (lspReply id (lspPrepareCallHierarchy src uri params))
+                ; The two hierarchy requests carry an ITEM and no
+                ; `textDocument`, so `uri` and `src` above are empty
+                ; for them and neither is read: the document is the
+                ; one the item names.
+                (if (strEq method "callHierarchy/incomingCalls")
+                  (lspReply id (lspIncomingCalls params uris texts))
+                  (if (strEq method "callHierarchy/outgoingCalls")
+                    (lspReply id (lspOutgoingCalls params uris texts))
+                    (lspError id (- 0 32601) (strConcat "method not found: " method))
+                  )
+                )
+              )
+            )
           )
         )
       )
@@ -5115,7 +5859,7 @@
 ; rename box on a name this server will refuse to rename.
 (pub :: lspNavCaps (-> Int Int))
 
-(pub fn (lspNavCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut caps "referencesProvider" (jsonBool 1)) "documentHighlightProvider" (jsonBool 1)) "renameProvider" (jsonObjPut jsonObj "prepareProvider" (jsonBool 1))))
+(pub fn (lspNavCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "referencesProvider" (jsonBool 1)) "documentHighlightProvider" (jsonBool 1)) "renameProvider" (jsonObjPut jsonObj "prepareProvider" (jsonBool 1))) "declarationProvider" (jsonBool 1)) "callHierarchyProvider" (jsonBool 1)))
 
 ; ==================================================================
 ; END SECTION NAV
@@ -10771,12 +11515,30 @@
 
 ; A struct's `(name : Type)` fields, one per line - or `(name)`, the
 ; parser's own spelling of a field with no type, when the tree holds
-; none. That is every field of a GENERATED struct, measured: the
-; expander's `expBuildStructFieldsIn` substitutes the parsed field's
-; slot `b` as its type, and the parser keeps the float FLAG there with
-; the type in `ty`, so the product carries 0 in both. The checker
-; reads a 0 as the wildcard; `(name)` parses back to the same
-; wildcard, where `{unknown}` parses to nothing.
+; none.
+;
+; THE SECOND ARM IS NO LONGER WHAT A GENERATED STRUCT LOOKS LIKE, and
+; this paragraph said it was until 2026-08-31, which is the opposite
+; of what the code below has done since the expander was fixed: it
+; branches on `lspTyKnown (nodeTy f)`, and a generated field now has
+; a type to know. `expBuildStructFieldsIn` used to substitute the
+; parsed field's slot `b` as the type, where the parser keeps the
+; float FLAG and not the type, so every generated field carried 0 and
+; printed bare; that was an expander defect and it was fixed - the
+; section header above records it among what this printer cannot
+; write, correctly.
+;
+; MEASURED over a real JSON-RPC pipe, 2026-08-31: `axiom/expandMacro`
+; at an invocation of a macro whose template is `(pub struct
+; (syntax/join Pair T) (left : Int) (right : Int))` answers
+;
+;     (pub struct PairColour
+;       (left : Int)
+;       (right : Int))
+;
+; The bare arm survives for a field whose type really is 0. The
+; checker reads a 0 as the wildcard, and `(name)` parses back to the
+; same wildcard where `{unknown}` parses to nothing.
 (pub :: lspRenderFields (-> Int Int String))
 
 (pub fn (lspRenderFields fields ind)
