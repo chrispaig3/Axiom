@@ -338,6 +338,7 @@ written by hand and nothing compared it to the workflow.
 | Script | Why it is not a CI step |
 |---|---|
 | `bench-compile.sh` | prints where a compile spends its time. A profile, not an assertion |
+| `run-gates-linux.sh` | the same battery, the same scripts, on LINUX, before CI sees them. The local battery is darwin-only, which is how two Linux-only gate defects landed in two days — `check-thread-local.sh` asserting a Darwin fact as universal, and `check-steady-state.sh`'s symmetric band, which Darwin's 16 KiB stability never reached. Neither was a defect in the target. Copies the tree into the container rather than bind-mounting it, because `gate_init` bootstraps into `$repo_root/.axiom-bin` and a Linux binary left there breaks the next darwin run. Not a gate: it asserts nothing and `run-gates.sh` does not call it |
 | `bench-datastructures.sh` | prints `Vec`, `Map` and `Intern` against the Rust equivalents. `--check` enforces the roadmap's "within 2×" criterion; unconditionally, a wall-clock threshold on a shared runner is a flaky test |
 | `measure-memory-baseline.sh` | prints the before/after numbers the memory-model schedule is driven by |
 | `reseed.sh` | a maintenance tool rather than a gate: it regenerates `bootstrap/` with a generator built from the committed seed - never from a compiler of unrecorded ancestry - and appends the link to `bootstrap/CHAIN`; when the committed seed cannot compile the tree it stops and says so, and `--bridge` records the link as one that still needs certifying |

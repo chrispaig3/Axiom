@@ -16,6 +16,57 @@ its changelog too.
 
 ## Unreleased
 
+- **The gate battery can be run on Linux from a Mac, before CI sees
+  it** — `scripts/run-gates-linux.sh`, the same battery and the same
+  scripts inside a container. This is the feedback-loop repair the two
+  entries below are symptoms of: both were gates written and validated
+  on darwin, where the local battery runs, going green on the machine
+  that wrote them and red on a leg that had never seen them. Neither
+  was a defect in the target.
+  It **copies** the tree into the container and mounts the repo
+  read-only, which is the one decision worth reading: `gate_init`
+  bootstraps a compiler into `$repo_root/.axiom-bin` when it finds
+  none, so a writable bind mount would leave a *Linux* binary in the
+  checkout and the next darwin gate to reuse it would fail for reasons
+  unrelated to the change under test. Defaults to the host's native
+  architecture — `linux-aarch64` on Apple Silicon, at full speed;
+  `--arch amd64` runs `linux-x86_64` emulated and says so, that being
+  the leg both defects came from. A missing container runtime is an
+  error with install instructions, not a silent skip. Not a gate: it
+  asserts nothing about the tree and `run-gates.sh` does not glob it.
+  **What is verified and what is not:** argument handling, every exit
+  path, the runtime-absent message, the image-tag hash, and the tar
+  copy exercised against the real repo (`.git` and `.axiom-bin`
+  excluded, exec bits preserved). The in-container run itself is
+  **unexercised** — no container runtime is installed on the machine
+  this was written on, and the header does not claim otherwise.
+
+- **`check-steady-state.sh` failed a run whose memory went DOWN.** The
+  plateau arm compared `|b - a|` against a 256 KiB band, so a fall past
+  the band failed exactly as growth did. It fired on trunk, on the
+  linux-x86_64 leg: `aggregate/owning moved 1460 -> 1196 KiB over ten
+  times the work - that is not a plateau` — 264 KiB apart, **eight past
+  the band, in the shrinking direction**.
+  The number being compared is `ru_maxrss`, a high-water mark taken
+  from two separate process lifetimes. It cannot fall because the
+  program held less live data at 100× the work; only because the
+  runtime, the loader or the allocator touched fewer pages that time. A
+  leak has no way to express itself as a smaller peak, so the symmetric
+  band was testing a property the gate's own subject does not imply.
+  The band is directional now: growth past it fails, a fall past it is
+  **reported and not hidden** — a drop that large is worth a reader's
+  eye even though it is not this gate's subject. Nothing weakens.
+  Memory that is merely large is still caught by the 4096 KiB ceiling,
+  the ablated twins by the ratio arms, and both ablations recorded at
+  the bottom of that file grow (2,928 → 17,008 → 157,616 KiB for one),
+  so every FAIL line they are documented as producing is still
+  produced. Boundary-checked at ±256 and ±257 either way.
+  **That is the second Linux-only gate defect in two days**, after
+  `check-thread-local.sh` asserted a Darwin fact as a universal one.
+  Neither was a defect in the target: both were gates written and
+  validated on darwin, where the local battery runs, going green on the
+  machine that wrote them and red on the leg that had never seen them.
+
 - **`linux-x86_64` is no longer a release artifact, and is still a
   supported target.** Those are two axes, not one, and until now the
   project only had a word for the first. `release.yml` builds

@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# RUN THE GATE BATTERY ON LINUX, FROM A MAC, BEFORE CI DOES.
+#
+# WHY THIS EXISTS, and it is not "for completeness". The local battery
+# is darwin-only, so a gate can be written, validated and landed by a
+# developer whose machine never exercises the assumption it encodes.
+# Twice in two days that is exactly what shipped, and neither time was
+# the TARGET at fault:
+#
+#   check-thread-local.sh   required `nm -u` to be EMPTY for a program
+#                           that spawns no thread. True on Darwin, false
+#                           by construction on Linux, where the same
+#                           program imports six symbols - four weak crt
+#                           hooks and two real ones. Both Linux legs went
+#                           red on a program behaving exactly as intended.
+#
+#   check-steady-state.sh   compared |b - a| against a 256 KiB band, so a
+#                           run whose peak RSS FELL failed like one that
+#                           grew. Darwin's numbers are stable to 16 KiB,
+#                           so the fall path was never reached here; a
+#                           shared Linux runner reached it at 264.
+#
+# Both went green on the machine that wrote them and red on a leg that
+# had never seen them. That is a feedback-loop defect, and this closes
+# it: the same battery, the same scripts, on Linux, before the push.
+#
+# IT COPIES THE TREE, IT DOES NOT MOUNT IT READ-WRITE, and that is the
+# one design decision worth reading. `gate_init` bootstraps a compiler
+# into `$repo_root/.axiom-bin` when it does not find one, so a
+# read-write bind mount would leave a LINUX binary in your checkout -
+# and the next darwin gate to reuse `.axiom-bin/axiom` would run it and
+# fail in a way that has nothing to do with the change under test. The
+# repo is mounted READ-ONLY at /src and copied to /work inside the
+# container, so nothing this script does can touch the host tree.
+#
+# WHAT IT IS NOT. It is not a gate: it asserts nothing about the tree
+# and `run-gates.sh` does not call it. It is not a substitute for CI -
+# CI runs on real Linux runners with their own toolchain versions, and
+# this runs one image. And it is not the FreeBSD or Windows leg; those
+# need a VM and a Windows runner respectively (see `ci.yml`).
+#
+# Usage:
+#   scripts/run-gates-linux.sh                 # whole battery, native arch
+#   scripts/run-gates-linux.sh fmt lsp         # only gates matching these
+#   scripts/run-gates-linux.sh --arch amd64    # linux-x86_64, emulated
+#   scripts/run-gates-linux.sh --shell         # a prompt in the image
+#   scripts/run-gates-linux.sh --build         # build the image and stop
+#
+# Environment:
+#   AXIOM_CONTAINER   docker | podman, to override detection
+#   AXIOM_LINUX_IMAGE the image tag to build and use
+set -uo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+die() { echo "run-gates-linux: $*" >&2; exit 1; }
+
+# ---- arguments ------------------------------------------------------
+arch=""
+mode="gates"
+filters=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --arch)
+      [[ $# -ge 2 ]] || die "--arch needs a value: amd64 or arm64"
+      arch="$2"; shift 2 ;;
+    --shell)  mode="shell"; shift ;;
+    --build)  mode="build"; shift ;;
+    -h|--help)
+      sed -n '/^# Usage:/,/^#   AXIOM_LINUX_IMAGE/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      exit 0 ;;
+    --*) die "unknown option '$1' (see --help)" ;;
+    *) filters+=("$1"); shift ;;
+  esac
+done
+
+case "${arch:-}" in
+  ""|amd64|arm64) ;;
+  x86_64) arch=amd64 ;;
+  aarch64) arch=arm64 ;;
+  *) die "--arch must be amd64 or arm64, not '$arch'" ;;
+esac
+
+# The host's own architecture, so the default leg is the one that runs
+# NATIVELY. On Apple Silicon that is arm64 - which is `linux-aarch64`,
+# a target this project both supports and ships - and it runs at full
+# speed. `--arch amd64` is `linux-x86_64` and is EMULATED here; it is
+# the leg that has produced both defects above, so it is worth running,
+# and it is slow enough that saying so is part of the interface.
+host_arch="$(uname -m)"
+case "$host_arch" in
+  arm64|aarch64) native=arm64 ;;
+  x86_64|amd64)  native=amd64 ;;
+  *) die "unsupported host architecture '$host_arch'" ;;
+esac
+arch="${arch:-$native}"
+
+# ---- the container runtime -----------------------------------------
+# Named rather than guessed, and a missing one is an ERROR with a way
+# out rather than a silent skip: a script that quietly does nothing
+# when its tool is absent is indistinguishable from one that ran and
+# found nothing, which is the failure mode this whole file is about.
+engine="${AXIOM_CONTAINER:-}"
+if [[ -z "$engine" ]]; then
+  for c in docker podman; do
+    command -v "$c" >/dev/null 2>&1 && { engine="$c"; break; }
+  done
+fi
+[[ -n "$engine" ]] || cat >&2 <<'NOTE'
+run-gates-linux: no container runtime found (looked for docker, podman).
+
+  This script runs the gate battery on Linux so a Darwin-only
+  assumption is caught before CI sees it. It needs one of:
+
+    brew install podman && podman machine init && podman machine start
+    brew install colima docker && colima start
+
+  Set AXIOM_CONTAINER to override the choice.
+
+NOTE
+[[ -n "$engine" ]] || exit 1
+command -v "$engine" >/dev/null 2>&1 || die "AXIOM_CONTAINER='$engine' is not on PATH"
+
+"$engine" info >/dev/null 2>&1 || die \
+  "'$engine' is installed but its daemon is not reachable - start it first (e.g. 'colima start' or 'podman machine start')"
+
+# ---- the image ------------------------------------------------------
+# Ubuntu because that is what `ci.yml`'s Linux legs run, and the point
+# is to reproduce THAT environment rather than a tidier one. The
+# package list is the provision action's, plus what the gates shell
+# out to: `python3` (several gates), `curl` and `file` (install, ffi),
+# `git` (build-id), `bsdmainutils`/`xxd` where a gate reads bytes.
+#
+# `llvm` brings `llc` and `opt`; `clang` is the linker driver the
+# emitter calls as `cc`. `nm` comes from binutils and is the ELF one -
+# which is the whole point, since the Mach-O/ELF difference is what
+# `check-thread-local.sh` got wrong.
+read -r -d '' dockerfile <<'DOCKER'
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      llvm clang lld binutils \
+      bash coreutils findutils diffutils grep sed gawk \
+      python3 curl ca-certificates git file xxd time make \
+ && rm -rf /var/lib/apt/lists/*
+# `cc` is what the emitter invokes; Ubuntu ships clang without it.
+RUN ln -sf /usr/bin/clang /usr/local/bin/cc
+WORKDIR /work
+DOCKER
+
+# Tagged by a hash of the recipe, so editing the Dockerfile above
+# rebuilds and leaving it alone does not. Without this the choice is
+# between rebuilding every run (slow) and a fixed tag that silently
+# serves a stale image after the recipe changes (worse).
+recipe_hash="$(printf '%s' "$dockerfile" | (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-12)"
+image="${AXIOM_LINUX_IMAGE:-axiom-gates:$recipe_hash-$arch}"
+
+if ! "$engine" image inspect "$image" >/dev/null 2>&1; then
+  echo "== building $image (linux/$arch) =="
+  printf '%s\n' "$dockerfile" | "$engine" build --platform "linux/$arch" -t "$image" -f - "$repo_root" \
+    || die "could not build the image"
+else
+  echo "== reusing $image =="
+fi
+
+[[ "$mode" == "build" ]] && { echo "ok   image ready: $image"; exit 0; }
+
+# ---- what runs inside ----------------------------------------------
+# `cp -a` rather than a bind mount, for the reason in the header. `.git`
+# is excluded because it is the largest thing in the tree and no gate
+# reads it except `check-build-id.sh`, which falls back when it is
+# absent; `.axiom-bin` is excluded because a DARWIN binary in there is
+# exactly what must not be reused on Linux.
+read -r -d '' inner <<'INNER'
+set -uo pipefail
+mkdir -p /work
+tar -C /src --exclude=./.git --exclude=./.axiom-bin --exclude=./node_modules \
+    --exclude=./rust/target --exclude=./.claude/worktrees -cf - . \
+  | tar -C /work -xf -
+cd /work
+echo "== $(uname -m) $(. /etc/os-release && echo "$PRETTY_NAME") =="
+llc --version | sed -n '2,3p'
+exec ./scripts/run-gates.sh "$@"
+INNER
+
+if [[ "$mode" == "shell" ]]; then
+  exec "$engine" run --rm -it --platform "linux/$arch" \
+    -v "$repo_root:/src:ro" "$image" bash -lc \
+    'mkdir -p /work && tar -C /src --exclude=./.git --exclude=./.axiom-bin -cf - . | tar -C /work -xf - && cd /work && exec bash'
+fi
+
+if [[ "$arch" != "$native" ]]; then
+  echo "note: linux/$arch is emulated on this $host_arch host - expect it to be"
+  echo "      several times slower than the native leg. This is the arch whose"
+  echo "      legs found both Darwin-only gate defects, so it is the one worth"
+  echo "      the wait before a push that touches a gate."
+fi
+
+exec "$engine" run --rm --platform "linux/$arch" \
+  -v "$repo_root:/src:ro" \
+  -e AXIOM_GATE_JOBS="${AXIOM_GATE_JOBS:-}" \
+  "$image" bash -c "$inner" -- "${filters[@]+"${filters[@]}"}"

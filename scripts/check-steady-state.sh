@@ -358,6 +358,37 @@ answer_is "batch/keeping at n=$large does the same work" "$(outof "batch_keeping
 #    chunk and far below any real growth. Measured 2026-08-24 on
 #    darwin-aarch64: cache 1392 / 1408 / 1408 KiB, aggregate 1328 /
 #    1328 / 1344 KiB. The bands are 0 and 16.
+#
+#    THE BAND IS DIRECTIONAL, and it was symmetric until 2026-08-30.
+#    The claim this gate exists to falsify is that memory GROWS with
+#    work. What it measured instead was |b - a|, so a run whose peak
+#    RSS FELL failed it - and that is not a weaker version of the
+#    property, it is a different one that the property does not imply.
+#
+#    It fired on trunk, on the linux-x86_64 leg, run 33334739642:
+#
+#      FAIL: aggregate/owning moved 1460 -> 1196 KiB over ten times the
+#            work - that is not a plateau
+#
+#    264 KiB apart, eight past the band, in the SHRINKING direction, on
+#    a leg whose only defect was that a shared runner measured the two
+#    processes differently. The number being compared is `ru_maxrss`, a
+#    high-water mark taken from two separate process lifetimes: it
+#    cannot go down because the program held less LIVE data at 100x the
+#    work, only because the runtime, the loader or the allocator
+#    touched fewer pages that time. A leak has no way to express itself
+#    as a smaller peak.
+#
+#    So growth past the band fails, and a fall past it is reported
+#    rather than either failed or hidden - a drop that large is worth a
+#    reader's eye even though it is not this gate's subject, and going
+#    quiet about it would be the other half of the same mistake.
+#
+#    Nothing weakens: memory that is merely LARGE is still caught by
+#    the 4096 KiB ceiling below, the ablated twins are still caught by
+#    the ratio arms, and both documented ablations at the bottom of
+#    this file grow - 2928 -> 17008 -> 157616 for one - so every FAIL
+#    line they are recorded as producing is still produced.
 # ------------------------------------------------------------------
 band=256
 for pair in "cache evicting" "aggregate owning" "batch skipping"; do
@@ -365,12 +396,17 @@ for pair in "cache evicting" "aggregate owning" "batch skipping"; do
   probe="$1" variant="$2"
   a="$(rssof "${probe}_${variant}_$mid")"
   b="$(rssof "${probe}_${variant}_$large")"
-  d=$(( b > a ? b - a : a - b ))
+  d=$(( b - a ))
   if (( d > band )); then
-    echo "FAIL: $probe/$variant moved ${a} -> ${b} KiB over ten times the work - that is not a plateau"
+    echo "FAIL: $probe/$variant GREW ${a} -> ${b} KiB over ten times the work - that is not a plateau"
     failed=1
+  elif (( d < -band )); then
+    echo "ok   $probe/$variant plateaus: ${a} KiB at n=$mid, ${b} KiB at n=$large"
+    echo "     (fell $(( -d )) KiB, past the ${band} KiB band. Not growth, so not this"
+    echo "      gate's subject - peak RSS is a high-water mark over two separate"
+    echo "      processes and a leak cannot make it smaller. Named, not hidden.)"
   else
-    echo "ok   $probe/$variant plateaus: ${a} KiB at n=$mid, ${b} KiB at n=$large (${d} KiB apart)"
+    echo "ok   $probe/$variant plateaus: ${a} KiB at n=$mid, ${b} KiB at n=$large (${d#-} KiB apart)"
   fi
 done
 
@@ -543,12 +579,18 @@ else
       echo "FAIL: examples/batch-fallible did not measure at both sizes"
       failed=1
     else
-      d=$(( b > a ? b - a : a - b ))
+      # Directional, for the reason section 2 gives at length: growth
+      # is the claim, and a smaller high-water mark is not a smaller
+      # live set.
+      d=$(( b - a ))
       if (( d > band )); then
-        echo "FAIL: examples/batch-fallible moved ${a} -> ${b} KiB over ten times the records - that is not a plateau"
+        echo "FAIL: examples/batch-fallible GREW ${a} -> ${b} KiB over ten times the records - that is not a plateau"
         failed=1
+      elif (( d < -band )); then
+        echo "ok   examples/batch-fallible plateaus: ${a} KiB at N=$ex_small, ${b} KiB at N=$ex_large"
+        echo "     (fell $(( -d )) KiB, past the ${band} KiB band - reported, not failed)"
       else
-        echo "ok   examples/batch-fallible plateaus: ${a} KiB at N=$ex_small, ${b} KiB at N=$ex_large (${d} KiB apart)"
+        echo "ok   examples/batch-fallible plateaus: ${a} KiB at N=$ex_small, ${b} KiB at N=$ex_large (${d#-} KiB apart)"
       fi
       if (( b < 64 )); then
         echo "FAIL: examples/batch-fallible measured ${b} KiB at N=$ex_large, under the 64 KiB floor - that is not a running program"
