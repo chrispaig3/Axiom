@@ -45,9 +45,25 @@
 #
 # Sets, in the calling script:
 #   repo_root  the repository root, and cd's there
-#   axiom      the compiler that BUILDS the subject - `$AXIOM` when
-#              set, otherwise `.axiom-bin/axiom`, bootstrapped from
-#              `bootstrap/` when it is not there yet
+#   axiom      the compiler that BUILDS the subject, resolved in this
+#              order and PRINTED either way, so the choice is never
+#              invisible:
+#                1. `$AXIOM`, when set - unconditionally, even to a
+#                   path that turns out to be broken. A caller who
+#                   names a compiler gets that compiler; gate_init does
+#                   not second-guess it.
+#                2. otherwise `$AXIOM_AXC`, when it is set AND
+#                   executable - the compiler UNDER TEST that
+#                   `gate_build_axc`'s content-addressed cache already
+#                   trusts. Without this arm, a gate that never calls
+#                   `gate_build_axc` ignores `$AXIOM_AXC` entirely and
+#                   falls through to arm 3 - `check-fmt.sh` is the one
+#                   that bit us: `AXIOM_AXC=/path/to/new
+#                   ./scripts/check-fmt.sh` built and tested
+#                   `.axiom-bin/axiom`, the stale INSTALLED binary,
+#                   and said nothing about it.
+#                3. otherwise `.axiom-bin/axiom`, bootstrapped from
+#                   `bootstrap/` when it is not there yet.
 #   work       a fresh temporary directory, removed on exit
 # and exports AXIOM_STDLIB, so a compiler invoked from anywhere
 # resolves THIS checkout's stdlib rather than one beside some other
@@ -59,19 +75,77 @@
 # repo-rooted export would quietly test the original instead; and
 # `check-doc-drift.sh` resolves its probe imports through the working
 # directory it compiles from.
+#
+# THE RESOLVED COMPILER IS RUN ONCE, HERE, AND MUST ANSWER, because
+# `-x` is not proof of life. Overwriting `.axiom-bin/axiom` IN PLACE -
+# a `cp` onto an existing file, which truncates and rewrites the same
+# inode, rather than a `mv` over it - leaves a binary that `codesign -v`
+# still calls valid while macOS SIGKILLs every exec of it (exit 137, no
+# output) until the inode is replaced. `scripts/bootstrap-from-seed.sh`
+# hit this for real on 2026-08-28, installing by rename because of it.
+# Reproduced again 2026-08-31 to confirm before writing this: racing a
+# `cp` of a second binary against a tight loop of `axiom --version`
+# turned most of the loop's remaining exits to 137 with empty output,
+# and the exec run immediately AFTER the race had also stopped - the
+# poisoning outlives the write that caused it, on this machine for at
+# least several seconds, and `rm`-then-copy (a fresh inode) cleared it
+# immediately where overwriting again did not.
+#
+# That is exactly the shape `check-fmt.sh` hit live: `FAIL <file>` with
+# an EMPTY message, 559 times, before anyone realised the compiler
+# itself was dead rather than 559 files. A gate that loops the compiler
+# over a corpus has no way to tell "the file is bad" from "the compiler
+# is dead" from inside the loop - both print nothing - so the check
+# belongs here, once, before any loop starts: one clear refusal, naming
+# the path, the exit status, and the SIGKILL cause when the status says
+# so, instead of hundreds of empty ones downstream.
 gate_init() {
   local want_stdlib=1
   [[ "${1:-}" == "--no-stdlib" ]] && want_stdlib=0
 
   repo_root="$(cd "$(dirname "${BASH_SOURCE[1]}")/.." && pwd)"
   cd "$repo_root" || { echo "FAIL: no repository root at $repo_root" >&2; exit 1; }
-  axiom="${AXIOM:-$repo_root/.axiom-bin/axiom}"
+
+  if [[ -n "${AXIOM:-}" ]]; then
+    axiom="$AXIOM"
+    echo "gate: compiler is \$AXIOM = $axiom" >&2
+    [[ -n "${AXIOM_AXC:-}" ]] \
+      && echo "gate: \$AXIOM_AXC = $AXIOM_AXC is set too, but \$AXIOM wins - ignoring it" >&2
+  elif [[ -n "${AXIOM_AXC:-}" && -x "${AXIOM_AXC}" ]]; then
+    axiom="$AXIOM_AXC"
+    echo "gate: \$AXIOM is unset; compiler is \$AXIOM_AXC = $axiom (the compiler under test)" >&2
+  else
+    [[ -n "${AXIOM_AXC:-}" ]] \
+      && echo "gate: \$AXIOM_AXC = $AXIOM_AXC is not an executable file - ignoring it" >&2
+    axiom="$repo_root/.axiom-bin/axiom"
+    echo "gate: compiler is the installed $axiom (neither \$AXIOM nor \$AXIOM_AXC names one)" >&2
+  fi
 
   if [[ ! -x "$axiom" ]]; then
     echo "no compiler at $axiom - building one from the committed seed" >&2
     "$repo_root/scripts/bootstrap-from-seed.sh" --install "$repo_root/.axiom-bin" >&2 \
       || { echo "FAIL: could not bootstrap a compiler from bootstrap/" >&2; exit 1; }
   fi
+
+  local probe rc=0
+  probe="$("$axiom" --version 2>&1)" || rc=$?
+  if (( rc != 0 )); then
+    echo "FAIL: $axiom did not run (exit $rc)." >&2
+    echo "      output: ${probe:-<none>}" >&2
+    if (( rc == 137 )); then
+      echo "      exit 137 is SIGKILL. On macOS the likely cause is a stale code-" >&2
+      echo "      signature cache: this file was overwritten IN PLACE (same inode -" >&2
+      echo "      e.g. \`cp\` onto an existing file) after being executed once." >&2
+      echo "      \`codesign -v\` will still call it valid; the kernel kills it anyway," >&2
+      echo "      on every exec, until the inode is replaced. Fix: remove the file and" >&2
+      echo "      copy the replacement in, or \`mv\` a freshly-built one over it - do" >&2
+      echo "      not overwrite it in place. See the install step in" >&2
+      echo "      scripts/bootstrap-from-seed.sh, which does this for exactly this" >&2
+      echo "      reason." >&2
+    fi
+    exit 1
+  fi
+
   (( want_stdlib )) && export AXIOM_STDLIB="$repo_root/stdlib"
   link_entry="$(gate_link_entry)"
 
