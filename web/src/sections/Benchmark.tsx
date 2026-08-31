@@ -20,6 +20,7 @@ export function Benchmark() {
         </Reveal>
 
         <Reveal className="bench">
+          <div className="bench__table" tabIndex={0} role="group" aria-label="Benchmark results, scrollable">
           <table>
             <caption className="visually-hidden">
               Run time, compile time, binary size and undefined symbol count
@@ -49,6 +50,7 @@ export function Benchmark() {
               ))}
             </tbody>
           </table>
+          </div>
 
           <ol className="bench__notes">
             {BENCH.map((r) => (

@@ -1,0 +1,280 @@
+/* ---------------------------------------------------------------- *
+ * Uniform rhythm, and the small screens
+ *
+ * Every section is now the same shape — a numbered lede block, then one
+ * device below it — so this file's job is to keep that shape intact as
+ * the viewport narrows, and to make sure nothing is ever unreachable.
+ *
+ * `body` carries `overflow-x: hidden`, which stops a stray wide element
+ * from scrolling the whole page sideways. That guard HIDES rather than
+ * scrolls, so anything genuinely wider than the viewport has to carry
+ * its own scroll container or it becomes unreadable. Each rule below is
+ * one of those.
+ * ---------------------------------------------------------------- */
+
+/* Section openers: one measure, one spacing scale, everywhere. */
+.lede-block {
+  margin-bottom: clamp(var(--s-6), 4vw, var(--s-7));
+}
+
+.band__grid,
+.split--narrow,
+.section-head--sticky,
+.lede-block--sticky {
+  /* Retired: the sticky side-heading was a second rhythm competing with
+     the numbered lede. Neutralised here rather than hunted through the
+     components, so a stray class name cannot resurrect it. */
+  position: static;
+  display: block;
+  top: auto;
+}
+
+/* ---- the measured table -------------------------------------------- *
+ * Four columns of nowrap figures do not fit a phone, and never will.
+ * The table scrolls inside its own box; the page does not.
+ * -------------------------------------------------------------------- */
+
+.bench__table {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  /* A scrollable region must be reachable by keyboard. */
+  outline-offset: 4px;
+}
+
+.bench table {
+  min-width: 460px;
+}
+
+@media (max-width: 900px) {
+  .bench {
+    gap: var(--s-6);
+  }
+}
+
+/* ---- getting started: three equal columns -------------------------- */
+
+.start {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(var(--s-5), 3vw, var(--s-6));
+  margin-bottom: var(--s-8);
+}
+
+@media (max-width: 980px) {
+  .start {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-6);
+  }
+}
+
+.start__col {
+  display: grid;
+  gap: var(--s-3);
+  align-content: start;
+  min-width: 0;
+}
+
+.start__col h3 {
+  font-size: var(--t-1);
+}
+
+.start__col > p {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t--2);
+  line-height: 1.6;
+}
+
+.start__col .command {
+  margin-top: 0;
+}
+
+/* The command list: two columns is only honest while the commands fit.
+   `axiom build --input f.ax --output f` does not, below this width. */
+@media (max-width: 1080px) {
+  .cli dl,
+  dl.cli {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-1) 0;
+  }
+
+  .cli dd {
+    margin-bottom: var(--s-3);
+  }
+}
+
+dl.cli {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-1) 0;
+  margin: 0;
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+dl.cli dt {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+dl.cli dt code {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  white-space: normal;
+}
+
+dl.cli dd {
+  margin: 0 0 var(--s-3);
+  color: var(--text-2);
+  font-size: var(--t--2);
+  line-height: 1.5;
+}
+
+dl.cli dd:last-child {
+  margin-bottom: 0;
+}
+
+/* ---- narrow-screen density ----------------------------------------- */
+
+@media (max-width: 640px) {
+  .section {
+    padding-block: var(--s-7);
+  }
+
+  /* Code frames give back some of their gutter; a phone has none spare. */
+  .code__body pre {
+    padding-inline: var(--s-4);
+  }
+
+  .code__bar {
+    padding-inline: var(--s-3) var(--s-2);
+  }
+
+  .code__name {
+    font-size: 0.6875rem;
+  }
+
+  .code--program .code__body {
+    min-height: 0;
+  }
+
+  /* The install one-liner is long by nature: let the button sit under it
+     rather than squeezing the command into a sliver. */
+  .command {
+    flex-wrap: wrap;
+  }
+
+  .command__text {
+    flex-basis: 100%;
+  }
+
+  .command__copy {
+    flex-basis: 100%;
+    justify-content: center;
+    padding-block: var(--s-2);
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .hero__out,
+  .code__out {
+    padding-inline: var(--s-4);
+  }
+
+  .doclinks ul {
+    gap: var(--s-4);
+  }
+
+  .stat,
+  .ticker__item {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  /* At this width the version pill is the first thing that can go. */
+  .brand__version {
+    display: none;
+  }
+}
+
+/* ---- reachable scroll regions -------------------------------------- *
+ * Anything that scrolls horizontally is focusable, so a keyboard user
+ * can reach the part that is off screen. Without this the content is
+ * mouse-only, which on a phone means unreachable.
+ * -------------------------------------------------------------------- */
+
+.fixpoint,
+.bench__table,
+.table-wrap {
+  scrollbar-width: thin;
+}
+
+.fixpoint:focus-visible,
+.bench__table:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- *
+ * Grid children must be allowed to shrink
+ *
+ * A grid or flex item's default `min-width: auto` means it refuses to
+ * go narrower than its content. One long token inside it then pushes
+ * the whole track wider than its share and the item overlaps its
+ * neighbour — which is what "Three kinds of work" was doing, with the
+ * `restrict(...)` tag as the token. `min-width: 0` on every item that
+ * holds prose or code is the fix, and it belongs everywhere rather than
+ * at the one place the bug was noticed.
+ * ---------------------------------------------------------------- */
+
+.cols__col,
+.cols__col li,
+.matrix__row,
+.matrix__ax,
+.matrix__others,
+.matrix__others li,
+.limits__row,
+.limits dd,
+.card,
+.stat,
+.ticker__item,
+.doclinks li,
+.editors__facts > div,
+.bench__notes li,
+.fixline__text,
+.split__text,
+.stack > * {
+  min-width: 0;
+}
+
+/* Prose that can contain a long unbroken token — a diagnostic tag, a
+   path, a URL — breaks rather than overflows. */
+.cols__col li,
+.matrix__ax,
+.limits dd,
+.card p,
+.bench__notes li,
+.editors__facts dd,
+.doclinks li span {
+  overflow-wrap: anywhere;
+}
+
+/* Three columns of dense prose need more room than three of anything
+   else; below this they are one column, not two cramped ones. */
+@media (max-width: 1080px) {
+  .cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s-6);
+  }
+}
+
+@media (max-width: 760px) {
+  .cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

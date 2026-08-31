@@ -1,0 +1,155 @@
+/* ---------------------------------------------------------------- *
+ * The gutter, and the run strip
+ *
+ * The gutter is a sibling column, not a pseudo-element on each line, so
+ * it can be `user-select: none` — selecting a sample copies the program
+ * and not a column of integers. It is `position: sticky` on the left so
+ * that scrolling a long line horizontally does not scroll the numbers
+ * out of view.
+ * ---------------------------------------------------------------- */
+
+.code__body--numbered {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  padding-inline: 0;
+}
+
+.code__gutter {
+  display: grid;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding-inline: var(--s-4) var(--s-3);
+  border-right: 1px solid var(--border);
+  background: var(--surface-code);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t--1);
+  line-height: var(--lh-code);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+  opacity: 0.45;
+}
+
+.code__body--numbered > pre {
+  min-width: 0;
+  padding-inline: var(--s-4) var(--s-5);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 640px) {
+  .code__gutter {
+    padding-inline: var(--s-3) var(--s-2);
+    font-size: 0.6875rem;
+  }
+
+  .code__body--numbered > pre {
+    padding-inline: var(--s-3) var(--s-4);
+  }
+}
+
+/* The prompt sigil, in both run strips. */
+.code__out-prompt {
+  color: var(--accent);
+  user-select: none;
+}
+
+/* A compile beat, then the lines arriving. Both are decoration: the text
+   is in the DOM from the first paint either way, so nothing that reads
+   the page rather than watching it has to wait. */
+.code__out {
+  min-height: 3.4rem;
+  align-items: start;
+}
+
+.code__out-busy {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.code__out-busy::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+  animation: axpulse 900ms ease-in-out infinite;
+}
+
+@keyframes axpulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.code__out-line {
+  display: block;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.code__out-line[data-shown='true'] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Never animate content away from someone who asked for stillness. */
+@media (prefers-reduced-motion: reduce) {
+  .code__out-line,
+  .code__out-line[data-shown='false'] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .code__out-busy::after {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------- *
+ * Hero, without the logo plate
+ *
+ * The lockup is gone: the mark lives in the nav, which is where a
+ * wordmark belongs, and a dark image panel floating above the headline
+ * was the one element answering to no rule the rest of the page follows.
+ * A typographic kicker carries the name instead.
+ * ---------------------------------------------------------------- */
+
+.hero__kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: 0 0 var(--s-5);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hero__kicker span {
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.hero__out-label {
+  white-space: nowrap;
+}

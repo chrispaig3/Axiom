@@ -107,31 +107,28 @@ export function Bootstrap() {
   return (
     <section className="section band" id="why" aria-labelledby="boot-h">
       <div className="container">
-        <div className="band__grid">
-          <Reveal>
-            <span className="index">01</span>
-            <h2 id="boot-h">The compiler is written in the language it compiles.</h2>
-            <p>
-              Not a rewrite in progress — the Rust implementation it replaced has
-              been deleted. A clean checkout rebuilds the whole thing with
-              nothing but <code>llc</code> and a C linker, and checks the
-              fixpoint on the way, every time.
-            </p>
-            <p className="micro">
-              <a
-                href={`${BLOB}/scripts/bootstrap-from-seed.sh`}
-                target="_blank"
-                rel="noreferrer noopener"
-              >
-                scripts/bootstrap-from-seed.sh
-              </a>
-            </p>
-          </Reveal>
+        <Reveal className="lede-block">
+          <span className="index">01</span>
+          <h2 id="boot-h">The compiler is written in the language it compiles.</h2>
+          <p>
+            Not a rewrite in progress — the Rust implementation it replaced has
+            been deleted. A clean checkout rebuilds the whole thing with nothing
+            but <code>llc</code> and a C linker, and checks the fixpoint on the
+            way, every time —{' '}
+            <a
+              href={`${BLOB}/scripts/bootstrap-from-seed.sh`}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              scripts/bootstrap-from-seed.sh
+            </a>
+            .
+          </p>
+        </Reveal>
 
-          <Reveal delay={60}>
-            <Fixpoint />
-          </Reveal>
-        </div>
+        <Reveal delay={60}>
+          <Fixpoint />
+        </Reveal>
 
         <Reveal className="ticker" delay={100}>
           {STATS.map((s) => (

@@ -1,4 +1,3 @@
-import { asset } from '../lib/asset.ts'
 import { HERO } from '../data/samples.ts'
 import { INSTALL_CMD, REPO, VERSION } from '../data/site.ts'
 import { Code } from '../components/Code.tsx'
@@ -10,15 +9,13 @@ export function Hero() {
     <section className="hero" id="top">
       <div className="container hero__inner">
         <div className="hero__lead">
-          <span className="brand-plate">
-            <img
-              src={asset('axiom-logo.jpg')}
-              alt="Axiom"
-              width={900}
-              height={317}
-              fetchPriority="high"
-            />
-          </span>
+          {/* No logo lockup here. The mark is in the nav, which is where a
+              wordmark belongs; a dark image plate floating above the
+              headline was the one element on the page that answered to no
+              rule the rest of it follows. */}
+          <p className="hero__kicker">
+            Axiom <span>v{VERSION}</span>
+          </p>
 
           <h1>A functional systems language for humans and agents.</h1>
 
@@ -44,16 +41,21 @@ export function Hero() {
               <GitHub />
               GitHub
             </a>
-            <span className="hero__meta">
-              v{VERSION} · MIT · six supported targets
-            </span>
+            <span className="hero__meta">MIT · six supported targets</span>
           </div>
         </div>
 
         <div className="hero__panel">
-          <Code code={HERO.code} name="shapes.ax" badge="axiom run shapes.ax" />
+          <Code
+            code={HERO.code}
+            name="shapes.ax"
+            badge="a whole program"
+            numbered
+          />
           <div className="hero__out" role="group" aria-label="Program output">
-            <span className="hero__out-label">stdout</span>
+            <span className="hero__out-label">
+              <span className="code__out-prompt">$</span> axiom run shapes.ax
+            </span>
             <pre>{HERO.result}</pre>
           </div>
         </div>

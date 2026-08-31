@@ -1,4 +1,12 @@
-import { Fragment, useId, useMemo, useState, type ReactNode } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { highlight, type Token } from '../lib/highlight.ts'
 import { ArrowUpRight } from './Icons.tsx'
 
@@ -21,19 +29,102 @@ function Highlighted({ code }: { code: string }) {
   )
 }
 
+/**
+ * The gutter. It is a sibling of the code rather than part of it, and is
+ * `aria-hidden` with `user-select: none`, so selecting the sample copies
+ * the program and not a column of integers.
+ */
+function Gutter({ code }: { code: string }) {
+  const count = code.split('\n').length
+  return (
+    <div className="code__gutter" aria-hidden>
+      {Array.from({ length: count }, (_, i) => (
+        <span key={i}>{i + 1}</span>
+      ))}
+    </div>
+  )
+}
+
+const reducedMotion = () =>
+  typeof matchMedia === 'function' &&
+  matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/**
+ * The run strip: a prompt, a brief compile beat, then the program's real
+ * output a line at a time.
+ *
+ * The delay is theatre and is labelled as such — it is not a measured
+ * compile time, and the benchmark section carries the number that is.
+ * It exists because a static block of green text does not read as
+ * *output*; watching it arrive does. Under `prefers-reduced-motion` the
+ * whole sequence collapses to the finished state, and the text is in the
+ * DOM either way, so a screen reader never waits for an animation.
+ */
+function RunOutput({ tab, output }: { tab: string; output: string }) {
+  const lines = useMemo(() => output.split('\n'), [output])
+  const [shown, setShown] = useState(() => (reducedMotion() ? lines.length : 0))
+  const [busy, setBusy] = useState(() => !reducedMotion())
+  const timers = useRef<number[]>([])
+
+  useEffect(() => {
+    for (const t of timers.current) window.clearTimeout(t)
+    timers.current = []
+
+    if (reducedMotion()) {
+      setShown(lines.length)
+      setBusy(false)
+      return
+    }
+
+    setShown(0)
+    setBusy(true)
+    timers.current.push(
+      window.setTimeout(() => setBusy(false), 420),
+      ...lines.map((_, i) =>
+        window.setTimeout(() => setShown(i + 1), 460 + i * 130),
+      ),
+    )
+    return () => {
+      for (const t of timers.current) window.clearTimeout(t)
+    }
+  }, [tab, lines])
+
+  return (
+    <div className="code__out" data-busy={busy}>
+      <span className="code__out-label">
+        <span className="code__out-prompt">$</span> axiom run {tab}
+      </span>
+      <pre>
+        {busy ? (
+          <span className="code__out-busy">compiling…</span>
+        ) : (
+          lines.map((line, i) => (
+            <span
+              key={i}
+              className="code__out-line"
+              data-shown={i < shown}
+            >
+              {line}
+              {'\n'}
+            </span>
+          ))
+        )}
+      </pre>
+    </div>
+  )
+}
+
 interface CodeProps {
   code: string
-  /** Filename shown in the frame's title bar. */
   name?: string
-  /** Right-hand badge. */
   badge?: string
   caption?: ReactNode
   /** `false` renders plain — for terminal output, not source. */
   axiom?: boolean
-  /** Wrap long lines instead of scrolling them. */
   wrap?: boolean
   tight?: boolean
-  /** Accessible label when the frame has no visible filename. */
+  /** Show the line-number gutter. */
+  numbered?: boolean
   label?: string
 }
 
@@ -45,6 +136,7 @@ export function Code({
   axiom = true,
   wrap = false,
   tight = false,
+  numbered = false,
   label,
 }: CodeProps) {
   const classes = ['code']
@@ -59,7 +151,8 @@ export function Code({
           {badge && <span className="code__badge">{badge}</span>}
         </div>
       )}
-      <div className="code__body">
+      <div className={numbered ? 'code__body code__body--numbered' : 'code__body'}>
+        {numbered && <Gutter code={code} />}
         <pre>
           <code aria-label={label}>
             {axiom ? <Highlighted code={code} /> : code}
@@ -80,11 +173,6 @@ export interface TabbedItem {
   caption?: ReactNode
 }
 
-/**
- * A tab strip over several programs, each with its own output. A real
- * ARIA tablist with arrow-key navigation, because a set of buttons that
- * swaps a panel is a tablist whether or not it says so.
- */
 export function TabbedCode({
   items,
   label,
@@ -125,7 +213,7 @@ export function TabbedCode({
               aria-selected={i === active}
               aria-controls={`${uid}-panel-${i}`}
               tabIndex={i === active ? 0 : -1}
-            onClick={() => setActive(i)}
+              onClick={() => setActive(i)}
             >
               {item.tab}
             </button>
@@ -134,12 +222,13 @@ export function TabbedCode({
       </div>
 
       <div
-        className="code__body"
+        className="code__body code__body--numbered"
         id={`${uid}-panel-${active}`}
         role="tabpanel"
         aria-labelledby={`${uid}-tab-${active}`}
         tabIndex={0}
       >
+        <Gutter code={current.code} />
         <pre>
           <code>
             <Highlighted code={current.code} />
@@ -148,12 +237,11 @@ export function TabbedCode({
       </div>
 
       {current.output && (
-        <div className="code__out">
-          <span className="code__out-label">
-            $ axiom run {current.tab}
-          </span>
-          <pre>{current.output}</pre>
-        </div>
+        <RunOutput
+          key={current.id}
+          tab={current.tab}
+          output={current.output}
+        />
       )}
 
       {current.caption && <div className="code__caption">{current.caption}</div>}

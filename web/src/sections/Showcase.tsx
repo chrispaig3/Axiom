@@ -18,7 +18,8 @@ function note(text: string) {
 }
 
 const items: TabbedItem[] = SAMPLES.map((s) => {
-  const link = s.docs ?? (s.source && s.href ? { label: s.source, href: s.href } : null)
+  const link =
+    s.docs ?? (s.source && s.href ? { label: s.source, href: s.href } : null)
   return {
     id: s.id,
     tab: s.tab,
@@ -44,8 +45,8 @@ const items: TabbedItem[] = SAMPLES.map((s) => {
 export function Showcase() {
   return (
     <section className="section section--alt" id="code" aria-labelledby="code-h">
-      <div className="container split split--narrow">
-        <Reveal className="lede-block lede-block--sticky">
+      <div className="container">
+        <Reveal className="lede-block">
           <span className="index">02</span>
           <h2 id="code-h">Five ways in.</h2>
           <p>

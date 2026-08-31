@@ -132,7 +132,13 @@ pre {
   background: var(--surface-2);
   color: var(--text);
   font-size: 0.885em;
-  white-space: nowrap;
+  /* NOT `nowrap`. It was, and a single long token —
+     `;@axiom:restrict(no-io,no-alloc,no-foreign,no-recursion,…)` — then
+     could not break, overflowed its grid column, and printed on top of
+     the column beside it. Short spans still never wrap, because they
+     fit; only the ones that would otherwise overflow do. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 hr {
