@@ -138,6 +138,27 @@
     ((Leaf) 0)
     ((Node l _v r) (+ 1 (depth l)))))
 
+; --- `_` HOLES: a bare wildcard PATTERN and an expression-position
+; PARTIAL-APPLICATION HOLE, the same token meaning two different
+; things by POSITION. Neither appeared in this file before: a bare
+; `_` pattern never printed here (`_v` above is a NAME that happens to
+; start with `_`, which binds and is a different thing), and
+; expression position had no meaning for `_` at all until holes -
+; `check` on a bare `(add2 1 _)` before this feature existed reported
+; `undefined variable `_``. `(add2 1 _)` desugars to a lambda before
+; the printer ever sees it, so this is the SOURCE spelling that must
+; round-trip, not what it expands to.
+(:: add2 (-> Int Int Int))
+(fn (add2 x y) (+ x y))
+
+(:: ignoresIts (-> Int Int Int))
+(fn (ignoresIts _ y) y)
+
+(:: holeExample Int)
+(fn (holeExample)
+  (let ((addOne (add2 1 _)))
+    (addOne 41)))
+
 ; --- field access, casts, sizeof ------------------------------------
 (:: misc (-> Rec Int))
 (fn (misc r)
