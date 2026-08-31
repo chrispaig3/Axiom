@@ -1066,7 +1066,16 @@ for name in sorted(accepted - readme_list):
 
 # 4. SECURITY.md's exclusion, followed the way a reader follows it.
 security = open("SECURITY.md", encoding="utf-8").read()
-bullets = re.findall(r"- \*\*([A-Z][A-Za-z]+)\.\*\* Not a supported target\.?(.*?)(?=\n- |\n\n)", security, re.S)
+# PER TARGET, NOT PER OS, since 2026-08-30. The bullet used to name an
+# operating system - "**Windows.** Not a supported target" - and the
+# check asked whether README's list carried any target starting with
+# that OS. `freebsd-x86_64` and `windows-x86_64` joined the list that
+# day, which left every OS in it (darwin, freebsd, linux, windows) with
+# at least one supported target: no OS-keyed bullet could be true any
+# more, and this gate REQUIRES at least one bullet to exist. The
+# premise had become unsatisfiable, so the key is now the target name
+# itself, which is what the rule was always about.
+bullets = re.findall(r"- \*\*([a-z0-9]+-[a-z0-9_]+)\.\*\* Not a supported target\.?(.*?)(?=\n- |\n\n)", security, re.S)
 if not bullets:
     print("FAIL targets: SECURITY.md has no `**<OS>.** Not a supported target` bullet - the sentence "
           "this section was written for has moved; reword the gate with it")
@@ -1087,10 +1096,9 @@ for osname, rest in bullets:
               f"does not contain {RULE!r} - the cross-reference is dangling, which is the defect "
               f"this section exists for")
         bad += 1
-    on_list = sorted(n for n in readme_list if n.startswith(osname.lower() + "-"))
-    if on_list:
-        print(f"FAIL targets: SECURITY.md says {osname} is not a supported target, and README's list "
-              f"carries {on_list}")
+    if osname in readme_list:
+        print(f"FAIL targets: SECURITY.md says {osname} is not a supported target, and README's "
+              f"Supported list carries it")
         bad += 1
 if not bad:
     print(f"ok   {len(readme_list)} supported targets, listed identically twice, all accepted by the "

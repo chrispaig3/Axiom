@@ -1102,8 +1102,9 @@ resolves to:
 axiom --target=linux-x86_64 emit-llvm main.ax -o main.ll
 ```
 
-Supported: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`,
-`linux-x86_64`. Defaults to the host.
+Supported: `darwin-aarch64`, `darwin-x86_64`, `freebsd-x86_64`,
+`linux-aarch64`, `linux-x86_64`, `windows-x86_64`. Defaults to the
+host.
 
 **A target joins that list when a CI leg executes what the compiler
 emits there.** That is the definition of *supported* in this
@@ -1113,9 +1114,23 @@ repository, stated here once; `docs/reference.md`, `SECURITY.md` and
 and to the compiler's own `--target` table. Everything in the list is
 emitted for and assembled by `check-cross-targets.sh` from one host;
 `darwin-x86_64` predates the rule and is executed by no runner, which
-is why it ships no artifact (see *Install*). FreeBSD and Windows are
-being added as targets (decided 2026-08-29); neither is supported until
-its leg executes, and the list grows only when that is true.
+is why it ships no artifact (see *Install*). **`freebsd-x86_64` and
+`windows-x86_64` joined the list on 2026-08-30**, each after its leg
+had been seen green on 13 of the previous 15 runs with no failures and
+its `continue-on-error` was removed — the line comes off after the
+evidence, never in the commit that adds the job.
+
+**The two legs do not cover the same amount, and the word should not
+hide it.** FreeBSD boots a real 14.4 kernel in a VM, bootstraps from
+the committed seed, and runs the whole standard-library corpus plus
+five gates including `check-net.sh`, which opens a real listener on
+`::1`. Windows runs **one program** — `hello.exe`, executed against
+`tests/stdlib/010-hello.out`, with its imports held to an allowlist and
+a leaky probe proving the allowlist refuses. Both satisfy the rule
+above, because both execute what the compiler emits. Only one of them
+would catch a Windows-only miscompile in a module that hello does not
+touch, and widening it means linking and running the corpus the `cross`
+job already assembles.
 
 **Supported and shipped are different questions.** *Supported* is the
 paragraph above: a CI leg executes what the compiler emits there.
@@ -1130,24 +1145,25 @@ rather than fetching a 404; `scripts/check-release-targets.sh` holds
 the release matrix and the installer's refusal list to each other so
 the two cannot drift.
 
-`--target` already accepts `freebsd-x86_64` and `freebsd-aarch64`.
-They are not supported: `scripts/check-cross-targets.sh` assembles
+`freebsd-aarch64` is the one FreeBSD target that is **not** supported,
+and the split is worth reading because both halves have the same seeds
+and the same syscall table. `scripts/check-cross-targets.sh` assembles
 every standard-library case for both under their own triples on every
 PR, `check-platform-constants.sh` holds the emitted runtime's syscall
-numbers to `stdlib/Sys/Platform.freebsd.ax`'s, `bootstrap/` carries a
-seed for each, and `ci.yml` has a job for `freebsd-x86_64` - `Tests
-(freebsd-x86_64)` - that boots FreeBSD 14 in a VM and runs the
-bootstrap and the syscall-table gates there. The job is
-`continue-on-error` and says so: the target joins the list above when
-the job has been seen green and that line is removed. `freebsd-aarch64`
-has no job - an aarch64 guest is TCG-emulated on every runner GitHub
-offers, a 300-minute budget measured and dropped on 2026-08-29 - and
-ships as darwin-x86_64 does: assembled and relocation-checked, executed
-by no runner (it has run, once, in a FreeBSD 14.4 arm64 VM on the
-maintainer's machine, which is a measurement and not a leg). Until a
-leg is green no release is built for either and `scripts/install.sh`
-refuses a FreeBSD host as it refuses darwin-x86_64. FreeBSD 12 is the
-floor the numbers need; the triple pins 14.
+numbers to `stdlib/Sys/Platform.freebsd.ax`'s, and `bootstrap/` carries
+a seed for each. What only `freebsd-x86_64` has is a leg that RUNS any
+of it: `Tests (freebsd-x86_64)` boots FreeBSD 14.4 in a VM and runs the
+bootstrap and the syscall-table gates there, and it is blocking.
+`freebsd-aarch64` has no job — an aarch64 guest is TCG-emulated on
+every runner GitHub offers, a 300-minute budget measured and dropped on
+2026-08-29 — so it stands as `darwin-x86_64` does: assembled and
+relocation-checked, executed by no runner. (It has run, once, in a
+FreeBSD 14.4 arm64 VM on the maintainer's machine, which is a
+measurement and not a leg, and the rule is about legs.) Neither FreeBSD
+target ships an archive; a `freebsd-x86_64` host gets the
+build-from-source paragraph `linux-x86_64` gets, and a
+`freebsd-aarch64` host the not-supported one. FreeBSD 12 is the floor
+the numbers need; the triple pins 14.
 
 Where Windows stands: `--target=windows-x86_64` is accepted and emits,
 cross, from any host (triple `x86_64-pc-windows-msvc`; the runtime
@@ -1163,9 +1179,14 @@ directory - the SDK's, or one `llvm-dlltool` generates from a `.def` -
 and `check-driver.sh` asserts every branch of that link on hosts that
 cannot run the result. A CI leg, `Tests (windows-x86_64)`, assembles,
 links and executes a hello world on `windows-latest` from modules the
-Linux `cross` job emitted; it runs under `continue-on-error` and the
-target is not supported until that line is removed. A `__syscallN`
-reached on that target traps with status 74.
+Linux `cross` job emitted. That leg is **blocking** since 2026-08-30
+and windows-x86_64 is on the supported list — one program executed, as
+the paragraph above the list says, which is the rule satisfied and the
+scope stated. **Supported as a TARGET is not supported as a HOST:** the
+compiler does not run on Windows, there is no Windows seed in
+`bootstrap/`, and `install.sh` refuses a Windows host outright. What is
+supported is the binary this compiler emits. A `__syscallN` reached on
+that target traps with status 74.
 
 ### Optimisation and recursion depth
 
@@ -1768,8 +1789,8 @@ the pipeline above is a module you can read in the language it compiles.
 | Syscalls | **Complete** | `tests/selfhost/230-syscall.ax`. `__syscall0`-`__syscall6` on Darwin and Linux, x86-64 and AArch64; errors normalised to `-errno` on every platform |
 | Allocation | **Functional; unbounded by default** | `mmap`-backed bump allocator emitted by the backend. (Defining `axiom_alloc` yourself does *not* override it — the name is refused outright, `AX3026`, because the override seam does not exist — [docs/memory-model.md](docs/memory-model.md) MM-ALLOC-8.) There is no manual `free`; every heap block carries a reference count and a shape word, and a block whose count reaches zero joins a size class and is handed out again — walking its reference map on the way, so a dead value takes what it owned with it: a discarded constructor cell holding a string frees the string's header *and* the string's bytes, and a thousand build-and-drop iterations move the allocator's bump by 384 bytes where they used to move it by 80,304 (`tests/stdlib/359-arc-str-bytes.ax`). **The self tail call is a release boundary since 2026-08-15** (MM-LIFE-2c event 4), which is the shape the strategy exists for - the activation that never returns: a loop allocating a fresh string per iteration and dropping the previous one moves the bump **480 bytes over 2000 iterations** where it used to move **224,304** (`tests/stdlib/362-arc-tail-boundary.ax`). What unblocked it was making the invisible stores visible: `Mem.memSetWord` and the AST's `mkNode` each `cast Int` a value out of the type system's sight, and both now take a share through `__retainref`, a type-directed retain that emits nothing at all when the stored word is an integer. **Events 2 and 3 shipped on 2026-08-21**, with owned temporaries: a reference a function answers is one share the caller holds and hands back, so the shapes they cover reclaim everything they build - every measured line of `tests/stdlib/372-arc-owned-results.ax` reads 0 bytes per iteration where three of them leaked 80. All seven of MM-LIFE-2c's events emit. **The arena scope IS the reclamation strategy as of 2026-08-24** (`MM-ALLOC-22`): `__axiom_arena_mark`/`__axiom_arena_reset` are what a request handler reclaims with, measured at 291× less memory than the same binary unscoped at ten thousand connections (`scripts/check-net.sh`, run 2026-08-24: 512 KiB scoped against 149,328 KiB; the exact ratio moves with the machine, so the gate asserts a floor of 50× rather than a number), and reference counting — `MM-LIFE-2a` — is **abandoned in place** rather than pending. What already emits stays and is not being finished; the residue it charges is 4,097 slab-head stores per reset, measured at under one percent of throughput. **The containers stopped being leaves on 2026-08-24** (`MM-LIFE-2h`): the shape word gained an ARRAY FORM - one bit saying every payload word of a block is a handle - which is the only encoding that can describe an element buffer, because the record form's bitmap holds 47 words and `Intern`'s string vector is 64 words before a single string is interned. `vecNewRef`, `mapNewRefVals` and `internNew` own what they hold; `vecFree`, `mapFree` and `internFree` hand it back, four levels deep (vector → data block → `Str` header → its bytes), and the identical program built with `vecNew` does not (`tests/stdlib/404-container-reference-maps.ax`, 255 - eight probes, one bit each). And the acceptance property above it (`MM-LIFE-2i`): a bounded LIVE SET has bounded memory in a process that frees no container and resets no arena - a 256-entry window over 2,000,000 inserts holds **1,392 KiB flat across a hundredfold** in iterations, against 34,368 KiB for the same program with the eviction removed (`scripts/check-steady-state.sh`). That gate found what the container gate could not: `mapNeedsGrow` counts tombstones, so an insert-and-remove workload doubled the table for entries that did not exist and reached 10 MB with 256 live keys. No tracing collector — the Rust compiler's `--gc` was not ported and the flag is now refused (the self-hosting record). See the memory model specification, [docs/memory-model.md](docs/memory-model.md) |
 | Crash diagnosis | **Function-level only** | `tests/stdlib/400-backtrace.ax`, `scripts/check-backtrace.sh`. A trap writes its message, then `axiom: backtrace (most recent call first)` and one `  at <function>` line per stack frame — the OOM path names `__axiom_out_of_memory`, `axiom_alloc`, `Mem$memAlloc`, `__axiom_user_main`, `main`. Three pieces, none of them debug metadata: `"frame-pointer"="all"` on the module's one attribute group, a table of address-beside-name over every symbol the module defines, and a walker that resolves each return address at `ra - 1` (at `ra`, a call that is a function's last instruction resolves to the *next* function — measured, and it printed `axiom_alloc` for `main`). Cost at `--opt 2`: a hello-world binary 65,704 → 82,536 bytes, the compiler +1.3%, `check self_host/main.ax` unchanged at 0.51 s. **No line numbers**, no DWARF, `-g` still never passed; a SIGSEGV still yields nothing, because nothing catches the signal. Above `--opt 0` a trace is shorter than the source suggests because the frames were inlined away rather than lost |
-| Releases and versioning | **Functional** | The installer is gated: `scripts/check-install.sh` serves a release built from the tree over the loopback, installs it, and requires a tampered archive, a missing checksum and an archive with no `stdlib/` to each be refused — with an ablation of `install.sh`'s own comparison proving that is what refuses them. `VERSION` is the single source of truth and `scripts/check-version.sh` holds eleven literals across eight files to it, each named with the count it must yield, plus what the built binary prints. A `v*` tag fires `release.yml`, which refuses a tag disagreeing with `VERSION` and builds two targets from the committed seed through the fixpoint. Since 2026-08-25 the shipped binary also names the TREE it was built from — `axiom version` prints a build id, twelve hex characters of a hash over every `.ax` byte under `self_host/` and `stdlib/` plus the commit, so two builds of two different trees at one version are distinguishable to whoever holds one (`scripts/check-build-id.sh`, `self_host/build.ax`). No `darwin-x86_64` artifact: it is assembled and byte-compared and executed by no runner. No `linux-x86_64` artifact either, for the opposite reason — it is fully supported and tested on every change, and only the prebuilt archive was dropped (2026-08-30); `scripts/check-release-targets.sh` holds the release matrix and `install.sh`'s refusal list to each other, ablated both ways |
-| Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; every stdlib case assembled from one host for all seven targets at three levels and relocation-checked (`scripts/check-cross-targets.sh`); executed in CI on three of them, with advisory legs (`continue-on-error`) for the two FreeBSD targets and `windows-x86_64` until each is seen green (see *Targets*) |
+| Releases and versioning | **Functional** | The installer is gated: `scripts/check-install.sh` serves a release built from the tree over the loopback, installs it, and requires a tampered archive, a missing checksum and an archive with no `stdlib/` to each be refused — with an ablation of `install.sh`'s own comparison proving that is what refuses them. `VERSION` is the single source of truth and `scripts/check-version.sh` holds eleven literals across eight files to it, each named with the count it must yield, plus what the built binary prints. A `v*` tag fires `release.yml`, which refuses a tag disagreeing with `VERSION` and builds two targets from the committed seed through the fixpoint. Since 2026-08-25 the shipped binary also names the TREE it was built from — `axiom version` prints a build id, twelve hex characters of a hash over every `.ax` byte under `self_host/` and `stdlib/` plus the commit, so two builds of two different trees at one version are distinguishable to whoever holds one (`scripts/check-build-id.sh`, `self_host/build.ax`). No `darwin-x86_64` artifact: it is assembled and byte-compared and executed by no runner. No `linux-x86_64` or `freebsd-x86_64` artifact either, for the opposite reason — it is fully supported and tested on every change, and only the prebuilt archive was dropped (2026-08-30); `scripts/check-release-targets.sh` holds the release matrix and `install.sh`'s refusal list to each other, ablated both ways |
+| Cross-compilation | **Functional** | `--target` selects ABI and platform stdlib modules; every stdlib case assembled from one host for all seven targets at three levels and relocation-checked (`scripts/check-cross-targets.sh`); executed in CI on five of them — `darwin-aarch64`, `linux-aarch64`, `linux-x86_64`, `freebsd-x86_64` (a real 14.4 kernel in a VM, the whole stdlib corpus and five gates) and `windows-x86_64` (one hello world, linked and run on `windows-latest`, imports held to an allowlist). All five legs are blocking as of 2026-08-30; `darwin-x86_64` and `freebsd-aarch64` are assembled and relocation-checked only, and are the two the word *supported* does not cover (see *Targets*) |
 | Self-hosting | **Done** | Axiom's compiler is written in Axiom. It compiles itself and reproduces itself byte-for-byte (`stage2 == stage3`, as objects and as IR), and a clean checkout builds it from `bootstrap/` with nothing but `llc` and a C linker. The Rust implementation it replaced has been removed. See the self-hosting record |
 | ADTs / data types | **Complete** | `tests/selfhost/140-data.ax`, `tests/selfhost/400-mixed-nullary.ax`, `tests/stdlib/270-nullary-unboxed.ax`. A constructor with fields is a heap-boxed tagged value; a nullary constructor *is* its tag, in a mixed type as well as an all-nullary one, and a match over a mixed type reads the tag through a runtime `< 4096` immediate-vs-pointer guard. Recursive types like `List`/`Tree` need no special case. See [Algebraic data types](#algebraic-data-types-how-they-actually-run) |
 | Structs | **Complete** | `tests/selfhost/150-struct.ax`. Declarations, LLVM emission, field access (`.field`), construction (`(StructName expr1 expr2 ...)`), `mut` fields, field mutation |

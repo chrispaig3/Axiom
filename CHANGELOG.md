@@ -16,6 +16,53 @@ its changelog too.
 
 ## Unreleased
 
+- **`freebsd-x86_64` and `windows-x86_64` are supported targets.** Both
+  legs had been green on 13 of the previous 15 runs with no failures,
+  and README's rule is that `continue-on-error` comes off *after* the
+  evidence — never in the commit that adds the job, which cannot have
+  seen anything. Both lines are off; both legs can now fail the
+  workflow, which is the whole content of the word.
+  **The two legs do not cover the same amount, and the documents say
+  so rather than letting one word mean two things.** FreeBSD boots a
+  real 14.4 kernel in a VM, bootstraps from the committed seed and runs
+  the whole standard-library corpus plus five gates, including
+  `check-net.sh` opening a real listener on `::1`. Windows runs **one
+  program** — `hello.exe`, executed on `windows-latest` against
+  `tests/stdlib/010-hello.out`, imports held to an allowlist with a
+  leaky probe proving the allowlist refuses. Both satisfy the rule;
+  only one would catch a Windows-only miscompile in a module hello
+  does not touch. Widening it means running the corpus the `cross` job
+  already assembles.
+  **Supported as a TARGET is not supported as a HOST**: the compiler
+  does not run on Windows, there is no Windows seed, and `install.sh`
+  refuses a Windows host outright.
+  `freebsd-x86_64` is supported and UNSHIPPED, so `install.sh` now
+  gives it the build-from-source paragraph `linux-x86_64` gets rather
+  than the not-supported one — while `freebsd-aarch64`, same seed and
+  same syscall table but no leg, keeps the latter. That split inside
+  one operating system is the clearest statement of the two axes the
+  previous release note introduced.
+  **Three defects found on the way, two of them in checks:**
+  `SECURITY.md`'s exclusion was keyed on an OS (`**Windows.** Not a
+  supported target`) and `check-doc-drift.sh` requires at least one
+  such bullet — but every OS in the list now has a supported target, so
+  the premise had become unsatisfiable. Both are keyed on the TARGET
+  now, which is what the rule was always about.
+  `check-release-targets.sh` matched CI legs with `grep "name: $t"`,
+  which finds a matrix entry but not `name: Tests (freebsd-x86_64)` —
+  it would have reported both newly-promoted targets as supported with
+  no leg.
+  And **nothing anywhere asserted `continue-on-error`**: the single
+  line that decides whether a leg can fail, whose removal every
+  document defines promotion as, was checked by no gate — a leg could
+  have been made advisory again to turn a red build green and every
+  check would have stayed quiet. There is now an arm for it, and it was
+  **vacuous on its first write**: `awk -v pat="Tests \($t\)"` has its
+  escapes processed by `-v` before the regex sees them, so `\(` became
+  a group and the pattern matched nothing. Caught by ablating it —
+  injecting the line back and watching the check stay green — which is
+  the only reason it is a check today.
+
 - **The evidence words travel by DEPTH, and two documented claims were
   wrong in opposite directions.** Both were read off the emitter's
   shape instead of measured, and both were corrected by probes that

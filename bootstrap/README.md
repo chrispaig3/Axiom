@@ -17,8 +17,11 @@ lineage/                  the commit list and the one patch a CHAIN row names
 ```
 
 The two FreeBSD seeds (2026-08-29) are emitted, hashed, regenerated
-and assembled exactly as the other four are, and have never been
-executed: no runner for FreeBSD exists in this repository yet. A seed
+and assembled exactly as the other four are. `freebsd-x86_64` has been
+EXECUTED since 2026-08-30 - `Tests (freebsd-x86_64)` boots FreeBSD 14.4
+in a VM and bootstraps from this very seed - and is a supported target.
+`freebsd-aarch64` has not: an aarch64 guest is TCG-emulated on every
+runner GitHub offers. A seed
 is not evidence that its target runs - `darwin-x86_64`'s has sat here
 under the same gates since the beginning and ships no artifact for the
 same reason.

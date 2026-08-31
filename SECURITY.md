@@ -60,13 +60,31 @@ Said out loud rather than left unstated.
   parser has a nesting limit (`AX2005`) and the expander a node budget
   (`AX3024`); beyond those, a program that takes a long time to compile
   is a program that takes a long time to compile.
-- **Windows.** Not a supported target. `README.md`'s *Targets* section
+- **freebsd-aarch64.** Not a supported target, and since 2026-08-30 the
+  only target absent from `README.md`'s *Targets* list. That section
   states what supported means — a CI leg executes what the compiler
-  emits there — and the Windows leg runs under `continue-on-error`: the
-  compiler emits and links for `windows-x86_64`, no artifact is
-  published for it, and no Windows binary is something this policy
-  covers until the target is on that list. `scripts/check-doc-drift.sh`
-  holds this bullet to it.
+  emits there. This one has the same seed and the same syscall table as
+  `freebsd-x86_64`, which IS supported; what it has no leg for is
+  running any of it, an aarch64 guest being TCG-emulated on every
+  runner GitHub offers. No artifact is published for it, and no binary
+  emitted for it is something this policy covers until a leg executes
+  it. `scripts/check-doc-drift.sh` holds this bullet to that list, per
+  TARGET rather than per OS: `freebsd-x86_64` and `windows-x86_64`
+  joined the list that day, leaving every operating system in it with
+  at least one supported target, so an OS-keyed bullet could no longer
+  be true of anything.
+- **`darwin-x86_64` is on that list and is executed by no runner**,
+  which is stated here rather than left to be discovered. It predates
+  the rule; README says so in the same paragraph that defines it. It
+  publishes no artifact. Treat binaries emitted for it as this policy
+  treats the bullet above until a runner exists.
+- **Windows as a HOST.** `windows-x86_64` is a supported *target* — the
+  `Tests (windows-x86_64)` leg links and executes what the compiler
+  emits there — but the compiler does not RUN on Windows. There is no
+  Windows seed in `bootstrap/` and `scripts/install.sh` refuses a
+  Windows host outright, so "the compiler running on Windows" is not a
+  configuration this policy describes, because it is not one that
+  exists.
 - **`rust/`'s example crates.** `rust/examples/` exists to exercise the
   FFI gate. It is not shipped and not a dependency of the compiler.
 

@@ -106,12 +106,18 @@ target="$os_name-$arch_name"
 # advisory until it is green. For these, no artifact exists AND the
 # platform carries no promise.
 #
-# SUPPORTED, NOT SHIPPED. linux-x86_64 (2026-08-30) is a different
-# case and gets a different message. Its CI leg runs the whole battery
-# on every pull request and will keep doing so; only the release
-# artifact was dropped, because that leg was the slowest and flakiest
-# part of cutting a release. A user here is not on unsupported ground -
+# SUPPORTED, NOT SHIPPED. linux-x86_64 and freebsd-x86_64 (both
+# 2026-08-30) are a different case and get a different message. Each
+# has a blocking CI leg that runs what the compiler emits there, and
+# will keep having one; what they have no archive for is a
+# distribution decision, not a doubt. linux-x86_64's leg was the
+# slowest and flakiest part of cutting a release; FreeBSD never had a
+# release job at all. A user on either is not on unsupported ground -
 # they just have to run one command.
+#
+# freebsd-AARCH64 stays in the not-supported arm below, and the split
+# inside one operating system is the point: same seed, same syscall
+# table, and no leg that runs either.
 #
 # `scripts/check-release-targets.sh` holds these two lists and
 # `release.yml`'s build matrix to each other, so a target cannot end up
@@ -137,7 +143,13 @@ case "$target" in
 "It is fully supported and tested - CI runs the whole gate battery on
   linux-x86_64 on every change - but no prebuilt archive is published
   for it. Building from the committed seed is the supported path here." ;;
-  darwin-x86_64|freebsd-x86_64|freebsd-aarch64)
+  freebsd-x86_64)
+    build_it "$target" \
+"It is a supported target - CI boots FreeBSD 14.4 in a VM on every
+  change, bootstraps from the committed seed and runs the standard
+  library there - but no release archive is built for it. Building from
+  that same seed is the supported path here, and is what CI does." ;;
+  darwin-x86_64|freebsd-aarch64)
     build_it "$target" \
 "It is assembled and byte-compared in CI, but no release is built for
   it, so no artifact is published. Publishing one would imply a support

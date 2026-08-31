@@ -361,22 +361,29 @@ on those triggers it is the only job that runs:
 2. **Tests** — the gate battery above, on three platforms
    (linux-x86_64, linux-aarch64, darwin-aarch64). Each job provisions a
    compiler from `bootstrap/` first. A fourth leg, `Tests
-   (windows-x86_64)` on `windows-latest`, exists and is **not
-   supported**: it takes the hello-world modules the cross-target job
-   emits on Linux, assembles, links and executes them
-   (`scripts/check-windows-hello.sh --run`), and runs
-   `continue-on-error` until the target clears the bar README's
-   *Targets* section sets — the line is removed when the leg is green,
-   and not before. It provisions no compiler: none hosts on Windows yet.
-   One more job, `Tests
-   (freebsd-x86_64)`, boots FreeBSD 14 in a VM on the Ubuntu runner
+   (windows-x86_64)` on `windows-latest`, takes the hello-world modules
+   the cross-target job emits on Linux and assembles, links and
+   executes them (`scripts/check-windows-hello.sh --run`). It
+   provisions no compiler: none hosts on Windows yet. A fifth, `Tests
+   (freebsd-x86_64)`, boots FreeBSD 14.4 in a VM on the Ubuntu runner
    (`vmactions/freebsd-vm`, SHA-pinned) and runs the bootstrap plus the
-   syscall-table gates there; it is `continue-on-error` and the target
-   is not supported until that line is removed after the job has been
-   seen green. `freebsd-aarch64` has no job: an aarch64 guest is
-   TCG-emulated on every runner GitHub offers (a 300-minute budget,
-   measured and dropped 2026-08-29), so it ships as darwin-x86_64 does -
-   assembled and relocation-checked, executed by no runner.
+   standard library and the syscall-table gates there.
+
+   **Both were `continue-on-error` until 2026-08-30 and neither is
+   now**, each line coming off after its leg had been seen green on 13
+   of the previous 15 runs — which is what made `freebsd-x86_64` and
+   `windows-x86_64` supported, since README's *Targets* section defines
+   the word as a leg that executes. The two legs do not cover the same
+   amount and that section says so: FreeBSD runs the whole corpus,
+   Windows runs one program. `scripts/check-release-targets.sh` now
+   refuses a target that is on the supported list and has an advisory
+   leg, which nothing checked before.
+
+   `freebsd-aarch64` has no job: an aarch64 guest is TCG-emulated on
+   every runner GitHub offers (a 300-minute budget, measured and
+   dropped 2026-08-29), so it stands as darwin-x86_64 does - assembled
+   and relocation-checked, executed by no runner, and the one FreeBSD
+   target that is not supported.
 3. **FFI** — `check-ffi.sh` on linux-x86_64 and darwin-aarch64: the
    `extern` boundary opens exactly the symbols it declares, the
    generated bindings match a fresh generation, and the `rust/`
@@ -461,8 +468,12 @@ and byte-compared by `check-cross-targets.sh` and executed by no runner
 anywhere, so publishing a binary for it would imply a support level
 that does not exist. `scripts/install.sh` says so and points at the
 seed, which is supported there. The two FreeBSD targets are refused by
-the installer in the same words for as long as their CI jobs are
-advisory and no release job builds them.
+the installer in DIFFERENT words since 2026-08-30, and the split inside
+one operating system is the point: `freebsd-x86_64` is supported and
+unshipped, so it gets the build-from-source paragraph `linux-x86_64`
+gets; `freebsd-aarch64` is not supported and gets the one
+`darwin-x86_64` gets. Same seed, same syscall table, and only one of
+them has a leg that runs any of it.
 
 ---
 

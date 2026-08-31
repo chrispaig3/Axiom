@@ -748,9 +748,11 @@ jobs:
       # per-runner check - it reads all seven targets from whichever
       # host it is on, out of `emit-llvm` rather than out of the
       # sources, so darwin-x86_64 (which has no runner anywhere in this
-      # file), freebsd-aarch64 (executed by no runner either),
-      # freebsd-x86_64 and windows-x86_64 (whose jobs below are advisory) are covered three times over rather than
-      # never. About eight seconds, almost all of it building the
+      # file) and freebsd-aarch64 (executed by no runner either) are
+      # covered three times over rather than never. freebsd-x86_64 and
+      # windows-x86_64 no longer belong on that list: since 2026-08-30
+      # both have blocking legs that EXECUTE what the compiler emits,
+      # which is what took them off it. About eight seconds, almost all of it building the
       # compiler under test, which it must: the codegen table is half of
       # what it compares.
       - name: The two tables of syscall numbers agree
@@ -885,9 +887,14 @@ jobs:
         run: cd rust && cargo test --workspace --exclude axiom-host
 
   # ---------------------------------------------------------------
-  # FreeBSD, EXECUTED. Every other job that meets the two FreeBSD
-  # targets assembles their IR and compares bytes; none runs it, and
-  # `release.yml` says in its own words why that is not support. This
+  # FreeBSD, EXECUTED - and SUPPORTED since 2026-08-30. Every other job
+  # that meets the two FreeBSD targets assembles their IR and compares
+  # bytes; only this one runs it. (The sentence here used to send a
+  # reader to `release.yml` "in its own words" for why assembling is
+  # not support. That file has never mentioned FreeBSD - `grep -ci
+  # freebsd release.yml` answers 0 - so the citation was dangling from
+  # the day it was written. The rule it meant is README's *Targets*
+  # section, which is where it now points.) This
   # job boots a real FreeBSD 14 kernel in a VM on the Ubuntu runner
   # (KVM-accelerated - the hosted runners expose /dev/kvm) and runs
   # what the compiler emits there: the bootstrap from the committed
@@ -898,14 +905,19 @@ jobs:
   # what falsifies `afInet6` = 28 and the 64-byte `struct kevent`
   # stride, and no amount of assembling can.
   #
-  # NOT SUPPORTED UNTIL `continue-on-error` BELOW IS REMOVED. While
-  # that line stands this job cannot fail the workflow, the README's
-  # Targets list does not name FreeBSD, `install.sh` refuses a FreeBSD
-  # host with the same paragraph darwin-x86_64 gets, and no release is
-  # built for it. Removing the line is the act that makes
-  # freebsd-x86_64 supported, and it is done AFTER the job has been
-  # seen green - not in the commit that adds it, which cannot have
-  # seen anything.
+  # SUPPORTED, AND THIS JOB IS WHAT MAKES THAT TRUE. `continue-on-error`
+  # was removed on 2026-08-30 after the leg had been seen green on 13
+  # of the previous 15 runs with no failures - the rule being that the
+  # line comes off AFTER the evidence, not in the commit that adds the
+  # job, which cannot have seen anything. It can fail the workflow now,
+  # which is the whole content of the word.
+  #
+  # freebsd-x86_64 is SUPPORTED and UNSHIPPED: no release archive is
+  # built for it, and `install.sh` gives a FreeBSD x86_64 host the
+  # build-from-source paragraph that `linux-x86_64` gets rather than
+  # the not-supported one `darwin-x86_64` gets. freebsd-AARCH64 is
+  # unchanged and still unsupported - it has no leg, for the TCG
+  # reason recorded below.
   #
   # PINNING, AND WHAT IT DOES NOT PIN. The action is pinned to a commit
   # SHA like every other action in this file, which pins the
@@ -933,9 +945,6 @@ jobs:
     needs: grammar
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # Advisory until removed - see above. NOT SUPPORTED while this
-    # line is here.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Bootstrap from the seed and run the gates on FreeBSD 14
@@ -998,11 +1007,31 @@ jobs:
           retention-days: 3
 
   # ---------------------------------------------------------------
-  # The Windows leg. NOT SUPPORTED until the `continue-on-error` line
-  # below is removed: README's Targets section defines a supported
-  # target as one whose CI leg executes what the compiler emits there,
-  # and this job is that leg, running under `continue-on-error` while it
-  # proves itself. It cross-builds nothing - there is no Windows seed
+  # The Windows leg, and windows-x86_64 is SUPPORTED since 2026-08-30:
+  # README's Targets section defines a supported target as one whose CI
+  # leg executes what the compiler emits there, this job is that leg,
+  # and `continue-on-error` came off after it had been seen green on 13
+  # of the previous 15 runs with no failures.
+  #
+  # WHAT THIS LEG COVERS, AND WHAT IT DOES NOT, because "supported"
+  # must not quietly mean two different amounts. The FreeBSD leg boots
+  # a real kernel, bootstraps from the seed and runs the whole stdlib
+  # corpus plus five gates. THIS ONE RUNS ONE PROGRAM: hello.exe,
+  # executed against `tests/stdlib/010-hello.out`, with its imports
+  # held to an allowlist and a leaky probe proving the allowlist
+  # refuses. That is a real execution and it is what the definition
+  # asks for, but it is one program - so a Windows-only miscompile in
+  # any stdlib module this hello does not touch would not be caught
+  # here. Widening it means linking and running the corpus the `cross`
+  # job already assembles for windows-x86_64, and until that happens
+  # this paragraph is the honest scope of the word.
+  #
+  # SUPPORTED AS A TARGET IS NOT SUPPORTED AS A HOST. The compiler does
+  # not run on Windows - there is no Windows seed in `bootstrap/` and
+  # `install.sh` refuses a Windows host outright. What is supported is
+  # the binary this compiler EMITS for windows-x86_64.
+  #
+  # It cross-builds nothing - there is no Windows seed
   # and the compiler does not host on Windows yet - so it takes the
   # modules the `cross` job emitted on Linux, assembles them with
   # `llc`, links them with `lld-link` against import libraries
@@ -1019,7 +1048,6 @@ jobs:
     name: Tests (windows-x86_64)
     needs: cross
     runs-on: windows-latest
-    continue-on-error: true  # the target is not supported until this line is removed
     defaults:
       run:
         shell: bash

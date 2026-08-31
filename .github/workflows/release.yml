@@ -15,9 +15,12 @@
 # CI already runs, invoked here for the same reason.
 #
 # WHAT IS SHIPPED, AND WHAT IS NOT. Two targets are built and attached:
-# `linux-aarch64` and `darwin-aarch64`. Two are deliberately left out,
-# and they are left out for OPPOSITE reasons, which is why the
-# distinction is written down rather than left to the matrix.
+# `linux-aarch64` and `darwin-aarch64`. FIVE are left out, for two
+# different reasons, which is why the distinction is written down
+# rather than left to the matrix. `darwin-x86_64` and `freebsd-aarch64`
+# are not shipped because they are NOT SUPPORTED - executed by no
+# runner. `linux-x86_64`, `freebsd-x86_64` and `windows-x86_64` are
+# supported, tested on every change, and unshipped by decision.
 #
 # `darwin-x86_64` is not shipped because it is NOT SUPPORTED. No runner
 # for it exists anywhere in this repository, so it is assembled and
@@ -39,7 +42,8 @@
 # So the rule this file now encodes has TWO axes, not one. Supported
 # says whether a CI leg executes what the compiler emits there;
 # SHIPPED says whether a release carries a prebuilt archive. A target
-# can be supported and unshipped - that is exactly `linux-x86_64` -
+# can be supported and unshipped - `linux-x86_64`, and since
+# 2026-08-30 `freebsd-x86_64` and `windows-x86_64` as well -
 # and `scripts/install.sh` must refuse it with a build-from-source
 # message rather than a 404. `scripts/check-release-targets.sh` holds
 # this matrix and that script's refusal list to each other, so the two

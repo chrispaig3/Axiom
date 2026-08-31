@@ -28,9 +28,9 @@
 # combination but one is currently real:
 #
 #   supported + shipped      linux-aarch64, darwin-aarch64
-#   supported + unshipped    linux-x86_64   (2026-08-30, see below)
-#   unsupported + unshipped  darwin-x86_64, freebsd-x86_64,
-#                            freebsd-aarch64
+#   supported + unshipped    linux-x86_64, freebsd-x86_64,
+#                            windows-x86_64   (all 2026-08-30)
+#   unsupported + unshipped  darwin-x86_64, freebsd-aarch64
 #   unsupported + shipped    forbidden - it is the state that makes an
 #                            untested binary look supported, and the
 #                            check at the bottom refuses it
@@ -174,7 +174,15 @@ else
   gap=""; excused=""
   for t in $readme_supported; do
     if printf '%s\n' $shipped | grep -qx "$t"; then continue; fi
-    if grep -q "name: $t" "$ci_yml"; then continue; fi
+    # TWO SPELLINGS, and missing the second was a real defect found on
+    # 2026-08-30. A matrix target appears as `- name: linux-x86_64`,
+    # but a target with a job of its own appears only in that job's
+    # display name - `name: Tests (freebsd-x86_64)`, which does not
+    # contain `name: freebsd-x86_64`. This check would have reported
+    # freebsd-x86_64 and windows-x86_64 as supported with no CI leg the
+    # moment they were promoted, which is a false alarm on the two
+    # targets it exists to protect.
+    if grep -qE "name: (Tests \()?$t\)?" "$ci_yml"; then continue; fi
     if grep -q "$t" <<<"$targets_section" \
        && grep -qiE "executed by no runner|no runner for it" <<<"$targets_section"; then
       excused="$excused $t"
@@ -191,6 +199,40 @@ else
     ok "every supported-but-unshipped target has a ci.yml leg, except$excused, which README explains"
   else
     ok "every supported-but-unshipped target still has a ci.yml leg"
+  fi
+
+  # NO SUPPORTED TARGET MAY HAVE AN ADVISORY LEG, and until 2026-08-30
+  # nothing anywhere asserted this. `continue-on-error: true` is the
+  # single line that decides whether a leg can fail the workflow, every
+  # document in the tree defines promotion as its removal, and
+  # `grep -rn continue-on-error scripts/` returned zero hits: the act
+  # that constitutes support was checked by nothing. A leg could have
+  # been made advisory again - to get a red build green - and every
+  # gate here would have stayed quiet while the word went hollow.
+  adv=""
+  for t in $readme_supported; do
+    # `index`, NOT a dynamic regex. Written as `-v pat="Tests \($t\)"`
+    # first, and awk's `-v` processes the escapes before the regex ever
+    # sees them: `\(` became `(`, so the pattern read as a GROUP and
+    # matched `name: Tests freebsd-x86_64`, which appears nowhere. The
+    # check passed on a tree with `continue-on-error` injected back onto
+    # the FreeBSD leg - vacuous, in the arm whose whole subject is a
+    # word going hollow. Caught by ablating it, which is why the
+    # ablation below runs.
+    job="$(awk -v want="name: Tests ($t)" '
+      index($0, want) { found = 1; next }
+      found && index($0, "continue-on-error") { print "advisory"; exit }
+      found && /^  [a-z]/ { exit }
+    ' "$ci_yml")"
+    [[ -n "$job" ]] && adv="$adv $t"
+  done
+  if [[ -n "$adv" ]]; then
+    bad "README calls these supported and their ci.yml leg is continue-on-error:$adv"
+    echo "     an advisory leg cannot fail the workflow, so it does not"
+    echo "     execute anything the project is held to. Remove the line or"
+    echo "     the target from the list."
+  else
+    ok "no supported target has an advisory (continue-on-error) leg"
   fi
 
   # And the forbidden quadrant: shipped but not supported.

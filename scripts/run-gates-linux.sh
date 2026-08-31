@@ -100,10 +100,28 @@ arch="${arch:-$native}"
 # out rather than a silent skip: a script that quietly does nothing
 # when its tool is absent is indistinguishable from one that ran and
 # found nothing, which is the failure mode this whole file is about.
+#
+# LOOKED FOR OFF `PATH` AS WELL, because the first machine this script
+# met had podman installed and not on it: Podman Desktop puts its
+# client in `/opt/podman/bin`, which a login shell need not export.
+# `command -v podman` answered nothing and this script said "no
+# container runtime found" to a machine that had one - a false
+# negative that reads exactly like the true one, on the script whose
+# whole subject is a check that goes quiet when its tool is missing.
 engine="${AXIOM_CONTAINER:-}"
 if [[ -z "$engine" ]]; then
   for c in docker podman; do
     command -v "$c" >/dev/null 2>&1 && { engine="$c"; break; }
+  done
+fi
+if [[ -z "$engine" ]]; then
+  for p in /opt/podman/bin/podman /opt/homebrew/bin/podman /usr/local/bin/podman \
+           /opt/homebrew/bin/docker /usr/local/bin/docker /Applications/Docker.app/Contents/Resources/bin/docker; do
+    if [[ -x "$p" ]]; then
+      engine="$p"
+      echo "note: using $p (not on PATH)"
+      break
+    fi
   done
 fi
 [[ -n "$engine" ]] || cat >&2 <<'NOTE'
