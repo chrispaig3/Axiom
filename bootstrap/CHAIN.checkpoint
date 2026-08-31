@@ -1,0 +1,29 @@
+Rows covered:          13
+Through seed:          39fc81d
+Prefix digest:         ca6ab64ddd50d71d385f78f133606f33c32e5f12ea43aa40199ff37bdbfeb3f8
+Blessed:               2026-08-31T08:54:01Z
+Replayed on:           darwin-aarch64 (Homebrew LLVM version 23.1.0)
+Blessed by:            AXIOM_BLESS=1 scripts/check-seed-lineage.sh --full
+Recomputed by:         scripts/check-seed-lineage.sh, on every run
+
+`Prefix digest` is sha256 over the canonical text `checkpoint_material`
+in scripts/check-seed-lineage.sh builds from the first `Rows covered`
+rows of bootstrap/CHAIN: those row and orphan lines verbatim, every
+short hash in them resolved to a full commit, the git object id of
+every seed those commits carry, the sha256 of every walk list and patch
+file they name, and the Rust anchor. The gate recomputes it on EVERY
+run and replays the rows after it; when the recomputation disagrees
+this file certifies nothing, the gate replays every row from the anchor
+instead, and it stays red until the prefix is blessed again.
+
+This is a record, not a signature. Whoever can edit a row of
+bootstrap/CHAIN can recompute this digest too - what the file buys is
+that they must do it in the same diff, where a reviewer sees a change
+that re-certified the lineage rather than a one-character edit to a
+table nothing re-derives. The nightly `--full` job re-derives every row
+from the Rust anchor bb730db regardless of what this file says.
+
+It never covers the newest row: blessing stops before any row written
+`next`, so the link a push adds is replayed on that push.
+
+Advance it with:   AXIOM_BLESS=1 scripts/check-seed-lineage.sh --full

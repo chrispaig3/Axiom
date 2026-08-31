@@ -134,10 +134,32 @@ two compilers differ - must equal the next seed byte for byte. So a
 seed on this chain is the honest emission of readable source by a
 compiler that is itself on the chain, back to a root anyone can read in
 Rust; a backdoor would have to be in that Rust, or in the `.ax` files,
-and in no 7 MB of IR. The gate replays the newest row on every push
-that touches `bootstrap/` (one or two minutes) and every row nightly
-(`--full`, about forty minutes), and each run refuses one byte flipped
-in a copy of the seed and a row re-pointed at another predecessor.
+and in no 7 MB of IR. The gate replays every row nightly (`--full`);
+on a push that touches `bootstrap/` it replays the rows
+`CHAIN.checkpoint` does not certify, and never fewer than the newest
+one. Each run refuses one byte flipped in a copy of the seed and a row
+re-pointed at another predecessor.
+
+`CHAIN.checkpoint` is what makes the push run cheap without making it
+possible to hide a broken link. It names a PREFIX of `CHAIN` and the
+sha256 of exactly that prefix - the rows verbatim, their short hashes
+resolved to full commits, the git object id of every seed those commits
+carry, and the sha256 of every walk list and patch file they name - and
+the gate RECOMPUTES that digest from `CHAIN` as it stands on every run
+before it skips anything. A covered row that moved by a byte digests
+differently, and the checkpoint is then void: the gate replays the
+whole chain from the Rust anchor and stays red until the prefix is
+blessed again. Editing an old row cannot shrink the work.
+
+It is written only by `AXIOM_BLESS=1 scripts/check-seed-lineage.sh
+--full`, over rows that same process replayed from the anchor, and
+never as a side effect of a passing run - a gate that writes its own
+trust anchor when it passes proves nothing. It never covers the newest
+row, so the link a push adds is replayed on that push. And it is a
+record rather than a signature: whoever can edit a row can recompute
+the digest too, and what the file buys is that they must do it in the
+same diff, in front of a reviewer, while the nightly `--full` re-derives
+every row from `bb730db` regardless.
 
 **What is answered, and what remains.** Answered: the seed in the tree
 descends, by replayable steps, from a compiler that no Axiom seed ever

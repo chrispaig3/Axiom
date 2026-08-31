@@ -302,7 +302,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-memory-baseline.sh` | the managed Life probe holds RSS flat over 2000 generations where its unmanaged twin grows linearly |
 | `check-cross-targets.sh` | every target's IR assembles from one host, at every `--opt` level, with no non-position-independent object. `--self-test` runs the relocation rules against known input, because a gate whose verdict is never tested is how a broken one goes unnoticed |
 | `check-seed-provenance.sh` | the other half of the seed's story: it IS the emission of source in this history. All six seeds are regenerated from the commit that last wrote the six `.ll` files and must come back byte-identical, after that commit's sources are required to hash to `bootstrap/STAMP`. Its own CI job, because it needs `fetch-depth: 0` and about seven minutes |
-| `check-seed-lineage.sh` | the seed's ancestry, back to a compiler no Axiom seed touched: `bootstrap/CHAIN` names, for every seed ever committed, the seed it reproduces from and how, and this replays it - the previous seed built with `llc` and `cc` compiles the next seed's tree and the emission, or its re-emission, must be the next seed byte for byte; the first row is the Rust compiler at `bb730db` reproducing the first seed. The newest row on every run, every row under `--full` (the nightly job, with cargo). Its probes flip one byte of a copy of the seed, re-point the newest row at another predecessor, change one byte of the Rust anchor's codegen and one byte of the `.ax` tree it compiles - each must go red, and each is asserted applied first |
+| `check-seed-lineage.sh` | the seed's ancestry, back to a compiler no Axiom seed touched: `bootstrap/CHAIN` names, for every seed ever committed, the seed it reproduces from and how, and this replays it - the previous seed built with `llc` and `cc` compiles the next seed's tree and the emission, or its re-emission, must be the next seed byte for byte; the first row is the Rust compiler at `bb730db` reproducing the first seed. Every row under `--full` (the nightly job, with cargo, or `AXIOM_LINEAGE_FULL=1`); on a default run, the rows `bootstrap/CHAIN.checkpoint` does not certify and never fewer than the newest. The checkpoint carries the digest of the prefix it covers and the gate recomputes it from `CHAIN` on every run, so a covered row that moved voids it and forces the full replay; only `AXIOM_BLESS=1 ... --full` advances it, over rows that run replayed from the anchor. Its probes flip one byte of a copy of the seed, re-point the newest row at another predecessor, change one byte of the Rust anchor's codegen and one byte of the `.ax` tree it compiles - each must go red, and each is asserted applied first |
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
@@ -405,13 +405,16 @@ on those triggers it is the only job that runs:
    `bootstrap/` with only `llc` and `cc`. If this fails, the repository
    cannot be built at all, and a stale seed is the usual reason
    (`scripts/reseed.sh`).
-9. **Seed lineage** — `check-seed-lineage.sh`: the newest row of
-   `bootstrap/CHAIN` replayed - the previous seed compiles the tree of
-   the seed in the tree and must reproduce it - on every push or pull
-   request that touches `bootstrap/`, and skipped by name otherwise.
-   Its own job because it needs `fetch-depth: 0`. The nightly
+9. **Seed lineage** — `check-seed-lineage.sh`: the rows of
+   `bootstrap/CHAIN` that `bootstrap/CHAIN.checkpoint` does not certify,
+   and never fewer than the newest - the previous seed compiles the tree
+   of the seed in the tree and must reproduce it - on every push or pull
+   request that touches `bootstrap/`, and skipped by name otherwise. The
+   checkpoint's digest is recomputed from `CHAIN` on every run, and a
+   covered row that moved voids it and forces the full replay. Its own
+   job because it needs `fetch-depth: 0`. The nightly
    **Seed lineage (full)** job replays every row with `--full`, cargo
-   installed for the Rust anchor - about forty minutes.
+   installed for the Rust anchor.
 
 The `push:` trigger names `trunk`, which is this repository's only
 branch.

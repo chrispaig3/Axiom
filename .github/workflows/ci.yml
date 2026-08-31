@@ -1134,11 +1134,21 @@ jobs:
 
   # The seed's ANCESTRY. `seed-provenance` proves the seed is its own
   # tree's emission; this proves the compiler that emitted it is on a
-  # chain that begins outside Axiom - the newest row of
-  # `bootstrap/CHAIN`, replayed: the previous seed built with `llc` and
-  # `cc` compiles the tree of the seed in the tree and must reproduce it.
+  # chain that begins outside Axiom - the rows of `bootstrap/CHAIN` that
+  # `bootstrap/CHAIN.checkpoint` does not certify, replayed, and never
+  # fewer than the newest: the previous seed built with `llc` and `cc`
+  # compiles the tree of the seed in the tree and must reproduce it.
   # `scripts/check-seed-lineage.sh` reads the whole table's structure
-  # every time it runs; the replay is one or two minutes.
+  # every time it runs, and RECOMPUTES the checkpoint's digest from
+  # `bootstrap/CHAIN` before it skips a single row - a covered row that
+  # moved voids the checkpoint, and the gate then replays every row from
+  # the Rust anchor and goes red. So this job cannot be made cheap by
+  # editing the table it checks; it can only be made expensive.
+  #
+  # `fetch-depth: 0` for the reason the two jobs above it need it: the
+  # gate walks the history for every commit that ever wrote
+  # `bootstrap/*.ll`, and a shallow clone has none of them. It refuses
+  # by name rather than passing when it finds none.
   #
   # Only when the push or pull request touched `bootstrap/`. A
   # workflow-level `paths:` filter would gate every job here, and a
@@ -1177,15 +1187,25 @@ jobs:
           fi
       - uses: ./.github/actions/provision
         if: steps.touched.outputs.run == 'true'
-      - name: The newest row of bootstrap/CHAIN replays
+      - name: The uncertified rows of bootstrap/CHAIN replay
         if: steps.touched.outputs.run == 'true'
         run: ./scripts/check-seed-lineage.sh
 
   # Every row, from the Rust anchor: cargo builds the compiler at
   # `bb730db`, it reproduces the first seed, and each seed after that
   # is reproduced from the one before - thirteen links and a
-  # sixty-three-commit walk, about forty minutes. Nightly, and on the
-  # button; `grammar` is skipped on both triggers so nothing else runs.
+  # sixty-three-commit walk. Nightly, and on the button; `grammar` is
+  # skipped on both triggers so nothing else runs.
+  #
+  # This job does NOT bless `bootstrap/CHAIN.checkpoint`, and the
+  # workflow holds `contents: read` so it could not commit one. A gate
+  # that advances its own trust anchor whenever it passes proves
+  # nothing, and a nightly that did it would advance it unwatched. The
+  # checkpoint is advanced by a person, with `AXIOM_BLESS=1
+  # scripts/check-seed-lineage.sh --full`, in the diff that a reviewer
+  # reads. What this job is for is the other direction: it re-derives
+  # every row from `bb730db` daily whatever the checkpoint says, so a
+  # prefix that was certified wrongly has a day to live.
   # `dtolnay/rust-toolchain` is pinned to the same SHA the `ffi` job
   # pins, for the reason stated above it.
   seed-lineage-full:

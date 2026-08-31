@@ -98,8 +98,16 @@ deleted (`430a138`) is still in its history at `bb730db`, still builds
 with `cargo`, and compiles the first seed commit's `self_host/` into a
 compiler whose emission is the first seed byte for byte; every seed
 since reproduces from the one before it. `bootstrap/CHAIN` is that
-lineage and `scripts/check-seed-lineage.sh` replays it - the newest
-link on every push that touches `bootstrap/`, all of it nightly.
+lineage and `scripts/check-seed-lineage.sh` replays it - on every push
+that touches `bootstrap/`, the links `bootstrap/CHAIN.checkpoint` does
+not certify and never fewer than the newest; all of it nightly. That
+checkpoint records the digest of the prefix a `--full` run derived, the
+gate recomputes that digest from `bootstrap/CHAIN` on every run, and a
+covered row that has moved voids it and forces the full replay. It is a
+record, not a signature: whoever can edit a row can recompute the
+digest, so what it buys is that the edit and the re-certification are
+one reviewable diff, and the nightly re-derives every row from
+`bb730db` either way.
 Three historical seeds that nothing reproduces are named there as
 orphans and bypassed; `bootstrap/README.md` states the gap.
 
