@@ -241,32 +241,22 @@
 
 (pub fn (TAG_D_EFFECT) 30)
 
-; `type` and `trait` declarations, retained for `symbols`. Until the
-; port they were consumed by skipUnknownDecl into TAG_NIL - stage1
-; emits no code for either, and every downstream tag dispatch
-; else-skips, so carrying them is free. ALIAS: a=name, b=target type
-; node, c=tyvars (Vec of Str), span=name token. TRAIT: a=name, b=Vec
-; of TAG_FIELD method nodes (a=method name, b=type node), span=name
+; A `type` declaration, retained for `symbols`. Until the port it was
+; consumed by skipUnknownDecl into TAG_NIL - stage1 emits no code for
+; it, and every downstream tag dispatch else-skips, so carrying it is
+; free. a=name, b=target type node, c=tyvars (Vec of Str), span=name
 ; token. A malformed spelling falls back to skipUnknownDecl, which is
 ; byte-for-byte the old behaviour.
 (pub :: TAG_D_ALIAS Int)
 
 (pub fn (TAG_D_ALIAS) 47)
 
-(pub :: TAG_D_TRAIT Int)
-
-(pub fn (TAG_D_TRAIT) 48)
-
-; An `(impl (Trait Type) where ((method expr) ...))` declaration.
-; a=trait name, b=Vec of TAG_FIELD method nodes (a=method name,
-; b=the implementing expression), c=the implementing type's NAME,
-; span=the trait name's token. Until 2026-08-10 `impl` was consumed
-; as an inert TAG_NIL by name, so its body was never checked and its
-; methods were bound to nothing - the README's own trait example was
-; `AX3001 undefined variable eq` on its first use.
-(pub :: TAG_D_IMPL Int)
-
-(pub fn (TAG_D_IMPL) 49)
+; 48 was TAG_D_TRAIT and 49 was TAG_D_IMPL, and neither is reused, for
+; the reason 29 is not: the tag numbers are the AST's wire format
+; between this file and its four readers, and a retired one left
+; vacant costs nothing while a recycled one turns a stale reader into
+; a silent misparse rather than a crash. `trait` and `impl` are AX2004
+; at the top of `parseTopForm` now, so no node carries either.
 
 ; A top-level form whose head is an identifier that names no
 ; declaration keyword: a DECLARATION MACRO INVOCATION, resolved by the
@@ -1995,34 +1985,27 @@
                           (parseEffectDecl tokens (advance pos))
                           (if (kwEq name "type")
                             (parseAliasDecl tokens (advance pos) pos)
-                            (if (kwEq name "trait")
-                              (parseTraitDecl tokens (advance pos) pos)
-                              ; `impl` is the one declaration form stage0 parses that this
-                              ; parser has not learned; it is consumed as an inert node BY NAME,
-                              ; which is what the blanket skip below used to do for it
-                              ; implicitly. Naming it here is what let the blanket become a
-                              ; refusal - and the syntax zoo is what found it, five minutes
-                              ; after the refusal landed: a missing parse form hides inside a
-                              ; tolerance until the tolerance dies.
-                              (if (kwEq name "impl")
-                                (parseImplDecl tokens (advance pos) pos)
-                                ; `syntax/for` in declaration position (MAC-CAP-5). The hook lives
-                                ; HERE, ahead of the macrocall fallthrough, so one arm covers a
-                                ; rule-form template (parseTplDecls delegates to this function), a
-                                ; nested iteration's interior, the `pub` recursion above, and a
-                                ; stray top-level occurrence - which phase D refuses rather than
-                                ; resolving as a macro named syntax/for.
-                                ; `extern` - the Rust FFI binding block (docs/ffi.md). The hook sits
-                                ; here for the same reason `impl` and `syntax/for` do: an identifier
-                                ; head that reaches the fallthrough below becomes a declaration-macro
-                                ; invocation, and the refusal then stops naming the construct.
-                                ;
-                                ; Cost, stated: a program that today defines a declaration MACRO
-                                ; named `extern` changes meaning. None exists in this tree.
-                                (if (kwEq name "extern")
-                                  (parseExternDecl tokens (advance pos))
-                                  (if (kwEq name "syntax/for")
-                                    (parseDeclFor tokens pos)
+                            ; `syntax/for` in declaration position (MAC-CAP-5). The hook lives
+                            ; HERE, ahead of the macrocall fallthrough, so one arm covers a
+                            ; rule-form template (parseTplDecls delegates to this function), a
+                            ; nested iteration's interior, the `pub` recursion above, and a
+                            ; stray top-level occurrence - which phase D refuses rather than
+                            ; resolving as a macro named syntax/for.
+                            ; `extern` - the Rust FFI binding block (docs/ffi.md). The hook sits
+                            ; here for the same reason `syntax/for` does: an identifier head
+                            ; that reaches the fallthrough below becomes a declaration-macro
+                            ; invocation, and the refusal then stops naming the construct.
+                            ;
+                            ; `trait` and `impl` had arms here too, immediately above these,
+                            ; until 0.6.0. They are now caught by the reserved-word refusal at
+                            ; the top of this function and never reach the chain.
+                            ;
+                            ; Cost, stated: a program that today defines a declaration MACRO
+                            ; named `extern` changes meaning. None exists in this tree.
+                            (if (kwEq name "extern")
+                              (parseExternDecl tokens (advance pos))
+                              (if (kwEq name "syntax/for")
+                                (parseDeclFor tokens pos)
                                     ; Any OTHER identifier head is a DECLARATION MACRO INVOCATION
                                     ; (TAG_D_MACROCALL), resolved - or refused with a diagnostic that
                                     ; names the head - by the expander's phase D. This is NOT the old
@@ -2038,8 +2021,6 @@
                                     (parseMacroCall tokens pos)
                                   )
                                 )
-                              )
-                            )
                           )
                         )
                       )
@@ -2532,327 +2513,6 @@
         (aliasTyvarsEnd tokens (advance pos) tvs)
       }
       pos
-    )
-  )
-)
-
-; `(trait (Name a) [(supertraits)] [(effects)] [where (m :: T ...)])`.
-; What survives is what `symbols` prints: the name, its span, and the
-; method name/type pairs. Supertraits, effect lists, and method
-; defaults are consumed and dropped - AXSYM has no field for any of
-; them. Fallback on any unrecognised shape, as for aliases.
-(pub :: parseTraitDecl (-> Int Int Int Int))
-
-(pub fn (parseTraitDecl tokens pos origPos)
-  (if (peekIs tokens pos TK_LPAREN)
-    (let ((np (advance pos)))
-      (if (peekIs tokens np TK_IDENT)
-        ; The type parameters are KEPT now. `(trait (Eq a) ...)`
-        ; binds `a` for every method signature, and substituting
-        ; the implementing type for it is what gives an impl's
-        ; method a concrete type to check against.
-        (let (
-          (name (tokenLexeme (vecGet tokens np)))
-          (nameSpan (tokenSpan (vecGet tokens np)))
-          (tvs vecNew)
-        )
-          (let ((afterTvs (aliasTyvarsEnd tokens (advance np) tvs)))
-            (if (peekIs tokens afterTvs TK_RPAREN)
-              (parseTraitRest
-                tokens                (advance afterTvs)                name                nameSpan                tvs                origPos
-              )
-              (let ((hr (skipParens tokens np 1)))
-                (if (== (memGetWord hr 0) 0)
-                  (pErr origPos)
-                  (parseTraitRest
-                    tokens                    (memGetWord hr 2)                    name                    nameSpan                    vecNew                    origPos
-                  )
-                )
-              )
-            )
-          )
-        )
-        (pErr origPos)
-      )
-    )
-    (pErr origPos)
-  )
-)
-
-; One recognised supertrait name, threaded on. Only the first is kept:
-; a second `(...)` group before `where` is an effect list, and there is
-; no syntax that distinguishes them beyond position.
-(pub :: parseTraitRestSup (-> Int Int String Int Int String Int Int))
-
-(pub fn (parseTraitRestSup tokens pos name nameSpan tvs sup origPos)
-  (let ((r (parseTraitRest
-    tokens    pos    name    nameSpan    tvs    origPos
-  )))
-    {
-      (if (&& (== (memGetWord r 0) 1) (&& (!= (memGetWord r 1) 0) (> (strLen sup) 0)))
-        (memSetWord (memGetWord r 1) 6 sup)
-        0
-      )
-      r
-    }
-  )
-)
-
-(pub :: parseTraitRest (-> Int Int String Int Int Int Int))
-
-(pub fn (parseTraitRest tokens pos name nameSpan tvs origPos)
-  (if (peekIs tokens pos TK_RPAREN)
-    (pOk (mkNodeAt
-      TAG_D_TRAIT      name      vecNew      tvs      nameSpan
-    ) (advance pos))
-    (if (peekIs tokens pos TK_LPAREN)
-      ; A supertrait or effect list. The HEAD NAMES are kept now - a
-      ; supertrait is a requirement on an implementation, and enforcing
-      ; it needs the names - while the rest of the structure is still
-      ; skipped, since `symbols` cannot print it.
-      (let ((r (skipParens tokens (advance pos) 1)))
-        (if (== (memGetWord r 0) 0)
-          (pErr origPos)
-          (let ((sup 
-            (if (peekIs tokens (advance pos) TK_IDENT)
-              (tokenLexeme (vecGet tokens (advance pos)))
-              ""
-            )
-          ))
-            (parseTraitRestSup
-              tokens              (memGetWord r 2)              name              nameSpan              tvs              sup              origPos
-            )
-          )
-        )
-      )
-      (if (&& (peekIs tokens pos TK_IDENT) (strEq (tokenLexeme (vecGet tokens pos)) "where"))
-        (if (peekIs tokens (advance pos) TK_LPAREN)
-          (let ((methods vecNew))
-            (let ((mr (parseTraitMethods tokens (advance (advance pos)) methods)))
-              (if (== (memGetWord mr 0) 0)
-                (pErr origPos)
-                (if (peekIs tokens (memGetWord mr 2) TK_RPAREN)
-                  (pOk (mkNodeAt
-                    TAG_D_TRAIT                    name                    methods                    tvs                    nameSpan
-                  ) (advance (memGetWord mr 2)))
-                  (pErr origPos)
-                )
-              )
-            )
-          )
-          (pErr origPos)
-        )
-        (pErr origPos)
-      )
-    )
-  )
-)
-
-; `(impl (Trait Type) [(effects)] where ((method expr) ...))`.
-;
-; The head is a trait NAME and a type, which is the pair an impl is
-; keyed on. The type is kept as its head name - `Int`, or `List` for
-; `(List Int)` - because that is what a dispatch site can compare a
-; value's type against without a unifier.
-(pub :: parseImplDecl (-> Int Int Int Int))
-
-(pub fn (parseImplDecl tokens pos origPos)
-  (if (peekIs tokens pos TK_LPAREN)
-    (let ((np (advance pos)))
-      (if (peekIs tokens np TK_IDENT)
-        (let (
-          (tname (tokenLexeme (vecGet tokens np)))
-          (tspan (tokenSpan (vecGet tokens np)))
-        )
-          (let ((tr (parseType tokens (advance np))))
-            (if (== (memGetWord tr 0) 0)
-              (pErr origPos)
-              (if (peekIs tokens (memGetWord tr 2) TK_RPAREN)
-                (parseImplRest
-                  tokens                  (advance (memGetWord tr 2))                  tname                  (implTypeName (memGetWord tr 1))                  tspan                  origPos
-                )
-                (pErr origPos)
-              )
-            )
-          )
-        )
-        (pErr origPos)
-      )
-    )
-    (pErr origPos)
-  )
-)
-
-; A type node's head NAME: `Int` for `Int`, `List` for `(List Int)`,
-; and the empty string for anything with no name to give (an arrow, a
-; tuple), which no impl can be keyed on.
-(pub :: implTypeName (-> Int String))
-
-(pub fn (implTypeName t)
-  (if (== t 0)
-    ""
-    (if (== (nodeTag t) TAG_T_CON)
-      (nodeAName t)
-      (if (== (nodeTag t) TAG_T_VAR)
-        (nodeAName t)
-        ""
-      )
-    )
-  )
-)
-
-(pub :: parseImplRest (-> Int Int String String Int Int Int))
-
-(pub fn (parseImplRest tokens pos tname tyName tspan origPos)
-  (if (peekIs tokens pos TK_RPAREN)
-    (pOk (mkNodeAt
-      TAG_D_IMPL      tname      vecNew      tyName      tspan
-    ) (advance pos))
-    (if (peekIs tokens pos TK_LPAREN)
-      ; An effect list, as on a trait: skipped the same way.
-      (let ((r (skipParens tokens (advance pos) 1)))
-        (if (== (memGetWord r 0) 0)
-          (pErr origPos)
-          (parseImplRest
-            tokens            (memGetWord r 2)            tname            tyName            tspan            origPos
-          )
-        )
-      )
-      (if (&& (peekIs tokens pos TK_IDENT) (strEq (tokenLexeme (vecGet tokens pos)) "where"))
-        (if (peekIs tokens (advance pos) TK_LPAREN)
-          (let ((methods vecNew))
-            (let ((mr (parseImplMethods tokens (advance (advance pos)) methods)))
-              (if (== (memGetWord mr 0) 0)
-                (pErr origPos)
-                (if (peekIs tokens (memGetWord mr 2) TK_RPAREN)
-                  (pOk (mkNodeAt
-                    TAG_D_IMPL                    tname                    methods                    tyName                    tspan
-                  ) (advance (memGetWord mr 2)))
-                  (pErr origPos)
-                )
-              )
-            )
-          )
-          (pErr origPos)
-        )
-        (pErr origPos)
-      )
-    )
-  )
-)
-
-; `((name expr) ...)` to the closing paren of the `where` group.
-(pub :: parseImplMethods (-> Int Int Int Int))
-
-(pub fn (parseImplMethods tokens pos methods)
-  (if (peekIs tokens pos TK_RPAREN)
-    (pOk 0 (advance pos))
-    (if (peekIs tokens pos TK_LPAREN)
-      (let ((np (advance pos)))
-        (if (peekIs tokens np TK_IDENT)
-          (let (
-            (mname (tokenLexeme (vecGet tokens np)))
-            (mspan (tokenSpan (vecGet tokens np)))
-          )
-            (let ((er (parseExpr tokens (advance np))))
-              (if (== (memGetWord er 0) 0)
-                (pErr np)
-                (if (peekIs tokens (memGetWord er 2) TK_RPAREN)
-                  {
-                    (vecPush methods (mkNodeAt
-                      TAG_FIELD                      mname                      (memGetWord er 1)                      0                      mspan
-                    ))
-                    (parseImplMethods tokens (advance (memGetWord er 2)) methods)
-                  }
-                  (pErr (memGetWord er 2))
-                )
-              )
-            )
-          )
-          (pErr np)
-        )
-      )
-      (pErr pos)
-    )
-  )
-)
-
-; `name :: Type [= default] [(effects)]`, repeated to the closing
-; paren of the `where` group. The default expression is parsed and
-; discarded; the effect list is skipped.
-(pub :: parseTraitMethods (-> Int Int Int Int))
-
-(pub fn (parseTraitMethods tokens pos methods)
-  (if (peekIs tokens pos TK_RPAREN)
-    (pOk 0 (advance pos))
-    (if (peekIs tokens pos TK_IDENT)
-      (let ((mname (tokenLexeme (vecGet tokens pos))))
-        (if (peekIs tokens (advance pos) TK_DOUBLE_COLON)
-          (let ((tr (parseType tokens (advance (advance pos)))))
-            (if (== (memGetWord tr 0) 0)
-              (pErr pos)
-              (let ((afterTy (memGetWord tr 2)))
-                (let ((dflt 
-                  (if (&& (peekIs tokens afterTy TK_IDENT) (strEq (tokenLexeme (vecGet tokens afterTy)) "="))
-                    (let ((er (parseExpr tokens (advance afterTy))))
-                      (if (== (memGetWord er 0) 0)
-                        0
-                        (memGetWord er 1)
-                      )
-                    )
-                    0
-                  )
-                ))
-                  (let ((afterDflt 
-                    (if (&& (peekIs tokens afterTy TK_IDENT) (strEq (tokenLexeme (vecGet tokens afterTy)) "="))
-                      (let ((er (parseExpr tokens (advance afterTy))))
-                        (if (== (memGetWord er 0) 0)
-                          (- 0 1)
-                          (memGetWord er 2)
-                        )
-                      )
-                      afterTy
-                    )
-                  ))
-                    (if (< afterDflt 0)
-                      (pErr afterTy)
-                      (let ((afterFx 
-                        (if (peekIs tokens afterDflt TK_LPAREN)
-                          (let ((fr (skipParens tokens (advance afterDflt) 1)))
-                            (if (== (memGetWord fr 0) 0)
-                              (- 0 1)
-                              (memGetWord fr 2)
-                            )
-                          )
-                          afterDflt
-                        )
-                      ))
-                        (if (< afterFx 0)
-                          (pErr afterDflt)
-                          ; The DEFAULT BODY is kept in slot
-                          ; c. It was parsed and thrown
-                          ; away, which is why a trait
-                          ; could declare a method every
-                          ; implementation then had to
-                          ; repeat.
-                          {
-                            (vecPush methods (mkNodeAt
-                              TAG_FIELD                              mname                              (memGetWord tr 1)                              dflt                              (tokenSpan (vecGet tokens pos))
-                            ))
-                            (parseTraitMethods tokens afterFx methods)
-                          }
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-          (pErr pos)
-        )
-      )
-      (pErr pos)
     )
   )
 )
@@ -5810,32 +5470,33 @@
   )
 )
 
-; An `impl`'s methods and a `trait`'s defaults are DECLARATIONS that
-; live inside another declaration's node instead of in the top-level
-; vector, and until this existed they were the one place in the
-; language with nowhere to write a `;@axiom:` tag. A tag above
-; `(emit ...)` inside an `(impl ...)` sat between the impl's span and
-; the next top-level declaration's, so this walk either handed it to
-; that NEXT declaration or dropped it. Measured before the fix: the
-; tag was silently ignored, and `AX3042` fired on a method no edit
-; could satisfy.
+; A macro's RULES are DECLARATIONS that live inside another
+; declaration's node instead of in the top-level vector, which made
+; them a place in the language with nowhere to write a `;@axiom:` tag.
+; A tag above a `(fn ...)` inside them sat between the macro's span
+; and the next top-level declaration's, so this walk either handed it
+; to that NEXT declaration or dropped it. Measured before the fix on
+; the same shape one level over - a tag above `(emit ...)` inside an
+; `(impl ...)` - the tag was silently ignored and `AX3042` fired on a
+; method no edit could satisfy.
 ;
 ; The cursor threads THROUGH the members rather than around them, so
 ; the positional rule is the one the top level already used - a tag
-; belongs to the next declaration whose span follows it - and it now
-; holds at both depths. That is also why this function returns the
-; cursor and `attachAxtags` returns it too: the top-level walk must
-; resume after the tags a nested member consumed, or it would give
-; them out a second time.
+; belongs to the next declaration whose span follows it - and it holds
+; at both depths. That is also why this function returns the cursor
+; and `attachAxtags` returns it too: the top-level walk must resume
+; after the tags a nested member consumed, or it would give them out a
+; second time.
+;
+; An `impl`'s methods and a `trait`'s defaults were the other two
+; nested positions, and were the ones this was written for. Traits
+; went in 0.6.0 and the macro rules are what is left.
 (pub :: attachAxtagsNested (-> Int Int Int Int))
 
 (pub fn (attachAxtagsNested d axtags cur)
-  (if (|| (== (nodeTag d) TAG_D_IMPL) (== (nodeTag d) TAG_D_TRAIT))
-    (attachAxtags (nodeB d) 0 axtags cur)
-    (if (== (nodeTag d) TAG_D_MACRO)
-      (attachAxtagsRules (memGetWord d 9) 0 axtags cur)
-      cur
-    )
+  (if (== (nodeTag d) TAG_D_MACRO)
+    (attachAxtagsRules (memGetWord d 9) 0 axtags cur)
+    cur
   )
 )
 
@@ -5904,38 +5565,18 @@
   )
 )
 
-; ------------------------------------------------------------------
-; Trait shapes, as pure operations on nodes. They live HERE rather
-; than beside the checker because BOTH the lowering pass (expand.ax)
-; and the dispatcher (typecheck.ax) need them, and `parser.ax` is the
-; module both already import. Putting `lowerImpls` in `typecheck.ax`
-; and calling it from `codegen.ax` compiled fine in `main.ax`, where
-; the flat namespace merges every module, and left `codegen` with an
-; undefined `lowerImpls` for anything that imports it alone -
-; `tests/selfhost/290-emit.ax` said so.
-; ------------------------------------------------------------------
-(pub :: traitSep (-> String String))
-
-(pub fn (traitSep s) (strConcat s "#"))
-
-(pub :: traitImplName (-> String String String String))
-
-(pub fn (traitImplName tname ty method) (strConcat (traitSep (strConcat (traitSep tname) ty)) method))
-
-(pub :: findTraitDecl (-> Int String Int Int))
-
-(pub fn (findTraitDecl decls name i)
-  (if (>= i (vecLen decls))
-    0
-    (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_TRAIT) (strEq (nodeAName d) name))
-        d
-        (findTraitDecl decls name (+ i 1))
-      )
-    )
-  )
-)
-
+; The TAG_FIELD named `name`, or 0.
+;
+; It lives HERE rather than beside its caller because it used to have
+; two, in `expand.ax` and `typecheck.ax`, and `parser.ax` is the module
+; both already import - putting a shared helper in `typecheck.ax` and
+; calling it from `codegen.ax` compiles fine in `main.ax`, where the
+; flat namespace merges every module, and leaves `codegen` with an
+; undefined name for anything that imports it alone
+; (`tests/selfhost/290-emit.ax` said so). The trait lowering was one of
+; those two callers and went in 0.6.0; the survivor is the
+; duplicate-definition check, which asks this of an `effect`'s
+; operations.
 (pub :: findFieldNamed (-> Int String Int Int))
 
 (pub fn (findFieldNamed fields name i)
@@ -5948,91 +5589,6 @@
   )
 )
 
-; The trait's own type parameter, or the empty string when it declares
-; none - a trait with no parameter has nothing to dispatch on.
-(pub :: traitTyvar (-> Int String))
-
-(pub fn (traitTyvar d)
-  (if (== (nodeC d) 0)
-    ""
-    (if (== (vecLen (nodeC d)) 0)
-      ""
-      (vecGetStr (nodeC d) 0)
-    )
-  )
-)
-
-; Substitute the implementing type for the trait's parameter.
-(pub :: tySubstVar (-> Int String Int Int))
-
-(pub fn (tySubstVar t v ty)
-  (if (== t 0)
-    0
-    (let ((tag (nodeTag t)))
-      (if (== tag TAG_T_VAR)
-        (if (strEq (nodeAName t) v)
-          ty
-          t
-        )
-        (if (== tag TAG_T_ARR)
-          (mkTArr (tySubstVar (nodeA t) v ty) (tySubstVar (nodeB t) v ty))
-          (if (== tag TAG_T_CON)
-            (mkTCon (nodeAName t) (tySubstVarVec
-              (nodeB t)              v              ty              vecNew              0
-            ))
-            t
-          )
-        )
-      )
-    )
-  )
-)
-
-(pub :: tySubstVarVec (-> Int String Int Int Int Int))
-
-(pub fn (tySubstVarVec xs v ty out i)
-  (if (>= i (vecLen xs))
-    out
-    {
-      (vecPush out (tySubstVar (vecGet xs i) v ty))
-      (tySubstVarVec
-        xs        v        ty        out        (+ i 1)
-      )
-    }
-  )
-)
-
-; A type's head NAME, which is what an impl is keyed on.
-(pub :: tyHeadName (-> Int String))
-
-(pub fn (tyHeadName t)
-  (if (== t 0)
-    ""
-    (if (== (nodeTag t) TAG_T_CON)
-      (nodeAName t)
-      ""
-    )
-  )
-)
-
-; The parameter position a trait method dispatches on: the first one
-; whose declared type IS the trait's own parameter. A method whose
-; parameter never mentions it - `(fromInt :: (-> Int a))` - cannot be
-; dispatched by a compiler with no return-type inference, and says so.
-(pub :: traitDispatchIdx (-> Int String Int Int))
-
-(pub fn (traitDispatchIdx t v i)
-  (if (== t 0)
-    (- 0 1)
-    (if (!= (nodeTag t) TAG_T_ARR)
-      (- 0 1)
-      (if (&& (== (nodeTag (nodeA t)) TAG_T_VAR) (strEq (nodeAName (nodeA t)) v))
-        i
-        (traitDispatchIdx (nodeB t) v (+ i 1))
-      )
-    )
-  )
-)
 
 ; Is this type node a type variable the PROGRAMMER wrote? A `_`-prefixed
 ; name is one this checker minted, and an empty name is the silent

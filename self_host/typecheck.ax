@@ -1251,10 +1251,9 @@
 ; that defines nothing. Values and types are separate namespaces in
 ; stage0, so `(data Foo ...)` and `(fn (Foo) ...)` do not collide.
 ;
-; stage1's parser turns `trait` into TAG_NIL (parser.ax's
-; skipUnknownDecl), so `fn` - and `define`, its documented synonym,
-; which stage0 parses through the same function - is the only value
-; definition that reaches here.
+; `fn` - and `define`, its documented synonym, which stage0 parses
+; through the same function - is the only value definition that
+; reaches here.
 ;
 ; `type` was the RECORDED GAP here until this line changed: stage0
 ; counts an alias in the type namespace and stage1 did not, so two
@@ -1348,8 +1347,8 @@
 )
 
 ; One entry per (name, namespace) a declaration defines, carrying the
-; declaration's index. A `trait` or an `effect` contributes one per
-; method or operation, which is why this is built from `declFields`
+; declaration's index. An `effect` contributes one per operation and
+; an `extern` block one per item, which is why this is built from `declFields`
 ; and `declNamespace` rather than from `nodeA` alone: those two are
 ; where the multi-name declarations are named, and this index is the
 ; only thing that asks them. The `declDefinesNS` predicate that used
@@ -1439,32 +1438,30 @@
 ; The TAG_FIELD vector of a declaration that defines MORE THAN ONE
 ; value name, or 0 for the ordinary kind that defines just `nodeA`.
 ;
-; Two declarations are in this class and both were invisible to the
-; duplicate check. A `trait` keeps its methods in slot b; an `effect`
-; keeps its operations' names in slot b and the same names with their
-; TYPES in slot c, which is the vector with the spans on it.
+; Two declarations were in this class and both were invisible to the
+; duplicate check: an `effect` keeps its operations' names in slot b
+; and the same names with their TYPES in slot c, which is the vector
+; with the spans on it, and a `trait` kept its methods in slot b until
+; 0.6.0 took traits out of the language.
 (pub :: declFields (-> Int Int))
 
 (pub fn (declFields d)
-  (if (== (nodeTag d) TAG_D_TRAIT)
-    (nodeB d)
-    (if (== (nodeTag d) TAG_D_EFFECT)
+  (if (== (nodeTag d) TAG_D_EFFECT)
+    (nodeC d)
+    ; an `extern` block defines one value name per ITEM (slot c,
+    ; the typed items with their spans); its slot a is the
+    ; library string, which until 2026-08-22 was what the
+    ; duplicate index held - so two blocks naming one library
+    ; were "duplicates" and a `fn` spelled like an item was not
+    (if (== (nodeTag d) TAG_D_EXTERN)
       (nodeC d)
-      ; an `extern` block defines one value name per ITEM (slot c,
-      ; the typed items with their spans); its slot a is the
-      ; library string, which until 2026-08-22 was what the
-      ; duplicate index held - so two blocks naming one library
-      ; were "duplicates" and a `fn` spelled like an item was not
-      (if (== (nodeTag d) TAG_D_EXTERN)
-        (nodeC d)
-        0
-      )
+      0
     )
   )
 )
 
-; The span to blame for that definition. For a trait or an effect it
-; is the METHOD or OPERATION name's span, not the declaration's own:
+; The span to blame for that definition. For an effect it is the
+; OPERATION name's span, not the declaration's own:
 ; the label says "first defined here", and the line the reader has to
 ; change is the `where` entry.
 (pub :: declDefSpan (-> Int String Int))
@@ -1506,8 +1503,8 @@
       {
         (let ((fs (declFields d)))
           (if (!= fs 0)
-            ; A trait defines one value name per method and an
-            ; effect one per operation, so these are the two
+            ; An effect defines one value name per operation and
+            ; an `extern` block one per item, so these are the
             ; declarations that need a loop here.
             (checkFieldDupes
               bs              decls              out              i              fs              0
@@ -2010,7 +2007,16 @@
   (ambTbl : Int)
   (curModule : Int)
   (aliases : Int)
-  (traits : Int)
+  ; Word 18 was `traits`, the `trait` declaration nodes `symbols`
+  ; walked, and word 28 was `implIdx`, every `impl` declaration
+  ; precomputed for the effect fixpoint. Both are RETIRED IN PLACE
+  ; rather than removed: every reader of this record indexes it by
+  ; position (`memGetWord tc 26`, and so on, in two files), so closing
+  ; a hole in the middle renumbers thirteen later fields at eighty-odd
+  ; sites - which is how the unit table broke the last time this
+  ; record grew in the middle. Two dead words in a record allocated
+  ; once per compile is the cheaper of the two mistakes.
+  (retired18 : Int)
   (privates : Int)
   (fnIdx : Int)
   (ambIdx : Int)
@@ -2020,7 +2026,7 @@
   (sigTags : Int)
   (fnSufIdx : Int)
   (privIdx : Int)
-  (implIdx : Int)
+  (retired28 : Int)
   (curCalls : Int)
   (tyIdx : Int)
   ; Names carrying `;@axiom:deprecated`, built ONCE and lazily, on
@@ -2056,10 +2062,10 @@
 ; `resolve_bare_fn` apply, and all three have to agree
 ; or the checker types against one definition while
 ; the emitter calls another.
-; `type` and `trait` declaration nodes, in collection
-; order. Nothing in checking or emission reads them -
-; they exist for `symbols`, whose A and T rows walk
-; them the way stage0 walks tc.aliases/tc.traits.
+; `type` declaration nodes, in collection order.
+; Nothing in checking or emission reads them - they
+; exist for `symbols`, whose A rows walk them the way
+; stage0 walks tc.aliases.
 ; The mangled `Mod$name` of every declaration carried
 ; into the program that its own module does not export.
 ; Empty for every program in this repository. See the
@@ -2149,10 +2155,6 @@
 (pub :: tcAliases (-> Int Int))
 
 (pub fn (tcAliases tc) (memGetWord tc 17))
-
-(pub :: tcTraits (-> Int Int))
-
-(pub fn (tcTraits tc) (memGetWord tc 18))
 
 ; A fresh `_tN`. stage0 mints the name from the current counter and
 ; increments at SOME sites but not others; callers say which.
@@ -2519,14 +2521,6 @@
           ; collection would otherwise scan the whole table.
           (memSetWord tc 26 (fnSufIdxBuildSized (tcFns tc) (vecLen allDecls)))
           (memSetWord tc 27 (privIdxBuild (memGetWord tc 19)))
-          ; Every `impl` declaration, once. `traitUnionEffects` asks
-          ; per trait-method CALL SITE and the fixpoint asks again
-          ; every round; scanning `tcFns` there instead cost 0.10s ->
-          ; 0.41s on a 15,000-line file with 15,000 trait calls, which
-          ; is the shape this index exists to keep flat. Built here
-          ; rather than lazily because it is one pass over a list the
-          ; caller is already holding.
-          (memSetWord tc 28 (implIdxBuild allDecls vecNew 0))
           ; Aliases first, then record fields, then everything else.
           ; `tcCollect` precomputes each constructor's field vector AND
           ; its arrow from the field types AS WRITTEN, so an expansion
@@ -2812,10 +2806,7 @@
                           ; `tcCollectAliasDecls`, which runs before this
                           ; pass so record fields can be expanded before
                           ; anything reads one.
-                          (if (== tag TAG_D_TRAIT)
-                            (vecPush (tcTraits tc) d)
-                            0
-                          )
+                          0
                         )
                       )
                     )
@@ -2844,32 +2835,6 @@
 ; mangled spelling costs one entry and no rule: every lookup that goes
 ; by name now finds the operation under either spelling, with the same
 ; silent-wildcard type and the same inherent `Custom(E)`.
-; ------------------------------------------------------------------
-; Traits: lowering, and dispatch.
-;
-; An `impl` becomes ordinary declarations. `(impl (Eq Int) where ((eq
-; <expr>)))` appends a signature and a definition named `Eq#Int#eq`,
-; and a call to `eq` whose dispatch argument is an `Int` is rewritten
-; to name it. The separator is `#` rather than `$` deliberately:
-; `bareOf`/`nameMatches` treat `$` as the module boundary, so
-; `Eq$Int$eq` would suffix-match a BARE `eq` and whichever impl came
-; first would silently win every unqualified call.
-;
-; The definition is eta-expanded - `(fn (Eq#Int#eq a b) ((<expr> a) b))`
-; - rather than having the lambda spliced in, because the implementing
-; expression need not be a lambda at all: `(eq myNamedFunction)` is as
-; legitimate as `(eq (lambda (x y) ...))`, and applying it is the one
-; thing both shapes support.
-; ------------------------------------------------------------------
-; The parameters are not called `trait`: the parser accepts a keyword
-; as a binder and `format.ax`'s scanner refuses the file outright, with
-; no line and no reason - found by `check-fmt.sh`, which is the only
-; thing that compares those two readings of a name.
-; ------------------------------------------------------------------
-; The lowering pass. Runs after expansion and before checking, over the
-; merged declaration list, appending to it: the generated declarations
-; are then collected and checked exactly like hand-written ones, which
-; is the point - an impl body was previously never checked at all.
 ; ------------------------------------------------------------------
 ; An operation must DECLARE its type. Two checks stand on that arrow
 ; and on nothing else: the handler a `handle` installs is held to it
@@ -8047,27 +8012,23 @@
                     (let ((ctor (findCtor tc name)))
                       (if (!= ctor 0)
                         (tyInstStamped tc (memGetWord ctor 3) e)
-                        ; A trait method is always in scope and
-                        ; is never a top-level function:
-                        ; dispatch rewrites a CALL to a concrete
-                        ; implementation, and a reference that
-                        ; reaches here is one dispatch could not
-                        ; resolve - already reported as AX3025,
-                        ; so going quiet stops a second and
-                        ; wrong AX3001 on top of it. Registering
-                        ; these in `tcFns` instead made
-                        ; `symbols` print them as positionless
-                        ; functions with no type.
-                        ;
                         ; `show` AS A CALL HEAD is the builtin's
-                        ; (`showBuiltin`), which has already rewritten
-                        ; it or reported on it by the time the head is
-                        ; walked - so it is quiet here for the same
-                        ; reason a trait method is. Only as a head:
-                        ; `show` standing as a bare value is a
-                        ; reference nothing resolves, and stays the
-                        ; AX3001 it was.
-                        (if (|| (== (isBuiltinName name) 1) (|| (== (isMacroName tc name) 1) (|| (== (isEffectName tc name) 1) (|| (!= (findTraitOwning (tcTraits tc) name 0) 0) (&& (== inHead 1) (== (showIsHead name) 1))))))
+                        ; (`showBuiltin`), which has already
+                        ; rewritten it or reported on it by the
+                        ; time the head is walked - so a second
+                        ; and wrong AX3001 on top of that is
+                        ; suppressed here. Only as a head: `show`
+                        ; standing as a bare value is a reference
+                        ; nothing resolves, and stays the AX3001
+                        ; it was.
+                        ;
+                        ; A trait method was quiet here for the
+                        ; same reason until 0.6.0 - it was never
+                        ; in `tcFns` under its own name, because
+                        ; dispatch rewrote the CALL - and the
+                        ; disjunct asking `tcTraits` went with the
+                        ; construct.
+                        (if (|| (== (isBuiltinName name) 1) (|| (== (isMacroName tc name) 1) (|| (== (isEffectName tc name) 1) (&& (== inHead 1) (== (showIsHead name) 1)))))
                           mkSilentWild
                           (emitUndefinedVar tc name (nodeSpan e))
                         )
@@ -8291,19 +8252,20 @@
 (pub :: checkApp (-> Int Int Int Int))
 
 (pub fn (checkApp tc e inHead)
-  ; Trait dispatch happens FIRST and by rewriting: if the head
-  ; names a trait method and an implementation covers the dispatch
-  ; argument's type, the head's name becomes that implementation's
-  ; and everything below - saturation, argument checking, and
-  ; later the emitter, which reads these same nodes - proceeds as
-  ; for any ordinary call.
+  ; The `show` rewrite happens FIRST: if the head names `show`, the
+  ; builtin resolves it from the argument's static type - splicing the
+  ; call away, rewriting the head to a library function, or generating
+  ; a renderer - and everything below (saturation, argument checking,
+  ; and later the emitter, which reads these same nodes) proceeds as
+  ; for any ordinary call. Until 0.6.0 this arm was trait dispatch and
+  ; `show` was one of its cases.
   ; Only at the spine ROOT (`inHead` 0). `checkApp` runs at every
   ; level of a curried spine and `spineHead` answers the same node
-  ; each time, so dispatching at each level reported the same
-  ; missing implementation once per argument.
+  ; each time, so rewriting at each level reported the same refusal
+  ; once per argument.
   ;
   ; And only when nothing else claims the spelling - see
-  ; `traitNameFree`. `checkSaturation`, twenty lines down, has
+  ; `showNameFree`. `checkSaturation`, twenty lines down, has
   ; asked `scopeFindFrame` first since it was written; this call
   ; was added later and asked nothing.
   ; `hname` is a NAME; the non-variable head has none, and the
@@ -8318,8 +8280,8 @@
       )
     ))
       (let ((spliced
-        (if (&& (== headIsVar 1) (&& (== inHead 0) (== (traitNameFree tc (nodeAName head)) 1)))
-          (traitRewrite tc e head (nodeAName head))
+        (if (&& (== headIsVar 1) (&& (== inHead 0) (== (showNameFree tc (nodeAName head)) 1)))
+          (showRewrite tc e head (nodeAName head))
           0
         )
       ))
@@ -8329,7 +8291,7 @@
         ; everything below reads `(nodeA e)` as a callee. So the
         ; spliced node is checked afresh instead, which is also what
         ; turns the probe's dropped diagnostics back into reported
-        ; ones. Answered by `traitRewrite`, which is 0 on every other
+        ; ones. Answered by `showRewrite`, which is 0 on every other
         ; path it takes.
         (if (== spliced 1)
           (checkExprH tc e 0)
@@ -8579,22 +8541,21 @@
   )
 )
 
-; The dispatch probe must not REPORT.
+; The `show` probe must not REPORT.
 ;
-; Selecting an implementation means knowing the dispatch argument's
-; type, and the only way to know a type here is to check the
-; expression - so that argument is checked TWICE: once by the probe
-; in `traitRewrite` below, and once by the ordinary argument walk in
-; `checkApp`. Both walks reported, so every diagnostic inside a trait
-; method's dispatch argument arrived doubled. Measured on an entry
-; file with one trait, one impl and no macros at all: `(sz nope)`
-; answers two identical `AX3001`s.
+; Choosing a rendering means knowing the argument's type, and the only
+; way to know a type here is to check the expression - so that
+; argument is checked TWICE: once by the probe in `showBuiltin` below,
+; and once by the ordinary argument walk in `checkApp`. Both walks
+; reported, so every diagnostic inside the argument arrived doubled.
+; Measured on an entry file with one trait, one impl and no macros at
+; all: `(sz nope)` answered two identical `AX3001`s.
 ;
-; It was latent for as long as traits have existed and stayed cheap
-; because nothing in this repository called a trait method on a
-; failing expression. The printing macros make it the common case -
-; every `{hole}` is a `show` call, so every misspelled hole is a
-; doubled diagnostic - which is what turned a curiosity into a fix.
+; It was latent for as long as traits existed and stayed cheap because
+; nothing in this repository called a trait method on a failing
+; expression. The printing macros make it the common case - every
+; `{hole}` is a `show` call, so every misspelled hole is a doubled
+; diagnostic - which is what turned a curiosity into a fix.
 ;
 ; The PROBE's diagnostics are dropped rather than the second walk's,
 ; because the second walk is the one whose spans and whose poison the
@@ -8619,214 +8580,51 @@
   )
 )
 
-; Rewrite a trait-method call to the implementation its dispatch
-; argument selects. Answers 0 always; it works by mutating the head
-; node, which the emitter reads later from the same tree.
+; Rewrite a `show` head to the rendering its argument's static type
+; selects. `e` is the application and `head` its var node.
 ;
-; No implementation is a DIAGNOSTIC rather than silence, and the
-; method name stays registered as a wildcard so the caller does not
-; also collect an `AX3001` about a name that plainly exists.
-(pub :: traitRewrite (-> Int Int Int String Int))
+; This was `traitRewrite` until 0.6.0, and dispatch was its subject: a
+; head naming a trait method became the implementation
+; `Trait#Type#method` that the dispatch argument's type selected, and
+; the builtin below answered only where no written `impl` claimed the
+; name. Traits were removed, `findTraitOwning` answered 0 for every
+; head from that day on, and what survives is the one arm that was
+; never about traits.
+;
+; Answers what `showBuiltin` answers: 1 when the call was SPLICED, so
+; `e` is no longer an application and must be re-checked, and 0 when
+; the head was rewritten, a diagnostic was emitted, or the head was
+; not `show` at all.
+(pub :: showRewrite (-> Int Int Int String Int))
 
-(pub fn (traitRewrite tc e head hname)
-  (let ((tr (findTraitOwning (tcTraits tc) hname 0)))
-    (if (== tr 0)
-      ; No trait claims the name. `show` is the compiler's own
-      ; (`showBuiltin`); every other free head is left for `checkVar`
-      ; to report, exactly as before.
-      (if (== (showIsHead hname) 1)
-        (showBuiltin
-          tc          e          head          0          1
-        )
-        0
-      )
-      (let (
-        (v (traitTyvar tr))
-        (decl (findFieldNamed (nodeB tr) hname 0))
-      )
-        (if (|| (== (strLen v) 0) (== decl 0))
-          0
-          (let ((di (traitDispatchIdx (nodeB decl) v 0)))
-            (if (< di 0)
-              (traitDiag
-                tc                (spanOf e)                (strConcat (strConcat (strConcat (strConcat "cannot tell which implementation of `" (nodeAName tr)) "` `") hname) "` means: no parameter of it has the trait's own type")                "give the method a parameter of the trait's type; there is no return-type-directed dispatch"                "an implementation is selected by the type of an argument"
-              )
-              (let ((args (spineArgVec e vecNew)))
-                (if (<= (vecLen args) di)
-                  0
-                  (let (
-                    (mark (tcOutMark tc))
-                    (at (checkExprH tc (vecGet args di) 0))
-                    (_quiet (tcOutTrunc tc mark))
-                  )
-                    (let ((tn (tyHeadName at)))
-                      (if (== (strLen tn) 0)
-                        ; No head name, so nothing to key an
-                        ; implementation on. This answered 0
-                        ; and left the head spelled `show` -
-                        ; which the emitter then wrote out
-                        ; as a call to a function that does
-                        ; not exist, and `opt` rejected the
-                        ; module: `use of undefined value
-                        ; '@show'`, an AX4003 about generated
-                        ; code carrying no span into the
-                        ; source. It stayed latent because
-                        ; nothing in this repository called a
-                        ; trait method on a non-concrete
-                        ; type until the printing macros
-                        ; routed `(println (vecGet v 1))`
-                        ; through one - `vecGet` answers a
-                        ; type VARIABLE, and three
-                        ; `tests/stdlib` cases failed exactly
-                        ; there.
-                        ;
-                        ; ONE shape stays silent, and it is
-                        ; the cascade rule rather than
-                        ; politeness: poison, which means a
-                        ; diagnostic about this expression
-                        ; has already been reported.
-                        ;
-                        ; The silent wildcard is NOT silent
-                        ; here, and that is deliberate. It
-                        ; means the checker could not
-                        ; represent the type - an effect
-                        ; operation's result is the case
-                        ; this repository has - and a
-                        ; dispatch it cannot resolve is a
-                        ; call it cannot emit. Staying quiet
-                        ; leaves the head spelled `show` and
-                        ; hands `opt` a call to a symbol
-                        ; that was never defined, which is
-                        ; how `(println (handle (ask 3 4)
-                        ; ...))` failed: `check` said OK and
-                        ; `build` died in the toolchain.
-                        ; "The checker does not know" is a
-                        ; fact about the program that the
-                        ; program can fix - by naming the
-                        ; type - so it is reported rather
-                        ; than swallowed.
-                        (if (== (tyIsErr at) 1)
-                          0
-                          (traitDiag
-                            tc                            (spanOf (vecGet args di))                            (strConcat
-                              (strConcat "cannot select an implementation of `" (nodeAName tr))                              (if (== at 0)
-                                ; A fresh unification variable
-                                ; renders as `_t248`, which
-                                ; tells a reader nothing. Say
-                                ; what it IS instead, and keep
-                                ; the rendering for the shapes
-                                ; that have a readable one.
-                                ;
-                                ; The `at == 0` test is FIRST
-                                ; and is not folded into an
-                                ; `||`: a 0 type is the absent
-                                ; one, and both `nodeTag` and
-                                ; `tyRender` read through it.
-                                ; Guarded by `tyIsSilentWild`
-                                ; this was unreachable; the
-                                ; moment the wildcard branch
-                                ; started reporting, `check`
-                                ; died on SIGKILL with no
-                                ; output - the failure mode
-                                ; `check-degenerate.sh` exists
-                                ; to catch, found here by
-                                ; reading the exit status
-                                ; rather than the (empty)
-                                ; output.
-                                "`: this argument's type is not known here"
-                                (if (== (nodeTag at) TAG_T_VAR)
-                                  "`: this argument's type is a type variable, not a named type"
-                                  (strConcat (strConcat "`: this argument's type is `" (tyRender at)) "`, which is not a named type")
-                                )
-                              )
-                            )                            "an implementation is keyed on a type NAME, so the dispatch argument needs a concrete one: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select one either"                            "a trait method is dispatched on the STATIC type of its argument, and a type variable is not a type"
-                          )
-                        )
-                        (let ((full (traitImplName (nodeAName tr) tn hname)))
-                          (if (!= (fnEntExact tc full) 0)
-                            {
-                              (memSetWord head 1 full)
-                              ; the head now names the
-                              ; impl; a stamp ordered
-                              ; against the trait
-                              ; method's signature must
-                              ; not ride under it
-                              ; (MM-LIFE-2d)
-                              (memSetWord head 6 0)
-                              0
-                            }
-                            ; A WRITTEN implementation wins, and only
-                            ; its absence reaches the builtin: `show`
-                            ; on a type with no `(impl (Show T))`
-                            ; renders structurally (`showBuiltin`),
-                            ; and a shape the builtin cannot render
-                            ; either (-1) is still this trait's own
-                            ; refusal, worded as it always was.
-                            ;
-                            ; The builtin's answer is passed UP, not
-                            ; folded to 0: a `String` or `Bool` it
-                            ; splices leaves `e` no longer an
-                            ; application, and `checkExprH` re-checks
-                            ; the spliced node only when told (1).
-                            ; Folded, a user trait claiming `show`
-                            ; with no `String` instance read the
-                            ; spliced literal as a callee - measured,
-                            ; `AX3004 expected function type, found
-                            ; ()` where AX3025 had been.
-                            (let ((r
-                              (if (&& (== (showIsHead hname) 1) (== di 0))
-                                (showBuiltin
-                                  tc                                  e                                  head                                  at                                  0
-                                )
-                                (- 0 1)
-                              )
-                            ))
-                              (if (== r (- 0 1))
-                                (traitDiag
-                                  tc                                  (spanOf (vecGet args di))                                  (strConcat (strConcat (strConcat (strConcat "no implementation of `" (nodeAName tr)) "` for `") tn) "`")                                  "write `(impl (Trait Type) where ((method ...)))` for it"                                  "a trait method is dispatched on the type of its argument, and this type has no implementation"
-                                )
-                                r
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
+(pub fn (showRewrite tc e head hname)
+  (if (== (showIsHead hname) 1)
+    (showBuiltin tc e head)
+    0
   )
 )
 
-; Is `name` still the trait's to claim at this call site?
+; Is `name` still `show`'s to claim at this call site?
 ;
-; Dispatch rewrites the head node to an implementation's mangled name,
-; so it is name RESOLUTION and has to obey the same order as every
-; other resolution in this file: a frame-local binding first, then a
-; declaration. Asking neither made a trait method's spelling globally
+; Rewriting the head node is name RESOLUTION, so it obeys the same
+; order as every other resolution in this file: a frame-local binding
+; first, then a declaration. Asking neither made the spelling globally
 ; unavailable - it captured `let` bindings, lambda and function
 ; parameters, top-level functions and imported standard-library
-; functions alike, and the implementation won every one of them at
-; exit 0. `(let ((sz (lambda (q) 7))) (sz 5))` answered 111.
+; functions alike, and the rewrite won every one of them at exit 0.
+; `(let ((sz (lambda (q) 7))) (sz 5))` answered 111. That was measured
+; while this hook was still trait dispatch; the guard outlives it
+; because a program is free to declare its own `show`.
 ;
 ; The two questions are the two ways a name can already be taken:
 ;   - `scopeFindFrame`, a parameter or a `let` binding, which shadows;
-;   - `findFnEnt`, a real declaration of that name. A trait method is
-;     never itself in `tcFns` (an `impl` lowers to `Trait#Type#method`,
-;     and `checkVar`'s trait arm exists precisely because the bare
-;     name resolves to nothing), so a hit here is always something
-;     else. In the entry file that collision is now `AX3006`; across
-;     modules the concrete definition simply wins, which is what makes
-;     `(import Str)` beside a trait method named `strLen` a working
-;     program again instead of `AX3025`.
-(pub :: traitNameFree (-> Int String Int))
+;   - `findFnEnt`, a real declaration of that name. `show` is never
+;     itself in `tcFns` - `checkVar`'s quiet arm exists precisely
+;     because the bare name resolves to nothing - so a hit here is a
+;     declaration the program wrote, and it wins.
+(pub :: showNameFree (-> Int String Int))
 
-(pub fn (traitNameFree tc name)
+(pub fn (showNameFree tc name)
   (if (!= (scopeFindFrame tc name) 0)
     0
     (if (!= (findFnEnt tc name) 0)
@@ -8836,53 +8634,25 @@
   )
 )
 
-(pub :: findTraitOwning (-> Int String Int Int))
-
-(pub fn (findTraitOwning trs name i)
-  (if (>= i (vecLen trs))
-    0
-    (if (!= (findFieldNamed (nodeB (vecGet trs i)) name 0) 0)
-      (vecGet trs i)
-      (findTraitOwning trs name (+ i 1))
-    )
-  )
-)
-
-(pub :: traitDiag (-> Int Int String String String Int))
-
-(pub fn (traitDiag tc sp msg help note)
-  {
-    (emitDiag tc (diagSetLabel (mkDiagNote
-      SEV_ERROR      "AX3025"      "trait-impl"      sp      msg      0      0      help      note
-    ) "no implementation selected"))
-    0
-  }
-)
-
 ; ------------------------------------------------------------------
 ; `show` as a compiler-known head.
 ;
 ; `(show x)` is what every `{hole}` and every `(println expr)` lowers
-; to (`syntax/format`, expand.ax), and until 2026-08-29 the only thing
-; that could answer it was a trait: `stdlib/Show.ax` declares `Show`
-; with four instances, and `traitRewrite` above selects one by the
-; argument's static type or refuses with AX3025. That is the whole of
+; to (`syntax/format`, expand.ax). Until 2026-08-29 the only thing
+; that could answer it was a trait: `stdlib/Show.ax` declared `Show`
+; with four instances and the dispatcher selected one from the
+; argument's static type or refused with AX3025. That was the whole of
 ; what traits were used for in this repository - one trait, four
-; impls, one file - and the plan is to remove the machinery
-; (docs/reference.md, "Printing and Formatting"). This is phase 0 of
-; that plan: `show` becomes a head the CHECKER resolves, the way
-; `checkNumeric` already resolves `==` on two `String`s into
+; impls, one file - and it is why they are gone (docs/reference.md,
+; "Printing and Formatting"). `show` is a head the CHECKER resolves,
+; the way `checkNumeric` already resolves `==` on two `String`s into
 ; `__streq` - by rewriting the head node in place from the operand's
 ; static type, with no table and no runtime tag.
 ;
-; THE RESOLUTION ORDER, and why it is this one. A written `impl` still
-; wins: `traitRewrite` runs first, and the builtin answers only where
-; it found no implementation (or no trait at all). So while `Show.ax`
-; still declares its four instances nothing a program could observe
-; moves - `(println 42)` is `Show#Int#show` exactly as it was - and
-; the builtin is reachable only from programs that were AX3025 (a
-; `data` or `struct` with no instance) or AX3001 (`show` with `Show`
-; not loaded) yesterday. Measured before this landed:
+; The builtin ran SECOND while both existed: a written `impl` won, and
+; this answered only where none covered the type. It is the whole of
+; the resolution now. Measured before it landed, on the programs it
+; was written to answer:
 ;
 ;   (println p) on a struct           AX3025 no implementation of `Show` for `Point`
 ;   (show 123) with only Fmt loaded   AX3001 undefined variable `show`
@@ -8908,10 +8678,10 @@
 ; and always has. A `Char` is the literal in both positions.
 ;
 ; The structural renderer is GENERATED, once per concrete type, as an
-; ordinary `::`/`fn` pair appended to the merged declaration list -
-; the same way `lowerImpls` appends `Trait#Type#method` and for the
-; same reason: what is generated is then checked and emitted like
-; anything written. Its name is `show#<type>` (`show#Point`,
+; ordinary `::`/`fn` pair appended to the merged declaration list, for
+; the reason the trait lowering appended `Trait#Type#method` before
+; it: what is generated is then checked and emitted like anything
+; written. Its name is `show#<type>` (`show#Point`,
 ; `show#(Option Int)`), and `#` is what keeps it out of `symbols`
 ; (`smGenerated`): a generated name is not a symbol. A parameterised
 ; type gets one renderer per INSTANTIATION, because `(Option Int)`
@@ -8962,44 +8732,44 @@
 )
 
 ; Resolve `(show x)`, `e` the application and `head` its var node.
-; `at0` is the argument's type when the caller has already probed it
-; (the trait path), 0 to probe here - silently, the way `traitRewrite`
-; probes, because the ordinary argument walk reports a moment later.
+;
+; The argument is PROBED here - checked silently, its diagnostics
+; dropped - because a rendering is chosen from the argument's type and
+; the ordinary argument walk in `checkApp` reports the same findings a
+; moment later. `tcOutMark`/`tcOutTrunc`, above, is that drop.
+;
+; It carried two more parameters until 0.6.0: `at0`, a type the trait
+; dispatcher had already probed, and `report`, which the trait path set
+; to 0 so that a shape with no rendering came back as -1 for the
+; trait's own AX3025 to word. There is one caller now and it wants
+; both defaults, so both are gone and the -1 return with them.
 ;
 ; Answers 1 when the call was SPLICED (`e` is no longer an application
-; and must be re-checked), 0 when the head was rewritten or a
-; diagnostic was emitted, and -1 when the argument's shape has no
-; rendering and `report` was 0 - the trait path owns that refusal.
-(pub :: showBuiltin (-> Int Int Int Int Int Int))
+; and must be re-checked) and 0 when the head was rewritten or a
+; diagnostic was emitted.
+(pub :: showBuiltin (-> Int Int Int Int))
 
-(pub fn (showBuiltin tc e head at0 report)
+(pub fn (showBuiltin tc e head)
   (let ((args (spineArgVec e vecNew)))
     (if (!= (vecLen args) 1)
-      ; With no trait to fall back on this is the only report the
-      ; call gets - `checkVar` is quiet on a `show` head - so it is
-      ; made here. Under a trait the trait's own arity rules apply.
-      (if (== report 1)
-        (showDiag
-          tc          (spanOf e)          (strConcat "`show` renders exactly one value, and this call passes " (decStr (vecLen args)))          "write `(show x)`; to render several values interpolate them: `(format \"{a} {b}\")`"          "`show` is a compiler-known head, resolved from its one argument's static type"
-        )
-        (- 0 1)
+      ; This is the only report the call gets - `checkVar` is quiet on
+      ; a `show` head - so it is made here.
+      (showDiag
+        tc        (spanOf e)        (strConcat "`show` renders exactly one value, and this call passes " (decStr (vecLen args)))        "write `(show x)`; to render several values interpolate them: `(format \"{a} {b}\")`"        "`show` is a compiler-known head, resolved from its one argument's static type"
       )
       (let ((arg (vecGet args 0)))
         (let ((at
-          (if (== at0 0)
-            (let ((mark (tcOutMark tc)))
-              (let ((probed (checkExprH tc arg 0)))
-                {
-                  (tcOutTrunc tc mark)
-                  probed
-                }
-              )
+          (let ((mark (tcOutMark tc)))
+            (let ((probed (checkExprH tc arg 0)))
+              {
+                (tcOutTrunc tc mark)
+                probed
+              }
             )
-            at0
           )
         ))
           (let ((r (showResolve tc e head arg at)))
-            (if (&& (== r (- 0 1)) (== report 1))
+            (if (== r (- 0 1))
               (showNoRenderingDiag tc arg at)
               r
             )
@@ -9192,8 +8962,7 @@
 )
 
 ; The argument's type is not a type: absent, a variable, or a
-; constructor applied to one. The trait path words its own version of
-; this refusal; this one is reached when no trait claims `show`.
+; constructor applied to one.
 (pub :: showUnknownDiag (-> Int Int Int Int))
 
 (pub fn (showUnknownDiag tc arg at)
@@ -11066,49 +10835,35 @@
       }
       (let ((ent (findFnEnt tc n)))
         (if (== ent 0)
-          ; A TRAIT METHOD first. Its FnEnt does not exist under the
-          ; method's own name - `traitRewrite` rewrites the head to
-          ; `Trait#Type#method` during BODY checking, and this fixpoint
-          ; ran before that and cannot repeat it: selecting an
-          ; implementation needs the dispatch argument's TYPE, which is
-          ; exactly what is not available here.
+          ; NOT an unresolved callee, and nothing here escapes.
           ;
-          ; So do not resolve it - union every implementation. That is
-          ; not a conservative approximation, it is what a dynamically
-          ; dispatched call MEANS: the effects any implementation can
-          ; perform are the effects the call can perform. No sentinel
-          ; is warranted and none is added.
+          ; `findFnEnt` answers 0 for every form parsed as an
+          ; application without being a function - `cast` first of all,
+          ; and with it every struct and data constructor. A name that
+          ; really resolves to nothing is `AX3001` and the program does
+          ; not get this far. NONE of those CALL their arguments, so
+          ; this branch used to be doubly wrong:
           ;
-          ; Before this, a trait-method call contributed nothing at all.
-          ; A function calling one still drew its own AX3010, because
-          ; `checkAxtags` re-walks the body AFTER the rewrite - but its
-          ; FnEnt stayed empty, so every CALLER of it inferred nothing
-          ; and `symbols` printed the caller `#pure`. The diagnostic and
-          ; the symbol table disagreed about the same function on the
-          ; same run.
-          (if (== (traitUnionEffects tc n acc) 1)
-            0
-            ; NOT an unresolved callee, and nothing here escapes.
-            ;
-            ; `findFnEnt` answers 0 for every form parsed as an
-            ; application without being a function - `cast` first of all,
-            ; and with it every struct and data constructor. A name that
-            ; really resolves to nothing is `AX3001` and the program does
-            ; not get this far. NONE of those CALL their arguments, so
-            ; this branch used to be doubly wrong:
-            ;
-            ;   - it marked them incomplete, which put the sentinel on
-            ;     2,116 of the compiler's 2,437 functions, because
-            ;     `memGetWord` is `(cast a (__load64 ...))`;
-            ;   - it ran `escapeArgs`, which marked a parameter
-            ;     EFFECT-TRANSPARENT for appearing inside a `cast`.
-            ;     `memSetWord` carried `#effect-params=value` on the
-            ;     strength of `(cast Int value)` alone, and it does not
-            ;     call `value`. That was not only imprecise: a spurious
-            ;     transparent parameter SUPPRESSES the missing-effect
-            ;     half of AX3010, so the wrong mark bought silence.
-            0
-          )
+          ;   - it marked them incomplete, which put the sentinel on
+          ;     2,116 of the compiler's 2,437 functions, because
+          ;     `memGetWord` is `(cast a (__load64 ...))`;
+          ;   - it ran `escapeArgs`, which marked a parameter
+          ;     EFFECT-TRANSPARENT for appearing inside a `cast`.
+          ;     `memSetWord` carried `#effect-params=value` on the
+          ;     strength of `(cast Int value)` alone, and it does not
+          ;     call `value`. That was not only imprecise: a spurious
+          ;     transparent parameter SUPPRESSES the missing-effect
+          ;     half of AX3010, so the wrong mark bought silence.
+          ;
+          ; A TRAIT METHOD used to be resolved here first, by unioning
+          ; every implementation's row (`traitUnionEffects`): dispatch
+          ; needs the argument's TYPE, which this walk does not have,
+          ; and the effects any implementation can perform are the
+          ; effects the call can perform. Traits went in 0.6.0 and took
+          ; that arm with them - `show` resolves in `checkApp` to an
+          ; ordinary function or a generated renderer, both of which
+          ; `findFnEnt` answers for.
+          0
           {
             (tcNoteCall tc (memGetWordStr ent 0))
             (effUnion acc (memGetWord ent 5) 0)
@@ -11398,140 +11153,6 @@
 ; LOWER BOUND on what the body performs, and every claim checked
 ; against it has to answer for the difference rather than read an
 ; absence as an acquittal.
-; Every `impl` declaration in the program, in order.
-(pub :: implIdxBuild (-> Int Int Int Int))
-
-(pub fn (implIdxBuild decls acc i)
-  (if (>= i (vecLen decls))
-    acc
-    {
-      (if (== (nodeTag (vecGet decls i)) TAG_D_IMPL)
-        (vecPush acc (vecGet decls i))
-        0
-      )
-      (implIdxBuild decls acc (+ i 1))
-    }
-  )
-)
-
-; If `n` names a method of a trait in scope, union the effects of EVERY
-; implementation of it into `acc` and answer 1.
-;
-; `traitRewrite` can only rewrite a head to a name for which
-; `fnEntExact` succeeds, so the set of names it could ever choose is a
-; subset of the ones enumerated here: the union is a true upper bound
-; on what the call can perform, and an exact one wherever every impl
-; is reachable. Trait DEFAULTS are covered without special-casing,
-; because `checkImplComplete` lowers a missing method through the same
-; `traitImplName`, so it is an ordinary declaration by the time the
-; fixpoint runs.
-(pub :: traitUnionEffects (-> Int String Int Int))
-
-(pub fn (traitUnionEffects tc n acc)
-  (let ((tr (findTraitOwning (tcTraits tc) (bareOf n) 0)))
-    (if (== tr 0)
-      0
-      {
-        ; MORE THAN ONE IMPL AND EVERY EFFECT IS POSSIBLE, because
-        ; dispatch picks exactly one of them and this walk cannot say
-        ; which. With a single impl the union is exact and definite.
-        ;
-        ; That distinction stopped being cosmetic the day AX3042 became
-        ; an error. Measured: a `(Show Int)` impl that performs nothing
-        ; and a `(Show Bool)` impl that performs IO, with only the
-        ; first ever reached, REFUSED the program for IO it does not
-        ; perform - which is the objection that blocked promoting
-        ; AX3010 in the first place ("promoting that shape refuses
-        ; correct programs"), arriving again through a different door.
-        ;
-        ; The possible spelling routes a claim over it to AX3037 -
-        ; cannot be checked - and keeps the effect in the row, so
-        ; `symbols` still reports the union and AX3011 still sees the
-        ; upper bound it needs. What it no longer does is excuse a
-        ; DEFINITE effect beside it: `println "{n}"` unions four
-        ; `show` impls, and the `writeStr` in the same body used to be
-        ; excused by that union (the header above `effIsPossible`).
-        (let ((n0 (traitCountImpls
-          tc          (memGetWord tc 28)          (nodeAName tr)          (bareOf n)          0
-        )))
-          (traitUnionImpls
-            tc            (memGetWord tc 28)            (nodeAName tr)            (bareOf n)            acc            0            (if (> n0 1)
-              1
-              0
-            )
-          )
-        )
-        1
-      }
-    )
-  )
-)
-
-; How many implementations `traitUnionImpls` will union - asked first,
-; because whether each one arrives definite or possible depends on the
-; count, and the count is not known until the loop has run.
-(pub :: traitCountImpls (-> Int Int String String Int Int))
-
-(pub fn (traitCountImpls tc impls tname method i)
-  (if (>= i (vecLen impls))
-    0
-    (+
-      (let ((d (vecGet impls i)))
-        (if (strEq (nodeAName d) tname)
-          (if (== (fnEntExact tc (traitImplName tname (nodeCName d) method)) 0)
-            0
-            1
-          )
-          0
-        )
-      )
-      (traitCountImpls
-        tc        impls        tname        method        (+ i 1)
-      )
-    )
-  )
-)
-
-(pub :: traitUnionImpls (-> Int Int String String Int Int Int Int))
-
-; Unions every implementation's row into `acc` - as possible when
-; `possible` is 1, definite otherwise - and answers how many it
-; unioned.
-(pub fn (traitUnionImpls tc impls tname method acc i possible)
-  (if (>= i (vecLen impls))
-    0
-    (+
-      (let ((d (vecGet impls i)))
-        (if (strEq (nodeAName d) tname)
-          (let ((e (fnEntExact tc (traitImplName tname (nodeCName d) method))))
-            (if (== e 0)
-              0
-              ; Every implementation is an edge, for the same reason
-              ; every implementation is an effect: a dynamically
-              ; dispatched call can reach any of them. Recording only
-              ; the method name would name something that has no
-              ; `FnEnt` and therefore no row of its own, and recording
-              ; nothing would leave the caller's `#effects=` claiming
-              ; an IO no edge accounts for.
-              {
-                (tcNoteCall tc (memGetWordStr e 0))
-                (if (== possible 1)
-                  (effUnionPossible acc (memGetWord e 5) 0)
-                  (effUnion acc (memGetWord e 5) 0)
-                )
-                1
-              }
-            )
-          )
-          0
-        )
-      )
-      (traitUnionImpls
-        tc        impls        tname        method        acc        (+ i 1)        possible
-      )
-    )
-  )
-)
 
 ; ------------------------------------------------------------------
 ; POSSIBLE effects. A row distinguishes what a body DEFINITELY performs

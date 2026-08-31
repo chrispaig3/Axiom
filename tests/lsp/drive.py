@@ -859,8 +859,11 @@ expect_symbols += N + 1
 # else can be offered). A keyword the parser learns and the server
 # forgets fails here.
 #
-# `union`, `region` and `foreign` are named by the parser only in order
-# to REFUSE them (AX2004), so they are not expected in a menu.
+# `union`, `region`, `foreign` and - since 0.6.0 - `trait` and `impl`
+# are named by the parser only in order to REFUSE them (AX2004), so
+# they are not expected in a menu. `self_host/lsp.ax`'s `lspKeywords`
+# carries the same five, and this equality is what keeps the two in
+# step.
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PARSER_AX = os.path.join(REPO, "self_host", "parser.ax")
 _psrc = open(PARSER_AX, encoding="utf-8").read()
@@ -873,7 +876,7 @@ if _missing:
              f"spelling this file could not read - the keyword reference "
              f"would be short and the equality below would be wrong")
 KEYWORDS = sorted((_kwlits | {_kwdefs[n] for n in _kwnames})
-                  - {"union", "region", "foreign"})
+                  - {"union", "region", "foreign", "trait", "impl"})
 # An extraction that stops matching turns the equality into a comparison
 # of two short lists that happen to agree. It is refused before any
 # server starts, for the reason the manifest floors are.

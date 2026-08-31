@@ -484,10 +484,6 @@
                             ; span and no macro name, and the two iteration
                             ; constructs disagreed about which span to give.
                             (expAttachFrames eds ftbl units)
-                            ; Impls become ordinary declarations before the
-                            ; checker runs, so their bodies are checked like
-                            ; any others - they used to be checked not at all.
-                            (lowerImpls allDecls eds)
                             ; A pass that REFUSED does not hand its output to
                             ; the next one. Expansion's errors used to be
                             ; merged with the checker's, which meant the
@@ -1437,7 +1433,6 @@
                                       (let ((gens (expandProgram
                                         decls                                        allDecls                                        eds                                        ftbl                                        units                                        bares                                        fulls                                        mods
                                       )))
-                                        (let ((_lw (lowerImpls allDecls eds)))
                                           (let ((_stop 
                                             (if (> (countErrorDiags eds) 0)
                                               {
@@ -1498,7 +1493,6 @@
                                               )
                                             )
                                           )
-                                        )
                                       )
                                     )
                                   )

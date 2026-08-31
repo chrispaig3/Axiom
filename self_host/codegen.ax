@@ -8609,12 +8609,9 @@
       decls      bares      fulls      vecNew      tcode      ""      vecNew
     )))
       {
-        {
-          (expandProgram
-            allDecls            allDecls            vecNew            vecNew            0            0            0            0
-          )
-          (lowerImpls allDecls vecNew)
-        }
+        (expandProgram
+          allDecls          allDecls          vecNew          vecNew          0          0          0          0
+        )
         (emitResolved allDecls bares fulls tcode)
       }
     )
