@@ -16,6 +16,114 @@ its changelog too.
 
 ## Unreleased
 
+- **Traits and `impl` are gone from the language.** An interface is a
+  CAPABILITY RECORD now — a parameterised struct holding the functions,
+  bound with `fn` and passed as a value — so dispatch is application and
+  there is no resolution rule to learn. `trait` and `impl` are reserved
+  and draw `AX2004` with the migration in the message. `stdlib/Show.ax`'s
+  trait and its four `impl` blocks are deleted: `showResolve` in the
+  checker renders `String`, `Bool`, `Int`, `Float`, `Char` and every
+  `data`/`struct` from the argument's static type, and always did.
+  `deriveEq`/`deriveShow` are unaffected — they generate plain functions
+  and always did. **What is actually lost**, stated rather than left to
+  be discovered: a user could override the built-in rendering for their
+  own type with `(impl (Show Color) ...)`, and there is no override hook
+  now; `deriveShow` still generates `showColor` to call deliberately.
+  `compat/BREAKING` declares it. Nineteen fixtures went with the
+  construct, but THREE were pinning properties that outlive it and were
+  rewritten rather than deleted: `010-trait-scope` and
+  `020-trait-duplicate` asked whether a global value-namespace occupant
+  captures a spelling a `let` or parameter should shadow, and now ask it
+  of an `effect` OPERATION, which is the occupant a program can still
+  declare (`isBuiltinName`, `isMacroName` and `isEffectName` are the
+  others the resolver asks about). `373-shared-default-binder` could not
+  be rewritten, and why is the substantive result — see the next entry.
+
+- **A guard whose only reachable path was traits, and the check that
+  asserted it becoming a check that cannot fail.**
+  `stampPatBinderTy` keeps a three-state stamp whose third state is "two
+  checks disagreed", because a binder node could be checked twice at two
+  types and last-write-wins would hand codegen an `Int` for a binder that
+  is really a `String` — a release of a block the binder still points
+  into. The only path was a trait DEFAULT body, which `checkImplComplete`
+  synthesized into every `impl` without copying the nodes. Measured
+  2026-08-31 by building the last-write-wins compiler and diffing emitted
+  IR: 278 fixtures, every `stdlib/` module and `self_host/main.ax` itself
+  are BYTE-IDENTICAL. So `scripts/check-fallible-reclaim.sh`'s second
+  half had quietly become a check that cannot fail — this repository's
+  most-refused defect. It is INVERTED rather than deleted: it now proves
+  nothing in the tree reaches the arm, with the whole compiler as the
+  subject, and goes red the day a future construct re-checks a body per
+  instantiation. The arm stays, because it guards a class of mistake
+  rather than one construct, and it now has a live check on it.
+
+- **Restriction profiles had zero production use, and the gate only
+  worked because of it.** `no-io`, `no-alloc`, `no-cast`, `no-recursion`
+  and `no-foreign` shipped in Ada round 1, are enforced, and appeared
+  only in `tests/diagnostics/`. Tagging one function turned
+  `scripts/check-restrictions.sh` red twice for reasons unrelated to that
+  function: section 1 stripped `#restrict=` from only the tagged side of
+  its diff, and section 5's manifest credited a fixture with any tag it
+  could see through an import. One root cause — both assumed no
+  `#restrict=` existed outside the gate's own fixtures, true only while
+  adoption was zero. Both fixed, then 239 tags across the base layer
+  everything else calls: `stdlib/{Vec,Mem,Str,Utf8,Fmt}.ax` and
+  `self_host/{core,style,lexer,diag}.ax`, chosen because `symbols
+  --diagnostic-format=ai` found 1393 functions tree-wide satisfying both
+  `no-io` and `no-alloc` and these nine files are the ones whose import
+  graph provably reaches no `extern` (`Ffi.ax` and `rustbind.ax` are the
+  only files in the tree with one). The five `#effects-incomplete`
+  declarations — `vecSortBy`, `vecSiftDownBy` and three in `Http.ax`, all
+  indirect-call sites — are deliberately untagged, because a claim there
+  draws `AX3051` rather than passing, which is the effect walk correctly
+  refusing to vouch for a call it cannot follow. ABLATED, and the number
+  is the point: breaking three functions produced 108 `AX3049`s, each
+  naming its own witness path, so the transitive fixpoint is doing the
+  work rather than a single accepted claim. 173 programs still emit
+  byte-identical IR, diagnostics and AXSYM with every one restricted.
+  `tests/agent/restrictions.allow` 49 → 288 rows.
+
+- **`restrict(no-wrap)`, and it is LEXICAL where three of its siblings
+  are transitive.** `+`, `-` and `*` lower to plain `add`/`sub`/`mul`
+  with no `nsw`, so overflow wraps silently; claiming `no-wrap` and
+  writing a raw operator is an act this body performs rather than a fact
+  the effect row carries, which is the same reason `no-cast` is lexical.
+  `tests/diagnostics/383-restrict-no-wrap.ax`; `explain` documents the
+  distinction and `scripts/check-tools-selfhost.sh` holds that text to
+  the compiler's own.
+
+- **Removing a keyword broke the direction `reseed.sh`'s rule does not
+  mention.** `scripts/check-seed-provenance.sh` regenerates the seed from
+  the commit that last touched the six `.ll` files using the CURRENT
+  compiler; that commit's tree still said `trait`, the current compiler
+  answers `AX2004`, and the gate went red — while `check-bootstrap`
+  stayed green throughout, because the old seed understands a SUPERSET of
+  the language and could still build the new tree. The seed is a TWO-WAY
+  compatibility boundary and `reseed.sh` documents one direction ("the
+  seed moves when it can no longer compile `self_host/`"); the other is
+  that the seed's recorded source must stay buildable BY the tree. Budget
+  a reseed with any construct removal. `bootstrap/CHAIN` gains a
+  `stage2` row and not `bridge-needed`, so `check-seed-lineage.sh` still
+  replays back to the Rust compiler at `bb730db`. Verified before
+  committing: seeds match `SHA256SUMS`, the seed built darwin-aarch64
+  with no Rust, compiled `self_host/` into stage1, and stage2 and stage3
+  are byte-identical.
+
+- **`gate_init` resolved the compiler as `${AXIOM:-.axiom-bin/axiom}` and
+  never mentioned `AXIOM_AXC`.** Twelve gates that call it without
+  `gate_build_axc` silently measured the installed binary while a caller
+  believed it was testing theirs. It now resolves `AXIOM` → `AXIOM_AXC` →
+  bootstrap and prints which it took and why, every run; and it runs the
+  compiler once before handing control to the caller's loop, so a binary
+  that cannot exec produces a diagnosis instead of N empty failures —
+  exit 137 names the macOS signature-cache mechanism and the rm-then-cp
+  fix. The sweep in `scripts/check-gate-lib.sh` proving no site states a
+  stale gate count looped `seq 15 38` while its own table went to 46, and
+  that was not hypothetical: `scripts/build-shared-axc.sh` said
+  "forty-two gates" in one breath and "forty-six" in four others, live in
+  the tree and unseen. The bound is derived from the table now. 187
+  checks → 236.
+
 - **Dogfooding the two features above: a one-constructor `data` becomes
   the struct it always was, and four sentinels answer `Option`.**
   `stdlib/Http.ax`'s `HttpHandler` was `(data HttpHandler (HttpFn (->
