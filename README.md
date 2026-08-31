@@ -1006,7 +1006,7 @@ is always the authoritative answer.
 | `Map` | Open-addressing `Int→Int` hash map: `mapNew`, `mapWithCapacity`, `mapHas`, `mapGet`, `mapGetStr`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`. `mapGet` answers `Int` — the truth about a machine word — and `mapGetStr` is the typed reader beside it, the same pair `Vec` and `Mem` carry. It answered a *type variable* until 2026-08-25, which let a caller name a type the table does not hold and exit **139** |
 | `Fmt` | The functions a format specifier selects: `fmtInt`, `fmtIntWidth`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft` |
 | `Intern` | String interner: `internNew`, `internIntern`, `internFind`, `internLookup`, `internCount` |
-| `Sys` | The syscall layer: I/O (`sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysOpenPath`, `sysCloseFd`, `stdin`/`stdout`/`stderr`), the filesystem (`sysReadFile`, `sysWriteFile`, `sysAppendFile`, `sysRename`, `sysUnlink`, `sysMkdir`, `sysRmdir`, `sysReadDir`, `sysFileExists`, `sysIsDir`, `sysFileSize`, `sysGetCwd`), processes (`sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`), and the process's own facts (`sysArgc`/`sysArg`, `sysGetPid`, `sysNowMicros`, `sysErrno`, `sysExitWith`) |
+| `Sys` | The syscall layer: I/O (`sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysOpenPath`, `sysCloseFd`, `stdin`/`stdout`/`stderr`), the filesystem (`sysReadFile`, `sysWriteFile`, `sysAppendFile`, `sysRename`, `sysUnlink`, `sysMkdir`, `sysRmdir`, `sysReadDir`, `sysFileExists`, `sysIsDir`, `sysFileSize`, `sysGetCwd`), processes (`sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`), and the process's own facts (`sysArgc`/`sysArg`, `sysGetPid`, `sysNowMicros`, `sysErrno`, `sysExitWith`), and terminals (`sysIsatty`, `sysTermSave`/`sysTermRaw`/`sysTermRestore`, `sysTermSize` with `sysTermRows`/`sysTermCols`) — see [Terminals](#terminals) for which targets implement them |
 | `Path` | Decisions about path bytes, no syscalls: `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute` |
 | `IO` | `println`, `eprintln` — **macros**, with compile-time format strings — plus `writeStr` (bytes, no newline, no rendering), `exit`, `die`, `todo` (a hole that types as anything and exits 70 - what AX3005's fix writes into each missing arm), the raw-address variants `printlnLit`, `readFileLit`, and the `Str`-taking filesystem surface: `readFile`, `writeFile`, `appendFile`, `copyFile`, `removeFile`, `renamePath`, `fileExists`, `isDir`, `fileSize`, `readErrno`, `makeDir`, `makeDirAll`, `removeDir`, `listDir`, `cwd` |
 | `Show` | The `Show` trait and its instances for `Int`, `String`, `Bool` and `Float`, plus the `format` macro |
@@ -1094,6 +1094,47 @@ operators together, with the type of each.
 Syscall numbers are *not* built into the compiler: they live in
 `stdlib/Sys/Platform.<os>[-<arch>].ax`, and the module resolver picks the
 file matching `--target`. Adding a syscall is a standard-library change.
+
+### Terminals
+
+`Sys` answers the four questions a line editor needs — is this
+descriptor a terminal (`sysIsatty`), what are its current attributes
+(`sysTermSave`), put it in raw mode (`sysTermRaw`), put it back exactly
+as it was (`sysTermRestore`) — plus its size (`sysTermSize`, read back
+with `sysTermRows`/`sysTermCols`). Key decoding, escape sequences and
+history are **not** here; this is the floor an editor is built on.
+
+The buffer a caller saves state into must be `sysTermStateBytes` long,
+and that is a call rather than a constant on purpose: `struct termios`
+is **72 bytes on Darwin, 36 on Linux and 44 on FreeBSD**, so a
+hand-picked size still round-trips on the machine it was tested on.
+`sysTermRaw` edits a private copy and never writes to the caller's
+saved bytes, because a REPL that exits leaving the terminal in raw mode
+gives the user a shell with no echo and no line editing.
+
+Raw mode clears `ECHO`, `ICANON` and `IEXTEN`; `IXON`, `ICRNL`,
+`ISTRIP` and `BRKINT`; `OPOST`; and sets `VMIN` 1 / `VTIME` 0. `ISIG`
+is the caller's choice — `sysTermRaw`'s third argument — because ^C
+raising `SIGINT` is what a REPL usually wants and a byte the editor can
+bind is what a full-screen editor wants. `c_cflag` is not touched.
+
+**Which targets implement it, and which honestly do not:**
+
+| Target | Terminals | How the numbers were established |
+| --- | --- | --- |
+| `darwin-aarch64`, `darwin-x86_64` | **yes** | Measured on a darwin-aarch64 host: a C program compiled against the machine's own headers printed every macro and every `sizeof`/`offsetof`, and the round trip was executed under a pty |
+| `linux-x86_64`, `linux-aarch64` | **yes** | Quoted from the kernel's uapi headers at v6.6 (`asm-generic/{ioctls,termbits,termbits-common,termios}.h`), the struct declarations compiled verbatim to fix the layout, and the layout cross-checked against `TCGETS2`'s own size field |
+| `freebsd-x86_64` | **yes** | Derived from `_IOC` in `sys/sys/ioccom.h` with the arithmetic shown in the module, checked three ways: the same macro reproduces Darwin's real request numbers, the derived `sizeof` matches the size field the numbers carry, and the results equal the `libc` crate's FreeBSD constants |
+| `windows-x86_64` | **no**, and it says so | Windows has no `termios` and no `ioctl`; its mechanism is `GetConsoleMode`/`SetConsoleMode` against a HANDLE, and nothing in this tree can execute it. `Sys.Platform.ttyUsesTermios` is 0 there and every call answers a negative result rather than a plausible one |
+
+The `no` row is the point. An `ioctl` request number is a command
+selector **plus a byte count**, so a number borrowed from the wrong
+platform does not fail cleanly — it names some other command, or copies
+the wrong number of bytes into a buffer sized for a different kernel.
+Every constant in the four implemented modules carries a comment saying
+how it was established, and `stdlib/Sys/Platform.windows.ax` carries
+the mechanism Windows would need so that whoever has a Windows box does
+not have to rediscover it.
 
 ### Targets
 

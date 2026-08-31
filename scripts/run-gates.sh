@@ -71,6 +71,31 @@ NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a ba
 # Gates whose result depends on having the machine to themselves.
 SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost)\.sh$'
 
+# A NOTE ON ONE GATE THAT IS DELIBERATELY *NOT* IN EITHER LIST ABOVE,
+# because it looks like it should be in both. `check-terminal-restore.sh`
+# drives a TERMINAL: it puts one into raw mode and asserts it comes back
+# byte for byte. Neither the serial list nor the not-run list is right
+# for it, and the reasons are worth stating where the lists are.
+#
+#   Not SERIAL. That list is for gates whose RESULT depends on having
+#   the machine to themselves - they time something, or measure memory,
+#   or drive cargo. This one measures nothing: every assertion is a byte
+#   equality or an errno, and neither moves under load. The terminal it
+#   drives is a pty it allocates for itself with `openpty`, so there is
+#   no shared device to contend for and no other gate it can disturb.
+#   The only load-sensitive thing in it is the driver's 30-second
+#   deadline for a probe that finishes in milliseconds.
+#
+#   Not NOTRUN. It needs a pty, but it does NOT need a controlling
+#   terminal - `openpty` is an operation on `/dev/ptmx`, which a CI step
+#   with no tty has - so it runs here, in the Linux container, and on
+#   every runner. It never touches fd 0/1/2 of whatever invoked it.
+#
+# If a future environment genuinely cannot give it a pty, the gate exits
+# NON-ZERO saying so rather than passing quietly, and the deliberate fix
+# is to name it in NOTRUN_RE above - a visible edit in a reviewed file,
+# which is where that decision belongs.
+
 jobs="${AXIOM_GATE_JOBS:-}"
 if [[ -z "$jobs" ]]; then
   cores="$( (sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) )"

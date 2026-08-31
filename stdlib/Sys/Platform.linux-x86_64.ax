@@ -562,3 +562,194 @@
 
 ;@axiom:pure
 (pub fn (platformExitWith code) (- 0 38))
+
+; --------------------------------------------------------------------
+; Terminals
+;
+; NOT MEASURED ON THE MACHINE THAT WROTE THEM, and this section says so
+; where the Darwin module says the opposite. There is no Linux host in
+; this working tree. What backs each number is written beside it, and
+; it is one of two things:
+;
+;   * a line QUOTED from the kernel's own uapi headers at v6.6 -
+;     `include/uapi/asm-generic/{ioctls,termbits,termbits-common,
+;     termios}.h` - fetched on 2026-08-31 and read, not recalled; or
+;   * a layout DERIVED by compiling the struct declaration from those
+;     headers, verbatim, on this host. That is sound for these
+;     particular structs and only for them: every field is a `unsigned
+;     int` or a `unsigned char`, whose sizes and alignments are the
+;     same on any LP64 little-endian ABI, so the C compiler here lays
+;     them out exactly as one there would.
+;
+; THE DERIVATION WAS THEN CHECKED, because a derivation nobody can
+; falsify is a guess with arithmetic in front of it. Two checks ran:
+;
+;   1. The same `_IOC` arithmetic applied to THIS host's real
+;      `struct termios` reproduced this host's real TIOCGETA,
+;      TIOCSETA, TIOCSETAF and TIOCGWINSZ macros exactly. The machinery
+;      is therefore right even though the inputs come from elsewhere.
+;   2. Linux's TCGETS2 - `_IOR('T', 0x2a, struct termios2)`, and
+;      unlike TCGETS it IS size-encoded - is 0x802c542a in the fetched
+;      header. 0x2c is 44, and the `struct termios2` declaration
+;      compiled here measures 44 bytes. `struct termios` is that
+;      struct without its two trailing `speed_t`, so 44 - 8 = 36,
+;      which is what the declaration measures. The kernel's own
+;      constant confirms the layout this file assumes.
+;
+; WHY THE KERNEL STRUCT AND NOT GLIBC'S. They are different structs
+; with the same name. glibc's `struct termios` is 60 bytes with
+; NCCS 32 and two trailing `speed_t`; `tcgetattr` fills a 36-byte
+; `__kernel_termios` from TCGETS and copies across. `Sys.ax` makes
+; the raw syscall, so the kernel's 36 is the only size that is true
+; here, and taking libc's would have put `c_cc` 15 bytes past where
+; the kernel writes it.
+;
+; NOTHING HERE IS SHARED WITH DARWIN OR FREEBSD. The BSD requests are
+; `_IOR`/`_IOW` encodings carrying `sizeof(struct termios)`; the
+; four below are bare magic numbers with no size field, which the
+; fetched header explains in as many words - "Most of them do not use
+; the recommended _IOC(), but there is probably some source code out
+; there hardcoding the number".
+; --------------------------------------------------------------------
+; See the Darwin module for what this capability selects.
+(pub :: ttyUsesTermios Int)
+
+(pub fn (ttyUsesTermios) 1)
+
+; ioctl(fd, request, arg) - 16.
+; Quoted from `arch/x86/entry/syscalls/syscall_64.tbl` at v6.6:
+;   16      64      ioctl                   sys_ioctl
+; It is 29 on aarch64 and 54 on the BSDs.
+(pub :: sysIoctlNum Int)
+
+(pub fn (sysIoctlNum) 16)
+
+; TCGETS - read the terminal attributes into a `struct termios`.
+; Quoted from `include/uapi/asm-generic/ioctls.h`:
+;   #define TCGETS  0x5401
+; 0x5401 = 21505. arm64 and x86 both take this file: neither
+; `arch/arm64/include/uapi/asm/ioctls.h` nor the x86 one exists at
+; v6.6 (both fetches answered HTTP 404), so `asm-generic` is what
+; `<asm/ioctls.h>` resolves to on either.
+(pub :: tcGetAttrReq Int)
+
+(pub fn (tcGetAttrReq) 21505)
+
+; TCSETSF - write the attributes back, draining output and discarding
+; pending input. Quoted from the same header:
+;   #define TCSETSF 0x5404
+; 0x5404 = 21508. The flushing variant is the choice here for the
+; reasons the Darwin module gives; TCSETS (0x5401 + 1) is the
+; non-draining form and is not exposed.
+(pub :: tcSetAttrReq Int)
+
+(pub fn (tcSetAttrReq) 21508)
+
+; TIOCGWINSZ - read `struct winsize`. Quoted:
+;   #define TIOCGWINSZ  0x5413
+; 0x5413 = 21523, and it is NOT the BSDs' 0x40087468 even though the
+; struct is the same four `unsigned short` on all three.
+(pub :: tcWinSizeReq Int)
+
+(pub fn (tcWinSizeReq) 21523)
+
+; The bytes the kernel exchanges. `struct termios` from
+; `asm-generic/termbits.h`, verbatim:
+;
+;   typedef unsigned int tcflag_t;   (termbits.h)
+;   typedef unsigned char cc_t;      (termbits-common.h)
+;   #define NCCS 19
+;   struct termios {
+;     tcflag_t c_iflag; tcflag_t c_oflag;
+;     tcflag_t c_cflag; tcflag_t c_lflag;
+;     cc_t c_line; cc_t c_cc[NCCS];
+;   };
+;
+; Compiled here: `sizeof = 36  c_iflag@0 c_oflag@4 c_cflag@8
+; c_lflag@12 c_line@16 c_cc@17`. 16 + 1 + 19 = 36 with no tail
+; padding, the struct's alignment being 4.
+(pub :: termiosBytes Int)
+
+(pub fn (termiosBytes) 36)
+
+; `tcflag_t` is `unsigned int` here where Darwin's is `unsigned
+; long`, which is the whole of why 36 is not 72. The four flag words
+; sit at 0, 4, 8 and 12 - measured above - so the stride serves as all
+; four offsets, as it does on every target.
+(pub :: termiosFlagBytes Int)
+
+(pub fn (termiosFlagBytes) 4)
+
+; Where `c_cc` begins: 17, measured above. NOT 16. Linux carries a
+; one-byte `c_line` - the line discipline - that neither BSD has, so
+; the array starts on an ODD offset, and a module that copied the
+; BSDs' 16 would read `c_line` as `c_cc[0]` and every control
+; character one slot early.
+(pub :: termiosCcOff Int)
+
+(pub fn (termiosCcOff) 17)
+
+; Quoted from `asm-generic/termbits.h`:
+;   #define VTIME 5
+;   #define VMIN  6
+; The BSDs put them at 16 and 17 - and in the other order.
+(pub :: termiosVminIdx Int)
+
+(pub fn (termiosVminIdx) 6)
+
+(pub :: termiosVtimeIdx Int)
+
+(pub fn (termiosVtimeIdx) 5)
+
+; c_lflag bits, quoted from `asm-generic/termbits.h`:
+;   #define ISIG   0x00001    ->     1
+;   #define ICANON 0x00002    ->     2
+;   #define ECHO   0x00008    ->     8
+;   #define IEXTEN 0x08000    -> 32768
+; Only ECHO agrees with Darwin, where the other three are 0x100, 0x80
+; and 0x400.
+(pub :: tiosEcho Int)
+
+(pub fn (tiosEcho) 8)
+
+(pub :: tiosIcanon Int)
+
+(pub fn (tiosIcanon) 2)
+
+(pub :: tiosIsig Int)
+
+(pub fn (tiosIsig) 1)
+
+(pub :: tiosIexten Int)
+
+(pub fn (tiosIexten) 32768)
+
+; c_iflag bits. BRKINT, ISTRIP and ICRNL come from
+; `asm-generic/termbits-common.h`, IXON from `termbits.h`:
+;   #define BRKINT 0x002   ->    2
+;   #define ISTRIP 0x020   ->   32
+;   #define ICRNL  0x100   ->  256
+;   #define IXON   0x400   -> 1024
+; The first three match Darwin's; IXON does not - it is 0x200 there.
+(pub :: tiosBrkint Int)
+
+(pub fn (tiosBrkint) 2)
+
+(pub :: tiosIcrnl Int)
+
+(pub fn (tiosIcrnl) 256)
+
+(pub :: tiosIstrip Int)
+
+(pub fn (tiosIstrip) 32)
+
+(pub :: tiosIxon Int)
+
+(pub fn (tiosIxon) 1024)
+
+; Quoted from `asm-generic/termbits-common.h`:
+;   #define OPOST 0x01
+; c_cflag is not covered here either; see the Darwin module for why.
+(pub :: tiosOpost Int)
+
+(pub fn (tiosOpost) 1)

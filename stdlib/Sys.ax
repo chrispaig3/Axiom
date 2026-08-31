@@ -2531,3 +2531,305 @@
     )
   )
 )
+
+; ------------------------------------------------------------------
+; Terminals
+;
+; THE FOUNDATION A LINE EDITOR NEEDS AND NOTHING MORE: is this
+; descriptor a terminal, put it in raw mode, put it back EXACTLY as it
+; was, and how many rows and columns does it have. No key decoding, no
+; escape sequences, no history - those belong above this file.
+;
+; THE RESTORE IS THE PART THAT MUST NOT BE ALMOST RIGHT. A REPL that
+; exits leaving the terminal in raw mode hands the user a shell with
+; no echo and no line editing, and the user's only recovery is `stty
+; sane` typed blind. Everything below is shaped around that: the
+; caller owns a buffer holding the ORIGINAL bytes, this file never
+; writes to it after filling it, and `sysTermRaw` edits a private copy
+; so that the saved state cannot be the state that was modified.
+;
+; WHAT IS PER-PLATFORM AND WHAT IS NOT. Every request number, struct
+; offset and flag bit comes from `Sys.Platform`, because not one of
+; them is portable - `struct termios` is 72 bytes on Darwin, 36 on
+; Linux and 44 on FreeBSD, and Linux carries a `c_line` byte the BSDs
+; do not, so even `c_cc`'s offset differs. `Sys.ax` branches on
+; `ttyUsesTermios` and never names an OS, as it does for
+; `openNeedsDirFd` and `pollUsesKqueue`.
+;
+; THE ONE LAYOUT THIS FILE DOES CARRY is `struct winsize`, and it is
+; here rather than in the platform modules because it was checked to
+; be the same on all four POSIX targets: four `unsigned short`, rows
+; first, columns second. Measured on this host 2026-08-31
+; (`sizeof(struct winsize) = 8`, `ws_row@0`, `ws_col@2`) and read in
+; the fetched headers for the other three - Linux's
+; `include/uapi/asm-generic/termios.h` and FreeBSD's `sys/sys/
+; ttycom.h` declare the identical four fields. If a fifth target ever
+; disagrees, this is the paragraph that says the fact was checked
+; rather than assumed, and the offsets move to `Sys.Platform`.
+; ------------------------------------------------------------------
+; ioctl(fd, request, arg) -> 0 on success, or `-errno`.
+;
+; Private. Every terminal call goes through it, and nothing else in
+; this library has needed an `ioctl` yet - which is why there is no
+; public one: a public `ioctl` is a public request-number channel, and
+; the request numbers are exactly the thing this design keeps behind
+; `Sys.Platform`.
+(:: sysIoctl (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(fn (sysIoctl fd req arg) (__syscall3 sysIoctlNum fd req arg))
+
+; How many bytes a saved terminal state occupies, which is how large
+; the buffer a caller hands `sysTermSave`, `sysTermRaw` and
+; `sysTermRestore` must be. 72, 36 or 44 depending on the target; 0
+; where there is no `termios` at all.
+;
+; A CALLER MUST ASK RATHER THAN PICK A NUMBER. Sizing this buffer by
+; hand is the single easiest way to write the bug this section exists
+; to prevent: a buffer short by the eight bytes that separate Linux's
+; layout from FreeBSD's still round-trips on the machine it was tested
+; on.
+(pub :: sysTermStateBytes Int)
+
+(pub fn (sysTermStateBytes) termiosBytes)
+
+; The bytes `sysTermSize` writes. 8 on every target that has one; see
+; the section header for why this number is here and not in
+; `Sys.Platform`.
+(pub :: sysTermSizeBytes Int)
+
+(pub fn (sysTermSizeBytes) 8)
+
+; The answer `Sys.ax` gives where the platform has no terminal
+; control at all, which today is Windows and only Windows.
+;
+; IT IS A SENTINEL, NOT A KERNEL ANSWER. No `ioctl` produced it: the
+; call is never made, because `ttyUsesTermios` is 0 there. 78 is the
+; spelling `sysNowMonotonic` already uses for "this platform cannot
+; answer" - it is ENOSYS on the BSDs and 38 on Linux - and it is
+; negative, which is the only property a caller reads. Answering it
+; is the point: a caller finds out, where a fabricated success would
+; have it draw a prompt into a console that is still echoing.
+(:: termUnsupported Int)
+
+(fn (termUnsupported) (- 0 78))
+
+; True when `fd` is a terminal.
+;
+; The question is asked by ASKING FOR THE TERMINAL ATTRIBUTES and
+; seeing whether the kernel has any, which is exactly what libc's
+; `isatty` does - there is no dedicated syscall on any of these
+; systems. A pipe, a file or a closed descriptor answers -ENOTTY (or
+; -EBADF) and this answers false.
+;
+; Probed on this host 2026-08-31: fd 0 under a pipe answers false and
+; the same fd on a pty answers true, and the C `isatty` agreed with
+; both.
+;
+; A PLATFORM WITHOUT `termios` ANSWERS FALSE, not "unsupported". That
+; is the right shape for this one question: a caller asks it to decide
+; whether to draw a prompt, and "no terminal here" is the safe answer
+; on a target where this library cannot drive one anyway.
+;
+; ITS EFFECT ROW IS `Alloc, IO`, NOT `IO`, and the `Alloc` is the
+; scratch buffer the kernel writes the attributes into. There is no way
+; to ask this question without one - no system here has a syscall that
+; answers it - and the only alternative was a public buffer parameter
+; on the library's most casually-called terminal function. Recorded
+; rather than discovered: `sysWriteFd`'s comment above explains what a
+; widened row costs when the function is under `println`, and this one
+; is not, but the next reader should not have to measure to find out
+; which.
+(pub :: sysIsatty (-> Int Bool))
+
+;@axiom:effect(io)
+(pub fn (sysIsatty fd)
+  (if (== ttyUsesTermios 0)
+    false
+    (>= (sysIoctl fd tcGetAttrReq (memAlloc termiosBytes)) 0)
+  )
+)
+
+; Read `fd`'s current terminal attributes into `save`, which must hold
+; `sysTermStateBytes` bytes. 0 on success, or a negative result.
+;
+; This is the SAVE half of the pair, and it is public on its own
+; because `sysTermRaw` performing its own save would leave a caller
+; that wants to make some other change with no way to record the
+; original first.
+(pub :: sysTermSave (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysTermSave fd save)
+  (if (== ttyUsesTermios 0)
+    termUnsupported
+    (sysIoctl fd tcGetAttrReq save)
+  )
+)
+
+; Write `state` back to `fd` as its terminal attributes: 0, or a
+; negative result.
+;
+; The request is the FLUSHING one on every platform (TIOCSETAF on the
+; BSDs, TCSETSF on Linux), which drains pending output and discards
+; pending input before the change takes effect. Each platform module
+; records the choice; the reason is that both ends of a raw-mode
+; session want it - entering, type-ahead meant for the old line
+; discipline is discarded rather than delivered as editing keys, and
+; leaving, a half-typed line is not handed to the shell.
+(pub :: sysTermRestore (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysTermRestore fd state)
+  (if (== ttyUsesTermios 0)
+    termUnsupported
+    (sysIoctl fd tcSetAttrReq state)
+  )
+)
+
+; Read one of the four flag words out of a saved state, and write one
+; back. `n` is 0 for c_iflag, 1 for c_oflag, 2 for c_cflag and 3 for
+; c_lflag: the words are contiguous and `termiosFlagBytes` apart on
+; every target, so one stride serves as all four offsets.
+;
+; THEY MOVE 32 BITS WHERE DARWIN'S FIELD IS 64, and that is deliberate
+; rather than an oversight. Darwin's flag words are `unsigned long`;
+; Linux's and FreeBSD's are `unsigned int`. Every bit any of these
+; platforms defines in any of these words fits in the low 32 - the
+; highest are Linux's CRTSCTS and Darwin's NOFLSH at 0x80000000 - and
+; the machines are all little-endian, so the low four bytes of an
+; eight-byte field start at the field's own offset. Editing only those
+; four leaves Darwin's upper half BYTE-FOR-BYTE UNTOUCHED, which is
+; the behaviour the round trip needs: whatever the kernel put there
+; goes back unaltered.
+(:: termFlagGet (-> Int Int Int))
+
+(fn (termFlagGet buf n) (netGetInt32 buf (* n termiosFlagBytes)))
+
+(:: termFlagClear (-> Int Int Int Int))
+
+(fn (termFlagClear buf n mask)
+  (netPutInt32 buf (* n termiosFlagBytes) (& (termFlagGet buf n) (^ mask (- 0 1))))
+)
+
+; Put `fd` into raw mode, having first saved its current state into
+; `save` (`sysTermStateBytes` bytes, owned by the caller). 0, or a
+; negative result.
+;
+; WHAT RAW MODE MEANS HERE, stated rather than implied:
+;
+;   c_lflag  ECHO off    - the editor draws every character itself,
+;                          so the driver must not draw it too.
+;            ICANON off  - `read` returns bytes as they arrive
+;                          instead of waiting for a newline. This is
+;                          the flag that makes a line editor possible
+;                          at all.
+;            IEXTEN off  - ^V stops being "quote the next character"
+;                          and becomes a byte the editor can bind.
+;   c_iflag  IXON off    - ^S and ^Q stop being flow control. Leaving
+;                          this on is the classic frozen-REPL bug:
+;                          ^S bound to a search freezes the terminal
+;                          instead, and nothing appears to be wrong.
+;            ICRNL off   - Return arrives as CR (13), not silently
+;                          rewritten to LF, so the editor can tell
+;                          Return from ^J.
+;            ISTRIP off  - the eighth bit of every input byte
+;                          survives, which is the difference between
+;                          reading UTF-8 and reading mojibake.
+;            BRKINT off  - a break condition does not raise SIGINT.
+;   c_oflag  OPOST off   - output is passed through unprocessed, so a
+;                          lone LF is not expanded to CR LF behind the
+;                          editor's back and column arithmetic stays
+;                          true. An editor that turns this off must
+;                          write "\r\n" itself.
+;   c_cc     VMIN 1      - a `read` returns as soon as one byte is
+;            VTIME 0       there, and blocks until one is. A REPL
+;                          waiting for a keypress wants exactly this;
+;                          a caller wanting a poll timeout should set
+;                          VTIME itself on a copy.
+;
+; ISIG IS THE CALLER'S CHOICE, which is why `keepSignals` exists and
+; why there is no default hidden in here. Pass 1 and ^C still raises
+; SIGINT, which is what a REPL usually wants - the user expects ^C to
+; abandon a runaway evaluation, and the process already has a handler
+; or dies. Pass 0 and ^C arrives as byte 3 for the editor to bind,
+; which is what a full-screen editor wants and what `cfmakeraw` does.
+; The two are not interchangeable and neither is safe to assume.
+;
+; c_cflag IS NOT TOUCHED. `cfmakeraw` also clears CSIZE|PARENB and
+; sets CS8; that matters on a serial line and is inert on the
+; pseudo-terminal a REPL runs under. No platform module records a
+; c_cflag bit, because none was measured, and an unmeasured constant
+; is worse than an absent one.
+(pub :: sysTermRaw (-> Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysTermRaw fd save keepSignals)
+  (if (== ttyUsesTermios 0)
+    termUnsupported
+    (let ((r (sysIoctl fd tcGetAttrReq save)))
+      (if (< r 0)
+        r
+        (sysTermRawApply fd save keepSignals (memAlloc termiosBytes))
+      )
+    )
+  )
+)
+
+; The edit, on a PRIVATE COPY of what was just saved.
+;
+; `work` is a fresh buffer and `save` is the caller's. Nothing here
+; writes to `save`, and that separation is the whole reason this
+; function exists rather than being folded into the one above: an
+; in-place edit would leave the "saved" state holding the raw settings,
+; and `sysTermRestore` would then restore raw mode onto raw mode. The
+; failure would be invisible in every test that does not compare bytes.
+(:: sysTermRawApply (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(fn (sysTermRawApply fd save keepSignals work)
+  {
+    (memCopy work save termiosBytes)
+    (termFlagClear work 0 (| tiosBrkint (| tiosIcrnl (| tiosIstrip tiosIxon))))
+    (termFlagClear work 1 tiosOpost)
+    (termFlagClear
+      work      3      (if (== keepSignals 1)
+        (| tiosEcho (| tiosIcanon tiosIexten))
+        (| tiosEcho (| tiosIcanon (| tiosIexten tiosIsig)))
+      )
+    )
+    (memPutByte work (+ termiosCcOff termiosVminIdx) 1)
+    (memPutByte work (+ termiosCcOff termiosVtimeIdx) 0)
+    (sysIoctl fd tcSetAttrReq work)
+  }
+)
+
+; Read `fd`'s window size into `buf` (`sysTermSizeBytes` bytes): 0, or
+; a negative result. `sysTermRows` and `sysTermCols` read the answer
+; back out.
+;
+; A TERMINAL IS PERMITTED TO ANSWER ZERO. A pty that has never been
+; sized, and some CI runners, answer 0 rows and 0 columns with a
+; SUCCESSFUL ioctl - so a caller that only checks the return value and
+; then divides by the column count has a bug this call cannot report.
+; Treat 0 as "unknown" and fall back to 80x24.
+(pub :: sysTermSize (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (sysTermSize fd buf)
+  (if (== ttyUsesTermios 0)
+    termUnsupported
+    (sysIoctl fd tcWinSizeReq buf)
+  )
+)
+
+; Rows out of a buffer `sysTermSize` filled. `ws_row` is an
+; `unsigned short` at offset 0 on every target, little-endian.
+(pub :: sysTermRows (-> Int Int))
+
+(pub fn (sysTermRows buf) (+ (memGetByte buf 0) (<< (memGetByte buf 1) 8)))
+
+; Columns: `ws_col`, the second `unsigned short`.
+(pub :: sysTermCols (-> Int Int))
+
+(pub fn (sysTermCols buf) (+ (memGetByte buf 2) (<< (memGetByte buf 3) 8)))

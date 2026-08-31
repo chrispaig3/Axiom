@@ -654,3 +654,197 @@
 
 ;@axiom:pure
 (pub fn (platformExitWith code) (- 0 78))
+
+; --------------------------------------------------------------------
+; Terminals
+;
+; NOT MEASURED ON THE MACHINE THAT WROTE THEM - there is no FreeBSD
+; host in this working tree - but DERIVED, with the arithmetic shown
+; beside each number and the derivation itself checked three ways.
+;
+; The sources, both fetched and read on 2026-08-31, both from
+; freebsd-src at releng 14.0.0:
+;
+;   * `sys/sys/ioccom.h`, which defines the `_IOC` encoding;
+;   * `sys/sys/ttycom.h`, which spells each request as an `_IOR`/
+;     `_IOW` of a group letter, an index and a STRUCT TYPE - so the
+;     numeric constant does not appear in the header at all and must
+;     be computed;
+;   * `sys/sys/_termios.h`, which gives the struct and the flag bits.
+;
+; WHAT MAKES THIS A DERIVATION AND NOT A GUESS, in three checks:
+;
+;   1. FreeBSD's `_IOC` and Darwin's are the same text. Applying it to
+;      THIS host's real `struct termios` reproduced this host's real
+;      TIOCGETA, TIOCSETA, TIOCSETAF and TIOCGWINSZ macros exactly, so
+;      the machinery is validated against a kernel that can be asked.
+;   2. `struct termios` from `_termios.h` - four `unsigned int`, then
+;      `cc_t c_cc[20]`, then two `unsigned int` - compiled here
+;      measures 44 bytes, and 44 is 0x2c. Every number below carries
+;      0x2c in its size field, which is the derivation agreeing with
+;      itself.
+;   3. The results equal the constants the `libc` crate carries for
+;      `x86_64-unknown-freebsd` (libc-0.2.189,
+;      `src/unix/bsd/freebsdlike/mod.rs`): TIOCGETA 0x402c7413,
+;      TIOCSETAF 0x802c7416, TIOCGWINSZ 0x40087468. That is a second,
+;      independent party arriving at the same numbers.
+;
+; THE SIZE FIELD IS WHY THESE ARE NOT DARWIN'S. Both kernels answer
+; `_IOR('t', 19, struct termios)`, and the two structs are 44 and 72
+; bytes - `unsigned int` flag words against `unsigned long` ones - so
+; the requests differ in bits 16..28 and agree everywhere else.
+; 0x402c7413 against 0x40487413: one hex digit, and it is the byte
+; count the kernel will copy.
+; --------------------------------------------------------------------
+; See the Darwin module for what this capability selects.
+(pub :: ttyUsesTermios Int)
+
+(pub fn (ttyUsesTermios) 1)
+
+; ioctl(fd, request, arg) - 54. Quoted from `sys/kern/syscalls.master`
+; at releng 14.0.0:
+;   54  AUE_IOCTL  STD|CAPENABLED {
+;     int ioctl(
+; Plain, as every number in this file is: FreeBSD has no class bit in
+; the high byte, so this is 54 where Darwin writes 33554486 for the
+; same call.
+(pub :: sysIoctlNum Int)
+
+(pub fn (sysIoctlNum) 54)
+
+; TIOCGETA. `ttycom.h` says
+;   #define TIOCGETA _IOR('t', 19, struct termios)
+; and `ioccom.h` says
+;   #define IOCPARM_SHIFT 13
+;   #define IOCPARM_MASK  ((1 << IOCPARM_SHIFT) - 1)     /* 0x1fff */
+;   #define IOC_OUT 0x40000000UL
+;   #define _IOC(inout,group,num,len) \
+;     ((inout) | (((len) & IOCPARM_MASK) << 16) | ((group) << 8) | (num))
+; so, with sizeof(struct termios) = 44 = 0x2c and 't' = 0x74:
+;   0x40000000 | (0x2c << 16) | (0x74 << 8) | 19
+;     = 0x40000000 | 0x002c0000 | 0x00007400 | 0x00000013
+;     = 0x402c7413
+;     = 1076655123
+(pub :: tcGetAttrReq Int)
+
+(pub fn (tcGetAttrReq) 1076655123)
+
+; TIOCSETAF - `_IOW('t', 22, struct termios)`, the draining and
+; input-flushing form, chosen for the reasons the Darwin module gives.
+;   0x80000000 | (0x2c << 16) | (0x74 << 8) | 22
+;     = 0x802c7416
+;     = 2150396950
+(pub :: tcSetAttrReq Int)
+
+(pub fn (tcSetAttrReq) 2150396950)
+
+; TIOCGWINSZ - `_IOR('t', 104, struct winsize)`, and `struct winsize`
+; is four `unsigned short` = 8 bytes.
+;   0x40000000 | (8 << 16) | (0x74 << 8) | 104
+;     = 0x40087468
+;     = 1074295912
+; This one EQUALS Darwin's, because the argument struct is the same
+; size on both. It is written out rather than shared because the
+; agreement is a coincidence of `sizeof`, not a shared ABI: change
+; `struct winsize` on either kernel and the two part company.
+(pub :: tcWinSizeReq Int)
+
+(pub fn (tcWinSizeReq) 1074295912)
+
+; The bytes the kernel exchanges. From `sys/sys/_termios.h`, verbatim:
+;
+;   typedef unsigned int  tcflag_t;
+;   typedef unsigned char cc_t;
+;   typedef unsigned int  speed_t;
+;   #define NCCS 20
+;   struct termios {
+;     tcflag_t c_iflag; tcflag_t c_oflag;
+;     tcflag_t c_cflag; tcflag_t c_lflag;
+;     cc_t     c_cc[NCCS];
+;     speed_t  c_ispeed; speed_t c_ospeed;
+;   };
+;
+; Compiled here: `sizeof = 44  c_iflag@0 c_oflag@4 c_cflag@8
+; c_lflag@12 c_cc@16 ispeed@36`. 16 + 20 + 8 = 44, no padding.
+(pub :: termiosBytes Int)
+
+(pub fn (termiosBytes) 44)
+
+; `tcflag_t` is `unsigned int`, as on Linux and unlike Darwin. The four
+; flag words are at 0, 4, 8 and 12.
+(pub :: termiosFlagBytes Int)
+
+(pub fn (termiosFlagBytes) 4)
+
+; Where `c_cc` begins: 16, immediately after the flag words. FreeBSD
+; has no `c_line`, so this is NOT Linux's 17 - the two share a flag
+; width and differ by one byte here, which is the near-miss worth
+; naming.
+(pub :: termiosCcOff Int)
+
+(pub fn (termiosCcOff) 16)
+
+; Quoted from `_termios.h`:
+;   #define VMIN  16
+;   #define VTIME 17
+; These agree with Darwin's - the two BSDs share the c_cc numbering -
+; and not with Linux's 6 and 5.
+(pub :: termiosVminIdx Int)
+
+(pub fn (termiosVminIdx) 16)
+
+(pub :: termiosVtimeIdx Int)
+
+(pub fn (termiosVtimeIdx) 17)
+
+; c_lflag bits, quoted from `_termios.h`:
+;   #define ECHO   0x00000008  ->    8
+;   #define ISIG   0x00000080  ->  128
+;   #define ICANON 0x00000100  ->  256
+;   #define IEXTEN 0x00000400  -> 1024
+; All four agree with Darwin and three of the four do not agree with
+; Linux.
+(pub :: tiosEcho Int)
+
+(pub fn (tiosEcho) 8)
+
+(pub :: tiosIcanon Int)
+
+(pub fn (tiosIcanon) 256)
+
+(pub :: tiosIsig Int)
+
+(pub fn (tiosIsig) 128)
+
+(pub :: tiosIexten Int)
+
+(pub fn (tiosIexten) 1024)
+
+; c_iflag bits, quoted from `_termios.h`:
+;   #define BRKINT 0x00000002  ->   2
+;   #define INPCK  0x00000010
+;   #define ISTRIP 0x00000020  ->  32
+;   #define ICRNL  0x00000100  -> 256
+;   #define IXON   0x00000200  -> 512
+(pub :: tiosBrkint Int)
+
+(pub fn (tiosBrkint) 2)
+
+(pub :: tiosIcrnl Int)
+
+(pub fn (tiosIcrnl) 256)
+
+(pub :: tiosIstrip Int)
+
+(pub fn (tiosIstrip) 32)
+
+(pub :: tiosIxon Int)
+
+(pub fn (tiosIxon) 512)
+
+; Quoted from `_termios.h`:
+;   #define OPOST 0x00000001
+; c_cflag is not covered here either; see the Darwin module for why.
+(pub :: tiosOpost Int)
+
+(pub fn (tiosOpost) 1)
