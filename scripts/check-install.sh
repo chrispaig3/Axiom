@@ -132,6 +132,7 @@ assemble() {  # [--no-stdlib]
   cp "$axc" "$d/bin/axiom"
   [[ "${1:-}" == "--no-stdlib" ]] || cp -R "$repo_root/stdlib" "$d/stdlib"
   cp "$repo_root/LICENSE" "$repo_root/README.md" "$repo_root/CHANGELOG.md" "$d/"
+  [[ "${1:-}" == "--no-docs" ]] || cp -R "$repo_root/docs" "$d/docs"
   ( cd "$work/stage" && tar -czf "$serve/$name.tar.gz" "$name" )
   sha_of "$serve/$name.tar.gz" > "$serve/$name.tar.gz.sha256.tmp"
   printf '%s  %s\n' "$(cat "$serve/$name.tar.gz.sha256.tmp")" "$name.tar.gz" \
@@ -190,6 +191,25 @@ if (( rc == 0 )) && [[ -x "$work/prefix/bin/axiom" ]] && [[ -d "$work/prefix/std
 else
   bad "install exited $rc"
   sed 's/^/     /' "$work/install.log" | tail -10
+fi
+
+# `docs/` REACHES THE INSTALLED PREFIX, and this is asserted rather than
+# assumed because the README became a front door in 0.6.0: it points at
+# `docs/reference.md` and the rest instead of restating them, so an
+# archive that carries the pointer and not the target leaves an
+# installed user strictly worse off than before the README was cut.
+#
+# The count is a floor, not an equality. Documents get added; a gate
+# that demanded the exact number would go red on every new one and
+# teach whoever hit it to edit the number rather than think. Zero, or
+# one, is the failure this catches: a `cp` that silently copied
+# nothing.
+doc_n=$(find "$work/prefix/docs" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+if [[ -d "$work/prefix/docs" ]] && (( doc_n >= 8 )); then
+  ok "docs/ reached the prefix, $doc_n documents"
+else
+  bad "the installed prefix has $doc_n document(s) under docs/; the floor is 8"
+  echo "     the README points at these; shipping it without them is a dead link"
 fi
 # install.sh proves this itself, and it is asserted again here from
 # outside: the claim is that the INSTALLED compiler works, and a gate

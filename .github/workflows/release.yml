@@ -161,6 +161,11 @@ jobs:
           cp "$RUNNER_TEMP/out/axiom" "$d/bin/axiom"
           cp -R stdlib "$d/stdlib"
           cp LICENSE README.md CHANGELOG.md "$d/"
+          # `docs/` ships too. The README is a front door that points at
+          # these; an archive carrying the pointer and not the target
+          # leaves an installed user with a dead link and no reference,
+          # which is what shipping the README alone used to mean.
+          cp -R docs "$d/docs"
           tar -czf "$d.tar.gz" "$d"
           # `sha256sum` on the Linux images, `shasum` on macOS. Picking
           # one and hoping is how a matrix leg fails at the last step;

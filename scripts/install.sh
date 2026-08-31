@@ -302,12 +302,19 @@ tar -xzf "$work/$name.tar.gz" -C "$work"
 
 echo "==> installing to $PREFIX"
 mkdir -p "$PREFIX"
-rm -rf "$PREFIX/bin" "$PREFIX/stdlib"
+rm -rf "$PREFIX/bin" "$PREFIX/stdlib" "$PREFIX/docs"
 mv "$work/$name/bin" "$PREFIX/bin"
 mv "$work/$name/stdlib" "$PREFIX/stdlib"
 for f in LICENSE README.md CHANGELOG.md; do
   if [[ -f "$work/$name/$f" ]]; then mv "$work/$name/$f" "$PREFIX/$f"; fi
 done
+# `docs/` is OPTIONAL here and REQUIRED of the archive builder, which is
+# not an inconsistency: this script is fetched fresh and may be pointed
+# at a release that predates docs/ shipping, and refusing to install
+# 0.5.0 because it lacks a directory 0.6.0 introduced would be this
+# script breaking older releases as it improved. `check-install.sh`
+# asserts the current tree's archive carries it.
+if [[ -d "$work/$name/docs" ]]; then mv "$work/$name/docs" "$PREFIX/docs"; fi
 
 # ---- an install that does not run is not an install -----------------
 #
