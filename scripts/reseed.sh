@@ -232,7 +232,15 @@ cat bootstrap/STAMP
 # --------------------------------------------------------------------
 # The row. The seed's own commit does not exist yet - the same reason
 # STAMP records a hash - so the row says `next`, and the gate resolves
-# it to the commit that last wrote the `.ll` files. The NEXT reseed
+# it to the commit that last wrote the `.ll` files.
+#
+# This only ever APPENDS a row, or rewrites the `next` in the last one,
+# and `bootstrap/CHAIN.checkpoint` never covers a `next` row - so a
+# reseed does not void the checkpoint and needs no re-blessing. The new
+# link is outside the certified prefix, which means it is replayed on
+# every run until someone blesses it. That is the intended direction:
+# blessing is a deliberate act, and the rows waiting for one are visible
+# in what the gate replays. The NEXT reseed
 # replaces `next` with the hash it can then see. A `next` row whose
 # `from` is still the committed seed is a reseed that was never
 # committed, and is replaced rather than chained from.

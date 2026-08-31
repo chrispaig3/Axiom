@@ -1,7 +1,13 @@
 # bootstrap/CHAIN - the seed lineage, one row per committed seed, in
 # history order. Read by scripts/check-seed-lineage.sh, which replays
-# the last row on every run and every row under --full; written by
-# scripts/reseed.sh, which appends a row for each seed it generates.
+# every row under --full, and on a default run the rows that
+# bootstrap/CHAIN.checkpoint does not certify - never fewer than the
+# last one. That checkpoint carries the digest of the prefix it covers
+# and the gate recomputes it from THIS file on every run, so a row
+# inside the covered prefix that moves by one byte voids it and the
+# whole chain is replayed. Written by scripts/reseed.sh, which appends
+# a row for each seed it generates; a reseed only appends, so it never
+# voids the checkpoint.
 #
 #   <seed> <from> <method> <matched> <seconds> [skips=<orphan>] [list=<file>]
 #

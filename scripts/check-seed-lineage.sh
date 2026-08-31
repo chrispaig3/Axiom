@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The seed lineage is rooted outside Axiom, and here is the replay that
-# says so - one link on every run, every link under `--full`.
+# says so - every link a checkpoint does not certify on every run, every
+# link under `--full`.
 #
 # WHAT `check-seed-provenance.sh` LEAVES OPEN. That gate regenerates the
 # six seeds from their own commit's sources and requires byte identity,
@@ -51,11 +52,51 @@
 # for one target replays for all six, and the row's stage is the same
 # on every host.
 #
-# COST. Default: the newest row, a compile or two, one to two minutes,
-# plus the two probes. `--full`: every row - the cargo build, thirteen
-# links of 20-80 s, and a walk of sixty-three commits at about seven
-# seconds each - forty minutes. It is the nightly job, and the
-# per-push job replays the newest row when `bootstrap/` moved.
+# THE CHECKPOINT, and the one thing it must not become. Replaying from
+# the anchor costs time linear in the number of reseeds this project has
+# EVER done, and most of that time re-derives a prefix whose answer
+# cannot change: a seed committed in July either replayed or did not,
+# and nothing since alters that. So `bootstrap/CHAIN.checkpoint` records
+# the prefix that a `--full` run derived, and the rows AFTER it are what
+# a default run replays.
+#
+# A naive "trust rows up to N" would be a machine for laundering a bad
+# seed - anyone who can edit the file skips whatever they like - so the
+# checkpoint carries the DIGEST of exactly the rows it covers, and this
+# gate recomputes that digest from `bootstrap/CHAIN` as it stands, on
+# every run, before it skips anything. A covered row that moved by one
+# byte digests differently and the checkpoint is void: the gate replays
+# every row from the anchor and goes red until the prefix is blessed
+# again. Editing an old row cannot shrink the work; it can only enlarge
+# it. Blessing is `AXIOM_BLESS=1 ... --full` and nothing else - never a
+# side effect of a passing run - and it never covers the newest row.
+# The section headed `== bootstrap/CHAIN.checkpoint ==` states what the
+# file does and does not prove; it is a record, not a signature.
+#
+# COST, measured on darwin-aarch64 (Homebrew LLVM 23.1.0, cargo 1.97.1)
+# on 2026-08-31, over a 14-row table:
+#   `--full`, fourteen rows from the anchor          10m40s
+#   default, checkpoint certifying rows 1..13           38s
+#     of which recomputing the digest                  0.7s
+#     and the same run before there were checkpoints    36s
+# The default run therefore costs two or three seconds more than the run
+# that checked nothing about the prefix, and answers a question that one
+# did not ask. It is cheap enough for the per-push job, which is where
+# it runs.
+#
+# WHERE THE FORTY MINUTES ACTUALLY IS, because it decides whether
+# parallelism would help: of the 590 s of replay in a `--full` run, 408
+# is ONE row - the sixty-three-commit walk at row 8, each step compiled
+# by the compiler the step before built, which is sequential by
+# construction. Rows are independent given their starting seed, so a
+# matrix across them is possible, but its critical path is that row: the
+# best a fourteen-way matrix buys is 590 -> 408 s of replay, about 1.3x,
+# for fourteen checkouts of a 30 MB history. The checkpoint removes that
+# row from the per-push path entirely, which is why it is the answer
+# here and a matrix is not.
+# `--full` is the nightly job; the per-push job runs the default when
+# `bootstrap/` moved. `AXIOM_LINEAGE_FULL=1` is `--full` for a caller
+# that cannot pass an argument.
 #
 # NEGATIVE PROBES, each a real run against the artifacts just built:
 # one byte flipped in a copy of the seed fails the comparison; the
@@ -78,8 +119,15 @@ full=0
 case "${1:-}" in
   --full) full=1 ;;
   "") ;;
-  *) echo "usage: $0 [--full]" >&2; exit 2 ;;
+  *) echo "usage: $0 [--full]   (or AXIOM_LINEAGE_FULL=1 $0)" >&2; exit 2 ;;
 esac
+# The same switch for a caller that cannot pass an argument - a shared
+# CI `run:` line, a cron wrapper - spelled the way every option in this
+# repository's gates is spelled: an `AXIOM_`-prefixed variable set to
+# `1`, read once, and reported where it takes effect. `AXIOM_BLESS` is
+# the precedent and the second variable here follows it exactly.
+[[ "${AXIOM_LINEAGE_FULL:-0}" == 1 ]] && { full=1; echo "AXIOM_LINEAGE_FULL=1: replaying every row"; }
+bless="${AXIOM_BLESS:-0}"
 
 failed=0; checks=0; skipped=0
 # `probe_mode` re-points the two reporters at a scratch counter, so the
@@ -98,6 +146,7 @@ skip() { echo "skip: $*"; skipped=$((skipped + 1)); }
 # reviewer reads 28,082 lines of Rust at one named commit.
 anchor="bb730db691c55b63464e822958acbdb9514f9d1d"
 chain="bootstrap/CHAIN"
+checkpoint="bootstrap/CHAIN.checkpoint"
 lineage_dir="bootstrap/lineage"
 
 command -v git >/dev/null || { echo "FAIL: git is not on PATH"; exit 1; }
@@ -576,6 +625,191 @@ validate_chain "$chain"
 
 # ---------------------------------------------------------------------
 echo
+echo "== $checkpoint: the prefix it certifies, re-derived from $chain =="
+# ---------------------------------------------------------------------
+# WHY THERE IS A CHECKPOINT. `--full` re-derives the whole chain from
+# the Rust anchor, and its cost is linear in the number of reseeds this
+# project has EVER done - a prefix whose answer cannot change, paid for
+# again every night, forever. The default run answered that by replaying
+# the NEWEST row and saying nothing at all about the rows before it:
+# cheap, and silent about thirteen of the fourteen links.
+#
+# `bootstrap/CHAIN.checkpoint` is the record that default run was
+# missing. It names a PREFIX of the table and the digest of exactly that
+# prefix, and the digest is RECOMPUTED here, from the table as it stands
+# right now, on every single run. A row inside the certified prefix that
+# moved by one byte - a `matched` corrected, an orphan's prose reworded,
+# a short hash that now resolves to a different commit, a walk list
+# edited, a seed blob that is no longer the blob replayed - moves the
+# digest; and a digest that does not match certifies nothing. The
+# checkpoint is then VOID: the gate replays every row anyway and goes
+# red until the prefix is blessed again. Editing an old row cannot
+# shrink the work. It can only enlarge it.
+#
+# WHAT THE CHECKPOINT IS NOT, stated here so nobody reads more into the
+# file than it says. It is not a signature. Whoever can edit a row can
+# also recompute a digest and rewrite this file, and no arithmetic in
+# this gate can stop them. What it costs them is that the edit and the
+# re-blessing become ONE REVIEWABLE DIFF that says, in the tree, "this
+# change re-certified the lineage" - instead of a one-character change
+# to a table nothing re-derives. The property is tamper-EVIDENT, to a
+# reader and to the nightly `--full` that re-derives every row from
+# `bb730db` inside a day. That is the standard `bootstrap/STAMP` is
+# already held to.
+#
+# THE NEWEST ROW IS NEVER CERTIFIED, and the replay range below is
+# clamped so at least one link is replayed on every run. Blessing stops
+# before any row written `next` - the row whose meaning moves as history
+# does - so the link a push actually ADDS is replayed on that push,
+# checkpoint or no checkpoint.
+
+# seed_blobs <commit> -> the git object ids of every seed that commit
+# carries, sorted. The row names a commit and the replay compares the
+# HOST's seed at it; binding all of them makes the digest one statement
+# about the same bytes on every host, rather than a host-shaped one that
+# a second host would have to re-derive.
+seed_blobs() {
+  git -C "$repo_root" ls-tree "$1" bootstrap/ 2>/dev/null \
+    | grep -E 'axiom-[^ /]*\.ll$' | awk '{print $3}' | LC_ALL=C sort | tr '\n' ' '
+}
+
+# checkpoint_material <chainfile> <k> -> on stdout, the canonical text
+# the digest is taken over; non-zero and a reason on stderr when the
+# first <k> rows cannot BE a certified prefix.
+#
+# Every line of it is something a replay of those rows consumed:
+#   - the row and orphan LINES verbatim, so any edit at all moves it;
+#   - each row's words RESOLVED to full hashes, so a table whose
+#     `2549cfa` begins naming a different commit is a different table
+#     even though its own bytes did not change;
+#   - the git object id of every seed those commits carry, which is what
+#     the replay compared against;
+#   - the sha256 of every walk list and every patch file a covered row
+#     names - working-tree files that no commit hash binds;
+#   - the anchor, and the row count, so a prefix cannot be re-read as a
+#     shorter or a longer one.
+#
+# What it deliberately does NOT cover: this script. Binding the
+# checkpoint to the gate's own bytes would void it on every comment
+# edit to a 900-line file, and a forty-minute re-blessing that fires on
+# a typo is a re-blessing nobody reads - the ritual this gate exists to
+# refuse. The gate's own body is checked by its own probes, which run
+# on every invocation including this one.
+checkpoint_material() {
+  local cf="$1" k="$2" line n=0 fseed ffrom l c how parg psha kv
+  printf 'axiom-chain-checkpoint-v1\n'
+  printf 'anchor %s\n' "$anchor"
+  printf 'rows %s\n' "$k"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "${line// }" || "$line" == \#* ]] && continue
+    set -- $line
+    if [[ "$1" == orphan ]]; then
+      (( n >= k )) && continue
+      printf 'orphan-line %s\n' "$line"
+      printf 'orphan-commit %s\n' "$(resolve "${2:-}")"
+      continue
+    fi
+    (( n >= k )) && break
+    n=$((n + 1))
+    if [[ "$1" == next ]]; then
+      echo "checkpoint: row $n is written \`next\`, which names no commit until one exists - a prefix cannot cover it" >&2
+      return 1
+    fi
+    fseed="$(resolve "$1")"; ffrom="$(resolve "${2:-}")"
+    [[ -n "$fseed" && -n "$ffrom" ]] || { echo "checkpoint: row $n names a commit that does not resolve" >&2; return 1; }
+    printf 'row %s %s\n' "$n" "$line"
+    printf 'row-seed %s %s %s\n' "$n" "$fseed" "$(seed_blobs "$fseed")"
+    printf 'row-from %s %s\n' "$n" "$ffrom"
+    for kv in "$@"; do
+      case "$kv" in
+        list=*)
+          l="${kv#list=}"
+          [[ -f "$repo_root/bootstrap/$l" ]] || { echo "checkpoint: row $n names bootstrap/$l, which is not in the tree" >&2; return 1; }
+          printf 'row-list %s bootstrap/%s %s\n' "$n" "$l" "$(gate_sha "$repo_root/bootstrap/$l")"
+          while read -r c how parg psha; do
+            [[ -z "$c" || "$c" == \#* || "${how:-}" != patch ]] && continue
+            [[ -f "$repo_root/$lineage_dir/${parg:-}" ]] || { echo "checkpoint: row $n's list names $lineage_dir/${parg:-}, which is not in the tree" >&2; return 1; }
+            printf 'row-patch %s %s %s\n' "$n" "$parg" "$(gate_sha "$repo_root/$lineage_dir/$parg")"
+          done < "$repo_root/bootstrap/$l" ;;
+      esac
+    done
+  done < "$cf"
+  (( n == k )) || { echo "checkpoint: $cf holds $n rows, and a prefix of $k needs $k" >&2; return 1; }
+}
+
+checkpoint_digest() {  # <chainfile> <k> -> sha256 of the material
+  local m; m="$(checkpoint_material "$1" "$2")" || return 1
+  printf '%s\n' "$m" | gate_sha
+}
+
+# checkpoint_read <file>: the five fields, or `ck_bad` and non-zero.
+ck_rows=0; ck_digest=""; ck_through=""; ck_blessed=""; ck_host=""; ck_bad=""
+checkpoint_read() {
+  local f="$1"
+  ck_rows=""; ck_digest=""; ck_through=""; ck_blessed=""; ck_host=""; ck_bad=""
+  ck_rows="$(sed -n 's/^Rows covered:[[:space:]]*//p'   "$f" | head -1 | tr -d '[:space:]')"
+  ck_digest="$(sed -n 's/^Prefix digest:[[:space:]]*//p' "$f" | head -1 | tr -d '[:space:]')"
+  ck_through="$(sed -n 's/^Through seed:[[:space:]]*//p' "$f" | head -1 | tr -d '[:space:]')"
+  ck_blessed="$(sed -n 's/^Blessed:[[:space:]]*//p'      "$f" | head -1)"
+  ck_host="$(sed -n 's/^Replayed on:[[:space:]]*//p'     "$f" | head -1)"
+  # A field that is missing, empty or the wrong shape is a REFUSAL and
+  # never a "no checkpoint here": a file nobody can parse is exactly the
+  # file an attacker would leave behind, and treating it as absence
+  # would hand it the silent fast path it was after.
+  [[ "$ck_rows" =~ ^[0-9]+$ ]] || { ck_bad="\`Rows covered:\` is \`${ck_rows:-<missing>}\`, which is not a number"; return 1; }
+  (( ck_rows >= 1 ))           || { ck_bad="it covers $ck_rows rows, which certifies nothing"; return 1; }
+  [[ "$ck_digest" =~ ^[0-9a-f]{64}$ ]] || { ck_bad="\`Prefix digest:\` is \`${ck_digest:-<missing>}\`, which is not a sha256"; return 1; }
+  [[ -n "$ck_through" ]]       || { ck_bad="\`Through seed:\` is missing"; return 1; }
+  return 0
+}
+
+# checkpoint_check <ckfile> <chainfile>: the whole decision, as a pure
+# function over two files, so the probes at the end can ask it about
+# files that are MEANT to be refused. Sets `ck_state` to absent, valid
+# or void, `ck_why` and `ck_covers`; prints nothing and counts nothing.
+ck_state=absent; ck_why=""; ck_covers=0; ck_got=""
+checkpoint_check() {
+  local f="$1" cf="$2" got
+  ck_state=absent; ck_why=""; ck_covers=0; ck_got=""
+  [[ -f "$f" ]] || { ck_why="$f is not in the tree"; return; }
+  ck_state=void
+  checkpoint_read "$f" || { ck_why="it cannot be read: $ck_bad"; return; }
+  (( ck_rows <= nrows )) || { ck_why="it certifies $ck_rows rows and the table now holds $nrows - rows were deleted"; return; }
+  [[ "${row_seed_short[ck_rows-1]}" == "$ck_through" ]] \
+    || { ck_why="it says its last covered row is \`$ck_through\`; row $ck_rows of the table is \`${row_seed_short[ck_rows-1]}\`"; return; }
+  got="$(checkpoint_digest "$cf" "$ck_rows" 2>/dev/null)" \
+    || { ck_why="the first $ck_rows rows of $cf cannot be digested"; return; }
+  ck_got="$got"
+  [[ "$got" == "$ck_digest" ]] \
+    || { ck_why="the first $ck_rows rows now digest to ${got:0:16} and it certifies ${ck_digest:0:16}"; return; }
+  ck_state=valid; ck_covers=$ck_rows
+}
+
+checkpoint_check "$checkpoint" "$chain"
+checkpoint_state="$ck_state"; checkpoint_covers=$ck_covers
+case "$checkpoint_state" in
+  valid)
+    ok "$checkpoint certifies rows 1..$ck_covers (through ${ck_through}), and those rows digest to ${ck_got:0:16} here and now"
+    echo "     blessed ${ck_blessed:-<unrecorded>}"
+    if [[ -n "$ck_host" && "$ck_host" != "$target"* ]]; then
+      echo "     replayed on $ck_host, not this host's $target: the covered rows' $target"
+      echo "     seeds are bound by object id above but were not run here. The nightly"
+      echo "     \`--full\` replays them on the runner's own target."
+    fi ;;
+  absent)
+    skip "no $checkpoint: rows 1..$((nrows - 1)) are not replayed on this run, and nothing in the tree records that they ever were"
+    echo "      Bless one:  AXIOM_BLESS=1 $0 --full" ;;
+  void)
+    fail "$checkpoint is VOID and certifies nothing: $ck_why"
+    echo "      The prefix it names has moved, so it is not a statement about this"
+    echo "      table. Replaying EVERY row instead - a checkpoint cannot shrink the"
+    echo "      work by being edited - and staying red until the prefix is blessed"
+    echo "      again:  AXIOM_BLESS=1 $0 --full"
+    full=1 ;;
+esac
+
+# ---------------------------------------------------------------------
+echo
 echo "== STAMP names the tree of ${current:0:7}, and the seed in the tree is that commit's =="
 # ---------------------------------------------------------------------
 # Exactly `check-seed-provenance.sh`'s check: the tree compiled below
@@ -594,8 +828,36 @@ fi
 # ---------------------------------------------------------------------
 # The replays.
 # ---------------------------------------------------------------------
-if (( full )); then first=0; else first=$((nrows - 1)); fi
+# WHERE THE REPLAY STARTS. `--full` starts at the anchor. A valid
+# checkpoint starts after the prefix it certifies. Anything else starts
+# at the newest row - which is what this gate did before there were
+# checkpoints, and is the floor it never goes below. The range is
+# CLAMPED so at least one link is replayed on every run whatever a
+# checkpoint says, and that is not politeness: the negative probes below
+# compare against an emission this run produced, and a run that replays
+# nothing has nothing to probe with.
+if (( full )); then
+  first=0
+elif [[ "$checkpoint_state" == valid ]]; then
+  first=$checkpoint_covers
+  (( first > nrows - 1 )) && first=$((nrows - 1))
+else
+  first=$((nrows - 1))
+fi
 replayed=0; last_final_ir=""; last_want=""; last_dir=""
+# Which rows THIS process replayed. A blessing is over rows derived
+# here, so every row a checkpoint let it skip stays `0`.
+row_replayed=(); for ((i = 0; i < nrows; i++)); do row_replayed[i]=0; done
+if (( first > 0 )); then
+  echo
+  if [[ "$checkpoint_state" == valid ]]; then
+    echo "     rows 1..$first are not replayed here: $checkpoint certifies them, and the"
+    echo "     digest of exactly those rows was recomputed from $chain above."
+  else
+    echo "     rows 1..$first are not replayed here and nothing certifies them; this is the"
+    echo "     newest-link-only run. \`--full\` (the nightly) replays them all."
+  fi
+fi
 for ((i = first; i < nrows; i++)); do
   seed="${row_seed[i]}"; from="${row_from[i]}"; method="${row_method[i]}"
   echo
@@ -627,6 +889,7 @@ for ((i = first; i < nrows; i++)); do
   fi
   if [[ "$matched" == "${row_matched[i]}" ]]; then
     ok "${row_seed_short[i]} reproduces from ${from:0:7} at $matched$stage_note, ${secs}s"
+    row_replayed[i]=1
   else
     fail "${row_seed_short[i]} reproduces from ${from:0:7}, but at $matched where the row says ${row_matched[i]} - correct the row"
   fi
@@ -770,6 +1033,187 @@ elif (( full )); then
   skip "the anchor's two probes need cargo"
 fi
 
+# (e) The checkpoint's own ablations, over a SYNTHETIC checkpoint built
+# here from the table as it stands. Synthetic rather than the tree's, so
+# they run on a checkout that carries no checkpoint at all and on one
+# whose checkpoint is void - the two states in which a mechanism's
+# self-test is most worth having - and so they exercise exactly the
+# `checkpoint_read`/`checkpoint_digest`/`checkpoint_check` path the fast
+# path above rests on rather than a copy of it.
+#
+# Each is a real refusal by that path, not an assertion about it: a
+# probe here that "passes" by not being reached is the defect this
+# repository names most often.
+if (( nrows >= 3 )); then
+  pk=$((nrows - 1))
+  if ! pdig="$(checkpoint_digest "$chain" "$pk" 2>/dev/null)"; then
+    fail "the first $pk rows of $chain cannot be digested, so the checkpoint probes have nothing to run against"
+  else
+    pck="$work/CHAIN.checkpoint.probe"
+    write_probe_ck() {  # <file> <rows> <through> <digest>
+      printf 'Rows covered:          %s\nThrough seed:          %s\nPrefix digest:         %s\nBlessed:               probe\nReplayed on:           %s\n' \
+        "$2" "$3" "$4" "$target" > "$1"
+    }
+    write_probe_ck "$pck" "$pk" "${row_seed_short[pk-1]}" "$pdig"
+
+    # (e1) The mechanism is not vacuous in the passing direction: a
+    # checkpoint over this table, against this table, is VALID. Without
+    # this arm every refusal below is satisfied by a verifier that
+    # refuses everything.
+    checkpoint_check "$pck" "$chain"
+    if [[ "$ck_state" == valid && "$ck_covers" == "$pk" ]]; then
+      ok "a checkpoint over rows 1..$pk of $chain verifies against $chain (digest ${pdig:0:16})"
+    else
+      fail "a checkpoint this gate just wrote over rows 1..$pk does not verify: $ck_why"
+    fi
+
+    # (e2) THE ONE THAT MATTERS. An edit to a row INSIDE the certified
+    # prefix must VOID it - not be skipped, not be trusted. Row 2's
+    # `matched` is changed to the other stage in a copy: a row that
+    # parses, chains, covers and orders exactly as before, and lies
+    # about which emission equalled the seed. The copy is asserted to
+    # differ from the original first, so an `awk` that changed nothing
+    # cannot pass this.
+    ed="$work/CHAIN.old-row-edited"
+    awk -v ln="${row_line[1]}" 'NR == ln { if ($4 == "stage1") $4 = "stage2"; else $4 = "stage1" } { print }' "$chain" > "$ed"
+    if cmp -s "$ed" "$chain"; then
+      fail "the probe's edit to row 2's \`matched\` was not applied"
+    else
+      checkpoint_check "$pck" "$ed"
+      if [[ "$ck_state" == void ]]; then
+        ok "row 2's \`matched\` changed inside the certified prefix VOIDS the checkpoint: $ck_why"
+      else
+        fail "row 2 edited inside the certified prefix and the checkpoint still reads \`$ck_state\` - an old row can be edited without enlarging the work"
+      fi
+    fi
+
+    # (e3) A checkpoint whose digest was tampered with - one hex digit -
+    # is refused. It parses; it certifies a prefix that does not exist.
+    bad="$work/CHAIN.checkpoint.badhash"
+    # One hex digit, changed in bash rather than through `sed`: BSD sed
+    # has no `t` without a label and the first draft of this line failed
+    # SILENTLY there, leaving an EMPTY digest - so the probe still went
+    # green, refusing the file for having no digest at all rather than
+    # for having a wrong one. A probe that passes for the wrong reason
+    # is the defect this section exists to catch.
+    # The FIRST digit, not the last: every refusal here prints the two
+    # digests truncated to sixteen characters, and a change in the
+    # sixty-fourth would print a refusal whose two sides read identical.
+    tampered="$( [[ "${pdig:0:1}" == a ]] && printf b || printf a )${pdig:1}"
+    if [[ "$tampered" == "$pdig" ]]; then
+      fail "the probe's one-digit change to the digest was not applied"
+    else
+      write_probe_ck "$bad" "$pk" "${row_seed_short[pk-1]}" "$tampered"
+      checkpoint_check "$bad" "$chain"
+      if [[ "$ck_state" == void ]]; then
+        ok "a checkpoint with one digit of its digest changed is refused: $ck_why"
+      else
+        fail "a checkpoint with a tampered digest reads \`$ck_state\`"
+      fi
+    fi
+
+    # (e4) A TRUNCATED checkpoint is refused and NOT read as absence.
+    # The distinction is the whole safety of the fast path: "absent"
+    # takes the old default and says so, "void" replays everything and
+    # goes red, and a file nobody can parse must be the second.
+    trunc="$work/CHAIN.checkpoint.truncated"
+    grep -v '^Prefix digest:' "$pck" > "$trunc"
+    checkpoint_check "$trunc" "$chain"
+    if [[ "$ck_state" == void ]]; then
+      ok "a checkpoint with its digest line deleted is refused rather than read as absence: $ck_why"
+    else
+      fail "a checkpoint with no digest line reads \`$ck_state\`, not \`void\`"
+    fi
+
+    # (e5) A checkpoint that claims MORE rows than the table holds -
+    # the shape a deleted row leaves behind - is refused.
+    over="$work/CHAIN.checkpoint.overreach"
+    write_probe_ck "$over" "$((nrows + 1))" "${row_seed_short[pk-1]}" "$pdig"
+    checkpoint_check "$over" "$chain"
+    if [[ "$ck_state" == void ]]; then
+      ok "a checkpoint claiming $((nrows + 1)) rows over a table of $nrows is refused: $ck_why"
+    else
+      fail "a checkpoint claiming more rows than the table holds reads \`$ck_state\`"
+    fi
+  fi
+else
+  skip "the checkpoint probes need three rows"
+fi
+
+# ---------------------------------------------------------------------
+# Blessing. A gate that writes its own trust anchor when it passes
+# proves nothing, so this never happens as a side effect of a green run:
+# it happens when it is ASKED, with `AXIOM_BLESS=1` - the spelling every
+# blessable gate in this repository already uses - and only over rows
+# THIS process replayed, in this order, from the anchor.
+# ---------------------------------------------------------------------
+if [[ "$bless" == 1 ]]; then
+  echo
+  echo "== AXIOM_BLESS=1: advancing $checkpoint =="
+  if (( ! full )); then
+    fail "AXIOM_BLESS=1 without --full: this run replayed $replayed of $nrows rows, and a prefix it did not derive is a prefix it cannot certify"
+    echo "      Use:  AXIOM_BLESS=1 $0 --full"
+  elif (( failed > 0 )); then
+    fail "$failed check(s) failed above; nothing is blessed"
+  else
+    # The prefix is the LONGEST run of rows, from row 1, that this
+    # process replayed and that names a committed seed. It stops at the
+    # first row that was skipped - the anchor without cargo, a row whose
+    # seed this host has no target for - because a checkpoint that
+    # begins after the anchor certifies a chain with no root, which is
+    # the one thing this gate exists to refuse. It stops before `next`
+    # for the reason the section above gives.
+    bk=0
+    while (( bk < nrows )) && (( ${row_replayed[bk]} )) && [[ "${row_seed_short[bk]}" != next ]]; do bk=$((bk + 1)); done
+    if (( bk == 0 )); then
+      fail "no prefix to bless: row 1 (${row_seed_short[0]} from ${anchor:0:7} by ${row_method[0]}) was not replayed on this run"
+      (( have_cargo )) || echo "      The anchor row needs cargo, and cargo is not on PATH."
+    else
+      bdig="$(checkpoint_digest "$chain" "$bk")"
+      if [[ -z "$bdig" ]]; then
+        fail "the first $bk rows of $chain cannot be digested; nothing is written"
+      else
+        {
+          printf 'Rows covered:          %s\n' "$bk"
+          printf 'Through seed:          %s\n' "${row_seed_short[bk-1]}"
+          printf 'Prefix digest:         %s\n' "$bdig"
+          printf 'Blessed:               %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'Replayed on:           %s (%s)\n' "$target" "$(llc --version 2>/dev/null | grep -m1 -i version | sed 's/^ *//')"
+          printf 'Blessed by:            AXIOM_BLESS=1 scripts/check-seed-lineage.sh --full\n'
+          printf 'Recomputed by:         scripts/check-seed-lineage.sh, on every run\n'
+          printf '\n'
+          cat <<'CKDOC'
+`Prefix digest` is sha256 over the canonical text `checkpoint_material`
+in scripts/check-seed-lineage.sh builds from the first `Rows covered`
+rows of bootstrap/CHAIN: those row and orphan lines verbatim, every
+short hash in them resolved to a full commit, the git object id of
+every seed those commits carry, the sha256 of every walk list and patch
+file they name, and the Rust anchor. The gate recomputes it on EVERY
+run and replays the rows after it; when the recomputation disagrees
+this file certifies nothing, the gate replays every row from the anchor
+instead, and it stays red until the prefix is blessed again.
+
+This is a record, not a signature. Whoever can edit a row of
+bootstrap/CHAIN can recompute this digest too - what the file buys is
+that they must do it in the same diff, where a reviewer sees a change
+that re-certified the lineage rather than a one-character edit to a
+table nothing re-derives. The nightly `--full` job re-derives every row
+from the Rust anchor bb730db regardless of what this file says.
+
+It never covers the newest row: blessing stops before any row written
+`next`, so the link a push adds is replayed on that push.
+
+Advance it with:   AXIOM_BLESS=1 scripts/check-seed-lineage.sh --full
+CKDOC
+        } > "$checkpoint"
+        ok "blessed rows 1..$bk of $chain (through ${row_seed_short[bk-1]}), digest ${bdig:0:16}, written to $checkpoint"
+        echo "     Commit it with the CHAIN it certifies; a later run recomputes the digest and"
+        echo "     replays rows $((bk + 1))..$nrows."
+      fi
+    fi
+  fi
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-seed-lineage: $failed check(s) failed ($checks ok, $skipped skipped)"
@@ -777,6 +1221,8 @@ if (( failed > 0 )); then
 fi
 if (( full )); then
   echo "check-seed-lineage: $checks checks; the lineage replays from the Rust anchor to ${current:0:7} ($replayed of $nrows rows replayed$( (( skipped )) && echo ", $skipped skipped with the reason above"))"
+elif [[ "$checkpoint_state" == valid ]]; then
+  echo "check-seed-lineage: $checks checks; rows 1..$checkpoint_covers of $chain are the prefix $checkpoint certifies - re-derived here, not taken on faith - and rows $((first + 1))..$nrows were replayed, ending at the seed in the tree (${current:0:7})$( (( skipped )) && echo " ($skipped skipped with the reason above)")"
 else
   echo "check-seed-lineage: $checks checks; the seed in the tree (${current:0:7}) reproduces from its predecessor, and $chain is a chain$( (( skipped )) && echo " ($skipped skipped with the reason above)")"
 fi

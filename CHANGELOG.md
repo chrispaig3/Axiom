@@ -40,6 +40,38 @@ its changelog too.
   ships. Recorded here so someone who hits it recognises it rather than
   debugging their own code.
 
+- **The seed lineage is verified end to end on every push, and the thing
+  that makes that cheap cannot be used to hide a broken link.**
+  `scripts/check-seed-lineage.sh --full` replays every row of
+  `bootstrap/CHAIN` from the Rust anchor `bb730db`, and its cost is
+  linear in the number of reseeds this project has ever done - 10m40s
+  over fourteen rows, measured on darwin-aarch64 - so it ran nightly and
+  a default run replayed the newest row and said nothing at all about
+  the thirteen before it. `bootstrap/CHAIN.checkpoint` is the record
+  that run was missing: it names a PREFIX of the table and the sha256 of
+  exactly that prefix - the rows and orphan lines verbatim, every short
+  hash resolved to a full commit, the git object id of every seed those
+  commits carry, the sha256 of every walk list and patch file they name,
+  and the anchor - and the gate RECOMPUTES that digest from
+  `bootstrap/CHAIN` on every run before it skips a single row. 0.7s to
+  recompute; a default run costs 38s against the 36s it cost when it
+  checked nothing about the prefix. A covered row that moved by one byte
+  digests differently, the checkpoint is void, and the gate replays
+  every row from the anchor and goes red: editing an old row cannot
+  shrink the work, only enlarge it. Five probes assert exactly that on
+  every invocation, over a synthetic checkpoint the gate builds from the
+  table in front of it - the passing direction included, so a verifier
+  that refuses everything cannot satisfy the four refusals. The
+  checkpoint is advanced only by `AXIOM_BLESS=1
+  scripts/check-seed-lineage.sh --full`, over rows that same process
+  replayed from the anchor, and never as a side effect of a passing run;
+  it never covers the newest row, so the link a push adds is replayed on
+  that push. It is a record, not a signature - whoever can edit a row can
+  recompute the digest, and what the file buys is that they must do it in
+  the same reviewable diff while the nightly `--full` re-derives
+  everything from `bb730db` regardless. `AXIOM_LINEAGE_FULL=1` is
+  `--full` for a caller that cannot pass an argument.
+
 - **Traits and `impl` are gone from the language.** An interface is a
   CAPABILITY RECORD now — a parameterised struct holding the functions,
   bound with `fn` and passed as a value — so dispatch is application and
