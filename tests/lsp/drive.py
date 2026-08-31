@@ -2434,31 +2434,28 @@ FIX = """; A shape, for typeDefinition to land on.
 
 (deriveTag Shape)
 
-; A trait, its instance for the field type, and a macro that derives
-; an instance for a whole `data` - an IMPL product, named after the
-; trait the document already declares, with hygiene-renamed binders
-; from `syntax/binders`.
-(trait (Eq a) where (
-  eq :: (-> a a Bool)
-))
+; A capability record, its instance for the field type, and a macro
+; that derives a free equality function for a whole `data` - a FN
+; product, named by `syntax/join` the same way `deriveTag` names its
+; own, with hygiene-renamed binders from `syntax/binders`.
+(struct EqOf (a) (eq : (-> a a Bool)))
 
-(impl (Eq Int) where (
-  (eq (lambda (x y) (== x y)))
-))
+(:: eqOfInt (EqOf Int))
+(fn (eqOfInt) (EqOf (lambda (x y) (== x y))))
 
 (macro deriveEq ((deriveEq T)
-   (impl (Eq T) where
-     ((eq (lambda (a b)
-       (match a
-         (syntax/for (C (syntax/constructors T))
-           ((C (syntax/binders C x))
-            (match b
-              ((C (syntax/binders C y))
-               (syntax/fold && true
-                            ((xi (syntax/binders C x))
-                             (yi (syntax/binders C y)))
-                 (eq xi yi)))
-              (_ false)))))))))))
+   (:: (syntax/join eq T) (-> T T Bool))
+   (fn ((syntax/join eq T) a b)
+     (match a
+       (syntax/for (C (syntax/constructors T))
+         ((C (syntax/binders C x))
+          (match b
+            ((C (syntax/binders C y))
+             (syntax/fold && true
+                          ((xi (syntax/binders C x))
+                           (yi (syntax/binders C y)))
+               (== xi yi)))
+            (_ false))))))))
 
 (deriveEq Shape)
 
@@ -2526,13 +2523,16 @@ TWICE_NAME = cut(FIX, "(fn (", " x)   (+ x")       # the unsigned fn
 TWICE_LINE = locate(FIX, "(fn (" + TWICE_NAME, 1)["line"]
 ADDER_NAME = cut(FIX, "(fn (", " n) (lambda (y) y))")  # unsigned, with a type the checker cannot resolve
 ADDER_LINE = locate(FIX, "(fn (" + ADDER_NAME, 1)["line"]
-# The impl-deriving macro: its name, the trait its template names, the
-# invocation's argument, and the binder prefix `syntax/binders` spells.
+# The eq-deriving macro: its name, the capability record's own name,
+# the invocation's argument, the name `syntax/join` makes for the
+# generated fn, and the binder prefix `syntax/binders` spells.
 EQ_MACRO = cut(FIX, "(macro ", " ((")
-EQ_TRAIT = cut(FIX, "(trait (", " a)")
+EQ_CAP = cut(FIX, "(struct ", " (a)")
 EQ_ARG = cut(FIX, "(" + EQ_MACRO + " ", ")\n\n(:: helper")
 EQ_USE = locate(FIX, "(" + EQ_MACRO + " " + EQ_ARG + ")", 1)
 EQ_USE = {"line": EQ_USE["line"], "start": EQ_USE["start"] + 1}
+EQ_JOIN = cut(FIX, "(:: (syntax/join ", " T) (-> T T Bool))")
+EQ_GEN_NAME = EQ_JOIN + EQ_ARG                      # what the join makes
 BINDER_PREFIX = cut(FIX, "(syntax/binders C ", "))\n")
 MAIN_DECL = locate(FIX, "main", 2)                 # `(fn (main) ...)`; 1 is the `::`
 SHAPE_DECL = locate(FIX, "Shape", 1)               # `(data Shape ...)`
@@ -2543,7 +2543,7 @@ CIRCLE_USE = locate_in(FIX, "(Circle n)", "Circle")  # a constructor of Shape
 DERIVE_DECL = locate(FIX, "deriveTag", 1)          # the macro's own name
 DERIVE_USE = locate(FIX, "deriveTag", 3)           # the invocation (2 is the rule head)
 MACRO_NAME = cut(FIX, "(pub macro ", "\n")
-INV_ARG = cut(FIX, "(" + MACRO_NAME + " ", ")\n\n; A trait")
+INV_ARG = cut(FIX, "(" + MACRO_NAME + " ", ")\n\n; A capability")
 GEN_NAME = cut(FIX, "(syntax/join ", " T)") + INV_ARG   # what the join makes
 TPL_LIT = cut(FIX, "(pub fn ((syntax/join tag T)) ", ")))")
 BROKEN_FIX = FIX + "\n("
@@ -2678,8 +2678,8 @@ for what, text in (("formatted text", FMT), ("helper name", HELPER_NAME),
                    ("source type", SRC_TYPE), ("macro name", MACRO_NAME),
                    ("generated name", GEN_NAME), ("template literal", TPL_LIT),
                    ("adder symbols type", AXSYM_ADDER), ("adder source type", ADDER_SRC_TYPE),
-                   ("eq macro", EQ_MACRO), ("eq trait", EQ_TRAIT), ("eq argument", EQ_ARG),
-                   ("binder prefix", BINDER_PREFIX)):
+                   ("eq macro", EQ_MACRO), ("eq capability", EQ_CAP), ("eq argument", EQ_ARG),
+                   ("eq generated name", EQ_GEN_NAME), ("binder prefix", BINDER_PREFIX)):
     if not text.strip():
         sys.exit(f"FAIL: the derived {what} is empty - every FIX assertion "
                  f"resting on it would compare nothing against nothing")
@@ -2944,7 +2944,8 @@ elif fres(12) != r11:
     fwhy = f"expandMacro on the declaration answered {fres(12)!r:.300}, want the invocation's products"
 elif fres(13) is not None:
     fwhy = f"expandMacro on `main` answered {fres(13)!r:.200}, want null"
-# The impl product: named after the trait the document declares, so a
+# The fn product: named by `syntax/join`, not by the capability record
+# (a free function has no dictionary to dispatch through), so a
 # product known by name alone is invisible; the head is the template's
 # with the argument substituted, and the binders `syntax/binders`
 # spells `x#i` and hygiene renames `.k` come out as identifiers.
@@ -2952,12 +2953,12 @@ elif r25.get("name") != EQ_MACRO:
     fwhy = f"expandMacro on `({EQ_MACRO} {EQ_ARG})` answered {fres(25)!r:.300}, want name {EQ_MACRO!r}"
 # `pub` or not: phase D stamps every product exported (expCopyDeclInto
 # writes word 5), and the printer writes the tree it is given.
-elif not re.search(r"\((?:pub )?impl \(" + re.escape(EQ_TRAIT) + " " + re.escape(EQ_ARG) + r"\)", r25.get("expansion", "")):
-    fwhy = (f"the impl expansion does not carry `(impl ({EQ_TRAIT} {EQ_ARG})`: "
+elif not re.search(r"\((?:pub )?fn \(" + re.escape(EQ_GEN_NAME) + r" a b\)", r25.get("expansion", "")):
+    fwhy = (f"the eq expansion does not carry `(fn ({EQ_GEN_NAME} a b)`: "
             f"{r25.get('expansion')!r:.300}")
 elif not re.search(r"(?<![A-Za-z0-9_'])" + re.escape(BINDER_PREFIX) + r"_\d+_\d+(?![A-Za-z0-9_'])", r25.get("expansion", "")) \
         or re.search(r"[A-Za-z0-9_'][#.][0-9]", r25.get("expansion", "")):
-    fwhy = (f"the impl expansion's `syntax/binders` variables are not written as "
+    fwhy = (f"the eq expansion's `syntax/binders` variables are not written as "
             f"identifiers `{BINDER_PREFIX}_<i>_<k>`: {r25.get('expansion')!r:.400}")
 # --- a document that does not parse ---------------------------------------
 elif fres(20) is not None:
@@ -3062,8 +3063,8 @@ else:
           f"over `{MACRO_NAME}`; [] when the document does not parse)")
     print(f"ok   expand-macro (`{MACRO_NAME}` at its invocation and at its declaration "
           f"rendering {GEN_NAME!r} with literal {TPL_LIT}; the text re-parses with an "
-          f"outline of exactly that name; `{EQ_MACRO}` rendering `(impl ({EQ_TRAIT} "
-          f"{EQ_ARG})` with its binders as identifiers, re-parsing clean; null on `main` "
+          f"outline of exactly that name; `{EQ_MACRO}` rendering `(fn ({EQ_GEN_NAME} "
+          f"a b)` with its binders as identifiers, re-parsing clean; null on `main` "
           f"and when the document does not parse)")
     passed += 5
 shutil.rmtree(FIXDIR, ignore_errors=True)
