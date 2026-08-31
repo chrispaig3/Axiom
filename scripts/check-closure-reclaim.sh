@@ -92,14 +92,13 @@
 # RELEASE and the argument half is unblocked wherever the application
 # classifies its argument.
 #
-# IT IS NOT UNBLOCKED IN GENERAL. Three applications still pass 0 and
+# IT IS NOT UNBLOCKED IN GENERAL. Two applications still pass 0 and
 # still leave the park uncounted: the effect-operation path, whose
-# handler is a runtime load with no application node to read; a lambda
-# whose parameter is bound to a SOURCE type variable; and the outer
-# parameter of a curried lambda, a capture rather than an argument by
-# the time the store runs. `docs/memory-model.md` MM-LIFE-2g names
-# them, and a release written without consulting them is the same
-# use-after-free in a new place.
+# handler is a runtime load with no application node to read, and the
+# outer parameter of a curried lambda, a capture rather than an
+# argument by the time the store runs. `docs/memory-model.md`
+# MM-LIFE-2g names them, and a release written without consulting them
+# is the same use-after-free in a new place.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init

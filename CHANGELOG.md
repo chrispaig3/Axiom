@@ -16,6 +16,33 @@ its changelog too.
 
 ## Unreleased
 
+- **The seventh closure shape closes, and the reason it was left open
+  was wrong.** A factory whose declared result arrow carries a type
+  variable — `(:: mk (-> Int (-> a Int)))` — emitted a correct chain
+  and still under-retained, because `a` appears only in `mk`'s result,
+  so nothing at `mk`'s call site witnesses it and the caller passes
+  `0`. It was left open on the ground that a SOURCE variable cannot be
+  matched by name the way a minted placeholder can, since "`a` may
+  denote other values in the same body".
+  That conflates values with types. `a` does denote several values —
+  the parameter, a capture, a temporary — but **the evidence word is a
+  fact about a TYPE**, and a type variable denotes one type throughout
+  its scope: if the application hands over a `String` for `a`, every
+  `a` in that body is a `String`. Nothing can shadow it, because type
+  variables come from the signature being checked and expressions
+  cannot introduce their own. So `checkLamAgainst` names a
+  type-variable parameter and `evClassOf` answers it `EV_LAMARG`, the
+  application's word beating the enclosing function's — which is the
+  one that arrives as `0`.
+  **All seven measured shapes now read `a` where they read `z`.** Two
+  probes hold the reasoning rather than the conclusion: a lambda whose
+  parameter and a capture share `a` parks both and answers correctly,
+  and the same factory applied at `Int` stores and reads back `41` —
+  evidence `0`, no retain, no reference count on an integer. The
+  remaining unclassified applications are down to two, both leaking
+  rather than freeing early: the effect-operation path and the outer
+  parameter of a curried lambda.
+
 - **The gate battery can be run on Linux from a Mac, before CI sees
   it** — `scripts/run-gates-linux.sh`, the same battery and the same
   scripts inside a container. This is the feedback-loop repair the two

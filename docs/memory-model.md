@@ -2461,7 +2461,7 @@ innermost lambda's own parameter — and records each application's
 argument class on the `E_APP` node for `walkAppChain` to read back
 beside the arguments.
 
-The two together move six of the seven shapes measured that day, at
+The two together move **all seven** shapes measured that day, at
 `--opt 0` and `--opt 3` alike:
 
 | the shape | before | after |
@@ -2472,21 +2472,37 @@ The two together move six of the seven shapes measured that day, at
 | no factory at all — bound and applied in `main` | `z` | **`a`** |
 | passed to a declared arrow PARAMETER | `z` | **`a`** |
 | forced by a use in its own body before the park | `z` | **`a`** |
-| a declared result arrow carrying a TYPE VARIABLE | `z` | `z` |
+| a declared result arrow carrying a TYPE VARIABLE | `z` | **`a`** |
 
-**WHY THE LAST ROW IS STILL OPEN, and it is not the obvious reason.**
-`(:: mk (-> Int (-> a Int)))` emits correctly end to end: `mk` takes
-`%__evw.h`, stores it in the closure record, and the lambda loads it,
-shifts bit k and retains under it. It under-retains anyway, because `a`
-appears only in `mk`'s RESULT, so nothing at MK'S CALL SITE witnesses
-it and the caller passes the constant `0`. The application does know
-the answer — but the parameter is bound to a SOURCE variable, and a
-source variable cannot be identified by NAME the way a minted
-placeholder can: `a` may denote other values in the same body, and
-stamping the application's word onto one of those would be wrong in the
-freeing direction. Closing it needs value identity, not a name match.
+**THE LAST ROW WAS THE INSTRUCTIVE ONE, and it was open for a day on a
+reason that turned out to be wrong.** `(:: mk (-> Int (-> a Int)))`
+emits a correct chain end to end: `mk` takes `%__evw.h`, stores it in
+the closure record, and the lambda loads it, shifts bit k and retains
+under it. It under-retained anyway, because `a` appears only in `mk`'s
+RESULT, so nothing at MK'S CALL SITE witnesses it and the caller passes
+the constant `0`. The value of type `a` does not exist until the
+closure is APPLIED.
 
-Two more applications still pass `0`, for reasons of their own: the
+The stated reason for leaving it was that a SOURCE variable cannot be
+matched by name the way a minted placeholder can — "`a` may denote
+other values in the same body". That conflates values with types. `a`
+does denote several values inside the body: the parameter, a capture of
+the same type, a temporary. But **the evidence word is a fact about a
+TYPE**, and a type variable denotes one type throughout its scope: if
+the application hands over a `String` for `a`, every `a` in that body
+is a `String`, captures included. There is no shadowing to confuse it
+with, because type variables come from the signature being checked and
+expressions cannot introduce their own. So `checkLamAgainst` names a
+type-variable parameter in `curLamVar` and `evClassOf` answers it
+`EV_LAMARG` — the application's word beats the enclosing function's,
+which is the one that arrives as 0.
+
+Two probes hold the reasoning rather than the conclusion: a lambda
+whose parameter and a CAPTURE share `a` parks both and answers
+correctly, and the same factory applied at `Int` stores and reads back
+`41` — evidence `0`, no retain, no count on an integer.
+
+Two applications still pass `0`, for reasons of their own: the
 **effect-operation path**, whose handler is a runtime load out of the
 evidence slot with no application node to read, and the **outer
 parameter of a curried lambda**, which the parser has already made a

@@ -159,11 +159,10 @@
 ; IT DOES NOT UNBLOCK THE RELEASE IN GENERAL, which is the part a
 ; reader must not skip. An application that cannot classify its
 ; argument still passes 0, the park is still uncounted, and releasing
-; would still free live memory. Three of those remain: the effect
+; would still free live memory. Two of those remain: the effect
 ; operation path, whose handler is a runtime load with no application
-; node to read; a lambda whose parameter is bound to a SOURCE type
-; variable; and the outer parameter of a curried lambda, which is a
-; capture rather than an argument by the time the store happens.
+; node to read; and the outer parameter of a curried lambda, which is
+; a capture rather than an argument by the time the store happens.
 ; `docs/memory-model.md` MM-LIFE-2g names them.
 (:: parked (-> Int Int))
 

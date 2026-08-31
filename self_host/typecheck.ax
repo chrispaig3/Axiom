@@ -853,6 +853,27 @@
     0
     (let ((tg (nodeTag t)))
       (if (== tg TAG_T_VAR)
+        ; THE ENCLOSING LAMBDA'S OWN PARAMETER FIRST, whether the
+        ; author wrote its type or this checker minted one. A minted
+        ; placeholder has nowhere else to get a class from. A SOURCE
+        ; variable does - bit k of the enclosing function's word - and
+        ; the application's answer is still the better one, because a
+        ; variable that appears only in the factory's RESULT is
+        ; witnessed by nobody at the factory's call and arrives as the
+        ; constant 0.
+        ;
+        ; MATCHING A SOURCE VARIABLE BY NAME IS SOUND, and the reason
+        ; is worth stating because the obvious objection is not. `a`
+        ; certainly denotes different VALUES inside the body - the
+        ; parameter, a capture of the same type, a temporary - but the
+        ; evidence word is a fact about a TYPE, not about a value, and
+        ; a type variable denotes one type throughout its scope. If the
+        ; application hands over a `String` for `a`, then every `a` in
+        ; that body is a String. There is no shadowing to confuse it
+        ; with: type variables come from the signature being checked,
+        ; and expressions cannot introduce their own.
+        (if (&& (!= (memGetWord tc 32) 0) (strEq (nodeAName t) (cast String (memGetWord tc 32))))
+          EV_LAMARG
         (if (== (tyIsSrcVar t) 1)
           (let ((sv (memGetWord tc 23)))
             (if (== sv 0)
@@ -880,13 +901,8 @@
           ; site to 0, so the cell stored x uncounted with no map
           ; bit while the flow model trusted the store (event 6)
           ; and the caller released the temporary under it
-          (let ((lv (memGetWord tc 32)))
-            (if (&& (!= lv 0) (strEq (nodeAName t) (cast String lv)))
-              EV_LAMARG
-              (- 0 1)
-            )
-          )
-        )
+          (- 0 1)
+        ))
         (if (== tg TAG_T_ARR)
           1
           (if (== tg TAG_T_TUP)
@@ -7482,18 +7498,35 @@
           ; The lambda boundary for `checkSet`, saved and restored
           ; exactly as `checkLam` does it.
           ;
-          ; `curLamVar` is CLEARED rather than set: this lambda's
-          ; parameter is bound to the type the author wrote, so
-          ; `evClassOf` classifies it directly and there is no
-          ; placeholder to answer `EV_LAMARG` for. Leaving an enclosing
-          ; lambda's name in place would be worse than useless - the
-          ; name would still match that outer placeholder wherever the
-          ; body mentions it, and stamp this lambda's application word
-          ; onto a value the application does not witness.
+          ; `curLamVar` names this lambda's parameter when the author
+          ; wrote a TYPE VARIABLE for it, and is cleared when the
+          ; author wrote a ground type.
+          ;
+          ; A ground type needs nothing: `evClassOf` answers `String`
+          ; with 1 and `Int` with 0, and no application has to be
+          ; consulted. A type variable is the case this exists for.
+          ; `(:: mk (-> Int (-> a Int)))` emits a correct chain - `mk`
+          ; takes its evidence word, stores it in the closure record,
+          ; and the lambda loads it and retains under bit k - and still
+          ; under-retains, because `a` appears only in `mk`'s RESULT,
+          ; so nothing at `mk`'s call site witnesses it and the caller
+          ; passes 0. The value of type `a` does not exist until the
+          ; closure is APPLIED, which is the one place that knows.
+          ;
+          ; Cleared rather than inherited in the ground case, because
+          ; an enclosing lambda's name left in place would still match
+          ; wherever this body mentions that type, and stamp THIS
+          ; lambda's application word onto a value this application
+          ; does not witness.
           (let ((savedLB (memGetWord tc 22)) (savedLV (memGetWord tc 32)))
             {
               (memSetWord tc 22 mark)
-              (memSetWord tc 32 0)
+              (memSetWord
+                tc                32                (if (== (nodeTag (nodeA arrow)) TAG_T_VAR)
+                  (cast Int (nodeAName (nodeA arrow)))
+                  0
+                )
+              )
               (let ((bodyTy
                 (if (== (nodeTag (nodeB e)) TAG_E_LAM)
                   (checkLamAgainst tc (nodeB e) (nodeB arrow))
