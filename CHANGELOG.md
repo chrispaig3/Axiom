@@ -119,10 +119,14 @@ its changelog too.
   exit 137 names the macOS signature-cache mechanism and the rm-then-cp
   fix. The sweep in `scripts/check-gate-lib.sh` proving no site states a
   stale gate count looped `seq 15 38` while its own table went to 46, and
-  that was not hypothetical: `scripts/build-shared-axc.sh` said
-  "forty-two gates" in one breath and "forty-six" in four others, live in
-  the tree and unseen. The bound is derived from the table now. 187
-  checks → 236.
+  that was not hypothetical: `scripts/build-shared-axc.sh` disagreed with
+  itself, stating a superseded count in one breath and the correct
+  forty-six in four others, live in the tree and unseen. The bound is
+  derived from the table now. 187 checks → 236. (The stale figure is
+  described rather than quoted here on purpose: this sweep reads the
+  `## Unreleased` section as a claim about the tree, correctly, so a
+  changelog entry that quotes a wrong count verbatim re-introduces the
+  defect it is reporting.)
 
 - **Dogfooding the two features above: a one-constructor `data` becomes
   the struct it always was, and four sentinels answer `Option`.**
