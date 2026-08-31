@@ -24,19 +24,38 @@
 #      would be satisfied by a REPL that always exits 0 - the
 #      all-identical shape this file refuses elsewhere.
 #
-#   2. BYTE GOLDENS for the deterministic surfaces (NNN-*.golden, 8 of
+#   2. BYTE GOLDENS for the deterministic surfaces (NNN-*.golden, 10 of
 #      them): Int/Bool/Char/String result types and their printed
 #      values, declaration OK lines, `type :` lines, semantic error
 #      texts, the colon-command surface, comment and blank handling,
-#      `:quit`'s no-farewell exit. (No Float: the bank has none, and
-#      this comment used to claim one.)
+#      `:quit`'s no-farewell exit, a `fn` (and a signed, recursive
+#      `fn`) spanning several physical lines (130-multiline, added
+#      2026-08-31 with multi-line entries themselves), and an
+#      IO-performing expression actually evaluating rather than
+#      refusing at compile time with `\`__repl_result\` performs IO
+#      and its declaration does not say so` (140-io, same date - see
+#      `replCompileExpr` in self_host/repl.ax). Both are outside
+#      verify-repl.py's model (`not modelled: unclosed form` /
+#      `declaration head \`import\``, layer 4a below) and rest on this
+#      layer's byte-pin plus the values being simple enough to check
+#      by hand: 2+3=5, 5!=120, and `println "hi"` writes 3 bytes
+#      (`hi\n`). (No Float: the bank has none, and this comment used
+#      to claim one.)
 #
 #   3. MARKER SHAPES for the sessions whose output is not fixed text
 #      (NNN-*-shape.markers, 4 of them): `:time` prints a duration,
 #      `:llvm` prints this compiler's own IR, `:defs` renders one
 #      indented line per declaration the session made, and redefining
-#      `f` still types (`type : Int`) but the wrapper build refuses it
-#      (`Error: duplicate definition`). Substring markers only; nothing
+#      `f` types (`type : Int`) and evaluates to the NEW body
+#      (`result 1` then, after `(fn (f) 2)`, `result 2`) rather than
+#      accumulating both and refusing every later expression with
+#      `Error: duplicate definition` - the behavior through
+#      2026-08-30, changed by `replDeclsSrcDropping` (self_host/repl.ax)
+#      because the old one did not fail closed on just `f`: the
+#      wrapper module recompiles the WHOLE session's declarations on
+#      every expression, so one redefinition poisoned every name typed
+#      afterward, recoverable only by `:reset` (which discards
+#      everything else too). Substring markers only; nothing
 #      else is compared - but the markers are HAND-MAINTAINED, and
 #      AXIOM_BLESS does not write them, which is what makes layer 3 a
 #      check rather than a record. 100-defs-shape leans on that: its
@@ -397,12 +416,12 @@ done
 # Floors and anti-vacuousness
 # ---------------------------------------------------------------
 echo
-if [[ "$sessions" -lt 12 ]]; then
-  echo "FAIL: swept $sessions sessions; the floor is 12 - the glob stopped matching"
+if [[ "$sessions" -lt 14 ]]; then
+  echo "FAIL: swept $sessions sessions; the floor is 14 - the glob stopped matching"
   failed=$((failed + 1))
 fi
-if [[ "$byte_sessions" -lt 8 ]]; then
-  echo "FAIL: only $byte_sessions byte-gated sessions; the floor is 8"
+if [[ "$byte_sessions" -lt 10 ]]; then
+  echo "FAIL: only $byte_sessions byte-gated sessions; the floor is 10"
   failed=$((failed + 1))
 fi
 if [[ "$shape_sessions" -lt 4 ]]; then
