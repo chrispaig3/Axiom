@@ -1,0 +1,1654 @@
+; ------------------------------------------------------------------
+; REPL identifier completion: candidates at the cursor, and the menu
+; as a pure computation.
+;
+; WHAT THIS FILE IS FOR. `self_host/lsp.ax` already completes
+; identifiers, and the honest answer to "can the REPL reuse it" is
+; HALF. Everything that DECIDES is reusable and is reused here by
+; import - `lspPrefixAt`, `lspKeywords`, `lspComplWants`,
+; `lspSeenHas`, `lspWantsSymbol`, `lspFindSig`, `lspSigType`,
+; `lspModOf`, `lspPreflight`, `LSP_COMPL_MAX`. Everything that
+; COLLECTS is welded to the protocol: `lspComplKeywords`,
+; `lspComplLocal`, `lspComplCtors` and `lspComplImported` all funnel
+; through `lspComplOffer`, whose body is `jsonArrPush` of a
+; `CompletionItem` object, so a caller with no JSON document cannot
+; use one of them. The four walks are therefore rewritten here over a
+; `Vec` of `ReplCand` records, and the decision functions under them
+; are imported rather than copied. The split is the reason this file
+; is ~600 lines instead of ~1200, and the reason a keyword the parser
+; learns arrives here for free: `check-lsp-selfhost.sh` derives
+; `lspKeywords` from the `kwEq` call sites in `self_host/parser.ax`
+; and requires equality, so importing that list inherits that gate.
+;
+; THREE THINGS THE LSP DOES NOT HAVE, and they are the whole reason
+; this is a REPL feature rather than a wrapper:
+;
+;   1. A SESSION IS A DOCUMENT NO FILE CONTAINS. `replMain` keeps
+;      `declsSrc`, the accumulated source of every declaration typed
+;      at the prompt, and `replCmdDefs` (self_host/repl.ax) already
+;      parses it with `(parseDecls (lex declsSrc) 0 vecNew)`. So
+;      "complete the `myHelper` I defined three lines ago" is the
+;      LSP's own local-declarations case run over a string the editor
+;      hands over. It reaches this file as `ComplEnv` word 0 and
+;      nothing else is needed.
+;
+;   2. A SIGNATURE-ONLY BINDING IS A REAL NAME. `(:: gamma Int)` with
+;      no `fn` is a session binding - `replDecl` echoes `OK: gamma
+;      defined` for it and `replCmdDefs` lists it - and
+;      `lspWantsSymbol` answers false for `TAG_D_SIG`, correctly, for
+;      a file where a signature never occurs without its definition.
+;      So `lspWantsSymbol` is the BASE here and is widened at the one
+;      call site; see `replComplWantsDecl`.
+;
+;   3. AN IN-FLIGHT MULTI-LINE ENTRY PARSES AS NOTHING. Typing
+;      `(fn (helper x)` and pressing Enter leaves the text in
+;      `pending`, unbalanced by construction, and no parse and no
+;      declaration list can contain `x`. `replComplWords` lexes it
+;      and offers every identifier lexeme, last, so a real binding of
+;      the same spelling always wins. That `lex` survives an
+;      unbalanced - and an unterminated-string - buffer is not
+;      assumed: `replParenDepth` already lexes exactly this input on
+;      every continuation line, and it was probed before this
+;      function was written (`(lex "(fn (f x) \"abc")` answers 8
+;      tokens and returns).
+;
+; NO TERMINAL, NO PROTOCOL, NO REPL STATE. Every function here takes
+; what it needs as an argument and answers a value. `replComplAt` is
+; (env, buffer, cursor) -> candidates; `replComplTab` is (state,
+; buffer, cursor, direction, env) -> a new buffer, a new cursor, menu
+; text and a new state. Nothing writes to a file descriptor, nothing
+; reads a key, nothing touches `replMain`. That is what lets
+; `scripts/check-replcomp.sh` assert the candidate set for a buffer
+; and a cursor offset with no pty in the loop, and it is what keeps
+; this file out of the way of the line editor that owns
+; `self_host/repl.ax`.
+;
+; ORDER IS PRECEDENCE, and it is deliberately NOT the LSP's. The
+; sources run session declarations, then their constructors, then
+; imported names, then keywords, then the in-flight words, and the
+; `seen` vector makes the first offer of a spelling the only one.
+; `lspCompletion` runs keywords FIRST (lsp.ax:2027), which its own
+; header describes as the opposite ("both shadow a keyword") - an
+; inconsistency with no consequence in a file, where the keyword set
+; and the declaration set are disjoint. At a prompt the ordering is
+; visible: it is the order the menu prints in, and a name the user
+; defined a minute ago belongs above `struct`.
+;
+; WHAT IT COSTS. The one expensive thing is import resolution, which
+; reads and parses every imported module. `typeExprAgainst` pays it
+; per expression; Tab is pressed far more often than Enter, so
+; `ComplEnv` memoises it, keyed on the JOINED IMPORT NAMES walked out
+; of the session's own declarations rather than on a length or a
+; handle - `replDeclsSrcDropping` can replace a declaration with one
+; of the same length, and a heuristic key would then serve a stale
+; set.
+;
+; HOW THE LINE EDITOR CALLS THIS - the whole contract, because this
+; file cannot reach into `self_host/repl.ax` and must not: that file
+; belongs to the editor, and it is the module that will import THIS
+; one, so the dependency only ever points one way.
+;
+; Once, when the session starts:
+;
+;     (let ((cenv (replComplEnvNew "" "")))
+;
+; Whenever `declsSrc` or `pending` moves - after `replDispatch`, after
+; `:load`, after `:reset`, and on every continuation line:
+;
+;     (replComplEnvSet cenv declsSrc pending)
+;
+; On Tab, with the editor's own buffer, cursor and terminal width, and
+; `cst` the state it carried over from the last keystroke (0 at
+; first), `dir` +1 for Tab and -1 for Shift-Tab:
+;
+;     (let ((r (replComplTab cst buf cur dir width cenv)))
+;       ; (tabBuf r)   the new buffer          -> redraw the line
+;       ; (tabCur r)   the new cursor
+;       ; (tabMenu r)  bytes to print BELOW it -> "" means print nothing
+;       ; (tabRows r)  how many rows that is   -> erase exactly this many
+;       ; (tabState r) carry to the next key   -> 0 means idle
+;
+; On ANY OTHER key, before handling it:
+;
+;     (replOut (replComplClear cst))    ; "" when nothing was printed
+;     (set cst 0)
+;
+; and on Escape, `replComplCancel` instead, which also puts the typed
+; prefix back. That is the entire surface: four calls and five
+; accessors. Nothing here reads a key, decides that Tab is byte 9, or
+; writes to a file descriptor - the editor owns all three, which is
+; what keeps this file testable by `scripts/check-replcomp.sh` with no
+; pty in the loop.
+;
+; SCOPE AGREES WITH `:type`, NOT WITH `:load`. Imports resolve from
+; entry directory "." against `declsSrc` alone, which is what
+; `typeExprAgainst` (self_host/repl.ax) does. `replCmdLoad` resolves
+; from `(pathDir arg)` and `lspResolveFor` from `(pathDir path)`;
+; following either would let the menu offer a name the prompt then
+; rejects, which is worse than no menu. This is also why
+; `lspResolveFor` is NOT reused despite being the obvious candidate:
+; its entry directory is hardcoded to the document's own.
+; ------------------------------------------------------------------
+(import core)
+
+(import Host)
+
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import lexer)
+
+(import parser)
+
+(import diag)
+
+(import render)
+
+(import style)
+
+(import codegen)
+
+(import lsp)
+
+; ------------------------------------------------------------------
+; Candidate origins.
+;
+; Six, because the menu colours by where a name came from and because
+; a reader of a candidate list wants to know whether `map` is theirs,
+; the standard library's, or a word they typed on the line above.
+; ------------------------------------------------------------------
+(pub :: RC_CMD Int)
+
+(pub fn (RC_CMD) 0)
+
+(pub :: RC_LOCAL Int)
+
+(pub fn (RC_LOCAL) 1)
+
+(pub :: RC_CTOR Int)
+
+(pub fn (RC_CTOR) 2)
+
+(pub :: RC_IMPORT Int)
+
+(pub fn (RC_IMPORT) 3)
+
+(pub :: RC_KEYWORD Int)
+
+(pub fn (RC_KEYWORD) 4)
+
+(pub :: RC_WORD Int)
+
+(pub fn (RC_WORD) 5)
+
+; One candidate.
+;
+; Shaped after `SnipRow` (self_host/render.ax) field for field, and
+; for its reason: the record is pushed into a `Vec` as `(cast Int
+; ...)` and read back ONLY through the typed accessors below. A bare
+; `cast` at a use site classifies the value's evidence 0 and drops
+; its release - docs/memory-model.md MM-LIFE-2e - so the cast appears
+; at the push and nowhere else.
+(pub struct ReplCand
+  (label : String)
+  (origin : Int)
+  (tag : Int)
+  (detail : String))
+
+(pub :: rcLabel (-> Int String))
+
+(pub fn (rcLabel c) (memGetWordStr c 0))
+
+(pub :: rcOrigin (-> Int Int))
+
+(pub fn (rcOrigin c) (memGetWord c 1))
+
+(pub :: rcTag (-> Int Int))
+
+(pub fn (rcTag c) (memGetWord c 2))
+
+(pub :: rcDetail (-> Int String))
+
+(pub fn (rcDetail c) (memGetWordStr c 3))
+
+; The REPL's `lspComplOffer`: the same two steps against a `Vec`
+; instead of a JSON array.
+;
+; `lspComplWants` is asked FIRST and its answer gates the push, which
+; is the discipline its own header calls load-bearing - a detail is a
+; scan of the declaration list, so building one for a name the prefix
+; rejects is n-squared per keystroke. Axiom is strict, so the only
+; way not to compute an argument is not to reach the call: every
+; caller here builds its detail INSIDE the `if`.
+(pub :: replComplOffer (-> Int Int String Int Int String String Int))
+
+(pub fn (replComplOffer out seen label origin tag detail prefix)
+  (if (lspComplWants seen label prefix)
+    {
+      (vecPush seen label)
+      (vecPush
+        out        (cast Int (ReplCand label origin tag detail))
+      )
+      0
+    }
+    0
+  )
+)
+
+; ------------------------------------------------------------------
+; Source 0: the colon commands.
+;
+; Offered only in command position - the buffer's first byte is `:`
+; and the prefix starts at offset 1 - and then offered ALONE: `:ty`
+; must not suggest `tyvarOf`. This is the one source with no LSP
+; analogue at all.
+;
+; THE LIST IS A COPY of a vocabulary `replMain` owns, and it is a
+; CHECKED copy: `scripts/check-replcomp.sh` derives the command set
+; from the `(strEq w ":...")` dispatch sites in self_host/repl.ax and
+; requires this to equal it, the way `check-lsp-selfhost.sh` derives
+; `lspKeywords` from `parser.ax`. A command the REPL learns and this
+; forgets is a red gate rather than a menu quietly behind the
+; program. It is a copy rather than an import because
+; `self_host/repl.ax` is this file's future CONSUMER: importing it
+; here would close a cycle the moment the line editor adds
+; `(import replcomp)`.
+; ------------------------------------------------------------------
+(pub :: replCommands Int)
+
+(pub fn (replCommands)
+  (let ((v vecNew))
+    {
+      (vecPush v ":defs")
+      (vecPush v ":d")
+      (vecPush v ":exit")
+      (vecPush v ":h")
+      (vecPush v ":help")
+      (vecPush v ":l")
+      (vecPush v ":llvm")
+      (vecPush v ":load")
+      (vecPush v ":q")
+      (vecPush v ":quit")
+      (vecPush v ":r")
+      (vecPush v ":reset")
+      (vecPush v ":t")
+      (vecPush v ":time")
+      (vecPush v ":type")
+      v
+    }
+  )
+)
+
+(pub :: replComplCommands (-> Int Int String Int))
+
+(pub fn (replComplCommands out seen prefix)
+  (let (
+    (cs replCommands)
+    (n (vecLen cs))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (replComplOffer
+            out            seen            (vecGetStr cs i)            RC_CMD            0            "command"            prefix
+          )
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Source 1: this session's own declarations.
+;
+; `lspWantsSymbol` widened by `TAG_D_SIG`, for the reason in the file
+; header: at a prompt a signature with no definition is a binding the
+; user made and `:defs` already lists.
+; ------------------------------------------------------------------
+(pub :: replComplWantsDecl (-> Int Bool))
+
+(pub fn (replComplWantsDecl tag) (|| (lspWantsSymbol tag) (== tag TAG_D_SIG)))
+
+; A declaration's type, as its own source bytes, or "".
+;
+; `lspSigType` over the `(:: name T)` `lspFindSig` finds, which is
+; the only way to show a type in a menu: this frontend has no type
+; printer. Asked about a `fn` and about a bare signature, and about
+; nothing else - a `data` or a `struct` has no signature to find, and
+; the scan is the length of the declaration list.
+(pub :: replComplSigOf (-> String Int Int String))
+
+(pub fn (replComplSigOf src decls d)
+  (if (|| (== (nodeTag d) TAG_D_FN) (== (nodeTag d) TAG_D_SIG))
+    (let ((sig (lspFindSig decls (nodeAName d) (- (vecLen decls) 1))))
+      (if (== sig 0)
+        ""
+        (lspSigType src sig)
+      )
+    )
+    ""
+  )
+)
+
+(pub :: replComplCtors (-> Int Int Int String Int))
+
+(pub fn (replComplCtors out seen ctors prefix)
+  (let (
+    (n (vecLen ctors))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (replComplOffer
+            out            seen            (nodeAName (vecGet ctors i))            RC_CTOR            0            ""            prefix
+          )
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+(pub :: replComplDecls (-> Int Int String Int String Int))
+
+(pub fn (replComplDecls out seen src decls prefix)
+  (let (
+    (n (vecLen decls))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            ; A SPANLESS NODE HAS NO SOURCE TO SLICE, which is the
+            ; guard `lspComplLocal` carries and the reason it is kept
+            ; here: `replComplSigOf` would slice `src` at offset 0.
+            (if (&& (replComplWantsDecl (nodeTag d)) (!= (nodeSpan d) 0))
+              {
+                (if (lspComplWants seen (nodeAName d) prefix)
+                  (replComplOffer
+                    out                    seen                    (nodeAName d)                    RC_LOCAL                    (nodeTag d)                    (replComplSigOf src decls d)                    prefix
+                  )
+                  0
+                )
+                (if (== (nodeTag d) TAG_D_DATA)
+                  (replComplCtors out seen (nodeB d) prefix)
+                  0
+                )
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Source 2: everything the session's imports bring in.
+;
+; Takes the ALREADY-RESOLVED declaration list rather than resolving
+; itself, which is what lets the caller keep entry directory "." and
+; a cache; `lspComplImported` resolves inside itself, from the
+; document's directory, and could not be handed a different one.
+;
+; The label is the BARE name a reference spells - `bareOf
+; "Vec$vecPush"` is `vecPush` - and the detail is the module half,
+; `lspModOf`, which is the question being asked about an imported
+; name anyway.
+; ------------------------------------------------------------------
+; The module an imported declaration came from.
+;
+; `lspModOf` first, which reads the mangled half of `Vec$vecPush`.
+; Then the declaration's own module word, which is what a MACRO
+; needs: `resolveImports` does not mangle a macro name, so
+; `lspModOf "println"` is "" and the LSP shows an imported macro with
+; an empty detail - visible as a blank column against `printlnLit`,
+; whose function name IS mangled. Probed, not guessed: `(import IO)`
+; and the prefix `printl` answered `printlnLit | IO` and `println |`
+; before this fell back.
+(pub :: replComplModOf (-> Int String))
+
+(pub fn (replComplModOf d)
+  (let ((m (lspModOf (nodeAName d))))
+    (if (> (strLen m) 0)
+      m
+      (nodeModuleName d)
+    )
+  )
+)
+
+(pub :: replComplImported (-> Int Int Int String Int))
+
+(pub fn (replComplImported out seen allDecls prefix)
+  (let (
+    (n (vecLen allDecls))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet allDecls i)))
+          {
+            (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeModule d) 0) (!= (nodeSpan d) 0)))
+              {
+                (replComplOffer
+                  out                  seen                  (bareOf (nodeAName d))                  RC_IMPORT                  (nodeTag d)                  (replComplModOf d)                  prefix
+                )
+                (if (== (nodeTag d) TAG_D_DATA)
+                  (replComplCtors out seen (nodeB d) prefix)
+                  0
+                )
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Source 3: the parser's head keywords.
+;
+; `lspKeywords` by import, never by copy - see the file header.
+; ------------------------------------------------------------------
+(pub :: replComplKeywords (-> Int Int String Int))
+
+(pub fn (replComplKeywords out seen prefix)
+  (let (
+    (kws lspKeywords)
+    (n (vecLen kws))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (replComplOffer
+            out            seen            (vecGetStr kws i)            RC_KEYWORD            0            "keyword"            prefix
+          )
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Source 4: identifiers in the in-flight entry.
+;
+; The source with no counterpart in the LSP. `pending` does not
+; balance - that is the definition of being in it - so nothing parses
+; it and no declaration list holds its parameter names. Lexing does
+; work: `replParenDepth` already lexes this exact buffer on every
+; continuation line.
+;
+; Offered LAST so that a real binding of the same spelling wins, and
+; without a detail, because there is nothing true to say about a word
+; whose declaration has not been typed yet.
+; ------------------------------------------------------------------
+(pub :: replComplWords (-> Int Int String String Int))
+
+(pub fn (replComplWords out seen pending prefix)
+  (if (== (strLen pending) 0)
+    0
+    (let (
+      (toks (lex pending))
+      (mut i 0)
+    )
+      {
+        (while (< i (vecLen toks))
+          {
+            (if (== (kindInt (tokenKind (vecGet toks i))) (kindInt TK_IDENT))
+              (replComplOffer
+                out                seen                (tokenLexeme (vecGet toks i))                RC_WORD                0                ""                prefix
+              )
+              0
+            )
+            (set i (+ i 1))
+          })
+        0
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; THE SESSION HANDLE.
+;
+; Five words, `memAlloc`'d rather than a `struct`, because two of
+; them are written after construction and this is the shape
+; `lspResolveFor` already uses for a record with a lifetime:
+;
+;   0  declsSrc - every declaration the session has accepted
+;   1  pending  - the in-flight multi-line entry, "" when idle
+;   2  the import key the cache in word 3 was built for
+;   3  the merged declaration list, or 0 for "not cached"
+;   4  the parsed declarations of `declsSrc`, or 0
+;
+; The editor owns one of these for the life of the session, calls
+; `replComplEnvSet` whenever `declsSrc` or `pending` moves, and hands
+; it to `replComplAt`. That is the entire coupling between this file
+; and `self_host/repl.ax`: two strings, in one direction.
+; ------------------------------------------------------------------
+(pub :: replComplEnvNew (-> String String Int))
+
+(pub fn (replComplEnvNew declsSrc pending)
+  (let ((e (memAlloc 40)))
+    {
+      (memSetWord e 0 declsSrc)
+      (memSetWord e 1 pending)
+      (memSetWord e 2 "")
+      (memSetWord e 3 0)
+      (memSetWord e 4 0)
+      e
+    }
+  )
+)
+
+(pub :: replComplEnvSet (-> Int String String Int))
+
+(pub fn (replComplEnvSet e declsSrc pending)
+  {
+    (memSetWord e 0 declsSrc)
+    (memSetWord e 1 pending)
+    ; The PARSE is dropped unconditionally and the RESOLUTION is not:
+    ; a parse is a few hundred human-typed bytes and a resolution is
+    ; every imported module read off the disk. Word 3 stays and is
+    ; validated against the new import key at the point of use.
+    (memSetWord e 4 0)
+    e
+  }
+)
+
+(pub :: replComplEnvDeclsSrc (-> Int String))
+
+(pub fn (replComplEnvDeclsSrc e) (memGetWordStr e 0))
+
+(pub :: replComplEnvPending (-> Int String))
+
+(pub fn (replComplEnvPending e) (memGetWordStr e 1))
+
+; The joined names of every `(import ...)` in a declaration list.
+;
+; The cache key, and it is exact rather than heuristic on purpose. A
+; length or a handle would be satisfied by `replDeclsSrcDropping`
+; replacing a declaration with one of the same size, and the cache
+; would then serve a resolution for an import set the session no
+; longer has. The walk is `TAG_D_IMPORT`, name in word 1 - the one
+; `lspPreflight` and `resolveDeclsPhase` both use.
+(pub :: replComplImportKey (-> Int String))
+
+(pub fn (replComplImportKey decls)
+  (let (
+    (n (vecLen decls))
+    (mut i 0)
+    (mut key "")
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            (if (== (nodeTag d) TAG_D_IMPORT)
+              {
+                (set key (strConcat (strConcat key (memGetWordStr d 1)) "\n"))
+                0
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      key
+    }
+  )
+)
+
+; The session's declarations, parsed once per edit.
+;
+; Answers 0 when `declsSrc` does not parse, which should not happen -
+; every line in it was accepted by `replDecl` - and is answered as
+; "no session names" rather than as an error, because a completion
+; menu that reports a parse failure while the user is mid-word is a
+; REPL that looks broken exactly when it is not.
+(pub :: replComplEnvDecls (-> Int Int))
+
+(pub fn (replComplEnvDecls e)
+  (if (!= (memGetWord e 4) 0)
+    (memGetWord e 4)
+    (let ((dr (parseDecls (lex (memGetWordStr e 0)) 0 vecNew)))
+      (if (== (memGetWord dr 0) 0)
+        0
+        {
+          (memSetWord e 4 (memGetWord dr 1))
+          (memGetWord dr 1)
+        }
+      )
+    )
+  )
+)
+
+; The merged declaration list `resolveImports` answers for this
+; session, memoised on the import key.
+;
+; Entry directory ".", `declsSrc` as the entry unit's source, no
+; implicit preamble - `typeExprAgainst`'s call, verbatim, because the
+; promise a menu makes is "the names the prompt will accept".
+;
+; `lspPreflight` runs first and a missing module answers 0 rather
+; than a diagnostic: a half-typed `(import Fo` is the normal state of
+; a session, and it is the state in which Tab is most likely to be
+; pressed. Only a SUCCESS is cached, so the module that appears on
+; disk a moment later is picked up.
+(pub :: replComplResolved (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (replComplResolved e decls)
+  (if (== decls 0)
+    0
+    (let ((key (replComplImportKey decls)))
+      (if (&& (!= (memGetWord e 3) 0) (strEq key (memGetWordStr e 2)))
+        (memGetWord e 3)
+        (let (
+          (tcode (checkedTargetCode hostTarget))
+          (units (let ((v vecNew))
+            {
+              (vecPush
+                v                (cast Int (CUnit2
+                  "<repl>"                  (memGetWordStr e 0)                  (cast String 0)
+                ))
+              )
+              v
+            }
+          ))
+        )
+          (if (> (strLen (lspPreflight decls tcode "." vecNew)) 0)
+            0
+            (let ((allDecls (resolveImports
+              decls              vecNew              vecNew              vecNew              tcode              "."              units
+            )))
+              {
+                (memSetWord e 2 key)
+                (memSetWord e 3 allDecls)
+                allDecls
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; THE GATHER, and the two entry points on top of it.
+;
+; `replComplFor` answers a `Vec` of `ReplCand` - never 0, so a caller
+; has one shape to handle - for an explicit prefix and an explicit
+; command-position flag. `replComplAt` is the interface the editor
+; calls: buffer and cursor in, candidates out, with the prefix and
+; the flag derived from the bytes.
+; ------------------------------------------------------------------
+(pub :: replComplFor (-> Int String Bool Int))
+
+;@axiom:effect(io)
+(pub fn (replComplFor e prefix atCmd)
+  (let (
+    (out vecNew)
+    (seen vecNew)
+  )
+    {
+      (if atCmd
+        (replComplCommands out seen prefix)
+        (let ((decls (replComplEnvDecls e)))
+          {
+            (if (== decls 0)
+              0
+              (replComplDecls
+                out                seen                (memGetWordStr e 0)                decls                prefix
+              )
+            )
+            (let ((allDecls (replComplResolved e decls)))
+              (if (== allDecls 0)
+                0
+                (replComplImported out seen allDecls prefix)
+              )
+            )
+            (replComplKeywords out seen prefix)
+            (replComplWords out seen (memGetWordStr e 1) prefix)
+          }
+        )
+      )
+      out
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; THE REPLACEABLE REGION, decided once.
+;
+; Three facts, and every caller needs all three: where the region
+; begins, what has been typed in it, and whether it is a colon
+; command. They are computed together because they are not
+; independent - `:ty` is a THREE-byte region whose prefix is `:ty`,
+; not a two-byte one whose prefix is `ty`. Splitting them is how the
+; first draft of this file offered nothing for `:t`: `lspPrefixAt`
+; answers `t` (`:` is not an `isIdentChar`), no command label starts
+; with `t`, and `strStartsWith` refused all fifteen. The colon is
+; part of the word here for the same reason it is part of the word in
+; `replMain`'s `cmdWord`.
+;
+; A three-word block: 0 start, 1 prefix, 2 the command flag as 0 or
+; 1.
+; ------------------------------------------------------------------
+(pub :: replComplRegion (-> String Int Int))
+
+(pub fn (replComplRegion buf cur)
+  (let ((word (lspPrefixAt buf cur)))
+    (let ((start (- cur (strLen word))))
+      (let ((atCmd 
+        (if (== start 1)
+          (== (strByte buf 0) 58)
+          false
+        )
+      ))
+        (let ((r (memAlloc 24)))
+          {
+            (memSetWord
+              r              0              (if atCmd
+                0
+                start
+              )
+            )
+            (memSetWord
+              r              1              (if atCmd
+                (strConcat ":" word)
+                word
+              )
+            )
+            (memSetWord
+              r              2              (if atCmd
+                1
+                0
+              )
+            )
+            r
+          }
+        )
+      )
+    )
+  )
+)
+
+(pub :: regStart (-> Int Int))
+
+(pub fn (regStart r) (memGetWord r 0))
+
+(pub :: regPrefix (-> Int String))
+
+(pub fn (regPrefix r) (memGetWordStr r 1))
+
+(pub :: regAtCmd (-> Int Bool))
+
+(pub fn (regAtCmd r) (== (memGetWord r 2) 1))
+
+(pub :: replComplAt (-> Int String Int Int))
+
+;@axiom:effect(io)
+(pub fn (replComplAt e buf cur)
+  (let ((r (replComplRegion buf cur)))
+    (replComplFor e (regPrefix r) (regAtCmd r))
+  )
+)
+
+; ------------------------------------------------------------------
+; THE UI, as arithmetic over the candidate vector.
+;
+; None of the six functions below performs IO or reads a key. The
+; editor prints what they answer and erases what `replComplRows`
+; counts.
+; ------------------------------------------------------------------
+; The longest common prefix of every label.
+;
+; Every label already starts with what was typed - `lspComplWants`
+; filtered on it - so the answer always contains the typed bytes and
+; the insertion can never delete them. "" for an empty vector, and
+; label 0 entire for a one-element one.
+(pub :: replComplLcp (-> Int String))
+
+(pub fn (replComplLcp cands)
+  (if (== (vecLen cands) 0)
+    ""
+    (let (
+      (first (rcLabel (vecGet cands 0)))
+      (mut n (strLen first))
+      (mut i 1)
+    )
+      {
+        (while (< i (vecLen cands))
+          (let (
+            (s (rcLabel (vecGet cands i)))
+            (mut j 0)
+          )
+            {
+              (while (&& (< j n) (&& (< j (strLen s)) (== (strByte s j) (strByte first j))))
+                (set j (+ j 1)))
+              (set n j)
+              (set i (+ i 1))
+            }
+          ))
+        (strSlice first 0 n)
+      }
+    )
+  )
+)
+
+; Origin -> one of `self_host/style.ax`'s NINE existing SGR
+; constants. No tenth is declared and no literal parameter string is
+; written here, and that is a checked property rather than a
+; preference: `scripts/check-render-selfhost.sh` builds the alphabet
+; of escapes the compiler may emit as `grep -oE '"[0-9;]+"'
+; self_host/style.ax`, so a constant added for a menu widens the
+; alphabet that gate compares against. The cycling selection is
+; marked with a `> ` gutter for the same reason - reverse video would
+; need a `"7"` that style.ax does not have.
+(pub :: replComplSgr (-> Int String))
+
+(pub fn (replComplSgr origin)
+  (if (== origin RC_CMD)
+    SGR_HELP
+    (if (== origin RC_LOCAL)
+      SGR_TITLE
+      (if (== origin RC_CTOR)
+        SGR_FIX
+        (if (== origin RC_IMPORT)
+          SGR_CODE
+          (if (== origin RC_KEYWORD)
+            SGR_SEC
+            SGR_GUT
+          )
+        )
+      )
+    )
+  )
+)
+
+; A PLAIN label padded to `w` columns, measured with `visLen` and
+; returned unpainted.
+;
+; Padding sits OUTSIDE every `paint`, which is style.ax's stated
+; discipline: the layout is computed on plain text and finished
+; fragments are painted last, so `visLen` is the backstop it is
+; documented to be rather than the mechanism.
+(pub :: replComplPad (-> String Int String))
+
+(pub fn (replComplPad s w)
+  (let ((n (visLen s)))
+    (if (>= n w)
+      ""
+      (spacesN (- w n))
+    )
+  )
+)
+
+; The widest label in the vector, in columns.
+(pub :: replComplWidest (-> Int Int))
+
+(pub fn (replComplWidest cands)
+  (let (
+    (n (vecLen cands))
+    (mut i 0)
+    (mut w 0)
+  )
+    {
+      (while (< i n)
+        {
+          (if (> (visLen (rcLabel (vecGet cands i))) w)
+            (set w (visLen (rcLabel (vecGet cands i))))
+            0
+          )
+          (set i (+ i 1))
+        })
+      w
+    }
+  )
+)
+
+; How many columns of `w`-wide cells fit in a terminal `width` wide,
+; allowing two for the selection gutter. At least one, always: a
+; label wider than the terminal gets its own row and wraps, which is
+; the terminal's business.
+; ------------------------------------------------------------------
+; A WIDTH THAT MIGHT NOT BE ONE.
+;
+; The editor passes the terminal's own column count - `sysTermCols`
+; over a buffer `sysTermSize` filled - and this module never calls
+; either, deliberately: a completion engine that reads a terminal is
+; one that cannot be tested without a terminal, and every layer of
+; `scripts/check-replcomp.sh` depends on it staying a parameter.
+;
+; But the number that arrives can fail to be a width in two ways, and
+; BOTH were measured rather than imagined:
+;
+;   0   `stdlib/Sys.ax` says so in as many words on `sysTermSize` - "A
+;       TERMINAL IS PERMITTED TO ANSWER ZERO ... Treat 0 as unknown
+;       and fall back to 80x24". A pty that was never sized, and some
+;       CI runners, do exactly that with a SUCCESSFUL ioctl.
+;   <0  `sysTermSize` answers a negative errno and `sysTermCols`
+;       answers a field; an editor that passed the first where it
+;       meant the second hands over -25 or -9.
+;
+; Both mean "no usable width", and both take the standard library's
+; OWN fallback rather than a second convention invented here.
+;
+; Measured at widths 0, 1, 5, -25 and -9 before this existed: nothing
+; crashed and no row count went negative - `replComplCols` already
+; clamped to one column, so nothing divided by zero - but the renderer
+; laid an 11-column grid inside a terminal claiming 5, which the
+; terminal then WRAPS. A wrapped row occupies two physical rows while
+; `replComplRows` reports one and the editor erases one. That is
+; debris on the screen, and it is precisely the failure
+; `replComplRows`' own comment exists to prevent, arriving through the
+; width instead of through the arithmetic.
+(pub :: REPL_COMPL_WIDTH Int)
+
+(pub fn (REPL_COMPL_WIDTH) 80)
+
+(pub :: replComplWidthOf (-> Int Int))
+
+(pub fn (replComplWidthOf width)
+  (if (<= width 0)
+    REPL_COMPL_WIDTH
+    width
+  )
+)
+
+(pub :: replComplCols (-> Int Int Int))
+
+(pub fn (replComplCols width w)
+  (let ((c (/ (- (replComplWidthOf width) 2) (+ w 2))))
+    (if (< c 1)
+      1
+      c
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; THE CAP, and why it is this number.
+;
+; TWO caps, at two different places, because they answer two
+; different questions.
+;
+; The GATHER is capped at `LSP_COMPL_MAX` (200), inherited by using
+; `lspComplWants` unchanged. That is a bound on work, not on
+; presentation: it stops an empty prefix from building six thousand
+; records out of the whole standard library on a keystroke.
+;
+; The MENU is capped at `REPL_COMPL_ROWS` rows - eight - which is a
+; bound on the screen. The REPL's user interface is its transcript:
+; every menu is printed BELOW the input line and erased on the next
+; keystroke, so a menu N rows tall costs N rows of scrollback churn
+; and N rows of erase. Eight is one third of a default 24-row
+; terminal, which leaves the last few entries of the session visible
+; while the menu is up - and the session is the thing the user is
+; reading. At 80 columns and typical Axiom name widths that is four
+; columns of eight, or 32 names: past what anyone scans, and far
+; short of a directory listing. Beyond it the menu says how many it
+; is not showing, because a truncation the reader is told about is
+; not a silent one - the sentence `LSP_COMPL_MAX` is written under,
+; applied to rows instead of items.
+;
+; Cycling is NOT capped by the rows: Tab walks every gathered
+; candidate, and the menu pages to keep the selected one on screen.
+; A cap that hid names from the keyboard as well as from the screen
+; would make Tab a liar about what it completed.
+; ------------------------------------------------------------------
+(pub :: REPL_COMPL_ROWS Int)
+
+(pub fn (REPL_COMPL_ROWS) 8)
+
+; The number of candidates one page of the menu shows.
+(pub :: replComplPageSize (-> Int Int Int))
+
+(pub fn (replComplPageSize cands width) (* (replComplCols width (replComplWidest cands)) REPL_COMPL_ROWS))
+
+; A SELECTION INDEX THAT MIGHT NOT BE ONE.
+;
+; Every renderer below takes `sel` from a caller and two of them then
+; do `(vecGet cands sel)`, which is unchecked: measured 2026-08-31, a
+; menu asked for selection 3 of two candidates SEGFAULTED - exit 139,
+; no diagnostic. Inside the state machine `sel` is always `% n` and
+; the crash is unreachable, but these are public functions and the one
+; way a caller reaches them wrongly is entirely ordinary: hold a
+; `ComplSt` across an edit that shrinks the candidate set, and the
+; index outlives the vector it indexed.
+;
+; So an index outside the vector is read as NOTHING SELECTED rather
+; than trusted. That is the failing-closed answer - the menu renders
+; with no highlight and no detail line instead of taking the process
+; down - and it is idempotent, so the renderers can normalise
+; independently and still agree with each other.
+(pub :: replComplSelOf (-> Int Int Int))
+
+(pub fn (replComplSelOf cands sel)
+  (if (>= sel (vecLen cands))
+    (- 0 1)
+    (if (< sel 0)
+      (- 0 1)
+      sel
+    )
+  )
+)
+
+; The first candidate index the page holding `sel` starts at.
+(pub :: replComplPageBase (-> Int Int Int Int))
+
+(pub fn (replComplPageBase cands sel0 width)
+  (let ((sel (replComplSelOf cands sel0)))
+    (if (< sel 0)
+      0
+      (* (/ sel (replComplPageSize cands width)) (replComplPageSize cands width))
+    )
+  )
+)
+
+; How many candidates that page actually shows.
+(pub :: replComplPageCount (-> Int Int Int Int))
+
+(pub fn (replComplPageCount cands sel width)
+  (let (
+    (base (replComplPageBase cands sel width))
+    (page (replComplPageSize cands width))
+    (rest (- (vecLen cands) (replComplPageBase cands sel width)))
+  )
+    (if (< rest page)
+      rest
+      page
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; THE WIDEST LINE THE MENU WOULD RENDER, and whether it fits.
+;
+; Computed from the layout rather than from the rendered bytes, for
+; the same reason `replComplRows` is: two independent arithmetics that
+; must agree are a check on each other, and the gate sweeps every
+; width from 1 to 100 asserting that no line the menu emits is wider
+; than the terminal it was laid out for.
+;
+;   a grid row   two columns of gutter, then k cells with a gap of
+;                (w + 2) between their starts - so k-1 gaps, never k.
+;                k is the number of cells in the FULLEST row.
+;   the more     line `... 25-48 of 153`, already carrying its own
+;                two-space indent.
+;   the detail   line, when something is selected.
+;
+; WHEN IT DOES NOT FIT, NO MENU IS PRINTED AT ALL - "" and zero rows,
+; and the editor prints and erases nothing. That is the whole decision
+; and it is deliberate: a menu the terminal wraps occupies more
+; physical rows than `replComplRows` reports, so the editor erases too
+; few and leaves debris that only a redraw clears. Withholding the
+; LIST costs the user the least of the available bad options, because
+; Tab still extends to the common prefix and still cycles the buffer -
+; only the picture is missing, and it was going to be an unreadable
+; picture.
+; ------------------------------------------------------------------
+(pub :: replComplMaxLine (-> Int Int Int Int))
+
+(pub fn (replComplMaxLine cands sel0 width)
+  (let (
+    (sel (replComplSelOf cands sel0))
+    (w (replComplWidest cands))
+    (shown (replComplPageCount cands sel0 width))
+  )
+    (let ((k 
+      (if (< shown (replComplCols width w))
+        shown
+        (replComplCols width w)
+      )
+    ))
+      (let ((mut m (+ (+ 2 (* (- k 1) (+ w 2))) w)))
+        {
+          (if (> (vecLen cands) shown)
+            {
+              (let ((ml (visLen (replComplMoreText (replComplPageBase cands sel width) shown (vecLen cands)))))
+                (if (> ml m)
+                  {
+                    (set m ml)
+                    0
+                  }
+                  0
+                )
+              )
+              0
+            }
+            0
+          )
+          (if (>= sel 0)
+            {
+              (let ((dl (visLen (replComplDetailText (vecGet cands sel)))))
+                (if (> dl m)
+                  {
+                    (set m dl)
+                    0
+                  }
+                  0
+                )
+              )
+              0
+            }
+            0
+          )
+          m
+        }
+      )
+    )
+  )
+)
+
+(pub :: replComplFits (-> Int Int Int Bool))
+
+(pub fn (replComplFits cands sel width) (<= (replComplMaxLine cands sel width) (replComplWidthOf width)))
+
+; The number of TERMINAL ROWS the menu block occupies.
+;
+; Computed by the same arithmetic the renderer uses rather than
+; counted from the rendered string, because the editor must move
+; down, erase exactly this many rows and come back on the very next
+; keystroke - a menu that misreports its own height leaves debris on
+; the screen. `scripts/check-replcomp.sh` asserts this equals the
+; newline count of `replComplMenu`'s output for every case it
+; renders, which is what keeps the two arithmetics one.
+(pub :: replComplRows (-> Int Int Int Int))
+
+(pub fn (replComplRows cands sel0 width)
+  (let ((sel (replComplSelOf cands sel0)))
+    (if (||
+      (== (vecLen cands) 0)      (if (replComplFits cands sel width)
+        false
+        true
+      )
+    )
+      0
+      (let (
+        (cols (replComplCols width (replComplWidest cands)))
+        (shown (replComplPageCount cands sel width))
+      )
+        (let ((grid (/ (+ shown (- cols 1)) cols)))
+          (+
+            (+
+              grid              (if (> (vecLen cands) shown)
+                1
+                0
+              )
+            )            (if (>= sel 0)
+              1
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; One grid row: the gutter, then one padded, painted label per
+; column, column-major so the list reads DOWN like `ls`.
+(pub :: replComplRow (-> Int Int Int Int Int Int Int String))
+
+(pub fn (replComplRow cands sel base shown cols grid r)
+  (let (
+    (mut line (if (== sel (+ base r))
+      (paint SGR_LIST "> ")
+      "  "
+    ))
+    (mut c 0)
+  )
+    {
+      (while (< c cols)
+        (let ((ix (+ (* c grid) r)))
+          {
+            (if (< ix shown)
+              (let ((cand (vecGet cands (+ base ix))))
+                {
+                  (set line (strConcat line (paint (replComplSgr (rcOrigin cand)) (rcLabel cand))))
+                  ; THE ALIGNMENT PADDING AND THE GAP GO BETWEEN
+                  ; CELLS, never after the last one. A trailing pad is
+                  ; two columns of nothing that can push a row past
+                  ; the right edge of the terminal, and
+                  ; `replComplMaxLine` counts GAPS rather than cells -
+                  ; so a trailing one would make the width arithmetic
+                  ; and the renderer disagree by exactly the amount
+                  ; that matters.
+                  (if (< (+ (* (+ c 1) grid) r) shown)
+                    {
+                      (set line (strConcat line (replComplPad (rcLabel cand) (replComplWidest cands))))
+                      (set line (strConcat line "  "))
+                      0
+                    }
+                    0
+                  )
+                  0
+                }
+              )
+              0
+            )
+            (set c (+ c 1))
+          }
+        ))
+      (strConcat line "\n")
+    }
+  )
+)
+
+; The whole block printed below the input line.
+;
+; `sel` is -1 while nothing is selected. When it is not, the block
+; ends with one line naming the selected candidate and its detail -
+; a type for a session name, a module for an imported one - which is
+; where a type is shown without a column of them crowding the grid.
+(pub :: replComplMenu (-> Int Int Int String))
+
+(pub fn (replComplMenu cands sel0 width)
+  (let ((sel (replComplSelOf cands sel0)))
+    (if (||
+      (== (vecLen cands) 0)      (if (replComplFits cands sel width)
+        false
+        true
+      )
+    )
+      ""
+      (let (
+        (cols (replComplCols width (replComplWidest cands)))
+        (base (replComplPageBase cands sel width))
+        (shown (replComplPageCount cands sel width))
+      )
+        (let (
+          (grid (/ (+ shown (- cols 1)) cols))
+          (mut out "")
+          (mut r 0)
+        )
+          {
+            (while (< r grid)
+              {
+                (set out (strConcat out (replComplRow
+                  cands                  sel                  base                  shown                  cols                  grid                  r
+                )))
+                (set r (+ r 1))
+              })
+            (if (> (vecLen cands) shown)
+              {
+                (set out (strConcat (strConcat out (paint SGR_GUT (replComplMoreText base shown (vecLen cands)))) "\n"))
+                0
+              }
+              0
+            )
+            (if (>= sel 0)
+              {
+                (set out (strConcat out (replComplDetailLine (vecGet cands sel))))
+                0
+              }
+              0
+            )
+            out
+          }
+        )
+      )
+    )
+  )
+)
+
+; `  ... 25-48 of 153`.
+;
+; A RANGE, not "and N more", because the menu pages: on page two
+; "and 129 more" is true of the vector and useless about the screen,
+; and a reader counting rows would conclude the list restarts. The
+; number after the dash is what is on screen; the number after `of`
+; is what Tab will walk. The newline is added by the caller, OUTSIDE
+; the paint - style.ax's rule is that an escape wraps a lexeme, and a
+; reset that lands after a line break is the undiffable output that
+; file's header exists to prevent.
+(pub :: replComplMoreText (-> Int Int Int String))
+
+(pub fn (replComplMoreText base shown total) (strConcat (strConcat (strConcat (strConcat (strConcat "  ... " (decStr (+ base 1))) "-") (decStr (+ base shown))) " of ") (decStr total)))
+
+; `  vecPush : (-> (Vec a) a Int)`, or just the name when there is
+; nothing true to say about it.
+(pub :: replComplDetailLine (-> Int String))
+
+(pub fn (replComplDetailLine cand) (strConcat (replComplDetailText cand) "\n"))
+
+; The same line WITHOUT its newline, because `replComplMaxLine` has to
+; measure it and `visLen` counts a newline as a column. Stated once and
+; used by both, rather than measured as "the line, less one" - which
+; couples a width calculation to where somebody else puts a line break.
+(pub :: replComplDetailText (-> Int String))
+
+(pub fn (replComplDetailText cand)
+  (if (== (strLen (rcDetail cand)) 0)
+    (strConcat "  " (paint (replComplSgr (rcOrigin cand)) (rcLabel cand)))
+    (strConcat (strConcat (strConcat "  " (paint (replComplSgr (rcOrigin cand)) (rcLabel cand))) " : ") (rcDetail cand))
+  )
+)
+
+; ------------------------------------------------------------------
+; THE STATE MACHINE.
+;
+; What Tab does depends on what the last Tab did, so something has to
+; survive between keystrokes. `ComplSt` is that something, and it is
+; IMMUTABLE: every transition answers a new one, so a caller can hold
+; the old one and a test can assert about both.
+;
+; THE INVARIANT that makes replacement safe: the replaceable region
+; is always exactly [start, cur). Every insertion sets the cursor to
+; `start + strLen label`, and every key that is not Tab or Shift-Tab
+; drops the state - which is what makes "the second Tab" a
+; well-defined thing at all. Text AFTER the cursor is never touched,
+; so completing in the middle of a line works.
+;
+;   start  where the replaceable region begins
+;   typed  the prefix as the user typed it, for Escape
+;   cands  the candidate vector this cycle walks
+;   sel    -1 before anything is selected, else the index
+;   rows   how many terminal rows the printed menu occupies, 0 for
+;          none - a count rather than a flag, because the editor has
+;          to erase exactly that many
+; ------------------------------------------------------------------
+(pub struct ComplSt
+  (start : Int)
+  (typed : String)
+  (cands : Int)
+  (sel : Int)
+  (rows : Int))
+
+(pub :: stStart (-> Int Int))
+
+(pub fn (stStart s) (memGetWord s 0))
+
+(pub :: stTyped (-> Int String))
+
+(pub fn (stTyped s) (memGetWordStr s 1))
+
+(pub :: stCands (-> Int Int))
+
+(pub fn (stCands s) (memGetWord s 2))
+
+(pub :: stSel (-> Int Int))
+
+(pub fn (stSel s) (memGetWord s 3))
+
+(pub :: stRows (-> Int Int))
+
+(pub fn (stRows s) (memGetWord s 4))
+
+; The five-word answer every transition gives back:
+;   0 the new buffer     3 how many rows that menu occupies
+;   1 the new cursor     4 the new state, 0 when idle
+;   2 the menu text, "" when there is none
+(pub :: replComplAnswer (-> String Int String Int Int Int))
+
+(pub fn (replComplAnswer buf cur menu rows st)
+  (let ((r (memAlloc 40)))
+    {
+      (memSetWord r 0 buf)
+      (memSetWord r 1 cur)
+      (memSetWord r 2 menu)
+      (memSetWord r 3 rows)
+      (memSetWord r 4 st)
+      r
+    }
+  )
+)
+
+(pub :: tabBuf (-> Int String))
+
+(pub fn (tabBuf r) (memGetWordStr r 0))
+
+(pub :: tabCur (-> Int Int))
+
+(pub fn (tabCur r) (memGetWord r 1))
+
+(pub :: tabMenu (-> Int String))
+
+(pub fn (tabMenu r) (memGetWordStr r 2))
+
+(pub :: tabRows (-> Int Int))
+
+(pub fn (tabRows r) (memGetWord r 3))
+
+(pub :: tabState (-> Int Int))
+
+(pub fn (tabState r) (memGetWord r 4))
+
+; `buf` with [start, cur) replaced by `s`.
+(pub :: replComplSplice (-> String Int Int String String))
+
+(pub fn (replComplSplice buf start cur s) (strConcat (strConcat (strSlice buf 0 start) s) (strSlice buf cur (- (strLen buf) cur))))
+
+; Tab, and Shift-Tab as `dir` = -1.
+;
+; THE THREE-KEYSTROKE SHAPE, and the middle one is skipped when it
+; would be a no-op:
+;
+;   Tab   EXTENDS to the longest common prefix, if that is longer
+;         than what is typed. No menu: the overwhelmingly common
+;         case is one candidate or one obvious extension, and a menu
+;         that flashes for it is noise.
+;   Tab   LISTS, when extending would change nothing.
+;   Tab   PICKS, walking the list; Shift-Tab walks back; both wrap.
+;
+; A single candidate is inserted whole on the first Tab with no
+; trailing space: an Axiom name is followed by a space or a `)`, and
+; the two are equally likely.
+;
+; ZERO CANDIDATES DOES NOTHING - the buffer, the cursor and the state
+; come back exactly as they went in, and no menu is printed. There is
+; no error line, because a prompt that scolds you for a typo you are
+; halfway through typing is worse than a Tab that does nothing.
+;
+; `width` IS THE TERMINAL'S, and it is a parameter rather than a
+; constant because the whole layout hangs off it: the column count,
+; the page size, and therefore which candidate a given `sel` lands
+; on all move with it. This function held a literal 80 for one
+; draft, which would have told a REPL in a narrow split to erase
+; fewer rows than it had printed.
+;
+; AN EMPTY PREFIX ALSO DOES NOTHING, unless the cursor sits after a
+; `:`, where the whole command vocabulary is fifteen items and a
+; complete answer. Off a command, an empty prefix makes every name in
+; scope a candidate: that is `:defs` and the module documentation,
+; not a menu, and it is the one case where the honest answer to Tab
+; is to leave the line alone.
+(pub :: replComplTab (-> Int String Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (replComplTab st buf cur dir width e)
+  (if (== st 0)
+    (replComplTabFresh buf cur width e)
+    (replComplTabMore
+      st      buf      cur      dir      width
+    )
+  )
+)
+
+(pub :: replComplTabFresh (-> String Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (replComplTabFresh buf cur width e)
+  (let ((reg (replComplRegion buf cur)))
+    (let (
+      (prefix (regPrefix reg))
+      (start (regStart reg))
+      (atCmd (regAtCmd reg))
+    )
+      (if (&&
+        (== (strLen prefix) 0)        (if atCmd
+          false
+          true
+        )
+      )
+        (replComplAnswer
+          buf          cur          ""          0          0
+        )
+        (let ((cands (replComplFor e prefix atCmd)))
+          (if (== (vecLen cands) 0)
+            (replComplAnswer
+              buf              cur              ""              0              0
+            )
+            (if (== (vecLen cands) 1)
+              (let ((label (rcLabel (vecGet cands 0))))
+                (replComplAnswer
+                  (replComplSplice buf start cur label)                  (+ start (strLen label))                  ""                  0                  0
+                )
+              )
+              (let ((lcp (replComplLcp cands)))
+                (if (> (strLen lcp) (strLen prefix))
+                  ; EXTEND. The state is kept with no menu, so the
+                  ; next Tab lists; no regather is needed, because
+                  ; every candidate still starts with the LCP.
+                  (replComplAnswer
+                    (replComplSplice buf start cur lcp)                    (+ start (strLen lcp))                    ""                    0                    (cast Int (ComplSt
+                      start                      prefix                      cands                      (- 0 1)                      0
+                    ))
+                  )
+                  (replComplShow
+                    buf                    cur                    start                    prefix                    cands                    (- 0 1)                    width
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Render the menu for `sel` and answer it, without touching the
+; buffer. The one place a menu's text and its row count are produced,
+; so they cannot disagree.
+(pub :: replComplShow (-> String Int Int String Int Int Int Int))
+
+(pub fn (replComplShow buf cur start typed cands sel width)
+  (let (
+    (menu (replComplMenu cands sel width))
+    (rows (replComplRows cands sel width))
+  )
+    (replComplAnswer
+      buf      cur      menu      rows      (cast Int (ComplSt
+        start        typed        cands        sel        rows
+      ))
+    )
+  )
+)
+
+(pub :: replComplTabMore (-> Int String Int Int Int Int))
+
+(pub fn (replComplTabMore st buf cur dir width)
+  (let (
+    (cands (stCands st))
+    (start (stStart st))
+  )
+    (if (== (stRows st) 0)
+      ; The extend has happened; this Tab lists.
+      (replComplShow
+        buf        cur        start        (stTyped st)        cands        (- 0 1)        width
+      )
+      (let ((n (vecLen cands)))
+        (let ((sel 
+          (if (< (stSel st) 0)
+            (if (< dir 0)
+              (- n 1)
+              0
+            )
+            (% (+ (+ (stSel st) dir) n) n)
+          )
+        ))
+          (let ((label (rcLabel (vecGet cands sel))))
+            (let ((r (replComplShow
+              (replComplSplice buf start cur label)              (+ start (strLen label))              start              (stTyped st)              cands              sel              width
+            )))
+              r
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ESC [ ... , spelled from the byte because a string literal cannot
+; carry an escape.
+(pub :: replCsi (-> String String))
+
+(pub fn (replCsi rest) (strConcat (strFromByte 27) (strConcat "[" rest)))
+
+; The bytes that erase a menu of `rows` rows and put the cursor back
+; where it started.
+;
+; `ESC [ B` rather than a newline: at the bottom of the screen a
+; newline SCROLLS, which moves the input line out from under the
+; cursor the editor is about to redraw at. Cursor-down does not, and
+; it keeps the column, so the editor's own redraw is unaffected.
+(pub :: replComplErase (-> Int String))
+
+(pub fn (replComplErase rows)
+  (if (<= rows 0)
+    ""
+    (let (
+      (mut out "")
+      (mut i 0)
+    )
+      {
+        (while (< i rows)
+          {
+            (set out (strConcat out (strConcat (replCsi "B") (replCsi "2K"))))
+            (set i (+ i 1))
+          })
+        (strConcat out (replCsi (strConcat (decStr rows) "A")))
+      }
+    )
+  )
+)
+
+; Any key that is not Tab or Shift-Tab. Answers the erase sequence
+; for whatever the state had printed; the caller drops the state.
+;
+; This one rule - EVERY OTHER KEY CLEARS - is what makes the second
+; Tab well defined, and it is why nothing here has to reason about
+; what the user typed in between.
+(pub :: replComplClear (-> Int String))
+
+(pub fn (replComplClear st)
+  (if (== st 0)
+    ""
+    (replComplErase (stRows st))
+  )
+)
+
+; Escape: the erase, plus the buffer with the typed prefix put back.
+(pub :: replComplCancel (-> Int String Int Int))
+
+(pub fn (replComplCancel st buf cur)
+  (if (== st 0)
+    (replComplAnswer
+      buf      cur      ""      0      0
+    )
+    (let ((typed (stTyped st)))
+      (replComplAnswer
+        (replComplSplice buf (stStart st) cur typed)        (+ (stStart st) (strLen typed))        (replComplErase (stRows st))        0        0
+      )
+    )
+  )
+)
