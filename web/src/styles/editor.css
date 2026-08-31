@@ -203,3 +203,32 @@
 .hero__out pre {
   text-transform: none;
 }
+
+/* ---------------------------------------------------------------- *
+ * No gutter on a phone
+ *
+ * Line numbers are a desktop affordance. On a narrow screen they cost
+ * about an eighth of the usable width, push the code further into its
+ * own horizontal scroll, and buy a reader nothing — nobody is citing
+ * line 24 of a landing-page sample from a phone.
+ *
+ * They are also the one part of the frame whose correctness depends on
+ * two elements agreeing about a line box, which is a thing that can be
+ * got wrong. Below 640px the gutter is not laid out at all, so on the
+ * screens where the alignment was reported wrong there is nothing left
+ * to misalign. The numbers return the moment there is room for them.
+ * ---------------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .code__gutter {
+    display: none;
+  }
+
+  .code__body--numbered {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .code__body--numbered > pre {
+    padding-inline: var(--s-4);
+  }
+}
