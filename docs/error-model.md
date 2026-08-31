@@ -183,19 +183,33 @@ conversion between error types is explicit.**
 ```
 
 Rust reaches `From<E>` here so `?` can convert on the way out. **Axiom
-cannot**: a two-parameter trait *declares and checks*, and its `impl`
-is a syntax error —
+does not**, and since 0.6.0 that is a design decision rather than a
+hole: a conversion is an ordinary value the caller supplies, and
+nothing searches for one —
 
 ```scheme
-(trait (From a b) where (from :: (-> a b)))   ; OK
-(impl (From Int Bool) where ((from ...)))     ; AX2003 syntax error
+(struct ConvertOf (a b)
+  (convert : (-> a b)))                     ; declares, checks, runs
+
+(:: mapErrWith (-> (ConvertOf e f) (Result a e) (Result a f)))
+(fn (mapErrWith c r)
+  (match r
+    ((Ok x) (Ok x))
+    ((Err y) (Err ((c.convert) y)))))       ; dispatch is application
 ```
 
-— while the identical one-parameter shape compiles. So conversion is a
-function the program calls (`mapErr`), not an instance the compiler
-finds. This is recorded as blocker **B2** in §8; if two-parameter
-`impl` ever lands, `ERR-TYPE-3` may be revisited, and it keeps its
-number when it is.
+— and the caller passes the record: `(mapErrWith (ConvertOf errOfInt) r)`.
+Probed 2026-08-31: `check` OK, and the program runs. So the
+two-parameter shape is no longer the asymmetry it was; what Axiom still
+does not have is INSTANCE SEARCH. `From`'s whole point in Rust is that
+the compiler finds the instance from the types at the call site, and
+nothing in Axiom searches for a conversion — dispatch is application,
+and an instance is a value someone wrote down. (`show` is resolved by
+the checker from its argument's static type, but that is one built-in
+head rewriting to a known renderer, not a search over declared
+instances.) Conversion therefore stays a function the program calls
+(`mapErr`) or a record it passes, never an instance the compiler
+supplies. This was blocker **B2** in §8, resolved by removal in 0.6.0.
 
 **ERR-TYPE-3a (RETIRED 2026-08-25). An error-inspecting combinator
 MAY read the error's fields off the `match` binder.** This rule said
@@ -474,11 +488,11 @@ rather than the only option:
 than defensive.** Its word has three states: `0` for never stamped, a
 NAME for "every check that reached this node agreed", and the EMPTY
 STRING for "two checks disagreed", which reads back conservative. One
-binder node genuinely is checked twice at different types:
-`checkImplComplete` synthesizes a trait's DEFAULT body into every impl
-that omits the method **without copying the body's nodes**, so two
-impls at two types check one AST, and `impl` declaration order alone
-decides which name would survive.
+binder node genuinely was checked twice at different types:
+`checkImplComplete` synthesized a trait's DEFAULT body into every impl
+that omitted the method **without copying the body's nodes**, so two
+impls at two types checked one AST, and `impl` declaration order alone
+decided which name would survive.
 
 Measured 2026-08-25 on `373-shared-default-binder`, a fixture removed
 with traits in 0.6.0: with the disagreement arm removed,
@@ -486,7 +500,8 @@ with traits in 0.6.0: with the disagreement arm removed,
 `call void @axiom_release(i64 %.t0)` — a release of the block the
 returned `String` still lives in — and with it present, none. One line
 of IR from one word in the checker, and
-`scripts/check-fallible-reclaim.sh` asserts both directions.
+`scripts/check-fallible-reclaim.sh` asserted both directions until the
+construct went (see below).
 
 No program was found that **observes** that release: the field has
 another owner at every call site built for it, so nothing reached count
@@ -980,8 +995,8 @@ direct spelling against it.
 ## 8. What this specification found
 
 Five defects, none of them recorded anywhere before, each found by
-probing a claim rather than reading one. Four are fixed; `B2` is the
-one still open.
+probing a claim rather than reading one. Four are fixed; the fifth,
+`B2`, was resolved by removal in 0.6.0, so none is open.
 
 **B1 — a macro binder did not scope over another parameter's syntax.
 FIXED 2026-08-16.** `(macro (bind! x e body) (let ((x e)) body))` put
@@ -993,14 +1008,19 @@ binder-direction hygiene as complete, which it was for the direction
 anyone had tested. Fixed as `MAC-HYG-10`, with `AX3035` for the
 argument that is not a name; `ERR-SUGAR-2` is the form it unblocked.
 
-**B2 — a two-parameter trait declares and checks, and cannot be
-implemented.** `(trait (From a b) where (from :: (-> a b)))` is
-accepted; `(impl (From Int Bool) where ((from ...)))` is `AX2003
-syntax error` at the `impl`. The one-parameter control compiles and
-runs. This is `documented-but-inert` in its purest form: the
-declaration surface admits something the implementation surface cannot
-express. Blocks `From`-style error conversion; `ERR-TYPE-3` routes
-around it.
+**B2 — a two-parameter trait declared and checked, and could not be
+implemented. RESOLVED BY REMOVAL 2026-08-31 (0.6.0).**
+`(trait (From a b) where (from :: (-> a b)))` was accepted;
+`(impl (From Int Bool) where ((from ...)))` was `AX2003 syntax error`
+at the `impl`, while the one-parameter control compiled and ran. That
+was `documented-but-inert` in its purest form: the declaration surface
+admitted something the implementation surface could not express. Both
+keywords now report `AX2004` before anything else runs, and the
+capability record that replaced them takes two parameters with no
+asymmetry — `(struct ConvertOf (a b) (convert : (-> a b)))` declares,
+checks and runs, probed 2026-08-31. What the defect blocked,
+`From`-style *implicit* conversion, is refused by design now rather
+than by a hole; `ERR-TYPE-3` states the design.
 
 **B3 — `newtype` was a documented keyword the compiler does not
 implement. FIXED 2026-08-22.** `docs/reference.md`'s keyword table

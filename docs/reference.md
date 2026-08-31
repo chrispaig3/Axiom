@@ -20,22 +20,24 @@ A friendly, comprehensive guide to the Axiom programming language — a function
 12. [Algebraic Data Types](#algebraic-data-types)
 13. [Structs](#structs)
 14. [Type Aliases](#type-aliases)
-15. [Traits](#traits)
-16. [Effects](#effects) — `effect`, `handle`, and inference
+15. [Effects](#effects) — `effect`, `handle`, and inference
+16. [Capability Records](#capability-records) — what replaced traits
 17. [Modules and Imports](#modules-and-imports)
-18. [Macros](#macros)
-19. [Printing and Formatting](#printing-and-formatting)
-20. [Memory Primitives](#memory-primitives)
-21. [Standard Library](#standard-library)
-22. [AXTAG Metadata](#axtag-metadata)
+18. [Packages](#packages) — `axiom.pkg` and `depend`
+19. [Macros](#macros)
+20. [Printing and Formatting](#printing-and-formatting)
+21. [Memory Primitives](#memory-primitives)
+22. [Standard Library](#standard-library)
+23. [AXTAG Metadata](#axtag-metadata)
 24. [Removed Features](#removed-features)
 25. [The REPL](#the-repl)
 26. [CLI Commands](#cli-commands)
-27. [Compiler Pipeline](#compiler-pipeline)
-28. [Cross-Compilation](#cross-compilation)
-29. [Optimisation](#optimisation)
-30. [Tips and Patterns](#tips-and-patterns)
-31. [Further Reading](#further-reading)
+27. [Testing](#testing) — `axiom test`
+28. [Compiler Pipeline](#compiler-pipeline)
+29. [Cross-Compilation](#cross-compilation)
+30. [Optimisation](#optimisation)
+31. [Tips and Patterns](#tips-and-patterns)
+32. [Further Reading](#further-reading)
 
 ---
 
@@ -180,6 +182,21 @@ without a length — from a syscall buffer, say. Applied to a literal it
 is redundant: `(strFromLit (__addr "hi"))` scans for a length the
 compiler already knew, and `"hi"` is the same value.
 
+#### What the literal replaced
+
+Before literals carried their own header, every string in every program
+was written the long way:
+
+```scheme
+(println (strFromLit (__addr "Hello, Axiom!")))
+```
+
+`__addr` took the literal's address and `strFromLit` scanned it with
+`cstrLen` to recover a length the compiler already knew. There were 350
+such sites across `stdlib/`, `self_host/` and the tests; all of them are
+plain literals now, which is why the form above appears in this document
+only as history.
+
 > **A `String` is a machine word, and the checker knows which words
 > are strings.** Every Axiom value is one word, and a `String` is the
 > address of a `Str` header — but since 2026-08-15 `String` and `Int`
@@ -274,12 +291,11 @@ which was the retired Rust compiler's lexer rule, and refused
 | `data` | Algebraic data type |
 | `struct` | Product type with named fields |
 | `type` | Type alias |
-| `trait` | Interface / type class |
-| `impl` | Trait implementation |
+| `trait` | **Reserved** — removed 2026-08-31, reports `AX2004`; an interface is a [capability record](#capability-records) |
+| `impl` | **Reserved** — removed 2026-08-31, reports `AX2004`; an instance is an ordinary value |
 | `import` | Import a module |
 | `pub` | Public visibility |
 | `deriving` | **Refused** (`AX2004`, 2026-08-14) — it parsed and derived nothing; `derive` is explicit declaration macros ([macro-system.md](macro-system.md) MAC-CAP-9) |
-| `where` | Trait method bodies |
 | `effect` | Declare an effect type |
 | `handle` | Handle effects |
 | `linear` | **Reserved** — removed 2026-08-25, reports `AX2004` |
@@ -415,6 +431,24 @@ list or tuple literal, no list or tuple pattern, and no runtime
 representation: `[1 2 3]` is `AX2001 expected expression`, and `(1 2)`
 in expression position is read as an application of `1`. A signature
 may name these types; nothing can build a value of one.
+
+### Type Casting
+
+`cast` reinterprets one word as another type. The type comes first and
+the expression second:
+
+```scheme
+(cast Float someBits)
+```
+
+The word itself is unchanged — there is no conversion, no check and no
+runtime cost, which is why the real numeric conversions have their own
+names (`__intToFloat`, `__floatToInt`). `cast` is how a program crosses
+a distinction the checker is otherwise keeping for it: `(cast Foreign
+x)` in and out of an opaque pointer, `(cast Int s)` where a `String`
+handle is deliberately read as a word. It is the entry point to
+[The Unsafe Layer](#the-unsafe-layer), and everything that section says
+about what the checker stops proving applies from here.
 
 ### Type Variables and Polymorphism
 
@@ -605,6 +639,24 @@ detects that value with a predicate rather than by comparing against a
 literal: there is no literal for it, and `(- 0 9223372036854775807)`
 is one greater than it.
 
+### The Eighteen, With Their Types
+
+Operators are built in and always available — no import brings them in,
+and none can be shadowed. These are the types `axiom symbols --builtins
+<file>` prints for them, beside the [memory
+primitives](#memory-primitives):
+
+| Operator | Signature |
+|---|---|
+| `+`, `-`, `*`, `/`, `%` | `(Int -> (Int -> Int))` |
+| `&`, `\|`, `^`, `<<`, `>>` | `(Int -> (Int -> Int))` — bitwise and, or, xor, shift left, shift right (arithmetic) |
+| `==`, `!=`, `<`, `>`, `<=`, `>=` | `(Int -> (Int -> Bool))` |
+| `&&`, `\|\|` | `(Bool -> (Bool -> Bool))` |
+
+Eighteen in all. The signature is curried because that is how the
+checker holds every function type; a call supplies both arguments at
+once, as the examples above do.
+
 ---
 
 ## Let Bindings
@@ -676,9 +728,10 @@ the binding is introduced, not where it is used.
 > **This is a real loop.** `while` lowers to a branch back to a
 > condition block, so a million iterations run in constant stack at
 > `-O0`. Iteration by recursion still works and tail calls are
-> guaranteed, but *non*-tail recursion remains stack-bounded — measured
-> at 60,000–80,000 frames on an 8 MiB stack — so a fold written as
-> `(+ (f i) (loop (+ i 1)))` is the shape to avoid at scale.
+> guaranteed, but *non*-tail recursion remains stack-bounded — so a
+> fold written as `(+ (f i) (loop (+ i 1)))` is the shape to avoid at
+> scale. [Optimisation](#optimisation) has the three spellings side by
+> side and the measured depth.
 
 ### Sequential Let Bindings
 
@@ -758,6 +811,10 @@ Each branch is a `(test body)` pair. The first matching branch wins. An optional
   ((Nil) ...))
 ```
 
+Nesting is checked and bound all the way down: inner constructor tags
+are tested recursively and each level's fields are extracted, so the arm
+above binds all three of `h`, `h2` and `t`.
+
 ### Wildcard Pattern
 
 Use `_` to match anything and ignore the value:
@@ -782,6 +839,11 @@ Axiom checks at compile time that every constructor of the matched type is cover
 (match val
   ((Just x) x))
 ```
+
+Arity is checked with it. A constructor pattern that names the wrong
+number of fields — `((Just) ...)` or `((Just x y) ...)` for a
+one-field `Just` — is `AX3009`, separately from the `AX3005` that
+reports a constructor left uncovered.
 
 ### The Built-in `Option` Type
 
@@ -915,14 +977,26 @@ an `icmp eq i64 2, 2` with no allocation at all;
 `tests/stdlib/270-nullary-unboxed.ax` and
 `tests/selfhost/400-mixed-nullary.ax` pin the two unboxing shapes.
 
-### Deriving Traits
+Recursion needs no special case in either direction: a field whose type
+is the type being declared is just another 8-byte word holding that
+value's address, so `(data List (a) (Nil) (Cons a (List a)))` lowers
+with no cycle detection, no indirection table and no boxing rule of its
+own. [Building a List](#building-a-list) is that type as a whole
+program.
+
+### Deriving
 
 `derive` is **explicit declaration macros**, not a clause: write
-`(deriveEq T)` where you want the instance, and the macro generates a
-real `impl` — checked, compiled, and dispatched like a written one
-(see [Macros](#macros) for a complete `deriveEq` and
-[macro-system.md](macro-system.md) §10.2 for the fieldful form whose
-derived instances compose).
+`(deriveEq T)` where you want it, and the macro generates a real
+FUNCTION — checked and compiled like a written one, and called by
+name. `(deriveEq Colour)` gives `eqColour`, `(deriveShow Colour)`
+gives `showColour`; measured, both are ordinary `F` rows carrying
+`#generated=deriveEq`/`#generated=deriveShow`. Until 0.6.0 the
+template generated a trait `impl` instead, dispatched by the argument's
+type; the macro machinery is unchanged and the declaration it expands
+into is now a plain `fn` (see [Macros](#macros) for a complete
+`deriveEq` and [macro-system.md](macro-system.md) §10.2 for the
+fieldful form).
 
 The `deriving` **clause is refused** (`AX2004`, since 2026-08-14). It
 had parsed and been silently discarded from the day it was written —
@@ -989,49 +1063,6 @@ A type alias gives a name to an existing type. It does not create a new type —
 
 ---
 
-## Traits
-
-Traits define interfaces with typed methods — similar to type classes in Haskell or protocols in Swift.
-
-### Declaring a Trait
-
-```scheme
-; A trait with one method
-(trait (Eq a)
-  where
-    (eq :: (-> a a Bool)))
-
-; A trait with multiple methods and supertraits. Every method
-; signature goes in ONE parenthesised group - a group per method is
-; `AX2003`, and used to be discarded in silence.
-(trait (Ord a) (Eq a) where
-  (cmp :: (-> a a Int)
-   lt :: (-> a a Bool)
-   gt :: (-> a a Bool)))
-```
-
-### Implementing a Trait
-
-```scheme
-(impl (Eq Int) where
-  ((eq (lambda (x y) (== x y)))))
-
-; Again one group, holding every method.
-(impl (Ord Int) where
-  ((cmp (lambda (x y) (if (== x y) 0 (if (< x y) (- 0 1) 1))))
-   (lt (lambda (x y) (< x y)))
-   (gt (lambda (x y) (> x y)))))
-```
-
-### Traits Support
-
-- **Type parameters** — `(trait (Eq a) ...)` binds `a` for all method signatures
-- **Supertraits** — `(trait (Ord a) (Eq a) ...)` requires `Eq` to be implemented too
-- **Default methods** — `(where (method :: type = default_body))`
-- **Effects** — traits, impls and methods accept an effect list, which is parsed and discarded; nothing is checked against it, and on a `trait`/`impl` header the first parenthesised group is the supertrait list
-
----
-
 ## Effects
 
 Axiom infers each function's side effects transitively - a fixpoint
@@ -1042,9 +1073,13 @@ walk was not in a position to check is a warning (`AX3037`). Effects do
 not appear in function types. Untagged functions ARE policed: silence
 is the claim "performs no IO", and a body performing IO under it is
 `AX3042`, an error. Only `IO` is REQUIRED - `Alloc` and `Mut` are
-ambient, inferred and reported but never demanded, because 1,664 of
-the 2,095 effectful functions in this repository perform exactly those
-two. They are still DECLARABLE, and checked when declared:
+ambient, inferred and reported but never demanded, and the line was
+measured rather than chosen: of the 3,421 functions in the compiler and
+its standard library, 2,095 perform something at all, and 1,664 of those
+perform exactly `Alloc,Mut` - which is every function that touches a
+`String` or a `Vec`. `IO` is the one effect a caller cannot learn
+without opening the callee. `Alloc` and `Mut` are still DECLARABLE, and
+checked when declared:
 `;@axiom:effect(mut)` over a body that writes a field is accepted, and
 over one that does not it is `AX3010`. The same holds for a custom
 effect. What is special about `IO` is that its absence is itself a
@@ -1132,19 +1167,24 @@ having.
 
 The opposite departure is an effect the body MAY perform without the
 walk being able to say it does, and it is recorded **per effect**, not
-per row. Two shapes produce it:
+per row. One shape produces it:
 
 | shape | example |
 |---|---|
-| a bare arrow-typed name outside argument position | `(fn (handoff k) shout)` - `shout` is handed back, not called |
-| a trait method with more than one implementation | `(show x)` under four `impl`s - dispatch picks one, the walk cannot say which |
+| a bare arrow-typed name outside argument position | `(fn (handoff k) shout)` - `shout` is handed back, not called; `(ConsoleOf writeLine)` - it is stored in a capability record |
+
+There was a second until 0.6.0: a trait method with more than one
+implementation, where the fixpoint unioned every implementation because
+dispatch picked one and the walk could not say which. `trait` and `impl`
+are `AX2004` now, and dispatch through a record's field is not a
+resolved call at all — it contributes nothing and marks the row
+`#effects-incomplete` instead.
 
 Every effect the referent's row carries arrives as *possible*: the
-body may perform it, through whoever calls the value or whichever
-implementation dispatch selects. An effect the body reaches by a call
-is *definite*. The two spellings of one effect can both be present -
-a body that calls `shout` and also names it - and each consumer reads
-the half it is entitled to:
+body may perform it, through whoever calls the value. An effect the
+body reaches by a call is *definite*. The two spellings of one effect
+can both be present - a body that calls `shout` and also names it -
+and each consumer reads the half it is entitled to:
 
 - `AX3042` and the *contradicted* arm of `AX3010` read the definite
   half. An untagged function whose row holds IO only as possible is
@@ -1152,7 +1192,7 @@ the half it is entitled to:
   checked, exactly as over a lower bound. A definite IO beside a
   possible `Alloc` is accused: until 2026-08-29 one row-global marker
   excused the whole row, so every untagged function one hop above a
-  `println` with a `{hole}` compiled clean and printed - the hole goes
+  `println` with a `{hole}` compiled clean and printed - the hole went
   through `show`'s four implementations, and the excuse for their
   `Alloc` was excusing the `writeStr`.
 - `AX3011`, the *missing* arm of `AX3010` and `restrict(...)` read the
@@ -1218,8 +1258,8 @@ where the effect *enters* - a syscall primitive, an `extern`, a builtin
 whose row is seeded (`__argc`, `__alloc`), or a function whose row
 carries the effect while no callee does, which is an `alloc` form or a
 `handle` in that body and is said so - and renders the hops in the
-resolved spellings `symbols --calls` prints, `Mod$name` and
-`Trait#Type#method`, so a path cross-checks `#calls=` hop for hop:
+resolved spellings `symbols --calls` prints, `Mod$name` among them, so
+a path cross-checks `#calls=` hop for hop:
 
 ```
 E AX3049 ... "`parseConfig` claims `restrict(no-io)` and the body performs IO: parseConfig -> readSection -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3"
@@ -1241,8 +1281,7 @@ effect row, which is already a transitive fixpoint (effects are
 inferred transitively, above): a function calling an IO-performing
 function *has* `IO` in its row, and a check reading the row has no
 local reading available to it. `no-foreign` walks the call graph
-`symbols --calls` prints, through every implementation of a trait
-method the body calls, because the row cannot tell IO through a
+`symbols --calls` prints, because the row cannot tell IO through a
 syscall from IO through an `extern` and the graph can. `no-cast` is
 lexical - a cast is an act the body that writes it performs, not a
 property that propagates - so it is checked in this body only and
@@ -1321,10 +1360,10 @@ compile time.
 `tests/diagnostics/371`-`379` pin each restriction with the controls
 that keep it from being a blanket refusal - a callee that casts under
 `no-cast`, a syscall under `no-foreign`, `Alloc,Mut` under `no-io` -
-and the path through a trait impl, a module boundary, a seeded builtin,
-a callback and an `alloc` form; 379 pins direct, mutual-at-depth-three
-and through-a-trait-method recursion beside a four-deep chain and a
-`while` loop that stay silent. `scripts/check-restrictions.sh` is the
+and the path through a capability record's field, a module boundary, a
+seeded builtin, a callback and an `alloc` form; 379 pins direct,
+mutual-at-depth-three and through-a-capability-record recursion beside
+a four-deep chain and a `while` loop that stay silent. `scripts/check-restrictions.sh` is the
 gate: a restriction changes no emitted byte, a compiler whose
 `checkRestricts` answers nothing goes red, and every restricted
 declaration in the tree is on `tests/agent/restrictions.allow` with
@@ -1479,6 +1518,19 @@ the choice.
 | `Alloc` | Heap **machinery**, not strictly allocation: a call reaching `__alloc` — every `Vec`/`Map`/`Str` growth, every `memAlloc` — and, since 2026-08-25, the three arena primitives, because a reset ends every block allocated since a mark. `handle` contributes it too, for installing evidence, which allocates nothing either. The `(alloc T)` keyword contributes it and was the only contributor until 2026-08-23, which had it exactly inverted (`memory-model.md` MM-EXEC-9a) |
 | `Mut` | Mutable heap state: `(set base.field v)`, and the `__store8`/`__store64` primitives it lowers to — the second half arrived 2026-08-25 (`memory-model.md` MM-EXEC-9a), which is why `vecPush` and `mapInsert` carry it. Since 2026-08-29 the atomic writers `__atomic_store`/`__atomic_add`/`__atomic_cas` and `__fence` carry it too; `__atomic_load` deliberately does not, for `__load64`'s reason. Plain `set` on a `mut` local is deliberately *not* `Mut` - a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
 | `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is reported **unverifiable** (`AX3037`, a warning) rather than unsupported, even over a body that plainly does not terminate — a claim the compiler never looks for is a fact about the analysis, not the body. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
+
+There were **six** until 2026-08-30. `Err` was accepted as a sixth
+built-in name — a handle list could write it — and nothing in the
+compiler ever inferred it, so the name resolved and denoted nothing. A
+handle list was also the only place it resolved at all: the AXTAG path
+lowercases its value, so `;@axiom:effect(err)` looked for an undeclared
+*custom* effect named `err` and reported `missing err`. A name a list
+may write, that nothing produces, and that its own tag spelling cannot
+reach, is a hole in a table rather than an effect. `(handle 5 (Err) 0)`
+now draws `AX3016`, which is what a list naming something undeclared has
+always drawn, and `Err` is an ordinary name again — `(effect Err ...)`
+declares an ordinary effect ([error-model.md](error-model.md) records
+the retirement beside the `AX3054` it shipped with).
 
 ### Declaring an Effect Type
 
@@ -1649,6 +1701,71 @@ MM-EXEC-10 is the measured probe).
 
 ---
 
+## Capability Records
+
+An interface in Axiom is a **capability record**: a parameterised
+`struct` whose fields are functions. `(struct Name (a) (f : (-> a B)))`
+declares the shape, and a value of it is built by handing the
+constructor the functions that implement it. This is what replaced
+traits and `impl` in 0.6.0 — the record is an ordinary value, so it can
+be built at run time, passed as an argument, stored in a `Vec`, or
+generated by a macro, none of which a trait instance could do.
+
+Effects cross a record boundary, and this is most of the point of the
+record: its members are ordinary functions, so they declare their own
+effects the way every other function does. There is no member-tag rule
+to learn, no place to write an effect list on the declaration, and no
+exemption — an untagged `writeLine` whose body calls `println` draws
+`AX3042` at its own name, exactly as it would outside a record.
+
+```scheme
+(import IO)
+
+(struct ConsoleOf (a)
+  (print : (-> a Int)))
+
+;@axiom:effect(io)
+(:: writeLine (-> String Int))
+
+;@axiom:effect(io)
+(fn (writeLine s) (println s))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((c (ConsoleOf writeLine)))
+    (c.print "hi")))
+```
+
+What crosses the field is *possible*, not definite, and the difference
+is worth knowing before it surprises you. Calling `c.print` is an
+application of a value the walk cannot resolve to one function, so
+`main` above renders
+
+```
+#effects=Alloc,IO,Mut #effects-incomplete #effects-overapprox #effects-possible=Alloc,IO,Mut
+```
+
+and the three consumers of an effect row read it as
+[Definite and possible](#definite-and-possible) says they do, measured
+on exactly this program:
+
+- the `;@axiom:effect(io)` claim on `main` is **accepted** — a claimed
+  effect the body may perform is not missing;
+- `main` with **no** tag at all is **not** accused. `AX3042` reads the
+  definite half, and nothing here is definite, so the silence stands;
+- `;@axiom:pure` over the same call is `AX3037` — *"`pure` claim cannot
+  be checked: the body calls a value the compiler could not resolve"* —
+  a warning, not the `AX3010` a refuted claim gets.
+
+Swapping the implementation is swapping the value handed to the
+constructor: a `ConsoleOf` built from a function that appends to a
+buffer type-checks against the same field signature. The row it produces
+is still an upper bound, so name the function at the call where a claim
+has to be checked rather than merely permitted.
+
+---
+
 ## Modules and Imports
 
 Split a program across files with `(import Mod.Sub ...)`:
@@ -1698,14 +1815,100 @@ Both halves matter, and until 2026-08-10 there was only one: a private declarati
 
 ### How Imports Work
 
-- A dotted module path maps directly to a file path: `Math.Ops` resolves to `Math/Ops.ax`, looked up in the entry file's own directory first and then in the rest of the search path — the project's `axiom.pkg` dependencies, `$AXIOM_PATH`, and the standard library, in that order. The SUFFIX ladder is the outer loop, so a more target-specific file anywhere beats a less specific one nearer the entry file: a project's `Sys/Platform.ax` loses to the standard library's `Sys/Platform.darwin.ax` (measured 2026-08-25). [README § Standard library](../README.md#standard-library) states the whole order; `scripts/check-packages.sh` gates it.
+- A dotted module path maps directly to a file path: `Math.Ops` resolves to `Math/Ops.ax`. The path it is looked up on is the [search order](#the-search-order-stated-exactly) below, and its first entry is the **entry file's own directory** — the file passed to `check`/`build`/`run`/`emit-llvm`, not whichever file happens to contain the `(import ...)`. So a deeply nested module reaches a sibling of the entry file by the same path the entry file would write (measured: `sub/Mid.ax` importing a `Helper` that sits beside `main.ax` resolves).
 - `(import Mod.Sub)` with no name list makes every `pub` top-level declaration visible.
 - `(import Mod.Sub (a b))` makes only the named ones visible; the module's other `pub` names stay out of scope.
 - An import's name list **is** checked, at the import: a name the module does not declare, or declares without `pub`, is `AX3023` on the import form itself and says which of the two it was (`tests/diagnostics/440-import-name-list.ax`).
 - Imports are transitive (`A` imports `B` imports `C` brings `C`'s declarations into `A` too) and diamond-safe (two different modules both importing `C` merges `C` exactly once).
 - Qualified access is supported: `Mod::name` resolves to `name` declared in `Mod`. Imported declarations still join the importing module's flat top-level namespace by default; use `Mod::name` to disambiguate when the same name exists in multiple modules.
 - **Types resolve by module, not by import order** (2026-08-24). A `data`, `struct` or `type` name is not rewritten to `Mod$Name` the way a `fn` is, and the lookup used to take the first declaration in the merged list — so two modules that each declared a `Config` had one winner for the whole program, chosen by which `(import ...)` came first, and the loser's own bodies were compiled against the winner's field offsets at exit 0 with no diagnostic. A bare type name now means, in order: a declaration in the referencing module, then a module-less one (the entry file, or a builtin like `Option`), then the single module that declares it. A name two or more modules declare, referenced from a module that declares neither, is `AX3044` naming them. `Mod::Name` is **not** the escape — it does not parse in type position; narrow one of the imports with a name list, or rename one declaration.
-- A module path that doesn't resolve to a real file is `AX5001`. Two of a project's declared dependencies providing one module is refused before compilation, naming both files and the manifest — see [README § Packages](../README.md#packages).
+- A module path that doesn't resolve to a real file is `AX5001`, reported before type-checking starts. Two of a project's declared dependencies providing one module is refused before compilation, naming both files and the manifest — see [Packages](#packages).
+- **Every diagnostic in a multi-file build is attributed to the file and source text it came from**, in every one of the `human`, `ai` and `json` formats: a build that spans four files reports an error in the third against the third file's bytes and span, not against the entry file's.
+
+#### The search order, stated exactly
+
+Stated exactly, because a shorter version of this sentence was wrong for
+a year. The library is found automatically: `AXIOM_STDLIB` overrides its
+location, `axiom.pkg`'s `depend` lines add a project's own dependencies
+(see [Packages](#packages)), and `AXIOM_PATH` — colon-separated — adds
+further module search directories.
+
+Resolution is a ladder of SUFFIXES over a list of DIRECTORIES, and the
+suffix is the outer loop:
+
+```
+for suffix in .<os>-<arch>.ax, .<os>.ax, .ax:
+    for dir in  the entry file's own directory
+                each `depend` in axiom.pkg, in file order
+                each $AXIOM_PATH entry, in order
+                each --crate DIR's axiom/ directory
+                $AXIOM_STDLIB, or the stdlib beside the binary:
+        if <dir><module><suffix> is a readable file, that is the module
+```
+
+So a project *does* shadow a standard-library module with its own file
+of the same name — but only at the same suffix. A more target-specific
+file anywhere on the path beats a less specific one nearer the entry
+file: measured 2026-08-25, a project's own `Sys/Platform.ax` loses to
+the standard library's `Sys/Platform.darwin.ax`, which is the mechanism
+that makes one `(import Sys.Platform)` resolve per target and is not a
+bug. The claim this paragraph replaced — "a module in the entry file's
+own directory always wins" — was false on exactly that case.
+`scripts/check-packages.sh` gates the order.
+
+---
+
+## Packages
+
+A project says what it depends on in an `axiom.pkg` beside its source,
+or at any directory above it up to eight levels:
+
+```
+# axiom.pkg
+name     myapp
+version  0.1.0
+
+depend   vendor/axiom-json
+depend   ../shared/modules
+```
+
+`depend` names a **directory of modules**, resolved against the
+manifest's own directory so the project relocates. Each one joins the
+module search path after the entry file's directory and before
+`$AXIOM_PATH` — the position [the search order](#the-search-order-stated-exactly)
+above gives it. The manifest travels with the source and the variable
+travels with the shell, so when both can answer, the declared dependency
+wins. `name` and `version` are recorded and read by nothing yet.
+
+**Two dependencies may not provide one module.** That is the property
+that makes this more than a search path, and it is refused before a byte
+is compiled:
+
+```
+$ axiom check app.ax ; echo $?
+error: two dependencies in ./axiom.pkg provide the module `Widget`:
+       a/Widget.ax
+       b/Widget.ax
+       One of them would win by declaration order and the other's
+       modules would compile against declarations they never named.
+3
+```
+
+Before this, whichever directory came first won, silently, and the
+loser's modules compiled against a package they had never named — the
+value-namespace twin of the type collision `AX3044` closed on
+2026-08-24 ([Types resolve by module](#how-imports-work)), with the same
+failure mode: a wrong answer at exit 0.
+
+**What this is not**, said out loud so nobody has to discover it: there
+is no registry, no lockfile, no version constraint and no fetching. A
+dependency is a path on this machine. Each of those is a policy decision
+that wants a maintainer to make it, and a half-made one is worse than
+the mechanism it would rest on ([compatibility.md](compatibility.md) §4
+records it among the things not promised). `scripts/check-packages.sh`
+is the gate — 11 checks, whose negative probe removes the manifest and
+requires the same program to stop resolving, so nothing else can be what
+found the module.
 
 ---
 
@@ -1767,8 +1970,8 @@ generates one declaration per template form when invoked at top level:
 (defWrap w2 base 100)           ; and w2 - names are parameters
 ```
 
-Templates may generate `fn`, `::`, `data`, `struct`, `type`, `effect`
-and `impl` declarations and further macro invocations; an argument standing in a
+Templates may generate `fn`, `::`, `data`, `struct`, `type` and
+`effect` declarations and further macro invocations; an argument standing in a
 name position must be a bare identifier; a macro is invocable from the
 entry file and from a module over its own declarations, where the
 template's own `pub` decides what leaves the module. Everything
@@ -1807,7 +2010,7 @@ Structs and fieldful constructors are covered too: `(syntax/fields
 S)` iterates a struct's field names, `(syntax/binders C x)` names a
 constructor's fields as hygienic pattern binders, and `(syntax/fold
 && true ...)` chains a comparison over them — the spec's `deriveEq`
-and `deriveLenses` both run verbatim, and a derived `impl` composes
+and `deriveLenses` both run verbatim, and a derived function composes
 with the next derive.
 
 Three more answer one value where one value is needed, and each is
@@ -1839,7 +2042,7 @@ identifiers spelled alike to be the same pattern only when they mean
 the same binding, which is scope sets; and carry rules on the
 expression form, which stays one parameter list and one template
 because the two forms differ in what a template is. (`deriving (Eq)`
-is refused outright — see Deriving Traits.)
+is refused outright — see [Deriving](#deriving).)
 The normative specification is [macro-system.md](macro-system.md);
 [macro-system.md](macro-system.md) is the measured detail and the order the rest
 is planned in.
@@ -1859,7 +2062,9 @@ was expensive, so you emitted the pieces instead; here the line is
 assembled at compile time, so `(println "ok {name} in {ms:>4}ms")` is
 one call and one syscall where four `print`s were four. For bytes with
 no newline and no rendering there is `writeStr`, which is the
-primitive and is also one call.
+primitive and is also one call. `print` is not a name in this language
+at all — `(print "hi")` is `AX3001 undefined variable`, measured, and
+not a private name refused at its module boundary.
 
 ```scheme
 (import IO)
@@ -1985,11 +2190,11 @@ result is interpolated:
   (println "the colour is {s}"))          ; the colour is green
 ```
 
-A written `(impl (Show T))` is still honoured in this release — at the
-call it wins over the derived rendering, and `Pre`'s `deriveShow` still
-writes the function half of one — but a value *inside* a structure is
-always rendered structurally, and the trait is on its way out with the
-rest of the trait machinery.
+There is no override left to write. A `(impl (Show T))` used to win at
+the call over the derived rendering; `impl` is `AX2004` since 0.6.0, so
+the compiler's rendering is the only one, inside a structure and out.
+`Pre`'s `deriveShow` still writes `showT` — an ordinary function you
+call by name, exactly like `showColour` above.
 
 ### When the type is not known
 
@@ -2041,16 +2246,23 @@ The standard library is built on these low-level primitives, and so is any code 
 
 | Primitive | Meaning |
 |---|---|
-| `(__syscall0 n)` ... `(__syscall6 n a1 ... a6)` | Raw syscall |
+| `(__syscall0 n)` ... `(__syscall6 n a1 ... a6)` | Raw syscall. Returns the result, or `-errno` on failure, on every platform |
 | `(__load8 base i)` / `(__store8 base i v)` | Byte at `base + i` |
 | `(__load64 base i)` / `(__store64 base i v)` | Machine word at `base + i * 8` |
 | `(__atomic_load p)` / `(__atomic_store p v)` / `(__atomic_add p v)` / `(__atomic_cas p expected new)` / `__fence` | Sequentially consistent atomics on the machine word at **byte address** `p` (the address itself, not `base + i * 8`): a load; a store; an add that answers the word **before** it; a compare-and-swap that answers the word it found, so it stored `new` iff the answer equals `expected`; and a full fence. A store and the fence answer 0. The four that write or order carry `Mut`; the load computes, as `__load64` does. No thread exists for them to synchronise with (`memory-model.md` MM-PAR-1); `tests/stdlib/440-atomics.ax` pins their single-threaded meaning |
 | `(__alloc bytes)` | Address of `bytes` fresh zeroed bytes |
 | `(__retain h)` / `(__release h)` | Take or hand back a share of the counted block at `h` |
 | `(__retainref v)` | Take a share of `v` **iff `v` is a reference** — decided from the call's type, so an `Int` argument emits nothing. The store that hides a value behind a `cast Int` uses this |
+| `__axiom_arena_mark` / `(__axiom_arena_reset m)` | Read the allocator's waterline (it takes no argument), and roll it back to a mark |
+| `(memMarkArray h)` / `(memMarkLeaf h)` | Say that every payload word of the block at `h` is a handle, or that none is — the array form, `Mem`. There is no reader: the bit is the RUNTIME's instruction and is ambiguous against an allocator with a different clamp, so a container carries its own flag ([memory-model.md](memory-model.md) MM-LIFE-2h) |
+| `(__axiom_recover m thunk)` | Arm a recovery point at mark `m` and run `thunk`: out of memory, an unhandled effect and a division by zero answer this call with 70, 71 or 72 instead of exiting. Outside one they still exit ([error-model.md](error-model.md) ERR-REC-6) |
 | `(__addr "literal")` | Address of a string literal's bytes |
 
-Syscall numbers are not built into the compiler — they live in `stdlib/Sys/Platform.<os>[-<arch>].ax`, and the module resolver picks the file matching `--target`.
+`axiom symbols --builtins <file>` prints the full list, primitives and
+the built-in operators together, with the type of each — see
+[Symbol Listing](#symbol-listing).
+
+Syscall numbers are not built into the compiler — they live in `stdlib/Sys/Platform.<os>[-<arch>].ax`, and the module resolver picks the file matching `--target`. Adding a syscall is a standard-library change, not a compiler change.
 
 ### Allocation
 
@@ -2066,26 +2278,38 @@ Memory comes from the backend's `mmap`-backed bump allocator. There is no `free`
 
 ## Standard Library
 
-Axiom ships a standard library written **in Axiom**. It reaches the operating system through raw syscalls, not through C, so a program that links nothing else contains no call to libc — `scripts/check-freestanding.sh` is the gate on that, and an `extern` block linking a Rust crate is the deliberate exception ([ffi.md](ffi.md) §15). On `windows-x86_64` there is no syscall ABI and the same library reaches the OS through kernel32; there the gate turns around and holds every import to `scripts/platform-allow.windows.txt`, eight names, a list that may not carry a libc name.
+Axiom ships a standard library written **in Axiom**. It reaches the operating system through raw syscalls, not through C, so a program that links nothing else contains no call to libc — not for printing, not for allocation, not for file I/O; the library needs no FFI to do any of it. `scripts/check-freestanding.sh` is the gate on that, and an `extern` block linking a Rust crate is the deliberate exception ([ffi.md](ffi.md) §15). Naming an external symbol is what that block is for, with Rust on the other side through the C ABI; `foreign`, the construct that used to spell it, is removed and reserved at `AX2004` ([Removed Keywords](#removed-keywords)). On `windows-x86_64` there is no syscall ABI and the same library reaches the OS through kernel32; there the gate turns around and holds every import to `scripts/platform-allow.windows.txt`, eight names, a list that may not carry a libc name.
 
 ### Modules at a Glance
 
+Twenty-two modules, all of them Axiom source under `stdlib/`. A name a
+module does not mark `pub` is not part of its surface — reaching one is
+`AX3023` — so `grep '^(pub' stdlib/M.ax` is always the authoritative
+answer to what a module exports. The table below says what each module
+is *for* and names its surface; **every public name, with its type, its
+effects and a one-line summary, is in
+[stdlib-api.md](stdlib-api.md)**, which is GENERATED — an Axiom program
+(`examples/axdoc/axdoc.ax`) reads the library's own source for the
+public surface and `axiom symbols` for the effect row, and
+`scripts/check-stdlib-api.sh` regenerates it on every CI run and
+requires the result to be byte-identical.
+
 | Module | Provides |
 |---|---|
-| `Pre` | `when`, `unless`, `cond2`, `cond3` (conditional macros), `deriveEq`, `deriveShow`, `deriveArity`, `showOr` |
-| `Mem` | `memAlloc`, `memAllocMapped`, `memMarkArray`/`memMarkLeaf`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
-| `Str` | `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strCStr` |
+| `Pre` | the prelude macros: `when`, `unless`, `cond2`, `cond3` (conditional macros), `deriveEq`, `deriveShow`, `deriveArity`, `showOr` |
+| `Mem` | raw memory: `memAlloc`, `memAllocMapped`, `memMarkArray`/`memMarkLeaf`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
+| `Str` | the byte view of a `Str`: `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strSplit`, `strCStr`. String *literals* are already `Str` values — see [String Literals Are `Str` Values](#string-literals-are-str-values) |
 | `Utf8` | `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid` (the character view of a `Str`) |
-| `Vec` | `vecNew`, `vecNewRef`, `vecWithCapacity`, `vecWithCapacityRef`, `vecFree`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecLast`, `vecClear`, `vecSort`, `vecSortBy` |
+| `Vec` | growable `Int` array: `vecNew`, `vecNewRef`, `vecWithCapacity`, `vecWithCapacityRef`, `vecFree`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecLast`, `vecClear`, `vecSort`, `vecSortBy` |
 | `Map` | `mapNew`, `mapNewRefVals`, `mapWithCapacity`, `mapWithCapacityRefVals`, `mapFree`, `mapHas`, `mapGet`, `mapGetStr`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapUsed` (open-addressing `Int→Int` hash map) |
 | `Fmt` | `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth` — the functions a format specifier selects |
-| `Show` | the `Show` trait and its `show` method (`Int`, `String`, `Bool`, `Float`), and the `format` macro |
+| `Show` | the `format` macro, and nothing else — since traits were removed in 0.6.0 it is the module's one public name. `show`, which a hole lowers to, is resolved by the **compiler** from the value's static type (`Int`, `String`, `Bool`, `Float`); an argument shape with no rendering is `AX3025` |
 | `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try!`, `toOption`, `withContext`, and the checked arithmetic `divChecked`, `remChecked`, `shlChecked`, `shrChecked` ([error-model.md](error-model.md) is the specification) |
 | `Fallible` | `fallibleMalformed` — the operation a batch loop's callee performs on a malformed record — and the handlers that answer it without unwinding: `fallibleSkip`, `fallibleDefault`, `fallibleCounting`; the skip sentinel `fallibleSkipped`/`fallibleIsSkipped`; the `FallibleTally` a counting handler writes, `fallibleTally`/`fallibleCount` ([error-model.md](error-model.md) ERR-REC-7) |
 | `Intern` | `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
-| `Sys` | `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`; the filesystem (below); and the process layer `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros` |
+| `Sys` | the syscall layer: `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`; the filesystem (below); and the process layer `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros` |
 | `Path` | `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute`, `pathLastSlash`, `pathExtIndex` — decisions about bytes, no syscalls |
-| `IO` | `println`, `eprintln` (**macros** — see Printing and Formatting), `writeStr`, `printlnLit`, `readFileLit`, `exit`, `die`, `todo`; and the filesystem (below) |
+| `IO` | `println`, `eprintln` (**macros** — see Printing and Formatting), `writeStr` (bytes, no newline, no rendering), the raw-address variants `printlnLit`/`readFileLit`, `exit`, `die`, `todo` (a hole that types as any result and never returns, printing `todo: <what>` and exiting 70 — it is what `AX3005`'s machine-applicable fix writes into each missing arm); and the filesystem (below) |
 | `Ffi` | `ffiHandleNew`/`ffiHandlePtr`/`ffiHandleClose`, the out-cell (`ffiCellNew`, `ffiCellWord`, `ffiCellFree`) and the `Vec` conversions a generated binding needs ([ffi.md](ffi.md)) |
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them — written for JSON-RPC |
 | `Rpc` | the LSP base protocol's framing over a file descriptor: `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled` |
@@ -2165,6 +2389,54 @@ the self-hosting record.
   })
 ```
 
+A walk over a directory is ordinary recursion over the `Vec` `listDir`
+answers — there is no for-loop and none is wanted:
+
+```scheme
+(import IO)
+(import Path)
+(import Str)
+(import Vec)
+(import Err)
+
+; Every `.ax` file in `dir`, with its size, one per line.
+(:: report (-> String Int Int Int))
+;@axiom:effect(io)
+(fn (report dir names i)
+  (if (>= i (vecLen names))
+      0
+      (let ((p (pathJoin dir (cast String (vecGet names i)))))
+        {
+          (if (strEq (pathExt p) ".ax")
+              ; `fileSize` answers a `Result`: the failure is in the
+              ; type, so a size and an errno are not the same Int. Match
+              ; it - `(unwrapOr (fileSize p) 0)` would report an
+              ; unreadable file as zero bytes, and `unwrapOr` is safe
+              ; only where the fallback is genuinely equivalent to the
+              ; error (error-model.md states that rule and the three
+              ; fixtures that broke it).
+              (match (fileSize p)
+                ((Ok size) (println "{p}  {size}"))
+                ((Err e)   (let ((why (errorText e))) (eprintln "{p}  unreadable: {why}"))))
+              0)
+          (report dir names (+ i 1))
+        })))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (makeDirAll "build/reports")           ; parents included; EEXIST is success
+    (report "stdlib" (listDir "stdlib") 0) ; sorted, so two machines agree
+    (appendFile "build/reports/log.txt" "swept stdlib\n")
+    0
+  })
+```
+
+`vecGet` answers `Int` — the truth about a machine word — so a name read
+out of the `Vec` is crossed back with `(cast String ...)`, which is the
+same typed-accessor rule the `Map` pair follows.
+
 ### A `Str` Is...
 
 A `Str` is a length-prefixed, NUL-terminated string. It is the address of a three-word header:
@@ -2182,6 +2454,12 @@ buffer's to the kernel. See [memory-model.md](memory-model.md)
 MM-VAL-7.
 
 The bytes are always NUL-terminated in addition to being length-counted. This means `strCStr` can hand a path straight to a syscall without copying, and a `Str` can contain a NUL byte.
+
+The `Lit` names — `printlnLit`, `readFileLit` — take a raw
+NUL-terminated address rather than a `Str`. They are rarely what you
+want now that a literal *is* a `Str`: `(println "hi")` is both shorter
+and cheaper than `(printlnLit (__addr "hi"))`. They remain the way to
+handle bytes that arrived without a length, such as a syscall buffer.
 
 ### Text Is UTF-8, and `Str` Stays Bytes
 
@@ -2320,6 +2598,50 @@ lowered it to its operand, and consuming twice was accepted. The form reclaimed
 nothing. Delete the wrapper and keep its argument — `(consume e)` always meant
 `e`.
 
+### `trait` and `impl` — Removed
+
+An interface is a **capability record** now — a parameterised `struct`
+whose fields are functions, and an instance is an ordinary value of it.
+[Capability Records](#capability-records) is the whole replacement, with
+a compiled example. Both words report `AX2004` and say what to write:
+
+```scheme refused
+(trait (Eq a) where
+  (eq :: (-> a a Bool)))
+
+(:: main Int)
+(fn (main) 0)
+; error[AX2004]: `trait` is no longer part of Axiom
+```
+
+```scheme refused
+(impl (Eq Int) where
+  ((eq (lambda (x y) (== x y)))))
+
+(:: main Int)
+(fn (main) 0)
+; error[AX2004]: `impl` is no longer part of Axiom
+```
+
+Dispatch is spelled `((c.eq) x y)` — an application, not a resolution
+rule — and `show` needs no record at all, because the compiler renders
+every type from its static type
+([Printing and Formatting](#printing-and-formatting)).
+
+They are **reserved** rather than freed, for the sharper of AX2004's two
+reasons: an ordinary identifier named `impl` would make
+`(impl (Eq Int) where ...)` a declaration-macro invocation, and the
+reader would be told that no macro named `impl` exists — a true sentence
+naming neither the construct they wrote nor what replaced it.
+
+Three things went with the pair and have no replacement, because a
+record needs none: supertraits, default method bodies, and the effect
+list a `trait`/`impl` header accepted and discarded without checking. A
+record's members are ordinary functions, so they declare their own
+effects the way every other function does. `where` went too — it was a
+keyword only inside these two forms, and it is an ordinary identifier
+again.
+
 ### `region` — Removed
 
 Reclamation is never written by hand as a region annotation — the chosen automatic strategy is reference counting, and the region-inference sketch that originally justified this sentence is withdrawn (`docs/memory-model.md` MM-LIFE-2a, §3.4). Delete the `region` wrapper and keep its body.
@@ -2355,8 +2677,9 @@ axiom repl
 
 ### Example Session
 
-There is no prompt: the loop reads a line, answers it, and reads the
-next one, so a piped session and a typed one produce the same bytes.
+The banner is two lines, there is no prompt, and every line of output
+goes to stdout. The loop reads a line, answers it, and reads the next
+one, so a piped session and a typed one produce the same bytes.
 
 ```
 $ axiom repl
@@ -2372,7 +2695,27 @@ type : Int
 result 7
 :type (add 3 4)
 (add 3 4) : Int
+:defs
+Definitions in scope:
+  add
+  add
+:llvm (+ 1 2)
+Generated LLVM IR:
+target triple = "arm64-apple-macosx14.0.0"
+...
 ```
+
+The input lines are shown interleaved for readability; the REPL echoes
+nothing it was given.
+
+**What pins this, and the one line nothing pins.** The session is held
+by `scripts/check-repl-selfhost.sh`, which drives the loop and compares
+its bytes — *except* the banner, which that gate never sees, because it
+runs the REPL as `repl --no-banner`. The version inside the banner is
+held instead by `scripts/check-version.sh`, which names this file as one
+of its sites; `scripts/lib/version-sites.sh` expects exactly one such
+banner here, so a second copy of it in this document would fail the
+version gate rather than duplicate harmlessly.
 
 The REPL accumulates definitions — functions you define persist across
 inputs. Nothing else persists: there is no line editing, no arrow-key
@@ -2381,7 +2724,7 @@ than driving a terminal. `:help`'s own text still advertises `?` and
 arrow keys; only a line beginning with `:` reaches the command
 dispatcher, so `?` is read as an expression and answered with a parse
 error. The editor-grade interface is the LSP's business
-(the self-hosting record).
+(`self_host/repl.ax` records the divergence).
 
 ---
 
@@ -2558,11 +2901,110 @@ axiom explain --list
 
 ---
 
+## Testing
+
+A test is a top-level function whose name begins with `test` and which
+takes **no parameters**. There is no attribute to write, nothing to
+register and no manifest — `axiom test` reads the file and finds them.
+
+```scheme
+; tests/testrunner/pass-tests.ax is this repository's own
+(import Test)
+
+(import Vec)
+
+(:: testVecGrowsAndKeepsItsElements Int)
+
+;@axiom:effect(io)
+(fn (testVecGrowsAndKeepsItsElements)
+  (let ((v vecNew))
+    {
+      (vecPush v 41)
+      (vecPush v 1)
+      (assertEq "length after two pushes" 2 (vecLen v))
+      (assertEq "sum" 42 (vecSum v))
+      0
+    }))
+```
+
+```bash
+$ axiom test tests/testrunner/pass-tests.ax
+ok   testVecGrowsAndKeepsItsElements
+ok   testMapRoundTrips
+ok   testStrSlicesShareBytes
+ok   testPathSplitsIntoItsParts
+ok   testAssertNeSeparatesTwoValues
+
+5 test(s), 0 failed
+```
+
+### Discovery, and the two anti-silence rules
+
+A directory runs every `.ax` file directly inside it, in **name order**.
+`--filter TEXT` runs only the tests whose name contains `TEXT`.
+
+Two rules exist so that nothing is skipped in silence, which is a
+runner's characteristic defect — a skipped test reads exactly like a
+passing one:
+
+- A file that declares **no** test is a failure, not an empty success.
+- A `test`-named function that **takes parameters** is refused by name,
+  rather than passed over (`tests/testrunner/arity-tests.ax`).
+
+A `--filter` that matches nothing is a failure for the same reason an
+empty file is. The gate is `scripts/check-test-runner.sh`, whose
+fixtures are `tests/testrunner/`.
+
+### Assertions Take a Label First
+
+`stdlib/Test.ax` is the assertion surface: `assertEq`, `assertNe`,
+`assertStrEq`, `assertTrue`, `assertFalse`, and `testFail` for the
+branch that must not be reached. Every one of them takes a **label**
+first, and the reason is a capability the macro system does not have:
+Axiom's macros cannot stringify an expression
+([macro-system.md](macro-system.md)), so there is no way to print the
+comparison that failed. The label is what the failure has to say
+instead.
+
+### One Failure Ends One Test
+
+**A failed assertion ends the test it is in, and no other.** It performs
+an operation of the `Assert` effect, which with no handler in dynamic
+extent is the unhandled-effect trap, and `axiom test` arms one recovery
+point per test — so the three ways an Axiom program can stop without
+returning all end exactly one test and answer the runner with a status
+([error-model.md](error-model.md) ERR-REC-6 is the specification):
+
+```
+ok   testTheFirstOnePasses
+     deliberate: want 3, got 4
+FAIL testAFailedAssertionEndsTheTest - a failed assertion, or an unhandled effect (status 71)
+FAIL testADivisionByZeroIsContained - division by zero (status 72)
+FAIL testAnUnhandledEffectIsContained - a failed assertion, or an unhandled effect (status 71)
+ok   testTheLastOneStillRuns
+
+5 test(s), 3 failed
+```
+
+That last line is the point of the mechanism: the test declared after
+all three failures still ran (`tests/testrunner/mixed-tests.ax`). A
+memory-safety fault is the one thing this does not contain, and no
+language contains it.
+
+---
+
 ## Compiler Pipeline
 
 ```
 Source (.ax) → Lexer → Parser → Imports → Macro Expansion → Type Checker → LLVM IR → opt → llc → cc → Executable
 ```
+
+Import resolution is the stage between the parser and the expander,
+and what it produces is **one merged declaration list, each entry
+remembering the module it came from** — which is what lets a bare name
+resolve across files and a diagnostic still name the file it came from.
+Macro expansion then runs to a fixpoint before any body is walked, and
+the type checker is two passes: collect declarations, then check bodies.
 
 There is no separate IR stage: `codegen.ax` writes LLVM IR text
 straight from the checked AST. The retired Rust compiler had a
@@ -2578,17 +3020,18 @@ The compiler is written in Axiom, in `self_host/`.
 | `core.ax` | Tokens and spans |
 | `lexer.ax` | Tokenizer |
 | `parser.ax` | S-expression parser and AST |
-| `expand.ax` | Macro expansion, hygiene, expansion diagnostics |
+| `expand.ax` | Macro expansion — to a fixpoint, with the `syntax/*` query vocabulary — hygiene, expansion diagnostics |
 | `typecheck.ax` | Name resolution, type checking, effects, AXTAG validation |
 | `namespace.ax` | The declaration namespace: how a bare name reaches a definition, and which names may leave a module |
 | `codegen.ax` | Import resolution, name mangling, LLVM emission |
 | `diag.ax` | Diagnostics, AXDL/JSON rendering, source maps |
 | `render.ax` | The human diagnostic renderer |
-| `style.ax` | ANSI colour for the human renderer, and for nothing else |
-| `driver.ax` | `build`: `opt`, `llc`, `cc`, and the crate/archive linking the FFI needs |
+| `style.ax` | The one palette table every coloured render reads — ANSI colour for the human renderer, and for nothing else |
+| `driver.ax` | `build`: `opt`, `llc`, `cc`, and blaming the right one when a stage fails; `--crate` running `cargo` and `axiom-bindgen`; grounding externs; the crate/archive linking the FFI needs |
 | `rustbind.ax` | The Rust binding `--emit-rust-binding` writes for an Axiom archive ([ffi.md](ffi.md) §10) |
-| `main.ax` | CLI entry point; `format.ax`, `repl.ax`, `symbols.ax`, `explain.ax`, `lsp.ax` are the tools |
-| `Host.<target>.ax` | Host triple and syscall ABI, selected when the compiler is compiled |
+| `main.ax` | CLI entry point and subcommand dispatch; `format.ax`, `repl.ax`, `symbols.ax`, `explain.ax`, `lsp.ax` are the tools |
+| `build.ax` | One string literal: the build id `scripts/build-stamped.sh` rewrites in a copy of this directory, so a shipped binary names the tree it came from |
+| `Host.<target>.ax` | Host triple and syscall ABI, selected when the compiler is *compiled* — a freestanding binary has no `uname` to ask |
 
 ---
 
@@ -2623,6 +3066,31 @@ axiom build --input main.ax --output main --opt 2
 ```
 
 Use `--opt 2` for anything that iterates over a large input.
+
+### Iteration Has Three Spellings, and Only One Is Bounded
+
+| | Depth at `--opt 0` |
+|---|---|
+| `while` | Unbounded — it is a real loop. 10⁷ iterations in constant stack (`tests/selfhost/500-while-mut.ax`) |
+| **Self** tail recursion | Unbounded — the loop is built by Axiom's own codegen at every `--opt` level (`memory-model.md` MM-EXEC-6b). Mutual tail recursion, and a tail call in a `let` body, are flattened only by LLVM at `--opt 1`+ (MM-EXEC-6c) |
+| **Non-tail** recursion | **Bounded** by the machine stack: measured on an 8176 KiB stack, **174,000–175,000** frames at `--opt 0` and **260,000–262,000** at `--opt 1`, beyond which the process dies with SIGSEGV, status 139 (`memory-model.md` MM-EXEC-6d) |
+
+So the shape to avoid at scale is a fold whose combining step happens
+*after* the recursive call:
+
+```scheme
+; Bounded: the `+` runs after the call, so every level keeps a frame.
+(fn (count v i hi)
+  (if (>= i hi) 0 (+ (vecGet v i) (count v (+ i 1) hi))))
+
+; Unbounded: an accumulator makes the call a tail call.
+(fn (count v i hi acc)
+  (if (>= i hi) acc (count v (+ i 1) hi (+ acc (vecGet v i)))))
+```
+
+`--opt 1` and above are worth using for anything hot, and are still
+needed for the *correctness* of mutual tail recursion — only a **self**
+tail call is a loop without the optimiser.
 
 ---
 

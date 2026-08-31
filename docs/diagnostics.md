@@ -231,6 +231,13 @@ an LLM agent burns reading compiler output. The design rationale:
   has a known replacement, it's encoded as `<loc>:"<msg>"~>"<replacement>"`
   so a tool (or an agent) can apply it with a plain byte-range
   substitution instead of parsing English.
+* **Every fact the diagnostic carries is on the one line** — the primary
+  label, every related span, every note and every help. The one thing
+  that is *not* there is the `run axiom explain AX####` footer: the
+  human render adds it for a reader who wants prose, and an agent that
+  wants prose calls `axiom explain` directly rather than being told to.
+  Measured on the same `AX3001`, the human report ends with two `help:`
+  lines and the AXDL line carries one `?` field.
 
 ### Grammar
 
@@ -360,8 +367,7 @@ pipeline as `check` (including resolving `(import ...)`s, which is why
 a symbol's `FILE` is the file that declared it - see the `FILE:LOC` row
 below), then prints one fact per top-level name the checker collected:
 every `define`/`fn`, every `data` type and its constructors, every
-`struct` (with its exact field shapes), every `type` alias, and every
-trait.
+`struct` (with its exact field shapes), and every `type` alias.
 
 ```bash
 # The aligned table, one line per symbol - the default
@@ -402,7 +408,7 @@ answering with something else, since the flag selects the format of
 
 | Field | Meaning |
 |---|---|
-| `KIND` | One letter: `F` function, `D` data type, `C` constructor, `S` struct, `A` type alias, `T` trait, `E` effect declaration, `M` macro |
+| `KIND` | One letter: `F` function, `D` data type, `C` constructor, `S` struct, `A` type alias, `E` effect declaration, `M` macro. `T` was a trait; `trait` is `AX2004` since 0.6.0, so no row can carry it |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same source map in [`self_host/diag.ax`](../self_host/diag.ax) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
 | `-` | In place of `FILE:LOC`, for a name with no source span at all: the 18 built-in operators (`+`, `==`, `&&`, ...) and the 26 primitives (`__syscall0`, `__alloc`, ...), which `axiom symbols` omits unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid), and the built-in `Option` type with its two constructors, which is always listed because a file's own code names it |
@@ -416,12 +422,11 @@ Metadata keys actually emitted today:
 | `ctors` | `D` | Comma-separated constructor names, e.g. `#ctors=Nothing,Just` |
 | `of` | `C` | The constructor's owning data type, e.g. `#of=Maybe` |
 | `fields` | `S` | `name:Type,name:Type,...` - the actual field shapes, not just a count, e.g. `#fields=x:Int,y:Int` |
-| `methods` | `T` | `name:Type,name:Type,...` for the trait's methods, same shape as `fields` |
 | `tyvars` | `A` | Comma-separated type parameters, e.g. `#tyvars=a,b`, omitted when there are none |
 | `effects` | `F` | The effect row the checker derived, sorted and comma-separated, e.g. `#effects=IO`; absent when the function performs none. An `extern` item carries `#effects=IO` |
 | `effect-params` | `F` | For an effect-polymorphic signature, the parameters the row varies in, by their declared names |
 | `effects-incomplete` | `F` | The walk met a call it could not resolve - a struct field or an opaque local holding a function, or a call applying a callee's result - so `#effects=` is a LOWER bound. A row with nothing but this carries no `#effects=` at all |
-| `effects-overapprox` | `F` | Some member of `#effects=` is only POSSIBLE: contributed by naming an arrow-typed function without calling it, or by a trait method with more than one implementation. Always beside `effects-possible` |
+| `effects-overapprox` | `F` | Some member of `#effects=` is only POSSIBLE: contributed by naming an arrow-typed function without calling it — handing it back, or storing it in a capability record. Always beside `effects-possible`. A trait method with more than one implementation was the second contributor until 0.6.0 removed the construct |
 | `effects-possible` | `F` | Which members those are, sorted and comma-separated, e.g. `#effects-possible=IO` on `(fn (handoff k) shout)`. A member the body also performs definitely is not listed; `#effects=` stays the union either way (see [reference.md](reference.md), "Definite and possible") |
 | `generated` | `F` | The declaration macro that wrote this declaration, for a name no line of the file spells |
 | `calls` | `F` | **Only with `--calls`.** The call edges the effect walk resolved to derive the `#effects=` row beside it, sorted and comma-separated. Names the *resolved* entry - `Mod$name` where the checker mangled it, which is also the symbol codegen emits - so an edge says which `writeStr`. A bare reference is an edge too, because the effect walk attributes one exactly as it attributes a call. Absent by default: it would otherwise land on every row of every golden. See [agent-harness.md](agent-harness.md) §3.5 |
