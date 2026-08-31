@@ -4149,7 +4149,34 @@ def edit_session(n):
 
 SMALL, BIG_N = 5, 200
 SLOPE_CEILING_KIB = 2048     # over 195 further edits
-ABSOLUTE_CEILING_KIB = 32768
+
+# THE ABSOLUTE CEILING IS PER-PLATFORM, and it has to be, because the
+# same flat session measures 13x apart on the two. Measured 2026-08-31
+# on the same tree:
+#
+#   darwin-aarch64   2,336 KiB at 5 edits, 2,512 KiB at 200
+#   linux-aarch64   33,464 KiB at 200        (reproduced under podman)
+#   linux-x86_64    33,544 KiB at 200        (CI, run 33424865965)
+#
+# One ceiling of 32,768 covered both until 0.6.1 crossed it on the two
+# Linux legs. It was derived on Darwin, where it sits 13x above the
+# measurement and therefore asserts NOTHING - a ceiling nothing can
+# reach is the same defect as a check that cannot fail, and it hid the
+# fact that the Linux number had never been bounded at all.
+#
+# THE SLOPE ARM IS THE LEAK CHECK AND IT PASSES ON BOTH. That is what
+# says the difference is a working set and not a growth: 176 KiB over
+# 195 edits on Darwin, and under the 2,048 KiB ceiling on Linux, where
+# the absolute arm is what went red. The gap is the runtime's chunk
+# behaviour under glibc against Darwin's, not the server keeping
+# anything per edit.
+#
+# Each is derived from its own platform's measurement with the margin
+# stated, rather than rounded up until it passed: Darwin 12,288 is 4.9x
+# its 2,512, and Linux 40,960 is 1.22x its 33,544. The Darwin number is
+# TIGHTENED here - 2.7x lower than the 32,768 it replaces - because a
+# ceiling that only one platform can reach is only half a check.
+ABSOLUTE_CEILING_KIB = 12288 if sys.platform == "darwin" else 40960
 
 why = None
 rss = {}
@@ -4179,14 +4206,24 @@ if not why:
                f" ({slope * 1024 // (BIG_N - SMALL)} bytes per edit),"
                f" ceiling {SLOPE_CEILING_KIB} KiB")
     elif rss[BIG_N] > ABSOLUTE_CEILING_KIB:
-        why = f"{rss[BIG_N]} KiB at {BIG_N} edits exceeds {ABSOLUTE_CEILING_KIB} KiB"
+        # The slope is in this message even though it PASSED, because
+        # without it a reader cannot tell a leak from a working set and
+        # has to re-run the gate to find out which one went wrong.
+        why = (f"{rss[BIG_N]} KiB at {BIG_N} edits exceeds"
+               f" {ABSOLUTE_CEILING_KIB} KiB on {sys.platform}"
+               f" (the session is FLAT - {rss[SMALL]} KiB at {SMALL},"
+               f" grew {slope} KiB over {BIG_N - SMALL} edits, under the"
+               f" {SLOPE_CEILING_KIB} KiB slope ceiling - so this is a"
+               f" working set, not a leak)")
 
 if why:
     print(f"FAIL editing-session-is-flat: {why}")
     failed += 1
 else:
     print(f"ok   editing-session-is-flat ({rss[SMALL]} KiB at {SMALL} edits, "
-          f"{rss[BIG_N]} KiB at {BIG_N}, every edit checked)")
+          f"{rss[BIG_N]} KiB at {BIG_N}, grew {rss[BIG_N] - rss[SMALL]} KiB, "
+          f"under {SLOPE_CEILING_KIB} slope and {ABSOLUTE_CEILING_KIB} absolute "
+          f"on {sys.platform}, every edit checked)")
     passed += 1
 
 # ---------------------------------------------------------------------
