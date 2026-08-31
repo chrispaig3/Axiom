@@ -46,11 +46,11 @@
 #      to watch go red that is not a golden comparison.
 #
 #   3. A PLANTED VIOLATION IS REFUSED. A clean program carrying every
-#      restriction, satisfied, is written here; then six copies, each
+#      restriction, satisfied, is written here; then seven copies, each
 #      with one violation planted - a `println` under `no-io`, a
 #      `vecNew` under `no-alloc`, a `cast` under `no-cast`, an `extern`
-#      call under `no-foreign`, a self-call under `no-recursion`, a
-#      name that is not a restriction - and
+#      call under `no-foreign`, a self-call under `no-recursion`, a raw
+#      `+` under `no-wrap`, a name that is not a restriction - and
 #      each copy must draw exactly one restriction diagnostic, of the
 #      code and on the declaration the plant names. The `no-cast`
 #      plant additionally requires the span to cover the word `cast`
@@ -284,6 +284,7 @@ fixture_expectations() {
 377-restrict-witness-path AX3049 6 quiet
 378-restrict-no-cast-deep AX3049 5 deepClean shallow plain
 379-restrict-no-recursion AX3049 4 deep looped d1 d2 d3 d4
+383-restrict-no-wrap     AX3049 3 delegates compares honest
 EXP
 }
 
@@ -313,7 +314,7 @@ fixtures_answer() {
 }
 
 if fixtures_answer "$axc"; then
-  ok "371-379 draw their codes and every control is silent"
+  ok "371-379, 383 draw their codes and every control is silent"
 else
   bad "a restriction fixture did not answer as its header promises (above)"
 fi
@@ -325,6 +326,8 @@ cat > "$work/plant/clean.ax" <<'CLEAN'
 (import IO)
 
 (import Vec)
+
+(import Err)
 
 ;@axiom:restrict(no-io)
 (:: quietIo (-> Int Int))
@@ -357,7 +360,12 @@ cat > "$work/plant/clean.ax" <<'CLEAN'
 
 (fn (quietRec n) (quietCast n))
 
-;@axiom:restrict(no-io,no-alloc,no-cast,no-foreign,no-recursion)
+;@axiom:restrict(no-wrap)
+(:: quietWrap (-> Int Int))
+
+(fn (quietWrap n) (unwrapOr (addChecked n 1) 0))
+
+;@axiom:restrict(no-io,no-alloc,no-cast,no-foreign,no-recursion,no-wrap)
 (:: quietAll (-> Int Int))
 
 (fn (quietAll n) n)
@@ -365,7 +373,7 @@ cat > "$work/plant/clean.ax" <<'CLEAN'
 (:: main Int)
 
 ;@axiom:effect(io)
-(fn (main) (+ (quietIo 1) (+ (quietAlloc 2) (+ (quietCast 3) (+ (quietForeign 4) (+ (quietRec 5) (quietAll 6)))))))
+(fn (main) (+ (quietIo 1) (+ (quietAlloc 2) (+ (quietCast 3) (+ (quietForeign 4) (+ (quietRec 5) (+ (quietWrap 7) (quietAll 6))))))))
 CLEAN
 
 ( cd "$work/plant" && "$axc" --diagnostic-format=ai check clean.ax ) > "$work/plant/clean.out" 2> "$work/plant/clean.err" || true
@@ -406,6 +414,7 @@ plant no-cast    's/^\(fn \(quietCast n\) \(- n 3\)\)$/(fn (quietCast n) (- (cas
 plant no-foreign 's/^\(import Vec\)$/(import Vec)\n\n(pub extern "axiom_demo"\n  (add :: (-> Int Int Int) (symbol "axffi_add")))/; s/^    \(println "native"\)$/    (add n 1)/' AX3049 quietForeign
 plant unknown    's/^;\@axiom:restrict\(no-cast\)$/;\@axiom:restrict(no-cast,no-fo)/' AX3052 quietCast
 plant no-recursion 's/^\(fn \(quietRec n\) \(quietCast n\)\)$/(fn (quietRec n) (if (<= n 0) 0 (quietRec (- n 1))))/' AX3049 quietRec
+plant no-wrap    's/^\(fn \(quietWrap n\) \(unwrapOr \(addChecked n 1\) 0\)\)$/(fn (quietWrap n) (+ n 1))/' AX3049 quietWrap
 
 # The local rule's span: the `no-cast` plant's diagnostic must cover
 # the word `cast` in the line it points at, not the declaration.
