@@ -1,0 +1,28 @@
+[1;31merror[AX3049][0m[1m: `+` in the body of `wraps`, which claims `restrict(no-wrap)`[0m
+  [1;34m--> [0m383-restrict-no-wrap.ax:37:18
+[1;34m   |[0m
+[1;34m37 |[0m (fn (wraps a b) (+ a b))
+[1;34m   |[0m                  [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`no-wrap` is LOCAL, like `no-cast`: `+`, `-` and `*` lower to plain `add`/`sub`/`mul` with no overflow check, so a silent wraparound is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries - it is refused where it is written, and a callee's arithmetic is the callee's claim to make. `stdlib/Err.ax` has the checked alternative for each: `addChecked`, `subChecked`, `mulChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-wrap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs arithmetic - write the checked call and match its `Err`, accept the row, or delete the tag
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `-` in the body of `nested`, which claims `restrict(no-wrap)`[0m
+  [1;34m--> [0m383-restrict-no-wrap.ax:44:15
+[1;34m   |[0m
+[1;34m44 |[0m     (let ((d (- a b)))
+[1;34m   |[0m               [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`no-wrap` is LOCAL, like `no-cast`: `+`, `-` and `*` lower to plain `add`/`sub`/`mul` with no overflow check, so a silent wraparound is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries - it is refused where it is written, and a callee's arithmetic is the callee's claim to make. `stdlib/Err.ax` has the checked alternative for each: `addChecked`, `subChecked`, `mulChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-wrap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs arithmetic - write the checked call and match its `Err`, accept the row, or delete the tag
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `*` in the body of `nested`, which claims `restrict(no-wrap)`[0m
+  [1;34m--> [0m383-restrict-no-wrap.ax:45:8
+[1;34m   |[0m
+[1;34m45 |[0m       (* d c)
+[1;34m   |[0m        [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`no-wrap` is LOCAL, like `no-cast`: `+`, `-` and `*` lower to plain `add`/`sub`/`mul` with no overflow check, so a silent wraparound is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries - it is refused where it is written, and a callee's arithmetic is the callee's claim to make. `stdlib/Err.ax` has the checked alternative for each: `addChecked`, `subChecked`, `mulChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-wrap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs arithmetic - write the checked call and match its `Err`, accept the row, or delete the tag
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 3 previous errors

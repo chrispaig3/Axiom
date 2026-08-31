@@ -352,5 +352,6 @@ docs/agent-harness.md
 docs/compatibility.md
 docs/lsp.md
 docs/stdlib-api.md
+docs/checked-arithmetic-design.md
 DOCS
 }
