@@ -81,6 +81,9 @@ stdlib/Str.ax
 stdlib/Sys.ax
 stdlib/Sys/Platform.darwin.ax
 stdlib/Test.ax
+stdlib/Tui/Edit.ax
+stdlib/Tui/Keys.ax
+stdlib/Tui/Term.ax
 stdlib/Utf8.ax
 stdlib/Vec.ax
 "
