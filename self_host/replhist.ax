@@ -891,7 +891,12 @@
 ; A repeated Ctrl-R passes `(- at 1)`, so stepping is the caller's and
 ; this stays a pure function of (ring, needle, from). Case-SENSITIVE:
 ; the corpus is Axiom source and its identifiers are case-sensitive.
-;@axiom:restrict(no-io,no-alloc,no-foreign)
+; `no-alloc` came off on 2026-08-31, TRANSITIVELY: this body allocates
+; nothing itself, and `strFind` - which it calls once per ring entry -
+; answers `(Option Int)` and allocates the `Some`. The claim held only
+; while a constructor application was invisible to the effect row
+; (`MM-EXEC-9a`), which is the same reason `strFind` lost its own.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: histFindBack (-> Int String Int Int))
 
 (pub fn (histFindBack h needle from)
