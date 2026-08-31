@@ -156,14 +156,17 @@
 ; THE RELEASE, and the argument half is unblocked for every application
 ; that classifies its argument.
 ;
-; IT DOES NOT UNBLOCK THE RELEASE IN GENERAL, which is the part a
-; reader must not skip. An application that cannot classify its
-; argument still passes 0, the park is still uncounted, and releasing
-; would still free live memory. Two of those remain: the effect
-; operation path, whose handler is a runtime load with no application
-; node to read; and the outer parameter of a curried lambda, which is
-; a capture rather than an argument by the time the store happens.
-; `docs/memory-model.md` MM-LIFE-2g names them.
+; WHAT IS AND IS NOT STILL UNCLASSIFIED, corrected on 2026-08-30 after
+; both cases this note used to name turned out to be wrong. The effect
+; operation path passes 0 and never needed anything else: a handler's
+; parameter is the OPERATION's declared type, which `AX3017` refuses to
+; let be a variable, so the retain is unconditional - measured, `i64 1`
+; at the call. And the outer parameter of a curried lambda was not the
+; leak this said, it was a live use-after-free; the evidence words
+; travel by depth now and `461-curried-closure-arg.ax` pins it.
+; What is left is the surplus arguments of a `cast` spine and the
+; over-applied path, which are UNMEASURED rather than known safe.
+; `docs/memory-model.md` MM-LIFE-2g carries the detail.
 (:: parked (-> Int Int))
 
 (fn (parked box)

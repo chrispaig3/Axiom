@@ -1,0 +1,116 @@
+; exit 31 (see .exit)
+; MM-LIFE-2g, the CURRIED half: a lambda's outer parameter is a
+; CAPTURE by the time a store inside the body runs, and the word that
+; classifies it belongs to an application one level out.
+;
+; WHY THIS IS A SEPARATE FILE FROM 460. Not taste - arithmetic.
+; `460-closure-reclaim.ax` reports through its exit status, one bit per
+; term, and a process exit code is EIGHT BITS. 460 uses all of them
+; (1, 2, 4, 8, 16, 32, 64, 128 = 255), so a ninth term there is not a
+; ninth bit: it is `511 & 0xFF`, which is 255, and the fixture would
+; have gone on reporting success while asserting one more thing than it
+; could say. Measured that way first, before this file existed.
+;
+; WHAT IT PINS. `(lambda (a b) ..)` is `(lambda (a) (lambda (b) ..))`
+; by the parser, so a body storing `a` runs inside the INNER lambda and
+; reads `a` out of the closure record. `MM-LIFE-2g`'s share is stamped
+; from an evidence word, and each lifted lambda has one for its OWN
+; argument - so the inner lambda's word is about `b`, and `a`'s is the
+; word the outer application passed. Until those words were made to
+; travel by depth, a store of `a` took no share:
+;
+;   2  the OUTER parameter of a two-parameter lambda, parked and then
+;      read back after the struct field it came from is overwritten.
+;      Event 5 releases the only counted share; an uncounted park then
+;      reads a string allocated after the free. It read 122 - `z` -
+;      where 97 is the `a` that was recorded.
+;   4  the INNER parameter of the same shape, which was always correct
+;      and must stay so: it is the lambda's own argument, at depth 0.
+;   8  the OUTERMOST parameter of a THREE-parameter lambda, two levels
+;      out, because the rule is a depth and not a special case for one.
+;  16  and the MIDDLE one of those three, at depth 1.
+;   1  every step above ran.
+;
+; The two-and-three split is the discrimination: a fix that carried one
+; level would pass 2 and 4 and fail 8.
+;
+; MEASURED AGAINST THE COMPILER THAT PREDATES THE FIX, three runs each:
+; this file exits 31 built by the tree and **139** built by the
+; compiler one commit back - a SEGMENTATION FAULT, not a wrong byte.
+; Each shape on its own reads 122, the first byte of a string
+; allocated into the freed block; four of them in one process recycle
+; blocks into each other until a header read lands outside the heap.
+; That difference is worth stating because it is the honest shape of
+; this defect: an uncounted park is not a value that reads oddly, it
+; is a pointer whose block has been handed to someone else, and what
+; happens next depends on who got it.
+(import Str)
+
+(import Vec)
+
+(struct Holder
+  (name : String))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+; One probe, parameterised by which of a curried lambda's arguments is
+; the one that came out of the struct field. `pick` names it so the
+; reader can see the four cases differ in exactly that.
+(:: parkedByte (-> Int Int))
+
+(fn (parkedByte pick)
+  (let ((log vecNew))
+    (let ((h (Holder (strDup "alice"))))
+      {
+        (if (== pick 0)
+          ((lambda (a b) (vecPush log a)) h.name 0)
+          (if (== pick 1)
+            ((lambda (a b) (vecPush log b)) 0 h.name)
+            (if (== pick 2)
+              ((lambda (a b c) (vecPush log a)) h.name 0 1)
+              ((lambda (a b c) (vecPush log b)) 0 h.name 1)
+            )
+          )
+        )
+        ; Event 5: the field's only counted share goes.
+        (set h.name (strDup "bob"))
+        ; Allocated after it, so a freed block is handed back here and
+        ; the read below sees these bytes instead.
+        (strDup "zzzzz")
+        (strByte (vecGetStr log 0) 0)
+      }
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((mut acc 0) (mut steps 0))
+    {
+      ; 2 - the outer parameter of two
+      (set acc (+ acc (* 2 (b2i (== (parkedByte 0) 97)))))
+      (set steps (+ steps 1))
+      ; 4 - the inner parameter of two, at depth 0
+      (set acc (+ acc (* 4 (b2i (== (parkedByte 1) 97)))))
+      (set steps (+ steps 1))
+      ; 8 - the outermost of three, at depth 2
+      (set acc (+ acc (* 8 (b2i (== (parkedByte 2) 97)))))
+      (set steps (+ steps 1))
+      ; 16 - the middle of three, at depth 1
+      (set acc (+ acc (* 16 (b2i (== (parkedByte 3) 97)))))
+      (set steps (+ steps 1))
+      (if (== steps 4)
+        (+ acc 1)
+        acc
+      )
+    }
+  )
+)

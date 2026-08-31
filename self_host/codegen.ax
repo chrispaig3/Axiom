@@ -3299,10 +3299,29 @@
 ; not what its enclosing function knows. A body with no such symbol
 ; answers the constant 0, which under-retains and therefore leaks; that
 ; is the honest answer for a lambda reached without one.
-(pub :: emitEvwaRead (-> Int Int))
+; The symbol holding the lambda-argument evidence word `d` levels out.
+; Depth 0 is this lambda's own hidden parameter; above it are the words
+; of the enclosing lambdas, captured into this one's record by
+; `bindCaps`, which shifts each name one level as it binds.
+;
+; `(lambda (a b) ..)` is `(lambda (a) (lambda (b) ..))` by the parser,
+; so a store of `a` runs inside the INNER lambda and `a` is a capture
+; there. Its class is the word the OUTER application passed, one level
+; out - and until 2026-08-30 nothing carried it, which was a live
+; use-after-free and not the leak this file recorded.
+(pub :: evwaSym (-> Int String))
 
-(pub fn (emitEvwaRead cg)
-  (let ((symReg (lookupSym cg "__evwa.")))
+(pub fn (evwaSym d)
+  (if (<= d 0)
+    "__evwa."
+    (cat2 "__evwa." (fmtInt d))
+  )
+)
+
+(pub :: emitEvwaRead (-> Int Int Int))
+
+(pub fn (emitEvwaRead cg d)
+  (let ((symReg (lookupSym cg (evwaSym d))))
     (if (== symReg 0)
       {
         (memSetWord cg 2 (constStr 0))
@@ -3398,7 +3417,7 @@
                     (cast Int v)                    2
                   )
                     (set hasSym 1)
-                    (if (==
+                    (if (<=
                       (cast Int v)                      (- 0 2)
                     )
                       (set hasLam 1)
@@ -3427,17 +3446,8 @@
                 ""
               ))
             )
-            (let ((cgL 
-              (if (== hasLam 1)
-                (emitEvwaRead cgR)
-                cgR
-              )
-            ))
+            (let ((cgL cgR))
             (let (
-              (lamSrc (if (== hasLam 1)
-                (strDup (memGetWordStr cgL 2))
-                ""
-              ))
               (mut acc (constStr c))
               (mut cgX cgL)
             )
@@ -3496,10 +3506,12 @@
                               )
                             )
                           )
-                          (if (== v2 (- 0 2))
-                            (let ((bn3 (allocReg cgX)))
+                          (if (<= v2 (- 0 2))
+                            (let ((cgLr (emitEvwaRead cgX (- (- 0 2) v2))))
+                            (let ((lamSrc (strDup (memGetWordStr cgLr 2))))
+                            (let ((bn3 (allocReg cgLr)))
                               (let ((br3 (regStr bn3)))
-                                (let ((cgB3 (emitLine cgX (cat3 (cat2 "  " br3) " = and i64 " (cat2 lamSrc ", 1")))))
+                                (let ((cgB3 (emitLine cgLr (cat3 (cat2 "  " br3) " = and i64 " (cat2 lamSrc ", 1")))))
                                   (let ((sn3 (allocReg cgB3)))
                                     (let ((sr3 (regStr sn3)))
                                       (let ((cgS3 (emitLine cgB3 (cat4 (cat3 (cat2 "  " sr3) " = shl i64 " br3) ", " (constStr i2) ""))))
@@ -3517,7 +3529,7 @@
                                   )
                                 )
                               )
-                            )
+                            )))
                             0
                           )
                         )
@@ -10653,6 +10665,33 @@
 ; was captured, mentioned or not, and a loop building a closure per
 ; iteration chained each to the one before it through a parameter
 ; the body never used.
+; Is this the unspellable name of a lambda-argument evidence word?
+; `"__evwa."` or `"__evwa.<d>"`; no Axiom identifier can spell either.
+(pub :: isEvwaName (-> String Int))
+
+(pub fn (isEvwaName n)
+  (if (strStartsWith n "__evwa.")
+    1
+    0
+  )
+)
+
+; The name that word takes ONE LEVEL FURTHER OUT, which is what it
+; becomes when a nested lambda captures it: the enclosing lambda's own
+; word (`"__evwa."`) is the inner lambda's depth 1, and so on. The
+; shift happens at the bind, so each lambda's own parameter always
+; owns depth 0 and nothing has to renumber a witness after the fact.
+(pub :: evwaDeeper (-> String String))
+
+(pub fn (evwaDeeper n)
+  (let ((suf (strSlice n 7 (- (strLen n) 7))))
+    (if (== (strLen suf) 0)
+      "__evwa.1"
+      (cat2 "__evwa." (fmtInt (+ 1 (strToInt suf))))
+    )
+  )
+)
+
 (pub :: collectCapNames (-> Int Int Int Int))
 
 (pub fn (collectCapNames cg lparams body)
@@ -10682,7 +10721,15 @@
             0
             (if (>= (strIndexIn out name) 0)
               0
-              (if (|| (strEq name "__evw.") (== (mentions name body) 1))
+              ; `"__evw."` is the enclosing FUNCTION's word and
+              ; `"__evwa."*` are the enclosing LAMBDAS' - a body reads
+              ; either without naming it, so `mentions` cannot see
+              ; them and they are taken unconditionally. Without the
+              ; second, `(lambda (a b) (vecPush box a))` stored `a`
+              ; uncounted: by the time the store runs `a` is a capture
+              ; in the inner lambda, and the word that classifies it
+              ; belonged to the outer one.
+              (if (|| (strEq name "__evw.") (|| (== (isEvwaName name) 1) (== (mentions name body) 1)))
                 (vecPush out name)
                 0
               )
@@ -11013,7 +11060,12 @@
     (let ((cg1 (loadWordAt cg "%.env" (+ 1 i))))
       {
         (bindSym
-          cg1          (vecGetStr capNames i)          (strDup (memGetWordStr cg1 2))          (vecGet capFloats i)          0
+          cg1          (let ((nm (vecGetStr capNames i)))
+            (if (== (isEvwaName nm) 1)
+              (evwaDeeper nm)
+              nm
+            )
+          )          (strDup (memGetWordStr cg1 2))          (vecGet capFloats i)          0
         )
         (bindCaps cg1 capNames capFloats (+ i 1))
       }
@@ -13441,8 +13493,8 @@
             ; passed. A lambda that has no such word - one reached
             ; some way that predates this, or a `-1` "says nothing" -
             ; falls through to `cg1` and emits nothing, which leaks.
-            (if (== wv (- 0 2))
-              (emitRetainIfLamArg cg1 v)
+            (if (<= wv (- 0 2))
+              (emitRetainIfLamArg cg1 v (- (- 0 2) wv))
               cg1
             )
           )
@@ -15165,10 +15217,10 @@
 ; happen from `EV_LAMARG`, which `evClassOf` answers only for the
 ; innermost lambda's own parameter placeholder, but the constant 0 is
 ; the answer if it ever does - the leaking direction.
-(pub :: emitRetainIfLamArg (-> Int String Int))
+(pub :: emitRetainIfLamArg (-> Int String Int Int))
 
-(pub fn (emitRetainIfLamArg cg v)
-  (let ((symReg (lookupSym cg "__evwa.")))
+(pub fn (emitRetainIfLamArg cg v d)
+  (let ((symReg (lookupSym cg (evwaSym d))))
     (if (== symReg 0)
       cg
       (emitRcIfBitOf

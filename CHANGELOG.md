@@ -16,6 +16,43 @@ its changelog too.
 
 ## Unreleased
 
+- **The evidence words travel by DEPTH, and two documented claims were
+  wrong in opposite directions.** Both were read off the emitter's
+  shape instead of measured, and both were corrected by probes that
+  should have been written first.
+  *The effect-operation path was never a hole.* It passes the constant
+  `0`, which is what the claim was read from — but a handler's
+  parameter is bound to the OPERATION's declared type and `AX3017`
+  refuses a type variable there, so it is always ground and the retain
+  is unconditional. Measured: `call @Vec$vecPush(i64 %.t2, i64 %m,
+  i64 1)`, and a handler parking a struct field answers correctly. The
+  word that path passes is one the handler never reads.
+  *The outer parameter of a curried lambda was worse than stated.* It
+  was called a leak; it was a **live use-after-free**. `(lambda (a b)
+  ..)` is `(lambda (a) (lambda (b) ..))` by the parser, so a store of
+  `a` runs inside the inner lambda with `a` read out of the closure
+  record, and the inner lambda's own word is about `b`. Nothing carried
+  the word that classifies `a`.
+  So `curLamVar` is a stack rather than a name, `evClassOf` answers
+  `EV_LAMARG - d` for a parameter `d` lambdas out, `collectCapNames`
+  takes the enclosing lambdas' words into the nested record the way it
+  already took the enclosing function's, and `bindCaps` shifts each one
+  level as it binds — every lambda's own argument stays depth 0 and no
+  witness is renumbered after the fact.
+  New fixture **`tests/stdlib/461-curried-closure-arg.ax`** pins four
+  depths across two- and three-parameter lambdas. It is a separate file
+  for an arithmetic reason worth recording: `460`'s exit-status bitmask
+  uses all **eight** bits a process exit code has, so a ninth term
+  there is `511 & 0xFF` — 255, the same answer it gives today, while
+  asserting one more thing than it can say. Built by the compiler one
+  commit back this file does not answer wrongly, it **exits 139**: four
+  uncounted parks in one process recycle blocks into each other until a
+  header read lands outside the heap.
+  What remains is **unmeasured rather than known safe** — the surplus
+  arguments of a `cast` spine, and the over-applied path. That is
+  deliberately the same sentence shape that was wrong twice above, now
+  said about what has no probe instead of about what is fine.
+
 - **The seventh closure shape closes, and the reason it was left open
   was wrong.** A factory whose declared result arrow carries a type
   variable — `(:: mk (-> Int (-> a Int)))` — emitted a correct chain

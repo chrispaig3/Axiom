@@ -2502,12 +2502,44 @@ whose parameter and a CAPTURE share `a` parks both and answers
 correctly, and the same factory applied at `Int` stores and reads back
 `41` — evidence `0`, no retain, no count on an integer.
 
-Two applications still pass `0`, for reasons of their own: the
-**effect-operation path**, whose handler is a runtime load out of the
-evidence slot with no application node to read, and the **outer
-parameter of a curried lambda**, which the parser has already made a
-capture rather than an argument by the time the store runs. Both
-under-retain, which leaks.
+**THE TWO CASES THIS SECTION USED TO NAME AS OPEN WERE BOTH WRONG, and
+in opposite directions.** They were written from the emitter's shape
+rather than measured, and both were corrected on 2026-08-30 by probes
+that should have been written first.
+
+*The effect-operation path was never a hole.* It passes the constant
+`0` to `applyOneArg`, which is what the claim was read off. But a
+handler's parameter is bound to the OPERATION's declared type by
+`checkHandler`, and `AX3017` refuses a type variable there, so it is
+always ground: `evClassOf` answers `1` and the retain is
+unconditional. Measured on a handler that parks a struct field and
+lets the field be overwritten — `call @Vec$vecPush(i64 %.t2, i64 %m,
+i64 1)`, the constant one, and the program answers correctly. The word
+that path passes is one the handler never reads.
+
+*The outer parameter of a curried lambda was worse than stated.* It
+was called a leak. It was a **live use-after-free**: `(lambda (a b)
+(vecPush log a))` read `z` where the same lambda parking `b` read `a`.
+`(lambda (a b) ..)` is `(lambda (a) (lambda (b) ..))` by the parser, so
+by the time the store runs `a` is a CAPTURE inside the inner lambda,
+whose own word is about `b`. The word that classifies `a` is the one
+the OUTER application passed, one level out — and nothing carried it.
+
+So the evidence words travel by DEPTH. `curLamVar` is a stack rather
+than a name, `evClassOf` answers `EV_LAMARG - d` for a parameter `d`
+lambdas out, `collectCapNames` takes the enclosing lambdas' words into
+the nested record the way it already took the enclosing function's, and
+`bindCaps` shifts each one level as it binds — so every lambda's own
+argument is depth 0 and no witness is renumbered after the fact.
+`tests/stdlib/461-curried-closure-arg.ax` pins four depths across
+two- and three-parameter lambdas; built by the compiler one commit
+back it does not answer wrongly, it **exits 139**.
+
+What still passes `0` and has not been measured: the surplus arguments
+of a `cast` spine and the over-applied path. Both under-retain, which
+leaks, and neither has a probe yet — which is the same sentence that
+was wrong twice above, so it is a statement about what is unmeasured
+and not about what is safe.
 
 **WHAT THIS UNBLOCKS.** The argument half of the closure-reclamation
 design — release a closure's owned argument when the application's

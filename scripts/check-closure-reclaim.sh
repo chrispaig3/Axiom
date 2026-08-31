@@ -92,13 +92,20 @@
 # RELEASE and the argument half is unblocked wherever the application
 # classifies its argument.
 #
-# IT IS NOT UNBLOCKED IN GENERAL. Two applications still pass 0 and
-# still leave the park uncounted: the effect-operation path, whose
-# handler is a runtime load with no application node to read, and the
-# outer parameter of a curried lambda, a capture rather than an
-# argument by the time the store runs. `docs/memory-model.md`
-# MM-LIFE-2g names them, and a release written without consulting them
-# is the same use-after-free in a new place.
+# IT IS NOT UNBLOCKED IN GENERAL, and the two cases this header used to
+# name were both wrong - corrected 2026-08-30, by probes that should
+# have come before the sentence. The effect-operation path passes 0 and
+# never needed more: a handler's parameter is the OPERATION's declared
+# type, which `AX3017` will not let be a variable, so the retain is
+# unconditional (`i64 1`, measured). The outer parameter of a curried
+# lambda was not a leak but a live use-after-free, and the evidence
+# words travel by depth now - `tests/stdlib/461-curried-closure-arg.ax`
+# pins four depths and exits 139 on the compiler one commit back.
+#
+# What remains is UNMEASURED rather than known safe: the surplus
+# arguments of a `cast` spine, and the over-applied path. A release
+# written without consulting them is the same use-after-free in a new
+# place, and so is a sentence written without probing them.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init

@@ -846,6 +846,78 @@
 
 (pub fn (EV_LAMARG) (- 0 2))
 
+; How many lambdas out the parameter named `n` is, or -1 if it is not
+; one. 0 is the lambda being checked; 1 is the one enclosing it, whose
+; parameter the PARSER has already turned into a capture - `(lambda (a
+; b) ..)` is `(lambda (a) (lambda (b) ..))`, so a store of `a` runs
+; inside the inner lambda with `a` read out of the closure record.
+;
+; The stack is searched from the INNERMOST end, so a parameter that
+; shadows an outer one of the same name resolves to the nearer.
+; Witness `EV_LAMARG - d` carries the depth, and codegen reads
+; `"__evwa."` at depth 0 and `"__evwa.<d>"` above it - the enclosing
+; lambda's own word, captured into this one's record.
+(pub :: lamVarDepth (-> Int String Int))
+
+(pub fn (lamVarDepth tc n)
+  (let ((st (memGetWord tc 32)))
+    (if (== st 0)
+      (- 0 1)
+      (let (
+        (mut i (- (vecLen st) 1))
+        (mut found (- 0 1))
+      )
+        {
+          (while (>= i 0)
+            {
+              (if (&& (< found 0) (strEq (vecGetStr st i) n))
+                (set found (- (- (vecLen st) 1) i))
+                0
+              )
+              (set i (- i 1))
+            })
+          found
+        }
+      )
+    )
+  )
+)
+
+; Enter a lambda: push its parameter's name, or the empty string for a
+; lambda whose parameter needs no runtime word (a ground declared
+; type). The empty string still occupies a level, because DEPTH is
+; counted in lambdas and not in words - a ground parameter between two
+; variable ones must not renumber them.
+(pub :: lamVarPush (-> Int Int Int))
+
+(pub fn (lamVarPush tc n)
+  (let ((st (memGetWord tc 32)))
+    (let ((v (if (== st 0)
+      vecNew
+      st
+    )))
+      {
+        (memSetWord tc 32 v)
+        (vecPush
+          v          (cast Int n)
+        )
+        (vecLen v)
+      }
+    )
+  )
+)
+
+(pub :: lamVarTrunc (-> Int Int Int))
+
+(pub fn (lamVarTrunc tc n)
+  (let ((st (memGetWord tc 32)))
+    (if (== st 0)
+      0
+      (scopeTrunc st n)
+    )
+  )
+)
+
 (pub :: evClassOf (-> Int Int Int))
 
 (pub fn (evClassOf tc t)
@@ -872,8 +944,8 @@
         ; that body is a String. There is no shadowing to confuse it
         ; with: type variables come from the signature being checked,
         ; and expressions cannot introduce their own.
-        (if (&& (!= (memGetWord tc 32) 0) (strEq (nodeAName t) (cast String (memGetWord tc 32))))
-          EV_LAMARG
+        (if (>= (lamVarDepth tc (nodeAName t)) 0)
+          (- EV_LAMARG (lamVarDepth tc (nodeAName t)))
         (if (== (tyIsSrcVar t) 1)
           (let ((sv (memGetWord tc 23)))
             (if (== sv 0)
@@ -7408,19 +7480,18 @@
       ; one-parameter lambda - the parser curries, so that is the
       ; lifted shape, and a flat multi-parameter spelling would name
       ; the wrong placeholder.
-      (let ((savedLB (memGetWord tc 22)) (savedLV (memGetWord tc 32)))
+      (let ((savedLB (memGetWord tc 22)) (lamMark (lamVarPush
+        tc        (if (== (vecLen ptys) 1)
+          (cast Int (nodeAName (vecGet ptys 0)))
+          (cast Int "")
+        )
+      )))
         {
           (memSetWord tc 22 mark)
-          (memSetWord
-            tc            32            (if (== (vecLen ptys) 1)
-              (cast Int (nodeAName (vecGet ptys 0)))
-              0
-            )
-          )
           (let ((bodyTy (checkExprH tc (nodeB e) 0)))
             {
               (memSetWord tc 22 savedLB)
-              (memSetWord tc 32 savedLV)
+              (lamVarTrunc tc (- lamMark 1))
               (scopeTrunc (tcScope tc) mark)
               (if (== (vecLen ptys) 0)
                 (mkTArr mkUnitTy bodyTy)
@@ -7518,15 +7589,14 @@
           ; wherever this body mentions that type, and stamp THIS
           ; lambda's application word onto a value this application
           ; does not witness.
-          (let ((savedLB (memGetWord tc 22)) (savedLV (memGetWord tc 32)))
+          (let ((savedLB (memGetWord tc 22)) (lamMark (lamVarPush
+            tc            (if (== (nodeTag (nodeA arrow)) TAG_T_VAR)
+              (cast Int (nodeAName (nodeA arrow)))
+              (cast Int "")
+            )
+          )))
             {
               (memSetWord tc 22 mark)
-              (memSetWord
-                tc                32                (if (== (nodeTag (nodeA arrow)) TAG_T_VAR)
-                  (cast Int (nodeAName (nodeA arrow)))
-                  0
-                )
-              )
               (let ((bodyTy
                 (if (== (nodeTag (nodeB e)) TAG_E_LAM)
                   (checkLamAgainst tc (nodeB e) (nodeB arrow))
@@ -7535,7 +7605,7 @@
               ))
                 {
                   (memSetWord tc 22 savedLB)
-                  (memSetWord tc 32 savedLV)
+                  (lamVarTrunc tc (- lamMark 1))
                   (scopeTrunc (tcScope tc) mark)
                   (mkTArr (nodeA arrow) bodyTy)
                 }
