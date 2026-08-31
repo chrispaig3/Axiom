@@ -16,6 +16,31 @@ its changelog too.
 
 ## Unreleased
 
+- **Dogfooding the two features above: a one-constructor `data` becomes
+  the struct it always was, and four sentinels answer `Option`.**
+  `stdlib/Http.ax`'s `HttpHandler` was `(data HttpHandler (HttpFn (->
+  Int HttpReq Int)))`, matched apart in `httpCall` to reach its one
+  field - exactly the shape parameterised structs exist to replace,
+  even though this one needed no type parameter. It is now `(struct
+  HttpHandler (run : (-> Int HttpReq Int)))`, built the same way
+  (`(HttpHandler (lambda (fd r) ...))`) and read with `((h.run) fd
+  r)`, no `match` required. `stdlib/Path.ax`'s
+  `pathLastSlash`/`pathExtIndex` and `stdlib/Agent/Tags.ax`'s
+  `axsymHexVal`/`axsymPctAt` answered a raw `-1` for "not found";
+  `docs/error-model.md` ERR-REC-3 says absence wants `Option`, and
+  both modules - named in `compat/SENTINELS` as exceptions to the
+  file's own direction rule - now read zero. All four had zero
+  external callers (checked by grep over the whole tree before
+  porting), so each port stayed inside its own file; `pathExtIndex`
+  keeps going straight to the private `-1`-returning helper rather
+  than through the new `pathLastSlash`, because it needs the sentinel
+  back in arithmetic, not a value to branch on. Five lines in
+  `compat/BREAKING` declare the surface change; `#effects=` gains
+  nothing, matching the `Option Int` functions the census already left
+  alone (`strFind`). `tests/stdlib/055-filesystem.ax`,
+  `tests/stdlib/380-agent-tags.ax` and
+  `tests/stdlib/432-http-router.ax` pin the observable behaviour
+  unchanged.
 - **Structs take type parameters, and that is what an interface is now.**
   `(struct ShowOf (a) (render : (-> a String)))` - the parenthesised
   spelling `data` already uses, one convention rather than two. Before

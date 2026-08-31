@@ -119,17 +119,17 @@
       (writeFile "pub/blob.bin" "not html")
       (writeFile "secret.txt" "the secret\n")
       (routeAdd
-        rt        "GET"        "/"        (HttpFn
+        rt        "GET"        "/"        (HttpHandler
           (lambda (fd r) (index fd r))
         )
       )
       (routeAdd
-        rt        "GET"        "/echo"        (HttpFn
+        rt        "GET"        "/echo"        (HttpHandler
           (lambda (fd r) (echo fd r))
         )
       )
       (routeAdd
-        rt        "POST"        "/echo"        (HttpFn
+        rt        "POST"        "/echo"        (HttpHandler
           (lambda (fd r) (submit fd r))
         )
       )
@@ -142,7 +142,7 @@
       (eq "a path with a route for another method is 405" (gist (dispatched rt (req "DELETE" "/echo" ""))) "HTTP/1.1 405 Method Not Allowed | 405 Method Not Allowed: no route for this method at this path\n")
       (eq "a path nothing matched is the default 404" (gist (dispatched rt (req "GET" "/nope" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no route for this path\n")
       (routeNotFound
-        rt        (HttpFn
+        rt        (HttpHandler
           (lambda (fd r) (lost fd r))
         )
       )

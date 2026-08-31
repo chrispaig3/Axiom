@@ -86,3 +86,24 @@
 # deliberate case is covered by calling it; what is gone is silently
 # reusing the `show` head for it.
 0.6.0  T  Show  trait removed: an interface is a capability record, and `show` never needed one
+
+# 0.6.0 - dogfooding parameterised structs (landed 2026-08-31): a
+# `data` type with one constructor that existed only to carry a single
+# function field is now the struct that field always was. The
+# constructor name `HttpFn` is gone; construct with `(HttpHandler
+# (lambda (fd r) ...))` and read the field with `.run` instead of
+# matching. The compare tool keys identity as (kind, name), so a `D`
+# becoming an `S` reads as this name REMOVED from the `D` row - the
+# `S HttpHandler` row that replaces it is an ADDED row, which needs no
+# declaration of its own.
+0.6.0  D  HttpHandler  data HttpHandler (ctor HttpFn) -> struct HttpHandler (field run): a one-constructor data type is a struct
+
+# 0.6.0 - dogfooding `Option`: four sentinel functions in
+# `compat/SENTINELS`'s `absence` column answer `Option Int` in place
+# of a raw `-1`, per `docs/error-model.md` ERR-REC-3 ("Option is for
+# absence"). Zero external callers of any of the four, checked before
+# porting; every caller that needed updating lived in the same file.
+0.6.0  F  axsymHexVal    -1 -> (Option Int): absence, not a sentinel; no external callers
+0.6.0  F  axsymPctAt     -1 -> (Option Int): absence, not a sentinel; no external callers
+0.6.0  F  pathLastSlash  -1 -> (Option Int): absence, not a sentinel; no external callers
+0.6.0  F  pathExtIndex   -1 -> (Option Int): absence, not a sentinel; no external callers
