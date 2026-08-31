@@ -1,8 +1,8 @@
-Source stamp:          b2e1a3417414e8f384d16001b4a61ffa02318a515f619d72b95013471c5d91ca
+Source stamp:          1068c5becb02cd280a24fceb309e51dc2cc0676d2c4b8d348ab55cf3f223b452
 Source files:          54
-Generated on:          2026-08-30T00:19:58Z
+Generated on:          2026-08-31T07:10:53Z
 Regenerate with:       scripts/reseed.sh
-Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh
+Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh, scripts/check-seed-lineage.sh
 
 The source stamp is `gate_seed_source_stamp` (scripts/lib/gate.sh) over
 the `self_host/**.ax` and `stdlib/**.ax` bytes these seeds were
