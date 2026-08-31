@@ -424,10 +424,27 @@ module.exports = grammar({
     // accepted any of them - all three are `AX2001` - so the only
     // programs this grammar described there were programs that do not
     // compile, and C layout means nothing in a language that links no C.
+    // The type parameter list carries a DYNAMIC precedence, and it has
+    // to. `(struct ShowOf (a) (render : (-> a String)))` gives the GLR
+    // parser two readings of `(a)`: a parameter list, or a
+    // `field_declaration` whose type is missing - a shape the grammar
+    // deliberately parses so the AX3056 fixture can be a `.ax` file
+    // like any other. Both survive to the end of the declaration, so
+    // rule order decided, and it decided FIELD - the grammar accepted
+    // the text and disagreed with the compiler about what it meant.
+    //
+    // The compiler's rule is the `:`: a group whose second token is a
+    // colon is a field, and one whose second token is not is a
+    // parameter list (`structGroupIsTyParams` in
+    // `self_host/parser.ax`). Precedence expresses exactly that here,
+    // because `(x : Int)` cannot match `type_parameters` at all - the
+    // colon excludes it - so raising this rule only settles the case
+    // where the two genuinely collide, which is the case the compiler
+    // decides the same way.
     struct_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'struct',
       field('name', choice($.identifier, $.syntax_join_name)),
-      optional(field('type_parameters', $.type_parameters)),
+      optional(field('type_parameters', prec.dynamic(1, $.type_parameters))),
       repeat(field('field', $.field_declaration)),
       ')',
     ),

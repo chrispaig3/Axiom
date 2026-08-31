@@ -4502,9 +4502,21 @@
 ; Print the tyvars between `from` and `to`: one prints bare, several
 ; print parenthesised, none prints nothing - stage0's
 ; `format_type_vars` over the flattened list.
-(pub :: fpTyvars (-> Int Int Int Int Int))
+(pub :: fpTyvars (-> Int Int Int Int Int Int))
 
-(pub fn (fpTyvars p n from to)
+; `paren` is 1 when the spelling MUST be parenthesised and 0 when a
+; single variable may be printed bare.
+;
+; `data` accepts both - `(data Box (a) ..)` and `(data Box a ..)` are
+; the same declaration, and the grammar says so with
+; `_data_type_parameters` - so it prints the shorter one. A STRUCT
+; accepts only the parenthesised form, because a struct's other groups
+; are fields and `(struct Box a (v : a))` gives the parser no `(` to
+; find the parameter list by. Printing a struct's single variable bare
+; produced a file `axiom fmt` could no longer read: a round trip that
+; breaks its input, in the one tool whose whole contract is that it
+; does not change meaning.
+(pub fn (fpTyvars p n from to paren)
   (let (
     (src (fpSrc p))
     (names vecNew)
@@ -4531,7 +4543,7 @@
         p
         {
           (fpP p " ")
-          (if (== (vecLen names) 1)
+          (if (&& (== (vecLen names) 1) (== paren 0))
             (fpP p (fnText src (vecGet names 0)))
             (let ((mut k 0))
               {
@@ -4682,7 +4694,7 @@
           (fpVis p n)
           (fpP p "data ")
           (fpP p (fnText src (fnKid n (+ b 1))))
-          (fpTyvars p n (+ b 2) tvEnd)
+          (fpTyvars p n (+ b 2) tvEnd 0)
           ; A `deriving` clause POISONS the file instead of
           ; printing: the compiler refuses the clause (AX2004,
           ; MAC-CAP-9), and a formatter that accepts and rewrites
@@ -4782,7 +4794,7 @@
             (fpVis p n)
             (fpP p "data ")
             (fpP p (fnText src (fnKid n (+ b 1))))
-            (fpTyvars p n (+ b 2) tvEnd)
+            (fpTyvars p n (+ b 2) tvEnd 0)
             (fpP p "\n")
             (foPushIndent o)
             (foEmitIndent o)
@@ -4821,7 +4833,7 @@
           (fpVis p n)
           (fpP p "struct ")
           (fpP p (fnText src (fnKid n (+ b 1))))
-          (fpTyvars p n (+ b 2) tvEnd)
+          (fpTyvars p n (+ b 2) tvEnd 1)
           ; There is no layout modifier to print. `packed`, `repr(C)`
           ; and `align(N)` were accepted here and by nothing else:
           ; the parser has always answered AX2001 for all three, so
@@ -4955,7 +4967,7 @@
             (fpVis p n)
             (fpP p "type ")
             (fpP p (fnText src (fnKid n (+ b 1))))
-            (fpTyvars p n (+ b 2) tvEnd)
+            (fpTyvars p n (+ b 2) tvEnd 0)
             (fpP p " = ")
             (fpType p (fnKid n (+ tvEnd 1)))
             (fpP p ")")

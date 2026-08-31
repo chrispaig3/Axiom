@@ -116,22 +116,22 @@ F handled tests/fmt/syntax-zoo.ax:193:5-12 "(Int -> Int)" @8aed8da9c866693b #eff
 F scoped tests/fmt/syntax-zoo.ax:197:5-11 "(Int -> Int)" @456a949d82a7c7bf
 F aBox tests/fmt/syntax-zoo.ax:218:5-9 "Box Int" @06331c8640b36edb
 F store - "(Box Int -> Int)" #effects=Boxes
-F interiors tests/fmt/syntax-zoo.ax:262:5-14 "(*Box Int -> ([Box Int] -> (Box Int -> Int)))" @9ab1e7805f0e9380
-F typed_exprs tests/fmt/syntax-zoo.ax:265:5-16 "(Int -> Int)" @81369cab7bd3cafe #effects=Alloc
-F helperD tests/fmt/syntax-zoo.ax:310:5-12 "(Int -> Int)" @882707b1b1adf681
-F zeroParam tests/fmt/syntax-zoo.ax:313:5-14 "Int" @3beac987ddf32d0a
-F bigNums tests/fmt/syntax-zoo.ax:316:5-12 "Int" @dd7253ccf2a8d5b6
-F addTwo tests/fmt/syntax-zoo.ax:319:5-11 "(Int -> (Int -> Int))" @5d1e51e3da8ca0ac
-F spine tests/fmt/syntax-zoo.ax:322:5-10 "Int" @b90b9fd2b6072666
-F redundantParens tests/fmt/syntax-zoo.ax:325:5-20 "(Int -> Int)" @1e81a579343438b5
-F oneBlock tests/fmt/syntax-zoo.ax:328:5-13 "(Int -> Int)" @0a7b44cba65e02ae
-F manyBody tests/fmt/syntax-zoo.ax:331:5-13 "(Int -> Int)" @a31645c57f2b7230
-F curried tests/fmt/syntax-zoo.ax:334:5-12 "(Int -> (Int -> Int))" @8e5e55c0dcd4848b
-F unitArg tests/fmt/syntax-zoo.ax:343:5-12 "(() -> Int)" @6cefab6aa3adb3a3
-F integerName tests/fmt/syntax-zoo.ax:346:5-16 "(Int -> Int)" @78077a35b687a150
-F negatives tests/fmt/syntax-zoo.ax:352:5-14 "Int" @c1e7a0698a782505
-F splitTags tests/fmt/syntax-zoo.ax:385:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #pure
-F restrictedTwice tests/fmt/syntax-zoo.ax:395:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast
+F interiors tests/fmt/syntax-zoo.ax:269:5-14 "(*Box Int -> ([Box Int] -> (Box Int -> Int)))" @9ab1e7805f0e9380
+F typed_exprs tests/fmt/syntax-zoo.ax:272:5-16 "(Int -> Int)" @81369cab7bd3cafe #effects=Alloc
+F helperD tests/fmt/syntax-zoo.ax:317:5-12 "(Int -> Int)" @882707b1b1adf681
+F zeroParam tests/fmt/syntax-zoo.ax:320:5-14 "Int" @3beac987ddf32d0a
+F bigNums tests/fmt/syntax-zoo.ax:323:5-12 "Int" @dd7253ccf2a8d5b6
+F addTwo tests/fmt/syntax-zoo.ax:326:5-11 "(Int -> (Int -> Int))" @5d1e51e3da8ca0ac
+F spine tests/fmt/syntax-zoo.ax:329:5-10 "Int" @b90b9fd2b6072666
+F redundantParens tests/fmt/syntax-zoo.ax:332:5-20 "(Int -> Int)" @1e81a579343438b5
+F oneBlock tests/fmt/syntax-zoo.ax:335:5-13 "(Int -> Int)" @0a7b44cba65e02ae
+F manyBody tests/fmt/syntax-zoo.ax:338:5-13 "(Int -> Int)" @a31645c57f2b7230
+F curried tests/fmt/syntax-zoo.ax:341:5-12 "(Int -> (Int -> Int))" @8e5e55c0dcd4848b
+F unitArg tests/fmt/syntax-zoo.ax:350:5-12 "(() -> Int)" @6cefab6aa3adb3a3
+F integerName tests/fmt/syntax-zoo.ax:353:5-16 "(Int -> Int)" @78077a35b687a150
+F negatives tests/fmt/syntax-zoo.ax:359:5-14 "Int" @c1e7a0698a782505
+F splitTags tests/fmt/syntax-zoo.ax:392:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #pure
+F restrictedTwice tests/fmt/syntax-zoo.ax:402:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option
@@ -144,19 +144,21 @@ C Leaf tests/fmt/syntax-zoo.ax:30:4-8 "Tree a" #of=Tree
 C Node tests/fmt/syntax-zoo.ax:31:4-8 "(Tree a -> (a -> (Tree a -> Tree a)))" #of=Tree
 D Box tests/fmt/syntax-zoo.ax:215:11-14 "data Box" @649cdc153a9e31b4 #ctors=B
 C B tests/fmt/syntax-zoo.ax:216:4-5 "(a -> Box a)" #of=Box
-D Wrapped tests/fmt/syntax-zoo.ax:226:7-14 "data Wrapped" @456b706b2b771a60 #ctors=W
-C W tests/fmt/syntax-zoo.ax:227:4-5 "(Box Int -> Wrapped)" #of=Wrapped
+D Wrapped tests/fmt/syntax-zoo.ax:233:7-14 "data Wrapped" @456b706b2b771a60 #ctors=W
+C W tests/fmt/syntax-zoo.ax:234:4-5 "(Box Int -> Wrapped)" #of=Wrapped
 S Rec tests/fmt/syntax-zoo.ax:50:13-16 "struct Rec" @7e8483a9aaef3fde #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
-S Holder tests/fmt/syntax-zoo.ax:223:9-15 "struct Holder" @39a2b36e5f606cfe #fields=item:Box Int
-S RecTwin tests/fmt/syntax-zoo.ax:376:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
+S ZooCap tests/fmt/syntax-zoo.ax:223:9-15 "struct ZooCap" @565a8bdeb3d12664 #fields=render:(a -> String)
+S ZooPair tests/fmt/syntax-zoo.ax:226:9-16 "struct ZooPair" @149f38cfa5316df8 #fields=fst:a,snd:b
+S Holder tests/fmt/syntax-zoo.ax:230:9-15 "struct Holder" @39a2b36e5f606cfe #fields=item:Box Int
+S RecTwin tests/fmt/syntax-zoo.ax:383:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:21:11-16 "Int" @910ecfbfa27ddde2
 A BoxedCount tests/fmt/syntax-zoo.ax:221:11-21 "Box Int" @ce5c1ba8305ca704
 T Show tests/fmt/syntax-zoo.ax:58:9-13 "trait Show" @8318f82fa5e17568 #methods=show:(a -> Int),width:(a -> Int)
 T Ord tests/fmt/syntax-zoo.ax:63:9-12 "trait Ord" @c40227b1c47b7fe4 #methods=cmp:(a -> Int)
-T Container tests/fmt/syntax-zoo.ax:229:9-18 "trait Container" @8d4c851c510050c4 #methods=held:Box a
-T Boxy tests/fmt/syntax-zoo.ax:233:9-13 "trait Boxy" @c48328b263173335 #methods=reboxed:Box Box a
+T Container tests/fmt/syntax-zoo.ax:236:9-18 "trait Container" @8d4c851c510050c4 #methods=held:Box a
+T Boxy tests/fmt/syntax-zoo.ax:240:9-13 "trait Boxy" @c48328b263173335 #methods=reboxed:Box Box a
 M twice tests/fmt/syntax-zoo.ax:102:9-14 "macro twice" @a0ee9867b2571b97
-M defRecTwin tests/fmt/syntax-zoo.ax:368:8-18 "macro defRecTwin" @175bc52ff43ee048
+M defRecTwin tests/fmt/syntax-zoo.ax:375:8-18 "macro defRecTwin" @175bc52ff43ee048
 E Console tests/fmt/syntax-zoo.ax:186:9-16 "effect Console" @5e35620abc5f495d
 E Wire tests/fmt/syntax-zoo.ax:189:9-13 "effect Wire" @f3f0a43895c12689
-E Boxes tests/fmt/syntax-zoo.ax:247:9-14 "effect Boxes" @244d27b945c772d1
+E Boxes tests/fmt/syntax-zoo.ax:254:9-14 "effect Boxes" @244d27b945c772d1

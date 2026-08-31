@@ -1,0 +1,71 @@
+; expect 12
+; PARAMETERISED STRUCTS, and the capability record they exist for.
+;
+; A struct may name type parameters the way a `data` does, in the same
+; parenthesised spelling: `(struct Box (a) (v : a))`. Before this the
+; form was AX2001 - "expected identifier, found `a`" - and an interface
+; had to be a `data` type destructured by `match`, because only a
+; struct has named fields and `.field` access.
+;
+; WHY THE FIRST GROUP IS AMBIGUOUS HERE AND NOT IN A `data`. A data
+; declaration's other groups are CONSTRUCTORS, which start with an
+; uppercase name, so `(a)` can only be parameters. A struct's other
+; groups are FIELDS, which start lowercase too:
+;
+;     (struct Span (start : Int) (end : Int))
+;              ^^^^^^^^^^^^^^^^ a field, not a parameter list
+;
+; The discriminator is the `:`, and it is the same one in both the
+; compiler (`structGroupIsTyParams`) and the tree-sitter grammar
+; (a dynamic precedence on `type_parameters`, which `(x : Int)` cannot
+; match anyway). Handing the group to `collectTyParams` unguarded
+; swallowed `Span`'s first field and every struct in the tree stopped
+; parsing - the seed refused to compile `self_host/main.ax`, which is
+; where that belongs.
+;
+; What the terms hold:
+;
+;    4  two parameters stay INDEPENDENT. `(Pair 7 "seven")` binds `a`
+;       to Int and `b` to String through one shared instantiation env,
+;       so a variable used by two fields is one placeholder in both and
+;       this cannot answer `(Pair Int Int)`.
+;    8  a capability record: a struct holding a FUNCTION, selected by
+;       the value's own type, called through `.field`. This is what
+;       replaces a trait.
+(import Str)
+
+(import Fmt)
+
+(struct Pair (a b)
+  (fst : a)
+  (snd : b))
+
+(struct ShowOf (a)
+  (render : (-> a String)))
+
+(:: showInt (ShowOf Int))
+
+(fn (showInt) (ShowOf fmtInt))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((p (Pair 7 "seven")) (c showInt))
+    (+
+      ; 4 - the two parameters are independent: `fst` is an Int the
+      ; arithmetic below accepts, `snd` a String only strLen accepts.
+      (* 4 (b2i (&& (== p.fst 7) (== (strLen p.snd) 5))))
+      ; 8 - the capability answers through its field
+      (* 8 (b2i (strEq ((c.render) 7) "7")))
+    )
+  )
+)

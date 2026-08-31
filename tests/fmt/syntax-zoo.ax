@@ -220,6 +220,13 @@
 
 (pub type BoxedCount = (Box Int))
 
+(struct ZooCap (a)
+  (render : (-> a String)))
+
+(struct ZooPair (a b)
+  (fst : a)
+  (snd : b))
+
 (struct Holder
   (item : (Box Int)))
 

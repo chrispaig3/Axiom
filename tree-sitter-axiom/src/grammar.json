@@ -788,8 +788,12 @@
               "type": "FIELD",
               "name": "type_parameters",
               "content": {
-                "type": "SYMBOL",
-                "name": "type_parameters"
+                "type": "PREC_DYNAMIC",
+                "value": 1,
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "type_parameters"
+                }
               }
             },
             {

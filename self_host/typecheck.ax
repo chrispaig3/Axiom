@@ -1983,7 +1983,13 @@
 (pub struct StructEnt
   (name : Int)
   (fields : Int)
-  (module : Int))
+  (module : Int)
+  ; The type parameters the declaration named, in order - the vector
+  ; `parseStructDecl` hung on the D_STRUCT node. Empty for every
+  ; struct written before 2026-08-30 and for every one written without
+  ; parameters since, which is what keeps `(mkTCon name vecNew)` the
+  ; right answer in the unparameterised case.
+  (tyvars : Int))
 
 (pub struct TC
   (fns : Int)
@@ -2730,7 +2736,7 @@
                   ; `check` accepted (exit 139).
                   (checkStructFieldTyped tc (nodeB d) (nodeAName d))
                   (let ((sent 
-                    (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d)))
+                    (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d) (nodeTy d)))
                   ))
                     {
                       (vecPush (tcStructs tc) sent)
@@ -2955,9 +2961,12 @@
 ; The field type the parser could not read, in either of the two ways
 ; it fails to: no node at all, or the empty type variable
 ; `typeNodeOrWildcard` answers for a missing `:` and for a `:` whose
-; type is not a type. A NAMED variable cannot arrive here - a struct
-; takes no type parameters (`(struct Box a (v : a))` is AX2001) - so
-; an empty name is the whole test.
+; type is not a type. A NAMED variable CAN arrive here since
+; 2026-08-30, when structs gained type parameters: `(struct Box (a)
+; (v : a))` declares a field whose type is the variable `a`, and that
+; reads perfectly well. The empty name is still the whole test, and
+; always was - this comment asserted a reason the code never rested
+; on.
 (pub :: fieldTyIsUnread (-> Int Int))
 
 (pub fn (fieldTyIsUnread f)
@@ -10489,10 +10498,48 @@
           )
           (mkNode TAG_T_ERR 0 0 0)
         }
-        {
-          (checkStructFields tc args fields 0)
-          (mkTCon (bareOf (memGetWordStr ent 0)) vecNew)
-        }
+        (let ((tvs (memGetWord ent 3)))
+          ; `0`, NOT an empty vector, is what an unparameterised struct
+          ; stores - the `D_STRUCT` node's `ty` slot is left untouched
+          ; for those, because the macro expander walks that slot as a
+          ; type node. So the emptiness test has to admit both, and
+          ; `vecLen` on 0 dereferences null: this arm segfaulted every
+          ; macro-generated struct in the tree (exit 139) until the
+          ; `(== tvs 0)` was put in front of it.
+          (if (|| (== tvs 0) (== (vecLen tvs) 0))
+            {
+              (checkStructFields tc args fields 0)
+              (mkTCon (bareOf (memGetWordStr ent 0)) vecNew)
+            }
+            ; PARAMETERISED. The declared field types mention the
+            ; struct's variables, which are SOURCE variables and
+            ; therefore rigid - `(ShowOf fmtInt)` against a field
+            ; declared `(-> a String)` is a mismatch, not an
+            ; instantiation, which is exactly what the first build of
+            ; this feature reported.
+            ;
+            ; So the variables are instantiated ONCE for the whole
+            ; construction, through one shared env, so that a variable
+            ; used by two fields is the same placeholder in both and
+            ; `(Pair 1 "x")` cannot answer `(Pair Int Int)`. Each field
+            ; is then checked against its instantiated type, and
+            ; `pinShape` - the same walker an application uses to pin a
+            ; callee's placeholders from its arguments - reads the
+            ; bindings back out of a carrier tuple. The result is
+            ; `TCon(name, those bindings)`, which is what makes
+            ; `(ShowOf Int)` a different type from `(ShowOf String)`.
+            (let ((env vecNew))
+              (let ((insts (structInstFieldTys tc fields env vecNew 0)))
+                {
+                  (checkStructFieldsInst tc args insts 0)
+                  (mkTCon
+                    (bareOf (memGetWordStr ent 0))                    (structPinArgs tc args insts (structTvNodes env tvs vecNew 0) vecNew 0)
+                  )
+                }
+              )
+            )
+          )
+        )
       )
     )
   )
@@ -13002,6 +13049,117 @@
 
 (pub :: checkStructFields (-> Int Int Int Int Int))
 
+; Each field's declared type, instantiated through ONE shared env so a
+; variable used twice is one placeholder in both.
+(pub :: structInstFieldTys (-> Int Int Int Int Int Int))
+
+(pub fn (structInstFieldTys tc fields env out i)
+  (if (>= i (vecLen fields))
+    out
+    {
+      (vecPush
+        out        (cast Int (tyInstIn
+          tc          (if (== (nodeTy (vecGet fields i)) 0)
+            mkSilentWild
+            (nodeTy (vecGet fields i))
+          )          env
+        ))
+      )
+      (structInstFieldTys tc fields env out (+ i 1))
+    }
+  )
+)
+
+; The placeholder each declared variable was instantiated to, in the
+; declaration's order - the env is (name, node) pairs, and a variable
+; the fields never mention has no entry, which answers a fresh
+; wildcard so the arity of the TCon still matches the declaration.
+(pub :: structTvNodes (-> Int Int Int Int Int))
+
+(pub fn (structTvNodes env tvs out i)
+  (if (>= i (vecLen tvs))
+    out
+    {
+      (vecPush out (cast Int (structTvLookup env (vecGetStr tvs i) 0)))
+      (structTvNodes env tvs out (+ i 1))
+    }
+  )
+)
+
+(pub :: structTvLookup (-> Int String Int Int))
+
+(pub fn (structTvLookup env name i)
+  (if (>= i (vecLen env))
+    mkSilentWild
+    (if (strEq (vecGetStr env i) name)
+      (vecGet env (+ i 1))
+      (structTvLookup env name (+ i 2))
+    )
+  )
+)
+
+; Check each argument against its INSTANTIATED field type.
+(pub :: checkStructFieldsInst (-> Int Int Int Int Int))
+
+(pub fn (checkStructFieldsInst tc args insts i)
+  (if (>= i (vecLen args))
+    0
+    (let ((aty (checkExprH tc (vecGet args i) 0)))
+      {
+        (if (== (tyCompat aty (vecGet insts i)) 0)
+          (emitMismatchTy tc (vecGet insts i) aty (spanOf (vecGet args i)))
+          0
+        )
+        (checkStructFieldsInst tc args insts (+ i 1))
+      }
+    )
+  )
+)
+
+; The type arguments, read back by pinning each placeholder from the
+; argument that witnessed it. `pinShape` is the application walker,
+; used here for the same job: a declared position holding a minted
+; placeholder takes the matching subtree of the actual type.
+(pub :: structPinArgs (-> Int Int Int Int Int Int Int))
+
+(pub fn (structPinArgs tc args insts tvNodes out i)
+  (if (>= i (vecLen args))
+    (structCarrierOut tvNodes out 0)
+    {
+      (structPinInto tvNodes (vecGet insts i) (checkExprH tc (vecGet args i) 0) 0)
+      (structPinArgs tc args insts tvNodes out (+ i 1))
+    }
+  )
+)
+
+; `pinShape` answers a NEW tree rather than mutating, so the carrier is
+; walked one slot at a time and each slot replaced in place.
+(pub :: structPinInto (-> Int Int Int Int Int))
+
+(pub fn (structPinInto tvNodes param argTy i)
+  (if (>= i (vecLen tvNodes))
+    0
+    {
+      (vecSet
+        tvNodes        i        (cast Int (pinShape (vecGet tvNodes i) param argTy))
+      )
+      (structPinInto tvNodes param argTy (+ i 1))
+    }
+  )
+)
+
+(pub :: structCarrierOut (-> Int Int Int Int))
+
+(pub fn (structCarrierOut tvNodes out i)
+  (if (>= i (vecLen tvNodes))
+    out
+    {
+      (vecPush out (vecGet tvNodes i))
+      (structCarrierOut tvNodes out (+ i 1))
+    }
+  )
+)
+
 (pub fn (checkStructFields tc args fields i)
   (if (>= i (vecLen args))
     0
@@ -13059,6 +13217,49 @@
 ; ------------------------------------------------------------------
 (pub :: checkField (-> Int Int Int))
 
+; The field type with the receiver's type arguments put in place of
+; the struct's declared variables. `tyPinVar` is the substituter the
+; application path already uses; this walks the two lists in parallel
+; because position IS the correspondence - `(struct Pair (a b) ..)`
+; against `(Pair Int String)` binds `a` to `Int` and `b` to `String`.
+;
+; Answers `fty` untouched when the struct declares no variables, when
+; the receiver carries no arguments, or when the two disagree in
+; count. The last is not a silent pass: a receiver whose argument
+; count differs from the declaration is a type this checker did not
+; build, and substituting positionally through it would invent a
+; correspondence.
+(pub :: structSubstField (-> Int Int Int Int))
+
+(pub fn (structSubstField ent fty args)
+  (let ((tvs (memGetWord ent 3)))
+    (if (== fty (- 0 1))
+      fty
+      (if (== tvs 0)
+        fty
+        (if (== args 0)
+          fty
+          (if (!= (vecLen tvs) (vecLen args))
+            fty
+            (structSubstFrom fty tvs args 0)
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: structSubstFrom (-> Int Int Int Int Int))
+
+(pub fn (structSubstFrom fty tvs args i)
+  (if (>= i (vecLen tvs))
+    fty
+    (structSubstFrom
+      (tyPinVar fty (vecGetStr tvs i) (vecGet args i))      tvs      args      (+ i 1)
+    )
+  )
+)
+
 (pub fn (checkField tc e)
   (let ((baseTy (checkExprH tc (nodeA e) 0)))
     (if (== (nodeTag baseTy) TAG_T_CON)
@@ -13070,10 +13271,23 @@
           ; OBSERVED at: `c.port` inside TeamB answering TeamA's slot
           ; 0, at exit 0, with no diagnostic from any pass.
           (mkNode TAG_T_ERR 0 0 0)
+          ; SUBSTITUTED, since structs gained type parameters. The
+          ; declared field type mentions the STRUCT's variables -
+          ; `render` is declared `(-> a String)` - and the receiver's
+          ; own type carries what those variables turned out to be:
+          ; `(ShowOf Int)` says `a` is `Int`. Handing back the declared
+          ; type unsubstituted answers `(-> a String)` for a value the
+          ; checker already knows is `(-> Int String)`, which is the
+          ; second of the two errors this feature had to close.
+          ;
+          ; A struct with no parameters substitutes nothing and takes
+          ; the same path it always did.
           (let ((fty 
             (if (== ent 0)
               (- 0 1)
-              (structFieldTy ent (nodeBName e))
+              (structSubstField
+                ent                (structFieldTy ent (nodeBName e))                (nodeB baseTy)
+              )
             )
           ))
             (if (!= fty (- 0 1))
