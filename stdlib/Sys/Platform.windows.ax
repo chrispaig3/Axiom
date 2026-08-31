@@ -512,3 +512,130 @@
 (pub :: clockMonotonicId Int)
 
 (pub fn (clockMonotonicId) 0)
+
+; --------------------------------------------------------------------
+; Terminals - UNIMPLEMENTED HERE, AND THAT IS THE ANSWER, NOT A GAP
+; SOMEBODY FORGOT.
+;
+; Windows has no `termios` and no `ioctl`. Its terminal control is a
+; different mechanism end to end, not different numbers for the same
+; one:
+;
+;   * the object is a console HANDLE, not a file descriptor, and there
+;     is no request-number encoding to get wrong because there are no
+;     requests - `GetConsoleMode(h, &mode)` and `SetConsoleMode(h,
+;     mode)` take a single DWORD of flags;
+;   * that DWORD's bits (ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
+;     ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT) are not
+;     `termios` bits under other names - line and echo are one input
+;     handle's mode, where POSIX splits them across c_lflag and
+;     c_iflag, and there is no VMIN/VTIME at all;
+;   * "is this a terminal" is `GetFileType(h) == FILE_TYPE_CHAR` or a
+;     `GetConsoleMode` that succeeds, not an `ioctl` that answers
+;     ENOTTY;
+;   * the size is `GetConsoleScreenBufferInfo`, whose `srWindow`
+;     rectangle gives rows and columns as a difference of coordinates
+;     rather than as a `struct winsize`.
+;
+; So this module answers `ttyUsesTermios` 0 and `Sys.ax` takes the
+; branch that reports "not supported on this target" - the same shape
+; as `clockHasMonotonic` on Darwin, where the honest -ENOSYS was
+; preferred to substituting a clock that could run backwards.
+;
+; WHY NOT BIND THE FOUR FUNCTIONS NOW, since this module already binds
+; kernel32 and the constants are documented rather than derived. Two
+; reasons, and the second is the real one. Files, directories,
+; processes, the clock, sockets, entropy and signals are all still a
+; later phase here, so a console layer would be the only fully-built
+; floor in a module whose header calls itself half-done. And nothing in
+; this tree can RUN it: `check-cross-targets.sh` assembles Windows
+; objects on this host but executes none, so a binding written today
+; would be exactly the plausible-looking unverified code this section's
+; POSIX counterparts spend their comments avoiding. The mechanism is
+; written down above so that whoever has a Windows box does not have to
+; rediscover it.
+;
+; The eighteen names below are 0 for the reason `clockMonotonicId` is:
+; every platform module declares one public surface
+; (`check-stdlib-api.sh`), and `ttyUsesTermios` 0 keeps every one of
+; them unread.
+; --------------------------------------------------------------------
+(pub :: ttyUsesTermios Int)
+
+(pub fn (ttyUsesTermios) 0)
+
+(pub :: sysIoctlNum Int)
+
+(pub fn (sysIoctlNum) 0)
+
+(pub :: tcGetAttrReq Int)
+
+(pub fn (tcGetAttrReq) 0)
+
+(pub :: tcSetAttrReq Int)
+
+(pub fn (tcSetAttrReq) 0)
+
+(pub :: tcWinSizeReq Int)
+
+(pub fn (tcWinSizeReq) 0)
+
+; 0 rather than a plausible size. `Sys.ax` allocates this many bytes
+; for a saved terminal state, and a caller that reached here would get
+; a zero-length buffer and the "unsupported" answer, not a short one it
+; could half-fill.
+(pub :: termiosBytes Int)
+
+(pub fn (termiosBytes) 0)
+
+(pub :: termiosFlagBytes Int)
+
+(pub fn (termiosFlagBytes) 0)
+
+(pub :: termiosCcOff Int)
+
+(pub fn (termiosCcOff) 0)
+
+(pub :: termiosVminIdx Int)
+
+(pub fn (termiosVminIdx) 0)
+
+(pub :: termiosVtimeIdx Int)
+
+(pub fn (termiosVtimeIdx) 0)
+
+(pub :: tiosEcho Int)
+
+(pub fn (tiosEcho) 0)
+
+(pub :: tiosIcanon Int)
+
+(pub fn (tiosIcanon) 0)
+
+(pub :: tiosIsig Int)
+
+(pub fn (tiosIsig) 0)
+
+(pub :: tiosIexten Int)
+
+(pub fn (tiosIexten) 0)
+
+(pub :: tiosBrkint Int)
+
+(pub fn (tiosBrkint) 0)
+
+(pub :: tiosIcrnl Int)
+
+(pub fn (tiosIcrnl) 0)
+
+(pub :: tiosIstrip Int)
+
+(pub fn (tiosIstrip) 0)
+
+(pub :: tiosIxon Int)
+
+(pub fn (tiosIxon) 0)
+
+(pub :: tiosOpost Int)
+
+(pub fn (tiosOpost) 0)

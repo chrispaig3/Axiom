@@ -212,7 +212,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Forty-six of the gates below build the compiler under test from
+    # Forty-seven of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -388,6 +388,24 @@ jobs:
       # is. This is also the only thing that runs examples/web at all.
       - name: A templated server serves its pages and holds its memory
         run: ./scripts/check-web.sh
+
+      # A terminal put into raw mode must come back byte for byte. It
+      # runs on every leg because the numbers it exercises are
+      # per-target: `struct termios` is 72 bytes on Darwin and 36 on
+      # Linux, `c_cc` starts at 32 there and 17 here, and ISIG is 0x80
+      # against 0x1 - so this is exactly the kind of gate that passes on
+      # one leg and means nothing about the other.
+      #
+      # IT NEEDS A PTY AND NOT A TERMINAL, which is why a CI step can run
+      # it at all: it calls `openpty` and drives the pty it gets, never
+      # the step's own descriptors, so having no controlling terminal is
+      # not an obstacle. If it ever cannot get one it EXITS NON-ZERO
+      # saying so - it is written not to skip, because a gate that goes
+      # green when it could not run is counted as coverage that does not
+      # exist. It needs no git history, so the default shallow checkout
+      # is fine.
+      - name: A raw-mode terminal is restored byte for byte
+        run: ./scripts/check-terminal-restore.sh
 
       # Both halves on every leg: no libc on this host, and every
       # windows-x86_64 declare on the reviewed allowlist - the Windows

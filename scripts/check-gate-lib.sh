@@ -2,7 +2,7 @@
 # Assert that `gate_build_axc`'s cache cannot hide a change to the tree.
 #
 # WHY THIS GATE EXISTS AT ALL. `scripts/lib/gate.sh` is not a gate; it
-# is the preamble forty-six gates share, and `gate_build_axc` is the
+# is the preamble forty-seven gates share, and `gate_build_axc` is the
 # line in it that makes those twenty-six test the compiler in the
 # WORKING TREE rather than whatever binary happens to be on disk. Its
 # own comment says so: building from `self_host/` "is also what makes
@@ -13,7 +13,7 @@
 # 60,881 lines was about sixteen minutes of every CI run, measured on
 # all three legs. An environment variable naming a prebuilt compiler is
 # EXACTLY the shape that deletes the property above, silently, in every
-# one of those forty-six gates at once - and the failure would look like
+# one of those forty-seven gates at once - and the failure would look like
 # green CI, which is the worst way for a gate to be wrong.
 #
 # So the cache is content-addressed: `$AXIOM_AXC` is used only when
@@ -255,7 +255,7 @@ word_for() {
     40) echo forty ;;          41) echo "forty-one" ;;
     42) echo "forty-two" ;;   43) echo "forty-three" ;;
     44) echo "forty-four" ;;   45) echo "forty-five" ;;
-    46) echo "forty-six" ;;
+    46) echo "forty-six" ;;   47) echo "forty-seven" ;;
     *)  echo "" ;;
   esac
 }
@@ -270,6 +270,7 @@ word_for() {
 # So the table answers for itself, at every arm, before it is used.
 checks=$((checks + 1))
 table_ok=1
+arms=0
 for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
             "19 nineteen" "20 twenty" "21 twenty-one" "22 twenty-two" \
             "23 twenty-three" "24 twenty-four" "25 twenty-five" \
@@ -279,8 +280,9 @@ for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
             "35 thirty-five" "36 thirty-six" "37 thirty-seven" "38 thirty-eight" \
             "39 thirty-nine" "40 forty" "41 forty-one" "42 forty-two" \
             "43 forty-three" "44 forty-four" "45 forty-five" \
-            "46 forty-six"; do
+            "46 forty-six" "47 forty-seven"; do
   set -- $pair
+  arms=$((arms + 1))
   got="$(word_for "$1")"
   if [[ "$got" != "$2" ]]; then
     echo "FAIL: word_for $1 answers \"$got\", not \"$2\""
@@ -288,7 +290,11 @@ for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
   fi
 done
 if (( table_ok )); then
-  echo "ok   word_for answers its own 28 arms"
+  # COUNTED, NOT TYPED. This line said "its own 28 arms" while the loop
+  # above listed 32 pairs - the literal was written when the table was
+  # shorter and never moved with it, in the check whose whole subject is
+  # a number that goes stale in prose. It counts itself now.
+  echo "ok   word_for answers its own $arms arms"
 else
   failed=$((failed + 1))
 fi
@@ -443,7 +449,11 @@ current_text() {  # <path> -> the text that must be about TODAY
 # cover. Found 2026-08-31 by running this sweep, not by planting
 # anything: `scripts/build-shared-axc.sh` already said "Forty-two
 # gates call `gate_build_axc`" in its opening paragraph while stating
-# "forty-six gates" correctly four more times lower in the same file,
+# the count correctly four more times lower in the same file (the
+# word is not spelled here on purpose - this is a note about what a
+# file said on 2026-08-31, and bumping it with the count would turn
+# a true story into a false one, while leaving it would trip the
+# stale-spelling sweep below),
 # and 42 sits in exactly the gap this loop left open. That file is
 # fixed separately; this loop is fixed so the NEXT gap can't open the
 # same way - `word_for`'s table can grow and this bound grows with it.
@@ -471,6 +481,6 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-gate-lib: $checks checks - the shared artifact is used only when it"
-echo "                was built from the tree as it stands, so forty-six gates"
+echo "                was built from the tree as it stands, so forty-seven gates"
 echo "                still see an ablation of self_host/, and a path that names"
 echo "                no build product is refused rather than ignored"

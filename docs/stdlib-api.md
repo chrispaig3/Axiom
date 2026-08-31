@@ -545,7 +545,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 75 public names
+`stdlib/Sys.ax` — 84 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -624,10 +624,19 @@ See [reference.md](reference.md) for the language, and
 | `netPollSignalAt` | value | `(-> Int Int Int Int Int)` | `IO` | The signal named by event `i`, or a negative when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
 | `sysKill` | value | `(-> Int Int Int)` | `IO` | Send a signal, which is how a test raises one against itself. |
 | `sysForkProcess` | value | `Int` | `IO` | Duplicating this process |
+| `sysTermStateBytes` | value | `Int` |  | How many bytes a saved terminal state occupies, which is how large the buffer a caller hands `sysTermSave`, `sysTermRaw` and `sysTermRestore` must be. 72, 36 or 44 depending on the target; 0 where there is no `termios` at all. |
+| `sysTermSizeBytes` | value | `Int` |  | The bytes `sysTermSize` writes. 8 on every target that has one; see the section header for why this number is here and not in `Sys.Platform`. |
+| `sysIsatty` | value | `(-> Int Bool)` | `Alloc,IO` | True when `fd` is a terminal. |
+| `sysTermSave` | value | `(-> Int Int Int)` | `IO` | Read `fd`'s current terminal attributes into `save`, which must hold `sysTermStateBytes` bytes. 0 on success, or a negative result. |
+| `sysTermRestore` | value | `(-> Int Int Int)` | `IO` | Write `state` back to `fd` as its terminal attributes: 0, or a negative result. |
+| `sysTermRaw` | value | `(-> Int Int Int Int)` | `Alloc,IO,Mut` | Put `fd` into raw mode, having first saved its current state into `save` (`sysTermStateBytes` bytes, owned by the caller). 0, or a negative result. |
+| `sysTermSize` | value | `(-> Int Int Int)` | `IO` | Read `fd`'s window size into `buf` (`sysTermSizeBytes` bytes): 0, or a negative result. `sysTermRows` and `sysTermCols` read the answer back out. |
+| `sysTermRows` | value | `(-> Int Int)` |  | Rows out of a buffer `sysTermSize` filled. `ws_row` is an `unsigned short` at offset 0 on every target, little-endian. |
+| `sysTermCols` | value | `(-> Int Int)` |  | Columns: `ws_col`, the second `unsigned short`. |
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 86 public names
+`stdlib/Sys/Platform.darwin.ax` — 105 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -717,6 +726,25 @@ See [reference.md](reference.md) for the language, and
 | `platformWriteFd` | value | `(-> Int Int Int Int)` |  |  |
 | `platformReadFd` | value | `(-> Int Int Int Int)` |  |  |
 | `platformExitWith` | value | `(-> Int Int)` |  |  |
+| `ttyUsesTermios` | value | `Int` |  | Whether this platform's terminal control is the POSIX `termios` trio - read the attributes, edit them, write them back - reached through `ioctl`. Windows answers 0: its mechanism is `GetConsoleMode`/`SetConsoleMode` against a HANDLE, which shares no part of this shape. |
+| `sysIoctlNum` | value | `Int` |  | ioctl(fd, request, arg) - BSD 54, encoded the way every number in this file is: `0x2000000 \| 54` = 33554486. Probe: `SYS_ioctl = 54 (0x36)`, `SYS_ioctl encoded = 33554486`. |
+| `tcGetAttrReq` | value | `Int` |  | TIOCGETA - read the terminal attributes into a `struct termios`. |
+| `tcSetAttrReq` | value | `Int` |  | TIOCSETAF - write the attributes back, after draining pending output and DISCARDING pending input. |
+| `tcWinSizeReq` | value | `Int` |  | TIOCGWINSZ - read `struct winsize`. |
+| `termiosBytes` | value | `Int` |  | How many bytes the kernel exchanges through the two requests above, and therefore how large a buffer a caller must hand `Sys.ax` to save a terminal's state in. |
+| `termiosFlagBytes` | value | `Int` |  | The width of one flag word, which is also the STRIDE of the four of them: `c_iflag` at 0, `c_oflag` at 8, `c_cflag` at 16, `c_lflag` at 24. Probe: `c_iflag@0 c_oflag@8 c_cflag@16 c_lflag@24`, each of `size 8`. The four offsets are `n * termiosFlagBytes` on every platform this library targets, so `Sys.ax` carries one multiplication rather than four constants per module. |
+| `termiosCcOff` | value | `Int` |  | Where the control-character array `c_cc` begins. Probe: `offsetof c_cc = 32 (size 20, NCCS 20)`. |
+| `termiosVminIdx` | value | `Int` |  | The two `c_cc` slots that mean something once ICANON is off: how many bytes a `read` must collect before it returns, and how long it waits in tenths of a second. Probe: `VMIN = 16`, `VTIME = 17`. |
+| `termiosVtimeIdx` | value | `Int` |  |  |
+| `tiosEcho` | value | `Int` |  | c_lflag bits. Probe: `ECHO = 0x8 (8)`, `ICANON = 0x100 (256)`, `ISIG = 0x80 (128)`, `IEXTEN = 0x400 (1024)`. |
+| `tiosIcanon` | value | `Int` |  |  |
+| `tiosIsig` | value | `Int` |  |  |
+| `tiosIexten` | value | `Int` |  |  |
+| `tiosBrkint` | value | `Int` |  | c_iflag bits. Probe: `BRKINT = 0x2`, `ICRNL = 0x100`, `ISTRIP = 0x20`, `IXON = 0x200`. |
+| `tiosIcrnl` | value | `Int` |  |  |
+| `tiosIstrip` | value | `Int` |  |  |
+| `tiosIxon` | value | `Int` |  |  |
+| `tiosOpost` | value | `Int` |  | The one c_oflag bit raw mode touches. Probe: `OPOST = 0x1`, and it is 0x1 on Linux and FreeBSD too. |
 
 ## `Test`
 

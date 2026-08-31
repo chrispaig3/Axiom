@@ -262,7 +262,9 @@ sysFileSize Sys.ax IO
 sysForkProcess Sys.ax IO
 sysGetCwd Sys.ax Alloc,IO,Mut
 sysGetPid Sys.ax IO
+sysIoctl Sys.ax IO
 sysIsDir Sys.ax Alloc,IO,Mut
+sysIsatty Sys.ax Alloc,IO
 sysKill Sys.ax IO
 sysMkdir Sys.ax IO
 sysNowMicros Sys.ax IO
@@ -285,11 +287,17 @@ sysRunSearch Sys.ax Alloc,IO,Mut
 sysSeek Sys.ax IO
 sysSignalBlock Sys.ax IO,Mut
 sysSpawn Sys.ax Alloc,IO,Mut
+sysTermRaw Sys.ax Alloc,IO,Mut
+sysTermRawApply Sys.ax IO,Mut
+sysTermRestore Sys.ax IO
+sysTermSave Sys.ax IO
+sysTermSize Sys.ax IO
 sysUnlink Sys.ax IO
 sysWaitPid Sys.ax Alloc,IO,Mut
 sysWriteAllFd Sys.ax IO
 sysWriteFd Sys.ax IO
 sysWriteFile Sys.ax IO
+termFlagClear Sys.ax Mut
 testFail Test.ax Alloc,Assert,IO,Mut
 todo IO.ax Alloc,IO,Mut
 utf8FromChar Utf8.ax Alloc,Mut

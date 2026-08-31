@@ -2052,6 +2052,8 @@ The standard library is built on these low-level primitives, and so is any code 
 
 Syscall numbers are not built into the compiler — they live in `stdlib/Sys/Platform.<os>[-<arch>].ax`, and the module resolver picks the file matching `--target`.
 
+So does everything else that is ABI rather than language. `Sys.Platform` is a table of numbers, not of OS names, and portable code branches on a *capability* it exposes rather than on which file resolved — `openNeedsDirFd`, `pollUsesKqueue`, `usesSyscallAbi`, `ttyUsesTermios`. That is what keeps `Sys.ax` free of a platform list, and it is what lets a target answer **no** to a whole facility: `ttyUsesTermios` is 0 on `windows-x86_64`, which has no `termios` and no `ioctl`, and every terminal call there answers a negative result instead of a fabricated one. See [README § Terminals](../README.md#terminals) for the support matrix and how each platform's constants were established; `scripts/check-stdlib-api.sh` asserts that all five `Sys/Platform.*.ax` files declare the same public names, which is what makes an unimplemented target a *declared* answer rather than a missing symbol.
+
 ### Allocation
 
 ```scheme

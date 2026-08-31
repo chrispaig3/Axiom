@@ -420,7 +420,29 @@ its changelog too.
   is executed by no runner). Both directions were ablated: re-adding
   `linux-x86_64` to the matrix fails on "built AND refused", and
   removing its refusal arm fails on "neither built nor refused".
-  Forty-six gates build the compiler under test, up from forty-five.
+  Forty-seven gates build the compiler under test, up from forty-five.
+- **Terminal primitives, and the gate that keeps them honest.** `Sys`
+  grew the floor a REPL's line editor needs and nothing above it:
+  `sysIsatty`, `sysTermSave`/`sysTermRaw`/`sysTermRestore`, and
+  `sysTermSize` with `sysTermRows`/`sysTermCols`. Nineteen constants per
+  platform module carry them, and every one records how it was
+  established - measured on this host for Darwin, quoted from the
+  kernel's uapi headers for Linux, derived from `_IOC` with the
+  arithmetic shown for FreeBSD. `windows-x86_64` answers
+  `ttyUsesTermios` 0 and every call returns an error: it has no
+  `termios` and no `ioctl`, nothing here can execute `GetConsoleMode`,
+  and an honest unimplemented beats a plausible wrong number - an ioctl
+  request is a command selector *plus a byte count*, so a number
+  borrowed across platforms copies the wrong length rather than failing.
+  `struct termios` is 72 bytes on Darwin, 36 on Linux and 44 on FreeBSD,
+  which is why the state buffer's size is a call and not a constant.
+  New gate **`check-terminal-restore.sh`** asserts the round trip is
+  byte-exact on a pty it allocates itself - and asserts, in the same
+  breath, that raw mode changed something first, because a `sysTermRaw`
+  that does nothing round-trips perfectly and would satisfy the obvious
+  check. Two independent witnesses: the library's `memCmp`, and
+  `tcgetattr` from outside the process using Python's own `termios.ISIG`
+  rather than the constant under test. Four ablations, all required.
   `check-install.sh` gained the branch this needs: on a host whose
   target ships no archive it asserts the refusal instead, and says
   plainly that the install path was not exercised there rather than
