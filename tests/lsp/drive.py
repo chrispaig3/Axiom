@@ -1794,6 +1794,583 @@ else:
     passed += 4
 shutil.rmtree(NAVREF_DIR, ignore_errors=True)
 
+# ---------------------------------------------------------------------
+# textDocument/declaration, and the three call-hierarchy requests.
+#
+# Still SECTION NAV TESTS, because self_host/lsp.ax's SECTION NAV owns
+# all four. Five documents written HERE, so no position below can drift
+# away from the text it describes, and EVERY expected answer is
+# computed from those documents' own bytes:
+#
+#   ChHelper.ax  two `fn`s, the second calling the first TWICE, so an
+#                incoming list that reported a caller once per caller
+#                rather than once per call site is visible.
+#   ChMain.ax    imports ChHelper. Declares the shapes the design turns
+#                on: a `fn` whose parameter is spelled like a top-level
+#                `fn` (`apply`'s `k`), a `fn` that NAMES another
+#                without applying it (`handoff`), a `let` for the local
+#                half of `declaration`, and `caller`, which calls one
+#                local `fn` twice and one imported `fn` once.
+#   ChUser.ax    imports ChMain and calls `caller` twice, so incoming
+#                calls have a second open document to find.
+#   ChSig.ax     a `(:: pending ...)` with no `fn` under it - the one
+#                case where `declaration` answers and `definition`
+#                cannot.
+#   ChBroken.ax  ChMain with an unclosed paren: every one of the four
+#                must answer null without the session dying.
+#
+# WHAT MAKES THESE NON-VACUOUS, beyond deriving the positions:
+#
+#   * `declaration` and `definition` are asked at the SAME position and
+#     must answer DIFFERENT ranges - the `::` and the `fn` - each equal
+#     to a whole-identifier position computed here. A server that
+#     aliased one to the other passes neither.
+#   * `handoff` names `helper` and must NOT appear in `helper`'s
+#     incoming list, while `axiom symbols --calls` does report that
+#     edge (`#calls=helper`, measured 2026-08-31). The floor below
+#     refuses to run if the document ever stops containing that shape.
+#   * `apply`'s body head is its own parameter, so outgoing calls from
+#     `apply` must be empty AND incoming calls to the top-level `k`
+#     must be empty. A server that resolved heads by spelling reports
+#     one edge in each direction.
+# ---------------------------------------------------------------------
+CH_DIR = tempfile.mkdtemp(prefix="axiom-lsp-callhier-")
+CH_HELPER = """; Add one.
+(pub :: bump (-> Int Int))
+
+(pub fn (bump x) (+ x 1))
+
+; Add one, then add one again: two call sites in one body.
+(pub :: twice (-> Int Int))
+
+(pub fn (twice x) (bump (bump x)))
+"""
+CH_MAIN = """(import ChHelper (bump twice))
+
+(pub :: helper (-> Int Int))
+
+(pub fn (helper n) (+ n n))
+
+; A top-level one-letter function, shadowed below by a parameter
+; spelled the same way.
+(pub :: k (-> Int Int))
+
+(pub fn (k n) (- n 1))
+
+; The head of the body below is that PARAMETER, not the declaration
+; above it.
+(pub :: apply (-> (-> Int Int) Int Int))
+
+(pub fn (apply k v) (k v))
+
+; A local binding, for the local half of the declaration request.
+(pub :: scaled (-> Int Int))
+
+(pub fn (scaled n) (let ((factor 3)) (* n factor)))
+
+(pub :: caller (-> Int Int))
+
+(pub fn (caller n) (+ (helper n) (helper (bump n))))
+
+; The body below NAMES a function and never applies it.
+(pub :: handoff (-> Int (-> Int Int)))
+
+(pub fn (handoff z) helper)
+
+(:: main Int)
+
+(fn (main) (caller (twice 2)))
+"""
+CH_USER = """(import ChMain (caller))
+
+(pub :: run (-> Int Int))
+
+(pub fn (run n) (+ (caller n) (caller 1)))
+"""
+CH_SIG = """; A signature whose definition has not been written yet, which is what
+; an editor sees between two keystrokes.
+(pub :: pending (-> Int Int))
+
+(pub :: ready (-> Int Int))
+
+(pub fn (ready x) (+ x 1))
+"""
+CH_BROKEN = CH_MAIN + "\n("
+CH_DOCS = {"ChHelper.ax": CH_HELPER, "ChMain.ax": CH_MAIN, "ChUser.ax": CH_USER,
+           "ChSig.ax": CH_SIG, "ChBroken.ax": CH_BROKEN}
+for _n, _t in CH_DOCS.items():
+    open(os.path.join(CH_DIR, _n), "w", encoding="utf-8").write(_t)
+
+
+def ch_uri(name):
+    return "file://" + os.path.join(CH_DIR, name)
+
+
+H_URI, M_URI, U_URI, S_URI, BK_URI = (ch_uri(n) for n in
+                                      ("ChHelper.ax", "ChMain.ax", "ChUser.ax",
+                                       "ChSig.ax", "ChBroken.ax"))
+
+
+def ch_form(src, at):
+    """The whole top-level form holding the identifier at `at`: from the
+    `(` in column 0 at or above its line to the matching `)`, as an LSP
+    Range. A second implementation, in Python, of what `lspChItem`
+    builds out of `lspFormStart` and `lspFormEnd`."""
+    lines = src.split("\n")
+    ln = at["line"]
+    while ln >= 0 and not lines[ln].startswith("("):
+        ln -= 1
+    if ln < 0:
+        raise LookupError("no column-zero form above line %d" % at["line"])
+    start = sum(len(l) + 1 for l in lines[:ln])
+    i, depth, instr, incom = start, 0, False, False
+    while i < len(src):
+        c = src[i]
+        if incom:
+            if c == "\n":
+                incom = False
+        elif instr:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                instr = False
+        elif c == '"':
+            instr = True
+        elif c == ";":
+            incom = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                i += 1
+                break
+        i += 1
+    eln, etext, ecol = line_of(src, i)
+    return {"start": {"line": ln, "character": 0},
+            "end": {"line": eln, "character": u16(etext[:ecol])}}
+
+
+def ch_item(src, uri, name, n=2):
+    """The CallHierarchyItem the server must build for the `fn` named
+    `name`: `selectionRange` its n-th whole-identifier occurrence - the
+    2nd, because `(:: name ...)` spells it first - and `range` the form
+    that holds it."""
+    at = ident_at(src, name, n)
+    return {"name": name, "kind": 12, "uri": uri,
+            "range": ch_form(src, at), "selectionRange": rng(at)}
+
+
+def ch_strip_comments(src):
+    """`src` with every `;` comment cut off, strings respected."""
+    out = []
+    for line in src.split("\n"):
+        instr, cut, i = False, len(line), 0
+        while i < len(line):
+            c = line[i]
+            if instr:
+                if c == "\\":
+                    i += 1
+                elif c == '"':
+                    instr = False
+            elif c == '"':
+                instr = True
+            elif c == ";":
+                cut = i
+                break
+            i += 1
+        out.append(line[:cut])
+    return "\n".join(out)
+
+
+# EVERY POSITION BELOW IS AN OCCURRENCE NUMBER, so a comment that
+# happens to SPELL one of these names as a whole identifier silently
+# shifts all of them and the checks go on passing against the wrong
+# bytes. That is not hypothetical: the first draft of these documents
+# wrote "; A top-level `k`, shadowed ..." above `(pub :: k ...)`, and
+# every `k` position after it was off by one. So the names are listed
+# and the documents are held to spelling them in CODE only.
+CH_INDEXED = ["bump", "twice", "helper", "k", "apply", "handoff", "scaled",
+              "caller", "main", "factor", "run", "pending", "ready",
+              "n", "v", "x", "z"]
+for _label, _text in (("ChHelper.ax", CH_HELPER), ("ChMain.ax", CH_MAIN),
+                      ("ChUser.ax", CH_USER), ("ChSig.ax", CH_SIG)):
+    _bare = ch_strip_comments(_text)
+    for _nm in CH_INDEXED:
+        if ident_count(_text, _nm) != ident_count(_bare, _nm):
+            sys.exit(f"FAIL: a comment in {_label} spells `{_nm}` as a whole "
+                     f"identifier, which shifts every occurrence number the "
+                     f"declaration and call-hierarchy checks derive from it")
+
+# The `fn` names ChMain declares, read out of the document rather than
+# listed here, so a declaration added above is a declaration this block
+# asks about.
+CH_FNS = re.findall(r"^\(pub fn \(([^ )]+)", CH_MAIN, re.M) + \
+         re.findall(r"^\(fn \(([^ )]+)", CH_MAIN, re.M)
+# The two shapes the design turns on, asserted before any server runs.
+if ident_count(CH_MAIN, "helper") < 5:
+    sys.exit("FAIL: ChMain.ax spells `helper` %d times; the incoming-call check "
+             "needs its signature, its definition, two calls and one bare "
+             "mention" % ident_count(CH_MAIN, "helper"))
+if "(handoff z) helper)" not in CH_MAIN:
+    sys.exit("FAIL: ChMain.ax no longer NAMES `helper` without applying it, so "
+             "nothing here separates a call hierarchy from `symbols --calls`")
+if "(apply k v) (k v))" not in CH_MAIN or ident_count(CH_MAIN, "k") < 4:
+    sys.exit("FAIL: ChMain.ax no longer shadows the top-level `k` with a "
+             "parameter, so a server resolving heads by spelling would pass")
+if len(CH_FNS) < 7:
+    sys.exit("FAIL: derived only %d `fn` names from ChMain.ax; prepareCallHierarchy "
+             "would be asked about too few" % len(CH_FNS))
+
+
+def ch_req(rid, method, params):
+    return {"jsonrpc": "2.0", "id": rid, "method": method, "params": params}
+
+
+def ch_pos(uri, at):
+    return {"textDocument": {"uri": uri}, "position": {"line": at["line"],
+                                                       "character": at["start"]}}
+
+
+# Positions, all whole-identifier, all derived.
+CH_HELPER_SIG = ident_at(CH_MAIN, "helper", 1)      # in `(pub :: helper ...)`
+CH_HELPER_FN = ident_at(CH_MAIN, "helper", 2)       # in `(pub fn (helper n) ...)`
+CH_HELPER_CALLS = [ident_at(CH_MAIN, "helper", 3), ident_at(CH_MAIN, "helper", 4)]
+CH_HELPER_NAMED = ident_at(CH_MAIN, "helper", 5)    # handoff's bare mention
+CH_BUMP_CALL = ident_at(CH_MAIN, "bump", 2)         # the call inside `caller`; 1 is the import list
+CH_BUMP_SIG = ident_at(CH_HELPER, "bump", 1)
+CH_BUMP_FN = ident_at(CH_HELPER, "bump", 2)
+CH_FACTOR_BIND = ident_at(CH_MAIN, "factor", 1)
+CH_FACTOR_READ = ident_at(CH_MAIN, "factor", 2)
+CH_APPLY_HEAD = ident_at(CH_MAIN, "k", 4)           # the `(k v)` head: a parameter
+CH_CALLER_FN = ident_at(CH_MAIN, "caller", 2)
+CH_CALLER_CALLS_M = [ident_at(CH_MAIN, "caller", 3)]
+CH_CALLER_CALLS_U = [ident_at(CH_USER, "caller", 2), ident_at(CH_USER, "caller", 3)]
+CH_PENDING = ident_at(CH_SIG, "pending", 1)
+CH_TWICE_CALL = ident_at(CH_MAIN, "twice", 2)
+CH_BUMP_IN_TWICE = [ident_at(CH_HELPER, "bump", 3), ident_at(CH_HELPER, "bump", 4)]
+
+ch_msgs = [ch_req(1, "initialize", {})]
+ch_msgs += [{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+             "params": {"textDocument": {"uri": ch_uri(n), "languageId": "axiom",
+                                         "version": 1, "text": t}}}
+            for n, t in CH_DOCS.items()]
+# --- declaration ------------------------------------------------------
+ch_msgs += [
+    ch_req(2, "textDocument/declaration", ch_pos(M_URI, CH_HELPER_CALLS[0])),
+    ch_req(3, "textDocument/definition", ch_pos(M_URI, CH_HELPER_CALLS[0])),
+    ch_req(4, "textDocument/declaration", ch_pos(M_URI, CH_BUMP_CALL)),
+    ch_req(5, "textDocument/definition", ch_pos(M_URI, CH_BUMP_CALL)),
+    ch_req(6, "textDocument/declaration", ch_pos(M_URI, CH_FACTOR_READ)),
+    ch_req(7, "textDocument/definition", ch_pos(M_URI, CH_FACTOR_READ)),
+    ch_req(8, "textDocument/declaration", ch_pos(S_URI, CH_PENDING)),
+    ch_req(9, "textDocument/definition", ch_pos(S_URI, CH_PENDING)),
+    ch_req(10, "textDocument/declaration",
+           {"textDocument": {"uri": M_URI}, "position": {"line": 0, "character": 1}}),
+    ch_req(11, "textDocument/declaration", ch_pos(BK_URI, CH_HELPER_CALLS[0])),
+]
+# --- prepareCallHierarchy, once per `fn` ChMain declares --------------
+CH_PREP = {}
+_rid = 20
+for _fn in CH_FNS:
+    CH_PREP[_fn] = _rid
+    ch_msgs.append(ch_req(_rid, "textDocument/prepareCallHierarchy",
+                          ch_pos(M_URI, ident_at(CH_MAIN, _fn, 2))))
+    _rid += 1
+CH_PREP_NULL = {}
+for _what, _uri, _at in (("an imported name", M_URI, CH_BUMP_CALL),
+                         ("a parameter", M_URI, CH_APPLY_HEAD),
+                         ("a `let` binder", M_URI, CH_FACTOR_BIND),
+                         ("a signature with no fn", S_URI, CH_PENDING),
+                         ("a broken document", BK_URI, CH_HELPER_FN)):
+    CH_PREP_NULL[_what] = _rid
+    ch_msgs.append(ch_req(_rid, "textDocument/prepareCallHierarchy", ch_pos(_uri, _at)))
+    _rid += 1
+ch_msgs.append(ch_req(_rid, "textDocument/prepareCallHierarchy",
+                      {"textDocument": {"uri": M_URI},
+                       "position": {"line": 0, "character": 1}}))
+CH_PREP_NULL["a keyword"] = _rid
+_rid += 1
+ch_msgs.append(ch_req(90, "shutdown", None))
+ch_msgs.append({"jsonrpc": "2.0", "method": "exit", "params": None})
+chp = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in ch_msgs),
+                     capture_output=True, cwd=CH_DIR)
+chmsgs, chtail = unframe(chp.stdout)
+chresp = {m["id"]: m for m in chmsgs if "id" in m}
+chpubs = {}
+for m in chmsgs:
+    if m.get("method") == "textDocument/publishDiagnostics":
+        chpubs.setdefault(m["params"]["uri"], m["params"]["diagnostics"])
+chcaps = (chresp.get(1, {}).get("result") or {}).get("capabilities") or {}
+
+
+def chres(rid):
+    return chresp.get(rid, {}).get("result")
+
+
+def ch_landed(rid, uri, at, what):
+    r = chres(rid)
+    if r is None:
+        return f"{what} (request {rid}) answered null"
+    if not isinstance(r, dict):
+        return f"{what} (request {rid}) answered {r!r:.160}, want one Location"
+    if (r.get("uri"), r.get("range")) != (uri, rng(at)):
+        return (f"{what} (request {rid}) answered {(r.get('uri'), r.get('range'))!r:.200}, "
+                f"want {(uri, rng(at))!r:.200}")
+    return ""
+
+
+def ch_null(rid, what):
+    r = chresp.get(rid, {}).get("result", "unanswered")
+    if r is not None:
+        return f"{what} (request {rid}) answered {r!r:.160}, want null"
+    return ""
+
+
+chwhy = ""
+if chp.returncode != 0:
+    chwhy = f"the server exited {chp.returncode}: {chp.stderr[:200]!r}"
+elif chtail:
+    chwhy = f"{len(chtail)} trailing bytes after the last frame"
+elif 90 not in chresp:
+    chwhy = "the session never answered shutdown - a request killed the server"
+elif chcaps.get("declarationProvider") is not True:
+    chwhy = (f"the server answers textDocument/declaration and does not advertise "
+             f"declarationProvider: capabilities were {sorted(chcaps)}")
+elif chcaps.get("callHierarchyProvider") is not True:
+    chwhy = (f"the server answers the callHierarchy requests and does not advertise "
+             f"callHierarchyProvider: capabilities were {sorted(chcaps)}")
+# The corpus is a real program, so nothing below is vacuous: three
+# documents check clean, ChSig reports its orphan signature and only
+# that, and ChBroken reports its parse error.
+elif any(chpubs.get(u) for u in (H_URI, M_URI, U_URI)):
+    chwhy = ("the call-hierarchy corpus does not check clean: " +
+             repr([(os.path.basename(u), chpubs.get(u)) for u in (H_URI, M_URI, U_URI)
+                   if chpubs.get(u)])[:300])
+elif [d.get("code") for d in chpubs.get(S_URI) or []] != ["AX3015"]:
+    chwhy = (f"ChSig.ax published {[d.get('code') for d in chpubs.get(S_URI) or []]}, "
+             f"want exactly ['AX3015'] - the signature with no definition is the "
+             f"whole point of that document")
+elif not chpubs.get(BK_URI):
+    chwhy = "ChBroken.ax published no diagnostic, so it is not the unparseable document it is meant to be"
+# --- declaration is not definition ------------------------------------
+elif ch_landed(2, M_URI, CH_HELPER_SIG, "declaration on a local `fn`"):
+    chwhy = ch_landed(2, M_URI, CH_HELPER_SIG, "declaration on a local `fn`")
+elif ch_landed(3, M_URI, CH_HELPER_FN, "definition on the same position"):
+    chwhy = ch_landed(3, M_URI, CH_HELPER_FN, "definition on the same position")
+elif chres(2) == chres(3):
+    chwhy = (f"declaration and definition answered the SAME range {chres(2)!r:.200} "
+             f"for `helper`; the `(:: helper ...)` is {CH_HELPER_SIG['line'] and ''}"
+             f"line {CH_HELPER_SIG['line']} and the `(pub fn (helper ...)` is line "
+             f"{CH_HELPER_FN['line']}, and separating them is what this request is for")
+elif ch_landed(4, H_URI, CH_BUMP_SIG, "declaration on an imported name"):
+    chwhy = ch_landed(4, H_URI, CH_BUMP_SIG, "declaration on an imported name")
+elif ch_landed(5, H_URI, CH_BUMP_FN, "definition on an imported name"):
+    chwhy = ch_landed(5, H_URI, CH_BUMP_FN, "definition on an imported name")
+elif chres(4) == chres(5):
+    chwhy = f"declaration and definition answered the same range for the imported `bump`"
+elif ch_landed(6, M_URI, CH_FACTOR_BIND, "declaration on a `let` read"):
+    chwhy = ch_landed(6, M_URI, CH_FACTOR_BIND, "declaration on a `let` read")
+elif chres(6) != chres(7):
+    chwhy = (f"declaration answered {chres(6)!r:.150} and definition {chres(7)!r:.150} "
+             f"for the local `factor`; a local is declared by being bound, so the "
+             f"two must agree")
+elif ch_landed(8, S_URI, CH_PENDING, "declaration on a signature with no definition"):
+    chwhy = ch_landed(8, S_URI, CH_PENDING, "declaration on a signature with no definition")
+elif ch_null(9, "definition on a signature with no definition"):
+    chwhy = ch_null(9, "definition on a signature with no definition")
+elif ch_null(10, "declaration on a keyword"):
+    chwhy = ch_null(10, "declaration on a keyword")
+elif ch_null(11, "declaration on a document that does not parse"):
+    chwhy = ch_null(11, "declaration on a document that does not parse")
+# --- prepareCallHierarchy ---------------------------------------------
+if not chwhy:
+    for _fn in CH_FNS:
+        want = [ch_item(CH_MAIN, M_URI, _fn)]
+        got = chres(CH_PREP[_fn])
+        if got != want:
+            chwhy = (f"prepareCallHierarchy on `{_fn}` answered {got!r:.300}, "
+                     f"want {want!r:.300}")
+            break
+        sel = want[0]["selectionRange"]
+        rge = want[0]["range"]
+        if not (rge["start"]["line"] <= sel["start"]["line"] and
+                rge["end"]["line"] >= sel["end"]["line"]):
+            chwhy = f"the item for `{_fn}` has a selectionRange outside its range"
+            break
+if not chwhy:
+    for _what, _rid in CH_PREP_NULL.items():
+        chwhy = ch_null(_rid, f"prepareCallHierarchy on {_what}")
+        if chwhy:
+            break
+
+# --- incomingCalls and outgoingCalls ---------------------------------
+# A second session, whose items are the ones DERIVED above rather than
+# the ones the first session answered: what a client sends back is a
+# CallHierarchyItem and nothing else, so the server must work from the
+# item's uri and name alone, and an item this gate built by hand is the
+# only way to prove that.
+IT_HELPER = ch_item(CH_MAIN, M_URI, "helper")
+IT_CALLER = ch_item(CH_MAIN, M_URI, "caller")
+IT_APPLY = ch_item(CH_MAIN, M_URI, "apply")
+IT_K = ch_item(CH_MAIN, M_URI, "k")
+IT_HANDOFF = ch_item(CH_MAIN, M_URI, "handoff")
+IT_MAIN = ch_item(CH_MAIN, M_URI, "main")
+IT_BUMP = ch_item(CH_HELPER, H_URI, "bump")
+IT_TWICE = ch_item(CH_HELPER, H_URI, "twice")
+IT_RUN = ch_item(CH_USER, U_URI, "run")
+IT_GHOST = dict(IT_HELPER, name="nosuchfn")
+IT_CLOSED = dict(IT_HELPER, uri=ch_uri("ChClosed.ax"))
+IT_BROKEN = dict(IT_HELPER, uri=BK_URI)
+
+ch2 = [ch_req(1, "initialize", {})]
+ch2 += [{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+         "params": {"textDocument": {"uri": ch_uri(n), "languageId": "axiom",
+                                     "version": 1, "text": t}}}
+        for n, t in CH_DOCS.items()]
+CH_IN, CH_OUT = {}, {}
+_rid = 100
+for _label, _item in (("helper", IT_HELPER), ("caller", IT_CALLER), ("apply", IT_APPLY),
+                      ("k", IT_K), ("handoff", IT_HANDOFF), ("main", IT_MAIN),
+                      ("bump", IT_BUMP)):
+    CH_IN[_label] = _rid
+    ch2.append(ch_req(_rid, "callHierarchy/incomingCalls", {"item": _item}))
+    _rid += 1
+    CH_OUT[_label] = _rid
+    ch2.append(ch_req(_rid, "callHierarchy/outgoingCalls", {"item": _item}))
+    _rid += 1
+CH_HIER_NULL = {}
+for _what, _item in (("an item nothing declares", IT_GHOST),
+                     ("an item in a document the server has not opened", IT_CLOSED),
+                     ("an item in a document that does not parse", IT_BROKEN)):
+    CH_HIER_NULL[_what + " (incoming)"] = _rid
+    ch2.append(ch_req(_rid, "callHierarchy/incomingCalls", {"item": _item}))
+    _rid += 1
+    CH_HIER_NULL[_what + " (outgoing)"] = _rid
+    ch2.append(ch_req(_rid, "callHierarchy/outgoingCalls", {"item": _item}))
+    _rid += 1
+ch2.append(ch_req(90, "shutdown", None))
+ch2.append({"jsonrpc": "2.0", "method": "exit", "params": None})
+chp2 = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in ch2),
+                      capture_output=True, cwd=CH_DIR)
+chmsgs2, chtail2 = unframe(chp2.stdout)
+chresp2 = {m["id"]: m for m in chmsgs2 if "id" in m}
+
+
+def ch2res(rid):
+    return chresp2.get(rid, {}).get("result")
+
+
+def ch_edges(item, ats):
+    """One entry of an incoming or outgoing list, with its ranges in the
+    order the document spells them."""
+    return {"item": item, "fromRanges": [rng(a) for a in ats]}
+
+
+def ch_brief(entries):
+    """(name, file, call-site positions) per entry - what a reader needs
+    to see which edge is wrong. The comparison below is against the
+    WHOLE structure; this is only how the difference is reported,
+    because two full CallHierarchyItems side by side are 500 characters
+    of agreement around the one field that differs."""
+    out = []
+    for e in entries:
+        it = e.get("item") or {}
+        out.append((it.get("name"), os.path.basename(it.get("uri") or ""),
+                    [(r["start"]["line"], r["start"]["character"])
+                     for r in e.get("fromRanges") or []]))
+    return out
+
+
+def ch_calls(rid, key, want, what):
+    """Reason request `rid` did not answer exactly `want` - a list of
+    (item, ranges) pairs under `key` ("from" or "to") - or ""."""
+    got = ch2res(rid)
+    if not isinstance(got, list):
+        return f"{what} (request {rid}) answered {got!r:.200}, want a list"
+    flat = [{"item": e.get(key), "fromRanges": e.get("fromRanges")} for e in got]
+    if flat == want:
+        return ""
+    gb, wb = ch_brief(flat), ch_brief(want)
+    if gb != wb:
+        return (f"{what} (request {rid}) answered {gb!r}, want {wb!r} "
+                f"- each entry is (function, file, the position of every call site)")
+    for i, (g, w) in enumerate(zip(flat, want)):
+        if g != w:
+            return (f"{what} (request {rid}) entry {i} names the right function at "
+                    f"the right positions and differs in the item: {g['item']!r:.250} "
+                    f"vs {w['item']!r:.250}")
+    return f"{what} (request {rid}) answered {len(flat)} entries, want {len(want)}"
+
+
+if not chwhy:
+    if chp2.returncode != 0:
+        chwhy = f"the hierarchy session exited {chp2.returncode}: {chp2.stderr[:200]!r}"
+    elif chtail2:
+        chwhy = f"{len(chtail2)} trailing bytes after the last frame of the hierarchy session"
+    elif 90 not in chresp2:
+        chwhy = "the hierarchy session never answered shutdown - a request killed the server"
+if not chwhy:
+    for _what, _rid, _key, _want in (
+        # `helper` is called twice by `caller` and NAMED once by
+        # `handoff`; only the calls are edges, and the two of them are
+        # one entry with two ranges rather than two entries.
+        ("incoming calls to `helper`", CH_IN["helper"], "from",
+         [ch_edges(IT_CALLER, CH_HELPER_CALLS)]),
+        ("outgoing calls from `caller`", CH_OUT["caller"], "to",
+         [ch_edges(IT_HELPER, CH_HELPER_CALLS), ch_edges(IT_BUMP, [CH_BUMP_CALL])]),
+        # Across two files, in both directions.
+        ("incoming calls to `caller`", CH_IN["caller"], "from",
+         [ch_edges(IT_MAIN, CH_CALLER_CALLS_M), ch_edges(IT_RUN, CH_CALLER_CALLS_U)]),
+        ("incoming calls to the imported `bump`", CH_IN["bump"], "from",
+         [ch_edges(IT_TWICE, CH_BUMP_IN_TWICE), ch_edges(IT_CALLER, [CH_BUMP_CALL])]),
+        ("outgoing calls from `main`", CH_OUT["main"], "to",
+         [ch_edges(IT_CALLER, CH_CALLER_CALLS_M), ch_edges(IT_TWICE, [CH_TWICE_CALL])]),
+        # The head of `(k v)` is `apply`'s own parameter, so there is no
+        # edge in either direction between `apply` and the top-level `k`.
+        ("outgoing calls from `apply`, whose body's head is its parameter",
+         CH_OUT["apply"], "to", []),
+        ("incoming calls to the top-level `k`, shadowed at the only site that spells it",
+         CH_IN["k"], "from", []),
+        # `handoff` NAMES `helper`. `axiom symbols --calls` reports that
+        # edge; a call hierarchy must not.
+        ("outgoing calls from `handoff`, which names `helper` without applying it",
+         CH_OUT["handoff"], "to", []),
+        ("incoming calls to `main`", CH_IN["main"], "from", []),
+        ("outgoing calls from `helper`, whose only head is a builtin operator",
+         CH_OUT["helper"], "to", []),
+    ):
+        chwhy = ch_calls(_rid, _key, _want, _what)
+        if chwhy:
+            break
+if not chwhy:
+    for _what, _rid in CH_HIER_NULL.items():
+        got = chresp2.get(_rid, {}).get("result", "unanswered")
+        if got is not None:
+            chwhy = (f"{_what} answered {got!r:.160}, want null - `[]` would claim "
+                     f"the function has no callers, which a server that cannot read "
+                     f"the file has not earned")
+            break
+
+if chwhy:
+    print(f"FAIL nav-declaration-callhierarchy: {chwhy}")
+    failed += 1
+else:
+    print(f"ok   declaration (the `(:: helper ...)` on line {CH_HELPER_SIG['line']} where "
+          f"`definition` answers the `fn` on line {CH_HELPER_FN['line']}, the same split "
+          f"across a file boundary for the imported `bump`, a `let` binder where the two "
+          f"agree, and a signature with no `fn` where only this one answers; null on a "
+          f"keyword and on a document that does not parse)")
+    print(f"ok   call-hierarchy (prepare over all {len(CH_FNS)} `fn`s of ChMain.ax, each "
+          f"item's range the form and its selectionRange the name; `helper` called twice "
+          f"from one caller as one entry with two ranges and NOT from the `handoff` that "
+          f"names it; `caller` reached from `main` here and from `run` in ChUser.ax; "
+          f"`bump` reached from its own module and across the import; nothing either way "
+          f"for the parameter-shadowed `k`; null for an item nothing declares, one in a "
+          f"document the server has not opened, and one that does not parse)")
+    passed += 2
+shutil.rmtree(CH_DIR, ignore_errors=True)
+
 # =====================================================================
 # END SECTION NAV TESTS
 # =====================================================================

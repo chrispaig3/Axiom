@@ -161,6 +161,79 @@ its changelog too.
   keys are decoded and reach `ledApply` as explicit no-ops, so each is
   a branch beside an existing one.
 
+- **The language server learns the one distinction this language has
+  and most do not: `textDocument/declaration` is not
+  `textDocument/definition`.** A function is written twice — `(:: bump
+  (-> Int Int))` declares it, `(fn (bump x) ...)` defines it — and the
+  parser has carried both as separate nodes with their own name spans
+  since it was written. `lspFindDecl` skips `TAG_D_SIG` deliberately,
+  so `definition` has always answered the `fn`; nothing answered the
+  `::`. Now `declaration` does, in `definition`'s own scoping order
+  with one step inserted: a local binding first (a local is declared by
+  being bound, so the two agree there by construction), then this
+  document's signature, then this document's declaration, then the
+  imported modules signature-first. It answers where `definition`
+  cannot in exactly one place — a signature whose `fn` is still to be
+  written, which is what `AX3015` reports and what an editor sees
+  between two keystrokes.
+
+- **Call hierarchy, from the walk the server already had:
+  `textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`
+  and `callHierarchy/outgoingCalls`.** A call site is defined as an
+  occurrence that `SECTION NAV`'s scope-aware walk resolved to a
+  top-level name AND that stands first inside a `(` — two questions
+  already answered, intersected by byte offset, so the whole feature is
+  a projection rather than a new analysis and costs one parse and one
+  linear scan of the bytes. That definition is what makes it right
+  where a spelling match is wrong: `(fn (apply k v) (k v))` calls its
+  parameter and not the top-level `k`, and `(fn (handoff z) helper)`
+  NAMES `helper` without applying it. `axiom symbols --calls` reports
+  that second edge (`#calls=helper`, measured) because it is the
+  checker's effect walk; it also costs a full typecheck and carries no
+  positions, and `fromRanges` is a list of ranges the protocol
+  requires. Incoming calls read this document and every other OPEN
+  document whose imports resolve to it, which is `references`'s
+  workspace; a caller that calls twice is one entry with two ranges.
+  An item whose document the server has not opened answers `null`, not
+  `[]`, because `[]` claims a function has no callers.
+
+  Held by `scripts/check-lsp-selfhost.sh`: five documents written by
+  `tests/lsp/drive.py` itself, every expected range computed from their
+  own bytes, `declaration` and `definition` asked at the same position
+  and required to answer DIFFERENT ranges, and a floor that refuses to
+  run if either confusable shape ever leaves the corpus or if a comment
+  in it spells one of the indexed names — a trap that had already shifted
+  every occurrence number once while these checks were being written.
+  Five ablations, each in a scratch tree with every golden re-blessed
+  from the broken build, are recorded in that script's header.
+
+- **`textDocument/rangeFormatting` is refused with a measurement rather
+  than an argument.** 8,437 form-aligned slices of `stdlib/` and
+  `self_host/` were formatted alone and compared against the same forms
+  cut out of the whole document's formatted output: 8,416 agreed and 21
+  did not, every disagreement comment placement — a trailing `; bold
+  red` that the whole-document pass moves onto the next declaration, and
+  a comment block that migrates across a top-level form boundary. An
+  editor with format-on-save and format-selection both bound would have
+  each rewrite what the other wrote. `docs/lsp.md` carries the numbers.
+
+- **`textDocument/semanticTokens` is written down as settled, not
+  missing.** `docs/lsp.md`'s *Highlighting* section said the server
+  "offers no semantic tokens", which reads as unfinished work; it now
+  says the server will not send them and why — one highlighter cannot
+  disagree with itself — and pre-empts the obvious-looking idea that
+  `self_host/replhl.ax`'s lexer-driven painter makes them nearly free.
+  A REPL paints from the lexer because it has no grammar and no editor
+  to consult; an editor has both.
+
+- **A comment in `self_host/lsp.ax` that contradicted the code beneath
+  it.** The paragraph above `lspRenderFields` said a bare `(name)` was
+  "every field of a GENERATED struct". The code branches on
+  `lspTyKnown`, and the expander was fixed to carry the type node into
+  the product; measured over a real JSON-RPC pipe, `axiom/expandMacro`
+  over a struct-generating macro answers `(left : Int)`. The section
+  header twelve hundred lines above had the correct version all along.
+
 ## 0.6.0 — 2026-08-31
 
 - **KNOWN ISSUE: module resolution matches case-insensitively on macOS, so
