@@ -1,0 +1,51 @@
+; expect 42
+; `_` HOLES. An application with at least one bare `_` among its
+; direct arguments desugars to a lambda, one fresh parameter per hole
+; in left-to-right order: `(sub 50 _)` is `(lambda (y) (sub 50 y))`
+; and `(sub _ 50)` is `(lambda (x) (sub x 50))`. No hole - an ordinary
+; call - is untouched, so AX3013 (partial application of a top-level
+; function with 0 holes and too few arguments) still fires exactly as
+; before; see `tests/selfhost/` has no fixture for that because it is
+; a diagnostic, pinned instead in the AXDL goldens.
+;
+; COLLISION CHECK, run before this was implemented: `_` was already
+; meaningful as a WILDCARD PATTERN - a lambda/fn parameter, a match
+; arm, a macro rule - and still is (`fstOf` below still discards its
+; second field with a pattern `_`, unaffected). What changed is
+; EXPRESSION position only, where a bare `_` used to resolve nowhere:
+; `check` on `(add 5 _)` before this pass existed reported `E AX3001
+; ... undefined variable \`_\`` with a "did you mean \`+\`" suggestion,
+; because nothing - no binding, no function, no constructor, no
+; builtin - is named `_`. Expression position had no existing meaning
+; for a hole to collide with.
+(:: sub (-> Int Int Int))
+(fn (sub x y) (- x y))
+
+(:: mul3 (-> Int Int Int Int))
+(fn (mul3 x y z) (* x (* y z)))
+
+(data Pair (a b) (Pair a b))
+
+(:: fstOf (-> (Pair Int Int) Int))
+(fn (fstOf p) (match p ((Pair x _) x)))
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (subFrom50 (sub 50 _))    ; (lambda (y) (sub 50 y))
+    (subTo50 (sub _ 50))      ; (lambda (x) (sub x 50))
+    (twoHoles (mul3 1 _ _))   ; (lambda (h0 h1) (mul3 1 h0 h1)), left to right
+  )
+    (+
+      (subFrom50 8)                    ; 42
+      (+
+        (- (subTo50 100) 50)           ; 0
+        (+
+          (- (twoHoles 6 7) 42)        ; 0
+          (fstOf (Pair 0 0))           ; 0
+        )
+      )
+    )
+  )
+)
