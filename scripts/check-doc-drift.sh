@@ -420,19 +420,40 @@ else:
 # commit ever touched, and non-empty for one that was added and later
 # deleted, which is exactly the distinction wanted.
 hist_gone = sorted(p for p in historical if not os.path.exists(p))
-hist_bad = []
-for p in hist_gone:
-    r = subprocess.run(["git", "log", "--oneline", "-1", "--", p],
-                       capture_output=True, text=True)
-    if r.returncode != 0 or not r.stdout.strip():
-        hist_bad.append(p)
-if hist_bad:
-    for p in hist_bad:
-        print(f"FAIL paths: CHANGELOG.md names {p}, which no commit ever added")
-    bad += len(hist_bad)
+# A SHALLOW CLONE CANNOT ANSWER THIS QUESTION, and saying so is the
+# only honest thing to do with it. CI checks out with the default depth
+# for every job but the four that ask for `fetch-depth: 0`, and a
+# one-commit clone has no history in which a deleted fixture was ever
+# added - so `git log -- <path>` is empty for EVERY historical citation
+# and this check reported all four of them as fabricated. Measured
+# 2026-08-31 by cloning this repository with `--depth 1` and running
+# the gate: four FAILs, none of them real.
+#
+# The fix is not `fetch-depth: 0` on every job - that is a full-history
+# clone on every push of a five-target matrix, to check a changelog.
+# It is for the check to know what it cannot see. It still runs
+# wherever history exists: locally, and on the four jobs that fetch it.
+shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                         capture_output=True, text=True)
+is_shallow = shallow.stdout.strip() == "true"
+if is_shallow and hist_gone:
+    print(f"ok   {len(historical)} tests/ paths named in CHANGELOG.md; "
+          f"{len(hist_gone)} NOT CHECKED HERE - resolving a deleted fixture "
+          f"needs history this shallow clone does not have")
 else:
-    print(f"ok   all {len(historical)} tests/ paths named in CHANGELOG.md resolve "
-          f"({len(hist_gone)} only in history)")
+    hist_bad = []
+    for p in hist_gone:
+        r = subprocess.run(["git", "log", "--oneline", "-1", "--", p],
+                           capture_output=True, text=True)
+        if r.returncode != 0 or not r.stdout.strip():
+            hist_bad.append(p)
+    if hist_bad:
+        for p in hist_bad:
+            print(f"FAIL paths: CHANGELOG.md names {p}, which no commit ever added")
+        bad += len(hist_bad)
+    else:
+        print(f"ok   all {len(historical)} tests/ paths named in CHANGELOG.md resolve "
+              f"({len(hist_gone)} only in history)")
 
 # The same check over SOURCE and FIXTURE comments, which this gate did
 # not reach and which dangle exactly as readily. Found on 2026-08-16:
