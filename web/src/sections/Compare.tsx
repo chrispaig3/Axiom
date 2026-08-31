@@ -90,7 +90,7 @@ export function Compare() {
         <Reveal className="lede-block">
           <span className="index">04</span>
           <h2 id="compare-h">
-            Four decisions that separate it from the languages next to it.
+            Four decisions that set it apart.
           </h2>
           <p>
             Design, not benchmarks — the numbers are one section up. Every Axiom

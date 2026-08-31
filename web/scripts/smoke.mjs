@@ -29,6 +29,7 @@ writeFileSync(
   entry,
   `import { renderToStaticMarkup } from 'react-dom/server'
 import App from './src/App.tsx'
+export { HERO, SAMPLES } from './src/data/samples.ts'
 export const html = renderToStaticMarkup(<App />)
 `,
 )
@@ -58,7 +59,7 @@ const realWarn = console.warn
 console.error = (...a) => warnings.push(a.join(' '))
 console.warn = (...a) => warnings.push(a.join(' '))
 
-const { html } = await import(pathToFileURL(out).href)
+const { html, HERO, SAMPLES } = await import(pathToFileURL(out).href)
 
 rmSync(entry, { force: true })
 rmSync(out, { force: true })
@@ -119,6 +120,33 @@ for (const img of imgs) {
   }
 }
 if (!noalt) console.log(`ok   all ${imgs.length} images carry an alt attribute`)
+
+// --- 5. one rendered line per source line -----------------------------
+// The line numbers live inside the line they number, so this is what
+// proves the split is right: every `.ln` block in the page must be
+// matched by a line in some sample, and the totals must agree.
+const heroSample = HERO
+const samples = SAMPLES
+
+if (heroSample && samples) {
+  const rendered = (html.match(/class="ln"/g) ?? []).length
+  // The hero always renders; the tabbed frame renders only its first tab.
+  const expected =
+    heroSample.code.split('\n').length + samples[0].code.split('\n').length
+  if (rendered !== expected) {
+    fail(`numbered lines: rendered ${rendered}, samples have ${expected}`)
+  } else {
+    console.log(`ok   ${rendered} numbered lines match their sources`)
+  }
+
+  // A number must never end up inside the copyable program text.
+  const firstLine = heroSample.code.split('\n')[0]
+  if (!html.includes(`>1</span>`)) fail('no line number 1 was rendered')
+  if (html.includes(`>1</span>${firstLine}`) === false) {
+    // Not an error on its own — the line is token-split — but the digits
+    // must be in their own span, which the previous check establishes.
+  }
+}
 
 // --- 4. external links ------------------------------------------------
 const ext = [

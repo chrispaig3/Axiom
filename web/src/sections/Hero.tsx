@@ -17,12 +17,15 @@ export function Hero() {
             Axiom <span>v{VERSION}</span>
           </p>
 
-          <h1>A functional systems language for humans and agents.</h1>
+          <h1>
+            Functional programming that ships a binary, not a runtime.
+          </h1>
 
           <p className="hero__lede">
-            S-expressions, a Hindley–Milner-inspired type system, and an LLVM
-            backend that emits native executables — no VM, no runtime, no libc.
-            The compiler is written in Axiom.
+            Algebraic data types, exhaustive matching and an effect system the
+            compiler <em>checks</em> — lowered through LLVM to a native
+            executable with no VM, no collector and no libc inside it. Written
+            in itself, for the humans and the agents that will write the rest.
           </p>
 
           <Command command={INSTALL_CMD} />
@@ -43,6 +46,30 @@ export function Hero() {
             </a>
             <span className="hero__meta">MIT · six supported targets</span>
           </div>
+
+          <ul className="proof">
+            <li>
+              <b>0</b>
+              <span>
+                undefined symbols in a compiled program.{' '}
+                <a href="#speed">nm -u says so</a>.
+              </span>
+            </li>
+            <li>
+              <b>1 ms</b>
+              <span>
+                separates it from C and Rust on the same loop.{' '}
+                <a href="#speed">Measured, not asserted</a>.
+              </span>
+            </li>
+            <li>
+              <b>87,494</b>
+              <span>
+                lines of Axiom that compile Axiom — and rebuild themselves
+                byte-for-byte.
+              </span>
+            </li>
+          </ul>
         </div>
 
         <div className="hero__panel">

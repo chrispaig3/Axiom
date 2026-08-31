@@ -9,7 +9,7 @@ export function Benchmark() {
         <Reveal className="lede-block">
           <span className="index">03</span>
           <h2 id="speed-h">
-            The same loop, in three languages, on one machine.
+            Same loop. Same machine. Same speed.
           </h2>
           <p>
             Axiom lowers to LLVM IR and hands it to <code>llc</code>, which is

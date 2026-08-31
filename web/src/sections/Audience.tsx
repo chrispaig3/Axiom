@@ -1,108 +1,104 @@
 import { BLOB, DOCS } from '../data/site.ts'
+import { ArrowRight } from '../components/Icons.tsx'
 import { Reveal } from '../components/Reveal.tsx'
 import type { ReactNode } from 'react'
 
 interface Column {
   k: string
+  kicker: string
   head: string
   body: ReactNode
   points: ReactNode[]
+  link: { label: string; href: string }
 }
 
 const COLUMNS: Column[] = [
   {
     k: 'systems',
-    head: 'Systems work',
+    kicker: 'Systems programming',
+    head: 'Ship a binary, not a runtime.',
     body: (
       <>
-        The binary is the program. Memory comes from a bump allocator over{' '}
-        <code>mmap</code> that the compiler emits into your executable, and I/O
-        is the syscall — there is no allocator to tune, no collector to pause
-        for, and no runtime to initialise.
+        Your program is the whole artifact. The allocator is emitted into your
+        executable, I/O is the syscall, and <code>nm -u</code> on the result
+        lists <strong>zero undefined symbols</strong> — nothing to initialise at
+        start-up, because there is nothing left to resolve.
       </>
     ),
     points: [
       <>
-        Six supported targets, and <code>--target</code> cross-compiles to any of
-        them from any host — the target picks the syscall ABI, not the machine
-        doing the compiling.
+        <b>Six targets, one flag.</b> <code>--target</code> cross-compiles from
+        any host: the target picks the syscall ABI, not the machine you are
+        sitting at.
       </>,
       <>
-        Explicit arena reclamation where peak memory matters, specified rule by
-        rule in{' '}
-        <a href={`${DOCS}/memory-model.md`} target="_blank" rel="noreferrer noopener">
-          the memory model
-        </a>
-        .
+        <b>Arenas where peak memory matters.</b> Reclamation is explicit and
+        specified rule by rule, not inferred and hoped for.
       </>,
       <>
-        Rust interop when you want it: an <code>extern</code> block names symbols
-        in a static archive, and one flag builds the crate on the far side.
+        <b>Rust when you want it.</b> An <code>extern</code> block names symbols
+        in a static archive; one flag builds the crate on the far side.
       </>,
     ],
+    link: { label: 'Read the memory model', href: `${DOCS}/memory-model.md` },
   },
   {
     k: 'security',
-    head: 'Security-sensitive code',
+    kicker: 'Security-sensitive code',
+    head: 'Say what a function may do. Have it checked.',
     body: (
       <>
-        A smaller program is a smaller thing to audit, and Axiom's is smaller in
-        the way that counts: nothing is resolved at load time, and what a
-        function is allowed to do can be written down and <em>checked</em> rather
-        than reviewed by eye.
+        <code>;@axiom:restrict(no-io,no-alloc,no-foreign)</code> is not a
+        comment. It is a claim the compiler tests against the effect row and the
+        call graph — and when it fails, the message names the exact path of
+        calls to where the effect enters.
       </>
     ),
     points: [
       <>
-        <code>;@axiom:restrict(no-io,no-alloc,no-foreign,no-recursion,…)</code> is
-        verified against the effect row and the call graph. A violation names the
-        path of resolved calls to where the effect enters.
+        <b>Silence is a checked claim.</b> A function that performs I/O and does
+        not declare it is an error, not a lint you can turn off.
       </>,
       <>
-        A function that performs I/O and does not say so is an error, not a
-        lint — so silence about effects is a checked claim.
+        <b>No load-time surface.</b> Nothing is resolved when the program
+        starts, so there is no dynamic linker to influence.
       </>,
       <>
-        The compiler refuses input that would escape its own boundaries: a module
-        path containing <code>/</code>, and an <code>extern</code> library name
-        that could close an IR comment. Both were{' '}
-        <em>measured exploits first</em>, then codes and fixtures.
+        <b>Exploits first, codes second.</b> A traversable module path and an
+        injectable linker name were each <em>measured working</em> before they
+        became a diagnostic and a fixture.
       </>,
     ],
+    link: { label: 'Read the diagnostics guide', href: `${DOCS}/diagnostics.md` },
   },
   {
     k: 'agents',
-    head: 'Agent-written code',
+    kicker: 'Agent-written code',
+    head: 'Answer the machine in its own format.',
     body: (
       <>
-        Axiom was designed on the assumption that much of its code would be
-        written by machines. One syntactic form means no parsing edge cases; a
-        dense success-path notation means an agent can ask what a file provides
-        without re-reading it.
+        Most toolchains publish their failures and keep their successes to
+        themselves. Axiom publishes both — one line per diagnostic{' '}
+        <em>and</em> one line per symbol — so an agent can ask what a file
+        already provides without paying to read it again.
       </>
     ),
     points: [
       <>
-        One greppable line per diagnostic, carrying the fix as a span and a
-        replacement — applied by byte-range substitution, not by parsing English.
+        <b>Fixes arrive applicable.</b> A span and a replacement, applied by
+        byte-range substitution rather than by parsing English.
       </>,
       <>
-        One line per <em>symbol</em>, with a content-derived id that survives
-        reordering and reformatting, so a tool can address a declaration that
-        moved.
+        <b>Addresses that survive an edit.</b> Every declaration carries a
+        content-derived id that does not move when the file is reordered or
+        reformatted.
       </>,
       <>
-        The standard library reads that stream too:{' '}
-        <a
-          href={`${BLOB}/stdlib/Agent/Tags.ax`}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          <code>Agent.Tags</code>
-        </a>{' '}
-        parses AXSYM rather than reaching into the compiler's internals.
+        <b>One syntactic form.</b> No operator precedence, no parsing edge
+        cases — the thing generating the code has less to get wrong.
       </>,
     ],
+    link: { label: 'Read the agent harness', href: `${DOCS}/agent-harness.md` },
   },
 ]
 
@@ -113,11 +109,16 @@ export function Audience() {
         <Reveal className="lede-block">
           <span className="index">05</span>
           <h2 id="for-h">Three kinds of work it was built for.</h2>
+          <p>
+            Axiom is small on purpose, and the places that pays off are the ones
+            where a runtime you did not write is a liability.
+          </p>
         </Reveal>
 
         <div className="cols">
           {COLUMNS.map((c, i) => (
             <Reveal className="cols__col" key={c.k} delay={i * 50}>
+              <span className="cols__kicker">{c.kicker}</span>
               <h3>{c.head}</h3>
               <p>{c.body}</p>
               <ul>
@@ -125,9 +126,34 @@ export function Audience() {
                   <li key={j}>{p}</li>
                 ))}
               </ul>
+              <a
+                className="cols__link"
+                href={c.link.href}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                {c.link.label}
+                <ArrowRight size={13} />
+              </a>
             </Reveal>
           ))}
         </div>
+
+        <Reveal className="closing" delay={80}>
+          <p>
+            One thing Axiom is <em>not</em> built for, said here rather than
+            discovered later: there is no language-level concurrency — no
+            threads, no async, no scheduler.{' '}
+            <a
+              href={`${BLOB}/stdlib/Job.ax`}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              <code>stdlib/Job.ax</code>
+            </a>{' '}
+            is a pool of child processes, and that is the whole story.
+          </p>
+        </Reveal>
       </div>
     </section>
   )

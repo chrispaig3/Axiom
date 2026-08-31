@@ -30,18 +30,50 @@ function Highlighted({ code }: { code: string }) {
 }
 
 /**
- * The gutter. It is a sibling of the code rather than part of it, and is
- * `aria-hidden` with `user-select: none`, so selecting the sample copies
- * the program and not a column of integers.
+ * Split the token stream into lines.
+ *
+ * The gutter used to be a sibling column, and a sibling has its own font
+ * and therefore its own line box — which is how the numbers came to sit
+ * beside the wrong lines on a narrow screen. A number rendered INSIDE
+ * the line it numbers cannot do that: there is one line box, and both
+ * halves are in it. Alignment stops being something to keep true.
  */
-function Gutter({ code }: { code: string }) {
-  const count = code.split('\n').length
+function toLines(tokens: Token[]): Token[][] {
+  const lines: Token[][] = [[]]
+  for (const t of tokens) {
+    const parts = t.text.split('\n')
+    parts.forEach((part, i) => {
+      if (i > 0) lines.push([])
+      if (part) (lines[lines.length - 1] as Token[]).push({ ...t, text: part })
+    })
+  }
+  return lines
+}
+
+/** Highlighted code, one `<span>` per line, each carrying its number. */
+function NumberedCode({ code }: { code: string }) {
+  const lines = useMemo(() => toLines(highlight(code)), [code])
+  const width = `${String(lines.length).length}ch`
   return (
-    <div className="code__gutter" aria-hidden>
-      {Array.from({ length: count }, (_, i) => (
-        <span key={i}>{i + 1}</span>
+    <code style={{ ['--ln-w' as string]: width }}>
+      {lines.map((line, i) => (
+        <span className="ln" key={i}>
+          <span className="ln__n" aria-hidden>
+            {i + 1}
+          </span>
+          {line.map((t, j) =>
+            t.capture === 'text' ? (
+              <Fragment key={j}>{t.text}</Fragment>
+            ) : (
+              <span key={j} className={cls(t.capture)}>
+                {t.text}
+              </span>
+            ),
+          )}
+          {'\n'}
+        </span>
       ))}
-    </div>
+    </code>
   )
 }
 
@@ -152,11 +184,12 @@ export function Code({
         </div>
       )}
       <div className={numbered ? 'code__body code__body--numbered' : 'code__body'}>
-        {numbered && <Gutter code={code} />}
-        <pre>
-          <code aria-label={label}>
-            {axiom ? <Highlighted code={code} /> : code}
-          </code>
+        <pre aria-label={label}>
+          {numbered && axiom ? (
+            <NumberedCode code={code} />
+          ) : (
+            <code>{axiom ? <Highlighted code={code} /> : code}</code>
+          )}
         </pre>
       </div>
       {caption && <figcaption className="code__caption">{caption}</figcaption>}
@@ -228,11 +261,8 @@ export function TabbedCode({
         aria-labelledby={`${uid}-tab-${active}`}
         tabIndex={0}
       >
-        <Gutter code={current.code} />
         <pre>
-          <code>
-            <Highlighted code={current.code} />
-          </code>
+          <NumberedCode code={current.code} />
         </pre>
       </div>
 

@@ -109,7 +109,7 @@ export function Bootstrap() {
       <div className="container">
         <Reveal className="lede-block">
           <span className="index">01</span>
-          <h2 id="boot-h">The compiler is written in the language it compiles.</h2>
+          <h2 id="boot-h">It compiles itself. Byte for byte, every time.</h2>
           <p>
             Not a rewrite in progress — the Rust implementation it replaced has
             been deleted. A clean checkout rebuilds the whole thing with nothing

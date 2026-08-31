@@ -20,7 +20,7 @@ export function Agents() {
         <Reveal className="lede-block">
           <span className="index index--violet">06</span>
           <h2 id="agents-h">
-            The compiler answers twice — once for you, once for your tools.
+            Two audiences. One set of facts.
           </h2>
           <p>
             One structured diagnostic is built at every stage that can refuse,

@@ -331,3 +331,75 @@
   padding-top: var(--s-4);
   border-top: 1px solid var(--border);
 }
+
+/* ---------------------------------------------------------------- *
+ * "Built for": a kicker, a claim, the proof, a way in
+ * ---------------------------------------------------------------- */
+
+.cols__kicker {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cols__col h3 {
+  margin-top: calc(var(--s-2) * -1);
+  font-size: var(--t-2);
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+}
+
+.cols__col > p {
+  color: var(--text-2);
+  font-size: var(--t--1);
+  line-height: 1.65;
+}
+
+.cols__col li b {
+  display: block;
+  color: var(--text);
+  font-weight: 580;
+}
+
+.cols__col li {
+  color: var(--text-3);
+  font-size: var(--t--2);
+  line-height: 1.6;
+}
+
+.cols__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: auto;
+  padding-top: var(--s-2);
+  color: var(--accent);
+  font-size: var(--t--1);
+  font-weight: 540;
+  text-decoration: none;
+}
+
+.cols__link:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.cols__link svg {
+  transition: transform 160ms ease;
+}
+
+.cols__link:hover svg {
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cols__link svg {
+    transition: none;
+  }
+  .cols__link:hover svg {
+    transform: none;
+  }
+}

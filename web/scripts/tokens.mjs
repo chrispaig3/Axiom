@@ -16,7 +16,7 @@ const out = join(process.cwd(), '.tok-bundle.mjs')
 writeFileSync(
   entry,
   `export { highlight } from './src/lib/highlight.ts'
-export { SAMPLES, RESTRICT_SAMPLE } from './src/data/samples.ts'
+export { SAMPLES, HERO } from './src/data/samples.ts'
 `,
 )
 
@@ -32,7 +32,7 @@ await build({
   absWorkingDir: process.cwd(),
 })
 
-const { highlight, SAMPLES, RESTRICT_SAMPLE } = await import(
+const { highlight, SAMPLES, HERO } = await import(
   pathToFileURL(out).href
 )
 rmSync(entry, { force: true })
@@ -40,8 +40,8 @@ rmSync(out, { force: true })
 
 const only = process.argv[2]
 const all = [
+  [HERO.id, HERO.code],
   ...SAMPLES.map((s) => [s.id, s.code]),
-  ['restrict', RESTRICT_SAMPLE.code],
 ]
 
 for (const [id, code] of all) {

@@ -9,77 +9,64 @@
  * ---------------------------------------------------------------- */
 
 .code__body--numbered {
-  /* One line box, shared by both columns.
-   *
-   * The gutter and the code are separate elements, so a unitless
-   * `line-height` resolves against each one's OWN font-size. Shrinking
-   * only the gutter's font on small screens therefore gave the two
-   * columns different line heights and the numbers walked out of step
-   * with the code — which is exactly what they did below 640px. Deriving
-   * one absolute line box from one font-size token makes that
-   * impossible: change `--code-fs` and both columns move together.
-   */
-  --code-fs: var(--t--1);
-  --code-line: calc(var(--code-fs) * var(--lh-code));
-
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
   padding-inline: 0;
-  /* Exactly one horizontal scroll container, and it is the `pre` below.
-     Leaving `overflow-x: auto` on the grid too meant the gutter could be
-     scrolled off the left edge on a phone. */
+  /* One horizontal scroll container, and it is the `pre`. */
   overflow-x: visible;
-}
-
-.code--tight .code__body--numbered {
-  --code-fs: 0.78rem;
-}
-
-.code__gutter {
-  display: grid;
-  padding-inline: var(--s-4) var(--s-3);
-  border-right: 1px solid var(--border);
-  background: var(--surface-code);
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  /* Slightly smaller than the code, and alignment survives it because
-     the line box below is a length, not a multiplier. */
-  font-size: calc(var(--code-fs) * 0.92);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  user-select: none;
-  opacity: 0.4;
-}
-
-.code__gutter span {
-  display: block;
-  height: var(--code-line);
-  line-height: var(--code-line);
 }
 
 .code__body--numbered > pre {
   min-width: 0;
   padding-inline: var(--s-4) var(--s-5);
-  font-size: var(--code-fs);
-  line-height: var(--code-line);
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
+  /* The line-number column, as one length used by both the gutter rule
+     and the hanging indent, so they cannot disagree. */
+  --ln-gap: 1.25ch;
+  --ln-pad: calc(var(--ln-w, 2ch) + var(--ln-gap));
+}
+
+.code__body--numbered code {
+  display: block;
+  min-width: max-content;
+}
+
+/* Each line is a block, and its number is the first thing in it — same
+   element, same line box, so the two cannot drift apart at any font
+   size or viewport width. */
+.ln {
+  display: block;
+  /* A wrapped line, if one ever wraps, indents past the number rather
+     than running back under it. */
+  padding-left: var(--ln-pad);
+  text-indent: calc(var(--ln-pad) * -1);
+}
+
+.ln__n {
+  display: inline-block;
+  width: var(--ln-w, 2ch);
+  margin-right: var(--ln-gap);
+  color: var(--text-3);
+  text-align: right;
+  text-indent: 0;
+  opacity: 0.4;
+  /* Excluded from selection, so copying a sample copies the program. */
+  user-select: none;
+  -webkit-user-select: none;
+  /* Held against the left edge while a long line scrolls under it. */
+  position: sticky;
+  left: 0;
+  background: var(--surface-code);
 }
 
 @media (max-width: 640px) {
-  .code__body--numbered {
-    /* Both columns shrink, together. */
-    --code-fs: 0.7rem;
-  }
-
-  .code__gutter {
-    padding-inline: var(--s-3) var(--s-2);
-  }
-
   .code__body--numbered > pre {
     padding-inline: var(--s-3) var(--s-4);
+    --ln-gap: 1ch;
+  }
+
+  .ln__n {
+    opacity: 0.32;
   }
 }
 
@@ -205,30 +192,59 @@
 }
 
 /* ---------------------------------------------------------------- *
- * No gutter on a phone
+ * The hero proof strip
  *
- * Line numbers are a desktop affordance. On a narrow screen they cost
- * about an eighth of the usable width, push the code further into its
- * own horizontal scroll, and buy a reader nothing — nobody is citing
- * line 24 of a landing-page sample from a phone.
- *
- * They are also the one part of the frame whose correctness depends on
- * two elements agreeing about a line box, which is a thing that can be
- * got wrong. Below 640px the gutter is not laid out at all, so on the
- * screens where the alignment was reported wrong there is nothing left
- * to misalign. The numbers return the moment there is room for them.
+ * Three numbers, each one measured and each one linked to where it was
+ * measured. This is the loudest the page gets, and it is loud with
+ * facts rather than adjectives.
  * ---------------------------------------------------------------- */
 
-@media (max-width: 640px) {
-  .code__gutter {
-    display: none;
-  }
+.proof {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-5);
+  margin: var(--s-7) 0 0;
+  padding: var(--s-5) 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
 
-  .code__body--numbered {
+@media (max-width: 620px) {
+  .proof {
     grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-4);
   }
+}
 
-  .code__body--numbered > pre {
-    padding-inline: var(--s-4);
-  }
+.proof li {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  min-width: 0;
+}
+
+.proof b {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--t-3);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.proof span {
+  color: var(--text-3);
+  font-size: var(--t--2);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.proof a {
+  color: var(--text-2);
+  text-decoration-color: var(--border-strong);
+}
+
+.proof a:hover {
+  color: var(--accent);
 }
