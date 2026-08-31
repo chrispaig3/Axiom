@@ -16,6 +16,79 @@ its changelog too.
 
 ## Unreleased
 
+- **A program contains only what it uses.** A hello world was a
+  103,592-byte binary holding 388 `define`s, of which a walk from
+  `main` reaches 22: `(import IO)` pulls in `Err`, `Fmt`, `Path` and
+  `Sys` transitively and every function of them was emitted, linked and
+  shipped. Nothing downstream removed them either — `nm` on the linked
+  executable found 361 of the 366 unreachable ones, in a binary of 397
+  symbols, while a program with no imports at all was 34,216 bytes. So
+  roughly 70 KB of that hello world was code it could not run.
+
+  Two things pinned it, and only the first is the one a reader expects.
+  375 of the 388 `define`s carried EXTERNAL linkage, which forbids LLVM
+  from deleting them because another translation unit might call them —
+  and Axiom is a whole-program compiler with no other translation unit.
+  But `emitSymbolTable` also writes `ptrtoint (ptr @F to i64)` for
+  every function in the module, so the backtrace table was a live
+  global holding all 388 addresses, and that pin survives any linkage
+  change. Measured: marking all 384 non-runtime defines `internal` and
+  running `opt -O1` deleted exactly ONE of them and left all 397
+  symbols in the binary — 103,592 bytes to 97,368, a 6% win. Dropping
+  the table pin as well took the same program to 17,224 bytes. The
+  linkage was the smaller half of the problem, which is why the fix is
+  the emitter's rather than the linker's.
+
+  `pruneDeadDefs` in `self_host/codegen.ax` now walks the module to a
+  reachable set and drops the rest, BEFORE the symbol table is built,
+  so the table describes exactly the functions that survived — a
+  stripped function can never appear in a backtrace. Hello world is
+  34,648 bytes, 22 defines and 29 symbols, against a no-import
+  program's 17,432 and 17; `self_host/main.ax` loses 242 of its 3,599
+  defines, because the compiler uses most of what it imports.
+
+  The walk reads the EMITTED IR rather than the AST, and that is the
+  design rather than an implementation detail. The class that sinks a
+  naive reachability answer is the function whose ADDRESS is taken
+  rather than called — a callback, a comparator, a capability-record
+  field — and the effect walk already gives up on exactly that shape
+  and marks it `#effects-incomplete`. In the IR the class does not
+  exist: there is one way to mention a function at all, the token
+  `@name`, whether the mention is a call, a `ptrtoint` into a closure
+  record, or a thunk over a bare reference. One scan finds all of them
+  with no per-shape knowledge to keep in step as the emitter grows.
+  The failure mode is loud rather than silent for the same reason:
+  LLVM's textual IR has no implicit declaration, so a root this walk
+  got wrong is `error: use of undefined value` out of `opt` — a failed
+  build naming the symbol, not a binary that links and then crashes.
+
+  `--emit-staticlib` prunes nothing and needs no flag to say so: an
+  archive exists precisely so another translation unit can call in,
+  every `pub fn` is a C symbol by contract, and the whole-program
+  assumption is false there by construction. `axiom_alloc`,
+  `axiom_retain` and `axiom_release` are roots in every build, archive
+  or not, because a `--crate` host calls them from Rust where no IR of
+  ours mentions them.
+
+  `scripts/check-dead-code.sh` is the new gate, and its walk is
+  deliberately TIGHTER than the compiler's — it roots only the entry
+  and those three FFI symbols, not the emitter's generous
+  outside-a-define catch-all — so it asks a stricter question rather
+  than re-running the pass and agreeing with itself. Both answers are
+  22 of 22 today, which is the evidence that the generous roots retain
+  nothing. Turning the pass off in a shadow tree puts 361 of 397
+  symbols back and names all four of the functions the measurement
+  called out.
+
+  `check-backtrace.sh` had two floors that expired on this: `rows >=
+  200`, calibrated on "a probe importing Sys had 275 on 2026-08-24",
+  and a `found >= 20` anti-vacuousness guard. Both went red on a module
+  that had got smaller for the right reason, and the second printed "0
+  of 16 table names are in no symbol table" — blaming the emitter for
+  the number that was correct. Both now rest on the probe's own
+  six-deep chain, which cannot expire when the module's size moves
+  again.
+
 - **The REPL has a real terminal interface: editing, cursor motion, a
   coloured prompt, and a redraw that stays correct when the line
   wraps.** `self_host/repl.ax` read plain lines with no editing, no
@@ -71,7 +144,7 @@ its changelog too.
   negative control), and `978-line-editor.ax` sweeps the wrap
   arithmetic across every width from 2 to 80.
 
-  Forty-eight gates now call `gate_build_axc`, and both REPL gates run
+  Forty-nine gates now call `gate_build_axc`, and both REPL gates run
   in the parallel set. `check-repl-selfhost.sh` had carried a HAZARD
   saying they must not — every REPL writing `/tmp/axiom-repl-1`,
   because `fmtIntStr` answers "1" above 3 — and the new gate was

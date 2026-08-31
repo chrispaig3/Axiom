@@ -8036,6 +8036,413 @@
   )
 )
 
+; ------------------------------------------------------------------
+; DEAD-CODE PRUNING: a program contains only what it uses.
+; ------------------------------------------------------------------
+; A hello world used to be 103,592 bytes and 388 `define`s, of which 13
+; were reachable from `main`: `(import IO)` drags in `Err`, `Fmt`, `Sys`
+; and the rest transitively, and every one of them was emitted, linked
+; and shipped. `nm` on the executable found all 375 dead ones.
+;
+; WHY THE LINKER COULD NOT DO IT, and why fixing only the linkage would
+; not have worked either. Two separate things pinned that code, and
+; both had to go:
+;
+;   1. 375 of the 388 `define`s carried EXTERNAL linkage. LLVM cannot
+;      delete an externally-linked function, because another
+;      translation unit might call it. Axiom is a whole-program
+;      compiler and there is no other translation unit.
+;   2. `emitSymbolTable` writes `ptrtoint (ptr @F to i64)` for EVERY
+;      function in the module, so the backtrace table is a live global
+;      holding the address of all of them. That pin survives any
+;      linkage change: measured, marking all 384 non-runtime `define`s
+;      `internal` and running `opt -O1` removed exactly ONE of them and
+;      left all 397 symbols in the binary - 103,592 bytes down to
+;      97,368, a 6% win. Removing the symbol-table pin as well took the
+;      same program to 17,224 bytes and 12 symbols, an 83% win. The
+;      linkage was the smaller half of the problem.
+;
+; So the decision is taken HERE, where both halves are answerable at
+; once: the module is pruned to the reachable set BEFORE the symbol
+; table is built, and the table then describes exactly the functions
+; that survived. A stripped function can never appear in a backtrace,
+; so nothing is lost by its absence.
+;
+; WHY THE WALK READS THE EMITTED IR RATHER THAN THE AST. Reachability
+; is only as good as the definition of "reachable", and the class that
+; sinks a naive answer is the function whose ADDRESS IS TAKEN rather
+; than called - a callback, a comparator, a capability-record field.
+; `vecSortBy`, `vecSiftDownBy` and three functions in `stdlib/Http.ax`
+; are the ones the effect walk already gives up on and marks
+; `#effects-incomplete`, and an AST walk would have to rediscover every
+; one of them and would still be guessing about the next.
+;
+; In the emitted IR that entire class disappears, because there is only
+; one way to mention a function at all: the token `@name`. A call is
+; `call i64 @f(...)`, an address-take is `ptrtoint (ptr @f to i64)`, a
+; closure record's code word is the same `ptrtoint`, and a thunk over a
+; bare reference is a `define` whose body calls its target. One scan
+; for `@` finds all of them, with no per-shape knowledge and nothing to
+; keep in step as the emitter grows. That is why this runs on the line
+; buffer, which `symtabNames` already reads for the same reason.
+;
+; AND THE FAILURE MODE IS LOUD. LLVM's textual IR has no implicit
+; declaration: a call to an `@f` nothing defines is `error: use of
+; undefined value '@f'` out of `opt`, which is exactly the shape the
+; retired `foreign` keyword died of. Probed again before this was
+; written. So a root this walk gets WRONG cannot ship a binary that
+; links and then crashes - it fails the build, in the compiler's own
+; pipeline, naming the symbol. Every over-approximation below is
+; therefore free and every under-approximation is caught.
+;
+; THE ROOT SET, in one place, with the reason for each:
+;
+;   the target's entry symbol  `main`, or `mainCRTStartup` on Windows.
+;                              The linker starts here; nothing in the
+;                              module calls it.
+;   axiom_alloc                the C ABI a linked host calls. All three
+;   axiom_retain               are `pub` in `rust/axiom_ffi` and
+;   axiom_release              `rust/examples/demo/src/lib.rs` states
+;                              their external linkage as a contract, so
+;                              they are roots in EVERY build, not only
+;                              an archive one - a `--crate` host linked
+;                              into an ordinary executable calls
+;                              `axiom_release` from Rust, where no IR
+;                              of ours mentions it.
+;   every `@name` written      the catch-all, and the reason this is a
+;   OUTSIDE any define         root class rather than a list. A global
+;                              initialiser that names a function keeps
+;                              it, whatever the emitter grows next; so
+;                              does an `@name` inside a string constant
+;                              that merely looks like one. Deliberately
+;                              too generous - see the failure-mode note
+;                              above for why that costs nothing.
+;
+; and, transitively, every `@name` in the body of anything reachable.
+;
+; `--emit-staticlib` PRUNES NOTHING, and needs no flag to say so. An
+; archive exists precisely so that another translation unit can call
+; into it: every `pub fn` is a C symbol by contract (docs/ffi.md), the
+; `axh_*` accessors and `Str$strAlloc` are called from the Rust
+; `--emit-rust-binding` writes, and the whole-program assumption this
+; pass rests on is false by construction. That is the one named
+; consumer, the compiler already knows which mode it is in, and there
+; is no opt-out for anyone else to remember.
+; ------------------------------------------------------------------
+
+; The four tables the walk carries, bundled so the scanners take one
+; parameter instead of four: 0 = the defined symbols, interned;
+; 1 = intern id -> index into `defStart`; 2 = index -> 0/1 live;
+; 3 = the worklist of defines marked live and not yet scanned.
+(pub :: pruneCtxNew (-> Int Int Int Int Int))
+
+(pub fn (pruneCtxNew si idToDef live stack)
+  (let ((v vecNew))
+    {
+      (vecPush v si)
+      (vecPush v idToDef)
+      (vecPush v live)
+      (vecPush v stack)
+      v
+    }
+  )
+)
+
+; Mark the define named `sym` live, and queue it. A name that defines
+; nothing in this module - `@putchar` from an `extern` declare, or a
+; `@`-shaped run of bytes inside a string constant - is silently no
+; symbol of ours, which is what makes the outside-a-define root class
+; safe to apply to every line without knowing what is on it.
+(pub :: pruneMark (-> Int String Int))
+
+(pub fn (pruneMark ctx sym)
+  (let ((id (internFind (vecGet ctx 0) sym)))
+    (if (< id 0)
+      0
+      (let ((idToDef (vecGet ctx 1)))
+        (if (>= id (vecLen idToDef))
+          0
+          (let (
+            (d (vecGet idToDef id))
+            (live (vecGet ctx 2))
+          )
+            (if (== (vecGet live d) 1)
+              0
+              {
+                (vecSet live d 1)
+                (vecPush (vecGet ctx 3) d)
+                0
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; One byte past the end of the `@`-spelling starting at `i`. A QUOTED
+; name is delimited by its closing quote and may hold anything;
+; `symtabQuoteEnd` already knows about the `\XX` escape `llvmSymBody`
+; writes, and is reused rather than re-derived. The slice this bounds
+; INCLUDES the quotes, because that is what `symtabScan` records for
+; the define line - the two spellings have to match to compare.
+(pub :: pruneRefEnd (-> String Int Int Int))
+
+(pub fn (pruneRefEnd s i n)
+  (if (>= i n)
+    i
+    (if (== (strByte s i) 34)
+      (let ((e (symtabQuoteEnd s (+ i 1) n)))
+        (if (< e 0)
+          i
+          e
+        )
+      )
+      (pruneRefPlainEnd s i n)
+    )
+  )
+)
+
+(pub :: pruneRefPlainEnd (-> String Int Int Int))
+
+(pub fn (pruneRefPlainEnd s i n)
+  (if (>= i n)
+    i
+    (if (llvmPlainByte (strByte s i))
+      (pruneRefPlainEnd s (+ i 1) n)
+      i
+    )
+  )
+)
+
+; Every `@name` on one line, marked. A `while` rather than the
+; per-byte recursion the neighbouring scanners use, because this one
+; is handed the string-constant lines too and those are as long as the
+; longest literal in the program.
+(pub :: pruneScanLine (-> Int String Int))
+
+(pub fn (pruneScanLine ctx ln)
+  (let (
+    (n (strLen ln))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (if (== (strByte ln i) 64)
+          (let ((e (pruneRefEnd ln (+ i 1) n)))
+            (if (> e (+ i 1))
+              {
+                (pruneMark ctx (strSlice ln (+ i 1) (- e (+ i 1))))
+                (set i e)
+              }
+              (set i (+ i 1))
+            )
+          )
+          (set i (+ i 1))
+        ))
+      0
+    }
+  )
+)
+
+; Index every `define` in the buffer: its symbol, its first and last
+; line, and for each line the define it belongs to (as index + 1, so 0
+; means "outside any define" and is the root class above).
+;
+; The block structure this relies on is the emitter's own and is
+; checked by construction: `emitFnDef` and every runtime emitter close
+; with a bare `}` in column 0, and nothing else in the buffer is a bare
+; `}` - a body's own lines are indented and its labels end in `:`.
+(pub :: pruneIndexDefs (-> Int Int Int Int Int Int Int Int))
+
+(pub fn (pruneIndexDefs lines si idToDef defStart defEnd live defOf)
+  (let (
+    (mut i 0)
+    (mut cur (- 0 1))
+  )
+    {
+      (while (< i (vecLen lines))
+        {
+          (let ((ln (vecGetStr lines i)))
+            (if (>= cur 0)
+              {
+                (vecPush defOf (+ cur 1))
+                (if (strEq ln "}")
+                  {
+                    (vecSet defEnd cur i)
+                    (set cur (- 0 1))
+                    0
+                  }
+                  0
+                )
+              }
+              (if (strStartsWith ln "define ")
+                (let ((at (symtabAtOf ln 0 (strLen ln))))
+                  (if (< at 0)
+                    (vecPush defOf 0)
+                    (let ((end (symtabEndOf ln (+ at 1) (strLen ln))))
+                      (if (< end 0)
+                        (vecPush defOf 0)
+                        (let (
+                          (sym (strSlice ln (+ at 1) (- end (+ at 1))))
+                          (d (vecLen defStart))
+                        )
+                          {
+                            (vecPush defStart i)
+                            (vecPush defEnd i)
+                            (vecPush live 0)
+                            (let ((id (internIntern si sym)))
+                              (if (== id (vecLen idToDef))
+                                (vecPush idToDef d)
+                                0
+                              )
+                            )
+                            (vecPush defOf (+ d 1))
+                            (set cur d)
+                            0
+                          }
+                        )
+                      )
+                    )
+                  )
+                )
+                (vecPush defOf 0)
+              )
+            )
+          )
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; The transitive closure, as a worklist rather than a fixpoint sweep:
+; `stack` only grows, and `sp` is how far it has been read, so every
+; define's body is scanned exactly once.
+(pub :: pruneWalk (-> Int Int Int Int Int))
+
+(pub fn (pruneWalk ctx lines defStart defEnd)
+  (let (
+    (stack (vecGet ctx 3))
+    (mut sp 0)
+  )
+    {
+      (while (< sp (vecLen stack))
+        (let (
+          (d (vecGet stack sp))
+          (mut k 0)
+        )
+          {
+            (set k (vecGet defStart d))
+            (while (<= k (vecGet defEnd d))
+              {
+                (pruneScanLine ctx (vecGetStr lines k))
+                (set k (+ k 1))
+              })
+            (set sp (+ sp 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; The buffer without the lines of any define that was never reached.
+(pub :: pruneRebuild (-> Int Int Int Int))
+
+(pub fn (pruneRebuild lines defOf live)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen lines))
+        {
+          (let ((o (vecGet defOf i)))
+            (if (== o 0)
+              (vecPush out (vecGetStr lines i))
+              (if (== (vecGet live (- o 1)) 1)
+                (vecPush out (vecGetStr lines i))
+                0
+              )
+            )
+          )
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+(pub :: pruneDeadDefs (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (pruneDeadDefs cg)
+  (if cgStaticlib
+    cg
+    (let (
+      (lines (memGetWord cg 0))
+      (si internNew)
+      (idToDef vecNew)
+      (defStart vecNew)
+      (defEnd vecNew)
+      (live vecNew)
+      (defOf vecNew)
+    )
+      (let ((ctx (pruneCtxNew si idToDef live vecNew)))
+        {
+          (pruneIndexDefs lines si idToDef defStart defEnd live defOf)
+          ; ------------------------------------------------------------
+          ; THE ROOT SET, and it is the whole design: everything below
+          ; is reached from here, so a name missing from this list is a
+          ; function deleted out from under a live call. Deliberately
+          ; generous - see the header for why an over-approximation
+          ; here costs nothing and an under-approximation cannot ship.
+          ; ------------------------------------------------------------
+          ; `main`, or `mainCRTStartup` on Windows. The linker starts
+          ; the program here and no IR of ours calls it.
+          (pruneMark ctx (targetEntryName (memGetWord cg 26)))
+          ; The C ABI a linked host calls. All three are `pub` in
+          ; `rust/axiom_ffi` and `rust/examples/demo/src/lib.rs` states
+          ; their external linkage as a contract - so they are roots in
+          ; EVERY build, not only an archive one: a `--crate` host
+          ; linked into an ordinary executable calls `axiom_release`
+          ; from Rust, where nothing in this module mentions it.
+          (pruneMark ctx "axiom_alloc")
+          (pruneMark ctx "axiom_retain")
+          (pruneMark ctx "axiom_release")
+          ; And the catch-all, which is why the three above are the
+          ; only names this pass has to know: every `@name` written
+          ; OUTSIDE any define. A global initialiser that holds a
+          ; function's address keeps that function, whatever the
+          ; emitter grows next, and so does an `@`-shaped run of bytes
+          ; inside a string constant that merely looks like one. That
+          ; second case is the price of the first and it is the right
+          ; way round - it retains, it never removes.
+          (let ((mut i 0))
+            (while (< i (vecLen lines))
+              {
+                (if (== (vecGet defOf i) 0)
+                  (pruneScanLine ctx (vecGetStr lines i))
+                  0
+                )
+                (set i (+ i 1))
+              }))
+          ; Everything reachable from those, through calls, through a
+          ; `ptrtoint` into a closure record, and through the thunks a
+          ; bare function reference synthesises - all one token to this
+          ; walk, which is the point of reading the IR.
+          (pruneWalk ctx lines defStart defEnd)
+          (memSetWord cg 0 (pruneRebuild lines defOf live))
+          cg
+        }
+      )
+    )
+  )
+)
+
 ; The printable body of an `@`-spelling: a quoted name without its
 ; quotes, a plain name unchanged.
 (pub :: symtabBody (-> String String))
@@ -8727,7 +9134,17 @@
       ; `extern "kernel32"` block binding `WriteFile` does not declare
       ; it a second time - a repeated `declare` is an LLVM parse error,
       ; and the Windows platform module binds four of the runtime's six.
-      (let ((tailCg (emitExternDeclares decls (emitRecoverSlotHelpers (emitEffectGlobals (emitStringGlobals nextCg 0) 0)) 0 (runtimeDeclaredSyms (memGetWord nextCg 26)))))
+      ;
+      ; `pruneDeadDefs` LAST, and the order is the whole point: it is
+      ; the outermost call here and `symtabNames` reads its result, so
+      ; the backtrace table below is built over the functions that
+      ; SURVIVED. Run it the other way round and the table would hold
+      ; the address of every function in the module, which is a live
+      ; global referencing all of them and pins the lot - the reason
+      ; `internal` linkage alone removed one `define` of 388 when it
+      ; was measured. A stripped function can never appear in a
+      ; backtrace, so a table over the survivors is the complete table.
+      (let ((tailCg (pruneDeadDefs (emitExternDeclares decls (emitRecoverSlotHelpers (emitEffectGlobals (emitStringGlobals nextCg 0) 0)) 0 (runtimeDeclaredSyms (memGetWord nextCg 26))))))
         (renderCG (emitLine (emitBacktrace tailCg (symtabNames (memGetWord tailCg 0))) "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }"))
       )
       (emitModuleTail decls nextCg (+ i 1))
