@@ -67,10 +67,19 @@ export function Benchmark() {
               Collatz step counts for 1..3,000,000, summed and printed. Signed
               64-bit integers, no allocation, no library call in the hot loop.
               All three binaries print <code>{BENCH_ENV.answer}</code>. Each
-              figure is the <strong>best of five runs</strong>, not the mean:
+              figure is the <strong>best</strong> of its runs, not the mean:
               interference only ever makes a run slower, so the minimum is the
               closest estimate of the cost itself — the methodology the
               repository uses for its own benchmarks.
+            </p>
+            <p>
+              The runs are also <strong>interleaved</strong> — one repetition of
+              each binary, in turn — and that correction changed the answer. A
+              first pass that ran each binary in a block put Axiom 1.6&times;
+              behind Rust, which would have been a finding if it were real. It
+              was an artefact: a background build starting midway through taxes
+              whichever block it lands on. Alternating gives every binary the
+              same interference, and the three collapse onto each other.
             </p>
             <p className="micro">
               {BENCH_ENV.machine} · {BENCH_ENV.axiom} · {BENCH_ENV.rust} ·{' '}

@@ -62,9 +62,18 @@ jobs:
       # happened to work today.
       - run: npm ci
 
-      # `tsc -b` runs first inside `npm run build`, so a type error fails
-      # here rather than shipping.
+      # `npm run build` is three things in order: `check-claims.mjs`, which
+      # holds the four figures on the page to the tree they describe and
+      # fails the deploy when trunk has moved under them; `tsc -b`; then
+      # the bundle. A stale number is a failed build, not a live page.
       - run: npm run build
+
+      # Renders the whole component tree in Node and asserts on the
+      # result: no React warning, one `h1`, no skipped heading level,
+      # every in-page anchor resolving, every `target=_blank` carrying
+      # `rel=noopener`. There is no browser here, so this is the closest
+      # thing to opening the page.
+      - run: node scripts/smoke.mjs
 
       # Pages serves the artifact from a static host, not from Jekyll,
       # but the default pipeline still strips paths beginning with `_`

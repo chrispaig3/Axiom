@@ -6,9 +6,10 @@
   "description": "The official website for the Axiom programming language.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/check-claims.mjs && tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "check": "node scripts/check-claims.mjs && node scripts/smoke.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",

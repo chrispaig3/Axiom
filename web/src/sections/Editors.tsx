@@ -52,7 +52,7 @@ export function Editors() {
               All of the highlighting: colour by syntactic role, plus
               rainbow-bracket queries. The capture names follow the convention
               Neovim, Helix and the <code>tree-sitter</code> CLI share, so one
-              query file works in all three — and it is parsed against all 580{' '}
+              query file works in all three — and it is parsed against all 581{' '}
               <code>.ax</code> files in the repository on every change.
             </dd>
           </div>
