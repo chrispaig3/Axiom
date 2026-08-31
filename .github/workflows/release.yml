@@ -14,16 +14,39 @@
 # uploaded until it passes. `scripts/check-version.sh` is the same gate
 # CI already runs, invoked here for the same reason.
 #
-# WHAT IS SHIPPED, AND WHAT IS NOT. Three targets are built and
-# attached. `darwin-x86_64` is NOT, and that is deliberate rather than
-# an oversight: no runner for it exists anywhere in this repository, so
-# it is assembled and byte-compared but has never been executed. An
-# untested binary with a release attached to it reads as a supported
-# platform. It is not one, and `check-cross-targets.sh` says so in its
-# own words - "Running the result still needs the real hardware."
+# WHAT IS SHIPPED, AND WHAT IS NOT. Two targets are built and attached:
+# `linux-aarch64` and `darwin-aarch64`. Two are deliberately left out,
+# and they are left out for OPPOSITE reasons, which is why the
+# distinction is written down rather than left to the matrix.
+#
+# `darwin-x86_64` is not shipped because it is NOT SUPPORTED. No runner
+# for it exists anywhere in this repository, so it is assembled and
+# byte-compared but has never been executed. An untested binary with a
+# release attached to it reads as a supported platform; it is not one,
+# and `check-cross-targets.sh` says so in its own words - "Running the
+# result still needs the real hardware."
+#
+# `linux-x86_64` is not shipped even though it IS supported, and stays
+# supported: `ci.yml`'s `Tests (linux-x86_64)` leg runs the whole gate
+# battery on it on every pull request, and nothing about that changes
+# here. What changed on 2026-08-30 is only the artifact. Building it
+# was the slowest leg of the release and the one that failed most
+# often, and every hour spent re-running it bought a tarball for the
+# platform whose users are least likely to need one and most likely to
+# have a toolchain. Building from source is one command and is itself
+# gated (`scripts/bootstrap-from-seed.sh`, `check-bootstrap.sh`).
+#
+# So the rule this file now encodes has TWO axes, not one. Supported
+# says whether a CI leg executes what the compiler emits there;
+# SHIPPED says whether a release carries a prebuilt archive. A target
+# can be supported and unshipped - that is exactly `linux-x86_64` -
+# and `scripts/install.sh` must refuse it with a build-from-source
+# message rather than a 404. `scripts/check-release-targets.sh` holds
+# this matrix and that script's refusal list to each other, so the two
+# cannot drift apart silently.
 #
 # The seed remains the supported way to build from source on any host,
-# including that one.
+# including both of them.
 
 name: Release
 
@@ -67,8 +90,10 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - name: linux-x86_64
-            os: ubuntu-latest
+          # linux-x86_64 is SUPPORTED and TESTED and deliberately not
+          # here - see WHAT IS SHIPPED above. Do not re-add it without
+          # also removing it from `install.sh`'s refusal list, which
+          # `scripts/check-release-targets.sh` will otherwise fail.
           - name: linux-aarch64
             os: ubuntu-24.04-arm
           - name: darwin-aarch64

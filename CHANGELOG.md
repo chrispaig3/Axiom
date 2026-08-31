@@ -16,6 +16,38 @@ its changelog too.
 
 ## Unreleased
 
+- **`linux-x86_64` is no longer a release artifact, and is still a
+  supported target.** Those are two axes, not one, and until now the
+  project only had a word for the first. `release.yml` builds
+  `linux-aarch64` and `darwin-aarch64`; the `linux-x86_64` leg was the
+  slowest and the most frequently re-run part of cutting a release, and
+  it served the platform whose users are most likely to already have a
+  toolchain. **Nothing about testing changed:** `Tests (linux-x86_64)`
+  runs the whole gate battery on every pull request, exactly as before.
+  `scripts/install.sh` refuses that host with a build-from-source
+  message naming `bootstrap-from-seed.sh` rather than fetching a 404,
+  and it is a *different* message from the one `darwin-x86_64` and the
+  two FreeBSD targets get — those are unsupported, this one is
+  supported and unshipped, and telling a user their platform is
+  unsupported when it is not would be the defect.
+  New gate **`check-release-targets.sh`** holds the two lists to each
+  other, because they live on opposite sides of the project and neither
+  failure mode is loud: a target in both the matrix and the refusal
+  list uploads an archive the installer will not fetch, and a target in
+  neither gives the user a bare `curl` 404. Seven checks — the two
+  lists are disjoint, together they cover every non-Windows target the
+  compiler accepts, every shipped target is one README calls supported,
+  and every supported-but-unshipped target still has a CI leg or a
+  README paragraph explaining why it does not (`darwin-x86_64`, which
+  is executed by no runner). Both directions were ablated: re-adding
+  `linux-x86_64` to the matrix fails on "built AND refused", and
+  removing its refusal arm fails on "neither built nor refused".
+  Forty-six gates build the compiler under test, up from forty-five.
+  `check-install.sh` gained the branch this needs: on a host whose
+  target ships no archive it asserts the refusal instead, and says
+  plainly that the install path was not exercised there rather than
+  skipping quietly.
+
 - **`check-thread-local.sh` asserted a Darwin fact as a universal one.**
   Its second arm required `nm -u` to be **empty** for a program that
   spawns no thread. That holds on Darwin and is false by construction on

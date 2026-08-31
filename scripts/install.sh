@@ -96,30 +96,52 @@ case "$arch" in
 esac
 target="$os_name-$arch_name"
 
-# The combinations that are built but never released. Saying this
-# plainly is the point; shipping one quietly would be the defect.
-# darwin-x86_64 has no runner anywhere, so it has never been executed.
-# The two FreeBSD targets (2026-08-29) have seeds and a CI leg that
-# runs the compiler's output on FreeBSD 14; that leg is advisory until
-# it is green, no release job builds for FreeBSD, and no artifact
-# exists to fetch - so this refusal is what a FreeBSD host gets rather
-# than a 404.
-case "$target" in
-  darwin-x86_64|freebsd-x86_64|freebsd-aarch64)
+# THE TARGETS WITH NO ARTIFACT, and there are two KINDS of them. Saying
+# which kind plainly is the point; shipping one quietly, or telling a
+# user their platform is unsupported when it is not, are both defects.
+#
+# NOT SUPPORTED. darwin-x86_64 has no runner anywhere, so it has never
+# been executed. The two FreeBSD targets (2026-08-29) have seeds and a
+# CI leg that runs the compiler's output on FreeBSD 14; that leg is
+# advisory until it is green. For these, no artifact exists AND the
+# platform carries no promise.
+#
+# SUPPORTED, NOT SHIPPED. linux-x86_64 (2026-08-30) is a different
+# case and gets a different message. Its CI leg runs the whole battery
+# on every pull request and will keep doing so; only the release
+# artifact was dropped, because that leg was the slowest and flakiest
+# part of cutting a release. A user here is not on unsupported ground -
+# they just have to run one command.
+#
+# `scripts/check-release-targets.sh` holds these two lists and
+# `release.yml`'s build matrix to each other, so a target cannot end up
+# in both or neither.
+build_it() {  # <target> <why>
   cat >&2 <<NOTE
-install.sh: there is no release binary for $target.
+install.sh: there is no release binary for $1.
 
-  It is assembled and byte-compared in CI, but no release is built for
-  it, so no artifact is published. Publishing one would imply a support
-  level that does not exist.
+  $2
 
-  To build it yourself, which is supported:
+  To build it yourself, which is supported and takes one command:
 
     git clone https://github.com/chrispaig3/axiom && cd axiom
     ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 
 NOTE
-  exit 1 ;;
+  exit 1
+}
+
+case "$target" in
+  linux-x86_64)
+    build_it "$target" \
+"It is fully supported and tested - CI runs the whole gate battery on
+  linux-x86_64 on every change - but no prebuilt archive is published
+  for it. Building from the committed seed is the supported path here." ;;
+  darwin-x86_64|freebsd-x86_64|freebsd-aarch64)
+    build_it "$target" \
+"It is assembled and byte-compared in CI, but no release is built for
+  it, so no artifact is published. Publishing one would imply a support
+  level that does not exist." ;;
 esac
 
 # ---- the prefix this is allowed to overwrite ------------------------

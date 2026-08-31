@@ -58,6 +58,58 @@ case "$(uname -m)" in
   *) echo "FAIL: unsupported architecture $(uname -m)"; exit 1 ;;
 esac
 target="$os-$arch"
+
+# --------------------------------------------------------------------
+# WHETHER THIS HOST'S TARGET SHIPS AT ALL, and what to check if it does
+# not.
+#
+# `release.yml` stopped building `linux-x86_64` on 2026-08-30 - the
+# target is still supported and still runs this whole battery, only the
+# prebuilt archive is gone - and `install.sh` therefore refuses that
+# host with a build-from-source message instead of fetching a 404. On
+# such a host the four cases below cannot run: there is no install path
+# to exercise. What CAN be checked, and is, is that the refusal happens
+# and says the right thing.
+#
+# The shipped list is read from `release.yml`'s matrix rather than
+# repeated here, so this gate cannot disagree with the workflow it is
+# describing. `scripts/check-release-targets.sh` holds that matrix and
+# `install.sh`'s refusal list to each other.
+# --------------------------------------------------------------------
+release_yml="$repo_root/.github/workflows/release.yml"
+[[ -f "$release_yml" ]] || { echo "FAIL: $release_yml is missing"; exit 1; }
+shipped="$(sed -n 's/^ *- name: \([a-z0-9_]*-[a-z0-9_]*\) *$/\1/p' "$release_yml" | sort -u)"
+[[ -n "$shipped" ]] || {
+  echo "FAIL: no build-matrix targets found in release.yml - this gate reads that"
+  echo "      list to know whether the host ships, and an empty read would make"
+  echo "      it silently skip every case below"; exit 1; }
+
+if ! printf '%s\n' "$shipped" | grep -qx "$target"; then
+  echo "== this host's target ships no archive; the refusal is what is checked =="
+  echo "   shipped: $(printf '%s ' $shipped)"
+  set +e
+  out="$(AXIOM_PREFIX="$work/prefix" bash "$repo_root/scripts/install.sh" --version 9.9.9 2>&1)"
+  rc=$?
+  set -e
+  if (( rc == 0 )); then
+    bad "install.sh exited 0 on $target, which publishes no archive - it would have 404ed"
+  elif ! grep -q "no release binary for $target" <<<"$out"; then
+    bad "install.sh refused $target without naming it"
+    sed 's/^/     /' <<<"$out" | head -5
+  elif ! grep -q "bootstrap-from-seed.sh" <<<"$out"; then
+    bad "install.sh refused $target without telling the user how to build it"
+    sed 's/^/     /' <<<"$out" | head -5
+  else
+    ok "install.sh refuses $target and points at bootstrap-from-seed.sh (exit $rc)"
+  fi
+  echo
+  echo "check-install: $checks check(s) on a host whose target publishes no"
+  echo "               archive. THE INSTALL PATH WAS NOT EXERCISED HERE - it is"
+  echo "               exercised on every leg whose target does ship, and the"
+  echo "               four cases below need an archive to install."
+  exit $(( failed > 0 ))
+fi
+
 # A version that is not this repository's, so nothing here can pass by
 # reaching a real release: `install.sh` builds `axiom-$V-$target` from
 # it, and no such file exists anywhere but in `$work`.

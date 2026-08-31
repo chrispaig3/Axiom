@@ -212,7 +212,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Forty-five of the gates below build the compiler under test from
+    # Forty-six of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -351,6 +351,18 @@ jobs:
       # is testing something else.
       - name: The installer installs, and refuses what it should
         run: ./scripts/check-install.sh
+
+      # WHAT SHIPS AND WHAT IS SUPPORTED ARE TWO LISTS, and they live on
+      # opposite sides of the project: `release.yml`'s build matrix and
+      # `install.sh`'s refusal arms. Neither way of disagreeing is loud.
+      # A target in both uploads an archive the installer will not
+      # fetch; a target in neither hands the user a bare `curl` 404
+      # where a sentence belongs. `linux-x86_64` became the first
+      # supported-but-unshipped target on 2026-08-30, which is the
+      # combination that makes the distinction load-bearing rather than
+      # theoretical.
+      - name: The release matrix and the installer's refusals agree
+        run: ./scripts/check-release-targets.sh
 
       # The acceptance measurement for the socket work, and the only gate
       # here whose subject is MEMORY rather than an answer: a pre-forked
