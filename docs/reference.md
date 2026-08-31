@@ -1051,6 +1051,226 @@ three spellings that reach the empty variable: no `:`, a `:` whose
 type is not a type, and a bare `(x)`
 (`tests/diagnostics/388-struct-field-untyped.ax`).
 
+### Constructing, binding, and reading a field
+
+Construction is **positional**: the constructor is the struct's own
+name, and its arguments are its fields in declaration order. A value
+binds to a `let`, passes to a function and returns from one like any
+other:
+
+```scheme
+(struct Point
+  (x : Int)
+  (y : Int))
+
+(:: shift (-> Point Int Point))
+(fn (shift p n) (Point (+ p.x n) p.y))
+
+(:: sum (-> Point Int))
+(fn (sum p) (+ p.x p.y))
+
+(:: main Int)
+(fn (main) (sum (shift (Point 1 2) 10)))     ; exits 13
+```
+
+There is no named-field spelling, and the two spellings a reader reaches
+for both fail without mentioning structs at all. `(Point (x 1) (y 2))` reads `x` and
+`y` as variables and reports `AX3001` twice — with `+` offered as the
+nearest binding in scope, which is how far the compiler is from
+understanding what was meant:
+
+```scheme refused
+(struct Point (x : Int) (y : Int))
+
+(:: main Int)
+(fn (main)
+  (let ((p (Point (x 1) (y 2)))) p.x))
+; error[AX3001]: undefined variable `x`
+; error[AX3001]: undefined variable `y`
+```
+
+`(Point :x 1 :y 2)` stops earlier still, at the colon, with `AX2001`
+"expected expression, found `:`". Handing over the wrong *number* of
+fields is `AX3008` at the constructor — "struct `Point` expects 2
+field(s), found 1" — trailed by an `AX3004` cascade wherever the
+half-built value is used; the wrong *type* in a field is a plain
+`AX3004` at the offending argument.
+
+**`.field` binds to a name, not to an expression.** `a.b.c` chains left
+to right, reading the `c` of the value at `a.b`, and a field access is
+an ordinary expression anywhere a value is wanted. But the suffix is
+parsed onto an identifier *token*, so a call's result cannot be
+dereferenced in place — `(mk 5).x` and even `(p).x` are `AX2001` at the
+dot. Bind it first:
+
+```scheme refused
+(struct Point (x : Int) (y : Int))
+
+(:: mk (-> Int Point))
+(fn (mk n) (Point n 2))
+
+(:: main Int)
+(fn (main) (mk 5).x)
+; error[AX2001]: expected expression, found `.`
+```
+
+A field the type does not have is `AX3007`, anchored at the field name,
+and it answers for every type rather than only for structs: `n.x` where
+`n` is an `Int` reports "field `x` not found on type `Int`".
+
+`show` renders a struct without any declaration of yours —
+`(show (Point 1 2))` is `{x = 1, y = 2}`.
+
+### Writing a field
+
+`set` writes through a dotted path ([Mutable Bindings and
+`while`](#mutable-bindings-and-while) has the general rule), and **the
+write needs no `mut` — neither on the field nor on the binding.** This
+is accepted and exits 9:
+
+```scheme
+(struct Point
+  (x : Int)
+  (y : Int))
+
+(:: main Int)
+(fn (main)
+  (let ((p (Point 1 2)))
+    { (set p.x 9) p.x }))
+```
+
+`p` is an immutable `let` and `x` carries no `mut`, and neither matters.
+`mut` on a *binding* governs rebinding the local, which is what
+`AX3012` refuses; mutating what a binding points at is a different
+operation and is not gated by either marker.
+
+**So what does `mut` on a field do?** It documents intent. The parser
+recognises `(mut count : Int)`, skips the marker and records the field
+exactly as it records `(count : Int)` — `parseOneField` in
+`self_host/parser.ax` says so in as many words, that the marker "is not
+recorded ... only skipped". Write it where a field is meant to be
+mutated and read it as a note to the next person, not as a checked
+constraint.
+
+Because the write goes through the value rather than the binding, it
+reaches through a parameter, and a callee's store is visible to its
+caller. This exits 42, over a nested path:
+
+```scheme
+(struct Inner (mut v : Int))
+(struct Outer (inn : Inner))
+
+(:: bump (-> Outer Int))
+(fn (bump o) { (set o.inn.v (+ o.inn.v 1)) o.inn.v })
+
+(:: main Int)
+(fn (main)
+  (let ((o (Outer (Inner 40))))
+    { (bump o) (bump o) o.inn.v }))
+```
+
+### Type parameters
+
+A struct may take type parameters, in the parenthesised spelling `data`
+already uses — `(struct Boxed (a) (val : a))`. The first group is
+ambiguous here in a way it is not in a `data`, because a struct's other
+groups are FIELDS and start lowercase too, so the rule is that a
+parameter list is lowercase names and nothing else: `(a b)` is
+parameters, `(start : Int)` is a field because of the colon, and
+`(msg String)` is a field because `String` is uppercase — which is what
+keeps `tests/diagnostics/388-struct-field-untyped.ax`'s three `AX3056`
+refusals intact.
+
+Construction stays positional and the parameter is fixed by what is
+handed over, so one declaration serves every instantiation in the same
+program:
+
+```scheme
+(import Str)
+
+(struct Boxed (a)
+  (val : a))
+
+(:: main Int)
+(fn (main)
+  (let ((bi (Boxed 7)) (bs (Boxed "abc")))
+    (+ bi.val (strLen bs.val))))     ; exits 10
+```
+
+`tests/selfhost/901-parameterised-struct.ax` pins two parameters
+staying independent across one shared instantiation.
+
+### Fields that hold functions
+
+A field's type can be an arrow, and that is what makes a parameterised
+struct an interface — it is what replaced traits in 0.6.0, and
+[Capability Records](#capability-records) is the whole story, including
+how effects cross the boundary. The struct mechanics are these.
+
+Both call spellings work: `(c.render 7)` applies the field directly, and
+`((c.render) 7)` parenthesises the access first. They are the same call
+rather than merely equivalent — the two spellings emit byte-identical
+IR under `emit-llvm`. This exits 5:
+
+```scheme
+(import Fmt)
+(import Str)
+
+(struct ShowOf (a)
+  (render : (-> a String)))
+
+(:: showInt (ShowOf Int))
+(fn (showInt) (ShowOf fmtInt))
+
+(:: main Int)
+(fn (main)
+  (let ((c showInt))
+    (+ (strLen (c.render 123))
+       (strLen ((c.render) 45)))))
+```
+
+**A top-level function of two or more arguments cannot be handed over by
+name**, and this is the limit a reader meets first. It is `AX3013`, and
+it is not about structs: naming `add` where a value is wanted reports
+"partial application of `add`: it takes 2 argument(s) and 0 were
+supplied — `add` takes 2 arguments, so it cannot be used as a bare
+value". Every capability record in this document that is built from a
+named function holds an arity-1 one for exactly that reason.
+
+```scheme refused
+(struct Ops (g : (-> Int Int Int)))
+
+(:: add (-> Int Int Int))
+(fn (add x y) (+ x y))
+
+(:: main Int)
+(fn (main)
+  (let ((o (Ops add)))
+    (o.g 5 3)))
+; error[AX3013]: partial application of `add`: it takes 2 argument(s)
+;                and 0 were supplied
+```
+
+Wrap a wider function in a `lambda`, which does get a closure record to
+keep arguments in. And once the field holds a lambda it may be applied
+to *some* of its arguments: partial application works for a lambda, and
+it is only a *top-level* function that has nowhere to put the arguments
+it was not given ([Partial Application](#partial-application--not-supported)).
+`(o.g 5)` below is a value, and the program exits 8:
+
+```scheme
+(struct Ops (g : (-> Int Int Int)))
+
+(:: add (-> Int Int Int))
+(fn (add x y) (+ x y))
+
+(:: main Int)
+(fn (main)
+  (let ((o (Ops (lambda (x y) (add x y)))))
+    (let ((add5 (o.g 5)))
+      (add5 3))))
+```
+
 ---
 
 ## Type Aliases
