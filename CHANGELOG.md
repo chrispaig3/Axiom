@@ -16,6 +16,87 @@ its changelog too.
 
 ## Unreleased
 
+## 0.6.1 — 2026-08-31
+
+- **A program contains only what it uses.** A hello world was a
+  103,592-byte binary holding 388 `define`s, of which a walk from
+  `main` reaches 22. It is 34,640 bytes now, and the compiler emits
+  242 fewer definitions of itself. The linkage was only half the
+  cause: 375 of 388 definitions carried external linkage, which does
+  block dead-code elimination — but `emitSymbolTable` writes a
+  `ptrtoint` for EVERY function, so the backtrace table pinned all 388
+  addresses and internalising them was worth 6%. The removal is the
+  emitter's now, before the table is built. Reading the emitted IR
+  rather than the AST is what makes it safe: in IR a call, a closure
+  record's `ptrtoint` and a thunk are the same token, so a callback
+  needs no special case, and a wrong root is `error: use of undefined
+  value` out of `opt` — a failed build, never a binary that links and
+  crashes. `--emit-staticlib` prunes nothing, which is the one named
+  consumer, so no flag was added. `scripts/check-dead-code.sh` asserts
+  on the LINKED binary via `nm`, with a walk deliberately tighter than
+  the compiler's so it is not agreeing with itself.
+
+- **Two soundness holes: `check` said OK and the program segfaulted.**
+  `(:: g (-> Int Box))` with body `7` was accepted and exited 139 — the
+  literal dereferenced as a handle. The same mismatch in ARGUMENT
+  position was refused all along, so the rule existed and was not
+  applied in one place; `checkDeclaredReturn` compared by a name list
+  rather than by `tyCompat`. 22 type pairs flipped to `AX3004`, and no
+  site in the tree was newly refused because the exemption is exactly
+  this tree's `Int`-as-handle convention and nothing more —
+  `tests/selfhost/987-handle-convention-roundtrip.ax` pins that
+  exemption at run time, and removing it turns the fixture red.
+  Separately, `emitApplyChain` passed an empty evidence vector, so
+  over-applied and `cast`-spine arguments were classified "not a
+  reference" — `462-surplus-closure-arg.ax` exits 139 built by 0.6.0
+  and 15 built by this release. Neither was caught by 55 green gates,
+  because a soundness hole lives where no fixture thought to look.
+
+- **`restrict(no-alloc)` could not fail, and seven claims were false.**
+  A function claiming it and constructing a value checked clean:
+  `findFnEnt` answers 0 for every constructor, and `walkCallHead`'s
+  branch added nothing. It was not an oversight — `MM-EXEC-9a` recorded
+  constructor-invisibility as a DECISION — but the decision stopped
+  being survivable the day the restriction shipped, because a decision
+  that makes a checked claim unfalsifiable is the check not existing.
+  123 of 3,725 effect rows gain `Alloc`; seven claims are withdrawn
+  with the reason written at each site. The nullary arm is
+  load-bearing: `(Empty)` allocates nothing, so arity decides, not
+  constructor-ness.
+
+- **`mut` on a struct field was parsed and thrown away.** A write to a
+  non-`mut` field through an immutable binding compiled clean with no
+  diagnostic; `parseOneField` said so in its own comment. This project
+  removed `linear`, `consume` and `deriving` for exactly that. Enforced
+  rather than deleted — 29 fields migrated, found by building the
+  compiler with the refusal armed rather than by grep, which was wrong
+  in both directions. `explain AX3012`'s claim that "structure fields
+  are written with `memSetWord` instead" is corrected.
+
+- **The REPL has a terminal UI.** Editing, history with reverse search,
+  syntax highlighting painted from the compiler's own lexer, and
+  completion including bindings defined earlier in the session — which
+  exist in no file. `stdlib/Tui/{Keys,Edit,Term}.ax` import nothing
+  from `self_host/`. The piped surface is byte-identical: 22 sessions,
+  44 streams, 341,394 bytes before and after, zero differing.
+
+- **The language server learns `textDocument/declaration` and call
+  hierarchy.** Declaration is not an alias for definition here — Axiom
+  writes a function twice, so declaration lands on `(:: f T)` and
+  definition on the body, and a signature with no `fn` yet answers one
+  and `null` for the other. `rangeFormatting` is REFUSED on a
+  measurement: 8,437 form-aligned slices, 21 disagreeing, every one
+  comment placement, so format-on-save and format-selection would each
+  rewrite what the other wrote.
+
+- **The shared compiler was rebuilt by every gate.** `gate_source_stamp`
+  hashes `$axiom`, and teaching `gate_init` to honour `AXIOM_AXC` —
+  itself a fix, for twelve gates silently measuring the installed
+  binary — changed what that means on one side only, so the stamp
+  written by the builder could never equal the one a gate computes.
+  `build-shared-axc.sh`'s own header prices the sharing at ~16 minutes
+  per run.
+
 - **A program contains only what it uses.** A hello world was a
   103,592-byte binary holding 388 `define`s, of which a walk from
   `main` reaches 22: `(import IO)` pulls in `Err`, `Fmt`, `Path` and
