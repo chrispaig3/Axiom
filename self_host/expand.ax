@@ -4445,12 +4445,12 @@
 (pub fn (expandApp e env bs)
   (let ((head (spineHead e)))
     (if (!= (nodeTag head) TAG_E_VAR)
-      (expandAppPlain e env bs)
+      (expandAppOrHole e env bs)
       (if (== (expBound bs (nodeAName head)) 1)
-        (expandAppPlain e env bs)
+        (expandAppOrHole e env bs)
         (let ((mac (expFindMacro env (nodeAName head))))
           (if (== mac 0)
-            (expandAppPlain e env bs)
+            (expandAppOrHole e env bs)
             (expandMacroApp
               e              head              mac              env              bs
             )
@@ -4466,6 +4466,143 @@
 (pub fn (expandAppPlain e env bs) (mkNodeAt
   TAG_E_APP  (expandExpr (nodeA e) env bs)  (expandExpr (nodeB e) env bs)  0  (nodeSpan e)
 ))
+
+; ------------------------------------------------------------------
+; `_` HOLES. An application's direct argument list may contain a bare
+; `_` in place of an argument - `(add 5 _)` stands for the value a
+; hand-written `(lambda (y) (add 5 y))` would build, one fresh
+; parameter per hole, left to right. Checked here rather than in the
+; checker: by the time `checkApp` sees the tree, `(add 5 _)` and the
+; hand-written lambda are the identical shape, so AX3013 keeps
+; meaning exactly what it always meant - a bare name applied to too
+; few arguments, with no `_` anywhere in the call - and needs no new
+; case to notice holes.
+;
+; NOT "no hidden allocations" (a claim this feature does not make):
+; the desugared lambda is a closure record and allocates exactly as
+; an equivalent hand-written one would. The merit is EXPLICITNESS -
+; the closure forms exactly where a `_` is written, visible to a
+; reader or an agent without tracing an implicit currying rule.
+;
+; The check is SPINE-LOCAL: `spineArgVec` returns only the arguments
+; of the call `e` sits at the top of, never reaching into an argument
+; that is itself a call. `(add 5 (mul 2 _))` therefore has no hole at
+; `add`'s level - its second argument is the whole `(mul 2 _)` node,
+; not `_` itself - and `add`'s spine is expanded plainly; `mul`'s own
+; visit, reached when that argument is expanded in the ordinary way,
+; finds the hole and wraps only the inner call:
+; `(add 5 (lambda (h) (mul 2 h)))`. A hole binds to its INNERMOST
+; enclosing call, which is the only rule the two examples the design
+; gives are both consistent with.
+;
+; Head-position `_` - `(_ 5)` - is left alone: this pass only scans
+; the ARGUMENT vector, never `spineHead`'s result, so a hole cannot
+; appear there. Bare `_` in expression position stays `checkVar`'s
+; ordinary undefined-variable case - measured on a program with
+; `(add 5 _)` where `add` takes 2 arguments, before this pass existed:
+; `E AX3001 ... undefined variable `_``, `?...:"a similarly named
+; binding `+` is in scope; did you mean this?"` - and a hole that
+; would need a name outside this scan (an application's own callee
+; position) still gets exactly that diagnostic today.
+; ------------------------------------------------------------------
+(pub :: expandAppOrHole (-> Int Int Int Int))
+
+(pub fn (expandAppOrHole e env bs)
+  (let ((argv (spineArgVec e vecNew)))
+    (if (== (expHoleCount argv 0) 0)
+      (expandAppPlain e env bs)
+      (let (
+        (params vecNew)
+        (newArgv vecNew)
+      )
+        {
+          (expHoleArgs argv 0 env bs params newArgv)
+          (mkLamCurried
+            params            (expBuildSpine (expandExpr (spineHead e) env bs) newArgv 0)            (nodeSpan e)
+          )
+        }
+      )
+    )
+  )
+)
+
+; Is this argument node exactly the wildcard identifier - not merely
+; an expression that CONTAINS one further down?
+(pub :: expIsHole (-> Int Int))
+
+(pub fn (expIsHole a)
+  (if (== (nodeTag a) TAG_E_VAR)
+    (if (strEq (nodeAName a) "_") 1 0)
+    0
+  )
+)
+
+(pub :: expHoleCount (-> Int Int Int))
+
+(pub fn (expHoleCount argv i)
+  (if (>= i (vecLen argv))
+    0
+    (+
+      (if (== (expIsHole (vecGet argv i)) 1) 1 0)      (expHoleCount argv (+ i 1))
+    )
+  )
+)
+
+; One pass over the argument list: a hole mints a fresh parameter
+; (`expFresh`, the same generator macro hygiene uses, so the name
+; carries the `.` no Axiom source can spell - a collision with
+; anything the caller wrote is impossible by the same construction
+; the header above documents) and both the parameter and the rebuilt
+; call's argument at that position reference it; anything else is
+; expanded the ordinary way, exactly as `expandAppPlain` would have
+; done at that position. `params` and `newArgv` are filled by side
+; effect - `vecPush` mutates in place, the style `spineArgVec` itself
+; already uses.
+;
+; `params` holds raw STRINGS, not nodes - `mkLamCurried` (parser.ax)
+; expects the same shape `parseIdentList` builds for a hand-written
+; `(lambda (x y) ..)`, and `bindLamParams` reads `(vecGet params i)`
+; straight into `pushScope`'s `name` slot with no `nodeAName` in
+; between. A node handle pushed there instead type-checks (both are
+; `Int`) and then fails every lookup: measured pushing `(mkEVarAt
+; fresh sp)` in this slot instead of `fresh`, `(add 5 _)` reported
+; `undefined variable `_h.0`` on the reference this same pass had just
+; built - a node's word-1 name string compared against the node's own
+; handle, which can never `strEq`.
+(pub :: expHoleArgs (-> Int Int Int Int Int Int Int))
+
+(pub fn (expHoleArgs argv i env bs params newArgv)
+  (if (>= i (vecLen argv))
+    0
+    (let ((a (vecGet argv i)))
+      (if (== (expIsHole a) 1)
+        (let ((fresh (expFresh env "_h")))
+          {
+            (vecPush params fresh)
+            (vecPush newArgv (mkEVarAt fresh (nodeSpan a)))
+            (expHoleArgs argv (+ i 1) env bs params newArgv)
+          }
+        )
+        {
+          (vecPush newArgv (expandExpr a env bs))
+          (expHoleArgs argv (+ i 1) env bs params newArgv)
+        }
+      )
+    )
+  )
+)
+
+; The inverse of `spineArgVec`: fold a rebuilt argument list back onto
+; a head, left to right - the same left-nesting the parser itself
+; builds for `(f a b c)`.
+(pub :: expBuildSpine (-> Int Int Int Int))
+
+(pub fn (expBuildSpine head argv i)
+  (if (>= i (vecLen argv))
+    head
+    (expBuildSpine (mkEApp head (vecGet argv i)) argv (+ i 1))
+  )
+)
 
 (pub :: expandMacroApp (-> Int Int Int Int Int Int))
 

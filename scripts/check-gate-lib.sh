@@ -433,9 +433,26 @@ current_text() {  # <path> -> the text that must be about TODAY
   esac
 }
 
+# The upper bound is DERIVED from `word_for`'s own domain rather than
+# copied from it by a second hand, because the copy is exactly what
+# went stale last time: this loop read `seq 15 38` while the table
+# above answers up to 46, and the domain 39..46 was invisible to it -
+# the same hole the comment above already tells the story of
+# (`twenty-one` and up, closed 2026-08-25), reopened one range
+# extension later and never re-checked against the table it claims to
+# cover. Found 2026-08-31 by running this sweep, not by planting
+# anything: `scripts/build-shared-axc.sh` already said "Forty-two
+# gates call `gate_build_axc`" in its opening paragraph while stating
+# "forty-six gates" correctly four more times lower in the same file,
+# and 42 sits in exactly the gap this loop left open. That file is
+# fixed separately; this loop is fixed so the NEXT gap can't open the
+# same way - `word_for`'s table can grow and this bound grows with it.
+max_n=15
+while [[ -n "$(word_for $((max_n + 1)))" ]]; do max_n=$((max_n + 1)); done
+
 for site in "${count_sites[@]}" scripts/bootstrap-from-seed.sh; do
   [[ -f "$repo_root/$site" ]] || continue
-  for n in $(seq 15 38); do
+  for n in $(seq 15 "$max_n"); do
     w="$(word_for "$n")"
     [[ "$w" == "$want" ]] && continue
     checks=$((checks + 1))

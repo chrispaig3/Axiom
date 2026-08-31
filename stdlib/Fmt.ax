@@ -18,12 +18,14 @@
 ; overflowing positive literal - and the obvious stand-in,
 ; `(- 0 9223372036854775807)`, is one *greater* than it. Code guarded that
 ; way looks correct and never fires.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: intIsMostNegative (-> Int Bool))
 
 (fn (intIsMostNegative n) (&& (< n 0) (== (- 0 n) n)))
 
 ; Decimal digits in `n`, counting a leading `-` and treating 0 as one
 ; digit.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: fmtIntWidth (-> Int Int))
 
 (pub fn (fmtIntWidth n)
@@ -54,6 +56,7 @@
 ; Detected with `intIsMostNegative`, not by comparing against a literal:
 ; the guard here used to read `(== n (- 0 9223372036854775807))`, which
 ; is `MIN + 1` and therefore never true of `MIN` itself.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtInt (-> Int String))
 
 (pub fn (fmtInt n)
@@ -67,6 +70,7 @@
 )
 
 ; `n` (assumed non-negative) in base 10.
+;@axiom:restrict(no-io,no-foreign)
 (:: fmtNat (-> Int String))
 
 (fn (fmtNat n)
@@ -82,6 +86,7 @@
 
 ; Write `n`'s decimal digits into `buf` ending at index `at`, working
 ; right to left.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtDigits (-> Int Int Int Int))
 
 (fn (fmtDigits buf n at)
@@ -115,10 +120,12 @@
 ; which is unsigned by construction. `>>` sign-extends, so the mask
 ; clears the four bits it dragged in; a logical `>>` would make the
 ; mask a no-op rather than wrong, so this is correct either way.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexShr4 (-> Int Int))
 
 (fn (fmtHexShr4 n) (& (>> n 4) 1152921504606846975))
 
+;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtHex (-> Int String))
 
 (pub fn (fmtHex n)
@@ -135,6 +142,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexWidth (-> Int Int Int))
 
 (fn (fmtHexWidth n acc)
@@ -144,6 +152,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexDigits (-> Int Int Int Int))
 
 (fn (fmtHexDigits buf n at)
@@ -168,6 +177,7 @@
 )
 
 ; `s` padded on the left with spaces to at least `width` bytes.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadLeft (-> String Int String))
 
 (pub fn (fmtPadLeft s width)
@@ -186,6 +196,7 @@
 )
 
 ; `s` padded on the right with spaces to at least `width` bytes.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadRight (-> String Int String))
 
 (pub fn (fmtPadRight s width)
@@ -206,6 +217,7 @@
 ; `s` centred in `width` bytes. An odd remainder goes to the RIGHT,
 ; which is the convention Rust's `{:^}` uses and the one that makes a
 ; column of centred labels line up with a left-aligned header.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadCenter (-> String Int String))
 
 (pub fn (fmtPadCenter s width)
@@ -233,6 +245,7 @@
 ; not `00-7`. That is the whole reason this is not `fmtPadLeft` with a
 ; different byte, and it is why the format specifier `{n:04}` can be
 ; one call rather than a sign test at every call site.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadZerosLeft (-> String Int String))
 
 (pub fn (fmtPadZerosLeft s width)
@@ -267,6 +280,7 @@
 ; `fmtHex`, and deliberately a separate function rather than a flag:
 ; the specifier picks one at expansion time, so a branch would be a
 ; runtime test of a compile-time constant.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtHexUpper (-> Int String))
 
 (pub fn (fmtHexUpper n)
@@ -283,6 +297,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexDigitsUpper (-> Int Int Int Int))
 
 (fn (fmtHexDigitsUpper buf n at)
@@ -317,6 +332,7 @@
 ; every value it claims to print because the digits are produced by
 ; integer arithmetic after one scaling multiply.
 ; 10^n, for the scaling factor. `n` is a place count, so it is small.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: powTen (-> Int Int))
 
 (fn (powTen n)
@@ -332,16 +348,19 @@
 ; needs `0.05` rather than `0. 5`, so the digits it is missing on the
 ; left are zeros. The padding itself is `fmtPadZerosLeft`'s, whose
 ; sign guard is a no-op here because `fmtNat` never answers a `-`.
+;@axiom:restrict(no-io,no-foreign)
 (:: fmtPadZeros (-> Int Int String))
 
 (fn (fmtPadZeros n width) (fmtPadZerosLeft (fmtNat n) width))
 
 ; `x` with six decimal places.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtFloat (-> Float String))
 
 (pub fn (fmtFloat x) (fmtFloatPrec x 6))
 
 ; `x` with `places` decimal places, rounded half away from zero.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtFloatPrec (-> Float Int String))
 
 (pub fn (fmtFloatPrec x places)
@@ -356,6 +375,7 @@
 ; Rounding is applied to the scaled fraction and can carry - `0.999` at
 ; two places is `1.00`, not `0.100` - so the carry is folded back into
 ; the integer part rather than left to overflow the fraction field.
+;@axiom:restrict(no-io,no-foreign)
 (:: fmtFloatAbs (-> Float Int String))
 
 (fn (fmtFloatAbs x places)

@@ -16028,7 +16028,7 @@
 ; something, answered from analysis the checker already performs and
 ; used to throw away.
 ;
-; The value is a comma-separated list of restriction names. Six are
+; The value is a comma-separated list of restriction names. Seven are
 ; checked here:
 ;
 ;   no-io        `IO` is not in the effect row                 transitive
@@ -16039,6 +16039,13 @@
 ;                one                                           opt-in
 ;   no-recursion no cycle in the call graph reachable from     transitive
 ;                this declaration
+;   no-wrap      no `+`, `-` or `*` head in THIS body           local
+;
+; `no-wrap` is `docs/checked-arithmetic-design.md`'s slice of the
+; Ada-hardening work: `+`/`-`/`*` lower to plain `add`/`sub`/`mul`
+; with no `nsw` (silent wraparound on overflow), and `stdlib/Err.ax`'s
+; `addChecked`/`subChecked`/`mulChecked` are the alternative this
+; restriction forces a claiming body to use instead.
 ;
 ; `no-recursion` is a cycle, which is global by definition: a
 ; depth-first walk over the same graph (`graphCycle`), rendered from
@@ -16297,7 +16304,10 @@
             (restrictNoForeign tc d r eff)
             (if (strEq r "no-recursion")
               (restrictNoRecursion tc d r eff)
-              (emitRestrictUnknown tc d r)
+              (if (strEq r "no-wrap")
+                (restrictNoWrap tc d r (nodeC d))
+                (emitRestrictUnknown tc d r)
+              )
             )
           )
         )
@@ -17018,6 +17028,206 @@
   )
 )
 
+; `no-wrap`: every `+`, `-` or `*` head in this body, each reported at
+; its own span - `wrapScanInto` is `castScanInto`'s twin, predicate
+; swapped from "head named `cast`" to "head named a wrapping
+; operator" (`isWrapOp`). Duplicated rather than shared: this file
+; already hand-duplicates a full tree walk per collected fact
+; (`castScanInto`'s own comment: its arms "mirror `walkEffects` form
+; for form"), and a generic walker would be a new abstraction the
+; file does not otherwise use for one restriction.
+;
+; LOCAL, for the same reason `no-cast` is: `+`/`-`/`*` lower to plain
+; `add`/`sub`/`mul` with no `nsw` (measured: `grep -c 'with\.overflow'
+; self_host/codegen.ax` is 0), so a wraparound is an act THIS BODY
+; performs by writing the bare operator, not a fact the effect row or
+; call graph carries. `docs/checked-arithmetic-design.md` is the
+; design note; `stdlib/Err.ax`'s `addChecked`/`subChecked`/
+; `mulChecked` are the sanctioned alternative, and calling one pulls
+; `Alloc` into this body's row (constructing the `Result` allocates),
+; which is why `no-wrap` and `no-alloc`, or `no-wrap` and `pure`, are
+; not satisfiable together for a body that needs arithmetic - stated
+; in `emitRestrictWrap`'s help rather than left to be discovered.
+(pub :: isWrapOp (-> String Int))
+
+(pub fn (isWrapOp n)
+  (if (strEq n "+")
+    1
+    (if (strEq n "-")
+      1
+      (if (strEq n "*")
+        1
+        0
+      )
+    )
+  )
+)
+
+(pub :: restrictNoWrap (-> Int Int String Int Int))
+
+(pub fn (restrictNoWrap tc d r e) (restrictEmitWraps
+  tc  d  r  (wrapScanInto e vecNew)  0
+))
+
+(pub :: restrictEmitWraps (-> Int Int String Int Int Int))
+
+(pub fn (restrictEmitWraps tc d r wraps i)
+  (if (>= i (vecLen wraps))
+    0
+    (let ((w (vecGet wraps i)))
+      {
+        (emitRestrictWrap
+          tc          d          r          (nodeSpan w)          (nodeAName (spineHead w))
+        )
+        (restrictEmitWraps
+          tc          d          r          wraps          (+ i 1)
+        )
+      }
+    )
+  )
+)
+
+(pub :: wrapScanInto (-> Int Int Int))
+
+(pub fn (wrapScanInto e acc)
+  (if (== e 0)
+    acc
+    (let ((tag (nodeTag e)))
+      {
+        (if (== tag TAG_E_APP)
+          (let ((head (spineHead e)))
+            {
+              (if (== (nodeTag head) TAG_E_VAR)
+                (if (== (isWrapOp (nodeAName head)) 1)
+                  (vecPush acc e)
+                  0
+                )
+                {
+                  (wrapScanInto head acc)
+                  0
+                }
+              )
+              (wrapScanVec (spineArgVec e vecNew) 0 acc)
+            }
+          )
+          (if (== tag TAG_E_ALLOC)
+            (wrapScanIn (nodeB e) acc)
+            (if (== tag TAG_E_SETF)
+              {
+                (wrapScanIn (nodeA e) acc)
+                (wrapScanIn (nodeC e) acc)
+              }
+              (if (== tag TAG_E_HANDLE)
+                {
+                  (wrapScanIn (nodeA e) acc)
+                  (wrapScanIn (nodeC e) acc)
+                }
+                (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                  {
+                    (wrapScanIn (nodeB e) acc)
+                    (wrapScanIn (nodeC e) acc)
+                  }
+                  (if (== tag TAG_E_LAM)
+                    (wrapScanIn (nodeB e) acc)
+                    (if (== tag TAG_E_IF)
+                      {
+                        (wrapScanIn (nodeA e) acc)
+                        (wrapScanIn (nodeB e) acc)
+                        (wrapScanIn (nodeC e) acc)
+                      }
+                      (if (== tag TAG_E_BEGIN)
+                        (wrapScanVec (nodeA e) 0 acc)
+                        (if (== tag TAG_E_WHILE)
+                          {
+                            (wrapScanIn (nodeA e) acc)
+                            (wrapScanVec (nodeB e) 0 acc)
+                          }
+                          (if (== tag TAG_E_SET)
+                            (wrapScanIn (nodeB e) acc)
+                            (if (== tag TAG_E_FIELD)
+                              (wrapScanIn (nodeA e) acc)
+                              (if (== tag TAG_E_STRUCTCON)
+                                (wrapScanVec (nodeB e) 0 acc)
+                                (if (== tag TAG_E_COND)
+                                  (wrapScanCond (nodeA e) 0 acc)
+                                  (if (== tag TAG_E_MATCH)
+                                    {
+                                      (wrapScanIn (nodeA e) acc)
+                                      (wrapScanArms (nodeB e) 0 acc)
+                                    }
+                                    0
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+        acc
+      }
+    )
+  )
+)
+
+; `wrapScanInto` for effect, answering 0 - the arms above sequence
+; several of these in a block.
+(pub :: wrapScanIn (-> Int Int Int))
+
+(pub fn (wrapScanIn e acc)
+  {
+    (wrapScanInto e acc)
+    0
+  }
+)
+
+(pub :: wrapScanVec (-> Int Int Int Int))
+
+(pub fn (wrapScanVec v i acc)
+  (if (>= i (vecLen v))
+    0
+    {
+      (wrapScanIn (vecGet v i) acc)
+      (wrapScanVec v (+ i 1) acc)
+    }
+  )
+)
+
+(pub :: wrapScanCond (-> Int Int Int Int))
+
+(pub fn (wrapScanCond cls i acc)
+  (if (>= i (vecLen cls))
+    0
+    (let ((c (vecGet cls i)))
+      {
+        (wrapScanIn (nodeA c) acc)
+        (wrapScanIn (nodeB c) acc)
+        (wrapScanCond cls (+ i 1) acc)
+      }
+    )
+  )
+)
+
+(pub :: wrapScanArms (-> Int Int Int Int))
+
+(pub fn (wrapScanArms arms i acc)
+  (if (>= i (vecLen arms))
+    0
+    (let ((a (vecGet arms i)))
+      {
+        (wrapScanIn (nodeB a) acc)
+        (wrapScanArms arms (+ i 1) acc)
+      }
+    )
+  )
+)
+
 ; AX3049 at the DECLARATION, for the transitive three: the violation
 ; may be anywhere below this body, and the declaration is where the
 ; claim was written.
@@ -17045,6 +17255,21 @@
   )
 )
 
+; AX3049 at the OPERATOR, for `no-wrap`, LOCAL like `no-cast`: it has
+; a span, and the fix is where the span is. Unlike `no-cast` there are
+; three possible fixes rather than one, so the message names which
+; operator was found (`op`, from `wrapScanInto`'s recorded head).
+(pub :: emitRestrictWrap (-> Int Int String Int String Int))
+
+(pub fn (emitRestrictWrap tc d r span op)
+  (if (== span 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR      "AX3049"      "restriction-violated"      span      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" op) "` in the body of `") (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")      0      0      "`no-wrap` is LOCAL, like `no-cast`: `+`, `-` and `*` lower to plain `add`/`sub`/`mul` with no overflow check, so a silent wraparound is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries - it is refused where it is written, and a callee's arithmetic is the callee's claim to make. `stdlib/Err.ax` has the checked alternative for each: `addChecked`, `subChecked`, `mulChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-wrap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs arithmetic - write the checked call and match its `Err`, accept the row, or delete the tag"
+    ))
+  )
+)
+
 ; AX3051: unverifiable, a warning - the claim is neither refuted nor
 ; acquitted, and the reason is the analysis's rather than the body's.
 (pub :: emitRestrictUnverifiable (-> Int Int String String Int))
@@ -17066,12 +17291,14 @@
 (pub fn (emitRestrictUnknown tc d r)
   (if (== (nodeSpan d) 0)
     0
-    (emitDiag tc (mkDiag
-      SEV_ERROR      "AX3052"      "restriction-unknown"      (nodeSpan d)      (if (== (strLen r) 0)
-        (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict()`, which names no restriction")
-        (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction"))
-      )      0      0      "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign` and `no-recursion`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
-    ))
+    (emitDiag
+      tc      (mkDiag
+        SEV_ERROR        "AX3052"        "restriction-unknown"        (nodeSpan d)        (if (== (strLen r) 0)
+          (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict()`, which names no restriction")
+          (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction"))
+        )        0        0        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion` and `no-wrap`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
+      )
+    )
   )
 )
 

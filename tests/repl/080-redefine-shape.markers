@@ -1,4 +1,5 @@
 OK: f defined
 type : Int
-Error: duplicate definition `f`
+result 1
+result 2
 Goodbye!

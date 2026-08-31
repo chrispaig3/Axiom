@@ -1,0 +1,86 @@
+; `restrict(no-wrap)`: no `+`, `-` or `*` head in THIS body. LOCAL,
+; like `no-cast` - the controls are what pin that:
+;
+;   `wraps`      writes `(+ a b)`                    -> AX3049 AT THE
+;                OPERATOR - the span covers `+`, not the name
+;   `nested`     a `-` and a `*`, inside a `let`      -> two AX3049s,
+;                inside an `if`                          the walk
+;                                                         reaching
+;                                                         every form
+;   `delegates`  calls `bump`, which adds             -> silent: a
+;                                                         callee's
+;                                                         arithmetic is
+;                                                         the callee's
+;                                                         claim to make
+;   `compares`   writes `(< a b)` and `(== a b)`      -> silent: a
+;                                                         comparison is
+;                                                         not a
+;                                                         wrapping
+;                                                         operator
+;   `honest`     calls `addChecked`, unwraps the      -> silent: the
+;                `Result`                                 sanctioned
+;                                                         path
+;
+; Two wraps in one body are two diagnostics: each has its own span, and
+; the fix is where the span is - exactly `373-restrict-no-cast.ax`'s
+; own rule, because `no-wrap` is `castScanInto`'s walk with a different
+; head predicate.
+(import Err)
+
+(:: bump (-> Int Int))
+
+(fn (bump n) (+ n 1))
+
+;@axiom:restrict(no-wrap)
+(:: wraps (-> Int Int Int))
+
+(fn (wraps a b) (+ a b))
+
+;@axiom:restrict(no-wrap)
+(:: nested (-> Int Int Int Int))
+
+(fn (nested a b c)
+  (if (> a 0)
+    (let ((d (- a b)))
+      (* d c)
+    )
+    0
+  )
+)
+
+;@axiom:restrict(no-wrap)
+(:: delegates (-> Int Int))
+
+(fn (delegates n) (bump n))
+
+;@axiom:restrict(no-wrap)
+(:: compares (-> Int Int Bool))
+
+(fn (compares a b)
+  (if (< a b)
+    true
+    (== a b)
+  )
+)
+
+;@axiom:restrict(no-wrap)
+(:: honest (-> Int Int Int))
+
+(fn (honest a b) (unwrapOr (addChecked a b) 0))
+
+(:: main Int)
+
+(fn (main)
+  (+
+    (wraps 1 2)    (+
+      (nested 3 4 5)      (+
+        (delegates 6)        (+
+          (if (compares 1 2)
+            1
+            0
+          )          (honest 7 8)
+        )
+      )
+    )
+  )
+)

@@ -46,11 +46,11 @@
 #      to watch go red that is not a golden comparison.
 #
 #   3. A PLANTED VIOLATION IS REFUSED. A clean program carrying every
-#      restriction, satisfied, is written here; then six copies, each
+#      restriction, satisfied, is written here; then seven copies, each
 #      with one violation planted - a `println` under `no-io`, a
 #      `vecNew` under `no-alloc`, a `cast` under `no-cast`, an `extern`
-#      call under `no-foreign`, a self-call under `no-recursion`, a
-#      name that is not a restriction - and
+#      call under `no-foreign`, a self-call under `no-recursion`, a raw
+#      `+` under `no-wrap`, a name that is not a restriction - and
 #      each copy must draw exactly one restriction diagnostic, of the
 #      code and on the declaration the plant names. The `no-cast`
 #      plant additionally requires the span to cover the word `cast`
@@ -201,9 +201,23 @@ for f in tests/selfhost/*.ax; do
     fi
   done < <(awk '$2 == "AX3051"' "$work/ir/$base.tagged.err" | sed -E 's/^[^"]*"`([^`]+)`.*/\1/')
   (( unverifiable_ok )) || continue
-  if ! diff <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.tagged.sym") "$work/ir/$base.orig.sym" > /dev/null; then
+  # Stripped on BOTH sides. A declaration this file merely IMPORTS can
+  # legitimately carry its own `#restrict=` (once adoption is real,
+  # not zero) and that value is identical in `orig.sym` and
+  # `tagged.sym` alike - neither run touches the declaring file.
+  # Stripping only the tagged side erased it from one and not the
+  # other and read the identical value as a change; a real stdlib
+  # `#restrict=` on an imported symbol (`vecLen`, reached from a
+  # program that merely `(import Vec)`s) turned this false the day
+  # adoption stopped being zero. Symmetric stripping keeps this
+  # section's actual claim - tagging every fn in THIS file changes no
+  # row beyond its own `#restrict=` - true regardless of what
+  # elsewhere in the tree already claims a restriction.
+  if ! diff <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.tagged.sym") \
+            <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.orig.sym") > /dev/null; then
     bad "tests/selfhost/$base.ax: restricting every fn changed an AXSYM row beyond #restrict="
-    diff <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.tagged.sym") "$work/ir/$base.orig.sym" > "$work/ir/$base.sym.diff" || true
+    diff <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.tagged.sym") \
+         <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.orig.sym") > "$work/ir/$base.sym.diff" || true
     head -4 "$work/ir/$base.sym.diff" | cut -c1-160 | sed 's/^/     /'
     continue
   fi
@@ -270,6 +284,7 @@ fixture_expectations() {
 377-restrict-witness-path AX3049 6 quiet
 378-restrict-no-cast-deep AX3049 5 deepClean shallow plain
 379-restrict-no-recursion AX3049 4 deep looped d1 d2 d3 d4
+383-restrict-no-wrap     AX3049 3 delegates compares honest
 EXP
 }
 
@@ -299,7 +314,7 @@ fixtures_answer() {
 }
 
 if fixtures_answer "$axc"; then
-  ok "371-379 draw their codes and every control is silent"
+  ok "371-379, 383 draw their codes and every control is silent"
 else
   bad "a restriction fixture did not answer as its header promises (above)"
 fi
@@ -311,6 +326,8 @@ cat > "$work/plant/clean.ax" <<'CLEAN'
 (import IO)
 
 (import Vec)
+
+(import Err)
 
 ;@axiom:restrict(no-io)
 (:: quietIo (-> Int Int))
@@ -343,7 +360,12 @@ cat > "$work/plant/clean.ax" <<'CLEAN'
 
 (fn (quietRec n) (quietCast n))
 
-;@axiom:restrict(no-io,no-alloc,no-cast,no-foreign,no-recursion)
+;@axiom:restrict(no-wrap)
+(:: quietWrap (-> Int Int))
+
+(fn (quietWrap n) (unwrapOr (addChecked n 1) 0))
+
+;@axiom:restrict(no-io,no-alloc,no-cast,no-foreign,no-recursion,no-wrap)
 (:: quietAll (-> Int Int))
 
 (fn (quietAll n) n)
@@ -351,7 +373,7 @@ cat > "$work/plant/clean.ax" <<'CLEAN'
 (:: main Int)
 
 ;@axiom:effect(io)
-(fn (main) (+ (quietIo 1) (+ (quietAlloc 2) (+ (quietCast 3) (+ (quietForeign 4) (+ (quietRec 5) (quietAll 6)))))))
+(fn (main) (+ (quietIo 1) (+ (quietAlloc 2) (+ (quietCast 3) (+ (quietForeign 4) (+ (quietRec 5) (+ (quietWrap 7) (quietAll 6))))))))
 CLEAN
 
 ( cd "$work/plant" && "$axc" --diagnostic-format=ai check clean.ax ) > "$work/plant/clean.out" 2> "$work/plant/clean.err" || true
@@ -392,6 +414,7 @@ plant no-cast    's/^\(fn \(quietCast n\) \(- n 3\)\)$/(fn (quietCast n) (- (cas
 plant no-foreign 's/^\(import Vec\)$/(import Vec)\n\n(pub extern "axiom_demo"\n  (add :: (-> Int Int Int) (symbol "axffi_add")))/; s/^    \(println "native"\)$/    (add n 1)/' AX3049 quietForeign
 plant unknown    's/^;\@axiom:restrict\(no-cast\)$/;\@axiom:restrict(no-cast,no-fo)/' AX3052 quietCast
 plant no-recursion 's/^\(fn \(quietRec n\) \(quietCast n\)\)$/(fn (quietRec n) (if (<= n 0) 0 (quietRec (- n 1))))/' AX3049 quietRec
+plant no-wrap    's/^\(fn \(quietWrap n\) \(unwrapOr \(addChecked n 1\) 0\)\)$/(fn (quietWrap n) (+ n 1))/' AX3049 quietWrap
 
 # The local rule's span: the `no-cast` plant's diagnostic must cover
 # the word `cast` in the line it points at, not the declaration.
@@ -460,8 +483,15 @@ derive_manifest() {
     # `name restrictions` from the rows carrying the meta, anchored on
     # the field so a value cannot smuggle one in. `%20` is AXSYM's
     # escape of a blank the author wrote around a comma; the checker
-    # trims it, and it is not part of any name.
-    awk '$1 == "F" { for (i = 5; i <= NF; i++) if ($i ~ /^#restrict=/) { sub(/^#restrict=/, "", $i); gsub(/%20/, "", $i); print $2, $i } }' "$work/manifest/sym"       > "$work/manifest/rows"
+    # trims it, and it is not part of any name. `$3` (the location)
+    # must open with THIS file's own basename: `symbols` prints a row
+    # for every declaration reached transitively, including a
+    # restricted one this file merely `(import)`s (`vecLen`, read
+    # from `stdlib/Vec.ax` by a program that imports `Vec`), and
+    # without this filter that import misattributed the callee's
+    # restriction to the importing file - a manifest row this file
+    # never declared, once adoption was more than the fixtures.
+    awk -v b="$base" '$1 == "F" && index($3, b ":") == 1 { for (i = 5; i <= NF; i++) if ($i ~ /^#restrict=/) { sub(/^#restrict=/, "", $i); gsub(/%20/, "", $i); print $2, $i } }' "$work/manifest/sym"       > "$work/manifest/rows"
     while read -r name rs; do
       [[ -z "$name" ]] && continue
       # The declaration a restriction diagnostic names: the first

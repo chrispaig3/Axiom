@@ -18,6 +18,13 @@
 ;     not exist. The piped surface is identical; a TTY session is
 ;     visibly plainer. The editor-grade interface is the LSP's
 ;     business.
+;   * MULTI-LINE ENTRIES, added 2026-08-31: a decl or expression whose
+;     parens/braces/brackets do not balance on one physical line keeps
+;     reading lines (`replParenDepth`) until they do, so `fn` and
+;     other multi-line forms are typeable at the prompt at all. This
+;     is still not editing - a line already submitted cannot be
+;     revisited, and a mistyped paren is escaped with a blank line,
+;     not backspace.
 ;   * the banner names THIS compiler, not stage0's version string.
 ;     Gated sessions run --no-banner, so it never enters a byte
 ;     comparison.
@@ -451,10 +458,28 @@
 ; stage0 declared Int and leaned on the String/Int fiat, and the
 ; wrapper is a compiled program like any other, so the fiat's
 ; deletion reached it too.
+;
+; `needsIo`, added 2026-08-31. `__repl_result` carried no AXTAG at
+; all, so effect enforcement (2026-08-25, see the effect-enforcement
+; record) refused every wrapper whose body performs IO:
+; `(println "hi")` typed `type : Int` and then answered `Error:
+; \`__repl_result\` performs IO and its declaration does not say so`
+; (AX3042) - measured on this tree before this parameter existed,
+; with `(import IO)` already in scope. `main` already carries
+; `;@axiom:effect(io)` two lines below for the same reason `println`
+; inside `printExpr` needs it; `__repl_result` needed the identical
+; tag whenever the EXPRESSION does, and had never been given one.
+; The caller (`replCompileExpr`) does not know in advance whether an
+; expression performs IO - answering that ahead of time is the
+; effect walk's job, not the wrapper's - so it compiles once without
+; the tag and, on exactly this AX3042, once more with it
+; (`replIoRetryNeeded`/`replTryCompile`). `needsIo 0` reproduces the
+; PRE-2026-08-31 bytes exactly: the empty string this pushes in place
+; of the tag line is the whole of the diff.
 ; ------------------------------------------------------------------
-(pub :: replWrapper (-> String String String String))
+(pub :: replWrapper (-> String String String Int String))
 
-(pub fn (replWrapper declsSrc exprLine tyStr)
+(pub fn (replWrapper declsSrc exprLine tyStr needsIo)
   (let (
     (printExpr (if (strEq tyStr "Bool")
       "(if (== (__repl_result 0) 1) (println \"true\") (println \"false\"))"
@@ -485,7 +510,9 @@
           (vecPush v declsSrc)
           (vecPush v "\n(:: __repl_result (-> Int ")
           (vecPush v carrier)
-          (vecPush v "))\n(fn (__repl_result _dummy) ")
+          (vecPush v "))\n")
+          (vecPush v (if (== needsIo 1) ";@axiom:effect(io)\n" ""))
+          (vecPush v "(fn (__repl_result _dummy) ")
           (vecPush v body)
           (vecPush v ")\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { ")
           (vecPush v printExpr)
@@ -505,16 +532,33 @@
 ; a line failure; recorded.
 ; Answers ok+IR, or prints the failure and answers pErr.
 ; ------------------------------------------------------------------
-(pub :: replCompile (-> String Int))
+; Compile, WITHOUT printing on failure: `pOk`+IR, or `pErr`+the
+; diagnostics vector (empty when the wrapper itself did not even
+; PARSE, which the caller reads as "no detail to give"). Split out of
+; `replCompile` on 2026-08-31 so `replCompileExpr` could inspect a
+; failure - specifically, ask whether it is the one AX3042 the io
+; retry answers - before anything reaches stdout. `replCompile` below
+; is this function plus the printing that used to be its only shape;
+; every other caller (`:llvm`, and `replCompileExpr`'s own retry) goes
+; through it unchanged.
+(pub :: replTryCompile (-> String Int))
 
 ;@axiom:effect(io)
-(pub fn (replCompile wrapper)
+(pub fn (replTryCompile wrapper)
   (let ((pr (parseModuleWith (lex wrapper) (scanAxtags wrapper))))
     (if (== (memGetWord pr 0) 0)
-      {
-        (replOut "Error: parsing failed\n")
-        (pErr 0)
-      }
+      ; NOT `pErr`: `pErr`'s own argument is a PARSER POSITION (its
+      ; `value` field is hardcoded 0, `parser.ax:771`), not a payload
+      ; slot - `(pErr vecNew)` compiled clean (both are `Int`) and put
+      ; the diag vector in the wrong word, so every caller reading
+      ; `(memGetWord tr 1)` got 0 back. Measured: `replIoRetryNeeded`
+      ; then called `vecLen` on that 0 and every compile failure
+      ; through `replCompileExpr` - IO-performing or not - crashed the
+      ; REPL with SIGSEGV (exit 139) the moment `:type` succeeded and
+      ; the compile step began. `PResult` built directly puts the
+      ; vector where `pOk` already puts ITS payload (`value`, word 1),
+      ; which is what every reader here expects.
+      (cast Int (PResult 0 vecNew 0 "" ""))
       ; The REPL compiles and RUNS, so it needs the same expansion
       ; the file path gets. When expansion lived in codegen this
       ; came for free; now it does not, and without this line a
@@ -544,7 +588,7 @@
         (let ((allDecls (resolveImports
           decls          bares          fulls          mods          tcode          "."          units
         )))
-          (let ((eds 
+          (let ((eds
             (let ((v vecNew))
               {
                 (expandProgram
@@ -557,14 +601,87 @@
           ))
             (let ((ds (expMergeInto eds (checkModule decls allDecls units))))
               (if (> (countErrorDiags ds) 0)
-                {
-                  (replOut (strConcat "Error: " (joinDiagMsgs ds)))
-                  (pErr 0)
-                }
+                (cast Int (PResult 0 ds 0 "" ""))
                 (pOk (emitResolved allDecls bares fulls tcode) 0)
               )
             )
           )
+        )
+      )
+    )
+  )
+)
+
+(pub :: replCompile (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (replCompile wrapper)
+  (let ((tr (replTryCompile wrapper)))
+    (if (== (memGetWord tr 0) 1)
+      tr
+      (let ((ds (memGetWord tr 1)))
+        {
+          (if (== (vecLen ds) 0)
+            (replOut "Error: parsing failed\n")
+            (replOut (strConcat "Error: " (joinDiagMsgs ds)))
+          )
+          (pErr 0)
+        }
+      )
+    )
+  )
+)
+
+; Is `ds` EXACTLY the one AX3042 `replWrapper`'s missing IO tag draws
+; on `__repl_result`? Checked by code AND by name, not by code alone:
+; AX3042 fires on any undeclared-effect body, and retrying with the
+; tag only helps when the undeclared body IS `__repl_result` - a
+; user's own function drawing its own AX3042 (a real bug in what they
+; typed) must be reported, not silently retried into a second,
+; unrelated failure.
+(pub :: replIoRetryNeeded (-> Int Bool))
+
+(pub fn (replIoRetryNeeded ds)
+  (if (!= (vecLen ds) 1)
+    false
+    (let ((d (vecGet ds 0)))
+      (if (strEq (diagCode d) "AX3042")
+        (match (strFind (diagMsg d) "__repl_result" 0)
+          ((None) false)
+          ((Some _) true)
+        )
+        false
+      )
+    )
+  )
+)
+
+; One expression, wrapped and compiled - the retry that closes
+; AX3042 lives here once, so `replExpr` and `:llvm` (`replCmdLlvm`)
+; both get it rather than one growing a second copy. First attempt
+; carries no IO tag, which is right for the overwhelming majority of
+; REPL expressions and costs them nothing extra: `replTryCompile`
+; fails at the type-check stage, before `emitResolved` and before any
+; `llc`/`cc` invocation, so the untagged attempt is a second parse and
+; typecheck, not a second link. Only an IO-performing expression pays
+; for both.
+(pub :: replCompileExpr (-> String String String Int))
+
+;@axiom:effect(io)
+(pub fn (replCompileExpr declsSrc exprLine tyStr)
+  (let ((tr (replTryCompile (replWrapper declsSrc exprLine tyStr 0))))
+    (if (== (memGetWord tr 0) 1)
+      tr
+      (if (replIoRetryNeeded (memGetWord tr 1))
+        (replCompile (replWrapper declsSrc exprLine tyStr 1))
+        (let ((ds (memGetWord tr 1)))
+          {
+            (if (== (vecLen ds) 0)
+              (replOut "Error: parsing failed\n")
+              (replOut (strConcat "Error: " (joinDiagMsgs ds)))
+            )
+            (pErr 0)
+          }
         )
       )
     )
@@ -814,7 +931,7 @@
       (let ((tyStr (memGetWordStr tr 1)))
         {
           (replOut (strConcat (strConcat "type : " tyStr) "\n"))
-          (let ((cr (replCompile (replWrapper declsSrc line tyStr))))
+          (let ((cr (replCompileExpr declsSrc line tyStr)))
             (if (== (memGetWord cr 0) 0)
               0
               (replEval (memGetWordStr cr 1))
@@ -826,11 +943,185 @@
   )
 )
 
+; If `src` ends in a newline right at `pos`, the position past it;
+; `pos` itself otherwise. `replDecl` always appends `line "\n"`, so a
+; decl dropped by `replDropMatching` leaves exactly one newline behind
+; it unless this also consumes the one that belonged to it - checked:
+; without this, three redefinitions of `f` left two blank lines where
+; the first two used to be, growing without bound over a long session.
+(pub :: replSkipNl (-> String Int Int))
+
+(pub fn (replSkipNl src pos)
+  (if (&& (< pos (strLen src)) (== (strByte src pos) 10))
+    (+ pos 1)
+    pos
+  )
+)
+
+; The byte span of every top-level `(...)` form in `src`, in source
+; order, found by counting parens over the TOKEN stream rather than by
+; reading `nodeSpan` off a parsed decl. Measured why that distinction
+; matters: `mkDFnAt`'s callers (parser.ax:4259 among them) pass
+; `nodeSpan` a single TOKEN's span - sized for pointing a `duplicate
+; definition` diagnostic at a name, per `PResult`'s own comment above
+; about `exp`/`pos` - not for bounding the form that contains it.
+; `replDropMatching`'s first version spliced out a few bytes from the
+; middle of `(fn (f) 1)` instead of the whole form and left `(fn ()
+; 1)` behind, which does not parse; measured, `Error: the accumulated
+; declarations no longer parse` on the very next line typed.
+(pub :: replTopLevelSpans (-> String Int))
+
+(pub fn (replTopLevelSpans src)
+  (let ((toks (lex src)) (out vecNew))
+    (let ((n (vecLen toks)) (mut i 0))
+      {
+        (while (< i n)
+          (let ((k (kindInt (tokenKind (vecGet toks i)))))
+            (if (== k (kindInt TK_LPAREN))
+              (let ((start (spanStart (tokenSpan (vecGet toks i)))))
+                (let ((mut depth 1) (mut j (+ i 1)) (mut endTok i))
+                  {
+                    (while (&& (> depth 0) (< j n))
+                      {
+                        (let ((k2 (kindInt (tokenKind (vecGet toks j)))))
+                          (if (== k2 (kindInt TK_LPAREN))
+                            (set depth (+ depth 1))
+                            (if (== k2 (kindInt TK_RPAREN))
+                              {
+                                (set depth (- depth 1))
+                                (set endTok j)
+                              }
+                              0
+                            )
+                          )
+                        )
+                        (set j (+ j 1))
+                      })
+                    (vecPush out (mkSpan start (spanEnd (tokenSpan (vecGet toks endTok)))))
+                    ; `j` already sits one past the RPAREN that closed
+                    ; depth to 0 (the loop's own `(set j (+ j 1))` ran
+                    ; on that same iteration) - `i` continues FROM
+                    ; there, not past it a second time.
+                    (set i j)
+                  }
+                )
+              )
+              (set i (+ i 1))
+            )
+          ))
+        out
+      }
+    )
+  )
+)
+
+; `src` with the top-level declaration named `name` of tag `tag`
+; removed, or `src` unchanged if none matches (including: `src` does
+; not parse, which should not happen to an accumulated `declsSrc` but
+; is handled by leaving it alone rather than losing it). One matching
+; decl is expected per call; `src` is walked once and every match
+; dropped, in case an earlier bug (or a hand-edited `:load`ed file)
+; left more than one. `decls[i]` and `replTopLevelSpans(src)[i]`
+; are the same top-level form by construction: every decl this
+; language has IS one `(...)` form (`isDeclLine` refuses anything
+; that does not open with `(`), so parsing and paren-counting see the
+; same forms in the same order and agree on the count.
+(pub :: replDropMatching (-> String Int String String))
+
+(pub fn (replDropMatching src tag name)
+  (let ((dr (parseDecls (lex src) 0 vecNew)))
+    (if (== (memGetWord dr 0) 0)
+      src
+      (let (
+        (decls (memGetWord dr 1))
+        (spans (replTopLevelSpans src))
+        (mut out "")
+        (mut cursor 0)
+        (mut i 0)
+      )
+        {
+          (while (&& (< i (vecLen decls)) (< i (vecLen spans)))
+            {
+              (let ((d (vecGet decls i)))
+                (if (&& (== (nodeTag d) tag) (strEq (nodeAName d) name))
+                  (let ((sp (vecGet spans i)))
+                    (let ((s (spanStart sp)) (e (spanEnd sp)))
+                      {
+                        (set out (strConcat out (strSlice src cursor (- s cursor))))
+                        (set cursor (replSkipNl src e))
+                      }
+                    )
+                  )
+                  0
+                )
+              )
+              (set i (+ i 1))
+            })
+          (strConcat out (strSlice src cursor (- (strLen src) cursor)))
+        }
+      )
+    )
+  )
+)
+
+; `declsSrc` with every earlier top-level decl that `newDecls` is
+; about to shadow removed first - one call per parsed decl, in the
+; rare case one prompt line held more than one (`parseDecls` allows
+; it even though the REPL only ever hands it one line at a time).
+;
+; Matched by (tag, name) TOGETHER, not by name alone: a `::`
+; signature and the `fn` implementing it legitimately share a name
+; (the help text recommends writing both), and dropping the
+; signature the moment its body arrived would silently discard a
+; type annotation the user asked for. Only `fn`, `::`, `data` and
+; `struct` are tracked - the four kinds `replDecl`'s own OK line
+; already names below - so an `import`, `macro`, `effect`, `type`,
+; `trait` or `impl` re-declaration still accumulates as it always
+; did; recorded, not fixed here.
+(pub :: replDeclsSrcDropping (-> String Int String))
+
+(pub fn (replDeclsSrcDropping declsSrc newDecls)
+  (let ((mut out declsSrc) (mut j 0))
+    {
+      (while (< j (vecLen newDecls))
+        {
+          (let ((nd (vecGet newDecls j)))
+            (let ((tag (nodeTag nd)))
+              (if (|| (== tag TAG_D_FN) (|| (== tag TAG_D_SIG) (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))))
+                {
+                  (set out (replDropMatching out tag (nodeAName nd)))
+                  0
+                }
+                0
+              )
+            )
+          )
+          (set j (+ j 1))
+        })
+      out
+    }
+  )
+)
+
 ; A declaration line: appended to the source store unconditionally
 ; once it PARSES (stage0 gates on parse alone - a decl with a type
 ; error is still appended, and the error surfaces when something
 ; uses it). The OK line names fn and sig declarations; data-shaped
 ; ones say so; anything else is a bare OK.
+;
+; REDEFINITION, closed 2026-08-31. `declsSrc` is everything the
+; session ever typed, concatenated - so `(fn (f) 1)` then `(fn (f)
+; 2)` used to leave BOTH copies in the source the wrapper module
+; compiles, and codegen answered `Error: duplicate definition \`f\``.
+; Measured on this tree before the fix: not just `(f)` broke - every
+; LATER expression did too, because `replCompileExpr` recompiles the
+; whole of `declsSrc` on every call, so the stale duplicate poisoned
+; expressions that never mentioned `f`, recoverable only by `:reset`
+; (which discards everything else in the session along with it). The
+; fix is `replDeclsSrcDropping`: before appending, drop whatever this
+; line is about to shadow, so the redefinition REPLACES rather than
+; accumulates - exactly what typing the same name twice in one file
+; would mean if the second definition simply overwrote the first.
 (pub :: replDecl (-> String String String))
 
 ;@axiom:effect(io)
@@ -857,7 +1148,7 @@
               )
             )
           )
-          (strConcat (strConcat declsSrc line) "\n")
+          (strConcat (strConcat (replDeclsSrcDropping declsSrc decls) line) "\n")
         }
       )
     )
@@ -892,7 +1183,8 @@
     (replOut "  • Data types: (data Maybe (a) (Nothing) (Just a))\n")
     (replOut "  • Expressions are evaluated and results shown\n")
     (replOut "  • Use ; for line comments\n")
-    (replOut "  • Use arrow keys for history, Ctrl+C to cancel input\n")
+    (replOut "  • Unbalanced parens continue on the next line; a blank line aborts\n")
+    (replOut "  • No history or line editing; Ctrl+D ends the session, Ctrl+C kills it\n")
     (replOut "\n")
     0
   }
@@ -1054,7 +1346,7 @@
     (let ((tr (typeExprAgainst declsSrc arg)))
       (if (== (memGetWord tr 0) 0)
         0
-        (let ((cr (replCompile (replWrapper declsSrc arg (memGetWordStr tr 1)))))
+        (let ((cr (replCompileExpr declsSrc arg (memGetWordStr tr 1))))
           (if (== (memGetWord cr 0) 0)
             0
             {
@@ -1066,6 +1358,96 @@
         )
       )
     )
+  )
+)
+
+; ------------------------------------------------------------------
+; Multi-line input, closed 2026-08-31. Every entry used to be exactly
+; one `readLine`: a `fn` split across two lines lexed and typechecked
+; each physical line SEPARATELY, so
+;
+;   (fn (add x y)
+;     (+ x y))
+;
+; parsed line 1 as `(fn (add x y)` - an incomplete form - and answered
+; `Parse error: the declaration does not parse`, then typed line 2,
+; `(+ x y))`, as an EXPRESSION and answered three `Type error:
+; undefined variable` lines for `x`, `y` and `add` (measured on this
+; tree before this section existed). One line was the only unit the
+; REPL had; every multi-line form in the language was unusable at the
+; prompt, `fn` included.
+;
+; The fix is a running paren/brace/bracket balance, not a grammar
+; entry point: `replParenDepth` lexes the buffer and sums +1 per
+; opener and -1 per closer. Depth > 0 after a physical line means the
+; buffer is not yet a complete form, so `replMain` folds the next line
+; in and re-measures rather than dispatching. Depth <= 0 dispatches
+; immediately - which for every EXISTING single-line entry (all 12
+; checked-in sessions) is true on the very first line, so this changes
+; no byte of any of them; the balance check is additional work on the
+; already-open path, not a new one.
+;
+; Two decisions this leaves deliberately narrow:
+;   * a STRING spanning lines is not tracked - `replParenDepth` does
+;     not know it is inside an unterminated string, only that lexing
+;     one produced no bracket tokens either way. `lex` itself already
+;     does not stop an unterminated string at a newline (lexer.ax),
+;     so a string opened on one line and closed two lines later inside
+;     an otherwise-balanced form still lexes correctly when the whole
+;     buffer is finally handed to the parser; what this does NOT do is
+;     wait for more input just because a string is open and depth is
+;     already 0 - the buffer dispatches, and an unterminated string
+;     left open forever is the parse error it always was.
+;   * an empty line WHILE continuing aborts rather than joins: typing
+;     nothing and pressing enter mid-form is the escape hatch for a
+;     paren the user cannot close (or does not want to anymore),
+;     matching the common REPL convention of a blank line ending
+;     input. Continuing accepts blank lines inside the form as long as
+;     something non-blank follows to close it, since a blank line
+;     between clauses is ordinary formatting, not a submission.
+(pub :: replParenDepth (-> String Int))
+
+(pub fn (replParenDepth src)
+  (let ((toks (lex src)))
+    (let (
+      (n (vecLen toks))
+      (mut i 0)
+      (mut depth 0)
+    )
+      {
+        (while (< i n)
+          {
+            (let ((k (kindInt (tokenKind (vecGet toks i)))))
+              (if (|| (== k (kindInt TK_LPAREN)) (|| (== k (kindInt TK_LBRACE)) (== k (kindInt TK_LBRACKET))))
+                (set depth (+ depth 1))
+                (if (|| (== k (kindInt TK_RPAREN)) (|| (== k (kindInt TK_RBRACE)) (== k (kindInt TK_RBRACKET))))
+                  (set depth (- depth 1))
+                  0
+                )
+              )
+            )
+            (set i (+ i 1))
+          })
+        depth
+      }
+    )
+  )
+)
+
+; A complete entry (one line, or several a paren balance joined):
+; declaration or expression, exactly `replMain`'s old inline dispatch,
+; factored out so both the single-line path and the multi-line join
+; call the one copy.
+(pub :: replDispatch (-> String String String))
+
+;@axiom:effect(io)
+(pub fn (replDispatch declsSrc entry)
+  (if (isDeclLine entry)
+    (replDecl declsSrc entry)
+    {
+      (replExpr declsSrc entry)
+      declsSrc
+    }
   )
 )
 
@@ -1084,6 +1466,11 @@
     (let (
       (mut declsSrc "")
       (mut running 1)
+      ; The buffer of a decl-or-expr entry whose parens have not
+      ; balanced yet. Empty whenever the next physical line starts a
+      ; fresh entry, which is every line until a form spans more than
+      ; one - the common case, and the one this changes nothing for.
+      (mut pending "")
     )
       {
         (while (== running 1)
@@ -1096,67 +1483,96 @@
                 }
               )
               ((Some raw)
-                (let ((line (replTrim raw)))
-                  (if (== (strLen line) 0)
-                    0
-                    (if (== (strByte line 0) 59)
-                      0
-                      (if (== (strByte line 0) 58)
-                        (let (
-                          (w (cmdWord line))
-                          (rest (cmdRest line))
+                (if (> (strLen pending) 0)
+                  ; Continuing an entry a paren balance has not closed.
+                  ; A blank line here ABORTS it (see the multi-line
+                  ; section above) rather than joining an empty line
+                  ; in forever; anything else joins and re-measures the
+                  ; WHOLE buffer, because a closer on THIS line can
+                  ; only be judged against everything opened before it.
+                  (let ((next (replTrim raw)))
+                    (if (== (strLen next) 0)
+                      {
+                        (set pending "")
+                        (replOut "Aborted: unbalanced input discarded.\n")
+                      }
+                      (let ((joined (strConcat (strConcat pending "\n") next)))
+                        (if (> (replParenDepth joined) 0)
+                          {
+                            (set pending joined)
+                            0
+                          }
+                          {
+                            (set pending "")
+                            (set declsSrc (replDispatch declsSrc joined))
+                            0
+                          }
                         )
-                          (if (|| (strEq w ":help") (strEq w ":h"))
-                            replHelp
-                            (if (|| (strEq w ":quit") (|| (strEq w ":q") (strEq w ":exit")))
-                              {
-                                (sysExitWith 0)
-                                0
-                              }
-                              (if (|| (strEq w ":type") (strEq w ":t"))
-                                (replCmdType declsSrc rest)
-                                (if (|| (strEq w ":load") (strEq w ":l"))
-                                  {
-                                    (set declsSrc (replCmdLoad declsSrc rest))
-                                    0
-                                  }
-                                  (if (|| (strEq w ":reset") (strEq w ":r"))
+                      )
+                    )
+                  )
+                  (let ((line (replTrim raw)))
+                    (if (== (strLen line) 0)
+                      0
+                      (if (== (strByte line 0) 59)
+                        0
+                        (if (== (strByte line 0) 58)
+                          (let (
+                            (w (cmdWord line))
+                            (rest (cmdRest line))
+                          )
+                            (if (|| (strEq w ":help") (strEq w ":h"))
+                              replHelp
+                              (if (|| (strEq w ":quit") (|| (strEq w ":q") (strEq w ":exit")))
+                                {
+                                  (sysExitWith 0)
+                                  0
+                                }
+                                (if (|| (strEq w ":type") (strEq w ":t"))
+                                  (replCmdType declsSrc rest)
+                                  (if (|| (strEq w ":load") (strEq w ":l"))
                                     {
-                                      (set declsSrc "")
-                                      (replOut "REPL state reset.\n")
+                                      (set declsSrc (replCmdLoad declsSrc rest))
                                       0
                                     }
-                                    (if (|| (strEq w ":defs") (strEq w ":d"))
-                                      (replCmdDefs declsSrc)
-                                      (if (strEq w ":llvm")
-                                        (replCmdLlvm declsSrc rest)
-                                        (if (strEq w ":time")
-                                          ; stage0 prints the two eval lines, then
-                                          ; the duration (probed: type, result,
-                                          ; Time). The duration is real now -
-                                          ; sysNowMicros bracketing the eval - in
-                                          ; stage1's own format: stage0 prints
-                                          ; Rust's Duration debug, which is
-                                          ; internals, and the gate's marker pins
-                                          ; only the `Time: ` prefix.
-                                          (let ((tbuf (memAlloc 16)))
-                                            (let ((t0 (sysNowMicros tbuf)))
-                                              {
-                                                (replExpr declsSrc rest)
-                                                (replOut (fmtMicrosMs (- (sysNowMicros tbuf) t0)))
-                                                0
-                                              }
-                                            )
-                                          )
-                                          (replOut
-                                            (catStrs
-                                              (let ((v vecNew))
+                                    (if (|| (strEq w ":reset") (strEq w ":r"))
+                                      {
+                                        (set declsSrc "")
+                                        (replOut "REPL state reset.\n")
+                                        0
+                                      }
+                                      (if (|| (strEq w ":defs") (strEq w ":d"))
+                                        (replCmdDefs declsSrc)
+                                        (if (strEq w ":llvm")
+                                          (replCmdLlvm declsSrc rest)
+                                          (if (strEq w ":time")
+                                            ; stage0 prints the two eval lines, then
+                                            ; the duration (probed: type, result,
+                                            ; Time). The duration is real now -
+                                            ; sysNowMicros bracketing the eval - in
+                                            ; stage1's own format: stage0 prints
+                                            ; Rust's Duration debug, which is
+                                            ; internals, and the gate's marker pins
+                                            ; only the `Time: ` prefix.
+                                            (let ((tbuf (memAlloc 16)))
+                                              (let ((t0 (sysNowMicros tbuf)))
                                                 {
-                                                  (vecPush v "Error: Unknown command '")
-                                                  (vecPush v w)
-                                                  (vecPush v "'. Type :help for available commands.\n")
-                                                  v
+                                                  (replExpr declsSrc rest)
+                                                  (replOut (fmtMicrosMs (- (sysNowMicros tbuf) t0)))
+                                                  0
                                                 }
+                                              )
+                                            )
+                                            (replOut
+                                              (catStrs
+                                                (let ((v vecNew))
+                                                  {
+                                                    (vecPush v "Error: Unknown command '")
+                                                    (vecPush v w)
+                                                    (vecPush v "'. Type :help for available commands.\n")
+                                                    v
+                                                  }
+                                                )
                                               )
                                             )
                                           )
@@ -1168,13 +1584,20 @@
                               )
                             )
                           )
-                        )
-                        (if (isDeclLine line)
-                          {
-                            (set declsSrc (replDecl declsSrc line))
-                            0
-                          }
-                          (replExpr declsSrc line)
+                          ; A decl-or-expr candidate: dispatch now if its
+                          ; own parens already balance (every existing
+                          ; single-line entry does), otherwise start
+                          ; buffering.
+                          (if (> (replParenDepth line) 0)
+                            {
+                              (set pending line)
+                              0
+                            }
+                            {
+                              (set declsSrc (replDispatch declsSrc line))
+                              0
+                            }
+                          )
                         )
                       )
                     )

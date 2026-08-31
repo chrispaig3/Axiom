@@ -1199,7 +1199,7 @@ distance from `pure` is not evidence about anything.
 does not do something, answered from analysis the checker already
 performs and used to throw away. The list is CLOSED - a name outside
 it is `AX3052`, an error, because inside the one key the compiler has
-said it checks an unknown name is a claim and not metadata. Four
+said it checks an unknown name is a claim and not metadata. Seven
 restrictions are checked:
 
 | Restriction | Decided by | Scope |
@@ -1210,6 +1210,7 @@ restrictions are checked:
 | `no-cast` | no `cast` head in this body | LOCAL |
 | `no-cast:deep` | no `cast` head in this body or in any function it reaches | transitive, opt-in |
 | `no-recursion` | no cycle in the call graph reachable from this declaration | transitive |
+| `no-wrap` | no `+`, `-` or `*` head in this body | LOCAL |
 
 Every transitive violation names its path. The checker walks the call
 graph breadth-first from the claiming declaration to the nearest entry
@@ -1234,7 +1235,7 @@ compiler's stack need dynamically: a region under `no-recursion` is
 one whose stack need is bounded by its depth rather than by its input,
 the same property from the static side.
 
-Three are transitive by construction and one is not, and the
+Three are transitive by construction and two are not, and the
 difference is not a policy choice. `no-io` and `no-alloc` read the
 effect row, which is already a transitive fixpoint (effects are
 inferred transitively, above): a function calling an IO-performing
@@ -1253,7 +1254,17 @@ transitive reading is the separate, opt-in spelling `no-cast:deep`:
 this body's casts at their spans, and the nearest reachable function
 whose body casts, once, at the declaration, with the path. `sizeof`
 and `alignof` are not casts here: they read a layout and reinterpret
-nothing.
+nothing. `no-wrap` is lexical for the same reason: `+`, `-` and `*`
+lower to plain `add`/`sub`/`mul` with no `nsw` (measured:
+`self_host/codegen.ax` emits no `with.overflow` intrinsic and no
+`nsw`/`nuw` flag anywhere), so a silent wraparound is an act the body
+performs by writing the operator, reported at the operator itself.
+`stdlib/Err.ax`'s `addChecked`, `subChecked` and `mulChecked` are the
+checked alternative, every one `(-> Int Int (Result Int Error))`; a
+body that switches to one pulls `Alloc` into its own effect row
+(constructing the `Result` allocates), which is why `no-wrap` cannot
+be satisfied together with `no-alloc` or `pure` by a body that needs
+arithmetic - `docs/checked-arithmetic-design.md` is the design note.
 
 A violation is `AX3049`, an **error** with no warning stage, for the
 argument that made `AX3010` one: the tag is a claim the author wrote,
@@ -1266,7 +1277,8 @@ reading: an effect ABSENT from a row that is a lower bound
 (`#effects-incomplete`), or present only as a POSSIBLE effect
 (`#effects-possible=`, the row's `#effects-overapprox` admission). An
 effect present in a lower bound, or definite beside a possible one, is
-a violation. `no-cast` never draws `AX3051`.
+a violation. `no-cast` and `no-wrap` never draw `AX3051`: both are
+lexical and are checked whether or not a call resolved.
 
 A restriction is a **per-declaration** claim. A tag attaches to the
 declaration written below it, on the `::` or on the `fn`, and both

@@ -1,0 +1,9 @@
+(fn (add x y)
+  (+ x y))
+(add 2 3)
+(:: fact (-> Int Int))
+(fn (fact n)
+  (if (== n 0)
+    1
+    (* n (fact (- n 1)))))
+(fact 5)

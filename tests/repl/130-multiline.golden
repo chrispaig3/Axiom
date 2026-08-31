@@ -1,0 +1,9 @@
+OK: add defined
+type : Int
+result 5
+OK: fact defined
+OK: fact defined
+type : Int
+result 120
+
+Goodbye!

@@ -2,7 +2,7 @@
 # Build the compiler-under-test ONCE, and stamp it so the gates will
 # trust it.
 #
-# Forty-two gates call `gate_build_axc`, and each one rebuilt the same
+# Forty-six gates call `gate_build_axc`, and each one rebuilt the same
 # 60,881 lines. The saving is measured on the only A/B that is not a
 # developer machine under unknown load - the `test` job's three CI legs
 # on 2026-08-24, at `2283e93` before and `8cf595f` after:

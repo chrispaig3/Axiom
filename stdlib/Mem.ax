@@ -35,6 +35,7 @@
 ; tracks how far into each chunk it has ever handed out, and scrubs
 ; below that line as it allocates. Callers may rely on the promise;
 ; `Map`, `Intern`, `Str` and `Vec` all do.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: memAlloc (-> Int Int))
 
 (pub fn (memAlloc bytes) (__alloc bytes))
@@ -70,6 +71,7 @@
 ;
 ; A zero-byte request keeps MM-ALLOC-8b's behaviour exactly: no block,
 ; no header, nothing stamped.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: memAllocMapped (-> Int Int Int))
 
 (pub fn (memAllocMapped bytes map)
@@ -119,6 +121,7 @@
 ; `mapRemove` - has to zero it, or the walk spends a share of a handle
 ; the caller still holds. That is a use-after-free rather than a leak,
 ; and it is the one obligation this form puts on its user.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memMarkArray (-> Int Int))
 
 (pub fn (memMarkArray h)
@@ -134,6 +137,7 @@
 ; old block while it still reads as an array would spend every share
 ; twice. Clearing the bit first makes the old block a leaf, and its
 ; release then reclaims the block and touches nothing it used to hold.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memMarkLeaf (-> Int Int))
 
 (pub fn (memMarkLeaf h)
@@ -172,6 +176,7 @@
 ; Copies forwards, so overlapping ranges are only safe when
 ; `dst <= src`; `memMove` is not provided yet rather than being
 ; provided wrongly.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memCopy (-> Int Int Int Int))
 
 (pub fn (memCopy dst src count) (memCopyFrom dst src count 0))
@@ -196,6 +201,7 @@
 ; all it takes to turn the former into the latter. A `while` loop is
 ; flat by construction (`tests/selfhost/500-while-mut.ax`).
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: memCopyFrom (-> Int Int Int Int Int))
 
 (fn (memCopyFrom dst src count start)
@@ -212,10 +218,12 @@
 )
 
 ; Set `count` bytes at `addr` to `value` (low 8 bits). Returns `addr`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memSet (-> Int Int Int Int))
 
 (pub fn (memSet addr value count) (memSetFrom addr value count 0))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: memSetFrom (-> Int Int Int Int Int))
 
 (fn (memSetFrom addr value count start)
@@ -233,10 +241,12 @@
 
 ; Compare `count` bytes. 0 if equal, otherwise the signed difference of
 ; the first differing byte pair (so the result orders like `memcmp`).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memCmp (-> Int Int Int Int))
 
 (pub fn (memCmp a b count) (memCmpFrom a b count 0))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: memCmpFrom (-> Int Int Int Int Int))
 
 (fn (memCmpFrom a b count start)
@@ -267,6 +277,7 @@
 ; because that is the truth about a machine word - it used to answer a
 ; type variable, which let the CALLER name any type at all and get it,
 ; including a reference, which then dereferenced. See `AX3040`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memGetWord (-> Int Int Int))
 
 (pub fn (memGetWord addr index) (__load64 addr index))
@@ -279,6 +290,7 @@
 ; type, and deliberately not at those call sites: a cast at an argument
 ; root classifies the value's evidence 0 and drops its retain or its
 ; release (docs/memory-model.md MM-LIFE-2e, measured).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memGetWordStr (-> Int Int String))
 
 (pub fn (memGetWordStr addr index)
@@ -309,6 +321,7 @@
 ; now hand back its own share without freeing a block this word still
 ; points at, which is the precondition every remaining ownership
 ; event was waiting on.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memSetWord (-> Int Int a Int))
 
 (pub fn (memSetWord addr index value)
@@ -321,10 +334,12 @@
   }
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memGetByte (-> Int Int Int))
 
 (pub fn (memGetByte addr index) (__load8 addr index))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memPutByte (-> Int Int Int Int))
 
 (pub fn (memPutByte addr index value)

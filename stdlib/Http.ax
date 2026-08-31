@@ -82,15 +82,15 @@
 ; handler each, static prefixes mapped to directories, and a
 ; not-found handler. A handler is a function VALUE, `(-> Int HttpReq
 ; Int)` taking the socket and the request, held in an `HttpHandler`
-; cell because a `Vec` holds words and a word is not a type. Write it
-; as `(HttpFn (lambda (fd r) (index fd r)))`: a top-level function
-; of two parameters is not a value by itself (AX3013), and a lambda
-; parameter has no type until it is passed to a signed function, so
-; the lambda is a thin wrapper and the handler proper is an ordinary
-; signed `fn` - which is also what gives it a real effect row and a
-; place in docs/stdlib-api.md. The router is built ONCE, before the
-; fork and before any arena mark, exactly as a worker's poll buffers
-; are: it is the state a request must not allocate.
+; struct because a `Vec` holds words and a word is not a type. Write
+; it as `(HttpHandler (lambda (fd r) (index fd r)))`: a top-level
+; function of two parameters is not a value by itself (AX3013), and a
+; lambda parameter has no type until it is passed to a signed
+; function, so the lambda is a thin wrapper and the handler proper is
+; an ordinary signed `fn` - which is also what gives it a real effect
+; row and a place in docs/stdlib-api.md. The router is built ONCE,
+; before the fork and before any arena mark, exactly as a worker's
+; poll buffers are: it is the state a request must not allocate.
 ;
 ; STATIC FILES, AND THE ORDER OF THE CHECKS. `routeDispatch` refuses a
 ; path before ANY route is consulted and before ANY filesystem call:
@@ -988,11 +988,16 @@
 ; The router
 ; ------------------------------------------------------------------
 ; A handler: a function of the socket and the request, answering an
-; Int the dispatcher passes back. Held in a cell because the router
+; Int the dispatcher passes back. Held in a struct because the router
 ; keeps handlers in a `Vec` of words. Written as
-; `(HttpFn (lambda (fd r) (page fd r)))` around a signed `fn`.
-(pub data HttpHandler
-  (HttpFn (-> Int HttpReq Int)))
+; `(HttpHandler (lambda (fd r) (page fd r)))` around a signed `fn`.
+;
+; A `struct` of one function field rather than a `data` of one
+; constructor: the field carries no tag `httpCall` ever inspects, so
+; there was never a second shape to distinguish - `.run` reads the
+; word directly where `match` used to peel a constructor off it first.
+(pub struct HttpHandler
+  (run : (-> Int HttpReq Int)))
 
 ; The routing table: exact routes as three parallel `Vec`s (method,
 ; path, handler cell), static prefixes as two (URL prefix, directory),
@@ -1019,7 +1024,7 @@
 ;@axiom:effect(io)
 (pub fn (routerNew)
   (HttpRouter
-    vecNew    vecNew    vecNew    vecNew    vecNew    (HttpFn
+    vecNew    vecNew    vecNew    vecNew    vecNew    (HttpHandler
       (lambda (fd r) (httpDefaultMissing fd r))
     )
   )
@@ -1072,11 +1077,7 @@
 ; Call a handler cell.
 (:: httpCall (-> HttpHandler Int HttpReq Int))
 
-(fn (httpCall h fd r)
-  (match h
-    ((HttpFn f) (f fd r))
-  )
-)
+(fn (httpCall h fd r) ((h.run) fd r))
 
 ; Whether a request path may reach the filesystem or a route at all:
 ; it starts with `/`, holds no NUL and no `\`, and has no empty

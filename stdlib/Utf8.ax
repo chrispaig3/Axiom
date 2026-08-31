@@ -41,6 +41,7 @@
 ; Byte classification
 ; ------------------------------------------------------------------
 ; Is `b` a continuation byte, `10xxxxxx`?
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8IsCont (-> Int Bool))
 
 (pub fn (utf8IsCont b) (== (& b 192) 128))
@@ -50,6 +51,7 @@
 ; 1 for a byte that begins nothing valid - a stray continuation byte or
 ; an `11111xxx` lead - so that stepping by this value always moves
 ; forward.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8SeqLen (-> Int Int))
 
 (pub fn (utf8SeqLen b)
@@ -90,6 +92,7 @@
 ;
 ; Iteration is unaffected: `utf8SeqLen` still answers 1 for a bad
 ; byte, so `utf8Next` advances and no loop can hang on one.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8DecodeAt (-> String Int Int))
 
 (pub fn (utf8DecodeAt s i)
@@ -127,6 +130,7 @@
 ; The byte offset of the character after the one beginning at `i`,
 ; clamped to the byte length - `utf8Offset` clamps, and two stepping
 ; functions that disagree about the end of a string is a trap.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Next (-> String Int Int))
 
 (pub fn (utf8Next s i)
@@ -149,10 +153,12 @@
 ; `utf8Next` instead.
 ; ------------------------------------------------------------------
 ; The number of code points in `s`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Len (-> String Int))
 
 (pub fn (utf8Len s) (utf8LenFrom s 0 0))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8LenFrom (-> String Int Int Int))
 
 (fn (utf8LenFrom s i acc)
@@ -164,10 +170,12 @@
 
 ; The byte offset at which character `n` begins, or the byte length of
 ; `s` when there are fewer than `n` characters.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Offset (-> String Int Int))
 
 (pub fn (utf8Offset s n) (utf8OffsetFrom s n 0))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8OffsetFrom (-> String Int Int Int))
 
 (fn (utf8OffsetFrom s n i)
@@ -182,6 +190,7 @@
 
 ; Character `n` of `s`, counting from 0. -1 past the end, the same
 ; sentinel `utf8DecodeAt` uses and for the same reason.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8CharAt (-> String Int Int))
 
 (pub fn (utf8CharAt s n)
@@ -196,6 +205,7 @@
 ; `count` characters of `s` beginning at character `start`, as a `Str`
 ; sharing the original's bytes - the character-indexed counterpart of
 ; `strSlice`.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: utf8Slice (-> String Int Int String))
 
 (pub fn (utf8Slice s start count)
@@ -213,12 +223,14 @@
 ; surrogate pair? Surrogates exist only to let UTF-16 address the
 ; supplementary planes; UTF-8 encodes those directly and a surrogate in
 ; UTF-8 is ill-formed.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8IsScalar (-> Int Bool))
 
 (fn (utf8IsScalar cp) (&& (>= cp 0) (&& (<= cp 1114111) (|| (< cp 55296) (> cp 57343)))))
 
 ; U+FFFD REPLACEMENT CHARACTER, what a code point that cannot be
 ; encoded becomes.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Replacement Int)
 
 (pub fn (utf8Replacement) 65533)
@@ -231,6 +243,7 @@
 ; `x`. Without it `(utf8FromChar -1)` wrote the single byte 0xFF, which
 ; begins no valid sequence at all, and a surrogate or anything above
 ; U+10FFFF was encoded as though it were ordinary text.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8Encodable (-> Int Int))
 
 (fn (utf8Encodable cp)
@@ -242,6 +255,7 @@
 
 ; How many bytes code point `cp` occupies when encoded - counting what
 ; `utf8FromChar` will actually write, so the two never disagree.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Width (-> Int Int))
 
 (pub fn (utf8Width cp0)
@@ -260,6 +274,7 @@
 )
 
 ; A freshly allocated `Str` holding `cp` alone.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: utf8FromChar (-> Int String))
 
 (pub fn (utf8FromChar cp0)
@@ -313,10 +328,12 @@
 ; overlong encoding, a surrogate, or a code point above U+10FFFF; those
 ; need range checks per sequence length, and nothing in the compiler
 ; asks the question yet.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Valid (-> String Bool))
 
 (pub fn (utf8Valid s) (utf8ValidFrom s 0))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8ValidFrom (-> String Int Bool))
 
 (fn (utf8ValidFrom s i)
@@ -343,6 +360,7 @@
 )
 
 ; Are the next `k` bytes from `i` all continuation bytes?
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8ContRun (-> String Int Int Bool))
 
 (fn (utf8ContRun s i k)

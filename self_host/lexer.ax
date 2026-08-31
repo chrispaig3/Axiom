@@ -19,10 +19,12 @@
 ; and `isFSpace` had already drifted once - it admitted VT and FF, so
 ; `fmt` turned a file `check` refuses into one it accepts. The names
 ; stay because callers import them by name; the RULE is in one place.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: isDigit (-> Int Bool))
 
 (pub fn (isDigit ch) (strIsDigit ch))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: isAlpha (-> Int Bool))
 
 (pub fn (isAlpha ch) (strIsAlpha ch))
@@ -30,6 +32,7 @@
 ; `^` (94) is an operator character like the rest - leaving it out did
 ; not make it an error, it made the lexer's fallback *silently skip*
 ; the byte, so `(^ a b)` lexed as `(a b)` and xor became application.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: isIdentStart (-> Int Bool))
 
 (pub fn (isIdentStart ch)
@@ -85,6 +88,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: isIdentChar (-> Int Bool))
 
 (pub fn (isIdentChar ch)
@@ -140,6 +144,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: isSpace (-> Int Bool))
 
 (pub fn (isSpace ch) (strIsSpace ch))
@@ -147,6 +152,7 @@
 ; ------------------------------------------------------------------
 ; Skip whitespace and comments.
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: skipWhitespace (-> String Int Int Int))
 
 ; A loop rather than a recursion, and `skipLineComment` returns to it
@@ -185,6 +191,7 @@
 ; The position just past the newline that ends this comment, or `len`.
 ; It used to continue into `skipWhitespace` itself; the caller's loop
 ; does that now, which is the same walk without the mutual recursion.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: skipLineComment (-> String Int Int Int))
 
 (pub fn (skipLineComment src pos len)
@@ -208,6 +215,7 @@
 ; file - costs one comparison and no call. `scanAxtags` is why that is
 ; worth writing down: it walks one byte per step over every module the
 ; compiler resolves.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: isBlockOpen (-> String Int Int Bool))
 
 (pub fn (isBlockOpen src pos len) (&& (== (strByte src pos) 35) (&& (< (+ pos 1) len) (== (strByte src (+ pos 1)) 124))))
@@ -231,6 +239,7 @@
 ; file is one: depth here is source length, and a stage1-built compiler
 ; eliminates only SELF tail calls, so a recursive spelling costs a
 ; frame per byte of comment.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: skipBlockComment (-> String Int Int Int))
 
 (pub fn (skipBlockComment src pos len)
@@ -261,6 +270,7 @@
 ; ------------------------------------------------------------------
 ; Emit a token.
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
 (pub :: emitToken (-> TokenKind Int Int Int String Int))
 
 (pub fn (emitToken kind start end tokens src)
@@ -272,6 +282,7 @@
 ; ------------------------------------------------------------------
 ; Skip helpers.
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: skipIdent (-> String Int Int Int))
 
 (pub fn (skipIdent src pos len)
@@ -291,6 +302,7 @@
 ; stage0's `consume_number` treats it. Stopping at the `_` split the
 ; literal into an integer and an identifier, and the identifier went on
 ; to be emitted as an SSA name nothing defines.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: skipDigits (-> String Int Int Int))
 
 (pub fn (skipDigits src pos len)
@@ -312,6 +324,7 @@
 ; end the literal. Without this, `"c\""` ended at the middle quote and
 ; the rest of the file lexed as garbage - which is exactly what a
 ; compiler emitting LLVM has to write.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: scanStringEnd (-> String Int Int Int))
 
 (pub fn (scanStringEnd src pos len)
@@ -381,6 +394,7 @@
 ; i64::MAX and a leading `-` buys nothing (probed:
 ; `-9223372036854775808` is refused too). `_` separators are ignored,
 ; as they are everywhere else.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: intLitFits (-> String Int Int Bool))
 
 (pub fn (intLitFits src start end)
@@ -420,6 +434,7 @@
 ; out twice - once for strings (axiom-lexer/src/lib.rs:513) and once
 ; for character literals (:563) - and the two lists agree, so this is
 ; one function used by both callers here.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: isEscapeChar (-> Int Bool))
 
 (pub fn (isEscapeChar b) (|| (== b 110) (|| (== b 116) (|| (== b 114) (|| (== b 92) (|| (== b 34) (|| (== b 39) (== b 48))))))))
@@ -427,6 +442,7 @@
 ; The position of the first invalid escape inside the string literal
 ; spanning [start, end) - `start` on the opening quote, `end` one past
 ; the closing one - or -1 when every escape is one stage0 accepts.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: badEscapeIn (-> String Int Int Int))
 
 (pub fn (badEscapeIn src start end)
@@ -480,6 +496,7 @@
 ; position, so the loop owns the only frame. Every branch advances by
 ; at least one byte, which is what makes the loop terminate where the
 ; recursion terminated by running out of input.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: lexTokens (-> String Int Int Int Int))
 
 (pub fn (lexTokens src pos len tokens)
@@ -499,6 +516,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-foreign)
 (pub :: stepToken (-> String Int Int Int Int Int))
 
 (pub fn (stepToken src pos len tokens ch)
@@ -746,6 +764,7 @@
 ; not a byte: `'é'` is four bytes and `'😀'` six. Hardcoding three made
 ; stage1 fail to parse any non-ASCII char literal at all, where stage0
 ; - which lexes a Vec<char> - reads it fine.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: stepCharToken (-> String Int Int Int Int))
 
 (pub fn (stepCharToken src pos len tokens)
@@ -808,6 +827,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-foreign)
 (pub :: stepIdentToken (-> String Int Int Int Int))
 
 (pub fn (stepIdentToken src pos len tokens)
@@ -826,6 +846,7 @@
 ; Deciding by the character *after* the dot is what stage0's lexer does
 ; too. `numStart` may sit on a leading `-`; the scan begins at
 ; `scanFrom`.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: stepNumberFrom (-> String Int Int Int Int Int))
 
 (pub fn (stepNumberFrom src numStart scanFrom len tokens)
@@ -863,6 +884,7 @@
 
 ; Public lexer interface.
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
 (pub :: lex (-> String Int))
 
 (pub fn (lex src) (lexTokens src (pastBom src 0) (strLen src) vecNew))
@@ -902,6 +924,7 @@
 ; single file was big enough to reach it; adding to `self_host/codegen.ax`
 ; reached it, through `check-fmt.sh`, whose formatted copy of the
 ; repository is the largest input anything in this project reads.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: scanAxtags (-> String Int))
 
 (pub fn (scanAxtags src)
@@ -974,6 +997,7 @@
 
 ; `@axiom:` is seven bytes; the tag's content starts one past them,
 ; which is why the slice above begins at pos+8 (the `;` plus seven).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hasAxiomPrefix (-> String Int Int Int))
 
 (pub fn (hasAxiomPrefix src pos len)
@@ -986,6 +1010,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: findNewline (-> String Int Int Int))
 
 (pub fn (findNewline src pos len)
@@ -998,6 +1023,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: skipStringBody (-> String Int Int Int))
 
 (pub fn (skipStringBody src pos len)
@@ -1015,6 +1041,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: skipCharBody (-> String Int Int Int))
 
 (pub fn (skipCharBody src pos len)

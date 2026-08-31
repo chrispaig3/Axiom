@@ -75,9 +75,18 @@
 # expansions in the tree; and members of `pub extern`, `pub trait` and
 # `effect` declarations. About 21% of the public surface is in a form
 # `(pub :: ` at column 0 does not match. This is a FLOOR.
-stdlib/Agent/Tags.ax 0 2
+#
+# PORTED 2026-08-31: `Agent/Tags.ax`'s two (`axsymHexVal`, `axsymPctAt`)
+# and `Path.ax`'s two (`pathLastSlash`, `pathExtIndex`) now answer
+# `Option Int`. Both modules drop out of this table entirely - the
+# census only lists a module with a nonzero count. Zero external
+# callers for any of the four (checked by grep over the whole tree
+# before porting), so the blast radius was each module's own file;
+# `symbols` shows no `#effects=` gained by either, matching the
+# existing `Option Int` functions this table already left alone
+# (`strFind`), so this is a straight CHANGED row in `compat/BREAKING`,
+# not a WIDENED one.
 stdlib/Intern.ax 0 1
-stdlib/Path.ax 0 2
 stdlib/Str.ax 0 2
 stdlib/Sys.ax 26 0
 stdlib/Sys/Platform.darwin.ax 3 0
