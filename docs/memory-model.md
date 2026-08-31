@@ -2553,20 +2553,58 @@ argument is depth 0 and no witness is renumbered after the fact.
 two- and three-parameter lambdas; built by the compiler one commit
 back it does not answer wrongly, it **exits 139**.
 
-What still passes `0` and has not been measured: the surplus arguments
-of a `cast` spine and the over-applied path. Both under-retain, which
-leaks, and neither has a probe yet — which is the same sentence that
-was wrong twice above, so it is a statement about what is unmeasured
-and not about what is safe.
+*The two that were left unmeasured were the same sentence wrong a
+third and fourth time, and both are closed as of 2026-08-31.* They
+were recorded as "the surplus arguments of a `cast` spine and the
+over-applied path — both under-retain, which leaks, and neither has a
+probe yet". Probed, on the shape `461` uses, against `9116167` (0.6.0)
+with a compiler built from that tree: neither leaked. Both were **live
+use-after-frees**, and `axiom check` printed OK on each.
+
+| the application | 0.6.0 | now |
+|---|---|---|
+| `((lambda (v) (vecPush log v)) h.name)` — the control | 97, the `a` | 97 |
+| `((mkParker log) h.name)` — over-applied | **122**, the `z` | 97 |
+| `((cast Int (lambda (v) ..)) h.name)` — a cast spine | **122** | 97 |
+
+122 is the first byte of the five-byte string allocated into the block
+after `(set h.name ..)` released the only counted share. All three in
+one process exit **139** on 0.6.0, for the reason `461`'s header gives:
+uncounted parks recycle blocks into each other until a header read
+lands outside the heap.
+
+The two had different causes, which is why the fix is in two places.
+The over-applied path had the class and threw it away — `walkAppChain`
+records one per application node, and `emitApplyChain` passed `vecNew`
+to both of its callers, so `evOperandAt` read 0 at every step;
+`dispatchCall` now snapshots `spineEvs` beside the arguments, exactly
+as `emitIndirectCall` already did, and `emitOverApplied` drops it by
+the same arity its arguments are dropped by. The `cast` spine never
+had the class at all: `checkCastForm` claims the whole spine at its
+outermost node, so the intermediate application nodes never reached
+the arm that stamps them, and `checkCastArgs` now stamps the surplus
+ones. `tests/stdlib/462-surplus-closure-arg.ax` pins all three rows
+above and `scripts/check-closure-reclaim.sh` ablates each half: the
+checker half strikes out term 8 and nothing else, the emitter half
+takes both callers and exits 139.
+
+What still passes a constant `0` is the effect-operation path in
+`emitApplyRegsOwned`, and that one is measured and correct — a
+handler's parameter is the operation's declared type, which `AX3017`
+will not let be a variable, so its store's retain is unconditional and
+the word is one the handler never reads.
 
 **WHAT THIS UNBLOCKS.** The argument half of the closure-reclamation
 design — release a closure's owned argument when the application's
 result class is a word — was refused because the park took no share.
 It now takes one wherever the application classifies its argument, and
 the `__release` probe that read **3** before reads **16** after. The
-rule is therefore available for those applications and still unsound
-for the three above, so a release written without consulting the same
-evidence is the identical use-after-free in a new place.
+rule is therefore available for those applications, and since
+2026-08-31 there is no application path left that passes a word the
+checker could have supplied and did not — a release written without
+consulting that word would still be the identical use-after-free in a
+new place, which is why the rule is stated as consulting it rather
+than as unconditional.
 
 `tests/stdlib/460-closure-reclaim.ax` pins both halves. **Term 64** is
 the parked argument surviving its application — true by accident

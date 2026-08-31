@@ -1,0 +1,77 @@
+; A DECLARED NOMINAL RESULT OVER A BARE `Int` BODY - the handle
+; convention run backwards, and a SIGSEGV that `check` called OK.
+;
+; `Int` is this language's universal heap handle. A signature saying
+; `Int` over a body that answers a `Span` is that convention working:
+; the caller receives a word and nothing generated from the signature
+; dereferences it. `498-param-through-int.ax` carves the one exception.
+;
+; The REVERSE has no convention behind it. A signature saying `Box`
+; over a body that answers an `Int` hands the caller a word the caller
+; WILL dereference, because the declaration told it that is safe - a
+; `match` emits a tag load from the address. Measured on 0.6.0
+; (`9116167`), a compiler built from that tree:
+;
+;   (:: g (-> Int Box))  (fn (g x) 7)
+;   (fn (main) (match (g 1) ((Bx s) (strLen s))))
+;
+;   axiom check  ->  OK, exit 0
+;   axiom run    ->  exit 139, SIGSEGV, no output
+;
+; The SAME mismatch in ARGUMENT position was AX3004 the whole time -
+; `(h 7)` against `(:: h (-> Box Int))` - so the rule existed and was
+; applied in one position out of two. `tyReprClash` is a NAME list
+; (`Bool`, `Float`, `Foreign`, `Handle`, `String`), and a name list
+; catches only the names on it: every `data`, every `struct`, every
+; `Char`, list, tuple and lambda went through it, in the one direction
+; that segfaults. `checkDeclaredReturn` now compares by `tyCompat`
+; unless the DECLARED side is a bare `Int`.
+;
+;   line 49: the reproducer above - a `data` handle minted from 7
+;   line 53: a `struct` handle minted from a parameter
+;   line 57: two nominal types punned, which no name list could reach
+;
+; The three controls draw nothing, and each is load-bearing:
+;   `mkSpan`  the handle convention itself - 29 sites in this tree
+;             return a handle through a declared `Int`, and every one
+;             of them must stay accepted
+;   `mkOk`    `(cast Box n)`, the explicit escape, which is what a
+;             function that really does mint a handle from a word says
+;   `unwrap`  the honest direction, so the case is not vacuous
+(import Str)
+
+(data Box (Bx String))
+
+(struct Pt (x : Int) (y : Int))
+
+(:: g (-> Int Box))
+
+(fn (g x) 7)
+
+(:: mkPt (-> Int Pt))
+
+(fn (mkPt n) n)
+
+(:: pun (-> Int Box))
+
+(fn (pun n) (Pt n n))
+
+(:: mkSpan (-> Int Int Int))
+
+(fn (mkSpan a b) (Pt a b))
+
+(:: mkOk (-> Int Box))
+
+(fn (mkOk n) (cast Box n))
+
+(:: unwrap (-> Box Int))
+
+(fn (unwrap b)
+  (match b
+    ((Bx s) (strLen s))
+  )
+)
+
+(:: main Int)
+
+(fn (main) (unwrap (g 1)))
