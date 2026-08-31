@@ -67,7 +67,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Err`
 
-`stdlib/Err.ax` — 29 public names
+`stdlib/Err.ax` — 30 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -76,6 +76,7 @@ See [reference.md](reference.md) for the language, and
 | `errDivideByZero` | value | `Int` |  | The codes this module raises itself. A program's own codes live in its own space; these are the ones `ERR-REC-2` needs. |
 | `errOverflow` | value | `Int` |  |  |
 | `errShiftTooWide` | value | `Int` |  |  |
+| `errShortWrite` | value | `Int` |  | A descriptor accepted some bytes and then accepted none, without an errno to say why. It is NOT a syscall error - `write` returned 0, which is a legal answer - so it cannot borrow an errno, and it is not success either, which is exactly why `Sys.sysWriteAllFd` could not express it while it answered an Int. `ERR-REC-3` calls a short write a failure and not an absence: the bytes were meant to go and did not. |
 | `mkError` | value | `(-> Int String Error)` |  |  |
 | `errCode` | value | `(-> Error Int)` |  |  |
 | `errMessage` | value | `(-> Error String)` |  |  |
@@ -554,7 +555,7 @@ See [reference.md](reference.md) for the language, and
 | `stdout` | value | `Int` |  |  |
 | `stderr` | value | `Int` |  |  |
 | `sysWriteFd` | value | `(-> Int Int Int Int)` | `IO` |  |
-| `sysWriteAllFd` | value | `(-> Int Int Int Int Int)` | `IO` |  |
+| `sysWriteAllFd` | value | `(-> Int Int Int Int Int)` | `IO` | THREE OUTCOMES, AND THE Int CHANNEL HELD TWO. Until 2026-08-30 this answered `done` when `write` returned exactly 0 - a short, NON-NEGATIVE count, indistinguishable from the complete one. The comment above calls treating a short write as success "the classic way to truncate output", and that is what this did in the one case it cannot retry. |
 | `sysReadFd` | value | `(-> Int Int Int Int)` | `IO` |  |
 | `sysOpenPath` | value | `(-> Int Int Int)` | `IO` |  |
 | `sysCloseFd` | value | `(-> Int Int)` | `IO` |  |

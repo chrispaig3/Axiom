@@ -143,6 +143,35 @@
   )
 )
 
+; THREE OUTCOMES, AND THE Int CHANNEL HELD TWO. Until 2026-08-30 this
+; answered `done` when `write` returned exactly 0 - a short,
+; NON-NEGATIVE count, indistinguishable from the complete one. The
+; comment above calls treating a short write as success "the classic
+; way to truncate output", and that is what this did in the one case
+; it cannot retry.
+;
+; It answers `-errShortWrite` for that case now. The channel still
+; holds two SIGNS, but the three outcomes are distinguishable: a
+; caller asking `< 0` - which every caller already does - sees the
+; descriptor that stopped accepting bytes, where before it read a
+; plausible count and carried on.
+;
+; WHY NOT `Result`, WHICH IS WHERE ERR-ADOPT-1 IS GOING. Measured
+; both ways. The RUNTIME cost is nil: 2,000,000 calls at `--opt 2`,
+; 1.399 / 1.065 / 1.054 s against 1.298 / 1.092 / 1.093 s, because a
+; `write` is ~500 ns and the constructor ~9. The EFFECT ROW is the
+; cost, and it is not nil. Constructing an `Ok`/`Err` allocates, so
+; the row widens from `IO` to `IO, Alloc, Mut`, and this function is
+; under `writeStr` - which is under `println`, 804 macro expansions.
+; Ported, ten gates went red: `300-effect-handlers` could no longer
+; `handle` what it declares, and AXTAG claims across the tree read
+; `body performs Alloc, IO, Mut` where they had said `IO`.
+;
+; Narrowing the `Err` message to a literal does not help - the row
+; comes from the constructor, not the message. So the sentinel stays
+; here and `Result` waits for the callers that are not under the
+; printing path. That is a fact about ERR-ADOPT-1 nobody had written
+; down: the migration's blocker is the effect row, not performance.
 (pub :: sysWriteAllFd (-> Int Int Int Int Int))
 
 ;@axiom:effect(io)
@@ -150,12 +179,12 @@
   (if (>= done count)
     done
     (let ((n (sysWriteFd fd (+ buf done) (- count done))))
-      (if (< n 1)
-        (if (< n 0)
-          n
-          done
+      (if (< n 0)
+        n
+        (if (== n 0)
+          (- 0 errShortWrite)
+          (sysWriteAllFd fd buf count (+ done n))
         )
-        (sysWriteAllFd fd buf count (+ done n))
       )
     )
   )

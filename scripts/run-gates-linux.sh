@@ -160,6 +160,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       llvm clang lld binutils \
       bash coreutils findutils diffutils grep sed gawk \
       python3 curl ca-certificates git file xxd time make \
+      nodejs npm \
  && rm -rf /var/lib/apt/lists/*
 # `cc` is what the emitter invokes; Ubuntu ships clang without it.
 RUN ln -sf /usr/bin/clang /usr/local/bin/cc
@@ -192,10 +193,52 @@ fi
 read -r -d '' inner <<'INNER'
 set -uo pipefail
 mkdir -p /work
-tar -C /src --exclude=./.git --exclude=./.axiom-bin --exclude=./node_modules \
+# `.git` TRAVELS, and it is 30 MB well spent. Four gates ask git a
+# question and cannot be answered without it - `check-seed-lineage`
+# and `check-seed-provenance` walk the history for commits touching
+# `bootstrap/*.ll`, `check-restrictions`'s manifest section shells out
+# to it, and `check-compat` asks `git diff --quiet` whether a
+# regenerated baseline is dirty. Excluded, all four FAILED, and every
+# one of those failures was this script's fault rather than the tree's.
+#
+# That is the worse outcome, not a lesser one: `run-gates.sh`'s own
+# header says a gate whose failure means nothing teaches its reader to
+# skim the FAILED list instead of reading it. A harness that
+# manufactures four such failures is a harness that makes the battery
+# useless the first time it is trusted.
+#
+# EVERY `node_modules`, AT EVERY DEPTH, and this one is not tidiness.
+# `tree-sitter-axiom/node_modules` is nested, so a top-level exclude
+# missed it, and the host's `tree-sitter-cli` binary - a Mach-O
+# executable built for darwin-arm64 - travelled into a Linux container
+# and was executed. It failed as `Syntax error: newline unexpected`,
+# which is a shell trying to read a macOS binary as a script and is a
+# long way from anything a reader would connect to the cause. A
+# harness whose whole purpose is to run this tree on Linux must not
+# carry host-built artifacts into it.
+tar -C /src --exclude=./.axiom-bin --exclude='./node_modules' \
+    --exclude='./tree-sitter-axiom/node_modules' \
     --exclude=./rust/target --exclude=./.claude/worktrees -cf - . \
   | tar -C /work -xf -
 cd /work
+# The copy is owned by whoever ran the tar, not by the container user,
+# and git refuses a repository it thinks belongs to someone else.
+git config --global --add safe.directory /work 2>/dev/null || true
+# The tree-sitter CLI is a native binary, so the host's copy cannot be
+# reused and this one is installed here or the gate does not run. Which
+# of those happened is PRINTED: `check-tree-sitter.sh` offers
+# `AXIOM_TREE_SITTER_OPTIONAL=1` to skip itself, and a skip nobody
+# mentions is indistinguishable from a pass.
+if npm install --no-audit --no-fund --prefix tree-sitter-axiom tree-sitter-cli >/tmp/npm.log 2>&1; then
+  echo "== tree-sitter CLI installed for this run =="
+else
+  export AXIOM_TREE_SITTER_OPTIONAL=1
+  echo "== NOT RUN HERE (1): check-tree-sitter.sh - its CLI is a native"
+  echo "   binary, the host's cannot be reused on Linux, and npm could not"
+  echo "   install one (no network?). Skipped by its own documented opt-out"
+  echo "   rather than failed, and named rather than silent. =="
+  sed 's/^/   npm: /' /tmp/npm.log | tail -3
+fi
 echo "== $(uname -m) $(. /etc/os-release && echo "$PRETTY_NAME") =="
 llc --version | sed -n '2,3p'
 exec ./scripts/run-gates.sh "$@"
@@ -204,7 +247,7 @@ INNER
 if [[ "$mode" == "shell" ]]; then
   exec "$engine" run --rm -it --platform "linux/$arch" \
     -v "$repo_root:/src:ro" "$image" bash -lc \
-    'mkdir -p /work && tar -C /src --exclude=./.git --exclude=./.axiom-bin -cf - . | tar -C /work -xf - && cd /work && exec bash'
+    'mkdir -p /work && tar -C /src --exclude=./.axiom-bin -cf - . | tar -C /work -xf - && cd /work && git config --global --add safe.directory /work 2>/dev/null; exec bash'
 fi
 
 if [[ "$arch" != "$native" ]]; then

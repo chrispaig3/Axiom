@@ -16,6 +16,40 @@ its changelog too.
 
 ## Unreleased
 
+- **`sysWriteAllFd` stopped truncating output silently, and the
+  `Result` migration's real blocker turned out to be the EFFECT ROW.**
+  When `write` returned exactly 0 - a legal answer, and the one case
+  the loop cannot retry - this answered `done`: a short, NON-NEGATIVE
+  count indistinguishable from the complete one. `stdlib/Sys.ax`'s own
+  comment calls treating a short write as success "the classic way to
+  truncate output". It answers `-errShortWrite` now, so the callers
+  that already ask `< 0` - all of them - see it.
+  **It was ported to `(Result Int Error)` first, and that is the
+  interesting part.** `ERR-ADOPT-1` records `(Some v)` at 7.4x a `-1`
+  and treats cost as the reason `Sys.ax` is hard. Measured here,
+  2,000,000 calls at `--opt 2`: **1.399 / 1.065 / 1.054 s sentinel
+  against 1.298 / 1.092 / 1.093 s Result** - the same number. A `write`
+  is ~500 ns and the constructor ~9, so on a wrapper that reaches the
+  kernel the channel is free. The 7.4x figure is real and was taken
+  with no syscall in the loop.
+  What is NOT free is the effect row. Constructing an `Ok`/`Err`
+  allocates, so the row widened from `IO` to `IO, Alloc, Mut`, and this
+  function sits under `writeStr`, under `println`, 804 macro
+  expansions. **Ten gates went red**: `300-effect-handlers` could no
+  longer `handle` what it declares, and AXTAG claims across the tree
+  began reading `body performs Alloc, IO, Mut` where they had said
+  `IO`. Narrowing the `Err` message to a literal does not help - the
+  row comes from the constructor. So the sentinel stays here and
+  `Result` waits for the callers that are not under the printing path,
+  which is a fact about the migration nobody had written down: its
+  blocker is the effect row, not performance.
+  Also corrected: `Sys` does NOT sit below `Err` in the dependency
+  order, which `ERR-ADOPT-1` gives as the reason its slice is hard.
+  The order is `Mem -> Vec -> Str -> Err -> Sys`; `Sys.ax` already
+  imports `Err` and already uses `sysResult`. And `self_host/` reaches
+  only 4 of the 27 sentinel-answering functions (20 sites), so 23 of
+  them can be ported without touching the compiler at all.
+
 - **`freebsd-x86_64` and `windows-x86_64` are supported targets.** Both
   legs had been green on 13 of the previous 15 runs with no failures,
   and README's rule is that `continue-on-error` comes off *after* the
