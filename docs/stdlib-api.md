@@ -861,23 +861,23 @@ See [reference.md](reference.md) for the language, and
 | `keyCsiMax` | value | `Int` |  | How many bytes of a well-formed CSI this decoder will tolerate before calling it line noise. A wedged terminal spewing digits cannot otherwise grow the pending prefix without bound. |
 | `keyStrMax` | value | `Int` |  | And of an OSC/DCS string body. |
 | `KeyEv` | struct |  |  |  |
-| `keyScanCtrl` | value | `(-> Int KeyEv)` |  |  |
+| `keyScanCtrl` | value | `(-> Int KeyEv)` | `Alloc` |  |
 | `keyCsiEnd` | value | `(-> String Int Int Int)` |  |  |
 | `keyCsiParam` | value | `(-> String Int Int Int Int)` |  |  |
 | `keyCsiPrivate` | value | `(-> String Int Int Bool)` |  | A CSI whose first parameter byte is `<`, `=`, `>` or `?` is a private form: a mouse report, a device-attributes reply, a mode report. None of them is a keystroke. |
 | `keyTildeKind` | value | `(-> Int Int)` |  | The key a `~`-final CSI names, from its first parameter. |
 | `keyTildeFn` | value | `(-> Int Int)` |  | F1..F12 out of a `~`-final parameter, or 0 for one that names none. |
 | `keyFinalKind` | value | `(-> Int Int)` |  | The key a letter-final CSI or SS3 names. |
-| `keyFromCsi` | value | `(-> String Int Int Int KeyEv)` |  |  |
-| `keyFromSs3` | value | `(-> String Int Int KeyEv)` |  |  |
+| `keyFromCsi` | value | `(-> String Int Int Int KeyEv)` | `Alloc` |  |
+| `keyFromSs3` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
 | `keyStrEnd` | value | `(-> String Int Int Int)` |  |  |
 | `keyScanUtf8` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` |  |
 | `keyScan` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` |  |
 | `keyScanEsc` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` | The escape path. See the header for the case list. |
-| `keyScanCsi` | value | `(-> String Int Int KeyEv)` |  |  |
-| `keyScanStr` | value | `(-> String Int Int KeyEv)` |  |  |
+| `keyScanCsi` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
+| `keyScanStr` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
 | `keyScanAlt` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` | ESC <anything else> is Alt-that-key: decode the key at off+1 and OR MOD_ALT into it. `used` grows by the ESC. |
-| `keyResolve` | value | `(-> String Int Int KeyEv)` |  |  |
+| `keyResolve` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
 
 ## `Tui.Term`
 

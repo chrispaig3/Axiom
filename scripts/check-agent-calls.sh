@@ -266,11 +266,25 @@ echo "== totality: an inferred effect has an edge that accounts for it =="
 # `Ffi.ax` cannot inherit the exemption. And a row whose effect set is
 # exactly `Mut` is the field-`set` form's own row (the header says how
 # that was measured); the match is on the whole value, so a row that
-# also carries `Alloc` or `IO` is still reported.
+# also carries `IO` is still reported.
+#
+# AND A ROW WHOSE EFFECT SET IS EXACTLY `Alloc` IS THE CONSTRUCTOR
+# APPLICATION'S OWN ROW, added 2026-08-31 for the same reason and in
+# the same shape. `restrict(no-alloc)` was unsound until that day
+# because a constructor contributed nothing to the effect walk; making
+# it contribute means `(Error code message "")` now puts `Alloc` in
+# `mkError`'s row with NO call to point at, exactly as `(set p.x 1)`
+# puts `Mut` in one. Six stdlib rows arrived here that way, every one
+# a body whose whole content is building a value.
+#
+# The match is on the whole value here too, so `Alloc,IO` is still
+# reported: a function that allocates AND reaches a syscall has a call
+# somewhere, and a missing edge there would be a real finding.
 missing=$(awk -v p="$stdlib_prefix" '
   $1 == "F" && index($3, p) == 1 &&
   /#effects=/ && !/#calls=/ &&
   !/#effects=Mut( |$)/ &&
+  !/#effects=Alloc( |$)/ &&
   index($3, p "Ffi.ax:") != 1 { print $2, $3 }' "$work/calls" | LC_ALL=C sort -u || true)
 if [[ -n "$missing" ]]; then
   echo "FAIL: these rows carry an inferred effect and no edge explaining it:"
