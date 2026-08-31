@@ -360,7 +360,6 @@ its changelog too.
   imports `Err` and already uses `sysResult`. And `self_host/` reaches
   only 4 of the 27 sentinel-answering functions (20 sites), so 23 of
   them can be ported without touching the compiler at all.
-||||||| b85ccc1
 
 - **`freebsd-x86_64` and `windows-x86_64` are supported targets.** Both
   legs had been green on 13 of the previous 15 runs with no failures,
