@@ -1348,7 +1348,7 @@ it cross-checks `symbols --calls` hop for hop; the last hop is where
 the effect enters (a syscall primitive, an `extern`, `__alloc`), or
 the function whose own body holds the `alloc` form, said so. The tag
 takes a comma-separated list: `no-cast`, `no-cast:deep`, `no-io`,
-`no-alloc`, `no-foreign`, `no-recursion`.
+`no-alloc`, `no-foreign`, `no-recursion`, `no-wrap`.
 
 `no-recursion` is a cycle, which is global by definition - a
 depth-first walk over the same graph - and the path is the walk from
@@ -1362,7 +1362,7 @@ recursion. This is the static half of what scripts/check-stack-depth.sh
 measures dynamically: a region under `no-recursion` has a stack need
 bounded by its depth rather than by its input.
 
-THREE OF THE FOUR ARE TRANSITIVE BY CONSTRUCTION and one is not, and
+THREE OF THE FIVE ARE TRANSITIVE BY CONSTRUCTION and two are not, and
 the difference is not arbitrary. `no-io` and `no-alloc` read the
 effect row, which is already a transitive fixpoint (docs/reference.md,
 Effects): a function calling an IO-performing function HAS `IO` in its
@@ -1385,6 +1385,17 @@ concrete types is unchecked - a `Port` carrying 99999 and an `Int` read
 back as a `String` are the same one-word act. Under `restrict(no-cast)`
 a type's guarantee is true; without it, it is true of programs that
 did not write `cast`.
+
+`no-wrap` is LEXICAL for the same reason `no-cast` is: `+`, `-` and
+`*` lower to plain `add`/`sub`/`mul` with no `nsw`, so overflow wraps
+silently, and that is an act this body performs by writing the raw
+operator rather than a fact the effect row carries. `stdlib/Err.ax`
+has the checked alternative for each - `addChecked`, `subChecked`,
+`mulChecked`, every one `(-> Int Int (Result Int Error))` - and
+calling one pulls `Alloc` into this body's row, because constructing
+the `Result` allocates. `no-wrap` and `no-alloc`, or `no-wrap` and
+`pure`, are therefore not satisfiable together by a body that needs
+arithmetic; that is the price of the guarantee, not a bug in it.
 
 This is an ERROR with no warning stage, for the argument that made
 AX3010 one: a restriction is a claim the author WROTE, and a build
@@ -1424,8 +1435,9 @@ limit of the ANALYSIS rather than a defect in the program. It is
 AX3037's argument at one remove, over the same two readings - a
 `(handle ((b.f) 7) ...)` over a pure `b.f` is a correct program, and
 refusing it would make dispatch through a stored function unwriteable
-rather than unverified. `no-cast` never draws this: a cast is lexical
-and is checked whether or not a call resolved. `no-cast:deep` draws it
+rather than unverified. `no-cast` and `no-wrap` never draw this: a
+cast or a wrapping operator is lexical and is checked whether or not
+a call resolved. `no-cast:deep` draws it
 only when no cast was found in this body or the closure the walk
 could enumerate - a cast found refutes the claim whatever else the
 walk could not close.
@@ -1438,10 +1450,11 @@ a code that becomes answerable leaves it.
 AX3052 - a name inside `restrict(...)` that is not a restriction
 
 The restrictions this compiler checks are `no-cast`, `no-cast:deep`,
-`no-io`, `no-alloc`, `no-foreign` and `no-recursion`, comma-separated
-inside one `restrict(...)`; a `restrict` naming nothing draws this too.
-`no-cast:deep` is a name of its own, not a modifier: `no-cast` is
-local by design and the closure is opted into by spelling it.
+`no-io`, `no-alloc`, `no-foreign`, `no-recursion` and `no-wrap`,
+comma-separated inside one `restrict(...)`; a `restrict` naming
+nothing draws this too. `no-cast:deep` is a name of its own, not a
+modifier: `no-cast` is local by design and the closure is opted into
+by spelling it.
 
 An ERROR, and deliberately unlike AX3039, which warns about a key one
 slip from a known one and leaves the key namespace open. The list of

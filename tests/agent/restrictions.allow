@@ -22,6 +22,7 @@ clean tests/diagnostics/375-restrict-unverifiable.ax no-cast ok
 colCount self_host/diag.ax no-io,no-alloc,no-foreign ok
 colOf self_host/diag.ax no-io,no-alloc,no-foreign ok
 colOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
+compares tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
 confined tests/diagnostics/369-axtag-known-keys.ax no-io ok
 control tests/diagnostics/376-restrict-unknown-name.ax no-io ok
 countErrorDiags self_host/diag.ax no-io,no-alloc,no-foreign ok
@@ -36,6 +37,7 @@ deepLocal tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep violated
 deepPartial tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep unverifiable
 deepRefuted tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep violated
 delegates tests/diagnostics/373-restrict-no-cast.ax no-cast ok
+delegates tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
 diagAddFixHelp self_host/diag.ax no-io,no-foreign ok
 diagAddHelp self_host/diag.ax no-io,no-foreign ok
 diagAddNote self_host/diag.ax no-io,no-foreign ok
@@ -95,6 +97,7 @@ fmtSpanParts self_host/diag.ax no-io,no-foreign ok
 handoff tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
 hasAxiomPrefix self_host/lexer.ax no-io,no-alloc,no-foreign ok
 honest tests/diagnostics/373-restrict-no-cast.ax no-cast ok
+honest tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
 indexForUnit self_host/diag.ax no-io,no-alloc,no-foreign ok
 intIsMostNegative stdlib/Fmt.ax no-io,no-alloc,no-foreign ok
 intLitFits self_host/lexer.ax no-io,no-alloc,no-foreign ok
@@ -144,6 +147,7 @@ mkSpan self_host/core.ax no-io,no-alloc,no-foreign ok
 mkToken self_host/core.ax no-io,no-alloc,no-foreign ok
 native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
+nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
 orderDiags self_host/diag.ax no-io,no-foreign ok
 ownForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 paint self_host/style.ax no-io,no-foreign ok
@@ -286,3 +290,4 @@ viaForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 viaHelper tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
 viaModule tests/diagnostics/377-restrict-witness-path.ax no-io violated
 visLen self_host/style.ax no-io,no-alloc,no-foreign ok
+wraps tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok

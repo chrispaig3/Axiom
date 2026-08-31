@@ -422,7 +422,7 @@ closing the "appears in no column" defect §9 currently records.
 change. The corpus population of the unsafe shape is already
 documented as zero (`MM-VAL-21`'s own text).
 
-**Gate.** `tests/diagnostics/xxx-alloc-refused.ax`, mirroring
+**Gate (once built).** A diagnostics fixture named for the rule it pins, mirroring
 `495-widthless-types.ax`'s shape: assert `AX2004` on `(alloc T)` and on
 a `*mut T` type position. Ablate by reverting the refusal and
 confirming the measured-above behaviour returns (`#effects=Alloc`,
@@ -603,16 +603,34 @@ worktree's scope (the task explicitly asks for a design, not an
 allocator rewrite) and should be its own milestone with its own rule
 series, reviewed on its own before a line of codegen changes.
 
-**Scoping evidence, measured rather than assumed.** A corpus sweep of
-every `(lambda (a b ...) ...)` with two or more parameters across
-`self_host/`, `stdlib/` and `tests/**` found every application fully
-saturated — applied to its complete argument count in one syntactic
-spine, either immediately or when a stored callback (`HttpFn`, a trait
-method, an FFI shim) is later invoked. **Zero** instances of a
-partially-applied lambda being stored, passed onward, or returned as a
-distinct reusable value. This proposal costs nothing in corpus breakage
-and buys back a representation this codebase's own usage never asked
-for.
+**Scoping evidence, measured — and already overtaken, which is worth
+more than the original sweep.** A corpus sweep of every `(lambda (a b
+...) ...)` with two or more parameters across `self_host/`, `stdlib/`
+and `tests/**` found every application fully saturated — applied to
+its complete argument count in one syntactic spine, either immediately
+or when a stored callback (`HttpFn`, a trait method, an FFI shim) was
+later invoked. Zero instances of a partially-applied lambda being
+stored, passed onward, or returned as a distinct reusable value.
+
+**That was measured on a tree that no longer exists.** It was swept
+against `6cfa571`, before this document's branch merged, and two
+sibling tracks landed in the same release that move it:
+
+  * `_` holes — explicit partial application — shipped in 0.6.0, and
+    `tests/selfhost/989-hole-partial-application.ax` binds
+    `(subFrom50 (sub 50 _))` to a name in a `let`. That is a
+    partially-applied function STORED as a distinct reusable value:
+    the exact shape the sweep found zero of.
+  * traits were removed, so "a trait method" is no longer one of the
+    stored-callback routes the sweep enumerated.
+
+The conclusion the sweep supported — that this proposal costs nothing
+in corpus breakage — therefore does NOT carry as written, and the
+sweep must be re-run against the merged tree before P7 is scoped. It
+is recorded here rather than quietly corrected because a scoping
+decision resting on a stale measurement is how a milestone gets
+mis-sized, and because the falsifying fixture landed the same day from
+a branch that had never seen this document.
 
 **Gate (once built).** A synthetic benchmark generalizing §2.2's
 `viaLambda` probe across parameter counts 2–5 and application counts,

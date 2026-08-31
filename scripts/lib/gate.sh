@@ -422,6 +422,7 @@ docs/error-model.md
 docs/ffi.md
 docs/macro-system.md
 docs/memory-model.md
+docs/memory-model-v2-proposal.md
 docs/agent-harness.md
 docs/compatibility.md
 docs/lsp.md
