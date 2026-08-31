@@ -3,7 +3,7 @@
 ; 0 - stage0 rule, distinct from plain `set`, which answers the stored
 ; value. The read after sees the store.
 (struct C4
-  (n : Int)
+  (mut n : Int)
   (step : Int))
 
 (:: main Int)

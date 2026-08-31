@@ -176,7 +176,7 @@
 ; field store is the one mutation visible through every holder of the
 ; value (reference.md, Built-in Effects: `Mut`).
 (pub struct FallibleTally
-  (count : Int))
+  (mut count : Int))
 
 ; A fresh tally at zero.
 (pub :: fallibleTally FallibleTally)

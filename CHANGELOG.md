@@ -89,6 +89,72 @@ its changelog too.
   six-deep chain, which cannot expire when the module's size moves
   again.
 
+- **BREAKING: `mut` on a struct field is a checked constraint, and a
+  field is immutable without it.** `(struct P (x : Int))` with no
+  marker took `(set p.x 9)` in silence — `check` OK, the program
+  exited 9 — because the parser recognised `mut` on a field, skipped
+  it and recorded nothing — which `parseOneField` said in as many words
+  at the time, that the marker was "not recorded ... only skipped". That is exactly
+  the shape `AX2004`'s explain text calls worse than no marker at all,
+  *"a marker that reads as an ownership guarantee and supplies none is
+  worse than no marker, because a reader spends trust on it"*, and it
+  is why `linear`, `consume` and `deriving` were removed from this
+  language. `mut` was enforced instead, because unlike those three it
+  had a rule worth keeping: a field is immutable unless declared
+  otherwise, which is the rule `let` already follows.
+
+  A store into an unmarked field is `AX3012` `assign-to-immutable` —
+  the same code as the immutable-binding refusal, anchored on the
+  field name in the *write* rather than on the declaration, which is
+  often in another unit. Only the LAST segment of a path is governed:
+  `(set a.b.c v)` needs `c` declared `mut` and says nothing about `b`,
+  because the store mutates the value `b` points at rather than the
+  `b` slot. `memSetWord` is outside the rule entirely.
+
+  **The migration, measured rather than guessed:** 55 dotted-path
+  field writes across the tree resolve to 29 distinct (struct, field)
+  pairs and 30 declaration sites, every one of them found by compiling
+  the tree with the new refusal and reading what it named — no write
+  was hidden behind an alias the checker could not follow. Four `mut`
+  field declarations existed before this, all in `tests/fmt/`, because
+  the marker did nothing. `stdlib` took 15 of the 30: `HttpReader`'s
+  `buf`/`filled`/`consumed`, `HttpReq.body`, `HttpRouter.missing`,
+  `HtmlBuf.len`, `FallibleTally.count`, `KeyIn`'s `len`/`pos`/`eof`
+  and nine `LineEd` fields.
+
+  The standard library's **public surface did not move**: 619
+  normalised AXSYM rows are byte-identical across the change, and no
+  `#fields=` entry carries mutability, so this takes no line in
+  `compat/BREAKING` — that file's subject is the library API and this
+  is a language-surface change. `axiom explain AX3012` also lost a
+  false sentence, that "structure fields are written with `memSetWord`
+  instead", which the working `(set p.y 10)` had always contradicted.
+
+  *Gates:* `tests/diagnostics/467-set-immutable-field.ax` (the
+  refusal, plus two writes that stay silent — a `mut` field, and a
+  non-`mut` intermediate on a nested path — so the check cannot pass
+  by refusing everything); `tests/selfhost/561-field-store-mut.ax`
+  (the runtime half: a `mut` field still writes, through an immutable
+  binding, through a nested path and through a parameter).
+
+- **The reference documents partial application of a lambda, which
+  works.** The section was titled "Partial Application — Not
+  Supported" and was accurate only about top-level functions, burying
+  a working feature under the heading for a refused one. One rule
+  decides both halves, and it is the one `AX3013`'s own note gives: a
+  partial application must hold the arguments it was not given, and a
+  top-level function has no closure record to hold them in — a lambda
+  has one. `tests/selfhost/988-lambda-partial-application.ax` pins
+  seven properties the corpus had no fixture for, one bit each:
+  argument order survives; arguments may be supplied one at a time;
+  a capture survives the partial; the partial escapes its creating
+  function; it stores in a struct field and calls back through `.f`;
+  a `_` hole applies to a lambda's arguments too; and the whole spine
+  at once is the ordinary saturated call it looks like — which is why
+  `((add3 1 2) 3)` compiles on a top-level `add3` while
+  `(let ((h (add3 1 2))) (h 3))` is `AX3013`. The saturation count is
+  taken at the spine's ROOT.
+
 - **The REPL has a real terminal interface: editing, cursor motion, a
   coloured prompt, and a redraw that stays correct when the line
   wraps.** `self_host/repl.ax` read plain lines with no editing, no

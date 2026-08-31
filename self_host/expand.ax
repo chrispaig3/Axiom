@@ -7009,8 +7009,13 @@
           (let ((ty (expSubstTy
             (nodeTy f)            params            args            env            isp
           )))
+            ; Word c is the template field's `mut` marker, carried
+            ; through unchanged: substitution cannot change whether a
+            ; field was declared mutable, and a rebuilt field that
+            ; dropped it made every `mut` field of a macro-generated
+            ; struct AX3012 at its first write.
             (let ((g (mkNodeAt
-              TAG_FIELD              fn0              (expTyIsFloatCon ty)              0              (expNameSpan (nodeAName f) params args)
+              TAG_FIELD              fn0              (expTyIsFloatCon ty)              (nodeC f)              (expNameSpan (nodeAName f) params args)
             )))
               {
                 (setNodeTy g ty)
