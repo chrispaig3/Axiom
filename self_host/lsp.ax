@@ -1864,10 +1864,13 @@
 ; than a menu quietly behind the language - which is the drift a
 ; hand-kept list of another module's vocabulary otherwise guarantees.
 ;
-; The three the parser names only in order to REFUSE them - `union`,
-; `region` and `foreign`, whose whole effect is AX2004 - are not
-; offered. Suggesting a word that cannot be used is worse than
-; suggesting nothing.
+; The five the parser names only in order to REFUSE them - `union`,
+; `region`, `foreign` and, since 0.6.0, `trait` and `impl`, whose
+; whole effect is AX2004 - are not offered. Suggesting a word that
+; cannot be used is worse than suggesting nothing. `tests/lsp/drive.py`
+; carries the same five as the exclusion set it subtracts from the
+; parser's `kwEq` sites, and the equality between the two is what
+; `check-lsp-selfhost.sh` asserts.
 (pub :: lspKeywords Int)
 
 (pub fn (lspKeywords)
@@ -1884,7 +1887,6 @@
       (vecPush v "fn")
       (vecPush v "handle")
       (vecPush v "if")
-      (vecPush v "impl")
       (vecPush v "import")
       (vecPush v "lambda")
       (vecPush v "let")
@@ -1894,7 +1896,6 @@
       (vecPush v "set")
       (vecPush v "struct")
       (vecPush v "syntax/for")
-      (vecPush v "trait")
       (vecPush v "type")
       (vecPush v "while")
       v
@@ -3468,16 +3469,7 @@
                       (lspNavRef nv (nodeAName d) (nodeSpan d) NAV_READ)
                       (lspNavWalkVec nv (nodeB d))
                     }
-                    (if (== tag TAG_D_IMPL)
-                      {
-                        (lspNavTypesImpl nv d)
-                        (lspNavWalkImpl nv (nodeB d) 0)
-                      }
-                      (if (== tag TAG_D_TRAIT)
-                        (lspNavTypesTrait nv d)
-                        0
-                      )
-                    )
+                    0
                   )
                 )
               )
@@ -3789,59 +3781,6 @@
   )
 )
 
-; `(impl (Trait Type) ...)`: the head's identifiers after the trait's
-; token name the implementing type; the members are walked by the
-; caller as expressions.
-(pub :: lspNavTypesImpl (-> Int Int Int))
-
-(pub fn (lspNavTypesImpl nv d)
-  (if (== (nodeSpan d) 0)
-    0
-    (let ((src (memGetWordStr nv 0)))
-      (let ((o (lspNearestOpen src (spanStart (nodeSpan d)))))
-        (lspNavTypeRefs nv (lspNavIdents src (spanEnd (nodeSpan d)) (lspFormEnd src o)) 0 0)
-      )
-    )
-  )
-)
-
-; `(trait (Name a) where (m :: T ...))`: the method names sit before a
-; `::`, the parameters are the trait's own, and `where` is the word
-; `parseTraitRest` dispatches on.
-(pub :: lspNavTypesTrait (-> Int Int Int))
-
-(pub fn (lspNavTypesTrait nv d)
-  (if (== (nodeSpan d) 0)
-    0
-    (let (
-      (src (memGetWordStr nv 0))
-      (tvs (nodeC d))
-      (mut i 0)
-    )
-      (let ((spans (lspNavIdents src (spanEnd (nodeSpan d)) (lspNavDeclEnd src d))))
-        {
-          (while (< i (vecLen spans))
-            (let ((sp (vecGet spans i)))
-              {
-                (if (lspNavColonAfter src sp 1)
-                  0
-                  (let ((name (lspNavSpanText src sp)))
-                    (if (|| (lspNavIsTyvar tvs name) (strEq name "where"))
-                      0
-                      (lspNavTypeRef nv name sp)
-                    )
-                  )
-                )
-                (set i (+ i 1))
-              }
-            ))
-          0
-        }
-      )
-    )
-  )
-)
-
 ; The declaration's own name, keyed by itself. A `fn` and its `::`
 ; signature both land here under the same key, which is what makes a
 ; rename touch both.
@@ -3900,26 +3839,6 @@
           (lspNavPopN nv np)
         }
       )
-    )
-  )
-)
-
-; An `impl`'s members are expressions - `((name expr) ...)` after
-; `where` - read at top level, so a `lambda` written there binds its
-; parameters like any other.
-(pub :: lspNavWalkImpl (-> Int Int Int Int))
-
-(pub fn (lspNavWalkImpl nv fields i)
-  (if (>= i (vecLen fields))
-    0
-    (let ((f (vecGet fields i)))
-      {
-        (if (== (nodeTag f) TAG_FIELD)
-          (lspNavWalk nv (nodeB f))
-          0
-        )
-        (lspNavWalkImpl nv fields (+ i 1))
-      }
     )
   )
 )
@@ -8411,24 +8330,9 @@
         (>= (lspCtorIndex (nodeB d) name 0) 0)
         (if (== tag TAG_D_EXTERN)
           (== (strVecHas (nodeB d) name) 1)
-          (if (== tag TAG_D_TRAIT)
-            (lspFixFieldNamed (nodeB d) name 0)
-            false
-          )
+          false
         )
       )
-    )
-  )
-)
-
-(pub :: lspFixFieldNamed (-> Int String Int Bool))
-
-(pub fn (lspFixFieldNamed fields name i)
-  (if (>= i (vecLen fields))
-    false
-    (if (strEq (nodeAName (vecGet fields i)) name)
-      true
-      (lspFixFieldNamed fields name (+ i 1))
     )
   )
 )
@@ -10744,37 +10648,15 @@
 (pub :: lspRenderDeclMore (-> Int Int Int String))
 
 (pub fn (lspRenderDeclMore d tag ind)
-  (if (== tag TAG_D_TRAIT)
-    (strConcat
-      (strConcat (strConcat (lspPubOf d) "trait (") (strConcat (nodeAName d) (strConcat (lspTyvarsOf (nodeC d)) ")")))
-      (strConcat
-        (if (== (vecLen (nodeB d)) 0)
-          ""
-          (strConcat " where (" (strConcat (lspRenderTraitMethods (nodeB d) (+ ind 2)) ")"))
-        )        ")"
-      )
-    )
-    (if (== tag TAG_D_IMPL)
-      (strConcat
-        (strConcat (strConcat (lspPubOf d) "impl (") (strConcat (strConcat (nodeAName d) " ") (strConcat (nodeCName d) ")")))
-        (strConcat
-          (if (== (vecLen (nodeB d)) 0)
-            ""
-            (strConcat " where (" (strConcat (lspRenderImplMethods (nodeB d) (+ ind 2)) ")"))
-          )          ")"
-        )
-      )
-      (if (== tag TAG_D_EXTERN)
-        (strConcat (strConcat (strConcat (lspPubOf d) "extern \"") (strConcat (nodeAName d) "\"")) (strConcat (lspRenderExternItems (nodeC d) (+ ind 2)) ")"))
-        (if (== tag TAG_D_MACROCALL)
-          (lspRenderForm (lspPartsExprs (lspParts1 (lspRenderName (nodeAName d))) (nodeB d) 0 (+ ind 2)) ind)
-          (if (== tag TAG_D_SYNFOR)
-            (lspRenderSynFor d ind)
-            (if (== tag TAG_D_EFFECT)
-              (strConcat (strConcat "; (effect " (nodeAName d)) " ...) - the parser keeps its operation names and not their signatures, so it is not rendered")
-              (strConcat (strConcat "; unrenderable declaration (tag " (decStr tag)) ")")
-            )
-          )
+  (if (== tag TAG_D_EXTERN)
+    (strConcat (strConcat (strConcat (lspPubOf d) "extern \"") (strConcat (nodeAName d) "\"")) (strConcat (lspRenderExternItems (nodeC d) (+ ind 2)) ")"))
+    (if (== tag TAG_D_MACROCALL)
+      (lspRenderForm (lspPartsExprs (lspParts1 (lspRenderName (nodeAName d))) (nodeB d) 0 (+ ind 2)) ind)
+      (if (== tag TAG_D_SYNFOR)
+        (lspRenderSynFor d ind)
+        (if (== tag TAG_D_EFFECT)
+          (strConcat (strConcat "; (effect " (nodeAName d)) " ...) - the parser keeps its operation names and not their signatures, so it is not rendered")
+          (strConcat (strConcat "; unrenderable declaration (tag " (decStr tag)) ")")
         )
       )
     )
@@ -10916,50 +10798,6 @@
                 )
               )
             )
-            (set i (+ i 1))
-          }
-        ))
-      (catStrs parts)
-    }
-  )
-)
-
-; `name :: Type` per trait method, one per line.
-(pub :: lspRenderTraitMethods (-> Int Int String))
-
-(pub fn (lspRenderTraitMethods ms ind)
-  (let (
-    (parts vecNew)
-    (n (vecLen ms))
-    (mut i 0)
-  )
-    {
-      (while (< i n)
-        (let ((m (vecGet ms i)))
-          {
-            (vecPush parts (strConcat (strConcat (strConcat "\n" (lspPad ind)) (nodeAName m)) (strConcat " :: " (lspRenderType (nodeB m)))))
-            (set i (+ i 1))
-          }
-        ))
-      (catStrs parts)
-    }
-  )
-)
-
-; `(name expr)` per impl method, one per line.
-(pub :: lspRenderImplMethods (-> Int Int String))
-
-(pub fn (lspRenderImplMethods ms ind)
-  (let (
-    (parts vecNew)
-    (n (vecLen ms))
-    (mut i 0)
-  )
-    {
-      (while (< i n)
-        (let ((m (vecGet ms i)))
-          {
-            (vecPush parts (strConcat (strConcat (strConcat "\n" (lspPad ind)) (strConcat "(" (nodeAName m))) (strConcat (strConcat " " (lspRenderExpr (nodeB m) (+ ind 2))) ")")))
             (set i (+ i 1))
           }
         ))

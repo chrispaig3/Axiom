@@ -2409,6 +2409,33 @@
   (|| (strEq t "consume") (strEq t "begin"))
 )
 
+; The same rule in DECLARATION position, and the two words it names are
+; `trait` and `impl`.
+;
+; They had printers until 0.6.0, and that was the toolchain disagreeing
+; with itself in the direction this file can least afford. Measured on
+; the commit that reserved the keywords:
+; `(trait (Show a) where (show :: (-> a String)))` was `check` AX2004
+; and `fmt --check` "already formatted", exit 0; and
+; `(impl (Show Int) where ((show (lambda (x) \"n\"))))` was AX2004 and
+; `fmt` REWROTE IT - the formatter tidying a declaration no compiler in
+; this tree accepts. The syntax zoo could not have caught it, for the
+; reason `check-fmt.sh`'s own header records about `type`, `trait`,
+; `impl` and `foreign`: a corpus carries only what someone wrote into
+; it, and nobody writes a construct that has just been deleted.
+;
+; `fpIsDeclHead` still names both, deliberately. That predicate is what
+; routes a form to `fpDecl` at all, and a `trait` that stopped being a
+; declaration head would reach the EXPRESSION printer instead - which
+; prints call-shaped forms, so the refusal would quietly become a
+; rewrite again. The two lists answer different questions: this one is
+; "may it be printed", that one is "who prints it".
+(pub :: fpIsRemovedDeclHead (-> String Bool))
+
+(pub fn (fpIsRemovedDeclHead t)
+  (|| (strEq t "trait") (strEq t "impl"))
+)
+
 ; The operator spellings stage0's parser turns into expression values
 ; (`parse_expr_at_depth`'s token list), exactly and only. `$` lexes as
 ; the `!` token and prints as `!`. Any other operator run in
@@ -5208,374 +5235,6 @@
   )
 )
 
-(pub :: fpDeclTrait (-> Int Int Int))
-
-(pub fn (fpDeclTrait p n)
-  (let (
-    (src (fpSrc p))
-    (o (fpOut p))
-    (b (fpDeclBase src n))
-  )
-    (if (||
-      (< (fnLen n) (+ b 2))      (||
-        (!= (fnKind (fnKid n (+ b 1))) FN_PAREN)        (||
-          (!= (fnLen (fnKid n (+ b 1))) 2)          (||
-            (if (fpIsIdentAtom (fnKid (fnKid n (+ b 1)) 0))
-              false
-              true
-            )            (if (fpIsIdentAtom (fnKid (fnKid n (+ b 1)) 1))
-              false
-              true
-            )
-          )
-        )
-      )
-    )
-      (fpBad p)
-      ; Parse order is supertraits then effects then `where`;
-      ; print order is effects then supertraits - stage0's, kept
-      ; bug-for-bug (a trait with both cannot round-trip and is
-      ; refused by the idempotency check, there as here).
-      (let (
-        (hd (fnKid n (+ b 1)))
-        (mut i (+ b 2))
-        (mut supers 0)
-        (mut fx 0)
-        (mut methods 0)
-      )
-        {
-          (if (&& (< i (fnLen n)) (== (fnKind (fnKid n i)) FN_PAREN))
-            {
-              (set supers (fnKid n i))
-              (set i (+ i 1))
-            }
-            0
-          )
-          (if (&& (< i (fnLen n)) (== (fnKind (fnKid n i)) FN_PAREN))
-            {
-              (set fx (fnKid n i))
-              (set i (+ i 1))
-            }
-            0
-          )
-          (if (&& (< (+ i 1) (fnLen n)) (&& (fpIsAtomText src (fnKid n i) "where") (== (fnKind (fnKid n (+ i 1))) FN_PAREN)))
-            {
-              (set methods (fnKid n (+ i 1)))
-              (set i (+ i 2))
-            }
-            0
-          )
-          (if (!= i (fnLen n))
-            (fpBad p)
-            p
-          )
-          (fpP p "(")
-          (fpVis p n)
-          (fpP p "trait (")
-          (fpP p (fnText src (fnKid hd 0)))
-          (fpP p " ")
-          (fpP p (fnText src (fnKid hd 1)))
-          (fpP p ")")
-          (if (!= fx 0)
-            {
-              (fpP p " (")
-              (fpEffectAtoms p fx)
-              (fpP p ")")
-            }
-            p
-          )
-          (if (!= supers 0)
-            (let ((mut j 0))
-              {
-                (fpP p " (")
-                (while (< j (fnLen supers))
-                  {
-                    (if (> j 0)
-                      (fpP p " ")
-                      p
-                    )
-                    (fpType p (fnKid supers j))
-                    (set j (+ j 1))
-                  })
-                (fpP p ")")
-              }
-            )
-            p
-          )
-          (if (!= methods 0)
-            (fpTraitMethods p methods)
-            p
-          )
-          (fpP p ")")
-        }
-      )
-    )
-  )
-)
-
-(pub :: fpTraitMethods (-> Int Int Int))
-
-(pub fn (fpTraitMethods p methods)
-  (let (
-    (src (fpSrc p))
-    (o (fpOut p))
-    (elems (fpExprElems methods 0))
-    (mut i 0)
-    (mut nth 0)
-    (mut afterTag 0)
-  )
-    {
-      (fpP p " where (")
-      (fpP p "\n")
-      (foPushIndent o)
-      (while (< i (vecLen elems))
-        ; An AXTAG atom here declares the effects of the method that
-        ; FOLLOWS it - a trait method's default body can carry one since
-        ; 2026-08-25. The arm below demands an identifier, so every one
-        ; of them reached `fpBad` and refused the whole FILE with the
-        ; least informative message in the toolchain. Same shape, and
-        ; same fix, as the `impl` member loop in `fpDeclImpl` below.
-        (if (fpIsAxtagAtom (vecGet elems i))
-          {
-            (if (&& (> nth 0) (== afterTag 0))
-              (fpP p "\n")
-              p
-            )
-            (foEmitIndent o)
-            (fpAxtag p (fnTok (vecGet elems i)))
-            (fpP p "\n")
-            (set afterTag 1)
-            (set i (+ i 1))
-          }
-        (if (&&
-          (fpIsIdentAtom (vecGet elems i))          (&&
-            (< (+ i 2) (+ (vecLen elems) 1))            (if (< (+ i 1) (vecLen elems))
-              (fpIsDColonAtom (vecGet elems (+ i 1)))
-              false
-            )
-          )
-        )
-          (if (< (+ i 2) (vecLen elems))
-            {
-              (if (&& (> nth 0) (== afterTag 0))
-                (fpP p "\n")
-                p
-              )
-              (set afterTag 0)
-              (foEmitIndent o)
-              (fpP p (fnText src (vecGet elems i)))
-              (fpP p " :: ")
-              (fpType p (vecGet elems (+ i 2)))
-              (set i (+ i 3))
-              ; Optional `= default`, then an optional effect list.
-              (if (&& (< (+ i 1) (vecLen elems)) (fpIsAtomText src (vecGet elems i) "="))
-                {
-                  (fpP p " = ")
-                  (fpExpr p (vecGet elems (+ i 1)))
-                  (set i (+ i 2))
-                }
-                p
-              )
-              (if (&& (< i (vecLen elems)) (== (fnKind (vecGet elems i)) FN_PAREN))
-                {
-                  (fpP p " (")
-                  (fpEffectAtoms p (vecGet elems i))
-                  (fpP p ")")
-                  (set i (+ i 1))
-                }
-                p
-              )
-              (set nth (+ nth 1))
-            }
-            {
-              (fpBad p)
-              (set i (vecLen elems))
-            }
-          )
-          {
-            (fpBad p)
-            (set i (vecLen elems))
-          }
-        )))
-      (foPopIndent o)
-      (fpP p "\n")
-      (foEmitIndent o)
-      (fpP p ")")
-    }
-  )
-)
-
-(pub :: fpDeclImpl (-> Int Int Int))
-
-(pub fn (fpDeclImpl p n)
-  (let (
-    (src (fpSrc p))
-    (o (fpOut p))
-    (b (fpDeclBase src n))
-  )
-    (if (||
-      (< (fnLen n) (+ b 2))      (||
-        (!= (fnKind (fnKid n (+ b 1))) FN_PAREN)        (||
-          (!= (fnLen (fnKid n (+ b 1))) 2)          (if (fpIsIdentAtom (fnKid (fnKid n (+ b 1)) 0))
-            false
-            true
-          )
-        )
-      )
-    )
-      (fpBad p)
-      (let (
-        (hd (fnKid n (+ b 1)))
-        (mut i (+ b 2))
-        (mut fx 0)
-        (mut methods 0)
-      )
-        {
-          (if (&& (< i (fnLen n)) (== (fnKind (fnKid n i)) FN_PAREN))
-            {
-              (set fx (fnKid n i))
-              (set i (+ i 1))
-            }
-            0
-          )
-          (if (&& (< (+ i 1) (fnLen n)) (&& (fpIsAtomText src (fnKid n i) "where") (== (fnKind (fnKid n (+ i 1))) FN_PAREN)))
-            {
-              (set methods (fnKid n (+ i 1)))
-              (set i (+ i 2))
-            }
-            0
-          )
-          (if (!= i (fnLen n))
-            (fpBad p)
-            p
-          )
-          (fpP p "(")
-          (fpVis p n)
-          (fpP p "impl (")
-          (fpP p (fnText src (fnKid hd 0)))
-          (fpP p " ")
-          (fpType p (fnKid hd 1))
-          (fpP p ")")
-          (if (!= fx 0)
-            {
-              (fpP p " (")
-              (fpEffectAtoms p fx)
-              (fpP p ")")
-            }
-            p
-          )
-          (if (!= methods 0)
-            (let (
-              (mut j 0)
-              (mut afterTag 0)
-            )
-              {
-                (fpP p " where (")
-                (fpP p "\n")
-                (foPushIndent o)
-                (while (< j (fnLen methods))
-                  (let ((m (fnKid methods j)))
-                    ; An AXTAG atom here is a member's effect
-                    ; DECLARATION, not a malformed member. Impl members
-                    ; can carry `;@axiom:` tags since 2026-08-25, and
-                    ; this loop refused every one of them: the kid is an
-                    ; ATOM, the arm below demands FN_PAREN, and `fpBad`
-                    ; refuses the whole FILE. `axiom fmt` reported only
-                    ; "formatter refusal", so a correct program became
-                    ; unformattable with the least informative message
-                    ; in the toolchain - the same shape the declaration
-                    ; -macro arm of `fpDecl` records having had.
-                    ;
-                    ; `afterTag` suppresses the blank line between a tag
-                    ; and the member it belongs to, so the pair prints
-                    ; the way it was written.
-                    (if (fpIsAxtagAtom m)
-                      {
-                        (if (&& (> j 0) (== afterTag 0))
-                          (fpP p "\n")
-                          p
-                        )
-                        (flushLeading src (fpQ p) o (fnStart m))
-                        (foEmitIndent o)
-                        (fpAxtag p (fnTok m))
-                        (fpP p "\n")
-                        (set afterTag 1)
-                        (set j (+ j 1))
-                      }
-                    (if (!= (fnKind m) FN_PAREN)
-                      {
-                        (fpBad p)
-                        (set j (fnLen methods))
-                      }
-                      (let ((melems (fpExprElems m 0)))
-                        (if (||
-                          (!= (vecLen melems) 2)                          (if (fpIsIdentAtom (vecGet melems 0))
-                            false
-                            true
-                          )
-                        )
-                          {
-                            (fpBad p)
-                            (set j (fnLen methods))
-                          }
-                          (let ((mbody (vecGet melems 1)))
-                            {
-                              (if (&& (> j 0) (== afterTag 0))
-                                (fpP p "\n")
-                                p
-                              )
-                              (set afterTag 0)
-                              ; The comment queue is threaded through
-                              ; the members, not around them. Without
-                              ; this an ordinary comment written inside
-                              ; an `impl` stayed queued until the
-                              ; module ended and was re-emitted AFTER
-                              ; the impl - moved out of the block it
-                              ; was written in, which the round-trip
-                              ; check cannot see because the text and
-                              ; the count both survive.
-                              (flushLeading src (fpQ p) o (fnStart m))
-                              (foEmitIndent o)
-                              (fpP p "(")
-                              (fpP p (fnText src (vecGet melems 0)))
-                              (if (isSimpleForm src mbody)
-                                {
-                                  (fpP p " ")
-                                  (fpExpr p mbody)
-                                }
-                                {
-                                  (fpP p "\n")
-                                  (foPushIndent o)
-                                  (foEmitIndent o)
-                                  (fpExpr p mbody)
-                                  (foPopIndent o)
-                                  (fpP p "\n")
-                                  (foEmitIndent o)
-                                }
-                              )
-                              (fpP p ")")
-                              (set j (+ j 1))
-                            }
-                          )
-                        )
-                      )
-                    )
-                  )))
-                (foPopIndent o)
-                (fpP p "\n")
-                (foEmitIndent o)
-                (fpP p ")")
-              }
-            )
-            p
-          )
-          (fpP p ")")
-        }
-      )
-    )
-  )
-)
-
 ; `(extern "lib" (name :: Type (symbol "s")) ...)` - the Rust FFI
 ; binding block (docs/ffi.md).
 ;
@@ -5888,25 +5547,26 @@
                 (fpDeclStruct p n)
                 (if (strEq h "type")
                   (fpDeclType p n)
-                  (if (strEq h "trait")
-                    (fpDeclTrait p n)
-                    (if (strEq h "impl")
-                      (fpDeclImpl p n)
-                      (if (strEq h "effect")
-                        (fpDeclEffect p n)
-                        (if (strEq h "extern")
-                          (fpDeclExtern p n)
-                          (if (strEq h "macro")
-                            (fpDeclMacro p n)
-                            ; Any other head is a DECLARATION MACRO INVOCATION (the parser's
-                            ; TAG_D_MACROCALL since 2026-08-14), printed through the
-                            ; expression printer - which already normalises spacing and glues
-                            ; qualified names - because an invocation IS call-shaped. This
-                            ; used to be `fpBad`, so every file using the feature was
-                            ; unformattable with the least informative refusal in the
-                            ; toolchain.
-                            (fpExpr p n)
-                          )
+                  (if (fpIsRemovedDeclHead h)
+                    ; A REMOVED declaration keyword: refused, not
+                    ; printed. `fpIsRefusedHead` is this rule in
+                    ; expression position; this is the declaration
+                    ; half, and it arrived four commits late.
+                    (fpBad p)
+                    (if (strEq h "effect")
+                      (fpDeclEffect p n)
+                      (if (strEq h "extern")
+                        (fpDeclExtern p n)
+                        (if (strEq h "macro")
+                          (fpDeclMacro p n)
+                          ; Any other head is a DECLARATION MACRO INVOCATION (the parser's
+                          ; TAG_D_MACROCALL since 2026-08-14), printed through the
+                          ; expression printer - which already normalises spacing and glues
+                          ; qualified names - because an invocation IS call-shaped. This
+                          ; used to be `fpBad`, so every file using the feature was
+                          ; unformattable with the least informative refusal in the
+                          ; toolchain.
+                          (fpExpr p n)
                         )
                       )
                     )
