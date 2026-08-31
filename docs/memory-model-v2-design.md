@@ -7,15 +7,40 @@ moves there. It follows the convention
 every claim below carries the command that established it, and the
 claims that are *not* measured say so in the same sentence.
 
-It answers a narrower question than its title. Two decisions were taken
-before it was written, and the note argues from them rather than for
-them:
+It answers a narrower question than its title. Three decisions were
+taken rather than argued for, and the note reasons from them:
 
 - the mechanism is **typed regions**, declared rather than inferred —
   Ada's accessibility rules rather than Rust's lifetime inference;
 - concurrency is **one surface with two lowerings** — threads inside a
   process, processes across, the same source and the same determinism
-  guarantee under both.
+  guarantee under both;
+- **typed regions are the destination, S3 included** (2026-08-31).
+  This note's own §5 was written as a case for deferring the
+  type-system stage until three probes had been run. That was a
+  recommendation and it was overruled: the direction is settled, and
+  §5's probes now **size** S3 rather than decide whether it happens.
+
+**What that decision is buying, and it is better than it looked when
+the decision was taken.** §5's probes 1 and 2 were run the same day and
+both came back for the design; only probe 3, which is S4's own gate,
+remains. The measurement in §1.1 that cuts the other way still stands —
+counting buys a **2.4×** reduction in peak RSS for **no wall-clock cost
+this machine could measure** — but the scaling argument now rests on a
+measurement rather than on an expectation (§5, probe 2, run
+2026-08-31 over the IR that `scripts/check-static-release.sh` counts):
+**69.7–80.8%** of the call-result
+releases have no escape channel out of their function, so a region
+model takes this compiler's release traffic from 10,849 sites to
+roughly **1,300–1,900** (§5, probe 2).
+
+The safety argument does not depend on any of that and is not in doubt:
+two of the arena's three program obligations are unchecked today
+(§1.3), the surface syntax for scoping was deleted on the strength of
+an inference that was then withdrawn (§1.4), and typed regions make
+`MM-PAR-6`'s "no cross-thread reference" a corollary rather than a
+second system (§3.2). Those are the reasons to build this that were
+already measured when the decision was taken.
 
 Rule identifiers below are proposed, marked **(D)** for *design*, and
 belong to a new `MM-RGN-*` series. None is normative and none appears
@@ -406,7 +431,7 @@ gate below follows it.
 
 | # | Stage | Cost | Gate |
 |---|---|---|---|
-| **S0** | **Stop emitting the 5,762 no-op releases** on static literals (§1.2) | one compile-time test on the operand's definition; no rule, no type change | the emitted IR for a fixture with N string literals contains no `axiom_release` on a `@strhdr_*`; ablate by restoring it and counting them back |
+| **S0** | **DONE 2026-08-31. Stop emitting the 5,762 no-op releases** on static literals (§1.2) | one compile-time test on the operand's definition; no rule, no type change | `scripts/check-static-release.sh`. 5,762 static releases became **5**, total release sites 10,849 -> 5,117, the compiler binary 5.6% smaller, emitted output byte-identical. The gate ablates `isStaticSentinelNode`'s answer, rebuilds, and requires the count back in the thousands — and asserts separately that a join over a literal still gives its share back, which is the trap the obvious one-line fix falls into |
 | S1 | `MM-ALLOC-16`/`16b` become checked, as `16a` did | one branch each, same shape as `emitBadMarkTrap` | a fixture per obligation, exit 75, beside the legal shape that must stay silent |
 | S2 | `region` returns as a **checked scope with no types yet** — mark/reset, names scope-checked, `AX2004`'s false advice deleted | parser + a scope check; no typechecker change | a value used after its region's reset is refused; ablate by accepting it and reading freed memory, which is §1.4's measured behaviour today |
 | S3 | Region-parameterised types and `MM-RGN-3` | the real work: typecheck, the witness of §2.5 | `tests/diagnostics/*` per escape shape, plus the two-region corpus sweep of §5 |
@@ -425,22 +450,67 @@ diagnostic stop advertising a model that was withdrawn.
 Stated as probes, because this note's own §1.1 is an example of a
 number that did not survive being taken twice.
 
-1. **The two-region sweep, not yet run.** §2.4 claims the common case
-   carries no annotation. The probe: over `self_host/`, `stdlib/` and
-   `tests/**`, count functions that would need to *relate* two regions —
-   one that reads a short-lived value and stores a derivative into a
-   longer-lived structure. `intern`, `Map` insertion and the AST
-   builders are the candidates. If that count is large, `MM-RGN-4`'s
-   default is wrong and v2 is an annotation burden.
-2. **What the 4,636 call-result releases actually hold.** §1.2 shows
-   42.7% of releases are on callee-allocated values. `MM-RGN-6` wins
-   only if those values do not escape the caller's region. Nobody has
-   measured the escape fraction; `inferOwnership`/`inferFlows` already
-   compute something close and are the place to ask.
+**These size S3; they no longer decide it** — see the decision recorded
+in §0. Probe 1 sets how much annotation the design costs a reader,
+probe 2 sets how much traffic it can actually delete, and probe 3 is
+S4's own gate. A bad answer to probe 2 does not now cancel the work; it
+narrows what the work is allowed to claim.
+
+1. **The two-region sweep — RUN 2026-08-31, and it comes back with two
+   numbers rather than one.** §2.4 claims the common case carries no
+   annotation. A structural proxy over 5,841 `fn` declarations in 575
+   files — a store whose *target* arrives through one parameter and
+   whose *value* derives from a different one — finds **349, 5.98%**,
+   and a hand audit of a 40-function sample narrows the real figure to
+   **3.5–5.2%**. 52.8% of declarations cannot need an annotation for
+   the trivial reason that they take fewer than two parameters, and
+   `stdlib/` pays only 36 of the 349 — the containers are written once
+   and instantiated everywhere, which is the shape the ergonomics claim
+   wants.
+
+   **The second number is the risk and it belongs beside the first.**
+   Region polymorphism instantiates at the call site, so a caller whose
+   arguments share a region writes nothing — but a caller *itself*
+   split across two regions must name them, and that propagates.
+   Following the relation up the call graph reaches **1,006
+   declarations, 17.2% of the corpus and 29.9% of `self_host/`** —
+   `substTpl`, `expandExpr`, `emitExpr`, `emitDiag`, `walkEffects`, the
+   compiler's main spines. 5.98% and 29.9% are the two ends of the real
+   answer, and which end a program lands on depends on how deep a
+   region split it actually makes. Today's corpus cannot say, because
+   there is no region in it to split on. §2.4 is not refuted; it is no
+   longer free, and it may not be quoted without this paragraph.
+
+2. **The escape fraction — RUN 2026-08-31, and it carries the scaling
+   argument.** Of the **4,668** releases on call results in the
+   compiler's own IR, between **69.7% and 80.8%** are on values with no
+   escape channel out of their function — string-concatenation
+   intermediates, overwhelmingly. The claim this probe was set against,
+   "if most of those values escape, typed regions delete very little",
+   is **falsified**: most do not escape. With the static-literal fix of
+   S0 already landed, a region model takes the release traffic from
+   10,849 sites to roughly **1,300–1,900**.
+
+   **Two things it does not license.** The residue is not noise, it is
+   the design's hard case: `vecPush`, `memSetWord`, `mkNodeAt`, a
+   short-lived value stored into a longer-lived structure — verbatim
+   the shape probe 1 says makes `MM-RGN-4`'s default wrong, and it puts
+   a floor of about **840 release sites** that genuinely relate two
+   regions. And the census is drawn from a **biased sample, biased in
+   the flattering direction**: because `Vec`, `Map` and `Intern`
+   declare their handles `Int`, **595** call-allocated values are
+   published into containers and struct fields with *no retain and no
+   release at all*. They escape, and they are invisible to this count
+   because the ownership events that would have shown them never fire.
+   That is `MM-ALLOC-20`'s prerequisite arriving from a third
+   direction, and it means S3 lands on a substrate where the containers
+   are still outside the model.
+
 3. **Whether the RSS survives S4.** §1.1's ablation deleted the
    releases and lost 2.4× on peak RSS. The design's whole claim is that
-   a region reset returns that memory in one pointer move. Unmeasured
-   until S4 exists, and S4's gate is exactly this measurement.
+   a region reset returns that memory in one pointer move. **Still
+   unmeasured** — it is the one probe that needs S4 to exist, and S4's
+   gate is exactly this measurement.
 4. **The wall-clock question is open**, per §1.1. An idle machine, best
    of N, interleaved arms.
 

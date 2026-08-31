@@ -15126,7 +15126,7 @@
     cg
     (let ((cls (fnResultClass cg fnName)))
       (if (|| (== cls 0) (== cls 2))
-        (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0)))))
+        (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0))))))
           ; the callee parks nothing of a typed arrival
           ; there, and answers no part of it that the caller
           ; now holds instead - and an immediate (`Nil`)
@@ -15142,6 +15142,49 @@
         )
         cg
       )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; A STATIC SENTINEL: a value whose count word is `-1`, so releasing it
+; loads a count, compares it against `-1` and returns having done
+; nothing. `emitStrExpr` emits the only one - a bare string literal is
+; the address of a `@strhdr_*` constant, and `MM-LIFE-2b`'s header sits
+; at handle-16 with `-1` where a heap block has its count.
+;
+; This is the sibling of `isNullaryConNode` beside it and it is applied
+; the same way and for the same reason: that rule already excludes an
+; immediate from an argument release because "an immediate (`Nil`) has
+; nothing to give back". Neither does a static.
+;
+; IT IS NOT `valueOwnedRef` ANSWERING 0, and the difference is the whole
+; care in this change. That predicate answers 1 for `TAG_E_STR` on
+; purpose - its own comment says "a static: immortal, and releasing it
+; is a no-op, so a branch answering one does not stop the join being
+; owned" - because `(if c "lit" (mkStr))` has to stay owned for the
+; OTHER branch's share to be given back. Answering 0 there would silence
+; this release and leak that one. So the question is asked here, at the
+; emission of a release for a value that IS the literal, and the join
+; reasoning is untouched.
+;
+; Measured before this existed, over the compiler's own emitted IR
+; (`emit-llvm self_host/main.ax`, 197,562 lines, 3,469 functions):
+; 5,762 of the 10,849 `axiom_release` call sites released a `@strhdr_*`
+; literal - 53.1% of the release traffic in the largest Axiom program
+; there is, every one of them a call that cannot free anything.
+; Ablating them out of the IR by hand gave byte-identical output from
+; the rebuilt compiler, a 5.3% smaller binary, and peak RSS at or below
+; baseline, which is the arithmetic: deleting a call that frees nothing
+; cannot cost memory.
+(pub :: isStaticSentinelNode (-> Int Int Int))
+
+(pub fn (isStaticSentinelNode cg e)
+  (if (== e 0)
+    0
+    (if (== (nodeTag e) TAG_E_STR)
+      1
+      0
     )
   )
 )
@@ -16223,7 +16266,7 @@
             ))
               (let ((cgS (storeWordAt cgR ptr (+ base i) reg)))
                 (let ((cgT 
-                  (if (&& (== rc 1) (== (valueOwnedRef cgS argNode) 1))
+                  (if (&& (== rc 1) (&& (== (isStaticSentinelNode cgS argNode) 0) (== (valueOwnedRef cgS argNode) 1)))
                     (emitReleaseOf cgS reg)
                     cgS
                   )

@@ -106,6 +106,82 @@ own text says region inference "is why `region` was deleted from the
 surface syntax". The note's probe is a ```scheme refused block, so the
 documentation sweep now asserts the refusal instead of quoting it.
 
+### 53.1% of the release traffic could not free anything
+
+Classifying all 10,849 `axiom_release` call sites in the compiler's own
+emitted IR (`axiom emit-llvm self_host/main.ax`, 197,562 lines, 3,469
+functions) by what DEFINES the value released:
+
+```
+5762  53.1%  a static string literal (@strhdr_*)
+4636  42.7%  the result of a call (callee-allocated, owned)
+ 338   3.1%  a load - a field or a frame slot
+ 110   1.0%  a phi
+   3   0.0%  a parameter (borrowed)
+```
+
+A bare string literal is the address of a `@strhdr_*` constant whose
+count word is `MM-LIFE-2b`'s static sentinel `-1`, so `@axiom_release`
+on it loads a count, compares it against `-1`, and returns having done
+nothing. Over half the release traffic in the largest Axiom program
+there is was that call, and the operand's definition said so at compile
+time.
+
+`isStaticSentinelNode` in `self_host/codegen.ax` now answers that
+question at the two sites that emit a release for a value which IS the
+literal — `releaseOwnedArgs` in argument position, and the
+block-construction field store. **5,762 static releases become 5**,
+total release sites go **10,849 → 5,117**, and the compiler binary is
+**5.6% smaller** — the by-hand IR ablation reported above measured
+5.3% for deleting those calls out of the IR alone — with the emitted
+output byte-identical. The five that survive are named rather than
+rounded away: release paths that hold no AST node to ask.
+
+It needed no region, no type change and no new rule, which is why it is
+reported apart from the design note it fell out of. It is a
+compile-time test on the operand's definition — Stage 0 of that note's
+staging table, and the only stage of it that is a fix rather than a
+plan.
+
+**The obvious one-line version of this is wrong, and the gate is shaped
+around saying so.** `valueOwnedRef` answers 1 for `TAG_E_STR` on
+purpose: its own comment says a static is "immortal, and releasing it
+is a no-op, so a branch answering one does not stop the join being
+owned". Making it answer 0 would delete all 5,762 in a single edit and
+silently leak — `(if c "lit" (mkStr))` is owned BECAUSE the literal arm
+answers 1, and the other branch's share is given back only while the
+join stays owned. Whether a value is a static and whether a join over
+it is owned are two questions, so `scripts/check-static-release.sh`
+asserts the second separately: a join fixture must still emit a
+release, and none of its releases may be on the literal. That check is
+there to fail the day someone simplifies this.
+
+The rest of the gate: a fixture placing literals in both guarded
+positions must emit zero static releases, with a floor of two
+`@strhdr_*` headers so a fixture that stopped emitting literals fails
+instead of passing; the compiler's own IR must stay at or under 20
+static releases over at least 2,000 headers; and the ablation flips
+`isStaticSentinelNode`'s answer for `TAG_E_STR` from 1 to 0 — the
+predicate still exists and still runs, it just never fires — rebuilds
+the compiler from that tree, and requires the count back into the
+thousands. A count no ablation can move is not evidence.
+
+It is the fiftieth gate to call `gate_build_axc`, so the six places
+that state that number were moved with it — `scripts/lib/gate.sh`,
+`scripts/build-shared-axc.sh`, `scripts/check-gate-lib.sh`,
+`.github/workflows/ci.yml`, `CONTRIBUTING.md` and this file — and
+`word_for`'s table grew an arm so the stale-spelling sweep covers
+**fifty gates** rather than stopping one short of the live count. That
+sweep derives its upper bound from the table, so it extended itself;
+the six edits are the part that does not.
+
+**No wall-clock claim is made here either.** The two compilers were
+timed and the arms interleaved; there is no finding in either
+direction, so none is recorded. The by-hand ablation's peak RSS at or
+below baseline, reported above, is arithmetic rather than luck — a call
+that frees nothing cannot cost memory — and it says nothing either way
+about speed.
+
 ## 0.6.1 — 2026-08-31
 
 - **A program contains only what it uses.** A hello world was a

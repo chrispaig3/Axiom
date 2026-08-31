@@ -212,7 +212,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Forty-nine of the gates below build the compiler under test from
+    # Fifty of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -640,6 +640,35 @@ jobs:
       # did not.
       - name: A closure chain's intermediate record is reclaimed, and one word in each walker is what does it
         run: ./scripts/check-closure-reclaim.sh
+
+      # And the release traffic that could not free anything. Measured
+      # 2026-08-31 over the compiler's own emitted IR (`emit-llvm
+      # self_host/main.ax`, 197,562 lines, 3,469 functions), by
+      # classifying every release site by what DEFINES the value it
+      # releases: 5,762 of 10,849 - 53.1% - were static string
+      # literals. A bare literal is the address of a `@strhdr_*`
+      # constant whose count word is the sentinel -1, so
+      # `@axiom_release` loads a count, compares it against -1, and
+      # returns. Over half the release traffic in the largest Axiom
+      # program there is, doing nothing, and the operand's definition
+      # said so at compile time. 5762 -> 5 now, the residue from
+      # release paths that hold no AST node to ask; 10,849 -> 5,117
+      # sites in total, with emitted output byte-identical.
+      #
+      # The obvious fix - `valueOwnedRef` answering 0 for `TAG_E_STR` -
+      # is the wrong one, and assertion 2 is what keeps that honest.
+      # That predicate answers 1 on purpose, so `(if c "lit" (mkStr))`
+      # stays owned and the OTHER branch's share is still given back;
+      # answering 0 silences this release and LEAKS that one. So
+      # `isStaticSentinelNode` is asked at the two sites that emit a
+      # release for a value that IS the literal - argument position and
+      # the block-construction field store - and the join reasoning is
+      # untouched. The ablation turns the predicate's answer off,
+      # rebuilds the compiler from the ablated tree and requires the
+      # count back in the thousands: a count no ablation can move is
+      # not evidence.
+      - name: A release on a static string literal is not emitted, and one predicate is what does it
+        run: ./scripts/check-static-release.sh
 
       # The effect fixpoint's worklist. One round of two passes in
       # opposite directions collapses a linear chain in either
