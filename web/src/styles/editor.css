@@ -153,3 +153,11 @@
 .hero__out-label {
   white-space: nowrap;
 }
+
+/* The hero's run strip is not nested inside a code frame the way the
+   showcase's is, so it needs the frame's own edges rather than just the
+   dividing line it would otherwise inherit. */
+.hero__panel > .code__out {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}

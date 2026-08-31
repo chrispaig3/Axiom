@@ -968,8 +968,10 @@
   color: var(--text-3);
   font-family: var(--font-mono);
   font-size: var(--t--2);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  /* NOT uppercase. This used to read `STDOUT`, where small caps were the
+     point; it reads `$ axiom run shapes.ax` now, and a shell command
+     shouted back in capitals is a different command. */
   padding-top: 1px;
 }
 

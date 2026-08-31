@@ -60,7 +60,7 @@ const reducedMotion = () =>
  * whole sequence collapses to the finished state, and the text is in the
  * DOM either way, so a screen reader never waits for an animation.
  */
-function RunOutput({ tab, output }: { tab: string; output: string }) {
+export function RunOutput({ tab, output }: { tab: string; output: string }) {
   const lines = useMemo(() => output.split('\n'), [output])
   const [shown, setShown] = useState(() => (reducedMotion() ? lines.length : 0))
   const [busy, setBusy] = useState(() => !reducedMotion())

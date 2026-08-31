@@ -1,6 +1,6 @@
 import { HERO } from '../data/samples.ts'
 import { INSTALL_CMD, REPO, VERSION } from '../data/site.ts'
-import { Code } from '../components/Code.tsx'
+import { Code, RunOutput } from '../components/Code.tsx'
 import { Command } from '../components/Command.tsx'
 import { ArrowRight, GitHub } from '../components/Icons.tsx'
 
@@ -52,12 +52,7 @@ export function Hero() {
             badge="a whole program"
             numbered
           />
-          <div className="hero__out" role="group" aria-label="Program output">
-            <span className="hero__out-label">
-              <span className="code__out-prompt">$</span> axiom run shapes.ax
-            </span>
-            <pre>{HERO.result}</pre>
-          </div>
+          <RunOutput tab="shapes.ax" output={HERO.result ?? ''} />
         </div>
       </div>
     </section>
