@@ -44,3 +44,14 @@ __pycache__/
 # cargo, which is the same property scripts/bootstrap-from-seed.sh has.
 rust/target/
 rust/examples/*/target/
+
+# The website under `web/`. `package-lock.json` is NOT here and is
+# committed, for the reason the tree-sitter lockfile above is: the Pages
+# workflow runs `npm ci`, which cannot run without one, and a build that
+# resolves its own dependency versions is not reproducible.
+web/node_modules/
+web/dist/
+web/.smoke-entry.tsx
+web/.smoke-bundle.mjs
+web/.tok-entry.ts
+web/.tok-bundle.mjs

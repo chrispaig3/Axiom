@@ -1,0 +1,333 @@
+/* ---------------------------------------------------------------- *
+ * The lede block
+ *
+ * One device for every section opener, with a numbered index in the
+ * margin instead of a coloured badge. Repeating a badge + heading +
+ * paragraph band at every scroll stop is what makes a page read as a
+ * template; a running number reads as a document.
+ * ---------------------------------------------------------------- */
+
+.lede-block {
+  position: relative;
+  max-width: 60ch;
+  margin-bottom: var(--s-7);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--text);
+}
+
+.lede-block h2 {
+  margin-top: var(--s-4);
+}
+
+.lede-block p {
+  margin-top: var(--s-4);
+  margin-bottom: 0;
+  font-size: var(--t-1);
+  line-height: 1.6;
+}
+
+.index {
+  display: block;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+.index--violet {
+  color: var(--violet);
+}
+
+@media (min-width: 901px) {
+  .lede-block--sticky {
+    position: sticky;
+    top: calc(var(--nav-h) + var(--s-6));
+    margin-bottom: 0;
+  }
+}
+
+.split--narrow .lede-block {
+  margin-bottom: 0;
+}
+
+/* ---------------------------------------------------------------- *
+ * The measured table
+ * ---------------------------------------------------------------- */
+
+.bench {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: clamp(var(--s-5), 3vw, var(--s-7));
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .bench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.bench table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench thead th {
+  padding: 0 var(--s-4) var(--s-3);
+  border-bottom: 1px solid var(--text);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-align: right;
+}
+
+.bench thead th:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+
+.bench tbody th {
+  padding: var(--s-4) var(--s-4) var(--s-4) 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--t--1);
+  font-weight: 560;
+  text-align: left;
+}
+
+.bench tbody th span {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 400;
+}
+
+.bench tbody td {
+  padding: var(--s-4);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t--1);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bench .bench__ax {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.bench__notes {
+  display: grid;
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bench__notes li {
+  margin: 0;
+  padding-left: var(--s-5);
+  border-left: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: var(--t--1);
+  line-height: 1.6;
+}
+
+.bench__notes li span {
+  display: block;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bench__method {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.9fr);
+  gap: clamp(var(--s-5), 3vw, var(--s-7));
+  align-items: start;
+  margin-top: var(--s-7);
+  padding-top: var(--s-6);
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 900px) {
+  .bench__method {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.bench__method h3 {
+  margin-bottom: var(--s-3);
+  font-size: var(--t-1);
+}
+
+.bench__method p {
+  font-size: var(--t--1);
+}
+
+/* ---------------------------------------------------------------- *
+ * Three editorial columns
+ * ---------------------------------------------------------------- */
+
+.cols {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(var(--s-5), 3vw, var(--s-7));
+}
+
+@media (max-width: 900px) {
+  .cols {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-6);
+  }
+}
+
+.cols__col {
+  display: grid;
+  gap: var(--s-4);
+  align-content: start;
+  padding-top: var(--s-4);
+  border-top: 2px solid var(--accent);
+}
+
+.cols__col:nth-child(2) {
+  border-top-color: var(--violet);
+}
+
+.cols__col:nth-child(3) {
+  border-top-color: var(--border-strong);
+}
+
+.cols__col h3 {
+  font-size: var(--t-2);
+}
+
+.cols__col > p {
+  margin: 0;
+  font-size: var(--t--1);
+  line-height: 1.62;
+}
+
+.cols__col ul {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cols__col li {
+  position: relative;
+  margin: 0;
+  padding-left: var(--s-4);
+  color: var(--text-3);
+  font-size: var(--t--2);
+  line-height: 1.6;
+}
+
+.cols__col li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 6px;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+/* ---------------------------------------------------------------- *
+ * Editor support — a thin band, not a section
+ * ---------------------------------------------------------------- */
+
+.editors {
+  padding-block: var(--s-7);
+  border-top: 1px solid var(--border);
+  background: var(--bg-alt);
+}
+
+.editors__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 0.55fr) minmax(0, 1.45fr);
+  gap: clamp(var(--s-5), 4vw, var(--s-8));
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .editors__inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-5);
+  }
+}
+
+.editors h2 {
+  font-size: var(--t-2);
+  letter-spacing: -0.018em;
+}
+
+.editors__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: var(--s-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editors__list li {
+  margin: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+}
+
+.editors__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-5);
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .editors__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.editors__facts dt {
+  margin-bottom: var(--s-2);
+  color: var(--text);
+  font-size: var(--t--1);
+  font-weight: 560;
+}
+
+.editors__facts dt code {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+}
+
+.editors__facts dd {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--t--2);
+  line-height: 1.62;
+}
+
+.editors__note {
+  grid-column: 1 / -1;
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--border);
+}
