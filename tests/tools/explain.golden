@@ -342,9 +342,17 @@ changed by accident.
 Add `mut` at the declaration, or - usually better - compute the value
 you want with a `let` rather than mutating one you already have.
 
-Only a whole local can be assigned. Function parameters, pattern
-bindings and top-level declarations are never mutable, and structure
-fields are written with `memSetWord` instead.
+Function parameters, pattern bindings and top-level declarations are
+never mutable, and no marker makes them so.
+
+The same code refuses a store into a STRUCT FIELD whose declaration
+does not mark it `mut`. A field is immutable by default, exactly as a
+binding is: `(set p.x 9)` needs `(mut x : Int)` on the struct, and
+`mut` on the binding that holds `p` has nothing to do with it. Only
+the last segment of a path is governed - `(set a.b.c v)` needs `c`
+declared `mut` and says nothing about `b`, because the store mutates
+the value `b` points at rather than the `b` slot. `memSetWord` writes
+a block by word index and is outside the rule.
 
 ### explain AX3013
 AX3013 - partial application is not supported

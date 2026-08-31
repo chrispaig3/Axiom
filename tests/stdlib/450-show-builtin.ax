@@ -72,7 +72,7 @@
 
 (struct Cell
   (v : Int)
-  (next : (Option Cell)))
+  (mut next : (Option Cell)))
 
 (data Wrap
   (Wrap Point Colour (Option String)))

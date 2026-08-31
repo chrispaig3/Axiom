@@ -1,0 +1,54 @@
+; expect 42
+; A `mut` field still writes, and the marker is the only thing that
+; makes it legal: `mut` on a field became a checked constraint on
+; 2026-08-31 (AX3012, docs/memory-model.md MM-MUT-2a), and this is the
+; RUNTIME half of that landing - 560 pins the store's value rule, this
+; pins that enforcement did not break the store itself.
+;
+; Four properties, one exit status, so a regression in any of them
+; moves the number:
+;
+;   1  a `mut` field takes a store, through an IMMUTABLE `let`
+;      binding: mutability of the binding and of the field are
+;      different markers governing different operations   (7 -> 30)
+;   2  a plain field beside it still READS                 (+ 2)
+;   3  only the LAST segment of a path is governed: `inn` carries no
+;      `mut` and `(set o.inn.v ...)` is legal              (+ 9)
+;   4  the store reaches through a PARAMETER - a callee's write to a
+;      `mut` field is visible to its caller                (+ 1)
+;
+; 30 + 2 + 9 + 1 = 42.
+(struct M
+  (mut a : Int)
+  (b : Int))
+
+(struct Inner
+  (mut v : Int))
+
+(struct Outer
+  (inn : Inner))
+
+(:: bumpInner (-> Outer Int))
+
+(fn (bumpInner o)
+  {
+    (set o.inn.v (+ o.inn.v 1))
+    0
+  }
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (m (M 7 2))
+    (o (Outer (Inner 8)))
+  )
+    {
+      (set m.a 30)
+      (set o.inn.v 9)
+      (bumpInner o)
+      (+ (+ m.a m.b) o.inn.v)
+    }
+  )
+)

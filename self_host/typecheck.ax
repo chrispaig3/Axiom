@@ -6572,6 +6572,28 @@
   )
 )
 
+; Was the field declared `mut`? 1 yes, 0 no - and 0 for a name the
+; struct does not declare at all, which `checkSetField` has already
+; refused as AX3007 before it asks. The marker rides in word c of the
+; parser's TAG_FIELD node (`parseOneField`).
+(pub :: structFieldMut (-> Int String Int))
+
+(pub fn (structFieldMut ent fname) (structFieldMutFrom (memGetWord ent 1) fname 0))
+
+(pub :: structFieldMutFrom (-> Int String Int Int))
+
+(pub fn (structFieldMutFrom fields fname i)
+  (if (>= i (vecLen fields))
+    0
+    (let ((f (vecGet fields i)))
+      (if (strEq (nodeAName f) fname)
+        (fieldIsMut f)
+        (structFieldMutFrom fields fname (+ i 1))
+      )
+    )
+  )
+)
+
 ; How many arguments a function's use must supply before it can be a
 ; value: the declared parameter count when a definition was seen, the
 ; ARROW DEPTH for builtins (their type is the whole truth), and -1 -
@@ -6800,6 +6822,35 @@
     (vecPush out (diagSetLabel (mkDiagNote
       SEV_ERROR      "AX3012"      "assign-to-immutable"      tspan      (strConcat (strConcat "cannot assign to `" name) "` from inside a lambda: the lambda captured its value, not the binding")      bspan      (strConcat (strConcat "`" name) "` is bound outside the lambda, here")      "return the new value instead, or restructure so the assignment happens where the binding lives"      "a closure captures by value when its record is built, so a later `set` inside it could never be observed outside; this used to pass `check` and fail inside codegen as AX4002"
     ) (strConcat (strConcat "`" name) "` was captured, not shared")))
+    0
+  }
+)
+
+; `set` on a STRUCT FIELD the declaration did not mark `mut`. Same
+; code as the immutable-binding refusal, and the same rule: a field is
+; immutable unless its declaration says otherwise, exactly as a `let`
+; binding is.
+;
+; Until 2026-08-31 `mut` on a field was parsed and DROPPED - there was
+; nothing here to read, and `(struct P (x : Int))` took `(set p.x 9)`
+; in silence, `check` OK and the program returning 9. AX2004's explain
+; text states the principle the marker was failing: "a marker that
+; reads as an ownership guarantee and supplies none is worse than no
+; marker, because a reader spends trust on it."
+;
+; No secondary span and no quickfix, for `emitSetOnParam`'s reason
+; plus one of its own: the declaration that would carry them is often
+; in ANOTHER UNIT (any imported struct), and a diagnostic's span
+; indexes the unit it was stamped with - the mistake the comment above
+; `emitAX3012` records. The help carries the field's own declared type
+; so the suggested line is the one to write.
+(pub :: emitSetImmutableField (-> String String String Int Int Int))
+
+(pub fn (emitSetImmutableField fname tyname fty tspan tc)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR      "AX3012"      "assign-to-immutable"      tspan      (strConcat (strConcat (strConcat (strConcat "cannot assign to field `" fname) "` of `") tyname) "`: the field is not declared `mut`")      0      0      (strConcat (strConcat (strConcat (strConcat "declare it mutable where `" tyname) "` is defined: `(mut ") fname) (strConcat (strConcat " : " fty) ")`"))      "a struct field is immutable unless its declaration marks it `mut`, the rule `let` already follows; until 0.6.0 the marker was parsed and discarded and this store compiled in silence"
+    ) (strConcat (strConcat "`" fname) "` is not a `mut` field")))
     0
   }
 )
@@ -13290,6 +13341,16 @@
               (let ((vty (checkExprH tc (nodeC e) 0)))
                 {
                   (stampFieldStruct e ent)
+                  ; The MUTABILITY refusal runs beside the type
+                  ; check, not instead of it: a write to an
+                  ; immutable field with the wrong type is two
+                  ; mistakes and reporting one hides the other.
+                  (if (== (structFieldMut ent (nodeBName e)) 0)
+                    (emitSetImmutableField
+                      (nodeBName e)                      (nodeAName baseTy)                      (tyRender fty)                      (nodeSpan e)                      tc
+                    )
+                    0
+                  )
                   (if (== (tyCompat vty fty) 0)
                     (emitMismatchTy tc fty vty (spanOf (nodeC e)))
                     0

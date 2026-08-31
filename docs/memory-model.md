@@ -1689,12 +1689,23 @@ and the write is visible through **every** alias of `e`. It performs the
 `Mut` effect, precisely because it is visible where a local's mutation
 is not. The form evaluates to `0`, and its static type is `I64` — which
 does **not** stop it being the value of a function returning `Int`:
-`(fn (bump p) (set p.x 1))` declared `(-> P Int)` checks `OK`.
+`(fn (bump p) (set p.x 1))` declared `(-> P Int)` checks `OK` when `P`
+declares `(mut x : Int)`.
 
 ```scheme
 (let ((p (P 1 2)) (q p))
   { (set p.x 99) (println q.x) })   ; prints 99
 ```
+
+**MM-MUT-2a (H).** The field must be declared `mut`; a store into one
+that is not is `AX3012` at the field name in the write. This is the
+`let` rule applied to fields, and it is checked from 0.6.0 — before
+that the marker was parsed and dropped, and every field of every struct
+was writable. Only the LAST segment of a path is governed: `(set
+a.b.c v)` needs `c` declared `mut` and says nothing about `b`, because
+the store mutates the value `b` points at rather than the `b` slot.
+`memSetWord` is outside the rule entirely — it takes a block and a word
+index, which is how `Vec` and `Map` write slots that are not fields.
 
 **MM-MUT-3 (H).** Field stores are available on **named fields of a
 `struct` type only**. A `data` constructor's positional fields have no
@@ -4177,7 +4188,7 @@ constructor list.
 ### 11.3 The aliasing hazard, in the smallest program that shows it
 
 ```scheme
-(struct Cfg (verbose : Int))
+(struct Cfg (mut verbose : Int))
 
 (:: configure (-> Cfg Cfg))
 (fn (configure c) { (set c.verbose 1) c })    ; mutates the CALLER's value

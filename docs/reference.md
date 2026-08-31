@@ -468,7 +468,7 @@ Every function has an optional type signature declared with `::`:
 (:: add (-> Int Int Int))
 ```
 
-This says `add` is a function that takes two `Int`s and returns an `Int`. The `(-> A B C)` syntax means a function that takes `A`, then `B`, and returns `C`. The type is curried; a *top-level* function still is not partially applicable (see [Partial Application](#partial-application--not-supported)).
+This says `add` is a function that takes two `Int`s and returns an `Int`. The `(-> A B C)` syntax means a function that takes `A`, then `B`, and returns `C`. The type is curried; a *top-level* function still is not partially applicable, though a `lambda` is (see [Partial Application](#partial-application)).
 
 ### Effect Types
 
@@ -557,13 +557,37 @@ Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support *
 (lambda (_) 42)    ; Ignoring a parameter with wildcard
 ```
 
-### Partial Application — Not Supported
+### Partial Application
 
-A curried *signature* does not make a top-level function partially
-applicable. Supplying fewer arguments than a top-level function takes
-is `AX3013`: a partial application has to hold the arguments it was
-not given, and a top-level function has no closure record to hold them
-in (`tests/diagnostics/110-partial-application.ax` pins the refusal).
+One rule decides both halves, and it is the one `AX3013`'s own note
+gives: **a partial application has to hold the arguments it was not
+given, and a top-level function has no closure record to hold them
+in.** A `lambda` has one. So a lambda may be applied to some of its
+arguments and a top-level function may not, however its signature is
+spelled.
+
+**A lambda applied to fewer arguments than it takes is a value.** It
+holds what it was given and takes the rest, in order:
+
+```scheme
+(:: main Int)
+(fn (main)
+  (let ((subFrom10 ((lambda (x y) (- x y)) 10)))
+    (subFrom10 3)))                      ; 7 — 10 - 3, not 3 - 10
+```
+
+That value is ordinary in every way that was measured
+(`tests/selfhost/988-lambda-partial-application.ax` pins all of it):
+arguments may be supplied **one at a time** over as many applications
+as the lambda has parameters; a **captured** variable survives the
+partial, so the closure holds both what it captured and what it was
+handed; the partial **escapes** the function that built it, which is
+what makes `(fn (mkAdder n) ((lambda (x y) (+ x y)) n))` a working
+adder factory; and it stores in a **struct field** typed
+`(-> Int Int)` and calls back through `.f`.
+
+**A top-level function is `AX3013`**, and no signature changes that
+(`tests/diagnostics/110-partial-application.ax` pins the refusal):
 
 ```scheme refused
 (:: add (-> Int Int Int))
@@ -578,18 +602,49 @@ in (`tests/diagnostics/110-partial-application.ax` pins the refusal).
 ;                and 1 were supplied
 ```
 
-A `lambda` does get a closure record, so bind the missing argument
-there:
+The workaround is the rule restated: give it a closure record by
+wrapping it in a lambda, `(lambda (y) (add 5 y))`.
+
+**The count is taken at the spine's root, not at each application.**
+`((add3 1 2) 3)` on a three-parameter top-level `add3` is one call with
+three arguments and compiles; `(let ((h (add3 1 2))) (h 3))` supplies
+two to the spine and is `AX3013`. The same flattening is why
+`(((lambda (x y z) ...) 1 2) 3)` is an ordinary saturated call.
+
+**Over-application is `AX3004`**, not `AX3013`: once the arrows are
+consumed the result is no longer a function, and applying it reports
+"expected function type, found `Int`". A lambda's *parameters* carry no
+declared type, though, so an argument of the wrong type is not caught —
+`((lambda (x y) (- x y)) 10 "oops")` compiles. That is a property of
+`lambda` generally and not of partial application.
+
+#### `_` holes — the explicit spelling
+
+An application with at least one bare `_` among its direct arguments
+desugars to a lambda, one fresh parameter per hole in left-to-right
+order. It is the spelling to reach for when the missing argument is not
+the last one, and it works on a **top-level** function — where partial
+application does not — because the desugaring is what builds the
+closure record:
 
 ```scheme
-(:: add (-> Int Int Int))
-(fn (add x y) (+ x y))
+(:: sub (-> Int Int Int))
+(fn (sub x y) (- x y))
 
 (:: main Int)
-(fn main
-  (let ((addFive (lambda (y) (add 5 y))))
-    (addFive 3)))                        ; 8
+(fn (main)
+  (let ((subFrom50 (sub 50 _))           ; (lambda (y) (sub 50 y))
+        (subTo50 (sub _ 50)))            ; (lambda (x) (sub x 50))
+    (- (subFrom50 8) (- (subTo50 50) 0))))   ; 42 - 0
 ```
+
+A call with **no** hole is untouched, so `AX3013` still fires exactly as
+it did. Holes apply to a lambda's arguments too —
+`((lambda (x y) (- x y)) 50 _)` is a one-parameter function. `_` keeps
+its unrelated meaning as a wildcard *pattern*; expression position had
+no prior meaning for it to collide with, and a bare `_` there used to be
+`AX3001`. `tests/selfhost/989-hole-partial-application.ax` pins the
+holes, `988-lambda-partial-application.ax` the lambdas.
 
 ---
 
@@ -693,10 +748,11 @@ The `while` body takes any number of expressions, so a loop that updates
 two variables needs no extra brackets. The whole form evaluates to `0` —
 a loop that ran zero times has no last iteration to take a value from.
 
-`set` also writes a field, through a dotted path:
+`set` also writes a field, through a dotted path. The *field* carries
+the `mut`; the binding does not have to:
 
 ```scheme
-(struct Counter (n : Int) (step : Int))
+(struct Counter (mut n : Int) (step : Int))
 
 (fn (bump c)
   (set c.n (+ c.n c.step)))
@@ -704,15 +760,19 @@ a loop that ran zero times has no last iteration to take a value from.
 
 The path is resolved by name, so the offset — and the tag word a `data`
 constructor carries ahead of its fields — is the compiler's problem
-rather than yours. `(set a.b.c v)` writes `c` on the value at `a.b`.
+rather than yours. `(set a.b.c v)` writes `c` on the value at `a.b`, so
+it is `c` that must be declared `mut` and not `b`: the store mutates the
+inner value, not the slot holding it.
 
 What `set` will not take is an arbitrary place expression: the target is
 a name or a field path, never a computed one, so `(set (f x) 1)` is a
 syntax error that says so instead of type-checking its way to a report
-about a non-assignable expression. A field write needs no `mut` — `mut`
-governs rebinding the local, not mutating what it points at. Raw memory
-is still reachable through `memSetWord`, which is what `Vec` and `Map`
-use to write slots that are not declared fields.
+about a non-assignable expression. A field write needs `mut` **on the
+field** and nothing on the binding — `mut` on a binding governs
+rebinding the local, which is a different operation. Raw memory is
+still reachable through `memSetWord`, which is what `Vec` and `Map` use
+to write slots that are not declared fields, and which no mutability
+marker gates.
 
 Assigning to a binding that is not `mut` is a compile error:
 
@@ -1028,13 +1088,18 @@ block links a static archive — but nothing crosses it as a struct: a
 scalar goes one word each way, and a record crosses as its fields
 ([ffi.md](ffi.md) §8). There is no layout for a modifier to change.
 
-Struct fields can be mutable. `mut` goes on the field, inside its
-parentheses — not on the struct:
+**A field is immutable unless it is declared `mut`**, exactly as a `let`
+binding is. `mut` goes on the field, inside its parentheses — not on the
+struct:
 
 ```scheme
 (struct Counter
   (mut count : Int))
 ```
+
+Writing `count` on a `Counter` is then legal; writing any field of a
+`Point` above is `AX3012`. [Writing a field](#writing-a-field) has both
+halves.
 
 **The `:` is not optional.** It is what makes the form a field
 declaration at all — the grammar's own note is that a declaration and
@@ -1125,12 +1190,12 @@ and it answers for every type rather than only for structs: `n.x` where
 
 `set` writes through a dotted path ([Mutable Bindings and
 `while`](#mutable-bindings-and-while) has the general rule), and **the
-write needs no `mut` — neither on the field nor on the binding.** This
-is accepted and exits 9:
+write needs `mut` on the field — and nothing on the binding.** This is
+accepted and exits 9:
 
 ```scheme
 (struct Point
-  (x : Int)
+  (mut x : Int)
   (y : Int))
 
 (:: main Int)
@@ -1139,22 +1204,55 @@ is accepted and exits 9:
     { (set p.x 9) p.x }))
 ```
 
-`p` is an immutable `let` and `x` carries no `mut`, and neither matters.
-`mut` on a *binding* governs rebinding the local, which is what
-`AX3012` refuses; mutating what a binding points at is a different
-operation and is not gated by either marker.
+`p` is an immutable `let`, and that does not matter: `mut` on a
+*binding* governs rebinding the local, and mutating what a binding
+points at is a different operation gated by a different marker. Drop the
+`mut` from `x` and the same program is refused, at the field name in the
+write:
 
-**So what does `mut` on a field do?** It documents intent. The parser
-recognises `(mut count : Int)`, skips the marker and records the field
-exactly as it records `(count : Int)` — `parseOneField` in
-`self_host/parser.ax` says so in as many words, that the marker "is not
-recorded ... only skipped". Write it where a field is meant to be
-mutated and read it as a note to the next person, not as a checked
-constraint.
+```scheme refused
+(struct Point
+  (x : Int)
+  (y : Int))
+
+(:: main Int)
+(fn (main)
+  (let ((p (Point 1 2)))
+    { (set p.x 9) p.x }))
+; error[AX3012]: cannot assign to field `x` of `Point`: the field is not declared `mut`
+```
+
+The report is anchored on `x` in `(set p.x 9)`, not on the declaration:
+the struct is often in another file, and a diagnostic's span belongs to
+the unit it was raised in. The help names the line to write —
+`` `(mut x : Int)` `` — and there is no machine-applicable fix for the
+same reason. `tests/diagnostics/467-set-immutable-field.ax` pins it,
+and `tests/selfhost/561-field-store-mut.ax` pins that a `mut` field
+still writes.
+
+**This is new in 0.6.0, and it breaks source compatibility** — a
+program that wrote an unmarked field compiled before and is refused
+now. It takes no line in `compat/BREAKING`: that file's subject is the
+standard library's public surface, and the surface did not move
+(measured — the 619 normalised AXSYM rows are byte-identical across the
+change, and no `#fields=` entry carries mutability). The migration it
+did cost is 30 fields across 16 declarations, every one of them found
+by compiling the tree and reading the refusals. Before it, `mut` on a
+field was parsed and discarded, which `parseOneField` said in as many
+words at the time — the marker was "not recorded ... only skipped" —
+so the program above compiled and exited 9 with no marker anywhere. That is the shape `AX2004`'s explain
+text calls worse than no marker at all: *"a marker that reads as an
+ownership guarantee and supplies none is worse than no marker, because
+a reader spends trust on it."* `linear`, `consume` and `deriving` were
+removed from this language for exactly that; `mut` on a field was
+enforced instead, because unlike those three it had a rule worth
+keeping.
 
 Because the write goes through the value rather than the binding, it
 reaches through a parameter, and a callee's store is visible to its
-caller. This exits 42, over a nested path:
+caller. This exits 42, over a nested path — note that `inn` needs no
+`mut`, because the store mutates the `Inner` it points at rather than
+the `inn` slot:
 
 ```scheme
 (struct Inner (mut v : Int))
@@ -1168,6 +1266,11 @@ caller. This exits 42, over a nested path:
   (let ((o (Outer (Inner 40))))
     { (bump o) (bump o) o.inn.v }))
 ```
+
+`memSetWord` is not gated by any of this. It takes a block and a word
+index and writes it, which is what `Vec` and `Map` use for slots that
+are not declared fields; a field declared without `mut` is protected
+from `set`, not from raw memory.
 
 ### Type parameters
 
@@ -1255,7 +1358,7 @@ Wrap a wider function in a `lambda`, which does get a closure record to
 keep arguments in. And once the field holds a lambda it may be applied
 to *some* of its arguments: partial application works for a lambda, and
 it is only a *top-level* function that has nowhere to put the arguments
-it was not given ([Partial Application](#partial-application--not-supported)).
+it was not given ([Partial Application](#partial-application)).
 `(o.g 5)` below is a value, and the program exits 8:
 
 ```scheme
@@ -2388,8 +2491,8 @@ spelling.
 | a `struct` value | `{x = 1, y = 2}`, fields in declaration order |
 
 Nesting composes — `(Wrap {x = 3, y = 4} Green (Some "hi"))` — and a
-recursive type prints in full. A value that reaches *itself* (a struct
-field is assignable, so `(set c.next (Some c))` builds one) prints
+recursive type prints in full. A value that reaches *itself* (a `mut`
+struct field is assignable, so `(set c.next (Some c))` builds one) prints
 `...` at the back-edge instead of never returning:
 `{v = 7, next = (Some ...)}`. One renderer is generated per concrete
 type at its first use, as an ordinary function appended to the program

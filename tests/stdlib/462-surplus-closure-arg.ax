@@ -54,7 +54,7 @@
 (import Vec)
 
 (struct Holder
-  (name : String))
+  (mut name : String))
 
 (:: b2i (-> Bool Int))
 

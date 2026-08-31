@@ -139,27 +139,27 @@
   (left : Int)
   (right : Int)
   (ring : Int)
-  (ringIdx : Int)
+  (mut ringIdx : Int)
   ; 0 none, 1 forward, 2 backward. Consecutive kills in the same
   ; direction accumulate into ONE ring entry, which is what makes
   ; three Ctrl-K presses yank back as one run.
-  (lastKill : Int)
+  (mut lastKill : Int)
   ; Code points the last yank inserted, and the only state yank-pop
   ; needs. Zeroed by every other key, which is what makes Ctrl-Alt-Y
   ; pressed cold a refusal rather than a corruption.
-  (yankLen : Int)
-  (cols : Int)
-  (height : Int)
+  (mut yankLen : Int)
+  (mut cols : Int)
+  (mut height : Int)
   ; Rows the LAST refresh drew, and the row it parked the cursor on.
   ; Everything the next refresh erases is computed from these two.
-  (rows : Int)
-  (curRow : Int)
+  (mut rows : Int)
+  (mut curRow : Int)
   ; Already painted by the caller, so it is measured with `tuiVisLen`
   ; and never with `strLen`: a 7-column prompt painted SGR_SEC is 20
   ; bytes, and counting bytes would shift the cursor 13 cells right on
   ; row one and compound by a row at every wrap.
-  (prompt : String)
-  (pcols : Int)
+  (mut prompt : String)
+  (mut pcols : Int)
   ; The extra ASCII bytes that count as word characters, beyond
   ; letters, digits and `_`. See `ledIsWord`: this is where the
   ; CALLER'S language enters, and the only place it does.
