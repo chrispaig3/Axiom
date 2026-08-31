@@ -1,0 +1,59 @@
+; One of several REPLs writing into one history file at the same time.
+;
+; Every entry carries `$HIST_TAG`, which the gate gives each process,
+; so the gate can assert each process's OWN entries came through rather
+; than "the total looks about right" - the lesson
+; scripts/check-concurrent-run.sh records, where the failure presented
+; as one program printing another's answer with exit 0.
+;
+; Driven by scripts/check-repl-history.sh.
+(import Str)
+
+(import Sys)
+
+(import diag)
+
+(import replhist)
+
+; `HIST_PAD=1` makes every entry about 260 bytes instead of about 16,
+; which is what pushes six processes over `histMaxBytes` and puts them
+; all into COMPACTION at close - the concurrent path that rewrites the
+; file rather than appending to it. The tag stays the first thing after
+; `(entry`, so the gate reads provenance the same way in both arms.
+(:: padFor (-> String String))
+
+(fn (padFor on)
+  (if (strEq on "1")
+    " 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    ""
+  )
+)
+
+(:: tagRecord (-> Int String String Int Int Int))
+
+;@axiom:effect(io)
+(fn (tagRecord h tag pad i limit)
+  (if (>= i limit)
+    0
+    {
+      (histRecord h (strConcat (strConcat "(entry " tag) (strConcat " " (strConcat (decStr i) (strConcat pad ")")))))
+      (tagRecord h tag pad (+ i 1) limit)
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((h (histOpen 1)))
+    {
+      (tagRecord h (strDup (sysEnv "HIST_TAG")) (padFor (sysEnv "HIST_PAD")) 0 200)
+      (histClose h)
+      (if (== (histPersist h) 1)
+        42
+        7
+      )
+    }
+  )
+)
