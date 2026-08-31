@@ -400,7 +400,6 @@
                               ; probe's own pass over the expression is not
                               ; counted twice - only what `checkExpr` adds is
                               ; printed.
-                              (let ((_lw (lowerImpls allDecls vecNew)))
                                 (let ((tc (checkModuleTc allDecls allDecls units)))
                                   (let ((before (vecLen (tcOut tc))))
                                     (let ((ty (checkExpr tc (nodeC probe))))
@@ -416,7 +415,6 @@
                                     )
                                   )
                                 )
-                              )
                             )
                           )
                         )
@@ -594,7 +592,6 @@
                 (expandProgram
                   decls                  allDecls                  v                  vecNew                  0                  bares                  fulls                  mods
                 )
-                (lowerImpls allDecls v)
                 v
               }
             )
@@ -1303,7 +1300,6 @@
                       (expandProgram
                         decls                        allDecls                        v                        vecNew                        0                        bares                        fulls                        mods
                       )
-                      (lowerImpls allDecls v)
                       v
                     }
                   )

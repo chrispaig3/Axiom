@@ -511,7 +511,6 @@
                           (expandProgram
                             decls                            allDecls                            v                            ftbl                            units                            bares                            fulls                            mods
                           )
-                          (lowerImpls allDecls v)
                           v
                         }
                       ))
@@ -7493,7 +7492,6 @@
         )))
           (let ((b (memAlloc 40)))
             {
-              (lowerImpls allDecls eds)
               (memSetWord b 0 allDecls)
               (memSetWord b 1 units)
               (memSetWord b 2 eds)

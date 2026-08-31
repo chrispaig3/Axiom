@@ -613,9 +613,14 @@
   (tyN : Int)
   (tyS : Int)
   (tyU : Int)
-  (trN : Int)
-  (trS : Int)
-  (trU : Int)
+  ; Words 6/7/8 were the `trait` name/span/unit maps. RETIRED IN
+  ; PLACE rather than removed, on the same reasoning as `TC`'s two:
+  ; every reader indexes this record by position (`memGetWord sm 20`
+  ; and the rest, thirty-one sites), so closing a hole in the middle
+  ; renumbers seventeen later fields for nothing.
+  (retired6 : Int)
+  (retired7 : Int)
+  (retired8 : Int)
   (ctN : Int)
   (ctS : Int)
   (ctU : Int)
@@ -654,12 +659,13 @@
 ; DSig overwrites a function span, DFn only fills an absent one;
 ; the nid variant is the LAST declaration mentioning the name;
 ; the axtag set is the last NON-EMPTY one.
-; A GENERATED declaration is not a symbol. Lowering an `impl` appends
-; a signature and a definition named `Trait#Type#method`, and those
-; are the compiler's business: `symbols` reports what the file
-; declares, and the position verifier is right to refuse a claim the
-; source does not spell. `#` is not an identifier byte, so a name that
-; contains one cannot have been written.
+; A GENERATED declaration is not a symbol. `show` derives a structural
+; renderer named `show#Point` or `show#(Option Int)`, and the trait
+; lowering appended `Trait#Type#method` before 0.6.0; both are the
+; compiler's business: `symbols` reports what the file declares, and
+; the position verifier is right to refuse a claim the source does not
+; spell. `#` is not an identifier byte, so a name that contains one
+; cannot have been written.
 (pub :: smGenerated (-> String Bool))
 
 (pub fn (smGenerated name) (>= (strFindByte name 35 0) 0))
@@ -738,15 +744,7 @@
                       (smNid sm name "DMacro:")
                       (smTags sm d name)
                     }
-                  (if (== tag TAG_D_TRAIT)
-                    {
-                      (saPut2
-                        (memGetWord sm 6)                        (memGetWord sm 7)                        (memGetWord sm 8)                        name                        (nodeSpan d)                        u
-                      )
-                      (smNid sm name "DTrait:")
-                      (smTags sm d name)
-                    }
-                    (if (== tag TAG_D_EXTERN)
+                  (if (== tag TAG_D_EXTERN)
                       ; An `extern` item has a LOCATION: the item in its block,
                       ; keyed like a signature so `symbols` and the LSP point at
                       ; it rather than answering `builtin` (the checker registers
@@ -816,7 +814,6 @@
                         0
                       )
                     )
-                  )
                   )
                 )
               )
@@ -1059,12 +1056,9 @@
             (if (strEq k "E")
               "Effect"
               (if (strEq k "M")
-              "Macro"
-              (if (strEq k "T")
-                "Trait"
+                "Macro"
                 k
               )
-            )
             )
           )
         )
@@ -1588,52 +1582,6 @@
                               loc
                             )
                           )                          (symTy (nodeB d))                          (smNidFor sm name)                          metas
-                        )
-                      )
-                    }
-                  )
-                  (set i (+ i 1))
-                }
-              )
-            ))
-        )
-        ; --- traits -----------------------------------------------
-        (let (
-          (trs (tcTraits tc))
-          (mut i 0)
-        )
-          (while (< i (vecLen trs))
-            (let ((d (vecGet trs i)))
-              (let ((name (nodeAName d)))
-                {
-                  (let (
-                    (metas vecNew)
-                    (mparts vecNew)
-                    (methods (nodeB d))
-                    (mut k 0)
-                  )
-                    {
-                      (while (< k (vecLen methods))
-                        (let ((m (vecGet methods k)))
-                          {
-                            (vecPush mparts (strConcat (nodeAName m) (strConcat ":" (symTy (nodeB m)))))
-                            (set k (+ k 1))
-                          }
-                        ))
-                      ; Author tags first, derived keys after: see
-                      ; `smTagMetas`.
-                      (smTagMetas sm name metas)
-                      (vecPush metas (strConcat "methods=" (saJoinComma mparts)))
-                      (vecPush
-                        lines                        (symLine
-                          "T"                          (bareOf name)                          (let ((loc (smLocReal
-                            sm                            6                            7                            8                            name                            units
-                          )))
-                            (if (== (strLen loc) 0)
-                              "-"
-                              loc
-                            )
-                          )                          (strConcat "trait " (bareOf name))                          (smNidFor sm name)                          metas
                         )
                       )
                     }
