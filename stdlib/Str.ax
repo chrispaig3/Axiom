@@ -42,6 +42,7 @@
 ; The caller keeps responsibility for `bytes` outliving the `Str` and
 ; for the NUL terminator at `bytes[len]`. Every other constructor in
 ; this module goes through here.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strWrap (-> Int Int String))
 
 (pub fn (strWrap bytes len) (strWrapOwned bytes len 0))
@@ -64,6 +65,7 @@
 ; (docs/memory-model.md MM-LIFE-2d). Word 1 is deliberately NOT
 ; mapped: for a slice it is an INTERIOR address, and no count
 ; reachable from a slice may free an interior pointer.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strWrapOwned (-> Int Int Int String))
 
 (pub fn (strWrapOwned bytes len owner)
@@ -88,6 +90,7 @@
 ;
 ; `len + 1` bytes are reserved so the NUL terminator never overwrites
 ; payload; the allocator zeroes, so the terminator is already in place.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strAlloc (-> Int String))
 
 (pub fn (strAlloc len)
@@ -112,11 +115,13 @@
 ; else: a syscall's output buffer.
 ;
 ; Cost is one scan for the length; the bytes are never copied.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strFromLit (-> Int String))
 
 (pub fn (strFromLit cstr) (strWrap cstr (cstrLen cstr 0)))
 
 ; Length of NUL-terminated bytes at `addr`, scanning from `i`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: cstrLen (-> Int Int Int))
 
 (pub fn (cstrLen addr i)
@@ -129,6 +134,7 @@
 ; ------------------------------------------------------------------
 ; Accessors
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strLen (-> String Int))
 
 (pub fn (strLen s)
@@ -141,6 +147,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strData (-> String Int))
 
 (pub fn (strData s)
@@ -151,6 +158,7 @@
 
 ; The block owning this string's bytes, or 0 for bytes no block owns
 ; (a literal's, a syscall buffer's, an arena keep block's interior).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strOwner (-> String Int))
 
 (pub fn (strOwner s)
@@ -164,6 +172,7 @@
 ; Out-of-range reads return 0 rather than trapping because the callers
 ; that matter - a lexer's lookahead - want "one past the end" to behave
 ; like an end-of-input sentinel, and NUL is already that sentinel here.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strByte (-> String Int Int))
 
 (pub fn (strByte s i)
@@ -180,10 +189,12 @@
 ; syscall.
 ;
 ; Free: every `Str` this module builds is already NUL-terminated.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strCStr (-> String Int))
 
 (pub fn (strCStr s) (strData s))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsEmpty (-> String Bool))
 
 (pub fn (strIsEmpty s) (== (strLen s) 0))
@@ -194,6 +205,7 @@
 ; 0 when equal; otherwise negative if `a` sorts before `b`, positive if
 ; after - lexicographic by unsigned byte, with a shorter prefix sorting
 ; first.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strCmp (-> String String Int))
 
 (pub fn (strCmp a b)
@@ -235,6 +247,7 @@
 ; built the same way by the same builder at `--opt 1`, best of 5 on an
 ; idle machine: 2.8121s to 1.7218s, 1.63x. The self-hosting fixpoint
 ; holds under the change.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strEq (-> String String Bool))
 
 (pub fn (strEq a b)
@@ -259,6 +272,7 @@
 ;
 ; `start` and `count` are clamped to `s`, so an out-of-range slice is
 ; empty rather than a read of unrelated memory.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strSlice (-> String Int Int String))
 
 (pub fn (strSlice s start count)
@@ -296,6 +310,7 @@
 )
 
 ; An owned, NUL-terminated copy of `s`.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strDup (-> String String))
 
 (pub fn (strDup s)
@@ -309,6 +324,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strConcat (-> String String String))
 
 (pub fn (strConcat a b)
@@ -330,6 +346,7 @@
 ; Searching
 ; ------------------------------------------------------------------
 ; Index of the first `byte` at or after `from`, or -1.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strFindByte (-> String Int Int Int))
 
 (pub fn (strFindByte s byte from)
@@ -342,6 +359,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strStartsWith (-> String String Bool))
 
 (pub fn (strStartsWith s prefix)
@@ -374,6 +392,7 @@
 ; through every one of them and requires the delegations to agree,
 ; which is the check that would have caught the VT/FF drift.
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsDigit (-> Int Bool))
 
 (pub fn (strIsDigit ch)
@@ -383,6 +402,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsAlpha (-> Int Bool))
 
 (pub fn (strIsAlpha ch)
@@ -401,6 +421,7 @@
 ; Space, tab, LF, CR - and nothing else. Not `char::is_whitespace`:
 ; VT and FF are AX1001 to this language's lexer, and a formatter that
 ; skipped them turned a refused file into an accepted one.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsSpace (-> Int Bool))
 
 (pub fn (strIsSpace ch)
@@ -424,6 +445,7 @@
 ; parser's `\uXXXX` escape and the language server's percent-decoding
 ; each carried a byte-identical copy of this ladder under its own name,
 ; while the predicate here had no caller at all.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strHexVal (-> Int Int))
 
 (pub fn (strHexVal ch)
@@ -439,6 +461,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsHexDigit (-> Int Bool))
 
 (pub fn (strIsHexDigit ch) (>= (strHexVal ch) 0))
@@ -459,6 +482,7 @@
 ; NUL-terminated. `strCStr` or `strConcat` where a syscall needs a C
 ; string - the two call sites this replaced both did that already, and
 ; for that reason.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strSplit (-> String Int Int))
 
 (pub fn (strSplit s byte)
@@ -470,6 +494,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strSplitFrom (-> String Int Int Int Int))
 
 (pub fn (strSplitFrom s byte from out)
@@ -496,6 +521,7 @@
 ; A one-byte `Str` holding `b`. The compiler driver and the JSON
 ; encoder each had this three-line allocate-and-store under a private
 ; name; it is a `Str` constructor, so it lives with the others.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strFromByte (-> Int String))
 
 (pub fn (strFromByte b)
@@ -524,6 +550,7 @@
 ; not copied. Bytes above 127 pass through untouched: this is the
 ; ASCII fold a case-insensitive header table needs, not a Unicode
 ; case mapping.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strLower (-> String String))
 
 (pub fn (strLower s)
@@ -574,6 +601,7 @@
 ; `from` is inside `s` or at its end, which is the rule that makes
 ; `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than
 ; nothing.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strFind (-> String String Int (Option Int)))
 
 (pub fn (strFind s needle from)
@@ -604,6 +632,7 @@
 ; shares `s`'s storage - so it is not NUL-terminated unless it ends
 ; where `s` does, exactly as `strSlice` says. A string that is all
 ; space trims to "".
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strTrim (-> String String))
 
 (pub fn (strTrim s)
@@ -633,6 +662,7 @@
 ; was taken as a length. Here it is `None`, and so is
 ; `9223372036854775808`, while `9223372036854775807` and
 ; `-9223372036854775808` both parse.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strParseInt (-> String (Option Int)))
 
 (pub fn (strParseInt s)

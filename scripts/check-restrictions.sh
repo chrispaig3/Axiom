@@ -201,9 +201,23 @@ for f in tests/selfhost/*.ax; do
     fi
   done < <(awk '$2 == "AX3051"' "$work/ir/$base.tagged.err" | sed -E 's/^[^"]*"`([^`]+)`.*/\1/')
   (( unverifiable_ok )) || continue
-  if ! diff <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.tagged.sym") "$work/ir/$base.orig.sym" > /dev/null; then
+  # Stripped on BOTH sides. A declaration this file merely IMPORTS can
+  # legitimately carry its own `#restrict=` (once adoption is real,
+  # not zero) and that value is identical in `orig.sym` and
+  # `tagged.sym` alike - neither run touches the declaring file.
+  # Stripping only the tagged side erased it from one and not the
+  # other and read the identical value as a change; a real stdlib
+  # `#restrict=` on an imported symbol (`vecLen`, reached from a
+  # program that merely `(import Vec)`s) turned this false the day
+  # adoption stopped being zero. Symmetric stripping keeps this
+  # section's actual claim - tagging every fn in THIS file changes no
+  # row beyond its own `#restrict=` - true regardless of what
+  # elsewhere in the tree already claims a restriction.
+  if ! diff <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.tagged.sym") \
+            <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.orig.sym") > /dev/null; then
     bad "tests/selfhost/$base.ax: restricting every fn changed an AXSYM row beyond #restrict="
-    diff <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.tagged.sym") "$work/ir/$base.orig.sym" > "$work/ir/$base.sym.diff" || true
+    diff <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.tagged.sym") \
+         <(sed -E 's| #restrict=[^ ]+||' "$work/ir/$base.orig.sym") > "$work/ir/$base.sym.diff" || true
     head -4 "$work/ir/$base.sym.diff" | cut -c1-160 | sed 's/^/     /'
     continue
   fi
@@ -460,8 +474,15 @@ derive_manifest() {
     # `name restrictions` from the rows carrying the meta, anchored on
     # the field so a value cannot smuggle one in. `%20` is AXSYM's
     # escape of a blank the author wrote around a comma; the checker
-    # trims it, and it is not part of any name.
-    awk '$1 == "F" { for (i = 5; i <= NF; i++) if ($i ~ /^#restrict=/) { sub(/^#restrict=/, "", $i); gsub(/%20/, "", $i); print $2, $i } }' "$work/manifest/sym"       > "$work/manifest/rows"
+    # trims it, and it is not part of any name. `$3` (the location)
+    # must open with THIS file's own basename: `symbols` prints a row
+    # for every declaration reached transitively, including a
+    # restricted one this file merely `(import)`s (`vecLen`, read
+    # from `stdlib/Vec.ax` by a program that imports `Vec`), and
+    # without this filter that import misattributed the callee's
+    # restriction to the importing file - a manifest row this file
+    # never declared, once adoption was more than the fixtures.
+    awk -v b="$base" '$1 == "F" && index($3, b ":") == 1 { for (i = 5; i <= NF; i++) if ($i ~ /^#restrict=/) { sub(/^#restrict=/, "", $i); gsub(/%20/, "", $i); print $2, $i } }' "$work/manifest/sym"       > "$work/manifest/rows"
     while read -r name rs; do
       [[ -z "$name" ]] && continue
       # The declaration a restriction diagnostic names: the first

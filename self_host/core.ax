@@ -19,6 +19,7 @@
   (start : Int)
   (end : Int))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: mkSpan (-> Int Int Int))
 
 (pub fn (mkSpan start end) (Span start end))
@@ -96,29 +97,35 @@
   (lexeme : String)
   (span : Int))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: mkToken (-> TokenKind String Int Int))
 
 (pub fn (mkToken kind lexeme span) (Token kind lexeme span))
 
 ; Token accessors for readability.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tokenKind (-> Int TokenKind))
 
 (pub fn (tokenKind t)
   (cast TokenKind (memGetWord t 0))
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tokenLexeme (-> Int String))
 
 (pub fn (tokenLexeme t) (memGetWordStr t 1))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tokenSpan (-> Int Int))
 
 (pub fn (tokenSpan t) (memGetWord t 2))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: spanStart (-> Int Int))
 
 (pub fn (spanStart s) (memGetWord s 0))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: spanEnd (-> Int Int))
 
 (pub fn (spanEnd s) (memGetWord s 1))
@@ -126,6 +133,7 @@
 ; ------------------------------------------------------------------
 ; Convert a decimal digit Str to Int. Returns 0 on non-digit.
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strToInt (-> String Int))
 
 (pub fn (strToInt s)
@@ -135,6 +143,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strToIntFrom (-> String Int Int Int))
 
 (pub fn (strToIntFrom s i acc)
@@ -184,6 +193,7 @@
 ; `build`, `run`, `symbols` and the language server all come through
 ; `lex`.
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: pastBom (-> String Int Int))
 
 (pub fn (pastBom src lineStart)
@@ -204,6 +214,7 @@
 ; last `$` (36). Three passes had a private copy of this walk under
 ; three names; a fourth had the escape table below.
 ; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
 (pub :: bareOfFrom (-> String Int String))
 
 (pub fn (bareOfFrom s i)
@@ -216,12 +227,14 @@
   )
 )
 
+;@axiom:restrict(no-io,no-foreign)
 (pub :: bareOf (-> String String))
 
 (pub fn (bareOf s) (bareOfFrom s (- (strLen s) 1)))
 
 ; The byte an escape sequence stands for; anything else stands for
 ; itself, which is what makes `\\` and `\"` fall through correctly.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: unescByte (-> Int Int))
 
 (pub fn (unescByte c)
@@ -243,6 +256,7 @@
 ; A Vec of String, searched by value: membership, and the index of the
 ; FIRST match or -1. The evidence walks in the checker and the emitter
 ; each had a copy under a phase-prefixed name.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strVecHas (-> Int String Int))
 
 (pub fn (strVecHas xs n)
@@ -266,6 +280,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strVecIdx (-> Int String Int))
 
 (pub fn (strVecIdx xs n)
@@ -292,6 +307,7 @@
 )
 
 ; Append every element of `src` to `acc`, answering `acc`.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: vecAppendFrom (-> Int Int Int Int))
 
 (pub fn (vecAppendFrom src acc i)
@@ -306,6 +322,7 @@
 
 ; The index of the newline at or after `i`, or the end of `s`. The
 ; `explain` renderer and the symbol lister each walked this loop.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: lineEndFrom (-> String Int Int))
 
 (pub fn (lineEndFrom s i)

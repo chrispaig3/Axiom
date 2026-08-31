@@ -63,11 +63,13 @@
 ; is a single bump of the allocator. Starting at 1 or 2 would make those
 ; cases pay two or three reallocations each, and every reallocation leaks
 ; (see the module comment).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecDefaultCap Int)
 
 (fn (vecDefaultCap) 8)
 
 ; An empty `Vec` with `vecDefaultCap` capacity.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: vecNew Int)
 
 (pub fn (vecNew) (vecWithCapacity vecDefaultCap))
@@ -79,17 +81,20 @@
 ; zero, so a zero-capacity vector would recurse forever the first time it
 ; was pushed to. Clamping at the constructor means `vecGrownCap` can rely
 ; on `cap >= 1` and needs no special case.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: vecWithCapacity (-> Int Int))
 
 (pub fn (vecWithCapacity cap) (vecBuild cap 0))
 
 ; The same, with an ARRAY-FORM data block: every element is a handle
 ; this vector owns a share of. See the module comment.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: vecWithCapacityRef (-> Int Int))
 
 (pub fn (vecWithCapacityRef cap) (vecBuild cap 1))
 
 ; An empty `Vec` with `vecDefaultCap` capacity, owning its elements.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: vecNewRef Int)
 
 (pub fn (vecNewRef) (vecWithCapacityRef vecDefaultCap))
@@ -101,6 +106,7 @@
 ; over, so a header at zero cannot die and a data block at zero cannot
 ; be reclaimed by the header's map. `strAlloc` takes the same retain on
 ; its buffer, for the same reason, and calls it "the header's own share".
+;@axiom:restrict(no-io,no-foreign)
 (:: vecBuild (-> Int Int Int))
 
 (fn (vecBuild cap refs)
@@ -143,6 +149,7 @@
 ; Answers 0 rather than the handle: a freed handle is the one thing this
 ; module must not encourage a caller to keep using, and every other
 ; mutator answers the handle precisely so that it CAN be chained.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecFree (-> Int Int))
 
 (pub fn (vecFree v)
@@ -158,14 +165,17 @@
 ; Whether this vector owns a share of every element it holds - the
 ; `vecNewRef` half of the module comment. It is word 3 of the header
 ; and not a test of the data block's shape word: see `vecBuild`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecOwnsRefs (-> Int Bool))
 
 (pub fn (vecOwnsRefs v) (== (memGetWord v 3) 1))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecLen (-> Int Int))
 
 (pub fn (vecLen v) (memGetWord v 0))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecCap (-> Int Int))
 
 (pub fn (vecCap v) (memGetWord v 1))
@@ -176,6 +186,7 @@
 ; vector without paying a bounds check per element needs it, and because
 ; hiding it would be pretend safety: the handle is an `Int`, so a caller
 ; that wants the data pointer can already read word 2 itself.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecData (-> Int Int))
 
 (fn (vecData v) (memGetWord v 2))
@@ -204,6 +215,7 @@
 ; in it - but is at least SAID, at the call, in one word. The real fix
 ; is an element type, and that is a container change rather than an
 ; accessor.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecGet (-> Int Int Int))
 
 (pub fn (vecGet v i)
@@ -233,6 +245,7 @@
 ; is already known good - a loop bounded by `vecLen` - and making every
 ; such read allocate an `Option` would be a cost paid everywhere to
 ; describe a case that cannot arise there.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecTry (-> Int Int (Option Int)))
 
 (pub fn (vecTry v i)
@@ -245,6 +258,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecGetStr (-> Int Int String))
 
 (pub fn (vecGetStr v i)
@@ -257,6 +271,7 @@
 ; caller that meant to append should say `vecPush`, and silently
 ; extending on a stray index turns an off-by-one into a slow leak instead
 ; of a wrong answer that `vecLen` makes visible.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecSet (-> Int Int a Int))
 
 (pub fn (vecSet v i x)
@@ -288,6 +303,7 @@
 ; ------------------------------------------------------------------
 ; Ensure `v` can hold `need` elements, reallocating if it cannot.
 ; Returns the handle.
+;@axiom:restrict(no-io,no-foreign)
 (:: vecReserve (-> Int Int Int))
 
 (fn (vecReserve v need)
@@ -307,6 +323,7 @@
 ; reallocations at log2(n).
 ;
 ; Terminates because `vecWithCapacity` guarantees `cap >= 1`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecGrownCap (-> Int Int Int))
 
 (fn (vecGrownCap cap need)
@@ -322,6 +339,7 @@
 ; unreachable through `vecGet`, so copying them would be pure cost. The
 ; new block comes from `memAlloc`, which zeroes, so the tail is 0 rather
 ; than whatever the arena last held there.
+;@axiom:restrict(no-io,no-foreign)
 (:: vecReserveExactly (-> Int Int Int))
 
 (fn (vecReserveExactly v newCap)
@@ -360,6 +378,7 @@
 ; replaced the data pointer. Reading it into a `let` before the reserve
 ; would write the element into the abandoned block, and the bug would be
 ; invisible until the vector happened to grow.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: vecPush (-> Int a Int))
 
 (pub fn (vecPush v x)
@@ -382,6 +401,7 @@
 ; block, so a vector used as a stack settles at its high-water mark and
 ; then stops allocating entirely, which is what a recursive-descent
 ; parser wants.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecPop (-> Int Int))
 
 (pub fn (vecPop v)
@@ -407,6 +427,7 @@
 )
 
 ; The last element without removing it, or 0 if `v` is empty.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecLast (-> Int Int))
 
 (pub fn (vecLast v) (vecGet v (- (vecLen v) 1)))
@@ -418,6 +439,7 @@
 ; zeroing would be O(cap) of work to make a debugger's view prettier.
 ; Keeping the capacity is the point: a `Vec` reused as scratch across
 ; many iterations allocates once in total.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecClear (-> Int Int))
 
 (pub fn (vecClear v)
@@ -432,6 +454,7 @@
 
 ; Hand back the share of element `i` and zero the slot. Only ever called
 ; on an array-form data block, where the vector owns what it holds.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecDropAt (-> Int Int Int))
 
 (fn (vecDropAt v i)
@@ -444,6 +467,7 @@
   )
 )
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecDropFrom (-> Int Int Int))
 
 (fn (vecDropFrom v i)
@@ -466,10 +490,12 @@
 ; any bug that permutes elements passes - so tests pair it with indexed
 ; reads at the boundaries. `vecHash` is the position-sensitive companion
 ; for when order matters.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecSum (-> Int Int))
 
 (pub fn (vecSum v) (vecSumFrom v 0 0))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecSumFrom (-> Int Int Int Int))
 
 (fn (vecSumFrom v i acc)
@@ -485,10 +511,12 @@
 ; `h * 31` cannot overflow `Int` (10^9 * 31 < 2^63). Unlike `vecSum` this
 ; changes when elements are reordered, which is what makes it usable as
 ; the single assertion in a test that cares about order.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecHash (-> Int Int))
 
 (pub fn (vecHash v) (vecHashFrom v 0 1))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecHashFrom (-> Int Int Int Int))
 
 (fn (vecHashFrom v i h)
@@ -519,6 +547,7 @@
 ; with no `free` makes an out-of-place merge sort expensive in exactly
 ; the way this container exists to avoid, and quicksort's worst case is
 ; a sorted input, which is the input a caller most often has.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecSwapWords (-> Int Int Int Int))
 
 (fn (vecSwapWords d i j)
@@ -532,6 +561,7 @@
 )
 
 ; Restore the heap property at `root`, over the first `n` words.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecSiftDown (-> Int Int Int Int))
 
 (fn (vecSiftDown d root n)
@@ -576,6 +606,7 @@
 ; numeric order a caller wants. For a vector of `String` the word is a
 ; handle and its order is an allocation order, which is stable within a
 ; run and means nothing across runs - use `vecSortBy` with `strCmp`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecSort (-> Int Int))
 
 (pub fn (vecSort v)
