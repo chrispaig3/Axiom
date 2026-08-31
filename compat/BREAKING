@@ -107,3 +107,46 @@
 0.6.0  F  axsymPctAt     -1 -> (Option Int): absence, not a sentinel; no external callers
 0.6.0  F  pathLastSlash  -1 -> (Option Int): absence, not a sentinel; no external callers
 0.6.0  F  pathExtIndex   -1 -> (Option Int): absence, not a sentinel; no external callers
+
+# 0.6.0 - the effect row learned that a constructor allocates
+# (2026-08-31). NOT ONE LINE OF ANY FUNCTION BELOW CHANGED. What
+# changed is the analysis: applying a `data` or `struct` constructor
+# contributed nothing to the inferred effect row, by a decision
+# `docs/memory-model.md` MM-EXEC-9a recorded and `ERR-PROP-2` relied
+# on, and every function here answers an `Option` or a `Result` and
+# has always allocated to do it.
+#
+# The decision was not survivable once `restrict(no-alloc)` existed to
+# read the row: `no-alloc` is a CLAIM the compiler answers, and against
+# a row built to omit allocation it answered OK to a body whose only
+# act was allocating. So the row is precise now, and these 19 public
+# names gained `Alloc`.
+#
+# THE HONEST READING OF THIS BLOCK, which is not 0.3.4's: a consumer
+# who wrote `restrict(no-alloc)` over a call to `strFind` in 0.6.0 was
+# ALREADY broken - the allocation happened, the check could not see it,
+# and the build said nothing. This declares the day they get told, not
+# the day it became true. Six of this repository's own claims were
+# false the same way and are withdrawn at their sites with the reason.
+#
+# The kind letter is F and the signature is untouched in every row; the
+# gate reads WIDENED, which is the accurate verdict here.
+0.6.0  F  addChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.0  F  subChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.0  F  mulChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.0  F  divChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.0  F  remChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.0  F  shlChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.0  F  shrChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.0  F  mkError        row gains Alloc: the `Error` struct construction is the whole body
+0.6.0  F  errContextOf   row gains Alloc: answers an `Option String`
+0.6.0  F  withContext    row gains Alloc: rebuilds the `Error`
+0.6.0  F  mapOk          row gains Alloc: rebuilds the `Result`
+0.6.0  F  mapErr         row gains Alloc: rebuilds the `Result`
+0.6.0  F  andThen        row gains Alloc: rebuilds the `Result`
+0.6.0  F  okOr           row gains Alloc: builds a `Result` from an `Option`
+0.6.0  F  toOption       row gains Alloc: builds an `Option` from a `Result`
+0.6.0  F  fallibleTally  row gains Alloc: builds its tally value
+0.6.0  F  strFind        row gains Alloc: answers `(Option Int)`, and the `Some` allocates
+0.6.0  F  strParseInt    row gains Alloc: answers `(Option Int)`, and the `Some` allocates
+0.6.0  F  vecTry         row gains Alloc: answers `(Option Int)`, and the `Some` allocates

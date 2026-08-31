@@ -10572,9 +10572,23 @@
                             (if (== tag TAG_E_FIELD)
                               (walkEffects tc (nodeA e) bound acc)
                               (if (== tag TAG_E_STRUCTCON)
-                                (walkEffectsVec
-                                  tc                                  (nodeB e)                                  0                                  bound                                  acc
-                                )
+                                ; The KEYWORD spelling of the same act
+                                ; the spine walk now attributes:
+                                ; `(struct P a b)` allocates exactly
+                                ; what `(P a b)` does, and the two
+                                ; reach different nodes. Attributing
+                                ; one and not the other would make the
+                                ; row depend on which spelling the
+                                ; author picked.
+                                {
+                                  (if (> (ctorAllocArity tc (nodeAName e)) 0)
+                                    (effAdd acc (builtinEff "Alloc"))
+                                    0
+                                  )
+                                  (walkEffectsVec
+                                    tc                                    (nodeB e)                                    0                                    bound                                    acc
+                                  )
+                                }
                                 (if (== tag TAG_E_COND)
                                   (walkEffectsCond
                                     tc                                    (nodeA e)                                    0                                    bound                                    acc
@@ -10873,6 +10887,41 @@
   )
 )
 
+; How many words a construction of `n` allocates a block for, or 0
+; when `n` names no constructor at all.
+;
+; `findFnEnt` answers 0 for a `data` constructor, a struct and `cast`
+; alike, so the effect walk needed a second question to tell the first
+; two from the third. This is that question, asked of the same tables
+; `checkSaturation` asks - `rfindCtor` for a `data` constructor's
+; arrow depth, `findStruct` for a struct's declared field list - so a
+; name the checker calls a constructor and a name this calls one
+; cannot drift apart.
+;
+; ZERO IS BOTH ANSWERS on purpose: "not a constructor" and "a
+; constructor that allocates nothing" have the same consequence here,
+; and no caller needs to tell them apart.
+(pub :: ctorAllocArity (-> Int String Int))
+
+(pub fn (ctorAllocArity tc n)
+  (let ((ctor (rfindCtor tc n)))
+    (if (!= ctor 0)
+      (arrowArity (memGetWord ctor 3))
+      (let ((sent (findStruct tc n)))
+        (if (== sent 0)
+          0
+          (let ((fields (memGetWord sent 1)))
+            (if (== fields 0)
+              0
+              (vecLen fields)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
 ; stage0's `walk_call`, by callee kind.
 (pub :: walkCallHead (-> Int String Int Int Int Int))
 
@@ -10935,7 +10984,34 @@
           ; that arm with them - `show` resolves in `checkApp` to an
           ; ordinary function or a generated renderer, both of which
           ; `findFnEnt` answers for.
-          0
+          ;
+          ; A CONSTRUCTOR STILL ALLOCATES, and the row has to say so.
+          ; This branch answered a flat `0` until 2026-08-31, which is
+          ; the whole of `MM-EXEC-9a`'s second open row - and the row
+          ; that made `restrict(no-alloc)` a claim nothing checked.
+          ; Measured on that shape before this line existed:
+          ;
+          ;     (data W (Wrap Int) (Empty))
+          ;     ;@axiom:restrict(no-alloc)
+          ;     (:: mk (-> Int Int))
+          ;     (fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+          ;
+          ; `check` answered OK and `emit-llvm` put a
+          ; `call i64 @axiom_alloc(i64 16)` inside `@mk` itself. The
+          ; claim, the refutation and the compiler's agreement with the
+          ; claim were all in one four-line file.
+          ;
+          ; `ctorAllocArity` and not "is this a constructor", because
+          ; the field count is what decides, and it is MEASURED rather
+          ; than assumed: `(Wrap n)` emits one `axiom_alloc` and
+          ; `(Empty)` emits none - a nullary constructor is an
+          ; immediate tag with no block behind it. Adding `Alloc` for
+          ; `(Empty)` would refuse a `no-alloc` claim the emitted code
+          ; keeps, which is the opposite error and just as wrong.
+          (if (> (ctorAllocArity tc n) 0)
+            (effAdd acc (builtinEff "Alloc"))
+            0
+          )
           {
             (tcNoteCall tc (memGetWordStr ent 0))
             (effUnion acc (memGetWord ent 5) 0)
@@ -16197,6 +16273,17 @@
 ; is a seed and every source of `Alloc` is a seed or a form - but the
 ; fallback says so rather than rendering nothing, because a message
 ; that silently lost its evidence is the AX3039 shape in another coat.
+;
+; THE FALLBACK NAMES A CONSTRUCTOR FIRST since 2026-08-31, because it
+; is now much the commonest way to reach this arm and it is the one
+; with no keyword to search for. The line used to offer `alloc` and
+; `handle` alone, and against
+;
+;     (fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+;
+; that sends the reader hunting for an `alloc` form the body does not
+; contain. A message that lists every source but the one in front of
+; the reader is the same defect as one that lists none.
 (pub :: witnessText (-> Int Int String String))
 
 (pub fn (witnessText tc d e)
@@ -16207,7 +16294,7 @@
         (if (== (graphSeeds tc last e 1) 1)
           (strConcat ": " (graphRender path))
           (if (== (vecLen path) 1)
-            " in its own body (an `alloc` form, or a `handle` installing a handler)"
+            " in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)"
             (strConcat (strConcat (strConcat ": " (graphRender path)) ", in ") (strConcat (strConcat "`" (bareOf (memGetWordStr last 0))) "`'s own body"))
           )
         )

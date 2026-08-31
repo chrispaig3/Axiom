@@ -245,7 +245,13 @@
 ; is already known good - a loop bounded by `vecLen` - and making every
 ; such read allocate an `Option` would be a cost paid everywhere to
 ; describe a case that cannot arise there.
-;@axiom:restrict(no-io,no-alloc,no-foreign)
+; `no-alloc` came off on 2026-08-31. The comment above already said it -
+; "making every such read allocate an `Option`" is what `(Some ...)`
+; does here - and the tag claimed the opposite, because a constructor
+; application was invisible to the effect row until that date
+; (`MM-EXEC-9a`). Returning a sentinel instead would delete the
+; distinction this function exists to draw, so the CLAIM is what goes.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: vecTry (-> Int Int (Option Int)))
 
 (pub fn (vecTry v i)

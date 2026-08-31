@@ -265,24 +265,60 @@ unwinding, no early return, and no exception. A function that can fail
 says so in its return type and every caller does something about it or
 does not compile.
 
-**ERR-PROP-2 (H). Constructing and inspecting an error is pure.**
-Probe: a two-parameter ADT, a constructor function and a `match`
-consumer, both tagged `;@axiom:pure`. `check` is OK and `axiom symbols`
-reports `#pure` on both with no `#effects=` beside it. So a `Result`
-may be built and taken apart inside a function that claims purity, and
-the claim validates.
+**ERR-PROP-2 (H, amended 2026-08-31). INSPECTING an error is pure.
+CONSTRUCTING one is not, and this rule used to say it was.**
 
-Recorded honestly: this also means **constructor allocation does not
-enter the inferred effect set**. `Alloc` is a built-in effect and a
-constructor allocates, so the inference is an under-approximation here
-in the sense `MM-EXEC-9a` names. It says "names" rather than "already
-names" for a reason: until 2026-08-25 that rule's table did not list
-this row, so the sentence pointed at an enumeration that was short by
-one. It is a row there now, with this paragraph as its reason. The error model relies on the
-convenient half of that; a conforming implementation that made `Alloc`
-precise would make every `Result` constructor `#effects=Alloc`, and
+The original probe was a two-parameter ADT, a constructor function and
+a `match` consumer, both tagged `;@axiom:pure`; `check` answered OK and
+`axiom symbols` reported `#pure` on both with no `#effects=` beside it.
+The consumer still does. The constructor no longer does:
+
+```scheme
+(data Pair (P Int Int) (Nil))
+;@axiom:pure
+(:: mkPair (-> Int Pair))
+(fn (mkPair n) (P n n))
+```
+
+now draws `AX3010 axtag-mismatch: \`pure\` claim contradicted: body
+performs Alloc`, while the `match` consumer beside it is accepted
+unchanged. **So a `Result` may still be taken apart inside a function
+that claims purity; it may no longer be BUILT there.**
+
+**Why the amendment, and what it cost.** This rule used to record, as a
+deliberate under-approximation, that *constructor allocation does not
+enter the inferred effect set* - and it relied on the convenient half
+of that, noting that a conforming implementation which made `Alloc`
+precise "would make every `Result` constructor `#effects=Alloc`, and
 `ERR-PROP-2`'s purity claim would need `Alloc` exempted explicitly
-rather than by omission.
+rather than by omission."
+
+That implementation arrived, and not for precision's sake.
+`restrict(no-alloc)` reads the effect row and turns it into a refusal,
+and against a row built to omit allocation the refusal could not fire:
+
+```scheme
+(data W (Wrap Int) (Empty))
+;@axiom:restrict(no-alloc)
+(:: mk (-> Int Int))
+(fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+```
+
+checked `OK` while the emitted IR held a `call i64 @axiom_alloc(i64 16)`
+inside `@mk`. A claim that cannot be refuted is not a claim, and 0.6.0
+shipped 273 of them. `MM-EXEC-9a` records the close and its measured
+blast radius: 123 of 3,725 effect rows gained `Alloc`, and seven
+`no-alloc` claims in the tree turned out to be false.
+
+**`Alloc` is NOT exempted from `pure`, by decision.** The sentence
+above offered that as the alternative and it is refused: `pure` means
+an empty definite row, an exemption would have to be carved for every
+reader of the row rather than for this one rule, and `Alloc` is the
+effect `restrict(no-alloc)` exists to name. The honest statement is the
+one at the top - construction allocates, and a constructing function is
+not pure. **Measured cost inside this repository: zero.** No
+`;@axiom:pure` claim in `stdlib/` or `self_host/` sits on a
+constructing function, so nothing here changed but this paragraph.
 
 **ERR-PROP-3 (H, program obligation). In a recursive function, the
 fallible call MUST be the `match` scrutinee and the recursive call MUST
@@ -1084,7 +1120,7 @@ term 2, which now carries both spellings and compares them.
 | `ERR-TYPE-4` | **H, gated** | `okOr`/`toOption`, `371` term 4 |
 | `ERR-TYPE-5` | H | `fldClass` classifies from declared types |
 | `ERR-PROP-1` | H | the language having no other mechanism |
-| `ERR-PROP-2` | H | `#pure` accepted on construct and inspect |
+| `ERR-PROP-2` | H | `#pure` accepted on INSPECT; refused on CONSTRUCT with `AX3010` since 2026-08-31 |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
 | `ERR-PROP-4` | P | — proposed `AX3045`, not constructed (`AX3041` was spent by the parser) |
 | `ERR-PROP-5` | H | effect inference, unchanged |
