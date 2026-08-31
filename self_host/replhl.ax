@@ -1,0 +1,1066 @@
+; replhl.ax - syntax highlighting and paren matching for a line being
+; typed at the REPL prompt.
+;
+; PURE. Every function here is a function of its arguments: a String
+; in, a painted String or a byte offset out. Nothing reads a terminal,
+; nothing writes one, nothing keeps state between keystrokes. That is
+; what lets the editor call `replHlPaint` on every key without a
+; redraw budget, and what lets the whole subsystem be gated by
+; `tests/selfhost/272-highlight.ax` with no pty anywhere.
+;
+; ------------------------------------------------------------------
+; THE LEXER IS THE COMPILER'S OWN, AND IT RUNS ON A HALF-TYPED LINE.
+;
+; A REPL that tokenises with a second, ad-hoc scanner is a REPL that
+; lies: it shows a string as unterminated where `check` sees it closed,
+; or paints a name as a keyword the parser does not know. So this
+; module calls `lex` (lexer.ax:888) and nothing else.
+;
+; The question that had to be answered before any of this was written
+; is whether `lex` SURVIVES a partial, unbalanced, mid-edit buffer.
+; Measured, not assumed - by running it over every prefix of
+; `(println "hel` and printing the token stream:
+;
+;   [(println "]    LPAREN@0..1 IDENT@1..8 ERROR@9..10  EOF@10..10
+;   [(println "h]   LPAREN@0..1 IDENT@1..8 ERROR@9..11  EOF@11..11
+;   [(println "hel] LPAREN@0..1 IDENT@1..8 ERROR@9..13  EOF@13..13
+;   [(println "hel"] LPAREN@0..1 IDENT@1..8 STRING@9..14 EOF@14..14
+;
+; It survives, and it is total by construction rather than by luck:
+;
+;   * `lexTokens` (lexer.ax:502) is a `while (< p len)` loop with no
+;     early exit and no error return; every arm of `stepToken`
+;     advances at least one byte and then it emits TK_EOF.
+;   * THE LEXER RAISES NO DIAGNOSTIC AT ALL. A malformed construct
+;     becomes a TK_ERROR or TK_ERROR_ESC token and lexing resumes;
+;     turning one into a message is `lexErrDiag`'s job in parser.ax,
+;     and only main.ax, lsp.ax and codegen.ax call it. Painting a
+;     token stream therefore cannot produce a diagnostic.
+;   * Bracket balance is never checked lexically, so an unclosed `(`
+;     is not an error to the lexer - it is one LPAREN token.
+;   * An unterminated block comment "runs to the end of the source and
+;     is NOT an error" (skipBlockComment's own header).
+;   * `replParenDepth` (repl.ax:1406) already does this in shipped
+;     code: it calls `(lex src)` on the joined, unbalanced
+;     continuation buffer for every physical line of a multi-line
+;     entry.
+;
+; So there is no pending-remainder machinery here and no second
+; tokenizer. Mid-edit incompleteness arrives as a TK_ERROR token whose
+; span ends at the buffer end, and `hlClassOf` paints exactly that as
+; HL_PEND - an unclosed literal shown as a literal in progress, not in
+; red.
+;
+; ------------------------------------------------------------------
+; WHAT THE MEASUREMENT ALSO SHOWED, AND WHAT IT COST.
+;
+; The gaps between consecutive token spans are NOT always whitespace
+; and comments. Comments emit no token, so a gap normally holds only
+; trivia - but a bad escape inside a string emits ONE TK_ERROR_ESC
+; covering the two escape characters and nothing else, and lexing
+; resumes past the whole literal. Printed gaps, measured:
+;
+;   ["a\q"]        GAP<"a> GAP<">
+;   [(f '\q' 2)]   GAP< '> GAP<' >
+;
+; `"a` and `'` are program text sitting in a gap. A gap walker that
+; assumed trivia would either drop those bytes (breaking the
+; visLen invariant the editor's wrap logic rests on) or run a comment
+; scan off the end of the buffer. `hlGap` therefore has a residue arm:
+; anything that is not a `;` line comment or a `#|` block comment is
+; HL_PLAIN, and both comment scans are bounded by the GAP END rather
+; than by the buffer length, so a `#|` inside the wreckage of a broken
+; literal cannot swallow the rest of the line.
+;
+; ------------------------------------------------------------------
+; COLOURS COME FROM style.ax, NINE CONSTANTS, NO TENTH.
+;
+; ESC cannot be written as a string literal in Axiom at all -
+; `isEscapeChar` accepts exactly \n \t \r \\ \" \' \0 - so `paint`
+; synthesises byte 27 at run time and a colour spelled inline here
+; would not compile. The role each constant already plays in the
+; diagnostic renderer is what picks it:
+;
+;   keyword    SGR_SEC   the renderer's SECONDARY label colour
+;                        (render.ax:776), the structural annotation
+;   ident      unpainted highlights.scm's last rule is the catch-all
+;                        `(identifier) @variable`; unpainted is the
+;                        cheapest correct answer and keeps the common
+;                        case free of seven wrapper bytes
+;   number     SGR_FIX   the colour of a fix's literal replacement
+;                        text (render.ax:687)
+;   literal    SGR_CODE  main.ax:1697 paints the literal code token
+;                        `AXnnnn` with it - the palette's "this is a
+;                        literal" colour
+;   comment    SGR_GUT   render.ax paints every piece of non-content
+;                        furniture with it: the `|` gutter, `-->`,
+;                        `...`, `=`. A comment is furniture.
+;   punct      unpainted brackets that are not the cursor's pair must
+;                        stay quiet or every line is a christmas tree
+;   error      SGR_ERROR `sgrForSev 0`
+;   match      SGR_HELP  the affirmative `help:` label's colour; a
+;                        partner FOUND is the affirmative answer
+;   mismatch   SGR_ERROR the same red, because it is the same claim
+;
+; ------------------------------------------------------------------
+; THE INVARIANT THE EDITOR DEPENDS ON.
+;
+;   (visLen (replHlPaint src cursor 0)) == (visLen src)
+;
+; `visLen` (style.ax:164) counts no escape sequence and no UTF-8
+; continuation byte, so it is the display width. The spans this module
+; produces cover every byte of the buffer exactly once, in order, and
+; every escape goes around a WHOLE span - never around an individual
+; character, which is style.ax's stated rule and what keeps the
+; renderer's output diffable. Together those make the equality hold,
+; and the fixture asserts it per case rather than trusting the
+; argument. It is `visLen src` and NOT `strLen src`: `strLen` counts
+; bytes, and a line holding `'e'` with an accent is more bytes than
+; columns.
+;
+; ------------------------------------------------------------------
+; PAREN MATCHING IS PAINT ONLY. `replParenDepth` IS NOT TOUCHED.
+;
+; repl.ax:1406 sums LPAREN/LBRACE/LBRACKET as +1 and the three closers
+; as -1 into ONE counter with no floor, so `( ]` measures 0 and
+; dispatches and depth can go negative. That answer decides whether
+; the REPL waits for another line, which makes it PIPED-SURFACE
+; behaviour: changing it would move byte goldens. So the matcher here
+; is a separate typed walk with a stack, `( ]` is a mismatch on both
+; brackets rather than a balance of zero - and `replHlDepth` recovers
+; the plain counter from the same walk, so a gate can assert the two
+; agree without either drifting into the other's job.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import core)
+
+(import lexer)
+
+(import parser)
+
+(import format)
+
+(import style)
+
+; ------------------------------------------------------------------
+; Classes. Plain Int constants in style.ax's shape rather than a
+; `data`: a nullary constructor would need `cast Int` to compare, and
+; MEMORY's rule for this tree is typed accessors only.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_PLAIN Int)
+
+(pub fn (HL_PLAIN) 0)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_KEYWORD Int)
+
+(pub fn (HL_KEYWORD) 1)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_IDENT Int)
+
+(pub fn (HL_IDENT) 2)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_NUM Int)
+
+(pub fn (HL_NUM) 3)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_LIT Int)
+
+(pub fn (HL_LIT) 4)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_COMMENT Int)
+
+(pub fn (HL_COMMENT) 5)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_PUNCT Int)
+
+(pub fn (HL_PUNCT) 6)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_ERROR Int)
+
+(pub fn (HL_ERROR) 7)
+
+; An incomplete literal, painted AS a literal. See `hlClassOf`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_PEND Int)
+
+(pub fn (HL_PEND) 8)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_MATCH Int)
+
+(pub fn (HL_MATCH) 9)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: HL_MISMATCH Int)
+
+(pub fn (HL_MISMATCH) 10)
+
+; One ASCII letter per class, for `replHlClass`. Pure ASCII and no
+; escapes, so the whole classification is a string a fixture can pin
+; by hand beside the source it describes.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlLetter (-> Int Int))
+
+(pub fn (hlLetter cls)
+  (if (== cls HL_KEYWORD)
+    75
+    (if (== cls HL_IDENT)
+      105
+      (if (== cls HL_NUM)
+        110
+        (if (== cls HL_LIT)
+          115
+          (if (== cls HL_COMMENT)
+            99
+            (if (== cls HL_PUNCT)
+              112
+              (if (== cls HL_ERROR)
+                69
+                (if (== cls HL_PEND)
+                  63
+                  (if (== cls HL_MATCH)
+                    77
+                    (if (== cls HL_MISMATCH)
+                      88
+                      46
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The SGR parameter string a class is painted with, or "" for a class
+; that is left unpainted. Built ONLY from style.ax's nine exported
+; constants - a tenth colour has to be added there, beside the others,
+; because ESC has no literal spelling in this language.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlSgr (-> Int String))
+
+(pub fn (hlSgr cls)
+  (if (== cls HL_KEYWORD)
+    SGR_SEC
+    (if (== cls HL_NUM)
+      SGR_FIX
+      (if (|| (== cls HL_LIT) (== cls HL_PEND))
+        SGR_CODE
+        (if (== cls HL_COMMENT)
+          SGR_GUT
+          (if (== cls HL_ERROR)
+            SGR_ERROR
+            (if (== cls HL_MATCH)
+              SGR_HELP
+              (if (== cls HL_MISMATCH)
+                SGR_ERROR
+                ""
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; A classified byte range, half-open, mirroring core.ax's Span so the
+; two read alike.
+; ------------------------------------------------------------------
+(pub struct HlSpan
+  (cls : Int)
+  (start : Int)
+  (end : Int))
+
+;@axiom:restrict(no-io,no-foreign)
+(pub :: mkHlSpan (-> Int Int Int Int))
+
+(pub fn (mkHlSpan cls start end) (HlSpan cls start end))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlSpanCls (-> Int Int))
+
+(pub fn (hlSpanCls s) (memGetWord s 0))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlSpanStart (-> Int Int))
+
+(pub fn (hlSpanStart s) (memGetWord s 1))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlSpanEnd (-> Int Int))
+
+(pub fn (hlSpanEnd s) (memGetWord s 2))
+
+; ------------------------------------------------------------------
+; A bracket, its family, its partner's byte offset (-1 when it has
+; none) and the index of its span - which is what lets `hlMarkPair`
+; recolour the pair without a second search.
+;
+; `fam` is 0 for `()`, 1 for `{}`, 2 for `[]`. `open` is 1 or 0.
+; ------------------------------------------------------------------
+(pub struct HlBrk
+  (pos : Int)
+  (open : Int)
+  (fam : Int)
+  (partner : Int)
+  (span : Int))
+
+;@axiom:restrict(no-io,no-foreign)
+(pub :: mkHlBrk (-> Int Int Int Int Int Int))
+
+(pub fn (mkHlBrk pos open fam partner span) (HlBrk pos open fam partner span))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlBrkPos (-> Int Int))
+
+(pub fn (hlBrkPos b) (memGetWord b 0))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlBrkOpen (-> Int Int))
+
+(pub fn (hlBrkOpen b) (memGetWord b 1))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlBrkFam (-> Int Int))
+
+(pub fn (hlBrkFam b) (memGetWord b 2))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlBrkPartner (-> Int Int))
+
+(pub fn (hlBrkPartner b) (memGetWord b 3))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlBrkSpan (-> Int Int))
+
+(pub fn (hlBrkSpan b) (memGetWord b 4))
+
+; The result of one lex: the classified spans, and the brackets.
+; Returned together because they come from ONE `lex` call - painting a
+; line and matching its brackets are two readings of the same token
+; stream, and lexing twice per keystroke to keep two entry points
+; tidy is work the editor pays for on every key.
+(pub struct HlScan
+  (spans : Int)
+  (brks : Int))
+
+;@axiom:restrict(no-io,no-foreign)
+(pub :: mkHlScan (-> Int Int Int))
+
+(pub fn (mkHlScan spans brks) (HlScan spans brks))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlScanSpans (-> Int Int))
+
+(pub fn (hlScanSpans s) (memGetWord s 0))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlScanBrks (-> Int Int))
+
+(pub fn (hlScanBrks s) (memGetWord s 1))
+
+; ------------------------------------------------------------------
+; The twelve declaration heads.
+;
+; A COPY, deliberately and with the drift gated. `isDeclLine`
+; (repl.ax:221) holds the same twelve inline inside one boolean over a
+; whole LINE, so it is not callable as a name predicate, and this
+; subsystem must not modify repl.ax. `scripts/check-repl-highlight.sh`
+; extracts both lists and requires them equal, which is what turns a
+; copy into a checked copy - the `impl`-was-missing comment sitting
+; right below `isDeclLine` records what an unchecked one costs.
+;
+; format.ax's `isKeywordHead` covers the other seventeen (and four of
+; these twelve); neither list alone is the keyword set.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlIsDeclHead (-> String Bool))
+
+(pub fn (hlIsDeclHead w)
+  (|| (strEq w "fn") (|| (strEq w "define") (|| (strEq w "::") (|| (strEq w "pub") (|| (strEq w "data") (|| (strEq w "struct") (|| (strEq w "import") (|| (strEq w "macro") (|| (strEq w "effect") (|| (strEq w "type") (|| (strEq w "trait") (strEq w "impl"))))))))))))
+)
+
+; A keyword is a POSITION, not a token kind, and this predicate only
+; ever runs on a name in head position - see `hlClassOf`.
+;
+; format.ax:2391 records why that guard is load-bearing:
+; `fpIsReservedWord`, thirty-two words reserved in EVERY position, was
+; deleted on 2026-08-28 because it made `fmt` refuse `(fn (g data)
+; data)` while `check` accepted it. A highlighter that paints `data`
+; as a keyword there repeats the same defect in a new place, so the
+; fixture carries that exact form as a named case.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlIsKeyword (-> String Bool))
+
+(pub fn (hlIsKeyword w) (|| (isKeywordHead w) (hlIsDeclHead w)))
+
+; ------------------------------------------------------------------
+; Push a span, dropping the empty ones. A zero-width span would paint
+; nothing and would give `replHlClass` a letter to write nowhere.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(:: hlPush (-> Int Int Int Int Int))
+
+(fn (hlPush out cls s e)
+  (if (< s e)
+    (vecPush
+      out      (mkHlSpan cls s e)
+    )
+    out
+  )
+)
+
+; ------------------------------------------------------------------
+; The trivia between two token spans: whitespace, comments, and - as
+; the measurement in this file's header shows - the wreckage either
+; side of a bad escape.
+;
+; The three scans are the LEXER'S OWN (`skipLineComment`,
+; `isBlockOpen`, `skipBlockComment`), so nested `#| a #| b |# c |#` is
+; one comment here exactly as it is one comment to the compiler, and a
+; `;` inside a string never reaches this function because it lives
+; inside a STRING token rather than in a gap.
+;
+; BOTH COMMENT SCANS ARE BOUNDED BY `b`, THE GAP END, not by the
+; buffer length. Inside a gap that exists only because a literal was
+; malformed, a stray `#|` would otherwise consume every remaining
+; span and blow total coverage apart.
+;
+; The newline that ends a line comment stays HL_PLAIN: the editor
+; splits the painted buffer on newlines, and a newline wrapped in a
+; colour escape would put the reset on the next row.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(:: hlGap (-> String Int Int Int Int))
+
+(fn (hlGap src a b out)
+  (let ((mut q a))
+    {
+      (while (< q b)
+        (let ((c (strByte src q)))
+          (if (== c 59)
+            (let ((r (skipLineComment src (+ q 1) b)))
+              (let ((e (if (&& (> r q) (== (strByte src (- r 1)) 10))
+                (- r 1)
+                r
+              )))
+                {
+                  (hlPush out HL_COMMENT q e)
+                  (set q (if (> e q)
+                    e
+                    (+ q 1)
+                  ))
+                }
+              )
+            )
+            (if (isBlockOpen src q b)
+              (let ((r (skipBlockComment src (+ q 2) b)))
+                {
+                  (hlPush out HL_COMMENT q r)
+                  (set q (if (> r q)
+                    r
+                    (+ q 1)
+                  ))
+                }
+              )
+              ; Residue: whitespace, or program text stranded by a bad
+              ; escape. One span per run rather than one per byte.
+              (let ((mut r (+ q 1)))
+                {
+                  (while (&& (< r b) (&& (!= (strByte src r) 59) (if (isBlockOpen src r b)
+                      false
+                      true
+                    )))
+                    (set r (+ r 1)))
+                  (hlPush out HL_PLAIN q r)
+                  (set q r)
+                }
+              )
+            )
+          )
+        ))
+      out
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; One token to one class.
+;
+; `isHead` is "the previously emitted token was TK_LPAREN", which is
+; the whole of the keyword rule; `n` is the buffer length, which is
+; the whole of the pending rule.
+;
+; THE PENDING RULE, both halves of it. An unterminated string emits
+; one TK_ERROR from the opening quote to the END OF SOURCE (lexer.ax's
+; string arm: "since a newline no longer stops it"), and an
+; unterminated char literal clamps its span to `len`. So a TK_ERROR
+; ending exactly at the buffer end is what a literal in progress looks
+; like - but so is a too-big integer literal, which also ends there
+; and which no further digit can ever fix. The first byte separates
+; them, and it separates them by the SAME dispatch `lexErrDiag` uses
+; (only `"` can open a string, only `'` a char, only a digit an
+; out-of-range number). A digit-led TK_ERROR therefore paints red at
+; once, and `(println "hel` paints as a string in progress.
+;
+; TK_ERROR_ESC is always HL_ERROR: `\q` is settled, no further
+; keystroke makes it an escape.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(:: hlClassOf (-> Int Bool Int Int))
+
+(fn (hlClassOf t isHead n)
+  (let (
+    (k (kindInt (tokenKind t)))
+    (lx (tokenLexeme t))
+  )
+    (if (|| (== k (kindInt TK_LPAREN)) (|| (== k (kindInt TK_RPAREN)) (|| (== k (kindInt TK_LBRACE)) (|| (== k (kindInt TK_RBRACE)) (|| (== k (kindInt TK_LBRACKET)) (|| (== k (kindInt TK_RBRACKET)) (|| (== k (kindInt TK_COLON)) (|| (== k (kindInt TK_COMMA)) (|| (== k (kindInt TK_DOT)) (|| (== k (kindInt TK_QUOTE)) (== k (kindInt TK_RARROW))))))))))))
+      HL_PUNCT
+      (if (== k (kindInt TK_DOUBLE_COLON))
+        (if isHead
+          HL_KEYWORD
+          HL_PUNCT
+        )
+        (if (|| (== k (kindInt TK_INT)) (== k (kindInt TK_FLOAT)))
+          HL_NUM
+          (if (|| (== k (kindInt TK_STRING)) (== k (kindInt TK_CHARLIT)))
+            HL_LIT
+            (if (== k (kindInt TK_IDENT))
+              (if (&& isHead (hlIsKeyword lx))
+                HL_KEYWORD
+                HL_IDENT
+              )
+              (if (== k (kindInt TK_ERROR))
+                (let ((b0 (if (> (strLen lx) 0)
+                  (strByte lx 0)
+                  0
+                )))
+                  (if (&& (== (spanEnd (tokenSpan t)) n) (|| (== b0 34) (== b0 39)))
+                    HL_PEND
+                    HL_ERROR
+                  )
+                )
+                (if (== k (kindInt TK_ERROR_ESC))
+                  HL_ERROR
+                  HL_PLAIN
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The bracket family of a token kind: 0 `()`, 1 `{}`, 2 `[]`, -1 not a
+; bracket.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: hlFamOf (-> Int Int))
+
+(fn (hlFamOf k)
+  (if (|| (== k (kindInt TK_LPAREN)) (== k (kindInt TK_RPAREN)))
+    0
+    (if (|| (== k (kindInt TK_LBRACE)) (== k (kindInt TK_RBRACE)))
+      1
+      (if (|| (== k (kindInt TK_LBRACKET)) (== k (kindInt TK_RBRACKET)))
+        2
+        (- 0 1)
+      )
+    )
+  )
+)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: hlIsOpener (-> Int Bool))
+
+(fn (hlIsOpener k) (|| (== k (kindInt TK_LPAREN)) (|| (== k (kindInt TK_LBRACE)) (== k (kindInt TK_LBRACKET)))))
+
+; ------------------------------------------------------------------
+; The classifier. ONE `lex`, then every byte of the buffer covered
+; exactly once and in order by an HlSpan, and every bracket token
+; recorded with its span index.
+;
+; TK_EOF is skipped: its span is zero-width, and `lexTokens`'s own
+; comment warns `p` may sit past `len` when the last token overshot.
+; Every offset is clamped to [0, n] and forced forward, so a token
+; that ever did overshoot cannot make coverage non-total - the
+; property the visLen invariant rests on.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(pub :: hlScan (-> String Int))
+
+(pub fn (hlScan src)
+  (let (
+    (toks (lex src))
+    (n (strLen src))
+    (spans vecNew)
+    (brks vecNew)
+    (mut i 0)
+    (mut p 0)
+    (mut prevLP false)
+  )
+    {
+      (while (< i (vecLen toks))
+        {
+          (let ((t (vecGet toks i)))
+            (let ((k (kindInt (tokenKind t))))
+              (if (== k (kindInt TK_EOF))
+                0
+                (let (
+                  (s0 (spanStart (tokenSpan t)))
+                  (e0 (spanEnd (tokenSpan t)))
+                )
+                  (let ((s (if (< s0 p)
+                    p
+                    (if (> s0 n)
+                      n
+                      s0
+                    )
+                  )))
+                    (let ((e (if (> e0 n)
+                      n
+                      (if (< e0 s)
+                        s
+                        e0
+                      )
+                    )))
+                      {
+                        (if (> s p)
+                          (hlGap src p s spans)
+                          spans
+                        )
+                        (if (>= (hlFamOf k) 0)
+                          (vecPush
+                            brks                            (mkHlBrk
+                              s                              (if (hlIsOpener k)
+                                1
+                                0
+                              )                              (hlFamOf k)                              (- 0 1)                              (vecLen spans)
+                            )
+                          )
+                          brks
+                        )
+                        (hlPush spans (hlClassOf t prevLP n) s e)
+                        (set prevLP (== k (kindInt TK_LPAREN)))
+                        (set p e)
+                      }
+                    )
+                  )
+                )
+              )
+            )
+          )
+          (set i (+ i 1))
+        })
+      (if (< p n)
+        (hlGap src p n spans)
+        spans
+      )
+      (hlPair src spans brks)
+      (mkHlScan spans brks)
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Fill in every bracket's `partner`, with a typed stack.
+;
+; A Vec IS the stack - `vecPush`, `vecPop` and `vecLast` all exist, so
+; no hand-rolled one is needed. It holds INDICES into `brks`, so
+; writing a partner back is a `vecSet` on a rebuilt HlBrk.
+;
+; A CLOSER OF THE WRONG FAMILY POPS ANYWAY and leaves both brackets
+; unpartnered. `( ]` is then a mismatch on the `(` and on the `]`,
+; which is the answer a person typing wants and is exactly what
+; `replParenDepth`'s single mixed counter cannot say - it measures 0
+; and dispatches. Popping rather than leaving the opener on the stack
+; is what stops one wrong closer from cascading: every later bracket
+; in the line would otherwise be reported wrong too.
+;
+; Leftover openers keep partner -1. That is the ordinary mid-edit
+; state, not an error: `(println "hel` has an unclosed `(` at every
+; keystroke.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(:: hlSetPartner (-> Int Int Int Int))
+
+(fn (hlSetPartner brks i partner)
+  (let ((b (vecGet brks i)))
+    (vecSet
+      brks      i      (mkHlBrk
+        (hlBrkPos b)        (hlBrkOpen b)        (hlBrkFam b)        partner        (hlBrkSpan b)
+      )
+    )
+  )
+)
+
+;@axiom:restrict(no-io,no-foreign)
+(:: hlPair (-> String Int Int Int))
+
+(fn (hlPair src spans brks)
+  (let (
+    (n (vecLen brks))
+    (stack vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (let ((b (vecGet brks i)))
+            (if (== (hlBrkOpen b) 1)
+              (vecPush
+                stack                i
+              )
+              (if (== (vecLen stack) 0)
+                brks
+                (let ((j (vecPop stack)))
+                  (let ((o (vecGet brks j)))
+                    (if (== (hlBrkFam o) (hlBrkFam b))
+                      {
+                        (hlSetPartner brks j (hlBrkPos b))
+                        (hlSetPartner brks i (hlBrkPos o))
+                      }
+                      brks
+                    )
+                  )
+                )
+              )
+            )
+          )
+          (set i (+ i 1))
+        })
+      brks
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The bracket the cursor is ON, as an index into `brks`, or -1.
+;
+; PREFER THE BRACKET ENDING AT THE CURSOR over the one starting at it.
+; In a REPL the cursor sits just after the character you typed, so the
+; delimiter you want to see acknowledged is the `)` you just closed,
+; not the one you are about to step onto.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: hlBrkAt (-> Int Int Int))
+
+(pub fn (hlBrkAt brks cursor)
+  (let (
+    (n (vecLen brks))
+    (mut i 0)
+    (mut before (- 0 1))
+    (mut on (- 0 1))
+  )
+    {
+      (while (< i n)
+        {
+          (let ((p (hlBrkPos (vecGet brks i))))
+            {
+              (set before (if (== p (- cursor 1))
+                i
+                before
+              ))
+              (set on (if (== p cursor)
+                i
+                on
+              ))
+            }
+          )
+          (set i (+ i 1))
+        })
+      (if (>= before 0)
+        before
+        on
+      )
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Recolour the cursor's bracket and its partner in place.
+;
+; HL_MATCH on both when a partner exists, HL_MISMATCH on the bracket
+; alone when it does not. `vecSet` overwrites the class and nothing
+; else, so coverage stays total and the visLen invariant survives the
+; marking - which is why the fixture measures visLen with a cursor set
+; as well as without.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(pub :: hlMarkPair (-> Int Int Int Int))
+
+(pub fn (hlMarkPair spans brks cursor)
+  (let ((i (hlBrkAt brks cursor)))
+    (if (< i 0)
+      spans
+      (let ((b (vecGet brks i)))
+        (if (< (hlBrkPartner b) 0)
+          (hlRecolour spans (hlBrkSpan b) HL_MISMATCH)
+          (let ((j (hlBrkIndexAt brks (hlBrkPartner b))))
+            {
+              (hlRecolour spans (hlBrkSpan b) HL_MATCH)
+              (if (>= j 0)
+                (hlRecolour spans (hlBrkSpan (vecGet brks j)) HL_MATCH)
+                spans
+              )
+            }
+          )
+        )
+      )
+    )
+  )
+)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: hlBrkIndexAt (-> Int Int Int))
+
+; The bracket AT exactly this byte offset, or -1. Direct rather than
+; reusing `hlBrkAt`, whose cursor rule prefers the bracket that ENDS
+; at its argument: correct there, needless indirection here.
+(fn (hlBrkIndexAt brks pos)
+  (let (
+    (n (vecLen brks))
+    (mut i 0)
+    (mut got (- 0 1))
+  )
+    {
+      (while (< i n)
+        {
+          (set got (if (== (hlBrkPos (vecGet brks i)) pos)
+            i
+            got
+          ))
+          (set i (+ i 1))
+        })
+      got
+    }
+  )
+)
+
+;@axiom:restrict(no-io,no-foreign)
+(:: hlRecolour (-> Int Int Int Int))
+
+(fn (hlRecolour spans i cls)
+  (if (|| (< i 0) (>= i (vecLen spans)))
+    spans
+    (let ((s (vecGet spans i)))
+      (vecSet
+        spans        i        (mkHlSpan cls (hlSpanStart s) (hlSpanEnd s))
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; PUBLIC SURFACE. Four pure functions; the editor needs no others.
+; ------------------------------------------------------------------
+; Source and cursor to one ASCII class letter per source BYTE.
+;
+; `.` plain  `K` keyword  `i` ident  `n` number  `s` literal
+; `c` comment  `p` punct  `E` error  `?` literal in progress
+; `M` matched bracket  `X` unmatched bracket
+;
+; This is the subsystem's testable surface: every letter is one
+; classification decision a fixture can pin by hand, beside the source
+; it describes.
+;
+; THE FILL IS `_`, WHICH IS NOT A CLASS LETTER. The string is one
+; `strAlloc` of the source length, so comparing its LENGTH to the
+; source's proves nothing - it is that length by construction, and a
+; check that cannot fail is worse than no check. Filling with a byte
+; no class can produce is what makes the string report coverage
+; honestly instead: a `_` in the output is a source byte no span
+; covered, which should be impossible, and it is the classifier saying
+; so about itself rather than a caller having to re-derive it.
+;
+; A cursor of -1 means "no cursor", so no bracket is marked.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: replHlClass (-> String Int String))
+
+(pub fn (replHlClass src cursor)
+  (let (
+    (sc (hlScan src))
+    (n (strLen src))
+  )
+    (let (
+      (spans (hlMarkPair (hlScanSpans sc) (hlScanBrks sc) cursor))
+      (out (strAlloc n))
+      (mut i 0)
+    )
+      {
+        (while (< i n)
+          {
+            (memPutByte (strData out) i 95)
+            (set i (+ i 1))
+          })
+        (set i 0)
+        (while (< i (vecLen spans))
+          {
+            (let ((s (vecGet spans i)))
+              (let (
+                (b (hlLetter (hlSpanCls s)))
+                (mut q (hlSpanStart s))
+              )
+                (while (< q (hlSpanEnd s))
+                  {
+                    (if (&& (>= q 0) (< q n))
+                      (memPutByte (strData out) q b)
+                      0
+                    )
+                    (set q (+ q 1))
+                  })
+              )
+            )
+            (set i (+ i 1))
+          })
+        out
+      }
+    )
+  )
+)
+
+; Source, cursor and the byte offset the visible line starts at, to
+; the painted bytes for [from, end).
+;
+; It lexes the WHOLE buffer and renders only the tail, because a `)`
+; on the third physical line of a continuation can only match a `(` on
+; the first - the same buffer `replMain` is already accumulating and
+; already handing to `replParenDepth`. `from` of 0 paints everything.
+;
+; One fragment per span into a Vec, joined ONCE with `catStrs`.
+; `strConcat` folded over the fragments would peak at the sum of its
+; intermediates, which is the discipline style.ax:115-118 and
+; diag.ax's `catStrs` header both record; painting happens on every
+; keystroke, which is the worst place to pay it.
+;
+; Escapes go around WHOLE spans, never around individual characters -
+; style.ax:39-45's stated rule, and the reason `visLen` can undo the
+; painting exactly.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: replHlPaint (-> String Int Int String))
+
+(pub fn (replHlPaint src cursor from)
+  (let (
+    (sc (hlScan src))
+    (n (strLen src))
+    (parts vecNew)
+    (mut i 0)
+  )
+    (let ((spans (hlMarkPair (hlScanSpans sc) (hlScanBrks sc) cursor)))
+      {
+        (while (< i (vecLen spans))
+          {
+            (let ((s (vecGet spans i)))
+              (let (
+                (a (if (< (hlSpanStart s) from)
+                  from
+                  (hlSpanStart s)
+                ))
+                (b (hlSpanEnd s))
+              )
+                (if (< a b)
+                  (let (
+                    (txt (strSlice src a (- b a)))
+                    (sgr (hlSgr (hlSpanCls s)))
+                  )
+                    (if (> (strLen sgr) 0)
+                      (vecPush parts (paint sgr txt))
+                      (vecPush parts txt)
+                    )
+                  )
+                  parts
+                )
+              )
+            )
+            (set i (+ i 1))
+          })
+        (catStrs parts)
+      }
+    )
+  )
+)
+
+; The whole buffer, painted, with no cursor - the plain entry point.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: replHlLine (-> String String))
+
+(pub fn (replHlLine src) (replHlPaint src (- 0 1) 0))
+
+; Source and cursor to the byte offset of the MATCHING delimiter.
+;
+;   >= 0  the partner's offset
+;   -1    there is no delimiter at the cursor at all
+;   -2    there is one, and it has no partner (unclosed, unopened, or
+;         closed by the wrong family)
+;
+; Three answers rather than two because the editor does different
+; things with them: -1 draws nothing, -2 is the red flash that says
+; "this bracket is wrong", and an offset is the pair to light up. A
+; single -1 for both would make "no bracket here" and "this bracket is
+; broken" indistinguishable, which is the whole feedback.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: replHlMatch (-> String Int Int))
+
+(pub fn (replHlMatch src cursor)
+  (let ((brks (hlScanBrks (hlScan src))))
+    (let ((i (hlBrkAt brks cursor)))
+      (if (< i 0)
+        (- 0 1)
+        (let ((p (hlBrkPartner (vecGet brks i))))
+          (if (< p 0)
+            (- 0 2)
+            p
+          )
+        )
+      )
+    )
+  )
+)
+
+; The plain +1/-1 bracket count, recovered from the typed walk.
+;
+; It exists so a gate can assert this module and `replParenDepth`
+; (repl.ax:1406) agree on a corpus, WITHOUT either drifting into the
+; other's job. `replParenDepth`'s answer decides whether the REPL
+; waits for another line, which makes it piped-surface behaviour and
+; not something a highlighter may change; this number is the
+; reconciliation between the two walks.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: replHlDepth (-> String Int))
+
+(pub fn (replHlDepth src)
+  (let (
+    (brks (hlScanBrks (hlScan src)))
+    (mut i 0)
+    (mut d 0)
+  )
+    {
+      (while (< i (vecLen brks))
+        {
+          (set d (if (== (hlBrkOpen (vecGet brks i)) 1)
+            (+ d 1)
+            (- d 1)
+          ))
+          (set i (+ i 1))
+        })
+      d
+    }
+  )
+)
