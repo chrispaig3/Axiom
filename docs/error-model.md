@@ -687,6 +687,20 @@ Both halves are in one program per case, at four optimisation levels:
 `tests/stdlib/401-recover-effect.ax`, `402-recover-oom.ax`,
 `403-recover-div.ax`, gated by `scripts/check-recover.sh`.
 
+**The table has three rows and gains no fourth from status 75.** An
+arena reset handed a mark whose chunk is no longer on the active list
+traps with status **75** since 2026-08-31 (`MM-ALLOC-16a`), and it is
+deliberately outside this mechanism. A recovery point's abort IS an
+arena reset — it resets to the arming mark — so answering an invalid
+reset by performing another one asks the same corrupted structure the
+same question. By the time the trap is reached the unwind walk has
+already pushed every chunk it passed onto the free list hunting for one
+that was not there, which is precisely the list an abort would then
+reset through. 70, 71 and 72 are the *programmer error* class this
+paragraph describes, which a process can be written to survive; 75 is a
+violated implementation invariant (`I8`), and it is nearer the
+memory-safety fault the paragraph above refuses to contain.
+
 **What it is not.** It is not unwinding, not a `catch`, and not an early
 return, so `ERR-REC-1` stands as written for everything except these
 three. There is no landing pad and no cleanup, nothing runs on the way
@@ -701,7 +715,7 @@ abort there too.
 There are no destructors, no finalizers and no stack-allocated data, so
 "unwinding" degenerates to restoring the stack pointer, the arena and the
 effect slots — and there is nothing to run on the way out.
-`docs/memory-model.md` `MM-ALLOC-17` states the memory argument, including
+`docs/memory-model.md` `MM-ALLOC-23` states the memory argument, including
 the one thing it does not buy for free (a retain abandoned below the
 mark) and the measurement that bounds it: 100,000 aborts hold max RSS at
 1,376 KiB, against 419,328 KiB for the same program with nothing to
