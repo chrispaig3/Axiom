@@ -74,7 +74,31 @@ build_one() {  # build_one <output> <log>
 echo "== building the shared compiler under test from self_host/ =="
 build_one "$out" "$work/build.log"
 
-gate_source_stamp > "$out.stamp"
+# WRITTEN AS THE CONSUMER WILL COMPUTE IT, and that is the whole fix.
+#
+# `gate_source_stamp` is sha(the tree's `.ax` bytes + sha("$axiom")) -
+# it identifies the SOURCES and the COMPILER TOGETHER. But `$axiom` is
+# whatever `gate_init` resolved, and the two sides resolve it
+# differently: here nothing is set, so it is the bootstrap compiler
+# that did the BUILDING; in a gate, `run-gates.sh` has exported
+# `AXIOM_AXC`, so `gate_init` answers the ARTIFACT. Two different
+# values, two different stamps, and `gate_build_axc` therefore never
+# matched and every gate rebuilt a compiler that was already built for
+# it - the sixteen minutes per run this file's own header says the
+# sharing saves.
+#
+# Regression, not an old bug: until 2026-08-31 `gate_init` was
+# `${AXIOM:-.axiom-bin/axiom}` and IGNORED `AXIOM_AXC`, so both sides
+# said "bootstrap" and agreed. Teaching it to honour `AXIOM_AXC` - a
+# real fix, for twelve gates that were silently measuring the installed
+# binary - changed what this hash means on one side only.
+#
+# So the stamp is computed with `$axiom` pointing at the ARTIFACT, which
+# is what every reader will use. It also reads better than what it
+# replaced: the stamp now says "these sources, and THIS compiler", so a
+# swapped or truncated artifact fails the comparison too, where before
+# it recorded a builder no consumer ever asks about.
+( axiom="$out"; gate_source_stamp > "$out.stamp" )
 
 # THE EQUALITY, MEASURED. A second, independent build from the same
 # tree with the same builder, and then both compilers are asked to emit
