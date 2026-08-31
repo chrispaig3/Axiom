@@ -3803,13 +3803,131 @@
   (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0)
       nr
+      ; TYPE PARAMETERS, collected exactly as `parseDataDecl` collects
+      ; them and in the same PARENTHESISED spelling - `(struct Box (a)
+      ; (v : a))`, never a bare `a`. One convention for both
+      ; declarations rather than two that a reader has to keep
+      ; straight, and `collectTyParams` already declines an uppercase
+      ; name and the `syntax/` prefix, so a struct named by a macro
+      ; template reads the same here as a `data` does.
+      ;
+      ; A struct with no parameters collects an empty vector and is
+      ; byte-for-byte the declaration it was before: `collectTyParams`
+      ; answers `pos` unchanged when the next token is not a
+      ; parenthesised lowercase list, which is every struct in this
+      ; repository today.
       (let (
         (name (memGetWordStr nr 1))
         (nextPos (memGetWord nr 2))
       )
-        (parseFields
-          tokens          nextPos          name          (tokenSpan (vecGet tokens pos))          vecNew
+        ; A STRUCT'S FIRST GROUP IS AMBIGUOUS WHERE A `data`'s IS NOT,
+        ; and this is the whole difficulty of the feature. `(data Tree
+        ; (a) ...)` can only mean type parameters, because a data
+        ; declaration's other groups are constructors and those start
+        ; with an UPPERCASE name. A struct's groups are FIELDS, and a
+        ; field starts with a lowercase identifier too:
+        ;
+        ;     (struct Span (start : Int) (end : Int))
+        ;              ^^^^^^^^^^^^^^^^ a field, not a parameter list
+        ;
+        ; Handing that to `collectTyParams` unguarded swallowed
+        ; `Span`'s first field as a type parameter and every struct in
+        ; the tree stopped parsing - caught by the seed refusing to
+        ; compile `self_host/main.ax`, which is the right place for it
+        ; to be caught and the reason the bootstrap runs first.
+        ;
+        ; The discriminator is the `:`. A type-parameter list is names
+        ; and nothing else; a field is `name : type`. So the group is
+        ; read as parameters only when its second token is not a
+        ; colon.
+        (let ((tvs vecNew))
+          (parseFieldsTv
+            tokens            (if (== (structGroupIsTyParams tokens nextPos) 1)
+              (collectTyParams tokens nextPos tvs)
+              nextPos
+            )            name            (tokenSpan (vecGet tokens pos))            vecNew            tvs
+          )
         )
+      )
+    )
+  )
+)
+
+; `parseFields` with the type parameters carried alongside, so the
+; node they land on is the one `parseFields` was already building. The
+; old entry point stays for callers that have no parameters to pass.
+; Is the parenthesised group at `pos` a type-PARAMETER list rather
+; than a field? Only when it opens, holds an identifier, and that
+; identifier is NOT followed by a colon. `(a)` and `(a b)` are
+; parameters; `(start : Int)` is a field; `()` is neither and is left
+; to `parseFields` to refuse as it always has.
+(pub :: structGroupIsTyParams (-> Int Int Int))
+
+(pub fn (structGroupIsTyParams tokens pos)
+  (if (peekIs tokens pos TK_LPAREN)
+    (if (peekIs tokens (advance pos) TK_IDENT)
+      (structTyParamRun tokens (advance pos))
+      0
+    )
+    0
+  )
+)
+
+; Every token to the closing paren is a LOWERCASE identifier, or this
+; is not a parameter list.
+;
+; The colon alone was not enough, and the case that proves it is
+; `tests/diagnostics/388-struct-field-untyped.ax`:
+;
+;     (struct NoColon (msg String))
+;
+; A field whose `:` the author forgot - AX3056, and one of the three
+; refusals that fixture pins. `(msg String)` has no colon, so a
+; colon-only test read it as the parameters `msg` and `String` and the
+; diagnostic vanished: a malformed field silently became a type
+; parameter list, which is the AX3056 hole reopening under a new name.
+;
+; Requiring every name to be lowercase is the same rule
+; `collectTyParams` applies for `data`, and it separates the two
+; shapes exactly: `String` is uppercase, so `(msg String)` is a field
+; the checker still refuses.
+(pub :: structTyParamRun (-> Int Int Int))
+
+(pub fn (structTyParamRun tokens pos)
+  (if (peekIs tokens pos TK_RPAREN)
+    1
+    (if (peekIs tokens pos TK_IDENT)
+      (if (identStartsUpper tokens pos)
+        0
+        (structTyParamRun tokens (advance pos))
+      )
+      0
+    )
+  )
+)
+
+(pub :: parseFieldsTv (-> Int Int String Int Int Int Int))
+
+(pub fn (parseFieldsTv tokens pos structName nameSpan acc tvs)
+  (let ((r (parseFields tokens pos structName nameSpan acc)))
+    (if (== (memGetWord r 0) 0)
+      r
+      ; ONLY when there are parameters, and this is not an
+      ; optimisation. A `D_STRUCT`'s `ty` slot was 0 for every struct
+      ; ever written, and the macro expander copies declaration nodes
+      ; on the understanding that the slot holds a TYPE NODE or
+      ; nothing. Writing an empty VECTOR there gave it a handle it
+      ; walked as a node: `381-macro-type-templates` and
+      ; `396-macro-struct-field-types` both died of SIGSEGV, exit 139,
+      ; and every other struct in the tree was one macro away from the
+      ; same. An unparameterised struct now leaves the slot exactly as
+      ; it found it.
+      (if (== (vecLen tvs) 0)
+        r
+        {
+          (setNodeTy (memGetWord r 1) tvs)
+          r
+        }
       )
     )
   )

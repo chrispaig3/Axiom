@@ -16,8 +16,48 @@ its changelog too.
 
 ## Unreleased
 
-- **`sysWriteAllFd` stopped truncating output silently, and the
-  `Result` migration's real blocker turned out to be the EFFECT ROW.**
+- **Structs take type parameters, and that is what an interface is now.**
+  `(struct ShowOf (a) (render : (-> a String)))` - the parenthesised
+  spelling `data` already uses, one convention rather than two. Before
+  this the form was `AX2001`, so a capability record had to be a `data`
+  type destructured by `match`, because only a struct has named fields
+  and `.field` access. `(fn (showInt) (ShowOf fmtInt))` is the
+  instance, `((c.render) 7)` is the call, and nothing dispatches at run
+  time.
+  **The first group is ambiguous in a struct and not in a `data`**, which
+  is the whole difficulty. A data declaration's other groups are
+  CONSTRUCTORS and start uppercase, so `(a)` can only be parameters. A
+  struct's other groups are FIELDS and start lowercase too. The rule is
+  that a parameter list is lowercase names and nothing else: `(a b)`
+  yes, `(start : Int)` no - a colon makes it a field - and
+  `(msg String)` no, because `String` is uppercase, which keeps
+  `tests/diagnostics/388`'s three `AX3056` refusals intact. Both halves
+  were found by the tree refusing to build, not by inspection: handing
+  the group to `collectTyParams` unguarded swallowed `Span`'s first
+  field and the SEED stopped compiling `self_host/main.ax`; testing
+  only for the colon then swallowed `(msg String)` and one `AX3056`
+  vanished.
+  **Two more caught the same way.** Writing the parameter vector onto
+  every `D_STRUCT` node's `ty` slot gave the macro expander a handle it
+  walked as a type node - `381-macro-type-templates` and
+  `396-macro-struct-field-types` died of SIGSEGV. An unparameterised
+  struct now leaves the slot at 0, and `checkStructConAt` guards
+  `(== tvs 0)` before `vecLen`, which dereferences null on 0.
+  **The grammar agreed with the text and disagreed with the compiler.**
+  `tree-sitter` parsed `(a)` as a typeless `field_declaration` with
+  zero `ERROR` nodes - accepted, and wrong. A dynamic precedence on
+  `type_parameters` settles it, and only where it is genuinely
+  ambiguous, since `(x : Int)` cannot match that rule at all.
+  **And the formatter broke its own input**, printing a single variable
+  bare: right for `data`, which accepts both spellings, fatal for
+  `struct`, which accepts one. `axiom fmt` was producing files the
+  compiler could no longer read. `fpTyvars` now takes the choice from
+  its caller.
+  `tests/selfhost/901-parameterised-struct.ax` pins it at exit 12: two
+  parameters staying independent, and a capability answering through
+  its field.
+- **`sysWriteAllFd` stopped truncating output silently, and a claim about
+  why the `Result` migration is hard, CORRECTED below.**
   When `write` returned exactly 0 - a legal answer, and the one case
   the loop cannot retry - this answered `done`: a short, NON-NEGATIVE
   count indistinguishable from the complete one. `stdlib/Sys.ax`'s own
@@ -32,23 +72,28 @@ its changelog too.
   is ~500 ns and the constructor ~9, so on a wrapper that reaches the
   kernel the channel is free. The 7.4x figure is real and was taken
   with no syscall in the loop.
-  What is NOT free is the effect row. Constructing an `Ok`/`Err`
-  allocates, so the row widened from `IO` to `IO, Alloc, Mut`, and this
-  function sits under `writeStr`, under `println`, 804 macro
-  expansions. **Ten gates went red**: `300-effect-handlers` could no
-  longer `handle` what it declares, and AXTAG claims across the tree
-  began reading `body performs Alloc, IO, Mut` where they had said
-  `IO`. Narrowing the `Err` message to a literal does not help - the
-  row comes from the constructor. So the sentinel stays here and
-  `Result` waits for the callers that are not under the printing path,
-  which is a fact about the migration nobody had written down: its
-  blocker is the effect row, not performance.
+  The port DID widen the effect row from `IO` to `IO, Alloc, Mut` and
+  **ten gates went red** - `300-effect-handlers` could no longer
+  `handle` what it declares, and AXTAG claims began reading `body
+  performs Alloc, IO, Mut` where they had said `IO`. The cause written
+  here first was "the row comes from the constructor". **That is
+  wrong**, and the correction matters more than the port: measured, a
+  `Result`-returning function whose error message is a LITERAL has no
+  effect row at all, and the same function with a `strConcat`ed message
+  has `Alloc,Mut`. `Ok`/`Err`/`mkError` are effect-free. The tax came
+  from `sysResult`, which builds `"op: errno N"` eagerly with two
+  `strConcat`s and an `fmtInt` on a path most callers never read. The
+  narrowing test that "proved" otherwise replaced one message with a
+  literal and left `sysResult` untouched.
+  So the `Result` migration is **not** blocked by the effect system.
+  It is blocked by eager message construction, which is one line.
   Also corrected: `Sys` does NOT sit below `Err` in the dependency
   order, which `ERR-ADOPT-1` gives as the reason its slice is hard.
   The order is `Mem -> Vec -> Str -> Err -> Sys`; `Sys.ax` already
   imports `Err` and already uses `sysResult`. And `self_host/` reaches
   only 4 of the 27 sentinel-answering functions (20 sites), so 23 of
   them can be ported without touching the compiler at all.
+||||||| b85ccc1
 
 - **`freebsd-x86_64` and `windows-x86_64` are supported targets.** Both
   legs had been green on 13 of the previous 15 runs with no failures,
