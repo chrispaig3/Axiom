@@ -119,6 +119,16 @@ toml_replace() {
 # one and still pass a floor, because the survivor agrees and the three
 # that stopped matching are invisible to a test that only asks whether
 # the file said the number at all.
+# README.md STATED IT TWICE UNTIL 0.6.0, and the count moving from 2 to 1
+# is a deliberate change rather than a site going quiet. The README was
+# 2071 lines and restated the reference; it is a 639-line front door now,
+# and the `### Example session` that carried the second banner - a quoted
+# REPL greeting - moved to `docs/reference.md`. No banner went with it, on
+# purpose: `docs/reference.md|1` is itself a counted site, so adding one
+# there would have broken that count to fix this one.
+#
+# The gate caught the drop on the release battery, which is the whole
+# reason the count is here rather than a bare "does the file mention it".
 VERSION_SITES="
 self_host/build.ax|1|axv_version|axv_replace
 self_host/lsp.ax|1|lsp_version|lsp_replace
@@ -127,7 +137,7 @@ rust/Cargo.lock|7|lock_version|lock_replace
 rust/examples/nostd/Cargo.lock|4|lock_version|lock_replace
 tree-sitter-axiom/package.json|1|json_version|json_replace
 tree-sitter-axiom/tree-sitter.json|1|json_version|json_replace
-README.md|2|ax_version|ax_replace
+README.md|1|ax_version|ax_replace
 docs/reference.md|1|ax_version|ax_replace
 SECURITY.md|1|sec_version|sec_replace
 tests/lsp/010-clean.golden|1|lspg_version|lspg_replace

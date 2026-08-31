@@ -16,6 +16,8 @@ its changelog too.
 
 ## Unreleased
 
+## 0.6.0 — 2026-08-31
+
 - **KNOWN ISSUE: module resolution matches case-insensitively on macOS, so
   a project shadows a standard-library module it did not mean to.**
   Shadowing itself is intended and documented — the resolution ladder
