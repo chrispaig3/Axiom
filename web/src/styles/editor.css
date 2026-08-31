@@ -9,42 +9,73 @@
  * ---------------------------------------------------------------- */
 
 .code__body--numbered {
+  /* One line box, shared by both columns.
+   *
+   * The gutter and the code are separate elements, so a unitless
+   * `line-height` resolves against each one's OWN font-size. Shrinking
+   * only the gutter's font on small screens therefore gave the two
+   * columns different line heights and the numbers walked out of step
+   * with the code — which is exactly what they did below 640px. Deriving
+   * one absolute line box from one font-size token makes that
+   * impossible: change `--code-fs` and both columns move together.
+   */
+  --code-fs: var(--t--1);
+  --code-line: calc(var(--code-fs) * var(--lh-code));
+
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   padding-inline: 0;
+  /* Exactly one horizontal scroll container, and it is the `pre` below.
+     Leaving `overflow-x: auto` on the grid too meant the gutter could be
+     scrolled off the left edge on a phone. */
+  overflow-x: visible;
+}
+
+.code--tight .code__body--numbered {
+  --code-fs: 0.78rem;
 }
 
 .code__gutter {
   display: grid;
-  position: sticky;
-  left: 0;
-  z-index: 1;
   padding-inline: var(--s-4) var(--s-3);
   border-right: 1px solid var(--border);
   background: var(--surface-code);
   color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: var(--t--1);
-  line-height: var(--lh-code);
+  /* Slightly smaller than the code, and alignment survives it because
+     the line box below is a length, not a multiplier. */
+  font-size: calc(var(--code-fs) * 0.92);
   font-variant-numeric: tabular-nums;
   text-align: right;
   user-select: none;
-  opacity: 0.45;
+  opacity: 0.4;
+}
+
+.code__gutter span {
+  display: block;
+  height: var(--code-line);
+  line-height: var(--code-line);
 }
 
 .code__body--numbered > pre {
   min-width: 0;
   padding-inline: var(--s-4) var(--s-5);
+  font-size: var(--code-fs);
+  line-height: var(--code-line);
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
 }
 
 @media (max-width: 640px) {
+  .code__body--numbered {
+    /* Both columns shrink, together. */
+    --code-fs: 0.7rem;
+  }
+
   .code__gutter {
     padding-inline: var(--s-3) var(--s-2);
-    font-size: 0.6875rem;
   }
 
   .code__body--numbered > pre {
@@ -160,4 +191,15 @@
 .hero__panel > .code__out {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+}
+
+/* A run strip prints a shell command. It is never uppercased, whatever a
+   surrounding rule wants — `.hero__out-label` inherited `uppercase` from
+   the days it read `STDOUT`, and shouted `$ AXIOM RUN SHAPES.AX` back at
+   the reader, which is a different command from the one it names. */
+.code__out-label,
+.hero__out-label,
+.code__out pre,
+.hero__out pre {
+  text-transform: none;
 }
