@@ -271,10 +271,21 @@ with whatever the compiler now says.
 | Row | Closed | Now |
 |---|---|---|
 | calls `__alloc` | 2026-08-23 | `Alloc` |
-| calls a **trait method** whose implementation does I/O | 2026-08-23 | the fixpoint unions **every** implementation of the method, which is what dynamic dispatch means; `#effects=IO` reaches the caller and its callers |
+| calls a **trait method** whose implementation does I/O — the construct was removed in 0.6.0 | 2026-08-23 | the fixpoint unioned **every** implementation of the method, because the rewrite that selects one ran elsewhere and this walk could not say which; the effect reached the caller and its callers — definite with a single implementation, and `#effects-possible=` with more than one |
 | calls `__store8`/`__store64` — writes arbitrary memory | 2026-08-25 | `Mut` |
 | reads `__argc`/`__argv` — the process command line | 2026-08-25 | `IO` |
 | calls the arena primitives | 2026-08-25 | `Alloc` |
+
+The trait-method row closed and then stopped existing. `trait`/`impl`
+are `AX2004` since 0.6.0 and an interface is a capability record — a
+struct holding the functions, passed as an ordinary value — so dispatch is
+`((c.render) x)`, a call through a field the walk cannot resolve. That
+is the FIRST row of the OPEN table above, not this closed one.
+Measured: over `(struct Logger (emit : (-> String Int)))`,
+`;@axiom:pure (fn (runIt l s) ((l.emit) s))` checks `OK` with `AX3037`
+beside it and its row reads `#pure #effects-incomplete` with no `IO`.
+The union this row bought was bought for a construct the language no
+longer has, and nothing closes in its place.
 
 The `__alloc` row was the inverted one: `Alloc` fired for the
 `(alloc T)` keyword, a form that allocates nothing and that `MM-LIFE-7`
@@ -340,19 +351,26 @@ remaining rows. `AX3010` refuses the build as of 2026-08-25 — but only
 where a claim was written and refuted; the unresolved call yields
 `AX3037`, which still does not.
 
-Three of the escapes this rule listed are gone. Writing memory, reading
-the command line and printing through a trait method are all inferred
-now, so a `pure` claim over any of them is reported rather than
-accepted. The unresolved-call route is not, and it is the reason this
-rule still says what it says — but that route is at least *announced*,
-by `#effects-incomplete` on the row and `AX3037` on the claim. The
-other survivor, constructor allocation, is silent and deliberate; see
+Two of the escapes this rule listed are gone. Writing memory and
+reading the command line are inferred now, so a `pure` claim over
+either is reported rather than accepted. The third was closed for
+traits and REOPENED when they were removed: an interface is a
+capability record since 0.6.0, so dispatch is `((l.emit) s)` — a call
+through a struct field, which is `MM-EXEC-9a`'s first remaining row and
+not a resolvable call edge. Measured: `;@axiom:pure (fn (runIt l s)
+((l.emit) s))` over `(struct Logger (emit : (-> String Int)))` checks
+`OK` with `AX3037` beside it, carries `#pure #effects-incomplete` and no
+`IO`, and prints at run time. The unresolved-call route is therefore
+the reason this rule still says what it says, and it now covers every
+dispatch in the language — but that route is at least *announced*, by
+`#effects-incomplete` on the row and `AX3037` on the claim. The other
+survivor, constructor allocation, is silent and deliberate; see
 `MM-EXEC-9a`'s table for the rule that depends on it.
 
 A program that needs a real purity guarantee cannot get one from this
 mechanism today. Stating that is more useful than the alternative,
-which is a reader trusting a tag that four constructs walk straight
-through.
+which is a reader trusting a tag that `MM-EXEC-9a`'s two remaining
+rows walk straight through.
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
@@ -4097,7 +4115,7 @@ ARC the loop reclaims without it (`MM-LIFE-2c`, event 4), and what
 hand-off moves instead of retaining, and `consume` releases the old
 board at the call rather than at the boundary:
 
-```scheme
+```scheme refused
 (:: advance (-> (linear Board) Int (linear Board)))
 (fn (advance board n)
   (if (== n 0)
@@ -4108,18 +4126,25 @@ board at the call rather than at the boundary:
 `consume` is the drop point; the tail call resets the arena with no
 copy, because nothing can still refer to what it reclaims.
 
-Today that shape **compiles** — `axiom check` reports `OK` — and behaves
-exactly as if `linear` and `consume` were not written. So does its
-negation: a linear value used twice, consumed twice, or not used at all
-is accepted too.
+Neither spelling parses since 2026-08-25 (`MM-LIFE-7`): `linear` and
+`consume` are both `AX2004`, so the block above and the one below are
+refused at `check` and exit 1. They are kept because old source still
+carries them, and because what they were accepted as is the record
+`MM-LIFE-7` keeps. Until then the shape **compiled** — `axiom check`
+reported `OK` — and behaved exactly as if `linear` and `consume` were
+not written, and so did its negation: a linear value used twice,
+consumed twice, or not used at all was accepted too.
 
-```scheme
+```scheme refused
 (:: dup (-> (linear Int) Int))
-(fn (dup x) (+ (cast Int (consume (consume x))) (cast Int x)))   ; OK
+(fn (dup x) (+ (cast Int (consume (consume x))) (cast Int x)))   ; once OK
 (:: drop (-> (linear Int) Int))
-(fn (drop x) 0)                                                  ; OK
+(fn (drop x) 0)                                                  ; once OK
 ```
 
-That is `MM-LIFE-7`'s point, and it is why the syntax existing is not
-evidence that the discipline does. The only thing `linear` buys today is
-the nominal barrier: `Linear Int` will not pass where `Int` is expected.
+That was `MM-LIFE-7`'s point, and it is why the syntax existing was not
+evidence that the discipline did. `linear` buys nothing today — it does
+not parse. What survives is the barrier under the type constructor the
+keyword used to build: `(:: mk (-> (Linear Int) Int))` handing `x` to
+an `Int` parameter is still `AX3004 expected Int, found Linear Int`,
+and `Linear` has no declaration, no arity check and no constructors.

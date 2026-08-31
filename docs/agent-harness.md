@@ -415,15 +415,21 @@ a `FnEnt` in this language, so `+` and `==` are real edges; and
 so a graph that dropped builtins could not explain its own effect set.
 
 **What the graph made visible, which is the point of having one.** A
-trait-method call cannot be resolved by this fixpoint — selecting an
-implementation needs the dispatch argument's type — so `walkCallHead`
-unions *every* implementation, and every one is now an edge. Those edges
-name `Trait#Type#method`, and `symbols` prints no row for a generated
-name. So the stream now **names** the gap `check-agent-policy.sh` has
-been describing in prose — "an impl METHOD BODY gets no AXSYM row at
-all … that is a real gap in this gate's input and it is `symbols.ax`'s
-to close". It is still open. The difference is that there are now four
-edges pointing at it and a gate that fails if that number grows.
+call whose head is a VALUE rather than a name — dispatch through a
+capability record's field, `((c.render) x)` — cannot be resolved by
+this fixpoint, and the walk does not guess: it records no edge and
+marks the row `#effects-incomplete`. Measured 2026-08-31 on
+`(fn (useIt c x) ((c.render) x))` — `F useIt … #effects-incomplete`,
+no `#calls=` key at all — and an AXTAG or `handle` claim over such a
+body is `AX3037`/`AX3038` rather than a refusal. So the graph states
+its own limit in the stream instead of reporting a set that looks
+complete. Until 0.6.0 the unresolvable head was a trait-method call:
+`walkCallHead` unioned *every* implementation, and those edges named
+`Trait#Type#method`, for which `symbols` prints no row — the gap
+`check-agent-policy.sh` still describes in prose ("an impl METHOD BODY
+gets no AXSYM row at all …"). `trait` and `impl` are `AX2004` now, so
+that gap and the four edges pointing at it went with them: measured
+over every stdlib module, **zero** edges name a generated callee.
 
 **Two caveats, both measured.**
 
@@ -454,10 +460,14 @@ the output. That is the sandbox the proposal wanted, and it holds.
 Two measured defects still block a *safe* expansion API, and neither is
 small. A third, the one that was never a hygiene defect, is closed:
 
-1. **Reverse hygiene has a live hole.** A template's free identifier
-   naming a trait method is captured by an entry-file declaration. The
+1. **Reverse hygiene has a live hole.** A template's free identifier is
+   captured by an entry-file declaration of the same name: the printing
+   macros expand to bare `show` and `strConcat` calls, so an entry file
+   that declares either one hijacks every hole in the file. The
    stdlib's own `format` macro is subject to it, and
-   `tests/selfhost/383-format-capture.ax` pins the broken behaviour.
+   `tests/selfhost/383-format-capture.ax` pins the broken behaviour —
+   re-measured 2026-08-31, it still exits 20, the value that says the
+   hijack won.
 2. **Declaration-level generated names are unhygienic**, colliding with
    hand-written ones as `AX3006` at a positionless span.
 3. ~~**A declaration-macro fan-out is unbounded.**~~ **Bounded,
@@ -550,12 +560,18 @@ boundary.
 What is left is (2)'s façade, (4), and (6). The effect rows those rest
 on are honest now in a way they were not when this was written: the
 laundering is closed, `Alloc` names the primitive that allocates rather
-than a keyword that does not, and five of MM-EXEC-9a's six
-under-approximations are gone — a function that writes memory, reads the
-command line, resets the arena or prints through a trait method is no
-longer inferred effect-free (`docs/memory-model.md` MM-EXEC-9a). One row
-remains, a call the compiler cannot resolve, and it announces itself as
-`#effects-incomplete` rather than reporting a set that looks complete.
+than a keyword that does not, and five of MM-EXEC-9a's seven
+under-approximations are closed — a function that writes memory, reads
+the command line or resets the arena is no longer inferred effect-free
+(`docs/memory-model.md` MM-EXEC-9a). Measured 2026-08-31, a `pure` claim
+over `(__store64 n 0 1)` is `AX3010 body performs Mut`, and over
+`(__argc)` it is `AX3010 body performs IO`. The fifth closure was trait
+dispatch, and the construct went in 0.6.0: dispatch through a capability
+record's field is not a resolvable call, so it lands back on the first
+of the two rows still open — a call the compiler cannot resolve, which
+announces itself as `#effects-incomplete` rather than reporting a set
+that looks complete. The second is a constructor's allocation, a
+decision that table records rather than a gap.
 
 ---
 

@@ -498,10 +498,10 @@ Every occurrence of the same BINDING, not the same spelling: the
 walk records each occurrence with the key of what it resolves to, so
 the `i` of one function is not the `i` of another, and a `let` that
 shadows a parameter is a different name from it. Type positions —
-the names inside every `::`, `data`, `struct`, `type`, `impl` and
-`trait` form — are read from the bytes, since type nodes carry no
-span, and resolved against the type table alone, so a `fn` spelled
-like a `data` is not the same name. `references` reaches every OTHER
+the names inside every `::`, `data`, `struct` and `type` form — are
+read from the bytes, since type nodes carry no span, and resolved
+against the type table alone, so a `fn` spelled like a `data` is not
+the same name. `references` reaches every OTHER
 open document whose imports resolve to this file, each under its own
 URI, and honours `includeDeclaration`; it does not open files the
 editor has not, so a reference in a closed module is not listed.
@@ -618,7 +618,7 @@ link, not an error; `resolveProvider` is false.
 `Struct`, each at its NAME's span, straight off the parse tree with no
 checker running — a file with a type error still has an outline, and
 a file that does not parse has an empty one. A `::` signature is not
-listed beside its `fn`; a `trait` and a `type` alias are not listed.
+listed beside its `fn`, and neither is a `type` alias.
 `tests/lsp/expected-outline.txt` is total: a fixture publishes exactly
 those rows, in that order, and `tests/lsp/060-outline.ax` is one.
 
@@ -751,9 +751,10 @@ written with `_` for every byte the lexer refuses, and `Mod$name` is
 written `Mod::name`. A macro whose template queries declarations
 another invocation would have generated is shown without them, since
 each invocation is expanded with every other removed. And a generated
-`struct`'s fields print as `(name)` with no type, which is an expander
-defect recorded beside `MAC-TOOL-3` in
-[macro-system.md](macro-system.md), not a printer choice.
+`struct`'s fields print with their types, since the expander was fixed
+to carry the type node where it had been carrying the parser's float
+flag — an expander defect, not a printer choice, recorded beside
+`MAC-TOOL-3` in [macro-system.md](macro-system.md).
 
 ## Highlighting
 

@@ -114,7 +114,6 @@ machine can check and the part that was missing.
 | a public name is removed | allowed, **declared** |
 | a signature changes | allowed, **declared** |
 | a struct's fields are reordered or retyped | allowed, **declared** |
-| a trait loses a method | allowed, **declared** |
 | an effect row widens | allowed, **declared** |
 
 **What the component signals**, which is guidance and not a gate:
