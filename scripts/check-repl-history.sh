@@ -3,7 +3,7 @@
 # at once do not eat each other's.
 #
 # WHY THIS GATE EXISTS SEPARATELY FROM THE FIXTURE. `tests/selfhost/
-# 975-repl-history.ax` already drives the codec, the ring, browsing and
+# 979-repl-history.ax` already drives the codec, the ring, browsing and
 # reverse search - thirty-eight assertions, no terminal, no filesystem.
 # What it cannot do is tell a file that was WRITTEN from a ring that was
 # merely never dropped: everything it asserts is true of a build with
@@ -53,7 +53,7 @@
 #        FAIL A6: read.ax answered 4 of 14 checks
 #      - which is the brief's defect in its own words: eleven records
 #      where eight entries were recorded. `tests/selfhost/
-#      975-repl-history.ax` answers 31 of 38 against the same edit.
+#      979-repl-history.ax` answers 31 of 38 against the same edit.
 #   2. Make `histOpen` ignore its `interactive` argument. 3 of 18 red -
 #      and note that arms A, C and D stay GREEN, which is the whole
 #      reason arm B exists:
