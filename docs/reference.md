@@ -1172,34 +1172,6 @@ than the callee's own parameters - `((handoff 1) n)` - applies the
 callee's *result*, a value the walk cannot follow, so the row is
 `#effects-incomplete` as well.
 
-### Trait Methods
-
-A trait method is dispatched on the static type of an argument, and
-that type is not available to the effect fixpoint - the fixpoint runs
-before any body is checked, and `traitRewrite` picks the implementation
-*during* body checking. The fixpoint does not repeat the dispatch. It
-unions **every** implementation of the method instead, which is what a
-dynamically dispatched call means: the effects any implementation can
-perform are the effects the call can perform.
-
-The union is a true upper bound, and usually exact - `traitRewrite` can
-only choose a name for which the implementation exists, so the set it
-could pick from is a subset of the ones unioned here. With one
-implementation it is exact and every effect arrives definite; with
-more than one, every effect any implementation contributes arrives
-*possible* (above), because dispatch will pick one and the walk cannot
-say which. Trait *defaults* need no special case: a missing method is
-lowered through the same `traitImplName`, so it is an ordinary
-declaration by the time the fixpoint runs.
-
-Before this, a trait-method call contributed nothing at all. A function
-calling one still drew its own `AX3010`, because the claim check
-re-walks the body *after* the rewrite - but its entry stayed empty, so
-every caller of it inferred nothing and `symbols` printed the caller
-`#pure`. The diagnostic and the symbol table disagreed about the same
-function on the same run, and the transitive case was reported nowhere
-(`tests/diagnostics/344-trait-effect-transitive.ax`).
-
 ### AXTAG Keys
 
 The key namespace is open: a key the compiler does not know is

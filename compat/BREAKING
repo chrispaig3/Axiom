@@ -70,3 +70,19 @@
 0.3.4  F  sysRun          -errno -> (Result Int Error): Err means the child never ran
 0.3.4  F  sysRunPath      -errno -> (Result Int Error)
 0.3.4  F  sysRandomBytes  -errno -> (Result Int Error)
+
+# 0.6.0 - traits and `impl` were removed from the language. An
+# interface is a CAPABILITY RECORD now: a parameterised struct holding
+# the functions, bound with `fn` and passed as a value. `show` needs
+# none of it - `showResolve` in the checker renders `String`, `Bool`,
+# `Int`, `Float`, `Char` and every `data`/`struct` from the argument's
+# static type, and always did, so the four `impl` blocks in
+# `stdlib/Show.ax` were dead weight the day they were written.
+#
+# WHAT IS ACTUALLY LOST, stated rather than left to be discovered: a
+# user could OVERRIDE the built-in rendering for their own type with
+# `(impl (Show Color) ...)`. There is no override hook now.
+# `deriveShow` still generates `showColor` as a plain function, so the
+# deliberate case is covered by calling it; what is gone is silently
+# reusing the `show` head for it.
+0.6.0  T  Show  trait removed: an interface is a capability record, and `show` never needed one

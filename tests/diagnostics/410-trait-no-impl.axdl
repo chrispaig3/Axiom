@@ -1,1 +1,0 @@
-E AX3025 410-trait-no-impl.ax:14:11-15 trait-impl "no implementation of `Eq` for `Bool`" #"no implementation selected" !"a trait method is dispatched on the type of its argument, and this type has no implementation" ?"write `(impl (Trait Type) where ((method ...)))` for it"

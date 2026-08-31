@@ -1206,7 +1206,13 @@
       (strConcat (strConcat "`foreign` was removed because it never worked: it emitted a call " "to a symbol the module never declared, so a program using one ") "passed `check` and died in `opt`. The FFI is the `extern` block")
       (if (strEq kw "deriving")
         (strConcat "`deriving` was refused rather than implemented: the clause parsed and was silently discarded - " "no instance was ever derived from it, and a clause that does nothing is worse than one that does not parse")
-        (strConcat "`region` was removed: allocation lifetime is inferred from " "where a value is created and how far it escapes, not written by hand")
+        (if (strEq kw "trait")
+          (strConcat (strConcat "`trait` was removed: an interface is a CAPABILITY RECORD now - a " "parameterised struct holding the functions, passed as a value. ") "`(struct ShowOf (a) (render : (-> a String)))`, and `(ShowOf fmtInt)` is the instance")
+          (if (strEq kw "impl")
+            (strConcat (strConcat "`impl` was removed with `trait`: an instance is a VALUE now, not a " "declaration - bind one with `fn` and pass it where it is needed. ") "`show` needs none: the compiler renders every type from its static type")
+            (strConcat "`region` was removed: allocation lifetime is inferred from " "where a value is created and how far it escapes, not written by hand")
+          )
+        )
       )
     )
       )
@@ -1228,7 +1234,13 @@
       (strConcat (strConcat "write an `extern` block instead - `(extern \"lib\" (name :: " "(-> Int Int) (symbol \"sym\")))` - and build with ") (strConcat "`--link-lib`/`--link-search`; or reach the kernel through the " "standard library's `__syscall0`-`__syscall6`, which needs no FFI"))
       (if (strEq kw "deriving")
         (strConcat "derive instances explicitly, where you want them: " "`(deriveEq T)` is an ordinary declaration macro (docs/macro-system.md MAC-CAP-9)")
-        (strConcat "delete the `region` wrapper and keep its body; values are dropped " "deterministically at the end of the arena they belong to")
+        (if (strEq kw "trait")
+          (strConcat (strConcat "declare a capability record instead: `(struct ShowOf (a) (render : " "(-> a String)))`, and bind an instance with `fn` - ") "`(fn (showInt) (ShowOf fmtInt))`. Call through the field: `((c.render) x)`")
+          (if (strEq kw "impl")
+            (strConcat (strConcat "bind the instance as a VALUE - `(fn (showColor) (ShowOf renderColor))` " "- and pass it where it is needed. If this was an `impl` of `Show`, ") "delete it: `show` and `{}` interpolation render every type from its static type without one")
+            (strConcat "delete the `region` wrapper and keep its body; values are dropped " "deterministically at the end of the arena they belong to")
+          )
+        )
       )
     )
       )
@@ -1943,12 +1955,21 @@
     (if (peekIs tokens pos TK_IDENT)
       (let ((kw (vecGet tokens pos)))
         (let ((name (tokenLexeme kw)))
-          (if (|| (kwEq name "union") (|| (kwEq name "region") (kwEq name "foreign")))
+          (if (|| (kwEq name "union") (|| (kwEq name "region") (|| (kwEq name "foreign") (|| (kwEq name "trait") (kwEq name "impl")))))
             ; Reserved, not unknown. Falling through to the
             ; unknown-declaration refusal below would report a
             ; generic syntax error and lose the migration advice
-            ; that is the entire reason these three keywords are
-            ; still reserved.
+            ; that is the entire reason these keywords are still
+            ; reserved.
+            ;
+            ; `trait` and `impl` joined them on 2026-08-31. They are
+            ; reserved rather than freed for the sharper of the two
+            ; reasons in AX2004's explanation: an ordinary identifier
+            ; named `impl` would make `(impl (Show Color) where ..)` a
+            ; DECLARATION-MACRO INVOCATION, which is the fallthrough
+            ; below, and the reader would be told that no macro named
+            ; `impl` exists - a true sentence that names neither the
+            ; construct they wrote nor what replaced it.
             (pErrRemoved pos name)
             (if (kwEq name kwPub)
               (let ((r (parseTopForm tokens (advance pos))))

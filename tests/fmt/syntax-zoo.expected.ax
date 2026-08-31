@@ -54,16 +54,6 @@
   (label : String))
 
 ; --- trait: supertraits, methods, defaults --------------------------
-(trait (Show a) where (
-  ;@axiom:no_refactor
-  show :: (-> a Int)
-  width :: (-> a Int)
-))
-
-(trait (Ord a) (Show) where (
-  cmp :: (-> a Int)
-))
-
 ; The tag inside the `where` list is here for the same reason the one
 ; in the `impl` below is: a trait method can carry a `;@axiom:` tag
 ; since 2026-08-25 - a DEFAULT body's effects are declared on the
@@ -85,24 +75,13 @@
 ; the printer's path is the same for any key. A claim would couple the
 ; zoo to the effect walk: the first draft here wrote `effect(io)` over
 ; `(lambda (x) x)`, which performs nothing, and AX3010 refused the
-; formatted zoo. `tests/diagnostics/358-impl-effect-declared.ax` is
-; where the semantics are pinned. The tag hit the loop's `FN_PAREN` demand and refused the
+; formatted zoo. The AX3010 semantics are pinned by the diagnostics
+; corpus, not here. The tag hit the loop's `FN_PAREN` demand and refused the
 ; WHOLE FILE with "formatter refusal"; the comment stayed queued until
 ; the module ended and was re-emitted after the impl, which the
 ; round-trip check cannot catch because its text and count both
 ; survive being moved. Both are normal form now, and this case is what
 ; keeps them so.
-(impl (Show Int) where (
-  ;@axiom:no_refactor
-  (show
-    (lambda (x) x)
-  )
-  ; an ordinary comment, inside the block it was written in
-  (width
-    (lambda (x) 1)
-  )
-))
-
 ; --- macro ----------------------------------------------------------
 (macro (twice x) (+ x x))
 
@@ -288,18 +267,6 @@
 
 (data Wrapped
   (W { inner : (Box Int) }))
-
-(trait (Container a) where (
-  held :: (Box a)
-))
-
-(trait (Boxy a) ((Container (Box a))) where (
-  reboxed :: (Box (Box a))
-))
-
-(impl (Container (Box Int)) where (
-  (held 0)
-))
 
 ; An effect operation's printed type is its parameters arrowed onto its
 ; return type, so it reaches the bare position only when it has no

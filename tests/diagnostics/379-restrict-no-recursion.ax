@@ -8,10 +8,15 @@
 ;   `ping`       ping -> pong -> pang -> ping, and the claim is on
 ;                `ping`; the cycle is rendered from the declaration
 ;                back to itself                          -> AX3049
-;   `viaTrait`   calls a trait method whose impl calls back into
-;                `viaTrait`: the edge is the lowered impl, so the
-;                cycle reads viaTrait -> Emit#Loud#emit -> viaTrait
-;                                                         -> AX3049
+;   `viaCap`     calls a function stored in a CAPABILITY RECORD whose
+;                stored function calls back into `viaCap`. This shape
+;                used to cross a trait method and read `viaTrait ->
+;                Emit#Loud#emit -> viaTrait`; traits went on
+;                2026-08-31 and the replacement - a parameterised
+;                struct holding the function - is what it exercises
+;                now. It is the same question asked of the new
+;                mechanism: does the cycle walk follow a call through
+;                a record field?             -> AX3049, or a stated gap
 ;   `entry`      does not recurse, but reaches `countdown`, which
 ;                does: the cycle is below the claim, and the path
 ;                to it is rendered before it            -> AX3049
@@ -24,24 +29,21 @@
 ; dynamically, how much stack the compiler needs; a `no-recursion`
 ; region is one whose stack need is statically bounded, which is the
 ; same property from the other side.
-(trait (Emit a) where (
-  emit :: (-> a Int)
-))
+; The capability record that replaced the trait shape: a parameterised
+; struct holding a function, which is how an interface is spelled since
+; 2026-08-31.
+(struct EmitOf (a)
+  (emit : (-> a Int)))
 
-(data Loud (MkLoud Int))
 
 ;@axiom:restrict(no-recursion)
-(:: viaTrait (-> Loud Int))
+(:: viaCap (-> Int Int))
 
-(fn (viaTrait l) (emit l))
-
-(impl (Emit Loud) where (
-  (emit
-    (lambda (v)
-      (match v
-        ((MkLoud n) (if (> n 0) (viaTrait (MkLoud (- n 1))) 0))))
+(fn (viaCap n)
+  (let ((c (EmitOf (lambda (v) (viaCap v)))))
+    ((c.emit) n)
   )
-))
+)
 
 ;@axiom:restrict(no-recursion)
 (:: countdown (-> Int Int))
@@ -113,5 +115,5 @@
 (:: main Int)
 
 (fn (main)
-  (+ (viaTrait (MkLoud 2)) (+ (countdown 3) (+ (ping 4) (+ (entry 5) (+ (deep 6) (looped 7))))))
+  (+ (viaCap 2) (+ (countdown 3) (+ (ping 4) (+ (entry 5) (+ (deep 6) (looped 7))))))
 )

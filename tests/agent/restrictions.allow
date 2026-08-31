@@ -41,9 +41,9 @@ sums tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
 twice tests/diagnostics/376-restrict-unknown-name.ax no-io,no-io ok
 viaBuiltin tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaCallback tests/diagnostics/377-restrict-witness-path.ax no-io violated
+viaCap tests/diagnostics/377-restrict-witness-path.ax no-io violated
+viaCap tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 viaField tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
 viaForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 viaHelper tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
 viaModule tests/diagnostics/377-restrict-witness-path.ax no-io violated
-viaTrait tests/diagnostics/377-restrict-witness-path.ax no-io violated
-viaTrait tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated

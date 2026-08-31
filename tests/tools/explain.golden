@@ -39,7 +39,7 @@
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
-  [93mAX3025[0m  a trait implementation the compiler cannot use  (trait-impl)
+  [93mAX3025[0m  `show` has no rendering for this argument  (trait-impl)
   [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
   [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX3028[0m  a syntax/* query with no answer  (syntax-query)
@@ -594,36 +594,29 @@ function is compiled once however many times it is called, which is
 the whole difference.
 
 ### explain AX3025
-AX3025 - a trait implementation the compiler cannot use
+AX3025 - `show` has no rendering for this argument
 
-A trait is a set of method signatures written against one type
-parameter; an `impl` gives those methods a body for one concrete type.
-The pair (trait, type) is what a call is dispatched on, so both halves
-have to be there and have to agree. This code covers every way they do
-not:
+`show` renders a value from the STATIC type of its argument, decided
+at compile time and generated field by field from the declaration.
+This code is what it says when it cannot:
 
-  - the `impl` names a trait that is not in scope
-  - it defines a method the trait does not declare
-  - it does not define one the trait does declare and the trait
-    supplies no default body for it
-  - the trait has no type parameter, so there is nothing to key an
-    implementation on
-  - a call has no implementation for the type of its dispatch argument
-  - a method mentions the trait's parameter in no parameter position,
-    so no argument can select an implementation - there is no
-    return-type-directed dispatch
-  - `show`, which the compiler resolves itself where no implementation
-    claims the argument's type, has no rendering for it: a type
-    variable, a function value, a `Foreign`, or a `data`/`struct`
-    holding one of those - the message names the field type
+  - the argument is a type VARIABLE - a generic function's own `a`.
+    A type variable is not a type, so there is nothing to render
+    from. Bind the value to a `let` with a signature, or write the
+    type at the call.
+  - the argument's type MENTIONS a type variable, such as `Box a`
+    inside a generic function - the same reason, one level in.
+  - the argument is a function value, a `Foreign`, or a `data` or
+    `struct` holding one of those. The message names the field type.
 
-Dispatch is by the STATIC type of the argument at the call site, and it
-is resolved at compile time: the call becomes a direct call to that
-implementation, with no table and no indirection. A type variable is
-not a type, so a function that is generic over the trait cannot yet
-call its methods - and `show`, whose rendering of a `data` or `struct`
-is derived from the declaration with no implementation written, cannot
-render one either.
+Write a function that renders the type and interpolate its result.
+
+The code is older than that wording. Until 0.6.0 it covered every
+way a `trait` and an `impl` failed to agree, and `show` was one
+arm of it because `Show` was a trait. Traits were removed and the
+other arms went with them; the code is kept for this meaning rather
+than retired, so a reader who already looks for AX3025 when `show`
+refuses still finds it.
 
 ### explain AX3026
 AX3026 - a name the emitted runtime owns
@@ -1233,10 +1226,6 @@ the whole row, so every untagged function one hop above a `println`
 with a `{hole}` - four `show` implementations, all possible - checked
 clean and printed.
 
-A trait-method IMPLEMENTATION draws this like any other function.
-Its tag is written inside the `impl`, above the member
-(tests/diagnostics/358-impl-effect-declared.ax).
-
 ### explain AX3044
 AX3044 - a bare type name is declared in more than one imported module
 
@@ -1770,7 +1759,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
-  [93mAX3025[0m  a trait implementation the compiler cannot use  (trait-impl)
+  [93mAX3025[0m  `show` has no rendering for this argument  (trait-impl)
   [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
   [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX3028[0m  a syntax/* query with no answer  (syntax-query)

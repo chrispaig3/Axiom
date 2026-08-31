@@ -369,13 +369,33 @@ named = set()
 # document that named the most fixtures, because every section ended by
 # saying what pinned it - which is also why the floor below moved when
 # it was retired.
+historical = set()
 for doc in PROSE_DOCS:
     # The extension alternation needs the boundary: without it
     # `tests/fmt/parity/170-empty-tuple.axp` matched as `...ax` and was
     # reported missing, which is a gate finding its own bug and calling
     # it drift. Caught on this gate's first run.
-    named |= set(re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden)(?![\w])",
-                            open(doc, encoding="utf-8").read()))
+    found = set(re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden)(?![\w])",
+                           open(doc, encoding="utf-8").read()))
+    # CHANGELOG.md is the one document that describes the PAST, and it
+    # is append-only: an entry for 0.3.0 saying a rule was pinned by a
+    # fixture was TRUE of 0.3.0, and stays true after the fixture is
+    # deleted. Demanding those paths exist in the working tree makes
+    # every removal a choice between a red gate and falsified history -
+    # which is what removing traits in 0.6.0 ran into, with four
+    # entries naming four fixtures that shipped and were later deleted
+    # with the construct they tested.
+    #
+    # So they are resolved against git instead of the filesystem. A
+    # path git has never heard of is still a failure, which is the case
+    # that actually matters: a typo, or a fixture renamed without its
+    # citation following. Nothing is exempted - the question asked of
+    # this one file is just "did this ever exist" rather than "does it
+    # exist now", and a reader can `git log` their way to it.
+    if os.path.basename(doc) == "CHANGELOG.md":
+        historical |= found
+    else:
+        named |= found
 # The floor is a population count, so it moves when the corpus moves -
 # and it has to be re-derived deliberately, because the failure it
 # guards against (a doc quietly stopping citing its fixtures) and the
@@ -395,6 +415,24 @@ if missing:
     bad += len(missing)
 else:
     print(f"ok   all {len(named)} tests/ paths named in the docs exist")
+
+# The historical ones. `git log -- <path>` is empty for a path no
+# commit ever touched, and non-empty for one that was added and later
+# deleted, which is exactly the distinction wanted.
+hist_gone = sorted(p for p in historical if not os.path.exists(p))
+hist_bad = []
+for p in hist_gone:
+    r = subprocess.run(["git", "log", "--oneline", "-1", "--", p],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        hist_bad.append(p)
+if hist_bad:
+    for p in hist_bad:
+        print(f"FAIL paths: CHANGELOG.md names {p}, which no commit ever added")
+    bad += len(hist_bad)
+else:
+    print(f"ok   all {len(historical)} tests/ paths named in CHANGELOG.md resolve "
+          f"({len(hist_gone)} only in history)")
 
 # The same check over SOURCE and FIXTURE comments, which this gate did
 # not reach and which dangle exactly as readily. Found on 2026-08-16:

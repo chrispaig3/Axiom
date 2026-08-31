@@ -1,0 +1,18 @@
+; refuse AX3006
+; An effect operation and a top-level `fn` of one spelling. The
+; operation is declared first, so the `fn` is the duplicate and the
+; span points at it.
+;
+; THIS FILE REPLACES `020-trait-duplicate`, which asked the same
+; question of a trait method. What is being pinned is that a global
+; value-namespace occupant COLLIDES rather than being quietly won by
+; whichever declaration the pass order reached last.
+(effect Sz (
+  sz :: (-> Int Int)
+))
+
+(fn (sz n) 7)
+
+(:: main Int)
+
+(fn (main) 0)

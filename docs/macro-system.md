@@ -585,10 +585,18 @@ with the entry list the checker also holds. Rebuilding would expand one
 view of the program and leave the other unexpanded.
 
 **MAC-EXP-3a (H).** **Every body that can contain an expression MUST
-be expanded**, and every one is: `fn` bodies, `impl` method
-expressions, and trait **default** bodies (`expandDecl`'s three arms).
-Pinned by `tests/selfhost/367-macro-in-impl.ax` (93), whose impl method
-and trait default each invoke a macro — the unfixed compiler exits 4.
+be expanded**, and every one is. Until traits were removed in 0.6.0
+there were three such bodies — `fn` bodies, `impl` method expressions,
+and trait **default** bodies, `expandDecl`'s three arms — and the rule
+existed because the last two lowered into ordinary declarations
+*after* the expansion pass (`lowerImpls`), so a macro invoked in
+either was never expanded at all: the exact failure `MAC-EXP-1` was
+supposed to have eliminated, reached by a different road. That road is
+closed with the construct, and `fn` is the only body left, but the
+rule is stated rather than deleted because it is about a *class* of
+mistake — lowering a body into declarations after the expander has
+already run — and the next construct to lower late will meet it
+again.
 
 Until 2026-08-14 the pass walked `fn` declarations only, and trait and
 `impl` bodies lower into ordinary declarations *after* it
@@ -596,12 +604,20 @@ Until 2026-08-14 the pass walked `fn` declarations only, and trait and
 — the exact failure `MAC-EXP-1` was supposed to have eliminated,
 surviving in the one place the pass did not reach:
 
-```scheme
+```scheme refused
 (macro (dbl x) (+ x x))
 (trait (Doubler a) where (dub :: (-> a Int)))
 (impl (Doubler Int) where ((dub (lambda (x) (dbl x)))))
 (fn (main) (dub 21))
 ```
+
+The fence says `refused` because that program cannot be written any
+more: `trait` and `impl` were removed in 0.6.0 and draw `AX2004`. The
+block is kept as written rather than translated, because what it
+documents is a defect in *that* syntax and a translation would document
+nothing — and `refused` makes the removal a checked claim instead of a
+sentence, so this block goes red the day either word is accepted
+again.
 ```
 $ axiom check impl2.ax        # before the fix
 OK
@@ -2405,21 +2421,7 @@ fieldful case "the honest edge" because nothing could name the *i*-th
 field of a bound pattern; `syntax/binders` is the table row that
 closed it, argued for exactly as `MAC-CAP-6` requires.)
 
-**The `impl`-generating form holds too (2026-08-14, fourth commit)**:
-`tests/selfhost/378-derive-eq-impl.ax` (30) is the fragment below
-running verbatim, measured as COMPOSITION — `(deriveEq Inner)` leaves
-`Eq#Inner#eq` behind, and `(deriveEq Outer)`'s comparison of its
-`Inner`-typed field dispatches to it by the field's static type,
-while its `Int` field dispatches to a hand-written `(Eq Int)`
-instance and the nullary constructor falls out of the empty fold. The
-fieldful form generates an **`impl`**, not the free function the
-nullary sketch above generates — and the difference is load-bearing,
-not stylistic. Its own field comparisons dispatch through `Eq`, so a
-derived type's instance must *be* an `Eq` instance for a containing
-type's derive to find: `(deriveEq Point)` then `(deriveEq Shape)` works
-precisely because the first left an `Eq#Point#eq` behind for the
-second's `(eq xi yi)` to resolve to. An `impl` is a declaration, which
-is exactly what `MAC-CAP-8` produces:
+**The `impl`-generating form is gone (0.6.0)**: it was the fourth commit's worked example, and it composed — `(deriveEq Inner)` left `Eq#Inner#eq` behind and `(deriveEq Outer)`'s comparison of its `Inner`-typed field dispatched to it by the field's static type, at compile time. Traits went and took both the template and the dispatch it generated. What the expander is shown to do here — `syntax/for` over constructors, `syntax/binders` naming the *i*-th field, `syntax/fold` closing the conjunction — is unchanged and still pinned by the three fixtures above; only the declaration the template expands *into* was a trait instance, and a capability record is an ordinary value a macro can build the same way.
 
 ```scheme fragment
 (pub macro deriveEq
@@ -2654,7 +2656,6 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/360-macro.ax` (45) | LANG-1, EXP-6 (nested invocation), EXP-7 (double evaluation) |
 | `tests/selfhost/361-macro-hygiene.ax` (143) | HYG-1, HYG-2 |
 | `tests/selfhost/362-macro-coverage.ax` (57) | CAP-1 |
-| `tests/selfhost/367-macro-in-impl.ax` (93) | EXP-3a — the unfixed compiler exits 4 |
 | `tests/selfhost/368-macro-qualified.ax` (47) | LANG-12 — the unfixed compiler refuses with two `AX3001`s |
 | `tests/selfhost/369-macro-vs-function.ax` (15) | HYG-8.3 — the unfixed compiler answers 10, silently |
 | `tests/selfhost/372-decl-macro.ax` (144) | CAP-8, EXP-16 — two invocations of one macro, nested generation, qualified module invocation; the unfixed compiler exits 1 |
@@ -2680,7 +2681,6 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/535-syntax-for-toplevel.axbad` | declaration-position for outside a template, refused and re-tagged inert (`.axbad`: the formatter rewrites the shape) |
 | `tests/selfhost/377-derive-eq-fieldful.ax` (30) | CAP-5's fieldful rung — binders' deterministic `p#i` spelling through the renamer, fold's parallel zip, the empty fold as the nullary case |
 | `tests/diagnostics/540-syntax-fold-misuse.ax` | fold/binders refusals — zip-length mismatch, unknown constructor, sequence in scalar position, fold arity |
-| `tests/selfhost/378-derive-eq-impl.ax` (30) | CAP-8's impl templates + §10.2's fieldful form verbatim — derived instances COMPOSE through MAC-INT-4 dispatch |
 | `tests/selfhost/379-derive-imported.ax` (30) | CAP-9's shipped library — stdlib/Pre.ax's deriveEq over an entry-file type and an imported one |
 | `tests/diagnostics/550-derive-private-type.ax` | the query visibility rule — a private subject refuses at the invocation, one diagnostic in the right place |
 | `tests/selfhost/380-syntax-scalar-queries.ax` (41) | CAP-5's scalar rows — `syntax/name`, `syntax/arity`, `syntax/defined`, and a join standing as a callable reference; `stdlib/Pre.ax`'s `deriveArity` and the fixture's own copies of `deriveShow`/`showOr` are the consumers (the prelude's two are deprecated since 0.3.8, because the builtin `show` renders a value in full where they answered the constructor's name) |
@@ -2758,8 +2758,7 @@ refusal is retired with its code, and the fixture measures the answer
 `MAC-LANG-12`'s `Pre::when`-is-`AX3001` and `MAC-HYG-8`.3's
 imported-macro-outranks were fixed and pinned on 2026-08-14 by
 `tests/selfhost/368-macro-qualified.ax` and
-`369-macro-vs-function.ax`, `MAC-EXP-3a`'s `impl`-body miscompile by
-`367-macro-in-impl.ax`, and `MAC-LANG-5`'s
+`369-macro-vs-function.ax`, and `MAC-LANG-5`'s
 declaration-position-is-`AX2003` became `MAC-CAP-8` v1, pinned by
 `372-decl-macro.ax`.)
 

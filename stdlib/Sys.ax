@@ -54,11 +54,29 @@
 ; and rendering one would mean reading foreign memory to build an error
 ; about a call that just failed. `IO.ax`'s wrappers have the `String`
 ; and put it in their own message.
+; THE MESSAGE IS THE OP NAME, NOT A RENDERED SENTENCE, and that is a
+; memory-model decision rather than a cosmetic one.
+;
+; This built `"sysWriteFile: errno 9"` with two `strConcat`s and an
+; `fmtInt`, on the failure path, eagerly. Effects are computed over the
+; whole body, so those reached the SUCCESS path too: measured
+; 2026-08-31, a `Result`-returning function whose message is a literal
+; has NO effect row at all, and the same function with a built message
+; has `Alloc,Mut`. Every caller of a `sysResult`-returning function
+; inherited that, which is why porting `sysWriteAllFd` to `Result`
+; turned ten gates red and why the migration was recorded - by me, in
+; the commit before this one - as blocked by the effect row.
+;
+; It is not. `Ok`, `Err` and `mkError` are effect-free. The tax was
+; this line. The op name arrives as a literal at all twelve call sites,
+; the errno is already in `Error.code`, and a reader who wants the
+; sentence can build it where they read it - which is the place that
+; was going to pay for it anyway, and usually never runs.
 (pub :: sysResult (-> String Int (Result Int Error)))
 
 (pub fn (sysResult op n)
   (if (< n 0)
-    (Err (mkError (- 0 n) (strConcat (strConcat op ": errno ") (fmtInt (- 0 n)))))
+    (Err (mkError (- 0 n) op))
     (Ok n)
   )
 )

@@ -86,11 +86,11 @@
 ; A WRITTEN implementation still wins at the call while `Show.ax`
 ; declares its instances, and a value INSIDE a structure is rendered
 ; structurally regardless. That preference used to be pinned here with
-; an `(impl (Show Custom))` of this file's own; it is
-; `tests/selfhost/988-show-impl-wins.ax`'s now, over a trait of that
-; file's own, because `Show` is on its way out and an `impl` of a
-; deprecated trait draws AX3048 - which the corpus the compiler must
-; find nothing to report in cannot carry.
+; an `(impl (Show Custom))` of this file's own. Traits went in 0.6.0
+; and took both the preference and the shape that expressed it: there
+; is no user-written instance to prefer any more, so `showResolve`
+; renders every type from its static type and this file pins that
+; alone.
 (:: main Int)
 
 ;@axiom:effect(io)

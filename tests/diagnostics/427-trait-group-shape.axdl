@@ -1,1 +1,1 @@
-E AX2003 427-trait-group-shape.ax:1:2-7 syntax-error "syntax error"
+E AX2004 427-trait-group-shape.ax:1:2-7 removed-construct "`trait` is no longer part of Axiom" #"`trait` was removed: an interface is a CAPABILITY RECORD now - a parameterised struct holding the functions, passed as a value. `(struct ShowOf (a) (render : (-> a String)))`, and `(ShowOf fmtInt)` is the instance" ?"declare a capability record instead: `(struct ShowOf (a) (render : (-> a String)))`, and bind an instance with `fn` - `(fn (showInt) (ShowOf fmtInt))`. Call through the field: `((c.render) x)`"

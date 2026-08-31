@@ -1,0 +1,41 @@
+; expect 42
+; A name that a global declaration occupies must not capture every
+; call with that spelling. `let` bindings and function parameters
+; shadow it, and every consumer of the frontend has to agree that this
+; program is accepted AND that it computes 42.
+;
+; THIS FILE REPLACES `010-trait-scope`, which pinned the same
+; property through a trait method name. Traits are gone; the property
+; is not. `isBuiltinName`, `isMacroName` and `isEffectName` are the
+; occupants the resolver still asks about at one place in
+; `typecheck.ax`, and an effect OPERATION is the one a program can
+; declare for itself - so it is what this file uses. Measured before
+; it was written: the operation `sz` below is never invoked as an
+; operation, so no handler is needed and AX3053 does not arise; every
+; `sz` here resolves to the binding that shadows it.
+(effect Sz (
+  sz :: (-> Int Int)
+))
+
+(:: viaParam (-> (-> Int Int) Int))
+
+(fn (viaParam sz) (sz 5))
+
+(:: main Int)
+
+(fn (main)
+  (if (==
+    (+
+      (let ((sz 
+        (lambda (q) 7)
+      ))
+        (sz 5)
+      )      (viaParam
+        (lambda (q) 7)
+      )
+    )    14
+  )
+    42
+    1
+  )
+)

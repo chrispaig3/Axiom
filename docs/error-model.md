@@ -480,8 +480,9 @@ that omits the method **without copying the body's nodes**, so two
 impls at two types check one AST, and `impl` declaration order alone
 decides which name would survive.
 
-Measured 2026-08-25 on `tests/stdlib/373-shared-default-binder.ax`:
-with the disagreement arm removed, `Ident#String#ident` contains
+Measured 2026-08-25 on `373-shared-default-binder`, a fixture removed
+with traits in 0.6.0: with the disagreement arm removed,
+`Ident#String#ident` contained
 `call void @axiom_release(i64 %.t0)` — a release of the block the
 returned `String` still lives in — and with it present, none. One line
 of IR from one word in the checker, and
@@ -494,12 +495,20 @@ the hazard is real in the emitted code and latent at run time — which
 is also why the gate reads the IR rather than an exit status, since a
 golden would be green with the release present.
 
-The same sharing has two other symptoms, neither fixed here: a default
-body whose scrutinee is a **dispatched** trait method is refused
-outright (`AX3004`, identically at 0.3.0),
-`tests/diagnostics/365-trait-default-shared-body.ax`; and the block's
-**shape word** depends on `impl` declaration order in the compiler as
+The same sharing had two other symptoms, neither fixed at the time: a
+default body whose scrutinee was a **dispatched** trait method was
+refused outright (`AX3004`, identically at 0.3.0); and the block's
+**shape word** depended on `impl` declaration order in the compiler as
 shipped, recorded as `MM-LIFE-2j` in `docs/memory-model.md`.
+
+**All three went with the construct in 0.6.0.** Re-measured 2026-08-31
+by building the last-write-wins compiler and diffing emitted IR across
+278 fixtures, every `stdlib/` module and `self_host/main.ax` itself:
+byte-identical everywhere. Nothing Axiom can now express checks one
+pattern binder twice at two types. The disagreement arm is kept as a
+guard on a *class* of mistake rather than on any one construct, and
+`scripts/check-fallible-reclaim.sh` now asserts that nothing reaches
+it — so the day something does, that gate says so.
 
 The cost was linear in fallible calls, which was survivable for a
 compiler that runs once and was not survivable for either program that

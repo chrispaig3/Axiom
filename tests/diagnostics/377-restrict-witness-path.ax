@@ -4,9 +4,16 @@
 ; cross-checks `#calls=`. Five shapes the renderer has to get right,
 ; and the control that stays silent:
 ;
-;   `viaTrait`    the path crosses a trait method: the hop is the
-;                 lowered impl, `Emit#Loud#emit`, and the impl's own
-;                 body reaches the syscall           -> AX3049 with path
+;   `viaCap`      the path crosses a CAPABILITY RECORD's field: the
+;                 stored function reaches the syscall. This shape used
+;                 to cross a trait method and the hop rendered as the
+;                 lowered impl, `Emit#Loud#emit`; traits went on
+;                 2026-08-31 and a parameterised struct holding the
+;                 function replaced them. The hop is SHORTER now - the
+;                 walk follows the stored lambda's body rather than a
+;                 synthetic impl name - which is the renderer's answer
+;                 to the new mechanism and is why the shape stayed
+;                                                    -> AX3049 with path
 ;   `viaModule`   the path crosses a module boundary: the hop is the
 ;                 imported spelling, `RestrictLeaf$leafWrite`
 ;                                                    -> AX3049 with path
@@ -28,24 +35,19 @@
 ; diagnostics are the restriction's.
 (import RestrictLeaf)
 
-(trait (Emit a) where (
-  emit :: (-> a Int)
-))
-
-(data Loud (MkLoud Int))
-
-(impl (Emit Loud) where (
-  ;@axiom:effect(io)
-  (emit
-    (lambda (v) { (__syscall3 1 1 0 0) 1 })
-  )
-))
+; The capability record that replaced the trait shape.
+(struct EmitOf (a)
+  (emit : (-> a Int)))
 
 ;@axiom:restrict(no-io)
-(:: viaTrait (-> Loud Int))
+(:: viaCap (-> Int Int))
 
 ;@axiom:effect(io)
-(fn (viaTrait l) (emit l))
+(fn (viaCap n)
+  (let ((c (EmitOf (lambda (v) { (__syscall3 1 1 0 0) 1 }))))
+    ((c.emit) n)
+  )
+)
 
 ;@axiom:restrict(no-io)
 (:: viaModule (-> Int Int))
@@ -110,5 +112,5 @@
 
 ;@axiom:effect(io)
 (fn (main)
-  (+ (viaTrait (MkLoud 1)) (+ (viaModule 2) (+ (viaBuiltin 3) (+ (viaForm 4) (+ (ownForm 5) (+ (viaCallback 6) (quiet 7)))))))
+  (+ (viaCap 1) (+ (viaModule 2) (+ (viaBuiltin 3) (+ (viaForm 4) (+ (ownForm 5) (+ (viaCallback 6) (quiet 7)))))))
 )

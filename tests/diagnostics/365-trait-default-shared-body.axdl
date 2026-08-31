@@ -1,1 +1,0 @@
-E AX3004 365-trait-default-shared-body.ax:38:44-45 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"

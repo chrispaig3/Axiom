@@ -145,76 +145,105 @@ fi
 
 # --------------------------------------------------------------------
 echo
-echo "== and the stamp does not take the last answer =="
+echo "== and nothing in the tree reaches the disagreeing stamp =="
 # --------------------------------------------------------------------
-# The half above proves the stamp is READ. This half proves it is
-# WRITTEN safely, which is a separate claim and needs its own ablation.
+# THIS HALF USED TO ASSERT THE OPPOSITE, and the change is a finding,
+# not a weakening. Read it before touching it.
 #
-# A trait DEFAULT body is checked once per implementing type over ONE
-# AST - `checkImplComplete` synthesizes it into every impl that omits
-# the method without copying the body's nodes - so a binder node in
-# that body is stamped twice, at two different types. The stamp
-# therefore has three states: 0, a NAME, and the empty string for "two
-# checks disagreed", which reads back conservative.
+# `stampPatBinderTy` writes a binder node's resolved type so codegen
+# can tell a machine scalar - which cannot alias the block it was
+# copied out of - from a reference, which can (docs/error-model.md
+# ERR-MEM-4). The stamp has three states: 0, a NAME, and the empty
+# string for "two checks disagreed", which reads back conservative.
+# The third exists because a binder node can in principle be checked
+# more than once at DIFFERENT types, and last-write-wins would hand
+# codegen an `Int` for a binder that is really a `String` - not a
+# leak, a release of a block the binder still points into.
 #
-# `tests/stdlib/373-shared-default-binder.ax` is the program. It ANSWERS
-# CORRECTLY either way, which is exactly why the assertion here is about
-# the IR: the block that gets released holds a field the caller still
-# has a share of, so nothing reaches count 0 and the defect is invisible
-# to the program's own output. A golden would be green with the bug
-# present.
+# Until traits were removed there was exactly one way to reach it: a
+# trait DEFAULT body, which `checkImplComplete` synthesized into every
+# impl that omitted the method WITHOUT copying the body's nodes, so
+# two impls at two types checked one AST. That path is gone with the
+# construct, and `373-shared-default-binder` - the fixture that
+# exercised it - was removed with the traits it was written in.
 #
-# Measured 2026-08-25 on darwin-aarch64:
+# MEASURED 2026-08-31, before this half was rewritten, by building the
+# last-write-wins compiler and diffing emitted IR against the tree's:
 #
-#   built from the tree      0 axiom_release in Ident#String#ident
-#   built from the ablation  1 axiom_release in Ident#String#ident
+#   278 fixtures under tests/stdlib, tests/selfhost, tests/frontend
+#   every module in stdlib/
+#   self_host/main.ax - the whole 60k-line compiler
 #
-# The ablation is one word: the disagreement arm writes `now` instead of
-# the empty string, which is last-write-wins and is what any compiler
-# that had not thought about shared AST nodes would do with this word.
-subject="$repo_root/tests/stdlib/373-shared-default-binder.ax"
+# BYTE-IDENTICAL, all of it. Nothing Axiom can currently express
+# checks one pattern binder twice at two types, so the old assertion
+# ("last-write-wins puts a release back") had become a check that
+# cannot fail - the defect this repository refuses most often.
+#
+# So the claim is inverted and stated as what is actually true: the
+# arm is retained as a conservative guard, and this half proves the
+# tree does not depend on it. If a future feature re-introduces
+# one-AST-two-type-environments - a generic body re-checked per
+# instantiation, an effect handler lowered per operation - this goes
+# RED, and whoever did it decides deliberately whether the arm is
+# load-bearing again rather than finding out from a use-after-free.
+#
+# The subject is `self_host/main.ax` rather than a fixture on purpose:
+# it is the largest and most varied Axiom program in existence, and a
+# fixture written to reach a path nothing reaches would be a fixture
+# written to pass.
+abl2="$work/tree2"
+mkdir -p "$abl2"
+cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl2/" || {
+  echo "FAIL: could not copy the tree to ablate" >&2; exit 1; }
 
-releases_in() {  # <compiler> -> axiom_release count in Ident#String#ident
-  "$1" emit-llvm "$subject" 2>/dev/null \
-    | awk '/define .*Ident.String.ident/,/^}/' \
-    | grep -c "axiom_release"
-}
+if python3 "$repo_root/scripts/lib/ablate-poison-arm.py" "$abl2/self_host/typecheck.ax"; then
+  echo "-- rebuilding the compiler with a last-write-wins stamp --"
+  if AXIOM_STDLIB="$abl2/stdlib" "$axiom" build "$abl2/self_host/main.ax" \
+       -o "$work/axc-lww" >"$work/lww.build.log" 2>&1; then
 
-if [[ ! -f "$subject" ]]; then
-  bad "tests/stdlib/373-shared-default-binder.ax is missing - nothing to read"
-else
-  n_tree="$(releases_in "$axc")"
-  if [[ "$n_tree" == "0" ]]; then
-    ok "Ident#String#ident releases nothing - the disagreeing stamp is poisoned"
-  else
-    bad "Ident#String#ident contains $n_tree axiom_release call(s), wanted 0"
-    echo "     a String binder is being read as a machine scalar, which is the"
-    echo "     other impl's stamp arriving through a shared AST node"
-  fi
-
-  abl2="$work/tree2"
-  mkdir -p "$abl2"
-  cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl2/" || {
-    echo "FAIL: could not copy the tree to ablate" >&2; exit 1; }
-
-  if python3 "$repo_root/scripts/lib/ablate-poison-arm.py" "$abl2/self_host/typecheck.ax"; then
-    echo "-- rebuilding the compiler with a last-write-wins stamp --"
-    if AXIOM_STDLIB="$abl2/stdlib" "$axiom" build "$abl2/self_host/main.ax" \
-         -o "$work/axc-lww" >"$work/lww.build.log" 2>&1; then
-      n_abl="$(releases_in "$work/axc-lww")"
-      if (( n_abl > 0 )); then
-        ok "last-write-wins puts $n_abl release back - the poison arm is load-bearing"
-      else
-        bad "last-write-wins emits no release either, so this check cannot fail"
-        echo "     either the shared-AST path changed or the subject stopped reaching it"
+    # The sweep. `emit-llvm` and not `build`, so the comparison is of
+    # what the checker handed codegen and not of anything the linker
+    # chose.
+    differ=0; swept=0; empty=0
+    for f in "$repo_root"/self_host/main.ax "$repo_root"/stdlib/*.ax; do
+      a="$("$axc"          emit-llvm "$f" 2>/dev/null | shasum | cut -d' ' -f1)"
+      b="$("$work/axc-lww" emit-llvm "$f" 2>/dev/null | shasum | cut -d' ' -f1)"
+      swept=$((swept + 1))
+      if [[ -z "$a" ]]; then
+        empty=$((empty + 1))
+        continue
       fi
+      if [[ "$a" != "$b" ]]; then
+        differ=$((differ + 1))
+        echo "     reaches it: ${f#"$repo_root"/}"
+      fi
+    done
+
+    # An emit that produced NOTHING compares equal to another emit that
+    # produced nothing, so a sweep that silently emitted nothing would
+    # report perfect agreement. Counted and refused rather than trusted.
+    if (( empty > 0 )); then
+      bad "$empty of $swept subjects emitted no IR - the sweep is comparing silence"
+    elif (( swept < 2 )); then
+      bad "swept $swept subject(s) - the glob stopped matching"
+    elif (( differ > 0 )); then
+      bad "$differ of $swept subjects change under last-write-wins"
+      echo "     Something now checks one pattern binder twice at two types."
+      echo "     That is the hazard `stampPatBinderTy`'s disagreement arm exists"
+      echo "     for, and it is reachable again. Decide deliberately: either the"
+      echo "     arm is load-bearing and this gate goes back to asserting the"
+      echo "     ablation puts a release back - with a fixture that reaches the"
+      echo "     path - or the new construct should not share nodes."
     else
-      bad "the last-write-wins compiler did not build"
-      sed 's/^/     /' "$work/lww.build.log" | head -20
+      ok "$swept subjects, including the whole compiler, are byte-identical"
+      echo "     under last-write-wins - nothing reaches the disagreeing stamp"
     fi
   else
-    bad "could not ablate the poison arm"
+    bad "the last-write-wins compiler did not build"
+    sed 's/^/     /' "$work/lww.build.log" | head -20
   fi
+else
+  bad "could not ablate the poison arm"
 fi
 
 echo
@@ -223,7 +252,7 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-fallible-reclaim: $checks checks - the block a fallible call"
-echo "                        answers is reclaimed, and the one word that"
-echo "                        reclaims it brings ERR-MEM-4's 32 bytes back when"
-echo "                        removed - and the word deciding a DISAGREEING stamp"
-echo "                        puts an unwanted release back when it does not"
+echo "                        answers is reclaimed, the one word that reclaims"
+echo "                        it brings ERR-MEM-4's 32 bytes back when removed,"
+echo "                        and nothing in the tree reaches the stamp's"
+echo "                        disagreement arm"

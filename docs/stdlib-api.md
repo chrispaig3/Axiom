@@ -500,11 +500,10 @@ See [reference.md](reference.md) for the language, and
 
 ## `Show`
 
-`stdlib/Show.ax` — 2 public names
+`stdlib/Show.ax` — 1 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `Show` | trait |  |  |  |
 | `format` | macro |  |  | `format` — a String, built at compile time from a literal's runs and holes, or `show` applied to anything else. |
 
 ## `Str`
@@ -550,7 +549,7 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `sysResult` | value | `(-> String Int (Result Int Error))` | `Alloc,Mut` | write(fd, buf, count) -> bytes written, or a negative/errno result. A raw syscall answer turned into a `Result`. |
+| `sysResult` | value | `(-> String Int (Result Int Error))` |  | write(fd, buf, count) -> bytes written, or a negative/errno result. A raw syscall answer turned into a `Result`. |
 | `stdin` | value | `Int` |  |  |
 | `stdout` | value | `Int` |  |  |
 | `stderr` | value | `Int` |  |  |
@@ -565,15 +564,15 @@ See [reference.md](reference.md) for the language, and
 | `sysReadFile` | value | `(-> Int String)` | `Alloc,IO,Mut` | Open, read entire contents, close.  Returns an empty string on any error (missing file, permission, etc.). |
 | `sysArgc` | value | `Int` | `IO` | How many arguments the process received, including the program name. |
 | `sysArg` | value | `(-> Int String)` | `Alloc,IO,Mut` | The i-th argument as a Str (0 is the program name), or "" when `i` is out of range. The bytes are the process's own argv storage - NUL-terminated, alive for the whole run, never freed or moved - so wrapping them without copying is sound. |
-| `sysWriteFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO,Mut` | Write `s` to `path`, creating or truncating it. Answers the number of bytes written, or a negative errno from whichever step failed. |
-| `sysAppendFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO,Mut` | Append `s` to `path`, creating it if it is not there. Answers the number of bytes written, or a negative errno. |
-| `sysRename` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Rename `old` to `new`, answering 0 or `-errno`. Both are NUL-terminated char* - `strCStr`. |
-| `sysUnlink` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` | Remove `path`. Answers 0, or `-errno`. |
-| `sysMkdir` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Create directory `path` with `mode`. Answers 0, or `-errno` - which is `-17` (EEXIST) when it is already there, and callers usually want to treat that as success. |
+| `sysWriteFile` | value | `(-> Int String (Result Int Error))` | `IO` | Write `s` to `path`, creating or truncating it. Answers the number of bytes written, or a negative errno from whichever step failed. |
+| `sysAppendFile` | value | `(-> Int String (Result Int Error))` | `IO` | Append `s` to `path`, creating it if it is not there. Answers the number of bytes written, or a negative errno. |
+| `sysRename` | value | `(-> Int Int (Result Int Error))` | `IO` | Rename `old` to `new`, answering 0 or `-errno`. Both are NUL-terminated char* - `strCStr`. |
+| `sysUnlink` | value | `(-> Int (Result Int Error))` | `IO` | Remove `path`. Answers 0, or `-errno`. |
+| `sysMkdir` | value | `(-> Int Int (Result Int Error))` | `IO` | Create directory `path` with `mode`. Answers 0, or `-errno` - which is `-17` (EEXIST) when it is already there, and callers usually want to treat that as success. |
 | `sysDirMode` | value | `Int` |  | 0755, the mode a directory usually wants. A nullary function because that is how this language spells a constant. |
-| `sysRmdir` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` | Remove the empty directory `path`. Answers 0, or `-errno`. |
+| `sysRmdir` | value | `(-> Int (Result Int Error))` | `IO` | Remove the empty directory `path`. Answers 0, or `-errno`. |
 | `sysFileExists` | value | `(-> Int Bool)` | `IO` | 1 when `path` names something that can be opened for reading. |
-| `sysFileSize` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
+| `sysFileSize` | value | `(-> Int (Result Int Error))` | `IO` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
 | `sysReadErrno` | value | `(-> Int Int)` | `Alloc,IO,Mut` | 0 when `path` can be opened AND read as a file, otherwise the errno saying why not. |
 | `sysIsDir` | value | `(-> Int Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
 | `sysReadDir` | value | `(-> Int Int)` | `Alloc,IO,Mut` | Every name in the directory `path`, as a Vec of owned `Str` - `.` and `..` INCLUDED, in whatever order the filesystem gives them. |
@@ -618,7 +617,7 @@ See [reference.md](reference.md) for the language, and
 | `netPollDelRead` | value | `(-> Int Int Int Int)` | `IO,Mut` |  |
 | `netPollWait` | value | `(-> Int Int Int Int Int Int)` | `IO,Mut` | Wait for readiness, answering how many events landed in `buf` or a negative errno. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
 | `netPollFdAt` | value | `(-> Int Int Int)` |  | The descriptor named by event `i` of a buffer `netPollWait` filled. |
-| `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
+| `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `IO` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int Int)` | `IO,Mut` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. |
 | `netSignalOpen` | value | `(-> Int Int Int Int Int)` | `IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |

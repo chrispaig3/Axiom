@@ -15446,28 +15446,32 @@
 ; for a binder that is really a `String`. That is not a leak; it is a
 ; release of a block the binder still points into.
 ;
-; It is REACHABLE, and it was measured before this arm was written
-; rather than argued for. The path is a trait DEFAULT body, which
-; `checkImplComplete` synthesizes into every impl that omits the method
-; WITHOUT copying the body's nodes - so two impls at two types check
-; one AST. A body whose match scrutinee is an ordinary generic
-; constructor compiles cleanly at both and stamps one binder node
-; twice, with disagreeing names, and `impl` declaration order alone
-; decides which would survive.
+; IT WAS REACHABLE, and it is not any more. Both halves of that were
+; measured rather than argued for, and the second half is why this
+; comment is long.
 ;
-; Measured 2026-08-25 on `tests/stdlib/373-shared-default-binder.ax`:
-; with this arm removed, `Ident#String#ident` contains
-; `call void @axiom_release(i64 %.t0)` - a release of the block the
-; returned String still lives in - and with it present, none. One line
-; of IR from one word here. `scripts/check-fallible-reclaim.sh` asserts
-; both directions, so this arm is not untested defensive code.
+; The path was a trait DEFAULT body, which `checkImplComplete`
+; synthesized into every impl that omitted the method WITHOUT copying
+; the body's nodes - so two impls at two types checked one AST, and
+; `impl` declaration order alone decided which stamp survived. Measured
+; 2026-08-25: with this arm removed, that program's `Ident#String#ident`
+; contained `call void @axiom_release(i64 %.t0)` - a release of the
+; block the returned String still lived in - and with it present, none.
 ;
-; No program was found that OBSERVES that release - the field has
-; another owner at every call site built for it - so the honest
-; statement is that the hazard is real in the emitted code and latent
-; at run time. A body whose scrutinee is a DISPATCHED trait method is
-; refused instead (`AX3004`), a second symptom of the same sharing,
-; pinned by `tests/diagnostics/365-trait-default-shared-body.ax`.
+; Traits were removed in 0.6.0 and took the path with them. Re-measured
+; 2026-08-31 by building the last-write-wins compiler and diffing
+; emitted IR: 278 fixtures, every stdlib module, and self_host/main.ax
+; - the whole compiler - are BYTE-IDENTICAL. Nothing Axiom can now
+; express checks one pattern binder twice at two types.
+;
+; The arm is kept anyway. It costs one comparison, it reads back
+; conservative, and the hazard it covers is a property of how the
+; checker walks shared nodes rather than of any one construct - the
+; next feature that re-checks a body per instantiation reintroduces it.
+; `scripts/check-fallible-reclaim.sh` now asserts the unreachability
+; directly, so this is a guard with a live check on it and not
+; untested defensive code: if a program ever reaches the arm again,
+; that gate goes red and says so.
 (pub :: stampPatBinderTy (-> Int Int Int))
 
 (pub fn (stampPatBinderTy arg ty)
