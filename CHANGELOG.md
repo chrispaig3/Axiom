@@ -16,6 +16,30 @@ its changelog too.
 
 ## Unreleased
 
+- **KNOWN ISSUE: module resolution matches case-insensitively on macOS, so
+  a project shadows a standard-library module it did not mean to.**
+  Shadowing itself is intended and documented — the resolution ladder
+  puts the entry file's own directory first, and a project is meant to
+  be able to supply its own `Str`. What is not intended is that on a
+  case-insensitive filesystem the FILESYSTEM decides the match: a file
+  named `str.ax` or `STR.ax` satisfies a lookup for `Str`, so the same
+  tree resolves differently on macOS and Linux. Measured 2026-08-31:
+  with `str.ax` beside the entry file, `(import IO)` fails with
+  `AX3001 undefined variable strLen` on macOS and builds on a
+  case-sensitive filesystem.
+
+  The second half is the diagnostic. Nothing in that error mentions
+  that `Str` resolved to a local file, so the message a user gets for a
+  shadowed module is an undefined name from inside the standard
+  library — accurate and unhelpful. A resolution that silently picks a
+  different file than the reader expects should say which file it
+  picked.
+
+  Not fixed in 0.6.0, deliberately: it is pre-existing, and changing
+  module resolution semantics under release pressure is how a worse bug
+  ships. Recorded here so someone who hits it recognises it rather than
+  debugging their own code.
+
 - **Traits and `impl` are gone from the language.** An interface is a
   CAPABILITY RECORD now — a parameterised struct holding the functions,
   bound with `fn` and passed as a value — so dispatch is application and
