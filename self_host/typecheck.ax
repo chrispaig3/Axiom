@@ -10002,7 +10002,7 @@
 (pub fn (checkCastForm tc e hname)
   (let ((args (spineArgVec e vecNew)))
     {
-      (checkArgsFromIndex tc args 1)
+      (checkCastArgs tc args e 1 (vecLen args))
       ; `sizeof` and `alignof` take one TYPE and answer a constant, so
       ; a surplus argument has nowhere to go: the emitter dropped it in
       ; silence and `(sizeof Int 99)` answered 8. `cast` is exempt -
@@ -10048,6 +10048,78 @@
         mkIntTy
       )
     }
+  )
+)
+
+; `cast`'s arguments, and the SURPLUS ones stamped with the evidence
+; class an ordinary application records for itself.
+;
+; `cast` takes two arguments and anything past them is an APPLICATION
+; of its result - `((cast Int f) h.name)` is one spine, which
+; `dispatchCall` splits and applies through `emitApplyChain`. Every
+; other application stamps its own node with `evClassOf` of the
+; argument's type (see `checkExprH`'s application arm), and that stamp
+; is the only thing that can tell a lifted lambda whether the word it
+; is being handed is a reference. This form does not reach that arm:
+; `checkCastForm` claims the WHOLE spine at its outermost node, so the
+; intermediate application nodes were never stamped and read back as
+; class 0 - "not a reference".
+;
+; That was a live use-after-free, not the leak this was recorded as.
+; Measured on 0.6.0 (`9116167`), a compiler built from this tree, the
+; shape `tests/stdlib/461-curried-closure-arg.ax` uses:
+;
+;   ((cast Int f) h.name)   with f = (lambda (v) (vecPush log v))
+;   (set h.name (strDup "bob"))   ; event 5 drops the only share
+;   (strDup "zzzzz")              ; re-issued the freed block
+;   (strByte (vecGetStr log 0) 0)
+;
+;   -> 122, the `z` of a string allocated after the free, where the
+;      same lambda applied where it stands answers 97.
+;
+; The walk is by INDEX rather than by node because the two orders
+; differ: `spineArgVec` answers innermost-first, so the argument at
+; index `i` belongs to the application node `n - 1 - i` steps down
+; from the outermost. Arguments are still checked in increasing index
+; order, so no diagnostic moves.
+(pub :: checkCastArgs (-> Int Int Int Int Int Int))
+
+(pub fn (checkCastArgs tc args e i n)
+  (if (>= i n)
+    0
+    {
+      (let ((at (checkExprH tc (vecGet args i) 0)))
+        (if (>= i 2)
+          (setNodeTy
+            (castAppNodeAt e (- (- n 1) i))
+            (let ((c (evClassOf tc at)))
+              (if (< c 0)
+                0
+                c
+              )
+            )
+          )
+          0
+        )
+      )
+      (checkCastArgs tc args e (+ i 1) n)
+    }
+  )
+)
+
+; The application node `k` steps down a spine from `e`, which is what
+; turns an argument INDEX into the node `walkAppChain` will read the
+; stamp off. Stops early at a non-application rather than walking off
+; the end.
+(pub :: castAppNodeAt (-> Int Int Int))
+
+(pub fn (castAppNodeAt e k)
+  (if (<= k 0)
+    e
+    (if (!= (nodeTag e) TAG_E_APP)
+      e
+      (castAppNodeAt (nodeA e) (- k 1))
+    )
   )
 )
 
@@ -18279,8 +18351,61 @@
 ;   (:: f (-> Int Float))  (fn (f x) 42)
 ;   (println (fmtFloat (f 1)))  ->  0.000000   at exit 0
 ;
-; `tyReprClash` below is what decides that case, and why it cannot
-; simply be `tyCompat`.
+; What decides that case is `tyCompat` - the same comparison an
+; argument has always got - for every declared result but one, and the
+; exception is a bare `Int`. `tyReprClash` and `tyParamThroughInt`
+; below are what a declared `Int` gets instead of it, and the comment
+; on each says why it cannot be `tyCompat` THERE.
+;
+; THE CONVENTION IS ONE-DIRECTIONAL, and until 2026-08-31 this check
+; did not know that. `Int` is this language's universal heap handle,
+; so a signature saying `Int` over a body that answers a `Span` is the
+; convention working as intended: the caller receives a word, and code
+; generated from that signature never dereferences it. The REVERSE is
+; not the convention and never was. A signature saying `Box` over a
+; body that answers an `Int` hands the caller a word the caller WILL
+; dereference, because the declaration told it that is safe:
+;
+;   (data Box (Bx String))
+;   (:: g (-> Int Box))  (fn (g x) 7)
+;   (fn (main) (match (g 1) ((Bx s) (strLen s))))
+;
+; `check` printed OK on 0.6.0; the program built and died of SIGSEGV,
+; exit 139, having read 7 as a header address. The SAME mismatch in
+; ARGUMENT position was AX3004 the whole time - `(h 7)` against
+; `(:: h (-> Box Int))` - so the rule was present and applied in one
+; position out of two. That is what the loose comparison here cost:
+; not a missing rule, a rule not applied.
+;
+; A NAME LIST CANNOT CLOSE IT. `tyReprClash` catches a clash only when
+; one of the two names is on `tyIsReprScalar`'s list - `Bool`,
+; `Float`, `Foreign`, `Handle`, `String` - so every `data`, every
+; `struct`, every `Char`, list, tuple, pointer and lambda fell through
+; it, in the one direction that segfaults. Probed one file per row on
+; 0.6.0, all ACCEPTED by `check` and all refused now:
+;
+;   (-> Int Box) over 7          (-> Int P) over 7        P a struct
+;   (-> Int Box) over 'A'        (-> Int Box) over (P 1 2)
+;   (-> Int Box) over (fn (y) y) (-> Int (Opt Int)) over 7
+;   (-> Int [Int]) over 7        (-> Int Char) over 7
+;   (-> Int Void) over 7         (-> Int Any) over 7
+;   (-> Int Unit) over 7         (-> Int (Opt Int)) over (Some "s")
+;
+; WHAT IT COSTS, measured rather than guessed, over all 558 `.ax`
+; files in the tree with a compiler built from it: comparing a
+; declared result by `tyCompat` UNCONDITIONALLY newly refuses 29
+; sites, and every single one of them reads `expected Int, found
+; <handle>` - `core.ax`'s `Span` and `Token`, ten `PResult`/`ASTNode`
+; in `parser.ax`, eight `F*` builders in `format.ax`, `diag.ax`'s
+; `Diag` and `SrcIx`, `codegen.ax`'s `CG`, `expand.ax`'s `FmtSpec`,
+; `stdlib/Job.ax`'s `JobPool`, three `*mut Int` in fixtures. NOT ONE
+; site in the tree declares a non-`Int` result over a body that
+; disagrees with it. So exempting a declared `Int`, and only a
+; declared `Int`, costs the tree nothing and closes every row above.
+;
+; `(cast Box n)` remains the explicit escape, and is what a function
+; that really does mint a nominal value out of a word must now say -
+; the same escape `Str.strWrapOwned` already uses for `String`.
 (pub :: checkDeclaredReturn (-> Int Int Int Int Int))
 
 (pub fn (checkDeclaredReturn tc d want got)
@@ -18319,9 +18444,21 @@
                   0
                   (emitMismatchTy tc want got (spanOf (nodeC d)))
                 )
-                (if (== (tyReprClash want got) 1)
-                  (emitMismatchTy tc want got (spanOf (nodeC d)))
-                  (if (tyParamThroughInt want got)
+                ; The handle convention is ONE-DIRECTIONAL, and that
+                ; asymmetry is the whole rule. A declared bare `Int`
+                ; may stand for a handle, so it keeps the two narrow
+                ; carve-outs below and nothing else. Every OTHER
+                ; declared result is compared honestly - by `tyCompat`,
+                ; the comparison an ARGUMENT has always got.
+                (if (tyIsBareInt want)
+                  (if (== (tyReprClash want got) 1)
+                    (emitMismatchTy tc want got (spanOf (nodeC d)))
+                    (if (tyParamThroughInt want got)
+                      (emitMismatchTy tc want got (spanOf (nodeC d)))
+                      0
+                    )
+                  )
+                  (if (== (tyCompat want got) 0)
                     (emitMismatchTy tc want got (spanOf (nodeC d)))
                     0
                   )
@@ -18412,6 +18549,30 @@
       (if (== (vecLen (nodeB got)) 0)
         false
         (strEq (nodeAName want) "Int")
+      )
+    )
+  )
+)
+
+; The one declared result the handle convention is ABOUT: a bare
+; `Int`, no type arguments. Every other declared result is compared
+; against the body by `tyCompat`.
+;
+; Spelled out rather than folded into `tyReprClash` because the two
+; ask different questions. `tyReprClash` asks "can these two names
+; share a representation", which is symmetric by construction. This
+; asks "is the DECLARED side the one name the convention licenses",
+; and its entire content is that it is NOT symmetric.
+(pub :: tyIsBareInt (-> Int Bool))
+
+(pub fn (tyIsBareInt t)
+  (if (== t 0)
+    false
+    (if (!= (nodeTag t) TAG_T_CON)
+      false
+      (if (!= (vecLen (nodeB t)) 0)
+        false
+        (strEq (nodeAName t) "Int")
       )
     )
   )

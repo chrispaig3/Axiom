@@ -12942,6 +12942,15 @@
   (let (
     (revArgs (memGetWord cg 5))
     (args (reverseVec revArgs))
+    ; SNAPSHOTTED HERE, beside the arguments and for the identical
+    ; reason: the two branches below that apply a SURPLUS argument
+    ; through a closure need the class the checker recorded for it,
+    ; and every `emitExpr` between here and there re-enters `emitApp`,
+    ; which resets `argEv`. `emitIndirectCall` takes the same snapshot
+    ; at the same point; until 2026-08-31 these two took none and
+    ; passed `vecNew`, which reads as 0 - "not a reference" - at every
+    ; step. See `emitOverApplied`.
+    (evs (spineEvs cg))
     (isTail (memGetWord cg 30))
     (_clr (memSetWord cg 30 0))
   )
@@ -12971,7 +12980,7 @@
                 ; the surplus applies one argument at a time from
                 ; position 2 - each application may yield another
                 ; closure, which is exactly the curried case.
-                (emitApplyChain args cgc (strDup (memGetWordStr cgc 2)) 2)
+                (emitApplyChain args cgc (strDup (memGetWordStr cgc 2)) 2 evs)
                 cgc
               )
             }
@@ -13027,7 +13036,7 @@
                       ; correct answer is a value.
                       (if (&& (== isTail 1) (&& (!= (memGetWord cg 27) 0) (&& (strEq fnName (memGetWordStr cg 27)) (== (vecLen args) (vecLen (memGetWord cg 28))))))
                         (emitTailJump args stamp cg)
-                        (emitOverApplied fnName args stamp cg)
+                        (emitOverApplied fnName args stamp cg evs)
                       )
                       (zeroFloat (emitConstructor args entry stamp cg))
                     )
@@ -13081,11 +13090,19 @@
   )
 )
 
-(pub :: emitApplyChain (-> Int Int String Int Int))
+; `evs` is `spineEvs`' snapshot for the same spine `args` came from,
+; and the start index `i` indexes both - the two vectors are pushed in
+; lockstep by `walkAppChain` and reversed together. It was `vecNew`
+; here until 2026-08-31, which made every argument this walker applies
+; read as class 0 at `evOperandAt`; both callers are surplus
+; arguments applied through a closure, which is the one place the
+; class is the only thing that can tell the callee whether the word it
+; was handed is a reference.
+(pub :: emitApplyChain (-> Int Int String Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitApplyChain args cg rec i)
-  (emitApplyChainOwned args cg rec i 0 vecNew)
+(pub fn (emitApplyChain args cg rec i evs)
+  (emitApplyChainOwned args cg rec i 0 evs)
 )
 
 ; The evidence classes for a spine, SNAPSHOTTED before the walk begins
@@ -14225,17 +14242,21 @@
 ; name answers arity 0, and treating every builtin and binary operator
 ; as over-applied would route `(+ a b)` through a closure record that
 ; does not exist.
-(pub :: emitOverApplied (-> String Int Int Int Int))
+(pub :: emitOverApplied (-> String Int Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitOverApplied fnName args stamp cg)
+(pub fn (emitOverApplied fnName args stamp cg evs)
   (let ((decls (memGetWord cg 8)))
     (if (isDefinedFn decls fnName)
       (let ((ar (fnArityOf decls fnName)))
         (if (|| (<= (vecLen args) ar) (== ar 0))
           (emitCall fnName args stamp cg)
           (let ((cgD (emitCall fnName (takeVec args ar) stamp cg)))
-            (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0)
+            ; The surplus is applied through a closure, so it needs the
+            ; classes `walkAppChain` recorded - dropped by the same
+            ; arity the arguments were, because the two vectors are one
+            ; reversal of the same spine and must stay aligned.
+            (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0 (dropVec evs ar))
           )
         )
       )

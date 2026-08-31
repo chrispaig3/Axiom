@@ -1,0 +1,25 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected Box, found Int[0m
+  [1;34m--> [0m499-nominal-return-int-body.ax:49:11
+[1;34m   |[0m
+[1;34m49 |[0m (fn (g x) 7)
+[1;34m   |[0m           [1;31m^ this has type `Int`, expected `Box`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Pt, found Int[0m
+  [1;34m--> [0m499-nominal-return-int-body.ax:53:14
+[1;34m   |[0m
+[1;34m53 |[0m (fn (mkPt n) n)
+[1;34m   |[0m              [1;31m^ this has type `Int`, expected `Pt`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Box, found Pt[0m
+  [1;34m--> [0m499-nominal-return-int-body.ax:57:14
+[1;34m   |[0m
+[1;34m57 |[0m (fn (pun n) (Pt n n))
+[1;34m   |[0m              [1;31m^^ this has type `Pt`, expected `Box`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 3 previous errors

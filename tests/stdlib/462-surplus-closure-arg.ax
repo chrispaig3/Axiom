@@ -1,0 +1,118 @@
+; exit 15 (see .exit)
+; MM-LIFE-2g, the SURPLUS half: an argument applied to a closure that
+; is not the head of its own spine carries no evidence class, so a
+; store of it inside the lambda takes no share.
+;
+; WHY A THIRD FILE. `460-closure-reclaim.ax` reports through an exit
+; status and has used all eight of its bits (255);
+; `461-curried-closure-arg.ax` is about DEPTH - which of a curried
+; lambda's parameters is being stored - and every one of its shapes is
+; a lambda applied where it stands. This file is about the OTHER axis:
+; the same one-parameter lambda, storing its own argument at depth 0,
+; reached through the two application paths that are not
+; `walkAppChain`'s own.
+;
+; THE MECHANISM. `evClassOf` answers `EV_LAMARG` for a lambda
+; parameter whose type is a variable, and codegen turns that into a
+; retain under bit 0 of the word the APPLICATION passes
+; (`emitRetainIfLamArg`). `walkAppChain` records that word for every
+; application node and `emitIndirectCall` snapshots the vector. Two
+; paths reached `emitApplyChain` without it and passed `vecNew`, which
+; `evOperandAt` reads as 0 - "not a reference" - at every step:
+;
+;   4  the OVER-APPLIED path. `((mkParker log) h.name)` is ONE spine:
+;      `walkAppChain` flattens it to the head `mkParker` with two
+;      arguments, `mkParker` has arity one, and `emitOverApplied`
+;      calls it with the first and applies the surplus through a
+;      closure. The class of `h.name` was recorded on the outer
+;      application node and then thrown away.
+;
+;   8  the CAST SPINE. `((cast Int f) h.name)` is also one spine, and
+;      `cast` consumes two of its three arguments; the rest are an
+;      application of its result. Here the class was never recorded at
+;      all: `checkCastForm` claims the whole spine at its outermost
+;      node, so the intermediate application nodes never reached the
+;      arm that stamps them.
+;
+;   2  the control - the same lambda applied where it stands, which
+;      has always been correct and must stay so, or the two rows above
+;      would be measuring a broken program rather than a wrong share.
+;
+;   1  every step ran.
+;
+; MEASURED. Against `9116167` (0.6.0), with a compiler built from that
+; tree: this file exits 3 - the control alone. Each wrong shape reads
+; 122, the `z` of the five-byte string allocated into the block after
+; `(set h.name ..)` released the only counted share, where 97 is the
+; `a` that was parked. `axiom check` prints OK on every one of them.
+;
+; The two rows are independent and the fix is in two places: threading
+; `spineEvs` through `dispatchCall` moves 4 alone, and stamping
+; `cast`'s surplus in `checkCastArgs` moves 8 alone.
+(import Str)
+
+(import Vec)
+
+(struct Holder
+  (name : String))
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+; A factory whose result is a one-parameter lambda over a type
+; VARIABLE. The variable is what makes the parameter's class a
+; question only the application can answer - a ground `String` here
+; would be classified where the lambda is checked and would not
+; exercise the evidence word at all.
+(:: mkParker (-> Int (-> a Int)))
+
+(fn (mkParker log) (lambda (v) (vecPush log v)))
+
+(:: parkedByte (-> Int Int))
+
+(fn (parkedByte pick)
+  (let ((log vecNew))
+    (let ((h (Holder (strDup "alice"))))
+      {
+        (if (== pick 0)
+          ((lambda (v) (vecPush log v)) h.name)
+          (if (== pick 1)
+            ((mkParker log) h.name)
+            ((cast Int (lambda (v) (vecPush log v))) h.name)
+          )
+        )
+        ; Event 5: the field's only counted share goes.
+        (set h.name (strDup "bob"))
+        ; Allocated after it, so a freed block comes back here and the
+        ; read below sees these bytes instead of the parked ones.
+        (strDup "zzzzz")
+        (strByte (vecGetStr log 0) 0)
+      }
+    )
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((mut acc 0) (mut steps 0))
+    {
+      (set acc (+ acc (* 2 (b2i (== (parkedByte 0) 97)))))
+      (set steps (+ steps 1))
+      (set acc (+ acc (* 4 (b2i (== (parkedByte 1) 97)))))
+      (set steps (+ steps 1))
+      (set acc (+ acc (* 8 (b2i (== (parkedByte 2) 97)))))
+      (set steps (+ steps 1))
+      (if (== steps 3)
+        (+ acc 1)
+        acc
+      )
+    }
+  )
+)

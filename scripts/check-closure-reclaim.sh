@@ -102,10 +102,27 @@
 # words travel by depth now - `tests/stdlib/461-curried-closure-arg.ax`
 # pins four depths and exits 139 on the compiler one commit back.
 #
-# What remains is UNMEASURED rather than known safe: the surplus
-# arguments of a `cast` spine, and the over-applied path. A release
-# written without consulting them is the same use-after-free in a new
-# place, and so is a sentence written without probing them.
+# THE TWO THAT REMAINED WERE PROBED ON 2026-08-31, and they were the
+# same sentence wrong a third and fourth time. The surplus arguments of
+# a `cast` spine and the over-applied path did not leak: both were LIVE
+# USE-AFTER-FREES, for the same reason the curried case was. Measured
+# against `9116167` (0.6.0), with a compiler built from that tree, on
+# the shape `461` uses - a lambda parks its argument, the struct field
+# it came from is overwritten, and a fresh string takes the freed
+# block:
+#
+#   ((mkParker log) h.name)                    122, the `z`
+#   ((cast Int (lambda (v) ..)) h.name)        122, the `z`
+#   ((lambda (v) ..) h.name)                    97, the `a` - control
+#
+# `axiom check` printed OK on all three. Neither path carried the
+# evidence word: `emitApplyChain` passed `vecNew`, so `evOperandAt`
+# read 0 at every step, and for the `cast` spine the class had never
+# been recorded at all because `checkCastForm` claims the whole spine
+# at its outermost node and the intermediate application nodes never
+# reach the arm that stamps them. `tests/stdlib/462-surplus-closure-arg.ax`
+# is what pins both, and the section at the end of this gate is what
+# makes it able to fail.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
@@ -195,13 +212,104 @@ else
   fi
 fi
 
+# --------------------------------------------------------------------
+echo
+echo "== and the surplus argument of a spine carries its class too =="
+# --------------------------------------------------------------------
+# The OTHER axis from 460 and 461. Those two are about a lambda applied
+# where it stands and about which of a curried chain's parameters is
+# stored; this is the same one-parameter lambda storing its own
+# argument, reached through the two application paths that are not
+# `walkAppChain`'s own - `emitOverApplied`'s surplus and `cast`'s.
+surplus="$repo_root/tests/stdlib/462-surplus-closure-arg.ax"
+surplus_want="$(tr -d '[:space:]' < "$repo_root/tests/stdlib/462-surplus-closure-arg.exit")"
+
+run_surplus() {  # <compiler> -> exit status
+  ( "$1" run "$surplus" ) >"$work/surplus.$$" 2>&1
+  printf '%s' "$?"
+}
+
+rc_s="$(run_surplus "$axc")"
+if [[ "$rc_s" == "$surplus_want" ]]; then
+  ok "462-surplus-closure-arg exits $rc_s - the control, the over-applied path and the cast spine"
+else
+  bad "462-surplus-closure-arg exits $rc_s, wanted $surplus_want"
+  echo "     the compiler under test is $axc"
+fi
+
+# THE ABLATION, in two halves, because the fix is in two places and a
+# single one would leave the other unproven. Each is planted on its own
+# COPY of the tree, for the reason the ablation above states.
+#
+# The CHECKER half is the discriminating one: reverting it strikes out
+# term 8 and nothing else, so the arithmetic names the term. The
+# EMITTER half cannot be read that way and the honest answer is to say
+# so - an uncounted park is not a value that reads oddly, it is a
+# pointer whose block has been handed to someone else, and with two
+# such parks in one process the blocks recycle into each other until a
+# header read lands outside the heap. It exits 139. That is a red, and
+# it is the same red `461` records for the compiler one commit back.
+ablate_and_run() {  # <name> <relative file> <needle> <replacement> -> exit status, or "" on failure
+  local name="$1" rel="$2" needle="$3" repl="$4"
+  local tree="$work/abl-$name"
+  rm -rf "$tree"; mkdir -p "$tree"
+  cp -R "$repo_root/self_host" "$repo_root/stdlib" "$tree/" || return 1
+  NEEDLE="$needle" REPL="$repl" python3 - "$tree/$rel" <<'PY' || return 1
+import os, sys
+p = sys.argv[1]
+s = open(p).read()
+needle, repl = os.environ["NEEDLE"], os.environ["REPL"]
+if s.count(needle) != 1:
+    sys.stderr.write("not found verbatim (%d matches): %s\n" % (s.count(needle), needle))
+    sys.exit(1)
+open(p, "w").write(s.replace(needle, repl, 1))
+PY
+  AXIOM_STDLIB="$tree/stdlib" "$axiom" build "$tree/self_host/main.ax" \
+    -o "$work/axc-abl-$name" >"$work/abl-$name.build.log" 2>&1 || return 1
+  ( "$work/axc-abl-$name" run "$surplus" ) >"$work/abl-$name.run" 2>&1
+  printf '%s' "$?"
+}
+
+# The checker half: `cast`'s surplus goes unstamped again.
+rc_b="$(ablate_and_run checker self_host/typecheck.ax \
+  '(checkCastArgs tc args e 1 (vecLen args))' \
+  '(checkArgsFromIndex tc args 1)')" || rc_b=""
+if [[ -z "$rc_b" ]]; then
+  bad "could not ablate the checker half - nothing was proven"
+elif [[ "$rc_b" == "$surplus_want" ]]; then
+  bad "the checker-ablated compiler still exits $rc_b - term 8 cannot fail"
+elif (( (surplus_want - rc_b) == 8 )); then
+  ok "the checker-ablated compiler exits $rc_b - term 8 and nothing else"
+else
+  bad "the checker-ablated compiler exits $rc_b; wanted $((surplus_want - 8))"
+  echo "     $surplus_want - $rc_b = $((surplus_want - rc_b)), so a term other"
+  echo "     than the cast spine moved and the ablation is not isolated"
+fi
+
+# The emitter half: `emitApplyChain` passes `vecNew` again, which is
+# what it did until 2026-08-31, and takes BOTH of its callers with it.
+rc_a="$(ablate_and_run emitter self_host/codegen.ax \
+  '(emitApplyChainOwned args cg rec i 0 evs)' \
+  '(emitApplyChainOwned args cg rec i 0 vecNew)')" || rc_a=""
+if [[ -z "$rc_a" ]]; then
+  bad "could not ablate the emitter half - nothing was proven"
+elif [[ "$rc_a" == "$surplus_want" ]]; then
+  bad "the emitter-ablated compiler still exits $rc_a - the evidence word is not load-bearing"
+elif [[ "$rc_a" == "139" ]]; then
+  ok "the emitter-ablated compiler exits 139 - two uncounted parks, a segmentation fault"
+else
+  ok "the emitter-ablated compiler exits $rc_a rather than $surplus_want"
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-closure-reclaim: $failed of $((checks + failed)) checks failed"
   exit 1
 fi
 echo "check-closure-reclaim: $checks checks - a curried chain's intermediate"
-echo "                       record is given back, and the one word in each"
+echo "                       record is given back, the one word in each"
 echo "                       walker that gives it back brings 32 bytes an"
 echo "                       application back when removed, at the byte terms"
-echo "                       only"
+echo "                       only, and a SURPLUS argument - the over-applied"
+echo "                       path and a cast spine - carries the evidence"
+echo "                       class that makes its park a counted share"
