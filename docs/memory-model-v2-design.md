@@ -432,12 +432,31 @@ gate below follows it.
 | # | Stage | Cost | Gate |
 |---|---|---|---|
 | **S0** | **DONE 2026-08-31. Stop emitting the 5,762 no-op releases** on static literals (§1.2) | one compile-time test on the operand's definition; no rule, no type change | `scripts/check-static-release.sh`. 5,762 static releases became **5**, total release sites 10,849 -> 5,117, the compiler binary 5.6% smaller, emitted output byte-identical. The gate ablates `isStaticSentinelNode`'s answer, rebuilds, and requires the count back in the thousands — and asserts separately that a join over a literal still gives its share back, which is the trap the obvious one-line fix falls into |
-| S1 | `MM-ALLOC-16`/`16b` become checked, as `16a` did | one branch each, same shape as `emitBadMarkTrap` | a fixture per obligation, exit 75, beside the legal shape that must stay silent |
+| S1 | **`MM-ALLOC-16b` alone** becomes checked, as `16a` did — a reset that would reclaim a live `handle`'s evidence record | one branch, same shape as `emitBadMarkTrap`, plus a walk of the effect slots | a fixture, exit 75, beside the legal shapes that must stay silent — and the recovery path, which performs this very reset legitimately and must not trap |
 | S2 | `region` returns as a **checked scope with no types yet** — mark/reset, names scope-checked, `AX2004`'s false advice deleted | parser + a scope check; no typechecker change | a value used after its region's reset is refused; ablate by accepting it and reading freed memory, which is §1.4's measured behaviour today |
 | S3 | Region-parameterised types and `MM-RGN-3` | the real work: typecheck, the witness of §2.5 | `tests/diagnostics/*` per escape shape, plus the two-region corpus sweep of §5 |
 | S4 | Delete ownership traffic the region proves dead | codegen | **re-run §1.1's ablation and expect the binary win with the RSS win intact** — the one measurement that decides whether any of this was worth it |
 | S5 | `__thread_spawn`, and `cgThreads`'s owed body | the primitive, the scan, the thread runtime | `check-thread-local.sh` already exists for the ON path; `check-freestanding` pins tier 1 for everyone else |
 | S6 | `parallel`, both lowerings | surface + two backends | one fixture, two lowerings, byte-identical stdout; `MM-PAR-5`'s argument order under both |
+
+**`MM-ALLOC-16` is not in S1, and the first draft of this table was wrong
+to put it there.** That row read "`MM-ALLOC-16`/`16b` become checked,
+as `16a` did — one branch each". `MM-ALLOC-16`'s own text refuses the
+premise: *"These three carry a contract the compiler **cannot** check:
+after a reset, nothing allocated since the matching mark may be read
+again."* Deciding whether a value is read after its arena reset is a
+dataflow question about where values came from, which is `MM-RGN-3` —
+**S3**, not a branch in a runtime helper. `16b` is genuinely different:
+it names a fault whose two operands, the evidence record's address and
+the reset's waterline, are both concrete at run time, which is why it
+survives in S1 and its sibling does not.
+
+The error is recorded rather than quietly corrected because it is the
+same error this document catalogues elsewhere — §1.4's `region`
+removal, and the three withdrawn proposals of
+`memory-model-v2-proposal.md` — a cost estimated from a sentence
+nobody re-read. This one was caught before anything was built, by
+reading the rule the row cited.
 
 **S0 and S2 are worth doing whether or not the rest is ever built.**
 S0 is a measured 5.3% of the binary for a compile-time test. S2 makes a
