@@ -13,18 +13,41 @@
 ; results that print per-run heap addresses).
 ;
 ; Deliberate divergences, recorded in the self-hosting record:
-;   * no rustyline: stage1 reads plain lines, so the interactive
-;     affordances (editing, arrow-key history, the history file) do
-;     not exist. The piped surface is identical; a TTY session is
-;     visibly plainer. The editor-grade interface is the LSP's
-;     business.
+;   * no rustyline: the editing that rustyline gave stage0 is provided
+;     by `Tui.Keys`, `Tui.Edit` and `Tui.Term` - STANDARD LIBRARY
+;     modules, not compiler ones. That is deliberate and it is the
+;     reason they are shaped the way they are: nothing in them knows
+;     what Axiom is, the word-boundary set arrives as a parameter, and
+;     the prompt arrives already painted. The REPL is their first
+;     caller, not their owner, and `axiom` links them the way it links
+;     `Str` and `Vec`. What EXISTS as of 2026-08-31: a coloured prompt,
+;     UTF-8 aware insertion, cursor motion by character and by word,
+;     the readline kills with one kill ring, and a redraw that stays
+;     correct when the line wraps past the terminal's width. What
+;     does NOT: history (Up, Down, Ctrl-R), syntax highlighting, and
+;     completion (Tab) - separate efforts, whose keys are decoded and
+;     reach `ledApply` as explicit no-ops so that adding them is a
+;     branch beside an existing one rather than a change to the
+;     decoder.
+;
+;     ALL OF IT HANGS OFF ONE PREDICATE, `replInteractive`, true only
+;     when fd 0 AND fd 1 are both terminals. When it is false the
+;     REPL runs the code it ran before this landed, byte for byte,
+;     and check-repl-selfhost.sh is what turns that from a claim into
+;     a check: its `run_repl` redirects stdin from a file and stdout
+;     to a file, so the piped branch is the one its 14 sessions
+;     drive. scripts/check-repl-tui.sh drives the other branch under
+;     a pty it allocates itself and requires the two to DIFFER -
+;     because "no escapes off a TTY" and "escapes on one" are each
+;     satisfied by a build in which the other side is dead code.
 ;   * MULTI-LINE ENTRIES, added 2026-08-31: a decl or expression whose
 ;     parens/braces/brackets do not balance on one physical line keeps
 ;     reading lines (`replParenDepth`) until they do, so `fn` and
-;     other multi-line forms are typeable at the prompt at all. This
-;     is still not editing - a line already submitted cannot be
-;     revisited, and a mistyped paren is escaped with a blank line,
-;     not backspace.
+;     other multi-line forms are typeable at the prompt at all. A
+;     line already SUBMITTED still cannot be revisited on either
+;     surface; a mistyped paren is escaped with a blank line, and on
+;     a TTY also with Ctrl-C, which `replMain` sees as that same
+;     blank line.
 ;   * the banner names THIS compiler, not stage0's version string.
 ;     Gated sessions run --no-banner, so it never enters a byte
 ;     comparison.
@@ -71,6 +94,14 @@
 (import codegen)
 
 (import driver)
+
+(import style)
+
+(import Tui.Keys)
+
+(import Tui.Edit)
+
+(import Tui.Term)
 
 ; All REPL output is stdout - stage0's rule, measured: stderr stayed
 ; empty in every probed session, errors included.
@@ -135,6 +166,79 @@
         (Some (catStrs parts))
       )
     }
+  )
+)
+
+; ------------------------------------------------------------------
+; THE ONE PREDICATE. Everything interactive hangs off it, and it is
+; here in ONE place so that a gate has exactly one thing to prove.
+;
+; BOTH DESCRIPTORS, not either. A session whose stdin is a pipe and
+; whose stdout is a terminal must still write no prompt, or the byte
+; goldens in check-repl-selfhost.sh would depend on HOW the gate was
+; invoked rather than on what the REPL does - and a `2>&1` in some
+; future runner would silently move them. A session whose stdin is a
+; terminal and whose stdout is a file must not paint either: the
+; escapes would land in the file.
+; ------------------------------------------------------------------
+(pub :: replInteractive Int)
+
+;@axiom:effect(io)
+(pub fn (replInteractive)
+  (if (&& (sysIsatty 0) (sysIsatty 1))
+    1
+    0
+  )
+)
+
+; The prompt, and the one shown while a form's parens are still open.
+;
+; BOTH ARE SEVEN COLUMNS, so a continued form's text lines up under
+; the first line's. They are painted here and handed to the editor
+; already painted, which is why every column formula in lineedit.ax
+; measures the prompt with `visLen` and never with `strLen`: painted
+; SGR_SEC, these seven columns are twenty bytes.
+(pub :: replPromptMain String)
+
+(pub fn (replPromptMain) (paint SGR_SEC "axiom> "))
+
+(pub :: replPromptCont String)
+
+(pub fn (replPromptCont) (paint SGR_GUT "  ...> "))
+
+; ------------------------------------------------------------------
+; THE BRANCH. One conditional, one call site, and both sides answer
+; the same `(Option String)`: a line without its newline, or None at
+; end of input.
+;
+; The raw-mode bracket is here rather than inside `term.ax` for two
+; reasons. It keeps `sysTermRaw` and `sysTermRestore` LEXICALLY
+; ADJACENT on the one return path this function has, so there is no
+; path out of raw mode to forget; and it lets the fallback - a
+; terminal that refuses raw mode, which is what a target with no
+; termios answers - be the ordinary reader, which `term.ax` cannot
+; call without an import cycle.
+;
+; Everything below this line in `replMain` - `replTrim`, the `;`/`:`
+; classification, `replParenDepth`, the pending join, `replDispatch`,
+; every `replOut` - is the code that runs today, unmodified, on both
+; surfaces.
+; ------------------------------------------------------------------
+(pub :: replReadPrompted (-> Int KeyIn LineEd String (Option String)))
+
+;@axiom:effect(io)
+(pub fn (replReadPrompted interactive kin ed prompt)
+  (if (== interactive 0)
+    (replReadLine 0)
+    (if (< (termRawEnter kin) 0)
+      (replReadLine 0)
+      (let ((r (termEditLoop kin ed prompt)))
+        {
+          (termRawLeave kin)
+          r
+        }
+      )
+    )
   )
 )
 
@@ -1181,7 +1285,16 @@
     (replOut "  • Expressions are evaluated and results shown\n")
     (replOut "  • Use ; for line comments\n")
     (replOut "  • Unbalanced parens continue on the next line; a blank line aborts\n")
-    (replOut "  • No history or line editing; Ctrl+D ends the session, Ctrl+C kills it\n")
+    ; THE ONLY LINE OF OUTPUT IN THIS FILE THAT DIFFERS BY SURFACE,
+    ; and it differs because it is a statement ABOUT the surface. The
+    ; piped branch is the byte 050-commands.golden pins; the TTY
+    ; branch is the one that is true there. Saying "no line editing"
+    ; to a user who has it, or offering Ctrl-A to a pipe, would each
+    ; be the document lying about the program.
+    (if (== replInteractive 0)
+      (replOut "  • No history or line editing; Ctrl+D ends the session, Ctrl+C kills it\n")
+      (replOut "  • Arrows, Ctrl-A/E/B/F/K/U/W/Y and Alt-b/f/d edit the line; Ctrl+D ends the session, Ctrl+C cancels the line\n")
+    )
     (replOut "\n")
     0
   }
@@ -1459,7 +1572,23 @@
       replBanner
       0
     )
+    ; Computed ONCE. `mkKeyIn`'s second argument is the same value:
+    ; off a TTY it builds the inert shape - no poll descriptor, a
+    ; one-byte buffer, nothing ever read - so the piped surface pays
+    ; for none of this. One LineEd and one kill ring per SESSION, not
+    ; per line: a Vec handle is an `Int`, so an `Int`-typed struct
+    ; field is outside the block's reference map and a per-line editor
+    ; would leak both gap vectors every line typed.
+    (let ((interactive replInteractive))
     (let (
+      (kin (mkKeyIn 0 interactive))
+      ; Axiom's own identifier bytes beyond letters, digits and `_`,
+      ; so Alt-b over `vec-push!` crosses the whole name rather than
+      ; stopping at the hyphen. `Tui.Edit` cannot know this and does
+      ; not try to; `tests/selfhost/978-line-editor.ax` sweeps all 256
+      ; bytes and requires this string to make `ledIsWord` agree with
+      ; `lexer.isIdentChar` exactly, so the two cannot drift.
+      (ed (ledNew ledRingNew "-!*+/<>=%&|'^"))
       (mut declsSrc "")
       (mut running 1)
       ; The buffer of a decl-or-expr entry whose parens have not
@@ -1470,7 +1599,12 @@
     )
       {
         (while (== running 1)
-          (let ((lineOpt (replReadLine 0)))
+          (let ((lineOpt (replReadPrompted
+            interactive            kin            ed            (if (> (strLen pending) 0)
+              replPromptCont
+              replPromptMain
+            )
+          )))
             (match lineOpt
               ((None)
                 {
@@ -1604,7 +1738,7 @@
           ))
         0
       }
-    )
+    ))
   }
 )
 

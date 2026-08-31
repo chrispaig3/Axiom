@@ -1,0 +1,306 @@
+; expect 51
+; The terminal key decoder, gated with no terminal anywhere.
+;
+; `self_host/keys.ax` is a pure function from (bytes, valid length,
+; offset) to an event, and that shape exists so that this case can
+; exist: a terminal session reduced to arithmetic. `check-repl-tui.sh`
+; drives a real pty and is worth having, but it is slow, it needs
+; python3, and it can only reach the sequences a pty will actually
+; deliver. This reaches the ones that break decoders - a truncated
+; `ESC[1;5`, an SGR mouse report, a stray continuation byte - on every
+; build, through `check-self-host.sh`.
+;
+; IT COUNTS AGREEMENTS, in this directory's discipline: a case scores
+; 1 only when ALL FOUR of (kind, code point, modifiers, bytes used)
+; match, and the exit status is the total. `used` off by one on
+; `ESC[1;5D` - the classic, where three bytes are consumed and `;5D`
+; is then decoded as three more keys - scores that case 0 and the
+; whole run answers 50.
+;
+; MEASURED AT INTRODUCTION, so that "it can fail" is a result and not
+; a claim: making `keyCsiParam` always answer -1 - which is what a
+; decoder that ignored CSI parameters would do - drops the run from
+; 51 to 43, and restoring it puts it back to 51. Those eight are
+; exactly the cases that carry a parameter.
+;
+; TWO THINGS STOP IT PASSING VACUOUSLY. There is a NEGATIVE CONTROL:
+; a deliberately WRONG expectation for `ESC[D`, scored as `1 - result`
+; so that a comparator which had degenerated to "always agree" LOSES a
+; point rather than gaining one and cannot reach 51 from the wrong
+; side. And the run requires at least 11 DISTINCT kinds across the
+; table, because 51 cases that all answered KEY_CHAR would otherwise
+; satisfy a sum; below the floor it answers 1, which no expectation
+; matches.
+;
+; ESC HAS NO LITERAL SPELLING. `isEscapeChar` in lexer.ax accepts
+; exactly \n \t \r \\ \" \' \0, so byte 27 is synthesised at run time -
+; `paint` in style.ax works around the same thing the same way. Every
+; multi-byte character comes from `utf8FromChar`, so the fixture's
+; bytes are the encoder's own and not a second opinion about them.
+(import Str)
+
+(import Mem)
+
+(import Utf8)
+
+(import Vec)
+
+(import Tui.Keys)
+
+; ESC followed by `rest`.
+(:: esc (-> String String))
+
+(fn (esc rest)
+  (let ((n (strLen rest)))
+    (let ((s (strAlloc (+ n 1))))
+      {
+        (memPutByte (strData s) 0 27)
+        (memCopy (+ (strData s) 1) (strData rest) n)
+        s
+      }
+    )
+  )
+)
+
+; 1 when scanning `s` at offset 0, with every byte valid, answers
+; exactly this event.
+(:: chk (-> String Int Int Int Int Int))
+
+(fn (chk s k c m u)
+  (let ((ev (keyScan s (strLen s) 0)))
+    (if (&& (== ev.kind k) (&& (== ev.cp c) (&& (== ev.mods m) (== ev.used u))))
+      1
+      0
+    )
+  )
+)
+
+; The same, for a buffer whose VALID length is shorter than the String
+; - which is the truncated-read case, and the one a scanner written in
+; the lexer's read-until-0 idiom gets wrong: `strByte` answers 0 out
+; of range, and byte 0 is Ctrl-@, a perfectly plausible key.
+(:: chkLen (-> String Int Int Int Int Int Int))
+
+(fn (chkLen s len k c m u)
+  (let ((ev (keyScan s len 0)))
+    (if (&& (== ev.kind k) (&& (== ev.cp c) (&& (== ev.mods m) (== ev.used u))))
+      1
+      0
+    )
+  )
+)
+
+; What a prefix means once nothing more has arrived.
+(:: chkRes (-> String Int Int Int Int))
+
+(fn (chkRes s len k u)
+  (let ((ev (keyResolve s len 0)))
+    (if (&& (== ev.kind k) (== ev.used u))
+      1
+      0
+    )
+  )
+)
+
+; Scanning at a non-zero offset, which is how the reader consumes a
+; buffer holding more than one keystroke.
+(:: chkAt (-> String Int Int Int Int Int Int))
+
+(fn (chkAt s off k c m u)
+  (let ((ev (keyScan s (strLen s) off)))
+    (if (&& (== ev.kind k) (&& (== ev.cp c) (&& (== ev.mods m) (== ev.used u))))
+      1
+      0
+    )
+  )
+)
+
+; The kind a case produces, for the distinct-kind floor.
+(:: kindOf (-> String Int))
+
+(fn (kindOf s) (let ((ev (keyScan s (strLen s) 0))) ev.kind))
+
+; How many distinct values a Vec holds.
+(:: distinct (-> Int Int))
+
+(fn (distinct v)
+  (let (
+    (n (vecLen v))
+    (mut i 0)
+    (mut d 0)
+  )
+    {
+      (while (< i n)
+        {
+          (let (
+            (mut j 0)
+            (mut dup 0)
+          )
+            {
+              (while (< j i)
+                {
+                  (if (== (vecGet v j) (vecGet v i))
+                    (set dup 1)
+                    0
+                  )
+                  (set j (+ j 1))
+                })
+              (if (== dup 0)
+                (set d (+ d 1))
+                0
+              )
+            }
+          )
+          (set i (+ i 1))
+        })
+      d
+    }
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (kinds vecNew)
+    (up (esc "[A"))
+    (down (esc "[B"))
+    (right (esc "[C"))
+    (left (esc "[D"))
+    (home (esc "[H"))
+    (endk (esc "[F"))
+    (del (esc "[3~"))
+    (home2 (esc "[1~"))
+    (pgup (esc "[5~"))
+    (f5 (esc "[15~"))
+    (cleft (esc "[1;5D"))
+    (aright (esc "[1;3C"))
+    (uleft (esc "[5D"))
+    (cdel (esc "[3;5~"))
+    (ss3up (esc "OA"))
+    (ss3f1 (esc "OP"))
+    (altb (esc "b"))
+    (escesc (esc (strFromByte 27)))
+    (escescleft (esc (strConcat (strFromByte 27) "[D")))
+    (mouse (esc "[<0;12;34M"))
+    (cpr (esc "[24;80R"))
+    (da (esc "[?1;2c"))
+    (paste (esc "[200~"))
+    (osc (strConcat (esc "]0;a") (strFromByte 7)))
+    (eacute (utf8FromChar 233))
+    (cjk (utf8FromChar 19990))
+    (emoji (utf8FromChar 128512))
+    (mut n 0)
+  )
+    {
+      ; ---- ordinary bytes ---------------------------------------
+      (set n (+ n (chk "a" KEY_CHAR 97 0 1)))
+      (set n (+ n (chk (strFromByte 1) KEY_CTRL 65 0 1)))
+      (set n (+ n (chk (strFromByte 0) KEY_CTRL 64 0 1)))
+      ; Enter is CR in raw mode, and LF when something pastes into a
+      ; terminal that was left with ICRNL on. A REPL that ignored LF
+      ; would swallow every line of such a paste.
+      (set n (+ n (chk (strFromByte 13) KEY_ENTER 0 0 1)))
+      (set n (+ n (chk (strFromByte 10) KEY_ENTER 0 0 1)))
+      (set n (+ n (chk (strFromByte 9) KEY_TAB 0 0 1)))
+      (set n (+ n (chk (strFromByte 127) KEY_BACKSPACE 0 0 1)))
+      (set n (+ n (chk (strFromByte 8) KEY_BACKSPACE 0 0 1)))
+      ; ---- CSI navigation ---------------------------------------
+      (set n (+ n (chk up KEY_UP 0 0 3)))
+      (set n (+ n (chk down KEY_DOWN 0 0 3)))
+      (set n (+ n (chk right KEY_RIGHT 0 0 3)))
+      (set n (+ n (chk left KEY_LEFT 0 0 3)))
+      (set n (+ n (chk home KEY_HOME 0 0 3)))
+      (set n (+ n (chk endk KEY_END 0 0 3)))
+      (set n (+ n (chk del KEY_DELETE 0 0 4)))
+      (set n (+ n (chk home2 KEY_HOME 0 0 4)))
+      (set n (+ n (chk pgup KEY_PGUP 0 0 4)))
+      (set n (+ n (chk f5 KEY_FN 5 0 5)))
+      ; ---- modifiers, both spellings ----------------------------
+      (set n (+ n (chk cleft KEY_LEFT 0 MOD_CTRL 6)))
+      (set n (+ n (chk aright KEY_RIGHT 0 MOD_ALT 6)))
+      ; `ESC[5D` is urxvt's and older xterm's bare-modifier form. A
+      ; decoder that read only the `1;m` spelling answers plain Left
+      ; here, and Ctrl-Left silently becomes a character motion.
+      (set n (+ n (chk uleft KEY_LEFT 0 MOD_CTRL 4)))
+      (set n (+ n (chk cdel KEY_DELETE 0 MOD_CTRL 6)))
+      ; ---- SS3, which is what a terminal left in DECCKM sends ----
+      (set n (+ n (chk ss3up KEY_UP 0 0 3)))
+      (set n (+ n (chk ss3f1 KEY_FN 1 0 3)))
+      ; ---- the escape prefix ------------------------------------
+      (set n (+ n (chk altb KEY_CHAR 98 MOD_ALT 2)))
+      ; ESC ESC is ONE Escape per press, so mashing the key cannot
+      ; build a prefix; whatever follows decodes on the next call.
+      (set n (+ n (chk escesc KEY_ESCAPE 0 0 1)))
+      (set n (+ n (chk escescleft KEY_ESCAPE 0 0 1)))
+      (set n (+ n (chkAt escescleft 1 KEY_LEFT 0 0 3)))
+      ; ---- well-formed and unbound: consumed WHOLE --------------
+      ; Each of these arrives unsolicited from a real terminal. A
+      ; decoder that matched known sequences instead of parsing the
+      ; grammar types them into the user's line one byte at a time.
+      (set n (+ n (chk mouse KEY_NONE 0 0 11)))
+      (set n (+ n (chk cpr KEY_NONE 0 0 8)))
+      (set n (+ n (chk da KEY_NONE 0 0 7)))
+      (set n (+ n (chk paste KEY_NONE 0 0 6)))
+      (set n (+ n (chk osc KEY_NONE 0 0 6)))
+      ; ---- multi-byte characters --------------------------------
+      ; The three values Utf8.ax's own header states, so the fixture
+      ; agrees with an independent statement of the answer.
+      (set n (+ n (chk eacute KEY_CHAR 233 0 2)))
+      (set n (+ n (chk cjk KEY_CHAR 19990 0 3)))
+      (set n (+ n (chk emoji KEY_CHAR 128512 0 4)))
+      ; A stray continuation byte begins nothing: advance one, never
+      ; invent a character.
+      (set n (+ n (chk (strFromByte 169) KEY_NONE 0 0 1)))
+      ; ---- TRUNCATED. All seven must be KEY_MORE, and a scanner
+      ; that trusted `strByte`'s 0-out-of-range - reading a short
+      ; buffer as Ctrl-@, a real key - fails all seven at once.
+      (set n (+ n (chkLen eacute 1 KEY_MORE 0 0 0)))
+      (set n (+ n (chkLen cjk 2 KEY_MORE 0 0 0)))
+      (set n (+ n (chkLen emoji 3 KEY_MORE 0 0 0)))
+      (set n (+ n (chkLen left 1 KEY_MORE 0 0 0)))
+      (set n (+ n (chkLen left 2 KEY_MORE 0 0 0)))
+      (set n (+ n (chkLen cleft 5 KEY_MORE 0 0 0)))
+      (set n (+ n (chkLen osc 4 KEY_MORE 0 0 0)))
+      ; ---- RESOLVED, once nothing more arrived ------------------
+      ; A lone ESC is the Escape key; any longer prefix is line noise
+      ; and is dropped whole. `used` is never 0, which is the
+      ; invariant that makes the reader's loop terminate.
+      (set n (+ n (chkRes left 1 KEY_ESCAPE 1)))
+      (set n (+ n (chkRes left 2 KEY_NONE 2)))
+      (set n (+ n (chkRes cleft 5 KEY_NONE 5)))
+      (set n (+ n (chkRes eacute 1 KEY_NONE 1)))
+      (set n (+ n (chkRes cjk 2 KEY_NONE 2)))
+      (set n (+ n (chkRes osc 4 KEY_NONE 4)))
+      ; ---- THE NEGATIVE CONTROL ---------------------------------
+      ; A deliberately WRONG expectation for `ESC[D`, added as
+      ; `1 - score`. A comparator that had degenerated to "always
+      ; agree" LOSES a point here instead of gaining one, so it
+      ; cannot reach the expected total from the wrong side.
+      (set n (+ n (- 1 (chk left KEY_RIGHT 0 0 3))))
+      ; ---- the distinct-kind floor ------------------------------
+      (vecPush kinds (kindOf up))
+      (vecPush kinds (kindOf down))
+      (vecPush kinds (kindOf left))
+      (vecPush kinds (kindOf home))
+      (vecPush kinds (kindOf endk))
+      (vecPush kinds (kindOf del))
+      (vecPush kinds (kindOf pgup))
+      (vecPush kinds (kindOf f5))
+      (vecPush kinds (kindOf altb))
+      (vecPush kinds (kindOf escesc))
+      (vecPush kinds (kindOf mouse))
+      (vecPush kinds (kindOf eacute))
+      (vecPush kinds (kindOf (strFromByte 1)))
+      (vecPush kinds (kindOf (strFromByte 13)))
+      (vecPush kinds (kindOf (strFromByte 9)))
+      (vecPush kinds (kindOf (strFromByte 127)))
+      ; A table of cases that all answered one kind would satisfy a
+      ; sum. It cannot satisfy this.
+      (if (< (distinct kinds) 11)
+        1
+        n
+      )
+    }
+  )
+)

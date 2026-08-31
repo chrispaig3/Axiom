@@ -1,0 +1,454 @@
+; Tui.Term — the only part of the TUI that touches a descriptor.
+;
+; `Tui.Keys` turns bytes into events and `Tui.Edit` turns events into
+; a buffer and a byte stream; both are compiler-enforced pure.
+; This file is the seam: it refills a buffer from `sysReadFd`, decides
+; the ONE case the decoder cannot (a prefix that stopped arriving),
+; runs the loop, and performs the single write per keystroke.
+;
+; RAW MODE IS ENTERED PER LINE, NOT PER SESSION, and it is worth
+; saying why, because the alternative reads cheaper. Holding raw mode
+; across the whole session means every writer downstream has to
+; produce `\r\n`: OPOST is off, so a lone LF moves down WITHOUT
+; returning to column 0 and `llc`'s and `cc`'s inherited stderr
+; staircases down the screen. Four gates grep render.ax's output, so
+; teaching it CR injection is the expensive path. Entering around the
+; read instead means NOT ONE BYTE of existing output code changes,
+; `:quit`'s `sysExitWith 0` - which fires from deep inside the colon
+; dispatch - lands in COOKED mode and so cannot leak raw, and a long
+; compile keeps today's documented behaviour that Ctrl-C kills it.
+;
+; The bracket is `termRawEnter` / `termRawLeave`, and a caller is
+; meant to put them around ONE call with the leave on that function's
+; only return path - which is what `self_host/repl.ax`'s
+; `replReadPrompted` does. What it costs: `sysTermRestore` uses the FLUSHING request, so
+; input still sitting in the KERNEL'S queue when a line ends is
+; discarded. Bytes already in THIS buffer are not - `KeyIn` is
+; session-lived and a `read` takes up to 4096 at once - so a pasted
+; multi-line form survives, and what is lost is type-ahead that
+; arrived during an evaluation. That is the same loss every REPL that
+; redraws has, and it is the price of not leaking raw mode.
+;
+; NO TERMINAL-GENERATED SIGNAL CAN KILL US WHILE RAW. `sysTermRaw` is
+; called with `keepSignals` 0, which clears ISIG: Ctrl-C arrives as
+; byte 3 and Ctrl-\ as byte 28, both as ordinary key events. That is
+; the readline behaviour a REPL wants - Ctrl-C abandons the line
+; rather than the session - and it also removes, structurally, the
+; only way the process could have died inside the raw window. ISIG is
+; back on in cooked mode, which is where every evaluation runs.
+;
+; THE RESIDUAL, named rather than implied: a SIGTERM or a SIGSEGV
+; during the microseconds of keystroke handling still leaves the
+; terminal raw, because nothing in self_host/ handles signals. `reset`
+; recovers. Closing it needs a signal handler, which is a different
+; subsystem; `scripts/check-terminal-restore.sh` proves the normal
+; path and `scripts/check-repl-tui.sh` proves this one.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import Sys)
+
+(import Tui.Keys)
+
+(import Tui.Edit)
+
+; One `read` takes up to this much. Large enough that a pasted line
+; arrives in one syscall, which is what makes the redraw coalescing
+; below turn a paste into roughly one repaint.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: termBufBytes Int)
+
+(pub fn (termBufBytes) 4096)
+
+; How long to wait for the rest of an escape sequence before deciding
+; there is no rest.
+;
+; THE ONE TUNABLE, and the only place a clock enters input decoding.
+; 30ms is above the ~1ms a sequence takes to arrive from a local
+; terminal and below the ~50ms at which a deliberate Escape press
+; starts to feel laggy; it also survives a slow link splitting a
+; 6-byte Ctrl-Left across two packets. Deciding a lone ESC by whether
+; one `read` happened to answer exactly one byte - the tempting
+; alternative, with no timer at all - is unsound over ssh and is the
+; classic cause of "my arrow keys type garbage on a slow connection".
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyEscTimeoutMs Int)
+
+(pub fn (keyEscTimeoutMs) 30)
+
+; ------------------------------------------------------------------
+; The reader.
+;
+; `buf` is a `strAlloc`'d String read into through `strData`, so the
+; scanner takes a String and never needs `strWrap` - whose header
+; makes the caller responsible for a NUL at bytes[len] and for the
+; bytes outliving the header, two obligations an interior view of a
+; live read buffer cannot honour. `len` is the fill and `pos` the
+; consume point; they are compacted to 0 when they meet.
+;
+; `pfd` is a `netPollCreate` descriptor with `fd` registered for
+; readability, or -1 when the poll layer refused. MEASURED on this
+; host 2026-08-31, under a pty, before writing this: `netPollAddRead`
+; on fd 0 answered 0, a 50ms `netPollWait` with nothing pending
+; answered 0 events, and the same wait after one byte was written
+; answered 1. The layer is named `net` but it is fd readiness over
+; kqueue and epoll, and a tty is an fd.
+; ------------------------------------------------------------------
+(pub struct KeyIn
+  (fd : Int)
+  (buf : String)
+  (len : Int)
+  (pos : Int)
+  (pfd : Int)
+  (evs : Int)
+  (ts : Int)
+  (rec : Int)
+  ; The saved terminal state. Owned here, and never written to except
+  ; by `sysTermRaw`'s own save - which edits a private copy, so this
+  ; always holds what the terminal was.
+  (save : Int)
+  ; `sysTermSizeBytes` of scratch, so a size query is one ioctl and
+  ; not an allocation per repaint.
+  (ws : Int)
+  (eof : Int))
+
+; A reader over `fd`. `active` 0 builds the inert shape: no poll
+; descriptor, a one-byte buffer, and nothing ever read - which is what
+; the piped path gets, so that the byte-identical surface pays for
+; none of this.
+(pub :: mkKeyIn (-> Int Int KeyIn))
+
+;@axiom:effect(io)
+(pub fn (mkKeyIn fd active)
+  (if (== active 0)
+    (KeyIn fd (strAlloc 1) 0 0 (- 0 1) 0 0 0 0 0 0)
+    (let (
+      (p netPollCreate)
+      (rec (memAlloc (netPollBufBytes 1)))
+    )
+      (KeyIn
+        fd        (strAlloc termBufBytes)        0        0        (if (< p 0)
+          (- 0 1)
+          (if (< (netPollAddRead p fd rec) 0)
+            (- 0 1)
+            p
+          )
+        )        (memAlloc (netPollBufBytes 4))        (memAlloc 16)        rec        (memAlloc sysTermStateBytes)        (memAlloc sysTermSizeBytes)        0
+      )
+    )
+  )
+)
+
+; Bytes read but not yet consumed. The redraw coalescing asks this.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyInPending (-> KeyIn Int))
+
+(pub fn (keyInPending kin) (- kin.len kin.pos))
+
+; ------------------------------------------------------------------
+; Refill. Answers bytes appended, 0 on timeout, -1 at end of input,
+; -2 when the buffer is full and cannot take more. A NEGATIVE timeout
+; blocks.
+;
+; A NEGATIVE ANSWER FROM `netPollWait` FALLS THROUGH TO A BLOCKING
+; READ rather than being read as "nothing ready". epoll refuses some
+; descriptor classes outright, and a future platform might refuse a
+; tty; trusting the refusal as an emptiness answer would busy-loop and
+; burn a core. The degradation is visible and benign - a lone Escape
+; waits for the next keypress instead of resolving after 30ms - and it
+; is the same path a `mkKeyIn` whose registration failed already
+; takes.
+; ------------------------------------------------------------------
+(pub :: keyInFill (-> KeyIn Int Int))
+
+;@axiom:effect(io)
+(pub fn (keyInFill kin timeoutMs)
+  {
+    (if (> kin.pos 0)
+      {
+        (memCopy (strData kin.buf) (+ (strData kin.buf) kin.pos) (- kin.len kin.pos))
+        (set kin.len (- kin.len kin.pos))
+        (set kin.pos 0)
+        0
+      }
+      0
+    )
+    (if (== kin.eof 1)
+      (- 0 1)
+      (if (>= kin.len (strLen kin.buf))
+        (- 0 2)
+        (let ((ready 
+          (if (&& (>= timeoutMs 0) (>= kin.pfd 0))
+            (netPollWait kin.pfd kin.evs 4 timeoutMs kin.ts)
+            1
+          )
+        ))
+          (if (== ready 0)
+            0
+            (let ((n (sysReadFd kin.fd (+ (strData kin.buf) kin.len) (- (strLen kin.buf) kin.len))))
+              (if (<= n 0)
+                {
+                  (set kin.eof 1)
+                  (- 0 1)
+                }
+                {
+                  (set kin.len (+ kin.len n))
+                  n
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  }
+)
+
+; ------------------------------------------------------------------
+; One event, never KEY_MORE. The only function here that both reads
+; and decides, and it is small on purpose.
+;
+; Blocking is free when NOTHING is pending - that is just waiting for
+; the user. The timed wait is used only when a strict prefix is
+; already buffered, which is the one case `keyScan` cannot decide.
+;
+; THE PROGRESS INVARIANT: `keyResolve` never answers `used` 0 while
+; `pos < len`, and `keyScan` answers KEY_MORE only when the buffer is
+; exhausted or short. Every path through this loop therefore either
+; consumes a byte or blocks on the descriptor. A buffer that is full
+; and STILL a prefix (-2) resolves rather than refilling forever,
+; which is what stops an unterminated OSC string from wedging the
+; REPL.
+; ------------------------------------------------------------------
+(pub :: keyNext (-> KeyIn KeyEv))
+
+;@axiom:effect(io)
+(pub fn (keyNext kin)
+  (let (
+    (mut kind KEY_NONE)
+    (mut cp 0)
+    (mut mods 0)
+    (mut done 0)
+  )
+    {
+      (while (== done 0)
+        (let ((ev (keyScan kin.buf kin.len kin.pos)))
+          (if (== ev.kind KEY_MORE)
+            (let ((pending (- kin.len kin.pos)))
+              (let ((n (keyInFill kin (if (== pending 0)
+                (- 0 1)
+                keyEscTimeoutMs
+              ))))
+                (if (> n 0)
+                  0
+                  (if (== pending 0)
+                    {
+                      (set kind KEY_EOF)
+                      (set done 1)
+                      0
+                    }
+                    (let ((r (keyResolve kin.buf kin.len kin.pos)))
+                      {
+                        (set kin.pos (+ kin.pos r.used))
+                        (set kind r.kind)
+                        (set cp r.cp)
+                        (set mods r.mods)
+                        (set done 1)
+                        0
+                      }
+                    )
+                  )
+                )
+              )
+            )
+            {
+              (set kin.pos (+ kin.pos ev.used))
+              (set kind ev.kind)
+              (set cp ev.cp)
+              (set mods ev.mods)
+              (set done 1)
+              0
+            }
+          )
+        ))
+      (KeyEv kind cp mods 0)
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Terminal geometry and raw mode.
+; ------------------------------------------------------------------
+; Refresh `kin.ws` from the terminal. One ioctl; there is no SIGWINCH
+; handling anywhere in this tree, so the size is asked for rather than
+; delivered.
+(pub :: termReadSize (-> KeyIn Int))
+
+;@axiom:effect(io)
+(pub fn (termReadSize kin)
+  (if (< (sysTermSize 1 kin.ws) 0)
+    {
+      (memPutByte kin.ws 0 0)
+      (memPutByte kin.ws 1 0)
+      (memPutByte kin.ws 2 0)
+      (memPutByte kin.ws 3 0)
+      0
+    }
+    0
+  )
+)
+
+; Columns, or 80. A pty that has never been sized answers 0 with a
+; SUCCESSFUL ioctl - Sys.ax states it - so the fallback is on the
+; VALUE and not only on the return code.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: termWsCols (-> KeyIn Int))
+
+(pub fn (termWsCols kin)
+  (if (< (sysTermCols kin.ws) 2)
+    80
+    (sysTermCols kin.ws)
+  )
+)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: termWsRows (-> KeyIn Int))
+
+(pub fn (termWsRows kin)
+  (if (< (sysTermRows kin.ws) 2)
+    24
+    (sysTermRows kin.ws)
+  )
+)
+
+; Enter raw mode on fd 0, saving into `kin.save`. 0, or negative.
+; `keepSignals` 0: see the header.
+(pub :: termRawEnter (-> KeyIn Int))
+
+;@axiom:effect(io)
+(pub fn (termRawEnter kin) (sysTermRaw 0 kin.save 0))
+
+(pub :: termRawLeave (-> KeyIn Int))
+
+;@axiom:effect(io)
+(pub fn (termRawLeave kin) (sysTermRestore 0 kin.save))
+
+; ------------------------------------------------------------------
+; One write per keystroke: join the editor's fragments and send them.
+; A folded `strConcat` would peak at the sum of its intermediates -
+; the shape `tuiCat` exists to avoid - and a write
+; per fragment would put a syscall between the erase and the redraw,
+; which is visible as flicker.
+; ------------------------------------------------------------------
+(pub :: termFlush (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (termFlush out)
+  (if (== (vecLen out) 0)
+    0
+    (let ((s (tuiCat out)))
+      {
+        (sysWriteFd 1 (strData s) (strLen s))
+        (vecClear out)
+        0
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The loop. Answers the line WITHOUT its newline, or None at end of
+; input - `replReadLine`'s contract exactly, so this is a drop-in at
+; one call site and `replMain`'s multi-line machinery is untouched.
+;
+; KEY_NONE CONTINUES WITHOUT REDRAWING. A consumed mouse report or
+; device reply must not repaint the line; treating it as an ordinary
+; key would make a terminal that reports its focus flicker the prompt.
+;
+; THE REDRAW IS SKIPPED WHILE MORE INPUT IS ALREADY BUFFERED. That one
+; condition - `keyInPending` above 0 - turns a 4096-byte paste from
+; four thousand full-line repaints into roughly one, and it costs a
+; subtraction. The next event repaints, and the last event in a read
+; always does.
+; ------------------------------------------------------------------
+(pub :: termEditLoop (-> KeyIn LineEd String (Option String)))
+
+;@axiom:effect(io)
+(pub fn (termEditLoop kin ed prompt)
+  (let (
+    (out vecNew)
+    (mut state 0)
+    (mut got "")
+  )
+    {
+      (termReadSize kin)
+      (ledReset ed prompt (termWsCols kin) (termWsRows kin))
+      (ledRefresh ed out)
+      (termFlush out)
+      (while (== state 0)
+        (let ((ev (keyNext kin)))
+          (if (== ev.kind KEY_EOF)
+            {
+              (set state 2)
+              0
+            }
+            (if (== ev.kind KEY_NONE)
+              0
+              (let ((d (ledApply ed ev out)))
+                (if (== d LED_DONE)
+                  {
+                    (vecPush out "\r\n")
+                    (termFlush out)
+                    (set got (ledSnapshot ed))
+                    (set state 1)
+                    0
+                  }
+                  (if (== d LED_EOF)
+                    {
+                      (set state 2)
+                      0
+                    }
+                    (if (== d LED_ABORT)
+                      ; `^C` then a fresh line. `replMain` already
+                      ; treats an empty line as a no-op, and as the
+                      ; documented abort of an unbalanced form - so
+                      ; Ctrl-C gets both behaviours with no change
+                      ; there at all.
+                      {
+                        (vecPush out "^C")
+                        (vecPush out "\r\n")
+                        (termFlush out)
+                        (set got "")
+                        (set state 1)
+                        0
+                      }
+                      {
+                        (if (> (keyInPending kin) 0)
+                          0
+                          {
+                            (termReadSize kin)
+                            (ledResize ed (termWsCols kin) (termWsRows kin))
+                            (ledRefresh ed out)
+                            0
+                          }
+                        )
+                        (termFlush out)
+                        0
+                      }
+                    )
+                  )
+                )
+              )
+            )
+          )
+        ))
+      (if (== state 1)
+        (Some got)
+        None
+      )
+    }
+  )
+)
