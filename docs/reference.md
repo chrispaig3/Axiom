@@ -2326,7 +2326,7 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 
 ### Modules at a Glance
 
-Twenty-two modules, all of them Axiom source under `stdlib/`. A name a
+Twenty-five modules, all of them Axiom source under `stdlib/`. A name a
 module does not mark `pub` is not part of its surface — reaching one is
 `AX3023` — so `grep '^(pub' stdlib/M.ax` is always the authoritative
 answer to what a module exports. The table below says what each module
@@ -2362,6 +2362,9 @@ requires the result to be byte-identical.
 | `Http` | the request parser `httpRead` over a buffered `HttpReader` (`httpReaderNew`/`httpReaderWith`), the `HttpReq` record with `httpHeader`/`httpHasHeader`/`httpQueryParam`/`httpDecode`, the writer `httpRespond`/`httpRespondRaw`/`httpFail` with `httpStatusText` and `httpContentType`, the router `routerNew`/`routeAdd`/`routeStatic`/`routeNotFound`/`routeDispatch` over `HttpHandler` cells, `httpPathSafe`, `httpServeFile`, `httpServeOne`, and the ceilings `httpMaxHead`/`httpMaxBody` |
 | `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs — what `axiom test` discovers and isolates ([error-model.md](error-model.md) ERR-REC-6) |
 | `Agent.Tags` | `axsymParse`, `axsymLine`, and the accessors over one parsed line: `symTag`, `symHasTag`, `symEffects`, `symDerivedPure`, `symAgentTag`, `symHasAgentTag`. Reads the AXSYM stream rather than the compiler's internals ([agent-harness.md](agent-harness.md) §3.2) |
+| `Tui.Keys` | terminal input bytes to key events, as a pure function: the `KeyEv` record and its `KEY_*`/`MOD_*` tables, `keyScan` (buffer, valid length, offset → one event), and `keyResolve` for a prefix that stopped arriving. The CSI and SS3 grammars are PARSED — parameter bytes, intermediates, final — and only then interpreted, so an unbound but well-formed sequence (a mouse report, a cursor-position reply, an OSC title report) is consumed whole and reported `KEY_NONE` rather than typed into the line one byte at a time. Multi-byte characters go through `Utf8`; there is no second decoder. Every function is `restrict(no-io,no-foreign)`, which is what lets `tests/selfhost/975-key-decode.ax` gate the whole escape grammar with no terminal in the loop |
+| `Tui.Edit` | a line editor over a gap buffer of code points: insert, backspace, delete, cursor by character and by word, line start and end, the four kills with one 16-entry kill ring, yank and yank-pop, and a redraw that stays correct when the line WRAPS — the forced newline at `(pcols + n) % width == 0` is what drives a terminal's deferred wrap and makes one row formula true at every cursor position. It performs no I/O: `ledRefresh` appends fragments to a caller's `Vec`. What counts as a word is the caller's `wordChars`, and the prompt arrives already painted and is measured with `tuiVisLen`, so nothing here knows what language is being typed. Also `tuiCat`, the allocate-once join the refresh needs |
+| `Tui.Term` | the only part that touches a descriptor: the `KeyIn` reader over `sysReadFd`, the 30ms timed wait that resolves a lone ESC (built on the `netPoll*` readiness layer — measured on a pty, not assumed), `termRawEnter`/`termRawLeave` around one call, `termFlush`, and `termEditLoop`, which answers a line or `None` at end of input. Raw mode is entered per LINE and left around evaluation, so a caller's ordinary output needs no CR injection and an exit from inside a command cannot leak raw mode |
 
 ### The Filesystem
 

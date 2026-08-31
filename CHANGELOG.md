@@ -16,6 +16,78 @@ its changelog too.
 
 ## Unreleased
 
+- **The REPL has a real terminal interface: editing, cursor motion, a
+  coloured prompt, and a redraw that stays correct when the line
+  wraps.** `self_host/repl.ax` read plain lines with no editing, no
+  prompt and no colour, and its own header called that a deliberate
+  divergence from stage0's rustyline. It is no longer one. Three new
+  modules, and they are STANDARD LIBRARY modules rather than compiler
+  ones — `Tui.Keys`, `Tui.Edit` and `Tui.Term`, under `stdlib/Tui/`:
+  `Tui.Keys` decodes terminal bytes into key events — printable UTF-8
+  through `Utf8.ax`'s decoder, the control bytes, and the CSI/SS3
+  grammar PARSED rather than pattern-matched, so an unbound but
+  well-formed sequence (a mouse report, a cursor-position reply) is
+  consumed whole instead of typed into the line one byte at a time.
+  `Tui.Edit` is a gap buffer of code points with the readline motions,
+  kills and one kill ring. `Tui.Term` is the reader, the raw-mode
+  bracket and the event loop.
+
+  **Nothing in `stdlib/Tui/` imports a compiler module**, and the gate
+  asserts it: 0 such imports across the 3 files. The two rules it
+  would have borrowed are parameters instead — the word boundary is a
+  caller-supplied `wordChars` (the REPL passes Axiom's operator set,
+  so Alt-b crosses the whole of `vec-push!`), and the prompt arrives
+  already painted and is measured with `tuiVisLen`. Those are second
+  statements of rules `lexer.isIdentChar` and `style.visLen` already
+  make, so `978-line-editor.ax` sweeps all 128 ASCII bytes through the
+  first pair and a 12-string corpus through the second and requires
+  exact agreement — independence without drift, which is the
+  discipline `990-char-class.ax` was written for. The REPL is the
+  library's first caller, not its owner.
+
+  **The piped surface did not move, and that is the contract.** Every
+  new behaviour hangs off ONE predicate, `replInteractive`, true only
+  when fd 0 and fd 1 are both terminals; `scripts/check-repl-tui.sh`
+  asserts that the predicate is written exactly once across
+  `self_host/`. Measured before and after over all 22 checked-in REPL
+  sessions, stdout and stderr: 341,394 bytes each way, and the only
+  difference is `:time`'s duration, which is a clock. Zero ESC bytes
+  reach a pipe.
+
+  The new gate drives the REPL on a pty it allocates itself and makes
+  44 assertions: that the piped and pty transcripts differ by more than
+  the terminal's own carriage returns, that Ctrl-C arrives as a KEY and
+  not a signal (raw mode is entered with ISIG cleared, so nothing the
+  terminal can generate kills the process while it is raw), that
+  arrows, Ctrl-A/E/K/U/W/Y, Alt-b/d and a lone timed-out ESC all edit,
+  that one Backspace removes a two-byte character rather than one byte
+  of it, that the terminal comes back byte-exact on both exit paths,
+  and that the wrapped screen matches an independently written VT model
+  at the deferred-wrap boundary and away from it. Deleting the forced
+  newline that drives that wrap turns exactly two of its checks red and
+  leaves `check-repl-selfhost.sh` green, which is the measured proof
+  that no existing check could see it. `tests/selfhost/975-key-decode.ax`
+  gates the decoder with no terminal at all (51 cases, one of them a
+  negative control), and `978-line-editor.ax` sweeps the wrap
+  arithmetic across every width from 2 to 80.
+
+  Forty-eight gates now call `gate_build_axc`, and both REPL gates run
+  in the parallel set. `check-repl-selfhost.sh` had carried a HAZARD
+  saying they must not — every REPL writing `/tmp/axiom-repl-1`,
+  because `fmtIntStr` answers "1" above 3 — and the new gate was
+  written to obey it. It had been fixed twice before it was read
+  (`decStr` for the pid, 2026-08-08; a private
+  `<tmp>/axiom-repl-<pid>.d` at mode 0700, 2026-08-23). Probed: six
+  `axiom repl` processes at once each answered its own expression and
+  left nothing in `/tmp`. The paragraph is corrected in place rather
+  than deleted, because a stale hazard is a claim with no expiry and
+  the next reader acts on it — this one was one commit from costing the
+  battery two of its slower gates' parallelism.
+
+  History, syntax highlighting and completion are not in this: their
+  keys are decoded and reach `ledApply` as explicit no-ops, so each is
+  a branch beside an existing one.
+
 ## 0.6.0 — 2026-08-31
 
 - **KNOWN ISSUE: module resolution matches case-insensitively on macOS, so

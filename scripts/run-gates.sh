@@ -71,6 +71,21 @@ NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a ba
 # Gates whose result depends on having the machine to themselves.
 SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost)\.sh$'
 
+# THE TWO REPL GATES ARE NOT HERE, and they were nearly added on
+# 2026-08-31 on the strength of a comment. `check-repl-selfhost.sh`'s
+# header said every REPL on the machine writes /tmp/axiom-repl-1
+# because `fmtIntStr` answers "1" above 3, so two REPLs at once corrupt
+# each other - and `check-repl-tui.sh` starts several. Both halves of
+# that were fixed before it was written down as live: `repl.ax` uses
+# `decStr` (distinctness, 2026-08-08) and a private
+# `<tmp>/axiom-repl-<pid>.d` at mode 0700 created with an exclusive
+# `sysMkdir` (predictability, 2026-08-23), and its own comment says so.
+# MEASURED 2026-08-31 before removing the entry: six `axiom repl`
+# processes run at once each answered their own expression correctly
+# (101, 202, 303, 404, 505, 606) and left nothing in /tmp. Serialising
+# on a stale comment costs the battery two of its slowest gates for
+# nothing, which is why the measurement came first.
+
 # A NOTE ON ONE GATE THAT IS DELIBERATELY *NOT* IN EITHER LIST ABOVE,
 # because it looks like it should be in both. `check-terminal-restore.sh`
 # drives a TERMINAL: it puts one into raw mode and asserts it comes back
