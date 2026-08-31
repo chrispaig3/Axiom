@@ -15,7 +15,8 @@ Tips:
   • Data types: (data Maybe (a) (Nothing) (Just a))
   • Expressions are evaluated and results shown
   • Use ; for line comments
-  • Use arrow keys for history, Ctrl+C to cancel input
+  • Unbalanced parens continue on the next line; a blank line aborts
+  • No history or line editing; Ctrl+D ends the session, Ctrl+C kills it
 
 Error: Unknown command ':zzz'. Type :help for available commands.
 (+ 1 2) : Int
