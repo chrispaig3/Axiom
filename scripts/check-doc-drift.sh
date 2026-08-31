@@ -997,13 +997,24 @@ echo "== types: README's LLVM column, against what the emitter actually writes =
 # `Void` and is not expressible at all for `()` - so the shape of the
 # probe would vary per row and the rows would stop being comparable.
 # A parameter needs no value.
+#
+# AND `main` HOLDS A BARE REFERENCE TO `g`, which is not decoration.
+# Until 2026-08-31 the probe never mentioned `g` at all, and once the
+# emitter stopped writing functions a program cannot reach
+# (`pruneDeadDefs`) there was no `define @g` left to read: all nine
+# rows failed at "the probe stopped measuring", which is that check
+# doing its job. Calling `g` would need a value of the row's type and
+# would undo the paragraph above, so `main` binds it instead - a bare
+# reference to a one-argument function makes `g` reachable through the
+# thunk the emitter synthesises, and leaves the `define` line this
+# reads byte-identical. Verified across all nine rows.
 types_before=$failed
 tw="$work/types"; mkdir -p "$tw"
 row_n=0
 while IFS='|' read -r ty want; do
   [[ -z "$ty" ]] && continue
   row_n=$((row_n + 1))
-  printf '(:: g (-> %s Int))\n\n(fn (g x) 0)\n\n(:: main Int)\n\n(fn (main) 0)\n' "$ty" > "$tw/t.ax"
+  printf '(:: g (-> %s Int))\n\n(fn (g x) 0)\n\n(:: main Int)\n\n(fn (main) (let ((h g)) 0))\n' "$ty" > "$tw/t.ax"
   if ! ( cd "$tw" && AXIOM_STDLIB="$repo_root/stdlib" "$axc" build \
            --input t.ax --output t.bin --emit-llvm ) >/dev/null 2>&1; then
     echo "FAIL types: the probe for \`$ty\` does not compile - README names a type the compiler will not take"

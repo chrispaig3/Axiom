@@ -246,14 +246,61 @@ claims to perform no `IO`, and a body that performs it anyway is
 under-approximation, and a specification must say so.** A conforming
 implementation **SHOULD** make it an over-approximation. It was not, in
 **seven** measured ways — six this table listed and one it did not.
-**Five are closed.** Two remain, and they are different in kind:
+**Six are closed.** One remains:
 
 | A function that... | is inferred | why it is still open |
 |---|---|---|
 | calls through a local, a parameter, or an unresolved name | contributes nothing but a transparency mark | needs the flow analysis `MM-EXEC-9b` describes and the language does not have. **It announces itself**: the row carries `#effects-incomplete` and a `pure` claim over it draws `AX3037`, so a reader is handed a lower bound labelled as one rather than a set that looks complete |
-| applies a `data` or `struct` **constructor** | effect-free, though the constructor allocates | a DECISION, not a gap. `error-model.md` `ERR-PROP-2` names it and relies on it: making it precise gives every `Result` constructor `#effects=Alloc`, and that rule's purity claim would then need `Alloc` exempted explicitly rather than by omission. Measured 2026-08-25 — `(fn (mkPair n) (P n n))` reports no `#effects=` |
 
-The second row was found while closing the others and is **added** to
+**The constructor row closed on 2026-08-31, and it closed because it
+was not survivable.** It stood here as a DECISION — applying a `data`
+or `struct` constructor contributed nothing to the row, though the
+constructor allocates — and `error-model.md` `ERR-PROP-2` relied on the
+convenient half of it. What that decision cost was invisible until
+`restrict(no-alloc)` existed to read the row. `no-alloc` is not a
+description, it is a CLAIM the compiler answers, and against a row
+built to omit allocation it answered `OK` to this:
+
+```scheme
+(data W (Wrap Int) (Empty))
+;@axiom:restrict(no-alloc)
+(:: mk (-> Int Int))
+(fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+```
+
+while `emit-llvm` on the same file put a `call i64 @axiom_alloc(i64 16)`
+inside `@mk` itself. A decision that makes a checked claim
+unfalsifiable is not a decision about precision; it is the check not
+existing. `no-alloc` shipped in 0.6.0 across 273 declarations on the
+strength of a row that could not hold the effect it names.
+
+So the row is precise now. `typecheck.ax`'s `ctorAllocArity` asks the
+same tables `checkSaturation` asks — `rfindCtor` for a `data`
+constructor, `findStruct` for a struct — and `walkCallHead` adds `Alloc`
+when the answer is above zero. **ARITY decides, not constructor-ness,
+and it was measured rather than assumed**: `(Wrap n)` emits one
+`axiom_alloc` and `(Empty)` emits none, because a nullary constructor
+is an immediate tag with no block behind it — which is
+[reference.md](reference.md)'s own row, *"every constructor is nullary
+| a value **is** its tag ... nothing allocates"*. Adding `Alloc` for
+`(Empty)` would refuse a `no-alloc` claim the emitted code keeps, which
+is the opposite error and no better.
+
+**The measured cost of closing it**, over `self_host/` and `stdlib/` on
+2026-08-31: **123 of 3,725 effect rows** move, every one of them by
+GAINING `Alloc` and none by losing anything, and 111 of the 123 carried
+no `#effects=` at all before. **Seven** `restrict(no-alloc)` claims in
+the tree were false and are withdrawn at their sites, each with the
+reason written beside it — `mkSpan` and `mkToken`
+(`self_host/core.ax`), `mkDiagBase` (`self_host/diag.ax`), `vecTry`
+(`stdlib/Vec.ax`), `strFind` and `strParseInt` (`stdlib/Str.ax`), and
+`histFindBack` (`self_host/replhist.ax`), the last of them
+transitively, through `strFind`'s `Some`. **Zero** `;@axiom:pure`
+claims in the tree break: none of them is on a constructing function,
+so the only thing that pays for this is `ERR-PROP-2`'s documented
+probe, not any code in this repository.
+
+The row was found while closing the others and had been **added** to
 this table rather than left where it was. `error-model.md` had named it
 since it was written, "an under-approximation here in the sense
 `MM-EXEC-9a` already names" — and `MM-EXEC-9a` did not name it. A table
@@ -275,6 +322,7 @@ with whatever the compiler now says.
 | calls `__store8`/`__store64` — writes arbitrary memory | 2026-08-25 | `Mut` |
 | reads `__argc`/`__argv` — the process command line | 2026-08-25 | `IO` |
 | calls the arena primitives | 2026-08-25 | `Alloc` |
+| applies a `data`/`struct` **constructor** of arity >= 1 | 2026-08-31 | `Alloc`. A nullary constructor stays silent, and allocates nothing to be silent about |
 
 The trait-method row closed and then stopped existing. `trait`/`impl`
 are `AX2004` since 0.6.0 and an interface is a capability record — a
@@ -1730,12 +1778,23 @@ and the write is visible through **every** alias of `e`. It performs the
 `Mut` effect, precisely because it is visible where a local's mutation
 is not. The form evaluates to `0`, and its static type is `I64` — which
 does **not** stop it being the value of a function returning `Int`:
-`(fn (bump p) (set p.x 1))` declared `(-> P Int)` checks `OK`.
+`(fn (bump p) (set p.x 1))` declared `(-> P Int)` checks `OK` when `P`
+declares `(mut x : Int)`.
 
 ```scheme
 (let ((p (P 1 2)) (q p))
   { (set p.x 99) (println q.x) })   ; prints 99
 ```
+
+**MM-MUT-2a (H).** The field must be declared `mut`; a store into one
+that is not is `AX3012` at the field name in the write. This is the
+`let` rule applied to fields, and it is checked from 0.6.0 — before
+that the marker was parsed and dropped, and every field of every struct
+was writable. Only the LAST segment of a path is governed: `(set
+a.b.c v)` needs `c` declared `mut` and says nothing about `b`, because
+the store mutates the value `b` points at rather than the `b` slot.
+`memSetWord` is outside the rule entirely — it takes a block and a word
+index, which is how `Vec` and `Map` write slots that are not fields.
 
 **MM-MUT-3 (H).** Field stores are available on **named fields of a
 `struct` type only**. A `data` constructor's positional fields have no
@@ -2642,20 +2701,58 @@ argument is depth 0 and no witness is renumbered after the fact.
 two- and three-parameter lambdas; built by the compiler one commit
 back it does not answer wrongly, it **exits 139**.
 
-What still passes `0` and has not been measured: the surplus arguments
-of a `cast` spine and the over-applied path. Both under-retain, which
-leaks, and neither has a probe yet — which is the same sentence that
-was wrong twice above, so it is a statement about what is unmeasured
-and not about what is safe.
+*The two that were left unmeasured were the same sentence wrong a
+third and fourth time, and both are closed as of 2026-08-31.* They
+were recorded as "the surplus arguments of a `cast` spine and the
+over-applied path — both under-retain, which leaks, and neither has a
+probe yet". Probed, on the shape `461` uses, against `9116167` (0.6.0)
+with a compiler built from that tree: neither leaked. Both were **live
+use-after-frees**, and `axiom check` printed OK on each.
+
+| the application | 0.6.0 | now |
+|---|---|---|
+| `((lambda (v) (vecPush log v)) h.name)` — the control | 97, the `a` | 97 |
+| `((mkParker log) h.name)` — over-applied | **122**, the `z` | 97 |
+| `((cast Int (lambda (v) ..)) h.name)` — a cast spine | **122** | 97 |
+
+122 is the first byte of the five-byte string allocated into the block
+after `(set h.name ..)` released the only counted share. All three in
+one process exit **139** on 0.6.0, for the reason `461`'s header gives:
+uncounted parks recycle blocks into each other until a header read
+lands outside the heap.
+
+The two had different causes, which is why the fix is in two places.
+The over-applied path had the class and threw it away — `walkAppChain`
+records one per application node, and `emitApplyChain` passed `vecNew`
+to both of its callers, so `evOperandAt` read 0 at every step;
+`dispatchCall` now snapshots `spineEvs` beside the arguments, exactly
+as `emitIndirectCall` already did, and `emitOverApplied` drops it by
+the same arity its arguments are dropped by. The `cast` spine never
+had the class at all: `checkCastForm` claims the whole spine at its
+outermost node, so the intermediate application nodes never reached
+the arm that stamps them, and `checkCastArgs` now stamps the surplus
+ones. `tests/stdlib/462-surplus-closure-arg.ax` pins all three rows
+above and `scripts/check-closure-reclaim.sh` ablates each half: the
+checker half strikes out term 8 and nothing else, the emitter half
+takes both callers and exits 139.
+
+What still passes a constant `0` is the effect-operation path in
+`emitApplyRegsOwned`, and that one is measured and correct — a
+handler's parameter is the operation's declared type, which `AX3017`
+will not let be a variable, so its store's retain is unconditional and
+the word is one the handler never reads.
 
 **WHAT THIS UNBLOCKS.** The argument half of the closure-reclamation
 design — release a closure's owned argument when the application's
 result class is a word — was refused because the park took no share.
 It now takes one wherever the application classifies its argument, and
 the `__release` probe that read **3** before reads **16** after. The
-rule is therefore available for those applications and still unsound
-for the three above, so a release written without consulting the same
-evidence is the identical use-after-free in a new place.
+rule is therefore available for those applications, and since
+2026-08-31 there is no application path left that passes a word the
+checker could have supplied and did not — a release written without
+consulting that word would still be the identical use-after-free in a
+new place, which is why the rule is stated as consulting it rather
+than as unconditional.
 
 `tests/stdlib/460-closure-reclaim.ax` pins both halves. **Term 64** is
 the parked argument surviving its application — true by accident
@@ -3837,7 +3934,7 @@ document.
 | `MM-VAL-4c` | `(!= NaN NaN)` is `false`; `Fmt.fmtFloat` cannot render inf or NaN |
 | `MM-VAL-3b` | `INT_MIN / -1` and shifts ≥ 64 are undefined and answer differently per `--opt`. The operators are unchanged; what closed is the absence of an alternative — `stdlib/Err.ax`'s checked arithmetic, `tests/stdlib/312-checked-arithmetic.ax` |
 | `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc`. **The population is not zero, measured 2026-08-31**: thirteen `(alloc ...)` expressions in eight corpus files across four gates (`check-diagnostics`, `check-fmt`, `check-restrictions`, `check-self-host`), plus a fourteenth hit that is not a use site at all and matters more than the thirteen — `self_host/format.ax:3629`, the FORMATTER's own printer for the form, which is a second grammar a refusal has to delete from as well. This rule's own `doc-gate:negative-exempt` comment asked for "a corpus counter, which this gate does not have yet"; the count above is that counter's first reading, and refusing the form is therefore a migration and the loss of the only cheap way to write a site-level `Alloc` witness (`tests/diagnostics/372-restrict-no-alloc.ax`'s `direct` case), not the near-zero edit `memory-model-v2-proposal.md` P1 priced |
-| `MM-EXEC-9a` | effect inference is an under-approximation. Seven measured ways; **five closed** — `__alloc` and trait dispatch on 2026-08-23, `__store8`/`__store64` (`Mut`), `__argc`/`__argv` (`IO`) and the arena primitives (`Alloc`) on 2026-08-25. Two left: a call through a local, a parameter or an unresolved name, which sets `#effects-incomplete` rather than reporting a set that looks complete; and constructor allocation, which is a decision `ERR-PROP-2` relies on and was the row this table did not list |
+| `MM-EXEC-9a` | effect inference is an under-approximation. Seven measured ways; **six closed** — `__alloc` and trait dispatch on 2026-08-23, `__store8`/`__store64` (`Mut`), `__argc`/`__argv` (`IO`) and the arena primitives (`Alloc`) on 2026-08-25, and constructor allocation on 2026-08-31, which stood as a decision `ERR-PROP-2` relied on until `restrict(no-alloc)` made it an unfalsifiable claim. One left: a call through a local, a parameter or an unresolved name, which sets `#effects-incomplete` rather than reporting a set that looks complete |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so a function of either name is definable but uncallable |
 | `MM-LIFE-2j` | **RESOLVED BY REMOVAL, 0.6.0.** The rule was that a trait DEFAULT body's shape word depended on `impl` declaration order: `checkImplComplete` synthesized the default into every impl that omitted the method **without copying the body's nodes**, so one AST was checked once per implementing type and per-node stamps were last-write-wins across the monomorphizations. Measured 2026-08-25 against the compiler as shipped at 0.3.0, on the fixture `373-shared-default-binder` and the same file with its two `impl` blocks swapped: `Ident#String#ident` built its block with header `131076` and `axiom_retain(%x)` when the `Int` impl was declared first, and with header **`4`** — a LEAF — and no retain when the `String` impl was. One program, two orderings, two ownership shapes for the same monomorphization. Traits were removed in 0.6.0, and with them the only way to check one body under two type environments. Re-measured 2026-08-31 by diffing emitted IR from a last-write-wins compiler against the tree's across 278 fixtures, every `stdlib/` module and `self_host/main.ax`: byte-identical everywhere. `scripts/check-fallible-reclaim.sh` asserts that unreachability, so the rule stays listed — a future construct that re-checks a body per instantiation brings it back, and the gate is what would say so. |
 | ~~`MM-EXEC-16`~~ | **CLOSED 2026-08-24.** Status **72** was division by zero here *and*, in `docs/ffi.md` C7, the exit a `no_std` crate's panic handler took — an Axiom division and a Rust panic were indistinguishable to a supervisor reading a status. The FFI side moved to **73**, which `MM-EXEC-16` does not reserve, and the path is gated by `tests/ffi/demo/115-abort-status.ax`. Worth recording why it survived: all 35 FFI cases carried `; expect 0`, so the abort had never been executed by anything and any status whatever would have passed |
@@ -4213,7 +4310,7 @@ constructor list.
 ### 11.3 The aliasing hazard, in the smallest program that shows it
 
 ```scheme
-(struct Cfg (verbose : Int))
+(struct Cfg (mut verbose : Int))
 
 (:: configure (-> Cfg Cfg))
 (fn (configure c) { (set c.verbose 1) c })    ; mutates the CALLER's value

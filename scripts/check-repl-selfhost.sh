@@ -194,14 +194,30 @@
 # presence and length are checked, their prose is not, and re-deriving a
 # compiler's prose from the compiler's own source would check nothing.
 #
-# HAZARD, not this gate's to fix: self_host/repl.ax:332 builds its
-# scratch path as `/tmp/axiom-repl-<fmtIntStr pid>`, and driver.ax:226
-# fmtIntStr renders only 0..3 and answers "1" for everything else. Every
-# REPL on the machine therefore writes /tmp/axiom-repl-1.{ll,o,out}
-# (measured: pids 56967/56979/56980, one scratch prefix), so two REPLs
-# running at once corrupt each other and the comment at repl.ax:322-324
-# is false. Run this gate serially with anything else that starts a REPL
-# until that is fixed.
+# THAT HAZARD IS CLOSED, and this paragraph replaces it rather than
+# deleting it, because the stale version very nearly cost the battery
+# two gates' worth of parallelism. It read: repl.ax builds its scratch
+# path as `/tmp/axiom-repl-<fmtIntStr pid>`, `fmtIntStr` renders only
+# 0..3 and answers "1" above that, so every REPL on the machine writes
+# /tmp/axiom-repl-1.{ll,o,out} and two at once corrupt each other -
+# "run this gate serially with anything else that starts a REPL until
+# that is fixed".
+#
+# It was fixed twice, and repl.ax's own comment at `replEval` records
+# both: DISTINCTNESS 2026-08-08, moving the pid through `diag$decStr`,
+# which renders any non-negative integer; and PREDICTABILITY
+# 2026-08-23, putting all four scratch files inside a private
+# `<tmp>/axiom-repl-<pid>.d` at mode 0700, created with an exclusive
+# `sysMkdir`. MEASURED 2026-08-31, when check-repl-tui.sh arrived and
+# started REPLs of its own: six `axiom repl` processes launched
+# together each answered its own expression correctly - 101, 202, 303,
+# 404, 505, 606 - and /tmp held no `axiom-repl*` entry before or after.
+# Neither REPL gate needs to be serial, and neither is.
+#
+# The general point is one this repository keeps relearning: a hazard
+# recorded in a comment is a claim with no expiry, and the next reader
+# acts on it. This one was about to add two entries to run-gates.sh's
+# serial list.
 #
 # Usage:  scripts/check-repl-selfhost.sh
 #         AXIOM_BLESS=1 scripts/check-repl-selfhost.sh

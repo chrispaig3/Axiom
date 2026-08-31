@@ -1,0 +1,1 @@
+(fn (zzsessionhelper x) (+ x 1))

@@ -183,9 +183,9 @@
 ; request in progress.
 (pub struct HttpReader
   (fd : Int)
-  (buf : String)
-  (filled : Int)
-  (consumed : Int))
+  (mut buf : String)
+  (mut filled : Int)
+  (mut consumed : Int))
 
 ; A reader over `fd` with the default buffer.
 (pub :: httpReaderNew (-> Int HttpReader))
@@ -353,7 +353,7 @@
   (version : String)
   (hnames : Int)
   (hvals : Int)
-  (body : String))
+  (mut body : String))
 
 ; The index of header `name` (lowercased on both sides), or -1.
 (:: httpHeaderIndex (-> HttpReq String Int))
@@ -1008,7 +1008,7 @@
   (handlers : Int)
   (prefixes : Int)
   (dirs : Int)
-  (missing : HttpHandler))
+  (mut missing : HttpHandler))
 
 ; The default not-found handler: a plain-text 404.
 (:: httpDefaultMissing (-> Int HttpReq Int))

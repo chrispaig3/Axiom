@@ -21,12 +21,12 @@
 (import Str)
 
 (pub struct P
-  (tag : Int)
-  (name : String))
+  (mut tag : Int)
+  (mut name : String))
 
 (pub struct Q
   (name : String)
-  (tag : Int))
+  (mut tag : Int))
 
 (:: main Int)
 

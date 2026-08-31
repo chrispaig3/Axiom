@@ -1,0 +1,48 @@
+; `set` on a STRUCT FIELD the declaration did not mark `mut`. Until
+; 2026-08-31 this passed `check` in silence and the program ran: the
+; parser recognised `mut` on a field, skipped it, and recorded nothing
+; - `parseOneField` said so in as many words - so there was nothing
+; for the checker to read and every field of every struct was
+; writable. AX2004's own explain text states what that costs: "a
+; marker that reads as an ownership guarantee and supplies none is
+; worse than no marker, because a reader spends trust on it."
+;
+; Same code as the immutable-BINDING refusal, and the same rule: a
+; field is immutable unless it says otherwise. docs/memory-model.md
+; MM-MUT-2a.
+;
+; THREE WRITES, ONE DIAGNOSTIC - the two silent ones are what keep
+; this from being a check that refuses everything:
+;
+;   1  `(set p.ok 1)` on a `mut` field           silent
+;   2  `(set o.inn.v 2)` - `inn` is NOT `mut`    silent, because only
+;      the LAST segment is governed: the store mutates the `Inner` at
+;      `inn`, not the `inn` slot
+;   3  `(set p.no 3)` on a plain field           AX3012, anchored on
+;      `no` in the write and not on the declaration, which may be in
+;      another unit
+(struct Inner
+  (mut v : Int))
+
+(struct Outer
+  (inn : Inner))
+
+(struct P
+  (mut ok : Int)
+  (no : Int))
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (p (P 0 0))
+    (o (Outer (Inner 0)))
+  )
+    {
+      (set p.ok 1)
+      (set o.inn.v 2)
+      (set p.no 3)
+      (+ p.ok o.inn.v)
+    }
+  )
+)

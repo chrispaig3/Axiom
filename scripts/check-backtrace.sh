@@ -469,10 +469,29 @@ want "every define is in the table, but for the walker's own two" \
      "$((defines - 2))" "$rows"
 want "the table states its own row count" "$rows" "$stated"
 
-if (( rows >= 200 )); then
-  ok "the table has $rows entries - a probe importing Sys had 275 on 2026-08-24"
+# NOT a row COUNT. This was `rows >= 200`, calibrated on "a probe
+# importing Sys had 275 on 2026-08-24" - a count of everything
+# `(import Sys)` dragged in, most of which this probe never calls. Dead
+# code is stripped now, so the same probe emits 16 rows and the floor
+# went red on a module that got BETTER. A floor drawn round a corpus
+# population expires the moment the population legitimately moves.
+#
+# What the floor was defending is that the table is not empty or
+# degenerate, because an empty one resolves every address to
+# <unknown> - and the probe itself says what "not degenerate" means:
+# it writes a six-deep chain on purpose, and §2 walks a real trace
+# through it. So the assertion is that those six are NAMED, which is
+# the property, cannot pass vacuously on a small table, and cannot
+# expire when the module's size changes again.
+chain_missing=""
+for fn in main a1 b2 c3 d4 e5; do
+  grep -q "ptrtoint (ptr @$fn to i64)" "$work/chain.ll" \
+    || chain_missing="$chain_missing $fn"
+done
+if [[ -z "$chain_missing" ]]; then
+  ok "all six of the probe's own functions are in the table ($rows rows in total)"
 else
-  bad "the table has only $rows entries; an empty table resolves every address to <unknown>"
+  bad "the table is missing$chain_missing - the walker cannot name a frame it has no entry for"
 fi
 
 # And the names in it must be the symbols the linker emitted. This is
@@ -493,9 +512,17 @@ done < <(grep -o 'ptrtoint (ptr @[A-Za-z0-9_.$]* to i64), i64 ptrtoint (ptr @__a
 # stripped, so a small residue would be honest - but a LARGE one would
 # mean the table is naming things that do not exist, and the walker
 # would be resolving addresses against fiction. 0 of 275 were missing
-# on 2026-08-24.
+# on 2026-08-24, and 0 of 16 after dead code stopped being emitted.
+#
+# `found` is the anti-vacuousness half: without it a table of one row
+# that happened to resolve would pass. It was 20 - a second floor
+# calibrated on the unpruned population, and it failed this gate while
+# `missing` was 0, printing "0 of 16 table names are in no symbol
+# table" and blaming the emitter for the number that was RIGHT. Six is
+# the probe's own chain, which the check above has just established is
+# present, so the guard rests on that fact rather than on a snapshot.
 found=$((rows - missing))
-if (( missing * 4 <= rows && found >= 20 )); then
+if (( missing * 4 <= rows && found >= 6 )); then
   ok "$found of $rows table names resolve in the linked symbol table ($missing do not)"
 else
   bad "$missing of $rows table names are in no symbol table - the table names functions the linker never emitted"

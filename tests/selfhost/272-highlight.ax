@@ -1,0 +1,287 @@
+; expect 42
+; The REPL highlighter, gated with no terminal in the loop.
+;
+; Every case below is a buffer a person could be part-way through
+; typing, its expected CLASSIFICATION written by hand beside it as one
+; ASCII letter per source byte, and the two numbers the paren matcher
+; must answer for it.
+;
+; The LETTERS are the classification. A byte no span covered reads as
+; `_`, which is not a class letter and appears in none of the strings
+; below, so a scanner that stopped covering the buffer fails here too -
+; the class string's length would not catch it, being one `strAlloc` of
+; the source length by construction.
+;
+;   .  plain    K  keyword  i  ident   n  number  s  literal
+;   c  comment  p  punct    E  error   ?  literal in progress
+;   M  matched bracket      X  unmatched bracket
+;
+; Four things are asserted per case and each fails with its own exit
+; status, so a red run names what broke rather than only that
+; something did:
+;
+;     i          the classification moved
+;    50 + i      visLen (replHlPaint ..) != visLen src - the painter
+;                dropped, duplicated or mis-sliced a byte, which is the
+;                property the editor's line wrapping rests on
+;   100 + i      replHlDepth disagrees with the number replParenDepth
+;                (repl.ax:1406) produces for the same buffer
+;   150 + i      replHlMatch named the wrong partner
+;
+; and three whole-corpus assertions that a per-case sum cannot make:
+;
+;   200  THE NEGATIVE CONTROL. Case 99 asserts a deliberately WRONG
+;        classification and MUST fail. If it passes, the comparator
+;        cannot say no and every green above is worthless.
+;   201  The painter really painted: byte 27 appears at least 20 times
+;        across the corpus. A highlighter wired in but emitting no
+;        escape passes every visLen check perfectly.
+;   202  At least 9 DISTINCT class letters were produced. A classifier
+;        answering one letter everywhere would otherwise satisfy a
+;        length check on every case at once.
+;
+; There is no golden here to regenerate; satisfying a broken
+; highlighter means hand-editing seventeen strings to disagree with the
+; source sitting beside them.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import style)
+
+(import replhl)
+
+(struct HCase
+  (src : String)
+  (cur : Int)
+  (cls : String)
+  (dep : Int)
+  (mat : Int))
+
+(:: mkHCase (-> String Int String Int Int Int))
+
+(fn (mkHCase src cur cls dep mat) (HCase src cur cls dep mat))
+
+(:: hcSrc (-> Int String))
+
+(fn (hcSrc c) (memGetWordStr c 0))
+
+(:: hcCur (-> Int Int))
+
+(fn (hcCur c) (memGetWord c 1))
+
+(:: hcCls (-> Int String))
+
+(fn (hcCls c) (memGetWordStr c 2))
+
+(:: hcDep (-> Int Int))
+
+(fn (hcDep c) (memGetWord c 3))
+
+(:: hcMat (-> Int Int))
+
+(fn (hcMat c) (memGetWord c 4))
+
+; ------------------------------------------------------------------
+; The corpus. One `vecPush` per case, the expectation on the same line
+; as the buffer it describes.
+; ------------------------------------------------------------------
+(:: corpus Int)
+
+(fn (corpus)
+  (let ((v vecNewRef))
+    {
+      ; 1  a keyword head, and `data` as an ORDINARY NAME in the two
+      ;    positions that are not a form head. format.ax:2391 records
+      ;    that reserving words in every position is why
+      ;    `fpIsReservedWord` was deleted; this is that regression's
+      ;    tripwire.
+      (vecPush v (HCase "(fn (g data) data)" 0 "MKK.pi.iiiip.iiiiM" 0 17))
+      ; 2  MID-EDIT, the central case: an unterminated string and an
+      ;    unclosed paren at once. The lexer answers one TK_ERROR from
+      ;    the quote to the buffer end, and that is a literal IN
+      ;    PROGRESS, not an error - `?`, not `E`.
+      (vecPush v (HCase "(println \"hel" 13 "piiiiiii.????" 1 (- 0 1)))
+      ; 3  the cursor just past a closer: both brackets light up
+      (vecPush v (HCase "(+ 1 2)" 7 "Mi.n.nM" 0 0))
+      ; 4  crossed families. `replParenDepth` measures 0 here and
+      ;    dispatches; the typed walk says the `]` has no partner.
+      (vecPush v (HCase "( ]" 3 "p.X" 0 (- 0 2)))
+      ; 5  a line comment, which the lexer emits NO token for - the
+      ;    letters come from walking the gap between two token spans
+      (vecPush v (HCase "(a ; note" 0 "Xi.cccccc" 1 (- 0 2)))
+      ; 6  a NESTED block comment is one comment, as it is to the
+      ;    compiler
+      (vecPush v (HCase "(a #| x #| y |# z |# b)" 0 "Mi.ccccccccccccccccc.iM" 0 22))
+      ; 7  a bad escape: settled, so red immediately - and the string
+      ;    bytes either side of it are stranded in a GAP, which is the
+      ;    measured exception to "a gap holds only trivia"
+      (vecPush v (HCase "\"a\\q\"" 0 "..EE." 0 (- 0 1)))
+      ; 8  an integer past i64. It also ends at the buffer end, and no
+      ;    further digit can fix it, so the first byte - a digit - is
+      ;    what keeps it `E` while case 2 stays `?`.
+      (vecPush v (HCase "99999999999999999999999" 0 "EEEEEEEEEEEEEEEEEEEEEEE" 0 (- 0 1)))
+      ; 9  `mut` is a keyword in a position that is not a form head, so
+      ;    it is deliberately left an ident rather than guessed at
+      (vecPush v (HCase "(let ((mut 1)) mut)" 0 "MKKK.ppiii.npp.iiiM" 0 18))
+      ; 10 a char literal
+      (vecPush v (HCase "'x'" 0 "sss" 0 (- 0 1)))
+      ; 11 the empty buffer - the first thing a prompt hands over
+      (vecPush v (HCase "" 0 "" 0 (- 0 1)))
+      ; 12 three families nested, matched across all of them
+      (vecPush v (HCase "{ [ ( ) ] }" 11 "M.p.p.p.p.M" 0 0))
+      ; 13 a MULTI-LINE continuation buffer, the shape `replMain`
+      ;    accumulates: a `)` on line two matching a `(` on line two,
+      ;    with the outer pair left alone
+      (vecPush v (HCase "(fn (f x)\n  (+ x 1))" 19 "pKK.pi.ip...Mi.i.nMp" 0 12))
+      ; 14 NON-ASCII, where bytes and columns differ: 17 bytes, 15
+      ;    columns. lexer.ax:764 records `'é'` as the case a hardcoded
+      ;    width of three broke.
+      (vecPush v (HCase "(f 'é' \"héllo\")" 15 "pi.ssss.ssssssssp" 0 (- 0 1)))
+      ; 15 the newline that ends a line comment stays PLAIN, so the
+      ;    editor can still split the painted buffer into rows
+      (vecPush v (HCase "(a ; c\n b)" 0 "Mi.ccc..iM" 0 9))
+      ; 16 a `#|` STRANDED by a bad escape. Its scan is bounded by the
+      ;    gap, so it cannot swallow the rest of the line: `1)` after
+      ;    it still classifies.
+      (vecPush v (HCase "(f \"a #| b\\q\" 1)" 0 "Mi....ccccEE..nM" 0 15))
+      ; 17 a closer with nothing open. Depth goes NEGATIVE, which is
+      ;    what replParenDepth answers too.
+      (vecPush v (HCase ")" 1 "X" (- 0 1) (- 0 2)))
+      v
+    }
+  )
+)
+
+; One case, four assertions. 0 when they all hold, else the status
+; that names which one did not.
+(:: checkCase (-> Int Int Int))
+
+(fn (checkCase c i)
+  (let (
+    (src (hcSrc c))
+    (cur (hcCur c))
+  )
+    (if (strEq (replHlClass src cur) (hcCls c))
+      (if (== (visLen (replHlPaint src cur 0)) (visLen src))
+        (if (== (replHlDepth src) (hcDep c))
+          (if (== (replHlMatch src cur) (hcMat c))
+            0
+            (+ 150 i)
+          )
+          (+ 100 i)
+        )
+        (+ 50 i)
+      )
+      i
+    )
+  )
+)
+
+; Byte 27 in a string. The painter's own output is the only place one
+; can come from - ESC has no literal spelling in this language.
+(:: escCount (-> String Int))
+
+(fn (escCount s)
+  (let (
+    (n (strLen s))
+    (mut i 0)
+    (mut c 0)
+  )
+    {
+      (while (< i n)
+        {
+          (set c (if (== (strByte s i) 27)
+            (+ c 1)
+            c
+          ))
+          (set i (+ i 1))
+        })
+      c
+    }
+  )
+)
+
+; How many of the eleven class letters the corpus actually produced.
+(:: distinctLetters (-> Int Int))
+
+(fn (distinctLetters v)
+  (let (
+    (seen (strAlloc 256))
+    (mut i 0)
+    (mut d 0)
+  )
+    {
+      (while (< i (vecLen v))
+        {
+          (let ((cl (replHlClass (hcSrc (vecGet v i)) (hcCur (vecGet v i)))))
+            (let (
+              (n (strLen cl))
+              (mut q 0)
+            )
+              (while (< q n)
+                {
+                  (let ((b (strByte cl q)))
+                    (if (== (strByte seen b) 0)
+                      {
+                        (memPutByte (strData seen) b 1)
+                        (set d (+ d 1))
+                      }
+                      0
+                    )
+                  )
+                  (set q (+ q 1))
+                })
+            )
+          )
+          (set i (+ i 1))
+        })
+      d
+    }
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (v corpus)
+    (n (vecLen v))
+    (mut i 0)
+    (mut bad 0)
+    (mut esc 0)
+  )
+    {
+      (while (< i n)
+        {
+          (let ((r (checkCase (vecGet v i) (+ i 1))))
+            (set bad (if (&& (== bad 0) (!= r 0))
+              r
+              bad
+            ))
+          )
+          (set esc (+ esc (escCount (replHlPaint (hcSrc (vecGet v i)) (hcCur (vecGet v i)) 0))))
+          (set i (+ i 1))
+        })
+      ; THE NEGATIVE CONTROL. A case whose expectation is wrong on
+      ; purpose: `checkCase` must refuse it. If it says 0, the
+      ; comparator cannot fail and nothing above this line means
+      ; anything.
+      (if (== (checkCase (mkHCase "(+ 1 2)" 7 "......." 0 0) 99) 0)
+        200
+        (if (< esc 20)
+          201
+          (if (< (distinctLetters v) 9)
+            202
+            (if (== bad 0)
+              42
+              bad
+            )
+          )
+        )
+      )
+    }
+  )
+)

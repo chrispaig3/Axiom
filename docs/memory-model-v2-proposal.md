@@ -314,6 +314,20 @@ failure mode. Two more instances of it are still open:
 ### 2.5 The effect system's "constructors are invisible" decision is
 coherent — and it fooled its own author within the week
 
+> **SUPERSEDED 2026-08-31.** The decision this section analyses is
+> reversed. A `data`/`struct` constructor of arity >= 1 now contributes
+> `Alloc` at the application site (`typecheck.ax`, `ctorAllocArity`),
+> because `restrict(no-alloc)` reads the effect row and, against a row
+> built to omit allocation, could not refuse a body whose only act was
+> to allocate. See `MM-EXEC-9a`, where the row is now listed as CLOSED
+> with its measured cost (123 of 3,725 rows, seven false `no-alloc`
+> claims), and `ERR-PROP-2`, amended the same day. **The four probes
+> below still measure what they measured** — they are why this
+> section is kept rather than deleted — but their expected answers
+> have moved: `mkOk` and `mkErrLit` now report `#effects=Alloc`, not
+> nothing. The section's conclusion, that the tax the commit blamed on
+> `Ok`/`Err` was really `strConcat`'s, is unaffected and was correct.
+
 `ERR-PROP-2` / `MM-EXEC-9a`'s table state, as a *decision*: applying a
 `data`/`struct` constructor contributes nothing to the inferred effect
 row, even though it allocates. Reading `walkEffectsSpine`
@@ -642,6 +656,15 @@ that ablated state).
 
 ### P6 — Give `Alloc`/`Mut` attribution ownership-awareness for
 self-contained construction
+
+> **PARTLY OVERTAKEN 2026-08-31.** This proposal's premise — that
+> `ERR-PROP-2`'s "allocating a not-yet-shared value is invisible to
+> the row" is an existing precedent to EXTEND — no longer holds: that
+> precedent was withdrawn, and bare constructor application now
+> contributes `Alloc`. The `Mut` half of the proposal is untouched and
+> is still the interesting one; the `Alloc` half now reads as "keep
+> `Alloc`, which is already what happens". Its gate paragraph below
+> should be re-derived before anyone acts on it.
 
 **What.** Extend `ERR-PROP-2`'s existing precedent — that allocating
 a not-yet-shared value is invisible to the effect row **by decision**

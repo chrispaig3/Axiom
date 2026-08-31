@@ -361,9 +361,10 @@ with the extension loaded. `vscode-languageclient` asks the server for
 inlay hints, code lenses and everything else it advertises without
 being told to; the two commands are the only code that is not
 boilerplate. Highlighting is NOT among what it gets: VS Code has no
-tree-sitter and the server sends no semantic tokens, so a `.ax` file is
-uncoloured until the extension contributes a TextMate grammar, which
-this repository does not ship.
+tree-sitter and the server will not send semantic tokens (see
+[Highlighting](#highlighting) for why that is settled rather than
+pending), so a `.ax` file is uncoloured until the extension
+contributes a TextMate grammar, which this repository does not ship.
 
 ```json
 {
@@ -492,6 +493,60 @@ is a reference to its `macro` declaration (`MAC-TOOL-2` in
 name a macro would generate has no definition, because nothing has
 expanded it; and an import that does not resolve narrows the search
 to this document rather than failing it.
+
+**`textDocument/declaration`.** The `(:: f T)` signature, where the
+language has one to point at — and in Axiom it usually does, which is
+why this is not a second name for `definition`. A function is written
+twice, `(:: bump (-> Int Int))` declaring it and `(fn (bump x) ...)`
+defining it, and the parser keeps both as nodes with their own name
+spans; so `declaration` on any occurrence of `bump` lands on the `::`
+and `definition` on the `fn` below it. The order is `definition`'s
+with one step inserted: a local binding first, then this document's
+`::`, then this document's declaration of that name, then the imported
+modules, signature first. A `data`, a `struct`, a macro and a local
+are not written twice, so for them the two requests agree, by
+construction rather than by fallback. There is one position where this
+answers and `definition` cannot: a signature whose `fn` has not been
+written yet — what an editor sees mid-keystroke, and what `AX3015`
+reports. `null` for a keyword, a builtin, a name nothing declares and
+a document that does not parse. Derived in `SECTION NAV TESTS`, which
+asks both requests at the same position and requires the two ranges to
+DIFFER, each equal to a whole-identifier position computed from the
+document's own bytes, in `tests/lsp/drive.py`.
+
+**`textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`
+and `callHierarchy/outgoingCalls`.** Who calls this function, and what
+it calls. A call site here is an occurrence that the scope-aware walk
+resolved to a top-level name AND that stands in the head position of a
+form — two questions the server already answers, intersected by byte
+offset. That definition is what makes the answer right in the two
+cases a spelling match gets wrong: `(fn (apply k v) (k v))` calls the
+parameter `k`, not the top-level `fn` of that name, so neither
+direction reports an edge; and `(fn (handoff z) helper)` NAMES
+`helper` without applying it, so it is not among `helper`'s callers.
+Incoming calls read this document and every OTHER open document whose
+imports resolve to this file, the same workspace `references` uses,
+and a caller that calls twice is one entry with two ranges. Outgoing
+calls name every callee this server can point at — one this document
+declares, or one an imported module declares, resolved as
+`definition` resolves it — and leave out what it cannot: a builtin, an
+operator, a constructor. `prepare` answers `null` for a local, for a
+`data`, `struct` or macro, for a document that does not parse, and for
+an IMPORTED name: the two requests that follow carry the item and
+nothing else, so go to the definition first and ask there. An item
+whose document the server has not opened answers `null` rather than
+`[]`, because `[]` claims the function has no callers and a server
+that cannot read the file has not earned that claim.
+
+This is not `axiom symbols --calls`. That key is the checker's edge
+set, harvested from the effect walk, so it costs a full typecheck and
+carries no positions at all — measured on the gate's own fixture,
+`handoff` gets `#calls=helper` for a body that never applies it, while
+`CallHierarchyIncomingCall.fromRanges` is a list of ranges the
+protocol requires. The two agree where they overlap and this one is a
+strict subset. Derived in `tests/lsp/drive.py`'s `SECTION NAV TESTS`,
+whose five documents carry both confusable shapes and which refuses to
+run if either ever leaves them.
 
 **`textDocument/references` and `textDocument/documentHighlight`.**
 Every occurrence of the same BINDING, not the same spelling: the
@@ -638,10 +693,22 @@ holding the output of the same `fmtFormat` that `axiom fmt` runs;
 `[]` for a document already in the formatter's normal form; `null`
 for one that does not parse. The gate holds the edit's text equal,
 byte for byte, to what `axiom fmt` wrote to a copy.
-`textDocument/rangeFormatting` is deliberately not offered: the
-formatter proves its output a fixed point of the whole file, and a
-range cut out of that would be a different formatter with a weaker
-proof.
+`textDocument/rangeFormatting` is deliberately not offered, and the
+reason is measured rather than assumed. `fmtFormat` proves its output
+a fixed point of the WHOLE file, so a range formatter would have to
+format a slice and hope the answer matched. Over `stdlib/` and
+`self_host/` on 2026-08-31 — 8,437 slices, each one a whole run of
+top-level forms, formatted alone and compared against the same forms
+cut out of the whole document's formatted output — 8,416 matched and
+**21 did not**. Every disagreement is comment placement, and both
+shapes are real: `(pub :: SGR_ERROR String)  ; bold red` in
+`self_host/style.ax` keeps its trailing comment when the slice is
+formatted and loses it to the next declaration when the file is, and a
+comment block inside `codegen.ax`'s `CG` struct migrates ACROSS a
+top-level form boundary in the whole-document pass and stays put in
+the slice. An editor with format-on-save and format-selection both
+bound would therefore rewrite bytes that the other had just written.
+Whole-document formatting is the one answer this server gives.
 
 **`textDocument/codeAction`.** Three kinds, all advertised in
 `codeActionKinds`. `quickfix`: every machine-applicable fix the
@@ -758,12 +825,18 @@ flag — an expander defect, not a printer choice, recorded beside
 
 ## Highlighting
 
-The server offers no `textDocument/semanticTokens`. Release 0.3.5
-shipped them — every identifier coloured by what the occurrence walk
-resolved it to — and they came out again before the next release, by
-decision: one source of colour, the tree-sitter grammar, rather than
-two that can disagree about the same token. `tree-sitter-axiom/queries/
-highlights.scm` colours by syntactic role — a declaration's name by
+**The server will not send `textDocument/semanticTokens`.** That is a
+decision and not a gap, and it is closed: highlighting is
+`tree-sitter-axiom/queries/highlights.scm`'s alone. Release 0.3.5
+shipped semantic tokens — every identifier coloured by what the
+occurrence walk resolved it to — and they came out again before the
+next release, with the whole of `SECTION HL`, because two sources of
+colour can disagree about the same token and one cannot. One
+highlighter means the editor cannot contradict itself; a second one in
+the server would be a second thing to keep in step with the grammar,
+forever, for a result the grammar already gives.
+
+`highlights.scm` colours by syntactic role — a declaration's name by
 what it declares, an application's head as a call, a constructor in a
 pattern as a constructor, an AXTAG as an attribute rather than a
 comment — and `queries/rainbows.scm` colours every bracket pair by its
@@ -773,6 +846,14 @@ file in the repository. An editor that consumes semantic tokens but
 not tree-sitter (VS Code) therefore has no highlighting from this
 repository; one that consumes tree-sitter (Helix, Neovim, Emacs 29,
 Zed) has all of it.
+
+**`self_host/replhl.ax` is not an argument to revisit this.** It
+paints Axiom source from the compiler's own lexer, and the reason is
+the REPL's situation rather than a general one: a REPL has no
+tree-sitter grammar loaded and no editor to consult, so it either
+paints from the lexer or shows plain text. An editor has both already.
+Giving it a second opinion is precisely how the two drift apart, which
+is the failure 0.3.5 shipped and the next release withdrew.
 
 ## The cost rule
 

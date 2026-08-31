@@ -348,8 +348,19 @@ PY
   rm -rf "$abl"
 }
 
-probe "a public name leaves the API" "REMOVED F vecPop" Vec.ax \
-  '(pub :: vecPop (-> Int Int))' '(:: vecPop (-> Int Int))'
+# THE SUBJECT MOVED ON 2026-08-31, and why is worth a sentence. This
+# probe was `vecPop`, and it stopped proving anything the moment
+# `stdlib/Tui/Edit.ax` arrived with the REPL's line editor and started
+# calling it: making a name private that another module uses does not
+# remove it from the API, it stops the tree compiling, and this gate
+# reported exactly that rather than passing. The subject has to be a
+# public name with NO caller outside its own module, and `vecOwnsRefs`
+# is the one Vec.ax has left - measured, not chosen.
+#
+# It will rot the same way if someone calls it. That is fine: the
+# failure is loud and names itself.
+probe "a public name leaves the API" "REMOVED F vecOwnsRefs" Vec.ax \
+  '(pub :: vecOwnsRefs (-> Int Bool))' '(:: vecOwnsRefs (-> Int Bool))'
 
 probe "a signature changes" "CHANGED F unwrapOr" Err.ax \
   '(pub :: unwrapOr (-> (Result a e) a a))' '(pub :: unwrapOr (-> (Result a zz) a a))'

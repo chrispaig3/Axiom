@@ -221,7 +221,7 @@
 ; finished once by `hFinish`.
 (pub struct HtmlBuf
   (pieces : Int)
-  (len : Int))
+  (mut len : Int))
 
 ; A fresh builder. The piece vector is a leaf vector, as `Json.ax`'s
 ; serialiser keeps its pieces: the pieces are string literals and

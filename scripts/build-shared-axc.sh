@@ -2,7 +2,7 @@
 # Build the compiler-under-test ONCE, and stamp it so the gates will
 # trust it.
 #
-# Forty-seven gates call `gate_build_axc`, and each one rebuilt the same
+# Forty-nine gates call `gate_build_axc`, and each one rebuilt the same
 # 60,881 lines. The saving is measured on the only A/B that is not a
 # developer machine under unknown load - the `test` job's three CI legs
 # on 2026-08-24, at `2283e93` before and `8cf595f` after:
@@ -26,7 +26,7 @@
 #
 # WHY THIS SCRIPT ASSERTS ANYTHING AT ALL. It is not a gate, and the
 # table in CONTRIBUTING.md says so. But it is the one place that makes
-# the claim forty-seven gates then rest on - "this artifact is what you
+# the claim forty-nine gates then rest on - "this artifact is what you
 # would have built" - and until 2026-08-24 the only check here restated
 # its own stamp:
 #
@@ -74,12 +74,36 @@ build_one() {  # build_one <output> <log>
 echo "== building the shared compiler under test from self_host/ =="
 build_one "$out" "$work/build.log"
 
-gate_source_stamp > "$out.stamp"
+# WRITTEN AS THE CONSUMER WILL COMPUTE IT, and that is the whole fix.
+#
+# `gate_source_stamp` is sha(the tree's `.ax` bytes + sha("$axiom")) -
+# it identifies the SOURCES and the COMPILER TOGETHER. But `$axiom` is
+# whatever `gate_init` resolved, and the two sides resolve it
+# differently: here nothing is set, so it is the bootstrap compiler
+# that did the BUILDING; in a gate, `run-gates.sh` has exported
+# `AXIOM_AXC`, so `gate_init` answers the ARTIFACT. Two different
+# values, two different stamps, and `gate_build_axc` therefore never
+# matched and every gate rebuilt a compiler that was already built for
+# it - the sixteen minutes per run this file's own header says the
+# sharing saves.
+#
+# Regression, not an old bug: until 2026-08-31 `gate_init` was
+# `${AXIOM:-.axiom-bin/axiom}` and IGNORED `AXIOM_AXC`, so both sides
+# said "bootstrap" and agreed. Teaching it to honour `AXIOM_AXC` - a
+# real fix, for twelve gates that were silently measuring the installed
+# binary - changed what this hash means on one side only.
+#
+# So the stamp is computed with `$axiom` pointing at the ARTIFACT, which
+# is what every reader will use. It also reads better than what it
+# replaced: the stamp now says "these sources, and THIS compiler", so a
+# swapped or truncated artifact fails the comparison too, where before
+# it recorded a builder no consumer ever asks about.
+( axiom="$out"; gate_source_stamp > "$out.stamp" )
 
 # THE EQUALITY, MEASURED. A second, independent build from the same
 # tree with the same builder, and then both compilers are asked to emit
 # the IR for `self_host/main.ax`. The artifact this script hands to
-# forty-seven gates is the compiler each of them would have built exactly
+# forty-nine gates is the compiler each of them would have built exactly
 # when those two files are identical.
 #
 # This can go red for a real reason, and the reason is worth naming:
@@ -110,7 +134,7 @@ gate_source_stamp > "$out.stamp"
 # what they were built from, and two compilers that emit the same IR
 # for the same input are interchangeable for every purpose a gate has -
 # which is the claim being made. A source difference that changes no
-# emitted byte is not a difference the forty-seven gates can observe, and
+# emitted byte is not a difference the forty-nine gates can observe, and
 # a check that failed on one would be reporting a distinction that does
 # not exist. The stamp is what covers the inputs; this covers the
 # behaviour.
@@ -139,7 +163,7 @@ if ! cmp -s "$work/a.ll" "$work/b.ll"; then
   echo "    --- $a_lines lines vs $b_lines lines, first difference at line \
 $(cmp "$work/a.ll" "$work/b.ll" 2>&1 | sed 's/.*line //')" >&2
   echo "      The shared artifact is therefore NOT the compiler a gate would" >&2
-  echo "      have built, and forty-seven gates would be testing something else." >&2
+  echo "      have built, and forty-nine gates would be testing something else." >&2
   exit 1
 fi
 

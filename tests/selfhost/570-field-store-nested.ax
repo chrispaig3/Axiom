@@ -3,7 +3,7 @@
 ; chain builds exactly as a read does and only the last segment is
 ; written.
 (struct I5
-  (v : Int))
+  (mut v : Int))
 
 (struct O5
   (i : I5))

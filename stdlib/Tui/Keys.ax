@@ -1,0 +1,750 @@
+; Tui.Keys — terminal input bytes to key events, as a pure function.
+;
+; THE WHOLE FILE READS NOTHING. It is handed a byte buffer, a valid
+; length and an offset, and answers a `KeyEv`. That is deliberate and
+; it is enforced rather than asserted: every function here carries
+; `;@axiom:restrict(no-io,no-foreign)`, which `typecheck.ax` answers
+; transitively with AX3049 at SEV_ERROR, so a `sysReadFd` added to
+; "just peek one more byte" fails the BUILD. The reader that does the
+; reading is `term.ax`; splitting them is what lets the hard half -
+; the escape grammar - be gated by `tests/selfhost/975-key-decode.ax`
+; with no terminal anywhere in the loop.
+;
+; THE GRAMMAR IS PARSED, THEN INTERPRETED, which is the one design
+; decision everything else follows from. `keyCsiEnd` walks the CSI
+; shape generically - parameter bytes 0x30-0x3F, then intermediates
+; 0x20-0x2F, then a final 0x40-0x7E - and only after the sequence is
+; delimited does `keyFromCsi` decide what it means. A decoder that
+; matched known sequences instead would leave every unbound but
+; WELL-FORMED sequence to be typed into the user's line one byte at a
+; time: an SGR mouse report becomes `[<0;12;34M`, a cursor-position
+; reply becomes `[24;80R`, a device-attributes answer becomes `[?1;2c`.
+; Here they are consumed whole and reported KEY_NONE.
+;
+; THE ESCAPE AMBIGUITY, and how much of it is decided without a clock.
+; ESC is both a key and the first byte of most sequences, so a decoder
+; that reached for a timer first would be timing-dependent for cases
+; that are not ambiguous at all. Almost all of it is structural:
+;
+;   ESC <nothing yet>     KEY_MORE - the only genuinely ambiguous case
+;   ESC [ ...             CSI; delimited by the grammar above
+;   ESC O <final>         SS3 (an application-cursor-mode arrow)
+;   ESC ] / P / ^ / _     a string; scanned to BEL or ESC \
+;   ESC ESC               KEY_ESCAPE, used 1 - one event per press, so
+;                         mashing Escape does not build a prefix
+;   ESC <anything else>   Alt-that-key, by RECURSING at off+1 and
+;                         ORing MOD_ALT into the answer
+;
+; That recursion is what makes Alt-b and Alt-f - the word motions on
+; every terminal that does not send Ctrl-arrow - fall out with no
+; table, and it composes: ESC ESC [ D is Alt-Left.
+;
+; A clock enters in exactly one place, and it is not in this file:
+; when the BUFFER ENDS on a prefix, `Tui.Term` waits `keyEscTimeoutMs`
+; for more and, if nothing comes, calls `keyResolve` here. That is
+; still pure, so it is gated with the scanner.
+;
+; ALT-[ IS UNDECODABLE, and is documented rather than papered over.
+; ESC [ is the CSI introducer, so Alt and [ pressed together produce
+; bytes that are byte-identical to the start of an arrow key and
+; arrive at the same time; no timing hack can separate them. The same
+; holds for Alt-O, Alt-], Alt-P, Alt-^ and Alt-_. Six keys nobody
+; binds, against arrow keys that must work.
+;
+; `len` IS A MANDATORY ARGUMENT ON EVERY ENTRY POINT and is compared
+; before every `strByte`, because `strByte` answers 0 out of range
+; (Str.ax:176, deliberately, for a lexer's lookahead). A scanner
+; written in the lexer's idiom would read a truncated buffer as
+; Ctrl-Space - byte 0 is a real key, Ctrl-@ - instead of reporting
+; KEY_MORE: a plausible event rather than an error, which is the
+; defect shape this repository refuses. `strLen buf` is the read
+; buffer's CAPACITY and is never the fill.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import Utf8)
+
+; ------------------------------------------------------------------
+; Kinds. Plain Int constants in style.ax's `SGR_*` shape rather than a
+; `data`: a nullary constructor needs `cast Int` to compare, and
+; MEMORY's rule after the type-soundness work is typed accessors only.
+; ------------------------------------------------------------------
+; The event was consumed and means nothing to the editor - a mouse
+; report, a device reply, a stray byte. It is NOT "nothing happened":
+; `used` is still the bytes to advance by.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_NONE Int)
+
+(pub fn (KEY_NONE) 0)
+
+; A strict prefix. Read more, or resolve it with `keyResolve`. This
+; kind never leaves `term.ax`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_MORE Int)
+
+(pub fn (KEY_MORE) 1)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_EOF Int)
+
+(pub fn (KEY_EOF) 2)
+
+; `cp` is the code point.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_CHAR Int)
+
+(pub fn (KEY_CHAR) 3)
+
+; `cp` is the LETTER, 64..95: Ctrl-A is 65, Ctrl-@ is 64, Ctrl-_ is
+; 95. Storing the letter rather than the control byte is what lets the
+; binding table read as `(== ev.cp 65)` beside a comment saying A.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_CTRL Int)
+
+(pub fn (KEY_CTRL) 4)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_ENTER Int)
+
+(pub fn (KEY_ENTER) 5)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_TAB Int)
+
+(pub fn (KEY_TAB) 6)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_BACKSPACE Int)
+
+(pub fn (KEY_BACKSPACE) 7)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_ESCAPE Int)
+
+(pub fn (KEY_ESCAPE) 8)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_UP Int)
+
+(pub fn (KEY_UP) 9)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_DOWN Int)
+
+(pub fn (KEY_DOWN) 10)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_RIGHT Int)
+
+(pub fn (KEY_RIGHT) 11)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_LEFT Int)
+
+(pub fn (KEY_LEFT) 12)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_HOME Int)
+
+(pub fn (KEY_HOME) 13)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_END Int)
+
+(pub fn (KEY_END) 14)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_DELETE Int)
+
+(pub fn (KEY_DELETE) 15)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_INSERT Int)
+
+(pub fn (KEY_INSERT) 16)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_PGUP Int)
+
+(pub fn (KEY_PGUP) 17)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_PGDN Int)
+
+(pub fn (KEY_PGDN) 18)
+
+; `cp` is the function-key number: KEY_FN with cp 5 is F5.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: KEY_FN Int)
+
+(pub fn (KEY_FN) 19)
+
+; ------------------------------------------------------------------
+; Modifier BITS, not a sum type: a key can carry several at once, and
+; `(& ev.mods MOD_CTRL)` is the question the binding table asks. The
+; values are the terminal's own encoding minus one, so `modsOf` is
+; `(- param 1)` with no table between them.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: MOD_SHIFT Int)
+
+(pub fn (MOD_SHIFT) 1)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: MOD_ALT Int)
+
+(pub fn (MOD_ALT) 2)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: MOD_CTRL Int)
+
+(pub fn (MOD_CTRL) 4)
+
+; How many bytes of a well-formed CSI this decoder will tolerate
+; before calling it line noise. A wedged terminal spewing digits
+; cannot otherwise grow the pending prefix without bound.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyCsiMax Int)
+
+(pub fn (keyCsiMax) 32)
+
+; And of an OSC/DCS string body.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyStrMax Int)
+
+(pub fn (keyStrMax) 1024)
+
+; ------------------------------------------------------------------
+; The event. Four words, well inside AX3029's cliff.
+;
+; `used` is the byte count consumed, which is what makes the scanner a
+; pure function of (buffer, offset): the driver advances by it and the
+; scanner never touches reader state.
+; ------------------------------------------------------------------
+(pub struct KeyEv
+  (kind : Int)
+  (cp : Int)
+  (mods : Int)
+  (used : Int))
+
+; ------------------------------------------------------------------
+; A byte below 32, or 127. 27 never reaches here - `keyScan` takes the
+; escape path first.
+;
+; The named keys are matched BEFORE the general Ctrl- rule, so Enter
+; is KEY_ENTER and not Ctrl-M. That costs Ctrl-M, Ctrl-I, Ctrl-J and
+; Ctrl-H as bindings, which is not a choice this decoder makes: the
+; terminal sends one byte for both members of each pair and nothing
+; downstream can tell them apart.
+;
+; LF (10) IS ALSO ENTER. Raw mode turns ICRNL off so Return arrives as
+; CR (13), but a program pasting into the terminal, and a terminal
+; that was left with ICRNL on by something else, both deliver LF - and
+; a REPL that ignored it would swallow every line of a paste.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyScanCtrl (-> Int KeyEv))
+
+(pub fn (keyScanCtrl b)
+  (if (|| (== b 13) (== b 10))
+    (KeyEv KEY_ENTER 0 0 1)
+    (if (== b 9)
+      (KeyEv KEY_TAB 0 0 1)
+      (if (|| (== b 127) (== b 8))
+        (KeyEv KEY_BACKSPACE 0 0 1)
+        (KeyEv KEY_CTRL (+ b 64) 0 1)
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The offset of a CSI's FINAL byte, given the offset of the byte after
+; the `[`. -1 for need-more, -2 for malformed or over-long.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyCsiEnd (-> String Int Int Int))
+
+(pub fn (keyCsiEnd src len i0)
+  (let (
+    (mut i i0)
+    (mut done 0)
+    (mut ans 0)
+  )
+    {
+      ; parameter bytes
+      (while (&& (< i len) (&& (>= (strByte src i) 48) (<= (strByte src i) 63)))
+        (set i (+ i 1)))
+      ; intermediate bytes
+      (while (&& (< i len) (&& (>= (strByte src i) 32) (<= (strByte src i) 47)))
+        (set i (+ i 1)))
+      (if (> (- i i0) keyCsiMax)
+        {
+          (set ans (- 0 2))
+          (set done 1)
+        }
+        0
+      )
+      (if (== done 0)
+        (if (>= i len)
+          (set ans (- 0 1))
+          (if (&& (>= (strByte src i) 64) (<= (strByte src i) 126))
+            (set ans i)
+            (set ans (- 0 2))
+          )
+        )
+        0
+      )
+      ans
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The `idx`'th semicolon-separated decimal parameter of the CSI whose
+; parameter bytes start at `i0`, or -1 when it is absent or empty.
+;
+; -1 rather than a caller-supplied default because the CALLER'S RULE
+; DIFFERS BY FINAL BYTE: for `ESC[5~` parameter 0 is the key number,
+; for `ESC[5D` it is a modifier, and only the caller knows which. A
+; default baked in here would have made the two indistinguishable.
+;
+; Stops a number at `:` as well as `;` so xterm's sub-parameter form
+; does not corrupt it. Reads the digits in place: no allocation, and
+; not `strParseInt`, which would need a slice per parameter.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyCsiParam (-> String Int Int Int Int))
+
+(pub fn (keyCsiParam src len i0 idx)
+  (let (
+    (mut i i0)
+    (mut seen 0)
+    (mut val (- 0 1))
+    (mut done 0)
+  )
+    {
+      (while (&& (== done 0) (&& (< i len) (&& (>= (strByte src i) 48) (<= (strByte src i) 63))))
+        (let ((b (strByte src i)))
+          (if (== b 59)
+            {
+              (set seen (+ seen 1))
+              (if (> seen idx)
+                (set done 1)
+                0
+              )
+              (set i (+ i 1))
+            }
+            (if (&& (>= b 48) (<= b 57))
+              {
+                (if (== seen idx)
+                  (set val (+ (* (if (< val 0)
+                    0
+                    val
+                  ) 10) (- b 48)))
+                  0
+                )
+                (set i (+ i 1))
+              }
+              ; `:` or a private marker - the number, if any, ended
+              (if (== seen idx)
+                (set done 1)
+                (set i (+ i 1))
+              )
+            )
+          )
+        ))
+      val
+    }
+  )
+)
+
+; A CSI whose first parameter byte is `<`, `=`, `>` or `?` is a
+; private form: a mouse report, a device-attributes reply, a mode
+; report. None of them is a keystroke.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyCsiPrivate (-> String Int Int Bool))
+
+(pub fn (keyCsiPrivate src len i0)
+  (if (>= i0 len)
+    false
+    (let ((b (strByte src i0)))
+      (&& (>= b 60) (<= b 63))
+    )
+  )
+)
+
+; The key a `~`-final CSI names, from its first parameter.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyTildeKind (-> Int Int))
+
+(pub fn (keyTildeKind p)
+  (if (|| (== p 1) (== p 7))
+    KEY_HOME
+    (if (== p 2)
+      KEY_INSERT
+      (if (== p 3)
+        KEY_DELETE
+        (if (|| (== p 4) (== p 8))
+          KEY_END
+          (if (== p 5)
+            KEY_PGUP
+            (if (== p 6)
+              KEY_PGDN
+              KEY_NONE
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; F1..F12 out of a `~`-final parameter, or 0 for one that names none.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyTildeFn (-> Int Int))
+
+(pub fn (keyTildeFn p)
+  (if (&& (>= p 11) (<= p 15))
+    (- p 10)
+    (if (&& (>= p 17) (<= p 21))
+      (- p 11)
+      (if (== p 23)
+        11
+        (if (== p 24)
+          12
+          0
+        )
+      )
+    )
+  )
+)
+
+; The key a letter-final CSI or SS3 names.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyFinalKind (-> Int Int))
+
+(pub fn (keyFinalKind f)
+  (if (== f 65)
+    KEY_UP
+    (if (== f 66)
+      KEY_DOWN
+      (if (== f 67)
+        KEY_RIGHT
+        (if (== f 68)
+          KEY_LEFT
+          (if (== f 70)
+            KEY_END
+            (if (== f 72)
+              KEY_HOME
+              KEY_NONE
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; A delimited CSI to its event. `off` is the ESC, `fin` the final byte.
+;
+; MODIFIERS ARRIVE TWO WAYS and both are read. xterm and everything
+; that follows it send `ESC[1;5D` - parameter 1 is the modifier, one
+; more than the bit set. Older xterm and urxvt send `ESC[5D`, one
+; parameter and a letter final, where parameter 0 is the modifier. A
+; decoder that read only the first form answers plain Left for
+; Ctrl-Left on urxvt, which is a word motion silently becoming a
+; character motion.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyFromCsi (-> String Int Int Int KeyEv))
+
+(pub fn (keyFromCsi src len off fin)
+  (let (
+    (used (+ (- fin off) 1))
+    (i0 (+ off 2))
+    (final (strByte src fin))
+  )
+    (if (keyCsiPrivate src len i0)
+      (KeyEv KEY_NONE 0 0 used)
+      (let (
+        (p0 (keyCsiParam src len i0 0))
+        (p1 (keyCsiParam src len i0 1))
+      )
+        (if (== final 126)
+          ; `~`: parameter 0 names the key, parameter 1 modifies it.
+          (let ((fnum (keyTildeFn (if (< p0 0)
+            1
+            p0
+          ))))
+            (if (> fnum 0)
+              (KeyEv KEY_FN fnum (if (> p1 0)
+                (- p1 1)
+                0
+              ) used)
+              (KeyEv (keyTildeKind (if (< p0 0)
+                1
+                p0
+              )) 0 (if (> p1 0)
+                (- p1 1)
+                0
+              ) used)
+            )
+          )
+          (let ((k (keyFinalKind final)))
+            (if (== k KEY_NONE)
+              ; Well-formed and unbound: consumed whole, never typed.
+              (KeyEv KEY_NONE 0 0 used)
+              (KeyEv
+                k                0                (if (> p1 0)
+                  (- p1 1)
+                  (if (> p0 0)
+                    (- p0 1)
+                    0
+                  )
+                )                used
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; ESC O <final>: an arrow from a terminal left in application-cursor
+; mode (DECCKM), and F1-F4 on most terminals.
+;
+; Needed because DECCKM is a MODE THE PREVIOUS PROGRAM MAY HAVE LEFT
+; ON. A REPL that understood only CSI arrows would work perfectly
+; until the user ran vim, and then not.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyFromSs3 (-> String Int Int KeyEv))
+
+(pub fn (keyFromSs3 src len off)
+  (if (>= (+ off 2) len)
+    (KeyEv KEY_MORE 0 0 0)
+    (let ((f (strByte src (+ off 2))))
+      (if (&& (>= f 80) (<= f 83))
+        (KeyEv KEY_FN (+ (- f 80) 1) 0 3)
+        (let ((k (keyFinalKind f)))
+          (if (== k KEY_NONE)
+            (KeyEv KEY_NONE 0 0 3)
+            (KeyEv k 0 0 3)
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The offset PAST the terminator of an OSC/DCS/PM/APC string, or -1
+; for need-more, or -2 when it runs past `keyStrMax`.
+;
+; Terminated by BEL (7) or by ST, which is ESC `\`. These arrive
+; unsolicited from some terminals and as replies to queries;
+; consuming them is what stops a title report appearing as `]0;bash`
+; in the edit buffer.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keyStrEnd (-> String Int Int Int))
+
+(pub fn (keyStrEnd src len i0)
+  (let (
+    (mut i i0)
+    (mut ans (- 0 1))
+    (mut done 0)
+  )
+    {
+      (while (&& (== done 0) (< i len))
+        (let ((b (strByte src i)))
+          (if (== b 7)
+            {
+              (set ans (+ i 1))
+              (set done 1)
+            }
+            (if (&& (== b 27) (&& (< (+ i 1) len) (== (strByte src (+ i 1)) 92)))
+              {
+                (set ans (+ i 2))
+                (set done 1)
+              }
+              ; A bare ESC that is not ST ends the string too: the
+              ; terminal has moved on, and holding the prefix would
+              ; swallow every key after it.
+              (if (&& (== b 27) (>= (+ i 1) len))
+                {
+                  (set ans (- 0 1))
+                  (set done 1)
+                }
+                (set i (+ i 1))
+              )
+            )
+          )
+        ))
+      (if (&& (== done 0) (> (- i i0) keyStrMax))
+        (- 0 2)
+        ans
+      )
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; A lead byte >= 128.
+;
+; The sequence is SLICED, not indexed, before `utf8DecodeAt` sees it.
+; `strSlice` is O(1) and shares the bytes, and it is what makes the
+; decoder's bound the VALID LENGTH rather than the read buffer's
+; capacity - `utf8DecodeAt` measures against `strLen`, which on the
+; raw buffer is 4096 and would decode three bytes of stale data as a
+; perfectly ordinary CJK character. That is the "invents real-looking
+; text from a truncated read" failure Utf8.ax's own header names, and
+; the slice is how this file avoids re-creating it one layer up.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyScanUtf8 (-> String Int Int KeyEv))
+
+(pub fn (keyScanUtf8 src len off)
+  (let ((need (utf8SeqLen (strByte src off))))
+    (if (> (+ off need) len)
+      (KeyEv KEY_MORE 0 0 0)
+      (let ((cp (utf8DecodeAt (strSlice src off need) 0)))
+        (if (< cp 0)
+          ; A stray continuation byte or an 11111xxx lead: advance
+          ; one, the same rule Utf8.ax gives, for the same reason.
+          (KeyEv KEY_NONE 0 0 1)
+          (KeyEv KEY_CHAR cp 0 need)
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; THE DECODER. src, valid length, offset -> the event.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyScan (-> String Int Int KeyEv))
+
+(pub fn (keyScan src len off)
+  (if (>= off len)
+    (KeyEv KEY_MORE 0 0 0)
+    (let ((b (strByte src off)))
+      (if (== b 27)
+        (keyScanEsc src len off)
+        (if (|| (< b 32) (== b 127))
+          (keyScanCtrl b)
+          (if (< b 128)
+            (KeyEv KEY_CHAR b 0 1)
+            (keyScanUtf8 src len off)
+          )
+        )
+      )
+    )
+  )
+)
+
+; The escape path. See the header for the case list.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyScanEsc (-> String Int Int KeyEv))
+
+(pub fn (keyScanEsc src len off)
+  (if (>= (+ off 1) len)
+    (KeyEv KEY_MORE 0 0 0)
+    (let ((n (strByte src (+ off 1))))
+      (if (== n 91)
+        (keyScanCsi src len off)
+        (if (== n 79)
+          (keyFromSs3 src len off)
+          (if (|| (== n 93) (|| (== n 80) (|| (== n 94) (== n 95))))
+            (keyScanStr src len off)
+            (if (== n 27)
+              (KeyEv KEY_ESCAPE 0 0 1)
+              (keyScanAlt src len off)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyScanCsi (-> String Int Int KeyEv))
+
+(pub fn (keyScanCsi src len off)
+  (let ((fin (keyCsiEnd src len (+ off 2))))
+    (if (== fin (- 0 1))
+      (KeyEv KEY_MORE 0 0 0)
+      ; Malformed: drop the ESC alone and resync on the next byte.
+      ; Swallowing the run would hide a real keystroke inside it.
+      (if (== fin (- 0 2))
+        (KeyEv KEY_NONE 0 0 1)
+        (keyFromCsi src len off fin)
+      )
+    )
+  )
+)
+
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyScanStr (-> String Int Int KeyEv))
+
+(pub fn (keyScanStr src len off)
+  (let ((e (keyStrEnd src len (+ off 2))))
+    (if (== e (- 0 1))
+      (KeyEv KEY_MORE 0 0 0)
+      (if (== e (- 0 2))
+        (KeyEv KEY_NONE 0 0 1)
+        (KeyEv KEY_NONE 0 0 (- e off))
+      )
+    )
+  )
+)
+
+; ESC <anything else> is Alt-that-key: decode the key at off+1 and OR
+; MOD_ALT into it. `used` grows by the ESC.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyScanAlt (-> String Int Int KeyEv))
+
+(pub fn (keyScanAlt src len off)
+  (let ((inner (keyScan src len (+ off 1))))
+    (if (== inner.kind KEY_MORE)
+      (KeyEv KEY_MORE 0 0 0)
+      (KeyEv inner.kind inner.cp (| inner.mods MOD_ALT) (+ inner.used 1))
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; What a KEY_MORE prefix means once nothing more has arrived.
+;
+; Still pure, still reads nothing, so it is gated with the scanner.
+; A LONE ESC is the Escape key. ANY LONGER PREFIX - `ESC [`, `ESC [
+; 1 ; 5`, a truncated OSC, a truncated UTF-8 lead - is line noise: a
+; sequence that stopped arriving is not going to finish, and inserting
+; its bytes as text is worse than dropping them.
+;
+; `used` IS NEVER 0 HERE, and that is the invariant that makes the
+; reader's loop terminate. It is asserted by the fixture rather than
+; left to inspection.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(pub :: keyResolve (-> String Int Int KeyEv))
+
+(pub fn (keyResolve src len off)
+  (if (>= off len)
+    (KeyEv KEY_NONE 0 0 1)
+    (if (&& (== (strByte src off) 27) (>= (+ off 1) len))
+      (KeyEv KEY_ESCAPE 0 0 1)
+      (KeyEv KEY_NONE 0 0 (- len off))
+    )
+  )
+)
+

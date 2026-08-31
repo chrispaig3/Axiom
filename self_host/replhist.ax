@@ -1,0 +1,924 @@
+; replhist.ax — the REPL's history: an in-memory ring, a file that
+; survives the session, and the reverse incremental search Ctrl-R runs.
+;
+; This module OWNS NO TERMINAL and asks no question about one. Every
+; entry point takes ordinary Int handles and Strings, and the single
+; place interactivity enters is `histOpen`'s `interactive` argument,
+; which the caller supplies. That is deliberate and it is what makes
+; the whole subsystem gateable: `scripts/check-repl-history.sh` drives
+; every behaviour below - persistence, the cap, dedup, multi-line
+; round-trip, search, two writers at once - from ordinary programs with
+; no pty anywhere, and can therefore assert BOTH directions (nothing on
+; disk when history is off, exact bytes when it is on). A module that
+; called isatty itself could only ever be tested in the off direction
+; from a script, which is the vacuous shape this repository refuses.
+;
+; ------------------------------------------------------------------
+; THE FILE FORMAT, and why it is not one line per entry.
+;
+; `replMain` already builds a complete entry as ONE string with
+; embedded newlines - `(strConcat (strConcat pending "\n") next)` at
+; repl.ax:1495, handed to `replDispatch` at 1503 - because a form whose
+; parens do not balance on one physical line keeps reading
+; (`replParenDepth`). So a three-line `fn` is one entry, and a
+; line-per-record file would take it back apart into three entries that
+; each fail to parse on recall. The format has to carry the join.
+;
+; A record is:
+;
+;     <first line>\n
+;     \t<second line>\n
+;     \t<third line>\n
+;
+; The first physical line of an entry is written verbatim; every
+; subsequent line is written with ONE leading TAB (byte 9); each
+; physical line ends with LF. Decoding: a line beginning with TAB
+; continues the entry in progress with exactly one TAB removed;
+; anything else starts a new entry.
+;
+; The mapping is INJECTIVE, which is the property that matters and the
+; reason for "exactly one":
+;
+;     entry "a\n\tb"  ->  "a\n\t\tb\n"  ->  entry "a\n\tb"
+;
+; so an entry whose own continuation line is tab-indented survives
+; recall with its indentation intact. The precondition - that the first
+; line does not itself begin with a TAB - is not assumed of the caller:
+; `histNormalize` strips leading blanks from the first line, which is
+; what `replTrim` (repl.ax:1489 and 1510) already does to every physical
+; today.
+;
+; Decoding is TOTAL. A torn write, a file someone edited by hand, a
+; leading-TAB line with no entry in progress - each yields some list of
+; entries and never a failure, because the alternative is a REPL that
+; refuses to start over a file it is not required to trust.
+;
+; Two entries were considered and rejected. A length-prefixed or
+; escaped record (`\n` written as `\\n`) makes the file unreadable with
+; `cat` and unfixable with an editor, which a dotfile people will look
+; at should not be. A blank-line separator cannot represent an entry
+; containing a blank line, which a multi-line `fn` routinely does.
+;
+; ------------------------------------------------------------------
+; WHERE IT LIVES.
+;
+;   1. $AXIOM_REPL_HISTORY - the literal `off` disables persistence
+;      entirely; an ABSOLUTE path is used verbatim; anything else
+;      (relative, empty) falls through. The absolute test is the one
+;      `replTmpRoot` (repl.ax:736-742) already applies to $TMPDIR, for the
+;      same reason: a relative value would drop the file into whatever
+;      directory the REPL happened to start in.
+;   2. $XDG_CONFIG_HOME/axiom/repl-history, when XDG_CONFIG_HOME is
+;      absolute.
+;   3. $HOME/.config/axiom/repl-history, when HOME is absolute.
+;   4. Otherwise "": the session keeps a ring in memory and writes
+;      nothing.
+;
+; XDG_STATE_HOME is arguably the correct base for a history file and is
+; DELIBERATELY not used. The only convention this tree has for
+; user-level state is `run_repl` in scripts/check-repl-selfhost.sh,
+; which sets `HOME="$work" XDG_CONFIG_HOME="$work"` with the comment
+; "so a history file never touches the user's real one" - and those two
+; variables are the whole of it (`grep -rn XDG` over the tree returns
+; that one gate and nothing else; no `.ax` file reads $HOME at all).
+; Reading XDG_STATE_HOME would escape that redirect and write into a
+; developer's real home on every gate run. Adopting it later is one
+; branch here plus one variable in `run_repl`.
+;
+; ------------------------------------------------------------------
+; DEDUPLICATION, THE CAP, AND TWO REPLS AT ONCE.
+;
+; DEDUP is CONSECUTIVE only - readline's `ignoredups`. An entry
+; byte-equal to the one immediately before it is dropped, from the ring
+; and from the file. A full-history scan with move-to-end was rejected:
+; it reorders history, and "Up N times goes back N entries" is the one
+; thing a user knows about this feature.
+;
+; THE CAP is `histMaxEntries` entries in memory and after compaction,
+; `histMaxEntryBytes` as the largest entry PERSISTED (a bigger paste
+; stays in this session's ring but does not go into a file people read
+; with `cat`), and `histMaxBytes` as the compaction TRIGGER. The
+; trigger is a byte count and not an entry count on purpose: bytes are
+; what another session's appends change, and are knowable from
+; `sysFileSize` without decoding anything.
+;
+; TWO REPLS AT ONCE. Recording is write-through: one `sysAppendFile`
+; call per entry, carrying the entry's whole record. Sys.ax's own
+; comment states the property that rests on - "O_APPEND is what makes
+; it atomic rather than merely equivalent: the seek to the end and the
+; write are one operation, so two processes appending to one log
+; interleave whole writes instead of overwriting each other's last
+; one". So concurrent sessions interleave whole RECORDS and neither
+; loses an entry. What is NOT promised: a session does not see entries
+; another session appended after it started, because the file is read
+; once at `histOpen`.
+;
+; Compaction is the one operation that rewrites the file, and it is
+; guarded by a size compare-and-swap: read the size, read and decode
+; the file, read the size AGAIN, and SKIP the rewrite if it moved.
+; Compaction therefore carries forward everyone's entries, because it
+; rebuilds from the FILE and not from this session's ring. The residual
+; window is one syscall wide - an append landing between the second
+; size read and the rename is lost - and is accepted rather than closed
+; with a lock directory: with no `stat` in Sys.ax a process that died
+; holding a lock would wedge compaction forever with no way to age it
+; out, which is a worse failure than losing one line of history in a
+; rare race.
+;
+; ------------------------------------------------------------------
+; WHAT THIS MODULE DOES NOT DO. It does not read or write the terminal,
+; print anything, or call `replOut`. It does not decide when an entry
+; is complete - `replParenDepth` does, and history is handed the
+; finished string. Rendering a recalled multi-line entry across several
+; rows is the line editor's, and `histFlatten` is the one concession:
+; the single row a Ctrl-R prompt shows.
+;
+; ------------------------------------------------------------------
+; THE INTERFACE, in one place, because three other efforts call it.
+; Everything is an Int handle or a String; nothing asks the caller to
+; know how a `Hist` is laid out.
+;
+;   histOpen        (-> Int Hist)          interactive -> a session
+;   histOpenWith    (-> Int Int Hist)      ... with an explicit cap
+;   histRecord      (-> Hist String Int)   one COMPLETE entry; 1 kept, 0 dropped
+;   histClose       (-> Hist Int)          compact if needed; 1 rewrote
+;   histLen         (-> Hist Int)
+;   histAt          (-> Hist Int String)   oldest first; "" out of range
+;   histPath        (-> Hist String)       "" when nothing is persisted
+;   histPersist     (-> Hist Int)
+;
+;   histBrowseUp    (-> Hist String Int)   Up; the String is the CURRENT
+;                                          buffer, saved as the draft on
+;                                          the first Up. 1 moved, 0 stuck
+;   histBrowseDown  (-> Hist Int)          Down; 1 moved, 0 on the draft
+;   histCurrent     (-> Hist String)       what the cursor points at
+;   histBrowseReset (-> Hist Int)          leave browse mode; idempotent,
+;                                          so an editor may call it on
+;                                          every edit without asking
+;
+;   histSearchTop   (-> Hist Int)          where a fresh Ctrl-R starts
+;   histFindBack    (-> Hist String Int Int)  needle, from -> index or -1
+;                                          (a repeated Ctrl-R passes at-1)
+;   histFlatten     (-> String String String) entry, separator -> one row
+;
+; The browse pair answers "did it move" rather than the text, and the
+; text is read separately. A String return would need a sentinel for
+; "no move", and "" is not available: the saved draft is legitimately
+; empty whenever Up is pressed at a fresh prompt.
+;
+; `Hist` is spelled `Int` in every signature above, the way `Token` and
+; `Diag` are throughout this tree.
+;
+; The codec (`histEncode`, `histDecode`, `histSerialize`,
+; `histNormalize`, `histFlatten`), the three caps and `histResolvePath`
+; are public as well, for the gate and for anyone who wants to read a
+; history file without a session.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import Sys)
+
+(import Err)
+
+(import Path)
+
+(import diag)
+
+; ------------------------------------------------------------------
+; The three caps, spelled the way this language spells a constant.
+;
+; 1000 entries: bash's default HISTSIZE, and about 40 KB of ring for
+; typical REPL lines.
+; 262144 bytes (256 KiB): the compaction trigger. Big enough that a
+; long-lived session never pays for it, small enough that the file
+; stays something `cat` is a reasonable way to read.
+; 4096 bytes: the largest entry written to the file. A pasted module
+; is still recallable in the session that pasted it; it does not go on
+; disk, where it would be a screenful of somebody else's source between
+; two commands.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histMaxEntries Int)
+
+(pub fn (histMaxEntries) 1000)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histMaxBytes Int)
+
+(pub fn (histMaxBytes) 262144)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histMaxEntryBytes Int)
+
+(pub fn (histMaxEntryBytes) 4096)
+
+; ------------------------------------------------------------------
+; THE CODEC. No IO, no terminal, no filesystem - `restrict(no-io)` is
+; the compiler refusing, not a comment, so a later "just peek at the
+; file here" does not build.
+; ------------------------------------------------------------------
+; True when every byte of `s` is blank. A wholly-blank entry is not an
+; entry.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: histAllBlank (-> String Int Bool))
+
+(fn (histAllBlank s i)
+  (if (>= i (strLen s))
+    true
+    (let ((b (strByte s i)))
+      (if (|| (== b 32) (|| (== b 9) (|| (== b 10) (== b 13))))
+        (histAllBlank s (+ i 1))
+        false
+      )
+    )
+  )
+)
+
+; Establish the format's precondition on the ENTRY rather than assuming
+; it of the caller: no leading blank on the first physical line, and a
+; wholly-blank entry answers "". `replTrim` already does this to every
+; line the piped reader accepts (repl.ax:1489 and 1510); a TTY line
+; editor may hand back an indented buffer, and the format must be total
+; for whatever it hands back.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: histNormalize (-> String String))
+
+(pub fn (histNormalize s)
+  (let (
+    (n (strLen s))
+    (mut i 0)
+  )
+    {
+      (while (&& (< i n) (|| (== (strByte s i) 32) (== (strByte s i) 9)))
+        (set i (+ i 1)))
+      (if (histAllBlank s i)
+        ""
+        (strSlice s i (- n i))
+      )
+    }
+  )
+)
+
+; One entry -> the exact bytes appended to the file. First line
+; verbatim, every later line with one leading TAB, every line closed by
+; LF. See the format section in the header for why the TAB and why
+; exactly one.
+;
+; `histEncode ""` answers "\n", which decodes to no entries at all -
+; the one place the mapping is not injective, and unreachable because
+; `histRecord` drops an empty entry before it gets here.
+;
+; The fragment vector is `vecNew` and not `vecNewRef`, which is
+; `catStrs`'s own callers' spelling (diag.ax:952 and 1077) and the
+; right one here for a reason: the vector is transient and it holds
+; STRING LITERALS ("\t", "\n") beside slices, and a `vecNewRef`
+; container hands back a share of every element when it dies. The ring
+; and `histDecode`'s output ARE `vecNewRef`, because those own
+; `strDup`'ed entries that outlive the call that made them.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: histEncode (-> String String))
+
+(pub fn (histEncode e)
+  (let (
+    (parts vecNew)
+    (n (strLen e))
+    (mut start 0)
+    (mut first 1)
+  )
+    {
+      (while (<= start n)
+        (let ((nl (strFindByte e 10 start)))
+          (let ((end (if (< nl 0)
+            n
+            nl
+          )))
+            {
+              (if (== first 1)
+                (set first 0)
+                (vecPush parts "\t")
+              )
+              (vecPush parts (strSlice e start (- end start)))
+              (vecPush parts "\n")
+              (set start (+ end 1))
+            }
+          )
+        ))
+      (catStrs parts)
+    }
+  )
+)
+
+; A Vec of entries -> the whole file's bytes. The inverse of
+; `histDecode`, and the payload compaction renames into place.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: histSerialize (-> Int String))
+
+(pub fn (histSerialize v)
+  (let (
+    (parts vecNew)
+    (n (vecLen v))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (vecPush parts (histEncode (vecGetStr v i)))
+          (set i (+ i 1))
+        })
+      (catStrs parts)
+    }
+  )
+)
+
+; Push `e` onto `out` unless it repeats the entry already there.
+; Consecutive dedup lives here so that a file written by an older
+; build, or interleaved by two sessions, is deduped on the way in as
+; well as on the way out.
+;@axiom:restrict(no-io,no-foreign)
+(:: histPushDedup (-> Int String Int))
+
+(fn (histPushDedup out e)
+  (let ((n (vecLen out)))
+    (if (&& (> n 0) (strEq (vecGetStr out (- n 1)) e))
+      0
+      (vecPush out (strDup e))
+    )
+  )
+)
+
+; Keep the LAST `cap` elements of `v`, as a fresh vector. Newest-wins:
+; the entries a user reaches with Up are the recent ones, so an
+; overflow drops from the old end.
+;@axiom:restrict(no-io,no-foreign)
+(:: histKeepLast (-> Int Int Int))
+
+(fn (histKeepLast v cap)
+  (let ((n (vecLen v)))
+    (if (<= n cap)
+      v
+      (let (
+        (out vecNewRef)
+        (mut i (- n cap))
+      )
+        {
+          (while (< i n)
+            {
+              (vecPush out (vecGetStr v i))
+              (set i (+ i 1))
+            })
+          out
+        }
+      )
+    )
+  )
+)
+
+; A whole file's bytes plus the entry cap -> a `vecNewRef` of entry
+; Strings, oldest first, consecutive duplicates collapsed and trimmed
+; to the newest `cap`.
+;
+; TOTAL by construction: a leading-TAB line with no entry in progress
+; starts one (rather than being dropped, which would silently eat the
+; tail of a torn record), an empty line closes whatever is open, and
+; nothing here can fail.
+;
+; Every kept entry is `strDup`'ed by `histPushDedup`, so the vector
+; owns NUL-terminated copies rather than shares of the file buffer -
+; `strSlice`'s answer is not NUL-terminated and this vector outlives
+; the read.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: histDecode (-> String Int Int))
+
+(pub fn (histDecode text cap)
+  (let (
+    (out vecNewRef)
+    (n (strLen text))
+    (mut start 0)
+    (mut cur "")
+    (mut have 0)
+  )
+    {
+      (while (< start n)
+        (let ((nl (strFindByte text 10 start)))
+          (let ((end (if (< nl 0)
+            n
+            nl
+          )))
+            {
+              (let ((line (strSlice text start (- end start))))
+                (if (== (strLen line) 0)
+                  ; a blank physical line closes whatever is open
+                  {
+                    (if (== have 1)
+                      (histPushDedup out cur)
+                      0
+                    )
+                    (set have 0)
+                    (set cur "")
+                    0
+                  }
+                  (if (== (strByte line 0) 9)
+                    ; a continuation: exactly one TAB comes off
+                    (let ((body (strSlice line 1 (- (strLen line) 1))))
+                      (if (== have 1)
+                        {
+                          (set cur (strConcat (strConcat cur "\n") body))
+                          0
+                        }
+                        {
+                          (set cur body)
+                          (set have 1)
+                          0
+                        }
+                      )
+                    )
+                    ; anything else starts a fresh entry
+                    {
+                      (if (== have 1)
+                        (histPushDedup out cur)
+                        0
+                      )
+                      (set cur line)
+                      (set have 1)
+                      0
+                    }
+                  )
+                )
+              )
+              (set start (+ end 1))
+            }
+          )
+        ))
+      (if (== have 1)
+        (histPushDedup out cur)
+        0
+      )
+      (histKeepLast out cap)
+    }
+  )
+)
+
+; A multi-line entry on ONE row, for the Ctrl-R prompt: every newline
+; becomes `sep`. The separator is the caller's because the editor picks
+; the glyph, and `style$visLen` measures an ASCII and a multi-byte
+; separator alike.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: histFlatten (-> String String String))
+
+(pub fn (histFlatten e sep)
+  (let (
+    (parts vecNew)
+    (n (strLen e))
+    (mut start 0)
+    (mut first 1)
+  )
+    {
+      (while (<= start n)
+        (let ((nl (strFindByte e 10 start)))
+          (let ((end (if (< nl 0)
+            n
+            nl
+          )))
+            {
+              (if (== first 1)
+                (set first 0)
+                (vecPush parts sep)
+              )
+              (vecPush parts (strSlice e start (- end start)))
+              (set start (+ end 1))
+            }
+          )
+        ))
+      (catStrs parts)
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; THE FILE. Everything below reaches the filesystem and says so:
+; `;@axiom:effect(io)`, which AX3042 makes an error to omit.
+; ------------------------------------------------------------------
+; The directory containing `p`, WITHOUT the trailing slash `pathDir`
+; keeps.
+;
+; That slash is right for `pathDir`'s job - the answer is meant to be
+; prefixed onto a name - and wrong for walking upwards, because
+; `pathDir` is then IDEMPOTENT on its own answer: `pathDir "/a/b/"` is
+; `"/a/b/"`, not `"/a/"`. Measured by reading Path.ax:70-86, and it is
+; the reason `histEnsureDir` cannot simply call `pathDir` twice.
+;@axiom:restrict(no-io,no-foreign)
+(:: histDirOf (-> String String))
+
+(fn (histDirOf p)
+  (let ((d (pathDir p)))
+    (let ((n (strLen d)))
+      (if (== n 0)
+        ""
+        (strDup (strSlice d 0 (- n 1)))
+      )
+    )
+  )
+)
+
+; Where the history file lives, or "" for "no persistence". The
+; resolution order is the header's; `interactive` 0 answers "" without
+; reading the environment at all.
+;
+; Every answer is an ALLOCATED string - `strDup`, `pathJoin` and
+; `strConcat` all allocate, and `strAlloc` zero-fills len+1 - because
+; the caller hands it to `strCStr` and thence to a syscall. `sysEnv`'s
+; own answer is a SLICE into the environment block with no NUL after
+; it (Sys.ax:912-915), so `(strCStr (sysEnv ...))` would open a path
+; nobody named: the value runs on into the next environment string.
+; The gate greps this file for that spelling.
+(pub :: histResolvePath (-> Int String))
+
+;@axiom:effect(io)
+(pub fn (histResolvePath interactive)
+  (if (== interactive 0)
+    ""
+    (let ((v (sysEnv "AXIOM_REPL_HISTORY")))
+      (if (strEq v "off")
+        ""
+        (if (pathIsAbsolute v)
+          (strDup v)
+          (let ((xdg (sysEnv "XDG_CONFIG_HOME")))
+            (if (pathIsAbsolute xdg)
+              (pathJoin (pathJoin xdg "axiom") "repl-history")
+              (let ((home (sysEnv "HOME")))
+                (if (pathIsAbsolute home)
+                  (pathJoin (pathJoin (pathJoin home ".config") "axiom") "repl-history")
+                  ""
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Create the two directories above `path`, ignoring every failure.
+; Answers 0 always.
+;
+; IGNORING IS THE POINT, and so is what it costs. `-EEXIST` is the
+; normal answer and says nothing is wrong. Any OTHER failure - a
+; read-only home, a name that is a file, a path more than two levels
+; deep that does not exist - leaves this session with a resolved path
+; whose every append silently fails, and `histPersist` still answers 1,
+; because 1 means "there is a file to write to" and not "the kernel
+; will accept the write". A REPL must not refuse to start over its
+; history file, and there is no channel here to complain on: this
+; module writes nothing to the terminal. The visible symptom is history
+; that does not survive the session, which is the same symptom as
+; history being off, and that is the trade this makes deliberately.
+;
+; The `(isErr (sysMkdir (strCStr d) mode))` spelling is `replEval`'s
+; (repl.ax:808), applied to an ALLOCATED path for the reason above.
+(pub :: histEnsureDir (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (histEnsureDir path)
+  (let ((d (histDirOf path)))
+    (let ((g (histDirOf d)))
+      {
+        (if (> (strLen g) 0)
+          (if (isErr (sysMkdir (strCStr g) sysDirMode))
+            0
+            0
+          )
+          0
+        )
+        (if (> (strLen d) 0)
+          (if (isErr (sysMkdir (strCStr d) sysDirMode))
+            0
+            0
+          )
+          0
+        )
+        0
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; THE SESSION.
+;
+; A `Hist` is an Int handle, the shape core.ax's `Token` established:
+; a `pub struct` of word slots, one constructor, one accessor per
+; field. Callers never touch the layout.
+;
+;   entries  the ring, a `vecNewRef` of entry Strings, OLDEST FIRST
+;   path     "" when nothing is persisted, else an allocated path
+;   cap      histMaxEntries, held per session so a test can lower it
+;   pos      the browse cursor; `pos == (vecLen entries)` means "on the
+;            draft", which is where a session that is not browsing sits
+;   draft    the editor buffer saved when browsing began
+;   persist  1 when a path resolved and this session will try to
+;            write to it; see `histEnsureDir` for what it does NOT
+;            promise
+; ------------------------------------------------------------------
+(pub struct Hist
+  (entries : Int)
+  (path : String)
+  (cap : Int)
+  (pos : Int)
+  (draft : String)
+  (persist : Int))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: histRing (-> Int Int))
+
+(fn (histRing h) (memGetWord h 0))
+
+; The resolved history file, or "" when this session persists nothing.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histPath (-> Int String))
+
+(pub fn (histPath h) (memGetWordStr h 1))
+
+; 1 when this session writes to a file.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histPersist (-> Int Int))
+
+(pub fn (histPersist h) (memGetWord h 5))
+
+; How many entries the ring holds.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histLen (-> Int Int))
+
+(pub fn (histLen h) (vecLen (histRing h)))
+
+; The entry at `i`, oldest first, or "" out of range.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histAt (-> Int Int String))
+
+(pub fn (histAt h i)
+  (if (< i 0)
+    ""
+    (if (>= i (histLen h))
+      ""
+      (vecGetStr (histRing h) i)
+    )
+  )
+)
+
+; Build a session. `interactive` is 1 only when the caller has
+; established that a person is at the other end; this module does not
+; ask. 0 resolves no path, reads nothing and can write nothing.
+;
+; A cap is taken as an argument so a gate can drive the trim without
+; recording a thousand entries. `histOpen` is the ordinary spelling.
+(pub :: histOpenWith (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (histOpenWith interactive cap)
+  (let ((path (histResolvePath interactive)))
+    (if (== (strLen path) 0)
+      (Hist vecNewRef "" cap 0 "" 0)
+      {
+        (histEnsureDir path)
+        (let ((v (histDecode (sysReadFile (strCStr path)) cap)))
+          (Hist v path cap (vecLen v) "" 1)
+        )
+      }
+    )
+  )
+)
+
+(pub :: histOpen (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (histOpen interactive) (histOpenWith interactive histMaxEntries))
+
+; Leave browse mode: the cursor goes back to the draft position and the
+; saved draft is dropped. Called on submit, and by the editor on any
+; edit that makes the buffer no longer a recalled entry, so that the
+; next Up starts from the newest again.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histBrowseReset (-> Int Int))
+
+(pub fn (histBrowseReset h)
+  {
+    (memSetWord h 3 (histLen h))
+    (memSetWord h 4 "")
+    0
+  }
+)
+
+; Record ONE COMPLETE entry - the whole multi-line string `replMain`
+; hands `replDispatch`, not a physical line. Answers 1 when it was
+; recorded and 0 when it was dropped (empty, or a repeat of the entry
+; before it).
+;
+; Write-through: the file gets this entry NOW, in one `sysAppendFile`
+; call, so `:quit`'s `sysExitWith` and a Ctrl-C at the prompt both lose
+; nothing. An over-large entry stays in the ring and is not written.
+(pub :: histRecord (-> Int String Int))
+
+;@axiom:effect(io)
+(pub fn (histRecord h raw)
+  (let ((e (histNormalize raw)))
+    (if (== (strLen e) 0)
+      {
+        (histBrowseReset h)
+        0
+      }
+      (let ((v (histRing h)))
+        (let ((n (vecLen v)))
+          (if (&& (> n 0) (strEq (vecGetStr v (- n 1)) e))
+            {
+              (histBrowseReset h)
+              0
+            }
+            {
+              (vecPush v (strDup e))
+              (memSetWord h 0 (histKeepLast v (memGetWord h 2)))
+              (histBrowseReset h)
+              (if (&& (== (histPersist h) 1) (<= (strLen e) histMaxEntryBytes))
+                (if (isErr (sysAppendFile (strCStr (histPath h)) (histEncode e)))
+                  0
+                  0
+                )
+                0
+              )
+              1
+            }
+          )
+        )
+      )
+    )
+  )
+)
+
+; Compact the file if it has outgrown `histMaxBytes`, then answer 1
+; when it was rewritten and 0 when it was not.
+;
+; THE SEQUENCE IS THE CONCURRENCY ARGUMENT. size, load, decode, size
+; AGAIN - and skip when the two sizes differ, because another REPL
+; appended while this one was reading and the rewrite would drop
+; whatever it wrote. Compaction rebuilds from the FILE and not from
+; this session's ring, so it carries forward every session's entries
+; rather than replacing the file with one process's view of it.
+;
+; The rewrite is write-to-temp then `sysRename`, which Sys.ax:458
+; states is atomic within a filesystem: a concurrent reader sees the
+; whole old file or the whole new one, never a half-written prefix. The
+; temp name carries `sysGetPid` rendered by `diag$decStr` - NOT
+; `driver$fmtIntStr`, which renders 0, 1, 2 and 3 and answers "1" for
+; everything else, and which is exactly why every REPL on this machine
+; once wrote to one scratch name (repl.ax:752-766).
+(pub :: histClose (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (histClose h)
+  (if (== (histPersist h) 0)
+    0
+    (let ((cp (strCStr (histPath h))))
+      (let ((s0 (unwrapOr (sysFileSize cp) 0)))
+        (if (<= s0 histMaxBytes)
+          0
+          (let ((v (histDecode (sysReadFile cp) (memGetWord h 2))))
+            (let ((s1 (unwrapOr (sysFileSize cp) (- 0 1))))
+              (if (!= s1 s0)
+                0
+                (let ((tmp (strConcat (strConcat (histPath h) ".tmp-") (decStr sysGetPid))))
+                  (if (isErr (sysWriteFile (strCStr tmp) (histSerialize v)))
+                    0
+                    (if (isErr (sysRename (strCStr tmp) cp))
+                      0
+                      1
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; BROWSING - the Up and Down arrows.
+;
+; The pair answers "did the cursor move", 1 or 0, and the text is read
+; separately with `histCurrent`. A String return would have to signal
+; "no move" with some sentinel, and "" is not available: the saved
+; draft is legitimately empty whenever Up is pressed on a fresh prompt.
+; ------------------------------------------------------------------
+; Up. `cur` is the editor's buffer right now, saved as the draft the
+; first time browsing begins so that Down can come back to it. Answers
+; 0 at the oldest entry, where the editor should do nothing.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: histBrowseUp (-> Int String Int))
+
+(pub fn (histBrowseUp h cur)
+  (let ((pos (memGetWord h 3)))
+    (if (<= pos 0)
+      0
+      {
+        (if (>= pos (histLen h))
+          (memSetWord h 4 (strDup cur))
+          0
+        )
+        (memSetWord h 3 (- pos 1))
+        1
+      }
+    )
+  )
+)
+
+; Down. Answers 0 when already on the draft.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histBrowseDown (-> Int Int))
+
+(pub fn (histBrowseDown h)
+  (let ((pos (memGetWord h 3)))
+    (if (>= pos (histLen h))
+      0
+      {
+        (memSetWord h 3 (+ pos 1))
+        1
+      }
+    )
+  )
+)
+
+; The text the browse cursor points at: the entry at `pos`, or the
+; saved draft once the cursor is back past the newest entry. A recalled
+; multi-line entry comes back as the ONE string it was recorded as,
+; newlines and all - the editor renders it as several rows and, on
+; submit, hands the whole thing back, where it dispatches in one go
+; because it balanced when it was recorded.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histCurrent (-> Int String))
+
+(pub fn (histCurrent h)
+  (let ((pos (memGetWord h 3)))
+    (if (>= pos (histLen h))
+      (memGetWordStr h 4)
+      (histAt h pos)
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; REVERSE INCREMENTAL SEARCH - Ctrl-R.
+; ------------------------------------------------------------------
+; The index a fresh Ctrl-R starts from: the newest entry, or -1 for an
+; empty ring.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: histSearchTop (-> Int Int))
+
+(pub fn (histSearchTop h) (- (histLen h) 1))
+
+; The greatest index <= `from` whose entry CONTAINS `needle`, or -1.
+;
+; `strFind` searches the whole entry string, so a needle on the third
+; line of a multi-line entry matches - which is the behaviour a user
+; typing a fragment of a `fn` body expects, and the reason the ring
+; holds whole entries rather than first lines. `strFind`'s documented
+; empty-needle rule (Str.ax:599-603) gives readline's other behaviour for
+; free: Ctrl-R with nothing typed yet matches the most recent entry.
+;
+; A repeated Ctrl-R passes `(- at 1)`, so stepping is the caller's and
+; this stays a pure function of (ring, needle, from). Case-SENSITIVE:
+; the corpus is Axiom source and its identifiers are case-sensitive.
+; `no-alloc` came off on 2026-08-31, TRANSITIVELY: this body allocates
+; nothing itself, and `strFind` - which it calls once per ring entry -
+; answers `(Option Int)` and allocates the `Some`. The claim held only
+; while a constructor application was invisible to the effect row
+; (`MM-EXEC-9a`), which is the same reason `strFind` lost its own.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: histFindBack (-> Int String Int Int))
+
+(pub fn (histFindBack h needle from)
+  (let ((n (histLen h)))
+    (let (
+      (mut i (if (>= from n)
+        (- n 1)
+        from
+      ))
+      (mut found (- 0 1))
+    )
+      {
+        (while (&& (< found 0) (>= i 0))
+          {
+            (match (strFind (histAt h i) needle 0)
+              ((Some _) (set found i))
+              ((None) 0)
+            )
+            (set i (- i 1))
+          })
+        found
+      }
+    )
+  )
+)

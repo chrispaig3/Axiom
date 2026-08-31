@@ -66,6 +66,411 @@ that is recorded in the proposal itself.
   `AX3026`'s explain text, which cited the rule as undecided, says so
   too (`tests/tools/explain.golden`).
 
+### The design pass at v2 proper: regions
+
+`docs/memory-model-v2-design.md` is the design note for the memory
+model itself, as distinct from the eight gap-closing proposals above:
+typed regions, declared rather than inferred, with one concurrency
+surface and two lowerings. `MM-RGN-1` through `MM-RGN-7` are marked
+**(D)** for design, appear in no conformance column, and are normative
+nowhere — the note argues from two decisions rather than for them.
+
+Three measurements shaped it, taken on the compiler's own emitted IR
+(197,562 lines, 3,469 functions):
+
+- Deleting all 10,849 `axiom_release` call sites and rebuilding gives
+  byte-identical output at **2.4x peak RSS** — 406,032 KiB against
+  954,464–973,984 — and a **9.6% smaller binary**. That is what
+  counting buys and what it costs.
+- **53.1% of the release traffic frees nothing.** 5,762 of the 10,849
+  sites release a `@strhdr_*` static string literal, whose count word
+  is the sentinel `-1`; each is a call that loads a count, compares it
+  and returns. Ablating only those: byte-identical output, **5.3%**
+  smaller binary, peak RSS at or below baseline. This needs no region
+  and no rule — it is a compile-time test on the operand's definition,
+  and it is Stage 0 of the note's staging table.
+- The traffic is **16:1** releases to retains, and 1,211 of 3,469
+  functions release without ever retaining, carrying 86% of it. A count
+  only ever decremented is a scope, implemented one object at a time.
+
+**No wall-clock claim is made, and that is a finding.** A first set of
+three runs put the ablated compiler 9% faster; re-run under a different
+load the arms interleaved and the signal was gone. The note names the
+measurement it owes rather than keeping the number.
+
+It also re-opens a question that had stopped being asked. `region` is
+refused by `AX2004`, whose advice says allocation lifetime "is inferred
+from where a value is created and how far it escapes" — a description
+of §3.4, every rule of which is **withdrawn**, including the one whose
+own text says region inference "is why `region` was deleted from the
+surface syntax". The note's probe is a ```scheme refused block, so the
+documentation sweep now asserts the refusal instead of quoting it.
+
+## 0.6.1 — 2026-08-31
+
+- **A program contains only what it uses.** A hello world was a
+  103,592-byte binary holding 388 `define`s, of which a walk from
+  `main` reaches 22. It is 34,640 bytes now, and the compiler emits
+  242 fewer definitions of itself. The linkage was only half the
+  cause: 375 of 388 definitions carried external linkage, which does
+  block dead-code elimination — but `emitSymbolTable` writes a
+  `ptrtoint` for EVERY function, so the backtrace table pinned all 388
+  addresses and internalising them was worth 6%. The removal is the
+  emitter's now, before the table is built. Reading the emitted IR
+  rather than the AST is what makes it safe: in IR a call, a closure
+  record's `ptrtoint` and a thunk are the same token, so a callback
+  needs no special case, and a wrong root is `error: use of undefined
+  value` out of `opt` — a failed build, never a binary that links and
+  crashes. `--emit-staticlib` prunes nothing, which is the one named
+  consumer, so no flag was added. `scripts/check-dead-code.sh` asserts
+  on the LINKED binary via `nm`, with a walk deliberately tighter than
+  the compiler's so it is not agreeing with itself.
+
+- **Two soundness holes: `check` said OK and the program segfaulted.**
+  `(:: g (-> Int Box))` with body `7` was accepted and exited 139 — the
+  literal dereferenced as a handle. The same mismatch in ARGUMENT
+  position was refused all along, so the rule existed and was not
+  applied in one place; `checkDeclaredReturn` compared by a name list
+  rather than by `tyCompat`. 22 type pairs flipped to `AX3004`, and no
+  site in the tree was newly refused because the exemption is exactly
+  this tree's `Int`-as-handle convention and nothing more —
+  `tests/selfhost/987-handle-convention-roundtrip.ax` pins that
+  exemption at run time, and removing it turns the fixture red.
+  Separately, `emitApplyChain` passed an empty evidence vector, so
+  over-applied and `cast`-spine arguments were classified "not a
+  reference" — `462-surplus-closure-arg.ax` exits 139 built by 0.6.0
+  and 15 built by this release. Neither was caught by 55 green gates,
+  because a soundness hole lives where no fixture thought to look.
+
+- **`restrict(no-alloc)` could not fail, and seven claims were false.**
+  A function claiming it and constructing a value checked clean:
+  `findFnEnt` answers 0 for every constructor, and `walkCallHead`'s
+  branch added nothing. It was not an oversight — `MM-EXEC-9a` recorded
+  constructor-invisibility as a DECISION — but the decision stopped
+  being survivable the day the restriction shipped, because a decision
+  that makes a checked claim unfalsifiable is the check not existing.
+  123 of 3,725 effect rows gain `Alloc`; seven claims are withdrawn
+  with the reason written at each site. The nullary arm is
+  load-bearing: `(Empty)` allocates nothing, so arity decides, not
+  constructor-ness.
+
+- **`mut` on a struct field was parsed and thrown away.** A write to a
+  non-`mut` field through an immutable binding compiled clean with no
+  diagnostic; `parseOneField` said so in its own comment. This project
+  removed `linear`, `consume` and `deriving` for exactly that. Enforced
+  rather than deleted — 29 fields migrated, found by building the
+  compiler with the refusal armed rather than by grep, which was wrong
+  in both directions. `explain AX3012`'s claim that "structure fields
+  are written with `memSetWord` instead" is corrected.
+
+- **The REPL has a terminal UI.** Editing, history with reverse search,
+  syntax highlighting painted from the compiler's own lexer, and
+  completion including bindings defined earlier in the session — which
+  exist in no file. `stdlib/Tui/{Keys,Edit,Term}.ax` import nothing
+  from `self_host/`. The piped surface is byte-identical: 22 sessions,
+  44 streams, 341,394 bytes before and after, zero differing.
+
+- **The language server learns `textDocument/declaration` and call
+  hierarchy.** Declaration is not an alias for definition here — Axiom
+  writes a function twice, so declaration lands on `(:: f T)` and
+  definition on the body, and a signature with no `fn` yet answers one
+  and `null` for the other. `rangeFormatting` is REFUSED on a
+  measurement: 8,437 form-aligned slices, 21 disagreeing, every one
+  comment placement, so format-on-save and format-selection would each
+  rewrite what the other wrote.
+
+- **The shared compiler was rebuilt by every gate.** `gate_source_stamp`
+  hashes `$axiom`, and teaching `gate_init` to honour `AXIOM_AXC` —
+  itself a fix, for twelve gates silently measuring the installed
+  binary — changed what that means on one side only, so the stamp
+  written by the builder could never equal the one a gate computes.
+  `build-shared-axc.sh`'s own header prices the sharing at ~16 minutes
+  per run.
+
+- **A program contains only what it uses.** A hello world was a
+  103,592-byte binary holding 388 `define`s, of which a walk from
+  `main` reaches 22: `(import IO)` pulls in `Err`, `Fmt`, `Path` and
+  `Sys` transitively and every function of them was emitted, linked and
+  shipped. Nothing downstream removed them either — `nm` on the linked
+  executable found 361 of the 366 unreachable ones, in a binary of 397
+  symbols, while a program with no imports at all was 34,216 bytes. So
+  roughly 70 KB of that hello world was code it could not run.
+
+  Two things pinned it, and only the first is the one a reader expects.
+  375 of the 388 `define`s carried EXTERNAL linkage, which forbids LLVM
+  from deleting them because another translation unit might call them —
+  and Axiom is a whole-program compiler with no other translation unit.
+  But `emitSymbolTable` also writes `ptrtoint (ptr @F to i64)` for
+  every function in the module, so the backtrace table was a live
+  global holding all 388 addresses, and that pin survives any linkage
+  change. Measured: marking all 384 non-runtime defines `internal` and
+  running `opt -O1` deleted exactly ONE of them and left all 397
+  symbols in the binary — 103,592 bytes to 97,368, a 6% win. Dropping
+  the table pin as well took the same program to 17,224 bytes. The
+  linkage was the smaller half of the problem, which is why the fix is
+  the emitter's rather than the linker's.
+
+  `pruneDeadDefs` in `self_host/codegen.ax` now walks the module to a
+  reachable set and drops the rest, BEFORE the symbol table is built,
+  so the table describes exactly the functions that survived — a
+  stripped function can never appear in a backtrace. Hello world is
+  34,648 bytes, 22 defines and 29 symbols, against a no-import
+  program's 17,432 and 17; `self_host/main.ax` loses 242 of its 3,599
+  defines, because the compiler uses most of what it imports.
+
+  The walk reads the EMITTED IR rather than the AST, and that is the
+  design rather than an implementation detail. The class that sinks a
+  naive reachability answer is the function whose ADDRESS is taken
+  rather than called — a callback, a comparator, a capability-record
+  field — and the effect walk already gives up on exactly that shape
+  and marks it `#effects-incomplete`. In the IR the class does not
+  exist: there is one way to mention a function at all, the token
+  `@name`, whether the mention is a call, a `ptrtoint` into a closure
+  record, or a thunk over a bare reference. One scan finds all of them
+  with no per-shape knowledge to keep in step as the emitter grows.
+  The failure mode is loud rather than silent for the same reason:
+  LLVM's textual IR has no implicit declaration, so a root this walk
+  got wrong is `error: use of undefined value` out of `opt` — a failed
+  build naming the symbol, not a binary that links and then crashes.
+
+  `--emit-staticlib` prunes nothing and needs no flag to say so: an
+  archive exists precisely so another translation unit can call in,
+  every `pub fn` is a C symbol by contract, and the whole-program
+  assumption is false there by construction. `axiom_alloc`,
+  `axiom_retain` and `axiom_release` are roots in every build, archive
+  or not, because a `--crate` host calls them from Rust where no IR of
+  ours mentions them.
+
+  `scripts/check-dead-code.sh` is the new gate, and its walk is
+  deliberately TIGHTER than the compiler's — it roots only the entry
+  and those three FFI symbols, not the emitter's generous
+  outside-a-define catch-all — so it asks a stricter question rather
+  than re-running the pass and agreeing with itself. Both answers are
+  22 of 22 today, which is the evidence that the generous roots retain
+  nothing. Turning the pass off in a shadow tree puts 361 of 397
+  symbols back and names all four of the functions the measurement
+  called out.
+
+  `check-backtrace.sh` had two floors that expired on this: `rows >=
+  200`, calibrated on "a probe importing Sys had 275 on 2026-08-24",
+  and a `found >= 20` anti-vacuousness guard. Both went red on a module
+  that had got smaller for the right reason, and the second printed "0
+  of 16 table names are in no symbol table" — blaming the emitter for
+  the number that was correct. Both now rest on the probe's own
+  six-deep chain, which cannot expire when the module's size moves
+  again.
+
+- **BREAKING: `mut` on a struct field is a checked constraint, and a
+  field is immutable without it.** `(struct P (x : Int))` with no
+  marker took `(set p.x 9)` in silence — `check` OK, the program
+  exited 9 — because the parser recognised `mut` on a field, skipped
+  it and recorded nothing — which `parseOneField` said in as many words
+  at the time, that the marker was "not recorded ... only skipped". That is exactly
+  the shape `AX2004`'s explain text calls worse than no marker at all,
+  *"a marker that reads as an ownership guarantee and supplies none is
+  worse than no marker, because a reader spends trust on it"*, and it
+  is why `linear`, `consume` and `deriving` were removed from this
+  language. `mut` was enforced instead, because unlike those three it
+  had a rule worth keeping: a field is immutable unless declared
+  otherwise, which is the rule `let` already follows.
+
+  A store into an unmarked field is `AX3012` `assign-to-immutable` —
+  the same code as the immutable-binding refusal, anchored on the
+  field name in the *write* rather than on the declaration, which is
+  often in another unit. Only the LAST segment of a path is governed:
+  `(set a.b.c v)` needs `c` declared `mut` and says nothing about `b`,
+  because the store mutates the value `b` points at rather than the
+  `b` slot. `memSetWord` is outside the rule entirely.
+
+  **The migration, measured rather than guessed:** 55 dotted-path
+  field writes across the tree resolve to 29 distinct (struct, field)
+  pairs and 30 declaration sites, every one of them found by compiling
+  the tree with the new refusal and reading what it named — no write
+  was hidden behind an alias the checker could not follow. Four `mut`
+  field declarations existed before this, all in `tests/fmt/`, because
+  the marker did nothing. `stdlib` took 15 of the 30: `HttpReader`'s
+  `buf`/`filled`/`consumed`, `HttpReq.body`, `HttpRouter.missing`,
+  `HtmlBuf.len`, `FallibleTally.count`, `KeyIn`'s `len`/`pos`/`eof`
+  and nine `LineEd` fields.
+
+  The standard library's **public surface did not move**: 619
+  normalised AXSYM rows are byte-identical across the change, and no
+  `#fields=` entry carries mutability, so this takes no line in
+  `compat/BREAKING` — that file's subject is the library API and this
+  is a language-surface change. `axiom explain AX3012` also lost a
+  false sentence, that "structure fields are written with `memSetWord`
+  instead", which the working `(set p.y 10)` had always contradicted.
+
+  *Gates:* `tests/diagnostics/467-set-immutable-field.ax` (the
+  refusal, plus two writes that stay silent — a `mut` field, and a
+  non-`mut` intermediate on a nested path — so the check cannot pass
+  by refusing everything); `tests/selfhost/561-field-store-mut.ax`
+  (the runtime half: a `mut` field still writes, through an immutable
+  binding, through a nested path and through a parameter).
+
+- **The reference documents partial application of a lambda, which
+  works.** The section was titled "Partial Application — Not
+  Supported" and was accurate only about top-level functions, burying
+  a working feature under the heading for a refused one. One rule
+  decides both halves, and it is the one `AX3013`'s own note gives: a
+  partial application must hold the arguments it was not given, and a
+  top-level function has no closure record to hold them in — a lambda
+  has one. `tests/selfhost/988-lambda-partial-application.ax` pins
+  seven properties the corpus had no fixture for, one bit each:
+  argument order survives; arguments may be supplied one at a time;
+  a capture survives the partial; the partial escapes its creating
+  function; it stores in a struct field and calls back through `.f`;
+  a `_` hole applies to a lambda's arguments too; and the whole spine
+  at once is the ordinary saturated call it looks like — which is why
+  `((add3 1 2) 3)` compiles on a top-level `add3` while
+  `(let ((h (add3 1 2))) (h 3))` is `AX3013`. The saturation count is
+  taken at the spine's ROOT.
+
+- **The REPL has a real terminal interface: editing, cursor motion, a
+  coloured prompt, and a redraw that stays correct when the line
+  wraps.** `self_host/repl.ax` read plain lines with no editing, no
+  prompt and no colour, and its own header called that a deliberate
+  divergence from stage0's rustyline. It is no longer one. Three new
+  modules, and they are STANDARD LIBRARY modules rather than compiler
+  ones — `Tui.Keys`, `Tui.Edit` and `Tui.Term`, under `stdlib/Tui/`:
+  `Tui.Keys` decodes terminal bytes into key events — printable UTF-8
+  through `Utf8.ax`'s decoder, the control bytes, and the CSI/SS3
+  grammar PARSED rather than pattern-matched, so an unbound but
+  well-formed sequence (a mouse report, a cursor-position reply) is
+  consumed whole instead of typed into the line one byte at a time.
+  `Tui.Edit` is a gap buffer of code points with the readline motions,
+  kills and one kill ring. `Tui.Term` is the reader, the raw-mode
+  bracket and the event loop.
+
+  **Nothing in `stdlib/Tui/` imports a compiler module**, and the gate
+  asserts it: 0 such imports across the 3 files. The two rules it
+  would have borrowed are parameters instead — the word boundary is a
+  caller-supplied `wordChars` (the REPL passes Axiom's operator set,
+  so Alt-b crosses the whole of `vec-push!`), and the prompt arrives
+  already painted and is measured with `tuiVisLen`. Those are second
+  statements of rules `lexer.isIdentChar` and `style.visLen` already
+  make, so `978-line-editor.ax` sweeps all 128 ASCII bytes through the
+  first pair and a 12-string corpus through the second and requires
+  exact agreement — independence without drift, which is the
+  discipline `990-char-class.ax` was written for. The REPL is the
+  library's first caller, not its owner.
+
+  **The piped surface did not move, and that is the contract.** Every
+  new behaviour hangs off ONE predicate, `replInteractive`, true only
+  when fd 0 and fd 1 are both terminals; `scripts/check-repl-tui.sh`
+  asserts that the predicate is written exactly once across
+  `self_host/`. Measured before and after over all 22 checked-in REPL
+  sessions, stdout and stderr: 341,394 bytes each way, and the only
+  difference is `:time`'s duration, which is a clock. Zero ESC bytes
+  reach a pipe.
+
+  The new gate drives the REPL on a pty it allocates itself and makes
+  44 assertions: that the piped and pty transcripts differ by more than
+  the terminal's own carriage returns, that Ctrl-C arrives as a KEY and
+  not a signal (raw mode is entered with ISIG cleared, so nothing the
+  terminal can generate kills the process while it is raw), that
+  arrows, Ctrl-A/E/K/U/W/Y, Alt-b/d and a lone timed-out ESC all edit,
+  that one Backspace removes a two-byte character rather than one byte
+  of it, that the terminal comes back byte-exact on both exit paths,
+  and that the wrapped screen matches an independently written VT model
+  at the deferred-wrap boundary and away from it. Deleting the forced
+  newline that drives that wrap turns exactly two of its checks red and
+  leaves `check-repl-selfhost.sh` green, which is the measured proof
+  that no existing check could see it. `tests/selfhost/975-key-decode.ax`
+  gates the decoder with no terminal at all (51 cases, one of them a
+  negative control), and `978-line-editor.ax` sweeps the wrap
+  arithmetic across every width from 2 to 80.
+
+  Forty-nine gates now call `gate_build_axc`, and both REPL gates run
+  in the parallel set. `check-repl-selfhost.sh` had carried a HAZARD
+  saying they must not — every REPL writing `/tmp/axiom-repl-1`,
+  because `fmtIntStr` answers "1" above 3 — and the new gate was
+  written to obey it. It had been fixed twice before it was read
+  (`decStr` for the pid, 2026-08-08; a private
+  `<tmp>/axiom-repl-<pid>.d` at mode 0700, 2026-08-23). Probed: six
+  `axiom repl` processes at once each answered its own expression and
+  left nothing in `/tmp`. The paragraph is corrected in place rather
+  than deleted, because a stale hazard is a claim with no expiry and
+  the next reader acts on it — this one was one commit from costing the
+  battery two of its slower gates' parallelism.
+
+  History, syntax highlighting and completion are not in this: their
+  keys are decoded and reach `ledApply` as explicit no-ops, so each is
+  a branch beside an existing one.
+
+- **The language server learns the one distinction this language has
+  and most do not: `textDocument/declaration` is not
+  `textDocument/definition`.** A function is written twice — `(:: bump
+  (-> Int Int))` declares it, `(fn (bump x) ...)` defines it — and the
+  parser has carried both as separate nodes with their own name spans
+  since it was written. `lspFindDecl` skips `TAG_D_SIG` deliberately,
+  so `definition` has always answered the `fn`; nothing answered the
+  `::`. Now `declaration` does, in `definition`'s own scoping order
+  with one step inserted: a local binding first (a local is declared by
+  being bound, so the two agree there by construction), then this
+  document's signature, then this document's declaration, then the
+  imported modules signature-first. It answers where `definition`
+  cannot in exactly one place — a signature whose `fn` is still to be
+  written, which is what `AX3015` reports and what an editor sees
+  between two keystrokes.
+
+- **Call hierarchy, from the walk the server already had:
+  `textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`
+  and `callHierarchy/outgoingCalls`.** A call site is defined as an
+  occurrence that `SECTION NAV`'s scope-aware walk resolved to a
+  top-level name AND that stands first inside a `(` — two questions
+  already answered, intersected by byte offset, so the whole feature is
+  a projection rather than a new analysis and costs one parse and one
+  linear scan of the bytes. That definition is what makes it right
+  where a spelling match is wrong: `(fn (apply k v) (k v))` calls its
+  parameter and not the top-level `k`, and `(fn (handoff z) helper)`
+  NAMES `helper` without applying it. `axiom symbols --calls` reports
+  that second edge (`#calls=helper`, measured) because it is the
+  checker's effect walk; it also costs a full typecheck and carries no
+  positions, and `fromRanges` is a list of ranges the protocol
+  requires. Incoming calls read this document and every other OPEN
+  document whose imports resolve to it, which is `references`'s
+  workspace; a caller that calls twice is one entry with two ranges.
+  An item whose document the server has not opened answers `null`, not
+  `[]`, because `[]` claims a function has no callers.
+
+  Held by `scripts/check-lsp-selfhost.sh`: five documents written by
+  `tests/lsp/drive.py` itself, every expected range computed from their
+  own bytes, `declaration` and `definition` asked at the same position
+  and required to answer DIFFERENT ranges, and a floor that refuses to
+  run if either confusable shape ever leaves the corpus or if a comment
+  in it spells one of the indexed names — a trap that had already shifted
+  every occurrence number once while these checks were being written.
+  Five ablations, each in a scratch tree with every golden re-blessed
+  from the broken build, are recorded in that script's header.
+
+- **`textDocument/rangeFormatting` is refused with a measurement rather
+  than an argument.** 8,437 form-aligned slices of `stdlib/` and
+  `self_host/` were formatted alone and compared against the same forms
+  cut out of the whole document's formatted output: 8,416 agreed and 21
+  did not, every disagreement comment placement — a trailing `; bold
+  red` that the whole-document pass moves onto the next declaration, and
+  a comment block that migrates across a top-level form boundary. An
+  editor with format-on-save and format-selection both bound would have
+  each rewrite what the other wrote. `docs/lsp.md` carries the numbers.
+
+- **`textDocument/semanticTokens` is written down as settled, not
+  missing.** `docs/lsp.md`'s *Highlighting* section said the server
+  "offers no semantic tokens", which reads as unfinished work; it now
+  says the server will not send them and why — one highlighter cannot
+  disagree with itself — and pre-empts the obvious-looking idea that
+  `self_host/replhl.ax`'s lexer-driven painter makes them nearly free.
+  A REPL paints from the lexer because it has no grammar and no editor
+  to consult; an editor has both.
+
+- **A comment in `self_host/lsp.ax` that contradicted the code beneath
+  it.** The paragraph above `lspRenderFields` said a bare `(name)` was
+  "every field of a GENERATED struct". The code branches on
+  `lspTyKnown`, and the expander was fixed to carry the type node into
+  the product; measured over a real JSON-RPC pipe, `axiom/expandMacro`
+  over a struct-generating macro answers `(left : Int)`. The section
+  header twelve hundred lines above had the correct version all along.
+
 ## 0.6.0 — 2026-08-31
 
 - **KNOWN ISSUE: module resolution matches case-insensitively on macOS, so
@@ -338,7 +743,6 @@ that is recorded in the proposal itself.
   imports `Err` and already uses `sysResult`. And `self_host/` reaches
   only 4 of the 27 sentinel-answering functions (20 sites), so 23 of
   them can be ported without touching the compiler at all.
-||||||| b85ccc1
 
 - **`freebsd-x86_64` and `windows-x86_64` are supported targets.** Both
   legs had been green on 13 of the previous 15 runs with no failures,

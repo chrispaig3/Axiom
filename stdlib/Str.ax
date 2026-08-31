@@ -601,7 +601,11 @@
 ; `from` is inside `s` or at its end, which is the rule that makes
 ; `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than
 ; nothing.
-;@axiom:restrict(no-io,no-alloc,no-foreign)
+; `no-alloc` came off on 2026-08-31: the `(Some found)` answer
+; allocates. Accepted until then because a constructor contributed
+; nothing to the effect row (`MM-EXEC-9a`). `no-io` and `no-foreign`
+; are unchanged.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strFind (-> String String Int (Option Int)))
 
 (pub fn (strFind s needle from)
@@ -662,7 +666,9 @@
 ; was taken as a length. Here it is `None`, and so is
 ; `9223372036854775808`, while `9223372036854775807` and
 ; `-9223372036854775808` both parse.
-;@axiom:restrict(no-io,no-alloc,no-foreign)
+; `no-alloc` came off with `strFind`'s, on 2026-08-31 and for the same
+; reason: the `(Some ...)` answer allocates.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strParseInt (-> String (Option Int)))
 
 (pub fn (strParseInt s)

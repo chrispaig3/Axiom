@@ -1,0 +1,77 @@
+; expect 127
+; PARTIAL APPLICATION OF A LAMBDA, which works, and which the
+; reference documented as unsupported until 2026-08-31 because its
+; section carried the top-level rule and nothing else.
+;
+; The rule the two halves share is the one AX3013's own note gives: "a
+; partial application has to hold the arguments it was not given, and
+; a top-level function has no closure record to hold them in". A
+; lambda HAS one. So `(add 5)` on a top-level `add` is AX3013 and
+; `((lambda (x y) (+ x y)) 5)` is a value - and nothing in the corpus
+; said so, which is why this file exists. 989 is the `_` hole beside
+; it: the explicit spelling of the same idea, and check 6 here is the
+; two together.
+;
+; Seven properties, one bit each, so a regression in any one moves the
+; exit status:
+;
+;   1  a two-parameter lambda applied to ONE argument answers a value
+;      that takes the other, and ARGUMENT ORDER survives: 10 then 3
+;      is 7 and not -7
+;   2  a three-parameter lambda, one argument at a time, three
+;      separate applications - 1, 2, 3 in that order is 123
+;   3  a CAPTURE survives the partial application: the closure holds
+;      both the captured `n` and the supplied argument
+;   4  the partial ESCAPES the function that built it - built inside
+;      `mkAdder`, returned, applied by the caller
+;   5  it is an ordinary value: stored in a struct field typed
+;      `(-> Int Int)` and called back through `.f`
+;   6  a `_` hole applies to a lambda application too, not only to a
+;      named function's (989 pins the named half)
+;   7  the whole spine at once is the ordinary saturated call it looks
+;      like - `(((lambda (x y z) ...) 1 2) 3)` is 6, checked at the
+;      spine's ROOT, which is exactly why `((add3 1 2) 3)` on a
+;      TOP-LEVEL function is legal while `(let ((h (add3 1 2))) ...)`
+;      is AX3013
+;
+; 1+2+4+8+16+32+64 = 127.
+(struct Box
+  (f : (-> Int Int)))
+
+(:: mkAdder (-> Int (-> Int Int)))
+
+(fn (mkAdder n) ((lambda (x y) (+ x y)) n))
+
+(:: bit (-> Bool Int Int))
+
+(fn (bit ok w)
+  (if ok
+    w
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (mut acc 0)
+    (sub1 ((lambda (x y) (- x y)) 10))
+    (dig1 ((lambda (x y z) (+ (* 100 x) (+ (* 10 y) z))) 1))
+    (cap (let ((n 10)) ((lambda (x y) (+ n (- x y))) 5)))
+    (esc (mkAdder 40))
+    (box (Box ((lambda (x y) (+ x y)) 5)))
+    (hole ((lambda (x y) (- x y)) 50 _))
+  )
+    {
+      (set acc (+ acc (bit (== (sub1 3) 7) 1)))
+      (set acc (+ acc (bit (== ((dig1 2) 3) 123) 2)))
+      (set acc (+ acc (bit (== (cap 2) 13) 4)))
+      (set acc (+ acc (bit (== (esc 2) 42) 8)))
+      (set acc (+ acc (bit (== (box.f 3) 8) 16)))
+      (set acc (+ acc (bit (== (hole 8) 42) 32)))
+      (set acc (+ acc (bit (== (((lambda (x y z) (+ x (+ y z))) 1 2) 3) 6) 64)))
+      acc
+    }
+  )
+)

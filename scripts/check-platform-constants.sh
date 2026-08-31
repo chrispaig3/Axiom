@@ -548,7 +548,22 @@ status=0
 
 for target in "${targets[@]}"; do
   ir="$work/$target.ll"
-  if ! "$axc" --target="$target" emit-llvm "$probe" -o "$ir" >"$work/emit.log" 2>&1; then
+  # EMITTED AS A STATIC LIBRARY, and the reason is the pruner. Since
+  # 2026-08-31 the emitter drops definitions no program can reach, so a
+  # probe that never divides carries no divide-by-zero trap and one
+  # that never invokes its effect carries no unhandled-effect trap -
+  # both of which this gate's census counts, and both of which every
+  # program used to carry.
+  #
+  # Lowering the census would be the wrong repair: this gate compares
+  # syscall OPERANDS between the emitted runtime and the platform
+  # module, and a site that is not emitted is a comparison that does
+  # not happen. `--emit-staticlib` prunes nothing - it is the one mode
+  # the pruner exempts, because a library's callers are not in the
+  # tree - so it emits the runtime whole, which is the shape this gate
+  # is about. Measured on the probe: 13 defines normally, 121 as a
+  # staticlib.
+  if ! "$axc" --target="$target" emit-llvm --emit-staticlib "$probe" -o "$ir" >"$work/emit.log" 2>&1; then
     echo "FAIL [$target]: emit-llvm refused the probe"
     sed 's/^/    /' "$work/emit.log" | head -8
     status=1

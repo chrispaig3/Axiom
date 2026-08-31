@@ -1,0 +1,2 @@
+(fn (helper x) x)
+(fn (helpful y) y)

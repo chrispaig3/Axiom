@@ -42,8 +42,8 @@
 (import Mem)
 
 (struct Slot
-  (s : String)
-  (n : Int))
+  (mut s : String)
+  (mut n : Int))
 
 (:: b2i (-> Bool Int))
 

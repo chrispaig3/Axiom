@@ -1,0 +1,61 @@
+; expect 42
+; THE EXEMPTION, AT RUN TIME. `checkDeclaredReturn` compares a
+; declared result against the body by `tyCompat` - the comparison an
+; argument has always got - for every declared result but one, and the
+; exception is a bare `Int`: this language's universal heap handle.
+; 29 sites in this tree return a handle through a declared `Int`
+; (`core.mkSpan`, ten in `parser.ax`, eight builders in `format.ax`,
+; `stdlib/Job.ax`'s `jobPoolNew`), so the exemption is load-bearing
+; and nothing but a run proves it still holds.
+;
+; `tests/diagnostics/499-nominal-return-int-body.ax` is the other
+; half - the REVERSE direction, a `data` or `struct` declared over an
+; `Int` body, which was accepted by `check` and died of SIGSEGV at
+; exit 139 until 2026-08-31. This case is what makes closing that hole
+; falsifiable in the useful direction: tighten the exemption away and
+; `mkPt` below stops compiling.
+;
+; Three moves, one per line of the sum:
+;   `mkPt`       declares `Int`, answers a `Pt` - the convention
+;   `(cast Pt h)`  the word read back as the struct it always was
+;   `(cast Box w)` the explicit escape, minting a nominal from a word,
+;                  which is what a function that really does that must
+;                  now say
+;
+; 30 + 5 + 7 = 42.
+(struct Pt
+  (x : Int)
+  (y : Int))
+
+(data Box
+  (Wrap Int))
+
+(:: mkPt (-> Int Int Int))
+
+(fn (mkPt a b) (Pt a b))
+
+(:: roundTrip (-> Int Box))
+
+(fn (roundTrip w) (cast Box w))
+
+(:: unwrap (-> Box Int))
+
+(fn (unwrap b)
+  (match b
+    ((Wrap v) v)
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((h (mkPt 30 5)))
+    (let ((p (cast Pt h)))
+      (let ((b (Wrap 7)))
+        (+
+          (+ p.x p.y)          (unwrap (roundTrip (cast Int b)))
+        )
+      )
+    )
+  )
+)
