@@ -67,6 +67,7 @@
   [93mAX3054[0m  an effect declared with a built-in effect's name  (effect-name-reserved)
   [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
   [93mAX3056[0m  a struct field that declares no type  (struct-field-untyped)
+  [93mAX3057[0m  a `strict` restriction the effect walk cannot prove  (restriction-unproven)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1713,6 +1714,38 @@ whose type is not a type (`(msg : 5)`), and a bare `(msg)`. A
 wildcard `(msg : _)` is a different node, and its use sites already
 refuse it.
 
+### explain AX3057
+AX3057 - a `strict` restriction the effect walk cannot prove
+
+`;@axiom:restrict(no-io, strict)` asks for a GUARANTEE. Where the
+walk cannot settle the claim it is refused here, rather than
+warned.
+
+Without `strict` the same situation is AX3051, a warning, and why
+that is the default is worth stating: a body that dispatches
+through a stored function is a correct program the walk cannot
+follow, and refusing it would make that shape unwriteable under any
+restriction rather than merely unverified.
+
+`strict` is the author saying the opposite for THIS declaration. On
+a sensitive operation, an unproven guarantee is not a guarantee,
+and a claim that might not hold is worth less than no claim at all
+- a reader who sees `restrict(no-io)` and assumes it was checked is
+worse off than one who sees nothing.
+
+The three readings are AX3051's: an effect present only as
+POSSIBLE, a row the walk marked incomplete, and a body that CALLS
+one of its own parameters (`#effect-params=`), whose answer is
+chosen by each caller and cannot be settled in the callee.
+
+Name the function at the call site instead of taking it as a
+parameter, stop calling the parameter, or drop `strict` to keep the
+claim as a checked best effort.
+
+`strict` restricts nothing on its own: it is a MODIFIER inside
+`restrict(...)` and not a restriction, so it is neither checked as
+one nor reported as an unknown name (AX3052).
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1893,6 +1926,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3054[0m  an effect declared with a built-in effect's name  (effect-name-reserved)
   [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
   [93mAX3056[0m  a struct field that declares no type  (struct-field-untyped)
+  [93mAX3057[0m  a `strict` restriction the effect walk cannot prove  (restriction-unproven)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
