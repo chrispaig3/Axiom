@@ -1,0 +1,94 @@
+; exit 76 (see .exit)
+; `MM-ALLOC-16b`, enforced. An evidence record is an ordinary arena
+; object with no protection from reclamation, so a program that resets
+; a mark taken BEFORE a `handle` whose extent is still live frees the
+; record the slot still points at - and the next operation dispatches
+; through it. The rule said a program MUST NOT, and nothing said so
+; when one did.
+;
+; Measured on the compiler at `ac169e1`, on the third block below,
+; before the check existed:
+;
+;     dispatched through a freed evidence record
+;     exit 0
+;
+; - the operation ran, off memory the same call had reclaimed, and the
+; program exited successfully. It traps now, with status 76 and a
+; sentence, and `MM-ALLOC-16b` is an implementation obligation rather
+; than a program one.
+;
+; THE FIRST TWO BLOCKS ARE THE HALF THAT MUST NOT MOVE. A trap is only
+; worth having if it fires on nothing else, and the two legal shapes
+; either side of this one are easy to break by accident:
+;
+;   - a mark taken INSIDE the extent and reset inside it. The record
+;     was allocated before the mark, so it sits below the waterline
+;     and the reset cannot reach it. This is the ordinary use.
+;   - a mark and reset with no handle in scope at all, which is every
+;     arena program in the tree today.
+;
+; NEITHER DOES THE RECOVERY PATH TRAP, and it is the one that looked
+; like it would. `__axiom_recover_abort` IS an arena reset across a
+; live extent - that is its whole job - but `emitRecoverRuntime` calls
+; `@__axiom_recover_load` BEFORE `@__axiom_arena_reset_fn`, so every
+; slot has already been overwritten with its arm-time value by the
+; time the check runs. The abort arranges for the test to be false on
+; its own, with no exemption and nothing to distinguish.
+; `tests/stdlib/401-recover-effect.ax` is that path and still exits 71.
+;
+; The status is in `.exit`, the sentence in `.err`, and neither checks
+; the other: a program that printed the right sentence and exited 0
+; fails on the status, and one that exited 76 in silence fails on the
+; stderr.
+(import IO)
+
+(import Mem)
+
+(effect Console
+  (log :: (-> String Int)))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    ; --- LEGAL: the mark is taken inside the extent ---
+    (handle {
+      (let ((m __axiom_arena_mark))
+        {
+          (memAlloc 64)
+          (__axiom_arena_reset m)
+          (log "inner mark, reset inside the extent")
+        }
+      )
+      0
+    } (Console IO Alloc Mut) (lambda (s) { (println s) 0 }))
+    ; --- LEGAL: no handle in scope at all ---
+    (let ((m2 __axiom_arena_mark))
+      {
+        (memAlloc 64)
+        (__axiom_arena_reset m2)
+        (println "no handle in scope")
+      }
+    )
+    ; --- ILLEGAL: the mark predates the extent ---
+    ;
+    ; `m3` is taken before the `handle`, so the evidence record the
+    ; handler installs sits ABOVE the waterline this reset restores.
+    ; The reset reclaims it and the `log` below would dispatch through
+    ; it. This is where the process ends.
+    (let ((m3 __axiom_arena_mark))
+      (handle {
+        (__axiom_arena_reset m3)
+        (log "dispatched through a freed evidence record")
+        0
+      } (Console IO Alloc Mut) (lambda (s) { (println s) 0 }))
+    )
+    ; NOT REACHED, and deliberately not a bare numeral: this program's
+    ; status comes from the trap rather than from its last expression,
+    ; and this line is the tripwire for the check being removed - if a
+    ; reset past a live handle is ever accepted again, this runs and
+    ; the golden says so.
+    (printlnLit (strCStr "UNREACHABLE: the reset past a live handle was accepted"))
+  }
+)

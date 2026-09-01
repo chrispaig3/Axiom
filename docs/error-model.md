@@ -697,9 +697,18 @@ same question. By the time the trap is reached the unwind walk has
 already pushed every chunk it passed onto the free list hunting for one
 that was not there, which is precisely the list an abort would then
 reset through. 70, 71 and 72 are the *programmer error* class this
-paragraph describes, which a process can be written to survive; 75 is a
-violated implementation invariant (`I8`), and it is nearer the
-memory-safety fault the paragraph above refuses to contain.
+paragraph describes, which a process can be written to survive; 75 and
+76 are violated implementation invariants (`I8`, and `MM-ALLOC-16b`'s
+evidence-record extent), and both are nearer the memory-safety fault
+the paragraph above refuses to contain.
+
+**76's exclusion is the sharper of the two.** An abort's whole job is
+restoring evidence slots, so answering "a slot points into memory this
+reset is about to reclaim" by running the slot-restoring abort asks the
+corrupted structure the same question. It is also why the trap needs no
+exemption for the recovery path in the other direction: the abort
+restores every slot *before* it resets, so the check is already false
+by the time it runs (`docs/memory-model.md` `MM-ALLOC-16b`).
 
 **What it is not.** It is not unwinding, not a `catch`, and not an early
 return, so `ERR-REC-1` stands as written for everything except these

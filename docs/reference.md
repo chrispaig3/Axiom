@@ -1397,10 +1397,13 @@ not appear in function types. Untagged functions ARE policed: silence
 is the claim "performs no IO", and a body performing IO under it is
 `AX3042`, an error. Only `IO` is REQUIRED - `Alloc` and `Mut` are
 ambient, inferred and reported but never demanded, and the line was
-measured rather than chosen: of the 3,421 functions in the compiler and
-its standard library, 2,095 perform something at all, and 1,664 of those
+measured rather than chosen, and re-measured 2026-08-31: of the 3,616
+declarations `symbols self_host/main.ax` lists for the compiler and its
+standard library, 2,290 perform something at all, and 1,721 of those
 perform exactly `Alloc,Mut` - which is every function that touches a
-`String` or a `Vec`. `IO` is the one effect a caller cannot learn
+`String` or a `Vec`. `Mut` alone is on 2,126 of the 2,290, so requiring
+it would be requiring a tag on 93% of everything that has an effect at
+all. `IO` is the one effect a caller cannot learn
 without opening the callee. `Alloc` and `Mut` are still DECLARABLE, and
 checked when declared:
 `;@axiom:effect(mut)` over a body that writes a field is accepted, and
@@ -1444,7 +1447,7 @@ it:
 | a head that is not a name | `((b.f) x)`, an `if` or `match` in head position |
 | a `let` bound to anything but a name or a lambda literal | `(let ((g b.f)) (g 7))` |
 | a pattern binder | `(match h ((Wrap f) (f 7)))` |
-| an unfollowable value handed to an effect-transparent position | `(fn (p h b) (h b.f))` |
+| an unfollowable value handed to an effect-transparent position whose declared type could hold a function | `(fn (p h b) (h b.f))` |
 
 The first three are one route through memory wearing three spellings -
 a function value goes into a struct, a data constructor or a container
@@ -1457,6 +1460,20 @@ is not modelled is the value handed **into** the transparent position.
 "Pure modulo its function parameters" excuses `h`; it does not excuse
 an argument the walk cannot name, and `b.f` is a word out of a struct
 that the transparent parameter will call.
+
+**And it asks the callee's signature which positions those are.** An
+arrow, a type variable or poison can hold a callable value; a concrete
+`Int` cannot, so a value the walk could not follow, landing in an
+`Int` position, hides nothing — applying it is `AX3004` and the
+program does not compile. `(fn (twice f x) (f (f x)))` under
+`(-> (-> Int Int) Int Int)` is therefore complete, and the *same body*
+under `(-> (-> a a) a a)` is not, because a caller may instantiate `a`
+to an arrow. Until 2026-08-31 the argument's shape decided alone, and
+`vecSiftDownBy` — `(cmp (memGetWord d r) (memGetWord d k))` against a
+`cmp` declared `(-> Int Int Int)` — published the standard library's
+sort as a lower bound on the strength of two machine words its own
+signature calls integers, so `restrict(no-io)` over anything that
+sorted answered `AX3051` rather than yes or no.
 
 The walk records that, `symbols` prints it as `#effects-incomplete`,
 and claim checking splits on it:
@@ -3053,7 +3070,7 @@ one, so a piped session and a typed one produce the same bytes.
 
 ```
 $ axiom repl
-Axiom 0.6.1 - REPL
+Axiom 0.6.2 - REPL
 Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))

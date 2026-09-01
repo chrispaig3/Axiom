@@ -69,7 +69,16 @@ NOTRUN_RE='check-(windows-hello)\.sh$'
 NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a bare run is a usage error, not a result'
 
 # Gates whose result depends on having the machine to themselves.
-SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost)\.sh$'
+# `check-compat` joined on 2026-09-01, and it is the first member added
+# for a reason that is neither a clock nor a ratio. It shells out to
+# `git diff --quiet` over a regenerated baseline and rebuilds its own
+# probe compilers; under six-way parallelism it failed three times in
+# one evening - "a public name leaves the API", "adding a public name
+# was not reported ADDED" - and passed alone every time, three for
+# three. A gate that fails for load is worse than a slow one: it
+# teaches its reader to re-run rather than to read, which is the habit
+# `run-gates.sh`'s own header exists to prevent.
+SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat)\.sh$'
 
 # THE TWO REPL GATES ARE NOT HERE, and they were nearly added on
 # 2026-08-31 on the strength of a comment. `check-repl-selfhost.sh`'s
