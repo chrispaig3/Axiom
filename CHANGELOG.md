@@ -16,6 +16,110 @@ its changelog too.
 
 ## Unreleased
 
+### Three ways to write a claim that could not fail
+
+Ada round 1 and 1.5 put five checked claims in the AXTAG namespace —
+`pure`, `effect(...)`, `restrict(...)`, `pre(...)`, `post(...)`. Each
+of the three below is a place where one of them was *written*,
+*accepted*, and *never answered*. None was refused, none warned, and
+in two of the three the program went on to do the thing the claim said
+it did not.
+
+- **A restriction over a body that calls its own parameter was
+  silent.** `(fn (runIt f n) (f n))` under `restrict(no-io)` checked
+  `OK` with no diagnostic at all, and `{ (f "x") n }` printed to
+  stdout at run time. The same silence covered `no-alloc`,
+  `no-foreign`, `no-recursion` and `no-cast:deep`; `no-recursion` was
+  silent over a program that really recurses — `runIt -> back ->
+  runIt`, a cycle whose middle edge is a parameter the call graph has
+  no edge for.
+  The compiler KNEW: `symbols` renders `#effect-params=f` on exactly
+  these rows (`FnEnt` word 6) and nothing in `typecheck.ax` read it.
+  It is `AX3051` now, a warning, the **third** reading of
+  "unverifiable" beside present-only-as-POSSIBLE and
+  row-incomplete — and a warning rather than `AX3049` because the
+  claim is not refuted here, it is chosen at every call site. The two
+  LEXICAL restrictions, `no-cast` and `no-wrap`, are excluded on the
+  same line the header already draws: a parameter cannot change the
+  bytes of this body.
+  **Blast radius 0 over the tree's own claims, measured**: across
+  `self_host/main.ax`, 347 rows carry a restriction, 5 carry
+  `#effect-params=`, and the intersection is empty — the derived
+  manifest gains 11 rows and moves none.
+  It is NOT zero over the gate that blankets a corpus with them, and
+  that is where the change had to be admitted rather than assumed:
+  `check-restrictions.sh` section 1 restricts every `fn` of 172
+  programs and asserted that an `AX3051` may only land on a row marked
+  `#effects-incomplete` or `#effects-overapprox`. Four programs then
+  failed it — `520-fn-values`, `972-polymorphic-signature`,
+  `997-let-box-value-escapes`, `999-placeholder-under-arrow`, each on a
+  row carrying `#effect-params=` and neither of the other two. The
+  gate is right to have caught it: a new reading is admitted there one
+  marker at a time, in a `while` loop with the three named, rather than
+  by widening a test until nothing fails it.
+  `tests/diagnostics/391-restrict-effect-transparent.ax` is five
+  warnings — one per transitive restriction — and five controls.
+
+- **An AXTAG on the FIRST declaration a macro template generates was
+  thrown away.** `expCopyDeclInto` copies the first generated
+  declaration into the invocation's own node, and it copied words 0,
+  1, 2, 3, 4, 5, 6 and 9 while writing a literal **0** into word 7,
+  the AXTAGs. Measured with one near-miss key moved one line between
+  two runs of the same file: above the template's first declaration,
+  nothing; above its second, `AX3039`. The claims that matter split
+  the same way — `restrict(no-io)` on a template whose first
+  declaration is the `::` checked `OK` over a body calling `println`,
+  and a `;@axiom:pre` there compiled to no check at all.
+  `tests/diagnostics/361-macro-template-effect.ax` records three bugs
+  in this family, closed on 2026-08-25; this is the fourth, and 361
+  could not see it because 361's tag sits on the template's fifth
+  declaration. The word is copied like every other word now. The zero
+  existed so `expGiveTags` could park an INVOCATION's tag on the first
+  generated `fn` unconditionally — it does not need to, because that
+  walk already reads each generated declaration's own word 7 to decide
+  whether it is spoken for, and only the invocation node's copy was
+  ever zeroed. `tests/diagnostics/392-macro-template-first-tag.ax` has
+  both arms firing and one control silent; ablated by restoring
+  `(memSetWord d 7 0)`, both errors vanish.
+
+- **Every AXTAG typed at the REPL prompt was dropped in silence, and
+  one of them could not be written anywhere else.** The loop discards
+  any line beginning with `;`, which an AXTAG does, so
+  `;@axiom:restrict(no-io)` typed above a function that calls
+  `println` drew `AX3042` for the undeclared effect and **nothing**
+  for the restriction — where the same three lines in a file draw
+  both. The second half is worse than a dropped claim:
+  `;@axiom:effect(io)` was dropped too, so an IO-performing function
+  could not be DEFINED at the prompt at all — measured, `(fn (shout n)
+  { (println "hi") n })` answers "`shout` performs IO and its
+  declaration does not say so" whatever the author types above it, and
+  there is no workaround at the prompt, because `(println "hi")` as an
+  EXPRESSION works only through the tag `replWrapper` writes itself.
+  Effect enforcement (2026-08-25) created that, and nothing noticed
+  because no session in the bank declares an effect.
+  A `;@axiom:` line is appended to `declsSrc` now, where
+  `parseModuleWith (lex wrapper) (scanAxtags wrapper)` reads it. Two
+  edges come with it and both are handled where they arise: a
+  REDEFINITION withdraws the claims written about the definition it
+  replaces (`replDropMatching` extends the removed range back over the
+  contiguous `;@axiom:` lines above the declaration — without it, a
+  withdrawn function's `restrict(no-io)` would sit above whatever
+  declaration came next); and a TRAILING tag, typed with no
+  declaration under it yet, is stripped from the copy the wrapper
+  compiles, because `replWrapper` splices `(:: __repl_result ...)` in
+  directly after `declsSrc` and the tag would be answered against the
+  REPL's own carrier. It stays in `declsSrc` and attaches to whatever
+  is declared next, which is what it would do in a file.
+  `replTopLevelSpans` counts parens over the TOKEN stream and the lexer
+  drops comments, so `;@axiom:pre((> n 0))` cannot be mistaken for a
+  top-level form however many parens it carries — which is what makes
+  this safe to put in `declsSrc` at all.
+  `tests/repl/150-axtag-shape` pins all three halves: an IO-performing
+  function DEFINED at the prompt and run, a tagged declaration
+  redefined above it so a stale claim would refuse that function if
+  the drop did not take its tags, and a `restrict(no-io)` typed at the
+  prompt and answered with the path.
+
 ### Pre/post contracts: the one claim in this namespace the checker cannot decide
 
 `;@axiom:pre(...)` and `;@axiom:post(...)` are the second of the three
@@ -23,10 +127,11 @@ items `docs/checked-arithmetic-design.md` left unstarted, and they are
 the first claim in this AXTAG namespace the checker CANNOT refuse.
 `restrict(...)` is answered statically because the effect row and the
 call graph are fixpoints the checker already computes; `(> n 0)` is a
-statement about a VALUE, and `grep -c
+statement about a VALUE, and `grep -v '^ *;' FILE | grep -c
 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
 `self_host/typecheck.ax`, `self_host/codegen.ax` and
-`self_host/expand.ax` answers 0, 0 and 0. So a contract is compiled
+`self_host/expand.ax` answers 0, 0 and 0 - comment lines excluded,
+because the sentence making the claim matches the pattern it quotes. So a contract is compiled
 INTO the body and checked on every call, which is Ada's answer, and a
 failure writes ``axiom: precondition failed in `half`: (> n 0)`` on fd
 2 and exits **76**. Not behind a flag: a check that is off by default

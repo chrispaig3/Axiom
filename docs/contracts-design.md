@@ -30,15 +30,24 @@ A contract is a different kind of claim. `(> n 0)` is a statement about
 a **value**, and this compiler has no value analysis at all:
 
 ```
-$ grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal' \
-      self_host/typecheck.ax self_host/codegen.ax self_host/expand.ax
-self_host/typecheck.ax:0
-self_host/codegen.ax:0
-self_host/expand.ax:0
+$ for f in self_host/typecheck.ax self_host/codegen.ax self_host/expand.ax; do
+    grep -v '^ *;' $f | grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'
+  done
+0
+0
+0
 ```
 
 There is no constant folder, no interval domain, no abstract value of
-any kind. So the refusal a `restrict` gets is *not available* for a
+any kind.
+
+**The comment lines are excluded, and that is not a thumb on the
+scale.** Without the exclusion the same grep answers 1, 1, 1 on the
+merged tree, and all three hits are this note's own sentence, quoted
+into those three files, saying there are none. A measurement that its
+own citation falsifies is worth spelling correctly rather than
+quietly: the command above is the one that stays 0 as the sentence
+spreads. So the refusal a `restrict` gets is *not available* for a
 contract, at any call site the compiler has not seen — and even at one
 it has seen, deciding `(> n 0)` for a non-literal argument would need
 machinery that does not exist and that this slice is not the place to

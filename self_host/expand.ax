@@ -7078,7 +7078,50 @@
     (memSetWord d 4 (memGetWord g 4))
     (memSetWord d 5 1)
     (memSetWord d 6 (memGetWord g 6))
-    (memSetWord d 7 0)
+    ; WORD 7 IS COPIED LIKE EVERY OTHER WORD, and it was a literal 0
+    ; until 2026-08-31. That zero made the FIRST declaration a template
+    ; generates the one place in this language where an AXTAG could be
+    ; written and never read - not refused, not warned about, dropped.
+    ;
+    ; Measured on the merged tree before this line changed, with the
+    ; same near-miss key moved one declaration down between runs:
+    ;
+    ;   (macro defF ((defF nm) ;@axiom:pur (fn (nm n) n) (:: nm ...)))
+    ;       -> nothing
+    ;   (macro defF ((defF nm) (:: nm ...) ;@axiom:pur (fn (nm n) n)))
+    ;       -> W AX3039 axtag-key-typo
+    ;
+    ; and the same split for the claims that matter: `restrict(no-io)`
+    ; over a template whose first declaration is the `::` checked `OK`
+    ; on a body that calls `println`, and a `;@axiom:pre` there compiled
+    ; to no check at all. `attachAxtags` had already been taught to walk
+    ; a macro's rules for exactly this reason
+    ; (`tests/diagnostics/361-macro-template-effect.ax` records the
+    ; three bugs it took), and `expBuildDecls` copies word 7 onto every
+    ; generated node - so the tag was parsed, attached, copied, and
+    ; then zeroed here.
+    ;
+    ; The zero was not arbitrary: `expGiveTags` below parks the
+    ; INVOCATION's tags on the first generated `fn`, and clearing the
+    ; word first made that write unconditional. It does not need to be.
+    ; `expGiveTagsIn` already reads `made[i]`'s own word 7 to decide
+    ; whether a generated function is spoken for - "an invocation's
+    ; tags are a claim about a different thing and must not overwrite
+    ; them" - and `made[0]`'s word is intact, because only this copy
+    ; was ever zeroed. So with the template's tags kept here, an
+    ; invocation-level tag lands on the first UNTAGGED generated `fn`
+    ; exactly as its own comment says it should, and a template-level
+    ; tag survives on element 0 exactly as it does on element 1.
+    ;
+    ; ONE CASE STILL LOSES A TAG, named rather than left to be found: a
+    ; template that generates NO `fn` at all, whose element 0 carries a
+    ; tag, AND whose invocation carries one too. `expGiveTagsIn`'s
+    ; no-fn fall-through writes the invocation's tags over this word,
+    ; so the template's are lost. That case lost them before this
+    ; change as well - every case did - so nothing regresses; it is
+    ; simply the one this line does not reach, and an invocation tag on
+    ; a template with no `fn` is inert by that function's own comment.
+    (memSetWord d 7 (memGetWord g 7))
     (memSetWord d 9 (memGetWord g 9))
     0
   }
@@ -7515,8 +7558,10 @@
 ;
 ; WHY THE LOWERING IS HERE AND NOT IN THE EMITTER. A contract is a
 ; claim this compiler cannot verify: there is no value analysis in this
-; tree at all (measured: `grep -c 'constFold\|interval\|rangeOf'` over
-; `typecheck.ax`, `codegen.ax` and this file answers 0, 0, 0), so
+; tree at all (measured: `grep -v '^ *;' FILE | grep -c
+; 'constFold\|interval\|rangeOf'` over `typecheck.ax`, `codegen.ax`
+; and this file answers 0, 0, 0 - the comment lines are excluded
+; because this sentence matches the pattern it quotes), so
 ; `(> n 0)` is not a question the checker can answer about a caller it
 ; has not seen. What it CAN do is make the claim load-bearing at run
 ; time, which is Ada's answer, and this project's rule that a claim

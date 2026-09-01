@@ -1494,9 +1494,9 @@ rather than answering it.
 ### explain AX3051
 AX3051 - a restriction claim the effect walk is not in a position to check
 
-`;@axiom:restrict(no-io)`, `no-alloc`, `no-foreign` or `no-recursion`
-over a body whose effect row the walk could not close. Two readings make a claim
-unverifiable, each in one direction:
+`;@axiom:restrict(no-io)`, `no-alloc`, `no-foreign`, `no-recursion` or
+`no-cast:deep` over a body whose answer this walk cannot settle. THREE
+readings make a claim unverifiable:
 
   - the row is a LOWER bound - the body calls a value the walk could
     not resolve (a struct field holding a function, an opaque local,
@@ -1505,14 +1505,26 @@ unverifiable, each in one direction:
   - the effect is only POSSIBLE - it arrived by naming an arrow-typed
     function without calling it, or through a trait method with more
     than one implementation - so its presence is not evidence the
-    body performs it. `symbols` prints these as `#effects-possible=`.
+    body performs it. `symbols` prints these as `#effects-possible=`;
+  - the body CALLS one of its own parameters. The row is complete
+    about this body and answers the wrong question: what the call
+    performs is decided by the argument each caller passes.
+    `symbols` prints `#effect-params=f`, and this reading is why a
+    restriction is not read the way `;@axiom:pure` is. `pure` on
+    `(fn (apply f x) (f x))` STANDS - "pure modulo its function
+    parameters" is what purity means on a higher-order function -
+    because it describes a BODY. `restrict(no-io)` reads to whoever
+    calls it as a guarantee about calling it, and that is the
+    caller's to decide.
 
 An effect present in a lower bound IS evidence, and is AX3049; so is
-an effect the body performs beside one it may.
+an effect the body performs beside one it may, and so is an effect a
+body performs concretely while also calling a parameter - the claim is
+refuted there rather than undecided.
 
 A WARNING, and the difference from AX3049 is the point: this is a
 limit of the ANALYSIS rather than a defect in the program. It is
-AX3037's argument at one remove, over the same two readings - a
+AX3037's argument at one remove - a
 `(handle ((b.f) 7) ...)` over a pure `b.f` is a correct program, and
 refusing it would make dispatch through a stored function unwriteable
 rather than unverified. `no-cast` and `no-wrap` never draw this: a
@@ -1522,7 +1534,8 @@ only when no cast was found in this body or the closure the walk
 could enumerate - a cast found refutes the claim whatever else the
 walk could not close.
 
-Name the function at the call, or drop the claim. This code is in
+Name the function at the call, stop calling the parameter, or drop the
+claim. This code is in
 tests/diagnostics/severity.policy, the list of the unanswerable, and
 a code that becomes answerable leaves it.
 

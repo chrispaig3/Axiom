@@ -1,0 +1,19 @@
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `quiet`: `effect(io)` claim unsupported: missing IO[0m
+  [1;34m--> [0m392-macro-template-first-tag.ax:64:11
+[1;34m   |[0m
+[1;34m64 |[0m (defQuiet quiet)
+[1;34m   |[0m           [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `loud` claims `restrict(no-io)` and the body performs IO: loud -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3[0m
+  [1;34m--> [0m392-macro-template-first-tag.ax:62:10
+[1;34m   |[0m
+[1;34m62 |[0m (defLoud loud)
+[1;34m   |[0m          [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 2 previous errors

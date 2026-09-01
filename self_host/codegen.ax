@@ -13922,8 +13922,10 @@
 ; `(__contract cond "message")` - the run-time half of a
 ; `;@axiom:pre(...)` / `;@axiom:post(...)`, and the only thing that
 ; makes a contract more than a comment: this compiler has no value
-; analysis (measured: `grep -c 'constFold\|interval\|rangeOf'` over
-; `typecheck.ax` and this file answers 0 and 0), so `(> n 0)` about an
+; analysis (measured: `grep -v '^ *;' FILE | grep -c
+; 'constFold\|interval\|rangeOf'` over `typecheck.ax` and this file
+; answers 0 and 0 - the comment lines are excluded because this
+; sentence matches the pattern it quotes), so `(> n 0)` about an
 ; unseen caller is not a question it can decide statically.
 ;
 ; A branch and a trap, in the shape `emitAndOr` uses for its own two

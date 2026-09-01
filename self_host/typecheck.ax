@@ -15990,11 +15990,16 @@
 ; evidence that the body performs it. `effIncomplete` says the row is
 ; a LOWER bound - the walk met a call it could not resolve - so an
 ; effect ABSENT under that mark is not evidence that the body does
-; not. Each reading is unverifiable in exactly one direction:
-; present-only-as-possible, absent-and-incomplete.
+; not. Each of those two readings is unverifiable in exactly one
+; direction: present-only-as-possible, absent-and-incomplete.
 ; Present-and-incomplete is a VIOLATION, because a lower bound that
 ; already contains the effect is the body performing it whatever the
-; unresolved call adds. Both unverifiable answers are AX3051, a
+; unresolved call adds.
+;
+; A THIRD READING was added on 2026-08-31 and is NOT about a row the
+; walk failed to close - it is about a row the walk closed, over a
+; body whose answer is not this body's to give. See
+; `restrictTransparent` below. All three answers are AX3051, a
 ; WARNING, for AX3037's reason: a limit of the analysis is not a
 ; defect in the program, and refusing `((b.f) 7)` under
 ; `restrict(no-io)` would make dispatch through a stored function
@@ -16153,11 +16158,155 @@
   (if (>= i (vecLen rs))
     0
     {
-      (checkOneRestrict tc d (vecGetStr rs i) eff)
+      ; THE THIRD READING OF "UNVERIFIABLE", asked only when the two
+      ; the header already describes said nothing. `checkOneRestrict`
+      ; either refutes the claim (AX3049), reports it unverifiable
+      ; (AX3051) or is silent; silence is the only case where a body
+      ; that CALLS one of its own parameters has not been accounted
+      ; for, and asking after the fact rather than before is what
+      ; keeps a definite violation reported once, as a violation.
+      ; Counting the diagnostics vector is how "said nothing" is
+      ; answered without threading a return value through six checks.
+      (let ((before (vecLen (tcOut tc))))
+        {
+          (checkOneRestrict tc d (vecGetStr rs i) eff)
+          (if (== (vecLen (tcOut tc)) before)
+            (restrictTransparent tc d (vecGetStr rs i))
+            0
+          )
+        }
+      )
       (checkRestrictsFrom
         tc        d        rs        (+ i 1)        eff
       )
     }
+  )
+)
+
+; A TRANSITIVE RESTRICTION OVER AN EFFECT-TRANSPARENT BODY CANNOT BE
+; CHECKED, and until 2026-08-31 it was not merely unchecked but SILENT.
+;
+; `docs/reference.md` (Effect Polymorphism) records the reading that
+; makes `;@axiom:pure` on `(fn (apply f x) (f x))` stand: a
+; higher-order function's summary has two halves, the effects its own
+; body performs and the parameters it CALLS, and claims are validated
+; against the concrete half. That is right for `pure`, which is a claim
+; about a BODY. A restriction is not read that way by anyone: `no-io`
+; on a declaration reads as "calling this performs no IO", and for a
+; body whose work is its argument's that is the caller's business.
+;
+; MEASURED BEFORE THIS EXISTED, on the merged tree: `(fn (runIt f n)
+; (f n))` under each of the five transitive restrictions checked `OK`
+; with no diagnostic at all, and `restrict(no-io)` over `{ (f "x") n }`
+; printed to stdout at run time. `no-recursion` was silent over a
+; program that really does recurse - `runIt -> back -> runIt`, a cycle
+; whose middle edge is a parameter the call graph has no edge for.
+;
+; The compiler KNEW. `symbols` renders `#effect-params=f` on exactly
+; these rows (`FnEnt` word 6), and nothing in this file read it. That
+; is the same shape as `restrict(no-alloc)` before `MM-EXEC-9a`'s
+; constructor row closed: a marker that exists, a check that does not
+; consult it, and a claim that therefore cannot fail.
+;
+; AX3051 AND NOT AX3049, because the claim is not refuted - it is
+; undecidable here, and which way it falls is chosen at every call
+; site. That is AX3037's argument, and it is the same warning the two
+; existing readings get.
+;
+; THE LEXICAL TWO ARE EXCLUDED, and that is the same line the header
+; draws: `no-cast` and `no-wrap` are properties of the bytes of THIS
+; body, which a parameter cannot change.
+;
+; BLAST RADIUS, measured over `self_host/main.ax`: 347 rows carry a
+; restriction, 5 rows carry `#effect-params=`, and the intersection is
+; **0**. Nothing in this tree changes; the check costs one `vecLen`
+; per restriction claim on the silent path.
+(pub :: restrictTransparent (-> Int Int String Int))
+
+(pub fn (restrictTransparent tc d r)
+  (if (== (restrictIsTransitive r) 0)
+    0
+    (let ((ent (findFnEnt tc (nodeAName d))))
+      (if (== ent 0)
+        0
+        (let ((eps (memGetWord ent 6)))
+          (if (== eps 0)
+            0
+            (if (== (vecLen eps) 0)
+              0
+              (emitRestrictUnverifiable
+                tc                d                r                (strConcat (strConcat "the body CALLS its own parameter " (restrictEparamNames d eps 0 "")) ", so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call")
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The five that are decided by walking somewhere else - the effect row,
+; which is a transitive fixpoint, or the call graph. `no-cast` and
+; `no-wrap` are lexical and are deliberately not here; keep this in
+; step with the Scope column of `docs/reference.md`'s restriction
+; table, which is where the distinction is stated to the author.
+(pub :: restrictIsTransitive (-> String Int))
+
+(pub fn (restrictIsTransitive r)
+  (if (strEq r "no-io")
+    1
+    (if (strEq r "no-alloc")
+      1
+      (if (strEq r "no-foreign")
+        1
+        (if (strEq r "no-recursion")
+          1
+          (if (strEq r "no-cast:deep")
+            1
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+; The effect-transparent parameters by NAME, backticked and comma
+; joined. `FnEnt` word 6 holds indices, and `symbols` renders them the
+; same way (`saJoinComma` over the header's names); a diagnostic that
+; said `parameter 0` would make the author count.
+(pub :: restrictEparamNames (-> Int Int Int String String))
+
+(pub fn (restrictEparamNames d eps i acc)
+  (if (>= i (vecLen eps))
+    acc
+    (restrictEparamNames
+      d      eps      (+ i 1)      (strConcat
+        (if (== (strLen acc) 0)
+          ""
+          (strConcat acc ", ")
+        )        (strConcat (strConcat "`" (restrictParamName d (vecGet eps i))) "`")
+      )
+    )
+  )
+)
+
+; The `k`th parameter's spelling, from the `fn` header. A `::` with no
+; `fn` under it never reaches `checkRestricts`, and an index the header
+; is too short for is impossible unless the two disagree - answered
+; with the index rather than a crash, because a diagnostic is not the
+; place to discover that.
+(pub :: restrictParamName (-> Int Int String))
+
+(pub fn (restrictParamName d k)
+  (let ((ps (nodeB d)))
+    (if (== ps 0)
+      "?"
+      (if (>= k (vecLen ps))
+        "?"
+        (vecGetStr ps k)
+      )
+    )
   )
 )
 
@@ -17166,7 +17315,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3051"      "restriction-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))      0      0      "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved"
+      SEV_WARNING      "AX3051"      "restriction-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))      0      0      "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved"
     ))
   )
 )
@@ -17198,9 +17347,13 @@
 ; answers it already exists - the effect row and the call graph are
 ; fixpoints this checker computes anyway. A contract is not that kind
 ; of claim. `(> n 0)` is a statement about a VALUE, and there is no
-; value analysis in this compiler at all - measured, `grep -c
-; 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
-; `typecheck.ax`, `codegen.ax` and `expand.ax` answers 0, 0, 0 - so
+; value analysis in this compiler at all - measured, `grep -v '^ *;'
+; FILE | grep -c 'constFold\|constantFold\|interval\|rangeOf\|
+; abstractVal'` over `typecheck.ax`, `codegen.ax` and `expand.ax`
+; answers 0, 0, 0. The comment lines are excluded because THIS
+; sentence matches the pattern it quotes: without the exclusion the
+; same grep answers 1, 1, 1 and all three hits are a note saying there
+; are none - so
 ; the checker cannot decide it for a caller it has not seen, and a
 ; refusal it cannot justify is not available.
 ;

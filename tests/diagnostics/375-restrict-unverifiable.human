@@ -4,7 +4,7 @@
 [1;34m41 |[0m (fn (viaField b n) ((b.f) n))
 [1;34m   |[0m      [1;33m^^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
 
 [1;33mwarning[AX3051][0m[1m: `handoff` claims `restrict(no-io)` and the claim cannot be checked: `IO` reaches the effect row only as a possible effect - the body names a function without calling it, or calls a trait method with more than one implementation - so its presence is not evidence the body performs it[0m
@@ -13,7 +13,7 @@
 [1;34m46 |[0m (fn (handoff k) shout)
 [1;34m   |[0m      [1;33m^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `leaks` claims `restrict(no-io)` and the body performs IO: leaks -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3[0m

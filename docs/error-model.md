@@ -954,8 +954,10 @@ What it refuses is worth stating precisely, because a contract is the
 first claim in the AXTAG namespace this compiler **cannot decide**.
 `restrict(...)` is refused from analysis the checker already performs;
 `(> n 0)` is a statement about a VALUE, and there is no value analysis
-in this tree at all - `grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over `self_host/typecheck.ax`,
-`self_host/codegen.ax` and `self_host/expand.ax` answers 0, 0, 0. So
+in this tree at all - `grep -v '^ *;' FILE | grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
+`self_host/typecheck.ax`, `self_host/codegen.ax` and
+`self_host/expand.ax` answers 0, 0, 0, the comment lines excluded
+because the sentence making the claim matches the pattern it quotes. So
 the claim is enforced at RUN TIME: `expLowerContracts` compiles the
 check into the body, and a failure writes ``axiom: precondition failed
 in `half`: (> n 0)`` on fd 2 and exits 76.

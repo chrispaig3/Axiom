@@ -1429,6 +1429,14 @@ not perform concretely is accepted when a callback could supply it.
 The exception is a claimed effect that no declaration introduces at
 all: nothing could ever supply it, so it warns regardless.
 
+**`restrict(...)` is read differently, and deliberately.** "No IO
+modulo its function parameters" is not what a reader takes
+`restrict(no-io)` to mean, so a transitive restriction on a body that
+calls one of its own parameters is `AX3051` - unverifiable - rather
+than accepted (`restrict(...)` below). The difference is not a policy
+choice: `pure` describes a body, and a restriction is a guarantee
+about calling it.
+
 Attribution is otherwise unchanged: a *reference* to a named function
 answers for that function's effects at the reference site, and a
 lambda literal answers for its body where the literal appears.
@@ -1633,15 +1641,34 @@ A violation is `AX3049`, an **error** with no warning stage, for the
 argument that made `AX3010` one: the tag is a claim the author wrote,
 and a build shipping a false one publishes a guarantee the program
 does not keep. Deleting the tag silences it and *withdraws* the claim;
-an unrestricted function is never asked. A claim over a row the walk
-could not close is `AX3051`, a warning in
-`tests/diagnostics/severity.policy`, in exactly one direction per
-reading: an effect ABSENT from a row that is a lower bound
-(`#effects-incomplete`), or present only as a POSSIBLE effect
-(`#effects-possible=`, the row's `#effects-overapprox` admission). An
-effect present in a lower bound, or definite beside a possible one, is
-a violation. `no-cast` and `no-wrap` never draw `AX3051`: both are
-lexical and are checked whether or not a call resolved.
+an unrestricted function is never asked. A claim this walk cannot settle
+is `AX3051`, a warning in `tests/diagnostics/severity.policy`, and
+there are **three** readings.
+
+Two are about a row that is not closed, one direction each: an effect
+ABSENT from a row that is a lower bound (`#effects-incomplete`), or
+present only as a POSSIBLE effect (`#effects-possible=`, the row's
+`#effects-overapprox` admission). An effect present in a lower bound,
+or definite beside a possible one, is a violation.
+
+The third is about a row that IS closed and answers the wrong
+question. A body that CALLS one of its own parameters is
+effect-transparent — `symbols` says so, `#effect-params=f` — and what
+it performs is decided by the argument each caller passes. Effect
+Polymorphism above records that `;@axiom:pure` on `(fn (apply f x) (f
+x))` stands, because purity is a claim about a BODY; a restriction is
+not read that way by anyone, so a transitive restriction on such a
+function is `AX3051` rather than silence. Measured before this reading
+existed: `(fn (runIt f n) { (f "x") n })` under `restrict(no-io)`
+checked `OK` with no diagnostic at all and printed to stdout at run
+time, and `no-recursion` was silent over `runIt -> back -> runIt`, a
+cycle whose middle edge is a parameter the graph has no edge for. A
+body that performs the effect concretely AND calls a parameter is
+`AX3049`: refuted beats undecided.
+
+`no-cast` and `no-wrap` never draw `AX3051` under any of the three:
+both are lexical, are checked whether or not a call resolved, and a
+parameter cannot change the bytes of this body.
 
 A restriction is a **per-declaration** claim. A tag attaches to the
 declaration written below it, on the `::` or on the `fn`, and both
@@ -1661,10 +1688,13 @@ here whose claim the checker cannot refuse, and the design follows from
 that rather than from taste. `restrict(...)` is refused statically
 because the effect row and the call graph are fixpoints the checker
 already computes; `(> n 0)` is a statement about a VALUE, and there is
-no value analysis in this compiler at all - measured, `grep -c
-'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
-`self_host/typecheck.ax`, `self_host/codegen.ax` and
-`self_host/expand.ax` answers 0, 0 and 0. A claim nothing checks is a
+no value analysis in this compiler at all - measured, `grep -v '^ *;'
+FILE | grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'`
+over `self_host/typecheck.ax`, `self_host/codegen.ax` and
+`self_host/expand.ax` answers 0, 0 and 0. The comment lines are
+excluded because the sentence making the claim matches the pattern it
+quotes; without the exclusion it answers 1, 1, 1, all three of them
+that sentence. A claim nothing checks is a
 comment, and this project refuses those, so a contract is **compiled
 into the body** and checked on every call - which is what Ada does, and
 for the same reason.
