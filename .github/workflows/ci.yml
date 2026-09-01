@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Fifty-two of the gates below build the compiler under test from
+    # Fifty-three of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -672,6 +672,20 @@ jobs:
       # did not.
       - name: A closure chain's intermediate record is reclaimed, and one word in each walker is what does it
         run: ./scripts/check-closure-reclaim.sh
+
+      # What an `Option` costs, counted rather than timed.
+      # `docs/unboxed-sums-design.md` measures the wrapper at 11.86 ns
+      # and prototypes a `{tag, payload}` register pair at 0.36 ns; its
+      # section 4 asks for this gate BEFORE any code generation moves,
+      # so the win is asserted by a number in the emitted module and
+      # not by a stopwatch on a shared runner. `optFind` builds one
+      # block today and its matching consumer performs one release;
+      # both go to 0 when the specialisation lands, in the same commit
+      # that moves the code generator. Two probes keep it honest - a
+      # second construction must raise the count, and moving the
+      # construction to another function must leave this one at zero.
+      - name: What an Option construction costs, in blocks
+        run: ./scripts/check-unboxed-sums.sh
 
       # And the release traffic that could not free anything. Measured
       # 2026-08-31 over the compiler's own emitted IR (`emit-llvm

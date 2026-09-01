@@ -16,6 +16,44 @@ its changelog too.
 
 ## Unreleased
 
+### The gate that will prove the `Option` win, before the win exists
+
+**`scripts/check-unboxed-sums.sh`** — the gate
+`docs/unboxed-sums-design.md` §4 asks for, written first and on
+purpose. It counts the heap blocks an `Option` construction costs **in
+the emitted IR**, for a fixture whose matched lookups are a known
+number. Fifty-three gates call `gate_build_axc` now, up from fifty-two.
+
+Why a count and not a timing: `bench-compile.sh` is explicit that a
+wall-clock bound on a shared runner is a flaky test, and the ratio
+gates here measure scaling rather than constants. Blocks-per-
+construction is neither — it is a property of the module, it is exact,
+and it is what the optimisation is about. A timing gate goes red on a
+noisy runner and stays green on a representation regression; this does
+the reverse.
+
+Seven checks:
+
+* the fixture answers `249500` at `--opt` 0, 1 and 2, because a faster
+  wrong answer is not the goal and behaviour is asserted before cost;
+* `optFind` builds **1** block and its matching consumer performs **1**
+  release — the numbers are in the gate, and **when the register-pair
+  specialisation lands both become 0, which is the proof**. The win
+  gets asserted by a number in the emitted module rather than by a
+  stopwatch;
+* a **second construction must raise the count** — without it, an awk
+  range that matched nothing would read 0 and look exactly like a
+  landed optimisation, which is this repository's most common defect;
+* the count is **anchored on one definition** — moving the
+  construction into a different function must leave `optFind` at 0.
+  The third check proves the counter can rise; the fourth proves it is
+  not just counting every `axiom_alloc` in the program.
+
+The fixture lives in the gate as a heredoc rather than under `tests/`:
+every `.ax` added to `tests/selfhost/` is swept by gates carrying
+population counts, and a fixture whose only reader is this gate should
+not move numbers in gates that have nothing to say about it.
+
 ### `Option` and `Result` can be free: 11.86 ns of box, measured away
 
 **`docs/unboxed-sums-design.md`** — designed, prototyped, **not built**.
