@@ -75,10 +75,14 @@ bad() { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL $*"; }
 # representation regression.
 ALLOC_EXPECT=0
 RELEASE_EXPECT=0
-# What a REFUSED shape still costs. `(Option String)` carries a
-# reference, which `pairRetOK` declines - the block owns a share of it
-# today and a pair has no refcount to hand that share back with.
+# What a REFUSED shape still costs. A scrutinee that is not a DIRECT
+# call - here a `let`-bound one - keeps the boxed path, which is what
+# proves `calls_in` can read a nonzero count at all.
 REFUSED_ALLOC_EXPECT=1
+# Bytes the arena bump may move over 20,000 iterations of each
+# reference-carrying loop. A leaked payload is 32 bytes and up per
+# iteration, so a real leak is megabytes and this bound is not close.
+ARENA_BOUND=4096
 GOLDEN=249500
 
 mkdir -p "$work/us"
@@ -196,22 +200,160 @@ fi
 
 # ------------------------------------------------------------------
 echo
-echo "== 3. negative probe: a REFUSED shape still boxes, and is counted =="
+echo "== 3. a REFERENCE payload, and a Result: specialised, and no leak =="
 # ------------------------------------------------------------------
-# The instrument check, and the safety restriction, in one. If
-# `calls_in` matched nothing - a renamed symbol, an awk range that
-# never opened - section 2's zeroes would read 0 for that reason
-# instead of for the optimisation. A reference payload is the shape
-# `pairRetOK` declines, so it must still allocate.
+# The two shapes the first slice refused. `(Option String)` carries a
+# share the block used to own; `(Result Int Error)` carries a MACHINE
+# WORD in one arm and a share in the other, so the release belongs to
+# the arm and not to the match.
+#
+# The arena mark is the instrument (`tests/stdlib/370-error-propagation.ax`
+# uses the same cell: word 0 is the bump, word 2 is the chunk). A
+# leaked payload is 32 bytes and up per iteration, so 20,000
+# iterations of each would move megabytes; the bound below is 4096 and
+# the measured figure is ~208. A chunk crossing answers -1 and fails,
+# because a flat line through a moved chunk would be unmeasurable.
 cat > "$work/us/ref.ax" <<'AX'
 (import IO)
 
-(:: optStr (-> Int (Option String)))
+(import Str)
 
-(fn (optStr n)
+(import Fmt)
+
+(import Err)
+
+(import Mem)
+
+(:: nameOf (-> Int (Option String)))
+
+(fn (nameOf n)
+  (if (== (% n 3) 0)
+    None
+    (Some (strConcat "n" (fmtInt n)))
+  )
+)
+
+(:: half (-> Int (Result Int Error)))
+
+(fn (half n)
+  (if (== (% n 2) 0)
+    (Ok (/ n 2))
+    (Err (mkError 7 "odd"))
+  )
+)
+
+(:: loopOpt (-> Int Int Int Int))
+
+(fn (loopOpt i n acc)
+  (if (>= i n)
+    acc
+    (loopOpt (+ i 1) n (+ acc (match (nameOf i) ((Some s) (strLen s)) ((None) 0))))
+  )
+)
+
+(:: loopRes (-> Int Int Int Int))
+
+(fn (loopRes i n acc)
+  (if (>= i n)
+    acc
+    (loopRes (+ i 1) n (+ acc (match (half i) ((Ok v) v) ((Err e) (errCode e)))))
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (a1 (memGetWord __axiom_arena_mark 0))
+    (c1 (memGetWord __axiom_arena_mark 2))
+    (s1 (loopOpt 0 20000 0))
+    (s2 (loopRes 0 20000 0))
+    (a2 (memGetWord __axiom_arena_mark 0))
+    (c2 (memGetWord __axiom_arena_mark 2))
+  )
+    {
+      (println s1)
+      (println s2)
+      (println (if (== c1 c2) (- a2 a1) (- 0 1)))
+      0
+    }
+  )
+)
+AX
+if ! "$axc" emit-llvm --input "$work/us/ref.ax" -o "$work/us/ref.ll" > "$work/us/ref.log" 2>&1; then
+  bad "the reference/Result fixture did not compile"
+  sed 's/^/     /' "$work/us/ref.log" | head -10
+else
+  np="$(grep -c '^define { i64, i64 }' "$work/us/ref.ll" || true)"
+  if (( np == 2 )); then
+    ok "both \`nameOf\` and \`half\` get a register-pair variant"
+  else
+    bad "$np pair variant(s) for a reference payload and a Result, wanted 2"
+  fi
+  # `Err`'s payload is a share and `Ok`'s is a word, so exactly ONE of
+  # the two arms may release. Releasing both is a wild read of an Int.
+  hr="$(calls_in "$work/us/ref.ll" loopRes axiom_release)"
+  if (( hr == 1 )); then
+    ok "the Result consumer releases on one arm only - \`Err\`'s share, not \`Ok\`'s word"
+  else
+    bad "the Result consumer emits $hr release(s), wanted 1: releasing \`Ok\`'s
+     machine word would hand axiom_release an Int above 4096 and it
+     would read it as a block header"
+  fi
+fi
+
+if "$axc" build --opt 2 --input "$work/us/ref.ax" --output "$work/us/ref" > /dev/null 2>&1; then
+  # No `mapfile`: the macOS runner ships bash 3.2, which is why
+  # `gate_prose_docs_abs` is a function rather than a `mapfile` too.
+  "$work/us/ref" > "$work/us/ref.out" 2>&1 || true
+  r0="$(sed -n '1p' "$work/us/ref.out")"
+  r1="$(sed -n '2p' "$work/us/ref.out")"
+  moved="$(sed -n '3p' "$work/us/ref.out")"
+  if [[ "$r0" == "72594" && "$r1" == "50065000" ]]; then
+    ok "both loops answer what they answered boxed"
+  else
+    bad "the loops answer '$r0' and '$r1', wanted 72594 and 50065000"
+  fi
+  if [[ "$moved" =~ ^[0-9]+$ ]] && (( moved < ARENA_BOUND )); then
+    ok "the arena moved $moved bytes over 40,000 iterations - the shares are given back"
+  else
+    bad "the arena moved '$moved' bytes (bound $ARENA_BOUND, -1 means the chunk
+     changed and the measurement is not flat). A payload retained and
+     not released, or released twice, shows here first."
+  fi
+else
+  bad "the reference/Result fixture did not build"
+fi
+
+# ------------------------------------------------------------------
+echo
+echo "== 4. negative probe: a scrutinee that is not a direct call still boxes =="
+# ------------------------------------------------------------------
+# The instrument check. If `calls_in` matched nothing, section 2's
+# zeroes would read 0 for that reason rather than for the
+# optimisation. A `let`-bound scrutinee is outside the rewrite, so it
+# must still build a block.
+cat > "$work/us/indirect.ax" <<'AX'
+(import IO)
+
+(:: optFind (-> Int (Option Int)))
+
+(fn (optFind n)
   (if (< n 0)
     None
-    (Some "hit")
+    (Some (* n 2))
+  )
+)
+
+(:: viaLet (-> Int Int))
+
+(fn (viaLet n)
+  (let ((r (optFind n)))
+    (match r
+      ((Some v) v)
+      ((None) 0)
+    )
   )
 )
 
@@ -220,53 +362,25 @@ cat > "$work/us/ref.ax" <<'AX'
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (match (optStr 1) ((Some s) s) ((None) "miss")))
+    (println (viaLet 21))
     0
   }
 )
 AX
-if ! "$axc" emit-llvm --input "$work/us/ref.ax" -o "$work/us/ref.ll" > "$work/us/ref.log" 2>&1; then
-  bad "probe: the reference-payload variant did not compile"
-  sed 's/^/     /' "$work/us/ref.log" | head -10
+if ! "$axc" emit-llvm --input "$work/us/indirect.ax" -o "$work/us/indirect.ll" > /dev/null 2>&1; then
+  bad "probe: the let-bound-scrutinee variant did not compile"
 else
-  ra="$(calls_in "$work/us/ref.ll" optStr axiom_alloc)"
-  rp="$(grep -c '^define { i64, i64 }' "$work/us/ref.ll" || true)"
-  if [[ "$ra" == "$REFUSED_ALLOC_EXPECT" ]] && (( rp == 0 )); then
-    ok "probe: an (Option String) gets no pair variant and still builds $ra block - the counter reads the IR, and the reference restriction is live"
+  ia="$(calls_in "$work/us/indirect.ll" optFind axiom_alloc)"
+  if [[ "$ia" == "$REFUSED_ALLOC_EXPECT" ]]; then
+    ok "probe: a let-bound scrutinee keeps the boxed path and builds $ia block - the counter reads the IR"
   else
-    bad "probe: (Option String) built $ra block(s) and $rp pair variant(s), wanted $REFUSED_ALLOC_EXPECT and 0.
-     A pair variant here would hand the consumer a payload with no
-     refcount behind it, which is a use-after-free and not a speedup."
+    bad "probe: the boxed path built $ia block(s), wanted $REFUSED_ALLOC_EXPECT"
   fi
-  if "$axc" build --input "$work/us/ref.ax" --output "$work/us/ref" > /dev/null 2>&1; then
-    got="$("$work/us/ref" 2>&1 || true)"
-    if [[ "$got" == "hit" ]]; then
-      ok "probe: the refused shape still answers correctly"
-    else
-      bad "probe: the refused shape answers '$got', wanted 'hit'"
-    fi
+  in0="$(calls_in "$work/us/indirect.ll" optFindAbsent axiom_alloc)"
+  if [[ "$in0" == "0" ]]; then
+    ok "probe: a name with no definition reads 0, so the range is one definition"
   else
-    bad "probe: the refused shape did not build"
-  fi
-fi
-
-# ------------------------------------------------------------------
-echo
-echo "== 4. negative probe: the count is anchored on one definition =="
-# ------------------------------------------------------------------
-# Section 2 reads `optFind$pair`; this proves that range is a
-# definition and not the whole module.
-# Its own emission: `build` above removes the `.ll` beside its output.
-if ! "$axc" emit-llvm --input "$work/us/ref.ax" -o "$work/us/anchor.ll" > /dev/null 2>&1; then
-  bad "probe: could not emit IR for the anchoring probe"
-else
-  aw="$(calls_in "$work/us/anchor.ll" optStr axiom_alloc)"
-  an="$(calls_in "$work/us/anchor.ll" optStrAbsent axiom_alloc)"
-  if (( aw > 0 )) && [[ "$an" == "0" ]]; then
-    ok "probe: \`optStr\` reads $aw and a name with no definition reads $an, so the range is one definition"
-  else
-    bad "probe: \`optStr\` reads $aw and an absent name reads $an - the counter
-     is not anchored on one definition, so section 2 is counting the module"
+    bad "probe: an absent name reads $in0 - the counter is not anchored"
   fi
 fi
 

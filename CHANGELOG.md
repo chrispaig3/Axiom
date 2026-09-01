@@ -16,6 +16,62 @@ its changelog too.
 
 ## Unreleased
 
+### `Result` and reference payloads join the register pair
+
+**The two shapes the first slice refused are admitted.**
+`(Result T E)` — both arms fieldful — and any `Option`/`Result` whose
+payload is a **reference** now specialise. `pairRetOK` accepts `Option`
+with one type argument and `Result` with two, of any class the
+reference maps can name; `pairEntryOfArity` accepts `rep 0` (all-boxed,
+which is what `Result` is) beside `rep 2`.
+
+**The ownership rule, which is the whole of the work.**
+
+* **Construction retains only what does not already own a share.** A
+  reference payload is moved when `valueOwnedRef` says the value
+  arrived owned, and retained when it is borrowed.
+  `emitFieldStores` reaches the same place by a longer road — retain,
+  store, then release the temporary again — which is a move written as
+  +1 −1. Here it is written as nothing at all.
+* **The release belongs to the ARM, not to the match.** A block was
+  released once because one release reached every field through the
+  shape word. A pair has no shape word, and `(Result Int Error)` has a
+  machine word in `Ok` and a share in `Err`, so releasing
+  unconditionally would hand `axiom_release` an `Int` above 4096 and it
+  would read it as a block header. Each arm releases its own payload,
+  or does not.
+* **`scrutineeReleasable` is reused unchanged**, so an arm whose binder
+  escapes still turns the release off for the whole match — the same
+  guard the boxed path uses.
+
+**THE FIRST VERSION OF THE RETAIN RULE LEAKED, and the gate now catches
+it.** Retaining unconditionally meant `(Err (mkError ...))` — which
+answers an owned `Error` — took a second share, and the consumer's
+single release left one behind: **13.5 MB against 1.28 MB boxed** over
+100,000 iterations. Fixed, and re-measured at **1.30 MB**.
+
+**The gate grew the assertion that found it**: 10 checks to 13. It now
+compiles a fixture over both new shapes and reads the **arena mark**
+(`tests/stdlib/370-error-propagation.ax` uses the same cell — word 0
+the bump, word 2 the chunk) before and after 40,000 iterations. The
+bump moves **208 bytes**; a leaked payload is 32 bytes and up per
+iteration, so a real leak is megabytes. It also asserts the Result
+consumer emits **exactly one** release — releasing both arms is the
+wild read above.
+
+**Coverage, stated plainly.** On the compiler's own source this changes
+nothing — still 3 variants and 11 call sites, because `self_host/` does
+not use `Result` or a reference `Option` in the direct-call-immediately-
+matched shape. `tests/stdlib/371-err-module.ax` gets 1 variant and 2
+sites, so it does fire on real `Result` code. What the slice buys is
+that the shapes are no longer refused, which is what the rest of
+ERR-ADOPT-1 is written in.
+
+VALIDATED: byte-identical fixpoint (198,937 lines, twice),
+`run-stdlib-tests` 95/95, `check-self-host` 179/179, `check-fmt`,
+`check-compat` (32), `check-restrictions` (20), `check-agent-policy`,
+`check-unboxed-sums` (13).
+
 ### `Option Int` is free: the register pair, built
 
 **`(Some v)` no longer allocates where it is immediately matched.**

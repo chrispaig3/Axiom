@@ -326,6 +326,38 @@ lookups so nothing is dead. The three variants differ only in the body
 of the loop: a raw `-1` compared against zero, a `match` on a boxed
 `(Option Int)`, and a `match` on the register pair.
 
+## 5a. `Result` and reference payloads, 2026-09-01
+
+The first slice refused both. They are admitted now, and the ownership
+rule is the whole of the change.
+
+**A reference payload is a SHARE.** The block it replaces owned one;
+the pair has no refcount, so the share travels in the payload register
+and the consumer gives it back. Construction retains only when
+`valueOwnedRef` says the value did not already own one — a move, where
+`emitFieldStores` writes the same move as a retain followed by a
+release.
+
+**The release belongs to the ARM.** One release reached every field of
+a block through the shape word. A pair has no shape word, and
+`(Result Int Error)` carries a machine word in `Ok` and a share in
+`Err`; releasing unconditionally would hand `axiom_release` an `Int`
+above 4096 to read as a block header. `pairPayloadClass` decides per
+arm, positionally — `Some` and `Ok` take type argument 0, `Err` takes
+argument 1 — because the constructor entries are polymorphic and
+cannot answer it. A third type wants its own line there, which is why
+it refuses rather than guesses.
+
+**`scrutineeReleasable` is reused unchanged**, so a binder that escapes
+still disables the release for the whole match.
+
+**Getting the retain wrong is a leak, not a crash, and it happened.**
+Retaining unconditionally double-counted an owned temporary:
+`(Err (mkError ...))` at 100,000 iterations read **13.5 MB against
+1.28 MB boxed**. After the fix, 1.30 MB. The gate now reads the arena
+mark across 40,000 iterations and requires the bump to move under 4096
+bytes; it measures 208.
+
 ## 6a. Benchmarked after building, 2026-09-01
 
 Three findings, and the third corrects an earlier number in this

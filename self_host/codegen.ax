@@ -9890,7 +9890,7 @@
         (let ((cgP 
           (if (== (pairFnOK cgD node) 1)
             {
-              (pairSetSlot cgD 0 1)
+              (pairSetSlot cgD 0 (pairRetTyOf cgD node))
               (let ((cgQ (drainPending (emitFnDef node cgD))))
                 {
                   (pairSetSlot cgQ 0 0)
@@ -10328,7 +10328,7 @@
           )
         ))
           (let ((hdr 
-            (if (== (pairSlot cg 0) 1)
+            (if (!= (pairSlot cg 0) 0)
               (strConcat (cat4 "define { i64, i64 } @" (strConcat (llvmSym (strDup name)) "$pair") "(" paramStr2) ") #0 {")
               (strConcat (cat4 "define i64 @" (llvmSym (strDup name)) "(" paramStr2) ") #0 {")
             )
@@ -10372,7 +10372,7 @@
                             ; `emitExprTail` is where a leaf is
                             ; recognised as one a register pair can
                             ; carry.
-                            (if (|| (== (pairSlot cg1c 0) 1) (|| (== wantsTCO 1) (> (vecLen (memGetWord cg1c 41)) 0)))
+                            (if (|| (!= (pairSlot cg1c 0) 0) (|| (== wantsTCO 1) (> (vecLen (memGetWord cg1c 41)) 0)))
                               (emitExprTail body cg1c)
                               (emitExpr body cg1c)
                             )
@@ -11358,7 +11358,7 @@
   ; other expression, and every leaf in the ordinary variant, takes the
   ; path below unchanged.
   (let ((pen 
-    (if (== (pairSlot cg 0) 1)
+    (if (!= (pairSlot cg 0) 0)
       (pairLeafEntry cg e)
       0
     )
@@ -12334,10 +12334,10 @@
 
 ; `emitArms` against a pair. The same chain - test, bind, body, store,
 ; branch to the merge - with the pattern step reading registers.
-(pub :: emitPairArms (-> Int String String String String Int Int Int Int))
+(pub :: emitPairArms (-> Int String String String String Int Int Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitPairArms arms tagR payR cell mergeB cg i ff)
+(pub fn (emitPairArms arms tagR payR cell mergeB cg i ff rt rel)
   (if (>= i (vecLen arms))
     {
       (storeWordAt cg cell 0 "0")
@@ -12360,13 +12360,32 @@
             0
           ))
           (bv (strDup (memGetWordStr cgB 2)))
+          ; THE SHARE THE PAIR CARRIED, GIVEN BACK PER ARM. A block was
+          ; released once because one release reached every field
+          ; through the shape word; a pair has no shape word, so the
+          ; release belongs to the arm whose payload is a REFERENCE -
+          ; `Err`'s and not `Ok`'s in a `(Result Int Error)`. Releasing
+          ; unconditionally would hand `axiom_release` an `Int` that
+          ; happens to exceed 4096 and it would read it as a block
+          ; header.
+          ;
+          ; `rel` is `scrutineeReleasable`'s answer, so an arm whose
+          ; binder ESCAPES has already turned this off for the whole
+          ; match - the same guard the boxed path uses.
+          (_r (if (== rel 1)
+            (if (== (pairPayloadClass cgB rt (pairArmCtorName pat)) 2)
+              (emitReleaseOf cgB (strDup payR))
+              cgB
+            )
+            cgB
+          ))
           (_d (storeWordAt cgB cell 0 bv))
           (_e (emitLine cgB (cat2 "  br label %" mergeB)))
           (_f (emitLabel cgB nextB))
           (_g (symRestore cgB mark))
         )
           (emitPairArms
-            arms            tagR            payR            cell            mergeB            cgB            (+ i 1)            ff
+            arms            tagR            payR            cell            mergeB            cgB            (+ i 1)            ff            rt            rel
           )
         )
       )
@@ -12375,6 +12394,21 @@
 )
 
 ; Every arm is a shape `emitPairPatMatch` can test.
+; The constructor an arm's pattern names.
+(pub :: pairArmCtorName (-> Int String))
+
+(pub fn (pairArmCtorName pat)
+  (if (== (nodeTag pat) TAG_P_CON0)
+    (nodeAName pat)
+    (let ((h (patHead pat)))
+      (if (== h 0)
+        ""
+        (cast String h)
+      )
+    )
+  )
+)
+
 (pub :: pairArmsOK (-> Int Int Int Int))
 
 (pub fn (pairArmsOK cg arms i)
@@ -12419,6 +12453,23 @@
 ; to be a DIRECT call to a function that got a pair variant, and every
 ; arm a shape the register test can answer. Anything else keeps the
 ; boxed path.
+; The declared result type of the function a match scrutinee calls.
+(pub :: pairScrutRetTy (-> Int Int Int))
+
+(pub fn (pairScrutRetTy cg scrutExpr)
+  (let ((hn (spineHeadName scrutExpr)))
+    (if (== (strLen hn) 0)
+      0
+      (let ((e (findFSigCg cg (mangledForCg cg hn))))
+        (if (== e 0)
+          0
+          (arrowResultTy (memGetWord e 3))
+        )
+      )
+    )
+  )
+)
+
 (pub :: pairMatchOK (-> Int Int Int Int))
 
 (pub fn (pairMatchOK cg scrutExpr arms)
@@ -12471,21 +12522,28 @@
     (_1 (emitLine cg1 (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" "")))
     (mn (allocReg cg1))
     (mergeB (labelStr mn))
-    ; A pair is not a block: nothing to release, nothing to park.
-    (rel (if (== gotPair 2)
+    ; The pair carries the same share the block did, so the same
+    ; question is asked - `emitPairArms` gives it back PER ARM instead
+    ; of once, because there is no shape word to reach the payload
+    ; through.
+    (rel (scrutineeReleasable node scrutExpr cg1))
+    (prt (if (== gotPair 2)
+      (pairScrutRetTy cg1 scrutExpr)
       0
-      (scrutineeReleasable node scrutExpr cg1)
     ))
     (pmark (vecLen (memGetWord cg1 42)))
     (_p (if (== rel 1)
-      (vecPush
-        (memGetWord cg1 42)        (cast Int sv)
+      (if (== gotPair 2)
+        0
+        (vecPush
+          (memGetWord cg1 42)          (cast Int sv)
+        )
       )
       0
     ))
     (cg2 (if (== gotPair 2)
       (emitPairArms
-        arms        tagR        sv        cell        mergeB        cg1        0        ff
+        arms        tagR        sv        cell        mergeB        cg1        0        ff        prt        rel
       )
       (emitArms
         arms        sv        cell        mergeB        cg1        0        ff
@@ -12503,7 +12561,11 @@
     ))
   )
     (if (== rel 1)
-      (releaseScrutinee sv cg3)
+      (if (== gotPair 2)
+        ; already given back, per arm, above
+        cg3
+        (releaseScrutinee sv cg3)
+      )
       cg3
     )
   )
@@ -16961,20 +17023,81 @@
     0
     (if (!= (nodeTag rt) TAG_T_CON)
       0
-      (if (strEq (cast String (nodeA rt)) "Option")
+      (let ((tn (cast String (nodeA rt))))
         (let ((args (nodeB rt)))
           (if (== args 0)
             0
-            (if (!= (vecLen args) 1)
-              0
-              (if (== (fldClass cg (vecGet args 0)) 0)
-                1
+            (if (strEq tn "Option")
+              (if (== (vecLen args) 1)
+                (pairArgClassOK cg (vecGet args 0))
+                0
+              )
+              (if (strEq tn "Result")
+                (if (== (vecLen args) 2)
+                  (if (== (pairArgClassOK cg (vecGet args 0)) 1)
+                    (pairArgClassOK cg (vecGet args 1))
+                    0
+                  )
+                  0
+                )
                 0
               )
             )
           )
         )
+      )
+    )
+  )
+)
+
+; A payload type the pair can carry: a machine word (`fldClass` 0) or a
+; REFERENCE (2). Unclassifiable (1) is refused, because the retain and
+; the release below are decided from this answer and a wrong bit is a
+; use-after-free rather than a leak - `scalarTyName`'s own rule.
+(pub :: pairArgClassOK (-> Int Int Int))
+
+(pub fn (pairArgClassOK cg t)
+  (let ((c (fldClass cg t)))
+    (if (== c 0)
+      1
+      (if (== c 2)
+        1
         0
+      )
+    )
+  )
+)
+
+; The class of the payload constructor `cname` carries, given the
+; declared return type `rt`: 0 a machine word, 2 a reference, -1 no
+; payload at all.
+;
+; POSITIONAL, AND BY NAME, for the two types this slice covers.
+; `(pub data Result (a e) (Ok a) (Err e))` binds its parameters in
+; order, so `Ok` takes argument 0 and `Err` argument 1; `Option`'s
+; `Some` takes argument 0. The constructor entry cannot answer this -
+; `newCG` seeds `Some` with `(mkTVar "a")` and `Result`'s arms are
+; polymorphic too - so the mapping lives here rather than being
+; derived from a field type that is a type variable. A third type
+; wants its own line, which is why this refuses rather than guesses.
+(pub :: pairPayloadClass (-> Int Int String Int))
+
+(pub fn (pairPayloadClass cg rt cname)
+  (let ((args (nodeB rt)))
+    (if (== args 0)
+      (- 0 1)
+      (if (strEq cname "Err")
+        (if (< (vecLen args) 2)
+          (- 0 1)
+          (fldClass cg (vecGet args 1))
+        )
+        (if (strEq cname "Some")
+          (fldClass cg (vecGet args 0))
+          (if (strEq cname "Ok")
+            (fldClass cg (vecGet args 0))
+            (- 0 1)
+          )
+        )
       )
     )
   )
@@ -17040,7 +17163,10 @@
       0
       (if (!= (eKind en) TF_DATA)
         0
-        (if (!= (eRep en) 2)
+        ; rep 2 mixes immediates with blocks (`Option`); rep 0 is all
+        ; blocks (`Result`, whose arms both carry a field). rep 1 is
+        ; all-nullary - already immediate, nothing to unbox.
+        (if (&& (!= (eRep en) 2) (!= (eRep en) 0))
           0
           (if (!= (eArity en) want)
             0
@@ -17188,6 +17314,19 @@
 ;   body shape      something that would be lifted twice
 ;   self tail call  TCO rewrites it into a jump to a loop header, and
 ;                   the pair variant would need its own
+; The declared result type of `node`, or 0. What `pairPayloadClass`
+; reads to decide whether a payload is a share or a word.
+(pub :: pairRetTyOf (-> Int Int Int))
+
+(pub fn (pairRetTyOf cg node)
+  (let ((e (findFSigCg cg (nodeAName node))))
+    (if (== e 0)
+      0
+      (arrowResultTy (memGetWord e 3))
+    )
+  )
+)
+
 (pub :: pairFnOK (-> Int Int Int))
 
 (pub fn (pairFnOK cg node)
@@ -17232,6 +17371,20 @@
 ; tail plumbing above - `emitIfTail`, `emitSeqTail`, `emitLetAt` -
 ; already knows how to handle an arm that did that, and
 ; `emitFnDef` already knows not to write a `ret` after one.
+; The constructor a pair leaf names: `None` from a bare reference,
+; `Some` from the head of an application.
+(pub :: pairCtorNameOf (-> Int String))
+
+(pub fn (pairCtorNameOf e)
+  (if (== (nodeTag e) TAG_E_VAR)
+    (nodeAName e)
+    (if (== (nodeTag e) TAG_E_APP)
+      (nodeAName (nodeA e))
+      ""
+    )
+  )
+)
+
 (pub :: emitPairRet (-> Int Int Int Int))
 
 ;@axiom:effect(io)
@@ -17247,6 +17400,30 @@
     (let ((cgA (emitExpr (nodeB e) cg)))
       (let (
         (v (strDup (memGetWordStr cgA 2)))
+        ; A REFERENCE payload takes a share, because the block this
+        ; replaces took one (`fieldRetainCode`) and the consumer
+        ; releases it on the way out of the match. A value that is
+        ; already a fresh construction owns its share and is moved,
+        ; which is the same exception `emitFieldStores` makes.
+        ; A REFERENCE payload takes a share only when the value does
+        ; not already own one. `emitFieldStores` reaches the same place
+        ; by a longer road - it retains, stores, and then releases the
+        ; temporary again when `valueOwnedRef` says the value arrived
+        ; owned - which is a MOVE written as +1 -1. Here it is written
+        ; as nothing at all.
+        ;
+        ; Getting this wrong is not a crash, it is a LEAK, and the
+        ; first version of this line retained unconditionally:
+        ; `(Err (mkError ...))` answered an owned `Error`, took a
+        ; second share, and the consumer's single release left one
+        ; behind - 13.5 MB against 1.28 MB over 100,000 iterations.
+        (_rt (if (== (pairPayloadClass cg (pairSlot cg 0) (pairCtorNameOf e)) 2)
+          (if (== (valueOwnedRef cgA (nodeB e)) 1)
+            cgA
+            (emitRetainOf cgA v)
+          )
+          cgA
+        ))
         (r0 (regStr (allocReg cgA)))
         (r1 (regStr (allocReg cgA)))
       )
