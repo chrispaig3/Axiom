@@ -771,7 +771,36 @@ five on `output` being written where the manifest named `myapp`. The
 including the four `pkgCheckLines` refusals that do not depend on the
 key being known.
 
+### Eighteen breaks were declared against a version that has no release
+
+`compat/BREAKING` filed the `ERR-ADOPT-1` slice 2 and 3 rows under
+`0.6.2`. All eighteen landed *after* 0.6.2's release commit, when
+`VERSION` still read `0.6.2` — after a release commit the number names
+the version BEHIND the work rather than the one ahead of it, which is
+the hazard declaring breaks early exists to avoid — and 0.6.2 was never
+tagged. Someone upgrading `v0.6.1` → `v0.6.3` would have read eighteen
+breaks attributed to a hop they were not making.
+
+They say `0.6.3` now, under a block that says why.
+
+**The gate accepted all eighteen**, and that is the part worth writing
+down. `check-compat.sh`'s `declared_newer` asks only whether the
+declared version beats the BASELINE, and `0.6.2` beats `0.5.0`; the
+gate's own line even reads *"every breaking difference is declared in
+compat/BREAKING for 0.6.3"* while accepting rows that say otherwise.
+The rule it does not hold is that a declaration must name a version
+that shipped, or the one being cut. Noted rather than fixed: the check
+needs the tag list in the checkout, which is a CI question and not a
+release-eve one.
+
 ## 0.6.2 — 2026-09-01
+
+**This version was cut but never published.** Its release commit moved
+all 18 version sites and went green on CI, and no `v0.6.2` tag was ever
+pushed — so there is no release to download, and `install.sh` cannot
+resolve one. Everything below is in 0.6.3, which supersedes it. The
+section stays rather than folding into 0.6.3 because the commit is real
+and this file records what happened.
 
 Two silent memory faults become diagnosed exits, and over half the
 compiler's reference-counting traffic turns out to have been calls that

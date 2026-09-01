@@ -167,21 +167,43 @@
 # tree needed it, found by compiling with the refusal armed rather
 # than by grep.
 0.6.1  L  set-field  a write to a field not declared `mut` is AX3012; add `mut` to the field
-0.6.2  F  netBind            -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
-0.6.2  F  netListen          -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
-0.6.2  F  netConnect         -errno -> (Result Int Error), row gains Alloc: EINPROGRESS is now Error.code
-0.6.2  F  netShutdown        -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
-0.6.2  F  netSetOptInt       -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
-0.6.2  F  netSetBlocking     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
-0.6.2  F  netSetNonBlocking  -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
-0.6.2  F  sysCloseFd         -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
-0.6.2  F  netPollAddRead     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
-0.6.2  F  netPollDelRead     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
-0.6.2  F  sysSignalBlock     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
-0.6.2  F  sysKill            -errno -> (Result Int Error), row gains Alloc: Err with ESRCH is now distinguishable
-0.6.2  F  sysFileExists      row gains Alloc: it closes the descriptor it opened, and sysCloseFd now builds a Result
-0.6.2  F  sysOpenPath        -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
-0.6.2  F  netSocketTcp       Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
-0.6.2  F  netSocketTcp6      Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
-0.6.2  F  netPollCreate      Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
-0.6.2  F  netSignalOpen      -errno -> (Result Int Error), row gains Alloc: Ok 0 is the BSD handle, not an absence
+
+# 0.6.3 - ERR-ADOPT-1 slices 2 and 3: the `Net` half, and the five
+# calls whose whole answer is a descriptor. Eighteen socket, poll,
+# signal and file calls answer `(Result Int Error)` instead of an Int
+# that is a result when non-negative and a negated errno when
+# negative. They read WIDENED for the reason the 0.3.4 block gives -
+# building an `Error` allocates, so each row gained `Alloc`.
+#
+# THESE ROWS SAID `0.6.2` UNTIL THIS RELEASE WAS CUT, and that was
+# wrong in the direction that costs a reader. They landed AFTER
+# 0.6.2's release commit, when `VERSION` still read 0.6.2 - after a
+# release commit the number names the version BEHIND the work rather
+# than the one ahead of it, which is the hazard declaring breaks
+# early is meant to avoid. 0.6.2 was never tagged, so the version
+# these named has no release: someone upgrading from v0.6.1 to v0.6.3
+# would have read eighteen breaks attributed to a hop they were not
+# making.
+#
+# `check-compat.sh` accepted them all. `declared_newer` asks only
+# whether the declared version beats the BASELINE, and 0.6.2 beats
+# 0.5.0. The rule it does not check is that a declaration must name a
+# version that actually shipped, or the one being cut.
+0.6.3  F  netBind            -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.3  F  netListen          -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.3  F  netConnect         -errno -> (Result Int Error), row gains Alloc: EINPROGRESS is now Error.code
+0.6.3  F  netShutdown        -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.3  F  netSetOptInt       -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.3  F  netSetBlocking     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.3  F  netSetNonBlocking  -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.3  F  sysCloseFd         -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
+0.6.3  F  netPollAddRead     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
+0.6.3  F  netPollDelRead     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
+0.6.3  F  sysSignalBlock     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
+0.6.3  F  sysKill            -errno -> (Result Int Error), row gains Alloc: Err with ESRCH is now distinguishable
+0.6.3  F  sysFileExists      row gains Alloc: it closes the descriptor it opened, and sysCloseFd now builds a Result
+0.6.3  F  sysOpenPath        -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.3  F  netSocketTcp       Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
+0.6.3  F  netSocketTcp6      Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
+0.6.3  F  netPollCreate      Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
+0.6.3  F  netSignalOpen      -errno -> (Result Int Error), row gains Alloc: Ok 0 is the BSD handle, not an absence
