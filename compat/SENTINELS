@@ -227,9 +227,48 @@
 # implementation lives in `Platform.windows.ax`. `failure` cannot be
 # finished outside `Sys.ax` before `sysWriteFd`/`sysReadFd` move.
 
+# PORTED 2026-09-01, ERR-ADOPT-1 SLICE 4: `stdlib/Sys.ax` 8 -> 7
+# failure. One function, `sysGetCwd`, and its `IO.cwd` wrapper.
+#
+# THIS IS THE FIRST ERR-ADOPT-1 PORT THAT COSTS A CALLER NOTHING, and
+# it is the reason the slice was worth finding rather than grinding.
+# Every previous row in `compat/BREAKING` is WIDENED - building an
+# `Error` allocates, so each ported function gained `Alloc`. These two
+# are CHANGED: `#effects=` is `Alloc,IO,Mut` BEFORE the port and
+# `Alloc,IO,Mut` after, unchanged, because the function already
+# `memAlloc`s a 4097-byte buffer and `strDup`s the answer out of it.
+# The `Ok`/`Err` constructor disappears into a row that was already
+# there.
+#
+# THE EXCLUSION THAT STOOD IN FRONT OF IT WAS A REMARK ABOUT SHAPE, NOT
+# A MEASUREMENT. This file said `sysGetCwd` "answers a `String` and its
+# failure is `""` rather than an errno, so it is a different port".
+# Both halves are true and neither is a blocker: it IS a different
+# port, and the errno was in hand at all three failure points - the
+# `open` of `.`, the `fcntl`, and the `getcwd` syscall - and was being
+# discarded. Every other exclusion in this module rests on
+# `#effects=IO` widening under `writeStr` and `println`; this one
+# rested on the return type not being an `Int`.
+#
+# WHAT THE SENTINEL COST, concretely: ERANGE (a path longer than the
+# buffer), ENOENT (a working directory unlinked out from under the
+# process) and EACCES (a `.` that cannot be opened) all arrived as the
+# same `""`, and all five call sites in the tree read it as a presence
+# test. Two of them are `self_host/lsp.ax`, which now says
+# `(unwrapOr sysGetCwd "")` - the same behaviour, with the decision
+# written down instead of inherited.
+#
+# WHAT IS LEFT IN THIS MODULE'S 7 IS UNCHANGED AND STILL EXCLUDED ON
+# MEASUREMENT: `sysWriteFd`, `sysReadFd` (per-write, per-read, `IO`
+# alone, under the printing path), `netAccept`, `netAcceptFrom`,
+# `netPollWait` (per-connection and per-wake, below the arena mark) and
+# `sysNowMicros`/`sysNowMonotonic` (clock readings). The three in
+# `stdlib/Sys/Platform.darwin.ax` remain blocked behind
+# `sysWriteFd`/`sysReadFd`, for the reasons the slice-3 note gives.
+
 stdlib/Intern.ax 0 1
 stdlib/Str.ax 0 2
-stdlib/Sys.ax 8 1
+stdlib/Sys.ax 7 1
 stdlib/Sys/Platform.darwin.ax 3 0
 stdlib/Tui/Keys.ax 0 1
 stdlib/Tui/Term.ax 0 3

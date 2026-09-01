@@ -62,6 +62,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Path)
 
 (import Json)
@@ -845,7 +847,11 @@
   (let ((abs 
     (if (pathIsAbsolute path)
       path
-      (pathJoin sysGetCwd path)
+      ; An unavailable working directory joins as `""`, which is what
+      ; this did when `sysGetCwd` answered `""` itself. A language
+      ; server that refused to name a document because `getcwd` failed
+      ; would be worse than one that names it relatively.
+      (pathJoin (unwrapOr sysGetCwd "") path)
     )
   ))
     (let (
@@ -4556,7 +4562,7 @@
 (pub fn (lspNavAbs p)
   (if (pathIsAbsolute p)
     p
-    (pathJoin sysGetCwd p)
+    (pathJoin (unwrapOr sysGetCwd "") p)
   )
 )
 

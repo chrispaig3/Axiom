@@ -61,17 +61,30 @@
 ; `fmtInt`, on the failure path, eagerly. Effects are computed over the
 ; whole body, so those reached the SUCCESS path too: measured
 ; 2026-08-31, a `Result`-returning function whose message is a literal
-; has NO effect row at all, and the same function with a built message
-; has `Alloc,Mut`. Every caller of a `sysResult`-returning function
-; inherited that, which is why porting `sysWriteAllFd` to `Result`
-; turned ten gates red and why the migration was recorded - by me, in
-; the commit before this one - as blocked by the effect row.
+; has `Alloc`, and the same function with a built message has
+; `Alloc,Mut`. Every caller of a `sysResult`-returning function
+; inherited the wider row, which is why porting `sysWriteAllFd` to
+; `Result` turned ten gates red.
 ;
-; It is not. `Ok`, `Err` and `mkError` are effect-free. The tax was
-; this line. The op name arrives as a literal at all twelve call sites,
-; the errno is already in `Error.code`, and a reader who wants the
-; sentence can build it where they read it - which is the place that
-; was going to pay for it anyway, and usually never runs.
+; SO THE LITERAL REMOVES `Mut`, NOT THE ROW - and this comment said
+; otherwise for a day. It read "`Ok`, `Err` and `mkError` are
+; effect-free" and "a literal message has NO effect row at all", and
+; concluded the migration was no longer blocked by the effect row.
+; Measured 2026-09-01: this function is `#effects=Alloc` with a literal
+; `op`, and its body is nothing but the constructor - so the
+; constructor IS the allocation. The claim was false in the direction
+; that costs, because it tells the next reader that `sysWriteFd` and
+; `sysReadFd` are now portable. They are not: they are `IO` alone
+; today and porting them widens to `Alloc,IO` under `writeStr`, under
+; `println`, at 804 expansions. `docs/error-model.md` §10 carries the
+; same measurement and had it right - `openish` `Alloc,Mut` against
+; `openLit` `Alloc`, neither of them empty.
+;
+; What the literal DOES buy is real and is kept: the op name arrives as
+; a literal at all twelve call sites, the errno is already in
+; `Error.code`, and a reader who wants the sentence builds it where
+; they read it - which is the place that was going to pay for it
+; anyway, and usually never runs.
 (pub :: sysResult (-> String Int (Result Int Error)))
 
 (pub fn (sysResult op n)
@@ -862,31 +875,52 @@
 ; has invalidated every relative path any other part of it is holding,
 ; and a setter with no caller is a syscall number nobody has run.
 ; ------------------------------------------------------------------
-; The process's working directory as an absolute path, or "" if it
-; cannot be determined.
+; The process's working directory as an absolute path: `(Ok path)`, or
+; `(Err e)` whose code is the errno the kernel refused with.
+;
+; It answered `""` until ERR-ADOPT-1's fourth slice, and
+; `""` is a sentinel that cannot say WHY: a path too long for the
+; buffer (ERANGE), a working directory unlinked out from under the
+; process (ENOENT) and a `.` that cannot be opened (EACCES) all arrived
+; as the same empty string, and every caller in the tree read it as a
+; presence test.
+;
+; THIS IS THE ONE REMAINING `failure` SENTINEL IN THIS MODULE THAT COST
+; NOTHING TO PORT, and that is measured rather than argued. `#effects=`
+; is `Alloc,IO,Mut` BEFORE this port as well as after: the buffer is
+; `memAlloc`ed and the answer `strDup`ed, so the `Ok`/`Err` constructor
+; adds no row this function did not already carry. That is exactly what
+; separates it from the rest of the module's remainder - `sysWriteFd`,
+; `sysReadFd`, `netAccept`, `netAcceptFrom`, `netPollWait` are `IO`
+; alone, and porting them widens the row under `writeStr` and under
+; `println`. The census excluded this one as "a different port"
+; because its failure is `""` rather than an errno; that is a remark
+; about SHAPE, and the shape was the only thing in the way.
 ;
 ; The length is read off the BYTES, with `strFromLit`, rather than off
 ; the syscall's result - the two platforms disagree about what that
 ; result means (Linux answers the length including the NUL, Darwin's
 ; `fcntl` answers 0) and the NUL is the one thing both write.
-(pub :: sysGetCwd String)
+(pub :: sysGetCwd (Result String Error))
 
 ;@axiom:effect(io)
 (pub fn (sysGetCwd)
   ; PATH_MAX is 4096 on Linux and 1024 on Darwin and FreeBSD; one
-  ; buffer at the larger figure serves all, and a path too long for it comes back
-  ; as "" (ERANGE) rather than truncated.
+  ; buffer at the larger figure serves all, and a path too long for it
+  ; comes back as ERANGE rather than truncated.
   (let ((buf (memAlloc 4097)))
     (if (== cwdUsesFcntlPath 1)
       (let ((fd (sysOpenRaw (__addr ".") 0)))
         (if (sysFailed fd)
-          ""
+          ; The op name is a LITERAL, per `sysResult`: what failed here
+          ; is the `open` of `.`, not the path read that never ran.
+          (Err (mkError (- 0 fd) "getcwd: open ."))
           (let ((rc (__syscall3 sysCwdNum fd fGetPath buf)))
             {
               (sysCloseFd fd)
               (if (< rc 0)
-                ""
-                (strDup (strFromLit buf))
+                (Err (mkError (- 0 rc) "getcwd"))
+                (Ok (strDup (strFromLit buf)))
               )
             }
           )
@@ -894,8 +928,8 @@
       )
       (let ((rc (__syscall2 sysCwdNum buf 4096)))
         (if (< rc 0)
-          ""
-          (strDup (strFromLit buf))
+          (Err (mkError (- 0 rc) "getcwd"))
+          (Ok (strDup (strFromLit buf)))
         )
       )
     )

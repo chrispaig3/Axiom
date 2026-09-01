@@ -223,9 +223,14 @@
       ; --- the working directory --------------------------------------
       ; Its value is the machine's, so what is checked is its SHAPE:
       ; absolute, non-empty, and usable as a prefix.
-      (set bad (+ bad (yes "cwd is absolute" (pathIsAbsolute cwd))))
-      (set bad (+ bad (yes "cwd names this file's directory" (fileExists (pathJoin cwd f)))))
-      (set n (+ n 2))
+      ; `cwd` answers `(Result String Error)` since ERR-ADOPT-1 slice
+      ; 4. Checking `isOk` first is the point of the port: the `""` it
+      ; used to answer made "getcwd failed" and "the path is empty"
+      ; the same value.
+      (set bad (+ bad (yes "cwd succeeds" (isOk cwd))))
+      (set bad (+ bad (yes "cwd is absolute" (pathIsAbsolute (unwrapOr cwd "")))))
+      (set bad (+ bad (yes "cwd names this file's directory" (fileExists (pathJoin (unwrapOr cwd "") f)))))
+      (set n (+ n 3))
       ; --- paths, which touch no syscall ------------------------------
       (set bad (+ bad (eq "pathDir" (pathDir "src/main.ax") "src/")))
       (set bad (+ bad (eq "pathDir of a bare name" (pathDir "main.ax") "")))

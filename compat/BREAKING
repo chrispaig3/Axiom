@@ -207,3 +207,22 @@
 0.6.3  F  netSocketTcp6      Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
 0.6.3  F  netPollCreate      Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
 0.6.3  F  netSignalOpen      -errno -> (Result Int Error), row gains Alloc: Ok 0 is the BSD handle, not an absence
+
+# 0.6.4 - ERR-ADOPT-1 slice 4: the working directory. `sysGetCwd` and
+# `IO.cwd` answer `(Result String Error)` instead of a `String` that is
+# the path when it worked and `""` when it did not.
+#
+# THESE ARE `CHANGED`, NOT `WIDENED`, AND THAT IS THE WHOLE REASON THE
+# SLICE EXISTS. Every earlier ERR-ADOPT-1 row gained `Alloc` because
+# building an `Error` allocates. These two do not: measured before and
+# after, `#effects=` is `Alloc,IO,Mut` either way, because the function
+# already `memAlloc`s a 4097-byte buffer and `strDup`s its answer. It
+# is the only remaining failure sentinel in `Sys.ax` that a caller pays
+# nothing new for, which is what made it portable while `sysWriteFd`,
+# `sysReadFd`, `netAccept`, `netAcceptFrom` and `netPollWait` - `IO`
+# alone - stay excluded.
+#
+# A caller that wants the old behaviour writes `(unwrapOr <call> "")`,
+# which is what both `self_host/lsp.ax` sites now say out loud.
+0.6.4  F  sysGetCwd  String -> (Result String Error): "" could not say WHY, and the errno was already in hand
+0.6.4  F  cwd        String -> (Result String Error): forwards sysGetCwd; ioResult is not used, there is no path to name

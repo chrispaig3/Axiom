@@ -16,6 +16,58 @@ its changelog too.
 
 ## Unreleased
 
+### ERR-ADOPT-1 slice 4: the working directory, and the first port that costs a caller nothing
+
+`sysGetCwd` and `IO.cwd` answer `(Result String Error)`. **The census
+falls 11 → 10 failure**, `stdlib/Sys.ax` 8 → 7.
+
+**This slice was found by disbelieving an exclusion.** Everything left
+in `Sys.ax` is set aside on a measurement — `sysWriteFd`, `sysReadFd`,
+`netAccept`, `netAcceptFrom` and `netPollWait` are `#effects=IO` alone,
+and porting them widens the row under `writeStr`, under `println`, at
+804 macro expansions. `sysGetCwd` was set aside for a different kind of
+reason: that it "answers a `String` and its failure is `""` rather than
+an errno, so it is a different port". That is a remark about shape, not
+a measurement, and the shape was the only thing in the way.
+
+Measured before and after, `#effects=` is `Alloc,IO,Mut` **both times**
+— the function already `memAlloc`s a 4097-byte buffer and `strDup`s its
+answer, so the `Ok`/`Err` constructor disappears into a row that was
+already there. These are the first ERR-ADOPT-1 rows in
+`compat/BREAKING` that are `CHANGED` rather than `WIDENED`; every
+earlier one gained `Alloc`.
+
+What the sentinel cost: ERANGE (a path longer than the buffer), ENOENT
+(a working directory unlinked out from under the process) and EACCES (a
+`.` that cannot be opened) all arrived as the same `""`, with the errno
+in hand at all three failure points and discarded. All five call sites
+read it as a presence test. `self_host/lsp.ax`'s two now say
+`(unwrapOr sysGetCwd "")` — the same behaviour, with the decision
+written down rather than inherited.
+
+### A comment in `stdlib/Sys.ax` said the migration was unblocked, and it was wrong
+
+`sysResult`'s comment read "`Ok`, `Err` and `mkError` are effect-free"
+and "a `Result`-returning function whose message is a literal has NO
+effect row at all", concluding that the effect row no longer blocked
+the migration. Measured 2026-09-01, `sysResult` is `#effects=Alloc` and
+its body is nothing but the constructor — so the constructor **is** the
+allocation. A literal message removes `Mut`, not the row.
+
+It sat a hundred lines above `sysWriteAllFd`'s comment, which states
+the opposite correctly, and it would have told the next reader that
+`sysWriteFd` and `sysReadFd` were portable. They are not.
+`docs/error-model.md` §10 had the same measurement right the whole time
+(`openish` `Alloc,Mut` against `openLit` `Alloc`, neither of them
+empty).
+
+Also corrected in `docs/error-model.md` §10.1: the `absence` column read
+**nine** against a gated **ten** — `netPollSignalAt`'s declared move
+from failure to absence was recorded in `compat/SENTINELS` and never
+carried into the document. Nothing holds §10.1's numbers to that file,
+which is why it drifted.
+
+
 ### `web/package.json` and its lock are version sites
 
 `axiom-site@0.6.1` sat in a tree whose `VERSION` read `0.6.3`. Nothing

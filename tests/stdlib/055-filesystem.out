@@ -36,6 +36,7 @@ ok   listDir is sorted, without . and ..
 ok   listDir of a leaf directory
 ok   listDir of a file is empty
 ok   listDir of nothing is empty
+ok   cwd succeeds
 ok   cwd is absolute
 ok   cwd names this file's directory
 ok   pathDir
@@ -57,5 +58,5 @@ ok   removeDir refuses a non-empty directory
 ok   removeFile refuses a directory
 ok   removeDir of an emptied directory
 ok   and it is gone
-checks 59
+checks 60
 failures 0

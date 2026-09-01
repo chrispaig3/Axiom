@@ -171,16 +171,24 @@
       ; absolute, non-empty path. On Darwin it comes back through
       ; `fcntl(F_GETPATH)` because that platform has no `getcwd`
       ; syscall at all - a difference nothing above `Sys` can see.
-      (if (> (strLen sysGetCwd) 0)
+      ; It answers `(Result String Error)` since ERR-ADOPT-1 slice 4,
+      ; so the FIRST thing checked is that it succeeded at all - which
+      ; the `""` sentinel could not distinguish from a working
+      ; directory named by the empty string.
+      (if (isOk sysGetCwd)
         (set n (+ n 1))
         0
       )
-      (if (== (strByte sysGetCwd 0) 47)
+      (if (> (strLen (unwrapOr sysGetCwd "")) 0)
+        (set n (+ n 1))
+        0
+      )
+      (if (== (strByte (unwrapOr sysGetCwd "") 0) 47)
         (set n (+ n 1))
         0
       )
       ; and it names a real directory - this one
-      (if (sysIsDir (strCStr sysGetCwd))
+      (if (sysIsDir (strCStr (unwrapOr sysGetCwd "")))
         (set n (+ n 1))
         0
       )
@@ -201,7 +209,7 @@
         0
         (set n (+ n 1))
       )
-      (if (== n 30)
+      (if (== n 31)
         77
         1
       )

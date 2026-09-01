@@ -1239,8 +1239,9 @@ the end.
 ## 10. Adoption
 
 **ERR-ADOPT-1 (P). The migration is 64 sites by §1.2's `grep` proxy,
-and 30 public functions over 7 modules by the metric that is gated. It
-is not one commit.**
+and 20 public functions over 7 modules by the metric that is gated —
+10 `failure` and 10 `absence`, down from 38 when that metric first read
+bodies instead of prose. It is not one commit.**
 
 > **THE BLOCKER THIS RULE WAS WAITING ON DOES NOT APPLY, measured
 > 2026-09-01.** `memory-model-v2-proposal.md`'s P6 was named as the
@@ -1631,11 +1632,25 @@ them would have taken its module's count up and failed
 that it was is withdrawn.* What remained was 29 public functions handing
 a caller a negative errno; the socket-configuration slice took seven of
 them on 2026-08-31, the "did it work" slice five more on 2026-09-01,
-the descriptor slice five more the same day, and one of the remainder
-turned out to be an absence the census had misfiled — so **11** are
-left, eight in `stdlib/Sys.ax` and three in
-`stdlib/Sys/Platform.darwin.ax`, every one of them excluded on a
-measurement rather than pending. None of them is free:
+the descriptor slice five more the same day, the working-directory
+slice one more, and one of the remainder turned out to be an absence
+the census had misfiled — so **10** are left, seven in `stdlib/Sys.ax`
+and three in `stdlib/Sys/Platform.darwin.ax`, every one of them
+excluded on a measurement rather than pending.
+
+**Slice 4 is the one that found an exclusion which was not a
+measurement.** `sysGetCwd` was set aside because "it answers a `String`
+and its failure is `""` rather than an errno, so it is a different
+port" — a remark about shape. Every other exclusion in that module
+rests on `#effects=IO` widening to `Alloc,IO` under `writeStr` and
+`println`; this one did not, and measured before and after the port the
+row is `Alloc,IO,Mut` **both times**, because the function already
+`memAlloc`s its buffer and `strDup`s its answer. It and `IO.cwd` are
+the only ERR-ADOPT-1 rows in `compat/BREAKING` that are `CHANGED`
+rather than `WIDENED`: the first ports in this migration that cost a
+caller nothing. What the sentinel had been costing is that ERANGE,
+ENOENT and EACCES all arrived as the same `""`, and all five call sites
+read it as a presence test. None of them is free:
 `netSocketTcp` has 17 call sites, **seven of which never test the result
 at all**, which is the reason the migration exists rather than an
 argument against it.
@@ -1651,11 +1666,15 @@ the accept path, that gate stayed green at 182× against its floor of
 one 32-byte block per connection. And "excluded" is a decision about a
 handful of the twenty-nine, not a description of the whole.
 
-The other half is unchanged in kind and one larger in count: **nine**
+The other half is unchanged in kind and larger in count: **ten**
 lookups in `stdlib/` that answer `-1` for "not found" and want
 **`Option`**, which is built in and needs no import (§1). Two of the
-nine are in `stdlib/Str.ax`, which **cannot** import `Err` — `Err`
-imports `Str` — so they could never have been `Result` debt.
+ten are in `stdlib/Str.ax`, which **cannot** import `Err` — `Err`
+imports `Str` — so they could never have been `Result` debt. The tenth
+is a declared rise rather than a new sentinel: `netPollSignalAt` was
+counted as a failure until the census learned to follow a syscall
+result through a `let` binder, and it is `Option` debt, not `Result`
+debt. `compat/SENTINELS` records it.
 
 **And `Option` is not free.** Measured 2026-08-30 over 20,000,000 calls
 at `--opt 2`: a `-1` return costs **1.4 ns** and a `(Some v)` costs

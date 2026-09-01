@@ -476,10 +476,15 @@
   )
 )
 
-; The process's working directory as an absolute path, or "" if it
-; cannot be determined. See `Sys.sysGetCwd` for why this is two
-; different syscalls underneath.
-(pub :: cwd String)
+; The process's working directory as an absolute path: `(Ok path)`, or
+; `(Err e)` whose code is the errno. See `Sys.sysGetCwd` for why this
+; is two different syscalls underneath, and why it stopped answering
+; `""` for every distinct reason it can fail.
+;
+; This forwards rather than going through `ioResult`, and that is not
+; an oversight: `ioResult` exists to put the PATH into the message, and
+; this call takes no path. `Sys` has already named the operation.
+(pub :: cwd (Result String Error))
 
 ;@axiom:effect(io)
 (pub fn (cwd) sysGetCwd)
