@@ -321,6 +321,7 @@ named tests/diagnostics/391-restrict-effect-transparent.ax no-io ok
 native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
+none tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 orderDiags self_host/diag.ax no-io,no-foreign ok
 ownForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 paint self_host/style.ax no-io,no-foreign ok
@@ -363,6 +364,7 @@ skipLineComment self_host/lexer.ax no-io,no-alloc,no-foreign ok
 skipStringBody self_host/lexer.ax no-io,no-alloc,no-foreign ok
 skipWhitespace self_host/lexer.ax no-io,no-alloc,no-foreign ok
 slipped tests/diagnostics/376-restrict-unknown-name.ax no-fo unknown
+some tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
 spanEnd self_host/core.ax no-io,no-alloc,no-foreign ok
 spanStart self_host/core.ax no-io,no-alloc,no-foreign ok
 srcIxChars self_host/diag.ax no-io,no-alloc,no-foreign ok
