@@ -16,6 +16,85 @@ its changelog too.
 
 ## Unreleased
 
+### `Option Int` is free: the register pair, built
+
+**`(Some v)` no longer allocates where it is immediately matched.**
+`docs/unboxed-sums-design.md`'s specialisation, implemented:
+`self_host/codegen.ax` emits `@F$pair` returning `{ i64, i64 }` beside
+an unchanged `@F`, and rewrites a `match` on a DIRECT call to `F` to
+call it and read the tag and payload from registers.
+
+What the compiler now emits for the canonical absence shape:
+
+```llvm
+define { i64, i64 } @optFind$pair(i64 %n) #0 {
+.L3:
+  ret { i64, i64 } { i64 1, i64 0 }          ; None
+.L4:
+  %.t6 = mul i64 %n, 2
+  %.t7 = insertvalue { i64, i64 } undef, i64 0, 0
+  %.t8 = insertvalue { i64, i64 } %.t7, i64 %.t6, 1
+  ret { i64, i64 } %.t8                      ; Some, no block
+}
+```
+
+and at the site, `call { i64, i64 }` plus two `extractvalue`s and an
+`icmp` — no `axiom_alloc`, no shape word, no refcount, no
+`axiom_release`. **`check-unboxed-sums.sh` moves from 1 block and 1
+release to 0 and 0**, which is the gated claim.
+
+**On the compiler's own source it fires 3 times and rewrites 11 call
+sites** — `internFind`, `pathLastSlash`, `pathExtIndex`: the absence-
+column family exactly.
+
+**THE SPEED CLAIM IS NOT MADE, and the reason is worth writing down.**
+A stage-1 against stage-2 comparison read 38% off the in-process time,
+and that number is NOT this change: 11.86 ns per wrapper over an
+estimated 3.9M `internFind` wrappers is 46 ms of 1798 ms, **2.6%**. The
+38% is a stage artifact — the two compilers were built by different
+builders — and the control that would separate them was not run. What
+IS established is the block count, which is exact, gated, and does not
+depend on a runner's mood.
+
+**What refuses, and why each refusal is a hazard declined rather than
+handled**: `main`; no signature; a function taking an evidence word; a
+return type that is not `(Option T)` with `T` a machine word; a tail
+that is not `None` or `(Some e)`; a body holding anything that would be
+lifted twice; and a self tail call, because TCO rewrites that into a
+jump to a loop header the variant does not have. Anything unrecognised
+keeps the boxed path, so **the failure mode is "no speedup", never
+"wrong answer"**.
+
+**A reference payload is refused on purpose.** The block owns a share
+of a reference field and `axiom_release` hands it back; a pair has no
+refcount to give that share back with, so a variant there would be a
+use-after-free rather than a speedup. `(Option String)` still boxes,
+and the gate asserts it — which is also what proves the counter reads
+the IR at all.
+
+**The shape word bit back, from the other side.** The state needed four
+words and `CG` had no room: a block's reference map covers 47 words and
+`CG` was at 47, so a 50-field record is `AX3040`-adjacent `AX3029`,
+"too wide for one reference map". It is packed into one field holding a
+four-slot Vec. That limit is `docs/memory-model.md` MM-LIFE-2d, and it
+is the same shape word this optimisation exists to stop writing.
+
+**The token cannot be stolen by a nested call.** `emitPlainCall`
+captures the arm and disarms it before emitting arguments, restoring
+its own copy for its own call line — so a call inside an argument
+cannot consume the token the match site armed for the outermost call.
+`releaseOwnedArgs` still runs on both paths, which is why the pair form
+is a branch at the existing call seam rather than a second call
+emitter.
+
+VALIDATED: byte-identical self-hosting fixpoint (198,598 lines, twice),
+`run-stdlib-tests` 95/95, `check-self-host` 179/179, `check-fmt`,
+`check-compat` (32, census unchanged at 10 + 9), `check-restrictions`
+(20), `check-agent-policy`, `check-doc-drift`, `check-unboxed-sums`
+(10, up from 7 — the gate now proves the specialisation HAPPENED before
+reading its zeroes, because a zero block count is satisfied just as
+well by a function that was never emitted).
+
 ### The gate that will prove the `Option` win, before the win exists
 
 **`scripts/check-unboxed-sums.sh`** — the gate

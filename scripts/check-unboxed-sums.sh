@@ -26,24 +26,27 @@
 #      and 2. Any representation change has to keep this, and it is
 #      first because a faster wrong answer is not the goal.
 #
-#   2. THE COST IS WHAT IS ON FILE. `optFind` builds ALLOC_EXPECT
-#      blocks and the matching consumer performs RELEASE_EXPECT
-#      releases. Today both are 1: one `(Some ...)` construction, one
-#      release at the match. When the specialisation of
-#      `docs/unboxed-sums-design.md` section 4 lands, both become 0 for
-#      the specialised path, and THIS LINE IS THE PROOF - the win is
-#      asserted by a number in the module rather than by a stopwatch.
+#   2. THE SPECIALISATION HAPPENED, AND THEN THAT IT IS FREE, in that
+#      order. `@optFind$pair` is defined and returns `{ i64, i64 }`;
+#      the match calls it once and reads the tag and payload with two
+#      `extractvalue`s; the variant builds ALLOC_EXPECT blocks and the
+#      consumer performs RELEASE_EXPECT releases, both 0. The order
+#      matters: a zero block count is satisfied just as well by a
+#      function that was never emitted, so the existence check comes
+#      first or the rest asserts an optimisation by absence of
+#      evidence. Both were 1 before the specialisation landed.
 #
-#   3. THE COUNTER READS THE IR. A variant of the fixture with a
-#      SECOND construction must raise the count. Without this the two
-#      numbers above could both be measuring an awk range that matched
-#      nothing, which is this repository's most common defect: a check
-#      that cannot fail.
+#   3. A REFUSED SHAPE STILL BOXES, AND IS COUNTED. `(Option String)`
+#      carries a reference, which `pairRetOK` declines - the block owns
+#      a share of it and a pair has no refcount to give that share
+#      back with, so a variant here would be a use-after-free rather
+#      than a speedup. It must still build one block, which is also
+#      what proves `calls_in` reads the IR at all: without it the
+#      zeroes above could be an awk range that never opened.
 #
-#   4. THE COUNTER IS ANCHORED ON THE RIGHT FUNCTION. A variant whose
-#      construction moves into a DIFFERENT function must leave
-#      `optFind`'s count at zero rather than counting the whole module.
-#      3 proves the counter can rise; this proves it is not simply
+#   4. THE COUNTER IS ANCHORED ON ONE DEFINITION. A name with no
+#      definition in the module must read 0 while `optStr` reads more.
+#      3 proves the counter can be nonzero; this proves it is not
 #      counting every `axiom_alloc` in the program.
 #
 # THE FIXTURE LIVES HERE, in a heredoc, rather than under `tests/`.
@@ -67,11 +70,15 @@ checks=0
 ok()  { checks=$((checks + 1)); echo "ok   $*"; }
 bad() { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL $*"; }
 
-# The counts this tree's code generation produces. Both go to 0 when
-# the register-pair specialisation lands; changing either without a
-# change in `self_host/codegen.ax` is a representation regression.
-ALLOC_EXPECT=1
-RELEASE_EXPECT=1
+# The counts this tree's code generation produces. Both were 1 before
+# the register-pair specialisation landed and are 0 after; a rise is a
+# representation regression.
+ALLOC_EXPECT=0
+RELEASE_EXPECT=0
+# What a REFUSED shape still costs. `(Option String)` carries a
+# reference, which `pairRetOK` declines - the block owns a share of it
+# today and a pair has no refcount to hand that share back with.
+REFUSED_ALLOC_EXPECT=1
 GOLDEN=249500
 
 mkdir -p "$work/us"
@@ -154,18 +161,34 @@ echo "== 2. cost: the blocks an Option construction and its match cost =="
   || { bad "could not emit IR for the fixture"; }
 
 if [[ -f "$work/us/us.ll" ]]; then
-  a="$(calls_in "$work/us/us.ll" optFind axiom_alloc)"
+  # FIRST that the specialisation happened at all. Without this, the
+  # two zeroes below are satisfied just as well by a function that was
+  # never emitted - a check that cannot fail, asserting an optimisation
+  # by the absence of evidence.
+  if grep -q '^define { i64, i64 } @optFind\$pair(' "$work/us/us.ll"; then
+    ok "\`optFind\` has a register-pair variant, returning { i64, i64 }"
+  else
+    bad "no \`@optFind\$pair\` in the module - the specialisation did not happen,
+     and the two counts below would read 0 for the wrong reason"
+  fi
+  nx="$(calls_in "$work/us/us.ll" sum 'call { i64, i64 } @optFind$pair')"
+  ex="$(calls_in "$work/us/us.ll" sum 'extractvalue { i64, i64 }')"
+  if (( nx == 1 && ex == 2 )); then
+    ok "the match calls it once and reads the tag and payload from registers"
+  else
+    bad "the match site makes $nx pair call(s) and $ex extractvalue(s), wanted 1 and 2"
+  fi
+  a="$(calls_in "$work/us/us.ll" 'optFind\$pair' axiom_alloc)"
   r="$(calls_in "$work/us/us.ll" sum axiom_release)"
   if [[ "$a" == "$ALLOC_EXPECT" ]]; then
-    ok "\`optFind\` builds $a heap block(s) per construction site"
+    ok "the pair variant builds $a heap blocks - the Option is free"
   else
-    bad "\`optFind\` builds $a heap block(s), the file says $ALLOC_EXPECT
-     A DROP IS THE OPTIMISATION LANDING and a rise is a regression;
-     either way this number is the claim, so move ALLOC_EXPECT in the
-     same commit that moves the code generator, and not before."
+    bad "the pair variant builds $a heap block(s), the file says $ALLOC_EXPECT
+     This number is the claim, so move ALLOC_EXPECT in the same commit
+     that moves the code generator, and not before."
   fi
   if [[ "$r" == "$RELEASE_EXPECT" ]]; then
-    ok "the matching consumer performs $r release(s)"
+    ok "the matching consumer performs $r releases - there is no block to free"
   else
     bad "the matching consumer performs $r release(s), the file says $RELEASE_EXPECT"
   fi
@@ -173,72 +196,77 @@ fi
 
 # ------------------------------------------------------------------
 echo
-echo "== 3. negative probe: a second construction must raise the count =="
+echo "== 3. negative probe: a REFUSED shape still boxes, and is counted =="
 # ------------------------------------------------------------------
-# The instrument check. If `calls_in` matched nothing - a renamed
-# symbol, an awk range that never opened - both numbers above would
-# read 0 and look like a landed optimisation.
-sed 's|    (Some (\* n 2))|    (if (> n 100) (Some (+ n 1)) (Some (* n 2)))|' \
-  "$work/us/us.ax" > "$work/us/two.ax"
-if ! grep -q '(Some (+ n 1))' "$work/us/two.ax"; then
-  bad "probe: the second-construction edit did not apply - the fixture's shape has moved"
-elif ! "$axc" emit-llvm --input "$work/us/two.ax" -o "$work/us/two.ll" > "$work/us/two.log" 2>&1; then
-  bad "probe: the two-construction variant did not compile"
-  sed 's/^/     /' "$work/us/two.log" | head -10
-else
-  a2="$(calls_in "$work/us/two.ll" optFind axiom_alloc)"
-  if (( a2 > ALLOC_EXPECT )); then
-    ok "probe: a second construction raises the count to $a2, so the counter reads the IR"
-  else
-    bad "probe: a second construction left the count at $a2 - \`calls_in\` is not
-     reading what it claims to read, and checks 2's numbers assert nothing"
-  fi
-fi
-
-# ------------------------------------------------------------------
-echo
-echo "== 4. negative probe: the count is anchored on optFind, not the module =="
-# ------------------------------------------------------------------
-# `optFind` answers a plain Int and allocates nothing; the construction
-# moves to `optMake`. A counter reading the whole module would still
-# report the module's constructions against `optFind`.
-cat > "$work/us/moved.ax" <<'AX'
+# The instrument check, and the safety restriction, in one. If
+# `calls_in` matched nothing - a renamed symbol, an awk range that
+# never opened - section 2's zeroes would read 0 for that reason
+# instead of for the optimisation. A reference payload is the shape
+# `pairRetOK` declines, so it must still allocate.
+cat > "$work/us/ref.ax" <<'AX'
 (import IO)
 
-(:: optMake (-> Int (Option Int)))
+(:: optStr (-> Int (Option String)))
 
-(fn (optMake n)
+(fn (optStr n)
   (if (< n 0)
     None
-    (Some (* n 2))
+    (Some "hit")
   )
 )
-
-(:: optFind (-> Int Int))
-
-(fn (optFind n) (+ n 1))
 
 (:: main Int)
 
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (+ (optFind 1) (match (optMake 3) ((Some v) v) ((None) 0))))
+    (println (match (optStr 1) ((Some s) s) ((None) "miss")))
     0
   }
 )
 AX
-if ! "$axc" emit-llvm --input "$work/us/moved.ax" -o "$work/us/moved.ll" > "$work/us/moved.log" 2>&1; then
-  bad "probe: the moved-construction variant did not compile"
-  sed 's/^/     /' "$work/us/moved.log" | head -10
+if ! "$axc" emit-llvm --input "$work/us/ref.ax" -o "$work/us/ref.ll" > "$work/us/ref.log" 2>&1; then
+  bad "probe: the reference-payload variant did not compile"
+  sed 's/^/     /' "$work/us/ref.log" | head -10
 else
-  am="$(calls_in "$work/us/moved.ll" optFind axiom_alloc)"
-  aw="$(calls_in "$work/us/moved.ll" optMake axiom_alloc)"
-  if (( am == 0 && aw > 0 )); then
-    ok "probe: with the construction moved, \`optFind\` reads 0 and \`optMake\` reads $aw"
+  ra="$(calls_in "$work/us/ref.ll" optStr axiom_alloc)"
+  rp="$(grep -c '^define { i64, i64 }' "$work/us/ref.ll" || true)"
+  if [[ "$ra" == "$REFUSED_ALLOC_EXPECT" ]] && (( rp == 0 )); then
+    ok "probe: an (Option String) gets no pair variant and still builds $ra block - the counter reads the IR, and the reference restriction is live"
   else
-    bad "probe: \`optFind\` reads $am and \`optMake\` reads $aw - the counter is not
-     anchored on one definition, so check 2 is counting the module"
+    bad "probe: (Option String) built $ra block(s) and $rp pair variant(s), wanted $REFUSED_ALLOC_EXPECT and 0.
+     A pair variant here would hand the consumer a payload with no
+     refcount behind it, which is a use-after-free and not a speedup."
+  fi
+  if "$axc" build --input "$work/us/ref.ax" --output "$work/us/ref" > /dev/null 2>&1; then
+    got="$("$work/us/ref" 2>&1 || true)"
+    if [[ "$got" == "hit" ]]; then
+      ok "probe: the refused shape still answers correctly"
+    else
+      bad "probe: the refused shape answers '$got', wanted 'hit'"
+    fi
+  else
+    bad "probe: the refused shape did not build"
+  fi
+fi
+
+# ------------------------------------------------------------------
+echo
+echo "== 4. negative probe: the count is anchored on one definition =="
+# ------------------------------------------------------------------
+# Section 2 reads `optFind$pair`; this proves that range is a
+# definition and not the whole module.
+# Its own emission: `build` above removes the `.ll` beside its output.
+if ! "$axc" emit-llvm --input "$work/us/ref.ax" -o "$work/us/anchor.ll" > /dev/null 2>&1; then
+  bad "probe: could not emit IR for the anchoring probe"
+else
+  aw="$(calls_in "$work/us/anchor.ll" optStr axiom_alloc)"
+  an="$(calls_in "$work/us/anchor.ll" optStrAbsent axiom_alloc)"
+  if (( aw > 0 )) && [[ "$an" == "0" ]]; then
+    ok "probe: \`optStr\` reads $aw and a name with no definition reads $an, so the range is one definition"
+  else
+    bad "probe: \`optStr\` reads $aw and an absent name reads $an - the counter
+     is not anchored on one definition, so section 2 is counting the module"
   fi
 fi
 

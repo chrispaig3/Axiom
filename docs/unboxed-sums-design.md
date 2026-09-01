@@ -328,6 +328,21 @@ of the loop: a raw `-1` compared against zero, a `match` on a boxed
 
 ## 7. Status
 
+**BUILT, 2026-09-01.** Section 4's specialisation is implemented in
+`self_host/codegen.ax` and gated by `scripts/check-unboxed-sums.sh`:
+`@F$pair` returning `{ i64, i64 }` beside an unchanged `@F`, a
+call-site rewrite for a `match` on a direct call, and a refusal list
+that keeps the boxed path for everything it does not handle. On the
+compiler's own source it fires three times and rewrites eleven call
+sites. The gated claim is the block count - 1 and 1 before, 0 and 0
+after. The speed claim is NOT made: see the CHANGELOG entry for why the
+38% a stage-1/stage-2 comparison showed is a stage artifact and 2.6% is
+what this change can account for.
+
+The remainder of this section is what was written before it was built.
+
+### Before it was built
+
 **Designed, prototyped and costed. NOT built — no compiler code has
 been changed.** What is established: the representation is free on
 aarch64 through the real toolchain (§1, §3); a one-word niche cannot
