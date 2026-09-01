@@ -1,0 +1,98 @@
+; `range`: the counted loop, with the bound read ONCE.
+;
+; The shape these replace is written by hand about a hundred times in
+; this repository:
+;
+;   (let ((mut i 0)) (while (< i (vecLen xs)) { BODY (set i (+ i 1)) }))
+;
+; and it re-reads `(vecLen xs)` on every iteration. That is the case
+; term 4 below is about, and it is a correctness property rather than a
+; speed one: a bound that reads a structure the body MUTATES is a loop
+; whose length moves under it. `range` binds the bound before the loop,
+; so it cannot.
+;
+; What each term establishes:
+;
+;   1. `range` over [0, n) counts [0, n) ascending, and the sum says which values
+;      and in what order - 0+1+2+3+4 is 10, and no other subset of
+;      0..4 sums to it by accident with the count printed beside it.
+;   2. `range` with a nonzero start counts [lo, hi), so it starts where it is told and stops
+;      before the end. 3+4+5+6 = 18.
+;   3. An EMPTY range runs zero times, both ways round: `(range i 0 0 ..)`
+;      and `(range i 5 5 ..)` and a backwards `(range i 7 3 ..)`. A
+;      loop that runs once on an empty range is the off-by-one this
+;      pins.
+;   4. THE BOUND IS READ ONCE. The body pushes onto the very Vec the
+;      bound was computed from; the loop must still run twice. Written
+;      with the hand-rolled `while` this expands to, it would run until
+;      the Vec ran out of memory.
+;   5. The binder is the CALLER's name and the template's are renamed
+;      (MAC-HYG-10): a body that mentions `cur` or `hi` - the names
+;      inside the macro - means its own. Both are bound here to values
+;      the loop must not disturb, and printed after it.
+;   6. Nesting: the inner loop's binder shadows nothing of the outer's,
+;      and both counters advance independently. 3 x 4 = 12 iterations.
+(import IO)
+
+(import Pre (range))
+
+(import Vec)
+
+(import Mem)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (acc (memAlloc 8))
+    (v vecNew)
+    (hi 111)
+    (cur 222)
+  )
+    {
+      ; --- 1. range counts [0, n) ---
+      (memSetWord acc 0 0)
+      (range i 0 5 (memSetWord acc 0 (+ (memGetWord acc 0) i)))
+      (println (memGetWord acc 0))  ; 10
+
+      ; --- 2. range counts [lo, hi) ---
+      (memSetWord acc 0 0)
+      (range j 3 7 (memSetWord acc 0 (+ (memGetWord acc 0) j)))
+      (println (memGetWord acc 0))  ; 18
+
+      ; --- 3. empty ranges run zero times ---
+      (memSetWord acc 0 0)
+      (range a 0 0 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+      (range b 5 5 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+      (range c 7 3 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+      (println (memGetWord acc 0))  ; 0
+
+      ; --- 4. the bound is read once ---
+      (vecPush v 10)
+      (vecPush v 20)
+      (memSetWord acc 0 0)
+      (range k 0 (vecLen v)
+        {
+          (vecPush v 99)
+          (memSetWord acc 0 (+ (memGetWord acc 0) 1))
+        })
+      (println (memGetWord acc 0))  ; 2, not runaway
+      (println (vecLen v))  ; 4: the body really did push
+
+      ; --- 5. hygiene: the template's names are not the caller's ---
+      (memSetWord acc 0 0)
+      (range n 0 3 (memSetWord acc 0 (+ (memGetWord acc 0) hi)))
+      (println (memGetWord acc 0))  ; 333
+      (println hi)  ; 111
+      (println cur)  ; 222
+
+      ; --- 6. nesting ---
+      (memSetWord acc 0 0)
+      (range p 0 3
+        (range q 0 4 (memSetWord acc 0 (+ (memGetWord acc 0) 1))))
+      (println (memGetWord acc 0))  ; 12
+      0
+    }
+  )
+)

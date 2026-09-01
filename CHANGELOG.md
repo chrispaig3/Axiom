@@ -16,6 +16,42 @@ its changelog too.
 
 ## Unreleased
 
+### `range`, the counted loop — and `for` reserved for a keyword
+
+**`(range i 0 n body)` in the prelude**: `body` once per `i` in
+`[lo, hi)`, with **both ends read once**. The shape it replaces is
+written by hand about a hundred times in this repository —
+
+```
+(let ((mut i 0)) (while (< i (vecLen xs)) { BODY (set i (+ i 1)) }))
+```
+
+— and it re-reads `(vecLen xs)` every iteration. That is a correctness
+difference, not only an ergonomic one: a bound that reads a structure
+the body mutates is a loop whose length moves under it.
+`tests/stdlib/463-range-loop.ax` pins six terms, including that one
+(the body pushes onto the very `Vec` the bound came from and the loop
+must still run twice) and hygiene (`a`, `b`, `cur` are the template's
+names; a caller holding its own must still read its own).
+
+**`for` IS RESERVED, NOT TAKEN.** It is to be a language **keyword**
+covering both a range and a container, and a macro cannot be that: an
+expression macro has ONE shape (`MAC-LANG-14` — the rule form's
+templates are declarations), so `(for i 0 n …)` and `(for x xs …)`
+cannot share a name. Measured, they cannot even coexist: `Html.ax`
+exports its own `(for x xs body)`, and a program importing both
+resolved `for` to Html's and answered `AX3001: undefined variable i`
+in the body rather than an ambiguity at the import.
+
+**And a container `for` needs something this language does not have
+yet.** `Vec` is untyped, so an element is read through `vecGetStr` or
+`vecGetWord` — which is exactly why `Html.ax` carries **two** loop
+macros for one idea. Parameterised containers come first; `for` is the
+keyword that follows them. `Html.ax` is untouched here.
+
+Dogfooded at one site (`self_host/symbols.ax`), which is also the
+proof that the seed expands it.
+
 ### `unproven` joins the restriction manifest, and the tail match specialises
 
 **`tests/agent/restrictions.allow` read `ok` for a declaration the
@@ -39,8 +75,9 @@ only one — invisible in the gate, whose fixture's match sits inside an
 argument. **Armed only where `scrutineeReleasable` answers 0**: an arm
 in tail position may emit its own `ret`, and a release written after
 the arms would sit past it, unreachable — a leak rather than a
-diagnostic. That costs nothing today, because every `Option Int` lookup
-in this tree is in that case.
+diagnostic. That costs nothing today: `scripts/check-unboxed-sums.sh`
+section 3b exercises the tail path directly, and every `Option Int`
+lookup this tree has ported is in the releaseless case.
 
 `check-unboxed-sums` grows to **15 checks** with the tail-position
 section, so the second emitter is not unexercised machinery.

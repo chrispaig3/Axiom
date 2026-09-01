@@ -21,6 +21,8 @@
 ; This module deliberately imports nothing from typecheck.ax: the
 ; fact COLLECTION walks checker tables and lives with them; this file
 ; is the rendering half, testable against cached stage0 output alone.
+(import Pre (range))
+
 (import Mem)
 
 (import Str)
@@ -156,14 +158,10 @@
                 (nodeAName t)
                 (let (
                   (mut s (nodeAName t))
-                  (mut i 0)
                 )
                   {
-                    (while (< i (vecLen args))
-                      {
-                        (set s (strConcat s (strConcat " " (symTy (vecGet args i)))))
-                        (set i (+ i 1))
-                      })
+                    (range i 0 (vecLen args)
+                      (set s (strConcat s (strConcat " " (symTy (vecGet args i))))))
                     s
                   }
                 )

@@ -15,6 +15,60 @@
   body
 ))
 
+;; range — the counted loop over a range: `(range i 0 n body)` is `0..n`
+;;
+;; `body` once per `i` in [lo, hi), ascending. Both ends are written
+;; out, which is why there is one rule and not two: the rule form's
+;; templates are DECLARATIONS (MAC-LANG-14), so an expression macro has
+;; one shape, and `(range i 0 n ...)` spells the range it means.
+;;
+;; NOT NAMED `for`, and the name is RESERVED rather than taken. `for`
+;; is to be a language keyword covering both a range and a container,
+;; and a macro cannot be that: an expression macro has ONE shape
+;; (MAC-LANG-14 - the rule form's templates are declarations), so
+;; `(for i 0 n ..)` and `(for x xs ..)` cannot share a name here.
+;; Measured, they cannot even coexist: `Html.ax` exports its own
+;; `(for x xs body)` over a `Vec`, and a program importing both
+;; resolved `for` to Html's and answered `AX3001: undefined variable
+;; i` in the body rather than an ambiguity at the import.
+;;
+;; A container `for` also needs something this language does not have
+;; yet: `Vec` is untyped, so an element is read through `vecGetStr` or
+;; `vecGetWord` and a generic element loop is not expressible. That is
+;; why `Html.ax` carries TWO loop macros for one idea. Parameterised
+;; containers come first; `for` is the keyword that follows them.
+;;
+;; The shape this replaces is written by hand about a hundred times in
+;; this repository:
+;;
+;;   (let ((mut i 0)) (while (< i (vecLen xs)) { BODY (set i (+ i 1)) }))
+;;
+;; and it re-reads `(vecLen xs)` on every iteration. Both ends are
+;; bound before the loop here, in source order, so each is computed
+;; ONCE - the ergonomic win and a correctness one, because a bound that
+;; reads a structure the body mutates is a loop whose length moves
+;; under it.
+;;
+;; `i` is the CALLER's name (MAC-HYG-10); `a`, `b` and `cur` are the
+;; template's and are renamed at every expansion, so a body that
+;; mentions any of them means its own. Answers 0.
+(pub macro (range i lo hi body) (let ((a lo))
+  (let ((b hi))
+    (let ((mut cur a))
+      {
+        (while (< cur b)
+          {
+            (let ((i cur))
+              body
+            )
+            (set cur (+ cur 1))
+          })
+        0
+      }
+    )
+  )
+))
+
 ;; cond2 — two-condition branching plus else
 ;; (cond2 t1 b1 t2 b2 els) -> (if t1 b1 (if t2 b2 els))
 (pub macro (cond2 t1 b1 t2 b2 els) (if t1
