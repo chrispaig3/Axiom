@@ -2274,14 +2274,29 @@
   )
 )
 
-; The index of the first byte `externLibByte` refuses, or -1.
-(pub :: externLibBadAt (-> String Int Int))
+; The index of the first byte `externLibByte` refuses, or `None`.
+;
+; `Option` rather than -1: the caller reads the answer as
+; `(strSlice lib bad 1)`, so a miss that reached the index would slice
+; from a negative offset. The scan below keeps the -1 and is private.
+(pub :: externLibBadAt (-> String (Option Int)))
 
-(pub fn (externLibBadAt s i)
+(pub fn (externLibBadAt s)
+  (let ((i (externLibBadAtFrom s 0)))
+    (if (< i 0)
+      None
+      (Some i)
+    )
+  )
+)
+
+(:: externLibBadAtFrom (-> String Int Int))
+
+(fn (externLibBadAtFrom s i)
   (if (>= i (strLen s))
     (- 0 1)
     (if (externLibByte (strByte s i))
-      (externLibBadAt s (+ i 1))
+      (externLibBadAtFrom s (+ i 1))
       i
     )
   )
@@ -2307,9 +2322,9 @@
         (names vecNew)
         (items vecNew)
       )
-        (let ((bad (externLibBadAt lib 0)))
-          (if (>= bad 0)
-            (pErrExternLib pos (strSlice lib bad 1))
+        (match (externLibBadAt lib)
+          ((Some bad) (pErrExternLib pos (strSlice lib bad 1)))
+          ((None)
             (if (== (strLen lib) 0)
               (pErrExternLib pos "")
               (let ((r (parseExternItems tokens (advance pos) names items)))

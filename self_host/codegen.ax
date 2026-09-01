@@ -11448,14 +11448,33 @@
     (arms (nodeB node))
     (ff (memAlloc 8))
     (_0 (memSetWord ff 0 (- 0 1)))
+    ; The tail hook, armed only where there is nothing to release -
+    ; see `emitPairArmsTail`. `scrutineeReleasable` is asked first
+    ; because it decides whether the pair path is even open here.
+    (_a (if (== (pairMatchOK cg scrutExpr arms) 1)
+      (if (== (scrutineeReleasable node scrutExpr cg) 0)
+        (pairSetSlot cg 1 1)
+        cg
+      )
+      cg
+    ))
     (cg1 (emitExpr scrutExpr cg))
+    (gotPair (pairSlot cg1 1))
+    (_z (pairSetSlot cg1 1 0))
     (sv (strDup (memGetWordStr cg1 2)))
+    (tagR (if (== gotPair 2)
+      (strDup (vecGetStr (memGetWord cg1 46) 3))
+      ""
+    ))
     (cn (allocReg cg1))
     (cell (regStr cn))
     (_1 (emitLine cg1 (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" "")))
     (mn (allocReg cg1))
     (mergeB (labelStr mn))
-    (rel (scrutineeReleasable node scrutExpr cg1))
+    (rel (if (== gotPair 2)
+      0
+      (scrutineeReleasable node scrutExpr cg1)
+    ))
     (pmark (vecLen (memGetWord cg1 42)))
     (_p (if (== rel 1)
       (vecPush
@@ -11463,8 +11482,13 @@
       )
       0
     ))
-    (cg2 (emitArmsTail
-      arms      sv      cell      mergeB      cg1      0      ff
+    (cg2 (if (== gotPair 2)
+      (emitPairArmsTail
+        arms        tagR        sv        cell        mergeB        cg1        0        ff
+      )
+      (emitArmsTail
+        arms        sv        cell        mergeB        cg1        0        ff
+      )
     ))
     (_q (memSetWord (memGetWord cg2 42) 0 pmark))
     (_2 (emitLabel cg2 mergeB))
@@ -12404,6 +12428,65 @@
       (if (== h 0)
         ""
         (cast String h)
+      )
+    )
+  )
+)
+
+; `emitArmsTail` against a pair.
+;
+; NO RELEASE HERE, and the caller is what guarantees that is right: the
+; tail hook takes this path only when `scrutineeReleasable` answered 0,
+; so there is no share to give back. An arm in TAIL position may emit
+; its own `ret` - a pair leaf inside a pair variant does exactly that -
+; and a release written after the arms would sit past it, unreachable,
+; which is a leak rather than a diagnostic. Refusing the case is
+; cheaper than reasoning about which arms fall through.
+(pub :: emitPairArmsTail (-> Int String String String String Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPairArmsTail arms tagR payR cell mergeB cg i ff)
+  (if (>= i (vecLen arms))
+    {
+      (storeWordAt cg cell 0 "0")
+      (emitLine cg (cat2 "  br label %" mergeB))
+      cg
+    }
+    (let (
+      (arm (vecGet arms i))
+      (pat (nodeA arm))
+      (body (nodeB arm))
+      (nn (allocReg cg))
+      (nextB (labelStr nn))
+      (mark (symMark cg))
+    )
+      (let ((cgP (emitPairPatMatch cg pat tagR payR nextB)))
+        (let (
+          (cgB (emitExprTail body cgP))
+          (_ff (if (== i 0)
+            (memSetWord ff 0 (memGetWord cgB 14))
+            0
+          ))
+        )
+          (let ((termd (memGetWord cgB 31)))
+            {
+              (if (== termd 1)
+                0
+                {
+                  (storeWordAt cgB cell 0 (strDup (memGetWordStr cgB 2)))
+                  (emitLine cgB (cat2 "  br label %" mergeB))
+                  0
+                }
+              )
+              (memSetWord cgB 31 0)
+              (emitLabel cgB nextB)
+              (symRestore cgB mark)
+              (emitPairArmsTail
+                arms                tagR                payR                cell                mergeB                cgB                (+ i 1)                ff
+              )
+            }
+          )
+        )
       )
     )
   )

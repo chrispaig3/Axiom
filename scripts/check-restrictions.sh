@@ -522,7 +522,7 @@ derive_manifest() {
       local v=""
       local named
       named="$(awk -v n="$name" '
-        ($2 == "AX3049" || $2 == "AX3051" || $2 == "AX3052") {
+        ($2 == "AX3049" || $2 == "AX3051" || $2 == "AX3052" || $2 == "AX3057") {
           m = $0; sub(/^[^"]*"/, "", m)
           if (m ~ /^`cast` in the body of `/) { sub(/^`cast` in the body of `/, "", m) } else { sub(/^`/, "", m) }
           sub(/`.*/, "", m)
@@ -530,6 +530,11 @@ derive_manifest() {
       [[ "$named" == *AX3049* ]] && v="${v}violated,"
       [[ "$named" == *AX3051* ]] && v="${v}unverifiable,"
       [[ "$named" == *AX3052* ]] && v="${v}unknown,"
+      # AX3057 is a REFUSAL, and without this row the manifest read
+      # `ok` for a declaration the compiler rejects - a derived file
+      # reporting less than the compiler knows, which is the defect
+      # this gate exists to catch in others.
+      [[ "$named" == *AX3057* ]] && v="${v}unproven,"
       [[ -z "$v" ]] && v="ok,"
       printf '%s %s %s %s\n' "$name" "${f#$repo_root/}" "$rs" "${v%,}" >> "$out.raw"
     done < "$work/manifest/rows"
@@ -581,8 +586,8 @@ if [[ -f "$repo_root/$allow" ]]; then
   # Every verdict word is one this gate writes; a manifest edited by
   # hand into a word the derivation never produces would otherwise
   # compare equal to nothing and fail nowhere.
-  if awk '{ split($4, vs, ","); for (k in vs) if (vs[k] != "ok" && vs[k] != "violated" && vs[k] != "unverifiable" && vs[k] != "unknown") exit 1 }' "$repo_root/$allow"; then
-    ok "every verdict in $allow is one of ok, violated, unverifiable, unknown"
+  if awk '{ split($4, vs, ","); for (k in vs) if (vs[k] != "ok" && vs[k] != "violated" && vs[k] != "unverifiable" && vs[k] != "unknown" && vs[k] != "unproven") exit 1 }' "$repo_root/$allow"; then
+    ok "every verdict in $allow is one of ok, violated, unverifiable, unknown, unproven"
   else
     bad "$allow carries a verdict word this gate never writes"
   fi

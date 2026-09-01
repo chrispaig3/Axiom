@@ -328,6 +328,74 @@ fi
 
 # ------------------------------------------------------------------
 echo
+echo "== 3b. a match in TAIL position specialises too =="
+# ------------------------------------------------------------------
+# `emitMatch` and `emitMatchTail` are two emitters, and the first
+# version of this hooked only one. A match that IS a function's tail
+# went through the other and kept the boxed path - invisible in the
+# section above, because its fixture's match sits inside an argument.
+#
+# The tail hook is armed only where `scrutineeReleasable` answers 0.
+# An arm in tail position may emit its own `ret`, and a release written
+# after the arms would sit past it, unreachable - a leak rather than a
+# diagnostic. Refusing that case is cheaper than reasoning about which
+# arms fall through, and it costs nothing here: every `Option Int`
+# lookup in this tree is in it.
+cat > "$work/us/tail.ax" <<'AX'
+(import IO)
+
+(:: look (-> Int (Option Int)))
+
+(fn (look n)
+  (if (< n 0)
+    None
+    (Some (* n 3))
+  )
+)
+
+(:: viaTail (-> Int Int))
+
+(fn (viaTail n)
+  (match (look n)
+    ((Some v) v)
+    ((None) 0)
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (+ (viaTail 5) (viaTail (- 0 2))))
+    0
+  }
+)
+AX
+if ! "$axc" emit-llvm --input "$work/us/tail.ax" -o "$work/us/tail.ll" > /dev/null 2>&1; then
+  bad "the tail-position fixture did not compile"
+else
+  tv="$(grep -c '^define { i64, i64 }' "$work/us/tail.ll" || true)"
+  ta="$(calls_in "$work/us/tail.ll" 'look\$pair' axiom_alloc)"
+  if (( tv == 1 )) && [[ "$ta" == "0" ]]; then
+    ok "a match in tail position specialises, and its variant builds $ta blocks"
+  else
+    bad "tail position: $tv pair variant(s) and $ta block(s), wanted 1 and 0 -
+     `emitMatchTail` is a second emitter and needs its own hook"
+  fi
+fi
+if "$axc" build --opt 2 --input "$work/us/tail.ax" --output "$work/us/tail" > /dev/null 2>&1; then
+  tg="$("$work/us/tail" 2>&1 || true)"
+  if [[ "$tg" == "15" ]]; then
+    ok "the tail-position fixture answers 15"
+  else
+    bad "the tail-position fixture answers '$tg', wanted 15"
+  fi
+else
+  bad "the tail-position fixture did not build"
+fi
+
+echo
 echo "== 4. negative probe: a scrutinee that is not a direct call still boxes =="
 # ------------------------------------------------------------------
 # The instrument check. If `calls_in` matched nothing, section 2's

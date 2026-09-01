@@ -16,6 +16,39 @@ its changelog too.
 
 ## Unreleased
 
+### `unproven` joins the restriction manifest, and the tail match specialises
+
+**`tests/agent/restrictions.allow` read `ok` for a declaration the
+compiler REFUSES.** `AX3057` was not in `derive_manifest`'s verdict
+map, so the three `strict` fixtures fell through to the default. A
+derived file reporting less than the compiler knows is the defect this
+gate exists to catch in others; `unproven` is a verdict now, and the
+manifest shows the restriction system's whole vocabulary in one place —
+`ok`, `violated`, `unverifiable`, `unknown`, `unproven`.
+
+**Three more of the compiler's absence sentinels answer `Option Int`**:
+`scopeFindIdx` (typecheck), `graphStackIndex` (typecheck) and
+`externLibBadAt` (parser). All three had a wild read one comparison
+away — `(vecGet stack on)`, `(strSlice lib bad 1)`, an index into the
+scope vector. Six of the seven ported so far specialise to a register
+pair; the compiler's IR carries **7 pair variants over 16 call sites**.
+
+**`emitMatchTail` is hooked**, so a match that IS a function's tail
+specialises too. It was a second emitter and the first version hooked
+only one — invisible in the gate, whose fixture's match sits inside an
+argument. **Armed only where `scrutineeReleasable` answers 0**: an arm
+in tail position may emit its own `ret`, and a release written after
+the arms would sit past it, unreachable — a leak rather than a
+diagnostic. That costs nothing today, because every `Option Int` lookup
+in this tree is in that case.
+
+`check-unboxed-sums` grows to **15 checks** with the tail-position
+section, so the second emitter is not unexercised machinery.
+
+Measured: only **3 of 37** `-1` sentinels in `self_host/` carry
+`restrict(no-alloc)`, so the blocker that stops four of the nine stdlib
+rows is not systemic in the compiler — the adoption can proceed here.
+
 ### `restrict(..., strict)` — when unproven has to mean refused
 
 **`AX3057`, an error: a `strict` restriction the effect walk cannot

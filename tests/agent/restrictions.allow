@@ -135,6 +135,9 @@ fmtSpan self_host/diag.ax no-io,no-foreign ok
 fmtSpanIx self_host/diag.ax no-io,no-foreign ok
 fmtSpanParts self_host/diag.ax no-io,no-foreign ok
 handoff tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
+hardAlloc tests/diagnostics/393-restrict-strict.ax no-alloc,strict unproven
+hardIo tests/diagnostics/393-restrict-strict.ax no-io,strict unproven
+hardRec tests/diagnostics/393-restrict-strict.ax no-recursion,strict unproven
 hasAxiomPrefix self_host/lexer.ax no-io,no-alloc,no-foreign ok
 histAllBlank self_host/replhist.ax no-io,no-alloc,no-foreign ok
 histAt self_host/replhist.ax no-io,no-alloc,no-foreign ok
@@ -277,6 +280,7 @@ ledYank stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledYankPop stdlib/Tui/Edit.ax no-io,no-foreign ok
 lex self_host/lexer.ax no-io,no-foreign ok
 lexCast tests/diagnostics/391-restrict-effect-transparent.ax no-cast ok
+lexStrict tests/diagnostics/393-restrict-strict.ax no-cast,strict ok
 lexTokens self_host/lexer.ax no-io,no-foreign ok
 lexWrap tests/diagnostics/391-restrict-effect-transparent.ax no-wrap ok
 lineCount self_host/diag.ax no-io,no-alloc,no-foreign ok
@@ -332,6 +336,7 @@ pastBom self_host/core.ax no-io,no-alloc,no-foreign ok
 ping tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 plain tests/diagnostics/391-restrict-effect-transparent.ax no-io ok
 powTen stdlib/Fmt.ax no-io,no-alloc,no-foreign ok
+provable tests/diagnostics/393-restrict-strict.ax no-io,strict ok
 pureMath tests/diagnostics/371-restrict-no-io.ax no-io ok
 pushQ self_host/diag.ax no-io,no-foreign ok
 quiet tests/diagnostics/377-restrict-witness-path.ax no-io,no-alloc ok
@@ -340,6 +345,7 @@ quoteHexDigit self_host/diag.ax no-io,no-foreign ok
 quoteStr self_host/diag.ax no-io,no-foreign ok
 quoteUesc self_host/diag.ax no-io,no-foreign ok
 reads tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
+refuted tests/diagnostics/393-restrict-strict.ax no-io,strict violated
 renderDiag self_host/diag.ax no-io,no-foreign ok
 renderDiagIx self_host/diag.ax no-io,no-foreign ok
 renderDiagsUnits self_host/diag.ax no-io,no-foreign ok
@@ -364,6 +370,7 @@ skipLineComment self_host/lexer.ax no-io,no-alloc,no-foreign ok
 skipStringBody self_host/lexer.ax no-io,no-alloc,no-foreign ok
 skipWhitespace self_host/lexer.ax no-io,no-alloc,no-foreign ok
 slipped tests/diagnostics/376-restrict-unknown-name.ax no-fo unknown
+softIo tests/diagnostics/393-restrict-strict.ax no-io unverifiable
 some tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
 spanEnd self_host/core.ax no-io,no-alloc,no-foreign ok
 spanStart self_host/core.ax no-io,no-alloc,no-foreign ok
@@ -407,6 +414,7 @@ strVecHas self_host/core.ax no-io,no-alloc,no-foreign ok
 strVecIdx self_host/core.ax no-io,no-alloc,no-foreign ok
 strWrap stdlib/Str.ax no-io,no-foreign ok
 strWrapOwned stdlib/Str.ax no-io,no-foreign ok
+strictOnly tests/diagnostics/393-restrict-strict.ax strict ok
 sums tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
 tag tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 termBufBytes stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok

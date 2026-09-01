@@ -6689,9 +6689,16 @@
 ; The innermost entry's INDEX, or -1. `checkSet` needs the position,
 ; not just the entry: whether the target sits below the innermost
 ; lambda's boundary is what decides the capture refusal (MM-MUT-1a).
-(pub :: scopeFindIdx (-> Int String Int))
+(pub :: scopeFindIdx (-> Int String (Option Int)))
 
-(pub fn (scopeFindIdx scope name) (scopeFindIdxFrom scope name (- (vecLen scope) 1)))
+(pub fn (scopeFindIdx scope name)
+  (let ((i (scopeFindIdxFrom scope name (- (vecLen scope) 1))))
+    (if (< i 0)
+      None
+      (Some i)
+    )
+  )
+)
 
 (pub :: scopeFindIdxFrom (-> Int String Int Int))
 
@@ -13561,8 +13568,8 @@
 (pub fn (checkSet tc e)
   (let ((valTy (checkExprH tc (nodeB e) 0)))
     (let ((name (nodeAName e)))
-      (let ((idx (scopeFindIdx (tcScope tc) name)))
-        (if (>= idx 0)
+      (match (scopeFindIdx (tcScope tc) name)
+        ((Some idx)
           ; Mutable - but only assignable from the frame
           ; that owns the cell. Below the innermost
           ; lambda's boundary (tc word 22) the binding
@@ -13610,6 +13617,8 @@
               }
             )
           )
+        )
+        ((None)
           (if (== (isBuiltinName name) 1)
             mkSilentWild
             (if (== (setTargetCovered tc name) 1)
@@ -16614,9 +16623,9 @@
   (if (>= i (vecLen calls))
     0
     (let ((name (vecGetStr calls i)))
-      (let ((on (graphStackIndex stack name 0)))
-        (if (>= on 0)
-          (graphCyclePath stack on (vecGet stack on) vecNew)
+      (match (graphStackIndex stack name)
+        ((Some on) (graphCyclePath stack on (vecGet stack on) vecNew))
+        ((None)
           (if (== (strInVec done name 0) 1)
             (graphCycleEdges tc calls (+ i 1) stack done)
             (let ((e (fnEntExact tc name)))
@@ -16638,14 +16647,29 @@
 )
 
 ; The slot of `name` on the stack, or -1.
-(pub :: graphStackIndex (-> Int String Int Int))
+; Where `name` sits on the walk stack, or `None`.
+;
+; `Option` rather than -1: the caller reads the answer as
+; `(vecGet stack on)`, so a miss that reached the index is a wild read.
+(pub :: graphStackIndex (-> Int String (Option Int)))
 
-(pub fn (graphStackIndex stack name i)
+(pub fn (graphStackIndex stack name)
+  (let ((i (graphStackIndexFrom stack name 0)))
+    (if (< i 0)
+      None
+      (Some i)
+    )
+  )
+)
+
+(pub :: graphStackIndexFrom (-> Int String Int Int))
+
+(pub fn (graphStackIndexFrom stack name i)
   (if (>= i (vecLen stack))
     (- 0 1)
     (if (strEq (memGetWordStr (vecGet stack i) 0) name)
       i
-      (graphStackIndex stack name (+ i 1))
+      (graphStackIndexFrom stack name (+ i 1))
     )
   )
 )
