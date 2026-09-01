@@ -119,6 +119,42 @@ toml_replace() {
   _rewrite "$1" "s/(version = \")[0-9]+\.[0-9]+\.[0-9]+(\" \})/\1$2\2/g"
 }
 
+# `web/package-lock.json` states the site's own version TWICE - once at
+# the top level and once as the `""` entry under `packages` - and then
+# states a `"version"` for every dependency it locks, which is why
+# `json_version` cannot read it: that extractor would answer with three
+# hundred npm packages' versions. It anchors on the site's own name and
+# takes only the version that FOLLOWS it, exactly as `lock_version`
+# does for the Cargo locks and for the same reason.
+#
+# THE LOCK IS A SITE'S OUTPUT, not a site somebody edits. `npm install`
+# rewrites it from `web/package.json`. That is the trap both Cargo locks
+# fell into - they shipped a release still stating the version before
+# it, because nothing read them - and it is why the lock is listed here
+# beside the manifest rather than left to npm to keep in step.
+npmlock_version() {
+  awk '/"name": "axiom-site"/ { n = 1; next }
+       n && /"version": "/ {
+         if (match($0, /[0-9]+\.[0-9]+\.[0-9]+/)) {
+           print substr($0, RSTART, RLENGTH); n = 0
+         }
+       }'
+}
+# The matching writer: rewrite exactly the two versions
+# `npmlock_version` reads, and no dependency's.
+npmlock_replace() {
+  local t; t="$(mktemp)"
+  awk -v ver="$2" '
+    /"name": "axiom-site"/ { n = 1; print; next }
+    n && /"version": "[0-9]+\.[0-9]+\.[0-9]+"/ {
+      sub(/"version": "[0-9]+\.[0-9]+\.[0-9]+"/, "\"version\": \"" ver "\"")
+      n = 0
+    }
+    { print }
+  ' "$1" > "$t" && cat "$t" > "$1"
+  rm -f "$t"
+}
+
 # <file>|<expected-count>|<reader>|<writer>
 #
 # THE LSP GOLDENS ARE SITES. Each pins the server's `serverInfo.version`,
@@ -155,6 +191,8 @@ webbench_replace() { _rewrite "$1" "s/(Axiom )[0-9]+[.][0-9]+[.][0-9]+/\\1$2/g";
 VERSION_SITES="
 web/src/data/site.ts|1|web_version|web_replace
 web/src/data/bench.ts|1|webbench_version|webbench_replace
+web/package.json|1|json_version|json_replace
+web/package-lock.json|2|npmlock_version|npmlock_replace
 self_host/build.ax|1|axv_version|axv_replace
 self_host/lsp.ax|1|lsp_version|lsp_replace
 rust/Cargo.toml|4|toml_version|toml_replace

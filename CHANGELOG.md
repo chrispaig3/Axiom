@@ -16,6 +16,30 @@ its changelog too.
 
 ## Unreleased
 
+### `web/package.json` and its lock are version sites
+
+`axiom-site@0.6.1` sat in a tree whose `VERSION` read `0.6.3`. Nothing
+held it there: `version-sites.sh` listed `web/src/data/site.ts` and
+`web/src/data/bench.ts` and stopped, so the manifest sitting beside them
+drifted two releases without a gate noticing. It is invisible — the
+package is never published — but a number nothing checks is the defect
+this file is about.
+
+Both the manifest and `web/package-lock.json` are listed now: **35 sites
+over 22 files**, up from 32 over 20, with 22 extractor/site pairs
+observed red rather than 20.
+
+The lock needed a reader of its own. `json_version` matches every
+`"version": "x.y.z"` in a file, which in a lock file is three hundred
+npm packages rather than one site, so `npmlock_version` anchors on the
+site's own name and takes only the version that FOLLOWS it — exactly
+what `lock_version` does for the two Cargo locks, for exactly the same
+reason. And the lock is listed for the reason those were: a site's
+OUTPUT is still a site. `npm install` writes it from the manifest, both
+Cargo locks shipped a release still stating the version before it
+because nothing read them, and leaving this one to npm to keep in step
+would have been the same bet.
+
 ## 0.6.3 — 2026-09-01
 
 Contracts arrive, the error model starts being adopted rather than
