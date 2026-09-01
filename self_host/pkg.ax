@@ -23,10 +23,33 @@
 ; `depend` names a DIRECTORY of modules, resolved against the
 ; manifest's own directory so the project relocates, and each one joins
 ; the module search path after the entry file's directory and before
-; `$AXIOM_PATH`. `name` and `version` are recorded and read by nothing
-; yet; they are here because a manifest that cannot say what package it
-; describes is a search path with extra steps, and because they are
-; what a registry would key on if there is ever one.
+; `$AXIOM_PATH`. `version` is recorded and read by nothing yet; it is
+; here because a manifest that cannot say what package it describes is
+; a search path with extra steps, and because it is what a registry
+; would key on if there is ever one.
+;
+; `name` IS READ, since 2026-08-31: it is the file `axiom build` writes
+; when neither `--output` nor `-o` says otherwise, in place of the
+; literal `output` every project shared before. A manifest key that
+; nothing reads is a key nobody can tell from a typo, which is the
+; other half of this file's job - see below.
+;
+; A MANIFEST LINE THAT MEANS NOTHING IS REFUSED. Three shapes used to
+; be read as silence, measured on the 0.6.1 binary before this changed:
+;
+;     $ printf 'name\tprobe\ndepend\tvendor/lib\n' > axiom.pkg
+;     $ axiom check app.ax
+;     error[AX5001]: cannot resolve import `Widget`      # exit 1
+;
+; a TAB between key and value - the split was `strStartsWith t "depend "`,
+; one literal space - and the same wall of missing modules for a
+; misspelled key (`dependd vendor/lib`) and for a key with no value at
+; all (`depend` alone on its line). In every case the manifest that
+; caused it was never named. `pkgCheckLines` now walks the file once
+; and refuses an unknown key, a key with no value, a second `name` or
+; `version`, and a `name` that is not a file name - each at
+; `axiom.pkg:LINE`, before a byte is compiled - and the key/value split
+; is any run of whitespace rather than one space.
 ;
 ; WHAT THIS IS NOT, said out loud so nobody has to discover it: there
 ; is no registry, no lockfile, no version constraint and no fetching.
@@ -48,6 +71,8 @@
 (import Sys)
 
 (import Path)
+
+(import Fmt)
 
 ; `strConcat` three and four ways. `codegen.ax` has `cat3`/`cat4` and
 ; this module cannot import it: `codegen` imports THIS one, for the
@@ -166,21 +191,63 @@
 
 ; One line's value for `key`, or "".
 ;
-; The key must be the line's first token and be followed by a space, so
-; `dependency` is not read as `depend`, and a `#` anywhere starts a
-; comment - which means a path may not contain one. That is a
-; restriction worth stating rather than a bug: a `#` in a path is legal
-; on every filesystem here, and a manifest format with no way to write
-; a comment is a manifest format nobody annotates.
+; The key must be the line's WHOLE first token, so `dependency` is not
+; read as `depend`, and a `#` anywhere starts a comment - which means a
+; path may not contain one. That is a restriction worth stating rather
+; than a bug: a `#` in a path is legal on every filesystem here, and a
+; manifest format with no way to write a comment is a manifest format
+; nobody annotates.
+;
+; THE TOKEN IS TAKEN, NOT MATCHED. This used to ask
+; `strStartsWith t (strConcat key " ")` - the key followed by one
+; literal space - which read `depend<TAB>vendor/lib` as no line at all
+; and reported it as every module the directory would have provided
+; going missing. `pkgKeyOf` splits on any whitespace, so a tab-aligned
+; manifest means what it looks like, and the token it returns is what
+; `pkgCheckLines` refuses when it is not a key.
 (pub :: pkgLineValue (-> String String String))
 
 (pub fn (pkgLineValue line key)
   (let ((t (pkgTrim (pkgUncomment line))))
-    (if (strStartsWith t (strConcat key " "))
-      (pkgTrim (strSlice t (+ (strLen key) 1) (- (strLen t) (+ (strLen key) 1))))
-      ""
+    (let ((k (pkgKeyOf t)))
+      (if (strEq k key)
+        (pkgTrim (strSlice t (strLen k) (- (strLen t) (strLen k))))
+        ""
+      )
     )
   )
+)
+
+; The leading run of non-space bytes of an already-trimmed line: its
+; key, or "" for a line that is blank once its comment is removed.
+(pub :: pkgKeyOf (-> String String))
+
+(pub fn (pkgKeyOf t)
+  (let (
+    (n (strLen t))
+    (mut i 0)
+  )
+    {
+      (while (if (< i n)
+        (if (strIsSpace (strByte t i))
+          false
+          true
+        )
+        false
+      )
+        (set i (+ i 1)))
+      (strSlice t 0 i)
+    }
+  )
+)
+
+; The three keys a manifest may write. A closed set on purpose: the
+; format has no version field of its own, so a key it does not know is
+; a typo rather than a message from the future.
+(pub :: pkgKnownKey (-> String Bool))
+
+(pub fn (pkgKnownKey k)
+  (|| (strEq k "name") (|| (strEq k "version") (strEq k "depend")))
 )
 
 (pub :: pkgUncomment (-> String String))
@@ -270,14 +337,171 @@
   )
 )
 
+; The `name` the manifest at or above `entryDir` declares, or "".
+;
+; This is what `axiom build` writes to when the command line says
+; nothing. The driver reads it BEFORE `compileFile` and therefore
+; before `pkgVerify` - a `let` binding is not a use - so the check that
+; makes this safe is not the one that has already run; it is that
+; `pkgVerify` exits 3 from inside `compileFile`, which is between this
+; call and any write, and that `pkgNameOk` admits no `/` and no `..`
+; anyway, so the string could not name another directory even if the
+; verification were removed.
+(pub :: pkgName (-> String String))
+
+;@axiom:effect(io)
+(pub fn (pkgName entryDir)
+  (let ((mf (pkgFindManifest entryDir)))
+    (if (== (strLen mf) 0)
+      ""
+      (pkgValue (sysReadFile (strData mf)) "name")
+    )
+  )
+)
+
+; A package name is letters, digits, `.`, `-` and `_`, and is not `.`
+; or `..`. Deliberately narrower than the filesystem: the name is spent
+; as a path, so `..` or a `/` in it would write the executable
+; somewhere the command line never mentioned.
+(pub :: pkgNameOk (-> String Bool))
+
+(pub fn (pkgNameOk s)
+  (if (== (strLen s) 0)
+    false
+    (if (|| (strEq s ".") (strEq s ".."))
+      false
+      (pkgNameBytesOk s 0)
+    )
+  )
+)
+
+(pub :: pkgNameBytesOk (-> String Int Bool))
+
+(pub fn (pkgNameBytesOk s i)
+  (if (>= i (strLen s))
+    true
+    (if (pkgIsNameByte (strByte s i))
+      (pkgNameBytesOk s (+ i 1))
+      false
+    )
+  )
+)
+
+; `.` is 46, `-` is 45, `_` is 95.
+(pub :: pkgIsNameByte (-> Int Bool))
+
+(pub fn (pkgIsNameByte b)
+  (|| (strIsAlpha b) (|| (strIsDigit b) (|| (== b 46) (|| (== b 45) (== b 95)))))
+)
+
+; `error: axiom.pkg:LINE: `, the prefix every line-level refusal here
+; shares. The line number is 1-based and counts blank and comment lines
+; like every editor does, because the reader's next move is to open the
+; file at it.
+(pub :: pkgAt (-> String Int String))
+
+(pub fn (pkgAt mf line)
+  (pkg4 "error: " mf ":" (pkg3 (fmtInt line) ": " ""))
+)
+
+; Walk the manifest once and refuse every line that cannot mean what it
+; says. Answers 0; every failure exits.
+;
+; WHY THIS EXISTS. Before it, the reader of a manifest was
+; `pkgLineValue` and nothing else: a line it did not recognise
+; contributed nothing and said nothing. Measured on 0.6.1, `dependd
+; vendor/lib`, `depend` with no value, and `depend<TAB>vendor/lib` all
+; produced the identical output - `error[AX5001]: cannot resolve import
+; `Widget``, exit 1 - which names the import, names the directories
+; that were searched, and never names the file that was supposed to
+; have added one. That is this repository's most-hunted defect wearing
+; a manifest: a configuration mistake reported as a source mistake,
+; somewhere else, later.
+;
+; Four refusals, all of them the same shape - the file, the line, and
+; what the line would have had to be:
+;
+;   1. A key that is not `name`, `version` or `depend`.
+;   2. A key with no value.
+;   3. A second `name` or `version`. The first wins in `pkgValue`, so
+;      the second is a line the file contains and the compiler ignores.
+;      `depend` is exempt: repeating it is how you declare two.
+;   4. A `name` that is not a file name, since it is spent as one.
+(pub :: pkgCheckLines (-> String String Int))
+
+;@axiom:effect(io)
+(pub fn (pkgCheckLines text mf)
+  (let (
+    (lines (strSplit text 10))
+    (n (vecLen lines))
+    (mut i 0)
+    (mut sawName 0)
+    (mut sawVersion 0)
+  )
+    {
+      (while (< i n)
+        {
+          (let ((t (pkgTrim (pkgUncomment (vecGetStr lines i)))))
+            (if (== (strLen t) 0)
+              0
+              (let ((k (pkgKeyOf t)))
+                (let ((v (pkgTrim (strSlice t (strLen k) (- (strLen t) (strLen k))))))
+                  (if (pkgKnownKey k)
+                    (if (== (strLen v) 0)
+                      (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`" k "` has no value\n") (pkg3 "       `depend` takes a directory of modules; `name` and `version`\n" "       take a word. The key and its value are separated by any run of\n" "       spaces or tabs.\n")))
+                      (if (strEq k "name")
+                        {
+                          (if (> sawName 0)
+                            (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`name` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
+                            0
+                          )
+                          (set sawName 1)
+                          (if (pkgNameOk v)
+                            0
+                            (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`name` is not a package name: `" v "`\n") (pkg4 "       A package name is letters, digits, `.`, `-` and `_`, and is\n" "       neither `.` nor `..`. It is the file `axiom build` writes when\n" "       no --output is given, so it names a FILE and not a path.\n" "")))
+                          )
+                          0
+                        }
+                        (if (strEq k "version")
+                          {
+                            (if (> sawVersion 0)
+                              (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`version` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
+                              0
+                            )
+                            (set sawVersion 1)
+                            0
+                          }
+                          0
+                        )
+                      )
+                    )
+                    (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "unknown key `" k "`\n") (pkg4 "       The manifest's keys are `name`, `version` and `depend`, and `#`\n" "       starts a comment. An unknown key used to be ignored, which made\n" "       a misspelled `depend` report as every module it would have\n" "       provided going missing - one at a time, naming this file never.\n")))
+                  )
+                )
+              )
+            )
+          )
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
 ; Refuse a manifest that cannot mean one thing.
 ;
-; Two failures, both of them configuration rather than source, so both
-; are reported the way the driver reports a bad command line - a plain
-; `error:` line naming the file - rather than as an `AXnnnn` with a
-; span. There is no span: the fault is in a manifest, and the code
-; ranges in `docs/diagnostics.md` are about what the SOURCE said.
+; Every failure here is configuration rather than source, so all of
+; them are reported the way the driver reports a bad command line - a
+; plain `error:` line naming the file, and where there is one, the line
+; - rather than as an `AXnnnn` with a span. There is no span: the fault
+; is in a manifest, and the code ranges in `docs/diagnostics.md` are
+; about what the SOURCE said.
 ;
+;   0. Any line that cannot mean what it says: `pkgCheckLines`, which
+;      runs FIRST, because a misspelled `depend` is not a dependency
+;      whose directory is missing - it is a line nothing reads, and
+;      reporting it as the former would name a path the file does not
+;      contain.
 ;   1. A `depend` directory that is not a directory. Silence here means
 ;      every module it was meant to provide reports as missing, one at
 ;      a time, naming the module and never the manifest.
@@ -294,6 +518,7 @@
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       0
+      (let ((_lines (pkgCheckLines (sysReadFile (strData mf)) mf)))
       (let ((dirs (pkgDependDirs entryDir)))
         (let (
           (n (vecLen dirs))
@@ -311,6 +536,7 @@
             (pkgCheckOverlap dirs mf 0)
           }
         )
+      )
       )
     )
   )

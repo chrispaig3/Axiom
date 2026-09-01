@@ -26,6 +26,25 @@
 # file the resolver chose. A gate that only asserted "it built" would
 # pass on the wrong module being found, which is the entire failure
 # this exists to catch.
+#
+# THE SECOND HALF, added 2026-08-31: a manifest line that means nothing
+# is refused, and `name` is read. Measured on the 0.6.1 binary before
+# either landed, three different mistakes produced one identical
+# output - `error[AX5001]: cannot resolve import `Widget``, exit 1:
+#
+#     dependd vendor/lib          a misspelled key
+#     depend                      a key with no value
+#     depend<TAB>vendor/lib       a tab where the parser wanted a space
+#
+# In all three the manifest that caused it was never named, and in the
+# third the file was not even wrong. Each now has a case below that
+# asserts the LINE NUMBER as well as the text, because "somewhere in
+# this file" is the diagnostic these replace. `name`, over the same
+# binary, was parsed and read by nothing: `axiom build app.ax` in a
+# project called `myapp` wrote `output`, like every other project on
+# the machine. The two checks that pin its replacement are a pair on
+# purpose - `myapp` exists AND `output` does not - because a build that
+# wrote both would satisfy the first and have changed nothing.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -209,7 +228,7 @@ fi
 
 # --------------------------------------------------------------------
 echo
-echo "== the manifest's syntax: comments, blanks, and a key that is not a key =="
+echo "== the manifest's syntax: comments, blanks, and tabs =="
 # --------------------------------------------------------------------
 p5="$work/p5"
 mkdir -p "$p5"
@@ -221,16 +240,245 @@ cat > "$p5/axiom.pkg" <<'EOF'
 
 name       syntax     # trailing comments too
 
-# `dependency` is not `depend`, and must not be read as one - if it
-# were, `other/` would join the search path and this project would
-# have a clash rather than an answer.
-dependency other
-
 depend     vendor/lib
 EOF
 got="$(run_app "$p5" app.ax)"
-[[ "$got" == 88 ]] && ok "comments and blanks ignored, \`dependency\` is not \`depend\` ($got)" \
+[[ "$got" == 88 ]] && ok "comments and blanks ignored ($got)" \
                    || bad "expected 88, got $got"
+
+# A TAB between the key and its value. The split used to be
+# `strStartsWith line "depend "` - one literal space - so this manifest
+# declared nothing and the program reported `AX5001: cannot resolve
+# import Widget` at exit 1, naming every directory it had searched and
+# never the file that was meant to have added one. `printf` rather than
+# a heredoc because the tab is the whole point and must be visible in
+# the source of this gate.
+printf 'name\tsyntax\ndepend\tvendor/lib\n' > "$p5/axiom.pkg"
+got="$(run_app "$p5" app.ax)"
+[[ "$got" == 88 ]] && ok "a TAB between key and value is a key and a value ($got)" \
+                   || bad "expected 88 from a tab-separated manifest, got $got"
+
+# --------------------------------------------------------------------
+echo
+echo "== a manifest line that means nothing is refused, at its line number =="
+# --------------------------------------------------------------------
+# The class this closes: three different mistakes all used to be read as
+# silence, and all three reported as the SAME thing - the modules the
+# line would have provided going missing, one at a time, against the
+# import rather than against the manifest.
+#
+# Each case below asserts the LINE NUMBER as well as the text, because
+# "somewhere in this file" is the diagnostic these replace.
+
+# `dependency` is not `depend` and must not be read as one: if it were,
+# `other/` would join the search path and this project would report a
+# CLASH. So the refusal must name the unknown key and must not be the
+# overlap message - that pair is what pins the prefix rule now that an
+# unknown key is loud.
+cat > "$p5/axiom.pkg" <<'EOF'
+name       syntax
+
+dependency other
+depend     vendor/lib
+EOF
+set +e
+out="$( cd "$p5" && "$axc" check app.ax 2>&1 )"
+got=$?
+set -e
+if (( got == 3 )) \
+   && printf '%s' "$out" | grep -q 'axiom.pkg:3: unknown key `dependency`' \
+   && ! printf '%s' "$out" | grep -q 'two dependencies'; then
+  ok "an unknown key is refused at exit 3, at its line, and is not read as \`depend\`"
+else
+  bad "the unknown key was not refused as expected (exit $got)"
+  printf '%s\n' "$out" | sed 's/^/     /' | head -6
+fi
+
+# A key with no value. `depend` alone used to contribute nothing.
+cat > "$p5/axiom.pkg" <<'EOF'
+name       syntax
+depend
+depend     vendor/lib
+EOF
+set +e
+out="$( cd "$p5" && "$axc" check app.ax 2>&1 )"
+got=$?
+set -e
+if (( got == 3 )) && printf '%s' "$out" | grep -q 'axiom.pkg:2: `depend` has no value'; then
+  ok "a key with no value is refused at exit 3, at its line"
+else
+  bad "a valueless key was not refused as expected (exit $got)"
+  printf '%s\n' "$out" | sed 's/^/     /' | head -6
+fi
+
+# A second `name`. `pkgValue` answers the FIRST, so the second is a line
+# the file contains and the compiler ignores - and now that `name` picks
+# the executable's file name, silently ignoring one is silently writing
+# to the other one's path.
+cat > "$p5/axiom.pkg" <<'EOF'
+name       one
+name       two
+depend     vendor/lib
+EOF
+set +e
+out="$( cd "$p5" && "$axc" check app.ax 2>&1 )"
+got=$?
+set -e
+if (( got == 3 )) && printf '%s' "$out" | grep -q 'axiom.pkg:2: `name` is given twice'; then
+  ok "a second \`name\` is refused at exit 3, at its line"
+else
+  bad "a repeated \`name\` was not refused as expected (exit $got)"
+  printf '%s\n' "$out" | sed 's/^/     /' | head -6
+fi
+
+# `version` too - a separate arm in `pkgCheckLines` with its own
+# counter, so a gate that only checked `name` would leave half the rule
+# unexercised.
+cat > "$p5/axiom.pkg" <<'EOF'
+name       syntax
+version    0.1.0
+version    0.2.0
+depend     vendor/lib
+EOF
+set +e
+out="$( cd "$p5" && "$axc" check app.ax 2>&1 )"
+got=$?
+set -e
+if (( got == 3 )) && printf '%s' "$out" | grep -q 'axiom.pkg:3: `version` is given twice'; then
+  ok "a second \`version\` is refused at exit 3, at its line"
+else
+  bad "a repeated \`version\` was not refused as expected (exit $got)"
+  printf '%s\n' "$out" | sed 's/^/     /' | head -6
+fi
+
+# ...and `depend` is NOT one of those keys: repeating it is how a
+# project declares two dependencies, so the check above must be about
+# `name` and `version` and not about repetition.
+cat > "$p5/axiom.pkg" <<'EOF'
+name       two-deps
+depend     vendor/lib
+depend     other
+EOF
+rm -f "$p5/other/Widget.ax"
+mod "$p5/other" Gadget 99
+got="$(run_app "$p5" app.ax)"
+[[ "$got" == 88 ]] && ok "two \`depend\` lines are still two dependencies ($got)" \
+                   || bad "expected 88 with two depend lines, got $got"
+
+# A `name` that is not a file name. It is spent as one by `build`
+# below, so `../escaped` would write the executable to a path the
+# command line never mentioned.
+cat > "$p5/axiom.pkg" <<'EOF'
+name       ../escaped
+depend     vendor/lib
+EOF
+set +e
+out="$( cd "$p5" && "$axc" check app.ax 2>&1 )"
+got=$?
+set -e
+if (( got == 3 )) \
+   && printf '%s' "$out" | grep -q 'axiom.pkg:1: `name` is not a package name' \
+   && printf '%s' "$out" | grep -q '\.\./escaped'; then
+  ok "a \`name\` that is a path is refused at exit 3, quoting it"
+else
+  bad "a path-shaped \`name\` was not refused as expected (exit $got)"
+  printf '%s\n' "$out" | sed 's/^/     /' | head -6
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== \`name\` is what \`build\` writes when the command line is silent =="
+# --------------------------------------------------------------------
+# `name` was parsed, recorded and read by nothing, which made it
+# indistinguishable from a key the compiler had never heard of - and
+# made every project on the machine build to a file called `output`.
+p7="$work/p7"
+mkdir -p "$p7"
+mod "$p7/vendor/lib" Widget 11
+app "$p7/app.ax" Widget
+cat > "$p7/axiom.pkg" <<'EOF'
+name     myapp
+version  0.1.0
+depend   vendor/lib
+EOF
+set +e
+out="$( cd "$p7" && "$axc" build app.ax 2>&1 )"
+got=$?
+set -e
+if (( got == 0 )) && [[ -x "$p7/myapp" ]]; then
+  ok "\`build\` with no --output wrote \`myapp\`, the manifest's name"
+else
+  bad "\`build\` did not write \`myapp\` (exit $got)"
+  printf '%s\n' "$out" | sed 's/^/     /' | head -6
+fi
+# The negative half, and the reason this is two checks rather than one:
+# a `build` that wrote BOTH files would satisfy the assertion above and
+# have changed nothing.
+[[ ! -e "$p7/output" ]] && ok "and did not write \`output\`" \
+                        || bad "\`output\` was written too - the default did not move"
+# The executable must be the PROGRAM, not merely a file of the right
+# name: it exits with the dependency's answer.
+set +e
+( cd "$p7" && ./myapp ); got=$?
+set -e
+[[ "$got" == 11 ]] && ok "and running it answers 11, the dependency's module" \
+                   || bad "./myapp exited $got, expected 11"
+
+# The command line still wins, both spellings.
+rm -f "$p7/myapp"
+set +e
+( cd "$p7" && "$axc" build app.ax --output chosen ) >/dev/null 2>&1
+set -e
+[[ -x "$p7/chosen" && ! -e "$p7/myapp" ]] \
+  && ok "--output still wins over the manifest's name" \
+  || bad "--output did not win over the manifest's name"
+set +e
+( cd "$p7" && "$axc" build app.ax -o shortform ) >/dev/null 2>&1
+set -e
+[[ -x "$p7/shortform" && ! -e "$p7/myapp" ]] \
+  && ok "-o still wins over the manifest's name" \
+  || bad "-o did not win over the manifest's name"
+
+# The name is a FILE name in the WORKING DIRECTORY, not a path beside
+# the manifest - the one sentence in the reference that a reader is
+# most likely to assume the other way round. Built from the project
+# root with the entry file in `src/`, the executable lands at the root
+# beside `axiom.pkg`; built from inside `src/`, it lands in `src/`.
+p9="$work/p9"
+mkdir -p "$p9/src"
+mod "$p9/vendor/lib" Widget 44
+app "$p9/src/app.ax" Widget
+cat > "$p9/axiom.pkg" <<'EOF'
+name    nestedapp
+depend  vendor/lib
+EOF
+set +e
+( cd "$p9" && "$axc" build src/app.ax ) >/dev/null 2>&1
+set -e
+[[ -x "$p9/nestedapp" && ! -e "$p9/src/nestedapp" ]] \
+  && ok "a parent manifest's name is written to the working directory" \
+  || bad "expected \$p9/nestedapp from the project root and nothing in src/"
+set +e
+( cd "$p9/src" && "$axc" build app.ax ) >/dev/null 2>&1
+set -e
+[[ -x "$p9/src/nestedapp" ]] \
+  && ok "...and to the working directory when that is \`src\`, not beside the manifest" \
+  || bad "expected \$p9/src/nestedapp when built from src/"
+
+# And a tree with no manifest is unchanged: `output`, as it always was.
+# This is the check that stops the feature from being "every build is
+# now named after something".
+p8="$work/p8"
+mkdir -p "$p8"
+mod "$p8" Widget 7
+app "$p8/app.ax" Widget
+set +e
+( cd "$p8" && "$axc" build app.ax ) >/dev/null 2>&1
+got=$?
+set -e
+[[ "$got" == 0 && -x "$p8/output" ]] \
+  && ok "with no manifest, \`build\` still writes \`output\`" \
+  || bad "a manifest-less build did not write \`output\` (exit $got)"
 
 # --------------------------------------------------------------------
 echo
@@ -253,5 +501,7 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-packages: $checks checks - a project declares its dependencies,"
-echo "                its own directory still wins, and two dependencies"
-echo "                providing one module are refused rather than ordered"
+echo "                its own directory still wins, two dependencies providing"
+echo "                one module are refused rather than ordered, a line that"
+echo "                means nothing is refused at its line number rather than"
+echo "                ignored, and \`name\` is the file \`build\` writes"
