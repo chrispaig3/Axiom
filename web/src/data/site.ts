@@ -22,7 +22,7 @@ export interface Stat {
 
 export const STATS: Stat[] = [
   {
-    n: '87,820',
+    n: '88,068',
     label: 'lines of Axiom in the compiler that compiles Axiom',
     evidence: 'cat self_host/*.ax | wc -l',
   },
