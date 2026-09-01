@@ -239,7 +239,7 @@ read like guarantees.
   calls `checkContracts` — and requires section 1 to fail against the
   first and section 4 against the second. 27 of 27 checks green,
   darwin and linux. `docs/contracts-design.md` is the design note,
-  written before the code. Fifty-one gates build the compiler under
+  written before the code. Fifty-two gates build the compiler under
   test, up from fifty.
 ||||||| 7458d7d
 =======
@@ -378,7 +378,7 @@ change buys is visible only on a claim nobody had written yet:
 needed the same arrow-spine read for this question; the two modules do
 not import each other, so nothing had compared them.
 
-Gated by `scripts/check-effect-argpos.sh`. **Fifty-one gates** now
+Gated by `scripts/check-effect-argpos.sh`. **Fifty-two gates** now
 call `gate_build_axc`, so the six places that state that number moved
 with it and `word_for`'s table grew an arm. Eight probe declarations, of which
 **four are controls that must keep the mark**: a type variable, an
