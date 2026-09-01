@@ -4,8 +4,13 @@ Ada round 1 shipped restriction profiles (`no-io`, `no-alloc`,
 `no-cast`, `no-cast:deep`, `no-recursion`, `no-foreign`;
 `05fb064`/`4a55781`/`7540524`). Three items stayed unstarted:
 pre/post contracts (`AX3050` reserved for them,
-`docs/error-model.md:871`), range-constrained subtypes, and this one
-— checked arithmetic. This note is the design pass required before
+`docs/error-model.md`), range-constrained subtypes, and this one
+— checked arithmetic. The contracts landed on 2026-08-31 and spent
+`AX3050`; `docs/contracts-design.md` is their note, and it re-measures
+the hazard this one records below (see "Question 2 — the effect-row
+interaction"): the pair really is unsatisfiable, and the reason nothing
+says so today is that `restrict(no-alloc)` does not see a constructor
+allocate. This note is the design pass required before
 touching any code, per the task brief; every claim below carries the
 command that established it.
 
@@ -130,7 +135,18 @@ restrictions:
 - `restrict(no-wrap, no-alloc)` together are unsatisfiable for any
   function that needs to add two numbers it did not get from a
   caller already carrying a checked value — `no-alloc` refuses the
-  only path `no-wrap` leaves open.
+  only path `no-wrap` leaves open. **Probed 2026-08-31 and the
+  prediction is right about the program and wrong about today's
+  compiler**: `(fn (addSafe a b) (unwrapOr (addChecked a b) 0))` under
+  both restrictions checks `OK`, because a constructor application
+  contributes no `Alloc` to the effect row at all — `walkCallHead`
+  answers 0 for every constructor and adds nothing, and
+  `TAG_E_STRUCTCON` walks its fields and adds nothing. So
+  `restrict(no-alloc)` is unsound, six declarations in this tree carry
+  a false one, and a probe compiler that fixes it reports exactly the
+  path this bullet predicts: `addSafe -> Err$addChecked -> Err$mkError`.
+  `docs/contracts-design.md` has the measurements and the blast
+  radius.
 - `;@axiom:pure` and `restrict(no-wrap)` together are unsatisfiable
   for the same reason: a pure function cannot allocate, and the only
   sanctioned arithmetic under `no-wrap` allocates.

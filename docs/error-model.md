@@ -828,8 +828,8 @@ marks `;@axiom:deprecated`, a warning by design - see
 on 2026-08-29 by the `restrict(...)` AXTAG (`restriction-violated`, an
 error; `restriction-unverifiable`, a warning in the same policy file;
 `restriction-unknown`, an error - `docs/reference.md`, AXTAG Keys),
-`AX3050` is RESERVED below for the contracts work that follows the
-restrictions, `AX3043` and `AX3045` are still unspent and stay where
+`AX3050` was SPENT on 2026-08-31 by `contract-malformed` (the
+paragraph after next), `AX3043` and `AX3045` are still unspent and stay where
 they are, `AX3044` is the namespace pass's, and `AX3032` is retired and
 **MUST NOT** be reused. `AX3055` was spent on 2026-08-29 by
 `effect-op-untyped` (an effect operation that declares no type - an
@@ -874,6 +874,46 @@ naming it draws `AX3016` like any other undeclared name. The reserved
 block below is now empty and the next free semantic number is
 `AX3057`.
 
+`AX3050` was SPENT on 2026-08-31 by `contract-malformed`, and it is the
+one number in this section that reached the work it was reserved for
+rather than being reconciled. It was taken on 2026-08-29 from BETWEEN
+two numbers the restrictions were spending that same day - `AX3049` and
+`AX3051` - for no reason except that the contracts design named it, and
+the contracts landed on it. Eleven reconciliations, and one number kept.
+
+What it refuses is worth stating precisely, because a contract is the
+first claim in the AXTAG namespace this compiler **cannot decide**.
+`restrict(...)` is refused from analysis the checker already performs;
+`(> n 0)` is a statement about a VALUE, and there is no value analysis
+in this tree at all - `grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over `self_host/typecheck.ax`,
+`self_host/codegen.ax` and `self_host/expand.ax` answers 0, 0, 0. So
+the claim is enforced at RUN TIME: `expLowerContracts` compiles the
+check into the body, and a failure writes ``axiom: precondition failed
+in `half`: (> n 0)`` on fd 2 and exits 75.
+
+`AX3050` is then everything about the contract that IS static, and it
+is four questions under one code:
+
+1. the value must PARSE, as exactly one expression;
+2. it must type as `Bool`, with the parameters in scope and against
+   this declaration's own signature;
+3. `result` must name something - the declared result of a `post`, and
+   nothing anywhere else: a `pre` runs before the body, and a
+   declaration with no `::` declares no result type for it to have;
+4. it must PERFORM nothing, since a contract is evaluated on every
+   call and one that allocates or writes changes the program by being
+   stated.
+
+Four questions and one code because they share a remedy - correct the
+expression, or delete the tag, which withdraws the claim - which is the
+same argument `AX3010` and `AX3049` make for their own arms. Question 4
+is not a blanket refusal, and that is measured rather than asserted:
+`vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and `memGetWord` carry
+an empty effect row, while `strConcat`, `fmtInt` and `vecNew` carry
+`Alloc,Mut`. A contract may compare, index, measure and test; it may not
+build. `docs/contracts-design.md` is the design note and
+`scripts/check-contracts.sh` the gate.
+
 `AX3047` is the ninth number this section has had to reconcile, and the
 first one it allocated rather than surrendered: it was taken from the
 free end deliberately, leaving the three proposals below untouched.
@@ -892,7 +932,6 @@ what keeps it honest.
 | `AX3046` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning (was `AX3042` until that number was built as `undeclared-effect`) |
 | `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 | `AX3045` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
-| `AX3050` | `contract-malformed` | a `;@axiom:pre(...)`/`post(...)` whose value does not parse as an expression, does not type-check as `Bool` against the signature, or names `result` where the declared result is absent — error; reserved 2026-08-29 between two numbers the restrictions spent, so that the contracts land on the number their design names |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`

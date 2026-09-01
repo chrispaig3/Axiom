@@ -559,12 +559,18 @@ runtime and **MUST NOT** be reused by a program as a normal result:
 | 71 | operation performed with no handler in extent | measured (`MM-EXEC-10`) |
 | 72 | division by zero | measured: `(fn (main) (/ 10 0))` — `check` says `OK`, the run prints `axiom: division by zero` to fd 2 and exits 72 |
 | 74 | a `__syscallN` reached on a target with no syscall ABI (windows-x86_64) | emitted, not yet executed: `emitPrimSyscall` lowers the primitive there to `__axiom_no_syscall`, which prints `axiom: no syscall ABI on this target` (37 bytes) and exits 74; 73 is the FFI's (`ffiHandleClose`) |
+| 75 | a `;@axiom:pre(...)` or `;@axiom:post(...)` that does not hold | measured: `tests/selfhost/133-contract-violated.ax` calls `(half 0)` under `pre((> n 0))`, the run prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2 and exits 75, at `--opt` 0/1/2/3 (`scripts/check-contracts.sh` section 1) |
 
 Each writes nothing to **stdout**. What each writes to **fd 2** is not
 uniform, and the row above is the place to say so rather than leave it
 to be discovered by whoever is reading a supervisor's log: 70 writes 35
 bytes, 72 writes 24 and 71 writes 24, each a single sentence ending in
-a newline (`emitOomTrap`, `emitDivTrap`, `emitUnhandledTrap`). All
+a newline (`emitOomTrap`, `emitDivTrap`, `emitUnhandledTrap`). 75 is
+the one whose length is not fixed: `@__axiom_contract_fail` is handed a
+`Str` and writes the length word it finds there, because the sentence
+names the function and quotes the contract as the author wrote it - a
+status alone cannot say WHICH invariant broke, and that is the whole
+reason the message exists. All
 three now say something; 71 was the last to, on 2026-08-24, and
 `tests/stdlib/310-effect-unhandled.err` pins its sentence beside the
 `.exit` that had pinned the status alone since the case was written.

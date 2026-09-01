@@ -16,6 +16,45 @@ its changelog too.
 
 ## Unreleased
 
+- **Pre/post contracts, and the one thing this compiler cannot decide
+  statically.** `;@axiom:pre(...)` and `;@axiom:post(...)` are the
+  second of the three items `docs/checked-arithmetic-design.md` left
+  unstarted, and they are the first claim in this AXTAG namespace that
+  the checker CANNOT refuse. `restrict(...)` is refused statically
+  because the effect row and the call graph are fixpoints the checker
+  already computes; `(> n 0)` is a statement about a value, and `grep
+  -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
+  `typecheck.ax`, `codegen.ax` and `expand.ax` answers 0, 0 and 0. So a
+  contract is compiled INTO the body and checked on every call, which
+  is Ada's answer, and a failure writes ``axiom: precondition failed in
+  `half`: (> n 0)`` on fd 2 and exits **75** - a status of its own
+  beside `MM-EXEC-16`'s 70/71/72, the FFI boundary's 73 and 74's no
+  syscall ABI. Not behind a flag: a check that is off by default is a
+  comment by default, and this repository refuses comments that read
+  like guarantees.
+  `AX3050` `contract-malformed` is the static half and it is four
+  questions, not one: the expression must parse as exactly one
+  expression, must type as `Bool` with the parameters in scope, must
+  name `result` only where a `post` has a declared result to give it,
+  and must PERFORM nothing. The last is expressible today without
+  moving any part of the effect system - `Alloc` is ambient as a
+  DECLARABLE claim, not as a row entry, and `restrict(no-alloc)`
+  already reads the same row - and it is not a blanket refusal:
+  measured from `symbols --calls` over `self_host/main.ax`, `vecLen`,
+  `vecGet`, `strLen`, `strEq`, `strByte` and `memGetWord` all carry an
+  empty effect row while `strConcat`, `fmtInt` and `vecNew` carry
+  `Alloc,Mut`. A contract may compare, index, measure and test; it may
+  not build.
+  There is no `'Old`, and the reason is measured rather than chosen:
+  parameters are immutable (`AX3012`), so for a scalar parameter the
+  name means in the `post` exactly what it meant in the `pre`. What a
+  `post` costs is the tail-call rewrite - it must observe the result,
+  so the call it wraps is not in tail position - and that is pinned in
+  both directions by `scripts/check-contracts.sh` section 5 rather than
+  left to be rediscovered. `docs/contracts-design.md` is the design
+  note. Forty-eight gates build the compiler under test, up from
+  forty-seven.
+
 ## 0.6.0 — 2026-08-31
 
 - **KNOWN ISSUE: module resolution matches case-insensitively on macOS, so

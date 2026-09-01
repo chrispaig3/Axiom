@@ -1,0 +1,129 @@
+; `;@axiom:pre(...)` and `;@axiom:post(...)`: AX3050, the STATIC half
+; of a contract. The run-time half is `tests/selfhost/133-contract-violated.ax`,
+; which runs a satisfied contract and a violated one and reads the
+; status; this file is only about what the compiler refuses before
+; anything runs.
+;
+; Six refusals, and five controls that must stay silent beside them:
+;
+;   `wrongType`   `pre((+ n 1))`            -> AX3050: an `Int` is not
+;                                                a `Bool`
+;   `notOne`      `pre((> n 0) extra)`      -> AX3050: two expressions,
+;                                                and a contract is one
+;   `noValue`     `pre` with no `(...)`     -> AX3050, spanning the
+;                                                whole tag, because
+;                                                there is no expression
+;                                                to span
+;   `resultInPre` `pre((> result 0))`       -> AX3050: a precondition
+;                                                runs BEFORE the body,
+;                                                so there is no result
+;   `noSignature` `post((> result 0))` on   -> AX3050: nothing declares
+;                 a `fn` with no `::`           a result type for
+;                                                `result` to have
+;   `allocates`   `pre((> (strLen (fmtInt   -> AX3050: a contract is
+;                 n)) 0))`                     evaluated on every call,
+;                                                and `fmtInt` allocates
+;
+;   `guarded`     `pre((> n 0))`            -> silent
+;   `ensured`     `post((> result 0))`      -> silent, and `result` has
+;                                                the DECLARED result
+;                                                type here
+;   `measures`    `pre((> (strLen s) 0))`   -> silent: `strLen` carries
+;                                                an empty effect row,
+;                                                which is the
+;                                                measurement that makes
+;                                                the purity rule
+;                                                something other than a
+;                                                blanket refusal
+;   `onTheSig`    the tag on the `::`       -> silent, and CHECKED: a
+;                 rather than the `fn`          contract is read from
+;                                                either half, exactly
+;                                                as `restrict(...)` is
+;   `names`       `pre((> (strLen s) 0))`   -> silent: `bump` is NAMED
+;                 beside a bare `bump`          and not called, so its
+;                                                row arrives POSSIBLE
+;                                                and naming a function
+;                                                performs nothing
+;
+; The span of a type refusal covers the EXPRESSION and not the tag, so
+; the first backticked text in the message is what the source spells
+; there - `tests/lsp/drive.py`'s `check_range` rule, which
+; `emitAxtagKeyTypo` one code over had to be corrected for.
+(import Str)
+
+(import Fmt)
+
+;@axiom:pre((+ n 1))
+(:: wrongType (-> Int Int))
+
+(fn (wrongType n) n)
+
+;@axiom:pre((> n 0) extra)
+(:: notOne (-> Int Int))
+
+(fn (notOne n) n)
+
+;@axiom:pre
+(:: noValue (-> Int Int))
+
+(fn (noValue n) n)
+
+;@axiom:pre((> result 0))
+(:: resultInPre (-> Int Int))
+
+(fn (resultInPre n) n)
+
+;@axiom:post((> result 0))
+(fn (noSignature n) n)
+
+;@axiom:pre((> (strLen (fmtInt n)) 0))
+(:: allocates (-> Int Int))
+
+(fn (allocates n) n)
+
+;@axiom:pre((> n 0))
+(:: guarded (-> Int Int))
+
+(fn (guarded n) n)
+
+;@axiom:post((> result 0))
+(:: ensured (-> Int Int))
+
+(fn (ensured n) n)
+
+;@axiom:pre((> (strLen s) 0))
+(:: measures (-> String Int))
+
+(fn (measures s) 1)
+
+(:: onTheSig (-> Int Int))
+
+;@axiom:post((> result 0))
+(fn (onTheSig n) 1)
+
+(:: bump (-> Int Int))
+
+(fn (bump n) n)
+
+;@axiom:pre((> (strLen s) 0))
+(:: names (-> String Int))
+
+(fn (names s) (cast Int bump))
+
+(:: main Int)
+
+(fn (main)
+  {
+    (wrongType 1)
+    (notOne 1)
+    (noValue 1)
+    (resultInPre 1)
+    (noSignature 1)
+    (allocates 1)
+    (guarded 1)
+    (ensured 1)
+    (measures "x")
+    (onTheSig 1)
+    (names "y")
+  }
+)

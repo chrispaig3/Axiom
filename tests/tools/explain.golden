@@ -60,6 +60,7 @@
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
   [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)
+  [93mAX3050[0m  a `;@axiom:pre(...)`/`post(...)` the compiler cannot compile into a check  (contract-malformed)
   [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
   [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
   [93mAX3053[0m  an operation the program reaches with no handler  (unhandled-operation)
@@ -1023,8 +1024,10 @@ The AXTAG key namespace is OPEN on purpose: a key the compiler does
 not know is metadata, it is recorded, and nothing checks it. That is
 not what this reports.
 
-This reports a key one edit - or one change of case - away from `pure`
-or `effect`, the two keys that ARE checked. `;@axiom:pur` is not a
+This reports a key one edit - or one change of case - away from one
+the compiler checks. Six are: `pure`, `effect(...)`, `restrict(...)`,
+`pre(...)`, `post(...)`, and `unhandled(trap)` on an `effect`
+declaration. `;@axiom:pur` is not a
 purity claim. Nothing validates it, so a body performing IO under it
 draws no AX3010 at all: the tag reads like a guarantee and buys
 silence, which is worse than writing no tag, because a reader spends
@@ -1411,6 +1414,72 @@ shows `#restrict=` on each.
 Deleting the tag also silences this, and an unrestricted function is
 never checked - but that WITHDRAWS the claim rather than answering it.
 
+### explain AX3050
+AX3050 - a `;@axiom:pre(...)` or `;@axiom:post(...)` the compiler
+cannot compile into a check
+
+A CONTRACT IS BOTH HALVES, and this code is the static one.
+
+`restrict(...)` is refused statically because the analysis that
+answers it already exists: the effect row and the call graph are
+fixpoints the checker computes anyway. A contract is not that kind of
+claim. `(> n 0)` is a statement about a VALUE, and this compiler has
+no value analysis at all - no constant folding, no interval domain,
+nothing that could decide it for a caller it has not seen. So the
+refusal a `restrict` gets is not available here.
+
+This project's rule is that a claim nothing checks is a comment, and
+it refuses those. So a contract is COMPILED INTO THE BODY and checked
+on every call: `pre` before the body runs, `post` over the result. A
+failure writes
+
+    axiom: precondition failed in `half`: (> n 0)
+
+on fd 2, prints the backtrace, and exits 75 - a status of its own,
+beside 70 out of memory, 71 unhandled effect, 72 division by zero, 73
+the FFI boundary and 74 no syscall ABI, so a supervisor reading a
+status can tell a broken invariant from a broken machine. There is no
+flag: a check that is off by default is a comment by default.
+
+WHAT THIS CODE REFUSES is everything about the contract that IS
+static:
+
+  - it must parse, as exactly one expression. `pre((> n 0) extra)` is
+    two, and `pre` with no `(...)` at all is none;
+  - it must type as `Bool` against this declaration's signature, with
+    the parameters in scope. `pre((+ n 1))` is an `Int`;
+  - `result` must name something. It names the DECLARED result of a
+    `post`, and nothing anywhere else: a `pre` runs before the body,
+    so there is no result yet, and a declaration with no `::`
+    signature declares no result type for it to have;
+  - it must PERFORM nothing. A contract is evaluated on every call,
+    so a contract that allocates or writes changes the program by
+    being stated.
+
+THE LAST ONE IS NOT A BLANKET REFUSAL, and that is measurable rather
+than asserted: `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and
+`memGetWord` all carry an EMPTY effect row, while `strConcat`,
+`fmtInt` and `vecNew` carry `Alloc,Mut`. A contract may compare,
+index, measure and test; it may not build. Only a DEFINITE effect is
+refused - an effect that reaches the row only as possible arrived
+because the expression names a function without calling it, and
+naming one performs nothing.
+
+PARAMETERS ARE IN SCOPE IN BOTH, and there is no `'Old`. Ada needs
+one because its parameters can be assigned; Axiom's cannot (AX3012),
+so for a scalar parameter the name means in the `post` exactly what it
+meant in the `pre`. What a `post` cannot see is a change made THROUGH
+a reference parameter, and nothing here pretends otherwise.
+
+A `post` COSTS THE TAIL-CALL REWRITE. The result has to be observed,
+so the call it wraps is not in tail position - measured, a
+self-recursive function emits a loop without a `post` and a real
+recursive call with one. That is inherent to what a postcondition
+is, not an artefact.
+
+Correct the expression, or delete the tag - which WITHDRAWS the claim
+rather than answering it.
+
 ### explain AX3051
 AX3051 - a restriction claim the effect walk is not in a position to check
 
@@ -1793,6 +1862,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
   [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)
+  [93mAX3050[0m  a `;@axiom:pre(...)`/`post(...)` the compiler cannot compile into a check  (contract-malformed)
   [93mAX3051[0m  a restriction claim the effect walk is not in a position to check  (restriction-unverifiable)
   [93mAX3052[0m  a name inside `restrict(...)` that is not a restriction  (restriction-unknown)
   [93mAX3053[0m  an operation the program reaches with no handler  (unhandled-operation)

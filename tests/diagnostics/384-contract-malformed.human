@@ -1,0 +1,55 @@
+[1;31merror[AX3050][0m[1m: `(+ n 1)` is the `pre` on `wrongType` and has type `Int`, not `Bool`[0m
+  [1;34m--> [0m384-contract-malformed.ax:56:13
+[1;34m   |[0m
+[1;34m56 |[0m ;@axiom:pre((+ n 1))
+[1;34m   |[0m             [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 75. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3050` for a full explanation
+
+[1;31merror[AX3050][0m[1m: `(> n 0) extra` is not one expression, and a contract is exactly one[0m
+  [1;34m--> [0m384-contract-malformed.ax:61:13
+[1;34m   |[0m
+[1;34m61 |[0m ;@axiom:pre((> n 0) extra)
+[1;34m   |[0m             [1;31m^^^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 75. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3050` for a full explanation
+
+[1;31merror[AX3050][0m[1m: `;@axiom:pre` states a contract with no expression[0m
+  [1;34m--> [0m384-contract-malformed.ax:66:1
+[1;34m   |[0m
+[1;34m66 |[0m ;@axiom:pre
+[1;34m   |[0m [1;31m^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 75. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3050` for a full explanation
+
+[1;31merror[AX3050][0m[1m: `result` names nothing in a `pre`: a precondition is checked BEFORE the body runs, so there is no result yet[0m
+  [1;34m--> [0m384-contract-malformed.ax:71:16
+[1;34m   |[0m
+[1;34m71 |[0m ;@axiom:pre((> result 0))
+[1;34m   |[0m                [1;31m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 75. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3050` for a full explanation
+
+[1;31merror[AX3050][0m[1m: `result` names nothing here: this declaration has no `::` signature, so it declares no result type for `result` to have[0m
+  [1;34m--> [0m384-contract-malformed.ax:76:17
+[1;34m   |[0m
+[1;34m76 |[0m ;@axiom:post((> result 0))
+[1;34m   |[0m                 [1;31m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 75. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3050` for a full explanation
+
+[1;31merror[AX3050][0m[1m: `(> (strLen (fmtInt n)) 0)` is the `pre` on `allocates` and performs Alloc, Mut[0m
+  [1;34m--> [0m384-contract-malformed.ax:79:13
+[1;34m   |[0m
+[1;34m79 |[0m ;@axiom:pre((> (strLen (fmtInt n)) 0))
+[1;34m   |[0m             [1;31m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 75. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3050` for a full explanation
+
+compilation failed due to 6 previous errors

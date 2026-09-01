@@ -1226,10 +1226,11 @@ body performing IO under it drew no `AX3010` at all: the tag read like
 a guarantee and bought silence. A key the compiler knows is never a
 near miss of another one it knows: `pre` is one insertion from `pure`,
 and drew "did you mean `pure`?" until 2026-08-29. Knowing a key and
-checking it are separate: `pre`, `post` and `restrict` are known ahead
+checking it are separate: `pre`, `post` and `restrict` were known ahead
 of their checks, and until a key's check lands it is recorded and not
 checked exactly as an unknown one is - what knowing it buys is that a
-slip FROM it is reported. A key containing `:` is never reported,
+slip FROM it is reported. All three are checked now; the sentence is
+kept because it is the rule a NEXT key arrives under. A key containing `:` is never reported,
 because a namespaced key is deliberate by construction and its
 distance from `pure` is not evidence about anything.
 
@@ -1329,6 +1330,88 @@ declaration, where `symbols` shows it. A `restrict` tag is not an
 effect claim and does not stand in for one: a restricted function
 that performs IO without `effect(io)` draws `AX3042` like any other,
 and `restrict(no-io)` over it draws `AX3049` as well.
+
+#### `pre(...)` / `post(...)` - a claim the compiler CANNOT decide
+
+`;@axiom:pre(EXPR)` and `;@axiom:post(EXPR)` are the one pair of keys
+here whose claim the checker cannot refuse, and the design follows from
+that rather than from taste. `restrict(...)` is refused statically
+because the effect row and the call graph are fixpoints the checker
+already computes; `(> n 0)` is a statement about a VALUE, and there is
+no value analysis in this compiler at all - measured, `grep -c
+'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
+`self_host/typecheck.ax`, `self_host/codegen.ax` and
+`self_host/expand.ax` answers 0, 0 and 0. A claim nothing checks is a
+comment, and this project refuses those, so a contract is **compiled
+into the body** and checked on every call - which is what Ada does, and
+for the same reason.
+
+```scheme
+;@axiom:pre((> n 0))
+;@axiom:post((>= result 0))
+(:: half (-> Int Int))
+
+(fn (half n) (/ n 2))
+```
+
+`(half 0)` writes ``axiom: precondition failed in `half`: (> n 0)`` on
+fd 2, prints the backtrace, and exits **75** - a status of its own
+beside `MM-EXEC-16`'s 70/71/72, the FFI boundary's 73 and 74's absent
+syscall ABI, so a supervisor reading a status can tell a broken
+invariant from a broken machine. There is no flag to turn the checks
+off: a check that is off by default is a comment by default.
+
+| | |
+|---|---|
+| **Where** | on the `::` or on the `fn`; both are read as one list, in source order, exactly as `restrict(...)` is. Several `pre`s and several `post`s on one declaration are all checked, in the order written |
+| **Scope** | the parameters, in BOTH - and `result` in a `post` |
+| **Type** | `Bool` |
+| **May do** | nothing. The expression's own effect row must be empty of DEFINITE effects |
+| **Refused by** | `AX3050`, an error |
+| **Costs** | a `post` costs the tail-call rewrite |
+
+**Purity, and why it is not a blanket refusal.** A contract is
+evaluated on every call, so one that allocates or writes changes the
+program by being stated. That is expressible today without moving any
+part of the effect system: `Alloc` is ambient as a *declarable* claim -
+only `IO` can be written in an `effect(...)` - but it is in the row like
+any other effect, and `restrict(no-alloc)` already reads the same row.
+The vocabulary a predicate needs is allocation-free already: measured
+from `symbols --calls` over `self_host/main.ax`, `vecLen`, `vecGet`,
+`strLen`, `strEq`, `strByte` and `memGetWord` carry no effects at all,
+while `strConcat`, `fmtInt` and `vecNew` carry `Alloc,Mut`. A contract
+may compare, index, measure and test; it may not build. Only a
+DEFINITE effect is refused - an effect that reaches the row only as
+possible arrived because the expression NAMES a function without
+calling it, and naming one performs nothing.
+
+**`result`, and no `'Old`.** `result` names the function's answer in a
+`post`, and its type is the DECLARED result - the signature's arrows
+peeled by as many parameters as the definition has. It names nothing in
+a `pre`, which runs before the body, and nothing on a declaration with
+no `::`, which declares no result type for it to have; both are
+`AX3050`. Ada pairs `Post` with `'Old` because Ada's parameters can be
+assigned; Axiom's cannot (`AX3012`), so for a scalar parameter the name
+means in the `post` exactly what it meant in the `pre` and `'Old` would
+be a synonym. What a `post` cannot see is a change made THROUGH a
+reference parameter - a `memSetWord` into a struct the caller still
+holds - and nothing here pretends otherwise. That is the deliberate
+omission, not an oversight.
+
+**What a `post` costs.** The body's value has to be observed, so it is
+bound - `(let ((result BODY)) { check result })` - and a `let`'s
+INITIALISER is not a tail position. Measured on one self-recursive
+function: bare and under a `pre` its IR holds no call to itself (the
+loop rewrite fired), under a `post` it holds one. A `pre` is a block
+whose last expression is the body, and a block's last expression IS a
+tail position, so it costs nothing. Both directions are pinned by
+`scripts/check-contracts.sh` section 5.
+
+`tests/diagnostics/384-contract-malformed.ax` pins the six refusals
+with the five controls that keep them from being blanket ones;
+`tests/selfhost/132-contract.ax` runs six satisfied contracts including
+one 200,000 deep under a `pre`, and `133-contract-violated.ax` pins the
+status. `docs/contracts-design.md` is the design note.
 
 #### `unhandled(trap)` - an effect whose unhandled operation is the design
 

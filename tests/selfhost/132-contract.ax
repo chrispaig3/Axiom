@@ -1,0 +1,70 @@
+; expect 63
+; `;@axiom:pre(...)` and `;@axiom:post(...)`, SATISFIED. The violated
+; half is `133-contract-violated.ax`, whose whole subject is the status
+; a failure exits with; this one's subject is that a satisfied contract
+; changes nothing about the answer.
+;
+; The answer is a bitmask, one bit per fact, so a compiler that gets
+; one of them wrong names the fact rather than answering a number near
+; the right one:
+;
+;    1  a satisfied `pre` lets the body run and answer normally
+;    2  a satisfied `post` lets the result through unchanged
+;    4  `result` in a `post` IS the body's answer, not a copy of a
+;       parameter - `holds` doubles, so 21 and 42 are distinguishable
+;    8  both tags on one declaration compose: the `pre` runs first,
+;       then the body, then the `post`
+;   16  a contract on the SIGNATURE is read, exactly as `restrict(...)`
+;       is - the tag attaches to either half
+;   32  a `pre` does not cost the tail-call rewrite: `countdown`
+;       recurses 200000 deep under one, and a frame per level would
+;       overflow the stack. `133`'s comment records the other half -
+;       a `post` DOES cost it, which is inherent and not a defect.
+;
+; No `import`: the whole file is arithmetic and comparison, which is
+; also the vocabulary a contract is allowed (`AX3050`), so it doubles
+; as evidence that the allowed vocabulary is enough to write one.
+
+;@axiom:pre((> n 0))
+(:: guarded (-> Int Int))
+
+(fn (guarded n) (- n 1))
+
+;@axiom:post((> result 0))
+(:: ensured (-> Int Int))
+
+(fn (ensured n) (- n 1))
+
+;@axiom:post((== result (* n 2)))
+(:: holds (-> Int Int))
+
+(fn (holds n) (* n 2))
+
+;@axiom:pre((> n 0))
+;@axiom:post((>= result 0))
+(:: both (-> Int Int))
+
+(fn (both n) (- n 1))
+
+;@axiom:pre((>= n 0))
+(:: onTheSig (-> Int Int))
+
+(fn (onTheSig n) n)
+
+;@axiom:pre((>= n 0))
+(:: countdown (-> Int Int Int))
+
+(fn (countdown n acc)
+  (if (== n 0)
+    acc
+    (countdown (- n 1) (+ acc 1))))
+
+(:: main Int)
+
+(fn (main)
+  (+ (if (== (guarded 4) 3) 1 0)
+     (+ (if (== (ensured 4) 3) 2 0)
+        (+ (if (== (holds 21) 42) 4 0)
+           (+ (if (== (both 1) 0) 8 0)
+              (+ (if (== (onTheSig 7) 7) 16 0)
+                 (if (== (countdown 200000 0) 200000) 32 0)))))))
