@@ -7544,6 +7544,8 @@
     (emitLine cg "")
     (emitArenaHelpers cg)
     (emitBadMarkTrap cg)
+    (emitLiveHandleTrap cg)
+    (emitEvCheck cg)
     (emitDivTrap cg)
     (emitOomTrap cg)
     (emitRecoverRuntime cg)
@@ -7899,6 +7901,177 @@
 ; conditions a program can be written to survive; this one is a
 ; violation of `I8`, and `docs/error-model.md`'s recovery table names
 ; three statuses, not four.
+; ------------------------------------------------------------------
+; MM-ALLOC-16b's trap: status 76, a reset that would reclaim the
+; evidence record a live `handle` still dispatches through.
+;
+; The fifth member of the family `emitDivTrap` opened for 72,
+; `emitOomTrap` joined for 70, `emitUnhandledTrap` for 71 and
+; `emitBadMarkTrap` for 75, emitted the same way: a private constant
+; whose declared length is the message's byte count EXACTLY - 38 again,
+; counting the trailing newline, because llc believes the declared
+; length and a wrong one truncates the sentence or writes past it.
+;
+; LIKE 75 IT DOES NOT ARM `__axiom_recover_abort`, and here the reason
+; is sharper than it was there. A recovery abort IS an arena reset AND
+; its whole job is restoring evidence slots (`emitRecoverSlotHelpers`),
+; so answering "a slot points into memory this reset is reclaiming" by
+; running the slot-restoring abort asks the corrupted structure the
+; same question. 70, 71 and 72 are conditions a program can be written
+; to survive; this is a violated implementation invariant, and
+; `docs/error-model.md`'s recovery table names three statuses.
+(pub :: emitLiveHandleTrap (-> Int Int))
+
+(pub fn (emitLiveHandleTrap cg)
+  ; GATED, and the byte-identity check is what caught this. The call
+  ; sites were gated on the slot count from the start; the trap and its
+  ; message constant were not, so a program with no `(effect ...)` -
+  ; `self_host/main.ax` among them - grew two lines of IR for a
+  ; function nothing could reach. Two lines is not a cost worth
+  ; arguing about, and that is exactly why it had to go: the rule is
+  ; byte-identity, not "small enough".
+  (if (== (distinctSlotCount (memGetWord cg 32) 0 0) 0)
+    cg
+  {
+    (emitLine cg "")
+    (emitLine cg "@__axiom_livehandle_msg = private unnamed_addr constant [38 x i8] c\"axiom: arena reset past a live handle\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_live_handle() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %lhp = ptrtoint ptr @__axiom_livehandle_msg to i64")
+    (emitRuntimeWrite cg "%lhp" "38")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "76")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  }
+  )
+)
+
+; ------------------------------------------------------------------
+; `@__axiom_ev_check(lo, hi)` - does any LIVE evidence slot point into
+; [lo, hi)? If one does, the reset about to reclaim that range would
+; free a record a handler still dispatches through, and this traps.
+;
+; WHY A NON-NULL SLOT IS ALWAYS A LIVE EXTENT, which is what makes the
+; test sound rather than merely plausible. The `handle` pop does not
+; null the slot - it stores back the record it displaced - so a
+; completed extent leaves the slot exactly as it found it, and the
+; outermost pop leaves it 0. A slot that reads non-zero therefore names
+; an extent that has not ended. A stale pointer from a finished handle
+; cannot be there to false-positive on.
+;
+; TWO SHAPES THAT LOOK LIKE FALSE POSITIVES AND ARE NOT. A record
+; recycled off a size-class free list (`MM-LIFE-2e`) can sit BELOW the
+; waterline, where this reset does not reclaim it - the range test is
+; silent, correctly. And `emitEffectOp` transiently installs the
+; DISPLACED record for the duration of a handler call; that record is
+; older than the current one, so the check can only under-report.
+;
+; THE RECOVERY PATH NEEDS NO EXEMPTION AND GETS NONE.
+; `emitRecoverRuntime` calls `@__axiom_recover_load` BEFORE
+; `@__axiom_arena_reset_fn`, so by the time this runs every slot has
+; already been overwritten with its arm-time value - which was
+; installed before the arm, hence below the arm's mark. The abort
+; arranges, on its own, for this test to be false. Measured on
+; `tests/stdlib/401-recover-effect.ax`, whose entire purpose is
+; aborting out of a live `handle`: exit 71, stdout unchanged.
+; The call, emitted only when there is a slot to check. At zero slots
+; this writes nothing at all, which is the whole zero-cost argument:
+; `@__axiom_arena_reset_fn` is in every binary, so a check that cost a
+; no-effect program one instruction would cost EVERY program one.
+(pub :: emitEvCall (-> Int String String Int))
+
+(pub fn (emitEvCall cg lo hi)
+  (if (== (distinctSlotCount (memGetWord cg 32) 0 0) 0)
+    cg
+    (emitLine cg (cat3 "  call i64 @__axiom_ev_check(i64 " lo (cat3 ", i64 " hi ")")))
+  )
+)
+
+(pub :: emitEvChunkCall (-> Int Int))
+
+(pub fn (emitEvChunkCall cg)
+  (if (== (distinctSlotCount (memGetWord cg 32) 0 0) 0)
+    cg
+    {
+      (emitLine cg "  %csizep = inttoptr i64 %c to ptr")
+      (emitLine cg "  %csize = load i64, ptr %csizep")
+      (emitLine cg "  %cend = add i64 %c, %csize")
+      (emitLine cg "  call i64 @__axiom_ev_check(i64 %c, i64 %cend)")
+      cg
+    }
+  )
+)
+
+(pub :: emitEvCheck (-> Int Int))
+
+(pub fn (emitEvCheck cg)
+  (let ((n (distinctSlotCount (memGetWord cg 32) 0 0)))
+    (if (== n 0)
+      cg
+      {
+        (emitLine cg "")
+        (emitLine cg "define internal i64 @__axiom_ev_check(i64 %lo, i64 %hi) #0 {")
+        (emitLine cg "entry:")
+        (emitLine cg "  br label %evs0")
+        (emitEvCheckSlots cg 0 0)
+        (emitLine cg (cat3 "evs" (fmtInt n) ":"))
+        (emitLine cg "  ret i64 0")
+        (emitLine cg "evlive:")
+        (emitLine cg "  call i64 @__axiom_live_handle()")
+        (emitLine cg "  unreachable")
+        (emitLine cg "}")
+        cg
+      }
+    )
+  )
+)
+
+; One arm per DISTINCT slot, deduplicated exactly the way
+; `emitRecoverSlotMoves` does it - an imported effect is registered
+; twice under one slot, and checking it twice would be harmless but
+; would make the emitted arm count disagree with `distinctSlotCount`,
+; which is what closes the block.
+(pub :: emitEvCheckSlots (-> Int Int Int Int))
+
+(pub fn (emitEvCheckSlots cg i k)
+  (let ((tbl (memGetWord cg 32)))
+    (if (>= i (vecLen tbl))
+      k
+      (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
+        {
+          (emitEvCheckSlot cg (llvmSym (effSlot (vecGet tbl i))) k)
+          (emitEvCheckSlots cg (+ i 1) (+ k 1))
+        }
+        (emitEvCheckSlots cg (+ i 1) k)
+      )
+    )
+  )
+)
+
+; Unsigned comparisons, because these are addresses.
+(pub :: emitEvCheckSlot (-> Int String Int Int))
+
+(pub fn (emitEvCheckSlot cg slot k)
+  (let (
+    (n (fmtInt k))
+    (nx (fmtInt (+ k 1)))
+  )
+    {
+      (emitLine cg (cat3 "evs" n ":"))
+      (emitLine cg (cat4 "  %evv" n " = load i64, ptr @" slot))
+      (emitLine cg (cat4 "  %evnz" n " = icmp ne i64 %evv" (cat2 n ", 0")))
+      (emitLine cg (cat4 "  %evge" n " = icmp uge i64 %evv" (cat2 n ", %lo")))
+      (emitLine cg (cat4 "  %evlt" n " = icmp ult i64 %evv" (cat2 n ", %hi")))
+      (emitLine cg (cat4 "  %evin" n " = and i1 %evge" (cat4 n ", %evlt" n "")))
+      (emitLine cg (cat4 "  %evhit" n " = and i1 %evnz" (cat4 n ", %evin" n "")))
+      (emitLine cg (cat4 "  br i1 %evhit" n ", label %evlive, label %evs" nx))
+      cg
+    }
+  )
+)
+
 (pub :: emitBadMarkTrap (-> Int Int))
 
 (pub fn (emitBadMarkTrap cg)
@@ -8869,6 +9042,20 @@
     (emitLine cg "  %a2 = add i64 %cell, 16")
     (emitLine cg "  %p2 = inttoptr i64 %a2 to ptr")
     (emitLine cg "  %schunk = load i64, ptr %p2")
+    ; MM-ALLOC-16b, ENFORCED. Everything from the restored waterline to
+    ; the end of the marked chunk is about to be reclaimed; if a live
+    ; handle's evidence record is in there, the next operation would
+    ; dispatch through freed memory. This covers the `%same` fast path
+    ; and the unwind path alike, because the marked chunk is reclaimed
+    ; above `%sbump` either way; the chunks the walk FREES are checked
+    ; in `unwind_body` below, where their extents are known.
+    ;
+    ; EMITTED ONLY WHEN THE PROGRAM DECLARES AN EFFECT. `emitEvCheck`
+    ; answers `cg` unchanged at zero slots and these lines are not
+    ; written, so a program with no `(effect ...)` - which is every
+    ; program in `self_host/`, measured - emits the reset helper it
+    ; emitted before this rule existed, byte for byte.
+    (emitEvCall cg "%sbump" "%send")
     (emitLine cg "  %chead = load i64, ptr @__axiom_chunk")
     (emitLine cg "  %same = icmp eq i64 %chead, %schunk")
     (emitLine cg "  br i1 %same, label %restore, label %unwind")
@@ -8919,6 +9106,13 @@
     (emitLine cg "  call i64 @__axiom_bad_mark()")
     (emitLine cg "  unreachable")
     (emitLine cg "unwind_body:")
+    ; This chunk is about to go on the free list, so its whole extent is
+    ; reclaimed. Word 0 of a chunk is its total size (see the header
+    ; comment on `@__axiom_chunk`), so the extent is [%c, %c + size).
+    ; The walk already visits exactly the chunks being reclaimed, so
+    ; the sound version costs one more load on a path that is already
+    ; O(chunks) - no second traversal.
+    (emitEvChunkCall cg)
     (emitLine cg "  %clink = add i64 %c, 8")
     (emitLine cg "  %clinkp = inttoptr i64 %clink to ptr")
     (emitLine cg "  %cnext = load i64, ptr %clinkp")

@@ -182,6 +182,56 @@ below baseline, reported above, is arithmetic rather than luck — a call
 that frees nothing cannot cost memory — and it says nothing either way
 about speed.
 
+### A reset past a live handle traps, and the recovery path needed no exemption
+
+`MM-ALLOC-16b` said a program **MUST NOT** reset a mark taken before a
+`handle` whose extent is still live — the reset reclaims the evidence
+record the slot still points at — and nothing said so when one did.
+Measured before the check existed, on exactly that shape:
+
+    $ axiom run illegal.ax
+    dispatched through a freed evidence record
+    $ echo $?
+    0
+
+The operation ran off memory the same call had reclaimed, and the
+program exited successfully. It exits **76** now, with
+`axiom: arena reset past a live handle` on fd 2 — the fifth member of
+the family 70/71/72/75 opened (`emitLiveHandleTrap`), and the second
+of `MM-EXEC-16`'s statuses to arrive in one day.
+
+**The recovery path needed no exemption, which is the result worth
+recording.** A recovery abort IS an arena reset across a live extent —
+that is its whole job — so it looked like the thing that would make
+this uncheckable. It is not: `emitRecoverRuntime` calls
+`@__axiom_recover_load` *before* `@__axiom_arena_reset_fn`, so by the
+time the check runs every slot already holds its arm-time value, which
+was installed below the arm's mark. The abort arranges for the test to
+be false on its own, with nothing to distinguish and no flag.
+`tests/stdlib/401-recover-effect.ax`, whose entire purpose is aborting
+out of a live `handle`, still exits 71 with unchanged stdout.
+
+**A non-null slot is always a live extent**, which is what makes the
+test sound rather than plausible: the `handle` pop does not null the
+slot, it stores back the record it displaced, so a completed extent
+leaves the slot as it found it and the outermost pop leaves it 0. A
+record recycled off a size-class free list can sit *below* the
+waterline, where the range test is correctly silent.
+
+**It costs a program that declares no effect nothing, byte for byte** —
+and the byte-identity check is what caught the one place that was not
+free. The call sites were gated on the slot count from the start; the
+trap and its message constant were not, so an effect-free program grew
+two lines of IR for a function nothing could reach. Two lines is not a
+cost worth arguing about, which is exactly why it had to go: the rule
+is byte-identity, not "small enough". `010-hello.ax` and `160-arena.ax`
+now emit identical IR before and after, and `self_host/` declares no
+effect at all.
+
+What it does **not** catch is stated rather than left to be found: a
+reset performed lexically inside a handler body is invisible, because
+for the duration of that call the slot holds the displaced record.
+
 ## 0.6.1 — 2026-08-31
 
 - **A program contains only what it uses.** A hello world was a
