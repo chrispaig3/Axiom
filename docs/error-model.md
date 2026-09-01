@@ -1265,8 +1265,22 @@ bodies instead of prose. It is not one commit.**
 > `effect(io)` seventy times — they are syscall wrappers, effectful
 > already). The modules dense with `no-alloc`/`restrict` — `Str.ax`,
 > `Tui/Keys.ax`, `Utf8.ax`, `Tui/Term.ax` — carry **absence**
-> sentinels, which become `Option`, which has no `Error`, no computed
-> message and none of the traffic the blocker is about. Recomputed
+> sentinels, which become `Option`, which has no `Error` and no
+> computed message.
+>
+> **THAT IS TRUE AND THE CONCLUSION DOES NOT FOLLOW, measured
+> 2026-09-01.** `Option` carries no `Error` and builds no message, and
+> it still ALLOCATES: `(Some v)` is a constructor application, and
+> `restrict(no-alloc)` refuses it with `AX3049`. Four of the ten
+> absence sentinels carry that claim themselves — `strHexVal`,
+> `utf8DecodeAt`, `utf8CharAt` and `keyStrEnd` — so they cannot become
+> `Option` without withdrawing it. This was invisible until 0.6.1,
+> which made `restrict(no-alloc)` able to fail at all; before that a
+> constructor contributed nothing to the effect walk and the claim
+> could not be violated. `tests/diagnostics/384-restrict-no-alloc-ctor.ax`
+> gates it with a `some` arm (`AX3049`) beside a `none` arm (silent) —
+> `None` is an immediate tag with no block behind it, so what is
+> refused is carrying a VALUE out of a lookup. Recomputed
 > from `compat/SENTINELS` and a claim count per file; P6 stays
 > refuted (its `Mut` half is unsound, see the proposal) and stays
 > irrelevant here. **The migration may proceed, starting with
@@ -1676,9 +1690,13 @@ counted as a failure until the census learned to follow a syscall
 result through a `let` binder, and it is `Option` debt, not `Result`
 debt. `compat/SENTINELS` records it.
 
-**And `Option` is not free.** Measured 2026-08-30 over 20,000,000 calls
-at `--opt 2`: a `-1` return costs **1.4 ns** and a `(Some v)` costs
-**10.4 ns**, 7.4×, for the allocate/store/match/release round trip. The
+**And `Option` is not free — in two different ways.** Measured
+2026-08-30 over 20,000,000 calls at `--opt 2`: a `-1` return costs
+**1.4 ns** and a `(Some v)` costs **10.4 ns**, 7.4×, for the
+allocate/store/match/release round trip. And measured 2026-09-01, that
+allocation is not merely a cost but a **refusal** wherever the lookup
+claims `restrict(no-alloc)`: four of the ten do, and porting them is a
+decision to withdraw a checked claim rather than a port. The
 arena bump moves **zero bytes** for that loop — the block is recycled
 through its size class — so a bytes-only measurement reports `Option` as
 free and is wrong; the cost is instructions. `strFindByte` has 62 call

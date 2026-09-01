@@ -16,6 +16,41 @@ its changelog too.
 
 ## Unreleased
 
+### `Option` allocates, and four of the absence sentinels claim `no-alloc`
+
+**`(Some v)` is a constructor application, so `restrict(no-alloc)`
+refuses it (`AX3049`).** Measured 2026-09-01. That settles the plan for
+the other half of ERR-ADOPT-1: `strHexVal`, `utf8DecodeAt`,
+`utf8CharAt` and `keyStrEnd` all read
+`#restrict=no-io,no-alloc,no-foreign` in `axiom symbols`, so they
+cannot become `Option` without WITHDRAWING a checked claim — a
+different decision from porting one.
+
+`docs/error-model.md` §10 reasoned the other way while refuting P6: the
+modules dense with `restrict` carry absence sentinels, "which become
+`Option`, which has no `Error`, no computed message and none of the
+traffic the blocker is about". The first half is right; the conclusion
+does not follow. `Option` carries no `Error` and builds no message, and
+it still allocates.
+
+**It was invisible until 0.6.1.** Before that, `restrict(no-alloc)`
+could not fail — a constructor contributed nothing to the effect walk —
+so a lookup answering `(Some v)` under the claim would have checked
+clean. Closing that hole is what made this measurable.
+
+Gated rather than asserted:
+`tests/diagnostics/384-restrict-no-alloc-ctor.ax` gains a `some` arm
+(`AX3049`) beside a `none` arm (silent). The pair is the measurement —
+`None` is an immediate tag with no block behind it, so what is refused
+is carrying a VALUE out of a lookup, and a partial migration answering
+only `None` would never have found it.
+
+`compat/SENTINELS` now names all ten absence rows with the reason each
+is not moving. Nine are blocked or excluded on a measurement; the tenth,
+`internFind`, is the only one where a measurement would decide it, and
+it sits on the interner's own hot path.
+
+
 ### ERR-ADOPT-1 slice 4: the working directory, and the first port that costs a caller nothing
 
 `sysGetCwd` and `IO.cwd` answer `(Result String Error)`. **The census

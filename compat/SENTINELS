@@ -266,6 +266,57 @@
 # `stdlib/Sys/Platform.darwin.ax` remain blocked behind
 # `sysWriteFd`/`sysReadFd`, for the reasons the slice-3 note gives.
 
+# MEASURED 2026-09-01, AND IT CHANGES THE PLAN FOR THE ABSENCE COLUMN:
+# `(Some v)` IS A CONSTRUCTOR APPLICATION AND `restrict(no-alloc)`
+# REFUSES IT.
+#
+#   E AX3049 `some` claims `restrict(no-alloc)` and the body performs
+#            Alloc in its own body (a constructor application, ...)
+#
+# Four of the ten absence sentinels carry that claim themselves -
+# `strHexVal` (`Str.ax`), `utf8DecodeAt` and `utf8CharAt` (`Utf8.ax`)
+# and `keyStrEnd` (`Tui/Keys.ax`), all three modules reading
+# `#restrict=no-io,no-alloc,no-foreign` in `axiom symbols`. They cannot
+# become `Option` without WITHDRAWING a checked claim, which is a
+# different decision from porting one and belongs to whoever owns the
+# claim.
+#
+# `docs/error-model.md` §10 reasoned the other way while refuting P6:
+# the modules dense with `restrict` carry ABSENCE sentinels, which
+# become `Option`, "which has no `Error`, no computed message and none
+# of the traffic the blocker is about". The first half is right and the
+# conclusion does not follow. `Option` carries no `Error` and builds no
+# message, and it still allocates - and since 0.6.1 made
+# `restrict(no-alloc)` able to fail at all (it could not, before: a
+# constructor contributed nothing to the effect walk), that allocation
+# is refused rather than ignored. The section is corrected.
+#
+# GATED, NOT ASSERTED: `tests/diagnostics/384-restrict-no-alloc-ctor.ax`
+# carries a `some` arm (AX3049) beside a `none` arm (silent). The pair
+# is the measurement - `None` is an immediate tag with no block behind
+# it, so the refusal is specifically about carrying a VALUE out of a
+# lookup, and a partial migration answering only `None` would not have
+# found it.
+#
+# WHAT REMAINS IN THE ABSENCE COLUMN, with the reason each is not moving:
+#
+#   strFindByte      71 call sites on the compiler's scanning path;
+#                    `Option` measured at 7.4x (1.4 ns -> 10.4 ns)
+#   strHexVal        its own `no-alloc` claim
+#   utf8DecodeAt     its own `no-alloc` claim
+#   utf8CharAt       its own `no-alloc` claim
+#   keyStrEnd        its own `no-alloc` claim
+#   keyInFill        four outcomes, three of them distinct failures;
+#                    `Option` collapses two and loses the count
+#   mkKeyIn/keyNext  per-keystroke, in the terminal read loop
+#   netPollSignalAt  two outcomes folded into one `-1`; porting means
+#                    SPLITTING them, not rewrapping
+#   internFind       the interner's own hot path - one library caller,
+#                    inside `internIntern`, which runs per interned
+#                    string. Not blocked; not measured either, and it
+#                    is the only one of the ten where a measurement
+#                    would decide it.
+
 stdlib/Intern.ax 0 1
 stdlib/Str.ax 0 2
 stdlib/Sys.ax 7 1
