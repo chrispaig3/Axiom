@@ -254,49 +254,83 @@
   background: var(--bg-alt);
 }
 
-.editors__inner {
+.editors__top {
   display: grid;
-  grid-template-columns: minmax(0, 0.55fr) minmax(0, 1.45fr);
-  gap: clamp(var(--s-5), 4vw, var(--s-8));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(var(--s-5), 4vw, var(--s-7));
   align-items: start;
+  margin-bottom: var(--s-6);
 }
 
-@media (max-width: 900px) {
-  .editors__inner {
+@media (max-width: 860px) {
+  .editors__top {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--s-5);
   }
 }
 
-.editors h2 {
-  font-size: var(--t-2);
-  letter-spacing: -0.018em;
+.editors__top p {
+  margin: var(--s-3) 0 0;
+  color: var(--text-2);
+  font-size: var(--t--1);
+  line-height: 1.62;
 }
 
-.editors__list {
+/* The subcommands, as a dense keycap grid — the point is the SHAPE of
+   the list: one binary, eleven verbs, nothing else to install. */
+.editors__cmds {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s-2);
-  margin: var(--s-4) 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.editors__list li {
+.editors__cmds li {
   margin: 0;
-  padding: 3px 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  color: var(--text-2);
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--t--2);
+  white-space: nowrap;
+}
+
+.editors__cmds li span {
+  color: var(--text-3);
+  opacity: 0.6;
+}
+
+.editors__foot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s-4) var(--s-6);
+  align-items: center;
+  margin-top: var(--s-6);
+  padding-top: var(--s-5);
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 860px) {
+  .editors__foot {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .editors__facts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--s-5);
   margin: 0;
+}
+
+@media (max-width: 980px) {
+  .editors__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -326,11 +360,7 @@
   line-height: 1.62;
 }
 
-.editors__note {
-  grid-column: 1 / -1;
-  padding-top: var(--s-4);
-  border-top: 1px solid var(--border);
-}
+
 
 /* ---------------------------------------------------------------- *
  * "Built for": a kicker, a claim, the proof, a way in

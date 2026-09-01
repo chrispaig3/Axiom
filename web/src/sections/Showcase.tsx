@@ -48,7 +48,7 @@ export function Showcase() {
       <div className="container">
         <Reveal className="lede-block">
           <span className="index">02</span>
-          <h2 id="code-h">This is the whole language.</h2>
+          <h2 id="code-h">What it actually looks like.</h2>
           <p>
             Three complete programs, run to produce the output shown under them,
             and two excerpts of code that does a real job in the repository — one

@@ -1,0 +1,73 @@
+/* ---------------------------------------------------------------- *
+ * Narrow screens, verified rather than reasoned
+ *
+ * Every earlier pass at this was written against a viewport I could not
+ * actually see: `--headless=new` clamps its window near 500px and
+ * `--force-device-scale-factor` scales the output rather than the
+ * layout, so a `--window-size=390` capture laid the page out wider and
+ * cropped the result. `--headless=old` honours the size, and at a true
+ * 390px the hero was overflowing its section and being clipped by
+ * `.hero { overflow: hidden }` — which is why the headline read
+ * "…ships a binary, not a runti".
+ *
+ * The rules below are the belt: a percentage cap on the things that can
+ * out-size their track, and `min-width: 0` on the tracks themselves, so
+ * an intrinsic minimum can never push a grid item wider than its column.
+ * ---------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  /* The hero's grid and both of its children. A grid item's default
+     `min-width: auto` is the whole mechanism: without this, the widest
+     unbreakable thing inside sets the column's floor and the rest of the
+     column follows it off the screen. */
+  .hero__inner,
+  .hero__lead,
+  .hero__panel {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* `20ch` and `40ch` are caps, not widths, but a cap wider than the
+     viewport is not doing any capping. */
+  .hero__lead h1,
+  .hero__lede {
+    max-width: 100%;
+  }
+
+  /* Nothing inside the lead column may exceed it. */
+  .hero__lead > * {
+    max-width: 100%;
+  }
+
+  .proof {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-4);
+    margin-top: var(--s-6);
+  }
+
+  /* Long words in a 358px column: break rather than run off the edge.
+     The headline is the one place where this is a judgement call, and
+     the judgement is that a broken word beats an invisible one. */
+  .hero__lead h1 {
+    overflow-wrap: break-word;
+  }
+
+  .hero__lede,
+  .proof span {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* The same guarantee, one level up: no section may be laid out wider
+   than the page it is on. `.hero` clips rather than scrolls, so an
+   overflow there is lost content rather than a scrollbar. */
+@media (max-width: 720px) {
+  .container {
+    max-width: 100%;
+  }
+
+  .section > .container > *,
+  .hero > .container > * {
+    min-width: 0;
+  }
+}

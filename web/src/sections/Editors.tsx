@@ -1,31 +1,50 @@
 import { DOCS } from '../data/site.ts'
 
 /**
- * Everything here is from docs/lsp.md's "Editor setup" table and the
- * README's "Editor support" row. Two things are separate and the doc is
- * careful about it: the server answers requests and colours nothing; the
- * tree-sitter grammar does all of the highlighting.
+ * The toolchain, in one band.
+ *
+ * The subcommand list is `axiom --help` verbatim, minus `help` itself.
+ * The editor facts are docs/lsp.md's "Editor setup" table, which is
+ * careful about a distinction repeated here: the server answers requests
+ * and colours nothing; the tree-sitter grammar does all of the
+ * highlighting. VS Code gets the server but not the colours, because it
+ * has no tree-sitter and this repository ships no TextMate grammar.
  */
-const EDITORS = [
-  'Neovim',
-  'Helix',
-  'Emacs 29+',
-  'Zed',
-  // The server works here like anywhere else; the highlighting does not,
-  // because VS Code has no tree-sitter and this repository ships no
-  // TextMate grammar. docs/lsp.md says so, and so does this label.
-  'VS Code (server only)',
+const COMMANDS = [
+  'build',
+  'check',
+  'run',
+  'test',
+  'emit-llvm',
+  'fmt',
+  'explain',
+  'symbols',
+  'repl',
+  'lsp',
+  'version',
 ]
+
+const EDITORS = ['Neovim', 'Helix', 'Emacs 29+', 'Zed', 'VS Code (server only)']
 
 export function Editors() {
   return (
     <section className="editors" aria-labelledby="editors-h">
-      <div className="container editors__inner">
-        <div className="editors__lead">
-          <h2 id="editors-h">Editor support</h2>
-          <ul className="editors__list">
-            {EDITORS.map((e) => (
-              <li key={e}>{e}</li>
+      <div className="container">
+        <div className="editors__top">
+          <div>
+            <h2 id="editors-h">The toolchain is one binary.</h2>
+            <p>
+              No build system to configure, no formatter to choose, no test
+              runner to add, no language server to install separately. Eleven
+              subcommands, one download, and the same compiler behind all of
+              them.
+            </p>
+          </div>
+          <ul className="editors__cmds">
+            {COMMANDS.map((c) => (
+              <li key={c}>
+                <span>axiom</span> {c}
+              </li>
             ))}
           </ul>
         </div>
@@ -33,47 +52,54 @@ export function Editors() {
         <dl className="editors__facts">
           <div>
             <dt>
-              <code>axiom lsp</code> — the language server
+              <code>axiom explain</code>
             </dt>
             <dd>
-              Written in Axiom, like the rest of the compiler, and answers
-              twenty-four requests. Among them a distinction most languages do
-              not have: a function is written twice, as{' '}
-              <code>(:: f T)</code> and <code>(fn (f x) …)</code>, so{' '}
+              Every one of the 68 diagnostic codes has a full written
+              explanation behind it — and where a fix is machine-applicable, it
+              travels with the error as a span and a replacement.
+            </dd>
+          </div>
+          <div>
+            <dt>
+              <code>axiom lsp</code>
+            </dt>
+            <dd>
+              Written in Axiom like the rest of the compiler, and answers
+              twenty-four requests — including a distinction most languages do
+              not have: a function is written twice, so{' '}
               <em>declaration</em> lands on the signature and{' '}
               <em>definition</em> on the body.
             </dd>
           </div>
           <div>
             <dt>
-              <code>tree-sitter-axiom</code> — the grammar
+              <code>tree-sitter-axiom</code>
             </dt>
             <dd>
-              All of the highlighting: colour by syntactic role, plus
-              rainbow-bracket queries. The capture names follow the convention
-              Neovim, Helix and the <code>tree-sitter</code> CLI share, so one
-              query file works in all three — and it is parsed against all 581{' '}
-              <code>.ax</code> files in the repository on every change.
+              All of the highlighting, plus rainbow-bracket queries. One query
+              file serves Neovim, Helix and the <code>tree-sitter</code> CLI —
+              and it is parsed against all 581 <code>.ax</code> files in the
+              repository on every change.
             </dd>
           </div>
         </dl>
 
-        <p className="micro editors__note">
-          The two are independent: the server colours nothing, so a buffer with
-          it attached and no grammar installed is plain text.{' '}
-          <a href={`${DOCS}/lsp.md`} target="_blank" rel="noreferrer noopener">
-            docs/lsp.md
-          </a>{' '}
-          has a configuration per editor;{' '}
-          <a
-            href="https://github.com/chrispaig3/Axiom/tree/trunk/tree-sitter-axiom"
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            tree-sitter-axiom/
-          </a>{' '}
-          is the grammar this page's own highlighting was written from.
-        </p>
+        <div className="editors__foot">
+          <ul className="editors__list">
+            {EDITORS.map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+          <p className="micro">
+            <a href={`${DOCS}/lsp.md`} target="_blank" rel="noreferrer noopener">
+              docs/lsp.md
+            </a>{' '}
+            has a configuration per editor. The server and the grammar are
+            independent: the server colours nothing, so a buffer with it
+            attached and no grammar installed is plain text.
+          </p>
+        </div>
       </div>
     </section>
   )

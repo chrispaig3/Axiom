@@ -58,6 +58,10 @@ const src = readFileSync(new URL('../src/data/site.ts', import.meta.url), 'utf8'
 const stated = [...src.matchAll(/^\s*n: '([^']+)',$/gm)].map((m) => m[1])
 
 let failed = 0
+const fail = (msg) => {
+  console.log(`FAIL ${msg}`)
+  failed++
+}
 
 if (stated.length !== CLAIMS.length) {
   console.log(
@@ -79,16 +83,30 @@ for (const [i, claim] of CLAIMS.entries()) {
 }
 
 // One prose claim repeats the file count, and prose drifts the same way.
-const editors = readFileSync(
+// Matched against the sentence's TEXT rather than its JSX: the first
+// version of this keyed on the literal `all 581{' '}` and failed the
+// build when the surrounding markup was reworked — a checker reporting
+// on itself rather than on the claim.
+const editorsSrc = readFileSync(
   new URL('../src/sections/Editors.tsx', import.meta.url),
   'utf8',
 )
+const editorsText = editorsSrc
+  .replace(/\{' '\}/g, ' ')
+  .replace(/<\/?[^>]+>/g, '')
+  .replace(/\s+/g, ' ')
+
 const axFiles = CLAIMS[1].format(CLAIMS[1].derive())
-if (!editors.includes(`all ${axFiles}{' '}`)) {
-  console.log(
-    `FAIL Editors.tsx: the grammar-gate sentence does not say ${axFiles} .ax files`,
+const said = /all (\d[\d,]*) \.ax files/.exec(editorsText)
+if (!said) {
+  fail(
+    'Editors.tsx: no "all <N> .ax files" sentence found — the grammar-gate' +
+      ' claim was reworded, so this check no longer reads it',
   )
-  failed++
+} else if (said[1] !== axFiles) {
+  fail(
+    `Editors.tsx: the grammar-gate sentence says ${said[1]}, the tree says ${axFiles}`,
+  )
 } else {
   console.log(`ok   Editors.tsx repeats the .ax count as ${axFiles}`)
 }
