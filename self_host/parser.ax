@@ -5084,29 +5084,48 @@
 (pub fn (namedPatSpineFrom declared names pats i acc)
   (if (>= i (vecLen declared))
     acc
-    (let ((j (namedFieldIndex names (vecGetStr declared i) 0)))
-      (namedPatSpineFrom
-        declared        names        pats        (+ i 1)        (mkEApp
-          acc          (if (< j 0)
-            (mkEVar "_")
-            (vecGet pats j)
-          )
+    (namedPatSpineFrom
+      declared      names      pats      (+ i 1)      (mkEApp
+        acc        (match (namedFieldIndex names (vecGetStr declared i))
+          ((Some j) (vecGet pats j))
+          ((None) (mkEVar "_"))
         )
       )
     )
   )
 )
 
-; Where the pattern mentions field `n`, or -1. `names` holds spanned
+; Where the pattern mentions field `n`, or `None`. `names` holds spanned
 ; TAG_E_VAR nodes so a miss can be reported at the field name.
-(pub :: namedFieldIndex (-> Int String Int Int))
+;
+; `Option` RATHER THAN -1, and this one is why the absence column is
+; worth closing rather than documenting: the only caller uses the
+; answer as `(vecGet pats j)`, so a miss that reached the index would
+; be a WILD READ and not a wrong answer. The type is what stops it
+; now, in place of a `(< j 0)` the caller had to remember to write.
+;
+; The recursion keeps the -1 and stays private, as `Path.ax`'s
+; `pathLastSlashFrom` does: the boundary is where the type is worth
+; having, and a walk that has not finished is not a boundary.
+(pub :: namedFieldIndex (-> Int String (Option Int)))
 
-(pub fn (namedFieldIndex names n i)
+(pub fn (namedFieldIndex names n)
+  (let ((i (namedFieldIndexFrom names n 0)))
+    (if (< i 0)
+      None
+      (Some i)
+    )
+  )
+)
+
+(:: namedFieldIndexFrom (-> Int String Int Int))
+
+(fn (namedFieldIndexFrom names n i)
   (if (>= i (vecLen names))
     (- 0 1)
     (if (strEq (nodeAName (vecGet names i)) n)
       i
-      (namedFieldIndex names n (+ i 1))
+      (namedFieldIndexFrom names n (+ i 1))
     )
   )
 )

@@ -379,6 +379,17 @@
 # failed with "its shape has moved" rather than passing on an ablation
 # that no longer applied. That hard failure is the gate working.
 #
+# THE BLOCKER ON FOUR OF THE NINE IS NOT REMOVED BY THE REGISTER PAIR,
+# measured 2026-09-01 AFTER building it: a `restrict(no-alloc)`
+# function answering `(Option Int)` still draws AX3049, because the
+# BOXED definition is still emitted for callers that do not
+# immediately match. Which caller it gets decides whether it
+# allocates, and that is a whole-program question the effect walk does
+# not ask. Those four stay blocked; lifting them is a decision about
+# what the claim means. The paragraph below is what was believed
+# before it was built, kept because the reasoning is the part that was
+# wrong:
+#
 # THE BLOCKER ON FOUR OF THE NINE IS REMOVABLE, and it is measured:
 # `docs/unboxed-sums-design.md` prototypes `(Option Int)` as a
 # {tag, payload} register pair rather than a heap block. The wrapper

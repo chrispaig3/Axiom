@@ -290,7 +290,7 @@ cannot move is stated there and in `docs/error-model.md` §10:
 > `#restrict=no-io,no-alloc,no-foreign`. They cannot become `Option`
 > without WITHDRAWING a checked claim.
 
-**If `(Some v)` does not allocate, that blocker is gone** — those four
+**~~If `(Some v)` does not allocate, that blocker is gone~~ — MEASURED FALSE, 2026-09-01** — those four
 become `Option` while keeping the claim they already make, and the
 argument in §10 that was corrected on 2026-09-01 (`Option` carries no
 `Error` and still allocates) stops being true because the second half
@@ -325,6 +325,20 @@ strings of its own, and sums the ids over 20,000,000 round-robin
 lookups so nothing is dead. The three variants differ only in the body
 of the loop: a raw `-1` compared against zero, a `match` on a boxed
 `(Option Int)`, and a `match` on the register pair.
+
+### The `no-alloc` claim is NOT lifted, measured after building
+
+A `restrict(no-alloc)` function answering `(Option Int)` in the
+specialised shape still draws `AX3049`, and the checker is right. **The
+boxed `@F` is still emitted** for every caller that does not
+immediately match, so the function genuinely can allocate — which
+caller it gets decides. `no-alloc` is a property of a function; after
+specialisation the honest version of it is a property of the function
+AND its call sites, and that is a whole-program question the effect
+walk does not ask.
+
+So the four blocked rows stay blocked. Lifting them is a decision about
+what the claim means, not a port and not a code-generation change.
 
 ## 5a. `Result` and reference payloads, 2026-09-01
 

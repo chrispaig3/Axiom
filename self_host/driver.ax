@@ -1662,11 +1662,9 @@
                 (ds vecNew)
               )
                 {
-                  (let ((u (findExternUnit decls n units 0)))
-                    (if (>= u 0)
-                      (diagSetUnit d u)
-                      0
-                    )
+                  (match (findExternUnit decls n units)
+                    ((Some u) (diagSetUnit d u))
+                    ((None) 0)
                   )
                   (vecPush ds d)
                   (let ((out 
@@ -1727,11 +1725,9 @@
               (ds vecNew)
             )
               {
-                (let ((u (findExternUnit decls n units 0)))
-                  (if (>= u 0)
-                    (diagSetUnit d u)
-                    0
-                  )
+                (match (findExternUnit decls n units)
+                  ((Some u) (diagSetUnit d u))
+                  ((None) 0)
                 )
                 (vecPush ds d)
                 (let ((out 
@@ -1763,11 +1759,28 @@
   )
 )
 
-; The index in `units` of the module that declares `sym`, or -1.
+; The index in `units` of the module that declares `sym`, or `None`.
 ; The entry file's declarations have no module (0) and sit at unit 0.
-(pub :: findExternUnit (-> Int String Int Int Int))
+;
+; `Option` RATHER THAN -1, and here 0 is a REAL ANSWER - the entry
+; file's own unit - so the sentinel and a valid index were one
+; comparison apart at every call site. The recursion below keeps the
+; -1 and stays private; the boundary is where the type is worth
+; having.
+(pub :: findExternUnit (-> Int String Int (Option Int)))
 
-(pub fn (findExternUnit decls sym units i)
+(pub fn (findExternUnit decls sym units)
+  (let ((u (findExternUnitFrom decls sym units 0)))
+    (if (< u 0)
+      None
+      (Some u)
+    )
+  )
+)
+
+(:: findExternUnitFrom (-> Int String Int Int Int))
+
+(fn (findExternUnitFrom decls sym units i)
   (if (>= i (vecLen decls))
     (- 0 1)
     (let ((d (vecGet decls i)))
@@ -1780,7 +1793,7 @@
             units            (cast String (nodeModule d))            0
           )
         )
-        (findExternUnit decls sym units (+ i 1))
+        (findExternUnitFrom decls sym units (+ i 1))
       )
     )
   )

@@ -16,6 +16,58 @@ its changelog too.
 
 ## Unreleased
 
+### The compiler's own absence sentinels, slice 1
+
+**`namedFieldIndex` and `findExternUnit` answer `Option Int`.** The
+first two of `self_host/`'s absence column, and both specialise to a
+register pair, so the type costs nothing: **5 pair variants and 14 call
+sites** in the compiler's own IR, up from 3 and 11.
+
+**`namedFieldIndex` is why the absence column is worth closing rather
+than documenting.** Its only caller used the answer as
+`(vecGet pats j)` — a miss that reached the index is a **wild read**,
+not a wrong answer, and the only thing standing between them was a
+`(< j 0)` the caller had to remember to write. The type is what stops
+it now.
+
+**`findExternUnit` had the sentinel one comparison from a real
+answer**: 0 is the entry file's own unit, and -1 was the miss.
+
+Both keep the raw `-1` in a private recursion — `Path.ax`'s
+`pathLastSlashFrom` pattern — because a walk that has not finished is
+not a boundary.
+
+**`expRepIndex` is EXCLUDED, deliberately, and the reason is not
+cost.** Its five sites are in the macro expander, and
+`expShadowingRule` uses two of its answers (`ke`, `kl`) as numbers and
+as presence flags inside one nested condition. Porting it there is a
+readability regression in the code that decides which macro rule
+shadows which — the place where a subtle wrong answer is most
+expensive and least visible. It wants its own slice with its own
+fixture, not a mechanical rewrite at the end of another one.
+
+### `restrict(no-alloc)` does NOT unblock, and this corrects a claim made today
+
+`docs/unboxed-sums-design.md` §5 argued that if `(Some v)` stops
+allocating, the four `restrict(no-alloc)` absence sentinels —
+`strHexVal`, `utf8DecodeAt`, `utf8CharAt`, `keyStrEnd` — are unblocked.
+**Measured false.** A `restrict(no-alloc)` function answering
+`(Option Int)` in the specialised shape still draws `AX3049`.
+
+The reason is not an oversight in the checker: **the boxed `@F` is
+still emitted** for callers that do not immediately match, so the
+function genuinely can allocate — it depends on the caller. `no-alloc`
+is a property of the function, and after the specialisation it is a
+property of the function *and its call sites*, which is a
+whole-program question the effect walk does not ask. Corrected in the
+design note and in `compat/SENTINELS`; those four stay blocked, and
+lifting them is a decision about what the claim means.
+
+GATES: byte-identical fixpoint (199,022 lines, twice),
+`run-stdlib-tests` 95/95, `check-self-host` 179/179,
+`check-diagnostics` 193/193, `check-fmt`, `check-restrictions`,
+`check-doc-drift`, `check-unboxed-sums` (13).
+
 ### `Result` and reference payloads join the register pair
 
 **The two shapes the first slice refused are admitted.**
