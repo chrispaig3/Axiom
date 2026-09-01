@@ -16,6 +16,14 @@ its changelog too.
 
 ## Unreleased
 
+## 0.6.2 — 2026-09-01
+
+Two silent memory faults become diagnosed exits, and over half the
+compiler's reference-counting traffic turns out to have been calls that
+could not free anything. Nothing in this release changes what a correct
+program does; three things change what an incorrect one does, and one
+makes every program smaller.
+
 ### Memory model v2, proposals 3, 4 and 5
 
 `docs/memory-model-v2-proposal.md` landed in 0.6.0 as a document. Three
