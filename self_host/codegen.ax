@@ -854,28 +854,36 @@
       (if (strEq name "main")
         "__axiom_user_main"
         (let ((m (memGetWordStr cg 34)))
-          (let ((hit 
-            (if (==
-              (cast Int m)              0
-            )
-              (- 0 1)
-              (internFind bi (cat3 m "$" name))
-            )
-          ))
-            (if (>= hit 0)
-              (cat3 m "$" name)
-              (let ((id (internFind bi name)))
-                (if (< id 0)
-                  name
-                  ; field 40 slot 0 is the old `bareFirst`; see
-                  ; `buildNameIndexes` for the other four.
-                  (vecGetStr (memGetWord cg 13) (vecGet (vecGet (memGetWord cg 40) 0) id))
-                )
+          ; `cat3` allocates and copies. This built `m$name` twice on
+          ; every hit - once to ask the Intern and once to answer with -
+          ; and this function runs at every emitted call and every
+          ; emitted variable reference. Built once, into a `let` the
+          ; probe and the answer share.
+          (if (== (cast Int m) 0)
+            (mangledForBareCg cg bi name)
+            (let ((local (cat3 m "$" name)))
+              (if (>= (internFind bi local) 0)
+                local
+                (mangledForBareCg cg bi name)
               )
             )
           )
         )
       )
+    )
+  )
+)
+
+; The half of `mangledForCg` that no module-local spelling claimed:
+; `mangledForIn`'s first-match, read out of the index. Field 40 slot 0
+; is the old `bareFirst`; see `buildNameIndexes` for the other four.
+(:: mangledForBareCg (-> Int Int String String))
+
+(fn (mangledForBareCg cg bi name)
+  (let ((id (internFind bi name)))
+    (if (< id 0)
+      name
+      (vecGetStr (memGetWord cg 13) (vecGet (vecGet (memGetWord cg 40) 0) id))
     )
   )
 )
@@ -3485,7 +3493,7 @@
 (pub :: fnTakesEvw (-> Int String Int))
 
 (pub fn (fnTakesEvw cg full)
-  (let ((e (findFSig (memGetWord cg 15) full)))
+  (let ((e (findFSigCg cg full)))
     (if (== e 0)
       0
       (memGetWord e 4)
@@ -3779,7 +3787,7 @@
 (pub :: fnRetIsFloat (-> Int String Int))
 
 (pub fn (fnRetIsFloat cg name)
-  (let ((e (findFSig (memGetWord cg 15) name)))
+  (let ((e (findFSigCg cg name)))
     (if (== e 0)
       0
       (let ((flags (memGetWord e 2)))
@@ -10019,7 +10027,7 @@
       (_5r (memSetWord cg 41 (borrowedTailLeaves cg name body params)))
       (_5p (memSetWord cg 42 vecNew))
       (_6 (memSetWord
-        cg        18        (let ((e (findFSig (memGetWord cg 15) name)))
+        cg        18        (let ((e (findFSigCg cg name)))
           (if (== e 0)
             0
             (memGetWord e 2)
@@ -10381,7 +10389,7 @@
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       0
-      (let ((e (findFSig (memGetWord cg 15) (nodeAName d))))
+      (let ((e (findFSigCg cg (nodeAName d))))
         (if (== e 0)
           0
           (if (== (fldClass cg (arrowParamTy (memGetWord e 3) i)) 2)
@@ -10406,7 +10414,7 @@
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       (- 0 1)
-      (let ((e (findFSig (memGetWord cg 15) (nodeAName d))))
+      (let ((e (findFSigCg cg (nodeAName d))))
         (if (== e 0)
           (- 0 1)
           (if (== (memGetWord e 4) 0)
