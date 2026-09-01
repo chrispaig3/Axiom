@@ -13157,7 +13157,12 @@
                   ; defines. The decl list carries mangled names, so the
                   ; reference is resolved through the map before it is
                   ; compared or emitted.
-                  (let ((full (mangledFor cg name)))
+                  ;
+                  ; Through the INDEX. `buildNameIndexes` exists because
+                  ; the linear `mangledFor` cost a self-compile 2.2s on
+                  ; the scans alone - and then this call site, one of the
+                  ; two hottest it was built for, kept asking the scan.
+                  (let ((full (mangledForCg cg name)))
                     (if (isNullaryFn (memGetWord cg 8) full)
                       (let ((rn (allocReg cg)))
                         (let ((r (regStr rn)))
@@ -15015,7 +15020,10 @@
   ; The callee's defining module may have renamed it - a bare
   ; reference reaches whatever symbol the map says (entry file
   ; first, then first import). Operators and primitives never
-  ; enter the map, so `full` is `fnName` for them.
+  ; enter the map, so `full` is `fnName` for them. Asked through
+  ; `mangledForCg`, which answers the same question off
+  ; `buildNameIndexes`' Intern rather than by walking all 1,600
+  ; bare names - this runs once per emitted call.
   ; MM-LIFE-2d: presence of the hidden argument is SIG-driven -
   ; every call to a polymorphic callee passes a word even when no
   ; stamp survived (the unchecked emitModule path, a demoted
@@ -15025,7 +15033,7 @@
     (let ((argStrCg (emitArgsRegs args cg argRegs 0)))
       (let (
         (argStrT (strDup (memGetWordStr argStrCg 9)))
-        (full (mangledFor argStrCg fnName))
+        (full (mangledForCg argStrCg fnName))
       )
         (let ((takesEv (fnTakesEvw argStrCg full)))
           (let ((cgE 
