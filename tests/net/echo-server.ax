@@ -120,7 +120,9 @@
       (let ((scratch (memAlloc 256)))
         (let ((buf (memAlloc (netPollBufBytes 64))))
           (let ((byte (memAlloc 8)))
-            (let ((pfd netPollCreate))
+            (match netPollCreate
+              ((Err e) (sysExitWith 255))
+              ((Ok pfd)
               (let ((mut served 0))
                 (let ((mut running 1))
                   {
@@ -128,7 +130,17 @@
                       (sysExitWith 255)
                       0
                     )
-                    (let ((sh (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf)))
+                    ; THE FAILURE IS DISCARDED HERE, DELIBERATELY, and
+                    ; the `unwrapOr` is what makes that visible. The old
+                    ; sentinel let a negative handle travel into
+                    ; `netPollSignalAt`, where it can never equal a real
+                    ; descriptor, so a worker that could not watch
+                    ; SIGTERM simply never saw one - and `-1` is exactly
+                    ; the value that produced that. Equivalent by
+                    ; construction, which is the only case
+                    ; `docs/error-model.md` allows `unwrapOr` with a
+                    ; constant in.
+                    (let ((sh (unwrapOr (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
                       (while (== running 1)
                         (let ((n (netPollWait
                           pfd                          buf                          64                          10000                          ts
@@ -206,6 +218,7 @@
                 )
               )
             )
+            )
           )
         )
       )
@@ -228,12 +241,23 @@
             )
               (let ((pids vecNew))
                 (let ((v6 (envOn "AXIOM_NET_LISTEN6")))
-                  (let ((lsn 
-                    (if v6
+                  (match (if v6
                       netSocketTcp6
                       netSocketTcp
                     )
-                  ))
+                    ; A LISTENER THAT WAS NEVER CREATED USED TO REACH `netBind`,
+                    ; and the bind's own errno was then the only thing printed -
+                    ; which is the first of the four cases the comment below says
+                    ; now name themselves. `socket` failing says so here instead.
+                    ((Err se)
+                      (let ((eno (errCode se)))
+                        {
+                          (printlnLit (strCStr (strConcat "socket failed: errno " (fmtInt eno))))
+                          (sysExitWith 2)
+                        }
+                      )
+                    )
+                    ((Ok lsn)
                     {
                       (netSetOptInt
                         lsn                        solSocket                        soReuseAddr                        1                        optb
@@ -314,6 +338,7 @@
                       )
                       0
                     }
+                  )
                   )
                 )
               )

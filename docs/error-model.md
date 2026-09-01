@@ -1495,6 +1495,64 @@ before the next:
    LESS than it knows" hazard, found inside the gate written to refuse
    it.
 
+   **The descriptor-answering half is done, 2026-09-01.**
+   `sysOpenPath`, `netSocketTcp`, `netSocketTcp6`, `netPollCreate` and
+   `netSignalOpen` answer `(Result Int Error)`. `stdlib/Sys.ax`'s
+   census: **13 → 8** failure. These are the head of a resource
+   lifetime, and that is why they were left until last and why they
+   cost the most: a call whose whole answer is "did it work" is one
+   expression at each site, but a call that answers a DESCRIPTOR
+   retypes `lsn`, `cli` and `pfd` and everything downstream, so nine
+   fixtures moved from `(let ((lsn netSocketTcp)) BODY)` to a `match`
+   whose `Err` arm has to say what the program does with no socket.
+   That is also the point: seven of `netSocketTcp`'s seventeen call
+   sites never tested the result.
+
+   **`sysOpenPath` keeps a private raw form, for `netSetNonBlockingRaw`'s
+   reason.** Ten functions in `Sys.ax` open a descriptor, test it, and
+   convert the errno into their own answer — a `sysResult` with their
+   own operation name, a `Bool`, or a `String`. Routing them through
+   the public wrapper would build a `Result` and take it apart again to
+   reach a conversion they already do. Measured: `sysReadFile`,
+   `sysFileExists`, `sysReadDir` and `sysGetCwd` are unchanged in
+   `axiom symbols` across this port.
+
+   **Two defects the port itself surfaced, both of the class this
+   section already names.** In `311-preforked-server.ax` the connect
+   loop's `Err` arm did not advance `sent`, whose bound is the loop
+   condition — the hang shape `Job.jobSubmit` produced when `302-job`
+   hung rather than failed. And in `315-signal-in-poll.ax` the
+   assertion `(>= sh 0)` became a check that cannot fail once `sh` is
+   an `Ok` binder, because `sysResult` builds `Ok` only for a
+   non-negative answer; the assertion moved to the `Err` arm, where it
+   can.
+
+   **`netAccept` stays out, re-measured.** Porting it gives it
+   `#effects=Alloc,IO`, and `tests/net/echo-server.ax` reaches it below
+   the per-connection `__axiom_arena_mark`, so that is an `(Ok fd)` per
+   connection the reset never rewinds. `netAcceptFrom` and
+   `netPollWait` are the same case; `sysWriteFd` and `sysReadFd` are
+   the per-write one.
+
+   **`stdlib/Sys/Platform.darwin.ax`'s three cannot be finished before
+   `sysWriteFd` moves, and this was probed rather than argued.**
+   Porting `platformWriteFd` produces two errors at once:
+
+   ```
+   E AX3010 ... `pure` claim contradicted: body performs Alloc
+   E AX3004 stdlib/Sys.ax:160 ... expected Int, found Result Int Error
+   ```
+
+   The first is the `;@axiom:pure` tag all three carry — on Darwin they
+   are `-ENOSYS` stubs, and a `Result` allocates. The second is
+   `sysWriteFd`, which forwards `platformWriteFd` wherever
+   `usesSyscallAbi` is 0: porting the *callee* forces the caller this
+   section excludes, which is slice 1's `netAcceptFinish` finding
+   running backwards. Behind both, `check-stdlib-api.sh` requires all
+   five `Sys/Platform.*` files to declare the same names, so it is a
+   five-file change whose real implementation is in
+   `Platform.windows.ax`.
+
    **`unwrapOr` with a constant is not a port, and it cost three
    defects here.** Wherever the sentinel carried WHICH failure, a
    fallback value destroys it and nothing complains:
@@ -1573,8 +1631,11 @@ them would have taken its module's count up and failed
 that it was is withdrawn.* What remained was 29 public functions handing
 a caller a negative errno; the socket-configuration slice took seven of
 them on 2026-08-31, the "did it work" slice five more on 2026-09-01,
-and one of the remainder turned out to be an absence the census had
-misfiled — so **16** are left. None of them is free:
+the descriptor slice five more the same day, and one of the remainder
+turned out to be an absence the census had misfiled — so **11** are
+left, eight in `stdlib/Sys.ax` and three in
+`stdlib/Sys/Platform.darwin.ax`, every one of them excluded on a
+measurement rather than pending. None of them is free:
 `netSocketTcp` has 17 call sites, **seven of which never test the result
 at all**, which is the reason the migration exists rather than an
 argument against it.

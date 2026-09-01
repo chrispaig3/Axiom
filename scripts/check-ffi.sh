@@ -313,7 +313,7 @@ for crate_dir in rust/examples/*/; do
     fi
     if ! diff -q "$committed" "$fresh" >/dev/null 2>&1; then
       echo "FAIL $crate/$module: the checked-in bindings differ from a fresh generation"
-      diff "$committed" "$fresh" | head -10 | sed 's/^/    /'
+      { diff "$committed" "$fresh" || true; } | head -10 | sed 's/^/    /'
       status=1
     else
       echo "ok   $crate/$module is what axiom-bindgen generates today"
@@ -540,7 +540,7 @@ if [[ -f "$hostlib" && -d rust/examples/host ]]; then
     # rustfmt the raw text cannot be compared to the formatted copy,
     # and the run below is the check.
     echo "FAIL host: rust/examples/host/src/hostlib.rs differs from a fresh --emit-rust-binding"
-    diff rust/examples/host/src/hostlib.rs "$work/hostlib/hostlib.rs" | head -6 | sed 's/^/    /'
+    { diff rust/examples/host/src/hostlib.rs "$work/hostlib/hostlib.rs" || true; } | head -6 | sed 's/^/    /'
     status=1
   elif command -v rustfmt >/dev/null 2>&1 && ! rustfmt --edition 2021 --check "$work/hostlib/hostlib.rs" >/dev/null 2>&1; then
     echo "FAIL host: the generated binding is not rustfmt-clean"

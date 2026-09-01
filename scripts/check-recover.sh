@@ -544,7 +544,7 @@ if command -v opt >/dev/null 2>&1; then
     state="$(grep -c '__axiom_recover_top' "$work/hello.opt.ll" || true)"
     if (( state != 0 )); then
       echo "FAIL @__axiom_recover_top survives in a program that never arms one ($state line(s))"
-      grep -n '__axiom_recover_top' "$work/hello.opt.ll" | sed 's/^/    /' | head -4
+      { grep -n '__axiom_recover_top' "$work/hello.opt.ll" || true; } | sed 's/^/    /' | head -4
       status=1
     else
       zero=$((zero + 1))
@@ -558,7 +558,7 @@ if command -v opt >/dev/null 2>&1; then
     calls="$(grep -cE '^[[:space:]]*(%[^ ]+ = )?(tail |musttail |notail )?call .*@__axiom_recover' "$work/hello.opt.ll" || true)"
     if (( calls != 0 )); then
       echo "FAIL $calls call(s) to the recovery point survive in a program that never arms one"
-      grep -n 'call[^;]*@__axiom_recover' "$work/hello.opt.ll" | sed 's/^/    /' | head -4
+      { grep -n 'call[^;]*@__axiom_recover' "$work/hello.opt.ll" || true; } | sed 's/^/    /' | head -4
       status=1
     else
       zero=$((zero + 1))

@@ -120,7 +120,9 @@
       (optb (memAlloc 4))
     )
       {
-        (let ((lsn netSocketTcp))
+        (match netSocketTcp
+          ((Err e) (say 0 "a v4 listener socket is created"))
+          ((Ok lsn)
           {
             (netSetOptInt
               lsn              solSocket              soReuseAddr              1              optb
@@ -136,7 +138,9 @@
             )
             (netListen lsn 16)
             (netSetNonBlocking lsn)
-            (let ((cli netSocketTcp))
+            (match netSocketTcp
+              ((Err e) (say 0 "a v4 client socket is created"))
+              ((Ok cli)
               {
                 (netSetOptInt
                   cli                  solSocket                  soReuseAddr                  1                  optb
@@ -201,9 +205,12 @@
                 (sysCloseFd cli)
               }
             )
+            )
             ; `netAccept` still works, and still tells nobody who it
             ; was. Same listener, second connection.
-            (let ((cli2 netSocketTcp))
+            (match netSocketTcp
+              ((Err e) (say 0 "a second v4 client socket is created"))
+              ((Ok cli2)
               {
                 (netConnect cli2 srvAddr)
                 (let ((con2 (acceptSoon lsn 1000)))
@@ -220,11 +227,15 @@
                 (sysCloseFd cli2)
               }
             )
+            )
             (sysCloseFd lsn)
           }
         )
+        )
         ; ------------------------------------------------------- IPv6
-        (let ((lsn6 netSocketTcp6))
+        (match netSocketTcp6
+          ((Err e) (say 0 "socket(afInet6) answers a descriptor"))
+          ((Ok lsn6)
           {
             (say
               (if (> lsn6 2)
@@ -249,7 +260,9 @@
             )
             (netListen lsn6 16)
             (netSetNonBlocking lsn6)
-            (let ((cli6 netSocketTcp6))
+            (match netSocketTcp6
+              ((Err e) (say 0 "a v6 client socket is created"))
+              ((Ok cli6)
               {
                 (netSetOptInt
                   cli6                  solSocket                  soReuseAddr                  1                  optb
@@ -303,6 +316,7 @@
                 (sysCloseFd cli6)
               }
             )
+            )
             ; ------------------------------ a buffer too small
             ; A v6 peer needs 28 bytes. Given 16, the kernel copies
             ; what fits and reports the real length - and the rest of
@@ -322,7 +336,9 @@
             ; address a socket can carry, and a reader has to be able
             ; to tell "I could not store this" from "the peer was the
             ; unspecified address".
-            (let ((cli6b netSocketTcp6))
+            (match netSocketTcp6
+              ((Err e) (say 0 "a third v6 client socket is created"))
+              ((Ok cli6b)
               {
                 (netSetOptInt
                   cli6b                  solSocket                  soReuseAddr                  1                  optb
@@ -361,8 +377,10 @@
                 (sysCloseFd cli6b)
               }
             )
+            )
             (sysCloseFd lsn6)
           }
+        )
         )
         0
       }

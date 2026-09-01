@@ -184,9 +184,52 @@
 # a named ablation now: a public function forwarding a raw syscall is
 # planted in a copy of `stdlib/` and the census must count it.
 
+# PORTED 2026-09-01, ERR-ADOPT-1 SLICE 3: `stdlib/Sys.ax` 13 -> 8
+# failure. The five are the DESCRIPTOR-ANSWERING calls - the head of a
+# resource lifetime, where a caller is forced to say what it does when
+# there is no resource: `sysOpenPath`, `netSocketTcp`, `netSocketTcp6`,
+# `netPollCreate` and `netSignalOpen`.
+#
+# THESE COST MORE THAN THE FIRST TWO SLICES AND THE REASON IS THE
+# BINDING. A call whose whole answer is "did it work" is one expression
+# at each site; a call that answers a DESCRIPTOR retypes `lsn`, `cli`,
+# `pfd` and everything downstream of them, so nine fixtures moved from
+# `(let ((lsn netSocketTcp)) BODY)` to a `match` whose `Err` arm has to
+# say what the test does with no socket. That is the work, and it is
+# also the point: seven of `netSocketTcp`'s seventeen call sites never
+# tested the result at all.
+#
+# WHAT IS LEFT IN THIS MODULE'S 8 IS EXCLUDED ON MEASUREMENT, not
+# pending. `sysWriteFd` and `sysReadFd` are per-write and per-read and
+# `sysWriteFd`'s own comment records that porting it turned ten gates
+# red; `netAccept`, `netAcceptFrom` and `netPollWait` are per-connection
+# and per-wake below `tests/net/echo-server.ax`'s arena mark - measured
+# again this slice, porting `netAccept` gives it `#effects=Alloc,IO`.
+# `sysGetCwd` answers a `String` and its failure is `""` rather than an
+# errno, so it is a different port. `sysNowMicros`/`sysNowMonotonic`
+# answer a CLOCK READING whose own comment already records the hazard.
+#
+# `stdlib/Sys/Platform.darwin.ax`'s THREE ARE BLOCKED, and this was
+# probed rather than assumed. Porting `platformWriteFd` produces two
+# errors at once:
+#
+#   E AX3010 ... `pure` claim contradicted: body performs Alloc
+#   E AX3004 stdlib/Sys.ax:160 ... expected Int, found Result Int Error
+#
+# The first is the `;@axiom:pure` tag all three carry - on Darwin they
+# are `-ENOSYS` stubs, and a `Result` allocates. The second is
+# `sysWriteFd`, which forwards `platformWriteFd` on the target where
+# `usesSyscallAbi` is 0: porting the CALLEE forces the caller this
+# migration excludes, which is slice 1's `netAcceptFinish` finding
+# running backwards. A third constraint stands behind both -
+# `check-stdlib-api.sh` requires all five `Sys/Platform.*` files to
+# declare the same names, so this is a five-file change whose real
+# implementation lives in `Platform.windows.ax`. `failure` cannot be
+# finished outside `Sys.ax` before `sysWriteFd`/`sysReadFd` move.
+
 stdlib/Intern.ax 0 1
 stdlib/Str.ax 0 2
-stdlib/Sys.ax 13 1
+stdlib/Sys.ax 8 1
 stdlib/Sys/Platform.darwin.ax 3 0
 stdlib/Tui/Keys.ax 0 1
 stdlib/Tui/Term.ax 0 3

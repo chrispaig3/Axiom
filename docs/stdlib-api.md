@@ -556,7 +556,7 @@ See [reference.md](reference.md) for the language, and
 | `sysWriteFd` | value | `(-> Int Int Int Int)` | `IO` |  |
 | `sysWriteAllFd` | value | `(-> Int Int Int Int Int)` | `IO` | THREE OUTCOMES, AND THE Int CHANNEL HELD TWO. Until 2026-08-30 this answered `done` when `write` returned exactly 0 - a short, NON-NEGATIVE count, indistinguishable from the complete one. The comment above calls treating a short write as success "the classic way to truncate output", and that is what this did in the one case it cannot retry. |
 | `sysReadFd` | value | `(-> Int Int Int Int)` | `IO` |  |
-| `sysOpenPath` | value | `(-> Int Int Int)` | `IO` |  |
+| `sysOpenPath` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | ANSWERS `(Result Int Error)` - the descriptor, or the errno `open` refused with. This is the port `docs/error-model.md` ERR-ADOPT-1 calls the canonical one: a failed open is what a reader checks first when deciding whether the error model is real, and ENOENT, EACCES and EISDIR are three different things a caller does three different things about. As an `Int` they were all "negative". |
 | `sysCloseFd` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Close a descriptor. |
 | `sysExitWith` | value | `(-> Int Int)` | `IO` |  |
 | `sysFailed` | value | `(-> Int Bool)` |  |  |
@@ -588,8 +588,8 @@ See [reference.md](reference.md) for the language, and
 | `sysGetPid` | value | `Int` | `IO` | The calling process's own id - the per-session suffix scratch files need so two concurrent processes cannot collide. The syscall takes no arguments; the unused ones are simply zero. |
 | `sysNowMicros` | value | `(-> Int Int)` | `IO` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
 | `sysNowMonotonic` | value | `(-> Int Int)` | `IO` | Microseconds from a clock that NEVER steps backwards, or a negative when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing. |
-| `netSocketTcp` | value | `Int` | `IO` | A TCP socket, or a negative errno. |
-| `netSocketTcp6` | value | `Int` | `IO` | The same over IPv6. Its own name rather than a family parameter, because the family is not a runtime choice at this layer: a caller already picked a builder when it made the address, and a socket whose family disagrees with the address it is given fails at `bind` and not here. |
+| `netSocketTcp` | value | `(Result Int Error)` | `Alloc,IO` | A TCP socket, as `(Result Int Error)`. |
+| `netSocketTcp6` | value | `(Result Int Error)` | `Alloc,IO` | The same over IPv6. Its own name rather than a family parameter, because the family is not a runtime choice at this layer: a caller already picked a builder when it made the address, and a socket whose family disagrees with the address it is given fails at `bind` and not here. |
 | `netAddr4Bytes` | value | `Int` |  | How many bytes an address of each family occupies, and how big a buffer that must take either has to be. |
 | `netAddr6Bytes` | value | `Int` |  |  |
 | `netAddrMaxBytes` | value | `Int` |  | What `netAcceptFrom` wants, which is the larger of the two: a caller does not get to know the peer's family until it has the peer. |
@@ -612,7 +612,7 @@ See [reference.md](reference.md) for the language, and
 | `netSetNonBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Put a descriptor into non-blocking mode, preserving the flags it already carries - a bare `F_SETFL` of the one flag would clear the access mode with it. |
 | `netWouldBlock` | value | `(-> Int Bool)` |  | Whether a negative answer means "nothing to take yet" rather than a broken socket. This is the whole reason `eAgain` is a capability: the number is 35 on Darwin and 11 on Linux, so an event loop written against a literal runs correctly on the machine it was written on. |
 | `netPollBufBytes` | value | `(-> Int Int)` |  | How many bytes an event buffer for `n` events needs on this platform. |
-| `netPollCreate` | value | `Int` | `IO` | A readiness descriptor, or a negative errno. |
+| `netPollCreate` | value | `(Result Int Error)` | `Alloc,IO` | A readiness descriptor, as `(Result Int Error)`. |
 | `netPollAddRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes. |
 | `netPollDelRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Answers `(Result Int Error)`; `Ok 0` on success. |
 | `netPollWait` | value | `(-> Int Int Int Int Int Int)` | `IO,Mut` | Wait for readiness, answering how many events landed in `buf` or a negative errno. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
@@ -620,7 +620,7 @@ See [reference.md](reference.md) for the language, and
 | `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before a server forks, so that every worker inherits the mask. |
-| `netSignalOpen` | value | `(-> Int Int Int Int Int)` | `IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
+| `netSignalOpen` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
 | `netPollSignalAt` | value | `(-> Int Int Int Int Int)` | `IO` | The signal named by event `i`, or a negative when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Send a signal, which is how a test raises one against itself. |
 | `sysForkProcess` | value | `Int` | `IO` | Duplicating this process |

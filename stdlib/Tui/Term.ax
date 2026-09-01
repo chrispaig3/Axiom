@@ -128,7 +128,21 @@
   (if (== active 0)
     (KeyIn fd (strAlloc 1) 0 0 (- 0 1) 0 0 0 0 0 0)
     (let (
-      (p netPollCreate)
+      ; `netPollCreate` answers a `Result` since 0.6.2. The field this
+      ; feeds is a descriptor-or-`-1`, and `-1` is what the rest of this
+      ; file already reads as "no poll descriptor", so the failure is
+      ; resolved HERE rather than carried into the struct.
+      ;
+      ; A `match` AND NOT `unwrapOr`, for the reason `Job.ax` gives one
+      ; line above its own: a fallback constant is only safe where it is
+      ; equivalent to the error, and writing it out keeps this file off
+      ; a name no other stdlib module calls - `check-compat.sh`'s permit
+      ; probe makes `unwrapOr` private in a copy of `stdlib/` and needs
+      ; it to have no caller here.
+      (p (match netPollCreate
+        ((Ok d) d)
+        ((Err e) (- 0 1))
+      ))
       (rec (memAlloc (netPollBufBytes 1)))
     )
       (KeyIn

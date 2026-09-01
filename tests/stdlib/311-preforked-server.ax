@@ -89,7 +89,9 @@
       (let ((scratch (memAlloc 256)))
         (let ((buf (memAlloc (netPollBufBytes 8))))
           (let ((byte (memAlloc 8)))
-            (let ((pfd netPollCreate))
+            (match netPollCreate
+              ((Err e) (sysExitWith 255))
+              ((Ok pfd)
               (let ((mut served 0))
                 (let ((mut running 1))
                   {
@@ -100,7 +102,12 @@
                     ; SIGTERM was blocked before the fork, so it is
                     ; pending rather than fatal and can be waited for
                     ; here beside the socket.
-                    (let ((sh (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf)))
+                    ; Discarded deliberately, and `unwrapOr` is what
+                    ; says so: a negative handle can never equal a real
+                    ; descriptor in `netPollSignalAt`, so a worker that
+                    ; could not watch SIGTERM simply never sees one -
+                    ; which is exactly what the old sentinel did.
+                    (let ((sh (unwrapOr (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
                       (while (== running 1)
                         (let ((n (netPollWait
                           pfd                          buf                          8                          5000                          ts
@@ -154,6 +161,7 @@
                 )
               )
             )
+            )
           )
         )
       )
@@ -173,7 +181,9 @@
           (optb (memAlloc 4))
         )
           (let ((pids vecNew))
-            (let ((lsn netSocketTcp))
+            (match netSocketTcp
+              ((Err e) (die "socket() failed" 1))
+              ((Ok lsn)
               {
                 (netSetOptInt
                   lsn                  solSocket                  soReuseAddr                  1                  optb
@@ -230,7 +240,16 @@
                                 (< sent total)
                                 false
                               )
-                                (let ((c netSocketTcp))
+                                (match netSocketTcp
+                                  ; `sent` MUST advance on the failure
+                                  ; path too. The loop's condition is
+                                  ; `sent < total` with a batch bound,
+                                  ; so an arm that answers without
+                                  ; counting the attempt spins forever -
+                                  ; the shape `Job.jobSubmit` took when
+                                  ; `302-job` hung instead of failing.
+                                  ((Err e) (set sent (+ sent 1)))
+                                  ((Ok c)
                                   {
                                     (netAddr4
                                       addr                                      port                                      127                                      0                                      0                                      1
@@ -246,6 +265,7 @@
                                     )
                                     (set sent (+ sent 1))
                                   }
+                                )
                                 ))
                               (let ((mut j 0))
                                 (while (< j (vecLen batch))
@@ -331,6 +351,7 @@
                 )
                 0
               }
+            )
             )
           )
         )

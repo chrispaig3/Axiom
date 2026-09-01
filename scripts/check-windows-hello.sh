@@ -128,7 +128,7 @@ AX
       # 2026-08-29). lld-link accepts both spellings everywhere.
       if ! lld-link -subsystem:console -entry:mainCRTStartup "-out:$work/$name.exe" "$work/$name.obj" "$work/kernel32.lib" "$@" >"$work/$name.link.log" 2>&1; then
         echo "FAIL $name: lld-link failed"
-        grep -o 'undefined symbol: [A-Za-z_][A-Za-z0-9_]*' "$work/$name.link.log" | sed 's/^/    /' | sort -u
+        { grep -o 'undefined symbol: [A-Za-z_][A-Za-z0-9_]*' "$work/$name.link.log" || true; } | sed 's/^/    /' | sort -u
         sed 's/^/    /' "$work/$name.link.log" | head -5
         return 1
       fi

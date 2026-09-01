@@ -218,10 +218,33 @@
   )
 )
 
-(pub :: sysOpenPath (-> Int Int Int))
+; ANSWERS `(Result Int Error)` - the descriptor, or the errno `open`
+; refused with. This is the port `docs/error-model.md` ERR-ADOPT-1
+; calls the canonical one: a failed open is what a reader checks first
+; when deciding whether the error model is real, and ENOENT, EACCES and
+; EISDIR are three different things a caller does three different
+; things about. As an `Int` they were all "negative".
+(pub :: sysOpenPath (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (sysOpenPath path flags) (sysOpenPathMode path flags 420))
+(pub fn (sysOpenPath path flags)
+  (sysResult "sysOpenPath" (sysOpenRaw path flags))
+)
+
+; The same open, answering the raw descriptor-or-errno.
+;
+; PRIVATE, AND IT EXISTS FOR THE REASON `netSetNonBlockingRaw` DOES.
+; Ten functions in this file open a descriptor, test it with
+; `sysFailed`, and convert the errno into their OWN answer - a
+; `sysResult` with their own operation name, a `Bool`, or a `String`.
+; Routing them through the public wrapper would build a `Result` and
+; immediately take it apart again, once per open, to reach a
+; conversion they already do. The public contract is the `Result`; this
+; is the shared implementation under it.
+(:: sysOpenRaw (-> Int Int Int))
+
+;@axiom:effect(io)
+(fn (sysOpenRaw path flags) (sysOpenPathMode path flags 420))
 
 (:: sysOpenPathMode (-> Int Int Int Int))
 
@@ -308,7 +331,7 @@
 
 ;@axiom:effect(io)
 (pub fn (sysReadFile path)
-  (let ((fd (sysOpenPath path oRdonly)))
+  (let ((fd (sysOpenRaw path oRdonly)))
     (if (sysFailed fd)
       ""
       (let ((s (sysReadAll fd (strAlloc 65536) 0 65536)))
@@ -417,7 +440,7 @@
 ;@axiom:effect(io)
 (pub fn (sysWriteFile path s)
   (sysResult "sysWriteFile"
-  (let ((fd (sysOpenPath path oWronlyCreateTrunc)))
+  (let ((fd (sysOpenRaw path oWronlyCreateTrunc)))
     (if (sysFailed fd)
       fd
       (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
@@ -448,7 +471,7 @@
 ;@axiom:effect(io)
 (pub fn (sysAppendFile path s)
   (sysResult "sysAppendFile"
-  (let ((fd (sysOpenPath path oWronlyCreateAppend)))
+  (let ((fd (sysOpenRaw path oWronlyCreateAppend)))
     (if (sysFailed fd)
       fd
       (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
@@ -570,7 +593,7 @@
 
 ;@axiom:effect(io)
 (pub fn (sysFileExists path)
-  (let ((fd (sysOpenPath path oRdonly)))
+  (let ((fd (sysOpenRaw path oRdonly)))
     (if (< fd 0)
       false
       {
@@ -596,7 +619,7 @@
 ;@axiom:effect(io)
 (pub fn (sysFileSize path)
   (sysResult "sysFileSize"
-  (let ((fd (sysOpenPath path oRdonly)))
+  (let ((fd (sysOpenRaw path oRdonly)))
     (if (< fd 0)
       fd
       (let ((n (sysSeek fd 0 seekEnd)))
@@ -628,7 +651,7 @@
 
 ;@axiom:effect(io)
 (pub fn (sysReadErrno path)
-  (let ((fd (sysOpenPath path oRdonly)))
+  (let ((fd (sysOpenRaw path oRdonly)))
     (if (sysFailed fd)
       (sysErrno fd)
       (let ((probe (strAlloc 1)))
@@ -718,7 +741,7 @@
 ;@axiom:effect(io)
 (pub fn (sysReadDir path)
   (let ((out vecNew))
-    (let ((fd (sysOpenPath path oRdonly)))
+    (let ((fd (sysOpenRaw path oRdonly)))
       (if (sysFailed fd)
         out
         ; Darwin's fourth argument is an in/out scan cookie the
@@ -855,7 +878,7 @@
   ; as "" (ERANGE) rather than truncated.
   (let ((buf (memAlloc 4097)))
     (if (== cwdUsesFcntlPath 1)
-      (let ((fd (sysOpenPath (__addr ".") 0)))
+      (let ((fd (sysOpenRaw (__addr ".") 0)))
         (if (sysFailed fd)
           ""
           (let ((rc (__syscall3 sysCwdNum fd fGetPath buf)))
@@ -1053,7 +1076,7 @@
     ; and runnable by everyone), and `execve` is the only thing
     ; entitled to decide that, so every other open failure still
     ; forks and asks it.
-    (let ((probe (sysOpenPath path oRdonly)))
+    (let ((probe (sysOpenRaw path oRdonly)))
       (if (== probe (- 0 2))
         probe
         {
@@ -1320,7 +1343,7 @@
             ; integer.
             (let ((cand (strConcat (strConcat dir "/") name)))
               (let ((cpath (strCStr cand)))
-                (let ((fd (sysOpenPath cpath oRdonly)))
+                (let ((fd (sysOpenRaw cpath oRdonly)))
                   (if (< fd 0)
                     (sysRunSearch
                       name                      argv                      envp                      path                      (+ end 1)
@@ -1502,11 +1525,20 @@
 ; inverse, because the only caller that has wanted one is a test that
 ; can compare the rendering instead.
 ; ------------------------------------------------------------------
-; A TCP socket, or a negative errno.
-(pub :: netSocketTcp Int)
+; A TCP socket, as `(Result Int Error)`.
+;
+; THIS IS THE HEAD OF A RESOURCE LIFETIME, which is why it is worth the
+; `match` it costs every caller. `netSocketTcp` has 17 call sites and
+; `docs/error-model.md` records that SEVEN of them never tested the
+; result at all - a descriptor that is really `-EMFILE` then travels
+; into `netBind`, `netListen` and `netAccept`, each of which fails for
+; a reason that has nothing to do with what went wrong.
+(pub :: netSocketTcp (Result Int Error))
 
 ;@axiom:effect(io)
-(pub fn (netSocketTcp) (__syscall3 sysSocketNum afInet sockStream 0))
+(pub fn (netSocketTcp)
+  (sysResult "netSocketTcp" (__syscall3 sysSocketNum afInet sockStream 0))
+)
 
 ; The same over IPv6. Its own name rather than a family parameter,
 ; because the family is not a runtime choice at this layer: a caller
@@ -1520,10 +1552,12 @@
 ; EAFNOSUPPORT, so a cross-copied number dies at this call rather than
 ; three functions later. `scripts/check-net.sh`'s IPv6 arm runs on all
 ; three targets and is what holds the number to its platform.
-(pub :: netSocketTcp6 Int)
+(pub :: netSocketTcp6 (Result Int Error))
 
 ;@axiom:effect(io)
-(pub fn (netSocketTcp6) (__syscall3 sysSocketNum afInet6 sockStream 0))
+(pub fn (netSocketTcp6)
+  (sysResult "netSocketTcp6" (__syscall3 sysSocketNum afInet6 sockStream 0))
+)
 
 ; How many bytes an address of each family occupies, and how big a
 ; buffer that must take either has to be.
@@ -2236,11 +2270,13 @@
 
 (pub fn (netPollBufBytes n) (* n pollEventSize))
 
-; A readiness descriptor, or a negative errno.
-(pub :: netPollCreate Int)
+; A readiness descriptor, as `(Result Int Error)`.
+(pub :: netPollCreate (Result Int Error))
 
 ;@axiom:effect(io)
-(pub fn (netPollCreate) (__syscall3 sysPollCreateNum 0 0 0))
+(pub fn (netPollCreate)
+  (sysResult "netPollCreate" (__syscall3 sysPollCreateNum 0 0 0))
+)
 
 ; Write one registration record for `fd` into `rec`, which must hold
 ; `pollEventSize` bytes, and answer `rec`. Shared by add and delete
@@ -2488,10 +2524,29 @@
 ;
 ; `rec` is scratch of `pollEventSize` bytes and `setbuf` of at least
 ; 16, for the reason `sysSignalBlock` gives.
-(pub :: netSignalOpen (-> Int Int Int Int Int))
+; ANSWERS `(Result Int Error)`. `Ok` carries the handle, which is a
+; signal descriptor on Linux and 0 on the BSDs - so `Ok 0` is a
+; SUCCESS here and not an absence, and that is exactly the distinction
+; the Int channel could not make: 0 was also what the old sentinel
+; convention would have called an unremarkable answer, while a caller
+; testing `>= 0` could not tell the BSD handle from a Linux one.
+(pub :: netSignalOpen (-> Int Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (netSignalOpen pfd mask rec setbuf)
+  (sysResult "netSignalOpen" (netSignalOpenRaw pfd mask rec setbuf))
+)
+
+; The registration itself, answering the raw handle-or-errno.
+;
+; PRIVATE AND SEPARATE because this body has four return points - two
+; errno forwards, the descriptor, and the BSD walk's accumulator - and
+; wrapping each of them would build four `Result`s where the function
+; answers one. The public skin above converts once.
+(:: netSignalOpenRaw (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(fn (netSignalOpenRaw pfd mask rec setbuf)
   (if (== signalUsesSignalFd 1)
     {
       (netPutWord setbuf 0 mask)

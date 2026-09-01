@@ -171,7 +171,7 @@ else
     failed=$((failed + 1))
   elif ! cmp -s "$fresh" "$golden"; then
     echo "FAIL the zoo no longer formats to tests/fmt/syntax-zoo.expected.ax"
-    diff "$golden" "$fresh" | head -20 | sed 's/^/     /'
+    { diff "$golden" "$fresh" || true; } | head -20 | sed 's/^/     /'
     failed=$((failed + 1))
   else
     echo "     $(wc -l < "$golden" | tr -d ' ') lines of normal form, unchanged"

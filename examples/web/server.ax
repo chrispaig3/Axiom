@@ -286,16 +286,22 @@
     (setbuf (memAlloc 8))
     (scratch (memAlloc 256))
     (buf (memAlloc (netPollBufBytes 64)))
-    (pfd netPollCreate)
     (mut served 0)
     (mut running 1)
   )
+    (match netPollCreate
+      ((Err e) (sysExitWith 255))
+      ((Ok pfd)
     {
       (if (isErr (netPollAddRead pfd lsn rec))
         (sysExitWith 255)
         0
       )
-      (let ((sh (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf)))
+      ; Discarded deliberately: a negative handle can never equal a
+      ; real descriptor in `netPollSignalAt`, so a worker that could
+      ; not watch SIGTERM never sees one - exactly what the sentinel
+      ; did before `netSignalOpen` answered a `Result`.
+      (let ((sh (unwrapOr (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
         (while (== running 1)
           (let ((n (netPollWait
             pfd            buf            64            (- 0 1)            ts
@@ -338,6 +344,7 @@
       (sysCloseFd pfd)
       (% served 256)
     }
+  ))
   )
 )
 
@@ -362,8 +369,19 @@
     (setbuf (memAlloc 8))
     (optb (memAlloc 4))
     (pids vecNew)
-    (lsn netSocketTcp)
   )
+    ; A LISTENER THAT WAS NEVER CREATED USED TO REACH `netBind`, and
+    ; the bind's errno was then all the operator saw.
+    (match netSocketTcp
+      ((Err se)
+        (let ((eno (errCode se)))
+          {
+            (println "socket failed: errno {eno}")
+            (sysExitWith 2)
+          }
+        )
+      )
+      ((Ok lsn)
     {
       (vecPush items "a plain item")
       (vecPush items "one with <angle> brackets")
@@ -450,5 +468,6 @@
       )
       0
     }
+  ))
   )
 )

@@ -47,9 +47,9 @@
 
 ;@axiom:effect(io)
 (fn (listenOn addr optb port)
-  (let ((fd netSocketTcp))
-    (if (< fd 0)
-      fd
+  (match netSocketTcp
+    ((Err e) (- 0 1))
+    ((Ok fd)
       {
         (netSetOptInt
           fd          solSocket          soReuseAddr          1          optb
@@ -107,7 +107,9 @@
         (let ((buf (memAlloc (netPollBufBytes 8))))
           (let ((la (listenOn addr optb base)))
             (let ((lb (listenOn addr optb (+ base 1))))
-              (let ((pfd netPollCreate))
+              (match netPollCreate
+                ((Err e) (say 0 "the readiness descriptor is created"))
+                ((Ok pfd)
                 {
                   (say
                     (if (> la 2)
@@ -146,7 +148,9 @@
                   ; Connect to the FIRST listener only, so the event that
                   ; comes back has to name that one and not merely "a
                   ; descriptor we registered".
-                  (let ((ca netSocketTcp))
+                  (match netSocketTcp
+                    ((Err e) (say 0 "a client socket is created"))
+                    ((Ok ca)
                     {
                       (netAddr4
                         addr                        base                        127                        0                        0                        1
@@ -221,8 +225,12 @@
                       ; middle of event 0 answers a plausible descriptor
                       ; rather than failing - so only a second event
                       ; catches it.
-                      (let ((cb netSocketTcp))
-                        (let ((cc netSocketTcp))
+                      (match netSocketTcp
+                        ((Err e) (say 0 "a client socket is created"))
+                        ((Ok cb)
+                        (match netSocketTcp
+                          ((Err e) (say 0 "a client socket is created"))
+                          ((Ok cc)
                           {
                             (netAddr4
                               addr                              base                              127                              0                              0                              1
@@ -267,9 +275,12 @@
                             (sysCloseFd cb)
                           }
                         )
+                        )
+                      )
                       )
                       (sysCloseFd ca)
                     }
+                  )
                   )
                   (say
                     (if (isOk (netPollDelRead pfd la rec))
@@ -287,6 +298,7 @@
                   )
                   0
                 }
+              )
               )
             )
           )

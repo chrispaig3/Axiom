@@ -188,7 +188,7 @@ PY
       ok "the worklist changes no row of $rows: --calls is byte-identical to the ablated compiler's"
     else
       bad "the worklist changed the answer, not only the cost"
-      diff "$work/sym.tree" "$work/sym.abl" | head -10 | sed 's/^/     /'
+      { diff "$work/sym.tree" "$work/sym.abl" || true; } | head -10 | sed 's/^/     /'
     fi
 
     # ----------------------------------------------------------------

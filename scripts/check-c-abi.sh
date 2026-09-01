@@ -179,7 +179,7 @@ if [[ -s "$ll" ]] && grep -qE '^declare i64 @axc_add\(i64, i64\)' "$ll"; then
   ok "and declares it with the C ABI: \`declare i64 @axc_add(i64, i64)\`"
 else
   bad "no \`declare i64 @axc_add(i64, i64)\` in the emitted module"
-  grep -E '^declare .*axc_' "$ll" 2>/dev/null | sed 's/^/     /' | head -4
+  { grep -E '^declare .*axc_' "$ll" 2>/dev/null || true; } | sed 's/^/     /' | head -4
 fi
 
 # --------------------------------------------------------------------

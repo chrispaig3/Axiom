@@ -156,7 +156,7 @@ if grep -q '#calls=' "$work/plain"; then
   echo "FAIL: \`symbols\` emitted #calls= without being asked, which puts an"
   echo "      edge list into tests/tools/symbols-zoo.golden and therefore into"
   echo "      the diff of every future stdlib edit:"
-  grep '#calls=' "$work/plain" | sed 's/^/     /' | head -5
+  { grep '#calls=' "$work/plain" || true; } | sed 's/^/     /' | head -5
   exit 1
 fi
 echo "ok   the default stream is unchanged by this feature"

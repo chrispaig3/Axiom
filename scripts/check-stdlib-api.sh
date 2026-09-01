@@ -224,7 +224,7 @@ plat_names "$repo_root/stdlib/Sys/Platform.darwin.ax" > "$work/plat.darwin"
   plat_names "$repo_root/stdlib/Sys/Platform.$other.ax" > "$work/plat.$other"
   if ! diff -q "$work/plat.darwin" "$work/plat.$other" >/dev/null; then
     bad "Sys/Platform.darwin.ax and Sys/Platform.$other.ax declare different names"
-    diff "$work/plat.darwin" "$work/plat.$other" | head -10 | sed 's/^/     /'
+    { diff "$work/plat.darwin" "$work/plat.$other" || true; } | head -10 | sed 's/^/     /'
     plat_ok=0
   fi
 done

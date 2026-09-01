@@ -250,7 +250,7 @@ netBind Sys.ax Alloc,IO
 netConnect Sys.ax Alloc,IO
 netListen Sys.ax Alloc,IO
 netPollAddRead Sys.ax Alloc,IO,Mut
-netPollCreate Sys.ax IO
+netPollCreate Sys.ax Alloc,IO
 netPollDelRead Sys.ax Alloc,IO,Mut
 netPollRec Sys.ax Mut
 netPollSignalAt Sys.ax IO
@@ -263,9 +263,10 @@ netSetNonBlocking Sys.ax Alloc,IO
 netSetNonBlockingRaw Sys.ax IO
 netSetOptInt Sys.ax Alloc,IO,Mut
 netShutdown Sys.ax Alloc,IO
-netSignalOpen Sys.ax IO,Mut
-netSocketTcp Sys.ax IO
-netSocketTcp6 Sys.ax IO
+netSignalOpen Sys.ax Alloc,IO,Mut
+netSignalOpenRaw Sys.ax IO,Mut
+netSocketTcp Sys.ax Alloc,IO
+netSocketTcp6 Sys.ax Alloc,IO
 okOr Err.ax Alloc
 pathBase Path.ax Alloc,Mut
 pathDir Path.ax Alloc,Mut
@@ -340,8 +341,9 @@ sysKill Sys.ax Alloc,IO
 sysMkdir Sys.ax Alloc,IO
 sysNowMicros Sys.ax IO
 sysNowMonotonic Sys.ax IO
-sysOpenPath Sys.ax IO
+sysOpenPath Sys.ax Alloc,IO
 sysOpenPathMode Sys.ax IO
+sysOpenRaw Sys.ax IO
 sysRandomBytes Sys.ax Alloc,IO
 sysReadAll Sys.ax Alloc,IO,Mut
 sysReadDir Sys.ax Alloc,IO,Mut

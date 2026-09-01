@@ -84,7 +84,9 @@
       (buf (memAlloc 16))
       (optb (memAlloc 4))
     )
-      (let ((lsn netSocketTcp))
+      (match netSocketTcp
+        ((Err e) (say 0 "socket() answers a descriptor"))
+        ((Ok lsn)
         {
           (say
             (if (> lsn 2)
@@ -163,7 +165,9 @@
               )              "accept with nothing pending would block"
             )
           )
-          (let ((cli netSocketTcp))
+          (match netSocketTcp
+            ((Err e) (say 0 "a client socket is created"))
+            ((Ok cli)
             (let ((rc (netConnect cli buf)))
               {
                 (say
@@ -193,6 +197,7 @@
               }
             )
           )
+          )
           (say
             (if (isOk (sysCloseFd lsn))
               1
@@ -201,6 +206,7 @@
           )
           0
         }
+      )
       )
     )
   )

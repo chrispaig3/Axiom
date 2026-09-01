@@ -74,8 +74,12 @@
                     0
                   )                  "SIGTERM is blocked"
                 )
-                (let ((pfd netPollCreate))
-                  (let ((lsn netSocketTcp))
+                (match netPollCreate
+                  ((Err e) (say 0 "the readiness descriptor is created"))
+                  ((Ok pfd)
+                  (match netSocketTcp
+                    ((Err e) (say 0 "the listener is created"))
+                    ((Ok lsn)
                     {
                       (netSetOptInt
                         lsn                        solSocket                        soReuseAddr                        1                        optb
@@ -92,13 +96,20 @@
                           0
                         )                        "the listener is watched"
                       )
-                      (let ((sh (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf)))
+                      (match (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf)
+                        ((Err e) (say 0 "SIGTERM is watched on the same descriptor"))
+                        ((Ok sh)
                         {
+                          ; `1`, AND NOT `(>= sh 0)`, BECAUSE THE TYPE
+                          ; NOW CARRIES THAT. `netSignalOpen` answers a
+                          ; `Result` since 0.6.2 and `sysResult` builds
+                          ; `Ok` only for a non-negative answer, so the
+                          ; old comparison is true in every reachable
+                          ; state of this arm - a check that cannot
+                          ; fail. The `Err` arm above is where this
+                          ; assertion now fails.
                           (say
-                            (if (>= sh 0)
-                              1
-                              0
-                            )                            "SIGTERM is watched on the same descriptor"
+                            1                            "SIGTERM is watched on the same descriptor"
                           )
                           (say
                             (if (== (netPollWait
@@ -110,7 +121,9 @@
                           )
                           ; A CONNECTION. It must arrive as a socket
                           ; event and must NOT be read as a signal.
-                          (let ((cli netSocketTcp))
+                          (match netSocketTcp
+                            ((Err e) (say 0 "a client socket is created"))
+                            ((Ok cli)
                             {
                               (netConnect cli addr)
                               (let ((n (netPollWait
@@ -145,6 +158,7 @@
                               (sysCloseFd cli)
                             }
                           )
+                          )
                           ; A SIGNAL, to ourselves, through the same loop.
                           (say
                             (if (isOk (sysKill sysGetPid sigTerm))
@@ -176,10 +190,13 @@
                           )
                         }
                       )
+                      )
                       (sysCloseFd lsn)
                       (sysCloseFd pfd)
                     }
                   )
+                  )
+                )
                 )
                 0
               }

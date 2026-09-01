@@ -16,6 +16,99 @@ its changelog too.
 
 ## Unreleased
 
+### The five calls that answer a descriptor, and eleven gates that would have reported one fault in a tree with two
+
+`ERR-ADOPT-1`'s third slice: `sysOpenPath`, `netSocketTcp`,
+`netSocketTcp6`, `netPollCreate` and `netSignalOpen` answer
+`(Result Int Error)`. **`stdlib/Sys.ax`'s census: 13 → 8 failure.**
+
+These were left until last because they are the head of a resource
+lifetime, and that is exactly what makes them cost more than the first
+two slices. A call whose whole answer is "did it work" is one
+expression at each site; a call that answers a *descriptor* retypes
+`lsn`, `cli` and `pfd` and everything downstream of them. Nine fixtures
+moved from `(let ((lsn netSocketTcp)) BODY)` to a `match` whose `Err`
+arm has to say what the program does when there is no socket — which is
+the point, since seven of `netSocketTcp`'s seventeen call sites never
+tested the result at all.
+
+**`sysOpenPath` keeps a private raw form**, for the reason
+`netSetNonBlockingRaw` does. Ten functions in `Sys.ax` open a
+descriptor, test it, and convert the errno into their own answer;
+routing them through the public wrapper would build a `Result` and take
+it apart again to reach a conversion they already do. Measured:
+`sysReadFile`, `sysFileExists`, `sysReadDir` and `sysGetCwd` are
+unchanged in `axiom symbols` across this port.
+
+**Two defects the port surfaced, both of a class this repository has
+recorded before.** In `311-preforked-server.ax` the connect loop's new
+`Err` arm did not advance `sent`, whose bound is the loop condition —
+the hang shape `Job.jobSubmit` produced when `302-job` hung rather than
+failed. In `315-signal-in-poll.ax` the assertion `(>= sh 0)` became a
+check that *cannot fail* once `sh` is an `Ok` binder, because
+`sysResult` builds `Ok` only for a non-negative answer; the assertion
+moved to the `Err` arm, where it can.
+
+**`netAccept` stays out, re-measured rather than assumed.** Porting it
+gives it `#effects=Alloc,IO`, and `tests/net/echo-server.ax` reaches it
+below the per-connection `__axiom_arena_mark` — an `(Ok fd)` per
+connection the reset never rewinds. `netAcceptFrom` and `netPollWait`
+are the same case; `sysWriteFd` and `sysReadFd` the per-write one.
+
+**`stdlib/Sys/Platform.darwin.ax`'s three cannot be finished before
+`sysWriteFd` moves, and this was probed.** Porting `platformWriteFd`
+produces two errors at once — `AX3010`, the `;@axiom:pure` tag all
+three carry (on Darwin they are `-ENOSYS` stubs, and a `Result`
+allocates), and `AX3004` at `stdlib/Sys.ax:160`, which is `sysWriteFd`
+forwarding it wherever `usesSyscallAbi` is 0. Porting the *callee*
+forces the caller the migration excludes: slice 1's `netAcceptFinish`
+finding running backwards. Behind both, `check-stdlib-api.sh` requires
+all five `Sys/Platform.*` files to declare the same names.
+
+**A gate probe rotted the moment the standard library gained a
+caller.** `check-compat.sh` makes `unwrapOr` private in a copy of
+`stdlib/` and expects `REMOVED F unwrapOr`; the first version of the
+`Tui/Term.ax` edit called `unwrapOr`, so the ablation stopped compiling
+and the probe answered `FATAL`. That is the gate working — its own
+comment predicts this rot for `vecOwnsRefs` — and `Term.ax` uses a
+`match` now, which `Job.ax` already argues for one line above its own.
+
+### Eleven gates could report one fault in a tree that had two
+
+Swept every gate for the shape found in `check-compat.sh` last release:
+a pipeline headed by a command that exits non-zero *on a difference* —
+`diff`, `grep`, `cmp` — run as a bare statement in a failure branch
+under `set -euo pipefail`. The pipeline's non-zero status trips `set
+-e`, so the script dies after printing one FAIL line and every check
+below it silently never runs, with an exit code indistinguishable from
+an ordinary failure. Reduced:
+
+```
+set -euo pipefail
+echo "check one: FAIL"
+diff a.txt b.txt | sed 's/^/     /' | head -3
+echo "check two: this line is the one that never runs"
+```
+
+prints check one, truncates the diff mid-hunk, and exits 1 without
+reaching check two.
+
+**Of 79 scripts, 14 carried the shape and 11 are braced with `|| true`:**
+`check-agent-calls`, `check-c-abi`, `check-effect-fixpoint`,
+`check-ffi` (two), `check-fmt`, `check-recover` (two),
+`check-seed-provenance`, `check-stdlib-api` and `check-windows-hello`.
+Every one is report-only — the verdict beside it is set by `bad`,
+`status=1` or `exit 1` — so the brace cannot change an answer, only
+stop the script dying before the rest of its checks run.
+
+**Three were false positives, and each for a different reason**, which
+is why the sweep is reported rather than the count: `check-c-abi.sh`
+opens `set -uo pipefail` with no `-e` (it turns `-e` on later, at line
+164, which is what put its line 182 back on the list),
+`check-agent-policy.sh:280` is a data pipeline whose `comm` exits 0
+normally, and `check-thread-local.sh:149` prints a `grep` whose match
+the enclosing condition has already counted.
+
 ### Five more calls that answered only "did it work", and a census that had been filing a lookup as a failure
 
 `ERR-ADOPT-1`'s second slice, and the same rule as the first applied to

@@ -180,3 +180,8 @@
 0.6.2  F  sysSignalBlock     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
 0.6.2  F  sysKill            -errno -> (Result Int Error), row gains Alloc: Err with ESRCH is now distinguishable
 0.6.2  F  sysFileExists      row gains Alloc: it closes the descriptor it opened, and sysCloseFd now builds a Result
+0.6.2  F  sysOpenPath        -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.2  F  netSocketTcp       Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
+0.6.2  F  netSocketTcp6      Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
+0.6.2  F  netPollCreate      Int -> (Result Int Error), row gains Alloc: the descriptor is now in the type
+0.6.2  F  netSignalOpen      -errno -> (Result Int Error), row gains Alloc: Ok 0 is the BSD handle, not an absence

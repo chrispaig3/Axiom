@@ -139,10 +139,10 @@
 
 ;@axiom:effect(io)
 (fn (parseVia lsn request cap)
-  (let (
-    (addr (memAlloc 16))
-    (cli netSocketTcp)
-  )
+  (let ((addr (memAlloc 16)))
+    (match netSocketTcp
+      ((Err e) (strConcat "ERR socket: " (errMessage e)))
+      ((Ok cli)
     {
       (netAddr4
         addr        port        127        0        0        1
@@ -168,6 +168,7 @@
         )
       )
     }
+  ))
   )
 )
 
@@ -190,8 +191,10 @@
   (let (
     (addr (memAlloc 16))
     (optb (memAlloc 4))
-    (lsn netSocketTcp)
   )
+    (match netSocketTcp
+      ((Err e) (die "socket() failed" 1))
+      ((Ok lsn)
     {
       (netSetOptInt
         lsn        solSocket        soReuseAddr        1        optb
@@ -248,5 +251,6 @@
       (sysCloseFd lsn)
       0
     }
+  ))
   )
 )

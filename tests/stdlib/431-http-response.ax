@@ -16,6 +16,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Str)
 
 (import Mem)
@@ -59,12 +61,15 @@
 
 ;@axiom:effect(io)
 (fn (captured status ctype body)
-  (let ((fd (sysOpenPath (__addr "resp.tmp") oWronlyCreateTrunc)))
-    {
-      (httpRespond fd status ctype body)
-      (sysCloseFd fd)
-      (sysReadFile (__addr "resp.tmp"))
-    }
+  (match (sysOpenPath (__addr "resp.tmp") oWronlyCreateTrunc)
+    ((Err e) (strConcat "ERR open resp.tmp: " (errMessage e)))
+    ((Ok fd)
+      {
+        (httpRespond fd status ctype body)
+        (sysCloseFd fd)
+        (sysReadFile (__addr "resp.tmp"))
+      }
+    )
   )
 )
 
@@ -73,12 +78,15 @@
 
 ;@axiom:effect(io)
 (fn (capturedFail status why)
-  (let ((fd (sysOpenPath (__addr "fail.tmp") oWronlyCreateTrunc)))
-    {
-      (httpFail fd status why)
-      (sysCloseFd fd)
-      (sysReadFile (__addr "fail.tmp"))
-    }
+  (match (sysOpenPath (__addr "fail.tmp") oWronlyCreateTrunc)
+    ((Err e) (strConcat "ERR open fail.tmp: " (errMessage e)))
+    ((Ok fd)
+      {
+        (httpFail fd status why)
+        (sysCloseFd fd)
+        (sysReadFile (__addr "fail.tmp"))
+      }
+    )
   )
 )
 

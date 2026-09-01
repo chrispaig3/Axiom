@@ -24,6 +24,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Str)
 
 (import Vec)
@@ -61,12 +63,15 @@
 
 ;@axiom:effect(io)
 (fn (dispatched rt r)
-  (let ((fd (sysOpenPath (__addr "out.tmp") oWronlyCreateTrunc)))
-    {
-      (routeDispatch rt fd r)
-      (sysCloseFd fd)
-      (sysReadFile (__addr "out.tmp"))
-    }
+  (match (sysOpenPath (__addr "out.tmp") oWronlyCreateTrunc)
+    ((Err e) (strConcat "ERR open out.tmp: " (errMessage e)))
+    ((Ok fd)
+      {
+        (routeDispatch rt fd r)
+        (sysCloseFd fd)
+        (sysReadFile (__addr "out.tmp"))
+      }
+    )
   )
 )
 

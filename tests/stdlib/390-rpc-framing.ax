@@ -59,9 +59,9 @@
   (let ((path (__addr "axiom-rpc-framing.tmp")))
     {
       (sysWriteFile path (strConcat (strConcat (strConcat "Content-Length: " header) "\r\n\r\n") body))
-      (let ((fd (sysOpenPath path oRdonly)))
-        (if (sysFailed fd)
-          (die "open for read failed" 1)
+      (match (sysOpenPath path oRdonly)
+        ((Err e) (die "open for read failed" 1))
+        ((Ok fd)
           (let ((r (rdNew fd)))
             (let ((got (rpcRead r)))
               (let (

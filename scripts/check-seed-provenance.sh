@@ -193,7 +193,7 @@ else
       echo "     committed:    $(wc -c <"$repo_root/bootstrap/axiom-$t.ll" | tr -d ' ') bytes"
       echo "     regenerated:  $(wc -c <"$gen/axiom-$t.ll" | tr -d ' ') bytes"
       echo "     differing lines: $(diff "$gen/axiom-$t.ll" "$repo_root/bootstrap/axiom-$t.ll" | grep -c '^[<>]' || true)"
-      diff "$gen/axiom-$t.ll" "$repo_root/bootstrap/axiom-$t.ll" | head -8 | sed 's/^/       /'
+      { diff "$gen/axiom-$t.ll" "$repo_root/bootstrap/axiom-$t.ll" || true; } | head -8 | sed 's/^/       /'
     fi
   done
   (( same == 6 )) && echo "     all six targets, $(wc -l <"$repo_root/bootstrap/axiom-darwin-aarch64.ll" | tr -d ' ') lines each"

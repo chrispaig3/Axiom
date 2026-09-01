@@ -2,14 +2,16 @@
 ; reopen, read to EOF, close.
 (import IO)
 
+(import Err)
+
 (pub :: main Int)
 
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((path (__addr "axiom-stdlib-test.tmp")))
-    (let ((fd (sysOpenPath path oWronlyCreateTrunc)))
-      (if (sysFailed fd)
-        (die "open for write failed" 1)
+    (match (sysOpenPath path oWronlyCreateTrunc)
+      ((Err e) (die "open for write failed" 1))
+      ((Ok fd)
         {
           (writeStr fd "line one\nline two\n")
           (sysCloseFd fd)
