@@ -127,9 +127,119 @@ costs nothing. **What it does not prove:** that the compiler can
 produce it for arbitrary programs. Section 4 is the list of reasons
 that is a real project and not an afternoon.
 
+## 3a. The cheap alternative, measured and rejected
+
+`axiom_alloc` and `axiom_release` are both defined in the emitted
+module, and at `-O2` LLVM inlines **neither** — the optimised IR still
+reads `tail call i64 @axiom_alloc(i64 16)` inside `internFind` and
+`tail call void @axiom_release` in the caller. Two real calls per
+wrapper. That invites an obvious, far cheaper fix than changing any
+ABI: emit the allocator's fast path inline at the construction site.
+
+Measured, by marking both functions `alwaysinline` and re-running the
+same pipeline — an upper bound on that idea, since it inlines the slow
+paths too:
+
+| variant | total | recovers |
+|---|---|---|
+| boxed, calls as today | 1.8454s | — |
+| boxed, allocator and releaser inlined | 1.8112s | **14.3%** |
+| two registers | 1.6080s | **99.2%** |
+
+**The call overhead is 14% of the box and the other 86% is the work
+itself** — the free-list pop, the shape word, the tag, the refcount,
+the field store, the caller's immediate test and two loads, and the
+release's refcount decrement and free-list push. Inlining moves none of
+that; not allocating removes all of it.
+
+So the ABI change is not one of several options. It is the only one
+that pays, and this section exists so the cheap idea is not
+re-proposed.
+
 ## 4. What building it actually touches
 
-Ordered by how likely each is to be the thing that stops it.
+**The plan below replaced an earlier one.** The first draft of this
+note proposed a general type-directed representation — every eligible
+value unboxed in flight, boxed when stored — and named the storage
+boundary as the largest piece and ownership-without-a-shape-word as the
+next. Both are avoidable, and the plan that avoids them is smaller and
+strictly safer.
+
+### Specialisation, not a global representation change
+
+Emit a **second definition** for a function whose declared return type
+is an eligible sum: `@F` unchanged, plus `@F$pair` returning
+`{ i64, i64 }`. Rewrite only those call sites where the result is
+**immediately matched** — `(match (F args) arms)` — to call `@F$pair`
+and read the tag and payload from registers. Every other caller keeps
+the boxed `@F`, bit for bit.
+
+Why this is the right shape:
+
+* **The storage boundary disappears.** A pair never reaches a `let`
+  that outlives the match, a `Vec`, a struct field or another
+  function's argument, because the only rewritten site consumes it on
+  the spot. There is nothing to coerce, so there is no coercion to get
+  wrong.
+* **No per-node types are needed**, which matters because codegen does
+  not have them. It needs exactly one fact it can already look up:
+  the callee's declared return type, through `findFSigCg`.
+* **It is opt-in per call site and reversible per call site.** A shape
+  the tail walk does not recognise simply keeps the boxed path, so the
+  failure mode is "no speedup", not "wrong answer".
+
+### Restrict the payload to a non-reference, at least at first
+
+If the single field is a reference, the box today owns a share of it
+and `axiom_release` on the wrapper hands that share back. A pair has no
+refcount, so ownership would have to transfer to the consumer, and
+getting that wrong is a use-after-free rather than a slowdown.
+`eFieldFlags` already records which fields are references, so the
+eligibility test is available where the decision is made.
+
+Restricting to a non-reference payload gives up nothing that matters
+here: `Option Int` is the shape of **every** row this unblocks —
+`internFind`, `strHexVal`, `utf8DecodeAt`, `utf8CharAt`, `keyStrEnd`,
+`strFindByte`. Reference payloads are a later slice with its own
+ownership argument.
+
+### What is left to build, in order
+
+1. **Eligibility**: a `data` type with `rep 2` whose fieldful
+   constructors carry exactly one non-reference field. Decided once per
+   type, from the table `lookupType` already answers.
+2. **`@F$pair` emission**: the body again, with tail-position
+   constructor applications building `insertvalue` pairs instead of
+   calling `emitConstructor`. The tail is a walk through `if`, `match`,
+   `let` and `{}` to the constructor applications underneath; any tail
+   the walk does not recognise falls back to computing the boxed value
+   and converting, which is correct and merely not faster.
+3. **Call-site rewrite**: at `(match (F args) arms)`, call `@F$pair`
+   and feed the existing arm lowering from the two `extractvalue`s
+   instead of from the immediate test and the word loads.
+4. **`restrict(no-alloc)` and the effect row**: `@F$pair` performs no
+   `Alloc`, so `#effects=` narrows for the specialised path. Section 5
+   is why that is the point rather than a complication — but
+   `compat/BREAKING` still needs a `NARROWED` kind and
+   `check-compat.sh` needs to accept it.
+5. **A gate**: the pair path must be *proved taken*, not assumed.
+   Counting `axiom_alloc` calls in the emitted IR for a fixture with a
+   known number of matched lookups is the direct assertion, and an
+   ablation that forces the boxed path must move that count.
+
+### What this plan does NOT need
+
+FFI classification (no `extern` sees a pair), a second general `match`
+lowering path (only the rewritten call sites change), container
+widening, and any change to how values are stored. Those were all
+consequences of the general design and none survives specialisation.
+
+## 4a. Superseded: the general representation change
+
+Kept because it is the fallback if specialisation turns out not to
+cover enough call sites, and because two of its items are real work
+that a wider version would still face. Ordered by how likely each is to
+be the thing that stops it.
 
 **Storage is where the design can go wrong.** Unboxing works for values
 *in flight* — arguments, returns, locals, registers. A `(Option Int)`
@@ -218,7 +328,20 @@ of the loop: a raw `-1` compared against zero, a `match` on a boxed
 
 ## 7. Status
 
-**Designed and prototyped, not built.** The representation is measured
-free on aarch64 through the real toolchain, and no compiler code has
-been changed. Section 4 is the work, and its first item — the storage
-boundary — is the one that decides whether the rest is worth starting.
+**Designed, prototyped and costed. NOT built — no compiler code has
+been changed.** What is established: the representation is free on
+aarch64 through the real toolchain (§1, §3); a one-word niche cannot
+express `Option Int` (§2); and inlining the allocator recovers 14% of
+the box against the pair's 99%, so there is no cheaper fix (§3a).
+
+What is not established: that `@F$pair` emission handles every tail
+shape in the tree. That is the first thing to write and the first thing
+that can fail, and §4 item 2 gives it a fallback that is correct when
+it does.
+
+**The honest reason this stops here rather than landing:** the change
+is in the code generator of a self-hosted compiler that has to reach a
+byte-identical fixpoint, and the failure mode of getting a return
+convention half-right is a silent miscompile, not a red gate. It wants
+its own change with its own gate (§4 item 5), not a tail added to the
+port that measured it.

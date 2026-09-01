@@ -57,12 +57,39 @@ widened because building a `Result` allocates; an unboxed `Ok` widens
 nothing. **So this comes before the rest of the migration**, or those
 functions are ported twice.
 
-What it would touch, in the order most likely to stop it: the storage
-boundary (unboxed in flight, boxed in a heap field — the largest
-piece), ownership without a shape word, effect rows NARROWING (a kind
-`compat/BREAKING` has never recorded), `restrict(no-alloc)` starting to
-accept these constructors (fixture 384's `some` arm goes silent), FFI
-classification, and a second `match` lowering path.
+**The cheap alternative was measured and rejected.** At `-O2` LLVM
+inlines neither `axiom_alloc` nor `axiom_release` — two real calls per
+wrapper — so emitting the allocator's fast path inline is the obvious
+smaller fix. Marking both `alwaysinline` recovers **14.3%** of the box
+against the register pair's **99.2%**. The call overhead is a seventh
+of the cost; the rest is the free-list pop, the shape word, the tag,
+the refcount, the field store, the caller's two loads and the release's
+decrement and push. Inlining moves none of that. There is no cheaper
+fix, and §3a of the note exists so it is not re-proposed.
+
+**The implementation plan changed as a result of writing it down.** The
+first draft proposed a general type-directed representation — unboxed
+in flight, boxed in storage — whose two hardest pieces were the storage
+boundary and ownership with no shape word. Both are avoidable.
+Emitting a **second definition** (`@F` unchanged, plus `@F$pair`
+returning `{i64,i64}`) and rewriting only call sites that immediately
+match the result means a pair never reaches a `let` that outlives the
+match, a `Vec`, a struct field or another function's argument — so
+there is nothing to coerce and no ownership to transfer. It needs one
+fact codegen can already look up (the callee's declared return type,
+via `findFSigCg`) rather than the per-node types it does not have, and
+an unrecognised tail shape falls back to the boxed path, so the failure
+mode is "no speedup" rather than "wrong answer". Restricting the
+payload to a non-reference at first covers every row this unblocks —
+they are all `Option Int`.
+
+**Not built, and deliberately not bolted onto the port that measured
+it.** This is the code generator of a self-hosted compiler that must
+reach a byte-identical fixpoint, and a half-right return convention
+fails as a silent miscompile rather than a red gate. It wants its own
+change and its own gate — counting `axiom_alloc` calls in the emitted
+IR for a fixture with a known number of matched lookups, with an
+ablation that forces the boxed path and must move the count.
 
 ### The interner's miss is `None`, and the effect row said who would pay
 
