@@ -1,0 +1,55 @@
+[1;33mwarning[AX3051][0m[1m: `viaIo` claims `restrict(no-io)` and the claim cannot be checked: the body CALLS its own parameter `f`, so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call[0m
+  [1;34m--> [0m391-restrict-effect-transparent.ax:59:6
+[1;34m   |[0m
+[1;34m59 |[0m (fn (viaIo f n) (f n))
+[1;34m   |[0m      [1;33m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;33mwarning[AX3051][0m[1m: `viaAlloc` claims `restrict(no-alloc)` and the claim cannot be checked: the body CALLS its own parameter `f`, so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call[0m
+  [1;34m--> [0m391-restrict-effect-transparent.ax:64:6
+[1;34m   |[0m
+[1;34m64 |[0m (fn (viaAlloc f n) (f n))
+[1;34m   |[0m      [1;33m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;33mwarning[AX3051][0m[1m: `viaForeign` claims `restrict(no-foreign)` and the claim cannot be checked: the body CALLS its own parameter `f`, so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call[0m
+  [1;34m--> [0m391-restrict-effect-transparent.ax:69:6
+[1;34m   |[0m
+[1;34m69 |[0m (fn (viaForeign f n) (f n))
+[1;34m   |[0m      [1;33m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;33mwarning[AX3051][0m[1m: `viaRec` claims `restrict(no-recursion)` and the claim cannot be checked: the body CALLS its own parameter `f`, so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call[0m
+  [1;34m--> [0m391-restrict-effect-transparent.ax:74:6
+[1;34m   |[0m
+[1;34m74 |[0m (fn (viaRec f n) (f n))
+[1;34m   |[0m      [1;33m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;33mwarning[AX3051][0m[1m: `viaDeep` claims `restrict(no-cast:deep)` and the claim cannot be checked: the body CALLS its own parameter `f`, so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call[0m
+  [1;34m--> [0m391-restrict-effect-transparent.ax:79:6
+[1;34m   |[0m
+[1;34m79 |[0m (fn (viaDeep f n) (f n))
+[1;34m   |[0m      [1;33m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `bothWays` claims `restrict(no-io)` and the body performs IO: bothWays -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3[0m
+   [1;34m--> [0m391-restrict-effect-transparent.ax:106:6
+[1;34m    |[0m
+[1;34m106 |[0m (fn (bothWays f n) { (println "loud") (f n) })
+[1;34m    |[0m      [1;31m^^^^^^^^[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 1 previous error

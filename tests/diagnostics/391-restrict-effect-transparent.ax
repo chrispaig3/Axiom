@@ -1,0 +1,124 @@
+; A restriction over an EFFECT-TRANSPARENT function: AX3051, the THIRD
+; reading of "unverifiable".
+;
+; `docs/reference.md` (Effect Polymorphism) says a higher-order
+; function's summary has two halves - the effects its own body performs
+; concretely, and the parameters it CALLS - and that claims are
+; validated against the concrete half. `;@axiom:pure` on `(fn (apply f
+; x) (f x))` stands under that reading, and should: "pure modulo its
+; function parameters" is what purity means on a higher-order function.
+;
+; A RESTRICTION IS NOT THAT KIND OF CLAIM. `restrict(no-io)` reads to
+; its author as "calling this performs no IO", and for a body that
+; calls one of its own parameters that is the CALLER's argument's
+; business. Measured before this case existed: `(fn (runIt f n) { (f
+; "x") n })` under `restrict(no-io)` checked `OK` with no diagnostic at
+; all, and the program printed to stdout. The same silence covered
+; `no-alloc`, `no-foreign`, `no-recursion` and `no-cast:deep`, and
+; `no-recursion` in particular was silent over a program that really
+; does recurse - `runIt -> back -> runIt`, a cycle whose middle edge is
+; a parameter the graph has no edge for.
+;
+; The compiler KNEW: `symbols` renders `#effect-params=f` on exactly
+; these rows. The marker existed and the restriction checker did not
+; read it, which is the same shape as the `restrict(no-alloc)`
+; constructor hole - a checked claim that could not fail.
+;
+; Five warnings, one per transitive restriction, and five controls:
+;
+;   `viaIo`        no-io          -> AX3051
+;   `viaAlloc`     no-alloc       -> AX3051
+;   `viaForeign`   no-foreign     -> AX3051
+;   `viaRec`       no-recursion   -> AX3051
+;   `viaDeep`      no-cast:deep   -> AX3051
+;
+;   `lexCast`      no-cast        -> silent: LEXICAL, checked whether
+;                                     or not a call resolved, and this
+;                                     body casts nothing
+;   `lexWrap`      no-wrap        -> silent: lexical, same reason
+;   `named`        no-io          -> silent: the parameter is NAMED and
+;                                     not called, so it is not an
+;                                     effect-transparent position and
+;                                     the row does not mark it
+;   `plain`        no-io          -> silent: no parameter is called,
+;                                     which is every function in this
+;                                     tree today (measured: 0 of 347
+;                                     rows carrying a restriction also
+;                                     carry `#effect-params=`)
+;   `bothWays`     no-io          -> AX3049 and NOT AX3051: the body
+;                                     performs IO concretely, so the
+;                                     claim is REFUTED rather than
+;                                     unverifiable, and saying both
+;                                     about one claim would be saying
+;                                     two things about one fact
+(import IO)
+
+;@axiom:restrict(no-io)
+(:: viaIo (-> (-> Int Int) Int Int))
+
+(fn (viaIo f n) (f n))
+
+;@axiom:restrict(no-alloc)
+(:: viaAlloc (-> (-> Int Int) Int Int))
+
+(fn (viaAlloc f n) (f n))
+
+;@axiom:restrict(no-foreign)
+(:: viaForeign (-> (-> Int Int) Int Int))
+
+(fn (viaForeign f n) (f n))
+
+;@axiom:restrict(no-recursion)
+(:: viaRec (-> (-> Int Int) Int Int))
+
+(fn (viaRec f n) (f n))
+
+;@axiom:restrict(no-cast:deep)
+(:: viaDeep (-> (-> Int Int) Int Int))
+
+(fn (viaDeep f n) (f n))
+
+;@axiom:restrict(no-cast)
+(:: lexCast (-> (-> Int Int) Int Int))
+
+(fn (lexCast f n) (f n))
+
+;@axiom:restrict(no-wrap)
+(:: lexWrap (-> (-> Int Int) Int Int))
+
+(fn (lexWrap f n) (f n))
+
+;@axiom:restrict(no-io)
+(:: named (-> (-> Int Int) Int Int))
+
+(fn (named f n) (cast Int f))
+
+;@axiom:restrict(no-io)
+(:: plain (-> Int Int))
+
+(fn (plain n) n)
+
+;@axiom:effect(io)
+;@axiom:restrict(no-io)
+(:: bothWays (-> (-> Int Int) Int Int))
+
+;@axiom:effect(io)
+(fn (bothWays f n) { (println "loud") (f n) })
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (viaIo plain 1)
+    (viaAlloc plain 1)
+    (viaForeign plain 1)
+    (viaRec plain 1)
+    (viaDeep plain 1)
+    (lexCast plain 1)
+    (lexWrap plain 1)
+    (named plain 1)
+    (plain 1)
+    (bothWays plain 1)
+  }
+)

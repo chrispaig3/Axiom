@@ -212,7 +212,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Fifty-one of the gates below build the compiler under test from
+    # Fifty-two of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -477,6 +477,17 @@ jobs:
       # and not this step (2026-08-29); a gate no job runs is a script.
       - name: Restriction claims are answered, and a restricted corpus does not move
         run: ./scripts/check-restrictions.sh
+
+      # `;@axiom:pre(...)`/`post(...)`: the one claim in this namespace
+      # the checker cannot refuse, because there is no value analysis
+      # to refuse it with - so it is compiled into the body and checked
+      # on every call, and a failure exits 75. This gate is the pair to
+      # the one above and deliberately not a section of it: a
+      # restriction changes no emitted byte, a contract is emitted
+      # bytes, and one script cannot assert both. Two ablations - the
+      # lowering hook and the checking hook - each required to go red.
+      - name: Contracts are compiled in and checked, and a failure says which
+        run: ./scripts/check-contracts.sh
 
       # Degenerate input answers with a diagnostic, not with a signal.
       # `axiom check` on `(fn (main) ())` was SIGSEGV - exit 139, no

@@ -16,6 +16,231 @@ its changelog too.
 
 ## Unreleased
 
+### Range-constrained subtypes: the design pass, and a recommendation not to build it
+
+`docs/subtypes-design.md` is the third and last of the items Ada round
+1 left unstarted, and the note's conclusion is **do not build it as a
+type**. It is here so the item stops being carried as "unstarted" and
+starts being carried as "designed, and deliberately not built, for
+three reasons that are each a measurement".
+
+- **The population is real.** Pairing every top-level `(:: f (-> ...))`
+  with its `fn` header over `self_host/` and `stdlib/`: 3,691 functions
+  with both, **6,720 `Int`-typed parameters**, of which **1,305
+  (19.4%)** carry an index-, length- or count-shaped name, across 1,179
+  functions. 499 comparisons of a bare name against literal `0` and 780
+  against `vecLen`/`strLen` already assert those ranges by hand, one
+  site at a time. That is the case FOR the feature and it is the
+  strongest thing that can be said for it.
+
+- **The check would be the one contracts already ship.** There is no
+  value analysis in this compiler — the same 0, 0, 0 the contracts note
+  opens with — so a conversion into `Positive` cannot be discharged
+  statically for any argument that is not a literal. A subtype
+  therefore adds no enforcement mechanism at all: `__contract`,
+  `@__axiom_contract_fail` and status 76 are already there. What it
+  adds is a different ATTACHMENT POINT for the same check, and that is
+  where the cost is.
+
+- **The cost is measured, not estimated, because a `pre` on a
+  self-recursive function already IS a per-iteration check.** The loop
+  rewrite fires and the check rides inside it. `@loop` grows from 20
+  lines of IR to 28; on the clock, 200,000,000 iterations at `--opt 0`,
+  the two binaries run alternately five times: 0.51 / 0.51 / 0.54 /
+  0.56 / 0.56 bare against 0.73 / 0.72 / 0.75 / 0.75 / 0.74 —
+  **+37% on the median, arms never interleaving**, on a loop whose body
+  is a decrement and an add. At `--opt 2` that loop is folded away
+  entirely, so the figure is the cost of the check where the check
+  runs.
+
+- **And `cast` would launder the constraint.** 651 casts against 3,691
+  `fn` declarations, 441 of them `(cast Int ...)`. `docs/memory-model.md`
+  `MM-VAL-23` already records this failure in another system — "the
+  safe vehicle is a typed accessor, not a call-site cast" — and a range
+  constraint is evidence of the same kind. `Int` is also already doing
+  two jobs: **288 of the 341 struct fields in the tree are declared
+  `Int`**, and 191 `(cast Int ...)` sites widen a construction
+  directly, so a subtype OF `Int` sits on a type whose values are not
+  all numbers.
+
+The recommendation is to write the constraint as a `pre` that names the
+parameter, which expresses the same thing at the boundary that matters
+with the check the compiler can actually perform. The note states three
+conditions that would change it — a value analysis, a `cast` that
+cannot launder a constraint, and an integer type that is not the handle
+word — each as a condition rather than a mood.
+
+### Three ways to write a claim that could not fail
+
+Ada round 1 and 1.5 put five checked claims in the AXTAG namespace —
+`pure`, `effect(...)`, `restrict(...)`, `pre(...)`, `post(...)`. Each
+of the three below is a place where one of them was *written*,
+*accepted*, and *never answered*. None was refused, none warned, and
+in two of the three the program went on to do the thing the claim said
+it did not.
+
+- **A restriction over a body that calls its own parameter was
+  silent.** `(fn (runIt f n) (f n))` under `restrict(no-io)` checked
+  `OK` with no diagnostic at all, and `{ (f "x") n }` printed to
+  stdout at run time. The same silence covered `no-alloc`,
+  `no-foreign`, `no-recursion` and `no-cast:deep`; `no-recursion` was
+  silent over a program that really recurses — `runIt -> back ->
+  runIt`, a cycle whose middle edge is a parameter the call graph has
+  no edge for.
+  The compiler KNEW: `symbols` renders `#effect-params=f` on exactly
+  these rows (`FnEnt` word 6) and nothing in `typecheck.ax` read it.
+  It is `AX3051` now, a warning, the **third** reading of
+  "unverifiable" beside present-only-as-POSSIBLE and
+  row-incomplete — and a warning rather than `AX3049` because the
+  claim is not refuted here, it is chosen at every call site. The two
+  LEXICAL restrictions, `no-cast` and `no-wrap`, are excluded on the
+  same line the header already draws: a parameter cannot change the
+  bytes of this body.
+  **Blast radius 0 over the tree's own claims, measured**: across
+  `self_host/main.ax`, 347 rows carry a restriction, 5 carry
+  `#effect-params=`, and the intersection is empty — the derived
+  manifest gains 11 rows and moves none.
+  It is NOT zero over the gate that blankets a corpus with them, and
+  that is where the change had to be admitted rather than assumed:
+  `check-restrictions.sh` section 1 restricts every `fn` of 172
+  programs and asserted that an `AX3051` may only land on a row marked
+  `#effects-incomplete` or `#effects-overapprox`. Four programs then
+  failed it — `520-fn-values`, `972-polymorphic-signature`,
+  `997-let-box-value-escapes`, `999-placeholder-under-arrow`, each on a
+  row carrying `#effect-params=` and neither of the other two. The
+  gate is right to have caught it: a new reading is admitted there one
+  marker at a time, in a `while` loop with the three named, rather than
+  by widening a test until nothing fails it.
+  `tests/diagnostics/391-restrict-effect-transparent.ax` is five
+  warnings — one per transitive restriction — and five controls.
+
+- **An AXTAG on the FIRST declaration a macro template generates was
+  thrown away.** `expCopyDeclInto` copies the first generated
+  declaration into the invocation's own node, and it copied words 0,
+  1, 2, 3, 4, 5, 6 and 9 while writing a literal **0** into word 7,
+  the AXTAGs. Measured with one near-miss key moved one line between
+  two runs of the same file: above the template's first declaration,
+  nothing; above its second, `AX3039`. The claims that matter split
+  the same way — `restrict(no-io)` on a template whose first
+  declaration is the `::` checked `OK` over a body calling `println`,
+  and a `;@axiom:pre` there compiled to no check at all.
+  `tests/diagnostics/361-macro-template-effect.ax` records three bugs
+  in this family, closed on 2026-08-25; this is the fourth, and 361
+  could not see it because 361's tag sits on the template's fifth
+  declaration. The word is copied like every other word now. The zero
+  existed so `expGiveTags` could park an INVOCATION's tag on the first
+  generated `fn` unconditionally — it does not need to, because that
+  walk already reads each generated declaration's own word 7 to decide
+  whether it is spoken for, and only the invocation node's copy was
+  ever zeroed. `tests/diagnostics/392-macro-template-first-tag.ax` has
+  both arms firing and one control silent; ablated by restoring
+  `(memSetWord d 7 0)`, both errors vanish.
+
+- **Every AXTAG typed at the REPL prompt was dropped in silence, and
+  one of them could not be written anywhere else.** The loop discards
+  any line beginning with `;`, which an AXTAG does, so
+  `;@axiom:restrict(no-io)` typed above a function that calls
+  `println` drew `AX3042` for the undeclared effect and **nothing**
+  for the restriction — where the same three lines in a file draw
+  both. The second half is worse than a dropped claim:
+  `;@axiom:effect(io)` was dropped too, so an IO-performing function
+  could not be DEFINED at the prompt at all — measured, `(fn (shout n)
+  { (println "hi") n })` answers "`shout` performs IO and its
+  declaration does not say so" whatever the author types above it, and
+  there is no workaround at the prompt, because `(println "hi")` as an
+  EXPRESSION works only through the tag `replWrapper` writes itself.
+  Effect enforcement (2026-08-25) created that, and nothing noticed
+  because no session in the bank declares an effect.
+  A `;@axiom:` line is appended to `declsSrc` now, where
+  `parseModuleWith (lex wrapper) (scanAxtags wrapper)` reads it. Two
+  edges come with it and both are handled where they arise: a
+  REDEFINITION withdraws the claims written about the definition it
+  replaces (`replDropMatching` extends the removed range back over the
+  contiguous `;@axiom:` lines above the declaration — without it, a
+  withdrawn function's `restrict(no-io)` would sit above whatever
+  declaration came next); and a TRAILING tag, typed with no
+  declaration under it yet, is stripped from the copy the wrapper
+  compiles, because `replWrapper` splices `(:: __repl_result ...)` in
+  directly after `declsSrc` and the tag would be answered against the
+  REPL's own carrier. It stays in `declsSrc` and attaches to whatever
+  is declared next, which is what it would do in a file.
+  `replTopLevelSpans` counts parens over the TOKEN stream and the lexer
+  drops comments, so `;@axiom:pre((> n 0))` cannot be mistaken for a
+  top-level form however many parens it carries — which is what makes
+  this safe to put in `declsSrc` at all.
+  `tests/repl/150-axtag-shape` pins all three halves: an IO-performing
+  function DEFINED at the prompt and run, a tagged declaration
+  redefined above it so a stale claim would refuse that function if
+  the drop did not take its tags, and a `restrict(no-io)` typed at the
+  prompt and answered with the path.
+
+### Pre/post contracts: the one claim in this namespace the checker cannot decide
+
+`;@axiom:pre(...)` and `;@axiom:post(...)` are the second of the three
+items `docs/checked-arithmetic-design.md` left unstarted, and they are
+the first claim in this AXTAG namespace the checker CANNOT refuse.
+`restrict(...)` is answered statically because the effect row and the
+call graph are fixpoints the checker already computes; `(> n 0)` is a
+statement about a VALUE, and `grep -v '^ *;' FILE | grep -c
+'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
+`self_host/typecheck.ax`, `self_host/codegen.ax` and
+`self_host/expand.ax` answers 0, 0 and 0 - comment lines excluded,
+because the sentence making the claim matches the pattern it quotes. So a contract is compiled
+INTO the body and checked on every call, which is Ada's answer, and a
+failure writes ``axiom: precondition failed in `half`: (> n 0)`` on fd
+2 and exits **76**. Not behind a flag: a check that is off by default
+is a comment by default, and this repository refuses comments that
+read like guarantees.
+
+- **The status is 76 and it was designed as 75.** Two concurrent
+  branches spent the same number on the same day: `MM-ALLOC-16a`'s bad
+  arena mark took 75 above, and the contracts had reserved it in
+  `docs/contracts-design.md`. The contracts moved, because `docs/ffi.md`
+  §5.1's whole argument for taking 73 is that a Rust panic and an Axiom
+  division were indistinguishable to a supervisor at 72, and two
+  invariant failures sharing 76 would be the same defect. The exit
+  table in `docs/memory-model.md` MM-EXEC-16 now lists both.
+
+- **`AX3050` `contract-malformed` is the static half, and it is four
+  questions under one code.** The expression must parse as exactly one
+  expression; must type as `Bool` with the parameters in scope; must
+  name `result` only where a `post` has a declared result to give it;
+  and must PERFORM nothing, since a contract is evaluated on every call
+  and one that allocates changes the program by being stated. One code
+  because they share one remedy — correct the expression, or delete the
+  tag, which withdraws the claim.
+
+- **The purity rule needed no part of the effect system to move, and it
+  is not a blanket refusal.** `Alloc` is ambient as a DECLARABLE claim,
+  not as a row entry: `restrict(no-alloc)` already reads it and so does
+  this. Measured from `axiom --diagnostic-format=ai symbols --calls
+  --input self_host/main.ax`: `vecLen`, `vecGet`, `strLen`, `strEq`,
+  `strByte` and `memGetWord` carry an empty effect row, while
+  `strConcat`, `fmtInt` and `vecNew` carry `Alloc,Mut`. A contract may
+  compare, index, measure and test; it may not build.
+  `tests/selfhost/132-contract.ax` imports nothing and is written
+  entirely from that vocabulary, so it doubles as the evidence that the
+  vocabulary is enough to write one.
+
+- **There is no `'Old`, and a `post` costs the tail-call rewrite.**
+  Parameters are immutable (`AX3012`), so for a scalar parameter the
+  name means in the `post` exactly what it meant in the `pre` and
+  `'Old` would be a synonym for the name. What a `post` does cost is
+  measured in both directions rather than left to be rediscovered as a
+  regression: one self-recursive function emits one `call i64 @loop(`
+  bare and under a `pre`, and two under a `post`, because a `let`'s
+  initialiser is not a tail position. `scripts/check-contracts.sh`
+  section 5 pins both numbers.
+
+- **Two ablations, each required to go red.** Section 6 builds two
+  compilers from copies of `self_host/` — one whose `expandProgram` no
+  longer calls `expLowerContracts`, one whose `tcCheckFn` no longer
+  calls `checkContracts` — and requires section 1 to fail against the
+  first and section 4 against the second. 27 of 27 checks green,
+  darwin and linux. `docs/contracts-design.md` is the design note,
+  written before the code. Fifty-one gates build the compiler under
+  test, up from fifty.
+
 ### An unfollowed argument is a hole only where the signature says it could be one
 
 `#effects-incomplete` marks a declaration's effect row as a LOWER
@@ -109,7 +334,6 @@ compiler's reference-counting traffic turns out to have been calls that
 could not free anything. Nothing in this release changes what a correct
 program does; three things change what an incorrect one does, and one
 makes every program smaller.
-||||||| parent of 82314c0 (An unfollowed argument counted as a hole wherever it was shaped like one, and never mind what the callee's signature called the position)
 
 ### Memory model v2, proposals 3, 4 and 5
 
@@ -269,6 +493,12 @@ that state that number were moved with it — `scripts/lib/gate.sh`,
 the live count rather than stopping one short of it. That
 sweep derives its upper bound from the table, so it extended itself;
 the six edits are the part that does not.
+
+`word_for`'s table grew an arm so the stale-spelling sweep covers the
+live count rather than stopping one short of it. That sweep derives its
+upper bound from the table, so it extended itself; the six edits are
+the part that does not — and they were spent again in the same release,
+when `check-contracts.sh` arrived as the fifty-first.
 
 **No wall-clock claim is made here either.** The two compilers were
 timed and the arms interleaved; there is no finding in either

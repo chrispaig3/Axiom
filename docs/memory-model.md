@@ -652,14 +652,6 @@ runtime and **MUST NOT** be reused by a program as a normal result:
 | 74 | a `__syscallN` reached on a target with no syscall ABI (windows-x86_64) | emitted, not yet executed: `emitPrimSyscall` lowers the primitive there to `__axiom_no_syscall`, which prints `axiom: no syscall ABI on this target` (37 bytes) and exits 74; 73 is the FFI's (`ffiHandleClose`) |
 | 75 | `__axiom_arena_reset` handed a mark whose chunk is no longer on the active list (`MM-ALLOC-16a`) | measured: `tests/stdlib/166-arena-bad-mark.ax` resets an inner mark after its outer one, the run prints `axiom: arena reset to an invalid mark` to fd 2 and exits 75. The same fixture's first two blocks — nested marks reset innermost-first, and the same mark reset twice — must still exit silently, so the trap is pinned against firing on legal use |
 | 76 | `__axiom_arena_reset` handed a mark taken before a `handle` whose extent is still live (`MM-ALLOC-16b`) | measured: `tests/stdlib/167-arena-live-handle.ax` resets a mark that predates the extent, the run prints `axiom: arena reset past a live handle` to fd 2 and exits 76. Its first two blocks — a mark taken inside the extent, and a mark with no handle in scope — must still exit silently, and `tests/stdlib/401-recover-effect.ax` must still exit 71, because a recovery abort performs this very reset legitimately |
-
-Each writes nothing to **stdout**. What each writes to **fd 2** is not
-uniform, and the row above is the place to say so rather than leave it
-to be discovered by whoever is reading a supervisor's log: 70 writes 35
-bytes, 72 writes 24, 71 writes 24, and 75 and 76 write 38 each, every
-one a single sentence ending in a newline (`emitOomTrap`, `emitDivTrap`,
-`emitUnhandledTrap`, `emitBadMarkTrap`, `emitLiveHandleTrap`). All
-five now say something; 71 was the last to, on 2026-08-24, and
 `tests/stdlib/310-effect-unhandled.err` pins its sentence beside the
 `.exit` that had pinned the status alone since the case was written.
 
