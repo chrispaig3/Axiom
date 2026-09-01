@@ -194,7 +194,7 @@
             )
           )
           (say
-            (if (== (sysCloseFd lsn) 0)
+            (if (isOk (sysCloseFd lsn))
               1
               0
             )            "the listener closes"

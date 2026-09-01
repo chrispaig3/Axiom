@@ -249,9 +249,9 @@ netAddrTextPort Sys.ax Alloc,Mut
 netBind Sys.ax Alloc,IO
 netConnect Sys.ax Alloc,IO
 netListen Sys.ax Alloc,IO
-netPollAddRead Sys.ax IO,Mut
+netPollAddRead Sys.ax Alloc,IO,Mut
 netPollCreate Sys.ax IO
-netPollDelRead Sys.ax IO,Mut
+netPollDelRead Sys.ax Alloc,IO,Mut
 netPollRec Sys.ax Mut
 netPollSignalAt Sys.ax IO
 netPollWait Sys.ax IO,Mut
@@ -319,7 +319,7 @@ symHasAgentTag Tags.ax Alloc,Mut
 sysAppendFile Sys.ax Alloc,IO
 sysArg Sys.ax Alloc,IO,Mut
 sysArgc Sys.ax IO
-sysCloseFd Sys.ax IO
+sysCloseFd Sys.ax Alloc,IO
 sysEnv Sys.ax Alloc,IO,Mut
 sysEnvCount Sys.ax IO
 sysEnvCountFrom Sys.ax IO
@@ -328,7 +328,7 @@ sysEnvSlot Sys.ax IO
 sysEnvp Sys.ax Alloc,IO,Mut
 sysEnvpFill Sys.ax IO,Mut
 sysExitWith Sys.ax IO
-sysFileExists Sys.ax IO
+sysFileExists Sys.ax Alloc,IO
 sysFileSize Sys.ax Alloc,IO
 sysForkProcess Sys.ax IO
 sysGetCwd Sys.ax Alloc,IO,Mut
@@ -336,7 +336,7 @@ sysGetPid Sys.ax IO
 sysIoctl Sys.ax IO
 sysIsDir Sys.ax Alloc,IO,Mut
 sysIsatty Sys.ax Alloc,IO
-sysKill Sys.ax IO
+sysKill Sys.ax Alloc,IO
 sysMkdir Sys.ax Alloc,IO
 sysNowMicros Sys.ax IO
 sysNowMonotonic Sys.ax IO
@@ -357,7 +357,7 @@ sysRun Sys.ax Alloc,IO,Mut
 sysRunPath Sys.ax Alloc,IO,Mut
 sysRunSearch Sys.ax Alloc,IO,Mut
 sysSeek Sys.ax IO
-sysSignalBlock Sys.ax IO,Mut
+sysSignalBlock Sys.ax Alloc,IO,Mut
 sysSpawn Sys.ax Alloc,IO,Mut
 sysTermRaw Sys.ax Alloc,IO,Mut
 sysTermRawApply Sys.ax IO,Mut

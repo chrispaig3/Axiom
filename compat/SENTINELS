@@ -138,9 +138,55 @@
 # cost - measured, `sysResult`'s message is a LITERAL op name, so
 # nothing here concatenates on the success path.
 
+# PORTED 2026-09-01, ERR-ADOPT-1 SLICE 2: `stdlib/Sys.ax` 19 -> 14 by
+# the port, then 14 -> 13 failure and 0 -> 1 absence by a CENSUS FIX.
+# Two separate movements in one row and they are not the same kind of
+# thing, so both are stated.
+#
+# THE PORT is slice 1's rule applied to what was left: every call in
+# this module whose ENTIRE answer is "did it work". `sysCloseFd`,
+# `netPollAddRead`, `netPollDelRead`, `sysSignalBlock` and `sysKill`.
+# Five WIDENED rows in `compat/BREAKING`, plus a SIXTH that is
+# collateral and worth naming: `sysFileExists` gains `Alloc` because it
+# closes the descriptor it opened. That is the ONLY such row in the
+# library - measured with `verify-compat.py generate` over `stdlib/`
+# before and after, which differs in exactly two rows - because every
+# other function here that closes an fd already allocated.
+#
+# THE CENSUS FIX moves `netPollSignalAt` from `failure` to `absence`.
+# It was never a failure: it answers "the signal named by event `i`, or
+# a negative when that event is not a signal at all", every bad-path
+# answer it writes is a hand-written `-1`, and all five of its callers
+# read it as a presence test. It was counted as a failure because
+# `sysc` beat `neg` unconditionally in `sentinel_census`, and its Linux
+# arm contains a `read` whose result is compared and never returned.
+# `verify-compat.py` follows the syscall result to the answer now,
+# through a `let` binder as well as directly - the direct-only version
+# ALSO moved `sysNowMonotonic`, which is a real failure forwarding
+# `clock_gettime`'s errno through exactly that binder, so a population
+# of two already contained the false positive.
+#
+# This is a RISE in the absence column, declared. Nothing in the tree
+# moved to cause it; the number was wrong before and is right now, and
+# `netPollSignalAt` is now `Option` debt rather than `Result` debt.
+# Its Linux arm additionally folds a short `signalfd` read into the
+# same `-1`, so porting it means SPLITTING two outcomes rather than
+# rewrapping one - which is why it is recorded here and not done.
+#
+# `scripts/check-compat.sh`'s FLOOR EXPIRED ON THIS SLICE and is gone.
+# It read `total_now < 30` against a population of 38; this slice takes
+# it to 26, so the gate went red for the migration succeeding. What
+# replaces it is stricter: the computed census must agree with this
+# file ROW FOR ROW, which is the rule this file already stated and
+# which additionally catches a port that lowers the count and forgets
+# to lower the file - something the floor let through in silence. The
+# "did the rule stop matching" question the floor was really asking is
+# a named ablation now: a public function forwarding a raw syscall is
+# planted in a copy of `stdlib/` and the census must count it.
+
 stdlib/Intern.ax 0 1
 stdlib/Str.ax 0 2
-stdlib/Sys.ax 19 0
+stdlib/Sys.ax 13 1
 stdlib/Sys/Platform.darwin.ax 3 0
 stdlib/Tui/Keys.ax 0 1
 stdlib/Tui/Term.ax 0 3

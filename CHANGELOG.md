@@ -16,6 +16,83 @@ its changelog too.
 
 ## Unreleased
 
+### Five more calls that answered only "did it work", and a census that had been filing a lookup as a failure
+
+`ERR-ADOPT-1`'s second slice, and the same rule as the first applied to
+what was left: every call in `stdlib/Sys.ax` whose entire answer is
+whether it worked. `sysCloseFd`, `netPollAddRead`, `netPollDelRead`,
+`sysSignalBlock` and `sysKill` answer `(Result Int Error)`.
+
+**`stdlib/Sys.ax`'s census: 19 → 14 by the port, then 14 → 13 failure
+and 0 → 1 absence by a census fix.** Two movements in one row, and they
+are different kinds of thing, so both are recorded in
+`compat/SENTINELS`. The library stands at 16 failure + 10 absence.
+
+**Six WIDENED rows, and the sixth is collateral worth naming.**
+`sysFileExists` gains `Alloc` because it closes the descriptor it
+opened. It is the only such row in the library: `verify-compat.py
+generate` over `stdlib/` before and after the `sysCloseFd` port differs
+in exactly two rows, and every other function here that closes a
+descriptor already allocated. No `no-alloc` module reaches either name.
+
+**No callee undid an exclusion this time, and that was checked rather
+than assumed** — the standing cost of the previous slice's finding.
+After the port `netAccept` is `#effects=IO`, `netAcceptFrom` is
+`#effects=IO,Mut` and `netPollWait` is `#effects=IO,Mut`, all unchanged.
+
+**`netPollSignalAt` was never a failure.** It answers "the signal named
+by event `i`, or a negative when that event is not a signal at all";
+every bad-path answer it writes is a hand-written `-1`, and all five
+call sites read it as a presence test — `315-signal-in-poll.ax:131`
+asserts `< 0` for "a socket event is not read as a signal". That is
+`ERR-REC-3`'s absence, wanting `Option`. `sentinel_census` filed it
+under failure because a body's mere *mention* of a syscall beat its
+`-1` returns, and its Linux arm reads a `signalfd` whose result is
+compared and never returned.
+
+The census follows the syscall result to the answer now, through a
+`let` binder as well as directly. **The direct-only version was written
+first and also moved `sysNowMonotonic`**, which is a real failure
+forwarding `clock_gettime`'s errno through exactly that binder — a
+false positive at a population of two, which is the argument for
+following the binding. The rule is narrow by construction: a body with
+no `-1` in return position never reaches it, so `netAccept` is
+untouched. Over `stdlib/` it moves exactly one row.
+
+**`check-compat.sh`'s census floor expired on this slice.** It read
+`total_now < 30` against a population of 38, "set under today's 38 by
+the margin a real port would move it"; this slice takes the census to
+26, so the gate went red for the migration succeeding. A floor that has
+to be hand-lowered whenever the thing it measures moves in the intended
+direction will eventually be lowered without being thought about.
+
+What replaces it is stricter: **the computed census must agree with
+`compat/SENTINELS` row for row.** That is the rule `ERR-ADOPT-1` and
+that file already state, and asserting it directly also catches a port
+that lowers the count and leaves the file stale — which the floor
+passed in silence. The "did the rule stop matching" question the floor
+was really asking is a named ablation now: a public function forwarding
+a raw syscall is planted into a copy of `stdlib/`, and the census must
+count it. Both were ablated: a stale row goes red, and breaking
+`SENTINEL_SYSCALL` fails the plant.
+
+**The gate died halfway through reporting, and that is how the second
+ablation was found.** Under `set -euo pipefail`, the
+`diff a b | sed | head` that prints a census disagreement exits 1 and
+takes the whole script with it — so a run of `scripts/check-compat.sh`
+stopped at its first FAIL and reported one fault in a tree that had
+two, the probes below that line never running. Three such pipelines in
+`scripts/check-compat.sh` are braced with `|| true` now. It is this
+repository's "a gate that reports LESS than it knows" hazard, occurring
+inside the gate written to refuse it.
+
+**Callers: 14 sites over 7 files needed an edit**, out of 58 raw call
+sites — the rest are results that were being discarded, which now say
+so in the type. `stdlib/Tui/Term.ax` is the one stdlib caller, and its
+`mkKeyIn` already allocated. `isOk`/`isErr` at every site that compared
+against `0`; two `if` arms became `{ (sysCloseFd fd) 0 }` where a
+discarded close sat opposite an `Int`.
+
 ### Seven socket calls that answered a negative errno now answer a `Result`, and a callee nearly undid the exclusion the slice was drawn around
 
 `ERR-ADOPT-1`'s third slice. `netBind`, `netListen`, `netConnect`,

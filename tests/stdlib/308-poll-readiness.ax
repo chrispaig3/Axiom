@@ -125,8 +125,8 @@
                     )                    "the readiness descriptor is created"
                   )
                   (say
-                    (if (>= (netPollAddRead pfd la rec) 0)
-                      (if (>= (netPollAddRead pfd lb rec) 0)
+                    (if (isOk (netPollAddRead pfd la rec))
+                      (if (isOk (netPollAddRead pfd lb rec))
                         1
                         0
                       )
@@ -272,7 +272,7 @@
                     }
                   )
                   (say
-                    (if (>= (netPollDelRead pfd la rec) 0)
+                    (if (isOk (netPollDelRead pfd la rec))
                       1
                       0
                     )                    "a listener can be unregistered"
@@ -280,7 +280,7 @@
                   (sysCloseFd la)
                   (sysCloseFd lb)
                   (say
-                    (if (== (sysCloseFd pfd) 0)
+                    (if (isOk (sysCloseFd pfd))
                       1
                       0
                     )                    "the readiness descriptor closes"

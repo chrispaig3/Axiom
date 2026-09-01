@@ -235,10 +235,22 @@
   )
 )
 
-(pub :: sysCloseFd (-> Int Int))
+; Close a descriptor.
+;
+; ANSWERS `(Result Int Error)`; `Ok 0` on success. A close that fails
+; is not a formality - on a written-to file it is where a deferred
+; write error surfaces, and it is the one errno a caller cannot get
+; anywhere else.
+;
+; ITS ONE COST ACROSS THE WHOLE PUBLIC SURFACE IS `sysFileExists`,
+; measured rather than guessed: `verify-compat.py generate` over
+; `stdlib/` before and after this port differs in exactly two rows,
+; this one and `sysFileExists`, which gains `Alloc`. Every other
+; function in the library that closes a descriptor already allocated.
+(pub :: sysCloseFd (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (sysCloseFd fd) (__syscall1 sysClose fd))
+(pub fn (sysCloseFd fd) (sysResult "sysCloseFd" (__syscall1 sysClose fd)))
 
 (:: sysSeek (-> Int Int Int Int))
 
@@ -1046,7 +1058,7 @@
         probe
         {
           (if (>= probe 0)
-            (sysCloseFd probe)
+            { (sysCloseFd probe) 0 }
             0
           )
           ; Through `sysForkProcess` rather than the raw syscall, because
@@ -2265,37 +2277,43 @@
 ; eventlist of none, which registers without collecting; on Linux it is
 ; `epoll_ctl`. The argument orders do not correspond, which is why the
 ; branch is here rather than in the numbers.
-(pub :: netPollAddRead (-> Int Int Int Int))
+;
+; Answers `(Result Int Error)`; `Ok 0` on success. REGISTERING runs
+; once per descriptor watched, not once per wake - which is the line
+; this file's socket section draws, and the reason `netPollWait` below
+; is not ported while this is.
+(pub :: netPollAddRead (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (netPollAddRead pfd fd rec)
   {
     (netPollRec rec fd pollAddOp)
-    (if (== pollUsesKqueue 1)
+    (sysResult "netPollAddRead" (if (== pollUsesKqueue 1)
       (__syscall6
         sysPollWaitNum        pfd        rec        1        0        0        0
       )
       (__syscall4
         sysPollCtlNum        pfd        pollAddOp        fd        rec
       )
-    )
+    ))
   }
 )
 
-(pub :: netPollDelRead (-> Int Int Int Int))
+; Answers `(Result Int Error)`; `Ok 0` on success.
+(pub :: netPollDelRead (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (netPollDelRead pfd fd rec)
   {
     (netPollRec rec fd pollDelOp)
-    (if (== pollUsesKqueue 1)
+    (sysResult "netPollDelRead" (if (== pollUsesKqueue 1)
       (__syscall6
         sysPollWaitNum        pfd        rec        1        0        0        0
       )
       (__syscall4
         sysPollCtlNum        pfd        pollDelOp        fd        rec
       )
-    )
+    ))
   }
 )
 
@@ -2445,7 +2463,9 @@
 ; and the bytes between the word and that width are zeroed here rather
 ; than left to whatever the caller's buffer held, because on FreeBSD
 ; they are signals 65 through 128 and a stale byte there blocks one.
-(pub :: sysSignalBlock (-> Int Int Int))
+; Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before
+; a server forks, so that every worker inherits the mask.
+(pub :: sysSignalBlock (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysSignalBlock mask setbuf)
@@ -2456,9 +2476,9 @@
     ; `rt_sigprocmask` takes a fourth, the mask's size, which it checks
     ; exactly. Passing it unconditionally is the shape `netAccept`
     ; already uses for `accept` against `accept4`.
-    (__syscall4
+    (sysResult "sysSignalBlock" (__syscall4
       sysSigProcMaskNum      sigBlockHow      setbuf      0      sigsetBytes
-    )
+    ))
   }
 )
 
@@ -2571,10 +2591,16 @@
 )
 
 ; Send a signal, which is how a test raises one against itself.
-(pub :: sysKill (-> Int Int Int))
+;
+; Answers `(Result Int Error)`; `Ok 0` on success. `Err` with ESRCH is
+; the answer a pool driver needs and the sentinel hid: "that child is
+; already gone" and "the signal was delivered" were both an Int.
+(pub :: sysKill (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (sysKill pid signo) (__syscall3 sysKillNum pid signo 0))
+(pub fn (sysKill pid signo)
+  (sysResult "sysKill" (__syscall3 sysKillNum pid signo 0))
+)
 
 ; ------------------------------------------------------------------
 ; Duplicating this process

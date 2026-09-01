@@ -1335,6 +1335,74 @@ before the next:
    exclusion still stands, and it now stands on `#effects=` in
    `axiom symbols`, which is exact, rather than on a ratio that is not.
 
+   **The "did it work" half is done, 2026-09-01.** The same rule as the
+   slice above, applied to what was left: every call in `Sys.ax` whose
+   ENTIRE answer is whether it worked. `sysCloseFd`, `netPollAddRead`,
+   `netPollDelRead`, `sysSignalBlock` and `sysKill` answer
+   `(Result Int Error)`. `stdlib/Sys.ax`'s census: **19 → 14** by the
+   port, and **14 → 13 failure with 0 → 1 absence** by a census fix
+   described below. The library is **16 failure + 10 absence**.
+
+   Six WIDENED rows, and the sixth is collateral worth naming:
+   `sysFileExists` gains `Alloc` because it closes the descriptor it
+   opened. That is the **only** such row — `verify-compat.py generate`
+   over `stdlib/` before and after the `sysCloseFd` port differs in
+   exactly two rows, `sysCloseFd` and `sysFileExists` — because every
+   other function in the library that closes a descriptor already
+   allocated. No `no-alloc` module reaches either name.
+
+   **No callee undid an exclusion this time, and it was checked rather
+   than assumed.** `netAccept` is `#effects=IO`, `netAcceptFrom`
+   `#effects=IO,Mut` and `netPollWait` `#effects=IO,Mut` after the
+   port, unchanged. That check is the standing cost of the previous
+   slice's finding.
+
+   **`netPollSignalAt` was never a failure, and the census said it
+   was.** It answers "the signal named by event `i`, or a negative when
+   that event is not a signal at all"; every bad-path answer it writes
+   is a hand-written `-1`, and all five call sites read it as a
+   presence test — `tests/stdlib/315-signal-in-poll.ax:131` asserts
+   `< 0` for "a socket event is not read as a signal". That is
+   `ERR-REC-3`'s **absence**, wanting `Option`. It was filed under
+   `failure` because `sentinel_census` let a body's mere *mention* of a
+   syscall beat its `-1` returns, and its Linux arm reads a `signalfd`
+   whose result is compared and never returned.
+
+   `verify-compat.py` follows the syscall result to the answer now,
+   through a `let` binder as well as directly. The direct-only version
+   was written first and **also moved `sysNowMonotonic`**, which is a
+   real failure forwarding `clock_gettime`'s errno through exactly that
+   binder — a false positive at a population of two, which is the whole
+   argument for following the binding. The rule is narrow by
+   construction: a body with no `-1` in return position never reaches
+   it, so `netAccept` is untouched. Measured over `stdlib/`, it moves
+   exactly one row.
+
+   It is recorded rather than ported. Its Linux arm folds a short
+   `signalfd` read into the same `-1`, so it conflates absence with
+   failure and porting it means **splitting two outcomes**, not
+   rewrapping one.
+
+   **`check-compat.sh`'s census floor expired on this slice, and is
+   gone.** It read `total_now < 30` against a population of 38; this
+   slice takes the census to 26, so the gate went red for the migration
+   *succeeding*. What replaces it is stricter, not looser: the computed
+   census must agree with `compat/SENTINELS` **row for row**, which is
+   the rule this section already states. It additionally catches a port
+   that lowers the count and leaves the file stale — which the floor
+   passed in silence — and the "did the rule stop matching" question
+   the floor was really asking is a named ablation now: a public
+   function forwarding a raw syscall is planted in a copy of `stdlib/`
+   and the census must count it. Both directions were ablated.
+
+   **And the gate died halfway through reporting.** Under
+   `set -euo pipefail`, the `diff a b | sed | head` that prints a
+   census disagreement exits 1 and takes the script with it, so a tree
+   with two faults reported one and the probes below never ran. Three
+   such pipelines are braced now. This is the "a gate that reports
+   LESS than it knows" hazard, found inside the gate written to refuse
+   it.
+
    **`unwrapOr` with a constant is not a port, and it cost three
    defects here.** Wherever the sentinel carried WHICH failure, a
    fallback value destroys it and nothing complains:
@@ -1412,7 +1480,9 @@ them would have taken its module's count up and failed
 *So the `Result` migration is NOT complete, and this section's claim
 that it was is withdrawn.* What remained was 29 public functions handing
 a caller a negative errno; the socket-configuration slice took seven of
-them on 2026-08-31 and **22** are left. None of them is free:
+them on 2026-08-31, the "did it work" slice five more on 2026-09-01,
+and one of the remainder turned out to be an absence the census had
+misfiled — so **16** are left. None of them is free:
 `netSocketTcp` has 17 call sites, **seven of which never test the result
 at all**, which is the reason the migration exists rather than an
 argument against it.

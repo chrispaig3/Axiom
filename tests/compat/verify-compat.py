@@ -362,6 +362,10 @@ SENTINEL_SYSCALL = re.compile(r'__syscall\d|platform[A-Z]\w*|__winapi')
 SENTINEL_BRANCH = re.compile(r'\((?:if|match)[ \n]')
 SENTINEL_NORETURN = re.compile(r'sysExit\b|sysExitNum|ExitProcess')
 SENTINEL_INFALLIBLE = re.compile(r'sysGetPidNum|sysGetPpidNum')
+# `(r (__syscall3 ...))` - a binder whose value is a raw syscall call, so
+# that returning `r` counts as returning the syscall's result.
+SENTINEL_SYSCALL_BOUND = re.compile(
+    r'\(([a-z][A-Za-z0-9_]*) \((?:__syscall\d|platform[A-Z]\w*|__winapi)')
 
 
 def sentinel_return_type(ty):
@@ -409,34 +413,67 @@ def sentinel_body(lines, name):
     return None
 
 
-def sentinel_returns(body):
-    """Every `(- 0 n)` in RETURN position rather than argument position,
-    decided by the enclosing form's head."""
-    out = []
-    for m in re.finditer(r'\(- 0 \d+\)', body):
-        depth, j, head = 0, m.start() - 1, None
-        while j >= 0:
-            ch = body[j]
-            if ch == ')':
-                depth += 1
-            elif ch == '(':
-                if depth == 0:
-                    k = j + 1
-                    while k < len(body) and body[k] in ' \n':
-                        k += 1
-                    e = k
-                    while e < len(body) and body[e] not in ' \n()':
-                        e += 1
-                    head = body[k:e]
-                    break
-                depth -= 1
-            elif ch == '{' and depth == 0:
-                head = '{'
+def in_return_position(body, start):
+    """Is the form beginning at `start` an ANSWER of `body` rather than an
+    argument to something? Decided by climbing to the enclosing form and
+    asking what its head is."""
+    depth, j, head = 0, start - 1, None
+    while j >= 0:
+        ch = body[j]
+        if ch == ')':
+            depth += 1
+        elif ch == '(':
+            if depth == 0:
+                k = j + 1
+                while k < len(body) and body[k] in ' \n':
+                    k += 1
+                e = k
+                while e < len(body) and body[e] not in ' \n()':
+                    e += 1
+                head = body[k:e]
                 break
-            j -= 1
-        if head in ('if', 'match', '{', None, '-'):
-            out.append(m)
-    return out
+            depth -= 1
+        elif ch == '{' and depth == 0:
+            head = '{'
+            break
+        j -= 1
+    return head in ('if', 'match', '{', None, '-')
+
+
+def sentinel_returns(body):
+    """Every `(- 0 n)` in RETURN position rather than argument position."""
+    return [m for m in re.finditer(r'\(- 0 \d+\)', body)
+            if in_return_position(body, m.start())]
+
+
+def sentinel_syscall_returns(body):
+    """Does a RAW SYSCALL RESULT reach this body's answer?
+
+    Two routes, and the second is the one that costs a line. A syscall
+    call can sit in return position itself (`netListen`), or its result
+    can be bound and the BINDING returned - which is how
+    `sysNowMonotonic` forwards `clock_gettime`'s errno:
+
+        (let ((r (__syscall3 sysClockNum clockMonotonicId buf 0)))
+          (if (< r 0) r (+ ...)))
+
+    Measured while writing this: following only the first route moved
+    `sysNowMonotonic` to `absence` along with `netPollSignalAt`, and it
+    is not one - it answers `-errno` from the clock and `-ENOSYS` from
+    the capability test. One route was a false positive at a population
+    of two, which is the whole argument for following the binding.
+    """
+    hits = [m for m in SENTINEL_SYSCALL.finditer(body)
+            if in_return_position(body, m.start())]
+    for b in SENTINEL_SYSCALL_BOUND.finditer(body):
+        name = b.group(1)
+        for u in re.finditer(r'(?<![A-Za-z0-9_])' + re.escape(name) + r'(?![A-Za-z0-9_])', body):
+            if u.start() <= b.end():
+                continue
+            if in_return_position(body, u.start()):
+                hits.append(u)
+                break
+    return hits
 
 
 def sentinel_census(root):
@@ -469,6 +506,26 @@ def sentinel_census(root):
                 continue
             neg = bool(sentinel_returns(body))
             sysc = SENTINEL_SYSCALL.search(body) and not SENTINEL_INFALLIBLE.search(body)
+            # A LOOKUP WHOSE BODY HAPPENS TO CONTAIN A SYSCALL IS NOT A
+            # FAILURE, and until 2026-09-01 it was counted as one because
+            # `sysc` beat `neg` unconditionally.
+            #
+            # `netPollSignalAt` answers "the signal named by event `i`, or
+            # a negative when that event is not a signal at all". Every
+            # answer it writes on the bad path is a hand-written `(- 0 1)`;
+            # the `__syscall3` in its Linux arm is a `read` whose result is
+            # COMPARED and never returned. All five of its call sites read
+            # it as a presence test - `315-signal-in-poll.ax:131` asserts
+            # `< 0` for "a socket event is not read as a signal" - which is
+            # ERR-REC-3's absence, wanting `Option` and not `Result`.
+            #
+            # So the tie-breaker is: both signals present, and the syscall
+            # result never reaching the answer, means LOOKUP. It is narrow
+            # by construction - a body with no `(- 0 n)` in return position
+            # never reaches it, which is why `netAccept` is untouched - and
+            # measured over `stdlib/` it moves exactly one row.
+            if sysc and neg and not sentinel_syscall_returns(body):
+                sysc = False
             if neg and not SENTINEL_BRANCH.search(body) and not sysc:
                 continue
             if not (neg or sysc):

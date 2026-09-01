@@ -291,7 +291,7 @@
     (mut running 1)
   )
     {
-      (if (< (netPollAddRead pfd lsn rec) 0)
+      (if (isErr (netPollAddRead pfd lsn rec))
         (sysExitWith 255)
         0
       )
