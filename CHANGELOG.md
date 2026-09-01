@@ -16,6 +16,99 @@ its changelog too.
 
 ## Unreleased
 
+### The interner's miss is `None`, and the effect row said who would pay
+
+**`internFind` answers `(Option Int)`** instead of an `Int` that is a
+dense id when non-negative and `-1` when the string was never interned.
+`compat/SENTINELS`: `stdlib/Intern.ax` **1 → 0 absence**, and the
+library is **10 failure + 9 absence** over 6 modules, gated by
+`check-compat.sh`.
+
+This was the one row of the ten that the entry below left to a
+measurement rather than to a claim. Two compilers, built by the same
+compiler from sources differing only in this port, both compiling the
+same 197,338-line input, best of five runs each:
+
+| stage | `-1` | `(Option Int)` | |
+|---|---|---|---|
+| check (lex, parse, expand, typecheck) | 0.4484s | 0.4469s | flat |
+| serialise and write the IR | 1.2980s | 1.3440s | **+3.5%** |
+| in the `axiom` process | 1.7464s | 1.7909s | +2.5% |
+| `axiom build`, end to end | | | +0.4% |
+
+**Quoted as a range, because two pairs were taken and they do not
+agree to the tenth.** An earlier pair, built and measured the same way,
+read +4.6% and +3.4% for the same two rows. So the honest statement is
+**about +4% on code generation** and +2.5–3.4% in the process; a single
+pair reported to two decimals would be false precision at this
+separation, which is the same reason `bench-compile.sh` takes best-of-5
+rather than a mean.
+
+End to end is +0.4% because 84% of a build is `opt` and `llc`. The
+number that matters is the code-generation row, and it is DECLARED,
+not gated: `bench-compile.sh` is explicit that a wall-clock
+bound on a shared runner is a flaky test, and the ratio gates that
+exist here measure scaling rather than constants. The before-and-after
+is above and the port is one commit to revert.
+
+**`#effects=` PARTITIONED THE CALLERS BEFORE A LINE WAS EDITED, and the
+measurement matched it.** Nine external callers, every one of them
+`(< id 0)`. The two in `self_host/namespace.ax` already read
+`Alloc,Mut` and run during resolve — the check stage did not move. The
+five in `self_host/codegen.ax` had an **empty** row, and the whole
++4.6% is in the stage those five run in.
+
+**The interner's own hot path pays nothing.** `internFindFrom` keeps
+the `-1` and stays private; `internIntern` calls it directly rather
+than through the public wrapper, the same exception `Path.ax`'s
+`pathExtIndex` takes. The concern that had kept this row unmeasured —
+one library caller, running once per interned string — costs one line,
+because a public boundary and a recursion are not the same place.
+
+`Intern.ax` carries **no** `restrict` claim, which is why this one was
+a measurement where the four below are refusals. Check `#restrict=` as
+well as `#effects=`; `axiom symbols` prints both.
+
+**A BARE `None` ARM HEAD IS A VARIABLE PATTERN, NOT A CONSTRUCTOR
+TEST — found while porting, and every arm here is parenthesised because
+of it.** `docs/reference.md` writes nullary patterns as `((Nothing) d)`
+and `((Nil) 0)`; the unparenthesised `(None x)` that reads exactly like
+a `None` arm is a binder named `None` that matches ANYTHING. It lowers
+to an unconditional default with no tag test at all:
+
+```
+;; (None 99)            ;; ((None) 99)
+.L2:                    .L2:
+  store i64 99, ...       %.t26 = icmp eq i64 %o, 1
+                          br i1 %.t26, label %.L27, label %.L25
+```
+
+For a two-constructor `Option` both behave identically, which is why
+nothing catches it — but the bare form skips the tag test and satisfies
+exhaustiveness trivially, so a wider `data` would fall into it in
+silence. All eight arms this change adds use `((None) …)`.
+
+**The formatter is the thing that noticed**, and it was right to.
+`axiom fmt` REFUSES `(None <compound>)` while accepting
+`(None <atom>)` — the ambiguity is real and its grammar declines to
+guess. That refusal is what sent this to the emitted IR; see
+`check-fmt.sh`, which formats a copy and so tests whether formatting
+changes MEANING.
+
+**`scripts/check-name-scale.sh` needed re-anchoring and said so.** Its
+red half ablates `mangleIdxHas` by matching that function's whole body
+as a literal; the port rewrote the body, so the gate failed with "its
+shape has moved" rather than passing on an ablation that no longer
+applied. Re-anchored, and the ablated compiler still fails the doubling
+arm.
+
+GATES: `check-compat` (32 checks, census 10 + 9), `check-stdlib-api`
+(regenerated — `internFind` now reads `(-> Int String (Option Int))`
+with `Alloc`), `check-name-scale` (both arms, ablation load-bearing),
+`tests/stdlib/090-intern` (every pre-existing golden line
+byte-identical, two appended that assert which constructor came back).
+One WIDENED row in `compat/BREAKING` for 0.6.4.
+
 ### `Option` allocates, and four of the absence sentinels claim `no-alloc`
 
 **`(Some v)` is a constructor application, so `restrict(no-alloc)`

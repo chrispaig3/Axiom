@@ -366,7 +366,7 @@ See [reference.md](reference.md) for the language, and
 | `internCap` | value | `(-> Int Int)` |  |  |
 | `internCount` | value | `(-> Int Int)` |  | How many distinct strings have been interned. Ids are exactly 0..internCount-1, with no gaps - that is what "dense" means here, and it is what lets a caller size a side table by `internCount` and index it by id. |
 | `internLookup` | value | `(-> Int Int String)` | `Alloc,Mut` | The string with id `id`, or an empty `Str` if `id` was never handed out. |
-| `internFind` | value | `(-> Int String Int)` |  | The id of a string equal in content to `s`, or -1 if none. |
+| `internFind` | value | `(-> Int String (Option Int))` | `Alloc` | The id of a string equal in content to `s`, or `None`. |
 | `internIntern` | value | `(-> Int String Int)` | `Alloc,Mut` | The id for `s`, interning it if its content is new. |
 
 ## `Job`

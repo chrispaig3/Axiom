@@ -269,7 +269,7 @@
 ; ------------------------------------------------------------------
 ; Lookup
 ; ------------------------------------------------------------------
-; The id of a string equal in content to `s`, or -1 if none.
+; The id of a string equal in content to `s`, or `None`.
 ;
 ; Comparison is `strEq`, not handle identity - that is the entire point.
 ; Two `Str` handles built separately from the same bytes are different
@@ -284,9 +284,32 @@
 ; Nested `if`s with one comparison each, rather than `&&` or a
 ; `Bool`-returning helper, for the code generation reasons documented at
 ; length above `Map`'s probe loops.
-(pub :: internFind (-> Int String Int))
+;
+; `Option` RATHER THAN -1, and the raw helper is kept rather than
+; inlined here. `compat/SENTINELS`'s direction rule is "absence wants
+; `Option`", and a miss in an interner is absence in its purest form:
+; the string is not in the table, which is not a failure of anything.
+; What the sentinel cost is visible at every call site this port
+; touched - nine of them, every one `(< id 0)`, each re-deriving that
+; -1 is the miss from a comment rather than from the type.
+;
+; `internFindFrom` KEEPS THE -1 and is what `internIntern` calls, for
+; the reason `Path.ax`'s `pathExtIndex` goes to `pathLastSlashFrom`
+; directly: the interner's own hot path uses the answer as a BRANCH it
+; immediately discards, once per interned string, and wrapping it there
+; would allocate a block per intern to unwrap it on the next line. The
+; public boundary is where the type is worth having; the recursion
+; underneath it is not a boundary.
+(pub :: internFind (-> Int String (Option Int)))
 
-(pub fn (internFind it s) (internFindFrom it s (internSlotOf s (internCap it)) (internCap it)))
+(pub fn (internFind it s)
+  (let ((id (internFindFrom it s (internSlotOf s (internCap it)) (internCap it))))
+    (if (< id 0)
+      None
+      (Some id)
+    )
+  )
+)
 
 (:: internFindFrom (-> Int String Int Int Int))
 
@@ -334,7 +357,7 @@
 (pub :: internIntern (-> Int String Int))
 
 (pub fn (internIntern it s)
-  (let ((existing (internFind it s)))
+  (let ((existing (internFindFrom it s (internSlotOf s (internCap it)) (internCap it))))
     (if (>= existing 0)
       existing
       ; Grow first, so the id is placed into a table that is already

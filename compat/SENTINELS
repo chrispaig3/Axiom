@@ -311,13 +311,77 @@
 #   mkKeyIn/keyNext  per-keystroke, in the terminal read loop
 #   netPollSignalAt  two outcomes folded into one `-1`; porting means
 #                    SPLITTING them, not rewrapping
-#   internFind       the interner's own hot path - one library caller,
-#                    inside `internIntern`, which runs per interned
-#                    string. Not blocked; not measured either, and it
-#                    is the only one of the ten where a measurement
-#                    would decide it.
+#   internFind       PORTED 2026-09-01, see below. It was the only one
+#                    of the ten a measurement would decide, and the
+#                    measurement decided it.
 
-stdlib/Intern.ax 0 1
+# PORTED 2026-09-01, ERR-ADOPT-1, THE FIRST ABSENCE SLICE SINCE THE
+# COLUMN WAS SHOWN TO BE BLOCKED: `stdlib/Intern.ax` 1 -> 0 absence,
+# and the module leaves this table. `internFind` answers `(Option Int)`.
+#
+# THE ROW ABOVE SAID A MEASUREMENT WOULD DECIDE IT. Here it is: two
+# compilers, both built by the same compiler from sources differing
+# only in this port, both compiling the same 197,338-line input, best
+# of 5 runs each -
+#
+#   check (lex, parse, expand, typecheck)  0.4484 -> 0.4469   flat
+#   serialise and write the IR             1.2980 -> 1.3440   +3.5%
+#   in the axiom process                   1.7464 -> 1.7909   +2.5%
+#   axiom build, end to end                                   +0.4%
+#
+# QUOTED AS A RANGE, because two pairs were taken and they do not agree
+# to the tenth: an earlier pair, built and measured the same way, read
+# +4.6% and +3.4% for the same two rows. The honest statement is ABOUT
+# +4% on code generation and +2.5-3.4% in the process. Reporting one
+# pair to two decimals at this separation would be false precision,
+# which is why the range is here and not a single number.
+#
+# End to end is +0.4% because 84% of a build is `opt` and `llc`, which
+# this cannot touch. The number that matters is the code-generation
+# row, and it is DECLARED rather than gated: `bench-compile.sh`
+# is explicit that a wall-clock bound on a shared runner is a flaky
+# test, and the ratio gates that exist here (`check-name-scale.sh`)
+# measure scaling, not constants. A reader who wants this back has the
+# before-and-after above and one commit to revert.
+#
+# WHY IT WAS PORTABLE WHEN THE OTHER FOUR ARE NOT. `Intern.ax` carries
+# NO `restrict` claim - the tree-wide sweep in
+# `tests/agent/restrictions.allow` lists none from this file - so
+# `(Some id)` widens a row here where in `Str.ax`, `Utf8.ax` and
+# `Tui/Keys.ax` it is an AX3049 refusal. Check `#restrict=` as well as
+# `#effects=`; they answer different questions and both are in
+# `axiom symbols`.
+#
+# THE EFFECT ROW SAID IN ADVANCE WHO WOULD PAY, and this is the part
+# worth carrying to the next slice. Nine external callers, every one of
+# them `(< id 0)`. Two are in `self_host/namespace.ax`, already
+# `#effects=Alloc,Mut`, and they run during RESOLVE - the check stage
+# did not move. Five are in `self_host/codegen.ax` with an EMPTY row,
+# and the whole +4.6% is in the stage those five run in. The split was
+# visible from `axiom symbols` before a line was edited.
+#
+# THE INTERNER'S OWN HOT PATH PAYS NOTHING. `internFindFrom` keeps the
+# -1 and stays private; `internIntern` calls it directly rather than
+# going through the public wrapper, which is the same exception
+# `Path.ax`'s `pathExtIndex` takes for the same reason. The concern
+# that kept this row unmeasured - "one library caller, inside
+# `internIntern`, which runs per interned string" - dissolves at the
+# cost of one line, because a public boundary and a recursion are not
+# the same place.
+#
+# `scripts/check-name-scale.sh` NEEDED RE-ANCHORING and said so. Its
+# red half ablates `mangleIdxHas` by matching that function's whole
+# body as a literal string; the port rewrote that body, so the gate
+# failed with "its shape has moved" rather than passing on an ablation
+# that no longer applied. That hard failure is the gate working.
+#
+# WHAT REMAINS IN THE ABSENCE COLUMN IS NINE, AND EVERY ONE IS BLOCKED
+# OR EXCLUDED ON A MEASUREMENT - four by their own `no-alloc` claim,
+# `strFindByte` at 7.4x per call over 71 scanning-path sites,
+# `keyInFill` and `netPollSignalAt` because `Option` is the wrong SHAPE
+# for what they answer, and the two `Tui` per-keystroke reads. There is
+# no longer a row here that a fresh measurement would settle.
+
 stdlib/Str.ax 0 2
 stdlib/Sys.ax 7 1
 stdlib/Sys/Platform.darwin.ax 3 0

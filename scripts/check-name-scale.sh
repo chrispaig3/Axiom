@@ -293,9 +293,13 @@ mkdir -p "$abl"
 cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/" || {
   echo "FAIL: could not copy the tree to ablate" >&2; exit 1; }
 
-# Anchored on the whole function, not on the one line: `(>= (internFind`
-# is a shape other indexes share, and a bare substitution would edit
-# whichever matched first.
+# Anchored on the whole function, not on the one line: a `match` on
+# `internFind` is a shape other indexes share, and a bare substitution
+# would edit whichever matched first. RE-ANCHORED when `internFind`
+# became `(Option Int)` - the body this replaces is the port's, and an
+# ablation that no longer matches makes the red half of this gate prove
+# nothing, which is why the mismatch is a hard failure below rather
+# than a skip.
 if ! python3 - "$abl/self_host/namespace.ax" <<'PY'
 import sys
 p = sys.argv[1]
@@ -303,7 +307,10 @@ s = open(p).read()
 old = """(pub fn (mangleIdxHas idx bares name)
   {
     (mangleIdxSync idx bares)
-    (>= (internFind (memGetWord idx 0) name) 0)
+    (match (internFind (memGetWord idx 0) name)
+      ((Some _) true)
+      ((None) false)
+    )
   }
 )"""
 new = """(pub fn (mangleIdxHas idx bares name)

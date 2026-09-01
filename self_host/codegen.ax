@@ -833,11 +833,9 @@
   (let ((si (memGetWord cg 37)))
     (if (== si 0)
       (findFSig (memGetWord cg 15) name)
-      (let ((id (internFind si (declSpellingOf name))))
-        (if (< id 0)
-          0
-          (vecGet (memGetWord cg 38) id)
-        )
+      (match (internFind si (declSpellingOf name))
+        ((Some id) (vecGet (memGetWord cg 38) id))
+        ((None) 0)
       )
     )
   )
@@ -856,7 +854,7 @@
         (let ((m (memGetWordStr cg 34)))
           (let ((hit
             (if (== (cast Int m) 0)
-              (- 0 1)
+              None
               (internFind bi (cat3 m "$" name))
             )
           ))
@@ -871,9 +869,9 @@
             ; that both probes and answers cannot be released at all,
             ; because one branch returns it - measured at +69 MiB of
             ; peak, see this commit.
-            (if (>= hit 0)
-              (vecGetStr (memGetWord cg 12) (vecGet (vecGet (memGetWord cg 40) 0) hit))
-              (mangledForBareCg cg bi name)
+            (match hit
+              ((Some h) (vecGetStr (memGetWord cg 12) (vecGet (vecGet (memGetWord cg 40) 0) h)))
+              ((None) (mangledForBareCg cg bi name))
             )
           )
         )
@@ -888,11 +886,9 @@
 (:: mangledForBareCg (-> Int Int String String))
 
 (fn (mangledForBareCg cg bi name)
-  (let ((id (internFind bi name)))
-    (if (< id 0)
-      name
-      (vecGetStr (memGetWord cg 13) (vecGet (vecGet (memGetWord cg 40) 0) id))
-    )
+  (match (internFind bi name)
+    ((Some id) (vecGetStr (memGetWord cg 13) (vecGet (vecGet (memGetWord cg 40) 0) id)))
+    ((None) name)
   )
 )
 
@@ -909,11 +905,9 @@
   (let ((rest (memGetWord cg 40)))
     (if (< (vecLen rest) 5)
       (isNullaryFn (memGetWord cg 8) name)
-      (let ((id (internFind (vecGet rest 1) (declSpellingOf name))))
-        (if (< id 0)
-          false
-          (== (vecGet (vecGet rest 2) id) 1)
-        )
+      (match (internFind (vecGet rest 1) (declSpellingOf name))
+        ((Some id) (== (vecGet (vecGet rest 2) id) 1))
+        ((None) false)
       )
     )
   )
@@ -925,11 +919,9 @@
   (let ((rest (memGetWord cg 40)))
     (if (< (vecLen rest) 5)
       (isDefinedFn (memGetWord cg 8) name)
-      (let ((id (internFind (vecGet rest 1) (declSpellingOf name))))
-        (if (< id 0)
-          false
-          (== (vecGet (vecGet rest 3) id) 1)
-        )
+      (match (internFind (vecGet rest 1) (declSpellingOf name))
+        ((Some id) (== (vecGet (vecGet rest 3) id) 1))
+        ((None) false)
       )
     )
   )
@@ -944,9 +936,8 @@
   (let ((rest (memGetWord cg 40)))
     (if (< (vecLen rest) 5)
       (fnArityOf (memGetWord cg 8) name)
-      (let ((id (internFind (vecGet rest 1) (declSpellingOf name))))
-        (if (< id 0)
-          0
+      (match (internFind (vecGet rest 1) (declSpellingOf name))
+        ((Some id)
           (let ((ar (vecGet (vecGet rest 4) id)))
             (if (< ar 0)
               0
@@ -954,6 +945,7 @@
             )
           )
         )
+        ((None) 0)
       )
     )
   )
@@ -8610,9 +8602,8 @@
 (pub :: pruneMark (-> Int String Int))
 
 (pub fn (pruneMark ctx sym)
-  (let ((id (internFind (vecGet ctx 0) sym)))
-    (if (< id 0)
-      0
+  (match (internFind (vecGet ctx 0) sym)
+    ((Some id)
       (let ((idToDef (vecGet ctx 1)))
         (if (>= id (vecLen idToDef))
           0
@@ -8632,6 +8623,7 @@
         )
       )
     )
+    ((None) 0)
   )
 )
 

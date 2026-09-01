@@ -121,7 +121,10 @@
 (pub fn (mangleIdxHas idx bares name)
   {
     (mangleIdxSync idx bares)
-    (>= (internFind (memGetWord idx 0) name) 0)
+    (match (internFind (memGetWord idx 0) name)
+      ((Some _) true)
+      ((None) false)
+    )
   }
 )
 
@@ -131,11 +134,9 @@
 (pub fn (mangleIdxIndexOf idx bares name)
   {
     (mangleIdxSync idx bares)
-    (let ((id (internFind (memGetWord idx 0) name)))
-      (if (< id 0)
-        (- 0 1)
-        (vecGet (memGetWord idx 1) id)
-      )
+    (match (internFind (memGetWord idx 0) name)
+      ((Some id) (vecGet (memGetWord idx 1) id))
+      ((None) (- 0 1))
     )
   }
 )

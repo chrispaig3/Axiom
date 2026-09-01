@@ -1239,8 +1239,8 @@ the end.
 ## 10. Adoption
 
 **ERR-ADOPT-1 (P). The migration is 64 sites by §1.2's `grep` proxy,
-and 20 public functions over 7 modules by the metric that is gated —
-10 `failure` and 10 `absence`, down from 38 when that metric first read
+and 19 public functions over 6 modules by the metric that is gated —
+10 `failure` and 9 `absence`, down from 38 when that metric first read
 bodies instead of prose. It is not one commit.**
 
 > **THE BLOCKER THIS RULE WAS WAITING ON DOES NOT APPLY, measured
@@ -1274,7 +1274,9 @@ bodies instead of prose. It is not one commit.**
 > `restrict(no-alloc)` refuses it with `AX3049`. Four of the ten
 > absence sentinels carry that claim themselves — `strHexVal`,
 > `utf8DecodeAt`, `utf8CharAt` and `keyStrEnd` — so they cannot become
-> `Option` without withdrawing it. This was invisible until 0.6.1,
+> `Option` without withdrawing it. The one absence sentinel in a module
+> with NO restriction claim was ported on that reading and is where the
+> column stands at nine: `internFind` (§10.1). This was invisible until 0.6.1,
 > which made `restrict(no-alloc)` able to fail at all; before that a
 > constructor contributed nothing to the effect walk and the claim
 > could not be violated. `tests/diagnostics/384-restrict-no-alloc-ctor.ax`
@@ -1605,6 +1607,47 @@ before the next:
    done.
 5. The REPL surface, `check-repl-selfhost.sh`'s session bank extended
    with an `Err` at the prompt.
+
+**The absence column moved for the first time since it was shown to be
+blocked, 2026-09-01: `internFind` answers `(Option Int)`, and the
+library is 10 failure + 9 absence.** It was the only one of the ten
+that the note above left to a measurement rather than to a claim, and
+the measurement is this — two compilers built by the same compiler from
+sources differing only in the port, both compiling the same
+197,338-line input, best of five:
+
+| stage | -1 | `(Option Int)` | |
+|---|---|---|---|
+| check (lex, parse, expand, typecheck) | 0.4484s | 0.4469s | flat |
+| serialise and write the IR | 1.2980s | 1.3440s | **+3.5%** |
+| in the `axiom` process | 1.7464s | 1.7909s | +2.5% |
+| `axiom build`, end to end | | | +0.4% |
+
+Two pairs were taken and they do not agree to the tenth — an earlier
+one read +4.6% and +3.4% for the same two rows — so the cost is **about
++4% on code generation**, quoted as a range on purpose. End to end is
++0.4% because 84% of a build is `opt` and `llc`.
+
+**`#effects=` said in advance which callers would pay, and it was
+right.** Nine external callers, every one of them `(< id 0)`. The two
+in `self_host/namespace.ax` already read `Alloc,Mut` and run during
+resolve — and the check stage did not move. The five in
+`self_host/codegen.ax` had an **empty** row, and the whole +4.6% is in
+the stage those five run in. Reading the effect row before a port is
+not a formality; it partitions the callers into the ones that pay and
+the ones that do not, before a line is edited.
+
+**The interner's own hot path pays nothing**, which is what the
+exclusion on this row had assumed it could not avoid. `internFindFrom`
+keeps the `-1` and stays private, and `internIntern` calls it directly
+rather than through the public wrapper — the same exception
+`Path.ax`'s `pathExtIndex` takes. A public boundary and a recursion are
+not the same place, and only the first is worth a type.
+
+`Intern.ax` carries **no** `restrict` claim, which is the whole reason
+this one was a measurement and the other four are refusals. Check
+`#restrict=` as well as `#effects=`: they answer different questions
+and `axiom symbols` prints both.
 
 ### 10.1 What is actually left, measured rather than planned
 

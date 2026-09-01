@@ -93,6 +93,38 @@
   )
 )
 
+; The id `internFind` answers, or -1 when it answers `None`.
+;
+; The fixture keeps PRINTING the old sentinel so that every golden line
+; this file already had is byte-identical across the `Option` port. That
+; is the point of routing it through here rather than reflowing the
+; golden: what moved is the TYPE, and a golden that moved with it would
+; make a contract change indistinguishable from a behaviour change.
+(pub :: itFound (-> (Option Int) Int))
+
+(pub fn (itFound o)
+  (match o
+    ((Some id) id)
+    ((None) (- 0 1))
+  )
+)
+
+; Which CONSTRUCTOR came back, as a word.
+;
+; `itFound` above deliberately cannot tell a miss from a hit that
+; answered -1 - it re-encodes both as a number - so on its own it
+; asserts exactly as much as the sentinel did. This says the thing the
+; port is for, and the two lines it adds are APPENDED to the golden
+; rather than folded into it.
+(pub :: itShape (-> (Option Int) String))
+
+(pub fn (itShape o)
+  (match o
+    ((Some _) "some")
+    ((None) "none")
+  )
+)
+
 (pub :: main Int)
 
 ;@axiom:effect(io)
@@ -109,7 +141,7 @@
     {
       (println (internCount it))  ; 0
       (println (internCap it))  ; 64
-      (println (internFind it alpha))  ; -1: nothing yet
+      (println (itFound (internFind it alpha)))  ; -1: nothing yet
       (println (strLen (internLookup it 0)))  ; 0: empty, not a crash
       ; --- distinct strings get distinct, dense ids ---
       (println (internIntern it alpha))  ; 0
@@ -161,9 +193,9 @@
       (println (internCount it))  ; 5
       (println (strLen (internLookup it 4)))  ; 0: and it is empty
       ; --- a string that was never interned ---
-      (println (internFind it "delta"))  ; -1
-      (println (internFind it "alph"))  ; -1: prefix
-      (println (internFind it "alphaa"))  ; -1: extension
+      (println (itFound (internFind it "delta")))  ; -1
+      (println (itFound (internFind it "alph")))  ; -1: prefix
+      (println (itFound (internFind it "alphaa")))  ; -1: extension
       (println (internCount it))  ; 5: find never adds
       ; --- three strings sharing one table index ---
       (println (internCap col))  ; 16
@@ -190,9 +222,15 @@
       (println (internCount big))  ; 100: none re-added
       (println (internLookup big 0))  ; id0
       (println (internLookup big 99))  ; id99
-      (println (internFind big "id7"))  ; 7
-      (println (internFind big "id100"))  ; -1
+      (println (itFound (internFind big "id7")))  ; 7
+      (println (itFound (internFind big "id100")))  ; -1
       (println (strLen (internLookup big 100)))  ; 0
+      ; --- THE PORT: a miss is `None`, not a number that happens to be
+      ; negative. A dense id space starts at 0, so the sentinel and a
+      ; real id were only ever told apart by a comparison the caller had
+      ; to remember to write - nine callers in this tree wrote it.
+      (println (itShape (internFind big "id7")))  ; some
+      (println (itShape (internFind big "id100")))  ; none
       0
     }
   )

@@ -226,3 +226,41 @@
 # which is what both `self_host/lsp.ax` sites now say out loud.
 0.6.4  F  sysGetCwd  String -> (Result String Error): "" could not say WHY, and the errno was already in hand
 0.6.4  F  cwd        String -> (Result String Error): forwards sysGetCwd; ioResult is not used, there is no path to name
+
+# 0.6.4 - ERR-ADOPT-1, the ABSENCE column: the string interner.
+# `internFind` answers `(Option Int)` instead of an `Int` that is a
+# dense id when non-negative and -1 when the string is not interned.
+#
+# THIS IS `WIDENED`: the row was EMPTY and is now `Alloc`, because
+# `(Some id)` is a constructor application. That is the same cost
+# `tests/diagnostics/384-restrict-no-alloc-ctor.ax` gates, and it is
+# why the other four absence sentinels - `strHexVal`, `utf8DecodeAt`,
+# `utf8CharAt`, `keyStrEnd` - are still unported: they carry
+# `restrict(no-alloc)` and this row would be a refusal rather than a
+# widening. `Intern.ax` carries no restriction claim, which is what
+# made this one a measurement instead of a blocker.
+#
+# WHAT IT COSTS, measured rather than asserted (two compilers built by
+# the same compiler from sources differing only in this port, both
+# compiling the same 197,338-line input, best of 5):
+#
+#   check (lex, parse, expand, typecheck)  0.4484 -> 0.4469   flat
+#   serialise and write the IR             1.2980 -> 1.3440   +3.5%
+#   in the axiom process                   1.7464 -> 1.7909   +2.5%
+#
+# An earlier pair read +4.6% and +3.4% for the same two rows, so the
+# code-generation cost is about +4% and is quoted as a range.
+#
+# THE EFFECT ROW PREDICTED WHERE THAT LANDED, which is the part worth
+# keeping. The two callers in `self_host/namespace.ax` already read
+# `#effects=Alloc,Mut` and run during resolve - and the check stage did
+# not move. The five in `self_host/codegen.ax` had an EMPTY row, and
+# every millisecond of the cost is in the stage they run in. Reading
+# `#effects=` before a port is not a formality; it says in advance
+# which callers pay.
+#
+# `internFindFrom` KEEPS THE -1 and is not public. `internIntern` calls
+# it directly, so interning - the interner's own hot path, once per
+# distinct string - allocates nothing new. Only the nine external
+# callers pay, and all nine were `(< id 0)`.
+0.6.4  F  internFind  -1 -> (Option Int), row gains Alloc: a dense id space starts at 0, so the miss was only ever a comparison the caller had to remember
