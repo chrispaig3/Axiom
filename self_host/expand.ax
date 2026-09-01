@@ -1568,11 +1568,18 @@
 ; message, because two of them count the same thing for different
 ; reasons and a diagnostic that always says `syntax/binders` sends a
 ; reader of `(syntax/arity Ghost)` to the wrong row of the table.
-(pub :: expCtorArity (-> Int String Int Int))
+(pub :: expCtorArity (-> Int String Int (Option Int)))
 
-(pub fn (expCtorArity env c isp) (expCtorArityFor
-  env  c  isp  "syntax/binders"  "count"
-))
+(pub fn (expCtorArity env c isp)
+  (let ((n (expCtorArityFor
+    env    c    isp    "syntax/binders"    "count"
+  )))
+    (if (< n 0)
+      None
+      (Some n)
+    )
+  )
+)
 
 ; English's possessive, because the two queries that share this
 ; message end differently: `syntax/binders'` and `syntax/arity's`.
@@ -1659,9 +1666,9 @@
 (pub :: expBindersOf (-> Int String String Int Int))
 
 (pub fn (expBindersOf env c p isp)
-  (let ((n (expCtorArity env c isp)))
-    (if (< n 0)
-      0
+  (match (expCtorArity env c isp)
+    ((None) 0)
+    ((Some n)
       (let (
         (names vecNew)
         (mut i 0)

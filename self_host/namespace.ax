@@ -128,15 +128,19 @@
   }
 )
 
-; The first index in `bares` holding `name`, or -1.
-(pub :: mangleIdxIndexOf (-> Int Int String Int))
+; The first index in `bares` holding `name`, or `None`.
+;
+; `Option` rather than -1: `mangleRecordEntry` reads the answer as
+; `(vecSet fulls i name)`, so a miss that reached the index is a wild
+; WRITE - it would store into the word before the vector's first.
+(pub :: mangleIdxIndexOf (-> Int Int String (Option Int)))
 
 (pub fn (mangleIdxIndexOf idx bares name)
   {
     (mangleIdxSync idx bares)
     (match (internFind (memGetWord idx 0) name)
-      ((Some id) (vecGet (memGetWord idx 1) id))
-      ((None) (- 0 1))
+      ((Some id) (Some (vecGet (memGetWord idx 1) id)))
+      ((None) None)
     )
   }
 )
@@ -194,13 +198,15 @@
 (pub :: mangleRecordEntry (-> Int Int Int String Int))
 
 (pub fn (mangleRecordEntry idx bares fulls name)
-  (let ((i (mangleIdxIndexOf idx bares name)))
-    (if (< i 0)
+  (match (mangleIdxIndexOf idx bares name)
+    ((None)
       {
         (vecPush bares name)
         (vecPush fulls name)
         0
       }
+    )
+    ((Some i)
       {
         (vecSet fulls i name)
         0
