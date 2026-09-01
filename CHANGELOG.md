@@ -47,14 +47,40 @@ release to 0 and 0**, which is the gated claim.
 sites** — `internFind`, `pathLastSlash`, `pathExtIndex`: the absence-
 column family exactly.
 
-**THE SPEED CLAIM IS NOT MADE, and the reason is worth writing down.**
-A stage-1 against stage-2 comparison read 38% off the in-process time,
-and that number is NOT this change: 11.86 ns per wrapper over an
-estimated 3.9M `internFind` wrappers is 46 ms of 1798 ms, **2.6%**. The
-38% is a stage artifact — the two compilers were built by different
-builders — and the control that would separate them was not run. What
-IS established is the block count, which is exact, gated, and does not
-depend on a runner's mood.
+**BENCHMARKED, with the control run.** Two stage-matched compilers —
+same source, same input, differing only in whether the code generator
+has the specialisation — on the interner benchmark, best of seven:
+
+| variant | per lookup | wrapper |
+|---|---|---|
+| no `Option` at all | 49.54 ns | — |
+| boxed | 56.70 ns | **7.15 ns** |
+| register pair | 49.59 ns | **0.04 ns** |
+
+**99.4% of the boxing cost recovered, 12.5% off the workload**, landing
+0.08% above having no `Option` in the language at all — better than the
+hand-written prototype's 96.9%, because the compiler also removes the
+match-on-a-block the prototype kept.
+
+**On the compiler's own self-compile it is a wash**: −0.14% and +0.93%
+across two stage-matched pairs, bracketing zero. Seven of nine
+`internFind` sites specialise, `pruneMark` among them; the two that do
+not have a `let`-bound scrutinee rather than a direct call, which is
+the restriction working. `internFind` is not hot enough in a
+self-compile for that to move a 1.13s number.
+
+**The 38% was entirely a stage artifact**, and the control proves it:
+`axcB` and `axc3` are both stage-2 and differ by under 1%. The 38% was
+two BUILDERS, not two code generators.
+
+**This corrects an earlier number.** `compat/SENTINELS` records the
+`internFind` port as costing "about +4% on code generation", from pairs
+reading +3.5% and +4.6%. Removing that cost now yields nothing
+measurable. Those runs read 1.75s in-process against 1.13s today — the
+machine was ~55% slower, i.e. loaded — so **compiler-level differences
+of a few percent are not resolvable here**, and +4% is an upper bound,
+not a measurement. The block count is not subject to that: it is exact,
+and it is what the gate holds.
 
 **What refuses, and why each refusal is a hazard declined rather than
 handled**: `main`; no signature; a function taking an evidence word; a

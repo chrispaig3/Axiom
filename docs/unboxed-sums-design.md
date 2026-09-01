@@ -326,6 +326,59 @@ lookups so nothing is dead. The three variants differ only in the body
 of the loop: a raw `-1` compared against zero, a `match` on a boxed
 `(Option Int)`, and a `match` on the register pair.
 
+## 6a. Benchmarked after building, 2026-09-01
+
+Three findings, and the third corrects an earlier number in this
+repository.
+
+**1. Where `Option` lookups dominate, it does what it was designed to
+do.** The interner benchmark of section 1, rebuilt by two STAGE-MATCHED
+compilers - same source, same input, differing only in whether the code
+generator has the specialisation - best of seven:
+
+| variant | total | per lookup | wrapper |
+|---|---|---|---|
+| no `Option` at all | 0.9909s | 49.54 ns | — |
+| boxed | 1.1340s | 56.70 ns | **7.15 ns** |
+| register pair | 0.9917s | 49.59 ns | **0.04 ns** |
+
+**99.4% of the boxing cost recovered, and 12.5% off the workload.** The
+pair lands 0.08% above having no `Option` in the language at all —
+better than the hand-written prototype's 96.9%, because the compiler
+also removes the match-on-a-block the prototype left in place.
+
+**2. On the compiler's own self-compile it is a wash.** Two
+stage-matched pairs, in-process time:
+
+    axcB (no specialisation)   1.1302s   1.1422s
+    axc3 (with it)             1.1286s   1.1528s
+
+−0.14% and +0.93% — the difference brackets zero and is run-to-run
+noise. Seven of the nine `internFind` sites specialise, `pruneMark`
+among them; the two that do not are the ones whose scrutinee is a
+`let`-bound variable rather than a direct call, which is the
+restriction working. **`internFind` is simply not hot enough in a
+self-compile for seven specialised sites to move a 1.13s number.** An
+earlier estimate of 3.9 million wrappers per self-compile, derived from
+a compile-time delta rather than counted, was wrong.
+
+**3. THE 38% WAS ENTIRELY A STAGE ARTIFACT, and this is what proves
+it.** A stage-1 against stage-2 comparison read 38% off in-process
+time. `axcB` and `axc3` are both stage-2 and differ by less than 1%.
+The 38% was the difference between two BUILDERS, not two code
+generators.
+
+**AND IT CORRECTS THE PORT THAT MOTIVATED THIS WORK.**
+`compat/SENTINELS` records `internFind`'s move to `(Option Int)` as
+costing "about +4% on code generation", from two pairs reading +3.5%
+and +4.6%. Removing that same cost now yields nothing measurable. Those
+runs were taken when in-process time read 1.75s against 1.13s today —
+the machine was around 55% slower, i.e. loaded — so the honest reading
+is that **compiler-level differences of a few percent are not
+resolvable on this machine**, and that +4% should be read as an upper
+bound rather than a measurement. The block count is not subject to
+this: it is exact, and it is what `check-unboxed-sums.sh` gates.
+
 ## 7. Status
 
 **BUILT, 2026-09-01.** Section 4's specialisation is implemented in

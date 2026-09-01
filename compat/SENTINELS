@@ -329,12 +329,16 @@
 #   in the axiom process                   1.7464 -> 1.7909   +2.5%
 #   axiom build, end to end                                   +0.4%
 #
-# QUOTED AS A RANGE, because two pairs were taken and they do not agree
-# to the tenth: an earlier pair, built and measured the same way, read
-# +4.6% and +3.4% for the same two rows. The honest statement is ABOUT
-# +4% on code generation and +2.5-3.4% in the process. Reporting one
-# pair to two decimals at this separation would be false precision,
-# which is why the range is here and not a single number.
+# READ THIS AS AN UPPER BOUND, NOT A MEASUREMENT - corrected
+# 2026-09-01 after the register-pair specialisation landed. Two pairs
+# read +3.5% and +4.6% here; REMOVING the same cost afterwards yielded
+# nothing measurable (-0.14% and +0.93% across two stage-matched
+# pairs). Those runs read 1.75s in-process against 1.13s for the same
+# work later the same day, so the machine was around 55% slower - a
+# few percent is below what is resolvable on it.
+# `docs/unboxed-sums-design.md` section 6a carries the whole
+# comparison. What IS exact is the block count, gated by
+# `scripts/check-unboxed-sums.sh`.
 #
 # End to end is +0.4% because 84% of a build is `opt` and `llc`, which
 # this cannot touch. The number that matters is the code-generation
