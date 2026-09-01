@@ -1,28 +1,37 @@
 [1;31merror[AX3049][0m[1m: `mk` claims `restrict(no-alloc)` and the body performs Alloc in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)[0m
-  [1;34m--> [0m384-restrict-no-alloc-ctor.ax:43:6
+  [1;34m--> [0m384-restrict-no-alloc-ctor.ax:62:6
 [1;34m   |[0m
-[1;34m43 |[0m (fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+[1;34m62 |[0m (fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
 [1;34m   |[0m      [1;31m^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `pair` claims `restrict(no-alloc)` and the body performs Alloc in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)[0m
-  [1;34m--> [0m384-restrict-no-alloc-ctor.ax:48:6
+  [1;34m--> [0m384-restrict-no-alloc-ctor.ax:67:6
 [1;34m   |[0m
-[1;34m48 |[0m (fn (pair n) (P n n))
+[1;34m67 |[0m (fn (pair n) (P n n))
 [1;34m   |[0m      [1;31m^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `kw` claims `restrict(no-alloc)` and the body performs Alloc in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)[0m
-  [1;34m--> [0m384-restrict-no-alloc-ctor.ax:53:6
+  [1;34m--> [0m384-restrict-no-alloc-ctor.ax:72:6
 [1;34m   |[0m
-[1;34m53 |[0m (fn (kw n) (struct P n n))
+[1;34m72 |[0m (fn (kw n) (struct P n n))
 [1;34m   |[0m      [1;31m^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
-compilation failed due to 3 previous errors
+[1;31merror[AX3049][0m[1m: `some` claims `restrict(no-alloc)` and the body performs Alloc in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)[0m
+  [1;34m--> [0m384-restrict-no-alloc-ctor.ax:82:6
+[1;34m   |[0m
+[1;34m82 |[0m (fn (some n) (Some n))
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 4 previous errors
