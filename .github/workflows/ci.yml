@@ -17,7 +17,28 @@ on:
     # not exist is indistinguishable in the checks tab from a quiet
     # success.
     branches: [trunk]
+    # THE WEBSITE IS NOT THE COMPILER. `web/` is a React app with its
+    # own build, its own claim checker and its own deploy workflow
+    # (`pages.yml`); a push that touches only it has nothing this
+    # battery can measure, and it was running all five legs - about
+    # half an hour of runner time per commit, and website commits come
+    # in bursts.
+    #
+    # STATED AS AN EXCLUSION, NOT AN INCLUSION, and that is the whole
+    # care here. A `paths:` allowlist is a second list of what the
+    # compiler is made of, and the day someone adds a directory the
+    # list does not name, CI goes silent over it - the same shape as
+    # the `main`/`trunk` defect above, which left a week of
+    # self-hosting work with CI structurally quiet. `paths-ignore`
+    # fails the other way: a new directory runs the battery until
+    # somebody decides it should not.
+    paths-ignore:
+      - 'web/**'
+      - '.github/workflows/pages.yml'
   pull_request:
+    paths-ignore:
+      - 'web/**'
+      - '.github/workflows/pages.yml'
   # The nightly and the button exist for ONE job, `seed-lineage-full`:
   # replaying every row of `bootstrap/CHAIN` from the Rust anchor is
   # forty minutes and needs cargo, which is a poor neighbour for a pull
