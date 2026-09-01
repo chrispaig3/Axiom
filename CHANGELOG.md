@@ -16,6 +16,54 @@ its changelog too.
 
 ## Unreleased
 
+### `Option` and `Result` can be free: 11.86 ns of box, measured away
+
+**`docs/unboxed-sums-design.md`** — designed, prototyped, **not built**.
+`(Some v)`, `(Ok v)` and `(Err e)` are each a 16-byte heap block with a
+refcount, a shape word, a tag and the field. Measured over 20,000,000
+interner lookups at `--opt 2`, best of five:
+
+| variant | per lookup | wrapper |
+|---|---|---|
+| raw `-1`, no `Option` at all | 80.30 ns | — |
+| `(Option Int)`, boxed — today | 92.16 ns | **11.86 ns** |
+| `(Option Int)`, two registers — prototype | 80.67 ns | **0.36 ns** |
+
+**96.9% of the box recovered, and 0.45% above having no `Option` in the
+language at all.** The prototype is hand-written LLVM derived from the
+compiler's own output, run through the same `opt -O2` / `llc -O2` / `cc`
+pipeline `bench-compile.sh` uses, printing the same checksum — so it is
+a measurement of the REPRESENTATION, not of an implementation. No
+compiler code changed.
+
+The representation: a sum whose constructors carry at most one word
+becomes `{tag, payload}` in two registers. That is not an arbitrary
+cutoff — 16 bytes is what `x0`/`x1` and `rax`/`rdx` return before both
+ABIs spill to memory. `Option T` qualifies for every `T`; `Result T E`
+qualifies for the shape `stdlib/Err.ax` uses throughout.
+
+**A one-word niche cannot do it.** Representing `(Some x)` as `x` works
+where every `T` is a heap value, and fails on exactly the case that
+matters: an `Int` is a raw `i64`, so `(Some 5)` would be `5`, which is
+indistinguishable from an immediate tag under the `icmp slt %v, 4096`
+that opens every `match`.
+
+**Why this is not only a speed change.** Four of the nine absence
+sentinels in `compat/SENTINELS` — `strHexVal`, `utf8DecodeAt`,
+`utf8CharAt`, `keyStrEnd` — cannot become `Option` today without
+withdrawing a `restrict(no-alloc)` claim. If `(Some v)` does not
+allocate, that blocker is gone. Every `WIDENED` row in ERR-ADOPT-1 is
+widened because building a `Result` allocates; an unboxed `Ok` widens
+nothing. **So this comes before the rest of the migration**, or those
+functions are ported twice.
+
+What it would touch, in the order most likely to stop it: the storage
+boundary (unboxed in flight, boxed in a heap field — the largest
+piece), ownership without a shape word, effect rows NARROWING (a kind
+`compat/BREAKING` has never recorded), `restrict(no-alloc)` starting to
+accept these constructors (fixture 384's `some` arm goes silent), FFI
+classification, and a second `match` lowering path.
+
 ### The interner's miss is `None`, and the effect row said who would pay
 
 **`internFind` answers `(Option Int)`** instead of an `Int` that is a

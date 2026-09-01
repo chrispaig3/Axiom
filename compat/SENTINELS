@@ -375,6 +375,17 @@
 # failed with "its shape has moved" rather than passing on an ablation
 # that no longer applied. That hard failure is the gate working.
 #
+# THE BLOCKER ON FOUR OF THE NINE IS REMOVABLE, and it is measured:
+# `docs/unboxed-sums-design.md` prototypes `(Option Int)` as a
+# {tag, payload} register pair rather than a heap block. The wrapper
+# goes 11.86 ns -> 0.36 ns, 96.9% of the box recovered, through the
+# real opt/llc/cc pipeline. If `(Some v)` does not allocate then
+# `strHexVal`, `utf8DecodeAt`, `utf8CharAt` and `keyStrEnd` can become
+# `Option` while KEEPING the `no-alloc` claim they already make, and
+# every WIDENED row in the failure column stops widening. That work
+# comes before the rest of this migration, or these functions are
+# ported twice.
+#
 # WHAT REMAINS IN THE ABSENCE COLUMN IS NINE, AND EVERY ONE IS BLOCKED
 # OR EXCLUDED ON A MEASUREMENT - four by their own `no-alloc` claim,
 # `strFindByte` at 7.4x per call over 71 scanning-path sites,

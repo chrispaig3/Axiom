@@ -1649,6 +1649,16 @@ this one was a measurement and the other four are refusals. Check
 `#restrict=` as well as `#effects=`: they answer different questions
 and `axiom symbols` prints both.
 
+**AND THAT COST IS REMOVABLE, measured 2026-09-01.**
+`docs/unboxed-sums-design.md` prototypes `(Option Int)` as a
+`{tag, payload}` register pair instead of a heap block: the wrapper
+goes from **11.86 ns to 0.36 ns**, 96.9% of the box recovered, through
+the real `opt`/`llc`/`cc` pipeline. If `(Some v)` does not allocate
+then the four `restrict(no-alloc)` rows above stop being blocked at
+all, and every `WIDENED` row in this migration stops widening. **That
+work comes before the rest of ERR-ADOPT-1**, or these functions get
+ported twice.
+
 ### 10.1 What is actually left, measured rather than planned
 
 Classifying every remaining sentinel by whether it reports **absence**
