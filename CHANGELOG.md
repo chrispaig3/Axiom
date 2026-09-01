@@ -16,6 +16,72 @@ its changelog too.
 
 ## Unreleased
 
+### Seven socket calls that answered a negative errno now answer a `Result`, and a callee nearly undid the exclusion the slice was drawn around
+
+`ERR-ADOPT-1`'s third slice. `netBind`, `netListen`, `netConnect`,
+`netShutdown`, `netSetOptInt`, `netSetBlocking` and `netSetNonBlocking`
+answer `(Result Int Error)` through `sysResult`. Each of them answers
+nothing but whether it managed what it was asked to do, so `Ok 0` is
+the whole of the success, and the errno that used to arrive negated
+inside the success type is `Error.code`.
+
+**`stdlib/Sys.ax`'s sentinel census: 26 → 19; the library 29 → 22**,
+`scripts/check-compat.sh`, 30 checks, with `compat/SENTINELS` lowered
+in this commit. Seven WIDENED rows in `compat/BREAKING` rather than
+CHANGED: `sysResult` builds an `Error`, so every ported row gains
+`Alloc` — the same tax 0.6.1 declared for every `Err.ax` export, and
+the whole of it, because `sysResult`'s message is a literal operation
+name and nothing concatenates on the success path.
+
+**The slice line is where the call RUNS, not what it does.** All seven
+run once per socket. What is left in the module is per-connection
+(`netAccept`, `netAcceptFrom`), per-wake (`netPollWait`,
+`netPollSignalAt`) or per-write (`sysWriteFd`, which `IO.writeStr`
+forwards) — allocation `tests/net/echo-server.ax` reaches *below* its
+per-connection `__axiom_arena_mark`, in a worker that runs until it is
+signalled. `netSocketTcp` and `netSocketTcp6` are left for a different
+reason: they are nullary and answer the descriptor itself, so porting
+them retypes every `lsn` and `cli` binding in eight files rather than
+one expression at each call site.
+
+**A CALLEE UNDID THAT EXCLUSION FROM UNDERNEATH.** `netAcceptFinish`,
+shared by `netAccept` and `netAcceptFrom`, calls `netSetNonBlocking` on
+the target whose kernel does not take `SOCK_NONBLOCK` — once per
+accepted connection. Porting the callee gave both accept functions
+`Alloc` in `axiom symbols`, which is an `(Ok 0)` per connection that
+the arena reset never rewinds. The raw two-`fcntl` answer is now a
+private `netSetNonBlockingRaw` and the `Result` is the public skin over
+it; `netAccept` is back to `#effects=IO` with its nid unchanged.
+
+**And `scripts/check-net.sh` would not have caught it.** Measured with
+the allocation deliberately restored to the accept path: the gate
+stayed green at **182×** against its floor of 50 (344× with the split),
+and the scoped arm's growth over 9,800 connections moved 400 KiB →
+512 KiB — about 12 bytes per connection, inside what a page-granular
+RSS reading resolves. `docs/error-model.md` said this exclusion existed
+because it risked "a measured gate"; the gate's ratio is sized to catch
+an arena that stopped reclaiming, not one 32-byte block per connection.
+The rule is amended there to say what actually holds it, which is
+`#effects=` in `axiom symbols`.
+
+**Callers: 47 call expressions over eight files**, all in `tests/` and
+`examples/`; `stdlib/` and `self_host/` call none of the seven. Every
+site that compared the answer against `0` is now `isOk` or `isErr`;
+`tests/net/echo-server.ax` and `examples/web/server.ax` print a failed
+bind's errno through `errCode`, and the echo server names the operation
+through `errMessage`.
+
+**`docs/error-model.md` §10's "eight `Err.ax` exports are reached by
+nothing" is stale, and this slice is not what closed it.** Counted at
+the commit before this one over `stdlib/`, `self_host/`, `tests/` and
+`examples/`, excluding `Err.ax` itself: `isOk` 17, `isErr` 21,
+`unwrapOr` 73, `errMessage` 3, `errContext` 1, `mapOk` 1, `remChecked`
+2, `shrChecked` 1. All eight already had a caller — four of them only
+through `tests/stdlib/371-err-module.ax`, which grew to reach them.
+This slice takes `isOk` to 28, `isErr` to 25 and `errMessage` to 4. The
+document now says so beside the list, because that list is what a
+deletion decision would be made against.
+
 ### An unfollowed argument is a hole only where the signature says it could be one
 
 `#effects-incomplete` marks a declaration's effect row as a LOWER

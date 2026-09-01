@@ -29,6 +29,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Mem)
 
 (:: say (-> Int String Int))
@@ -127,7 +129,7 @@
               srvAddr              base              127              0              0              1
             )
             (say
-              (if (== (netBind lsn srvAddr) 0)
+              (if (isOk (netBind lsn srvAddr))
                 1
                 0
               )              "a v4 listener binds with the length its family asks for"
@@ -143,7 +145,7 @@
                   cliAddr                  (+ base 1)                  127                  0                  0                  1
                 )
                 (say
-                  (if (== (netBind cli cliAddr) 0)
+                  (if (isOk (netBind cli cliAddr))
                     1
                     0
                   )                  "the client binds a source port this case chose"
@@ -240,7 +242,7 @@
             ; for. It is the length coming off the family that makes it
             ; a 0.
             (say
-              (if (== (netBind lsn6 srvAddr) 0)
+              (if (isOk (netBind lsn6 srvAddr))
                 1
                 0
               )              "a v6 listener binds ::1 with sockaddr_in6's 28 bytes"
@@ -256,7 +258,7 @@
                   cliAddr                  (+ base 3)                  0                  0                  0                  0                  0                  0                  0                  1
                 )
                 (say
-                  (if (== (netBind cli6 cliAddr) 0)
+                  (if (isOk (netBind cli6 cliAddr))
                     1
                     0
                   )                  "the v6 client binds a source port this case chose"

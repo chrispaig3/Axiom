@@ -28,6 +28,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Mem)
 
 (:: say (-> Int String Int))
@@ -55,9 +57,9 @@
         (netAddr4
           addr          port          127          0          0          1
         )
-        (if (!= (netBind fd addr) 0)
+        (if (isErr (netBind fd addr))
           (- 0 1)
-          (if (!= (netListen fd 16) 0)
+          (if (isErr (netListen fd 16))
             (- 0 1)
             {
               (netSetNonBlocking fd)
