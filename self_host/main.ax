@@ -1264,14 +1264,36 @@
                 ; a file named `3`.
                 ; a static archive needs no `main` and links nothing: its
                 ; externs, if any, are grounded when the HOST links
-                (let ((outp 
+                ; THE DEFAULT IS THE PACKAGE'S NAME, since 2026-08-31.
+                ; `axiom.pkg`'s `name` was parsed, recorded, and read by
+                ; nothing - which made it indistinguishable from a typo
+                ; and made every project on the machine build to a file
+                ; called `output`. It is now what `build` writes when
+                ; neither `--output` nor `-o` says otherwise, and the
+                ; literal `output` is what a tree with no manifest
+                ; still gets, so nothing that never had one changes.
+                ;
+                ; The name is a FILE name, in the working directory,
+                ; exactly where `output` was written - not a path
+                ; beside the manifest. Two things hold that: `pkgVerify`
+                ; exits 3 on a `name` that is not one, from inside
+                ; `compileFile` below and therefore before any write;
+                ; and `pkgNameOk` admits no `/` and no `..`, so the
+                ; string bound here could not name another directory
+                ; even if the verification were removed.
+                (let ((outp
                   (let ((v (flagValue "--output" 1)))
                     (if (> (strLen v) 0)
                       v
                       (let ((sh (flagValue "-o" 1)))
                         (if (> (strLen sh) 0)
                           sh
-                          "output"
+                          (let ((nm (pkgName (pathDir inp))))
+                            (if (> (strLen nm) 0)
+                              nm
+                              "output"
+                            )
+                          )
                         )
                       )
                     )

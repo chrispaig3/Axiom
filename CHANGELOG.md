@@ -16,6 +16,65 @@ its changelog too.
 
 ## Unreleased
 
+### `axiom.pkg`: a line that means nothing is refused, and `name` is read
+
+The manifest had one reader, `pkgLineValue`, and it contributed nothing
+and said nothing about a line it did not recognise. Measured on the
+0.6.1 binary, three different mistakes produced one identical output —
+`error[AX5001]: cannot resolve import `Widget``, exit 1, naming the
+import and every directory it searched and never the file that was
+supposed to have added one:
+
+```
+dependd vendor/lib          a misspelled key
+depend                      a key with no value
+depend<TAB>vendor/lib       a tab where the split wanted a space
+```
+
+The third was not even a mistake. The key/value split was
+`strStartsWith line "depend "` — one literal space — so a tab-aligned
+manifest declared nothing.
+
+- **The split takes the first token instead of matching a prefix**
+  (`pkgKeyOf`), so any run of spaces or tabs separates a key from its
+  value, and `dependency` is still not `depend` because the token must
+  be the whole key.
+
+- **`pkgCheckLines` walks the manifest once and refuses four shapes**,
+  each at `axiom.pkg:LINE` and before a byte is compiled: an unknown
+  key, a key with no value, a second `name` or `version` (`depend`
+  exempt — repeating it is how you declare two), and a `name` that is
+  not a file name. Plain `error:` lines rather than `AXnnnn`, like the
+  two refusals `pkgVerify` already had: there is no span, because the
+  fault is in a manifest and the code ranges in `docs/diagnostics.md`
+  are about what the source said.
+
+- **`name` is what `axiom build` writes** when neither `--output` nor
+  `-o` says otherwise, in the working directory, in place of the
+  literal `output` every project on the machine shared. A tree with no
+  manifest still gets `output`. This is what makes the key
+  distinguishable from a typo, which is the other half of the same
+  defect; `version` is still read by nothing. `pkgNameOk` admits
+  letters, digits, `.`, `-` and `_` and neither `.` nor `..`, so the
+  string cannot name a directory the command line never mentioned.
+
+*Kept by:* `scripts/check-packages.sh`, 11 checks → **26**. The
+`name`-as-output pair is a pair on purpose — `myapp` exists AND
+`output` does not — because a build that wrote both would satisfy the
+first and have changed nothing; two more pin the reference's claim that
+the executable lands in the working directory rather than beside the
+manifest, from the project root and from `src/`.
+
+*Ablated,* by rebuilding the compiler from a tree with all three
+changes reverted (`pkgKnownKey` answering `true` for every key,
+`pkgLineValue` back to the one-space prefix, `build`'s default back to
+`"output"`): **7 FAIL lines, exit 1** — the tab manifest resolving
+nothing (`got 1`), the unknown key producing `OK` at **exit 0**, and
+five on `output` being written where the manifest named `myapp`. The
+19 that stayed green are the ones the ablation does not touch,
+including the four `pkgCheckLines` refusals that do not depend on the
+key being known.
+
 ### Memory model v2, proposals 3, 4 and 5
 
 `docs/memory-model-v2-proposal.md` landed in 0.6.0 as a document. Three

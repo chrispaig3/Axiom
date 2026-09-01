@@ -2201,7 +2201,47 @@ module search path after the entry file's directory and before
 `$AXIOM_PATH` — the position [the search order](#the-search-order-stated-exactly)
 above gives it. The manifest travels with the source and the variable
 travels with the shell, so when both can answer, the declared dependency
-wins. `name` and `version` are recorded and read by nothing yet.
+wins. A key and its value are separated by any run of spaces or tabs.
+
+**`name` is the executable's default name** (2026-08-31). `axiom build`
+with neither `--output` nor `-o` used to write the literal `output`,
+for every project on the machine; it now writes the manifest's `name`,
+in the working directory, and still writes `output` when there is no
+manifest — so a tree that never had one is unchanged:
+
+```
+$ cat axiom.pkg
+name    myapp
+$ axiom build app.ax
+Build successful: myapp
+```
+
+Because the name is spent as a file name it is checked like one: it is
+letters, digits, `.`, `-` and `_`, and is neither `.` nor `..`. A
+`name` that is not — `../escaped`, say — is refused at the manifest,
+not resolved into a path the command line never mentioned. `version`
+is still recorded and read by nothing.
+
+**A manifest line that means nothing is refused** (2026-08-31), at
+`axiom.pkg:LINE` and before anything is compiled: an unknown key, a key
+with no value, and a second `name` or `version` (repeating `depend` is
+how you declare two dependencies, so that one is allowed).
+
+```
+$ axiom check app.ax ; echo $?
+error: ./axiom.pkg:2: unknown key `dependd`
+       The manifest's keys are `name`, `version` and `depend`, and `#`
+       starts a comment. An unknown key used to be ignored, which made
+       a misspelled `depend` report as every module it would have
+       provided going missing - one at a time, naming this file never.
+3
+```
+
+"Used to be ignored" is measured rather than feared: on 0.6.1 a
+misspelled key, a valueless key and a tab between key and value all
+produced the identical `error[AX5001]: cannot resolve import` at exit
+1, which names the import and every directory searched and never the
+file that was supposed to have added one.
 
 **Two dependencies may not provide one module.** That is the property
 that makes this more than a search path, and it is refused before a byte
@@ -2229,7 +2269,7 @@ dependency is a path on this machine. Each of those is a policy decision
 that wants a maintainer to make it, and a half-made one is worse than
 the mechanism it would rest on ([compatibility.md](compatibility.md) §4
 records it among the things not promised). `scripts/check-packages.sh`
-is the gate — 11 checks, whose negative probe removes the manifest and
+is the gate — 26 checks, whose negative probe removes the manifest and
 requires the same program to stop resolving, so nothing else can be what
 found the module.
 
