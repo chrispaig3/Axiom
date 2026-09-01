@@ -147,7 +147,7 @@
       (netAddr4
         addr        port        127        0        0        1
       )
-      (if (< (netConnect cli addr) 0)
+      (if (isErr (netConnect cli addr))
         "ERR connect failed"
         (let ((con (acceptSoon lsn 1000)))
           (if (< con 0)
@@ -199,7 +199,7 @@
       (netAddr4
         addr        port        127        0        0        1
       )
-      (if (!= (netBind lsn addr) 0)
+      (if (isErr (netBind lsn addr))
         (die "bind failed" 1)
         0
       )

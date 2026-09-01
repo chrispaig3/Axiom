@@ -16,6 +16,596 @@ its changelog too.
 
 ## Unreleased
 
+### Five more calls that answered only "did it work", and a census that had been filing a lookup as a failure
+
+`ERR-ADOPT-1`'s second slice, and the same rule as the first applied to
+what was left: every call in `stdlib/Sys.ax` whose entire answer is
+whether it worked. `sysCloseFd`, `netPollAddRead`, `netPollDelRead`,
+`sysSignalBlock` and `sysKill` answer `(Result Int Error)`.
+
+**`stdlib/Sys.ax`'s census: 19 → 14 by the port, then 14 → 13 failure
+and 0 → 1 absence by a census fix.** Two movements in one row, and they
+are different kinds of thing, so both are recorded in
+`compat/SENTINELS`. The library stands at 16 failure + 10 absence.
+
+**Six WIDENED rows, and the sixth is collateral worth naming.**
+`sysFileExists` gains `Alloc` because it closes the descriptor it
+opened. It is the only such row in the library: `verify-compat.py
+generate` over `stdlib/` before and after the `sysCloseFd` port differs
+in exactly two rows, and every other function here that closes a
+descriptor already allocated. No `no-alloc` module reaches either name.
+
+**No callee undid an exclusion this time, and that was checked rather
+than assumed** — the standing cost of the previous slice's finding.
+After the port `netAccept` is `#effects=IO`, `netAcceptFrom` is
+`#effects=IO,Mut` and `netPollWait` is `#effects=IO,Mut`, all unchanged.
+
+**`netPollSignalAt` was never a failure.** It answers "the signal named
+by event `i`, or a negative when that event is not a signal at all";
+every bad-path answer it writes is a hand-written `-1`, and all five
+call sites read it as a presence test — `315-signal-in-poll.ax:131`
+asserts `< 0` for "a socket event is not read as a signal". That is
+`ERR-REC-3`'s absence, wanting `Option`. `sentinel_census` filed it
+under failure because a body's mere *mention* of a syscall beat its
+`-1` returns, and its Linux arm reads a `signalfd` whose result is
+compared and never returned.
+
+The census follows the syscall result to the answer now, through a
+`let` binder as well as directly. **The direct-only version was written
+first and also moved `sysNowMonotonic`**, which is a real failure
+forwarding `clock_gettime`'s errno through exactly that binder — a
+false positive at a population of two, which is the argument for
+following the binding. The rule is narrow by construction: a body with
+no `-1` in return position never reaches it, so `netAccept` is
+untouched. Over `stdlib/` it moves exactly one row.
+
+**`check-compat.sh`'s census floor expired on this slice.** It read
+`total_now < 30` against a population of 38, "set under today's 38 by
+the margin a real port would move it"; this slice takes the census to
+26, so the gate went red for the migration succeeding. A floor that has
+to be hand-lowered whenever the thing it measures moves in the intended
+direction will eventually be lowered without being thought about.
+
+What replaces it is stricter: **the computed census must agree with
+`compat/SENTINELS` row for row.** That is the rule `ERR-ADOPT-1` and
+that file already state, and asserting it directly also catches a port
+that lowers the count and leaves the file stale — which the floor
+passed in silence. The "did the rule stop matching" question the floor
+was really asking is a named ablation now: a public function forwarding
+a raw syscall is planted into a copy of `stdlib/`, and the census must
+count it. Both were ablated: a stale row goes red, and breaking
+`SENTINEL_SYSCALL` fails the plant.
+
+**The gate died halfway through reporting, and that is how the second
+ablation was found.** Under `set -euo pipefail`, the
+`diff a b | sed | head` that prints a census disagreement exits 1 and
+takes the whole script with it — so a run of `scripts/check-compat.sh`
+stopped at its first FAIL and reported one fault in a tree that had
+two, the probes below that line never running. Three such pipelines in
+`scripts/check-compat.sh` are braced with `|| true` now. It is this
+repository's "a gate that reports LESS than it knows" hazard, occurring
+inside the gate written to refuse it.
+
+**Callers: 14 sites over 7 files needed an edit**, out of 58 raw call
+sites — the rest are results that were being discarded, which now say
+so in the type. `stdlib/Tui/Term.ax` is the one stdlib caller, and its
+`mkKeyIn` already allocated. `isOk`/`isErr` at every site that compared
+against `0`; two `if` arms became `{ (sysCloseFd fd) 0 }` where a
+discarded close sat opposite an `Int`.
+
+>>>>>>> origin/trunk
+### Seven socket calls that answered a negative errno now answer a `Result`, and a callee nearly undid the exclusion the slice was drawn around
+
+`ERR-ADOPT-1`'s third slice. `netBind`, `netListen`, `netConnect`,
+`netShutdown`, `netSetOptInt`, `netSetBlocking` and `netSetNonBlocking`
+answer `(Result Int Error)` through `sysResult`. Each of them answers
+nothing but whether it managed what it was asked to do, so `Ok 0` is
+the whole of the success, and the errno that used to arrive negated
+inside the success type is `Error.code`.
+
+**`stdlib/Sys.ax`'s sentinel census: 26 → 19; the library 29 → 22**,
+`scripts/check-compat.sh`, 30 checks, with `compat/SENTINELS` lowered
+in this commit. Seven WIDENED rows in `compat/BREAKING` rather than
+CHANGED: `sysResult` builds an `Error`, so every ported row gains
+`Alloc` — the same tax 0.6.1 declared for every `Err.ax` export, and
+the whole of it, because `sysResult`'s message is a literal operation
+name and nothing concatenates on the success path.
+
+**The slice line is where the call RUNS, not what it does.** All seven
+run once per socket. What is left in the module is per-connection
+(`netAccept`, `netAcceptFrom`), per-wake (`netPollWait`,
+`netPollSignalAt`) or per-write (`sysWriteFd`, which `IO.writeStr`
+forwards) — allocation `tests/net/echo-server.ax` reaches *below* its
+per-connection `__axiom_arena_mark`, in a worker that runs until it is
+signalled. `netSocketTcp` and `netSocketTcp6` are left for a different
+reason: they are nullary and answer the descriptor itself, so porting
+them retypes every `lsn` and `cli` binding in eight files rather than
+one expression at each call site.
+
+**A CALLEE UNDID THAT EXCLUSION FROM UNDERNEATH.** `netAcceptFinish`,
+shared by `netAccept` and `netAcceptFrom`, calls `netSetNonBlocking` on
+the target whose kernel does not take `SOCK_NONBLOCK` — once per
+accepted connection. Porting the callee gave both accept functions
+`Alloc` in `axiom symbols`, which is an `(Ok 0)` per connection that
+the arena reset never rewinds. The raw two-`fcntl` answer is now a
+private `netSetNonBlockingRaw` and the `Result` is the public skin over
+it; `netAccept` is back to `#effects=IO` with its nid unchanged.
+
+**And `scripts/check-net.sh` would not have caught it.** Measured with
+the allocation deliberately restored to the accept path: the gate
+stayed green at **182×** against its floor of 50 (344× with the split),
+and the scoped arm's growth over 9,800 connections moved 400 KiB →
+512 KiB — about 12 bytes per connection, inside what a page-granular
+RSS reading resolves. `docs/error-model.md` said this exclusion existed
+because it risked "a measured gate"; the gate's ratio is sized to catch
+an arena that stopped reclaiming, not one 32-byte block per connection.
+The rule is amended there to say what actually holds it, which is
+`#effects=` in `axiom symbols`.
+
+**Callers: 47 call expressions over eight files**, all in `tests/` and
+`examples/`; `stdlib/` and `self_host/` call none of the seven. Every
+site that compared the answer against `0` is now `isOk` or `isErr`;
+`tests/net/echo-server.ax` and `examples/web/server.ax` print a failed
+bind's errno through `errCode`, and the echo server names the operation
+through `errMessage`.
+
+**`docs/error-model.md` §10's "eight `Err.ax` exports are reached by
+nothing" is stale, and this slice is not what closed it.** Counted at
+the commit before this one over `stdlib/`, `self_host/`, `tests/` and
+`examples/`, excluding `Err.ax` itself: `isOk` 17, `isErr` 21,
+`unwrapOr` 73, `errMessage` 3, `errContext` 1, `mapOk` 1, `remChecked`
+2, `shrChecked` 1. All eight already had a caller — four of them only
+through `tests/stdlib/371-err-module.ax`, which grew to reach them.
+This slice takes `isOk` to 28, `isErr` to 25 and `errMessage` to 4. The
+document now says so beside the list, because that list is what a
+deletion decision would be made against.
+
+### An unfollowed argument is a hole only where the signature says it could be one
+
+`#effects-incomplete` marks a declaration's effect row as a LOWER
+bound: the walk met a call it could not resolve, so an effect ABSENT
+from the row is not evidence the body does not perform it. Every claim
+of absence over such a row therefore goes unanswered —
+`;@axiom:pure` draws `AX3037`, `restrict(no-io)` draws `AX3051`, a
+`handle` draws `AX3038`, each a warning rather than a verdict, and
+each is the analysis saying "ask me something I can answer."
+
+**The mark was being set from the ARGUMENT's shape, and the standard
+library's own sort was the casualty.** A call through an
+effect-transparent parameter marked the row incomplete for every
+argument the walk could not follow — a load, a call result, an `if` —
+without asking what the callee's signature said that argument *was*.
+`vecSiftDownBy` calls `(cmp (memGetWord d r) (memGetWord d k))` and
+`cmp` is declared `(-> Int Int Int)`, so on 2026-08-31, at 0.6.1:
+
+    F vecSiftDownBy ... #effects=Mut #effects-incomplete #effect-params=cmp
+    F vecSortBy     ... #effects=Mut #effects-incomplete #effect-params=cmp
+
+Two machine words the signature calls integers were enough to publish
+`vecSortBy`'s row as a lower bound, and `restrict(no-io)` over a
+function that sorted anything came back `AX3051 ... the effect row is
+a lower bound and the absence of IO from it is not evidence`.
+
+The rule is now `paramCallablesOf`'s own, asked one level down: **an
+arrow, a type variable or poison can hold a callable value; a concrete
+`Int` cannot.** A value handed to an `Int` position can hide no
+effect, because applying it is `AX3004` and the program does not
+compile — which is exactly the argument `markEparam` has always rested
+on for the parameter itself. `escapeArgs` takes the callee's declared
+type and asks `tyIsCallable` of the position each argument lands in;
+an unknown type answers 0 and `tyIsCallable` answers 1 for 0, so a
+missing signature, an over-applied spine and a poisoned type all stay
+conservative without a second test.
+
+**Population, swept file by file with `symbols` over every source
+under `stdlib/`, `self_host/`, `tests/`, `examples/` and `compat/` (578
+of them; own-file rows only): 34 declarations carried the mark before
+and 30 after.** The four that closed are `vecSiftDownBy`, `vecSortBy`,
+`tests/stdlib/140-function-values.ax`'s `twice` and
+`tests/stdlib/405-vec-sort.ax`'s `main`. The thirty that remain are
+the shapes `MM-EXEC-9a` describes and this does not touch: a head that
+is not a name, an opaque `let`, a pattern binder, over-application —
+and, newly separable, an argument position that is a type VARIABLE.
+`tests/selfhost/999-placeholder-under-arrow.ax` holds the pair that
+makes the point: `twice` there is `(-> (-> a a) a a)` with the same
+body as `140`'s `(-> (-> Int Int) Int Int)` version, and it keeps the
+mark, because a caller may instantiate `a` to an arrow.
+
+**Blast radius, measured rather than argued.** `check` over every
+`.ax` in the tree emits 883 diagnostic lines before and 883 after,
+byte-identical: no diagnostic in the corpus moves, and
+`tests/agent/restrictions.allow`'s 474 verdicts are unchanged. The
+AXSYM streams
+for the whole standard library and for `self_host/main.ax` differ in
+exactly the two `Vec.ax` rows above, and only by the marker — no
+`#effects=` set and no `#effect-params=` changed anywhere. What the
+change buys is visible only on a claim nobody had written yet:
+`restrict(no-io)` over `(vecSortBy v (lambda (a b) (- a b)))` was
+`AX3051` and is now checked and clean.
+
+`arrowParamTy` moved to `parser.ax` beside `arrowArity` on the way.
+`codegen.ax` had written it for the ownership pass and `typecheck.ax`
+needed the same arrow-spine read for this question; the two modules do
+not import each other, so nothing had compared them.
+
+Gated by `scripts/check-effect-argpos.sh`. **Fifty-two gates** now
+call `gate_build_axc`, so the six places that state that number moved
+with it and `word_for`'s table grew an arm. Eight probe declarations, of which
+**four are controls that must keep the mark**: a type variable, an
+arrow position, a callee with one position of each kind handed an
+unfollowable value in both, and a head that is not a name. Without
+them, deleting the mark outright passes every other assertion — which
+is the silent direction, since a missing mark turns three unverifiable
+warnings into verdicts nobody asked for. `vecSortBy` and
+`vecSiftDownBy` are asserted in both directions (the mark is gone AND
+the row still reads `Mut` through a transparent `cmp`), so a walk that
+stopped reporting anything at all cannot pass either. The ablation
+drops the type test from `escapeArgs`, rebuilds, and requires both
+complete rows to go back to lower bounds while all four controls stay
+put; run end to end against a tree with the fix removed, the gate
+reports 5 of 15 checks failed, and the two `Vec.ax` rows are in the
+failure text.
+
+### The emitter asked three un-indexed questions at every call site
+
+`scripts/bench-compile.sh` said code generation was the compile, and it
+was not string building. `self_host/main.ax` at `--opt 1`, best of 5,
+process startup subtracted, before:
+
+```
+check (lex, parse, expand, typecheck)    0.3527s    2.9%
+  + serialise and write the IR           5.0097s   41.7%
+opt -O1                                  3.0602s   25.5%
+llc -O1                                  3.5628s   29.6%
+axiom build, measured end to end        10.9587s
+```
+
+and after, the same script on the same host minutes later, so the
+toolchain rows are the control — they do provably identical work,
+because the emitted IR is byte for byte what it was:
+
+```
+check (lex, parse, expand, typecheck)    0.3346s    4.4%
+  + serialise and write the IR           1.0129s   13.3%
+opt -O1                                  2.7574s   36.2%
+llc -O1                                  3.4826s   45.7%
+axiom build, measured end to end         7.4223s
+```
+
+**The emission phase is 4.95× faster** — 5.0097s to 1.0129s — and it
+falls from 41.7% of the compile to 13.3%, so the external toolchain now
+holds 82% of it. Under load the gap is wider, because a linear scan
+suffers more from a busy machine than a hash probe does: interleaved
+best-of-9 against a loaded runner measured `emit-llvm` at 9.6391s
+against 1.8332s, 5.26× over a phase that includes `check`.
+
+**Nothing about it is an IR change.** These commits change how a name
+is looked up, not what it resolves to, and that was verified rather
+than assumed: both compilers emitted every `.ax` in `self_host/`,
+`stdlib/`, `tests/`, `examples/` and `compat/` — 578 inputs, 405 of
+which produce IR and 173 of which are diagnostic fixtures that refuse —
+and all 984 artifacts matched, 405 `.ll` files byte for byte, 578
+stdout/stderr captures, and all 578 exit statuses. That is what makes
+this a change with no reseed: `scripts/check-bootstrap.sh`,
+`check-reproducible.sh`, `check-self-host.sh`,
+`check-seed-provenance.sh` and `check-seed-lineage.sh` are green
+unchanged, and the whole 61-gate battery passes.
+
+What was wrong, in the order it was fixed:
+
+- **`buildNameIndexes` existed and its two hottest callers never used
+  it.** It was added in 0.3.7 (`4632a34`) because `mangledFor`'s walk
+  of 1,600 bare names "cost a self-compile 2.8 s to 5.0 s on the scans
+  alone", and it builds the Intern that `mangledForCg` reads. `emitVar`
+  and `emitPlainCall` — one lookup per emitted variable reference, one
+  per emitted call — still called `mangledFor`. Two tokens.
+
+- **The declaration list had no index at all.** `isNullaryFn`,
+  `isDefinedFn` and `fnArityOf` each walk the whole merged declaration
+  list — 4,600 entries when the compiler compiles itself — and
+  `emitVar` and `emitOverApplied` ask them at every call site, so
+  emission was quadratic in the program's size. All three now answer
+  from `buildNameIndexes`, with the linear scan kept as the fallback
+  for the REPL's and LSP's partial paths.
+
+  **It cost no `CG` field, and that was the constrained part.** `CG`
+  declares 46; MM-LIFE-2d's record-form shape word maps 47 payload
+  words and `AX3029` refuses a 48th (`typecheck.ax:2704` is `(>
+  (vecLen (nodeB d)) 47)`, measured rather than read off the doc). A
+  field per index would have taken the tree's last slot. Field 40 held
+  one Vec and now holds five — the old `bareFirst` at `[0]`, then the
+  declaration Intern and the three answers parallel to its ids — so
+  `CG` stays 46 wide and the headroom stays at one. The two booleans
+  are order-independent (each scan asks "does one exist"); `fnArityIn`
+  is not, so the index is built in declaration order and only the first
+  `D_FN` of a name writes the arity slot, and a zero-arity `extern`
+  item is interned under both its spellings because `externHasNullary`
+  matches either.
+
+- **Five `findFSig` call sites, and a name the hot path built twice.**
+  `fnTakesEvw`, `fnRetIsFloat`, `emitFnDef`'s `curFlags` initialiser,
+  `curParamRefClass` and `curParamEvBit` all spelled the scan; and
+  `mangledForCg` built `m$name` once to probe the Intern and again to
+  answer with.
+
+**The `cat3` deduplication was wrong the obvious way, and
+`check-bootstrap.sh` caught it.** Building the spelling once into a
+`let` that the probe and the answer share is exactly the shape the
+emitter cannot release: `releaseOwnedArgs` hands back an owned value
+passed as an ARGUMENT, and a `let`-bound name that one branch RETURNS
+is not one, so no release is emitted on either branch — five releases
+in `@codegen$mangledForCg` became one, and every module-local reference
+leaked its spelling. One self-compile went to **490 MiB against the 448
+MiB ceiling**. Attributed by building one compiler per commit and
+measuring peak RSS of `emit-llvm self_host/main.ax` under `/usr/bin/time
+-l`: 423 MiB base, 420 with the first fix, 421 with the declaration
+index, 421 with the five `findFSig` sites, **490** with the `cat3`
+`let`. Neither index moves the number; the three parallel vectors and
+the Intern's rehashes, the obvious suspects, are together under a
+megabyte.
+
+The repair is not a revert. A hit means the Intern already holds a
+string spelling `m$name`, so the answer is that entry — borrowed — and
+the probe's `cat3` goes back to being an argument the same line
+releases. That drops the second `cat3` **and** the leak, and is faster
+than the leaking version was. `check-bootstrap.sh` is green at 420 MiB
+with 6% of headroom, against 422 MiB and 5% on the tree before any of
+this; the ceiling was not touched. Peak RSS per program, max of three
+runs — the max because `/usr/bin/time -l` counts RESIDENT pages and the
+base compiler, ten seconds on `main.ax`, has some reclaimed under it
+(299 to 423 MiB across runs) where the indexed one finishes in 1.8s and
+reads 421 every time:
+
+```
+tests/stdlib/010-hello.ax    19 MiB ->  19 MiB
+stdlib/Vec.ax                 4 MiB ->   4 MiB
+self_host/typecheck.ax      102 MiB -> 102 MiB
+self_host/main.ax           423 MiB -> 421 MiB
+```
+
+The leak read as superlinear — 4% on `typecheck.ax` against 43% on
+`main.ax` — and it was not an accumulator that copies. A file compiled
+as the ENTRY has no module prefix, so the leaking branch never runs;
+`main.ax` pulls in thirty modules and every reference inside one takes
+it.
+
+**No gate was added.** Every claim above is held by gates that already
+exist: the byte-identical fixpoint by `check-bootstrap.sh`,
+`check-reproducible.sh` and `check-self-host.sh`, the peak by
+`check-bootstrap.sh`'s ceiling, and the shared artifact's IR equality
+by `build-shared-axc.sh`. The wall-clock numbers are
+`scripts/bench-compile.sh`'s, which is a profile and not a gate, and
+they are reported as such.
+||||||| 1e9f35e
+
+
+### Range-constrained subtypes: the design pass, and a recommendation not to build it
+
+`docs/subtypes-design.md` is the third and last of the items Ada round
+1 left unstarted, and the note's conclusion is **do not build it as a
+type**. It is here so the item stops being carried as "unstarted" and
+starts being carried as "designed, and deliberately not built, for
+three reasons that are each a measurement".
+
+- **The population is real.** Pairing every top-level `(:: f (-> ...))`
+  with its `fn` header over `self_host/` and `stdlib/`: 3,691 functions
+  with both, **6,720 `Int`-typed parameters**, of which **1,305
+  (19.4%)** carry an index-, length- or count-shaped name, across 1,179
+  functions. 499 comparisons of a bare name against literal `0` and 780
+  against `vecLen`/`strLen` already assert those ranges by hand, one
+  site at a time. That is the case FOR the feature and it is the
+  strongest thing that can be said for it.
+
+- **The check would be the one contracts already ship.** There is no
+  value analysis in this compiler — the same 0, 0, 0 the contracts note
+  opens with — so a conversion into `Positive` cannot be discharged
+  statically for any argument that is not a literal. A subtype
+  therefore adds no enforcement mechanism at all: `__contract`,
+  `@__axiom_contract_fail` and status 76 are already there. What it
+  adds is a different ATTACHMENT POINT for the same check, and that is
+  where the cost is.
+
+- **The cost is measured, not estimated, because a `pre` on a
+  self-recursive function already IS a per-iteration check.** The loop
+  rewrite fires and the check rides inside it. `@loop` grows from 20
+  lines of IR to 28; on the clock, 200,000,000 iterations at `--opt 0`,
+  the two binaries run alternately five times: 0.51 / 0.51 / 0.54 /
+  0.56 / 0.56 bare against 0.73 / 0.72 / 0.75 / 0.75 / 0.74 —
+  **+37% on the median, arms never interleaving**, on a loop whose body
+  is a decrement and an add. At `--opt 2` that loop is folded away
+  entirely, so the figure is the cost of the check where the check
+  runs.
+
+- **And `cast` would launder the constraint.** 651 casts against 3,691
+  `fn` declarations, 441 of them `(cast Int ...)`. `docs/memory-model.md`
+  `MM-VAL-23` already records this failure in another system — "the
+  safe vehicle is a typed accessor, not a call-site cast" — and a range
+  constraint is evidence of the same kind. `Int` is also already doing
+  two jobs: **288 of the 341 struct fields in the tree are declared
+  `Int`**, and 191 `(cast Int ...)` sites widen a construction
+  directly, so a subtype OF `Int` sits on a type whose values are not
+  all numbers.
+
+The recommendation is to write the constraint as a `pre` that names the
+parameter, which expresses the same thing at the boundary that matters
+with the check the compiler can actually perform. The note states three
+conditions that would change it — a value analysis, a `cast` that
+cannot launder a constraint, and an integer type that is not the handle
+word — each as a condition rather than a mood.
+
+### Three ways to write a claim that could not fail
+
+Ada round 1 and 1.5 put five checked claims in the AXTAG namespace —
+`pure`, `effect(...)`, `restrict(...)`, `pre(...)`, `post(...)`. Each
+of the three below is a place where one of them was *written*,
+*accepted*, and *never answered*. None was refused, none warned, and
+in two of the three the program went on to do the thing the claim said
+it did not.
+
+- **A restriction over a body that calls its own parameter was
+  silent.** `(fn (runIt f n) (f n))` under `restrict(no-io)` checked
+  `OK` with no diagnostic at all, and `{ (f "x") n }` printed to
+  stdout at run time. The same silence covered `no-alloc`,
+  `no-foreign`, `no-recursion` and `no-cast:deep`; `no-recursion` was
+  silent over a program that really recurses — `runIt -> back ->
+  runIt`, a cycle whose middle edge is a parameter the call graph has
+  no edge for.
+  The compiler KNEW: `symbols` renders `#effect-params=f` on exactly
+  these rows (`FnEnt` word 6) and nothing in `typecheck.ax` read it.
+  It is `AX3051` now, a warning, the **third** reading of
+  "unverifiable" beside present-only-as-POSSIBLE and
+  row-incomplete — and a warning rather than `AX3049` because the
+  claim is not refuted here, it is chosen at every call site. The two
+  LEXICAL restrictions, `no-cast` and `no-wrap`, are excluded on the
+  same line the header already draws: a parameter cannot change the
+  bytes of this body.
+  **Blast radius 0 over the tree's own claims, measured**: across
+  `self_host/main.ax`, 347 rows carry a restriction, 5 carry
+  `#effect-params=`, and the intersection is empty — the derived
+  manifest gains 11 rows and moves none.
+  It is NOT zero over the gate that blankets a corpus with them, and
+  that is where the change had to be admitted rather than assumed:
+  `check-restrictions.sh` section 1 restricts every `fn` of 172
+  programs and asserted that an `AX3051` may only land on a row marked
+  `#effects-incomplete` or `#effects-overapprox`. Four programs then
+  failed it — `520-fn-values`, `972-polymorphic-signature`,
+  `997-let-box-value-escapes`, `999-placeholder-under-arrow`, each on a
+  row carrying `#effect-params=` and neither of the other two. The
+  gate is right to have caught it: a new reading is admitted there one
+  marker at a time, in a `while` loop with the three named, rather than
+  by widening a test until nothing fails it.
+  `tests/diagnostics/391-restrict-effect-transparent.ax` is five
+  warnings — one per transitive restriction — and five controls.
+
+- **An AXTAG on the FIRST declaration a macro template generates was
+  thrown away.** `expCopyDeclInto` copies the first generated
+  declaration into the invocation's own node, and it copied words 0,
+  1, 2, 3, 4, 5, 6 and 9 while writing a literal **0** into word 7,
+  the AXTAGs. Measured with one near-miss key moved one line between
+  two runs of the same file: above the template's first declaration,
+  nothing; above its second, `AX3039`. The claims that matter split
+  the same way — `restrict(no-io)` on a template whose first
+  declaration is the `::` checked `OK` over a body calling `println`,
+  and a `;@axiom:pre` there compiled to no check at all.
+  `tests/diagnostics/361-macro-template-effect.ax` records three bugs
+  in this family, closed on 2026-08-25; this is the fourth, and 361
+  could not see it because 361's tag sits on the template's fifth
+  declaration. The word is copied like every other word now. The zero
+  existed so `expGiveTags` could park an INVOCATION's tag on the first
+  generated `fn` unconditionally — it does not need to, because that
+  walk already reads each generated declaration's own word 7 to decide
+  whether it is spoken for, and only the invocation node's copy was
+  ever zeroed. `tests/diagnostics/392-macro-template-first-tag.ax` has
+  both arms firing and one control silent; ablated by restoring
+  `(memSetWord d 7 0)`, both errors vanish.
+
+- **Every AXTAG typed at the REPL prompt was dropped in silence, and
+  one of them could not be written anywhere else.** The loop discards
+  any line beginning with `;`, which an AXTAG does, so
+  `;@axiom:restrict(no-io)` typed above a function that calls
+  `println` drew `AX3042` for the undeclared effect and **nothing**
+  for the restriction — where the same three lines in a file draw
+  both. The second half is worse than a dropped claim:
+  `;@axiom:effect(io)` was dropped too, so an IO-performing function
+  could not be DEFINED at the prompt at all — measured, `(fn (shout n)
+  { (println "hi") n })` answers "`shout` performs IO and its
+  declaration does not say so" whatever the author types above it, and
+  there is no workaround at the prompt, because `(println "hi")` as an
+  EXPRESSION works only through the tag `replWrapper` writes itself.
+  Effect enforcement (2026-08-25) created that, and nothing noticed
+  because no session in the bank declares an effect.
+  A `;@axiom:` line is appended to `declsSrc` now, where
+  `parseModuleWith (lex wrapper) (scanAxtags wrapper)` reads it. Two
+  edges come with it and both are handled where they arise: a
+  REDEFINITION withdraws the claims written about the definition it
+  replaces (`replDropMatching` extends the removed range back over the
+  contiguous `;@axiom:` lines above the declaration — without it, a
+  withdrawn function's `restrict(no-io)` would sit above whatever
+  declaration came next); and a TRAILING tag, typed with no
+  declaration under it yet, is stripped from the copy the wrapper
+  compiles, because `replWrapper` splices `(:: __repl_result ...)` in
+  directly after `declsSrc` and the tag would be answered against the
+  REPL's own carrier. It stays in `declsSrc` and attaches to whatever
+  is declared next, which is what it would do in a file.
+  `replTopLevelSpans` counts parens over the TOKEN stream and the lexer
+  drops comments, so `;@axiom:pre((> n 0))` cannot be mistaken for a
+  top-level form however many parens it carries — which is what makes
+  this safe to put in `declsSrc` at all.
+  `tests/repl/150-axtag-shape` pins all three halves: an IO-performing
+  function DEFINED at the prompt and run, a tagged declaration
+  redefined above it so a stale claim would refuse that function if
+  the drop did not take its tags, and a `restrict(no-io)` typed at the
+  prompt and answered with the path.
+
+### Pre/post contracts: the one claim in this namespace the checker cannot decide
+
+`;@axiom:pre(...)` and `;@axiom:post(...)` are the second of the three
+items `docs/checked-arithmetic-design.md` left unstarted, and they are
+the first claim in this AXTAG namespace the checker CANNOT refuse.
+`restrict(...)` is answered statically because the effect row and the
+call graph are fixpoints the checker already computes; `(> n 0)` is a
+statement about a VALUE, and `grep -v '^ *;' FILE | grep -c
+'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
+`self_host/typecheck.ax`, `self_host/codegen.ax` and
+`self_host/expand.ax` answers 0, 0 and 0 - comment lines excluded,
+because the sentence making the claim matches the pattern it quotes. So a contract is compiled
+INTO the body and checked on every call, which is Ada's answer, and a
+failure writes ``axiom: precondition failed in `half`: (> n 0)`` on fd
+2 and exits **76**. Not behind a flag: a check that is off by default
+is a comment by default, and this repository refuses comments that
+read like guarantees.
+
+- **The status is 76 and it was designed as 75.** Two concurrent
+  branches spent the same number on the same day: `MM-ALLOC-16a`'s bad
+  arena mark took 75 above, and the contracts had reserved it in
+  `docs/contracts-design.md`. The contracts moved, because `docs/ffi.md`
+  §5.1's whole argument for taking 73 is that a Rust panic and an Axiom
+  division were indistinguishable to a supervisor at 72, and two
+  invariant failures sharing 76 would be the same defect. The exit
+  table in `docs/memory-model.md` MM-EXEC-16 now lists both.
+
+- **`AX3050` `contract-malformed` is the static half, and it is four
+  questions under one code.** The expression must parse as exactly one
+  expression; must type as `Bool` with the parameters in scope; must
+  name `result` only where a `post` has a declared result to give it;
+  and must PERFORM nothing, since a contract is evaluated on every call
+  and one that allocates changes the program by being stated. One code
+  because they share one remedy — correct the expression, or delete the
+  tag, which withdraws the claim.
+
+- **The purity rule needed no part of the effect system to move, and it
+  is not a blanket refusal.** `Alloc` is ambient as a DECLARABLE claim,
+  not as a row entry: `restrict(no-alloc)` already reads it and so does
+  this. Measured from `axiom --diagnostic-format=ai symbols --calls
+  --input self_host/main.ax`: `vecLen`, `vecGet`, `strLen`, `strEq`,
+  `strByte` and `memGetWord` carry an empty effect row, while
+  `strConcat`, `fmtInt` and `vecNew` carry `Alloc,Mut`. A contract may
+  compare, index, measure and test; it may not build.
+  `tests/selfhost/132-contract.ax` imports nothing and is written
+  entirely from that vocabulary, so it doubles as the evidence that the
+  vocabulary is enough to write one.
+
+- **There is no `'Old`, and a `post` costs the tail-call rewrite.**
+  Parameters are immutable (`AX3012`), so for a scalar parameter the
+  name means in the `post` exactly what it meant in the `pre` and
+  `'Old` would be a synonym for the name. What a `post` does cost is
+  measured in both directions rather than left to be rediscovered as a
+  regression: one self-recursive function emits one `call i64 @loop(`
+  bare and under a `pre`, and two under a `post`, because a `let`'s
+  initialiser is not a tail position. `scripts/check-contracts.sh`
+  section 5 pins both numbers.
+
+- **Two ablations, each required to go red.** Section 6 builds two
+  compilers from copies of `self_host/` — one whose `expandProgram` no
+  longer calls `expLowerContracts`, one whose `tcCheckFn` no longer
+  calls `checkContracts` — and requires section 1 to fail against the
+  first and section 4 against the second. 27 of 27 checks green,
+  darwin and linux. `docs/contracts-design.md` is the design note,
+  written before the code. Fifty-two gates build the compiler under
+  test, up from fifty.
+||||||| 7458d7d
+=======
+
 ### `axiom.pkg`: a line that means nothing is refused, and `name` is read
 
 The manifest had one reader, `pkgLineValue`, and it contributed nothing
@@ -74,6 +664,14 @@ five on `output` being written where the manifest named `myapp`. The
 19 that stayed green are the ones the ablation does not touch,
 including the four `pkgCheckLines` refusals that do not depend on the
 key being known.
+
+## 0.6.2 — 2026-09-01
+
+Two silent memory faults become diagnosed exits, and over half the
+compiler's reference-counting traffic turns out to have been calls that
+could not free anything. Nothing in this release changes what a correct
+program does; three things change what an incorrect one does, and one
+makes every program smaller.
 
 ### Memory model v2, proposals 3, 4 and 5
 
@@ -230,9 +828,15 @@ that state that number were moved with it — `scripts/lib/gate.sh`,
 `scripts/build-shared-axc.sh`, `scripts/check-gate-lib.sh`,
 `.github/workflows/ci.yml`, `CONTRIBUTING.md` and this file — and
 `word_for`'s table grew an arm so the stale-spelling sweep covers
-**fifty gates** rather than stopping one short of the live count. That
+the live count rather than stopping one short of it. That
 sweep derives its upper bound from the table, so it extended itself;
 the six edits are the part that does not.
+
+`word_for`'s table grew an arm so the stale-spelling sweep covers the
+live count rather than stopping one short of it. That sweep derives its
+upper bound from the table, so it extended itself; the six edits are
+the part that does not — and they were spent again in the same release,
+when `check-contracts.sh` arrived as the fifty-first.
 
 **No wall-clock claim is made here either.** The two compilers were
 timed and the arms interleaved; there is no finding in either
@@ -240,6 +844,56 @@ direction, so none is recorded. The by-hand ablation's peak RSS at or
 below baseline, reported above, is arithmetic rather than luck — a call
 that frees nothing cannot cost memory — and it says nothing either way
 about speed.
+
+### A reset past a live handle traps, and the recovery path needed no exemption
+
+`MM-ALLOC-16b` said a program **MUST NOT** reset a mark taken before a
+`handle` whose extent is still live — the reset reclaims the evidence
+record the slot still points at — and nothing said so when one did.
+Measured before the check existed, on exactly that shape:
+
+    $ axiom run illegal.ax
+    dispatched through a freed evidence record
+    $ echo $?
+    0
+
+The operation ran off memory the same call had reclaimed, and the
+program exited successfully. It exits **76** now, with
+`axiom: arena reset past a live handle` on fd 2 — the fifth member of
+the family 70/71/72/75 opened (`emitLiveHandleTrap`), and the second
+of `MM-EXEC-16`'s statuses to arrive in one day.
+
+**The recovery path needed no exemption, which is the result worth
+recording.** A recovery abort IS an arena reset across a live extent —
+that is its whole job — so it looked like the thing that would make
+this uncheckable. It is not: `emitRecoverRuntime` calls
+`@__axiom_recover_load` *before* `@__axiom_arena_reset_fn`, so by the
+time the check runs every slot already holds its arm-time value, which
+was installed below the arm's mark. The abort arranges for the test to
+be false on its own, with nothing to distinguish and no flag.
+`tests/stdlib/401-recover-effect.ax`, whose entire purpose is aborting
+out of a live `handle`, still exits 71 with unchanged stdout.
+
+**A non-null slot is always a live extent**, which is what makes the
+test sound rather than plausible: the `handle` pop does not null the
+slot, it stores back the record it displaced, so a completed extent
+leaves the slot as it found it and the outermost pop leaves it 0. A
+record recycled off a size-class free list can sit *below* the
+waterline, where the range test is correctly silent.
+
+**It costs a program that declares no effect nothing, byte for byte** —
+and the byte-identity check is what caught the one place that was not
+free. The call sites were gated on the slot count from the start; the
+trap and its message constant were not, so an effect-free program grew
+two lines of IR for a function nothing could reach. Two lines is not a
+cost worth arguing about, which is exactly why it had to go: the rule
+is byte-identity, not "small enough". `010-hello.ax` and `160-arena.ax`
+now emit identical IR before and after, and `self_host/` declares no
+effect at all.
+
+What it does **not** catch is stated rather than left to be found: a
+reset performed lexically inside a handler body is invisible, because
+for the duration of that call the slot holds the displaced record.
 
 ## 0.6.1 — 2026-08-31
 

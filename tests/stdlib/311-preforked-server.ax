@@ -93,7 +93,7 @@
               (let ((mut served 0))
                 (let ((mut running 1))
                   {
-                    (if (< (netPollAddRead pfd lsn rec) 0)
+                    (if (isErr (netPollAddRead pfd lsn rec))
                       (sysExitWith 255)
                       0
                     )
@@ -235,14 +235,14 @@
                                     (netAddr4
                                       addr                                      port                                      127                                      0                                      0                                      1
                                     )
-                                    (if (== (netConnect c addr) 0)
+                                    (if (isOk (netConnect c addr))
                                       {
                                         (memPutByte byte 0 (% sent 251))
                                         (sysWriteFd c byte 1)
                                         (vecPush batch c)
                                         (vecPush want (% sent 251))
                                       }
-                                      (sysCloseFd c)
+                                      { (sysCloseFd c) 0 }
                                     )
                                     (set sent (+ sent 1))
                                   }

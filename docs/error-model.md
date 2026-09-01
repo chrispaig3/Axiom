@@ -682,12 +682,28 @@ instead of writing to fd 2 and exiting:
 | out of memory answers **70** | `axiom: out of memory (mmap failed)`, exit 70 |
 | an unhandled effect answers **71** | `axiom: unhandled effect`, exit 71 |
 | division by zero answers **72** | `axiom: division by zero`, exit 72 |
+| a violated contract answers **77** | ``axiom: precondition failed in `half`: (> n 0)``, exit 77 |
 
-Both halves are in one program per case, at four optimisation levels:
-`tests/stdlib/401-recover-effect.ax`, `402-recover-oom.ax`,
-`403-recover-div.ax`, gated by `scripts/check-recover.sh`.
+The first three have both halves in one program per case, at four
+optimisation levels: `tests/stdlib/401-recover-effect.ax`,
+`402-recover-oom.ax`, `403-recover-div.ax`, gated by
+`scripts/check-recover.sh`.
 
-**The table has three rows and gains no fourth from status 75.** An
+**The fourth row is `;@axiom:pre(...)`/`post(...)`, added 2026-08-31,
+and it is here rather than in that gate because it is a claim about the
+contracts feature.** `@__axiom_contract_fail` opens with
+`__axiom_recover_abort` exactly as the division trap does, so a
+violated contract is *programmer error* in the same sense: the arena is
+intact, nothing half-wrote a structure, and a process that armed a
+recovery point asked to survive precisely this. Both halves are in one
+program, for the reason `403-recover-div.ax` gives for its own — with
+`__axiom_recover` unreferenced the mechanism is dead code and the armed
+test folds to false — and it is section 1 of
+`scripts/check-contracts.sh`: the arming call answers `recovered 77` on
+stdout, the second violation outside every extent exits 76 with the
+sentence on fd 2.
+
+**The table gains no row from status 75.** An
 arena reset handed a mark whose chunk is no longer on the active list
 traps with status **75** since 2026-08-31 (`MM-ALLOC-16a`), and it is
 deliberately outside this mechanism. A recovery point's abort IS an
@@ -697,9 +713,24 @@ same question. By the time the trap is reached the unwind walk has
 already pushed every chunk it passed onto the free list hunting for one
 that was not there, which is precisely the list an abort would then
 reset through. 70, 71 and 72 are the *programmer error* class this
-paragraph describes, which a process can be written to survive; 75 is a
-violated implementation invariant (`I8`), and it is nearer the
-memory-safety fault the paragraph above refuses to contain.
+paragraph describes, which a process can be written to survive; 75 and
+76 are violated implementation invariants (`I8`, and `MM-ALLOC-16b`'s
+evidence-record extent), and both are nearer the memory-safety fault
+the paragraph above refuses to contain.
+
+**76's exclusion is the sharper of the two.** An abort's whole job is
+restoring evidence slots, so answering "a slot points into memory this
+reset is about to reclaim" by running the slot-restoring abort asks the
+corrupted structure the same question. It is also why the trap needs no
+exemption for the recovery path in the other direction: the abort
+restores every slot *before* it resets, so the check is already false
+by the time it runs (`docs/memory-model.md` `MM-ALLOC-16b`).
+paragraph describes, which a process can be written to survive - and so
+is 76, whose predicate is the programmer's own sentence about their own
+values. 75 is a violated *implementation* invariant (`I8`), and it is
+nearer the memory-safety fault the paragraph above refuses to contain.
+That is the line the table is drawn on: whose invariant broke, not how
+bad it sounds.
 
 **What it is not.** It is not unwinding, not a `catch`, and not an early
 return, so `ERR-REC-1` stands as written for everything except these
@@ -878,8 +909,8 @@ marks `;@axiom:deprecated`, a warning by design - see
 on 2026-08-29 by the `restrict(...)` AXTAG (`restriction-violated`, an
 error; `restriction-unverifiable`, a warning in the same policy file;
 `restriction-unknown`, an error - `docs/reference.md`, AXTAG Keys),
-`AX3050` is RESERVED below for the contracts work that follows the
-restrictions, `AX3043` and `AX3045` are still unspent and stay where
+`AX3050` was SPENT on 2026-08-31 by `contract-malformed` (the
+paragraph after next), `AX3043` and `AX3045` are still unspent and stay where
 they are, `AX3044` is the namespace pass's, and `AX3032` is retired and
 **MUST NOT** be reused. `AX3055` was spent on 2026-08-29 by
 `effect-op-untyped` (an effect operation that declares no type - an
@@ -924,6 +955,48 @@ naming it draws `AX3016` like any other undeclared name. The reserved
 block below is now empty and the next free semantic number is
 `AX3057`.
 
+`AX3050` was SPENT on 2026-08-31 by `contract-malformed`, and it is the
+one number in this section that reached the work it was reserved for
+rather than being reconciled. It was taken on 2026-08-29 from BETWEEN
+two numbers the restrictions were spending that same day - `AX3049` and
+`AX3051` - for no reason except that the contracts design named it, and
+the contracts landed on it. Eleven reconciliations, and one number kept.
+
+What it refuses is worth stating precisely, because a contract is the
+first claim in the AXTAG namespace this compiler **cannot decide**.
+`restrict(...)` is refused from analysis the checker already performs;
+`(> n 0)` is a statement about a VALUE, and there is no value analysis
+in this tree at all - `grep -v '^ *;' FILE | grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
+`self_host/typecheck.ax`, `self_host/codegen.ax` and
+`self_host/expand.ax` answers 0, 0, 0, the comment lines excluded
+because the sentence making the claim matches the pattern it quotes. So
+the claim is enforced at RUN TIME: `expLowerContracts` compiles the
+check into the body, and a failure writes ``axiom: precondition failed
+in `half`: (> n 0)`` on fd 2 and exits 76.
+
+`AX3050` is then everything about the contract that IS static, and it
+is four questions under one code:
+
+1. the value must PARSE, as exactly one expression;
+2. it must type as `Bool`, with the parameters in scope and against
+   this declaration's own signature;
+3. `result` must name something - the declared result of a `post`, and
+   nothing anywhere else: a `pre` runs before the body, and a
+   declaration with no `::` declares no result type for it to have;
+4. it must PERFORM nothing, since a contract is evaluated on every
+   call and one that allocates or writes changes the program by being
+   stated.
+
+Four questions and one code because they share a remedy - correct the
+expression, or delete the tag, which withdraws the claim - which is the
+same argument `AX3010` and `AX3049` make for their own arms. Question 4
+is not a blanket refusal, and that is measured rather than asserted:
+`vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and `memGetWord` carry
+an empty effect row, while `strConcat`, `fmtInt` and `vecNew` carry
+`Alloc,Mut`. A contract may compare, index, measure and test; it may not
+build. `docs/contracts-design.md` is the design note and
+`scripts/check-contracts.sh` the gate.
+
 `AX3047` is the ninth number this section has had to reconcile, and the
 first one it allocated rather than surrendered: it was taken from the
 free end deliberately, leaving the three proposals below untouched.
@@ -942,7 +1015,6 @@ what keeps it honest.
 | `AX3046` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning (was `AX3042` until that number was built as `undeclared-effect`) |
 | `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 | `AX3045` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
-| `AX3050` | `contract-malformed` | a `;@axiom:pre(...)`/`post(...)` whose value does not parse as an expression, does not type-check as `Bool` against the signature, or names `result` where the declared result is absent — error; reserved 2026-08-29 between two numbers the restrictions spent, so that the contracts land on the number their design names |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
@@ -1168,7 +1240,36 @@ the end.
 
 **ERR-ADOPT-1 (P). The migration is 64 sites by §1.2's `grep` proxy,
 and 30 public functions over 7 modules by the metric that is gated. It
-is not one commit.** The proxy sizes the work and is recomputed rather
+is not one commit.**
+
+> **THE BLOCKER THIS RULE WAS WAITING ON DOES NOT APPLY, measured
+> 2026-09-01.** `memory-model-v2-proposal.md`'s P6 was named as the
+> thing that "closes the real `ERR-ADOPT-1` blocker": a `Result`
+> wrapper whose `Err` arm explains *why* it failed with a computed
+> message pays `Alloc, Mut`, so it cannot carry `pure`, cannot survive
+> `restrict(no-alloc)`, and cannot sit in a `handle` checked
+> exhaustive against a narrower row. The mechanism is real and
+> reproduces —
+>
+> ```
+> F openish  "(Int -> Result Int Error)"  #effects=Alloc,Mut
+> F openLit  "(Int -> Result Int Error)"  #effects=Alloc
+> ```
+>
+> — the first with a `strConcat`'d message, the second with a literal.
+> **It bites nowhere this migration goes.** The two populations are
+> almost disjoint: all **29 failure sentinels**, the ones that become
+> `Result`, sit in modules carrying **zero** `no-alloc` and **zero**
+> `restrict` claims (`Sys.ax` has 26 of them and already declares
+> `effect(io)` seventy times — they are syscall wrappers, effectful
+> already). The modules dense with `no-alloc`/`restrict` — `Str.ax`,
+> `Tui/Keys.ax`, `Utf8.ax`, `Tui/Term.ax` — carry **absence**
+> sentinels, which become `Option`, which has no `Error`, no computed
+> message and none of the traffic the blocker is about. Recomputed
+> from `compat/SENTINELS` and a claim count per file; P6 stays
+> refuted (its `Mut` half is unsound, see the proposal) and stays
+> irrelevant here. **The migration may proceed, starting with
+> `Sys.ax`.** The proxy sizes the work and is recomputed rather
 than quoted (§1.2). The gated unit is a public function whose own
 doc-comment states a sentinel contract - what the migration ports, and
 what a caller depends on - recorded in `compat/SENTINELS` and
@@ -1265,6 +1366,135 @@ before the next:
    boundary for the same reason of scope: the compiler's own phases are
    slice 4.
 
+   **The socket-CONFIGURATION half is done, 2026-08-31.** Seven calls
+   answer `(Result Int Error)` through `sysResult`: `netBind`,
+   `netListen`, `netConnect`, `netShutdown`, `netSetOptInt`,
+   `netSetBlocking` and `netSetNonBlocking`. Each answers nothing but
+   whether it managed what it was asked to do, so `Ok 0` is the whole
+   of the success and the errno is `Error.code`. `stdlib/Sys.ax`'s
+   census: **26 → 19**; the library **29 → 22**
+   (`scripts/check-compat.sh`, 30 checks).
+
+   **The slice line is WHERE THE CALL RUNS, not what it does.** All
+   seven run once per socket. What is left in `Sys.ax` is per-connection
+   (`netAccept`, `netAcceptFrom`), per-wake (`netPollWait`,
+   `netPollSignalAt`) or per-write (`sysWriteFd`, which `IO.writeStr`
+   forwards) — the exclusions this section already states, and the
+   paragraph below is what actually holds them.
+   `netSocketTcp`/`netSocketTcp6` are left for a different
+   reason: they are nullary and answer the descriptor itself, so
+   porting them retypes every `lsn` and `cli` *binding* in eight files
+   rather than one expression at each call site.
+
+   The blast radius was **47 call expressions over eight files**, all
+   in `tests/` and `examples/`: `stdlib/` and `self_host/` call none of
+   the seven. Every site that compared the answer against `0` is now
+   `isOk` or `isErr`, and `tests/net/echo-server.ax` renders a failed
+   bind through `errMessage` and `errCode`.
+
+   **Slice 1's "eight exports are reached by nothing" is stale, and
+   this slice is not what closed it.** Counted 2026-08-31 over
+   `stdlib/`, `self_host/`, `tests/` and `examples/`, excluding
+   `Err.ax` itself, at the commit before this one: `isOk` 17, `isErr`
+   21, `unwrapOr` 73, `errMessage` 3, `errContext` 1, `mapOk` 1,
+   `remChecked` 2, `shrChecked` 1. All eight already had a caller —
+   four of them only through `tests/stdlib/371-err-module.ax`, which
+   grew to reach them. This slice takes `isOk` to 28, `isErr` to 25 and
+   `errMessage` to 4. The list above is left in place because it is
+   what the decision was made against; it is not a description of the
+   tree today, and a reader deciding whether to delete a name must
+   recount rather than quote.
+
+   **A CALLEE UNDID THE EXCLUSION FROM UNDERNEATH, and `symbols`
+   is what saw it.** `netAcceptFinish` — shared by `netAccept` and
+   `netAcceptFrom` — calls `netSetNonBlocking` on the target where the
+   kernel does not take `SOCK_NONBLOCK`, which is once per accepted
+   connection. Porting that callee gave **`netAccept` and
+   `netAcceptFrom` `Alloc`**, an `(Ok 0)` per connection allocated
+   *below* the echo server's arena mark and therefore never reclaimed.
+   The fix is a private `netSetNonBlockingRaw` answering the raw
+   result, with the `Result` as the public skin over it.
+
+   **And `check-net.sh` would NOT have caught it.** Measured
+   2026-08-31 with the allocation restored to the accept path: the
+   gate stayed green at **182×** against its floor of 50 (344× with
+   the split), and the scoped arm's growth over 9,800 connections rose
+   from 400 KiB to 512 KiB — about 12 bytes per connection, which is
+   inside what a page-granular RSS reading can be asked to resolve.
+   So the sentence above — "risking a measured gate" — overstates what
+   the gate measures. The ratio floor is sized to catch an arena that
+   stopped reclaiming, not one 32-byte block per connection. The
+   exclusion still stands, and it now stands on `#effects=` in
+   `axiom symbols`, which is exact, rather than on a ratio that is not.
+
+   **The "did it work" half is done, 2026-09-01.** The same rule as the
+   slice above, applied to what was left: every call in `Sys.ax` whose
+   ENTIRE answer is whether it worked. `sysCloseFd`, `netPollAddRead`,
+   `netPollDelRead`, `sysSignalBlock` and `sysKill` answer
+   `(Result Int Error)`. `stdlib/Sys.ax`'s census: **19 → 14** by the
+   port, and **14 → 13 failure with 0 → 1 absence** by a census fix
+   described below. The library is **16 failure + 10 absence**.
+
+   Six WIDENED rows, and the sixth is collateral worth naming:
+   `sysFileExists` gains `Alloc` because it closes the descriptor it
+   opened. That is the **only** such row — `verify-compat.py generate`
+   over `stdlib/` before and after the `sysCloseFd` port differs in
+   exactly two rows, `sysCloseFd` and `sysFileExists` — because every
+   other function in the library that closes a descriptor already
+   allocated. No `no-alloc` module reaches either name.
+
+   **No callee undid an exclusion this time, and it was checked rather
+   than assumed.** `netAccept` is `#effects=IO`, `netAcceptFrom`
+   `#effects=IO,Mut` and `netPollWait` `#effects=IO,Mut` after the
+   port, unchanged. That check is the standing cost of the previous
+   slice's finding.
+
+   **`netPollSignalAt` was never a failure, and the census said it
+   was.** It answers "the signal named by event `i`, or a negative when
+   that event is not a signal at all"; every bad-path answer it writes
+   is a hand-written `-1`, and all five call sites read it as a
+   presence test — `tests/stdlib/315-signal-in-poll.ax:131` asserts
+   `< 0` for "a socket event is not read as a signal". That is
+   `ERR-REC-3`'s **absence**, wanting `Option`. It was filed under
+   `failure` because `sentinel_census` let a body's mere *mention* of a
+   syscall beat its `-1` returns, and its Linux arm reads a `signalfd`
+   whose result is compared and never returned.
+
+   `verify-compat.py` follows the syscall result to the answer now,
+   through a `let` binder as well as directly. The direct-only version
+   was written first and **also moved `sysNowMonotonic`**, which is a
+   real failure forwarding `clock_gettime`'s errno through exactly that
+   binder — a false positive at a population of two, which is the whole
+   argument for following the binding. The rule is narrow by
+   construction: a body with no `-1` in return position never reaches
+   it, so `netAccept` is untouched. Measured over `stdlib/`, it moves
+   exactly one row.
+
+   It is recorded rather than ported. Its Linux arm folds a short
+   `signalfd` read into the same `-1`, so it conflates absence with
+   failure and porting it means **splitting two outcomes**, not
+   rewrapping one.
+
+   **`check-compat.sh`'s census floor expired on this slice, and is
+   gone.** It read `total_now < 30` against a population of 38; this
+   slice takes the census to 26, so the gate went red for the migration
+   *succeeding*. What replaces it is stricter, not looser: the computed
+   census must agree with `compat/SENTINELS` **row for row**, which is
+   the rule this section already states. It additionally catches a port
+   that lowers the count and leaves the file stale — which the floor
+   passed in silence — and the "did the rule stop matching" question
+   the floor was really asking is a named ablation now: a public
+   function forwarding a raw syscall is planted in a copy of `stdlib/`
+   and the census must count it. Both directions were ablated.
+
+   **And the gate died halfway through reporting.** Under
+   `set -euo pipefail`, the `diff a b | sed | head` that prints a
+   census disagreement exits 1 and takes the script with it, so a tree
+   with two faults reported one and the probes below never ran. Three
+   such pipelines are braced now. This is the "a gate that reports
+   LESS than it knows" hazard, found inside the gate written to refuse
+   it.
+
    **`unwrapOr` with a constant is not a port, and it cost three
    defects here.** Wherever the sentinel carried WHICH failure, a
    fallback value destroys it and nothing complains:
@@ -1340,15 +1570,25 @@ them would have taken its module's count up and failed
 `scripts/check-compat.sh` for a commit that changed no contract.
 
 *So the `Result` migration is NOT complete, and this section's claim
-that it was is withdrawn.* What remains is 29 public functions handing
-a caller a negative errno, and none of them is free: `netSocketTcp` has
-17 call sites, **seven of which never test the result at all**, which is
-the reason the migration exists rather than an argument against it. The
-hot-path exclusions still stand on their own measurement — `IO.writeStr`
-and the `net` polling calls allocate an `(Ok n)` per call or per wake
-outside the per-request arena scope, and `scripts/check-net.sh` holds
-the ratios — but "excluded" is a decision about four of twenty-nine, not
-a description of the whole.
+that it was is withdrawn.* What remained was 29 public functions handing
+a caller a negative errno; the socket-configuration slice took seven of
+them on 2026-08-31, the "did it work" slice five more on 2026-09-01,
+and one of the remainder turned out to be an absence the census had
+misfiled — so **16** are left. None of them is free:
+`netSocketTcp` has 17 call sites, **seven of which never test the result
+at all**, which is the reason the migration exists rather than an
+argument against it.
+
+The hot-path exclusions still stand on their own measurement —
+`IO.writeStr` and the `net` accepting and polling calls allocate an
+`(Ok n)` per call, per connection or per wake, outside the per-request
+arena scope. **What holds them is `#effects=` in `axiom symbols`, not
+`scripts/check-net.sh`**, and §10's slice-3 note carries the
+measurement: with a per-connection allocation deliberately restored to
+the accept path, that gate stayed green at 182× against its floor of
+50. Its ratio is sized to catch an arena that stopped reclaiming, not
+one 32-byte block per connection. And "excluded" is a decision about a
+handful of the twenty-nine, not a description of the whole.
 
 The other half is unchanged in kind and one larger in count: **nine**
 lookups in `stdlib/` that answer `-1` for "not found" and want

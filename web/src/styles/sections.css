@@ -192,9 +192,13 @@
 }
 
 .cols__col {
-  display: grid;
+  /* Flex, not grid: `margin-top: auto` on the trailing link only pushes
+     it to the bottom in a flex column, and without that the three links
+     sit at whatever height their own column's prose happens to end —
+     three different heights, which reads as three unrelated blocks. */
+  display: flex;
+  flex-direction: column;
   gap: var(--s-4);
-  align-content: start;
   padding-top: var(--s-4);
   border-top: 2px solid var(--accent);
 }
@@ -203,8 +207,10 @@
   border-top-color: var(--violet);
 }
 
+/* A third hue, not a grey. Two coloured rules and one muted one reads
+   as a column that failed to load rather than a set of three. */
 .cols__col:nth-child(3) {
-  border-top-color: var(--border-strong);
+  border-top-color: var(--warn);
 }
 
 .cols__col h3 {
@@ -432,4 +438,34 @@
   .cols__link:hover svg {
     transform: none;
   }
+}
+
+/* Restored. An earlier edit replaced the block from `.editors__inner` up
+   to `.editors__facts` and took these two rules out with it, so the
+   editor names fell back to a default bulleted list — visible only in a
+   full-page capture, which is why it survived several passes. */
+
+.editors h2 {
+  font-size: var(--t-3);
+  letter-spacing: -0.022em;
+}
+
+.editors__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editors__list li {
+  margin: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  white-space: nowrap;
 }

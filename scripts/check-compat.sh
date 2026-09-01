@@ -126,6 +126,17 @@ else
   echo "     checks it is satisfied by construction. Commit it, or revert it."
 fi
 
+# EVERY `diff` THAT REPORTS A FAILURE HERE IS BRACED WITH `|| true`,
+# and it is not decoration. This gate runs under `set -euo pipefail`, so
+# a bare `diff a b | sed | head` in a failure branch exits 1, takes the
+# whole script with it, and the gate dies after printing ONE FAIL line -
+# every check below it silently never running. Measured 2026-09-01 while
+# ablating the census rule: the run stopped at the first disagreement
+# and never reached the probes below it, so a tree with two faults
+# reported one. That is this repository's "a gate that reports LESS than
+# it knows" hazard, occurring inside the gate written to refuse it, and
+# it is the same shape as the `grep`-matches-nothing failure the
+# UNCOVERED check above already carries a paragraph about.
 echo "== the module list and stdlib/ agree =="
 # Both directions. A list checked only for existence lets a NEW module
 # join `stdlib/` and stay entirely outside this gate - its whole public
@@ -144,7 +155,7 @@ if diff -q "$listed" "$intree" > /dev/null; then
   ok "the module list and stdlib/ agree, $(grep -c . "$listed") modules"
 else
   bad "the module list has drifted from stdlib/"
-  diff "$listed" "$intree" | sed 's/^/     /' | head -10
+  { diff "$listed" "$intree" || true; } | sed 's/^/     /' | head -10
   echo "     '<' is named in verify-compat.py's MODULES and not in the tree;"
   echo "     '>' is in the tree and outside this gate entirely."
 fi
@@ -251,21 +262,21 @@ if diff -q "$have" "$want" > /dev/null; then
   fi
 else
   bad "the set of names outside the symbol stream has moved"
-  diff "$want" "$have" | sed 's/^/     /' | head -10
+  { diff "$want" "$have" || true; } | sed 's/^/     /' | head -10
   echo "     '<' left the list, '>' joined it. A name joining it is a REGRESSION:"
   echo "     it is public API that no gate can see. Update compat/UNCOVERED only"
   echo "     when a name LEAVES."
 fi
 
-echo "== the sentinel census may fall, never rise =="
-# The direction, not the number, and now PER KIND. A file that ports a
-# `failure` to `Result` lowers its first count; one that ports an
-# `absence` to `Option` lowers its second. Both are checked, which the
-# prose census could not do: it had a `Result` skip and no `Option`
-# skip, so an in-place port of `strFindByte` to `(Option Int)` would
-# have left its line exactly where it was - the regression the `Result`
-# skip existed to prevent, still live for the majority of the
-# population.
+echo "== the sentinel census agrees with compat/SENTINELS =="
+# AGREEMENT, PER KIND. A file that ports a `failure` to `Result` lowers
+# its first count; one that ports an `absence` to `Option` lowers its
+# second; either way `compat/SENTINELS` moves in the same commit and
+# this compares the two. Both kinds are checked, which the prose census
+# could not do: it had a `Result` skip and no `Option` skip, so an
+# in-place port of `strFindByte` to `(Option Int)` would have left its
+# line exactly where it was - the regression the `Result` skip existed
+# to prevent, still live for the majority of the population.
 #
 # The metric reads BODIES since 2026-08-30. The one it replaced read
 # doc-comments, and its defining failure was that it rewarded silence:
@@ -280,39 +291,72 @@ python3 "$helper" sentinels "$axc" "$work" "$repo_root/stdlib" > "$now"
 fail_now="$(awk '{s+=$2} END{print s+0}' "$now")"
 abs_now="$(awk '{s+=$3} END{print s+0}' "$now")"
 total_now=$(( fail_now + abs_now ))
-# THE FLOOR HAS TEETH NOW. It used to fail only when fewer than three
-# MODULES matched, so the census could have collapsed from 13 functions
-# to 3 and still printed `ok` - a metric that stops matching reports
-# the silence it was looking for, which is this file's own stated
-# hazard. The floor is a function count, set under today's 38 by the
-# margin a real port would move it, and it is checked in BOTH
-# directions: too few means the rule broke, and the per-module rule
-# below means no module may rise.
-if (( total_now < 30 )); then
-  bad "the census matched only $total_now functions over $(grep -c . "$now") modules;"
-  echo "     the floor is 30 (38 today). A census that stops matching reports"
-  echo "     the silence it was looking for - suspect the rule, not the tree."
+# THE FLOOR WAS A NUMBER AND IT EXPIRED ON ITS SECOND SLICE. It read
+# `total_now < 30`, "set under today's 38 by the margin a real port
+# would move it" - and `ERR-ADOPT-1` slice 2 took the census to 26,
+# which is the gate going red for the migration SUCCEEDING. A floor
+# that has to be hand-lowered every time the thing it measures moves in
+# the intended direction is a floor that will eventually be lowered
+# without being thought about, which is how a check stops being one.
+#
+# WHAT REPLACES IT IS STRICTER, NOT LOOSER: the computed census and the
+# committed one must agree ROW FOR ROW. That is exactly the rule
+# `compat/SENTINELS` and `docs/error-model.md` ERR-ADOPT-1 already
+# state - "a module may fall freely, and the number in compat/SENTINELS
+# is lowered in the same commit that lowers the count" - and asserting
+# it directly subsumes all three things the old block did:
+#
+#   * a RISE is a disagreement, and still named as one;
+#   * a FALL that nobody recorded is a disagreement, which the old
+#     floor let through entirely - a port could lower the count and
+#     leave the file stale, and the gate said `ok`;
+#   * the RULE breaking is a fall across many modules at once, which is
+#     what the floor existed to catch and what the ablation probe below
+#     now proves this can still see.
+#
+# `LC_ALL=C` on both sorts, for `check-release-targets.sh`'s reason: a
+# checked-in list compared against a generated one goes red on a
+# machine whose locale collates differently.
+want="$work/sentinels.want"
+{ grep -v '^#' "$baseline_dir/SENTINELS" || true; } \
+  | { grep -v '^[[:space:]]*$' || true; } | LC_ALL=C sort > "$want"
+LC_ALL=C sort -o "$now" "$now"
+if diff -q "$now" "$want" > /dev/null; then
+  ok "sentinel census agrees with compat/SENTINELS: $fail_now failure + $abs_now absence over $(grep -c . "$now") modules"
 else
-  risen=""
-  while read -r mod f a; do
-    was_f="$(awk -v m="$mod" '$1==m {print $2}' "$baseline_dir/SENTINELS")"
-    was_a="$(awk -v m="$mod" '$1==m {print $3}' "$baseline_dir/SENTINELS")"
-    [[ -z "$was_f" ]] && was_f=0
-    [[ -z "$was_a" ]] && was_a=0
-    (( f > was_f )) && risen="$risen $mod:failure($was_f->$f)"
-    (( a > was_a )) && risen="$risen $mod:absence($was_a->$a)"
-  done < <(grep -v '^#' "$now" | grep -v '^[[:space:]]*$')
-  if [[ -z "$risen" ]]; then
-    ok "sentinel census: $fail_now failure + $abs_now absence over $(grep -c . "$now") modules, none risen"
-  else
-    bad "a module gained a sentinel contract:$risen"
-    echo "     A new raw syscall result or -1 return is the convention winning"
-    echo "     against the migration. A FAILURE wants \`Result\`; an ABSENCE wants"
-    echo "     \`Option\` - and note that stdlib/Str.ax cannot import \`Err\`, because"
-    echo "     \`Err\` imports \`Str\`. Lower the count in compat/SENTINELS only when"
-    echo "     porting takes one away."
-  fi
+  bad "the sentinel census and compat/SENTINELS disagree"
+  { diff "$want" "$now" || true; } | sed 's/^/     /' | head -12
+  echo "     '<' is what compat/SENTINELS records, '>' is what the tree measures."
+  echo "     A count that ROSE is a new raw syscall result or -1 return - the"
+  echo "     convention winning against the migration. A FAILURE wants \`Result\`;"
+  echo "     an ABSENCE wants \`Option\`, and note that stdlib/Str.ax cannot import"
+  echo "     \`Err\` because \`Err\` imports \`Str\`. A count that FELL is a port that"
+  echo "     did not lower compat/SENTINELS in the same commit - or, if many fell"
+  echo "     at once, the rule in verify-compat.py no longer matching the tree."
 fi
+
+echo "== the census can still see a sentinel planted in front of it =="
+# THE ABLATION THE FLOOR STOOD IN FOR. "The rule stopped matching" used
+# to be inferred from a function count falling below a hand-set number;
+# it is asserted directly now, by planting a public function whose body
+# forwards a raw syscall into a COPY of `stdlib/` and requiring the
+# census to count it.
+#
+# The subject is `Vec.ax` because it carries no sentinel row today, so
+# the probe's module has to APPEAR in the output - a stronger assertion
+# than a count going up by one in a module already listed, and one that
+# cannot be satisfied by the row that was already there.
+checks=$((checks + 1))
+abl="$work/abl"; rm -rf "$abl"; cp -r "$repo_root/stdlib" "$abl"
+printf '\n(pub :: censusProbe (-> Int Int))\n\n;@axiom:effect(io)\n(pub fn (censusProbe fd) (__syscall1 6 fd))\n' >> "$abl/Vec.ax"
+probe_out="$(python3 "$helper" sentinels "$axc" "$work" "$abl" 2>&1 || true)"
+if printf '%s\n' "$probe_out" | grep -q '^stdlib/Vec\.ax 1 0$'; then
+  ok "a planted raw-syscall return is counted as a failure sentinel"
+else
+  bad "the census did not see a planted sentinel - the rule has stopped matching the tree"
+  printf '%s\n' "$probe_out" | sed 's/^/     /' | head -8
+fi
+rm -rf "$abl"
 
 echo "== the negative probes =="
 

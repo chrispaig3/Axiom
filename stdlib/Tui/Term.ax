@@ -51,6 +51,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Tui.Keys)
 
 (import Tui.Edit)
@@ -132,7 +134,7 @@
       (KeyIn
         fd        (strAlloc termBufBytes)        0        0        (if (< p 0)
           (- 0 1)
-          (if (< (netPollAddRead p fd rec) 0)
+          (if (isErr (netPollAddRead p fd rec))
             (- 0 1)
             p
           )

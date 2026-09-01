@@ -252,6 +252,49 @@ implementation **SHOULD** make it an over-approximation. It was not, in
 |---|---|---|
 | calls through a local, a parameter, or an unresolved name | contributes nothing but a transparency mark | needs the flow analysis `MM-EXEC-9b` describes and the language does not have. **It announces itself**: the row carries `#effects-incomplete` and a `pure` claim over it draws `AX3037`, so a reader is handed a lower bound labelled as one rather than a set that looks complete |
 
+**The row is narrower than it was, and the part that closed on
+2026-08-31 is the part a TYPE could answer.** Setting the mark is
+right; setting it for every argument the walk could not follow was
+not. A call through an effect-transparent parameter asked only about
+the ARGUMENT's shape — a load, a call result and an `if` are all
+"unfollowable" — and never about the position it landed in. So
+`vecSiftDownBy`, whose whole body is `(cmp (memGetWord d r)
+(memGetWord d k))` against a `cmp` declared `(-> Int Int Int)`,
+published the standard library's sort as a lower bound:
+
+    F vecSiftDownBy ... #effects=Mut #effects-incomplete #effect-params=cmp
+    F vecSortBy     ... #effects=Mut #effects-incomplete #effect-params=cmp
+
+Two machine words the signature itself calls integers were enough, and
+`restrict(no-io)` over any function that sorted came back `AX3051`,
+unanswerable. The rule now asked is `paramCallablesOf`'s own, one
+level down — *an arrow, a type variable or poison can hold a callable
+value; a concrete `Int` cannot* — which is the argument `markEparam`
+already rested on for the parameter itself, applied to that
+parameter's own argument positions. A value in an `Int` position can
+hide no effect: applying it is `AX3004` and the program does not
+compile.
+
+**Measured with `symbols` file by file across every source under
+`stdlib/`, `self_host/`, `tests/`, `examples/` and `compat/` — 578 of
+them — 34 declarations carried the mark and 30 do.** The four that closed are
+`vecSiftDownBy`, `vecSortBy` and the two fixtures that reach them. The
+thirty that remain carry the first two shapes below, and the third is
+what closed — a separation the table could not previously state,
+because until now one mark stood for all three:
+
+| what the walk met | closable? |
+|---|---|
+| a head that is not a name; an opaque `let`; a pattern binder; over-application; a lambda's own parameter | **no** — this is `MM-EXEC-9b`'s flow analysis, and dispatch through a capability record (`stdlib/Http.ax`'s `httpCall`, `((h.run) fd r)`) is the shape that matters |
+| an unfollowable value in a position whose declared type is a TYPE VARIABLE | **no, and correctly**: a caller may instantiate it to an arrow. `tests/selfhost/999-placeholder-under-arrow.ax`'s `twice` is `(-> (-> a a) a a)` with the same body as `tests/stdlib/140-function-values.ax`'s `(-> (-> Int Int) Int Int)` version, and only the second one closed |
+| an unfollowable value in a position whose declared type cannot hold a function | **closed 2026-08-31** — 4 declarations, and no well-typed program can put a function there: applying a nominal type is `AX3004`, and so is handing an arrow to one (probed on both alias forms, `(type F = ...)` expanded and `(type F a = ...)` nominal) |
+
+Held by `scripts/check-effect-argpos.sh`, whose four controls are the
+shapes that must KEEP the mark; the ablation drops the type test and
+requires the closed rows to reopen. No `#effects=` set moved anywhere
+in the tree and no diagnostic did: 883 diagnostic lines over every
+`.ax` before and after, byte-identical.
+
 **The constructor row closed on 2026-08-31, and it closed because it
 was not survivable.** It stood here as a DECISION — applying a `data`
 or `struct` constructor contributed nothing to the row, though the
@@ -608,14 +651,7 @@ runtime and **MUST NOT** be reused by a program as a normal result:
 | 72 | division by zero | measured: `(fn (main) (/ 10 0))` — `check` says `OK`, the run prints `axiom: division by zero` to fd 2 and exits 72 |
 | 74 | a `__syscallN` reached on a target with no syscall ABI (windows-x86_64) | emitted, not yet executed: `emitPrimSyscall` lowers the primitive there to `__axiom_no_syscall`, which prints `axiom: no syscall ABI on this target` (37 bytes) and exits 74; 73 is the FFI's (`ffiHandleClose`) |
 | 75 | `__axiom_arena_reset` handed a mark whose chunk is no longer on the active list (`MM-ALLOC-16a`) | measured: `tests/stdlib/166-arena-bad-mark.ax` resets an inner mark after its outer one, the run prints `axiom: arena reset to an invalid mark` to fd 2 and exits 75. The same fixture's first two blocks — nested marks reset innermost-first, and the same mark reset twice — must still exit silently, so the trap is pinned against firing on legal use |
-
-Each writes nothing to **stdout**. What each writes to **fd 2** is not
-uniform, and the row above is the place to say so rather than leave it
-to be discovered by whoever is reading a supervisor's log: 70 writes 35
-bytes, 72 writes 24, 71 writes 24 and 75 writes 38, each a single
-sentence ending in a newline (`emitOomTrap`, `emitDivTrap`,
-`emitUnhandledTrap`, `emitBadMarkTrap`). All
-four now say something; 71 was the last to, on 2026-08-24, and
+| 76 | `__axiom_arena_reset` handed a mark taken before a `handle` whose extent is still live (`MM-ALLOC-16b`) | measured: `tests/stdlib/167-arena-live-handle.ax` resets a mark that predates the extent, the run prints `axiom: arena reset past a live handle` to fd 2 and exits 76. Its first two blocks — a mark taken inside the extent, and a mark with no handle in scope — must still exit silently, and `tests/stdlib/401-recover-effect.ax` must still exit 71, because a recovery abort performs this very reset legitimately |
 `tests/stdlib/310-effect-unhandled.err` pins its sentence beside the
 `.exit` that had pinned the status alone since the case was written.
 
@@ -1410,13 +1446,69 @@ the matching mark may be read again*, except the one block carried by
 `reset_keeping`. Nothing verifies it, and the compiler never inserts
 these calls itself.
 
-**MM-ALLOC-16b (H, program obligation).** An **evidence record is an
-ordinary arena object** (`MM-ALLOC-9a`) with no protection from
-reclamation. A program **MUST NOT** reset past a mark taken before a
-`handle` whose extent is still live: the reset reclaims the evidence
-record the slot still points at, and the next operation dispatches
-through it. This is the sharpest instance of `MM-ALLOC-16`, because the
-memory in question is one the program never named.
+**MM-ALLOC-16b (H, program obligation; implementation obligation since
+2026-08-31).** An **evidence record is an ordinary arena object**
+(`MM-ALLOC-9a`) with no protection from reclamation. A program **MUST
+NOT** reset past a mark taken before a `handle` whose extent is still
+live: the reset reclaims the evidence record the slot still points at,
+and **the next operation — or the extent's own pop, which stores the
+displaced record back through it — dispatches through it.** This is the
+sharpest instance of `MM-ALLOC-16`, because the memory in question is
+one the program never named. An implementation **MUST** detect it and
+trap with status **76** (`MM-EXEC-16`).
+
+*Measured before the check existed,* on the compiler at `ac169e1`, with
+exactly the shape this rule names — mark, then `handle`, then reset
+inside the extent, then perform an operation:
+
+```
+$ axiom run illegal.ax
+dispatched through a freed evidence record
+$ echo $?
+0
+```
+
+The operation ran off memory the same call had reclaimed and the
+program exited successfully. It exits **76** now.
+
+*Why a non-null slot is always a live extent, which is what makes the
+test sound rather than merely plausible.* The `handle` pop does not
+null the slot — it stores back the record it displaced — so a completed
+extent leaves the slot exactly as it found it, and the outermost pop
+leaves it 0. A slot reading non-zero therefore names an extent that has
+not ended, and a stale pointer from a finished handle cannot be there
+to false-positive on. Two shapes that look like false positives are
+not: a record recycled off a size-class free list (`MM-LIFE-2e`) can
+sit *below* the waterline, where the reset does not reach it and the
+range test is correctly silent; and `emitEffectOp` transiently installs
+the *displaced* record for the duration of a handler call, which is
+older than the current one and can only under-report.
+
+*The recovery path needs no exemption and is given none,* which is the
+result worth recording because it looked like the thing that would make
+this uncheckable. `__axiom_recover_abort` **is** an arena reset across a
+live extent — that is its whole job (`MM-ALLOC-23`) — but
+`emitRecoverRuntime` calls `@__axiom_recover_load` *before*
+`@__axiom_arena_reset_fn`, so by the time the check runs every slot
+holds its arm-time value, which was installed before the arm and hence
+below the arm's mark. The abort arranges for the test to be false on
+its own. `tests/stdlib/401-recover-effect.ax`, whose entire purpose is
+aborting out of a live `handle`, still exits 71 with unchanged stdout.
+
+*What it does not catch, stated so nobody builds on it.* A reset
+performed lexically **inside a handler body** is invisible: for the
+duration of that call the slot holds the displaced record, so the
+innermost one is in no slot at all. That shape is unchanged by this
+rule and remains a program obligation.
+
+*The cost to a program that declares no effect is zero, byte for byte.*
+The check is emitted only when the program has at least one evidence
+slot; `emitLiveHandleTrap` and `emitEvCheck` both answer `cg` unchanged
+at zero slots, so neither the trap, its message constant, nor any call
+is written. Measured: `tests/stdlib/010-hello.ax` and
+`tests/stdlib/160-arena.ax` emit byte-identical IR before and after.
+`self_host/` declares no effect at all, so the compiler itself is in
+that class.
 
 **MM-ALLOC-16a (H, program obligation; implementation obligation since
 2026-08-31).** Marks **MUST** be reset in nesting order, innermost
@@ -3966,6 +4058,7 @@ equivalent honesty for this one.
 | `tests/stdlib/165-arena-keep.ax` | ALLOC-14, ALLOC-15 (overlap over 500 rounds, chunk crossing, a 2 MiB oversize block, zeroing) |
 | `tests/stdlib/160-arena.ax` | ALLOC-12, ALLOC-13 (waterline, 64-byte contiguity, reuse, nesting, chunk crossing, zero-on-reuse) |
 | `tests/stdlib/166-arena-bad-mark.ax` | ALLOC-16a's implementation half (2026-08-31) — an inner mark reset after its outer one traps with status 75, and the two legal shapes beside it (nested marks reset innermost-first, the same mark reset twice) stay silent, so the trap is pinned against firing on correct use as well as failing to fire on incorrect |
+| `tests/stdlib/167-arena-live-handle.ax` | ALLOC-16b's implementation half (2026-08-31) — a reset of a mark that predates a live `handle` traps with status 76, beside the two legal shapes that must stay silent (a mark taken inside the extent, and a mark with no handle in scope). The recovery path is pinned by `401-recover-effect.ax` continuing to exit 71, because an abort performs this reset legitimately |
 | `tests/stdlib/110-tail-loop-alloc.ax` | that a self tail call does **not** reclaim what its iteration allocated — the negative of ALLOC-19 |
 | `tests/stdlib/040-mem.ax` | the `Mem` primitives over ALLOC-3, ALLOC-6 |
 | `tests/stdlib/358-str-owner-shares.ax` | VAL-7's counting rule — every header that NAMES an owner holds a share of it |
@@ -4029,13 +4122,15 @@ aliases, `MM-EXEC-6b`'s self-TCO (which `reference.md` misattributed to
 LLVM until 2026-08-14 — a fixture would keep it from drifting back),
 and `MM-LIFE-3`'s cycles stated *as* a property.
 
-**All four of `MM-EXEC-16`'s executable POSIX exit statuses are
+**All five of `MM-EXEC-16`'s executable POSIX exit statuses are
 gated**: 71 by `tests/stdlib/310-effect-unhandled.ax`, 72 by the
-division fixtures, 70 by `tests/stdlib/314-out-of-memory.ax`, and — since
-2026-08-31 — **75** by `tests/stdlib/166-arena-bad-mark.ax`, which pins
-the sentence, the status, and the two legal shapes the trap must stay
-silent on. This paragraph said *three* until 75 existed; it is amended
-rather than rewritten because the count is the claim. The remaining row,
+division fixtures, 70 by `tests/stdlib/314-out-of-memory.ax`, and — both
+on 2026-08-31 — **75** by `tests/stdlib/166-arena-bad-mark.ax` and
+**76** by `tests/stdlib/167-arena-live-handle.ax`, each pinning the
+sentence, the status, and the legal shapes its trap must stay silent
+on. This paragraph said *three* until 75 existed and *four* until 76
+did; it is amended each time rather than rewritten, because the count
+is the claim. The remaining row,
 74, is windows-x86_64's and is gated by nothing that executes: `scripts/check-platform-constants.sh`
 reads its emission, and README's *Targets* section says no runner runs
 that target yet. This paragraph said 70 was

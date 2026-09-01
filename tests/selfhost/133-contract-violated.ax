@@ -1,0 +1,36 @@
+; expect 77
+; A `;@axiom:pre(...)` that does not hold, and the status a failure
+; exits with.
+;
+; 77 IS ITS OWN STATUS, and that is the point of the case.
+; `docs/memory-model.md` MM-EXEC-16 reserves 70 (out of memory), 71
+; (unhandled effect) and 72 (division by zero); `docs/ffi.md` 5.1 took
+; 73 for the FFI boundary precisely because a Rust panic and an Axiom
+; division were indistinguishable to a supervisor at 72; 74 is a
+; `__syscallN` on a target with no syscall ABI; and 75 is an arena
+; reset handed an invalid mark (MM-ALLOC-16a). A violated contract is a
+; sixth thing, and a supervisor reading a status has to be able to tell
+; it from a broken machine. It was DESIGNED on 75 and moved here on
+; merge: MM-ALLOC-16a's trap and this one were written on two branches
+; on the same day and both took 75, and the number that had not shipped
+; is the one that moved.
+;
+; The message and the backtrace go to fd 2 and are not this gate's
+; subject - `scripts/check-contracts.sh` reads them.
+;
+; The `post` half is not a second case here: it takes the same path
+; through `@__axiom_contract_fail` and would pin the same number
+; twice. What the `post` DOES cost, and what `132` pins the other side
+; of, is the tail-call rewrite - a postcondition has to observe the
+; result, so the call it wraps is not in tail position, measured on
+; `(fn (loopB n acc) ...)` whose `let`-wrapped twin emits `call i64
+; @loopB` where the bare one emits a loop.
+
+;@axiom:pre((> n 0))
+(:: half (-> Int Int))
+
+(fn (half n) (/ n 2))
+
+(:: main Int)
+
+(fn (main) (half 0))

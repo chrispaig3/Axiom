@@ -64,6 +64,20 @@ lock_version()  {
        }'
 }
 
+# THE WEBSITE IS A VERSION SITE, and it went stale the first time it
+# could. `web/src/data/site.ts` holds the version the page shows as its
+# kicker and `web/src/data/bench.ts` labels the benchmark row with the
+# compiler that produced it - and 0.6.2 shipped with both still reading
+# 0.6.1, because `web/scripts/check-claims.mjs` guards the four DERIVED
+# counts (`.ax` files, lines, codes, gates) and nothing guarded the one
+# number that is not derived from the tree.
+#
+# A benchmark labelled with the wrong compiler is the worse of the two:
+# the counts are re-derived on every deploy and cannot lie, but a row
+# saying "Axiom 0.6.1" beside a number measured on 0.6.2 is a claim
+# about a build nobody ran.
+web_version()  { grep -oE "'[0-9]+[.][0-9]+[.][0-9]+'" | grep -oE '[0-9]+[.][0-9]+[.][0-9]+'; }
+
 # --- writers: rewrite this file's versions to $2 ----------------------
 #
 # `sed` to a temp file and move it, rather than `-i`: BSD `sed` needs an
@@ -129,7 +143,18 @@ toml_replace() {
 #
 # The gate caught the drop on the release battery, which is the whole
 # reason the count is here rather than a bare "does the file mention it".
+# `bench.ts` spells it inside the row LABEL - `'Axiom 0.6.1'` - so the
+# quote does not sit against the digits and `web_version` cannot see it.
+# Anchored on the word instead, which is also what makes the claim
+# checkable: the label names the compiler that produced the number.
+webbench_version() { grep -oE "Axiom [0-9]+[.][0-9]+[.][0-9]+" | grep -oE '[0-9]+[.][0-9]+[.][0-9]+'; }
+
+web_replace()  { _rewrite "$1" "s/'[0-9]+[.][0-9]+[.][0-9]+'/'$2'/g"; }
+webbench_replace() { _rewrite "$1" "s/(Axiom )[0-9]+[.][0-9]+[.][0-9]+/\\1$2/g"; }
+
 VERSION_SITES="
+web/src/data/site.ts|1|web_version|web_replace
+web/src/data/bench.ts|1|webbench_version|webbench_replace
 self_host/build.ax|1|axv_version|axv_replace
 self_host/lsp.ax|1|lsp_version|lsp_replace
 rust/Cargo.toml|4|toml_version|toml_replace

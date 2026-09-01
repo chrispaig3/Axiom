@@ -2053,7 +2053,21 @@
   ; lambda's own word does not shadow. Until that exists `a` stays -1,
   ; which under-retains - the leaking direction, and what it already
   ; did.
-  (curLamVar : Int))
+  (curLamVar : Int)
+  ; The `;@axiom:pre(...)`/`post(...)` tag whose expression is being
+  ; checked, or 0 outside one. Appended, for the reason every field
+  ; before it was.
+  ;
+  ; It exists so that `checkVar` can tell ONE name apart: `result`
+  ; naming nothing inside a contract is `AX3050` (a `pre` has no
+  ; result yet, and a `post` on a declaration with no signature has no
+  ; declared result type to give it), where the same name outside one
+  ; is the ordinary `AX3001`. Asking it in `checkVar` rather than
+  ; walking the contract for a `result` reference is what makes the
+  ; question TOTAL: a hand-written walk that missed a form would
+  ; answer AX3001 for a shape it did not cover, which is a check
+  ; reporting less than it knows.
+  (inContract : Int))
 
 ; The module whose body is being checked, or 0 for the
 ; entry file. A bare reference inside it resolves to
@@ -2405,6 +2419,25 @@
       ; (stdlib/Ffi.ax `ffiHandleClose`); the release runtime makes
       ; the same call when such a block dies
       (regFn fns "__call_word" (mkIntArrow 2))
+      ; `(__contract cond "message")` - the run-time half of
+      ; `;@axiom:pre(...)`/`post(...)`. Not spellable in source in the
+      ; sense that matters: `expLowerContracts` is the only writer, and
+      ; nothing documents it, exactly as `__streq` is only ever written
+      ; by `checkNumeric`.
+      ;
+      ; THE CONDITION'S TYPE IS A VARIABLE, and deliberately: a
+      ; contract that is not `Bool` is `AX3050` with the contract's own
+      ; span and the contract's own explanation, so this signature must
+      ; not produce an `AX3004` about a node the author did not write
+      ; on top of it. `checkContractForm` is what checks the condition
+      ; and it does so once.
+      ;
+      ; REGISTERED WITH NO EFFECT ROW. It aborts; it does not return.
+      ; That is the same reading `/` already has - a division by zero
+      ; writes to fd 2 and exits 72, and `/` carries no `IO` - and
+      ; giving it one would put `IO` into the row of every function
+      ; that states a contract and draw a false `AX3042` on it.
+      (regFn fns "__contract" (mkTArr (mkTVar "a") (mkTArr mkStringTy mkIntTy)))
       (regFnEff fns "__store64" (mkIntArrow 3) (builtinEff "Mut"))
       (regFnEff fns "__alloc" (mkIntArrow 1) (builtinEff "Alloc"))
       (regFn fns "__retain" (mkIntArrow 1))
@@ -2506,7 +2539,7 @@
       ; missing every alias, and missing it silently.
       (let ((tc 
         (cast Int (TC
-          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0          0          0
+          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0          0          0          0
         ))
       ))
         {
@@ -8021,6 +8054,16 @@
 
 (pub fn (checkVar tc e inHead)
   (let ((name (nodeAName e)))
+    ; `result` inside a contract, naming nothing: AX3050, not the
+    ; AX3001 every other unresolved name gets. The cheap word test is
+    ; FIRST and `&&` short-circuits, so outside a contract - which is
+    ; every reference in every program in this repository today - this
+    ; costs one load.
+    (if (&& (!= (memGetWord tc 34) 0) (&& (strEq name "result") (== (scopeFindFrame tc "result") 0)))
+      {
+        (emitContractResult tc e)
+        (mkNode TAG_T_ERR 0 0 0)
+      }
     (if (|| (strEq name "true") (strEq name "false"))
       mkBoolTy
       ; A reference a macro template produced resolves where the
@@ -8092,6 +8135,7 @@
           )
         )
       )
+    )
     )
   )
 )
@@ -8358,6 +8402,8 @@
               (checkNumeric
                 tc                hname                (nodeB (nodeA e))                (nodeB e)                head
               )
+              (if (&& (== headIsVar 1) (&& (strEq hname "__contract") (== (spineArgs e 0) 2)))
+                (checkContractForm tc e)
               (if (&& (== headIsVar 1) (== (isCastLike hname) 1))
                 (checkCastForm tc e hname)
                 (if (&& (== headIsVar 1) (== (isMacroName tc hname) 1))
@@ -8452,6 +8498,7 @@
                 )
               )
             )
+          )
           )
         )
         )
@@ -10532,17 +10579,24 @@
 )
 
 ; The scope a function body is walked in.
+;
+; The signature travels with the scope, not just the per-parameter
+; callability derived from it. `paramCallablesOf` answers "can THIS
+; function's parameter `p` hold a callable value"; a call through `p`
+; then asks the same question one level down - "can `p`'s own argument
+; position `i` hold one" - and only the type node can answer that.
+; `escapeArgs` is where it is asked.
 (pub :: bodyScopeOf (-> Int Int Int))
 
 (pub fn (bodyScopeOf tc d)
   (let ((ent (findFnEnt tc (nodeAName d))))
-    (bsNew
-      (nodeB d)      (paramCallablesOf
-        (if (== ent 0)
-          0
-          (memGetWord ent 1)
-        )        (vecLen (nodeB d))
-      )      vecNew
+    (let ((sig 
+      (if (== ent 0)
+        0
+        (memGetWord ent 1)
+      )
+    ))
+      (bsNew (nodeB d) (paramCallablesOf sig (vecLen (nodeB d))) vecNew sig)
     )
   )
 )
@@ -10984,7 +11038,15 @@
     ; called too.
     {
       (markEparam bound (bsParamAlias bound n))
-      (escapeArgs bound args 0 acc)
+      ; The callee is a parameter, or a local aliasing one, so the
+      ; enclosing signature names its type and `escapeArgs` can ask
+      ; which of its argument positions could hold a function at all.
+      ; An opaque local answers 0 here and every position stays
+      ; conservative, which is the right answer for a value whose
+      ; identity the walk lost.
+      (escapeArgs
+        bound        args        0        acc        (bsParamTy bound (bsParamAlias bound n))
+      )
       ; An OPAQUE local: the value came out of memory, so no call edge
       ; carries what it performs and `markEparam` had no parameter to
       ; mark. This is the `let`-shaped spelling of the same hole the
@@ -11120,17 +11182,65 @@
 ; function. `acc` is 0 at the sites where the CALLEE is not known to
 ; call its arguments; where it is, an unaccounted value is a hole and
 ; the sentinel records it.
-(pub :: escapeArgs (-> Int Int Int Int Int))
+;
+; `cty` IS THE CALLEE'S OWN DECLARED TYPE, and it is what decides
+; whether an unfollowed argument is a hole at all. The rule is
+; `paramCallablesOf`'s, asked one level down: "an arrow, a type
+; variable or poison can hold a callable value; a concrete `Int`
+; cannot, and marking one would claim a transparency the signature
+; forbids." An `Int` position cannot be applied - the checker refuses
+; it, `AX3004 expected function type` - so no effect can hide in a
+; value handed there, however little the walk knows about the value.
+;
+; Without this the mark fired on the ARGUMENTS' shape alone, and the
+; standard library's own sort was the casualty. Measured on this tree
+; before the type was consulted:
+;
+;     F vecSiftDownBy ... #effects=Mut #effects-incomplete #effect-params=cmp
+;     F vecSortBy     ... #effects=Mut #effects-incomplete #effect-params=cmp
+;
+; `vecSiftDownBy` calls `(cmp (memGetWord d r) (memGetWord d k))`, and
+; `cmp` is declared `(-> Int Int Int)`. Both arguments are loads, so
+; `escapeValue` answered 0 for both and the row was published as a
+; LOWER BOUND - which is a claim that something might be hiding in two
+; machine words the signature says are integers. A `pure` claim over
+; anything reaching `vecSortBy` drew `AX3037` on the strength of it.
+;
+; `escapeValue` IS STILL CALLED for every argument, non-callable
+; positions included, because it also marks a parameter alias
+; effect-transparent and that mark is an over-approximation the walk
+; is required to keep. Only the sentinel is gated.
+;
+; TYPE ALIASES WERE THE QUESTION WORTH PROBING, since a name in a
+; signature could stand for an arrow while reading as a `TCon`. Both
+; kinds were measured rather than argued:
+;
+;   (type Fn1 = (-> Int Int))     expanded before checking, so the
+;                                 signature already holds the arrow and
+;                                 `tyIsCallable` sees it - the row is
+;                                 still a lower bound;
+;   (type Fn2 a = (-> a a))       NOT expanded, nominal by design, and
+;                                 the checker refuses both halves of
+;                                 the worry: applying one is `AX3004
+;                                 expected function type, found Fn2
+;                                 Int`, and handing an arrow to a
+;                                 `Fn2 Int` position is `AX3004` too.
+;
+; So no well-typed program can put a function where a nominal type is
+; declared, which is the same fact this whole rule rests on.
+(pub :: escapeArgs (-> Int Int Int Int Int Int))
 
-(pub fn (escapeArgs bound args i acc)
+(pub fn (escapeArgs bound args i acc cty)
   (if (>= i (vecLen args))
     0
     {
-      (if (&& (== (escapeValue bound (vecGet args i)) 0) (!= acc 0))
+      (if (&& (== (escapeValue bound (vecGet args i)) 0) (&& (!= acc 0) (== (tyIsCallable (arrowParamTy cty i)) 1)))
         (effAdd acc effIncomplete)
         0
       )
-      (escapeArgs bound args (+ i 1) acc)
+      (escapeArgs
+        bound        args        (+ i 1)        acc        cty
+      )
     }
   )
 )
@@ -11700,12 +11810,15 @@
   (names : Int)
   (params : Int)
   (callable : Int)
-  (eparams : Int))
+  (eparams : Int)
+  (fnty : Int))
 
-(pub :: bsNew (-> Int Int Int Int))
+(pub :: bsNew (-> Int Int Int Int Int))
 
-(pub fn (bsNew params callable eparams)
-  (cast Int (BScope vecNew params callable eparams))
+(pub fn (bsNew params callable eparams fnty)
+  (cast Int (BScope
+    vecNew    params    callable    eparams    fnty
+  ))
 )
 
 (pub :: bsNames (-> Int Int))
@@ -11724,6 +11837,24 @@
 
 (pub fn (bsEparams b) (memGetWord b 3))
 
+; The enclosing function's declared type, or 0 when it has none. Every
+; derived scope shares it, exactly as `params` and `callable` do.
+(pub :: bsFnTy (-> Int Int))
+
+(pub fn (bsFnTy b) (memGetWord b 4))
+
+; The type declared for parameter `p` of the enclosing function, or 0.
+; `bsParamAlias`'s two negative answers (-1 bound-and-attributed, -2
+; opaque) have no parameter and therefore no type.
+(pub :: bsParamTy (-> Int Int Int))
+
+(pub fn (bsParamTy b p)
+  (if (< p 0)
+    0
+    (arrowParamTy (bsFnTy b) p)
+  )
+)
+
 (pub :: bsWith (-> Int String Int Int))
 
 (pub fn (bsWith b n pidx)
@@ -11733,7 +11864,9 @@
       (vecPush
         v        (cast Int (BEnt n pidx))
       )
-      (cast Int (BScope v (bsParams b) (bsCallable b) (bsEparams b)))
+      (cast Int (BScope
+        v        (bsParams b)        (bsCallable b)        (bsEparams b)        (bsFnTy b)
+      ))
     }
   )
 )
@@ -12762,8 +12895,32 @@
 (pub :: handleScopeOf (-> Int Int))
 
 (pub fn (handleScopeOf tc)
-  (let ((base (bsNew (memGetWord tc 11) (memGetWord tc 12) vecNew)))
+  (let ((base (bsNew (memGetWord tc 11) (memGetWord tc 12) vecNew (curFnSigTy tc))))
     (seedFrameBinders base (tcScope tc) (tcFrameBase tc))
+  )
+)
+
+; The declared type of the function being checked, or 0 outside one.
+;
+; Word 24 is the current declaration - `tcCheckFn` sets it before the
+; body and clears it after - so this is the same signature
+; `bodyScopeOf` reads, arrived at from the other direction. A handle
+; site inside a body needs it for the same reason the body does: a
+; call through a parameter in there asks which of that parameter's
+; argument positions could hold a function.
+(pub :: curFnSigTy (-> Int Int))
+
+(pub fn (curFnSigTy tc)
+  (let ((d (memGetWord tc 24)))
+    (if (== d 0)
+      0
+      (let ((ent (findFnEnt tc (nodeAName d))))
+        (if (== ent 0)
+          0
+          (memGetWord ent 1)
+        )
+      )
+    )
   )
 )
 
@@ -15943,11 +16100,16 @@
 ; evidence that the body performs it. `effIncomplete` says the row is
 ; a LOWER bound - the walk met a call it could not resolve - so an
 ; effect ABSENT under that mark is not evidence that the body does
-; not. Each reading is unverifiable in exactly one direction:
-; present-only-as-possible, absent-and-incomplete.
+; not. Each of those two readings is unverifiable in exactly one
+; direction: present-only-as-possible, absent-and-incomplete.
 ; Present-and-incomplete is a VIOLATION, because a lower bound that
 ; already contains the effect is the body performing it whatever the
-; unresolved call adds. Both unverifiable answers are AX3051, a
+; unresolved call adds.
+;
+; A THIRD READING was added on 2026-08-31 and is NOT about a row the
+; walk failed to close - it is about a row the walk closed, over a
+; body whose answer is not this body's to give. See
+; `restrictTransparent` below. All three answers are AX3051, a
 ; WARNING, for AX3037's reason: a limit of the analysis is not a
 ; defect in the program, and refusing `((b.f) 7)` under
 ; `restrict(no-io)` would make dispatch through a stored function
@@ -16106,11 +16268,155 @@
   (if (>= i (vecLen rs))
     0
     {
-      (checkOneRestrict tc d (vecGetStr rs i) eff)
+      ; THE THIRD READING OF "UNVERIFIABLE", asked only when the two
+      ; the header already describes said nothing. `checkOneRestrict`
+      ; either refutes the claim (AX3049), reports it unverifiable
+      ; (AX3051) or is silent; silence is the only case where a body
+      ; that CALLS one of its own parameters has not been accounted
+      ; for, and asking after the fact rather than before is what
+      ; keeps a definite violation reported once, as a violation.
+      ; Counting the diagnostics vector is how "said nothing" is
+      ; answered without threading a return value through six checks.
+      (let ((before (vecLen (tcOut tc))))
+        {
+          (checkOneRestrict tc d (vecGetStr rs i) eff)
+          (if (== (vecLen (tcOut tc)) before)
+            (restrictTransparent tc d (vecGetStr rs i))
+            0
+          )
+        }
+      )
       (checkRestrictsFrom
         tc        d        rs        (+ i 1)        eff
       )
     }
+  )
+)
+
+; A TRANSITIVE RESTRICTION OVER AN EFFECT-TRANSPARENT BODY CANNOT BE
+; CHECKED, and until 2026-08-31 it was not merely unchecked but SILENT.
+;
+; `docs/reference.md` (Effect Polymorphism) records the reading that
+; makes `;@axiom:pure` on `(fn (apply f x) (f x))` stand: a
+; higher-order function's summary has two halves, the effects its own
+; body performs and the parameters it CALLS, and claims are validated
+; against the concrete half. That is right for `pure`, which is a claim
+; about a BODY. A restriction is not read that way by anyone: `no-io`
+; on a declaration reads as "calling this performs no IO", and for a
+; body whose work is its argument's that is the caller's business.
+;
+; MEASURED BEFORE THIS EXISTED, on the merged tree: `(fn (runIt f n)
+; (f n))` under each of the five transitive restrictions checked `OK`
+; with no diagnostic at all, and `restrict(no-io)` over `{ (f "x") n }`
+; printed to stdout at run time. `no-recursion` was silent over a
+; program that really does recurse - `runIt -> back -> runIt`, a cycle
+; whose middle edge is a parameter the call graph has no edge for.
+;
+; The compiler KNEW. `symbols` renders `#effect-params=f` on exactly
+; these rows (`FnEnt` word 6), and nothing in this file read it. That
+; is the same shape as `restrict(no-alloc)` before `MM-EXEC-9a`'s
+; constructor row closed: a marker that exists, a check that does not
+; consult it, and a claim that therefore cannot fail.
+;
+; AX3051 AND NOT AX3049, because the claim is not refuted - it is
+; undecidable here, and which way it falls is chosen at every call
+; site. That is AX3037's argument, and it is the same warning the two
+; existing readings get.
+;
+; THE LEXICAL TWO ARE EXCLUDED, and that is the same line the header
+; draws: `no-cast` and `no-wrap` are properties of the bytes of THIS
+; body, which a parameter cannot change.
+;
+; BLAST RADIUS, measured over `self_host/main.ax`: 347 rows carry a
+; restriction, 5 rows carry `#effect-params=`, and the intersection is
+; **0**. Nothing in this tree changes; the check costs one `vecLen`
+; per restriction claim on the silent path.
+(pub :: restrictTransparent (-> Int Int String Int))
+
+(pub fn (restrictTransparent tc d r)
+  (if (== (restrictIsTransitive r) 0)
+    0
+    (let ((ent (findFnEnt tc (nodeAName d))))
+      (if (== ent 0)
+        0
+        (let ((eps (memGetWord ent 6)))
+          (if (== eps 0)
+            0
+            (if (== (vecLen eps) 0)
+              0
+              (emitRestrictUnverifiable
+                tc                d                r                (strConcat (strConcat "the body CALLS its own parameter " (restrictEparamNames d eps 0 "")) ", so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call")
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The five that are decided by walking somewhere else - the effect row,
+; which is a transitive fixpoint, or the call graph. `no-cast` and
+; `no-wrap` are lexical and are deliberately not here; keep this in
+; step with the Scope column of `docs/reference.md`'s restriction
+; table, which is where the distinction is stated to the author.
+(pub :: restrictIsTransitive (-> String Int))
+
+(pub fn (restrictIsTransitive r)
+  (if (strEq r "no-io")
+    1
+    (if (strEq r "no-alloc")
+      1
+      (if (strEq r "no-foreign")
+        1
+        (if (strEq r "no-recursion")
+          1
+          (if (strEq r "no-cast:deep")
+            1
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+; The effect-transparent parameters by NAME, backticked and comma
+; joined. `FnEnt` word 6 holds indices, and `symbols` renders them the
+; same way (`saJoinComma` over the header's names); a diagnostic that
+; said `parameter 0` would make the author count.
+(pub :: restrictEparamNames (-> Int Int Int String String))
+
+(pub fn (restrictEparamNames d eps i acc)
+  (if (>= i (vecLen eps))
+    acc
+    (restrictEparamNames
+      d      eps      (+ i 1)      (strConcat
+        (if (== (strLen acc) 0)
+          ""
+          (strConcat acc ", ")
+        )        (strConcat (strConcat "`" (restrictParamName d (vecGet eps i))) "`")
+      )
+    )
+  )
+)
+
+; The `k`th parameter's spelling, from the `fn` header. A `::` with no
+; `fn` under it never reaches `checkRestricts`, and an index the header
+; is too short for is impossible unless the two disagree - answered
+; with the index rather than a crash, because a diagnostic is not the
+; place to discover that.
+(pub :: restrictParamName (-> Int Int String))
+
+(pub fn (restrictParamName d k)
+  (let ((ps (nodeB d)))
+    (if (== ps 0)
+      "?"
+      (if (>= k (vecLen ps))
+        "?"
+        (vecGetStr ps k)
+      )
+    )
   )
 )
 
@@ -17119,7 +17425,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3051"      "restriction-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))      0      0      "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove, over the same two markers. Name the function at the call, or drop the claim; `no-cast` is checked regardless, because a cast is lexical and needs no call resolved"
+      SEV_WARNING      "AX3051"      "restriction-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))      0      0      "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved"
     ))
   )
 )
@@ -17139,6 +17445,256 @@
           (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction"))
         )        0        0        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion` and `no-wrap`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
       )
+    )
+  )
+)
+
+; ==================================================================
+; `;@axiom:pre(...)` and `;@axiom:post(...)`: AX3050, the static half.
+;
+; WHAT A CONTRACT IS, AND WHY IT IS BOTH HALVES. `restrict(...)` is a
+; claim the compiler REFUSES statically because the analysis that
+; answers it already exists - the effect row and the call graph are
+; fixpoints this checker computes anyway. A contract is not that kind
+; of claim. `(> n 0)` is a statement about a VALUE, and there is no
+; value analysis in this compiler at all - measured, `grep -v '^ *;'
+; FILE | grep -c 'constFold\|constantFold\|interval\|rangeOf\|
+; abstractVal'` over `typecheck.ax`, `codegen.ax` and `expand.ax`
+; answers 0, 0, 0. The comment lines are excluded because THIS
+; sentence matches the pattern it quotes: without the exclusion the
+; same grep answers 1, 1, 1 and all three hits are a note saying there
+; are none - so
+; the checker cannot decide it for a caller it has not seen, and a
+; refusal it cannot justify is not available.
+;
+; This repository's rule is that a claim nothing checks is a comment,
+; and it refuses those. So a contract is enforced at RUN TIME, which
+; is Ada's answer, and `expLowerContracts` compiles the check into the
+; body. It is not behind a flag: a check that is off by default is a
+; comment by default, and the whole point of the AXTAG namespace's
+; `pure`/`effect`/`restrict` neighbours is that writing one buys an
+; answer rather than silence.
+;
+; WHAT IS STILL STATIC IS EVERYTHING ABOUT THE CONTRACT ITSELF, and
+; that is what AX3050 is:
+;
+;   1. it must PARSE, as exactly one expression;
+;   2. it must type as `Bool` against this declaration's signature,
+;      with the parameters in scope;
+;   3. `result` must name something: the declared result in a `post`,
+;      and nothing at all in a `pre` or on a declaration with no
+;      signature to declare one (`checkVar`, guarded by `inContract`);
+;   4. it must PERFORM NOTHING. A contract is evaluated on every call,
+;      so a contract that writes, allocates or performs IO changes the
+;      program by being stated.
+;
+; ON (4) AND WHY `Alloc` IS EXPRESSIBLE HERE. The effect-enforcement
+; design left `Alloc` AMBIENT - only `IO` is declarable, so "this
+; function does not allocate" is not a claim an author can write. That
+; is a fact about DECLARABILITY and not about the row: `Alloc` is in
+; the effect row exactly as `IO` is, `restrict(no-alloc)` already reads
+; it, and this check reads it the same way. So no part of the effect
+; system has to move for a contract to be allocation-free.
+;
+; AND IT IS NOT A BLANKET REFUSAL, which is the measurement that
+; matters. The vocabulary a predicate needs is allocation-free
+; already - measured from `symbols --calls` over `self_host/main.ax`:
+; `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and `memGetWord`
+; all render `#restrict=no-io,no-alloc,no-foreign` with no `#effects=`
+; at all, while `strConcat`, `fmtInt` and `vecNew` carry `Alloc,Mut`.
+; A contract may compare, index, measure and test; it may not build.
+;
+; ONLY A DEFINITE EFFECT IS REFUSED. An effect that reaches the row
+; only as POSSIBLE arrived because the expression NAMES a function
+; without calling it, and naming one performs nothing - the same
+; reading `restrictEffect` applies, and here the silence is correct
+; rather than merely conservative. A row marked incomplete is a lower
+; bound and says nothing either way, and AX3037's argument applies:
+; refusing a program over a limit of the analysis is worse than not
+; noticing.
+; ==================================================================
+
+; The `checkApp` arm for the lowered form. It checks the MESSAGE and
+; not the condition, because `checkContracts` has already checked the
+; condition once, in the same scope, against `Bool`, with the
+; contract's own span and the contract's own diagnostic. Without this
+; the condition would be walked twice and every diagnostic inside a
+; contract would be reported twice.
+(pub :: checkContractForm (-> Int Int Int))
+
+(pub fn (checkContractForm tc e)
+  {
+    (checkExprH tc (nodeB e) 0)
+    mkIntTy
+  }
+)
+
+; Every contract on this declaration, checked in the body's scope.
+; Called from `tcCheckFn` while the parameters are still bound and the
+; declared result type is in hand - `checkAxtags` runs after the frame
+; is truncated and has neither.
+(pub :: checkContracts (-> Int Int Int Int))
+
+(pub fn (checkContracts tc d resTy)
+  (let ((tags vecNew))
+    {
+      ; The signature's first, because it is written first - the order
+      ; `checkRestricts` reads its own two sets in, and the order
+      ; `expLowerContracts` lowers them in.
+      (contractTagsInto tags (sigAxtagsFor tc (nodeAName d)))
+      (contractTagsInto tags (memGetWord d 7))
+      (checkContractsFrom tc d tags 0 resTy)
+    }
+  )
+)
+
+(pub :: checkContractsFrom (-> Int Int Int Int Int Int))
+
+(pub fn (checkContractsFrom tc d tags i resTy)
+  (if (>= i (vecLen tags))
+    0
+    {
+      (checkOneContract tc d (vecGet tags i) resTy)
+      (checkContractsFrom
+        tc        d        tags        (+ i 1)        resTy
+      )
+    }
+  )
+)
+
+(pub :: checkOneContract (-> Int Int Int Int Int))
+
+(pub fn (checkOneContract tc d t resTy)
+  (let ((p (contractExprOf t)))
+    (if (== p 0)
+      (emitContractMalformed
+        tc        t        (contractSpanOf t)        (if (== (strLen (contractTextOf t)) 0)
+          "states a contract with no expression"
+          "is not one expression, and a contract is exactly one"
+        )
+      )
+      (let (
+        (mark (vecLen (tcScope tc)))
+        (_r (if (&& (strEq (contractKeyOf t) "post") (!= resTy 0))
+          (pushScope
+            (tcScope tc)            (cast Int "result")            0            (contractSpanOf t)            resTy
+          )
+          0
+        ))
+        (_i (memSetWord tc 34 t))
+      )
+        (let ((ty (checkExprH tc p 0)))
+          {
+            (memSetWord tc 34 0)
+            (scopeTrunc (tcScope tc) mark)
+            (if (== (tyCompat mkBoolTy ty) 0)
+              (emitContractMalformed
+                tc                t                (contractSpanOf t)                (strConcat (strConcat (strConcat (strConcat "is the `" (contractKeyOf t)) "` on `") (strConcat (bareOf (nodeAName d)) "` and has type `")) (strConcat (tyRender ty) "`, not `Bool`"))
+              )
+              0
+            )
+            (checkContractPurity tc d t p resTy)
+          }
+        )
+      )
+    )
+  )
+)
+
+; (4): the contract's OWN effect row, walked with `result` bound so
+; that a `post` naming it is a local read and not a reference to some
+; global of that name.
+;
+; It is bound as an extra PARAMETER, on a COPY of the parameter list -
+; `bsNames` holds shadow RECORDS and not strings (`bsFindFrom` reads
+; word 0 of each element), and `bsParams` is the declaration's own
+; vector, which this must not grow. `bodyScopeOf` mints a fresh
+; `BScope` per call, so replacing its word 1 with the copy and
+; extending its callable list by one is local to this check.
+(pub :: checkContractPurity (-> Int Int Int Int Int Int))
+
+(pub fn (checkContractPurity tc d t p resTy)
+  (let (
+    (sc (bodyScopeOf tc d))
+    (ps vecNew)
+  )
+    {
+      (copyInto ps (nodeB d) 0)
+      (vecPush ps "result")
+      (memSetWord sc 1 ps)
+      (vecPush (bsCallable sc) (tyIsCallable resTy))
+      (let ((did (effDefiniteOnly (collectEffects tc p sc))))
+        (if (== (vecLen did) 0)
+          0
+          (emitContractMalformed
+            tc            t            (contractSpanOf t)            (strConcat (strConcat (strConcat (strConcat "is the `" (contractKeyOf t)) "` on `") (strConcat (bareOf (nodeAName d)) "` and performs ")) (effJoin did))
+          )
+        )
+      )
+    }
+  )
+)
+
+; The span a contract diagnostic points at: the EXPRESSION as written,
+; or - when the tag holds no expression at all - the whole tag, so the
+; refusal has somewhere to point and the first backticked text in the
+; message is what the source spells there (`tests/lsp/drive.py`
+; `check_range`).
+;
+; The 8 is `;` plus the seven bytes of `@axiom:`, which `scanAxtags`
+; slices off the content it records - the same 8 `contractBaseOf`
+; adds back. Spanning `off .. off+1+len` instead underlined `;@ax`
+; and quoted `;pre`, which is a diagnostic pointing one place and
+; naming another - AX3039's own recorded defect, one code over.
+(pub :: contractSpanOf (-> Int Int))
+
+(pub fn (contractSpanOf t)
+  (let ((txt (contractTextOf t)))
+    (if (== (strLen txt) 0)
+      (mkSpan (memGetWord t 0) (+ (memGetWord t 0) (+ 8 (strLen (memGetWordStr t 1)))))
+      (mkSpan (contractBaseOf t) (+ (contractBaseOf t) (strLen txt)))
+    )
+  )
+)
+
+; The source text a contract diagnostic leads with, backticked: the
+; expression, or the whole tag when there is none.
+(pub :: contractLead (-> Int String))
+
+(pub fn (contractLead t)
+  (let ((txt (contractTextOf t)))
+    (if (== (strLen txt) 0)
+      (strConcat ";@axiom:" (memGetWordStr t 1))
+      txt
+    )
+  )
+)
+
+(pub :: emitContractMalformed (-> Int Int Int String Int))
+
+(pub fn (emitContractMalformed tc t span why)
+  (if (== span 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR      "AX3050"      "contract-malformed"      span      (strConcat (strConcat (strConcat "`" (contractLead t)) "` ") why)      0      0      "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 76. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
+    ))
+  )
+)
+
+; AX3050 for `result` naming nothing, reported from `checkVar` so that
+; the question is total - see the `inContract` field's own note.
+(pub :: emitContractResult (-> Int Int Int))
+
+(pub fn (emitContractResult tc e)
+  (let ((t (memGetWord tc 34)))
+    (if (== (nodeSpan e) 0)
+      0
+      (emitDiag tc (mkDiag
+        SEV_ERROR        "AX3050"        "contract-malformed"        (nodeSpan e)        (if (strEq (contractKeyOf t) "pre")
+          "`result` names nothing in a `pre`: a precondition is checked BEFORE the body runs, so there is no result yet"
+          "`result` names nothing here: this declaration has no `::` signature, so it declares no result type for `result` to have"
+        )        0        0        "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 76. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
+      ))
     )
   )
 )
@@ -17984,7 +18540,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure`, `effect(...)`, `restrict(...)` and `unhandled(trap)` on an `effect` declaration"
+      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure`, `effect(...)`, `restrict(...)`, `pre(...)`, `post(...)` and `unhandled(trap)` on an `effect` declaration"
     ))
   )
 )
@@ -18433,6 +18989,14 @@
           ))
             {
               (checkDeclaredReturn tc d resTy bodyTy)
+              ; The contracts, while the frame is still standing: the
+              ; parameters are bound above `base` and `scopeTrunc`
+              ; below takes them away, so `checkAxtags` - which runs
+              ; after this whole function - has no scope to check a
+              ; `pre` against. `resTy` is 0 when the declaration has
+              ; no signature, which is exactly the case a `post`
+              ; naming `result` has to be refused for.
+              (checkContracts tc d resTy)
               (if (&& (!= ent 0) (&& (!= (memGetWord ent 1) 0) (== (nodeTag (memGetWord ent 1)) TAG_T_VAR)))
                 (memSetWord ent 1 (ctorArrowOf ptys bodyTy (- (vecLen ptys) 1)))
                 0

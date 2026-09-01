@@ -5605,6 +5605,253 @@
   )
 )
 
+; ------------------------------------------------------------------
+; `;@axiom:pre(...)` and `;@axiom:post(...)`: the contract expression.
+;
+; Parsed ONCE, here, because three passes need the same node -
+; `expLowerContracts` lowers the run-time check into the body,
+; `checkContracts` types it against the signature, and both must agree
+; about which tags are contracts and which text is the expression. It
+; lives in `parser.ax` for `findFieldNamed`'s reason above: this is the
+; module `expand.ax`, `typecheck.ax` and `codegen.ax` all import, and a
+; helper in any of those three is an undefined name in the other two.
+;
+; SPANS ARE ABSOLUTE, AND THAT IS THE WHOLE REASON THIS IS NOT A
+; ONE-LINER. An AXTAG entry is `AxtagEnt` (word 0 = the offset of its
+; `;` in the source, word 1 = the text from `@axiom:` to the newline;
+; `scanAxtags` in `lexer.ax` builds it), so the expression's first byte
+; sits at `off + 8 + op + 1` - the `;`, the seven bytes of `@axiom:`,
+; the key, and the `(`. The tokens come from lexing the SLICED text,
+; whose offsets start at zero, and every token's span is shifted by that
+; base before the parse, so a diagnostic about a contract underlines the
+; contract where the author wrote it. Lexing a space-padded copy of the
+; whole prefix would give the same spans and allocate the file per tag.
+;
+; A contract is a per-declaration claim written above EITHER half of a
+; function - its `::` or its `fn` - and both are read as one list, in
+; source order, exactly as `checkRestricts` reads `restrict(...)`.
+; ------------------------------------------------------------------
+
+; The last `)` in a tag's text, or its length when there is none. The
+; rule `axtagCloseAt` applies in `typecheck.ax` and `fpAxtag` in
+; `format.ax`; it is restated rather than shared because both of those
+; modules import this one and not the other way round.
+(pub :: ctCloseAt (-> String Int))
+
+(pub fn (ctCloseAt s) (ctCloseFrom s (- (strLen s) 1)))
+
+(pub :: ctCloseFrom (-> String Int Int))
+
+(pub fn (ctCloseFrom s i)
+  (if (< i 0)
+    (strLen s)
+    (if (== (strByte s i) 41)
+      i
+      (ctCloseFrom s (- i 1))
+    )
+  )
+)
+
+; `pre` or `post` for a contract tag, `""` for every other key. The KEY
+; only - the bytes before the first `(` - so a bare `;@axiom:pre` with
+; no value is still a contract tag, and is reported as a malformed one
+; rather than silently ignored.
+(pub :: contractKeyOf (-> Int String))
+
+(pub fn (contractKeyOf t)
+  (let ((txt (memGetWordStr t 1)))
+    (let ((op (strFindByte txt 40 0)))
+      (let ((k 
+        (if (< op 0)
+          txt
+          (strSlice txt 0 op)
+        )
+      ))
+        (if (strEq k "pre")
+          "pre"
+          (if (strEq k "post")
+            "post"
+            ""
+          )
+        )
+      )
+    )
+  )
+)
+
+; The expression TEXT of a contract tag, exactly as written, or `""`
+; when the tag carries no `(...)` at all.
+(pub :: contractTextOf (-> Int String))
+
+(pub fn (contractTextOf t)
+  (let ((txt (memGetWordStr t 1)))
+    (let ((op (strFindByte txt 40 0)))
+      (if (< op 0)
+        ""
+        (let ((cl (ctCloseAt txt)))
+          (if (|| (>= cl (strLen txt)) (<= cl op))
+            ""
+            (strSlice txt (+ op 1) (- cl (+ op 1)))
+          )
+        )
+      )
+    )
+  )
+)
+
+; Where that text starts in the source file.
+(pub :: contractBaseOf (-> Int Int))
+
+(pub fn (contractBaseOf t)
+  (let ((txt (memGetWordStr t 1)))
+    (let ((op (strFindByte txt 40 0)))
+      (if (< op 0)
+        (memGetWord t 0)
+        (+ (memGetWord t 0) (+ 9 op))
+      )
+    )
+  )
+)
+
+; Shift every token's span by `base`, in place. A `Span` is
+; `(start, end)` (core.ax), so this is two words per token.
+(pub :: contractShift (-> Int Int Int Int))
+
+(pub fn (contractShift toks i base)
+  (if (>= i (vecLen toks))
+    0
+    (let ((sp (tokenSpan (vecGet toks i))))
+      {
+        (memSetWord sp 0 (+ (memGetWord sp 0) base))
+        (memSetWord sp 1 (+ (memGetWord sp 1) base))
+        (contractShift toks (+ i 1) base)
+      }
+    )
+  )
+)
+
+; The contract's expression as an AST node, or 0 when the tag does not
+; hold EXACTLY ONE well-formed expression: no value, a parse failure,
+; or text left over after the expression ends. `(> n 0) and more` is a
+; refusal and not a silent truncation, which is why the EOF test is
+; here and not left to whoever reads the node.
+(pub :: contractExprOf (-> Int Int))
+
+(pub fn (contractExprOf t)
+  (let ((txt (contractTextOf t)))
+    (if (== (strLen txt) 0)
+      0
+      (let ((toks (lex txt)))
+        {
+          (contractShift toks 0 (contractBaseOf t))
+          (let ((r (parseExpr toks 0)))
+            (if (== (memGetWord r 0) 0)
+              0
+              (if (peekIs toks (memGetWord r 2) TK_EOF)
+                (memGetWord r 1)
+                0
+              )
+            )
+          )
+        }
+      )
+    )
+  )
+)
+
+; Every contract tag belonging to one function, in SOURCE ORDER: the
+; signature's first, because it is written first. `sigs` is the index
+; `contractSigIndex` built - the signatures that carry a contract tag,
+; which is EMPTY in every program in this repository today, so the
+; common path is one `vecLen`. That is `deprecatedTable`'s argument in
+; `typecheck.ax`, and the reason this is not a scan of the whole
+; declaration list per function.
+(pub :: contractTagsFor (-> Int Int Int))
+
+(pub fn (contractTagsFor sigs d)
+  (let ((v vecNew))
+    {
+      (contractTagsInto v (contractSigTags sigs (nodeAName d) 0))
+      (contractTagsInto v (memGetWord d 7))
+      v
+    }
+  )
+)
+
+(pub :: contractTagsInto (-> Int Int Int))
+
+(pub fn (contractTagsInto v tags) (contractTagsFrom v tags 0))
+
+(pub :: contractTagsFrom (-> Int Int Int Int))
+
+(pub fn (contractTagsFrom v tags i)
+  (if (== tags 0)
+    0
+    (if (>= i (vecLen tags))
+      0
+      {
+        (if (> (strLen (contractKeyOf (vecGet tags i))) 0)
+          (vecPush v (vecGet tags i))
+          0
+        )
+        (contractTagsFrom v tags (+ i 1))
+      }
+    )
+  )
+)
+
+; The signatures in `decls` that carry a contract tag, as a Vec of
+; declaration nodes. One pass, kept, so the lookup above is a scan of
+; the contracts rather than of the program.
+(pub :: contractSigIndex (-> Int Int))
+
+(pub fn (contractSigIndex decls) (contractSigIndexFrom decls vecNew 0))
+
+(pub :: contractSigIndexFrom (-> Int Int Int Int))
+
+(pub fn (contractSigIndexFrom decls acc i)
+  (if (>= i (vecLen decls))
+    acc
+    (let ((d (vecGet decls i)))
+      {
+        (if (&& (== (nodeTag d) TAG_D_SIG) (== (contractTagCount (memGetWord d 7) 0) 1))
+          (vecPush acc d)
+          0
+        )
+        (contractSigIndexFrom decls acc (+ i 1))
+      }
+    )
+  )
+)
+
+; 1 when this tag list holds at least one contract tag.
+(pub :: contractTagCount (-> Int Int Int))
+
+(pub fn (contractTagCount tags i)
+  (if (== tags 0)
+    0
+    (if (>= i (vecLen tags))
+      0
+      (if (> (strLen (contractKeyOf (vecGet tags i))) 0)
+        1
+        (contractTagCount tags (+ i 1))
+      )
+    )
+  )
+)
+
+(pub :: contractSigTags (-> Int String Int Int))
+
+(pub fn (contractSigTags sigs name i)
+  (if (>= i (vecLen sigs))
+    0
+    (if (strEq (nodeAName (vecGet sigs i)) name)
+      (memGetWord (vecGet sigs i) 7)
+      (contractSigTags sigs name (+ i 1))
+    )
+  )
+)
+
 ; The TAG_FIELD named `name`, or 0.
 ;
 ; It lives HERE rather than beside its caller because it used to have
@@ -5693,6 +5940,40 @@
     (if (== (nodeTag t) TAG_T_ARR)
       (+ 1 (arrowArity (nodeB t)))
       0
+    )
+  )
+)
+
+; The type declared for argument position `i` of the arrow `t`, or 0
+; when there is no answer - `t` is absent, or the spine ran out of
+; arrows before `i`.
+;
+; ZERO IS THE UNKNOWN, and both readers pair it with a classifier that
+; treats 0 as the conservative answer: `codegen`'s `fldClass` calls it
+; a word, so an `Int` parameter is never retained; `typecheck`'s
+; `tyIsCallable` calls it callable, so an unfollowed argument in an
+; unknown position is still a hole. A missing signature, an
+; over-applied spine and a poisoned type therefore all land on the safe
+; side without a second test at either call site.
+;
+; HERE BECAUSE IT HAD TWO HOMES. `codegen.ax` wrote it for the
+; ownership pass and `typecheck.ax` wrote it again, byte for byte
+; except for `<= 0` against `== 0`, for the effect walk's
+; argument-position question - and the two modules do not import each
+; other, so nothing compared them. `arrowArity` beside it has always
+; lived here for the same reason: an arrow spine is the parser's shape
+; and every pass reads it the same way.
+(pub :: arrowParamTy (-> Int Int Int))
+
+(pub fn (arrowParamTy t i)
+  (if (== t 0)
+    0
+    (if (!= (nodeTag t) TAG_T_ARR)
+      0
+      (if (<= i 0)
+        (nodeA t)
+        (arrowParamTy (nodeB t) (- i 1))
+      )
     )
   )
 )

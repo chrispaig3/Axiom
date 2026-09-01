@@ -124,7 +124,7 @@
               (let ((mut served 0))
                 (let ((mut running 1))
                   {
-                    (if (< (netPollAddRead pfd lsn rec) 0)
+                    (if (isErr (netPollAddRead pfd lsn rec))
                       (sysExitWith 255)
                       0
                     )
@@ -256,15 +256,22 @@
                       ; already taken and a listener that was never
                       ; created. All four now name themselves here: a
                       ; negative `socket` means the family was refused
-                      ; at `socket`, and `rc` with the address and the
-                      ; length it asked for distinguishes the rest.
-                      (let ((rc (netBind lsn addr)))
-                        (if (!= rc 0)
+                      ; at `socket`, and the errno beside the address
+                      ; and the length it asked for distinguishes the
+                      ; rest.
+                      ;
+                      ; THE `Err` ARM IS THE ONLY PLACE THAT ERRNO
+                      ; LIVES. `netBind` answers a `Result` since
+                      ; 0.6.2, so there is no `rc` to print: the number
+                      ; is `errCode` and the operation that produced it
+                      ; is `errMessage`.
+                      (match (netBind lsn addr)
+                        ((Ok bound) bound)
+                        ((Err be)
                           {
-                            (printlnLit (strCStr (strConcat (strConcat "bind failed: rc " (fmtInt rc)) (strConcat (strConcat " socket " (fmtInt lsn)) (strConcat (strConcat " addr " (netAddrText addr)) (strConcat " len " (fmtInt (netAddrSize addr))))))))
+                            (printlnLit (strCStr (strConcat (strConcat (strConcat (errMessage be) " failed: errno ") (fmtInt (errCode be))) (strConcat (strConcat " socket " (fmtInt lsn)) (strConcat (strConcat " addr " (netAddrText addr)) (strConcat " len " (fmtInt (netAddrSize addr))))))))
                             (sysExitWith 2)
                           }
-                          0
                         )
                       )
                       (netListen lsn 512)

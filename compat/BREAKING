@@ -167,3 +167,16 @@
 # tree needed it, found by compiling with the refusal armed rather
 # than by grep.
 0.6.1  L  set-field  a write to a field not declared `mut` is AX3012; add `mut` to the field
+0.6.2  F  netBind            -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.2  F  netListen          -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.2  F  netConnect         -errno -> (Result Int Error), row gains Alloc: EINPROGRESS is now Error.code
+0.6.2  F  netShutdown        -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.2  F  netSetOptInt       -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.2  F  netSetBlocking     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.2  F  netSetNonBlocking  -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 3
+0.6.2  F  sysCloseFd         -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
+0.6.2  F  netPollAddRead     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
+0.6.2  F  netPollDelRead     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
+0.6.2  F  sysSignalBlock     -errno -> (Result Int Error), row gains Alloc: ERR-ADOPT-1 slice 2
+0.6.2  F  sysKill            -errno -> (Result Int Error), row gains Alloc: Err with ESRCH is now distinguishable
+0.6.2  F  sysFileExists      row gains Alloc: it closes the descriptor it opened, and sysCloseFd now builds a Result

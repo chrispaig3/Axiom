@@ -235,10 +235,22 @@
   )
 )
 
-(pub :: sysCloseFd (-> Int Int))
+; Close a descriptor.
+;
+; ANSWERS `(Result Int Error)`; `Ok 0` on success. A close that fails
+; is not a formality - on a written-to file it is where a deferred
+; write error surfaces, and it is the one errno a caller cannot get
+; anywhere else.
+;
+; ITS ONE COST ACROSS THE WHOLE PUBLIC SURFACE IS `sysFileExists`,
+; measured rather than guessed: `verify-compat.py generate` over
+; `stdlib/` before and after this port differs in exactly two rows,
+; this one and `sysFileExists`, which gains `Alloc`. Every other
+; function in the library that closes a descriptor already allocated.
+(pub :: sysCloseFd (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (sysCloseFd fd) (__syscall1 sysClose fd))
+(pub fn (sysCloseFd fd) (sysResult "sysCloseFd" (__syscall1 sysClose fd)))
 
 (:: sysSeek (-> Int Int Int Int))
 
@@ -1046,7 +1058,7 @@
         probe
         {
           (if (>= probe 0)
-            (sysCloseFd probe)
+            { (sysCloseFd probe) 0 }
             0
           )
           ; Through `sysForkProcess` rather than the raw syscall, because
@@ -1428,8 +1440,36 @@
 ;
 ; The thinnest portable layer over the numbers `Sys.Platform` carries,
 ; and the only place in the standard library that knows a socket from
-; a file. Everything here answers the way the rest of this file does:
-; a non-negative result, or the syscall's own `-errno`.
+; a file.
+;
+; TWO ANSWER SHAPES LIVE HERE, AND THE LINE BETWEEN THEM IS WHERE THE
+; CALL RUNS RATHER THAN WHAT IT DOES. The CONFIGURATION calls - the
+; ones that put a socket into a state and answer nothing but whether
+; they managed it - answer `(Result Int Error)` through `sysResult`,
+; because a caller that ignores one is a caller that has not noticed
+; its server is not listening. `netBind`, `netListen`, `netConnect`,
+; `netShutdown`, `netSetOptInt`, `netSetBlocking` and
+; `netSetNonBlocking` are that set, and each runs ONCE per socket.
+;
+; The rest still answer a non-negative result or the syscall's own
+; `-errno`, and that is a measurement rather than a backlog: `netAccept`
+; and `netAcceptFrom` run once per CONNECTION and `netPollWait` once per
+; WAKE, and in `tests/net/echo-server.ax` all three are reached BELOW
+; the per-connection `__axiom_arena_mark` - so an `(Ok fd)` block there
+; is allocation the reset never rewinds, once per connection, in a
+; worker that runs until it is signalled. `docs/error-model.md`
+; ERR-ADOPT-1 records the same exclusion for `IO.writeStr`.
+;
+; WHAT HOLDS THAT LINE IS `axiom symbols`, NOT `check-net.sh`, and the
+; difference was measured 2026-08-31 rather than assumed. With the
+; allocation deliberately put back on the accept path (see
+; `netSetNonBlockingRaw`), `scripts/check-net.sh` stayed GREEN at 182x
+; against its floor of 50 and the scoped arm's growth over 9,800
+; connections moved 400 KiB -> 512 KiB, which is about 12 bytes per
+; connection and inside what a page-granular RSS reading resolves. That
+; gate's ratio is sized to catch an arena that stopped reclaiming, not
+; one 32-byte block per connection. The `#effects=` row is exact and it
+; is the thing to check.
 ;
 ; TWO PLATFORM DIFFERENCES REACH THIS FAR and both are branched on a
 ; capability rather than assumed. `sockaddrHasLenByte` decides whether
@@ -1674,15 +1714,25 @@
 ; probe against a correct `::1` answers -22 at 16 and 0 at 28. So there
 ; is exactly one right length per address - which is precisely why a
 ; caller must not be the one supplying it.
-(pub :: netBind (-> Int Int Int))
+;
+; ANSWERS `(Result Int Error)`, and `Ok 0` is the only success. The
+; errno is `Error.code`, negated back out of the raw result, so a
+; caller that wants to distinguish EADDRINUSE from EADDRNOTAVAIL reads
+; it there instead of comparing a negative Int against a constant.
+(pub :: netBind (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (netBind fd addr) (__syscall3 sysBindNum fd addr (netAddrSize addr)))
+(pub fn (netBind fd addr)
+  (sysResult "netBind" (__syscall3 sysBindNum fd addr (netAddrSize addr)))
+)
 
-(pub :: netListen (-> Int Int Int))
+; Answers `(Result Int Error)`; `Ok 0` on success.
+(pub :: netListen (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (netListen fd backlog) (__syscall3 sysListenNum fd backlog 0))
+(pub fn (netListen fd backlog)
+  (sysResult "netListen" (__syscall3 sysListenNum fd backlog 0))
+)
 
 ; Accept a connection, answering the new socket or a negative errno,
 ; and throw the peer's address away. `netAcceptFrom` below keeps it;
@@ -1737,7 +1787,10 @@
     c
     (if (== acceptNonblockFlag 0)
       {
-        (netSetNonBlocking c)
+        ; THE RAW FORM, NOT `netSetNonBlocking`. This runs once per
+        ; accepted connection and the public wrapper builds a `Result`;
+        ; see `netSetNonBlockingRaw`'s own comment for the measurement.
+        (netSetNonBlockingRaw c)
         c
       }
       c
@@ -2018,14 +2071,24 @@
 ; it carries. The counterpart of `netSetNonBlocking`, and what a caller
 ; that handles one connection synchronously wants from `netAccept`'s
 ; result.
-(pub :: netSetBlocking (-> Int Int))
+;
+; TWO SYSCALLS, ONE RESULT. The `F_GETFL` that reads the flags can fail
+; on its own - a descriptor that is not open at all - and its errno is
+; the one worth reporting, so the failing read is what reaches
+; `sysResult` when it fails and the `F_SETFL` answer is what reaches it
+; otherwise. A single `if` at the end rather than two conversions,
+; because a `Result` built and discarded on the way is allocation for
+; nothing.
+(pub :: netSetBlocking (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (netSetBlocking fd)
   (let ((fl (__syscall3 sysFcntlNum fd fGetFl 0)))
-    (if (< fl 0)
-      fl
-      (__syscall3 sysFcntlNum fd fSetFl (& fl (^ oNonblock (- 0 1))))
+    (sysResult "netSetBlocking"
+      (if (< fl 0)
+        fl
+        (__syscall3 sysFcntlNum fd fSetFl (& fl (^ oNonblock (- 0 1))))
+      )
     )
   )
 )
@@ -2033,46 +2096,84 @@
 ; Connect to an address built by `netAddr4` or `netAddr6`. The length
 ; comes off the family in the buffer for the same reason `netBind`'s
 ; does, and was the same literal 16.
-(pub :: netConnect (-> Int Int Int))
+;
+; A NON-BLOCKING SOCKET'S CONNECT ANSWERS `Err` WITH `EINPROGRESS`, and
+; that is the raw contract unchanged rather than a new hazard: it was
+; a negative return before and it is an `Err` now. The errno is in
+; `Error.code`, which is the one place a caller can tell it from a
+; refusal - which comparing an Int against 0 never could.
+(pub :: netConnect (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (netConnect fd addr) (__syscall3 sysConnectNum fd addr (netAddrSize addr)))
+(pub fn (netConnect fd addr)
+  (sysResult "netConnect" (__syscall3 sysConnectNum fd addr (netAddrSize addr)))
+)
 
-(pub :: netShutdown (-> Int Int Int))
+; Answers `(Result Int Error)`; `Ok 0` on success.
+(pub :: netShutdown (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (netShutdown fd how) (__syscall3 sysShutdownNum fd how 0))
+(pub fn (netShutdown fd how)
+  (sysResult "netShutdown" (__syscall3 sysShutdownNum fd how 0))
+)
 
 ; Set an integer-valued socket option. The value crosses as four bytes
 ; in the host's own order, which is what the kernel reads an `int`
 ; option as - unlike an address, this one is NOT network order. That is
 ; `netPutInt32`, which `netAcceptFrom`'s `socklen_t` cell needs for the
 ; same reason.
-(pub :: netSetOptInt (-> Int Int Int Int Int Int))
+;
+; Answers `(Result Int Error)`; `Ok 0` on success.
+(pub :: netSetOptInt (-> Int Int Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (netSetOptInt fd level name value v)
   {
     (netPutInt32 v 0 value)
-    (__syscall5
+    (sysResult "netSetOptInt" (__syscall5
       sysSetSockOptNum      fd      level      name      v      4
-    )
+    ))
   }
 )
 
-; Put a descriptor into non-blocking mode, preserving the flags it
-; already carries - a bare `F_SETFL` of the one flag would clear the
-; access mode with it.
-(pub :: netSetNonBlocking (-> Int Int))
+; The two `fcntl`s, answering the raw result. PRIVATE, AND IT EXISTS
+; BECAUSE THE PUBLIC WRAPPER ALLOCATES.
+;
+; `netAcceptFinish` calls this on the target whose kernel does not take
+; `SOCK_NONBLOCK` - Darwin, where `acceptNonblockFlag` is 0 - which is
+; once per ACCEPTED CONNECTION. Measured 2026-08-31 while porting this
+; family: routing that call through the `Result`-answering
+; `netSetNonBlocking` gave `netAccept` and `netAcceptFrom` `Alloc` in
+; `axiom symbols`, and an `(Ok 0)` per connection there is allocation
+; OUTSIDE the per-connection arena mark that `scripts/check-net.sh`
+; holds its memory ratio on. The accept path is exactly what
+; `docs/error-model.md` ERR-ADOPT-1 excludes from this migration, and
+; the exclusion would have been undone from underneath by a callee.
+;
+; So the raw answer is the shared thing and the `Result` is the public
+; skin over it, rather than the other way round.
+(:: netSetNonBlockingRaw (-> Int Int))
 
 ;@axiom:effect(io)
-(pub fn (netSetNonBlocking fd)
+(fn (netSetNonBlockingRaw fd)
   (let ((fl (__syscall3 sysFcntlNum fd fGetFl 0)))
     (if (< fl 0)
       fl
       (__syscall3 sysFcntlNum fd fSetFl (| fl oNonblock))
     )
   )
+)
+
+; Put a descriptor into non-blocking mode, preserving the flags it
+; already carries - a bare `F_SETFL` of the one flag would clear the
+; access mode with it.
+;
+; Two syscalls and one result, for the reason `netSetBlocking` gives.
+(pub :: netSetNonBlocking (-> Int (Result Int Error)))
+
+;@axiom:effect(io)
+(pub fn (netSetNonBlocking fd)
+  (sysResult "netSetNonBlocking" (netSetNonBlockingRaw fd))
 )
 
 ; Whether a negative answer means "nothing to take yet" rather than a
@@ -2176,37 +2277,43 @@
 ; eventlist of none, which registers without collecting; on Linux it is
 ; `epoll_ctl`. The argument orders do not correspond, which is why the
 ; branch is here rather than in the numbers.
-(pub :: netPollAddRead (-> Int Int Int Int))
+;
+; Answers `(Result Int Error)`; `Ok 0` on success. REGISTERING runs
+; once per descriptor watched, not once per wake - which is the line
+; this file's socket section draws, and the reason `netPollWait` below
+; is not ported while this is.
+(pub :: netPollAddRead (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (netPollAddRead pfd fd rec)
   {
     (netPollRec rec fd pollAddOp)
-    (if (== pollUsesKqueue 1)
+    (sysResult "netPollAddRead" (if (== pollUsesKqueue 1)
       (__syscall6
         sysPollWaitNum        pfd        rec        1        0        0        0
       )
       (__syscall4
         sysPollCtlNum        pfd        pollAddOp        fd        rec
       )
-    )
+    ))
   }
 )
 
-(pub :: netPollDelRead (-> Int Int Int Int))
+; Answers `(Result Int Error)`; `Ok 0` on success.
+(pub :: netPollDelRead (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (netPollDelRead pfd fd rec)
   {
     (netPollRec rec fd pollDelOp)
-    (if (== pollUsesKqueue 1)
+    (sysResult "netPollDelRead" (if (== pollUsesKqueue 1)
       (__syscall6
         sysPollWaitNum        pfd        rec        1        0        0        0
       )
       (__syscall4
         sysPollCtlNum        pfd        pollDelOp        fd        rec
       )
-    )
+    ))
   }
 )
 
@@ -2356,7 +2463,9 @@
 ; and the bytes between the word and that width are zeroed here rather
 ; than left to whatever the caller's buffer held, because on FreeBSD
 ; they are signals 65 through 128 and a stale byte there blocks one.
-(pub :: sysSignalBlock (-> Int Int Int))
+; Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before
+; a server forks, so that every worker inherits the mask.
+(pub :: sysSignalBlock (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysSignalBlock mask setbuf)
@@ -2367,9 +2476,9 @@
     ; `rt_sigprocmask` takes a fourth, the mask's size, which it checks
     ; exactly. Passing it unconditionally is the shape `netAccept`
     ; already uses for `accept` against `accept4`.
-    (__syscall4
+    (sysResult "sysSignalBlock" (__syscall4
       sysSigProcMaskNum      sigBlockHow      setbuf      0      sigsetBytes
-    )
+    ))
   }
 )
 
@@ -2482,10 +2591,16 @@
 )
 
 ; Send a signal, which is how a test raises one against itself.
-(pub :: sysKill (-> Int Int Int))
+;
+; Answers `(Result Int Error)`; `Ok 0` on success. `Err` with ESRCH is
+; the answer a pool driver needs and the sentinel hid: "that child is
+; already gone" and "the signal was delivered" were both an Int.
+(pub :: sysKill (-> Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (sysKill pid signo) (__syscall3 sysKillNum pid signo 0))
+(pub fn (sysKill pid signo)
+  (sysResult "sysKill" (__syscall3 sysKillNum pid signo 0))
+)
 
 ; ------------------------------------------------------------------
 ; Duplicating this process

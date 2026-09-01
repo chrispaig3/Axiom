@@ -666,6 +666,76 @@ self-contained construction
 > `Alloc`, which is already what happens". Its gate paragraph below
 > should be re-derived before anyone acts on it.
 
+> **AND THE `Mut` HALF IS NOT AFFORDABLE AS PRICED — its cost
+> paragraph rests on a claim that does not survive being re-read.**
+> Recorded here rather than quietly corrected, for the reason this
+> document already gives about P1, P2 and P7: a scoping sentence
+> nobody re-ran is how a milestone gets mis-sized. Three measurements,
+> all taken 2026-08-31 against the merged tree.
+>
+> **1. The size of the prize is real.** `axiom --diagnostic-format=ai
+> symbols self_host/main.ax` lists 3,616 declarations, 2,290 of which
+> carry an effect at all; **2,126 of those 2,290 carry `Mut`** (93%),
+> and 1,721 are exactly `Alloc,Mut`. `Mut` discriminates almost
+> nothing today, and that much of this section is correct.
+>
+> **2. The analysis this proposal says already exists does not compute
+> the property.** The cost paragraph below says the compiler "already
+> computes almost exactly this distinction … for `MM-LIFE-2c`'s own
+> ownership fixpoint (`inferOwnership`/`inferFlows`)". Read them:
+> `inferOwnership` stores **one bit per function** — is the RESULT
+> owned, i.e. is every tail a construction rather than a borrow — and
+> `inferFlows` stores **two 30-bit masks over PARAMETERS** (STASH: a
+> parameter's reference is parked beyond the frame uncounted; RET: it
+> may be part of a word the function answers). Neither is indexed by
+> STORE SITE, and neither answers "is the address this store targets
+> reachable from an alias the caller holds". So option (a), hoisting a
+> cheap version of the classification into `typecheck.ax`, hoists a
+> bit that does not answer the question; option (b), reordering the
+> passes, arrives at the same non-answer later. **Both stated options
+> are void**, and what P6 actually needs is a NEW analysis — escape or
+> points-to over store targets — which is a different and larger
+> thing than "a hoist".
+>
+> **3. `strConcat`, the headline case, is refuted by its own file.**
+> `strConcat` performs no store of its own; its `Mut` arrives through
+> `(memCopy (strData out) (strData a) la)`, and `memCopy` writes
+> through its first parameter. So the question is whether
+> `(strData out)` is private — and `strData` is a LOAD of word 1 out
+> of the `Str` header, not the header itself. Whether that word is
+> private depends entirely on what put it there, and `stdlib/Str.ax`
+> builds both kinds through the same `strWrapOwned`:
+>
+> ```scheme
+> (fn (strAlloc len)                     ; word 1 := a fresh buffer
+>   (let ((bytes (memAlloc (+ len 1))))
+>     { (__retain bytes) (strWrapOwned bytes len bytes) }))
+>
+> (fn (strSlice s from n) ...            ; word 1 := INTO THE CALLER'S buffer
+>   (strWrapOwned (+ (strData s) from) n (strOwner s)))
+> ```
+>
+> A rule of the form "the target is a projection of a freshly
+> allocated local, so the store is invisible" is therefore **unsound**,
+> and the counterexample is four hundred lines from the case the
+> proposal names. Telling `strAlloc`'s header from `strSlice`'s needs
+> to know what a field points AT, which is heap reachability — not a
+> per-function OWNED/BORROWED result class, which is all
+> `inferOwnership` has.
+>
+> What IS affordable, and was measured before it was believed, is the
+> narrower rule the same week produced for the other open row: a value
+> the walk cannot follow is a hole only where the callee's DECLARED
+> POSITION could hold a function (`MM-EXEC-9a`,
+> `scripts/check-effect-argpos.sh`). That one is decidable from a type
+> the checker already has. `Mut`'s target is not.
+>
+> **Status: BLOCKED, not deferred.** Re-entering it means specifying
+> the store-target escape analysis on its own terms and pricing that,
+> with `strSlice`/`strAlloc` as its first acceptance test. The
+> distribution above is the argument for wanting it; nothing here is
+> an argument that it is cheap.
+
 **What.** Extend `ERR-PROP-2`'s existing precedent — that allocating
 a not-yet-shared value is invisible to the effect row **by decision**
 — from bare constructor application to any function whose
@@ -825,7 +895,7 @@ whole withdrawal history first.
 | P3 | Renumber the duplicate rule pair | fixes §0.1 violation | doc-only + a new gate | **BUILT** — three pairs, not two; `check-doc-drift` section 8 |
 | P4 | `MM-ALLOC-8`: P → R | deletes a stale Planned row | doc-only | **BUILT** — Planned is `ALLOC-20` alone |
 | P5 | Trap on invalid mark reset | turns SHOULD into MUST | one branch, measured at zero | **BUILT** — status 75, `tests/stdlib/166-arena-bad-mark.ax` |
-| P6 | Ownership-aware Mut/Alloc | precision, not new rules | medium, pass-order risk | closes the real ERR-ADOPT-1 blocker |
+| P6 | Ownership-aware Mut/Alloc | precision, not new rules | ~~medium, pass-order risk~~ **a new escape analysis over store targets; both stated options are void** | **BLOCKED** — `Mut` is on 2,126 of 2,290 effect-carrying rows, so the prize is real; `inferOwnership` answers a RESULT class and `inferFlows` two parameter masks, neither indexed by store site, and `strSlice`/`strAlloc` build the same `Str` header around a borrowed and a fresh buffer |
 | P7 | Uncurry closures | deletes EV_LAMARG-by-depth, event 5b | large, own milestone | removes the bug class outright |
 | P8 | Reframe the narrative | zero rule changes | doc-only | model reads as one thing |
 

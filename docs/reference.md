@@ -1397,10 +1397,13 @@ not appear in function types. Untagged functions ARE policed: silence
 is the claim "performs no IO", and a body performing IO under it is
 `AX3042`, an error. Only `IO` is REQUIRED - `Alloc` and `Mut` are
 ambient, inferred and reported but never demanded, and the line was
-measured rather than chosen: of the 3,421 functions in the compiler and
-its standard library, 2,095 perform something at all, and 1,664 of those
+measured rather than chosen, and re-measured 2026-08-31: of the 3,616
+declarations `symbols self_host/main.ax` lists for the compiler and its
+standard library, 2,290 perform something at all, and 1,721 of those
 perform exactly `Alloc,Mut` - which is every function that touches a
-`String` or a `Vec`. `IO` is the one effect a caller cannot learn
+`String` or a `Vec`. `Mut` alone is on 2,126 of the 2,290, so requiring
+it would be requiring a tag on 93% of everything that has an effect at
+all. `IO` is the one effect a caller cannot learn
 without opening the callee. `Alloc` and `Mut` are still DECLARABLE, and
 checked when declared:
 `;@axiom:effect(mut)` over a body that writes a field is accepted, and
@@ -1429,6 +1432,14 @@ not perform concretely is accepted when a callback could supply it.
 The exception is a claimed effect that no declaration introduces at
 all: nothing could ever supply it, so it warns regardless.
 
+**`restrict(...)` is read differently, and deliberately.** "No IO
+modulo its function parameters" is not what a reader takes
+`restrict(no-io)` to mean, so a transitive restriction on a body that
+calls one of its own parameters is `AX3051` - unverifiable - rather
+than accepted (`restrict(...)` below). The difference is not a policy
+choice: `pure` describes a body, and a restriction is a guarantee
+about calling it.
+
 Attribution is otherwise unchanged: a *reference* to a named function
 answers for that function's effects at the reference site, and a
 lambda literal answers for its body where the literal appears.
@@ -1444,7 +1455,7 @@ it:
 | a head that is not a name | `((b.f) x)`, an `if` or `match` in head position |
 | a `let` bound to anything but a name or a lambda literal | `(let ((g b.f)) (g 7))` |
 | a pattern binder | `(match h ((Wrap f) (f 7)))` |
-| an unfollowable value handed to an effect-transparent position | `(fn (p h b) (h b.f))` |
+| an unfollowable value handed to an effect-transparent position whose declared type could hold a function | `(fn (p h b) (h b.f))` |
 
 The first three are one route through memory wearing three spellings -
 a function value goes into a struct, a data constructor or a container
@@ -1457,6 +1468,20 @@ is not modelled is the value handed **into** the transparent position.
 "Pure modulo its function parameters" excuses `h`; it does not excuse
 an argument the walk cannot name, and `b.f` is a word out of a struct
 that the transparent parameter will call.
+
+**And it asks the callee's signature which positions those are.** An
+arrow, a type variable or poison can hold a callable value; a concrete
+`Int` cannot, so a value the walk could not follow, landing in an
+`Int` position, hides nothing — applying it is `AX3004` and the
+program does not compile. `(fn (twice f x) (f (f x)))` under
+`(-> (-> Int Int) Int Int)` is therefore complete, and the *same body*
+under `(-> (-> a a) a a)` is not, because a caller may instantiate `a`
+to an arrow. Until 2026-08-31 the argument's shape decided alone, and
+`vecSiftDownBy` — `(cmp (memGetWord d r) (memGetWord d k))` against a
+`cmp` declared `(-> Int Int Int)` — published the standard library's
+sort as a lower bound on the strength of two machine words its own
+signature calls integers, so `restrict(no-io)` over anything that
+sorted answered `AX3051` rather than yes or no.
 
 The walk records that, `symbols` prints it as `#effects-incomplete`,
 and claim checking splits on it:
@@ -1549,10 +1574,11 @@ body performing IO under it drew no `AX3010` at all: the tag read like
 a guarantee and bought silence. A key the compiler knows is never a
 near miss of another one it knows: `pre` is one insertion from `pure`,
 and drew "did you mean `pure`?" until 2026-08-29. Knowing a key and
-checking it are separate: `pre`, `post` and `restrict` are known ahead
+checking it are separate: `pre`, `post` and `restrict` were known ahead
 of their checks, and until a key's check lands it is recorded and not
 checked exactly as an unknown one is - what knowing it buys is that a
-slip FROM it is reported. A key containing `:` is never reported,
+slip FROM it is reported. All three are checked now; the sentence is
+kept because it is the rule a NEXT key arrives under. A key containing `:` is never reported,
 because a namespaced key is deliberate by construction and its
 distance from `pure` is not evidence about anything.
 
@@ -1632,15 +1658,34 @@ A violation is `AX3049`, an **error** with no warning stage, for the
 argument that made `AX3010` one: the tag is a claim the author wrote,
 and a build shipping a false one publishes a guarantee the program
 does not keep. Deleting the tag silences it and *withdraws* the claim;
-an unrestricted function is never asked. A claim over a row the walk
-could not close is `AX3051`, a warning in
-`tests/diagnostics/severity.policy`, in exactly one direction per
-reading: an effect ABSENT from a row that is a lower bound
-(`#effects-incomplete`), or present only as a POSSIBLE effect
-(`#effects-possible=`, the row's `#effects-overapprox` admission). An
-effect present in a lower bound, or definite beside a possible one, is
-a violation. `no-cast` and `no-wrap` never draw `AX3051`: both are
-lexical and are checked whether or not a call resolved.
+an unrestricted function is never asked. A claim this walk cannot settle
+is `AX3051`, a warning in `tests/diagnostics/severity.policy`, and
+there are **three** readings.
+
+Two are about a row that is not closed, one direction each: an effect
+ABSENT from a row that is a lower bound (`#effects-incomplete`), or
+present only as a POSSIBLE effect (`#effects-possible=`, the row's
+`#effects-overapprox` admission). An effect present in a lower bound,
+or definite beside a possible one, is a violation.
+
+The third is about a row that IS closed and answers the wrong
+question. A body that CALLS one of its own parameters is
+effect-transparent — `symbols` says so, `#effect-params=f` — and what
+it performs is decided by the argument each caller passes. Effect
+Polymorphism above records that `;@axiom:pure` on `(fn (apply f x) (f
+x))` stands, because purity is a claim about a BODY; a restriction is
+not read that way by anyone, so a transitive restriction on such a
+function is `AX3051` rather than silence. Measured before this reading
+existed: `(fn (runIt f n) { (f "x") n })` under `restrict(no-io)`
+checked `OK` with no diagnostic at all and printed to stdout at run
+time, and `no-recursion` was silent over `runIt -> back -> runIt`, a
+cycle whose middle edge is a parameter the graph has no edge for. A
+body that performs the effect concretely AND calls a parameter is
+`AX3049`: refuted beats undecided.
+
+`no-cast` and `no-wrap` never draw `AX3051` under any of the three:
+both are lexical, are checked whether or not a call resolved, and a
+parameter cannot change the bytes of this body.
 
 A restriction is a **per-declaration** claim. A tag attaches to the
 declaration written below it, on the `::` or on the `fn`, and both
@@ -1652,6 +1697,91 @@ declaration, where `symbols` shows it. A `restrict` tag is not an
 effect claim and does not stand in for one: a restricted function
 that performs IO without `effect(io)` draws `AX3042` like any other,
 and `restrict(no-io)` over it draws `AX3049` as well.
+
+#### `pre(...)` / `post(...)` - a claim the compiler CANNOT decide
+
+`;@axiom:pre(EXPR)` and `;@axiom:post(EXPR)` are the one pair of keys
+here whose claim the checker cannot refuse, and the design follows from
+that rather than from taste. `restrict(...)` is refused statically
+because the effect row and the call graph are fixpoints the checker
+already computes; `(> n 0)` is a statement about a VALUE, and there is
+no value analysis in this compiler at all - measured, `grep -v '^ *;'
+FILE | grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'`
+over `self_host/typecheck.ax`, `self_host/codegen.ax` and
+`self_host/expand.ax` answers 0, 0 and 0. The comment lines are
+excluded because the sentence making the claim matches the pattern it
+quotes; without the exclusion it answers 1, 1, 1, all three of them
+that sentence. A claim nothing checks is a
+comment, and this project refuses those, so a contract is **compiled
+into the body** and checked on every call - which is what Ada does, and
+for the same reason.
+
+```scheme
+;@axiom:pre((> n 0))
+;@axiom:post((>= result 0))
+(:: half (-> Int Int))
+
+(fn (half n) (/ n 2))
+```
+
+`(half 0)` writes ``axiom: precondition failed in `half`: (> n 0)`` on
+fd 2, prints the backtrace, and exits **76** - a status of its own
+beside `MM-EXEC-16`'s 70/71/72, the FFI boundary's 73, 74's absent
+syscall ABI and 75's invalid arena mark, so a supervisor reading a
+status can tell a broken invariant from a broken machine. There is no flag to turn the checks
+off: a check that is off by default is a comment by default.
+
+| | |
+|---|---|
+| **Where** | on the `::` or on the `fn`; both are read as one list, in source order, exactly as `restrict(...)` is. Several `pre`s and several `post`s on one declaration are all checked, in the order written |
+| **Scope** | the parameters, in BOTH - and `result` in a `post` |
+| **Type** | `Bool` |
+| **May do** | nothing. The expression's own effect row must be empty of DEFINITE effects |
+| **Refused by** | `AX3050`, an error |
+| **Costs** | a `post` costs the tail-call rewrite |
+
+**Purity, and why it is not a blanket refusal.** A contract is
+evaluated on every call, so one that allocates or writes changes the
+program by being stated. That is expressible today without moving any
+part of the effect system: `Alloc` is ambient as a *declarable* claim -
+only `IO` can be written in an `effect(...)` - but it is in the row like
+any other effect, and `restrict(no-alloc)` already reads the same row.
+The vocabulary a predicate needs is allocation-free already: measured
+from `symbols --calls` over `self_host/main.ax`, `vecLen`, `vecGet`,
+`strLen`, `strEq`, `strByte` and `memGetWord` carry no effects at all,
+while `strConcat`, `fmtInt` and `vecNew` carry `Alloc,Mut`. A contract
+may compare, index, measure and test; it may not build. Only a
+DEFINITE effect is refused - an effect that reaches the row only as
+possible arrived because the expression NAMES a function without
+calling it, and naming one performs nothing.
+
+**`result`, and no `'Old`.** `result` names the function's answer in a
+`post`, and its type is the DECLARED result - the signature's arrows
+peeled by as many parameters as the definition has. It names nothing in
+a `pre`, which runs before the body, and nothing on a declaration with
+no `::`, which declares no result type for it to have; both are
+`AX3050`. Ada pairs `Post` with `'Old` because Ada's parameters can be
+assigned; Axiom's cannot (`AX3012`), so for a scalar parameter the name
+means in the `post` exactly what it meant in the `pre` and `'Old` would
+be a synonym. What a `post` cannot see is a change made THROUGH a
+reference parameter - a `memSetWord` into a struct the caller still
+holds - and nothing here pretends otherwise. That is the deliberate
+omission, not an oversight.
+
+**What a `post` costs.** The body's value has to be observed, so it is
+bound - `(let ((result BODY)) { check result })` - and a `let`'s
+INITIALISER is not a tail position. Measured on one self-recursive
+function: bare and under a `pre` its IR holds no call to itself (the
+loop rewrite fired), under a `post` it holds one. A `pre` is a block
+whose last expression is the body, and a block's last expression IS a
+tail position, so it costs nothing. Both directions are pinned by
+`scripts/check-contracts.sh` section 5.
+
+`tests/diagnostics/385-contract-malformed.ax` pins the six refusals
+with the five controls that keep them from being blanket ones;
+`tests/selfhost/132-contract.ax` runs six satisfied contracts including
+one 200,000 deep under a `pre`, and `133-contract-violated.ax` pins the
+status. `docs/contracts-design.md` is the design note.
 
 #### `unhandled(trap)` - an effect whose unhandled operation is the design
 
@@ -3093,7 +3223,7 @@ one, so a piped session and a typed one produce the same bytes.
 
 ```
 $ axiom repl
-Axiom 0.6.1 - REPL
+Axiom 0.6.2 - REPL
 Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))

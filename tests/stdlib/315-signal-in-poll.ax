@@ -37,6 +37,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Mem)
 
 (:: say (-> Int String Int))
@@ -67,7 +69,7 @@
             (let ((buf (memAlloc (netPollBufBytes 8))))
               {
                 (say
-                  (if (== (sysSignalBlock (sysSigBit sigTerm) setbuf) 0)
+                  (if (isOk (sysSignalBlock (sysSigBit sigTerm) setbuf))
                     1
                     0
                   )                  "SIGTERM is blocked"
@@ -85,7 +87,7 @@
                       (netListen lsn 16)
                       (netSetNonBlocking lsn)
                       (say
-                        (if (>= (netPollAddRead pfd lsn rec) 0)
+                        (if (isOk (netPollAddRead pfd lsn rec))
                           1
                           0
                         )                        "the listener is watched"
@@ -145,7 +147,7 @@
                           )
                           ; A SIGNAL, to ourselves, through the same loop.
                           (say
-                            (if (== (sysKill sysGetPid sigTerm) 0)
+                            (if (isOk (sysKill sysGetPid sigTerm))
                               1
                               0
                             )                            "SIGTERM is raised"
@@ -169,7 +171,7 @@
                             }
                           )
                           (if (> sh 0)
-                            (sysCloseFd sh)
+                            { (sysCloseFd sh) 0 }
                             0
                           )
                         }

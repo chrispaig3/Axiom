@@ -5785,6 +5785,13 @@
       ; like everything else at top level.
       (expandDeclPhase entryDecls decls env)
       (expandDeclsIn decls env 0)
+      ; Contracts last, over the list expansion finished with: a
+      ; macro-generated `fn` carries its own AXTAGs and gets its
+      ; contract lowered like any written one, and a contract whose
+      ; expression invokes a macro is not a shape this lowers - the
+      ; expression comes from a comment, which no expansion round
+      ; reads.
+      (expLowerContracts decls (contractSigIndex decls) 0)
       (memGetWord env 18)
     }
   )
@@ -7071,7 +7078,50 @@
     (memSetWord d 4 (memGetWord g 4))
     (memSetWord d 5 1)
     (memSetWord d 6 (memGetWord g 6))
-    (memSetWord d 7 0)
+    ; WORD 7 IS COPIED LIKE EVERY OTHER WORD, and it was a literal 0
+    ; until 2026-08-31. That zero made the FIRST declaration a template
+    ; generates the one place in this language where an AXTAG could be
+    ; written and never read - not refused, not warned about, dropped.
+    ;
+    ; Measured on the merged tree before this line changed, with the
+    ; same near-miss key moved one declaration down between runs:
+    ;
+    ;   (macro defF ((defF nm) ;@axiom:pur (fn (nm n) n) (:: nm ...)))
+    ;       -> nothing
+    ;   (macro defF ((defF nm) (:: nm ...) ;@axiom:pur (fn (nm n) n)))
+    ;       -> W AX3039 axtag-key-typo
+    ;
+    ; and the same split for the claims that matter: `restrict(no-io)`
+    ; over a template whose first declaration is the `::` checked `OK`
+    ; on a body that calls `println`, and a `;@axiom:pre` there compiled
+    ; to no check at all. `attachAxtags` had already been taught to walk
+    ; a macro's rules for exactly this reason
+    ; (`tests/diagnostics/361-macro-template-effect.ax` records the
+    ; three bugs it took), and `expBuildDecls` copies word 7 onto every
+    ; generated node - so the tag was parsed, attached, copied, and
+    ; then zeroed here.
+    ;
+    ; The zero was not arbitrary: `expGiveTags` below parks the
+    ; INVOCATION's tags on the first generated `fn`, and clearing the
+    ; word first made that write unconditional. It does not need to be.
+    ; `expGiveTagsIn` already reads `made[i]`'s own word 7 to decide
+    ; whether a generated function is spoken for - "an invocation's
+    ; tags are a claim about a different thing and must not overwrite
+    ; them" - and `made[0]`'s word is intact, because only this copy
+    ; was ever zeroed. So with the template's tags kept here, an
+    ; invocation-level tag lands on the first UNTAGGED generated `fn`
+    ; exactly as its own comment says it should, and a template-level
+    ; tag survives on element 0 exactly as it does on element 1.
+    ;
+    ; ONE CASE STILL LOSES A TAG, named rather than left to be found: a
+    ; template that generates NO `fn` at all, whose element 0 carries a
+    ; tag, AND whose invocation carries one too. `expGiveTagsIn`'s
+    ; no-fn fall-through writes the invocation's tags over this word,
+    ; so the template's are lost. That case lost them before this
+    ; change as well - every case did - so nothing regresses; it is
+    ; simply the one this line does not reach, and an invocation tag on
+    ; a template with no `fn` is inert by that function's own comment.
+    (memSetWord d 7 (memGetWord g 7))
     (memSetWord d 9 (memGetWord g 9))
     0
   }
@@ -7500,5 +7550,254 @@
       (vecPush dst (vecGet src i))
       (expMergeIntoAt dst src (+ i 1))
     }
+  )
+)
+
+; ==================================================================
+; CONTRACTS - `;@axiom:pre(...)` and `;@axiom:post(...)`, lowered.
+;
+; WHY THE LOWERING IS HERE AND NOT IN THE EMITTER. A contract is a
+; claim this compiler cannot verify: there is no value analysis in this
+; tree at all (measured: `grep -v '^ *;' FILE | grep -c
+; 'constFold\|interval\|rangeOf'` over `typecheck.ax`, `codegen.ax`
+; and this file answers 0, 0, 0 - the comment lines are excluded
+; because this sentence matches the pattern it quotes), so
+; `(> n 0)` is not a question the checker can answer about a caller it
+; has not seen. What it CAN do is make the claim load-bearing at run
+; time, which is Ada's answer, and this project's rule that a claim
+; nothing checks is a comment says it has to do one or the other.
+;
+; So the check is compiled INTO the body, once, here - the pass that
+; already "rewrites the declaration list" and that every consumer of a
+; compiled program runs. Putting it in `codegen.ax` instead would
+; require the same pass in `main.ax`, `repl.ax`, `lsp.ax` and
+; `emitModule`, and a caller that forgot it would be a contract that
+; silently checked nothing, which is the failure this whole feature
+; exists to prevent.
+;
+; THE TWO SHAPES.
+;
+;   ;@axiom:pre(P)    (fn (f a) BODY)  ->  (fn (f a) { (__contract P m) BODY })
+;   ;@axiom:post(Q)   (fn (f a) BODY)  ->  (fn (f a)
+;                                            (let ((result BODY))
+;                                              { (__contract Q m) result }))
+;
+; A block's LAST expression is a tail position (`tailCallsSelf` in
+; `codegen.ax`), so `pre` costs a self-recursive function nothing: the
+; loop rewrite still fires. A `let`'s INITIALISER is not, so `post`
+; costs it the rewrite - measured on `(fn (loopB n acc) (if (== n 0)
+; acc (loopB (- n 1) (+ acc 1))))`, whose IR holds no call to itself
+; and whose `let`-wrapped twin holds `call i64 @loopB`. That is not an
+; artefact to fix: a `post` must observe the result, so the call it
+; wraps cannot be a tail call, and Ada's `Post` has the same property.
+; It is stated in `docs/contracts-design.md` and in the reference
+; rather than left for someone to measure again.
+;
+; `result` IS BOUND BY AN ORDINARY `let`, and a `let`'s initialiser is
+; evaluated in the OUTER scope - probed: `(fn (f result) (let ((result
+; (+ result 1))) result))` applied to 6 answers 7 - so wrapping the
+; body cannot shadow anything the body itself reads. Parameters are
+; immutable (`AX3012`), which is why there is no `'Old`: for a scalar
+; parameter the name means in the `post` exactly what it meant in the
+; `pre`.
+; ==================================================================
+(pub :: expLowerContracts (-> Int Int Int Int))
+
+(pub fn (expLowerContracts decls sigs i)
+  (if (>= i (vecLen decls))
+    0
+    {
+      (let ((d (vecGet decls i)))
+        (if (== (nodeTag d) TAG_D_FN)
+          (expLowerOne d (contractTagsFor sigs d))
+          0
+        )
+      )
+      (expLowerContracts decls sigs (+ i 1))
+    }
+  )
+)
+
+; THERE IS NO "ALREADY LOWERED" GUARD, AND THE ONE THAT WAS HERE WAS A
+; HOLE. It asked whether the body LOOKED lowered - a block whose first
+; statement applies `__contract`, under an optional `result` binding -
+; on the argument that "`__contract` is not a name a source program can
+; reach". That argument was false. `__contract` is registered in `fns`
+; and intercepted by `checkApp` like `__streq`, so a program CAN write
+; it, and one that did silenced its own contract: measured, `(fn (f n)
+; { (__contract true "...") n })` under `;@axiom:pre((> n 0))` called
+; as `(f 0)` checked `OK` and exited **0**, where the same file without
+; the first statement exits 76. The `post` arm was the same shape. A
+; contract that a program can turn off by writing one expression is a
+; check that cannot fail, which is the defect this whole feature
+; exists to prevent.
+;
+; WHAT THE GUARD WAS FOR, AND WHY NOTHING REPLACES IT. `expandProgram`
+; is called from `main.ax`, `lsp.ax`, `repl.ax`, `symbols` and
+; `emitModule`, and the guard existed so a second call over an
+; already-lowered list would not wrap the body twice. No path in this
+; tree does that - each of those five parses first, and a diamond
+; import splices one node once (measured: `(import B) (import C)` where
+; both import a contract-carrying `D` emits exactly one
+; `call i64 @__axiom_contract_fail`). And a doubled lowering would be
+; semantically a no-op anyway: `AX3050` refuses a contract that
+; performs anything, so evaluating it twice cannot differ from
+; evaluating it once. The guard bought bytes in a case nothing
+; exercises and cost soundness in one a program can write, so it is
+; gone rather than made cleverer - any shape-based test of the body is
+; forgeable by the body.
+(pub :: expLowerOne (-> Int Int Int))
+
+(pub fn (expLowerOne d tags)
+  (if (== (vecLen tags) 0)
+    0
+    (let (
+      (pres vecNew)
+      (posts vecNew)
+    )
+      {
+        (expSplitContracts d tags 0 pres posts)
+        ; A tag whose value does not PARSE lowers nothing, and is
+        ; `AX3050` from `checkContracts` instead. Compiling half a
+        ; contract would be a run-time check of an expression the
+        ; author did not write.
+        (if (&& (== (vecLen pres) 0) (== (vecLen posts) 0))
+          0
+          (memSetWord d 3 (expContractBody d pres posts))
+        )
+      }
+    )
+  )
+)
+
+(pub :: expSplitContracts (-> Int Int Int Int Int Int))
+
+(pub fn (expSplitContracts d tags i pres posts)
+  (if (>= i (vecLen tags))
+    0
+    (let ((t (vecGet tags i)))
+      {
+        (let ((p (contractExprOf t)))
+          (if (== p 0)
+            0
+            (if (strEq (contractKeyOf t) "pre")
+              (vecPush pres (expContractCheck d t p))
+              (vecPush posts (expContractCheck d t p))
+            )
+          )
+        )
+        (expSplitContracts
+          d          tags          (+ i 1)          pres          posts
+        )
+      }
+    )
+  )
+)
+
+; `{ pre... (let ((result BODY)) { post... result }) }`, with either
+; half omitted when it is empty.
+(pub :: expContractBody (-> Int Int Int Int))
+
+(pub fn (expContractBody d pres posts)
+  (let ((sp (nodeSpan (vecGet (if (== (vecLen pres) 0)
+    posts
+    pres
+  ) 0))))
+    (let ((inner 
+      (if (== (vecLen posts) 0)
+        (nodeC d)
+        (mkELetAt
+          "result"          (nodeC d)          (mkNodeAt
+            TAG_E_BEGIN            (expBlockOf posts (mkEVarAt "result" sp))            0            0            sp
+          )          sp
+        )
+      )
+    ))
+      (if (== (vecLen pres) 0)
+        inner
+        (mkNodeAt
+          TAG_E_BEGIN          (expBlockOf pres inner)          0          0          sp
+        )
+      )
+    )
+  )
+)
+
+(pub :: expBlockOf (-> Int Int Int))
+
+(pub fn (expBlockOf checks last)
+  (let ((v vecNew))
+    {
+      (expPushAll v checks 0)
+      (vecPush v last)
+      v
+    }
+  )
+)
+
+(pub :: expPushAll (-> Int Int Int Int))
+
+(pub fn (expPushAll v checks i)
+  (if (>= i (vecLen checks))
+    0
+    {
+      (vecPush v (vecGet checks i))
+      (expPushAll v checks (+ i 1))
+    }
+  )
+)
+
+; `(__contract P "axiom: precondition failed in `f`: P")`. The span is
+; the contract expression's own, which `contractExprOf` already made
+; absolute, so a backtrace frame and any diagnostic land on the tag.
+(pub :: expContractCheck (-> Int Int Int Int))
+
+(pub fn (expContractCheck d t p)
+  (let ((sp (nodeSpan p)))
+    (mkEApp
+      (mkEApp (mkEVarAt "__contract" sp) p)      (mkNodeAt
+        TAG_E_STR        (expContractMsg d t)        0        0        sp
+      )
+    )
+  )
+)
+
+; The failure sentence, as a string-literal LEXEME - quotes included
+; and escapes unprocessed, which is what `TAG_E_STR` holds and what
+; `escBody` in the emitter reads (`\n` there is two source bytes).
+(pub :: expContractMsg (-> Int Int String))
+
+(pub fn (expContractMsg d t)
+  (strConcat
+    (strConcat
+      (strConcat "\"axiom: " (if (strEq (contractKeyOf t) "pre")
+        "pre"
+        "post"
+      ))      (strConcat "condition failed in `" (bareOf (nodeAName d)))
+    )    (strConcat (strConcat "`: " (expContractEsc (contractTextOf t) 0 "")) "\\n\"")
+  )
+)
+
+; The contract's own text, made safe to sit inside that lexeme. Only
+; two bytes need it: `unescByte` in `core.ax` maps `\n`, `\t`, `\r` and
+; `\0` and passes everything else through, so `\\` and `\"` are exactly
+; the escapes that survive the round trip. A tag cannot contain a raw
+; newline - `scanAxtags` ends it at one.
+(pub :: expContractEsc (-> String Int String String))
+
+(pub fn (expContractEsc s i acc)
+  (if (>= i (strLen s))
+    acc
+    (expContractEsc
+      s      (+ i 1)      (let ((b (strByte s i)))
+        (if (== b 92)
+          (strConcat acc "\\\\")
+          (if (== b 34)
+            (strConcat acc "\\\"")
+            (strConcat acc (strSlice s i 1))
+          )
+        )
+      )
+    )
   )
 )

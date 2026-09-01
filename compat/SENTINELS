@@ -63,10 +63,10 @@
 # cost is instructions. `strFindByte` has 62 call sites on the
 # compiler's own scanning path.
 #
-# The 29 `failure` rows are the migration proper, and 26 of them are in
-# one module. None is free: `netSocketTcp` has 17 call sites, seven of
-# which never test the result at all, which is the reason the migration
-# exists rather than an argument against it.
+# The `failure` rows are the migration proper, and were 29 with 26 of
+# them in one module. None is free: `netSocketTcp` has 17 call sites,
+# seven of which never test the result at all, which is the reason the
+# migration exists rather than an argument against it.
 #
 # WHAT THIS NUMBER STILL DOES NOT REACH, stated rather than left to be
 # discovered: the literal-`0` sentinel (`vecGet`, `vecPop`, `vecLast`,
@@ -107,9 +107,86 @@
 # licence. A sentinel whose meaning is "not found" and nothing else
 # still wants `Option`; these two carry more than that.
 
+# PORTED 2026-08-31, ERR-ADOPT-1 SLICE 3: `stdlib/Sys.ax` 26 -> 19, and
+# the library 29 -> 22 failures. The seven are the socket-CONFIGURATION
+# calls - `netBind`, `netListen`, `netConnect`, `netShutdown`,
+# `netSetOptInt`, `netSetBlocking` and `netSetNonBlocking` - each of
+# which answers nothing but whether it managed the thing it was asked
+# to do, so `Ok 0` carries the whole of the success and the errno is
+# `Error.code`.
+#
+# THE SLICE LINE IS WHERE THE CALL RUNS, NOT WHAT IT DOES. Every one of
+# the seven runs ONCE per socket. What is left in this module's 19 is
+# either per-CONNECTION (`netAccept`, `netAcceptFrom`), per-WAKE
+# (`netPollWait`, `netPollSignalAt`) or per-WRITE (`sysWriteFd`, which
+# `IO.writeStr` forwards and `docs/error-model.md` already excludes on
+# its own measurement) - allocation reached BELOW the per-connection
+# arena mark, which the reset never rewinds. What holds that line is
+# `#effects=` in `axiom symbols`: measured 2026-08-31 with the
+# allocation deliberately put back on the accept path,
+# `scripts/check-net.sh` stayed GREEN at 182x against its floor of 50,
+# because its ratio is sized to catch an arena that stopped reclaiming
+# and not one 32-byte block per connection. `netSocketTcp` and
+# `netSocketTcp6` are left for a different reason: they are NULLARY and
+# answer the descriptor itself, so porting them retypes every `lsn` and
+# `cli` binding in eight files rather than one expression at each call
+# site. That is its own slice.
+#
+# Seven WIDENED rows in `compat/BREAKING`, not CHANGED: `sysResult`
+# builds an `Error`, so each row gains `Alloc`. That is the same tax
+# 0.6.1 declared for every `Err.ax` export and it is the whole of the
+# cost - measured, `sysResult`'s message is a LITERAL op name, so
+# nothing here concatenates on the success path.
+
+# PORTED 2026-09-01, ERR-ADOPT-1 SLICE 2: `stdlib/Sys.ax` 19 -> 14 by
+# the port, then 14 -> 13 failure and 0 -> 1 absence by a CENSUS FIX.
+# Two separate movements in one row and they are not the same kind of
+# thing, so both are stated.
+#
+# THE PORT is slice 1's rule applied to what was left: every call in
+# this module whose ENTIRE answer is "did it work". `sysCloseFd`,
+# `netPollAddRead`, `netPollDelRead`, `sysSignalBlock` and `sysKill`.
+# Five WIDENED rows in `compat/BREAKING`, plus a SIXTH that is
+# collateral and worth naming: `sysFileExists` gains `Alloc` because it
+# closes the descriptor it opened. That is the ONLY such row in the
+# library - measured with `verify-compat.py generate` over `stdlib/`
+# before and after, which differs in exactly two rows - because every
+# other function here that closes an fd already allocated.
+#
+# THE CENSUS FIX moves `netPollSignalAt` from `failure` to `absence`.
+# It was never a failure: it answers "the signal named by event `i`, or
+# a negative when that event is not a signal at all", every bad-path
+# answer it writes is a hand-written `-1`, and all five of its callers
+# read it as a presence test. It was counted as a failure because
+# `sysc` beat `neg` unconditionally in `sentinel_census`, and its Linux
+# arm contains a `read` whose result is compared and never returned.
+# `verify-compat.py` follows the syscall result to the answer now,
+# through a `let` binder as well as directly - the direct-only version
+# ALSO moved `sysNowMonotonic`, which is a real failure forwarding
+# `clock_gettime`'s errno through exactly that binder, so a population
+# of two already contained the false positive.
+#
+# This is a RISE in the absence column, declared. Nothing in the tree
+# moved to cause it; the number was wrong before and is right now, and
+# `netPollSignalAt` is now `Option` debt rather than `Result` debt.
+# Its Linux arm additionally folds a short `signalfd` read into the
+# same `-1`, so porting it means SPLITTING two outcomes rather than
+# rewrapping one - which is why it is recorded here and not done.
+#
+# `scripts/check-compat.sh`'s FLOOR EXPIRED ON THIS SLICE and is gone.
+# It read `total_now < 30` against a population of 38; this slice takes
+# it to 26, so the gate went red for the migration succeeding. What
+# replaces it is stricter: the computed census must agree with this
+# file ROW FOR ROW, which is the rule this file already stated and
+# which additionally catches a port that lowers the count and forgets
+# to lower the file - something the floor let through in silence. The
+# "did the rule stop matching" question the floor was really asking is
+# a named ablation now: a public function forwarding a raw syscall is
+# planted in a copy of `stdlib/` and the census must count it.
+
 stdlib/Intern.ax 0 1
 stdlib/Str.ax 0 2
-stdlib/Sys.ax 26 0
+stdlib/Sys.ax 13 1
 stdlib/Sys/Platform.darwin.ax 3 0
 stdlib/Tui/Keys.ax 0 1
 stdlib/Tui/Term.ax 0 3

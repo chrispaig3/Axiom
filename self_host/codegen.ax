@@ -367,6 +367,17 @@
 ;            an evidence stamp names its author, and `evStampOk`
 ;            refuses a stamp another declaration wrote - a
 ;            macro-spliced argument node is a shared object)
+; Fields 37-40 = the name indexes, all four built together by
+;            `buildNameIndexes` and read by the `…Cg` twins beside it:
+;            37/38 index the signature table, 39/40 the mangle map and
+;            the declaration list. Field 40 carries FIVE structures in
+;            one Vec rather than five fields, because `CG` declares 46
+;            of the 47 payload words MM-LIFE-2d's reference map covers
+;            and `AX3029` refuses a 48th - the layout is written out
+;            above `buildNameIndexes`. 37 and 39 are 0 until it runs,
+;            and 40 is the empty Vec; every reader falls back to the
+;            linear scan while they are, which is the REPL's and LSP's
+;            partial paths.
 (pub struct CG
   (lines : Int)
   (tmp : Int)
@@ -615,12 +626,49 @@
   )
 )
 
-; The signature table and the mangle map, indexed. `findFSig` and
-; `mangledFor` are linear scans - 1,700 signatures, 1,600 bares - and
-; were asked a few times per function; the ownership questions below
-; ask them at every call site, several times, and a self-compile went
-; from 2.8 s to 5.0 s on the scans alone. Built once in
-; `emitResolved`, after every `mangleRecord` has run.
+; The signature table, the mangle map and the DECLARATION LIST,
+; indexed. `findFSig` and `mangledFor` are linear scans - 1,700
+; signatures, 1,600 bares - and were asked a few times per function;
+; the ownership questions below ask them at every call site, several
+; times, and a self-compile went from 2.8 s to 5.0 s on the scans
+; alone. Built once in `emitResolved`, after every `mangleRecord` has
+; run and immediately after field 8 is set, which is the only write
+; either input ever takes.
+;
+; THE DECLARATION HALF, added because the mangle half was not the only
+; scan at a call site. `emitVar` asks `isNullaryFn` for every variable
+; reference it emits and `isDefinedFn` for every one that is not
+; nullary; `emitOverApplied` asks `isDefinedFn` and then `fnArityOf`
+; for every call. All three walk the WHOLE merged declaration list -
+; 4,600 declarations when the compiler compiles itself - so emission
+; was quadratic in the program's size, and measurably so.
+;
+; The three answers share one Intern because they share one key, and
+; they are three parallel Vecs rather than three packed bitfields
+; because the packing would buy nothing a `vecGet` does not already
+; give. Where they LIVE is the constrained part, and field 40 is the
+; answer: MM-LIFE-2d's record-form shape word maps 47 payload words,
+; `AX3029` refuses a 48th, and `CG` already declares 46. A new field
+; per index would have taken the last slot and left the next person to
+; want one splitting the record; so field 40, which held one Vec
+; (`bareFirst`), now holds five, and `CG` stays 46 wide.
+;
+;   [0] bareFirst    intern id (field 39) -> first index in field 12
+;                    carrying that name; what `mangledForCg` reads
+;   [1] declNames    Intern over every name the declaration list
+;                    answers to - a `D_FN`'s own spelling, and BOTH
+;                    spellings of a zero-arity `extern` item
+;   [2] declNullary  0/1 per id: `isNullaryFnIn`'s answer
+;   [3] declDefined  0/1 per id: `isDefinedFnIn`'s answer
+;   [4] declArity    the FIRST `D_FN` of that name's parameter count,
+;                    -1 when no `D_FN` carries it; `fnArityIn`'s answer
+;
+; The two booleans are order-independent - each scan returns true at
+; its first match and false at the end, so it is asking "does one
+; exist" and the order it asks in cannot change the answer. `fnArityIn`
+; is NOT: it answers the first `D_FN` it reaches, whatever that one's
+; arity, so the index is built in declaration order and only the first
+; writer of a name touches [4].
 (pub :: buildNameIndexes (-> Int Int))
 
 (pub fn (buildNameIndexes cg)
@@ -631,6 +679,12 @@
     (bares (memGetWord cg 12))
     (bi internNew)
     (first vecNew)
+    (decls (memGetWord cg 8))
+    (dn internNew)
+    (dnull vecNew)
+    (ddef vecNew)
+    (dar vecNew)
+    (rest vecNew)
   )
     {
       (let ((mut i 0))
@@ -659,12 +713,115 @@
             (set j (+ j 1))
           })
       )
+      ; In declaration order, because [4] is first-writer-wins. A `CG`
+      ; whose field 8 is still 0 - nothing but this function reads the
+      ; declaration list through the index - leaves the three Vecs
+      ; empty and every reader below falls back to the scan.
+      (if (== decls 0)
+        0
+        (let ((mut k 0))
+          (while (< k (vecLen decls))
+            {
+              (declIndexAdd dn dnull ddef dar (vecGet decls k))
+              (set k (+ k 1))
+            })
+        )
+      )
+      (vecPush rest first)
+      (vecPush rest dn)
+      (vecPush rest dnull)
+      (vecPush rest ddef)
+      (vecPush rest dar)
       (memSetWord cg 37 si)
       (memSetWord cg 38 byId)
       (memSetWord cg 39 bi)
-      (memSetWord cg 40 first)
+      (memSetWord cg 40 rest)
       cg
     }
+  )
+)
+
+; The row for `name`, created on first sight. Intern ids are dense, so
+; an id equal to the current length is a name never seen before and
+; every parallel Vec gains exactly one entry; anything else already
+; has its row. -1 in `dar` is "no `D_FN` has claimed this name", which
+; is what makes [4] first-writer-wins without a fourth Vec to say so.
+(:: declSlotFor (-> Int Int Int Int String Int))
+
+(fn (declSlotFor dn dnull ddef dar name)
+  (let ((id (internIntern dn name)))
+    {
+      (if (== id (vecLen dnull))
+        {
+          (vecPush dnull 0)
+          (vecPush ddef 0)
+          (vecPush dar (- 0 1))
+        }
+        0
+      )
+      id
+    }
+  )
+)
+
+; One declaration's contribution to the three answers, in the shape
+; `isNullaryFnIn`, `isDefinedFnIn` and `fnArityIn` read it: a `D_FN`
+; is nullary or defined by its parameter count and never both, and an
+; `extern` block contributes only to nullary.
+(:: declIndexAdd (-> Int Int Int Int Int Int))
+
+(fn (declIndexAdd dn dnull ddef dar d)
+  (let ((tag (nodeTag d)))
+    (if (== tag TAG_D_FN)
+      (let (
+        (id (declSlotFor dn dnull ddef dar (nodeAName d)))
+        (ar (vecLen (nodeB d)))
+      )
+        {
+          (if (== ar 0)
+            (vecSet dnull id 1)
+            (vecSet ddef id 1)
+          )
+          (if (< (vecGet dar id) 0)
+            (vecSet dar id ar)
+            0
+          )
+        }
+      )
+      (if (== tag TAG_D_EXTERN)
+        (declIndexExtern dn dnull ddef dar (nodeC d) 0)
+        0
+      )
+    )
+  )
+)
+
+; A ZERO-ARITY `extern` item is a nullary function, and it answers to
+; EITHER spelling - `externHasNullary` matches the Axiom name in slot
+; a or the linker symbol in slot c, because a lookup arriving from
+; `emitVar` has already been through `mangledFor` and is holding the
+; symbol. Both are interned, and `internIntern` folds them together
+; when an item's two spellings agree.
+(:: declIndexExtern (-> Int Int Int Int Int Int Int))
+
+(fn (declIndexExtern dn dnull ddef dar items i)
+  (if (== items 0)
+    0
+    (if (>= i (vecLen items))
+      0
+      {
+        (let ((f (vecGet items i)))
+          (if (== (arrowArity (nodeB f)) 0)
+            {
+              (vecSet dnull (declSlotFor dn dnull ddef dar (nodeAName f)) 1)
+              (vecSet dnull (declSlotFor dn dnull ddef dar (nodeCName f)) 1)
+            }
+            0
+          )
+        )
+        (declIndexExtern dn dnull ddef dar items (+ i 1))
+      }
+    )
   )
 )
 
@@ -697,22 +854,103 @@
       (if (strEq name "main")
         "__axiom_user_main"
         (let ((m (memGetWordStr cg 34)))
-          (let ((hit 
-            (if (==
-              (cast Int m)              0
-            )
+          (let ((hit
+            (if (== (cast Int m) 0)
               (- 0 1)
               (internFind bi (cat3 m "$" name))
             )
           ))
+            ; The ANSWER comes out of the index, not out of a second
+            ; `cat3`. A hit means the Intern already holds a string
+            ; whose content is `m$name` - it is the entry in field 12
+            ; that put the id there - so `bares[first[hit]]` is that
+            ; spelling, borrowed, where rebuilding it allocated and
+            ; copied a second time on every module-local reference. The
+            ; probe's own `cat3` stays an ARGUMENT, which is what makes
+            ; `releaseOwnedArgs` hand it back on the same line; a `let`
+            ; that both probes and answers cannot be released at all,
+            ; because one branch returns it - measured at +69 MiB of
+            ; peak, see this commit.
             (if (>= hit 0)
-              (cat3 m "$" name)
-              (let ((id (internFind bi name)))
-                (if (< id 0)
-                  name
-                  (vecGetStr (memGetWord cg 13) (vecGet (memGetWord cg 40) id))
-                )
-              )
+              (vecGetStr (memGetWord cg 12) (vecGet (vecGet (memGetWord cg 40) 0) hit))
+              (mangledForBareCg cg bi name)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The half of `mangledForCg` that no module-local spelling claimed:
+; `mangledForIn`'s first-match, read out of the index. Field 40 slot 0
+; is the old `bareFirst`; see `buildNameIndexes` for the other four.
+(:: mangledForBareCg (-> Int Int String String))
+
+(fn (mangledForBareCg cg bi name)
+  (let ((id (internFind bi name)))
+    (if (< id 0)
+      name
+      (vecGetStr (memGetWord cg 13) (vecGet (vecGet (memGetWord cg 40) 0) id))
+    )
+  )
+)
+
+; The three declaration-list scans, through the index; the linear scan
+; when no index has been built (the REPL's and LSP's partial paths,
+; where field 40 is still the empty Vec `newCG` gave it).
+;
+; Each takes the `CG` rather than the declaration list, which is what
+; lets the fallback name both. Every caller passed `(memGetWord cg 8)`
+; anyway - there has never been a second declaration list to ask.
+(pub :: isNullaryFnCg (-> Int String Bool))
+
+(pub fn (isNullaryFnCg cg name)
+  (let ((rest (memGetWord cg 40)))
+    (if (< (vecLen rest) 5)
+      (isNullaryFn (memGetWord cg 8) name)
+      (let ((id (internFind (vecGet rest 1) (declSpellingOf name))))
+        (if (< id 0)
+          false
+          (== (vecGet (vecGet rest 2) id) 1)
+        )
+      )
+    )
+  )
+)
+
+(pub :: isDefinedFnCg (-> Int String Bool))
+
+(pub fn (isDefinedFnCg cg name)
+  (let ((rest (memGetWord cg 40)))
+    (if (< (vecLen rest) 5)
+      (isDefinedFn (memGetWord cg 8) name)
+      (let ((id (internFind (vecGet rest 1) (declSpellingOf name))))
+        (if (< id 0)
+          false
+          (== (vecGet (vecGet rest 3) id) 1)
+        )
+      )
+    )
+  )
+)
+
+; `fnArityIn` answers 0 for a name it never finds, and so does this:
+; slot [4] holds -1 for a name only an `extern` item put in the index,
+; and there is no id at all for a name no declaration carries.
+(pub :: fnArityOfCg (-> Int String Int))
+
+(pub fn (fnArityOfCg cg name)
+  (let ((rest (memGetWord cg 40)))
+    (if (< (vecLen rest) 5)
+      (fnArityOf (memGetWord cg 8) name)
+      (let ((id (internFind (vecGet rest 1) (declSpellingOf name))))
+        (if (< id 0)
+          0
+          (let ((ar (vecGet (vecGet rest 4) id)))
+            (if (< ar 0)
+              0
+              ar
             )
           )
         )
@@ -3263,7 +3501,7 @@
 (pub :: fnTakesEvw (-> Int String Int))
 
 (pub fn (fnTakesEvw cg full)
-  (let ((e (findFSig (memGetWord cg 15) full)))
+  (let ((e (findFSigCg cg full)))
     (if (== e 0)
       0
       (memGetWord e 4)
@@ -3557,7 +3795,7 @@
 (pub :: fnRetIsFloat (-> Int String Int))
 
 (pub fn (fnRetIsFloat cg name)
-  (let ((e (findFSig (memGetWord cg 15) name)))
+  (let ((e (findFSigCg cg name)))
     (if (== e 0)
       0
       (let ((flags (memGetWord e 2)))
@@ -7544,10 +7782,13 @@
     (emitLine cg "")
     (emitArenaHelpers cg)
     (emitBadMarkTrap cg)
+    (emitLiveHandleTrap cg)
+    (emitEvCheck cg)
     (emitDivTrap cg)
     (emitOomTrap cg)
     (emitRecoverRuntime cg)
     (emitStrEqHelper cg)
+    (emitContractTrap cg)
     cg
   }
 )
@@ -7899,6 +8140,177 @@
 ; conditions a program can be written to survive; this one is a
 ; violation of `I8`, and `docs/error-model.md`'s recovery table names
 ; three statuses, not four.
+; ------------------------------------------------------------------
+; MM-ALLOC-16b's trap: status 76, a reset that would reclaim the
+; evidence record a live `handle` still dispatches through.
+;
+; The fifth member of the family `emitDivTrap` opened for 72,
+; `emitOomTrap` joined for 70, `emitUnhandledTrap` for 71 and
+; `emitBadMarkTrap` for 75, emitted the same way: a private constant
+; whose declared length is the message's byte count EXACTLY - 38 again,
+; counting the trailing newline, because llc believes the declared
+; length and a wrong one truncates the sentence or writes past it.
+;
+; LIKE 75 IT DOES NOT ARM `__axiom_recover_abort`, and here the reason
+; is sharper than it was there. A recovery abort IS an arena reset AND
+; its whole job is restoring evidence slots (`emitRecoverSlotHelpers`),
+; so answering "a slot points into memory this reset is reclaiming" by
+; running the slot-restoring abort asks the corrupted structure the
+; same question. 70, 71 and 72 are conditions a program can be written
+; to survive; this is a violated implementation invariant, and
+; `docs/error-model.md`'s recovery table names three statuses.
+(pub :: emitLiveHandleTrap (-> Int Int))
+
+(pub fn (emitLiveHandleTrap cg)
+  ; GATED, and the byte-identity check is what caught this. The call
+  ; sites were gated on the slot count from the start; the trap and its
+  ; message constant were not, so a program with no `(effect ...)` -
+  ; `self_host/main.ax` among them - grew two lines of IR for a
+  ; function nothing could reach. Two lines is not a cost worth
+  ; arguing about, and that is exactly why it had to go: the rule is
+  ; byte-identity, not "small enough".
+  (if (== (distinctSlotCount (memGetWord cg 32) 0 0) 0)
+    cg
+  {
+    (emitLine cg "")
+    (emitLine cg "@__axiom_livehandle_msg = private unnamed_addr constant [38 x i8] c\"axiom: arena reset past a live handle\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_live_handle() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %lhp = ptrtoint ptr @__axiom_livehandle_msg to i64")
+    (emitRuntimeWrite cg "%lhp" "38")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "76")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  }
+  )
+)
+
+; ------------------------------------------------------------------
+; `@__axiom_ev_check(lo, hi)` - does any LIVE evidence slot point into
+; [lo, hi)? If one does, the reset about to reclaim that range would
+; free a record a handler still dispatches through, and this traps.
+;
+; WHY A NON-NULL SLOT IS ALWAYS A LIVE EXTENT, which is what makes the
+; test sound rather than merely plausible. The `handle` pop does not
+; null the slot - it stores back the record it displaced - so a
+; completed extent leaves the slot exactly as it found it, and the
+; outermost pop leaves it 0. A slot that reads non-zero therefore names
+; an extent that has not ended. A stale pointer from a finished handle
+; cannot be there to false-positive on.
+;
+; TWO SHAPES THAT LOOK LIKE FALSE POSITIVES AND ARE NOT. A record
+; recycled off a size-class free list (`MM-LIFE-2e`) can sit BELOW the
+; waterline, where this reset does not reclaim it - the range test is
+; silent, correctly. And `emitEffectOp` transiently installs the
+; DISPLACED record for the duration of a handler call; that record is
+; older than the current one, so the check can only under-report.
+;
+; THE RECOVERY PATH NEEDS NO EXEMPTION AND GETS NONE.
+; `emitRecoverRuntime` calls `@__axiom_recover_load` BEFORE
+; `@__axiom_arena_reset_fn`, so by the time this runs every slot has
+; already been overwritten with its arm-time value - which was
+; installed before the arm, hence below the arm's mark. The abort
+; arranges, on its own, for this test to be false. Measured on
+; `tests/stdlib/401-recover-effect.ax`, whose entire purpose is
+; aborting out of a live `handle`: exit 71, stdout unchanged.
+; The call, emitted only when there is a slot to check. At zero slots
+; this writes nothing at all, which is the whole zero-cost argument:
+; `@__axiom_arena_reset_fn` is in every binary, so a check that cost a
+; no-effect program one instruction would cost EVERY program one.
+(pub :: emitEvCall (-> Int String String Int))
+
+(pub fn (emitEvCall cg lo hi)
+  (if (== (distinctSlotCount (memGetWord cg 32) 0 0) 0)
+    cg
+    (emitLine cg (cat3 "  call i64 @__axiom_ev_check(i64 " lo (cat3 ", i64 " hi ")")))
+  )
+)
+
+(pub :: emitEvChunkCall (-> Int Int))
+
+(pub fn (emitEvChunkCall cg)
+  (if (== (distinctSlotCount (memGetWord cg 32) 0 0) 0)
+    cg
+    {
+      (emitLine cg "  %csizep = inttoptr i64 %c to ptr")
+      (emitLine cg "  %csize = load i64, ptr %csizep")
+      (emitLine cg "  %cend = add i64 %c, %csize")
+      (emitLine cg "  call i64 @__axiom_ev_check(i64 %c, i64 %cend)")
+      cg
+    }
+  )
+)
+
+(pub :: emitEvCheck (-> Int Int))
+
+(pub fn (emitEvCheck cg)
+  (let ((n (distinctSlotCount (memGetWord cg 32) 0 0)))
+    (if (== n 0)
+      cg
+      {
+        (emitLine cg "")
+        (emitLine cg "define internal i64 @__axiom_ev_check(i64 %lo, i64 %hi) #0 {")
+        (emitLine cg "entry:")
+        (emitLine cg "  br label %evs0")
+        (emitEvCheckSlots cg 0 0)
+        (emitLine cg (cat3 "evs" (fmtInt n) ":"))
+        (emitLine cg "  ret i64 0")
+        (emitLine cg "evlive:")
+        (emitLine cg "  call i64 @__axiom_live_handle()")
+        (emitLine cg "  unreachable")
+        (emitLine cg "}")
+        cg
+      }
+    )
+  )
+)
+
+; One arm per DISTINCT slot, deduplicated exactly the way
+; `emitRecoverSlotMoves` does it - an imported effect is registered
+; twice under one slot, and checking it twice would be harmless but
+; would make the emitted arm count disagree with `distinctSlotCount`,
+; which is what closes the block.
+(pub :: emitEvCheckSlots (-> Int Int Int Int))
+
+(pub fn (emitEvCheckSlots cg i k)
+  (let ((tbl (memGetWord cg 32)))
+    (if (>= i (vecLen tbl))
+      k
+      (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
+        {
+          (emitEvCheckSlot cg (llvmSym (effSlot (vecGet tbl i))) k)
+          (emitEvCheckSlots cg (+ i 1) (+ k 1))
+        }
+        (emitEvCheckSlots cg (+ i 1) k)
+      )
+    )
+  )
+)
+
+; Unsigned comparisons, because these are addresses.
+(pub :: emitEvCheckSlot (-> Int String Int Int))
+
+(pub fn (emitEvCheckSlot cg slot k)
+  (let (
+    (n (fmtInt k))
+    (nx (fmtInt (+ k 1)))
+  )
+    {
+      (emitLine cg (cat3 "evs" n ":"))
+      (emitLine cg (cat4 "  %evv" n " = load i64, ptr @" slot))
+      (emitLine cg (cat4 "  %evnz" n " = icmp ne i64 %evv" (cat2 n ", 0")))
+      (emitLine cg (cat4 "  %evge" n " = icmp uge i64 %evv" (cat2 n ", %lo")))
+      (emitLine cg (cat4 "  %evlt" n " = icmp ult i64 %evv" (cat2 n ", %hi")))
+      (emitLine cg (cat4 "  %evin" n " = and i1 %evge" (cat4 n ", %evlt" n "")))
+      (emitLine cg (cat4 "  %evhit" n " = and i1 %evnz" (cat4 n ", %evin" n "")))
+      (emitLine cg (cat4 "  br i1 %evhit" n ", label %evlive, label %evs" nx))
+      cg
+    }
+  )
+)
+
 (pub :: emitBadMarkTrap (-> Int Int))
 
 (pub fn (emitBadMarkTrap cg)
@@ -8869,6 +9281,20 @@
     (emitLine cg "  %a2 = add i64 %cell, 16")
     (emitLine cg "  %p2 = inttoptr i64 %a2 to ptr")
     (emitLine cg "  %schunk = load i64, ptr %p2")
+    ; MM-ALLOC-16b, ENFORCED. Everything from the restored waterline to
+    ; the end of the marked chunk is about to be reclaimed; if a live
+    ; handle's evidence record is in there, the next operation would
+    ; dispatch through freed memory. This covers the `%same` fast path
+    ; and the unwind path alike, because the marked chunk is reclaimed
+    ; above `%sbump` either way; the chunks the walk FREES are checked
+    ; in `unwind_body` below, where their extents are known.
+    ;
+    ; EMITTED ONLY WHEN THE PROGRAM DECLARES AN EFFECT. `emitEvCheck`
+    ; answers `cg` unchanged at zero slots and these lines are not
+    ; written, so a program with no `(effect ...)` - which is every
+    ; program in `self_host/`, measured - emits the reset helper it
+    ; emitted before this rule existed, byte for byte.
+    (emitEvCall cg "%sbump" "%send")
     (emitLine cg "  %chead = load i64, ptr @__axiom_chunk")
     (emitLine cg "  %same = icmp eq i64 %chead, %schunk")
     (emitLine cg "  br i1 %same, label %restore, label %unwind")
@@ -8919,6 +9345,13 @@
     (emitLine cg "  call i64 @__axiom_bad_mark()")
     (emitLine cg "  unreachable")
     (emitLine cg "unwind_body:")
+    ; This chunk is about to go on the free list, so its whole extent is
+    ; reclaimed. Word 0 of a chunk is its total size (see the header
+    ; comment on `@__axiom_chunk`), so the extent is [%c, %c + size).
+    ; The walk already visits exactly the chunks being reclaimed, so
+    ; the sound version costs one more load on a path that is already
+    ; O(chunks) - no second traversal.
+    (emitEvChunkCall cg)
     (emitLine cg "  %clink = add i64 %c, 8")
     (emitLine cg "  %clinkp = inttoptr i64 %clink to ptr")
     (emitLine cg "  %cnext = load i64, ptr %clinkp")
@@ -9797,7 +10230,7 @@
       (_5r (memSetWord cg 41 (borrowedTailLeaves cg name body params)))
       (_5p (memSetWord cg 42 vecNew))
       (_6 (memSetWord
-        cg        18        (let ((e (findFSig (memGetWord cg 15) name)))
+        cg        18        (let ((e (findFSigCg cg name)))
           (if (== e 0)
             0
             (memGetWord e 2)
@@ -10138,28 +10571,16 @@
 ; released, which is why the Life probe's board - a `Vec` behind
 ; `(-> Int Int Int)` - is untouched by any of this.
 ; ------------------------------------------------------------------
-(pub :: arrowParamTy (-> Int Int Int))
-
-(pub fn (arrowParamTy ty i)
-  (if (== ty 0)
-    0
-    (if (!= (nodeTag ty) TAG_T_ARR)
-      0
-      (if (<= i 0)
-        (nodeA ty)
-        (arrowParamTy (nodeB ty) (- i 1))
-      )
-    )
-  )
-)
-
+; `arrowParamTy` lives in `parser.ax` beside `arrowArity`: the effect
+; walk needed the same spine read for a different question, and two
+; modules that do not import each other had written it twice.
 (pub :: curParamRefClass (-> Int Int Int))
 
 (pub fn (curParamRefClass cg i)
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       0
-      (let ((e (findFSig (memGetWord cg 15) (nodeAName d))))
+      (let ((e (findFSigCg cg (nodeAName d))))
         (if (== e 0)
           0
           (if (== (fldClass cg (arrowParamTy (memGetWord e 3) i)) 2)
@@ -10184,7 +10605,7 @@
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       (- 0 1)
-      (let ((e (findFSig (memGetWord cg 15) (nodeAName d))))
+      (let ((e (findFSigCg cg (nodeAName d))))
         (if (== e 0)
           (- 0 1)
           (if (== (memGetWord e 4) 0)
@@ -13157,8 +13578,13 @@
                   ; defines. The decl list carries mangled names, so the
                   ; reference is resolved through the map before it is
                   ; compared or emitted.
-                  (let ((full (mangledFor cg name)))
-                    (if (isNullaryFn (memGetWord cg 8) full)
+                  ;
+                  ; Through the INDEX. `buildNameIndexes` exists because
+                  ; the linear `mangledFor` cost a self-compile 2.2s on
+                  ; the scans alone - and then this call site, one of the
+                  ; two hottest it was built for, kept asking the scan.
+                  (let ((full (mangledForCg cg name)))
+                    (if (isNullaryFnCg cg full)
                       (let ((rn (allocReg cg)))
                         (let ((r (regStr rn)))
                           {
@@ -13179,9 +13605,9 @@
                       ; A parameter of the function being emitted wins
                       ; first, though: a param named `lex` is the
                       ; param, not the lexer entry point it shadows.
-                      (if (&& (isDefinedFn (memGetWord cg 8) full) (< (paramIndexOf cg name) 0))
+                      (if (&& (isDefinedFnCg cg full) (< (paramIndexOf cg name) 0))
                         (let (
-                          (ti (thunkIndexFor cg full (fnArityOf (memGetWord cg 8) full)))
+                          (ti (thunkIndexFor cg full (fnArityOfCg cg full)))
                           (pn (allocReg cg))
                           (fn2 (allocReg cg))
                         )
@@ -13752,9 +14178,21 @@
                                         true
                                         (if (strEq nm "__call_word")
                                           true
+                                          ; `(__contract cond "message")` - the run-time
+                                          ; half of a `;@axiom:pre(...)` / `post(...)`,
+                                          ; written by `expLowerContracts` and by nothing
+                                          ; else. A primitive rather than a call because
+                                          ; there is no function to reach: it is a compare,
+                                          ; a branch and a trap. A name this misses is an
+                                          ; `@__contract` nothing defines - measured, and
+                                          ; exactly what the arena pair's note above
+                                          ; records for its own omission.
+                                          (if (strEq nm "__contract")
+                                            true
                                           (if (isAtomicPrimName nm)
                                             true
                                             (isSyscallName nm)
+                                          )
                                           )
                                         )
                                       )
@@ -13876,9 +14314,12 @@
                                           (emitPrimStrEq args cg 0)
                                           (if (strEq fnName "__call_word")
                                             (emitPrimCallWord args cg)
+                                            (if (strEq fnName "__contract")
+                                              (emitPrimContract args cg)
                                             (if (isAtomicPrimName fnName)
                                               (emitPrimAtomic fnName args cg)
                                               (emitPrimSyscall args cg)
+                                            )
                                             )
                                           )
                                         )
@@ -13901,6 +14342,108 @@
       )
     )
   )
+)
+
+; `(__contract cond "message")` - the run-time half of a
+; `;@axiom:pre(...)` / `;@axiom:post(...)`, and the only thing that
+; makes a contract more than a comment: this compiler has no value
+; analysis (measured: `grep -v '^ *;' FILE | grep -c
+; 'constFold\|interval\|rangeOf'` over `typecheck.ax` and this file
+; answers 0 and 0 - the comment lines are excluded because this
+; sentence matches the pattern it quotes), so `(> n 0)` about an
+; unseen caller is not a question it can decide statically.
+;
+; A branch and a trap, in the shape `emitAndOr` uses for its own two
+; blocks. The MESSAGE IS EMITTED IN THE FAILING BLOCK, not before the
+; branch: a passing contract - which is every contract in a working
+; program, on every call - executes the compare, the branch, and
+; nothing else.
+(pub :: emitPrimContract (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPrimContract args cg)
+  (let (
+    (cg1 (emitExpr (vecGet args 0) cg))
+    (c (strDup (memGetWordStr cg1 2)))
+    (cn (allocReg cg1))
+    (okL (allocReg cg1))
+    (badL (allocReg cg1))
+    (cr (regStr cn))
+    (okB (labelStr okL))
+    (badB (labelStr badL))
+    (_1 (emitLine cg1 (cat4 (cat2 "  " cr) " = icmp ne i64 " c ", 0")))
+    (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cr ", label %") okB (cat2 ", label %" badB) "")))
+    (_3 (emitLabel cg1 badB))
+    (cg2 (emitExpr (vecGet args 1) cg1))
+    (m (strDup (memGetWordStr cg2 2)))
+    (_4 (emitLine cg2 (cat3 "  call i64 @__axiom_contract_fail(i64 " m ")")))
+    (_5 (emitLine cg2 "  unreachable"))
+    (_6 (emitLabel cg2 okB))
+    (_7 (memSetWord cg2 2 (constStr 0)))
+  )
+    cg2
+  )
+)
+
+; The contract trap, emitted UNCONDITIONALLY beside the division trap
+; and the string-equality helper, and for the reason written above
+; both of them: a helper emitted only when the program looks like it
+; needs one is a call to a symbol nothing defines the first time the
+; predicate and the generator disagree. `emitDivTrap`'s own note
+; records that exact failure ("every program that divided and had no
+; effects reached `opt` with a call to a symbol nothing defined"), and
+; a contract's predicate would have to be evaluated in TWO passes -
+; `expLowerContracts` writes the call, this module decides whether the
+; callee exists - which is one more place for them to disagree than
+; the division trap ever had.
+;
+; AND IT COSTS A PROGRAM THAT STATES NO CONTRACT NOTHING, which is not
+; a claim about `opt`. `pruneDeadDefs` walks the rendered line buffer
+; and drops every `define` no root reaches, so this helper survives
+; exactly where something calls it: measured on `(fn (main) 7)`, the
+; emitted module carries zero `@__axiom_contract_fail`, zero
+; `@__axiom_div_by_zero` and zero `@__axiom_str_eq` - twelve defines in
+; all. Unconditional at the emitter so the two passes cannot disagree,
+; absent from the module when nothing calls it. Both halves are section
+; 3 of `scripts/check-contracts.sh`, and the second is asserted against
+; the other two unconditional helpers so that a 0 there is the pruner
+; rather than this function having quietly become conditional.
+;
+; STATUS 76, AND IT WAS DESIGNED AS 75. `MM-EXEC-16` reserves 70 (out
+; of memory), 71 (unhandled effect) and 72 (division by zero); 73 is
+; the FFI boundary's (`docs/ffi.md` 5.1), 74 is a `__syscallN` on a
+; target with no syscall ABI (`emitWinRuntime`), and 75 is an arena
+; reset handed an invalid mark (`emitBadMarkTrap`, MM-ALLOC-16a). That
+; last one and this one were written on two branches on the same day
+; and both took 75; this is the one that moved, because it had not
+; shipped. A contract failure is a sixth, and distinct on purpose:
+; `docs/ffi.md` 5.1 took 73 precisely because a Rust panic and an
+; Axiom division were indistinguishable to a supervisor at 72, and two
+; broken invariants sharing one status would be that defect again.
+;
+; The message arrives as a `Str` HANDLE, whose word 0 is the length and
+; whose word 1 is the byte pointer (`emitStrEqHelper` reads the same
+; two words, and `emitStringGlobals` writes them).
+(pub :: emitContractTrap (-> Int Int))
+
+(pub fn (emitContractTrap cg)
+  {
+    (emitLine cg "define internal i64 @__axiom_contract_fail(i64 %s) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 77)")
+    (emitLine cg "  %csp = inttoptr i64 %s to ptr")
+    (emitLine cg "  %cn = load i64, ptr %csp")
+    (emitLine cg "  %cda = add i64 %s, 8")
+    (emitLine cg "  %cdap = inttoptr i64 %cda to ptr")
+    (emitLine cg "  %cd = load i64, ptr %cdap")
+    (emitRuntimeWrite cg "%cd" "%cn")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "77")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
+    cg
+  }
 )
 
 ; `(__call_word fn arg)`: `fn` is the ADDRESS of a C function
@@ -14737,26 +15280,28 @@
 ; name answers arity 0, and treating every builtin and binary operator
 ; as over-applied would route `(+ a b)` through a closure record that
 ; does not exist.
+;
+; Both are asked through `buildNameIndexes` (`…Cg`), because both are
+; asked for every call this emitter writes, and both used to walk the
+; whole merged declaration list to answer.
 (pub :: emitOverApplied (-> String Int Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitOverApplied fnName args stamp cg evs)
-  (let ((decls (memGetWord cg 8)))
-    (if (isDefinedFn decls fnName)
-      (let ((ar (fnArityOf decls fnName)))
-        (if (|| (<= (vecLen args) ar) (== ar 0))
-          (emitCall fnName args stamp cg)
-          (let ((cgD (emitCall fnName (takeVec args ar) stamp cg)))
-            ; The surplus is applied through a closure, so it needs the
-            ; classes `walkAppChain` recorded - dropped by the same
-            ; arity the arguments were, because the two vectors are one
-            ; reversal of the same spine and must stay aligned.
-            (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0 (dropVec evs ar))
-          )
+  (if (isDefinedFnCg cg fnName)
+    (let ((ar (fnArityOfCg cg fnName)))
+      (if (|| (<= (vecLen args) ar) (== ar 0))
+        (emitCall fnName args stamp cg)
+        (let ((cgD (emitCall fnName (takeVec args ar) stamp cg)))
+          ; The surplus is applied through a closure, so it needs the
+          ; classes `walkAppChain` recorded - dropped by the same
+          ; arity the arguments were, because the two vectors are one
+          ; reversal of the same spine and must stay aligned.
+          (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0 (dropVec evs ar))
         )
       )
-      (emitCall fnName args stamp cg)
     )
+    (emitCall fnName args stamp cg)
   )
 )
 
@@ -15015,7 +15560,10 @@
   ; The callee's defining module may have renamed it - a bare
   ; reference reaches whatever symbol the map says (entry file
   ; first, then first import). Operators and primitives never
-  ; enter the map, so `full` is `fnName` for them.
+  ; enter the map, so `full` is `fnName` for them. Asked through
+  ; `mangledForCg`, which answers the same question off
+  ; `buildNameIndexes`' Intern rather than by walking all 1,600
+  ; bare names - this runs once per emitted call.
   ; MM-LIFE-2d: presence of the hidden argument is SIG-driven -
   ; every call to a polymorphic callee passes a word even when no
   ; stamp survived (the unchecked emitModule path, a demoted
@@ -15025,7 +15573,7 @@
     (let ((argStrCg (emitArgsRegs args cg argRegs 0)))
       (let (
         (argStrT (strDup (memGetWordStr argStrCg 9)))
-        (full (mangledFor argStrCg fnName))
+        (full (mangledForCg argStrCg fnName))
       )
         (let ((takesEv (fnTakesEvw argStrCg full)))
           (let ((cgE 

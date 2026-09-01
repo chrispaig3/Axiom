@@ -28,6 +28,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Mem)
 
 (:: say (-> Int String Int))
@@ -55,9 +57,9 @@
         (netAddr4
           addr          port          127          0          0          1
         )
-        (if (!= (netBind fd addr) 0)
+        (if (isErr (netBind fd addr))
           (- 0 1)
-          (if (!= (netListen fd 16) 0)
+          (if (isErr (netListen fd 16))
             (- 0 1)
             {
               (netSetNonBlocking fd)
@@ -123,8 +125,8 @@
                     )                    "the readiness descriptor is created"
                   )
                   (say
-                    (if (>= (netPollAddRead pfd la rec) 0)
-                      (if (>= (netPollAddRead pfd lb rec) 0)
+                    (if (isOk (netPollAddRead pfd la rec))
+                      (if (isOk (netPollAddRead pfd lb rec))
                         1
                         0
                       )
@@ -270,7 +272,7 @@
                     }
                   )
                   (say
-                    (if (>= (netPollDelRead pfd la rec) 0)
+                    (if (isOk (netPollDelRead pfd la rec))
                       1
                       0
                     )                    "a listener can be unregistered"
@@ -278,7 +280,7 @@
                   (sysCloseFd la)
                   (sysCloseFd lb)
                   (say
-                    (if (== (sysCloseFd pfd) 0)
+                    (if (isOk (sysCloseFd pfd))
                       1
                       0
                     )                    "the readiness descriptor closes"
