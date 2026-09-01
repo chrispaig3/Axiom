@@ -16,6 +16,60 @@ its changelog too.
 
 ## Unreleased
 
+### Range-constrained subtypes: the design pass, and a recommendation not to build it
+
+`docs/subtypes-design.md` is the third and last of the items Ada round
+1 left unstarted, and the note's conclusion is **do not build it as a
+type**. It is here so the item stops being carried as "unstarted" and
+starts being carried as "designed, and deliberately not built, for
+three reasons that are each a measurement".
+
+- **The population is real.** Pairing every top-level `(:: f (-> ...))`
+  with its `fn` header over `self_host/` and `stdlib/`: 3,691 functions
+  with both, **6,720 `Int`-typed parameters**, of which **1,305
+  (19.4%)** carry an index-, length- or count-shaped name, across 1,179
+  functions. 499 comparisons of a bare name against literal `0` and 780
+  against `vecLen`/`strLen` already assert those ranges by hand, one
+  site at a time. That is the case FOR the feature and it is the
+  strongest thing that can be said for it.
+
+- **The check would be the one contracts already ship.** There is no
+  value analysis in this compiler — the same 0, 0, 0 the contracts note
+  opens with — so a conversion into `Positive` cannot be discharged
+  statically for any argument that is not a literal. A subtype
+  therefore adds no enforcement mechanism at all: `__contract`,
+  `@__axiom_contract_fail` and status 76 are already there. What it
+  adds is a different ATTACHMENT POINT for the same check, and that is
+  where the cost is.
+
+- **The cost is measured, not estimated, because a `pre` on a
+  self-recursive function already IS a per-iteration check.** The loop
+  rewrite fires and the check rides inside it. `@loop` grows from 20
+  lines of IR to 28; on the clock, 200,000,000 iterations at `--opt 0`,
+  the two binaries run alternately five times: 0.51 / 0.51 / 0.54 /
+  0.56 / 0.56 bare against 0.73 / 0.72 / 0.75 / 0.75 / 0.74 —
+  **+37% on the median, arms never interleaving**, on a loop whose body
+  is a decrement and an add. At `--opt 2` that loop is folded away
+  entirely, so the figure is the cost of the check where the check
+  runs.
+
+- **And `cast` would launder the constraint.** 651 casts against 3,691
+  `fn` declarations, 441 of them `(cast Int ...)`. `docs/memory-model.md`
+  `MM-VAL-23` already records this failure in another system — "the
+  safe vehicle is a typed accessor, not a call-site cast" — and a range
+  constraint is evidence of the same kind. `Int` is also already doing
+  two jobs: **288 of the 341 struct fields in the tree are declared
+  `Int`**, and 191 `(cast Int ...)` sites widen a construction
+  directly, so a subtype OF `Int` sits on a type whose values are not
+  all numbers.
+
+The recommendation is to write the constraint as a `pre` that names the
+parameter, which expresses the same thing at the boundary that matters
+with the check the compiler can actually perform. The note states three
+conditions that would change it — a value analysis, a `cast` that
+cannot launder a constraint, and an integer type that is not the handle
+word — each as a condition rather than a mood.
+
 ### Three ways to write a claim that could not fail
 
 Ada round 1 and 1.5 put five checked claims in the AXTAG namespace —

@@ -430,5 +430,6 @@ docs/lsp.md
 docs/stdlib-api.md
 docs/checked-arithmetic-design.md
 docs/contracts-design.md
+docs/subtypes-design.md
 DOCS
 }

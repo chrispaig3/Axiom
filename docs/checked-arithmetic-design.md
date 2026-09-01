@@ -4,7 +4,9 @@ Ada round 1 shipped restriction profiles (`no-io`, `no-alloc`,
 `no-cast`, `no-cast:deep`, `no-recursion`, `no-foreign`;
 `05fb064`/`4a55781`/`7540524`). Three items stayed unstarted:
 pre/post contracts (`AX3050` reserved for them,
-`docs/error-model.md`), range-constrained subtypes, and this one
+`docs/error-model.md`), range-constrained subtypes
+(`docs/subtypes-design.md`, designed 2026-08-31 and deliberately not
+built), and this one
 — checked arithmetic. The contracts landed on 2026-08-31 and spent
 `AX3050`; `docs/contracts-design.md` is their note, and it re-measures
 the hazard this one records below (see "Question 2 — the effect-row

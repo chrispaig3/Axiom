@@ -3,7 +3,9 @@
 Ada round 1 shipped restriction profiles and `AX3049`/`AX3051`/`AX3052`;
 `restrict(no-wrap)` followed in 0.6.0
 (`docs/checked-arithmetic-design.md`). That note recorded three items
-still unstarted: **pre/post contracts**, range-constrained subtypes,
+still unstarted: **pre/post contracts**, range-constrained subtypes
+(`docs/subtypes-design.md` since 2026-08-31: designed, measured, and
+recommended against as a type),
 and checked arithmetic. This is the first, and `AX3050` was reserved
 for it on 2026-08-29 — taken from between two numbers the restrictions
 were spending the same day, so the contracts would land on the number
