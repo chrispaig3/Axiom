@@ -27,7 +27,7 @@ export const STATS: Stat[] = [
     evidence: 'cat self_host/*.ax | wc -l',
   },
   {
-    n: '587',
+    n: '588',
     label: '.ax files in the tree, every one parsed by the grammar gate',
     evidence: "find . -name '*.ax' | wc -l",
   },

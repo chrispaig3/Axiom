@@ -1,4 +1,5 @@
 import { BENCH, BENCH_CMDS, BENCH_ENV } from '../data/bench.ts'
+import { BLOB } from '../data/site.ts'
 import { Code } from '../components/Code.tsx'
 import { Reveal } from '../components/Reveal.tsx'
 
@@ -82,6 +83,16 @@ export function Benchmark() {
               was an artefact: a background build starting midway through taxes
               whichever block it lands on. Alternating gives every binary the
               same interference, and the three collapse onto each other.
+            </p>
+            <p>
+              The three programs are in the repository —{' '}
+              <a href={`${BLOB}/web/bench`}>
+                <code>web/bench/</code>
+              </a>{' '}
+              — so this table can be re-run rather than taken on trust. They
+              were added on 2026-09-01: until then the commands below named
+              sources that were nowhere in the tree, which is the one claim on
+              this page that could not be checked.
             </p>
             <p className="micro">
               {BENCH_ENV.machine} · {BENCH_ENV.axiom} · {BENCH_ENV.rust} ·{' '}

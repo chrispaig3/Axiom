@@ -1,0 +1,42 @@
+(import IO)
+
+(:: steps (-> Int Int))
+
+(fn (steps n0)
+  (let (
+    (mut n n0)
+    (mut c 0)
+  )
+    {
+      (while (> n 1)
+        {
+          (if (== (% n 2) 0)
+            (set n (/ n 2))
+            (set n (+ (* 3 n) 1))
+          )
+          (set c (+ c 1))
+        })
+      c
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mut i 1)
+    (mut total 0)
+  )
+    {
+      (while (<= i 3000000)
+        {
+          (set total (+ total (steps i)))
+          (set i (+ i 1))
+        })
+      (println total)
+      0
+    }
+  )
+)

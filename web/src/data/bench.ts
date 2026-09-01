@@ -2,6 +2,17 @@
  * A like-for-like measurement, re-run against a compiler built from the
  * commit this page ships with.
  *
+ * THE THREE PROGRAMS ARE IN THE TREE: `web/bench/collatz.{ax,rs,c}`,
+ * with the methodology and the reproduction commands beside them. They
+ * were not, until 2026-09-01, and that made the one table on this site
+ * which is entirely figures the one thing on it nobody could check —
+ * `site.ts` states the rule ("a figure that cannot be produced by
+ * running something against the repository does not belong here") and
+ * this file published build commands "so the table can be reproduced"
+ * against sources that did not exist. Re-measuring for a release meant
+ * reconstructing them, which is exactly the cost the rule exists to
+ * prevent.
+ *
  * Methodology is the repository's own (`scripts/bench-datastructures.sh`,
  * `scripts/bench-compile.sh`): every stage is timed as a whole process
  * doing the real work, because that is what a user waits for, and the
@@ -53,23 +64,23 @@ export const BENCH: BenchRow[] = [
   {
     metric: 'Run time',
     how: '3,000,000 Collatz sequences · best of 20, interleaved',
-    axiom: '0.699 s',
-    rust: '0.699 s',
-    c: '0.699 s',
-    note: 'One millisecond apart across all three. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
+    axiom: '0.428 s',
+    rust: '0.429 s',
+    c: '0.429 s',
+    note: 'Within one millisecond across all three. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
   },
   {
     metric: 'Compile to a native binary',
     how: 'one file, cold · best of 15, interleaved',
-    axiom: '0.182 s',
-    rust: '0.129 s',
-    c: '0.180 s',
-    note: 'Axiom is still the slowest of the three, by fifty-three milliseconds against rustc. Published because it is what was measured. The gap NARROWED — 1.54x to 1.41x against rustc, and 1.19x to 1.01x against clang — but read the ratio, not the seconds: all three arms also got faster between the two measurements, so the machine was quieter, not Axiom 1.8x better.',
+    axiom: '0.115 s',
+    rust: '0.088 s',
+    c: '0.115 s',
+    note: 'Axiom is the slowest of the three, by twenty-seven milliseconds against rustc — 1.31x — and level with clang at 1.00x. Published because it is what was measured. It is NOT chained to the passes before it: those timed sources that were never committed, so their seconds are not comparable with these.',
   },
   {
     metric: 'Binary size',
     how: 'the executable on disk',
-    axiom: '35,432 B',
+    axiom: '35,384 B',
     rust: '466,024 B',
     c: '33,432 B',
     note: 'Thirteen times smaller than the Rust binary, and within six percent of C — with no C runtime inside it at all.',
@@ -85,46 +96,43 @@ export const BENCH: BenchRow[] = [
 ]
 
 /*
- * RE-MEASURED for 0.6.3 against the compiler this page ships with, and
- * the previous pass carried a label it had not earned: the row named
- * the release before this one while the binary that produced it
- * already contained the emitter indexing work, which landed AFTER that
- * release was cut. (The version is not spelled in this comment on
- * purpose - `webbench_version` in `scripts/lib/version-sites.sh` reads
- * this file by matching the word beside a version anywhere in it, so a
- * second mention here is a second SITE, and `check-version.sh` refuses
- * a file that states two. It refused this one, which is the reader and
- * the writer being a pair exactly as that file's header claims.) The
- * numbers were right and the version beside them was not, which is the
- * failure the version-site machinery was added to stop and did not,
- * because it checks that the label matches VERSION rather than that it
- * matches the compiler someone ran. It does now, by construction: the
- * bump moves the label and the release re-measures beneath it.
+ * RE-MEASURED 2026-09-01 for this release, against the compiler this
+ * page ships with and from the three sources now committed beside it.
+ * Interleaved, best of 15 for the compile row and best of 20 for the
+ * run row, on an Apple M1. Two prior passes on the same machine agreed
+ * with this one to within a millisecond on every arm.
  *
- * RE-MEASURED 2026-09-01 against the compiler this page ships with,
- * after the emitter's un-indexed name lookups were replaced with the
- * indexes the compiler already built. Interleaved, best of 15 for the
- * compile row and best of 20 for the run row, on an Apple M1.
+ * WHAT ESTABLISHES THAT THIS IS THE SAME WORKLOAD, rather than a new
+ * one wearing the old table's heading. The reconstructed Rust and C
+ * programs compile to binaries of exactly the previously published
+ * sizes — 466,024 B and 33,432 B — and reproduce all three
+ * undefined-symbol counts. Those are four figures that had to be
+ * guessed right and were not guessed.
  *
- * THREE OF THE FOUR ROWS COULD NOT HAVE MOVED, and that is checkable
- * rather than assumed: the indexing change was verified to emit
- * byte-identical LLVM IR over 132 files including the compiler itself,
- * so it produces the same binary. Run time, undefined symbols and the
- * Rust and C binary sizes are unchanged within noise, which is what
- * that verification predicts. Axiom's binary moved 32 bytes, from the
- * tree growing between the two measurements, not from the change.
+ * WHAT DOES NOT MATCH, said plainly. The Axiom binary is 35,384 B
+ * against a published 35,432 B, so the `.ax` program is an equivalent
+ * implementation and not a byte-for-byte recovery of one that was never
+ * committed. The seconds are also much lower across ALL THREE arms than
+ * the last published pass (run 0.699 -> 0.428 for every language;
+ * compile 0.182/0.129/0.180 -> 0.115/0.088/0.115). Three arms moving
+ * together is a machine that was quieter, not a compiler that got
+ * 1.6x faster, and this file has made that mistake in the other
+ * direction before.
  *
- * THE COMPILE ROW IS THE ONE THAT MOVED, AND THE SECONDS OVERSTATE IT.
- * Every arm got faster — rustc 0.222 -> 0.128, clang 0.288 -> 0.181 —
- * so the earlier pass ran on a busier machine and the absolute drop is
- * mostly that. The comparable figure is the ratio: 1.54x -> 1.46x
- * against rustc, 1.19x -> 1.02x against clang. Real, and modest.
+ * SO THE SERIES IS CUT HERE. Earlier notes chained the compile ratio
+ * across passes - 1.54x, then 1.46x, then 1.41x - as though one
+ * measurement continued another. It cannot be continued across sources
+ * nobody kept, and the ratio it reports now (1.31x against rustc, 1.00x
+ * against clang) is a fresh reading from files anyone can run. Future
+ * passes CAN be chained to this one, because the programs they time are
+ * in the repository and gated by the same fmt and grammar sweeps as
+ * every other `.ax` file.
  *
- * It is modest HERE for a reason worth stating, because the same
- * change is worth 4.95x on the compiler's own source: the win scales
- * with how many declarations a lookup has to scan, and this program is
- * twenty-five lines. A one-file benchmark is the case that flatters
- * this optimisation least, which is why it is the one published.
+ * The compile row remains the case that flatters this compiler least,
+ * and that is why it is the one published: the emitter's indexing work
+ * is worth 4.95x on the compiler's own source, where a lookup has tens
+ * of thousands of declarations to scan, and close to nothing on a
+ * twenty-seven-line program.
  */
 
 /** The exact commands, so the table can be reproduced. */
