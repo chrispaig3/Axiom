@@ -182,6 +182,137 @@ below baseline, reported above, is arithmetic rather than luck — a call
 that frees nothing cannot cost memory — and it says nothing either way
 about speed.
 
+### The emitter asked three un-indexed questions at every call site
+
+`scripts/bench-compile.sh` said code generation was the compile, and it
+was not string building. `self_host/main.ax` at `--opt 1`, best of 5,
+process startup subtracted, before:
+
+```
+check (lex, parse, expand, typecheck)    0.3527s    2.9%
+  + serialise and write the IR           5.0097s   41.7%
+opt -O1                                  3.0602s   25.5%
+llc -O1                                  3.5628s   29.6%
+axiom build, measured end to end        10.9587s
+```
+
+and after, the same script on the same host minutes later, so the
+toolchain rows are the control — they do provably identical work,
+because the emitted IR is byte for byte what it was:
+
+```
+check (lex, parse, expand, typecheck)    0.3346s    4.4%
+  + serialise and write the IR           1.0129s   13.3%
+opt -O1                                  2.7574s   36.2%
+llc -O1                                  3.4826s   45.7%
+axiom build, measured end to end         7.4223s
+```
+
+**The emission phase is 4.95× faster** — 5.0097s to 1.0129s — and it
+falls from 41.7% of the compile to 13.3%, so the external toolchain now
+holds 82% of it. Under load the gap is wider, because a linear scan
+suffers more from a busy machine than a hash probe does: interleaved
+best-of-9 against a loaded runner measured `emit-llvm` at 9.6391s
+against 1.8332s, 5.26× over a phase that includes `check`.
+
+**Nothing about it is an IR change.** These commits change how a name
+is looked up, not what it resolves to, and that was verified rather
+than assumed: both compilers emitted every `.ax` in `self_host/`,
+`stdlib/`, `tests/`, `examples/` and `compat/` — 578 inputs, 405 of
+which produce IR and 173 of which are diagnostic fixtures that refuse —
+and all 984 artifacts matched, 405 `.ll` files byte for byte, 578
+stdout/stderr captures, and all 578 exit statuses. That is what makes
+this a change with no reseed: `scripts/check-bootstrap.sh`,
+`check-reproducible.sh`, `check-self-host.sh`,
+`check-seed-provenance.sh` and `check-seed-lineage.sh` are green
+unchanged, and the whole 61-gate battery passes.
+
+What was wrong, in the order it was fixed:
+
+- **`buildNameIndexes` existed and its two hottest callers never used
+  it.** It was added in 0.3.7 (`4632a34`) because `mangledFor`'s walk
+  of 1,600 bare names "cost a self-compile 2.8 s to 5.0 s on the scans
+  alone", and it builds the Intern that `mangledForCg` reads. `emitVar`
+  and `emitPlainCall` — one lookup per emitted variable reference, one
+  per emitted call — still called `mangledFor`. Two tokens.
+
+- **The declaration list had no index at all.** `isNullaryFn`,
+  `isDefinedFn` and `fnArityOf` each walk the whole merged declaration
+  list — 4,600 entries when the compiler compiles itself — and
+  `emitVar` and `emitOverApplied` ask them at every call site, so
+  emission was quadratic in the program's size. All three now answer
+  from `buildNameIndexes`, with the linear scan kept as the fallback
+  for the REPL's and LSP's partial paths.
+
+  **It cost no `CG` field, and that was the constrained part.** `CG`
+  declares 46; MM-LIFE-2d's record-form shape word maps 47 payload
+  words and `AX3029` refuses a 48th (`typecheck.ax:2704` is `(>
+  (vecLen (nodeB d)) 47)`, measured rather than read off the doc). A
+  field per index would have taken the tree's last slot. Field 40 held
+  one Vec and now holds five — the old `bareFirst` at `[0]`, then the
+  declaration Intern and the three answers parallel to its ids — so
+  `CG` stays 46 wide and the headroom stays at one. The two booleans
+  are order-independent (each scan asks "does one exist"); `fnArityIn`
+  is not, so the index is built in declaration order and only the first
+  `D_FN` of a name writes the arity slot, and a zero-arity `extern`
+  item is interned under both its spellings because `externHasNullary`
+  matches either.
+
+- **Five `findFSig` call sites, and a name the hot path built twice.**
+  `fnTakesEvw`, `fnRetIsFloat`, `emitFnDef`'s `curFlags` initialiser,
+  `curParamRefClass` and `curParamEvBit` all spelled the scan; and
+  `mangledForCg` built `m$name` once to probe the Intern and again to
+  answer with.
+
+**The `cat3` deduplication was wrong the obvious way, and
+`check-bootstrap.sh` caught it.** Building the spelling once into a
+`let` that the probe and the answer share is exactly the shape the
+emitter cannot release: `releaseOwnedArgs` hands back an owned value
+passed as an ARGUMENT, and a `let`-bound name that one branch RETURNS
+is not one, so no release is emitted on either branch — five releases
+in `@codegen$mangledForCg` became one, and every module-local reference
+leaked its spelling. One self-compile went to **490 MiB against the 448
+MiB ceiling**. Attributed by building one compiler per commit and
+measuring peak RSS of `emit-llvm self_host/main.ax` under `/usr/bin/time
+-l`: 423 MiB base, 420 with the first fix, 421 with the declaration
+index, 421 with the five `findFSig` sites, **490** with the `cat3`
+`let`. Neither index moves the number; the three parallel vectors and
+the Intern's rehashes, the obvious suspects, are together under a
+megabyte.
+
+The repair is not a revert. A hit means the Intern already holds a
+string spelling `m$name`, so the answer is that entry — borrowed — and
+the probe's `cat3` goes back to being an argument the same line
+releases. That drops the second `cat3` **and** the leak, and is faster
+than the leaking version was. `check-bootstrap.sh` is green at 420 MiB
+with 6% of headroom, against 422 MiB and 5% on the tree before any of
+this; the ceiling was not touched. Peak RSS per program, max of three
+runs — the max because `/usr/bin/time -l` counts RESIDENT pages and the
+base compiler, ten seconds on `main.ax`, has some reclaimed under it
+(299 to 423 MiB across runs) where the indexed one finishes in 1.8s and
+reads 421 every time:
+
+```
+tests/stdlib/010-hello.ax    19 MiB ->  19 MiB
+stdlib/Vec.ax                 4 MiB ->   4 MiB
+self_host/typecheck.ax      102 MiB -> 102 MiB
+self_host/main.ax           423 MiB -> 421 MiB
+```
+
+The leak read as superlinear — 4% on `typecheck.ax` against 43% on
+`main.ax` — and it was not an accumulator that copies. A file compiled
+as the ENTRY has no module prefix, so the leaking branch never runs;
+`main.ax` pulls in thirty modules and every reference inside one takes
+it.
+
+**No gate was added.** Every claim above is held by gates that already
+exist: the byte-identical fixpoint by `check-bootstrap.sh`,
+`check-reproducible.sh` and `check-self-host.sh`, the peak by
+`check-bootstrap.sh`'s ceiling, and the shared artifact's IR equality
+by `build-shared-axc.sh`. The wall-clock numbers are
+`scripts/bench-compile.sh`'s, which is a profile and not a gate, and
+they are reported as such.
+
 ## 0.6.1 — 2026-08-31
 
 - **A program contains only what it uses.** A hello world was a
