@@ -41,7 +41,7 @@ import sys, re, os, subprocess
 # file per target declaring the same names, so a glob prints it three
 # times and the choice of which to carry is a decision worth seeing.
 MODULES = ("Agent/Tags Err Fallible Ffi Fmt Html Http IO Intern Job Json Map Mem Path Pre Rpc Show Str Sys "
-           "Sys/Platform.darwin Test Utf8 Vec").split()
+           "Sys/Platform.darwin Test Tui/Edit Tui/Keys Tui/Term Utf8 Vec").split()
 
 # Visibility is not in AXSYM - `symbols` has no `pub` field - so the
 # public set is read from the source, with the rule

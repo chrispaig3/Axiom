@@ -247,6 +247,71 @@
 #   inside the 2.00x ceiling, and this script exits 0. The reason is in
 #   the cost block's own header.
 #
+# DECLARATION AND CALL HIERARCHY, five more ablations, 2026-08-31.
+# Same method: each patches self_host/lsp.ax in a scratch COPY of the
+# tree (never this one), builds a server from it, re-blesses all 8
+# goldens from that build so the golden half is green by construction,
+# and runs this script clean. Every one exits 1 with "31 passed, 1
+# failed", and each names its own thing rather than printing two
+# CallHierarchyItems side by side - `ch_brief` reports an entry as
+# (function, file, the position of every call site) while the
+# comparison stays against the whole structure.
+#
+#   DECLARATION IS DEFINITION. `lspDeclaration`'s `lspFindSig` step is
+#   removed, so it answers what `definition` answers - the state this
+#   server was in before 2026-08-31, and the state a "declaration is
+#   just an alias" implementation would be in. Exit 1:
+#     "declaration on a local `fn` (request 2) answered ... line 4,
+#      character 9 ..., want ... line 2, character 8 ..."
+#   - the `(pub fn (helper n)` where the `(pub :: helper` was asked
+#   for. The check asks BOTH requests at that position and requires
+#   the two ranges to differ, so an alias cannot satisfy it.
+#
+#   A CALL IS ANY MENTION. `lspChSites` stops requiring the occurrence
+#   to be a HEAD (`lspNavLocalIndexHas heads ...` dropped), which is
+#   what a call graph built from references alone would report - and
+#   what `axiom symbols --calls` does report, by design, because it is
+#   the effect walk's edge set. Exit 1:
+#     "incoming calls to `helper` (request 100) answered [('caller',
+#      'ChMain.ax', [(25, 23), (25, 34)]), ('handoff', 'ChMain.ax',
+#      [(30, 20)])], want [('caller', ...)]"
+#   `(fn (handoff z) helper)` names `helper` and never applies it.
+#   drive.py refuses to run if ChMain.ax ever stops containing that
+#   shape.
+#
+#   A LOCAL IS CALLABLE. `lspChCallable` answers true for a local key,
+#   so a head is resolved by SPELLING rather than by what the scope
+#   says it is. Exit 1:
+#     "outgoing calls from `apply`, whose body's head is its parameter
+#      (request 105) answered [('k', 'ChMain.ax', [(16, 21)])], want []"
+#   - `(fn (apply k v) (k v))` calls its own parameter, and ChMain.ax
+#   declares a top-level `k` for exactly this. drive.py refuses to run
+#   if that shadowing pair leaves the document.
+#
+#   NO GROUPING. `lspChGroupPush` never finds an existing group, so
+#   every call site becomes its own entry - which is what a client
+#   draws as two callers. Exit 1:
+#     "incoming calls to `helper` (request 100) answered [('caller',
+#      'ChMain.ax', [(25, 23)]), ('caller', 'ChMain.ax', [(25, 34)])],
+#      want [('caller', 'ChMain.ax', [(25, 23), (25, 34)])]"
+#
+#   `[]` INSTEAD OF null. `lspIncomingCalls` answers an empty list
+#   where it cannot reach the item's document or the item names no
+#   `fn`. Exit 1:
+#     "an item nothing declares (incoming) answered [], want null -
+#      `[]` would claim the function has no callers, which a server
+#      that cannot read the file has not earned"
+#   This is the one ablation that produces a plausible answer rather
+#   than a wrong one, which is why it has a check of its own.
+#
+# AND ONE THE GATE CAUGHT WITHOUT BEING ASKED, recorded because it is
+# the sweep's whole purpose: adding `declarationProvider` to
+# `lspCapabilities` before adding it to the sweep's table below failed
+# the run - "FAIL capability 'declarationProvider' is advertised and
+# this sweep does not know how to exercise it - add it to the table,
+# or a capability nothing tests ships". A capability advertised and
+# unswept is a red gate, not a silent promise.
+#
 # The keyword extraction's floor was checked the same way the manifest
 # floors are: run against a parser.ax carrying two `kwEq` sites,
 # drive.py refuses before any server starts - "derived only 2 head
@@ -589,6 +654,7 @@ def build(cap, name, uri, text, p, rid):
     td={"textDocument":{"uri":uri}}
     whole={"start":{"line":0,"character":0},"end":pos_of(text,len(text))}
     m={"definitionProvider":("textDocument/definition",{**td,"position":p}),
+       "declarationProvider":("textDocument/declaration",{**td,"position":p}),
        "hoverProvider":("textDocument/hover",{**td,"position":p}),
        "completionProvider":("textDocument/completion",{**td,"position":p}),
        "documentSymbolProvider":("textDocument/documentSymbol",td),
@@ -608,6 +674,18 @@ def build(cap, name, uri, text, p, rid):
     if name=="renameProvider":
         return [("textDocument/prepareRename",{**td,"position":p}),
                 ("textDocument/rename",{**td,"position":p,"newName":"renamedName"})]
+    if name=="callHierarchyProvider":
+        # The two hierarchy requests carry an ITEM and no textDocument, so
+        # the sweep builds one out of the position it is at: a name the
+        # document may or may not declare, a range that may not be a form.
+        # That is the point - the item a client sends back is whatever a
+        # previous `prepare` handed it, and a stale one must not kill the
+        # server.
+        item={"name":"main","kind":12,"uri":uri,
+              "range":{"start":p,"end":p},"selectionRange":{"start":p,"end":p}}
+        return [("textDocument/prepareCallHierarchy",{**td,"position":p}),
+                ("callHierarchy/incomingCalls",{"item":item}),
+                ("callHierarchy/outgoingCalls",{"item":item})]
     if name=="experimental":
         if isinstance(cap,dict) and cap.get("expandMacro"):
             return [("axiom/expandMacro",{**td,"position":p})]

@@ -136,7 +136,7 @@ F send - "(Int -> (Int -> Int))" #effects=Wire
 F recv - "(Int -> Int)" #effects=Wire
 F handled tests/fmt/syntax-zoo.ax:200:5-12 "(Int -> Int)" @8aed8da9c866693b #effects=Alloc #calls=log
 F scoped tests/fmt/syntax-zoo.ax:204:5-11 "(Int -> Int)" @456a949d82a7c7bf
-F aBox tests/fmt/syntax-zoo.ax:225:5-9 "Box Int" @06331c8640b36edb
+F aBox tests/fmt/syntax-zoo.ax:225:5-9 "Box Int" @06331c8640b36edb #effects=Alloc
 F store - "(Box Int -> Int)" #effects=Boxes
 F interiors tests/fmt/syntax-zoo.ax:264:5-14 "(*Box Int -> ([Box Int] -> (Box Int -> Int)))" @9ab1e7805f0e9380
 F typed_exprs tests/fmt/syntax-zoo.ax:267:5-16 "(Int -> Int)" @81369cab7bd3cafe #effects=Alloc #calls=+

@@ -1,0 +1,137 @@
+; exit 75 (see .exit)
+; `MM-ALLOC-16a`, enforced. Marks MUST be reset in nesting order,
+; innermost first, and resetting an inner mark after its outer mark has
+; already been reset used to be undefined in the worst available way:
+; the unwind walk computed the two reasons it can stop - the marked
+; chunk found (`%reached`) and the walk falling off the active list
+; without ever finding it (`%ranout`) - and merged them into one branch,
+; so both restored the saved bump/end/chunk triple. In the second case
+; that triple describes a chunk the allocator no longer owns, and the
+; walk has just pushed every chunk it passed onto the free list looking
+; for it.
+;
+; Measured on the compiler at `9116167` (v0.6.0), on the third block
+; below, before the branch was split:
+;
+;     111
+;     987654321
+;     exit 0
+;
+; - a program that wrote and read back a word in a chunk the same call
+; had just freed, and said nothing at all. `docs/memory-model.md` said
+; of exactly this shape: "The implementation does not trap, and a
+; conforming implementation SHOULD." It does now, with status 75, and
+; the SHOULD is a MUST.
+;
+; THE FIRST TWO BLOCKS ARE THE HALF THAT MUST NOT MOVE, and they are
+; here because a trap is only worth having if it fires on nothing else.
+; Nested marks reset innermost-first are the ordinary use and stay
+; silent. Resetting the SAME mark twice is also legal and also stays
+; silent - the mark cell is allocated before the position it saves is
+; read, so it sits below its own waterline and a reset never reclaims
+; it. `emitArenaHelpers`'s own comment states that as a design property
+; ("so the same mark can be reset twice"), and it is a property this
+; trap cannot see even in principle: after the first reset
+; `@__axiom_chunk` IS the marked chunk, so the fast path returns before
+; the unwind walk is entered. A fixture that asserted a trap there
+; would be asserting against the design.
+;
+; The status is in `.exit`, the sentence in `.err`, and neither checks
+; the other: a program that printed the right sentence and exited 0
+; fails on the status, and one that exited 75 in silence fails on the
+; stderr.
+(import IO)
+
+(import Mem)
+
+(import Str)
+
+; Past a 1 MiB chunk, so a mark taken after this describes a *different*
+; chunk from the one a mark taken before it does. Without that the two
+; marks share a chunk, the reset takes its `%same` fast path, and the
+; illegal block below is indistinguishable from a legal one.
+(pub :: burn (-> Int Int))
+
+(pub fn (burn n)
+  (if (<= n 0)
+    0
+    {
+      (memAlloc 65536)
+      (burn (- n 1))
+    }
+  )
+)
+
+; Write a word and read it back, so a returned address is shown to be
+; usable memory and not merely a plausible-looking number.
+(pub :: usable (-> Int Int))
+
+(pub fn (usable p)
+  {
+    (memSetWord p 0 987654321)
+    (memGetWord p 0)
+  }
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    ; --- LEGAL: nested marks, reset innermost first ---
+    (println
+      (let (
+        (outer __axiom_arena_mark)
+        (p (memAlloc 64))
+        (inner __axiom_arena_mark)
+        (q (memAlloc 64))
+        (r0 (__axiom_arena_reset inner))
+        (q2 (memAlloc 64))
+        (r1 (__axiom_arena_reset outer))
+        (p2 (memAlloc 64))
+      )
+        (if (&& (== q2 q) (== p2 p))  ; 1
+          1
+          0
+        )
+      )
+    )
+    ; --- LEGAL: the same mark, reset twice, across a chunk boundary ---
+    (println
+      (let (
+        (m __axiom_arena_mark)
+        (junk (burn 40))
+        (r1 (__axiom_arena_reset m))
+        (r2 (__axiom_arena_reset m))
+        (fresh (memAlloc 64))
+      )
+        (usable fresh)  ; 987654321
+      )
+    )
+    ; --- ILLEGAL: the inner mark, reset after the outer one ---
+    ;
+    ; `outer` and `inner` are in different chunks because of the burn
+    ; between them, so resetting `outer` returns `inner`'s chunk to the
+    ; free list. `inner` is then a mark on memory the allocator does not
+    ; own, and this is where the process ends.
+    (println
+      (let (
+        (outer __axiom_arena_mark)
+        (junk (burn 40))
+        (inner __axiom_arena_mark)
+        (r1 (__axiom_arena_reset outer))
+        (r2 (__axiom_arena_reset inner))
+      )
+        (usable (memAlloc 64))
+      )
+    )
+    ; NOT REACHED, and deliberately not a bare numeral:
+    ; `verify-stdlib-out.py` models a case's exit status from `main`'s
+    ; tail when that tail is one, and this program's status comes from
+    ; the trap rather than from its last expression. It is also the
+    ; tripwire for the trap being removed - if the reset ever starts
+    ; accepting an invalid mark again, this line runs and the golden
+    ; says so.
+    (printlnLit (strCStr "UNREACHABLE: the invalid reset was accepted"))
+  }
+)

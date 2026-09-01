@@ -6605,6 +6605,28 @@
   )
 )
 
+; Was the field declared `mut`? 1 yes, 0 no - and 0 for a name the
+; struct does not declare at all, which `checkSetField` has already
+; refused as AX3007 before it asks. The marker rides in word c of the
+; parser's TAG_FIELD node (`parseOneField`).
+(pub :: structFieldMut (-> Int String Int))
+
+(pub fn (structFieldMut ent fname) (structFieldMutFrom (memGetWord ent 1) fname 0))
+
+(pub :: structFieldMutFrom (-> Int String Int Int))
+
+(pub fn (structFieldMutFrom fields fname i)
+  (if (>= i (vecLen fields))
+    0
+    (let ((f (vecGet fields i)))
+      (if (strEq (nodeAName f) fname)
+        (fieldIsMut f)
+        (structFieldMutFrom fields fname (+ i 1))
+      )
+    )
+  )
+)
+
 ; How many arguments a function's use must supply before it can be a
 ; value: the declared parameter count when a definition was seen, the
 ; ARROW DEPTH for builtins (their type is the whole truth), and -1 -
@@ -6833,6 +6855,35 @@
     (vecPush out (diagSetLabel (mkDiagNote
       SEV_ERROR      "AX3012"      "assign-to-immutable"      tspan      (strConcat (strConcat "cannot assign to `" name) "` from inside a lambda: the lambda captured its value, not the binding")      bspan      (strConcat (strConcat "`" name) "` is bound outside the lambda, here")      "return the new value instead, or restructure so the assignment happens where the binding lives"      "a closure captures by value when its record is built, so a later `set` inside it could never be observed outside; this used to pass `check` and fail inside codegen as AX4002"
     ) (strConcat (strConcat "`" name) "` was captured, not shared")))
+    0
+  }
+)
+
+; `set` on a STRUCT FIELD the declaration did not mark `mut`. Same
+; code as the immutable-binding refusal, and the same rule: a field is
+; immutable unless its declaration says otherwise, exactly as a `let`
+; binding is.
+;
+; Until 2026-08-31 `mut` on a field was parsed and DROPPED - there was
+; nothing here to read, and `(struct P (x : Int))` took `(set p.x 9)`
+; in silence, `check` OK and the program returning 9. AX2004's explain
+; text states the principle the marker was failing: "a marker that
+; reads as an ownership guarantee and supplies none is worse than no
+; marker, because a reader spends trust on it."
+;
+; No secondary span and no quickfix, for `emitSetOnParam`'s reason
+; plus one of its own: the declaration that would carry them is often
+; in ANOTHER UNIT (any imported struct), and a diagnostic's span
+; indexes the unit it was stamped with - the mistake the comment above
+; `emitAX3012` records. The help carries the field's own declared type
+; so the suggested line is the one to write.
+(pub :: emitSetImmutableField (-> String String String Int Int Int))
+
+(pub fn (emitSetImmutableField fname tyname fty tspan tc)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR      "AX3012"      "assign-to-immutable"      tspan      (strConcat (strConcat (strConcat (strConcat "cannot assign to field `" fname) "` of `") tyname) "`: the field is not declared `mut`")      0      0      (strConcat (strConcat (strConcat (strConcat "declare it mutable where `" tyname) "` is defined: `(mut ") fname) (strConcat (strConcat " : " fty) ")`"))      "a struct field is immutable unless its declaration marks it `mut`, the rule `let` already follows; until 0.6.0 the marker was parsed and discarded and this store compiled in silence"
+    ) (strConcat (strConcat "`" fname) "` is not a `mut` field")))
     0
   }
 )
@@ -10049,7 +10100,7 @@
 (pub fn (checkCastForm tc e hname)
   (let ((args (spineArgVec e vecNew)))
     {
-      (checkArgsFromIndex tc args 1)
+      (checkCastArgs tc args e 1 (vecLen args))
       ; `sizeof` and `alignof` take one TYPE and answer a constant, so
       ; a surplus argument has nowhere to go: the emitter dropped it in
       ; silence and `(sizeof Int 99)` answered 8. `cast` is exempt -
@@ -10095,6 +10146,78 @@
         mkIntTy
       )
     }
+  )
+)
+
+; `cast`'s arguments, and the SURPLUS ones stamped with the evidence
+; class an ordinary application records for itself.
+;
+; `cast` takes two arguments and anything past them is an APPLICATION
+; of its result - `((cast Int f) h.name)` is one spine, which
+; `dispatchCall` splits and applies through `emitApplyChain`. Every
+; other application stamps its own node with `evClassOf` of the
+; argument's type (see `checkExprH`'s application arm), and that stamp
+; is the only thing that can tell a lifted lambda whether the word it
+; is being handed is a reference. This form does not reach that arm:
+; `checkCastForm` claims the WHOLE spine at its outermost node, so the
+; intermediate application nodes were never stamped and read back as
+; class 0 - "not a reference".
+;
+; That was a live use-after-free, not the leak this was recorded as.
+; Measured on 0.6.0 (`9116167`), a compiler built from this tree, the
+; shape `tests/stdlib/461-curried-closure-arg.ax` uses:
+;
+;   ((cast Int f) h.name)   with f = (lambda (v) (vecPush log v))
+;   (set h.name (strDup "bob"))   ; event 5 drops the only share
+;   (strDup "zzzzz")              ; re-issued the freed block
+;   (strByte (vecGetStr log 0) 0)
+;
+;   -> 122, the `z` of a string allocated after the free, where the
+;      same lambda applied where it stands answers 97.
+;
+; The walk is by INDEX rather than by node because the two orders
+; differ: `spineArgVec` answers innermost-first, so the argument at
+; index `i` belongs to the application node `n - 1 - i` steps down
+; from the outermost. Arguments are still checked in increasing index
+; order, so no diagnostic moves.
+(pub :: checkCastArgs (-> Int Int Int Int Int Int))
+
+(pub fn (checkCastArgs tc args e i n)
+  (if (>= i n)
+    0
+    {
+      (let ((at (checkExprH tc (vecGet args i) 0)))
+        (if (>= i 2)
+          (setNodeTy
+            (castAppNodeAt e (- (- n 1) i))
+            (let ((c (evClassOf tc at)))
+              (if (< c 0)
+                0
+                c
+              )
+            )
+          )
+          0
+        )
+      )
+      (checkCastArgs tc args e (+ i 1) n)
+    }
+  )
+)
+
+; The application node `k` steps down a spine from `e`, which is what
+; turns an argument INDEX into the node `walkAppChain` will read the
+; stamp off. Stops early at a non-application rather than walking off
+; the end.
+(pub :: castAppNodeAt (-> Int Int Int))
+
+(pub fn (castAppNodeAt e k)
+  (if (<= k 0)
+    e
+    (if (!= (nodeTag e) TAG_E_APP)
+      e
+      (castAppNodeAt (nodeA e) (- k 1))
+    )
   )
 )
 
@@ -10547,9 +10670,23 @@
                             (if (== tag TAG_E_FIELD)
                               (walkEffects tc (nodeA e) bound acc)
                               (if (== tag TAG_E_STRUCTCON)
-                                (walkEffectsVec
-                                  tc                                  (nodeB e)                                  0                                  bound                                  acc
-                                )
+                                ; The KEYWORD spelling of the same act
+                                ; the spine walk now attributes:
+                                ; `(struct P a b)` allocates exactly
+                                ; what `(P a b)` does, and the two
+                                ; reach different nodes. Attributing
+                                ; one and not the other would make the
+                                ; row depend on which spelling the
+                                ; author picked.
+                                {
+                                  (if (> (ctorAllocArity tc (nodeAName e)) 0)
+                                    (effAdd acc (builtinEff "Alloc"))
+                                    0
+                                  )
+                                  (walkEffectsVec
+                                    tc                                    (nodeB e)                                    0                                    bound                                    acc
+                                  )
+                                }
                                 (if (== tag TAG_E_COND)
                                   (walkEffectsCond
                                     tc                                    (nodeA e)                                    0                                    bound                                    acc
@@ -10848,6 +10985,41 @@
   )
 )
 
+; How many words a construction of `n` allocates a block for, or 0
+; when `n` names no constructor at all.
+;
+; `findFnEnt` answers 0 for a `data` constructor, a struct and `cast`
+; alike, so the effect walk needed a second question to tell the first
+; two from the third. This is that question, asked of the same tables
+; `checkSaturation` asks - `rfindCtor` for a `data` constructor's
+; arrow depth, `findStruct` for a struct's declared field list - so a
+; name the checker calls a constructor and a name this calls one
+; cannot drift apart.
+;
+; ZERO IS BOTH ANSWERS on purpose: "not a constructor" and "a
+; constructor that allocates nothing" have the same consequence here,
+; and no caller needs to tell them apart.
+(pub :: ctorAllocArity (-> Int String Int))
+
+(pub fn (ctorAllocArity tc n)
+  (let ((ctor (rfindCtor tc n)))
+    (if (!= ctor 0)
+      (arrowArity (memGetWord ctor 3))
+      (let ((sent (findStruct tc n)))
+        (if (== sent 0)
+          0
+          (let ((fields (memGetWord sent 1)))
+            (if (== fields 0)
+              0
+              (vecLen fields)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
 ; stage0's `walk_call`, by callee kind.
 (pub :: walkCallHead (-> Int String Int Int Int Int))
 
@@ -10910,7 +11082,34 @@
           ; that arm with them - `show` resolves in `checkApp` to an
           ; ordinary function or a generated renderer, both of which
           ; `findFnEnt` answers for.
-          0
+          ;
+          ; A CONSTRUCTOR STILL ALLOCATES, and the row has to say so.
+          ; This branch answered a flat `0` until 2026-08-31, which is
+          ; the whole of `MM-EXEC-9a`'s second open row - and the row
+          ; that made `restrict(no-alloc)` a claim nothing checked.
+          ; Measured on that shape before this line existed:
+          ;
+          ;     (data W (Wrap Int) (Empty))
+          ;     ;@axiom:restrict(no-alloc)
+          ;     (:: mk (-> Int Int))
+          ;     (fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+          ;
+          ; `check` answered OK and `emit-llvm` put a
+          ; `call i64 @axiom_alloc(i64 16)` inside `@mk` itself. The
+          ; claim, the refutation and the compiler's agreement with the
+          ; claim were all in one four-line file.
+          ;
+          ; `ctorAllocArity` and not "is this a constructor", because
+          ; the field count is what decides, and it is MEASURED rather
+          ; than assumed: `(Wrap n)` emits one `axiom_alloc` and
+          ; `(Empty)` emits none - a nullary constructor is an
+          ; immediate tag with no block behind it. Adding `Alloc` for
+          ; `(Empty)` would refuse a `no-alloc` claim the emitted code
+          ; keeps, which is the opposite error and just as wrong.
+          (if (> (ctorAllocArity tc n) 0)
+            (effAdd acc (builtinEff "Alloc"))
+            0
+          )
           {
             (tcNoteCall tc (memGetWordStr ent 0))
             (effUnion acc (memGetWord ent 5) 0)
@@ -13189,6 +13388,16 @@
               (let ((vty (checkExprH tc (nodeC e) 0)))
                 {
                   (stampFieldStruct e ent)
+                  ; The MUTABILITY refusal runs beside the type
+                  ; check, not instead of it: a write to an
+                  ; immutable field with the wrong type is two
+                  ; mistakes and reporting one hides the other.
+                  (if (== (structFieldMut ent (nodeBName e)) 0)
+                    (emitSetImmutableField
+                      (nodeBName e)                      (nodeAName baseTy)                      (tyRender fty)                      (nodeSpan e)                      tc
+                    )
+                    0
+                  )
                   (if (== (tyCompat vty fty) 0)
                     (emitMismatchTy tc fty vty (spanOf (nodeC e)))
                     0
@@ -16172,6 +16381,17 @@
 ; is a seed and every source of `Alloc` is a seed or a form - but the
 ; fallback says so rather than rendering nothing, because a message
 ; that silently lost its evidence is the AX3039 shape in another coat.
+;
+; THE FALLBACK NAMES A CONSTRUCTOR FIRST since 2026-08-31, because it
+; is now much the commonest way to reach this arm and it is the one
+; with no keyword to search for. The line used to offer `alloc` and
+; `handle` alone, and against
+;
+;     (fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+;
+; that sends the reader hunting for an `alloc` form the body does not
+; contain. A message that lists every source but the one in front of
+; the reader is the same defect as one that lists none.
 (pub :: witnessText (-> Int Int String String))
 
 (pub fn (witnessText tc d e)
@@ -16182,7 +16402,7 @@
         (if (== (graphSeeds tc last e 1) 1)
           (strConcat ": " (graphRender path))
           (if (== (vecLen path) 1)
-            " in its own body (an `alloc` form, or a `handle` installing a handler)"
+            " in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)"
             (strConcat (strConcat (strConcat ": " (graphRender path)) ", in ") (strConcat (strConcat "`" (bareOf (memGetWordStr last 0))) "`'s own body"))
           )
         )
@@ -17193,7 +17413,7 @@
   (if (== span 0)
     0
     (emitDiag tc (mkDiag
-      SEV_ERROR      "AX3050"      "contract-malformed"      span      (strConcat (strConcat (strConcat "`" (contractLead t)) "` ") why)      0      0      "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 75. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
+      SEV_ERROR      "AX3050"      "contract-malformed"      span      (strConcat (strConcat (strConcat "`" (contractLead t)) "` ") why)      0      0      "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 76. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
     ))
   )
 )
@@ -17210,7 +17430,7 @@
         SEV_ERROR        "AX3050"        "contract-malformed"        (nodeSpan e)        (if (strEq (contractKeyOf t) "pre")
           "`result` names nothing in a `pre`: a precondition is checked BEFORE the body runs, so there is no result yet"
           "`result` names nothing here: this declaration has no `::` signature, so it declares no result type for `result` to have"
-        )        0        0        "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 75. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
+        )        0        0        "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 76. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
       ))
     )
   )
@@ -18580,8 +18800,61 @@
 ;   (:: f (-> Int Float))  (fn (f x) 42)
 ;   (println (fmtFloat (f 1)))  ->  0.000000   at exit 0
 ;
-; `tyReprClash` below is what decides that case, and why it cannot
-; simply be `tyCompat`.
+; What decides that case is `tyCompat` - the same comparison an
+; argument has always got - for every declared result but one, and the
+; exception is a bare `Int`. `tyReprClash` and `tyParamThroughInt`
+; below are what a declared `Int` gets instead of it, and the comment
+; on each says why it cannot be `tyCompat` THERE.
+;
+; THE CONVENTION IS ONE-DIRECTIONAL, and until 2026-08-31 this check
+; did not know that. `Int` is this language's universal heap handle,
+; so a signature saying `Int` over a body that answers a `Span` is the
+; convention working as intended: the caller receives a word, and code
+; generated from that signature never dereferences it. The REVERSE is
+; not the convention and never was. A signature saying `Box` over a
+; body that answers an `Int` hands the caller a word the caller WILL
+; dereference, because the declaration told it that is safe:
+;
+;   (data Box (Bx String))
+;   (:: g (-> Int Box))  (fn (g x) 7)
+;   (fn (main) (match (g 1) ((Bx s) (strLen s))))
+;
+; `check` printed OK on 0.6.0; the program built and died of SIGSEGV,
+; exit 139, having read 7 as a header address. The SAME mismatch in
+; ARGUMENT position was AX3004 the whole time - `(h 7)` against
+; `(:: h (-> Box Int))` - so the rule was present and applied in one
+; position out of two. That is what the loose comparison here cost:
+; not a missing rule, a rule not applied.
+;
+; A NAME LIST CANNOT CLOSE IT. `tyReprClash` catches a clash only when
+; one of the two names is on `tyIsReprScalar`'s list - `Bool`,
+; `Float`, `Foreign`, `Handle`, `String` - so every `data`, every
+; `struct`, every `Char`, list, tuple, pointer and lambda fell through
+; it, in the one direction that segfaults. Probed one file per row on
+; 0.6.0, all ACCEPTED by `check` and all refused now:
+;
+;   (-> Int Box) over 7          (-> Int P) over 7        P a struct
+;   (-> Int Box) over 'A'        (-> Int Box) over (P 1 2)
+;   (-> Int Box) over (fn (y) y) (-> Int (Opt Int)) over 7
+;   (-> Int [Int]) over 7        (-> Int Char) over 7
+;   (-> Int Void) over 7         (-> Int Any) over 7
+;   (-> Int Unit) over 7         (-> Int (Opt Int)) over (Some "s")
+;
+; WHAT IT COSTS, measured rather than guessed, over all 558 `.ax`
+; files in the tree with a compiler built from it: comparing a
+; declared result by `tyCompat` UNCONDITIONALLY newly refuses 29
+; sites, and every single one of them reads `expected Int, found
+; <handle>` - `core.ax`'s `Span` and `Token`, ten `PResult`/`ASTNode`
+; in `parser.ax`, eight `F*` builders in `format.ax`, `diag.ax`'s
+; `Diag` and `SrcIx`, `codegen.ax`'s `CG`, `expand.ax`'s `FmtSpec`,
+; `stdlib/Job.ax`'s `JobPool`, three `*mut Int` in fixtures. NOT ONE
+; site in the tree declares a non-`Int` result over a body that
+; disagrees with it. So exempting a declared `Int`, and only a
+; declared `Int`, costs the tree nothing and closes every row above.
+;
+; `(cast Box n)` remains the explicit escape, and is what a function
+; that really does mint a nominal value out of a word must now say -
+; the same escape `Str.strWrapOwned` already uses for `String`.
 (pub :: checkDeclaredReturn (-> Int Int Int Int Int))
 
 (pub fn (checkDeclaredReturn tc d want got)
@@ -18620,11 +18893,50 @@
                   0
                   (emitMismatchTy tc want got (spanOf (nodeC d)))
                 )
-                (if (== (tyReprClash want got) 1)
-                  (emitMismatchTy tc want got (spanOf (nodeC d)))
-                  (if (tyParamThroughInt want got)
+                ; The handle convention is ONE-DIRECTIONAL, and that
+                ; asymmetry is the whole rule. A declared bare `Int`
+                ; may stand for a handle, so it keeps the two narrow
+                ; carve-outs below and nothing else. Every OTHER
+                ; declared result is compared honestly - by `tyCompat`,
+                ; the comparison an ARGUMENT has always got.
+                (if (tyIsBareInt want)
+                  (if (== (tyReprClash want got) 1)
                     (emitMismatchTy tc want got (spanOf (nodeC d)))
+                    (if (tyParamThroughInt want got)
+                      (emitMismatchTy tc want got (spanOf (nodeC d)))
+                      0
+                    )
+                  )
+                  ; A DECLARED RESULT THAT MENTIONS A SOURCE TYPE
+                  ; VARIABLE ANYWHERE stays permitted, and this arm is
+                  ; why the rule above is safe to state at all.
+                  ;
+                  ; `tyIsSrcVar` two arms up catches a BARE variable -
+                  ; `(:: f (-> a b a))`. It does not catch one nested
+                  ; inside a type argument, and that shape is
+                  ; deliberately lenient here:
+                  ;
+                  ;   (:: mk (-> Int (Holder (-> a Int))))
+                  ;   (fn (mk n) (H bump))     bump : (-> Int Int)
+                  ;
+                  ; An arrow nested in a type ARGUMENT of the result
+                  ; puts its variable on a LEFT side - the callee does
+                  ; not produce an `a`, whoever calls the returned
+                  ; callback supplies it - so refusing the concrete
+                  ; instantiation is a false positive. That leniency is
+                  ; a decision `scripts/check-diverging-tyvar.sh`
+                  ; records and gates, against the AX3040 rule that
+                  ; used to refuse it; comparing by `tyCompat` here
+                  ; reverses it silently, which is not this rule's to
+                  ; do. Measured: without this arm the gate reports
+                  ; `expected Holder (a -> Int), found Holder
+                  ; (Int -> Int)` and its lenient direction goes red.
+                  (if (== (tyHasSrcVar want) 1)
                     0
+                    (if (== (tyCompat want got) 0)
+                      (emitMismatchTy tc want got (spanOf (nodeC d)))
+                      0
+                    )
                   )
                 )
               )
@@ -18713,6 +19025,30 @@
       (if (== (vecLen (nodeB got)) 0)
         false
         (strEq (nodeAName want) "Int")
+      )
+    )
+  )
+)
+
+; The one declared result the handle convention is ABOUT: a bare
+; `Int`, no type arguments. Every other declared result is compared
+; against the body by `tyCompat`.
+;
+; Spelled out rather than folded into `tyReprClash` because the two
+; ask different questions. `tyReprClash` asks "can these two names
+; share a representation", which is symmetric by construction. This
+; asks "is the DECLARED side the one name the convention licenses",
+; and its entire content is that it is NOT symmetric.
+(pub :: tyIsBareInt (-> Int Bool))
+
+(pub fn (tyIsBareInt t)
+  (if (== t 0)
+    false
+    (if (!= (nodeTag t) TAG_T_CON)
+      false
+      (if (!= (vecLen (nodeB t)) 0)
+        false
+        (strEq (nodeAName t) "Int")
       )
     )
   )

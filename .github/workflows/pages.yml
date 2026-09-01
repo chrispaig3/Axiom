@@ -1,0 +1,100 @@
+name: Pages
+
+# The website, and only the website.
+#
+# This workflow is deliberately independent of `ci.yml`: it shares no
+# job, needs nothing from the gate battery, and runs no Axiom code. A
+# copy change must not be able to turn the compiler's CI red, and a red
+# gate must not be able to hold up a typo fix on the site.
+#
+# It is also scoped by path, so the ordinary case - a commit that
+# touches only `self_host/` or `stdlib/` - starts nothing here at all.
+
+on:
+  push:
+    # `trunk` is this repository's only branch. Naming a branch that does
+    # not exist is how `ci.yml` sat structurally silent for a week; the
+    # same mistake here would be invisible in a different way, because a
+    # Pages deploy that never runs looks exactly like a site nobody has
+    # changed.
+    branches: [trunk]
+    paths:
+      - 'web/**'
+      - '.github/workflows/pages.yml'
+  # Manual, for a re-deploy after changing the Pages source in Settings.
+  workflow_dispatch:
+
+# What `deploy-pages` needs, and nothing else. `contents: read` is the
+# checkout; `pages: write` publishes; `id-token: write` is the OIDC
+# token the deployment is attested with.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. `cancel-in-progress: false` because a
+# half-finished deploy is worse than a queued one: cancelling between
+# the upload and the publish leaves the site on the previous artifact
+# with a green check against the new commit.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # `npm ci` rather than `npm install`: it installs exactly what the
+      # committed lockfile says and fails if the two disagree, which is
+      # the difference between a reproducible build and a build that
+      # happened to work today.
+      - run: npm ci
+
+      # `npm run build` is three things in order: `check-claims.mjs`, which
+      # holds the four figures on the page to the tree they describe and
+      # fails the deploy when trunk has moved under them; `tsc -b`; then
+      # the bundle. A stale number is a failed build, not a live page.
+      - run: npm run build
+
+      # Renders the whole component tree in Node and asserts on the
+      # result: no React warning, one `h1`, no skipped heading level,
+      # every in-page anchor resolving, every `target=_blank` carrying
+      # `rel=noopener`. There is no browser here, so this is the closest
+      # thing to opening the page.
+      - run: node scripts/smoke.mjs
+
+      # Pages serves the artifact from a static host, not from Jekyll,
+      # but the default pipeline still strips paths beginning with `_`
+      # unless this file is present. Vite emits hashed assets under
+      # `assets/`, so nothing depends on it today - it is here so that
+      # the day something does, the failure does not have to be
+      # diagnosed from a 404.
+      - run: touch dist/.nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

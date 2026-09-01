@@ -86,8 +86,31 @@
 # existing `Option Int` functions this table already left alone
 # (`strFind`), so this is a straight CHANGED row in `compat/BREAKING`,
 # not a WIDENED one.
+# A DECLARED RISE, 2026-08-31, and the first one this file has carried.
+# `stdlib/Tui/Keys.ax` and `stdlib/Tui/Term.ax` arrived with the REPL's
+# terminal UI and answer four sentinels between them. They are recorded
+# rather than migrated, and the reason is that `Option` is the WRONG
+# shape for both:
+#
+#   * `keyInFill` answers a COUNT of bytes appended, 0 on timeout, -1
+#     at end of input and -2 when the buffer cannot take more. That is
+#     four outcomes, three of them distinct failures. `Option` collapses
+#     -1 and -2 into one `None` and loses the count; `Result` expresses
+#     it but allocates, and this runs once per keystroke in a terminal
+#     read loop.
+#   * `keyCsiParam` answers -1 for a CSI parameter that is absent or
+#     empty, and its own comment records why a caller-supplied default
+#     is not available: the caller's rule differs by final byte, so
+#     `ESC[5~` and `ESC[5D` would become indistinguishable.
+#
+# The census's direction of travel is unchanged and this is not a
+# licence. A sentinel whose meaning is "not found" and nothing else
+# still wants `Option`; these two carry more than that.
+
 stdlib/Intern.ax 0 1
 stdlib/Str.ax 0 2
 stdlib/Sys.ax 26 0
 stdlib/Sys/Platform.darwin.ax 3 0
+stdlib/Tui/Keys.ax 0 1
+stdlib/Tui/Term.ax 0 3
 stdlib/Utf8.ax 0 2

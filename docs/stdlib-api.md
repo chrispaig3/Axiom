@@ -44,8 +44,8 @@ See [reference.md](reference.md) for the language, and
 | `axsymIsKind` | value | `(-> Int Bool)` |  | The six KIND letters, and deliberately only those: they are disjoint from AXDL's `E`/`W`/`N`/`H` severity sigils, so a line's first byte says which notation produced it even in a concatenated stream. A seventh kind added to the compiler must be added here, and a line whose first byte is unknown is answered `None` rather than guessed at - a reader that guesses turns a compiler change into silently wrong data. |
 | `axsymTrimEnd` | value | `(-> String String)` | `Alloc,Mut` | Trailing spaces off the end of a slice. The head field is taken as the bytes before the opening quote, which includes the space that separated the location from it. |
 | `axsymEscapable` | value | `(-> Int Bool)` |  | The bytes `saAxMeta` escapes on the way out, restated here because this is the other end of the same wire: space and every control byte (`< 33`), `"`, `#`, `%` and DEL. Anything else is left alone, so a UTF-8 tag value survives. |
-| `axsymHexVal` | value | `(-> Int (Option Int))` |  | One hex digit's value, or `None`. Both cases are accepted: the emitter writes upper, and a reader that took only what one emitter happens to write is pinned to that emitter rather than to the notation. Absence, not failure - `docs/error-model.md` ERR-REC-3 - and `Option` is built in, so this costs the module no import. |
-| `axsymPctAt` | value | `(-> String Int (Option Int))` |  | The byte a `%XX` at `i` stands for, or `None` where there is no complete escape. STRICT, and that is the point: only the bytes `saAxSafe` escapes decode, so a literal `%` standing in a value the COMPILER built - a rendered type, a generated `Trait#Type#method` name - is never mistaken for an escape. `%41` stays `%41`. |
+| `axsymHexVal` | value | `(-> Int (Option Int))` | `Alloc` | One hex digit's value, or `None`. Both cases are accepted: the emitter writes upper, and a reader that took only what one emitter happens to write is pinned to that emitter rather than to the notation. Absence, not failure - `docs/error-model.md` ERR-REC-3 - and `Option` is built in, so this costs the module no import. |
+| `axsymPctAt` | value | `(-> String Int (Option Int))` | `Alloc` | The byte a `%XX` at `i` stands for, or `None` where there is no complete escape. STRICT, and that is the point: only the bytes `saAxSafe` escapes decode, so a literal `%` standing in a value the COMPILER built - a rendered type, a generated `Trait#Type#method` name - is never mistaken for an escape. `%41` stays `%41`. |
 | `axsymUnpct` | value | `(-> String String)` | `Alloc,Mut` | A meta key or value with its escapes undone. The `strFindByte` guard is not an optimisation for its own sake: no AXTAG in this repository contains a byte that is escaped, so every token on every line in the corpus takes the first arm and is returned as it arrived, allocating nothing and copying nothing. |
 | `axsymUnpctFrom` | value | `(-> String Int String String)` | `Alloc,Mut` |  |
 | `axsymMeta` | value | `(-> String Meta)` | `Alloc,Mut` | `#key=value` or a bare `#key`, with the leading `#` already dropped. Both halves are unescaped, because `saAxMeta` escapes both: an AXTAG key is everything from `;@axiom:` to the newline, so a key can carry a space or a `#` just as a value can. |
@@ -77,7 +77,7 @@ See [reference.md](reference.md) for the language, and
 | `errOverflow` | value | `Int` |  |  |
 | `errShiftTooWide` | value | `Int` |  |  |
 | `errShortWrite` | value | `Int` |  | A descriptor accepted some bytes and then accepted none, without an errno to say why. It is NOT a syscall error - `write` returned 0, which is a legal answer - so it cannot borrow an errno, and it is not success either, which is exactly why `Sys.sysWriteAllFd` could not express it while it answered an Int. `ERR-REC-3` calls a short write a failure and not an absence: the bytes were meant to go and did not. |
-| `mkError` | value | `(-> Int String Error)` |  |  |
+| `mkError` | value | `(-> Int String Error)` | `Alloc` |  |
 | `errCode` | value | `(-> Error Int)` |  |  |
 | `errMessage` | value | `(-> Error String)` |  |  |
 | `errContext` | value | `(-> Error String)` |  |  |
@@ -85,21 +85,21 @@ See [reference.md](reference.md) for the language, and
 | `isOk` | value | `(-> (Result a e) Bool)` |  |  |
 | `isErr` | value | `(-> (Result a e) Bool)` |  |  |
 | `unwrapOr` | value | `(-> (Result a e) a a)` |  |  |
-| `mapOk` | value | `(-> (Result a e) (-> a b) (Result b e))` |  |  |
-| `mapErr` | value | `(-> (Result a e) (-> e f) (Result a f))` |  |  |
-| `andThen` | value | `(-> (Result a e) (-> a (Result b e)) (Result b e))` |  |  |
-| `errContextOf` | value | `(-> Error String Error)` |  | Attach what the caller was doing to an error in flight, passing `Ok` through untouched. It needs no binder, so it is a function and not a form. |
-| `withContext` | value | `(-> (Result a Error) String (Result a Error))` |  |  |
-| `okOr` | value | `(-> (Option a) e (Result a e))` |  |  |
-| `toOption` | value | `(-> (Result a e) (Option a))` |  |  |
+| `mapOk` | value | `(-> (Result a e) (-> a b) (Result b e))` | `Alloc` |  |
+| `mapErr` | value | `(-> (Result a e) (-> e f) (Result a f))` | `Alloc` |  |
+| `andThen` | value | `(-> (Result a e) (-> a (Result b e)) (Result b e))` | `Alloc` |  |
+| `errContextOf` | value | `(-> Error String Error)` | `Alloc` | Attach what the caller was doing to an error in flight, passing `Ok` through untouched. It needs no binder, so it is a function and not a form. |
+| `withContext` | value | `(-> (Result a Error) String (Result a Error))` | `Alloc` |  |
+| `okOr` | value | `(-> (Option a) e (Result a e))` | `Alloc` |  |
+| `toOption` | value | `(-> (Result a e) (Option a))` | `Alloc` |  |
 | `intMin` | value | `Int` |  |  |
-| `addChecked` | value | `(-> Int Int (Result Int Error))` |  | The three that WRAP. |
-| `subChecked` | value | `(-> Int Int (Result Int Error))` |  |  |
-| `mulChecked` | value | `(-> Int Int (Result Int Error))` |  |  |
-| `divChecked` | value | `(-> Int Int (Result Int Error))` |  |  |
-| `remChecked` | value | `(-> Int Int (Result Int Error))` |  |  |
-| `shlChecked` | value | `(-> Int Int (Result Int Error))` |  | A shift amount of 64 or more, and a negative one, are undefined and no masking is emitted - `(<< 1 100)` answers 68719476736 at `--opt 0` and 1 at `--opt 1`. |
-| `shrChecked` | value | `(-> Int Int (Result Int Error))` |  |  |
+| `addChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` | The three that WRAP. |
+| `subChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
+| `mulChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
+| `divChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
+| `remChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
+| `shlChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` | A shift amount of 64 or more, and a negative one, are undefined and no masking is emitted - `(<< 1 100)` answers 68719476736 at `--opt 0` and 1 at `--opt 1`. |
+| `shrChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
 | `try!` | macro |  |  | ERR-SUGAR-2: the propagation form. |
 
 ## `Fallible`
@@ -114,7 +114,7 @@ See [reference.md](reference.md) for the language, and
 | `fallibleSkip` | value | `(-> String Int)` |  | Skip every malformed record: answer `fallibleSkipped`, whatever the message. A one-parameter top-level function is a value, so it is passed bare. |
 | `fallibleDefault` | value | `(-> Int String Int)` |  | Use `d` in place of every malformed record. Built ONCE, at the `handle`, which is why the fallback is here and not an argument of the operation: the closure holding `d` is allocated when the handler is installed, not when a record is bad. One parameter, answering the handler - the type is spelled flat because every function type is curried and that is the formatter's normal form; `mkAdder` in `280-function-application.ax` is the precedent. |
 | `FallibleTally` | struct |  |  | How many records were malformed. A struct rather than a bare `Int` because the handler has to write it from inside a closure, and a field store is the one mutation visible through every holder of the value (reference.md, Built-in Effects: `Mut`). |
-| `fallibleTally` | value | `FallibleTally` |  | A fresh tally at zero. |
+| `fallibleTally` | value | `FallibleTally` | `Alloc` | A fresh tally at zero. |
 | `fallibleCount` | value | `(-> FallibleTally Int)` |  | What a tally holds. |
 | `fallibleCounting` | value | `(-> FallibleTally (-> String Int) String Int)` | `Mut` | Count every malformed record in `tally`, then answer as `next` would: `(fallibleCounting t fallibleSkip)` skips and counts, `(fallibleCounting t (fallibleDefault 0))` substitutes and counts. The `handle` installing it lists `Mut` beside `Fallible`, because a handler's own effects count at the site that installs it. |
 
@@ -458,12 +458,12 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `pathLastSlash` | value | `(-> String (Option Int))` |  | The last `/` in `p`, or `None`. Everything below is a decision about this one index. `compat/SENTINELS`'s direction rule is "absence wants `Option`", and this is the primitive every caller in this file goes through - `pathExtIndex` is the one exception, and it goes straight to the raw `-1` helper below because it needs the sentinel back in arithmetic (`(+ slash 1)` is 0, correctly, when there is no slash at all), not a value to branch on. |
+| `pathLastSlash` | value | `(-> String (Option Int))` | `Alloc` | The last `/` in `p`, or `None`. Everything below is a decision about this one index. `compat/SENTINELS`'s direction rule is "absence wants `Option`", and this is the primitive every caller in this file goes through - `pathExtIndex` is the one exception, and it goes straight to the raw `-1` helper below because it needs the sentinel back in arithmetic (`(+ slash 1)` is 0, correctly, when there is no slash at all), not a value to branch on. |
 | `pathDir` | value | `(-> String String)` | `Alloc,Mut` | Everything up to and INCLUDING the last `/`, or "" when `p` names something in the working directory. |
 | `pathBase` | value | `(-> String String)` | `Alloc,Mut` | Everything after the last `/` - the file name on its own, or `p` entire when there is no separator. |
 | `pathWithSlash` | value | `(-> String String)` | `Alloc,Mut` | A directory name that ends in `/`, so concatenation forms a path. |
 | `pathJoin` | value | `(-> String String String)` | `Alloc,Mut` | `dir` and `name` as one path, with exactly one `/` between them. |
-| `pathExtIndex` | value | `(-> String (Option Int))` |  | The index of the extension's `.` within `p`, or `None`. |
+| `pathExtIndex` | value | `(-> String (Option Int))` | `Alloc` | The index of the extension's `.` within `p`, or `None`. |
 | `pathExt` | value | `(-> String String)` | `Alloc,Mut` | The extension INCLUDING its dot (`".ax"`), or "" when there is none. |
 | `pathStem` | value | `(-> String String)` | `Alloc,Mut` | The base name with its extension removed: `"src/main.ax"` is `"main"`. What a driver names an output after. |
 | `pathReplaceExt` | value | `(-> String String String)` | `Alloc,Mut` | `p` with its extension replaced by `ext`, which carries its own dot. `(pathReplaceExt "build/main.ax" ".ll")` is `"build/main.ll"`, and a path with no extension simply gains one. |
@@ -539,9 +539,9 @@ See [reference.md](reference.md) for the language, and
 | `strSplitFrom` | value | `(-> String Int Int Int Int)` | `Alloc,Mut` |  |
 | `strFromByte` | value | `(-> Int String)` | `Alloc,Mut` | A one-byte `Str` holding `b`. The compiler driver and the JSON encoder each had this three-line allocate-and-store under a private name; it is a `Str` constructor, so it lives with the others. |
 | `strLower` | value | `(-> String String)` | `Alloc,Mut` | `s` with every ASCII upper-case byte lowered, or `s` itself when it has none - so a header name already in the form a table wants is not copied. Bytes above 127 pass through untouched: this is the ASCII fold a case-insensitive header table needs, not a Unicode case mapping. |
-| `strFind` | value | `(-> String String Int (Option Int))` |  | The index of the first occurrence of `needle` in `s` at or after `from`, or `None`. An empty needle is found at `from` whenever `from` is inside `s` or at its end, which is the rule that makes `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than nothing. |
+| `strFind` | value | `(-> String String Int (Option Int))` | `Alloc` | The index of the first occurrence of `needle` in `s` at or after `from`, or `None`. An empty needle is found at `from` whenever `from` is inside `s` or at its end, which is the rule that makes `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than nothing. `no-alloc` came off on 2026-08-31: the `(Some found)` answer allocates. Accepted until then because a constructor contributed nothing to the effect row (`MM-EXEC-9a`). `no-io` and `no-foreign` are unchanged. |
 | `strTrim` | value | `(-> String String)` | `Alloc,Mut` | `s` without the `strIsSpace` bytes at either end, as a SLICE that shares `s`'s storage - so it is not NUL-terminated unless it ends where `s` does, exactly as `strSlice` says. A string that is all space trims to "". |
-| `strParseInt` | value | `(-> String (Option Int))` |  | The decimal integer `s` spells - an optional `-`, then one or more ASCII digits and nothing else - or `None`: for an empty string, a sign alone, any other byte, and any value outside the 64-bit range. |
+| `strParseInt` | value | `(-> String (Option Int))` | `Alloc` | The decimal integer `s` spells - an optional `-`, then one or more ASCII digits and nothing else - or `None`: for an empty string, a sign alone, any other byte, and any value outside the 64-bit range. |
 
 ## `Sys`
 
@@ -549,7 +549,7 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `sysResult` | value | `(-> String Int (Result Int Error))` |  | write(fd, buf, count) -> bytes written, or a negative/errno result. A raw syscall answer turned into a `Result`. |
+| `sysResult` | value | `(-> String Int (Result Int Error))` | `Alloc` | write(fd, buf, count) -> bytes written, or a negative/errno result. A raw syscall answer turned into a `Result`. |
 | `stdin` | value | `Int` |  |  |
 | `stdout` | value | `Int` |  |  |
 | `stderr` | value | `Int` |  |  |
@@ -564,15 +564,15 @@ See [reference.md](reference.md) for the language, and
 | `sysReadFile` | value | `(-> Int String)` | `Alloc,IO,Mut` | Open, read entire contents, close.  Returns an empty string on any error (missing file, permission, etc.). |
 | `sysArgc` | value | `Int` | `IO` | How many arguments the process received, including the program name. |
 | `sysArg` | value | `(-> Int String)` | `Alloc,IO,Mut` | The i-th argument as a Str (0 is the program name), or "" when `i` is out of range. The bytes are the process's own argv storage - NUL-terminated, alive for the whole run, never freed or moved - so wrapping them without copying is sound. |
-| `sysWriteFile` | value | `(-> Int String (Result Int Error))` | `IO` | Write `s` to `path`, creating or truncating it. Answers the number of bytes written, or a negative errno from whichever step failed. |
-| `sysAppendFile` | value | `(-> Int String (Result Int Error))` | `IO` | Append `s` to `path`, creating it if it is not there. Answers the number of bytes written, or a negative errno. |
-| `sysRename` | value | `(-> Int Int (Result Int Error))` | `IO` | Rename `old` to `new`, answering 0 or `-errno`. Both are NUL-terminated char* - `strCStr`. |
-| `sysUnlink` | value | `(-> Int (Result Int Error))` | `IO` | Remove `path`. Answers 0, or `-errno`. |
-| `sysMkdir` | value | `(-> Int Int (Result Int Error))` | `IO` | Create directory `path` with `mode`. Answers 0, or `-errno` - which is `-17` (EEXIST) when it is already there, and callers usually want to treat that as success. |
+| `sysWriteFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO` | Write `s` to `path`, creating or truncating it. Answers the number of bytes written, or a negative errno from whichever step failed. |
+| `sysAppendFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO` | Append `s` to `path`, creating it if it is not there. Answers the number of bytes written, or a negative errno. |
+| `sysRename` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Rename `old` to `new`, answering 0 or `-errno`. Both are NUL-terminated char* - `strCStr`. |
+| `sysUnlink` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Remove `path`. Answers 0, or `-errno`. |
+| `sysMkdir` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Create directory `path` with `mode`. Answers 0, or `-errno` - which is `-17` (EEXIST) when it is already there, and callers usually want to treat that as success. |
 | `sysDirMode` | value | `Int` |  | 0755, the mode a directory usually wants. A nullary function because that is how this language spells a constant. |
-| `sysRmdir` | value | `(-> Int (Result Int Error))` | `IO` | Remove the empty directory `path`. Answers 0, or `-errno`. |
+| `sysRmdir` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Remove the empty directory `path`. Answers 0, or `-errno`. |
 | `sysFileExists` | value | `(-> Int Bool)` | `IO` | 1 when `path` names something that can be opened for reading. |
-| `sysFileSize` | value | `(-> Int (Result Int Error))` | `IO` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
+| `sysFileSize` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
 | `sysReadErrno` | value | `(-> Int Int)` | `Alloc,IO,Mut` | 0 when `path` can be opened AND read as a file, otherwise the errno saying why not. |
 | `sysIsDir` | value | `(-> Int Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
 | `sysReadDir` | value | `(-> Int Int)` | `Alloc,IO,Mut` | Every name in the directory `path`, as a Vec of owned `Str` - `.` and `..` INCLUDED, in whatever order the filesystem gives them. |
@@ -617,7 +617,7 @@ See [reference.md](reference.md) for the language, and
 | `netPollDelRead` | value | `(-> Int Int Int Int)` | `IO,Mut` |  |
 | `netPollWait` | value | `(-> Int Int Int Int Int Int)` | `IO,Mut` | Wait for readiness, answering how many events landed in `buf` or a negative errno. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
 | `netPollFdAt` | value | `(-> Int Int Int)` |  | The descriptor named by event `i` of a buffer `netPollWait` filled. |
-| `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `IO` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
+| `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int Int)` | `IO,Mut` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. |
 | `netSignalOpen` | value | `(-> Int Int Int Int Int)` | `IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
@@ -760,6 +760,146 @@ See [reference.md](reference.md) for the language, and
 | `assertFalse` | value | `(-> String Bool Int)` | `Alloc,Assert,IO,Mut` | A `Bool` is false. Not `(assertTrue label (! b))`, because Axiom has no `!` and `(== b false)` at the call site is what this exists to keep out of the test. |
 | `testFail` | value | `(-> String Int)` | `Alloc,Assert,IO,Mut` | Fail unconditionally: the branch that must not be reached, and the case a test has not written yet. `(testFail "todo: the empty input")` reads as a failure rather than as a passing test with nothing in it, which is what an empty test body is. |
 
+## `Tui.Edit`
+
+`stdlib/Tui/Edit.ax` — 62 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `LED_GO` | value | `Int` |  | Keep editing. |
+| `LED_DONE` | value | `Int` |  | Enter: the caller takes `ledSnapshot`. |
+| `LED_EOF` | value | `Int` |  | Ctrl-D on an EMPTY buffer: end of input, the same answer the piped reader gives at EOF, so `replMain`'s farewell path is shared. |
+| `LED_ABORT` | value | `Int` |  | Ctrl-C: abandon this line. NOT end of session - see the header of `term.ax` for why, and for why it cannot leave the terminal raw. |
+| `LED_RING_MAX` | value | `Int` |  | How many kills the ring remembers. |
+| `LineEd` | struct |  |  |  |
+| `ledRingNew` | value | `Int` | `Alloc,Mut` | The kill ring, created once per session and outliving every line. |
+| `ledNew` | value | `(-> Int String LineEd)` | `Alloc,Mut` | One editor over a session's ring, with the caller's word set. The gap vectors are `vecNew` (leaf) because their elements are CODE POINTS: Vec.ax's comment says a leaf block is exactly right for Ints and costs nothing. |
+| `ledReset` | value | `(-> LineEd String Int Int Int)` | `Mut` | Prepare for the next physical line. Keeps both vectors' capacity. |
+| `ledFree` | value | `(-> LineEd Int)` |  | Hand the two gap vectors back. For session end and for a test harness, which builds hundreds; see the struct's comment for why nothing else needs it. |
+| `ledLen` | value | `(-> LineEd Int)` |  |  |
+| `ledCursor` | value | `(-> LineEd Int)` |  | The cursor, as a code-point index. It IS `(vecLen left)`. |
+| `ledCpAt` | value | `(-> LineEd Int Int)` |  | Code point `i` of the logical buffer, or 0 out of range. |
+| `ledRangeStr` | value | `(-> LineEd Int Int String)` | `Alloc,Mut` | `cnt` code points from `s`, as a String. |
+| `ledSnapshot` | value | `(-> LineEd String)` | `Alloc,Mut` | The whole buffer. This is the value handed to `replMain`, and it is the ONLY place the gap representation becomes a String - which is what keeps `replTrim`, `replParenDepth` and `replDispatch` taking exactly what they take today. |
+| `ledInsert` | value | `(-> LineEd Int Int)` | `Alloc,Mut` | Insert one code point before the cursor. 1 if it went in. |
+| `ledInsertStr` | value | `(-> LineEd String Int)` | `Alloc,Mut` | Decode a String and insert every code point; answers how many went in. Steps with `utf8Next`, never `utf8CharAt` in a rising loop - Utf8.ax's own comment records that as the quadratic mistake. |
+| `ledSetStr` | value | `(-> LineEd String Int)` | `Alloc,Mut` | Replace the buffer, cursor at the end. What history and completion need: one call to put a whole line in. |
+| `ledBackspace` | value | `(-> LineEd Int)` | `Mut` |  |
+| `ledDelete` | value | `(-> LineEd Int)` | `Mut` |  |
+| `ledLeft` | value | `(-> LineEd Int)` | `Alloc,Mut` | Every motion is one code point moved from one gap vector to the other. O(1) per character; nothing re-derives the cursor. |
+| `ledRight` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
+| `ledHome` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
+| `ledEnd` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
+| `ledIsWord` | value | `(-> LineEd Int Bool)` |  |  |
+| `ledNotWord` | value | `(-> LineEd Int Bool)` |  | The complement, as a function because Axiom has no `!` - stdlib's `assertFalse` carries the same note for the same reason. |
+| `ledWordLeft` | value | `(-> LineEd Int)` | `Alloc,Mut` | readline's rule: skip a run of non-word characters, then a run of word characters. Answers how many code points were crossed. |
+| `ledWordRight` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
+| `ledWordRightSpan` | value | `(-> LineEd Int)` |  | How many code points a forward word kill would take, WITHOUT moving the cursor - the backward kills can move and then pop, because a leftward motion pushes exactly what it crossed onto `right`, but a forward one has nowhere to put it back. |
+| `ledKillPush` | value | `(-> LineEd String Int Int)` | `Alloc,Mut` |  |
+| `ledRingIdx` | value | `(-> LineEd Int)` |  | Which ring entry a yank would take. Read by the test harness, and by whatever eventually shows the kill ring; the ring itself is the session's `Vec` and is already reachable. |
+| `ledKillToEnd` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
+| `ledKillToStart` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
+| `ledKillWordLeft` | value | `(-> LineEd Int)` | `Alloc,Mut` | Move left over the word, then pop what the motion pushed onto `right` - the run the cursor just crossed is exactly the top `moved` entries of that vector. |
+| `ledKillWordRight` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
+| `ledYank` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
+| `ledYankPop` | value | `(-> LineEd Int)` | `Alloc,Mut` | Alt-y. Valid only immediately after a yank or another yank-pop, which `yankLen > 0` is exactly: every other key zeroes it in `ledApply`, so pressed cold this is a refusal that changes nothing. |
+| `tuiVisLen` | value | `(-> String Int)` |  | The DISPLAY WIDTH of a string: no `ESC [ ... m` sequence counted, and no UTF-8 continuation byte counted. |
+| `tuiCat` | value | `(-> Int String)` | `Alloc,Mut` | Every fragment in `v`, concatenated, in ONE allocation. |
+| `ledCharCols` | value | `(-> Int Int)` |  | The display width of one code point. 1 for everything - see the header. The single place a wcwidth table would land. |
+| `ledColsBefore` | value | `(-> LineEd Int Int)` |  | The columns the first `k` code points occupy. O(k), and it is the only reason `ledCharCols` is a function rather than a `1` written in four formulas: with a wcwidth table this stays correct and nothing else changes. |
+| `ledCols` | value | `(-> LineEd Int)` |  | The width to compute with: the terminal's, or 80 when it answered something a division cannot use. A pty that has never been sized reports 0 columns with a SUCCESSFUL ioctl (Sys.ax says so), and dividing by it is the bug that report cannot make. |
+| `ledContentCols` | value | `(-> LineEd Int)` |  |  |
+| `ledRowOf` | value | `(-> LineEd Int Int)` |  |  |
+| `ledColOf` | value | `(-> LineEd Int Int)` |  |  |
+| `ledRowsUsed` | value | `(-> LineEd Int)` |  |  |
+| `ledCup` | value | `(-> Int Int String)` | `Alloc,Mut` | `ESC [ n <final>`, or "" when n < 1 so a zero-distance move costs no bytes. 65 A up, 66 B down, 67 C forward, 68 D back. |
+| `ledClearScreen` | value | `(-> Int String)` | `Alloc,Mut` | `ESC [ H ESC [ 2 J` - cursor home, erase the whole screen. Ctrl-L. |
+| `ledEraseRow` | value | `(-> Int String)` | `Alloc,Mut` | `ESC [ 0 K` - erase from the cursor to the end of the row. Spelled out rather than routed through `ledCup`, which refuses n < 1 and would answer "" - an erase that emits nothing is a redraw that leaves the old line's tail on the screen. |
+| `ledEraseOld` | value | `(-> LineEd Int Int)` | `Alloc,Mut` | Erase what the previous refresh drew and leave the cursor at column 0 of the first row. |
+| `ledRefreshFull` | value | `(-> LineEd Int Int)` | `Alloc,Mut` | The multi-row repaint. |
+| `ledRefreshWindow` | value | `(-> LineEd Int Int)` | `Alloc,Mut` |  |
+| `ledRefresh` | value | `(-> LineEd Int Int)` | `Alloc,Mut` | The one dispatcher, so the choice between the two repaints lives in exactly one place. |
+| `ledResize` | value | `(-> LineEd Int Int Int)` | `Mut` | Called with the terminal's current size before every refresh. When the width changed we cannot know how the terminal reflowed the text it already holds, so `rows` and `curRow` are reset rather than used: refusing to compute motions from a stale width beats computing them wrongly, and one more keystroke fully repairs the line. 1 when it changed. |
+| `ledApply` | value | `(-> LineEd KeyEv Int Int)` | `Alloc,Mut` |  |
+| `ledIsKillKey` | value | `(-> KeyEv Bool)` |  |  |
+| `ledIsYankKey` | value | `(-> KeyEv Bool)` |  |  |
+| `ledByWord` | value | `(-> KeyEv Bool)` |  | A motion key carrying Ctrl or Alt is the WORD variant. Terminals disagree about which modifier they send for Ctrl-Left - xterm sends MOD_CTRL, several send MOD_ALT, and Alt-b is the same motion by another name - so both are accepted rather than one being picked. |
+| `ledDispatch` | value | `(-> LineEd KeyEv Int Int)` | `Alloc,Mut` |  |
+| `ledNavKey` | value | `(-> LineEd KeyEv Int)` | `Alloc,Mut` | Arrows, Home and End - and the keys this effort deliberately leaves alone. Up and Down belong to the HISTORY effort and Tab to COMPLETION; they are decoded, they arrive here, and they do nothing. Adding them is a branch beside these, not a change to the decoder. |
+| `ledCharKey` | value | `(-> LineEd KeyEv Int)` | `Alloc,Mut` | A printable key, or an Alt-<letter> word command. Alt-b/f/d/y are the bindings every terminal can produce, where Ctrl-Left and Alt-Delete are the ones only some can. |
+| `ledCtrlKey` | value | `(-> LineEd KeyEv Int Int)` | `Alloc,Mut` | The control keys. readline's letters, and only the ones this effort owns: Ctrl-N and Ctrl-P are history's and are left unbound so that effort can take them without moving anything here. |
+
+## `Tui.Keys`
+
+`stdlib/Tui/Keys.ax` — 43 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `KEY_NONE` | value | `Int` |  | The event was consumed and means nothing to the editor - a mouse report, a device reply, a stray byte. It is NOT "nothing happened": `used` is still the bytes to advance by. |
+| `KEY_MORE` | value | `Int` |  | A strict prefix. Read more, or resolve it with `keyResolve`. This kind never leaves `term.ax`. |
+| `KEY_EOF` | value | `Int` |  |  |
+| `KEY_CHAR` | value | `Int` |  | `cp` is the code point. |
+| `KEY_CTRL` | value | `Int` |  | `cp` is the LETTER, 64..95: Ctrl-A is 65, Ctrl-@ is 64, Ctrl-_ is 95. Storing the letter rather than the control byte is what lets the binding table read as `(== ev.cp 65)` beside a comment saying A. |
+| `KEY_ENTER` | value | `Int` |  |  |
+| `KEY_TAB` | value | `Int` |  |  |
+| `KEY_BACKSPACE` | value | `Int` |  |  |
+| `KEY_ESCAPE` | value | `Int` |  |  |
+| `KEY_UP` | value | `Int` |  |  |
+| `KEY_DOWN` | value | `Int` |  |  |
+| `KEY_RIGHT` | value | `Int` |  |  |
+| `KEY_LEFT` | value | `Int` |  |  |
+| `KEY_HOME` | value | `Int` |  |  |
+| `KEY_END` | value | `Int` |  |  |
+| `KEY_DELETE` | value | `Int` |  |  |
+| `KEY_INSERT` | value | `Int` |  |  |
+| `KEY_PGUP` | value | `Int` |  |  |
+| `KEY_PGDN` | value | `Int` |  |  |
+| `KEY_FN` | value | `Int` |  | `cp` is the function-key number: KEY_FN with cp 5 is F5. |
+| `MOD_SHIFT` | value | `Int` |  |  |
+| `MOD_ALT` | value | `Int` |  |  |
+| `MOD_CTRL` | value | `Int` |  |  |
+| `keyCsiMax` | value | `Int` |  | How many bytes of a well-formed CSI this decoder will tolerate before calling it line noise. A wedged terminal spewing digits cannot otherwise grow the pending prefix without bound. |
+| `keyStrMax` | value | `Int` |  | And of an OSC/DCS string body. |
+| `KeyEv` | struct |  |  |  |
+| `keyScanCtrl` | value | `(-> Int KeyEv)` | `Alloc` |  |
+| `keyCsiEnd` | value | `(-> String Int Int Int)` |  |  |
+| `keyCsiParam` | value | `(-> String Int Int Int Int)` |  |  |
+| `keyCsiPrivate` | value | `(-> String Int Int Bool)` |  | A CSI whose first parameter byte is `<`, `=`, `>` or `?` is a private form: a mouse report, a device-attributes reply, a mode report. None of them is a keystroke. |
+| `keyTildeKind` | value | `(-> Int Int)` |  | The key a `~`-final CSI names, from its first parameter. |
+| `keyTildeFn` | value | `(-> Int Int)` |  | F1..F12 out of a `~`-final parameter, or 0 for one that names none. |
+| `keyFinalKind` | value | `(-> Int Int)` |  | The key a letter-final CSI or SS3 names. |
+| `keyFromCsi` | value | `(-> String Int Int Int KeyEv)` | `Alloc` |  |
+| `keyFromSs3` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
+| `keyStrEnd` | value | `(-> String Int Int Int)` |  |  |
+| `keyScanUtf8` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` |  |
+| `keyScan` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` |  |
+| `keyScanEsc` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` | The escape path. See the header for the case list. |
+| `keyScanCsi` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
+| `keyScanStr` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
+| `keyScanAlt` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` | ESC <anything else> is Alt-that-key: decode the key at off+1 and OR MOD_ALT into it. `used` grows by the ESC. |
+| `keyResolve` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
+
+## `Tui.Term`
+
+`stdlib/Tui/Term.ax` — 14 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `termBufBytes` | value | `Int` |  | One `read` takes up to this much. Large enough that a pasted line arrives in one syscall, which is what makes the redraw coalescing below turn a paste into roughly one repaint. |
+| `keyEscTimeoutMs` | value | `Int` |  | How long to wait for the rest of an escape sequence before deciding there is no rest. |
+| `KeyIn` | struct |  |  |  |
+| `mkKeyIn` | value | `(-> Int Int KeyIn)` | `Alloc,IO,Mut` | A reader over `fd`. `active` 0 builds the inert shape: no poll descriptor, a one-byte buffer, and nothing ever read - which is what the piped path gets, so that the byte-identical surface pays for none of this. |
+| `keyInPending` | value | `(-> KeyIn Int)` |  | Bytes read but not yet consumed. The redraw coalescing asks this. |
+| `keyInFill` | value | `(-> KeyIn Int Int)` | `IO,Mut` |  |
+| `keyNext` | value | `(-> KeyIn KeyEv)` | `Alloc,IO,Mut` |  |
+| `termReadSize` | value | `(-> KeyIn Int)` | `IO,Mut` | Refresh `kin.ws` from the terminal. One ioctl; there is no SIGWINCH handling anywhere in this tree, so the size is asked for rather than delivered. |
+| `termWsCols` | value | `(-> KeyIn Int)` |  | Columns, or 80. A pty that has never been sized answers 0 with a SUCCESSFUL ioctl - Sys.ax states it - so the fallback is on the VALUE and not only on the return code. |
+| `termWsRows` | value | `(-> KeyIn Int)` |  |  |
+| `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Enter raw mode on fd 0, saving into `kin.save`. 0, or negative. `keepSignals` 0: see the header. |
+| `termRawLeave` | value | `(-> KeyIn Int)` | `IO` |  |
+| `termFlush` | value | `(-> Int Int)` | `Alloc,IO,Mut` |  |
+| `termEditLoop` | value | `(-> KeyIn LineEd String (Option String))` | `Alloc,IO,Mut` |  |
+
 ## `Utf8`
 
 `stdlib/Utf8.ax` — 12 public names
@@ -794,7 +934,7 @@ See [reference.md](reference.md) for the language, and
 | `vecLen` | value | `(-> Int Int)` |  |  |
 | `vecCap` | value | `(-> Int Int)` |  |  |
 | `vecGet` | value | `(-> Int Int Int)` |  | The element at `i`, or 0 when `i` is out of range. |
-| `vecTry` | value | `(-> Int Int (Option Int))` |  | The element at `i`, or `None` when there is no element at `i`. |
+| `vecTry` | value | `(-> Int Int (Option Int))` | `Alloc` | The element at `i`, or `None` when there is no element at `i`. |
 | `vecGetStr` | value | `(-> Int Int String)` |  |  |
 | `vecSet` | value | `(-> Int Int a Int)` | `Mut` | Overwrite the element at `i`. Returns the handle. |
 | `vecPush` | value | `(-> Int a Int)` | `Alloc,Mut` | Append `x`. Returns the handle - the same one, with this representation; see the module comment for why it is returned anyway. |

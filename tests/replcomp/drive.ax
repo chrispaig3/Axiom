@@ -1,0 +1,380 @@
+; ------------------------------------------------------------------
+; The harness for `self_host/replcomp.ax`, driven by
+; `scripts/check-replcomp.sh`.
+;
+; COMPLETION IS TESTABLE WITHOUT A TERMINAL, and this file is what
+; makes that true rather than a hope. `replcomp.ax` performs no
+; terminal IO and knows nothing about keys: it takes a buffer, a
+; cursor offset and a session handle and answers values. So this
+; program supplies those three from the command line and PRINTS the
+; answers - candidate labels, the longest common prefix, the rendered
+; menu, and a whole Tab sequence - and the gate asserts on the text.
+; No pty, no raw mode, no timing.
+;
+; Every mode prints a machine-readable line so a failure names the
+; thing that moved:
+;
+;   cands     `<origin-letter> <label> | <detail>` per candidate,
+;             then `COUNT <n>`. The letters are C command, L this
+;             session, T constructor, I imported, K keyword, W a word
+;             from the in-flight entry.
+;   lcp       `LCP <the longest common prefix>`
+;   menu      the menu bytes, escapes and all, then `ROWS <n>` from
+;             `replComplRows` and `MENUNL <n>` counted from the bytes
+;             just printed. The gate requires them EQUAL: the editor
+;             erases by the first number and the screen is dirtied by
+;             the second, so a disagreement is debris on the terminal
+;             and there is no other way to catch it off a tty.
+;   tabs      one key per character of the key string - `+` for Tab,
+;             `-` for Shift-Tab, `.` for any OTHER key, which cancels
+;             - at the terminal width given last, printing the buffer,
+;             the cursor, the row count, the rendered newline count and
+;             the byte length of whatever word 2 carries after each.
+;             For a Tab that is the menu; for a cancel it is the erase
+;             sequence, which is how the escape bytes get asserted
+;             without a terminal.
+;   commands  the colon-command vocabulary `replcomp.ax` believes in,
+;             one per line, for the derivation against
+;             `self_host/repl.ax`.
+;
+; `n` is spelled where a selection index of -1 is meant, because
+; `strParseInt` has no sign and a gate that silently read `-1` as 0
+; would asserted about the wrong menu - which it did, before this
+; line existed.
+; ------------------------------------------------------------------
+(import IO)
+
+(import Str)
+
+(import Vec)
+
+(import Sys)
+
+(import Mem)
+
+(import diag)
+
+(import style)
+
+(import replcomp)
+
+(:: originLetter (-> Int String))
+
+(fn (originLetter o)
+  (if (== o RC_CMD)
+    "C"
+    (if (== o RC_LOCAL)
+      "L"
+      (if (== o RC_CTOR)
+        "T"
+        (if (== o RC_IMPORT)
+          "I"
+          (if (== o RC_KEYWORD)
+            "K"
+            "W"
+          )
+        )
+      )
+    )
+  )
+)
+
+(:: argInt (-> Int Int))
+
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((None) 0)
+    ((Some v) v)
+  )
+)
+
+(:: dumpCands (-> Int Int))
+
+;@axiom:effect(io)
+(fn (dumpCands cands)
+  (let ((mut i 0))
+    {
+      (while (< i (vecLen cands))
+        (let ((c (vecGet cands i)))
+          {
+            (println (strConcat (strConcat (strConcat (originLetter (rcOrigin c)) " ") (rcLabel c)) (strConcat " | " (rcDetail c))))
+            (set i (+ i 1))
+          }
+        ))
+      (println (strConcat "COUNT " (decStr (vecLen cands))))
+      0
+    }
+  )
+)
+
+(:: countNl (-> String Int))
+
+(fn (countNl s)
+  (let (
+    (mut i 0)
+    (mut n 0)
+  )
+    {
+      (while (< i (strLen s))
+        {
+          (if (== (strByte s i) 10)
+            {
+              (set n (+ n 1))
+              0
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      n
+    }
+  )
+)
+
+(:: runTabs (-> Int String Int String Int Int))
+
+;@axiom:effect(io)
+(fn (runTabs e buf cur keys width)
+  (let (
+    (mut b buf)
+    (mut c cur)
+    (mut st 0)
+    (mut i 0)
+  )
+    {
+      (while (< i (strLen keys))
+        (let ((dir 
+          (if (== (strByte keys i) 45)
+            (- 0 1)
+            1
+          )
+        ))
+          (let ((r 
+            (if (== (strByte keys i) 46)
+              (replComplCancel st b c)
+              (replComplTab
+                st                b                c                dir                width                e
+              )
+            )
+          ))
+            {
+              (set b (tabBuf r))
+              (set c (tabCur r))
+              (set st (tabState r))
+              (println (strConcat (strConcat (strConcat "BUF " (tabBuf r)) (strConcat " CUR " (decStr (tabCur r)))) (strConcat " ROWS " (decStr (tabRows r)))))
+              (println (strConcat "MENUNL " (decStr (countNl (tabMenu r)))))
+              (println (strConcat "ESCBYTES " (decStr (strLen (tabMenu r)))))
+              (set i (+ i 1))
+            }
+          )
+        ))
+      0
+    }
+  )
+)
+
+; The widest line in a rendered block, in COLUMNS - escapes and UTF-8
+; continuation bytes not counted, which is what `visLen` is for. The
+; sweep below compares it against the terminal width the block was
+; laid out for; a block wider than its terminal wraps, and a wrapped
+; row occupies two physical rows while `replComplRows` reports one.
+(:: maxLineVis (-> String Int))
+
+(fn (maxLineVis s)
+  (let (
+    (n (strLen s))
+    (mut i 0)
+    (mut start 0)
+    (mut best 0)
+  )
+    {
+      (while (<= i n)
+        {
+          (if (|| (== i n) (== (strByte s i) 10))
+            {
+              (if (> (visLen (strSlice s start (- i start))) best)
+                {
+                  (set best (visLen (strSlice s start (- i start))))
+                  0
+                }
+                0
+              )
+              (set start (+ i 1))
+              0
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      best
+    }
+  )
+)
+
+; Every width a terminal can claim, against every selection state,
+; in ONE process.
+;
+; The gate needs an exhaustive answer and a subprocess per width costs
+; more than the check does; done here, 400-odd layouts are a few
+; milliseconds. Widths 1..100 are the real range; 0 is what a pty that
+; was never sized answers through a SUCCESSFUL ioctl (stdlib/Sys.ax
+; says so on `sysTermSize`), and -25 and -9 are the ENOTTY and EBADF
+; an editor would hand over if it passed `sysTermSize`'s return value
+; where it meant `sysTermCols`' field.
+(:: runSweep (-> Int String Int Int))
+
+;@axiom:effect(io)
+(fn (runSweep e buf cur)
+  (let (
+    (cands (replComplAt e buf cur))
+    (mut wi 0)
+  )
+    {
+      (while (< wi 103)
+        (let ((w 
+          (if (< wi 100)
+            (+ wi 1)
+            (if (== wi 100)
+              0
+              (if (== wi 101)
+                (- 0 25)
+                (- 0 9)
+              )
+            )
+          )
+        ))
+          (let ((mut si 0))
+            {
+              (while (< si 4)
+                (let ((sel 
+                  (if (== si 0)
+                    (- 0 1)
+                    (if (== si 1)
+                      0
+                      (if (== si 2)
+                        3
+                        45
+                      )
+                    )
+                  )
+                ))
+                  {
+                    (println
+                      (strConcat
+                        (strConcat
+                          (strConcat
+                            (strConcat
+                              (strConcat
+                                (strConcat
+                                  (strConcat
+                                    "W "                                    (if (< w 0)
+                                      (strConcat "-" (decStr (- 0 w)))
+                                      (decStr w)
+                                    )
+                                  )                                  " SEL "
+                                )                                (if (< sel 0)
+                                  "n"
+                                  (decStr sel)
+                                )
+                              )                              " ROWS "
+                            )                            (decStr (replComplRows cands sel w))
+                          )                          (strConcat " NL " (decStr (countNl (replComplMenu cands sel w))))
+                        )                        (strConcat " MAXVIS " (decStr (maxLineVis (replComplMenu cands sel w))))
+                      )
+                    )
+                    (set si (+ si 1))
+                  }
+                ))
+              (set wi (+ wi 1))
+            }
+          )
+        ))
+      0
+    }
+  )
+)
+
+(:: runMenu (-> Int String Int Int))
+
+;@axiom:effect(io)
+(fn (runMenu e buf cur)
+  (let ((cands (replComplAt e buf cur)))
+    (let (
+      (sel (if (strEq (sysArg 6) "n")
+        (- 0 1)
+        (argInt 6)
+      ))
+      (width (argInt 7))
+    )
+      {
+        (writeStr 1 (replComplMenu cands sel width))
+        (println (strConcat "ROWS " (decStr (replComplRows cands sel width))))
+        (println (strConcat "MENUNL " (decStr (countNl (replComplMenu cands sel width)))))
+        0
+      }
+    )
+  )
+)
+
+(:: runCommands (-> Int Int))
+
+;@axiom:effect(io)
+(fn (runCommands _u)
+  (let (
+    (cs replCommands)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen cs))
+        {
+          (println (vecGetStr cs i))
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (declsSrc (sysReadFile (strCStr (sysArg 1))))
+    (pending (sysReadFile (strCStr (sysArg 2))))
+    (buf (sysArg 3))
+    (cur (argInt 4))
+    (mode (sysArg 5))
+  )
+    (let ((e (replComplEnvNew declsSrc pending)))
+      (if (strEq mode "cands")
+        (dumpCands (replComplAt e buf cur))
+        (if (strEq mode "lcp")
+          {
+            (println (strConcat "LCP " (replComplLcp (replComplAt e buf cur))))
+            0
+          }
+          (if (strEq mode "menu")
+            (runMenu e buf cur)
+            (if (strEq mode "sweep")
+              (runSweep e buf cur)
+              (if (strEq mode "tabs")
+                (runTabs
+                  e                  buf                  cur                  (sysArg 6)                  (argInt 7)
+                )
+                (if (strEq mode "commands")
+                  (runCommands 0)
+                  {
+                    (println "FAIL unknown mode")
+                    1
+                  }
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

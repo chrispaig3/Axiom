@@ -4,7 +4,7 @@
 ; status; this file is only about what the compiler refuses before
 ; anything runs.
 ;
-; Six refusals, and five controls that must stay silent beside them:
+; Seven refusals, and five controls that must stay silent beside them:
 ;
 ;   `wrongType`   `pre((+ n 1))`            -> AX3050: an `Int` is not
 ;                                                a `Bool`
@@ -23,6 +23,20 @@
 ;   `allocates`   `pre((> (strLen (fmtInt   -> AX3050: a contract is
 ;                 n)) 0))`                     evaluated on every call,
 ;                                                and `fmtInt` allocates
+;   `constructs`  `pre((> (boxed n) 0))`    -> AX3050: `boxed` applies
+;                                                a fieldful `data`
+;                                                constructor, which
+;                                                allocates. The row
+;                                                said so only from
+;                                                2026-08-31
+;                                                (MM-EXEC-9a's
+;                                                constructor row): the
+;                                                purity rule reads the
+;                                                same row
+;                                                `restrict(no-alloc)`
+;                                                does, so it INHERITED
+;                                                that fix and this arm
+;                                                is what says so
 ;
 ;   `guarded`     `pre((> n 0))`            -> silent
 ;   `ensured`     `post((> result 0))`      -> silent, and `result` has
@@ -110,6 +124,17 @@
 
 (fn (names s) (cast Int bump))
 
+(data Box (Wrap Int) (Empty))
+
+(:: boxed (-> Int Int))
+
+(fn (boxed n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+
+;@axiom:pre((> (boxed n) 0))
+(:: constructs (-> Int Int))
+
+(fn (constructs n) n)
+
 (:: main Int)
 
 (fn (main)
@@ -125,5 +150,6 @@
     (measures "x")
     (onTheSig 1)
     (names "y")
+    (constructs 1)
   }
 )

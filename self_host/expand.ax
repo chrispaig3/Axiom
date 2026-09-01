@@ -7016,8 +7016,13 @@
           (let ((ty (expSubstTy
             (nodeTy f)            params            args            env            isp
           )))
+            ; Word c is the template field's `mut` marker, carried
+            ; through unchanged: substitution cannot change whether a
+            ; field was declared mutable, and a rebuilt field that
+            ; dropped it made every `mut` field of a macro-generated
+            ; struct AX3012 at its first write.
             (let ((g (mkNodeAt
-              TAG_FIELD              fn0              (expTyIsFloatCon ty)              0              (expNameSpan (nodeAName f) params args)
+              TAG_FIELD              fn0              (expTyIsFloatCon ty)              (nodeC f)              (expNameSpan (nodeAName f) params args)
             )))
               {
                 (setNodeTy g ty)
@@ -7568,73 +7573,54 @@
   )
 )
 
-; `expandProgram` is a public entry point that `main.ax`, `lsp.ax`,
-; `repl.ax`, `symbols` and `emitModule` all call, each on a
-; freshly-parsed declaration list. This guard is what makes a second
-; call over an ALREADY-lowered list a no-op rather than a body that
-; checks its contract twice. It recognises only what this pass writes -
-; a block whose first statement applies `__contract`, under an optional
-; `result` binding - and `__contract` is not a name a source program
-; can reach, because `isPrimName` claims it in the emitter and nothing
-; documents it.
-(pub :: expLoweredAlready (-> Int Int))
-
-(pub fn (expLoweredAlready b)
-  (if (== b 0)
-    0
-    (if (== (nodeTag b) TAG_E_BEGIN)
-      (expFirstIsContract (nodeA b))
-      (if (== (nodeTag b) TAG_E_LET)
-        (if (strEq (nodeAName b) "result")
-          (expLoweredAlready (nodeC b))
-          0
-        )
-        0
-      )
-    )
-  )
-)
-
-(pub :: expFirstIsContract (-> Int Int))
-
-(pub fn (expFirstIsContract v)
-  (if (== (vecLen v) 0)
-    0
-    (let ((h (spineHead (vecGet v 0))))
-      (if (== (nodeTag h) TAG_E_VAR)
-        (if (strEq (nodeAName h) "__contract")
-          1
-          0
-        )
-        0
-      )
-    )
-  )
-)
-
+; THERE IS NO "ALREADY LOWERED" GUARD, AND THE ONE THAT WAS HERE WAS A
+; HOLE. It asked whether the body LOOKED lowered - a block whose first
+; statement applies `__contract`, under an optional `result` binding -
+; on the argument that "`__contract` is not a name a source program can
+; reach". That argument was false. `__contract` is registered in `fns`
+; and intercepted by `checkApp` like `__streq`, so a program CAN write
+; it, and one that did silenced its own contract: measured, `(fn (f n)
+; { (__contract true "...") n })` under `;@axiom:pre((> n 0))` called
+; as `(f 0)` checked `OK` and exited **0**, where the same file without
+; the first statement exits 76. The `post` arm was the same shape. A
+; contract that a program can turn off by writing one expression is a
+; check that cannot fail, which is the defect this whole feature
+; exists to prevent.
+;
+; WHAT THE GUARD WAS FOR, AND WHY NOTHING REPLACES IT. `expandProgram`
+; is called from `main.ax`, `lsp.ax`, `repl.ax`, `symbols` and
+; `emitModule`, and the guard existed so a second call over an
+; already-lowered list would not wrap the body twice. No path in this
+; tree does that - each of those five parses first, and a diamond
+; import splices one node once (measured: `(import B) (import C)` where
+; both import a contract-carrying `D` emits exactly one
+; `call i64 @__axiom_contract_fail`). And a doubled lowering would be
+; semantically a no-op anyway: `AX3050` refuses a contract that
+; performs anything, so evaluating it twice cannot differ from
+; evaluating it once. The guard bought bytes in a case nothing
+; exercises and cost soundness in one a program can write, so it is
+; gone rather than made cleverer - any shape-based test of the body is
+; forgeable by the body.
 (pub :: expLowerOne (-> Int Int Int))
 
 (pub fn (expLowerOne d tags)
   (if (== (vecLen tags) 0)
     0
-    (if (== (expLoweredAlready (nodeC d)) 1)
-      0
-      (let (
-        (pres vecNew)
-        (posts vecNew)
-      )
-        {
-          (expSplitContracts d tags 0 pres posts)
-          ; A tag whose value does not PARSE lowers nothing, and is
-          ; `AX3050` from `checkContracts` instead. Compiling half a
-          ; contract would be a run-time check of an expression the
-          ; author did not write.
-          (if (&& (== (vecLen pres) 0) (== (vecLen posts) 0))
-            0
-            (memSetWord d 3 (expContractBody d pres posts))
-          )
-        }
-      )
+    (let (
+      (pres vecNew)
+      (posts vecNew)
+    )
+      {
+        (expSplitContracts d tags 0 pres posts)
+        ; A tag whose value does not PARSE lowers nothing, and is
+        ; `AX3050` from `checkContracts` instead. Compiling half a
+        ; contract would be a run-time check of an expression the
+        ; author did not write.
+        (if (&& (== (vecLen pres) 0) (== (vecLen posts) 0))
+          0
+          (memSetWord d 3 (expContractBody d pres posts))
+        )
+      }
     )
   )
 )

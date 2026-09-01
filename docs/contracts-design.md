@@ -11,7 +11,7 @@ their design named (`docs/error-model.md`).
 
 Every claim below carries the command that established it. The gate is
 `scripts/check-contracts.sh`; the fixtures are
-`tests/diagnostics/384-contract-malformed.ax` (the static half) and
+`tests/diagnostics/385-contract-malformed.ax` (the static half) and
 `tests/selfhost/132-contract.ax` / `133-contract-violated.ax` (the
 run-time half).
 
@@ -67,17 +67,26 @@ axiom: backtrace (most recent call first)
   at __axiom_user_main
   at main
 $ echo $?
-75
+76
 ```
 
 **Not behind a flag.** A check that is off by default is a comment by
 default, which is the thing being refused. The three statuses
 `MM-EXEC-16` reserves are 70/71/72; 73 is the FFI boundary's
 (`docs/ffi.md` §5.1, taken precisely because a Rust panic and an Axiom
-division were indistinguishable at 72) and 74 is a `__syscallN` on a
-target with no syscall ABI. A broken invariant is a fifth thing and
-gets **75**, so a supervisor reading a status can tell it from a broken
+division were indistinguishable at 72), 74 is a `__syscallN` on a
+target with no syscall ABI, and 75 is an arena reset handed an invalid
+mark (`MM-ALLOC-16a`). A violated contract is a sixth thing and gets
+**76**, so a supervisor reading a status can tell it from a broken
 machine.
+
+**It was designed on 75, and that is the merge's doing rather than the
+design's.** `MM-ALLOC-16a`'s trap and this one were written on two
+branches on 2026-08-31 and both took 75. The one that had not shipped
+is the one that moved. The number is recorded here because the whole
+argument for taking 73 was that two failures at one status cannot be
+told apart, and repeating that on 75 would have made this note's own
+paragraph false.
 
 **Where the lowering lives, and why not in the emitter.**
 `expandProgram` — the pass whose own header says it "rewrites the
@@ -103,6 +112,25 @@ program looks like it needs one is a call to a symbol nothing defines,
 and a contract's predicate would have to be evaluated in two passes
 that could disagree.
 
+**And a program that states no contract still carries none of it**, on
+the merged tree, which is a stronger property than this note originally
+claimed and is not the emitter's doing. `pruneDeadDefs` (2026-08-31)
+walks the rendered line buffer and drops every `define` no root
+reaches:
+
+```
+$ axiom emit-llvm --input plain.ax | grep -c '@__axiom_contract_fail'   # (fn (main) 7)
+0
+$ axiom emit-llvm --input plain.ax | grep -c '^define'
+12
+```
+
+The division trap and the string-equality helper are absent from the
+same module for the same reason, and section 3 of the gate asserts all
+three together — so a `0` there is the pruner working, not
+`emitContractTrap` having quietly become conditional, which is the
+failure `emitDivTrap`'s note is about.
+
 ## Question 2 — purity
 
 **Answered: a contract expression must carry no DEFINITE effect.** The
@@ -125,15 +153,23 @@ matters:
 ```
 $ axiom --diagnostic-format=ai symbols --calls --input self_host/main.ax \
     | grep -E '^F (vecLen|vecGet|strLen|strEq|strByte|memGetWord|strConcat|fmtInt|vecNew) '
-F vecLen    ... #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
-F vecGet    ... #restrict=no-io,no-alloc,no-foreign #calls=<,>=,Mem...
-F strEq     ... #restrict=no-io,no-alloc,no-foreign #calls=!=...
-F strByte   ... #restrict=no-io,no-alloc,no-foreign #calls=<,>=
-F memGetWord... #restrict=no-io,no-alloc,no-foreign #calls=__load64
-F strConcat ... #effects=Alloc,Mut
-F fmtInt    ... #effects=Alloc,Mut
-F vecNew    ... #effects=Alloc,Mut
+F memGetWord ... #restrict=no-io,no-alloc,no-foreign #calls=__load64
+F vecNew     ... #restrict=no-io,no-foreign #effects=Alloc,Mut
+F vecLen     ... #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
+F vecGet     ... #restrict=no-io,no-alloc,no-foreign #calls=<,>=,Mem$memGetWord,...
+F strLen     ... #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
+F strByte    ... #restrict=no-io,no-alloc,no-foreign #calls=<,>=,Str$strData,...
+F strEq      ... #restrict=no-io,no-alloc,no-foreign #calls=!=,==,Mem$memCmp,...
+F strConcat  ... #restrict=no-io,no-foreign #effects=Alloc,Mut
+F fmtInt     ... #restrict=no-io,no-foreign #effects=Alloc,Mut
 ```
+
+**Re-run against the merged tree on 2026-08-31, after the constructor
+row closed** (below), because that fix moved 123 effect rows and this
+measurement is the whole argument that the purity rule is livable. The
+six predicate functions still carry `no-alloc` and still carry no
+`#effects=` at all; the three builders still carry `Alloc,Mut`. The
+rule survives its own soundness fix.
 
 Every function a predicate is written from — compare, index, measure,
 test — carries an **empty** effect row. Everything that builds carries
@@ -149,12 +185,26 @@ row marked `#effects-incomplete` is a lower bound and is not evidence
 either way; refusing over it would be refusing a program for a limit of
 the analysis, which is `AX3037`'s argument.
 
-**A measured hole this check inherits, and does not close.** See
-"Constructor allocation" below: a struct construction and a fieldful
-data constructor allocate and contribute nothing to the row, so a
-contract that constructs one is not refused today. That is one bug, in
-`walkEffects`, and it is `restrict(no-alloc)`'s bug before it is this
-check's.
+**A hole this check inherited, and that closed under it.** The first
+draft of this note recorded a bug it could not fix inside its own
+slice: a struct construction and a fieldful `data` constructor allocate
+and contributed nothing to the effect row, so a contract that
+constructed one was accepted. It was `restrict(no-alloc)`'s bug before
+it was this check's, and `restrict(no-alloc)` is where it was fixed —
+`MM-EXEC-9a`'s constructor row, closed on trunk on 2026-08-31, in the
+same hours this branch was being written. Because the purity rule reads
+the same row rather than a rule of its own, it inherited the fix
+without a line changing here:
+
+```
+$ axiom --diagnostic-format=ai check --input ctorc.ax
+E AX3050 ctorc.ax:3:13-28 contract-malformed "`(> (boxed n) 0)` is the `pre` on
+  `constructs` and performs Alloc"
+```
+
+That is the `constructs` arm of
+`tests/diagnostics/385-contract-malformed.ax`, and it is there because
+a fix this note only *hopes* it inherits is a claim nothing checks.
 
 ### The distribution behind the ambient-`Alloc` decision
 
@@ -165,36 +215,50 @@ largest program there is:
 ```
 $ axiom --diagnostic-format=ai symbols --calls --input self_host/main.ax > main.axsym
 $ grep -c '^F ' main.axsym
-3452
+3647
 ```
 
-3,450 distinct `F` rows; 1,935 (56%) carry `Alloc`. But the shape of
-that 56% is the fact that matters, and it is not what a declarable
+3,645 distinct `F` rows; 2,160 (59.3%) carry `Alloc`. But the shape of
+that 59% is the fact that matters, and it is not what a declarable
 claim would be about. Walking the `#calls=` graph from every
-`Alloc`-carrying row to the nearest allocator seed (`__alloc`, the
-three arena primitives):
+`Alloc`-carrying row to the nearest row that carries `Alloc` while no
+callee of it does — the places the effect *enters*:
 
-| hops to the allocator | rows |
+| hops to where `Alloc` enters | rows |
 |---|---|
-| 1 | 3 |
-| 2 | 41 |
-| 3 | 115 |
-| 4 | 622 |
-| 5 | 756 |
-| 6 | 270 |
-| 7 | 99 |
-| 8 | 24 |
-| 9–10 | 5 |
+| 1 (it enters here) | 40 |
+| 2 | 253 |
+| 3 | 334 |
+| 4 | 637 |
+| 5 | 579 |
+| 6 | 232 |
+| 7 | 64 |
+| 8 | 17 |
+| 9–10 | 4 |
 
-**Three functions in the whole compiler are where `Alloc` enters** —
-`Mem.memAlloc`, `Mem.memAllocMapped` and `lspMain` — and 99.8% of
-`Alloc` rows are two or more hops away. The 56% is therefore almost
-entirely *inherited*, and a declarable `Alloc` claim would be a claim
-about call-graph reachability rather than about the body. **That claim
-already exists and is already enforced: `restrict(no-alloc)`.** So the
-recommendation is: not an `AX3042` sibling, and not inside this task —
-the lever that would pay is making `restrict(no-alloc)` *sound*
-(next section), not adding a second way to say the same thing.
+**RE-MEASURED AGAINST THE MERGED TREE, AND THE FIRST ROW MOVED FROM 3
+TO 40.** The draft of this note measured 3,450 rows, 56% carrying
+`Alloc`, and three entry points — `Mem.memAlloc`, `Mem.memAllocMapped`
+and `lspMain`. That was a fact about a compiler in which applying a
+constructor contributed nothing to the row. Since `MM-EXEC-9a`'s
+constructor row closed, `Alloc` also enters at every function whose own
+body constructs: `mkNode`, `mkSpan`, `mkToken`, `mkError`, `pOk`,
+`vecTry`, `strFind` and the rest of the forty. **The number this note
+originally reported is not merely stale, it was reported by an analysis
+that could not see the commonest way to allocate**, and it is written
+out here rather than quietly corrected, because a design note that
+carries a number nobody re-ran is the defect three withdrawn proposals
+in `docs/memory-model-v2-proposal.md` were withdrawn for.
+
+The CONCLUSION survives the correction, which is why it is still here:
+98.9% of `Alloc` rows are two or more hops from where the effect
+enters, so the 59% is almost entirely *inherited*, and a declarable
+`Alloc` claim would still be a claim about call-graph reachability
+rather than about the body. **That claim already exists and is already
+enforced: `restrict(no-alloc)`.** So the recommendation stands — not an
+`AX3042` sibling. What has changed is the second half of it: the lever
+that would pay was making `restrict(no-alloc)` sound, and that landed
+on trunk while this branch was being written.
 
 ## Question 3 — `result` in a `post`
 
@@ -290,7 +354,7 @@ a `pre` and answers. Both directions are section 5 of the gate; the
 cost is inherent to what a postcondition is (the result must be
 observed) and is stated so that it is not rediscovered as a regression.
 
-## The hazard the previous design note found
+## The hazard the previous design note found, and what became of it
 
 `docs/checked-arithmetic-design.md` states that `restrict(no-wrap,
 no-alloc)` are **unsatisfiable together** for a body that adds two
@@ -298,8 +362,8 @@ numbers, because satisfying `no-wrap` means calling `addChecked`, whose
 `Result` construction allocates — and that a user writing the pair gets
 a confusing `AX3049` about the thing they did to comply.
 
-**Probed. Today it is not what happens, and the reason is worse than
-the hazard.**
+**Probed on 2026-08-31 against the branch's own base, and the answer
+was worse than the hazard:**
 
 ```scheme
 (import Err)
@@ -311,101 +375,117 @@ the hazard.**
 ```
 
 ```
-$ axiom check --input unsat.ax
+$ axc-0.6.0 check --input unsat.ax
 OK
-$ axiom --diagnostic-format=ai symbols --calls --input unsat.ax | grep '^F addSafe '
+$ axc-0.6.0 --diagnostic-format=ai symbols --calls --input unsat.ax | grep '^F addSafe '
 F addSafe ... #restrict=no-wrap,no-alloc #calls=Err$addChecked,Err$unwrapOr
 ```
 
-No diagnostic, and no `#effects=` at all. `addChecked` itself renders
-`#calls=&,+,<,Err$errOverflow,Err$mkError,^` and **no effect row**,
-although its body constructs `Ok` and `Err`.
+No diagnostic and no `#effects=` at all, because a constructor
+application contributed nothing to the effect row: `walkCallHead`'s
+`findFnEnt` answers 0 for every constructor and the branch added
+nothing, and `TAG_E_STRUCTCON` walked its fields and added nothing
+either. A `restrict(no-alloc)` claim could therefore not fail, which is
+the same defect as the check not existing.
 
-### Constructor allocation is invisible to the effect walk
+### Re-run against the merged tree, and it is closed
+
+This branch drafted the section above, measured the blast radius of a
+fix on a probe compiler (six declarations refused, 113 of 3,488 rows
+moving) and deferred it as a separate slice. **On trunk it was not
+deferred: `MM-EXEC-9a`'s constructor row closed on 2026-08-31**, with
+seven claims withdrawn and 123 of 3,725 rows moving — the seventh being
+`histFindBack`, which the probe's copy-to-a-temp-directory sweep lost
+to an import failure. So the numbers in the paragraph above are a
+record of what was true at `9116167` and of nothing else, and the same
+two programs, re-run against the merged tree:
+
+```
+$ axiom --diagnostic-format=ai check --input unsat.ax
+E AX3049 unsat.ax:6:6-13 restriction-violated "`addSafe` claims `restrict(no-alloc)`
+  and the body performs Alloc: addSafe -> Err$addChecked -> Err$mkError, in
+  `mkError`'s own body"
+
+$ axiom --diagnostic-format=ai check --input ctorc.ax
+E AX3050 ctorc.ax:3:13-28 contract-malformed "`(> (boxed n) 0)` is the `pre` on
+  `constructs` and performs Alloc"
+```
+
+Both predictions the previous note made are now the compiler's own
+answer, with the path. **The jointly-impossible restriction set reports
+itself**, and it does so exactly the way that note argued it should: not
+from a hand-written table of pairs that conflict — which would have
+gone stale the first time a restriction's own analysis moved, and would
+have named two keywords instead of a place — but because each
+restriction now answers honestly, so the pair renders as a call chain a
+reader can go and fix.
+
+**Nothing in this feature changed to get that.** The purity rule reads
+the effect row rather than a rule of its own, which is the whole reason
+it inherited a fix landed in another pass on another branch. That is
+the argument for reading the row restated as a measurement.
+
+## A hole this feature shipped with for one commit
+
+`__contract` is the primitive the lowering writes. The first draft of
+this note said it "is not a name a source program can reach, because
+`isPrimName` claims it in the emitter and nothing documents it", and
+the lowering leaned on that: it skipped any body that already *looked*
+lowered — a block whose first statement applies `__contract`, under an
+optional `result` binding — so that a second `expandProgram` over the
+same declaration list would not wrap the body twice.
+
+**Undocumented is not unreachable.** `__contract` is registered in
+`fns` and intercepted by `checkApp` exactly as `__streq` is, so a
+program can write it, and one that did turned its own contract off:
 
 ```scheme
-(data Box (Wrap Int) (Empty))
+;@axiom:pre((> n 0))
+(:: f (-> Int Int))
 
-;@axiom:restrict(no-alloc)
-(:: mk (-> Int Int))
+(fn (f n) { (__contract true "never\n") n })
 
-(fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+(:: main Int)
+
+(fn (main) (f 0))
 ```
 
 ```
-$ axiom check --input ctor.ax
+$ axc check --input h1.ax     # the branch as first written
 OK
-$ axiom emit-llvm --input ctor.ax | sed -n '/define i64 @mk/,/^}/p' | grep -c axiom_alloc
-1
+$ axc run --input h1.ax ; echo $?
+0
 ```
 
-`check` says OK on a body that claims `no-alloc` and emits a call to
-the allocator. The same holds for a struct construction
-(`(let ((p (Pair n n))) (p.a))` — one `axiom_alloc`, `OK`), and
-`addChecked` emits two.
+The same file without that first statement exits 76. The `post` arm was
+the same shape, under a `let` binding `result`. A checked claim a
+program can withdraw by writing one expression is a check that cannot
+fail, which is the defect this whole feature exists to prevent, and it
+was in the feature itself.
 
-The cause is one branch. A constructor application reaches
-`walkCallHead`, whose `findFnEnt` answers 0 for every constructor —
-which the branch's own comment states, and which it uses to avoid
-marking the row incomplete — and then adds nothing. `TAG_E_STRUCTCON`
-walks its fields and adds nothing either. `TAG_E_ALLOC`, the explicit
-`alloc` form, is the only shape that seeds `Alloc` from a body.
+**The guard is deleted rather than made cleverer, because any
+shape-based test of the body is forgeable by the body.** What it bought
+is measured rather than assumed: no path in this tree calls
+`expandProgram` twice over one declaration list — `main.ax`, `lsp.ax`,
+`repl.ax`, `symbols` and `emitModule` each parse first — and a diamond
+import splices one node once (`(import B) (import C)` where both import
+a contract-carrying `D` emits exactly one
+`call i64 @__axiom_contract_fail`). And a doubled lowering would be
+semantically a no-op anyway, since `AX3050` refuses a contract that
+performs anything: evaluating a pure predicate twice cannot differ from
+evaluating it once. So the guard defended a case nothing reaches
+against a consequence that does not exist, and cost soundness in a case
+a program can write.
 
-**A `restrict(no-alloc)` claim is therefore unsound today**, and the
-design note's hazard is real but invisible.
+Section 6 of the gate is the two programs above, and the third ablation
+puts the guard back and requires section 6 to go red.
 
-### What a fix costs, measured on a probe compiler
-
-A probe compiler was built from a copy of `self_host/` with `Alloc`
-added in `walkCallHead` for a fieldful data constructor and for a
-struct construction (about fifteen lines). Against it:
-
-```
-$ axc-alloc check --input ctor.ax
-E AX3049 ...:6:6-8 restriction-violated "`mk` claims `restrict(no-alloc)`
-  and the body performs Alloc in its own body ..."
-$ axc-alloc check --input unsat.ax
-E AX3049 ... "`addSafe` claims `restrict(no-alloc)` and the body performs
-  Alloc: addSafe -> Err$addChecked -> Err$mkError, in `mkError`'s own body"
-```
-
-— which is exactly the diagnostic the previous design note predicted,
-with the path. And the blast radius is small:
-
-```
-# every declaration in self_host/ and stdlib/ that the probe refuses
-mkDiagBase  mkSpan  mkToken  strFind  strParseInt  vecTry
-
-# effect rows that would change, over self_host/main.ax
-113 of 3488
-```
-
-**Six** false `restrict(no-alloc)` claims in the shipped tree, out of
-172 `no-alloc` claims in `tests/agent/restrictions.allow`; three of
-them (`vecTry`, `strFind`, `strParseInt`) construct `Some`/`None` and
-three (`mkSpan`, `mkToken`, `mkDiagBase`) are struct constructions. 3%
-of effect rows move.
-
-### Verdict on the hazard: out of scope, and here is why
-
-It is a soundness fix to `restrict(no-alloc)`, not a contracts feature,
-and it lands in the pass every other claim reads. Doing it inside this
-task would mean moving 113 effect rows and withdrawing six shipped
-claims in the same commit that introduces a new diagnostic code — and
-`check-compat`'s baseline and `tests/agent/stdlib-effects.allow` both
-read those rows, so it needs its own re-bless and its own ablation
-pass. It is a well-scoped follow-up with a measured cost, which is
-worth more than a half-done version of it here.
-
-What is *not* deferred is the answer to the question the hazard asked.
-A jointly-impossible restriction set **is** diagnosable, and the way to
-diagnose it is not a new "these two cannot both hold" check over the
-closed list: it is to make each restriction answer honestly, at which
-point the pair reports itself with a path — `addSafe -> Err$addChecked
--> Err$mkError` — which is a place to put the fix rather than a
-statement that two names conflict. A pairwise-conflict table would have
-had to be written by hand, would have gone stale the first time a
-restriction's own analysis changed, and would have said less.
+**And the check travels, which is the other half of putting it in the
+body.** There is no call site for a caller to miss: a contract fires
+through an indirect call (`(apply half 0)` where `apply` takes the
+function as a parameter) and through a lambda (`((lambda (x) (half x))
+0)`), both exit 76, because the compare is inside `half` and not at
+either call.
 
 ## What shipped
 
@@ -416,6 +496,6 @@ restriction's own analysis changed, and would have said less.
 | Diagnostic | `AX3050` `contract-malformed`, an error, four arms |
 | Lowering | `expLowerContracts` at the end of `expandProgram` |
 | Primitive | `__contract`, `(-> a String Int)`, no effect row |
-| Runtime | `@__axiom_contract_fail`, emitted unconditionally, exit **75** |
-| Fixtures | `tests/diagnostics/384`, `tests/selfhost/132`, `tests/selfhost/133` |
-| Gate | `scripts/check-contracts.sh`, six sections, two ablations |
+| Runtime | `@__axiom_contract_fail`, emitted unconditionally and pruned where nothing calls it, exit **76** |
+| Fixtures | `tests/diagnostics/385`, `tests/selfhost/132`, `tests/selfhost/133` |
+| Gate | `scripts/check-contracts.sh`, seven sections, three ablations |

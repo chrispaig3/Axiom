@@ -1,0 +1,213 @@
+/*
+ * Design tokens.
+ *
+ * Two themes, defined the same way: the light palette lives on bare
+ * `:root` so nothing has its only definition inside a media query, the
+ * dark palette is redefined under `prefers-color-scheme: dark` guarded
+ * against an explicit light choice, and again under `[data-theme=dark]`
+ * so the toggle wins in both directions.
+ *
+ * The accent pair is read off `assets/logo/Axiom_Logo.png`: a cyan that
+ * carries the primary actions and a violet reserved for the agent-facing
+ * notation, which is the one place the site wants a second voice.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* --- surfaces ---------------------------------------------------- */
+  --bg: #fbfbfc;
+  --bg-alt: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f7f8fa;
+  --surface-code: #f7f8fa;
+  --border: #e2e5ea;
+  --border-strong: #cfd4dc;
+
+  /* --- text -------------------------------------------------------- */
+  --text: #14171c;
+  --text-2: #414954;
+  --text-3: #6b7482;
+  --text-inverse: #ffffff;
+
+  /* --- accents ----------------------------------------------------- */
+  --accent: #0873a8;
+  --accent-hover: #065a84;
+  --accent-soft: rgba(8, 115, 168, 0.09);
+  --accent-line: rgba(8, 115, 168, 0.28);
+  --violet: #7527c4;
+  --violet-soft: rgba(117, 39, 196, 0.09);
+  --violet-line: rgba(117, 39, 196, 0.26);
+
+  /* --- semantic ---------------------------------------------------- */
+  --danger: #b3261e;
+  --warn: #8a5300;
+  --ok: #146c43;
+
+  /* --- syntax (light) ---------------------------------------------- */
+  --sx-comment: #737d8c;
+  --sx-attribute: #7527c4;
+  --sx-string: #0b6b45;
+  --sx-hole: #8a5300;
+  --sx-number: #9a4a06;
+  --sx-boolean: #9a4a06;
+  --sx-type: #0b6383;
+  --sx-type-builtin: #0b6383;
+  --sx-constructor: #984000;
+  --sx-function: #1a4fbe;
+  --sx-keyword: #a01c86;
+  --sx-modifier: #7527c4;
+  --sx-param: #7a4e00;
+  --sx-variable: #262b33;
+  --sx-punct: #8b94a1;
+  --sx-error: #b3261e;
+
+  /* --- typography -------------------------------------------------- */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono',
+    Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* A 1.2 modular scale, rounded to whole/half pixels at small sizes. */
+  --t--2: 0.75rem;    /* 12px */
+  --t--1: 0.8125rem;  /* 13px */
+  --t-0: 0.9375rem;   /* 15px */
+  --t-1: 1.0625rem;   /* 17px */
+  --t-2: 1.25rem;     /* 20px */
+  --t-3: 1.5rem;      /* 24px */
+  --t-4: 1.875rem;    /* 30px */
+  --t-5: 2.375rem;    /* 38px */
+  --t-6: 3rem;        /* 48px */
+  --t-7: 3.75rem;     /* 60px */
+
+  --lh-tight: 1.15;
+  --lh-snug: 1.35;
+  --lh-prose: 1.65;
+  --lh-code: 1.6;
+
+  /* --- space (4px base) -------------------------------------------- */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4rem;
+  --s-9: 6rem;
+  --s-10: 8rem;
+
+  --radius-sm: 4px;
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  --shadow-sm: 0 1px 2px rgba(16, 20, 26, 0.06);
+  --shadow: 0 1px 3px rgba(16, 20, 26, 0.07), 0 8px 24px -12px rgba(16, 20, 26, 0.16);
+
+  --measure: 68ch;
+  --page: 1140px;
+  --nav-h: 56px;
+}
+
+/* System preference: dark, unless the reader explicitly chose light. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --bg: #0a0c0f;
+    --bg-alt: #0d1015;
+    --surface: #101319;
+    --surface-2: #141821;
+    --surface-code: #0d1015;
+    --border: #1f242e;
+    --border-strong: #2c333f;
+
+    --text: #e8ecf2;
+    --text-2: #b0b9c6;
+    --text-3: #7b8593;
+    --text-inverse: #06080a;
+
+    --accent: #4cc2f1;
+    --accent-hover: #7ad4f7;
+    --accent-soft: rgba(76, 194, 241, 0.12);
+    --accent-line: rgba(76, 194, 241, 0.32);
+    --violet: #c08bfb;
+    --violet-soft: rgba(192, 139, 251, 0.12);
+    --violet-line: rgba(192, 139, 251, 0.3);
+
+    --danger: #ff8a80;
+    --warn: #f0c26a;
+    --ok: #6ee7a8;
+
+    --sx-comment: #6d7787;
+    --sx-attribute: #c08bfb;
+    --sx-string: #7fd6a8;
+    --sx-hole: #f0c26a;
+    --sx-number: #f2b880;
+    --sx-boolean: #f2b880;
+    --sx-type: #6fd1e8;
+    --sx-type-builtin: #6fd1e8;
+    --sx-constructor: #f5b17b;
+    --sx-function: #8ab6ff;
+    --sx-keyword: #f08ac9;
+    --sx-modifier: #c08bfb;
+    --sx-param: #e3cf9a;
+    --sx-variable: #dbe2ec;
+    --sx-punct: #6b7480;
+    --sx-error: #ff8a80;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 12px 32px -16px rgba(0, 0, 0, 0.8);
+  }
+}
+
+/* Explicit choice: dark. Duplicated rather than shared so that the
+   toggle beats the media query in both directions. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0a0c0f;
+  --bg-alt: #0d1015;
+  --surface: #101319;
+  --surface-2: #141821;
+  --surface-code: #0d1015;
+  --border: #1f242e;
+  --border-strong: #2c333f;
+
+  --text: #e8ecf2;
+  --text-2: #b0b9c6;
+  --text-3: #7b8593;
+  --text-inverse: #06080a;
+
+  --accent: #4cc2f1;
+  --accent-hover: #7ad4f7;
+  --accent-soft: rgba(76, 194, 241, 0.12);
+  --accent-line: rgba(76, 194, 241, 0.32);
+  --violet: #c08bfb;
+  --violet-soft: rgba(192, 139, 251, 0.12);
+  --violet-line: rgba(192, 139, 251, 0.3);
+
+  --danger: #ff8a80;
+  --warn: #f0c26a;
+  --ok: #6ee7a8;
+
+  --sx-comment: #6d7787;
+  --sx-attribute: #c08bfb;
+  --sx-string: #7fd6a8;
+  --sx-hole: #f0c26a;
+  --sx-number: #f2b880;
+  --sx-boolean: #f2b880;
+  --sx-type: #6fd1e8;
+  --sx-type-builtin: #6fd1e8;
+  --sx-constructor: #f5b17b;
+  --sx-function: #8ab6ff;
+  --sx-keyword: #f08ac9;
+  --sx-modifier: #c08bfb;
+  --sx-param: #e3cf9a;
+  --sx-variable: #dbe2ec;
+  --sx-punct: #6b7480;
+  --sx-error: #ff8a80;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 12px 32px -16px rgba(0, 0, 0, 0.8);
+}

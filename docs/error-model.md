@@ -265,24 +265,60 @@ unwinding, no early return, and no exception. A function that can fail
 says so in its return type and every caller does something about it or
 does not compile.
 
-**ERR-PROP-2 (H). Constructing and inspecting an error is pure.**
-Probe: a two-parameter ADT, a constructor function and a `match`
-consumer, both tagged `;@axiom:pure`. `check` is OK and `axiom symbols`
-reports `#pure` on both with no `#effects=` beside it. So a `Result`
-may be built and taken apart inside a function that claims purity, and
-the claim validates.
+**ERR-PROP-2 (H, amended 2026-08-31). INSPECTING an error is pure.
+CONSTRUCTING one is not, and this rule used to say it was.**
 
-Recorded honestly: this also means **constructor allocation does not
-enter the inferred effect set**. `Alloc` is a built-in effect and a
-constructor allocates, so the inference is an under-approximation here
-in the sense `MM-EXEC-9a` names. It says "names" rather than "already
-names" for a reason: until 2026-08-25 that rule's table did not list
-this row, so the sentence pointed at an enumeration that was short by
-one. It is a row there now, with this paragraph as its reason. The error model relies on the
-convenient half of that; a conforming implementation that made `Alloc`
-precise would make every `Result` constructor `#effects=Alloc`, and
+The original probe was a two-parameter ADT, a constructor function and
+a `match` consumer, both tagged `;@axiom:pure`; `check` answered OK and
+`axiom symbols` reported `#pure` on both with no `#effects=` beside it.
+The consumer still does. The constructor no longer does:
+
+```scheme
+(data Pair (P Int Int) (Nil))
+;@axiom:pure
+(:: mkPair (-> Int Pair))
+(fn (mkPair n) (P n n))
+```
+
+now draws `AX3010 axtag-mismatch: \`pure\` claim contradicted: body
+performs Alloc`, while the `match` consumer beside it is accepted
+unchanged. **So a `Result` may still be taken apart inside a function
+that claims purity; it may no longer be BUILT there.**
+
+**Why the amendment, and what it cost.** This rule used to record, as a
+deliberate under-approximation, that *constructor allocation does not
+enter the inferred effect set* - and it relied on the convenient half
+of that, noting that a conforming implementation which made `Alloc`
+precise "would make every `Result` constructor `#effects=Alloc`, and
 `ERR-PROP-2`'s purity claim would need `Alloc` exempted explicitly
-rather than by omission.
+rather than by omission."
+
+That implementation arrived, and not for precision's sake.
+`restrict(no-alloc)` reads the effect row and turns it into a refusal,
+and against a row built to omit allocation the refusal could not fire:
+
+```scheme
+(data W (Wrap Int) (Empty))
+;@axiom:restrict(no-alloc)
+(:: mk (-> Int Int))
+(fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+```
+
+checked `OK` while the emitted IR held a `call i64 @axiom_alloc(i64 16)`
+inside `@mk`. A claim that cannot be refuted is not a claim, and 0.6.0
+shipped 273 of them. `MM-EXEC-9a` records the close and its measured
+blast radius: 123 of 3,725 effect rows gained `Alloc`, and seven
+`no-alloc` claims in the tree turned out to be false.
+
+**`Alloc` is NOT exempted from `pure`, by decision.** The sentence
+above offered that as the alternative and it is refused: `pure` means
+an empty definite row, an exemption would have to be carved for every
+reader of the row rather than for this one rule, and `Alloc` is the
+effect `restrict(no-alloc)` exists to name. The honest statement is the
+one at the top - construction allocates, and a constructing function is
+not pure. **Measured cost inside this repository: zero.** No
+`;@axiom:pure` claim in `stdlib/` or `self_host/` sits on a
+constructing function, so nothing here changed but this paragraph.
 
 **ERR-PROP-3 (H, program obligation). In a recursive function, the
 fallible call MUST be the `match` scrutinee and the recursive call MUST
@@ -646,10 +682,43 @@ instead of writing to fd 2 and exiting:
 | out of memory answers **70** | `axiom: out of memory (mmap failed)`, exit 70 |
 | an unhandled effect answers **71** | `axiom: unhandled effect`, exit 71 |
 | division by zero answers **72** | `axiom: division by zero`, exit 72 |
+| a violated contract answers **76** | ``axiom: precondition failed in `half`: (> n 0)``, exit 76 |
 
-Both halves are in one program per case, at four optimisation levels:
-`tests/stdlib/401-recover-effect.ax`, `402-recover-oom.ax`,
-`403-recover-div.ax`, gated by `scripts/check-recover.sh`.
+The first three have both halves in one program per case, at four
+optimisation levels: `tests/stdlib/401-recover-effect.ax`,
+`402-recover-oom.ax`, `403-recover-div.ax`, gated by
+`scripts/check-recover.sh`.
+
+**The fourth row is `;@axiom:pre(...)`/`post(...)`, added 2026-08-31,
+and it is here rather than in that gate because it is a claim about the
+contracts feature.** `@__axiom_contract_fail` opens with
+`__axiom_recover_abort` exactly as the division trap does, so a
+violated contract is *programmer error* in the same sense: the arena is
+intact, nothing half-wrote a structure, and a process that armed a
+recovery point asked to survive precisely this. Both halves are in one
+program, for the reason `403-recover-div.ax` gives for its own — with
+`__axiom_recover` unreferenced the mechanism is dead code and the armed
+test folds to false — and it is section 1 of
+`scripts/check-contracts.sh`: the arming call answers `recovered 76` on
+stdout, the second violation outside every extent exits 76 with the
+sentence on fd 2.
+
+**The table gains no row from status 75.** An
+arena reset handed a mark whose chunk is no longer on the active list
+traps with status **75** since 2026-08-31 (`MM-ALLOC-16a`), and it is
+deliberately outside this mechanism. A recovery point's abort IS an
+arena reset — it resets to the arming mark — so answering an invalid
+reset by performing another one asks the same corrupted structure the
+same question. By the time the trap is reached the unwind walk has
+already pushed every chunk it passed onto the free list hunting for one
+that was not there, which is precisely the list an abort would then
+reset through. 70, 71 and 72 are the *programmer error* class this
+paragraph describes, which a process can be written to survive - and so
+is 76, whose predicate is the programmer's own sentence about their own
+values. 75 is a violated *implementation* invariant (`I8`), and it is
+nearer the memory-safety fault the paragraph above refuses to contain.
+That is the line the table is drawn on: whose invariant broke, not how
+bad it sounds.
 
 **What it is not.** It is not unwinding, not a `catch`, and not an early
 return, so `ERR-REC-1` stands as written for everything except these
@@ -665,7 +734,7 @@ abort there too.
 There are no destructors, no finalizers and no stack-allocated data, so
 "unwinding" degenerates to restoring the stack pointer, the arena and the
 effect slots — and there is nothing to run on the way out.
-`docs/memory-model.md` `MM-ALLOC-17` states the memory argument, including
+`docs/memory-model.md` `MM-ALLOC-23` states the memory argument, including
 the one thing it does not buy for free (a retain abandoned below the
 mark) and the measurement that bounds it: 100,000 aborts hold max RSS at
 1,376 KiB, against 419,328 KiB for the same program with nothing to
@@ -889,7 +958,7 @@ in this tree at all - `grep -c 'constFold\|constantFold\|interval\|rangeOf\|abst
 `self_host/codegen.ax` and `self_host/expand.ax` answers 0, 0, 0. So
 the claim is enforced at RUN TIME: `expLowerContracts` compiles the
 check into the body, and a failure writes ``axiom: precondition failed
-in `half`: (> n 0)`` on fd 2 and exits 75.
+in `half`: (> n 0)`` on fd 2 and exits 76.
 
 `AX3050` is then everything about the contract that IS static, and it
 is four questions under one code:
@@ -1123,7 +1192,7 @@ term 2, which now carries both spellings and compares them.
 | `ERR-TYPE-4` | **H, gated** | `okOr`/`toOption`, `371` term 4 |
 | `ERR-TYPE-5` | H | `fldClass` classifies from declared types |
 | `ERR-PROP-1` | H | the language having no other mechanism |
-| `ERR-PROP-2` | H | `#pure` accepted on construct and inspect |
+| `ERR-PROP-2` | H | `#pure` accepted on INSPECT; refused on CONSTRUCT with `AX3010` since 2026-08-31 |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
 | `ERR-PROP-4` | P | — proposed `AX3045`, not constructed (`AX3041` was spent by the parser) |
 | `ERR-PROP-5` | H | effect inference, unchanged |

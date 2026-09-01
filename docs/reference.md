@@ -468,7 +468,7 @@ Every function has an optional type signature declared with `::`:
 (:: add (-> Int Int Int))
 ```
 
-This says `add` is a function that takes two `Int`s and returns an `Int`. The `(-> A B C)` syntax means a function that takes `A`, then `B`, and returns `C`. The type is curried; a *top-level* function still is not partially applicable (see [Partial Application](#partial-application--not-supported)).
+This says `add` is a function that takes two `Int`s and returns an `Int`. The `(-> A B C)` syntax means a function that takes `A`, then `B`, and returns `C`. The type is curried; a *top-level* function still is not partially applicable, though a `lambda` is (see [Partial Application](#partial-application)).
 
 ### Effect Types
 
@@ -557,13 +557,37 @@ Function bodies, `let` bodies, `if` branches, and `lambda` bodies also support *
 (lambda (_) 42)    ; Ignoring a parameter with wildcard
 ```
 
-### Partial Application — Not Supported
+### Partial Application
 
-A curried *signature* does not make a top-level function partially
-applicable. Supplying fewer arguments than a top-level function takes
-is `AX3013`: a partial application has to hold the arguments it was
-not given, and a top-level function has no closure record to hold them
-in (`tests/diagnostics/110-partial-application.ax` pins the refusal).
+One rule decides both halves, and it is the one `AX3013`'s own note
+gives: **a partial application has to hold the arguments it was not
+given, and a top-level function has no closure record to hold them
+in.** A `lambda` has one. So a lambda may be applied to some of its
+arguments and a top-level function may not, however its signature is
+spelled.
+
+**A lambda applied to fewer arguments than it takes is a value.** It
+holds what it was given and takes the rest, in order:
+
+```scheme
+(:: main Int)
+(fn (main)
+  (let ((subFrom10 ((lambda (x y) (- x y)) 10)))
+    (subFrom10 3)))                      ; 7 — 10 - 3, not 3 - 10
+```
+
+That value is ordinary in every way that was measured
+(`tests/selfhost/988-lambda-partial-application.ax` pins all of it):
+arguments may be supplied **one at a time** over as many applications
+as the lambda has parameters; a **captured** variable survives the
+partial, so the closure holds both what it captured and what it was
+handed; the partial **escapes** the function that built it, which is
+what makes `(fn (mkAdder n) ((lambda (x y) (+ x y)) n))` a working
+adder factory; and it stores in a **struct field** typed
+`(-> Int Int)` and calls back through `.f`.
+
+**A top-level function is `AX3013`**, and no signature changes that
+(`tests/diagnostics/110-partial-application.ax` pins the refusal):
 
 ```scheme refused
 (:: add (-> Int Int Int))
@@ -578,18 +602,49 @@ in (`tests/diagnostics/110-partial-application.ax` pins the refusal).
 ;                and 1 were supplied
 ```
 
-A `lambda` does get a closure record, so bind the missing argument
-there:
+The workaround is the rule restated: give it a closure record by
+wrapping it in a lambda, `(lambda (y) (add 5 y))`.
+
+**The count is taken at the spine's root, not at each application.**
+`((add3 1 2) 3)` on a three-parameter top-level `add3` is one call with
+three arguments and compiles; `(let ((h (add3 1 2))) (h 3))` supplies
+two to the spine and is `AX3013`. The same flattening is why
+`(((lambda (x y z) ...) 1 2) 3)` is an ordinary saturated call.
+
+**Over-application is `AX3004`**, not `AX3013`: once the arrows are
+consumed the result is no longer a function, and applying it reports
+"expected function type, found `Int`". A lambda's *parameters* carry no
+declared type, though, so an argument of the wrong type is not caught —
+`((lambda (x y) (- x y)) 10 "oops")` compiles. That is a property of
+`lambda` generally and not of partial application.
+
+#### `_` holes — the explicit spelling
+
+An application with at least one bare `_` among its direct arguments
+desugars to a lambda, one fresh parameter per hole in left-to-right
+order. It is the spelling to reach for when the missing argument is not
+the last one, and it works on a **top-level** function — where partial
+application does not — because the desugaring is what builds the
+closure record:
 
 ```scheme
-(:: add (-> Int Int Int))
-(fn (add x y) (+ x y))
+(:: sub (-> Int Int Int))
+(fn (sub x y) (- x y))
 
 (:: main Int)
-(fn main
-  (let ((addFive (lambda (y) (add 5 y))))
-    (addFive 3)))                        ; 8
+(fn (main)
+  (let ((subFrom50 (sub 50 _))           ; (lambda (y) (sub 50 y))
+        (subTo50 (sub _ 50)))            ; (lambda (x) (sub x 50))
+    (- (subFrom50 8) (- (subTo50 50) 0))))   ; 42 - 0
 ```
+
+A call with **no** hole is untouched, so `AX3013` still fires exactly as
+it did. Holes apply to a lambda's arguments too —
+`((lambda (x y) (- x y)) 50 _)` is a one-parameter function. `_` keeps
+its unrelated meaning as a wildcard *pattern*; expression position had
+no prior meaning for it to collide with, and a bare `_` there used to be
+`AX3001`. `tests/selfhost/989-hole-partial-application.ax` pins the
+holes, `988-lambda-partial-application.ax` the lambdas.
 
 ---
 
@@ -693,10 +748,11 @@ The `while` body takes any number of expressions, so a loop that updates
 two variables needs no extra brackets. The whole form evaluates to `0` —
 a loop that ran zero times has no last iteration to take a value from.
 
-`set` also writes a field, through a dotted path:
+`set` also writes a field, through a dotted path. The *field* carries
+the `mut`; the binding does not have to:
 
 ```scheme
-(struct Counter (n : Int) (step : Int))
+(struct Counter (mut n : Int) (step : Int))
 
 (fn (bump c)
   (set c.n (+ c.n c.step)))
@@ -704,15 +760,19 @@ a loop that ran zero times has no last iteration to take a value from.
 
 The path is resolved by name, so the offset — and the tag word a `data`
 constructor carries ahead of its fields — is the compiler's problem
-rather than yours. `(set a.b.c v)` writes `c` on the value at `a.b`.
+rather than yours. `(set a.b.c v)` writes `c` on the value at `a.b`, so
+it is `c` that must be declared `mut` and not `b`: the store mutates the
+inner value, not the slot holding it.
 
 What `set` will not take is an arbitrary place expression: the target is
 a name or a field path, never a computed one, so `(set (f x) 1)` is a
 syntax error that says so instead of type-checking its way to a report
-about a non-assignable expression. A field write needs no `mut` — `mut`
-governs rebinding the local, not mutating what it points at. Raw memory
-is still reachable through `memSetWord`, which is what `Vec` and `Map`
-use to write slots that are not declared fields.
+about a non-assignable expression. A field write needs `mut` **on the
+field** and nothing on the binding — `mut` on a binding governs
+rebinding the local, which is a different operation. Raw memory is
+still reachable through `memSetWord`, which is what `Vec` and `Map` use
+to write slots that are not declared fields, and which no mutability
+marker gates.
 
 Assigning to a binding that is not `mut` is a compile error:
 
@@ -1028,13 +1088,18 @@ block links a static archive — but nothing crosses it as a struct: a
 scalar goes one word each way, and a record crosses as its fields
 ([ffi.md](ffi.md) §8). There is no layout for a modifier to change.
 
-Struct fields can be mutable. `mut` goes on the field, inside its
-parentheses — not on the struct:
+**A field is immutable unless it is declared `mut`**, exactly as a `let`
+binding is. `mut` goes on the field, inside its parentheses — not on the
+struct:
 
 ```scheme
 (struct Counter
   (mut count : Int))
 ```
+
+Writing `count` on a `Counter` is then legal; writing any field of a
+`Point` above is `AX3012`. [Writing a field](#writing-a-field) has both
+halves.
 
 **The `:` is not optional.** It is what makes the form a field
 declaration at all — the grammar's own note is that a declaration and
@@ -1050,6 +1115,264 @@ at exit 139. It is now `AX3056`, an error, at the field's name, on all
 three spellings that reach the empty variable: no `:`, a `:` whose
 type is not a type, and a bare `(x)`
 (`tests/diagnostics/388-struct-field-untyped.ax`).
+
+### Constructing, binding, and reading a field
+
+Construction is **positional**: the constructor is the struct's own
+name, and its arguments are its fields in declaration order. A value
+binds to a `let`, passes to a function and returns from one like any
+other:
+
+```scheme
+(struct Point
+  (x : Int)
+  (y : Int))
+
+(:: shift (-> Point Int Point))
+(fn (shift p n) (Point (+ p.x n) p.y))
+
+(:: sum (-> Point Int))
+(fn (sum p) (+ p.x p.y))
+
+(:: main Int)
+(fn (main) (sum (shift (Point 1 2) 10)))     ; exits 13
+```
+
+There is no named-field spelling, and the two spellings a reader reaches
+for both fail without mentioning structs at all. `(Point (x 1) (y 2))` reads `x` and
+`y` as variables and reports `AX3001` twice — with `+` offered as the
+nearest binding in scope, which is how far the compiler is from
+understanding what was meant:
+
+```scheme refused
+(struct Point (x : Int) (y : Int))
+
+(:: main Int)
+(fn (main)
+  (let ((p (Point (x 1) (y 2)))) p.x))
+; error[AX3001]: undefined variable `x`
+; error[AX3001]: undefined variable `y`
+```
+
+`(Point :x 1 :y 2)` stops earlier still, at the colon, with `AX2001`
+"expected expression, found `:`". Handing over the wrong *number* of
+fields is `AX3008` at the constructor — "struct `Point` expects 2
+field(s), found 1" — trailed by an `AX3004` cascade wherever the
+half-built value is used; the wrong *type* in a field is a plain
+`AX3004` at the offending argument.
+
+**`.field` binds to a name, not to an expression.** `a.b.c` chains left
+to right, reading the `c` of the value at `a.b`, and a field access is
+an ordinary expression anywhere a value is wanted. But the suffix is
+parsed onto an identifier *token*, so a call's result cannot be
+dereferenced in place — `(mk 5).x` and even `(p).x` are `AX2001` at the
+dot. Bind it first:
+
+```scheme refused
+(struct Point (x : Int) (y : Int))
+
+(:: mk (-> Int Point))
+(fn (mk n) (Point n 2))
+
+(:: main Int)
+(fn (main) (mk 5).x)
+; error[AX2001]: expected expression, found `.`
+```
+
+A field the type does not have is `AX3007`, anchored at the field name,
+and it answers for every type rather than only for structs: `n.x` where
+`n` is an `Int` reports "field `x` not found on type `Int`".
+
+`show` renders a struct without any declaration of yours —
+`(show (Point 1 2))` is `{x = 1, y = 2}`.
+
+### Writing a field
+
+`set` writes through a dotted path ([Mutable Bindings and
+`while`](#mutable-bindings-and-while) has the general rule), and **the
+write needs `mut` on the field — and nothing on the binding.** This is
+accepted and exits 9:
+
+```scheme
+(struct Point
+  (mut x : Int)
+  (y : Int))
+
+(:: main Int)
+(fn (main)
+  (let ((p (Point 1 2)))
+    { (set p.x 9) p.x }))
+```
+
+`p` is an immutable `let`, and that does not matter: `mut` on a
+*binding* governs rebinding the local, and mutating what a binding
+points at is a different operation gated by a different marker. Drop the
+`mut` from `x` and the same program is refused, at the field name in the
+write:
+
+```scheme refused
+(struct Point
+  (x : Int)
+  (y : Int))
+
+(:: main Int)
+(fn (main)
+  (let ((p (Point 1 2)))
+    { (set p.x 9) p.x }))
+; error[AX3012]: cannot assign to field `x` of `Point`: the field is not declared `mut`
+```
+
+The report is anchored on `x` in `(set p.x 9)`, not on the declaration:
+the struct is often in another file, and a diagnostic's span belongs to
+the unit it was raised in. The help names the line to write —
+`` `(mut x : Int)` `` — and there is no machine-applicable fix for the
+same reason. `tests/diagnostics/467-set-immutable-field.ax` pins it,
+and `tests/selfhost/561-field-store-mut.ax` pins that a `mut` field
+still writes.
+
+**This is new in 0.6.0, and it breaks source compatibility** — a
+program that wrote an unmarked field compiled before and is refused
+now. It takes no line in `compat/BREAKING`: that file's subject is the
+standard library's public surface, and the surface did not move
+(measured — the 619 normalised AXSYM rows are byte-identical across the
+change, and no `#fields=` entry carries mutability). The migration it
+did cost is 30 fields across 16 declarations, every one of them found
+by compiling the tree and reading the refusals. Before it, `mut` on a
+field was parsed and discarded, which `parseOneField` said in as many
+words at the time — the marker was "not recorded ... only skipped" —
+so the program above compiled and exited 9 with no marker anywhere. That is the shape `AX2004`'s explain
+text calls worse than no marker at all: *"a marker that reads as an
+ownership guarantee and supplies none is worse than no marker, because
+a reader spends trust on it."* `linear`, `consume` and `deriving` were
+removed from this language for exactly that; `mut` on a field was
+enforced instead, because unlike those three it had a rule worth
+keeping.
+
+Because the write goes through the value rather than the binding, it
+reaches through a parameter, and a callee's store is visible to its
+caller. This exits 42, over a nested path — note that `inn` needs no
+`mut`, because the store mutates the `Inner` it points at rather than
+the `inn` slot:
+
+```scheme
+(struct Inner (mut v : Int))
+(struct Outer (inn : Inner))
+
+(:: bump (-> Outer Int))
+(fn (bump o) { (set o.inn.v (+ o.inn.v 1)) o.inn.v })
+
+(:: main Int)
+(fn (main)
+  (let ((o (Outer (Inner 40))))
+    { (bump o) (bump o) o.inn.v }))
+```
+
+`memSetWord` is not gated by any of this. It takes a block and a word
+index and writes it, which is what `Vec` and `Map` use for slots that
+are not declared fields; a field declared without `mut` is protected
+from `set`, not from raw memory.
+
+### Type parameters
+
+A struct may take type parameters, in the parenthesised spelling `data`
+already uses — `(struct Boxed (a) (val : a))`. The first group is
+ambiguous here in a way it is not in a `data`, because a struct's other
+groups are FIELDS and start lowercase too, so the rule is that a
+parameter list is lowercase names and nothing else: `(a b)` is
+parameters, `(start : Int)` is a field because of the colon, and
+`(msg String)` is a field because `String` is uppercase — which is what
+keeps `tests/diagnostics/388-struct-field-untyped.ax`'s three `AX3056`
+refusals intact.
+
+Construction stays positional and the parameter is fixed by what is
+handed over, so one declaration serves every instantiation in the same
+program:
+
+```scheme
+(import Str)
+
+(struct Boxed (a)
+  (val : a))
+
+(:: main Int)
+(fn (main)
+  (let ((bi (Boxed 7)) (bs (Boxed "abc")))
+    (+ bi.val (strLen bs.val))))     ; exits 10
+```
+
+`tests/selfhost/901-parameterised-struct.ax` pins two parameters
+staying independent across one shared instantiation.
+
+### Fields that hold functions
+
+A field's type can be an arrow, and that is what makes a parameterised
+struct an interface — it is what replaced traits in 0.6.0, and
+[Capability Records](#capability-records) is the whole story, including
+how effects cross the boundary. The struct mechanics are these.
+
+Both call spellings work: `(c.render 7)` applies the field directly, and
+`((c.render) 7)` parenthesises the access first. They are the same call
+rather than merely equivalent — the two spellings emit byte-identical
+IR under `emit-llvm`. This exits 5:
+
+```scheme
+(import Fmt)
+(import Str)
+
+(struct ShowOf (a)
+  (render : (-> a String)))
+
+(:: showInt (ShowOf Int))
+(fn (showInt) (ShowOf fmtInt))
+
+(:: main Int)
+(fn (main)
+  (let ((c showInt))
+    (+ (strLen (c.render 123))
+       (strLen ((c.render) 45)))))
+```
+
+**A top-level function of two or more arguments cannot be handed over by
+name**, and this is the limit a reader meets first. It is `AX3013`, and
+it is not about structs: naming `add` where a value is wanted reports
+"partial application of `add`: it takes 2 argument(s) and 0 were
+supplied — `add` takes 2 arguments, so it cannot be used as a bare
+value". Every capability record in this document that is built from a
+named function holds an arity-1 one for exactly that reason.
+
+```scheme refused
+(struct Ops (g : (-> Int Int Int)))
+
+(:: add (-> Int Int Int))
+(fn (add x y) (+ x y))
+
+(:: main Int)
+(fn (main)
+  (let ((o (Ops add)))
+    (o.g 5 3)))
+; error[AX3013]: partial application of `add`: it takes 2 argument(s)
+;                and 0 were supplied
+```
+
+Wrap a wider function in a `lambda`, which does get a closure record to
+keep arguments in. And once the field holds a lambda it may be applied
+to *some* of its arguments: partial application works for a lambda, and
+it is only a *top-level* function that has nowhere to put the arguments
+it was not given ([Partial Application](#partial-application)).
+`(o.g 5)` below is a value, and the program exits 8:
+
+```scheme
+(struct Ops (g : (-> Int Int Int)))
+
+(:: add (-> Int Int Int))
+(fn (add x y) (+ x y))
+
+(:: main Int)
+(fn (main)
+  (let ((o (Ops (lambda (x y) (add x y)))))
+    (let ((add5 (o.g 5)))
+      (add5 3))))
+```
 
 ---
 
@@ -1355,10 +1678,10 @@ for the same reason.
 ```
 
 `(half 0)` writes ``axiom: precondition failed in `half`: (> n 0)`` on
-fd 2, prints the backtrace, and exits **75** - a status of its own
-beside `MM-EXEC-16`'s 70/71/72, the FFI boundary's 73 and 74's absent
-syscall ABI, so a supervisor reading a status can tell a broken
-invariant from a broken machine. There is no flag to turn the checks
+fd 2, prints the backtrace, and exits **76** - a status of its own
+beside `MM-EXEC-16`'s 70/71/72, the FFI boundary's 73, 74's absent
+syscall ABI and 75's invalid arena mark, so a supervisor reading a
+status can tell a broken invariant from a broken machine. There is no flag to turn the checks
 off: a check that is off by default is a comment by default.
 
 | | |
@@ -1407,7 +1730,7 @@ whose last expression is the body, and a block's last expression IS a
 tail position, so it costs nothing. Both directions are pinned by
 `scripts/check-contracts.sh` section 5.
 
-`tests/diagnostics/384-contract-malformed.ax` pins the six refusals
+`tests/diagnostics/385-contract-malformed.ax` pins the six refusals
 with the five controls that keep them from being blanket ones;
 `tests/selfhost/132-contract.ax` runs six satisfied contracts including
 one 200,000 deep under a `pre`, and `133-contract-violated.ax` pins the
@@ -1564,14 +1887,14 @@ you.** Making all fourteen concrete produces 1,223 type errors, and
 writing `(cast T ...)` at each site fixes every one of them - while
 classifying that value's evidence 0, which suppresses its retain where
 the parameter is a type variable and its release where it is concrete.
-Measured both ways in [memory-model.md](memory-model.md) MM-LIFE-2e.
+Measured both ways in [memory-model.md](memory-model.md) MM-VAL-22.
 That would have traded a type-system unsoundness for a memory-model
 regression, 1,223 times, in silence.
 
 The vehicle that works is a **typed accessor**: the cast goes at a
 RETURN, inside a function whose declared type carries the truth, so
 callers see that type and the evidence word is computed from it
-(MM-LIFE-2f). Each raw reader was split into the word and a view -
+(MM-VAL-23). Each raw reader was split into the word and a view -
 `nodeA`/`nodeAName`, `memGetWord`/`memGetWordStr`,
 `vecGet`/`vecGetStr` - and the call sites renamed, driven by the
 compiler's own `AX3004`s and verified one flip at a time.
@@ -2251,8 +2574,8 @@ spelling.
 | a `struct` value | `{x = 1, y = 2}`, fields in declaration order |
 
 Nesting composes — `(Wrap {x = 3, y = 4} Green (Some "hi"))` — and a
-recursive type prints in full. A value that reaches *itself* (a struct
-field is assignable, so `(set c.next (Some c))` builds one) prints
+recursive type prints in full. A value that reaches *itself* (a `mut`
+struct field is assignable, so `(set c.next (Some c))` builds one) prints
 `...` at the back-edge instead of never returning:
 `{v = 7, next = (Some ...)}`. One renderer is generated per concrete
 type at its first use, as an ordinary function appended to the program
@@ -2409,7 +2732,7 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 
 ### Modules at a Glance
 
-Twenty-two modules, all of them Axiom source under `stdlib/`. A name a
+Twenty-five modules, all of them Axiom source under `stdlib/`. A name a
 module does not mark `pub` is not part of its surface — reaching one is
 `AX3023` — so `grep '^(pub' stdlib/M.ax` is always the authoritative
 answer to what a module exports. The table below says what each module
@@ -2445,6 +2768,9 @@ requires the result to be byte-identical.
 | `Http` | the request parser `httpRead` over a buffered `HttpReader` (`httpReaderNew`/`httpReaderWith`), the `HttpReq` record with `httpHeader`/`httpHasHeader`/`httpQueryParam`/`httpDecode`, the writer `httpRespond`/`httpRespondRaw`/`httpFail` with `httpStatusText` and `httpContentType`, the router `routerNew`/`routeAdd`/`routeStatic`/`routeNotFound`/`routeDispatch` over `HttpHandler` cells, `httpPathSafe`, `httpServeFile`, `httpServeOne`, and the ceilings `httpMaxHead`/`httpMaxBody` |
 | `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs — what `axiom test` discovers and isolates ([error-model.md](error-model.md) ERR-REC-6) |
 | `Agent.Tags` | `axsymParse`, `axsymLine`, and the accessors over one parsed line: `symTag`, `symHasTag`, `symEffects`, `symDerivedPure`, `symAgentTag`, `symHasAgentTag`. Reads the AXSYM stream rather than the compiler's internals ([agent-harness.md](agent-harness.md) §3.2) |
+| `Tui.Keys` | terminal input bytes to key events, as a pure function: the `KeyEv` record and its `KEY_*`/`MOD_*` tables, `keyScan` (buffer, valid length, offset → one event), and `keyResolve` for a prefix that stopped arriving. The CSI and SS3 grammars are PARSED — parameter bytes, intermediates, final — and only then interpreted, so an unbound but well-formed sequence (a mouse report, a cursor-position reply, an OSC title report) is consumed whole and reported `KEY_NONE` rather than typed into the line one byte at a time. Multi-byte characters go through `Utf8`; there is no second decoder. Every function is `restrict(no-io,no-foreign)`, which is what lets `tests/selfhost/975-key-decode.ax` gate the whole escape grammar with no terminal in the loop |
+| `Tui.Edit` | a line editor over a gap buffer of code points: insert, backspace, delete, cursor by character and by word, line start and end, the four kills with one 16-entry kill ring, yank and yank-pop, and a redraw that stays correct when the line WRAPS — the forced newline at `(pcols + n) % width == 0` is what drives a terminal's deferred wrap and makes one row formula true at every cursor position. It performs no I/O: `ledRefresh` appends fragments to a caller's `Vec`. What counts as a word is the caller's `wordChars`, and the prompt arrives already painted and is measured with `tuiVisLen`, so nothing here knows what language is being typed. Also `tuiCat`, the allocate-once join the refresh needs |
+| `Tui.Term` | the only part that touches a descriptor: the `KeyIn` reader over `sysReadFd`, the 30ms timed wait that resolves a lone ESC (built on the `netPoll*` readiness layer — measured on a pty, not assumed), `termRawEnter`/`termRawLeave` around one call, `termFlush`, and `termEditLoop`, which answers a line or `None` at end of input. Raw mode is entered per LINE and left around evaluation, so a caller's ordinary output needs no CR injection and an exit from inside a command cannot leak raw mode |
 
 ### The Filesystem
 
@@ -2810,7 +3136,7 @@ one, so a piped session and a typed one produce the same bytes.
 
 ```
 $ axiom repl
-Axiom 0.6.0 - REPL
+Axiom 0.6.1 - REPL
 Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))
@@ -2972,7 +3298,7 @@ as before. Points nest and an abort takes the innermost armed one.
 The abort restores the stack pointer, resets the arena to `mark`, and
 restores every evidence slot — that last one is why this is sound where
 calling `__axiom_arena_reset` by hand across a live `handle` is not
-(`memory-model.md` `MM-ALLOC-16b`, `MM-ALLOC-17`). Nothing runs on the
+(`memory-model.md` `MM-ALLOC-16b`, `MM-ALLOC-23`). Nothing runs on the
 way out: there are no destructors to call and no landing pads. It is not
 a `catch` and cannot contain a memory-safety fault — a SIGSEGV is not a
 trap and asks nothing. `error-model.md` `ERR-REC-6` states the whole

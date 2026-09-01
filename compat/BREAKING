@@ -107,3 +107,63 @@
 0.6.0  F  axsymPctAt     -1 -> (Option Int): absence, not a sentinel; no external callers
 0.6.0  F  pathLastSlash  -1 -> (Option Int): absence, not a sentinel; no external callers
 0.6.0  F  pathExtIndex   -1 -> (Option Int): absence, not a sentinel; no external callers
+
+# 0.6.0 - the effect row learned that a constructor allocates
+# (2026-08-31). NOT ONE LINE OF ANY FUNCTION BELOW CHANGED. What
+# changed is the analysis: applying a `data` or `struct` constructor
+# contributed nothing to the inferred effect row, by a decision
+# `docs/memory-model.md` MM-EXEC-9a recorded and `ERR-PROP-2` relied
+# on, and every function here answers an `Option` or a `Result` and
+# has always allocated to do it.
+#
+# The decision was not survivable once `restrict(no-alloc)` existed to
+# read the row: `no-alloc` is a CLAIM the compiler answers, and against
+# a row built to omit allocation it answered OK to a body whose only
+# act was allocating. So the row is precise now, and these 19 public
+# names gained `Alloc`.
+#
+# THE HONEST READING OF THIS BLOCK, which is not 0.3.4's: a consumer
+# who wrote `restrict(no-alloc)` over a call to `strFind` in 0.6.0 was
+# ALREADY broken - the allocation happened, the check could not see it,
+# and the build said nothing. This declares the day they get told, not
+# the day it became true. Six of this repository's own claims were
+# false the same way and are withdrawn at their sites with the reason.
+#
+# The kind letter is F and the signature is untouched in every row; the
+# gate reads WIDENED, which is the accurate verdict here.
+0.6.1  F  addChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.1  F  subChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.1  F  mulChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.1  F  divChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.1  F  remChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.1  F  shlChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.1  F  shrChecked     row gains Alloc: `(Result Int Error)`, and building it always allocated
+0.6.1  F  mkError        row gains Alloc: the `Error` struct construction is the whole body
+0.6.1  F  errContextOf   row gains Alloc: answers an `Option String`
+0.6.1  F  withContext    row gains Alloc: rebuilds the `Error`
+0.6.1  F  mapOk          row gains Alloc: rebuilds the `Result`
+0.6.1  F  mapErr         row gains Alloc: rebuilds the `Result`
+0.6.1  F  andThen        row gains Alloc: rebuilds the `Result`
+0.6.1  F  okOr           row gains Alloc: builds a `Result` from an `Option`
+0.6.1  F  toOption       row gains Alloc: builds an `Option` from a `Result`
+0.6.1  F  fallibleTally  row gains Alloc: builds its tally value
+0.6.1  F  strFind        row gains Alloc: answers `(Option Int)`, and the `Some` allocates
+0.6.1  F  strParseInt    row gains Alloc: answers `(Option Int)`, and the `Some` allocates
+0.6.1  F  vecTry         row gains Alloc: answers `(Option Int)`, and the `Some` allocates
+
+# 0.6.1 - `mut` on a STRUCT FIELD is enforced. This is a LANGUAGE
+# break rather than an API one, so it names no AXSYM row and could
+# have been left to the changelog alone. It is here because this file
+# is what a reader opens before upgrading, and a write that used to
+# compile and now does not is the likeliest thing to stop their build:
+#
+#     (struct P (x : Int))
+#     (fn (f p) (set p.x 9))     was accepted, is now AX3012
+#
+# The marker was parsed and discarded - `parseOneField`'s own comment
+# said "nothing downstream reads mutability yet" - so every field was
+# writable and the reference taught otherwise. Add `mut` to the fields
+# you write: `(struct P (mut x : Int))`. Twenty-nine fields in this
+# tree needed it, found by compiling with the refusal armed rather
+# than by grep.
+0.6.1  L  set-field  a write to a field not declared `mut` is AX3012; add `mut` to the field

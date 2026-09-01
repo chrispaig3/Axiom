@@ -246,14 +246,61 @@ claims to perform no `IO`, and a body that performs it anyway is
 under-approximation, and a specification must say so.** A conforming
 implementation **SHOULD** make it an over-approximation. It was not, in
 **seven** measured ways — six this table listed and one it did not.
-**Five are closed.** Two remain, and they are different in kind:
+**Six are closed.** One remains:
 
 | A function that... | is inferred | why it is still open |
 |---|---|---|
 | calls through a local, a parameter, or an unresolved name | contributes nothing but a transparency mark | needs the flow analysis `MM-EXEC-9b` describes and the language does not have. **It announces itself**: the row carries `#effects-incomplete` and a `pure` claim over it draws `AX3037`, so a reader is handed a lower bound labelled as one rather than a set that looks complete |
-| applies a `data` or `struct` **constructor** | effect-free, though the constructor allocates | a DECISION, not a gap. `error-model.md` `ERR-PROP-2` names it and relies on it: making it precise gives every `Result` constructor `#effects=Alloc`, and that rule's purity claim would then need `Alloc` exempted explicitly rather than by omission. Measured 2026-08-25 — `(fn (mkPair n) (P n n))` reports no `#effects=` |
 
-The second row was found while closing the others and is **added** to
+**The constructor row closed on 2026-08-31, and it closed because it
+was not survivable.** It stood here as a DECISION — applying a `data`
+or `struct` constructor contributed nothing to the row, though the
+constructor allocates — and `error-model.md` `ERR-PROP-2` relied on the
+convenient half of it. What that decision cost was invisible until
+`restrict(no-alloc)` existed to read the row. `no-alloc` is not a
+description, it is a CLAIM the compiler answers, and against a row
+built to omit allocation it answered `OK` to this:
+
+```scheme
+(data W (Wrap Int) (Empty))
+;@axiom:restrict(no-alloc)
+(:: mk (-> Int Int))
+(fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+```
+
+while `emit-llvm` on the same file put a `call i64 @axiom_alloc(i64 16)`
+inside `@mk` itself. A decision that makes a checked claim
+unfalsifiable is not a decision about precision; it is the check not
+existing. `no-alloc` shipped in 0.6.0 across 273 declarations on the
+strength of a row that could not hold the effect it names.
+
+So the row is precise now. `typecheck.ax`'s `ctorAllocArity` asks the
+same tables `checkSaturation` asks — `rfindCtor` for a `data`
+constructor, `findStruct` for a struct — and `walkCallHead` adds `Alloc`
+when the answer is above zero. **ARITY decides, not constructor-ness,
+and it was measured rather than assumed**: `(Wrap n)` emits one
+`axiom_alloc` and `(Empty)` emits none, because a nullary constructor
+is an immediate tag with no block behind it — which is
+[reference.md](reference.md)'s own row, *"every constructor is nullary
+| a value **is** its tag ... nothing allocates"*. Adding `Alloc` for
+`(Empty)` would refuse a `no-alloc` claim the emitted code keeps, which
+is the opposite error and no better.
+
+**The measured cost of closing it**, over `self_host/` and `stdlib/` on
+2026-08-31: **123 of 3,725 effect rows** move, every one of them by
+GAINING `Alloc` and none by losing anything, and 111 of the 123 carried
+no `#effects=` at all before. **Seven** `restrict(no-alloc)` claims in
+the tree were false and are withdrawn at their sites, each with the
+reason written beside it — `mkSpan` and `mkToken`
+(`self_host/core.ax`), `mkDiagBase` (`self_host/diag.ax`), `vecTry`
+(`stdlib/Vec.ax`), `strFind` and `strParseInt` (`stdlib/Str.ax`), and
+`histFindBack` (`self_host/replhist.ax`), the last of them
+transitively, through `strFind`'s `Some`. **Zero** `;@axiom:pure`
+claims in the tree break: none of them is on a constructing function,
+so the only thing that pays for this is `ERR-PROP-2`'s documented
+probe, not any code in this repository.
+
+The row was found while closing the others and had been **added** to
 this table rather than left where it was. `error-model.md` had named it
 since it was written, "an under-approximation here in the sense
 `MM-EXEC-9a` already names" — and `MM-EXEC-9a` did not name it. A table
@@ -275,6 +322,7 @@ with whatever the compiler now says.
 | calls `__store8`/`__store64` — writes arbitrary memory | 2026-08-25 | `Mut` |
 | reads `__argc`/`__argv` — the process command line | 2026-08-25 | `IO` |
 | calls the arena primitives | 2026-08-25 | `Alloc` |
+| applies a `data`/`struct` **constructor** of arity >= 1 | 2026-08-31 | `Alloc`. A nullary constructor stays silent, and allocates nothing to be silent about |
 
 The trait-method row closed and then stopped existing. `trait`/`impl`
 are `AX2004` since 0.6.0 and an interface is a capability record — a
@@ -559,19 +607,20 @@ runtime and **MUST NOT** be reused by a program as a normal result:
 | 71 | operation performed with no handler in extent | measured (`MM-EXEC-10`) |
 | 72 | division by zero | measured: `(fn (main) (/ 10 0))` — `check` says `OK`, the run prints `axiom: division by zero` to fd 2 and exits 72 |
 | 74 | a `__syscallN` reached on a target with no syscall ABI (windows-x86_64) | emitted, not yet executed: `emitPrimSyscall` lowers the primitive there to `__axiom_no_syscall`, which prints `axiom: no syscall ABI on this target` (37 bytes) and exits 74; 73 is the FFI's (`ffiHandleClose`) |
-| 75 | a `;@axiom:pre(...)` or `;@axiom:post(...)` that does not hold | measured: `tests/selfhost/133-contract-violated.ax` calls `(half 0)` under `pre((> n 0))`, the run prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2 and exits 75, at `--opt` 0/1/2/3 (`scripts/check-contracts.sh` section 1) |
+| 75 | `__axiom_arena_reset` handed a mark whose chunk is no longer on the active list (`MM-ALLOC-16a`) | measured: `tests/stdlib/166-arena-bad-mark.ax` resets an inner mark after its outer one, the run prints `axiom: arena reset to an invalid mark` to fd 2 and exits 75. The same fixture's first two blocks — nested marks reset innermost-first, and the same mark reset twice — must still exit silently, so the trap is pinned against firing on legal use |
+| 76 | a `;@axiom:pre(...)` or `;@axiom:post(...)` that does not hold | measured: `tests/selfhost/133-contract-violated.ax` calls `(half 0)` under `pre((> n 0))`, the run prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2 and exits 76, at `--opt` 0/1/2/3 (`scripts/check-contracts.sh` section 1). It was designed on 75 and moved here on merge: two concurrent branches took the same number, and the whole argument for 73 (`docs/ffi.md` §5.1) is that a supervisor must be able to tell two failures apart |
 
 Each writes nothing to **stdout**. What each writes to **fd 2** is not
 uniform, and the row above is the place to say so rather than leave it
 to be discovered by whoever is reading a supervisor's log: 70 writes 35
-bytes, 72 writes 24 and 71 writes 24, each a single sentence ending in
-a newline (`emitOomTrap`, `emitDivTrap`, `emitUnhandledTrap`). 75 is
-the one whose length is not fixed: `@__axiom_contract_fail` is handed a
-`Str` and writes the length word it finds there, because the sentence
-names the function and quotes the contract as the author wrote it - a
-status alone cannot say WHICH invariant broke, and that is the whole
-reason the message exists. All
-three now say something; 71 was the last to, on 2026-08-24, and
+bytes, 72 writes 24, 71 writes 24 and 75 writes 38, each a single
+sentence ending in a newline (`emitOomTrap`, `emitDivTrap`,
+`emitUnhandledTrap`, `emitBadMarkTrap`). 76 is the one whose length is
+NOT fixed: `@__axiom_contract_fail` is handed a `Str` and writes the
+length word it finds there, because the sentence names the function and
+quotes the contract as the author wrote it — a status alone cannot say
+WHICH invariant broke, and that is the whole reason the message exists.
+All five now say something; 71 was the last to, on 2026-08-24, and
 `tests/stdlib/310-effect-unhandled.err` pins its sentence beside the
 `.exit` that had pinned the status alone since the case was written.
 
@@ -1138,13 +1187,43 @@ deliberately not a numeral, which is also the tripwire for this rule's
 second sentence: the day the allocator ANSWERS instead of exiting, that
 line runs, stdout gains a line, and the golden says so.
 
-**MM-ALLOC-8 (P; three documents described the seam as working until
-2026-08-14, when all three were corrected).** The
-allocator **SHALL** be replaceable by a program that defines
-`axiom_alloc`, which then assumes `MM-ALLOC-6`'s zeroing and
-`MM-ALLOC-3`'s alignment obligations, and in which the arena primitives
-of §3.3 **SHALL** be refused with a diagnostic, since they move the
-position of an allocator that is no longer there.
+**MM-ALLOC-8 (R 2026-08-31; **P** from 2026-08-11, and three documents
+described the seam as working until 2026-08-14, when all three were
+corrected).** The rule as written was: the allocator **SHALL** be
+replaceable by a program that defines `axiom_alloc`, which then assumes
+`MM-ALLOC-6`'s zeroing and `MM-ALLOC-3`'s alignment obligations, and in
+which the arena primitives of §3.3 **SHALL** be refused with a
+diagnostic, since they move the position of an allocator that is no
+longer there.
+
+*Refused, and the reason is that the thing it was a prerequisite for
+was decided against.* This rule was written while `MM-LIFE-2a`'s ARC was
+the chosen strategy and a program that wanted control over reclamation
+had nowhere else to get it. `MM-ALLOC-22` settled that question the
+other way on 2026-08-24 — "the arena scope IS the reclamation strategy"
+— and a program that wants control now has `__axiom_arena_mark`,
+`__axiom_arena_reset` and `__axiom_arena_reset_keeping`, three
+primitives a conforming implementation **MUST NOT** refuse. A *second,
+independent allocator identity* underneath those is a different feature
+with no stated acceptance criteria, and this rule's own text already
+conceded that building it "interacts with the release path `MM-LIFE-2e`
+left behind and would be re-decided against it". A **P** row that says
+it would be re-decided before it is built is not a plan; it is a
+question, and §0.1's answer to a question is a fresh rule with its own
+acceptance criteria, not a status row that ages.
+
+What it would have to survive, if it came back: `I1`–`I15`. Nine of
+those fifteen invariants are statements about the emitted allocator
+specifically — the 16-byte header on both allocation paths
+(`MM-LIFE-2b`), the 4,097 slab-class heads a reset scrubs
+(`MM-LIFE-2e`), the chunk list `MM-ALLOC-23`'s abort walks — and a
+replaceable `axiom_alloc` is a program-supplied function that would have
+to uphold every one of them with no way for the implementation to check
+that it does. That is not an argument that it is impossible; it is the
+acceptance criterion a future **P** rule owes, and this one never had.
+
+*The half of the obligation that WAS taken stays taken, and is
+unaffected:* an entry-file definition of `axiom_alloc` is refused.
 
 *Today the seam does not exist, and the name is **refused**:* an
 entry-file definition of `axiom_alloc` is `AX3026`
@@ -1167,14 +1246,13 @@ opt: aa.ll:242:12: error: invalid redefinition of function 'axiom_alloc'
 mangled to `Mod$axiom_alloc`, a different symbol.) The three documents
 that described the seam as working — `stdlib/Mem.ax`,
 `docs/reference.md`, and the self-hosting record — were corrected the same
-day, each keeping the false claim as quoted history. What remains **P**
-is the rule's head: a real replacement seam, which interacts with the
-release path `MM-LIFE-2e` left behind and would be re-decided against
-it; building one
-means emitting the runtime allocator only when no declaration named
+day, each keeping the false claim as quoted history. The rule's *head* —
+a real replacement seam — is what moved to **R**: building one would
+mean emitting the runtime allocator only when no declaration named
 `axiom_alloc` is in scope, and specifying the required signature
 `Int -> Int` returning 16-byte-aligned zeroed memory, with failure
-behaviour.
+behaviour. Nobody has specified any of that, and §9's Planned column now
+holds `ALLOC-20` alone — the one genuine prerequisite left.
 
 **MM-ALLOC-8a (H).** `__alloc` is an **unshadowable primitive name**. A
 program may declare a function called `__alloc`, and it type-checks and
@@ -1239,13 +1317,13 @@ an edit in place (§0.1) because it retires a `MUST` that pointed the
 other way: `MM-LIFE-2e` ordered all three refused when ARC landed, and
 `MM-LIFE-2a`'s ARC is withdrawn (§5, §9).
 
-*One refusal survives and is not this one.* `MM-ALLOC-8`'s replacement
-seam still refuses the three inside a program that defines its own
-`axiom_alloc`, because they move the position of an allocator that is no
-longer there — a refusal keyed to the allocator being replaced, not to a
-reclamation strategy arriving. That seam does not exist today (the name
-is `AX3026` at `check`), so no program can currently be in the state it
-describes.
+*The one refusal that used to survive this rule is gone with the seam it
+belonged to.* `MM-ALLOC-8` reserved the right to refuse the three inside
+a program that defines its own `axiom_alloc`, because they move the
+position of an allocator that is no longer there. That seam is **R** as
+of 2026-08-31 and never existed in any build (the name is `AX3026` at
+`check`), so the exception describes a state no program can be in, and
+this rule's **MUST NOT** is now unconditional.
 
 *The evidence is a workload rather than an argument, and it is gated.*
 `scripts/check-net.sh` builds one pre-forked server
@@ -1345,14 +1423,70 @@ record the slot still points at, and the next operation dispatches
 through it. This is the sharpest instance of `MM-ALLOC-16`, because the
 memory in question is one the program never named.
 
-**MM-ALLOC-16a (H, program obligation).** Marks **MUST** be reset in
-nesting order, innermost first. Resetting an inner mark after its outer
-mark has already been reset is **undefined**: the unwind loop's guard
-stops the list walk when the marked chunk is no longer on the active
-list, but the saved bump/end/chunk triple is still restored, so
-allocation resumes at a position that no longer describes a live chunk.
-The implementation does not trap, and a conforming implementation
-**SHOULD**.
+**MM-ALLOC-16a (H, program obligation; implementation obligation since
+2026-08-31).** Marks **MUST** be reset in nesting order, innermost
+first. Resetting an inner mark after its outer mark has already been
+reset is a **fault the implementation MUST detect**: an implementation
+**MUST NOT** restore an allocator position from a mark whose chunk is no
+longer on the active list, and **MUST** trap with status **75**
+(`MM-EXEC-16`) instead.
+
+*This rule said the opposite until 2026-08-31,* and the sentence it said
+is worth keeping: "The implementation does not trap, and a conforming
+implementation **SHOULD**." It did not, and the reason was three lines
+of `@__axiom_arena_reset_fn`. The unwind walk has two ways to stop —
+the marked chunk found (`%reached`), and the walk falling off the end of
+the active list without ever finding it (`%ranout`, which IS this
+fault) — and they were merged into one `%stop` before the branch, so
+both fell through to the same unconditional restore. Measured on the
+compiler at `9116167` (v0.6.0) with exactly the shape this rule names:
+
+```
+$ axiom run illegal.ax     # mark outer, burn past a chunk, mark inner,
+111                        # reset outer, reset inner, then allocate
+987654321
+$ echo $?
+0
+```
+
+— a program that wrote and read back a word in a chunk that same call
+had just pushed onto the free list, and said nothing. Since 2026-08-31
+the two comparisons branch separately, `%ranout` calls
+`@__axiom_bad_mark`, and the same program prints `axiom: arena reset to
+an invalid mark` on fd 2 and exits 75. `tests/stdlib/166-arena-bad-mark.ax`
+pins it.
+
+*What this does NOT detect, stated so nobody builds on it.* Resetting
+the **same** mark twice is legal and stays silent. A mark cell is
+allocated before the position it saves is read, so it sits below its own
+waterline and no reset reclaims it; after the first reset
+`@__axiom_chunk` **is** the marked chunk, so `@__axiom_arena_reset_fn`
+takes its equal-chunk fast path and the unwind walk is never entered.
+That is the design (`emitArenaHelpers`'s own comment: "so the same mark
+can be reset twice"), not a gap in the trap, and the fixture asserts the
+silence rather than a trap so that a future change to either cannot
+drift from what this paragraph says.
+
+*The cost was re-measured rather than argued.* The two comparisons are
+the same two — only the `or` that merged them is gone — and everything
+before `unwind:` is byte-identical in the emitted IR, so the
+equal-chunk fast path, which is what a bracketed request handler takes
+on nearly every reset, cannot see this change at all.
+`scripts/check-arena-reset-rate.sh` A/B on 2026-08-31, alternating two
+compilers built from the same tree one branch apart, on a machine with
+five other builds running:
+
+| | per-reset |
+|---|---|
+| with the split branch | 2.146, 2.142, 2.517, 3.012 µs |
+| with the merged `%stop` | 2.849, 2.200 µs |
+
+The two sets interleave, so the change is not measurable above this
+machine's own run-to-run spread — which is itself the reason both
+columns sit above the **1.35 µs** §9.0 records: that figure was taken
+on an idle machine on 2026-08-25 and is a floor for the *workload*, not
+a threshold either column crosses here. What the A/B establishes is the
+only claim this rule needs: the branch split does not move the number.
 
 The measured shape of a correct use — the "managed" variant of
 `scripts/measure-memory-baseline.sh` — is: mark once before the loop;
@@ -1362,8 +1496,9 @@ restored pointer and survive by `MM-ALLOC-14`. Flat at ~1.4 MiB from 80
 through 20,000 generations, against ~16 KiB per generation forever for
 the same loop unbracketed.
 
-**MM-ALLOC-17 (H). A trap may abort to a mark, and the abort discharges
-`MM-ALLOC-16b` on its own path.** `(__axiom_recover mark thunk)` arms a
+**MM-ALLOC-23 (H, renumbered 2026-08-31 from a second `MM-ALLOC-17`).
+A trap may abort to a mark, and the abort discharges `MM-ALLOC-16b` on
+its own path.** `(__axiom_recover mark thunk)` arms a
 recovery point and runs `thunk`. Out of memory (70), an unhandled effect
 (71) and a division by zero (72) then answer the *arming call* with
 their status instead of writing to fd 2 and exiting; with nothing armed
@@ -1553,7 +1688,8 @@ instead of promoting an arena.
 
 ### 3.5 `cast` degrades the evidence word — measured
 
-**MM-LIFE-2e (H). `cast` is not a type-level no-op. It is also an
+**MM-VAL-22 (H, renumbered 2026-08-31 from a second `MM-LIFE-2e`).
+`cast` is not a type-level no-op. It is also an
 instruction to the reference model, and the instruction is "do not
 trust this word".** `evStampFill` (`self_host/typecheck.ax`) classifies
 an argument whose root is a `cast` as evidence **0** outright, on the
@@ -1583,8 +1719,8 @@ no parameter mentions. Making all fourteen of those concrete produces
 That repair would trade a type-system unsoundness for a memory-model
 regression at 1,223 places, silently.
 
-**MM-LIFE-2f (H). The safe vehicle is a typed accessor, not a
-call-site cast.** A cast placed at a RETURN, inside a function whose
+**MM-VAL-23 (H, renumbered 2026-08-31 from a second `MM-LIFE-2f`).
+The safe vehicle is a typed accessor, not a call-site cast.** A cast placed at a RETURN, inside a function whose
 declared type carries the truth, leaves callers seeing that declared
 type — and the evidence word is computed from it. Measured:
 
@@ -1647,12 +1783,23 @@ and the write is visible through **every** alias of `e`. It performs the
 `Mut` effect, precisely because it is visible where a local's mutation
 is not. The form evaluates to `0`, and its static type is `I64` — which
 does **not** stop it being the value of a function returning `Int`:
-`(fn (bump p) (set p.x 1))` declared `(-> P Int)` checks `OK`.
+`(fn (bump p) (set p.x 1))` declared `(-> P Int)` checks `OK` when `P`
+declares `(mut x : Int)`.
 
 ```scheme
 (let ((p (P 1 2)) (q p))
   { (set p.x 99) (println q.x) })   ; prints 99
 ```
+
+**MM-MUT-2a (H).** The field must be declared `mut`; a store into one
+that is not is `AX3012` at the field name in the write. This is the
+`let` rule applied to fields, and it is checked from 0.6.0 — before
+that the marker was parsed and dropped, and every field of every struct
+was writable. Only the LAST segment of a path is governed: `(set
+a.b.c v)` needs `c` declared `mut` and says nothing about `b`, because
+the store mutates the value `b` points at rather than the `b` slot.
+`memSetWord` is outside the rule entirely — it takes a block and a word
+index, which is how `Vec` and `Map` write slots that are not fields.
 
 **MM-MUT-3 (H).** Field stores are available on **named fields of a
 `struct` type only**. A `data` constructor's positional fields have no
@@ -2559,20 +2706,58 @@ argument is depth 0 and no witness is renumbered after the fact.
 two- and three-parameter lambdas; built by the compiler one commit
 back it does not answer wrongly, it **exits 139**.
 
-What still passes `0` and has not been measured: the surplus arguments
-of a `cast` spine and the over-applied path. Both under-retain, which
-leaks, and neither has a probe yet — which is the same sentence that
-was wrong twice above, so it is a statement about what is unmeasured
-and not about what is safe.
+*The two that were left unmeasured were the same sentence wrong a
+third and fourth time, and both are closed as of 2026-08-31.* They
+were recorded as "the surplus arguments of a `cast` spine and the
+over-applied path — both under-retain, which leaks, and neither has a
+probe yet". Probed, on the shape `461` uses, against `9116167` (0.6.0)
+with a compiler built from that tree: neither leaked. Both were **live
+use-after-frees**, and `axiom check` printed OK on each.
+
+| the application | 0.6.0 | now |
+|---|---|---|
+| `((lambda (v) (vecPush log v)) h.name)` — the control | 97, the `a` | 97 |
+| `((mkParker log) h.name)` — over-applied | **122**, the `z` | 97 |
+| `((cast Int (lambda (v) ..)) h.name)` — a cast spine | **122** | 97 |
+
+122 is the first byte of the five-byte string allocated into the block
+after `(set h.name ..)` released the only counted share. All three in
+one process exit **139** on 0.6.0, for the reason `461`'s header gives:
+uncounted parks recycle blocks into each other until a header read
+lands outside the heap.
+
+The two had different causes, which is why the fix is in two places.
+The over-applied path had the class and threw it away — `walkAppChain`
+records one per application node, and `emitApplyChain` passed `vecNew`
+to both of its callers, so `evOperandAt` read 0 at every step;
+`dispatchCall` now snapshots `spineEvs` beside the arguments, exactly
+as `emitIndirectCall` already did, and `emitOverApplied` drops it by
+the same arity its arguments are dropped by. The `cast` spine never
+had the class at all: `checkCastForm` claims the whole spine at its
+outermost node, so the intermediate application nodes never reached
+the arm that stamps them, and `checkCastArgs` now stamps the surplus
+ones. `tests/stdlib/462-surplus-closure-arg.ax` pins all three rows
+above and `scripts/check-closure-reclaim.sh` ablates each half: the
+checker half strikes out term 8 and nothing else, the emitter half
+takes both callers and exits 139.
+
+What still passes a constant `0` is the effect-operation path in
+`emitApplyRegsOwned`, and that one is measured and correct — a
+handler's parameter is the operation's declared type, which `AX3017`
+will not let be a variable, so its store's retain is unconditional and
+the word is one the handler never reads.
 
 **WHAT THIS UNBLOCKS.** The argument half of the closure-reclamation
 design — release a closure's owned argument when the application's
 result class is a word — was refused because the park took no share.
 It now takes one wherever the application classifies its argument, and
 the `__release` probe that read **3** before reads **16** after. The
-rule is therefore available for those applications and still unsound
-for the three above, so a release written without consulting the same
-evidence is the identical use-after-free in a new place.
+rule is therefore available for those applications, and since
+2026-08-31 there is no application path left that passes a word the
+checker could have supplied and did not — a release written without
+consulting that word would still be the identical use-after-free in a
+new place, which is why the rule is stated as consulting it rather
+than as unconditional.
 
 `tests/stdlib/460-closure-reclaim.ax` pins both halves. **Term 64** is
 the parked argument surviving its application — true by accident
@@ -3635,7 +3820,7 @@ breaks if it is violated, because that is the useful half.
 | **I5** | Every allocation is 16-byte aligned | `MM-ALLOC-3` | unaligned `double` loads; `Str` headers straddling |
 | **I6** | Memory obtained *through `axiom_alloc`* reads as zero | `MM-ALLOC-6` | `Map` reads stale occupancy; `strAlloc` loses its terminator |
 | **I7** | A reset writes nothing to what it reclaims | `MM-ALLOC-14` | copy-at-boundary reads scrubbed bytes — 39,841 of 40,000 wrong |
-| **I8** | Marks nest, and a mark is never reclaimed by its own reset | `MM-ALLOC-12` | a doubly-reset mark restores a position from freed memory |
+| **I8** | Marks nest, and a mark is never reclaimed by its own reset | `MM-ALLOC-12` | a mark reset OUT OF NESTING ORDER restores a position from freed memory. **Enforced since 2026-08-31**, status 75 (`MM-ALLOC-16a`, `tests/stdlib/166-arena-bad-mark.ax`) — the first of these fifteen to move from argued to trapped. The consequence column said "a doubly-reset mark" until then, and that was the wrong shape: resetting the SAME mark twice is legal by this invariant's own first clause (the cell is never reclaimed by its own reset, so it stays readable) and is measurably harmless — the second reset finds its chunk still active and takes the equal-chunk fast path. What is not harmless is an INNER mark reset after its outer one |
 | **I9** | Chunk addresses are unordered | `MM-ALLOC-5` | a backward copy across chunks corrupts |
 | **I10** | The stack holds no data, only frames, `mut` cells, and the per-function merge scratch (one `alloca` whose value never outlives the merge that loads it - amended 2026-08-15 with `MM-ALLOC-9`) | `MM-ALLOC-11` | dangling values would become possible |
 | **I11** | All allocator state is process-private | `MM-PAR-3` | `Job` would need atomics |
@@ -3681,8 +3866,8 @@ that rule's status, which is the failure this table exists to prevent.
 | Area | Holds today | Planned | Withdrawn | Refused |
 |---|---|---|---|---|
 | Execution | EXEC-1…6d, 8…13, 15…17 | — | — | EXEC-7, EXEC-14 |
-| Representation | VAL-1…11, 14…20 | — | — | VAL-12, VAL-13 |
-| Allocation | ALLOC-1…7, 8a…16b, ALLOC-22 | ALLOC-8, ALLOC-20 | ALLOC-17…19, ALLOC-21 | — |
+| Representation | VAL-1…11, 14…20, VAL-22, VAL-23 | — | — | VAL-12, VAL-13 |
+| Allocation | ALLOC-1…7, 8a…16b, ALLOC-22, ALLOC-23 | ALLOC-20 | ALLOC-17…19, ALLOC-21 | ALLOC-8 |
 | Mutation | MUT-1…5 | — | — | MUT-6 |
 | Lifetimes | LIFE-1, 3, 4, 6, 2g | LIFE-5, LIFE-7 | LIFE-2a…2f (2026-08-24, superseded by ALLOC-22) | LIFE-2 |
 | Parallelism | PAR-1…5 | PAR-6 | — | — |
@@ -3702,16 +3887,44 @@ reason, and §9.0 carries the standing cost the half-finished state
 leaves behind. Read the column as *no longer being finished*, never as
 *not there*.
 
-**Two identifiers in this document are used twice**, and the Lifetimes
-row means §5's rules only. §3.5 states a second `MM-LIFE-2e` (`cast`
-degrades the evidence word) and a second `MM-LIFE-2f` (the typed
-accessor is the safe vehicle), both **H**, both about the evidence word
-rather than about counting, and both appear in no column of this table.
-A duplicate identifier is a §0.1 violation. It is recorded here rather
-than repaired by renaming, because every citation in this document and
-in `self_host/` resolves by number and a rename silently redirects
-whichever side it does not touch; repairing it is a decision about which
-pair keeps the number, not a typo fix.
+**Three identifiers in this document were used twice, and all three
+were repaired on 2026-08-31.** A duplicate identifier is a §0.1
+violation, and this section used to record two of them rather than fix
+them, on the ground that "every citation in this document and in
+`self_host/` resolves by number and a rename silently redirects
+whichever side it does not touch". That objection is about a rename
+being unmeasurable, and it stopped applying the moment the rename was
+measured: citation counts, taken over `self_host/`, `stdlib/`, `tests/`
+and every prose document, are what decided which side moved, and
+`scripts/check-doc-drift.sh` now refuses a rule header that appears
+twice at all — which is how the THIRD one was found, since this
+paragraph had never noticed it.
+
+| Was | Meaning | Cited | Now |
+|---|---|---|---|
+| `MM-LIFE-2e` (§5) | the ARC release path | 19 | unchanged |
+| `MM-LIFE-2e` (§3.5) | `cast` degrades the evidence word | 1 | **`MM-VAL-22`** |
+| `MM-LIFE-2f` (§5) | cycles under counting | 1 (plus `I14`) | unchanged |
+| `MM-LIFE-2f` (§3.5) | the typed accessor is the safe vehicle | 1 | **`MM-VAL-23`** |
+| `MM-ALLOC-17` (§3.4, 2026-08-14) | the implicit per-activation arena, **W** | 0 outside this file | unchanged |
+| `MM-ALLOC-17` (§3.3, 2026-08-25) | a trap may abort to a mark, **H** | 1 | **`MM-ALLOC-23`** |
+
+The rule that moved is in every case the one with the smaller footprint
+AND the later arrival — the two criteria agree on all three pairs, which
+is why this is a repair and not a judgement call. The §3.5 pair became
+`MM-VAL-*` because both are about the evidence word and `cast`, §2's
+subject, not §5's lifetimes. The Lifetimes row of the table above
+therefore now means what it says, with no second reading needed.
+
+Measured with:
+
+```
+grep -o '^\*\*\(MM\|ERR\|I\)[A-Z-]*[0-9][0-9a-z]*' docs/memory-model.md \
+  | sed 's/^\*\*//' | sort | uniq -c | awk '$1>1'
+```
+
+which printed `2 MM-ALLOC-17`, `2 MM-LIFE-2e`, `2 MM-LIFE-2f` before
+this change and nothing after it.
 
 ### 9.0 Defects this specification records
 
@@ -3725,8 +3938,8 @@ document.
 | `MM-ALLOC-8b` | `(__alloc 0)` returns an unadvanced bump pointer — address 0 before any chunk exists |
 | `MM-VAL-4c` | `(!= NaN NaN)` is `false`; `Fmt.fmtFloat` cannot render inf or NaN |
 | `MM-VAL-3b` | `INT_MIN / -1` and shifts ≥ 64 are undefined and answer differently per `--opt`. The operators are unchanged; what closed is the absence of an alternative — `stdlib/Err.ax`'s checked arithmetic, `tests/stdlib/312-checked-arithmetic.ax` |
-| `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc` |
-| `MM-EXEC-9a` | effect inference is an under-approximation. Seven measured ways; **five closed** — `__alloc` and trait dispatch on 2026-08-23, `__store8`/`__store64` (`Mut`), `__argc`/`__argv` (`IO`) and the arena primitives (`Alloc`) on 2026-08-25. Two left: a call through a local, a parameter or an unresolved name, which sets `#effects-incomplete` rather than reporting a set that looks complete; and constructor allocation, which is a decision `ERR-PROP-2` relies on and was the row this table did not list |
+| `MM-VAL-21` | `alloc` types as `*mut T`, which is unspellable, evaluates to 0, and still reports `#effects=Alloc`. **The population is not zero, measured 2026-08-31**: thirteen `(alloc ...)` expressions in eight corpus files across four gates (`check-diagnostics`, `check-fmt`, `check-restrictions`, `check-self-host`), plus a fourteenth hit that is not a use site at all and matters more than the thirteen — `self_host/format.ax:3629`, the FORMATTER's own printer for the form, which is a second grammar a refusal has to delete from as well. This rule's own `doc-gate:negative-exempt` comment asked for "a corpus counter, which this gate does not have yet"; the count above is that counter's first reading, and refusing the form is therefore a migration and the loss of the only cheap way to write a site-level `Alloc` witness (`tests/diagnostics/372-restrict-no-alloc.ax`'s `direct` case), not the near-zero edit `memory-model-v2-proposal.md` P1 priced |
+| `MM-EXEC-9a` | effect inference is an under-approximation. Seven measured ways; **six closed** — `__alloc` and trait dispatch on 2026-08-23, `__store8`/`__store64` (`Mut`), `__argc`/`__argv` (`IO`) and the arena primitives (`Alloc`) on 2026-08-25, and constructor allocation on 2026-08-31, which stood as a decision `ERR-PROP-2` relied on until `restrict(no-alloc)` made it an unfalsifiable claim. One left: a call through a local, a parameter or an unresolved name, which sets `#effects-incomplete` rather than reporting a set that looks complete |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so a function of either name is definable but uncallable |
 | `MM-LIFE-2j` | **RESOLVED BY REMOVAL, 0.6.0.** The rule was that a trait DEFAULT body's shape word depended on `impl` declaration order: `checkImplComplete` synthesized the default into every impl that omitted the method **without copying the body's nodes**, so one AST was checked once per implementing type and per-node stamps were last-write-wins across the monomorphizations. Measured 2026-08-25 against the compiler as shipped at 0.3.0, on the fixture `373-shared-default-binder` and the same file with its two `impl` blocks swapped: `Ident#String#ident` built its block with header `131076` and `axiom_retain(%x)` when the `Int` impl was declared first, and with header **`4`** — a LEAF — and no retain when the `String` impl was. One program, two orderings, two ownership shapes for the same monomorphization. Traits were removed in 0.6.0, and with them the only way to check one body under two type environments. Re-measured 2026-08-31 by diffing emitted IR from a last-write-wins compiler against the tree's across 278 fixtures, every `stdlib/` module and `self_host/main.ax`: byte-identical everywhere. `scripts/check-fallible-reclaim.sh` asserts that unreachability, so the rule stays listed — a future construct that re-checks a body per instantiation brings it back, and the gate is what would say so. |
 | ~~`MM-EXEC-16`~~ | **CLOSED 2026-08-24.** Status **72** was division by zero here *and*, in `docs/ffi.md` C7, the exit a `no_std` crate's panic handler took — an Axiom division and a Rust panic were indistinguishable to a supervisor reading a status. The FFI side moved to **73**, which `MM-EXEC-16` does not reserve, and the path is gated by `tests/ffi/demo/115-abort-status.ax`. Worth recording why it survived: all 35 FFI cases carried `; expect 0`, so the abort had never been executed by anything and any status whatever would have passed |
@@ -3757,6 +3970,7 @@ equivalent honesty for this one.
 |---|---|
 | `tests/stdlib/165-arena-keep.ax` | ALLOC-14, ALLOC-15 (overlap over 500 rounds, chunk crossing, a 2 MiB oversize block, zeroing) |
 | `tests/stdlib/160-arena.ax` | ALLOC-12, ALLOC-13 (waterline, 64-byte contiguity, reuse, nesting, chunk crossing, zero-on-reuse) |
+| `tests/stdlib/166-arena-bad-mark.ax` | ALLOC-16a's implementation half (2026-08-31) — an inner mark reset after its outer one traps with status 75, and the two legal shapes beside it (nested marks reset innermost-first, the same mark reset twice) stay silent, so the trap is pinned against firing on correct use as well as failing to fire on incorrect |
 | `tests/stdlib/110-tail-loop-alloc.ax` | that a self tail call does **not** reclaim what its iteration allocated — the negative of ALLOC-19 |
 | `tests/stdlib/040-mem.ax` | the `Mem` primitives over ALLOC-3, ALLOC-6 |
 | `tests/stdlib/358-str-owner-shares.ax` | VAL-7's counting rule — every header that NAMES an owner holds a share of it |
@@ -3820,10 +4034,14 @@ aliases, `MM-EXEC-6b`'s self-TCO (which `reference.md` misattributed to
 LLVM until 2026-08-14 — a fixture would keep it from drifting back),
 and `MM-LIFE-3`'s cycles stated *as* a property.
 
-**All three of `MM-EXEC-16`'s POSIX exit statuses are gated**: 71 by
-`tests/stdlib/310-effect-unhandled.ax`, 72 by the division fixtures, and
-70 by `tests/stdlib/314-out-of-memory.ax`. The fourth row, 74, is
-windows-x86_64's and is gated by nothing that executes: `scripts/check-platform-constants.sh`
+**All four of `MM-EXEC-16`'s executable POSIX exit statuses are
+gated**: 71 by `tests/stdlib/310-effect-unhandled.ax`, 72 by the
+division fixtures, 70 by `tests/stdlib/314-out-of-memory.ax`, and — since
+2026-08-31 — **75** by `tests/stdlib/166-arena-bad-mark.ax`, which pins
+the sentence, the status, and the two legal shapes the trap must stay
+silent on. This paragraph said *three* until 75 existed; it is amended
+rather than rewritten because the count is the claim. The remaining row,
+74, is windows-x86_64's and is gated by nothing that executes: `scripts/check-platform-constants.sh`
 reads its emission, and README's *Targets* section says no runner runs
 that target yet. This paragraph said 70 was
 "the one no fixture can reach without exhausting memory", which was
@@ -4097,7 +4315,7 @@ constructor list.
 ### 11.3 The aliasing hazard, in the smallest program that shows it
 
 ```scheme
-(struct Cfg (verbose : Int))
+(struct Cfg (mut verbose : Int))
 
 (:: configure (-> Cfg Cfg))
 (fn (configure c) { (set c.verbose 1) c })    ; mutates the CALLER's value

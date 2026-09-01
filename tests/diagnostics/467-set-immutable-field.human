@@ -1,0 +1,11 @@
+[1;31merror[AX3012][0m[1m: cannot assign to field `no` of `P`: the field is not declared `mut`[0m
+  [1;34m--> [0m467-set-immutable-field.ax:44:14
+[1;34m   |[0m
+[1;34m44 |[0m       (set p.no 3)
+[1;34m   |[0m              [1;31m^^ `no` is not a `mut` field[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma struct field is immutable unless its declaration marks it `mut`, the rule `let` already follows; until 0.6.0 the marker was parsed and discarded and this store compiled in silence
+  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable where `P` is defined: `(mut no : Int)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
+
+compilation failed due to 1 previous error

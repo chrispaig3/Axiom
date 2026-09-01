@@ -1,0 +1,382 @@
+; expect 100
+; The line editor's arithmetic and its kill ring, swept.
+;
+; `scripts/check-repl-tui.sh` drives a real pty and compares the SCREEN
+; against an independent model, which is the check that matters - but
+; it can afford five widths, and the failures live at
+; `(pcols + n) % W == 0`, which no hand-picked width finds. This sweeps
+; every width from 2 to 80 against every prompt width and every cursor
+; position across two rows and a bit, and requires the editor's row and
+; column to agree with an INDEPENDENT formula written here. 11,000-odd
+; comparisons on every build, with no terminal.
+;
+; THE EXIT STATUS NAMES WHICH PART FAILED rather than being a flag.
+; 100 is 20 + 30 + 12 + 15 + 23, one term per section, and each term
+; is earned only on an EXACT count - so 80 is the geometry, 70 the
+; algebra, 88 the ring, 85 the yank, and 77 the agreement sweeps. A section whose loop stopped
+; running scores 0 and cannot pass by silence, which is the discipline
+; 990-char-class states: "a predicate that stopped being called cannot
+; pass by silence."
+;
+; WHY THE ROW FORMULA HAS NO CEILING. `ledRowsUsed` is `C / W + 1`,
+; uniformly, never `(C + W - 1) / W`. That is only correct because
+; `ledRefreshFull` emits a forced newline whenever `C % W == 0`, which
+; drives the terminal's DEFERRED WRAP and puts the cursor where
+; `row(C) = C / W` says it is instead of one row above it. The
+; reference formula below is written the same way on purpose: what
+; this case pins is that the editor's arithmetic and the redraw's
+; contract are the same statement. The redraw's half - that a real
+; terminal agrees - is layer 5 of check-repl-tui.sh, and neither case
+; can substitute for the other.
+;
+; MEASURED AT INTRODUCTION: replacing `ledRowsUsed`'s uniform `+ 1`
+; with the ceiling `(C + W - 1) / W` - the form that LOOKS right, and
+; is right for every content length except the ones that land exactly
+; on a row - drops this from 77 to 57, and restoring it puts it back.
+(import Str)
+
+(import Mem)
+
+(import Vec)
+
+(import Tui.Edit)
+
+(import lexer)
+
+(import style)
+
+; A `Bool` pair, compared by branching: `==` is arithmetic here.
+(:: agreeBool (-> Bool Bool Int))
+
+(fn (agreeBool a b)
+  (if a
+    (if b
+      1
+      0
+    )
+    (if b
+      0
+      1
+    )
+  )
+)
+
+; A prompt `w` columns wide, made of spaces so that `visLen` and the
+; count agree without any escape being involved.
+(:: spacesOf (-> Int String))
+
+(fn (spacesOf w)
+  (let ((s (strAlloc w)))
+    (let ((mut i 0))
+      {
+        (while (< i w)
+          {
+            (memPutByte (strData s) i 32)
+            (set i (+ i 1))
+          })
+        s
+      }
+    )
+  )
+)
+
+; An editor holding `n` ASCII characters with the cursor at `k`.
+(:: edOf (-> LineEd Int Int Int Int Int))
+
+(fn (edOf ed pcols cols n k)
+  {
+    (ledReset ed (spacesOf pcols) cols 24)
+    (let ((mut i 0))
+      (while (< i n)
+        {
+          (ledInsert ed (+ 97 (% i 26)))
+          (set i (+ i 1))
+        }))
+    (let ((mut j n))
+      (while (> j k)
+        {
+          (ledLeft ed)
+          (set j (- j 1))
+        }))
+    0
+  }
+)
+
+(:: agreeInt (-> Int Int Int))
+
+(fn (agreeInt a b)
+  (if (== a b)
+    1
+    0
+  )
+)
+
+(:: agreeStr (-> String String Int))
+
+(fn (agreeStr a b)
+  (if (strEq a b)
+    1
+    0
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (ring ledRingNew)
+    (ed (ledNew ring "-!*+/<>=%&|'^"))
+    (mut geoOk 0)
+    (mut geoAll 0)
+    (mut algOk 0)
+    (mut algAll 0)
+  )
+    {
+      ; =============================================================
+      ; 1. THE GEOMETRY SWEEP.
+      ; =============================================================
+      (let ((mut w 2))
+        (while (<= w 80)
+          {
+            (let ((mut p 0))
+              (while (< p 4)
+                {
+                  (let ((pcols 
+                    (if (== p 0)
+                      0
+                      (if (== p 1)
+                        1
+                        (if (== p 2)
+                          7
+                          (- w 1)
+                        )
+                      )
+                    )
+                  ))
+                    (let ((n (+ (* 2 w) 3)))
+                      {
+                        (edOf ed pcols w n n)
+                        (let ((mut k 0))
+                          (while (<= k n)
+                            {
+                              ; The independent statement of the same
+                              ; three numbers. Written from the cell
+                              ; index, which is what a terminal
+                              ; actually counts.
+                              (let ((cell (+ pcols k)))
+                                {
+                                  (set geoOk (+ geoOk (agreeInt (ledRowOf ed k) (/ cell w))))
+                                  (set geoOk (+ geoOk (agreeInt (ledColOf ed k) (% cell w))))
+                                  (set geoAll (+ geoAll 2))
+                                }
+                              )
+                              (set k (+ k 1))
+                            }))
+                        (set geoOk (+ geoOk (agreeInt (ledRowsUsed ed) (+ (/ (+ pcols n) w) 1))))
+                        (set geoOk (+ geoOk (agreeInt (ledContentCols ed) (+ pcols n))))
+                        (set geoAll (+ geoAll 2))
+                      }
+                    )
+                  )
+                  (set p (+ p 1))
+                }))
+            (set w (+ w 1))
+          }))
+      ; =============================================================
+      ; 2. THE ALGEBRA, against values written out by hand.
+      ; =============================================================
+      (ledReset ed "> " 80 24)
+      (ledInsertStr ed "(vec-push! xs 1)")
+      (set algOk (+ algOk (agreeStr (ledSnapshot ed) "(vec-push! xs 1)")))
+      (set algOk (+ algOk (agreeInt (ledCursor ed) 16)))
+      ; Alt-b from the end: over `1)` there is no word before the `)`,
+      ; so it skips the non-word run and then the `1`.
+      (ledWordLeft ed)
+      (set algOk (+ algOk (agreeInt (ledCursor ed) 14)))
+      ; Again: over the space, then over `xs`.
+      (ledWordLeft ed)
+      (set algOk (+ algOk (agreeInt (ledCursor ed) 11)))
+      ; And again: over the space, then over the WHOLE of `vec-push!`,
+      ; because the lexer says `-` and `!` are identifier characters
+      ; and a REPL's words are the language's identifiers. A
+      ; hand-rolled alnum rule would stop at the hyphen and answer 5.
+      (ledWordLeft ed)
+      (set algOk (+ algOk (agreeInt (ledCursor ed) 1)))
+      (ledHome ed)
+      (set algOk (+ algOk (agreeInt (ledCursor ed) 0)))
+      (ledEnd ed)
+      (set algOk (+ algOk (agreeInt (ledCursor ed) 16)))
+      (ledLeft ed)
+      (ledBackspace ed)
+      (set algOk (+ algOk (agreeStr (ledSnapshot ed) "(vec-push! xs )")))
+      (ledDelete ed)
+      (set algOk (+ algOk (agreeStr (ledSnapshot ed) "(vec-push! xs ")))
+      ; Every guard: nothing to delete, nothing to move over.
+      (set algOk (+ algOk (agreeInt (ledDelete ed) 0)))
+      (set algOk (+ algOk (agreeInt (ledRight ed) 0)))
+      (ledHome ed)
+      (set algOk (+ algOk (agreeInt (ledBackspace ed) 0)))
+      (set algOk (+ algOk (agreeInt (ledLeft ed) 0)))
+      ; A control byte is REFUSED: the buffer must never hold byte 27,
+      ; because every column formula above assumes its columns equal
+      ; its code-point count.
+      (set algOk (+ algOk (agreeInt (ledInsert ed 27) 0)))
+      (set algOk (+ algOk (agreeInt (ledInsert ed 9) 0)))
+      (set algOk (+ algOk (agreeInt (ledInsert ed 127) 0)))
+      (set algOk (+ algOk (agreeInt (ledLen ed) 14)))
+      ; Kill to end and to start.
+      (ledReset ed "> " 80 24)
+      (ledInsertStr ed "alpha beta")
+      (ledHome ed)
+      (ledWordRight ed)
+      (set algOk (+ algOk (agreeInt (ledCursor ed) 5)))
+      (ledKillToEnd ed)
+      (set algOk (+ algOk (agreeStr (ledSnapshot ed) "alpha")))
+      (ledKillToStart ed)
+      (set algOk (+ algOk (agreeStr (ledSnapshot ed) "")))
+      ; The exact number of comparisons above. Hand-maintained: a
+      ; check deleted to make this pass shows up in the diff as a
+      ; changed number, which is what makes it a floor and not a tally
+      ; the code computes for itself.
+      (set algAll 20)
+      ; =============================================================
+      ; 3. THE RING AT ITS CAP. 40 kills into a 16-entry ring, so the
+      ;    wraparound is tested where it happens and not below it.
+      ; =============================================================
+      (let ((mut i 0))
+        (while (< i 40)
+          {
+            (ledReset ed "> " 80 24)
+            (ledInsert ed (+ 97 (% i 26)))
+            (ledHome ed)
+            ; Alternating direction, so consecutive kills never
+            ; accumulate and each one is its own entry.
+            (if (== (% i 2) 0)
+              (ledKillToEnd ed)
+              {
+                (ledEnd ed)
+                (ledKillToStart ed)
+              }
+            )
+            (set i (+ i 1))
+          }))
+      ; =============================================================
+      ; 4. YANK AND YANK-POP.
+      ; =============================================================
+      (ledReset ed "> " 80 24)
+      (let (
+        (ringLen (vecLen ring))
+        (newest (vecGetStr ring (ledRingIdx ed)))
+      )
+        (let ((mut y 0))
+          {
+            (set y (+ y (agreeInt ringLen LED_RING_MAX)))
+            ; The 40th kill was `(+ 97 (% 39 26))` = 'n'.
+            (set y (+ y (agreeStr newest "n")))
+            (ledYank ed)
+            (set y (+ y (agreeStr (ledSnapshot ed) "n")))
+            ; Alt-y steps BACK one entry: the 39th kill was 'm'.
+            (ledYankPop ed)
+            (set y (+ y (agreeStr (ledSnapshot ed) "m")))
+            (ledYankPop ed)
+            (set y (+ y (agreeStr (ledSnapshot ed) "l")))
+            ; Pressed cold - after a key that is not a yank - it is a
+            ; refusal that changes nothing, not a corruption.
+            (ledReset ed "> " 80 24)
+            (ledInsertStr ed "zz")
+            (set y (+ y (agreeInt (ledYankPop ed) 0)))
+            (set y (+ y (agreeStr (ledSnapshot ed) "zz")))
+            ; =====================================================
+            ; 5. THE TWO PLACES A STDLIB COPY COULD DRIFT FROM A
+            ;    COMPILER ONE, swept rather than asserted.
+            ;
+            ;    `Tui.Edit` is stdlib and may not import the compiler,
+            ;    so `tuiVisLen` is a SECOND statement of the rule
+            ;    `style.visLen` states, and `ledIsWord` is a second
+            ;    statement of `lexer.isIdentChar` for the byte set
+            ;    `repl.ax` hands it. Two statements of one rule with
+            ;    nothing comparing them is exactly what 990-char-class
+            ;    was written about: three copies of "what is a space"
+            ;    had drifted at bytes 11 and 12, which no corpus file
+            ;    contains and no hand-written case would have tried.
+            ; =====================================================
+            (+ (let (
+              (mut vOk 0)
+              (mut vAll 0)
+              (mut wOk 0)
+            )
+              {
+                ; visLen: plain text, painted text, painted text with
+                ; a multi-byte character in it, an EMPTY paint, and an
+                ; UNTERMINATED sequence - the case where the two
+                ; implementations could most easily differ, because
+                ; each has to decide for itself what to do with it.
+                (let ((corpus vecNew))
+                  {
+                    (vecPush corpus "axiom> ")
+                    (vecPush corpus "")
+                    (vecPush corpus (paint SGR_SEC "axiom> "))
+                    (vecPush corpus (paint SGR_GUT "  ...> "))
+                    (vecPush corpus (paint SGR_ERROR ""))
+                    (vecPush corpus (strConcat (paint SGR_SEC "a") (paint SGR_HELP "bc")))
+                    (vecPush corpus (utf8FromChar 233))
+                    (vecPush corpus (paint SGR_TITLE (utf8FromChar 19990)))
+                    (vecPush corpus (strConcat (utf8FromChar 128512) "x"))
+                    (vecPush corpus (strConcat (strFromByte 27) "[1;36"))
+                    (vecPush corpus (strConcat (strFromByte 27) "["))
+                    (vecPush corpus (strFromByte 27))
+                    (let ((mut ci 0))
+                      (while (< ci (vecLen corpus))
+                        {
+                          (set vOk (+ vOk (agreeInt (tuiVisLen (vecGetStr corpus ci)) (visLen (vecGetStr corpus ci)))))
+                          (set vAll (+ vAll 1))
+                          (set ci (+ ci 1))
+                        }))
+                  })
+                ; The word set, every ASCII byte. Above 127 the two
+                ; DELIBERATELY differ and are not compared: the editor
+                ; is handed code points and answers true for every
+                ; non-ASCII letter, where `isIdentChar` is a BYTE
+                ; predicate that never meant to judge one.
+                (ledReset ed "> " 80 24)
+                (let ((mut b 0))
+                  (while (< b 128)
+                    {
+                      (set wOk (+ wOk (agreeBool (ledIsWord ed b) (isIdentChar b))))
+                      (set b (+ b 1))
+                    }))
+                (+
+                  (if (&& (== vOk vAll) (== vAll 12))
+                    10
+                    0
+                  )                  (if (== wOk 128)
+                    13
+                    0
+                  )
+                )
+              }
+            )            (+
+              (if (&& (== geoOk geoAll) (> geoAll 10000))
+                20
+                0
+              )              (+
+                (if (== algOk algAll)
+                  30
+                  0
+                )                (+
+                  (if (== ringLen LED_RING_MAX)
+                    12
+                    0
+                  )                  (if (== y 7)
+                    15
+                    0
+                  )
+                )
+              )
+            ))
+          }
+        )
+      )
+    }
+  )
+)

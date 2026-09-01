@@ -338,7 +338,16 @@ AXEOF
 # Type position. `()` IS a type - the empty tuple - and stays one.
 # `ascribe-unit` is the case that proves the two positions are
 # separate: `(:: 1 ())` parses its type with `parseExpr`.
-deg sig-unit-type 0 <<'AXEOF'
+# EXPECTS 1 SINCE 2026-08-31, and the change is a fix rather than a
+# regression. `()` is a type and stays one; what changed is that a body
+# answering `Int` under a declared `()` is now `AX3004`, because the
+# declared-result comparison stopped permitting every non-`Int`
+# mismatch. There is no way to satisfy this signature honestly - `()`
+# in EXPRESSION position is `AX2001`, so nothing can produce a unit
+# value - which is why the old exit 0 was the type hole and not a
+# feature. The degenerate property this case exists for is unchanged:
+# the compiler answers, with a diagnostic, rather than crashing.
+deg sig-unit-type 1 <<'AXEOF'
 (:: main ())
 (fn (main) 0)
 AXEOF
@@ -379,7 +388,13 @@ deg deep-list-200 1 <<'AXEOF'
 (:: main Int)
 (fn (main) [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]])
 AXEOF
-deg deep-type-200 0 <<'AXEOF'
+# EXPECTS 1 SINCE 2026-08-31, same cause: the body is `0` and the
+# declared result is a 200-deep tuple, which is now `AX3004` rather
+# than accepted. The point of the case is the DEPTH - that 200 nested
+# constructors neither blow the parser's recursion limit nor the
+# checker's stack - and a type error at the end proves the compiler
+# walked the whole thing to compare it.
+deg deep-type-200 1 <<'AXEOF'
 (:: main (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* Int)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 (fn (main) 0)
 AXEOF

@@ -19,7 +19,14 @@
   (start : Int)
   (end : Int))
 
-;@axiom:restrict(no-io,no-alloc,no-foreign)
+; `no-alloc` CAME OFF on 2026-08-31, and the body did not change: this
+; function's whole body is a struct construction, and a struct
+; construction allocates. The claim was accepted until then only
+; because a constructor application contributed nothing to the effect
+; row (`MM-EXEC-9a`'s second open row), so `no-alloc` was checked
+; against a set that could not hold the one effect it names. `no-io`
+; and `no-foreign` are unchanged and still true.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: mkSpan (-> Int Int Int))
 
 (pub fn (mkSpan start end) (Span start end))
@@ -97,7 +104,9 @@
   (lexeme : String)
   (span : Int))
 
-;@axiom:restrict(no-io,no-alloc,no-foreign)
+; `no-alloc` came off with `mkSpan`'s, for the same reason and on the
+; same day: the body is one `Token` construction, which allocates.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: mkToken (-> TokenKind String Int Int))
 
 (pub fn (mkToken kind lexeme span) (Token kind lexeme span))

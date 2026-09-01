@@ -7543,6 +7543,7 @@
     (emitLine cg "}")
     (emitLine cg "")
     (emitArenaHelpers cg)
+    (emitBadMarkTrap cg)
     (emitDivTrap cg)
     (emitOomTrap cg)
     (emitRecoverRuntime cg)
@@ -7877,6 +7878,47 @@
 )
 
 ; ------------------------------------------------------------------
+; MM-ALLOC-16a's trap: status 75, `__axiom_arena_reset` handed a mark
+; whose chunk is no longer on the active list.
+;
+; The fourth member of the family `emitDivTrap` opened for 72,
+; `emitOomTrap` joined for 70 and `emitUnhandledTrap` for 71, emitted
+; the same way: a private constant whose declared length is the
+; message's byte count EXACTLY - 38, counting the trailing newline,
+; because llc believes the declared length and a wrong one truncates
+; the sentence or writes bytes past it.
+;
+; IT DOES NOT ARM `__axiom_recover_abort`, and that is the one place
+; it departs from its three siblings. A recovery point's abort IS an
+; arena reset (`emitPrimRecover` calls `@__axiom_arena_reset_fn` on the
+; arming mark, `MM-ALLOC-23`), so answering an invalid reset by
+; performing another reset asks the corrupted structure the same
+; question again. By the time this is reached the unwind walk has
+; already pushed every chunk it passed onto the free list looking for
+; a chunk that was not there, so the list an abort would reset through
+; is exactly the one that just proved untrustworthy. 70, 71 and 72 are
+; conditions a program can be written to survive; this one is a
+; violation of `I8`, and `docs/error-model.md`'s recovery table names
+; three statuses, not four.
+(pub :: emitBadMarkTrap (-> Int Int))
+
+(pub fn (emitBadMarkTrap cg)
+  {
+    (emitLine cg "")
+    (emitLine cg "@__axiom_badmark_msg = private unnamed_addr constant [38 x i8] c\"axiom: arena reset to an invalid mark\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_bad_mark() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %bmp = ptrtoint ptr @__axiom_badmark_msg to i64")
+    (emitRuntimeWrite cg "%bmp" "38")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "75")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  }
+)
+
+; ------------------------------------------------------------------
 ; P1: WHICH FUNCTION DIED.
 ;
 ; A dying Axiom program used to yield a status and one line - "axiom:
@@ -8033,6 +8075,413 @@
     (if (== (strByte s i) 40)
       i
       (symtabParenOf s (+ i 1) n)
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; DEAD-CODE PRUNING: a program contains only what it uses.
+; ------------------------------------------------------------------
+; A hello world used to be 103,592 bytes and 388 `define`s, of which 13
+; were reachable from `main`: `(import IO)` drags in `Err`, `Fmt`, `Sys`
+; and the rest transitively, and every one of them was emitted, linked
+; and shipped. `nm` on the executable found all 375 dead ones.
+;
+; WHY THE LINKER COULD NOT DO IT, and why fixing only the linkage would
+; not have worked either. Two separate things pinned that code, and
+; both had to go:
+;
+;   1. 375 of the 388 `define`s carried EXTERNAL linkage. LLVM cannot
+;      delete an externally-linked function, because another
+;      translation unit might call it. Axiom is a whole-program
+;      compiler and there is no other translation unit.
+;   2. `emitSymbolTable` writes `ptrtoint (ptr @F to i64)` for EVERY
+;      function in the module, so the backtrace table is a live global
+;      holding the address of all of them. That pin survives any
+;      linkage change: measured, marking all 384 non-runtime `define`s
+;      `internal` and running `opt -O1` removed exactly ONE of them and
+;      left all 397 symbols in the binary - 103,592 bytes down to
+;      97,368, a 6% win. Removing the symbol-table pin as well took the
+;      same program to 17,224 bytes and 12 symbols, an 83% win. The
+;      linkage was the smaller half of the problem.
+;
+; So the decision is taken HERE, where both halves are answerable at
+; once: the module is pruned to the reachable set BEFORE the symbol
+; table is built, and the table then describes exactly the functions
+; that survived. A stripped function can never appear in a backtrace,
+; so nothing is lost by its absence.
+;
+; WHY THE WALK READS THE EMITTED IR RATHER THAN THE AST. Reachability
+; is only as good as the definition of "reachable", and the class that
+; sinks a naive answer is the function whose ADDRESS IS TAKEN rather
+; than called - a callback, a comparator, a capability-record field.
+; `vecSortBy`, `vecSiftDownBy` and three functions in `stdlib/Http.ax`
+; are the ones the effect walk already gives up on and marks
+; `#effects-incomplete`, and an AST walk would have to rediscover every
+; one of them and would still be guessing about the next.
+;
+; In the emitted IR that entire class disappears, because there is only
+; one way to mention a function at all: the token `@name`. A call is
+; `call i64 @f(...)`, an address-take is `ptrtoint (ptr @f to i64)`, a
+; closure record's code word is the same `ptrtoint`, and a thunk over a
+; bare reference is a `define` whose body calls its target. One scan
+; for `@` finds all of them, with no per-shape knowledge and nothing to
+; keep in step as the emitter grows. That is why this runs on the line
+; buffer, which `symtabNames` already reads for the same reason.
+;
+; AND THE FAILURE MODE IS LOUD. LLVM's textual IR has no implicit
+; declaration: a call to an `@f` nothing defines is `error: use of
+; undefined value '@f'` out of `opt`, which is exactly the shape the
+; retired `foreign` keyword died of. Probed again before this was
+; written. So a root this walk gets WRONG cannot ship a binary that
+; links and then crashes - it fails the build, in the compiler's own
+; pipeline, naming the symbol. Every over-approximation below is
+; therefore free and every under-approximation is caught.
+;
+; THE ROOT SET, in one place, with the reason for each:
+;
+;   the target's entry symbol  `main`, or `mainCRTStartup` on Windows.
+;                              The linker starts here; nothing in the
+;                              module calls it.
+;   axiom_alloc                the C ABI a linked host calls. All three
+;   axiom_retain               are `pub` in `rust/axiom_ffi` and
+;   axiom_release              `rust/examples/demo/src/lib.rs` states
+;                              their external linkage as a contract, so
+;                              they are roots in EVERY build, not only
+;                              an archive one - a `--crate` host linked
+;                              into an ordinary executable calls
+;                              `axiom_release` from Rust, where no IR
+;                              of ours mentions it.
+;   every `@name` written      the catch-all, and the reason this is a
+;   OUTSIDE any define         root class rather than a list. A global
+;                              initialiser that names a function keeps
+;                              it, whatever the emitter grows next; so
+;                              does an `@name` inside a string constant
+;                              that merely looks like one. Deliberately
+;                              too generous - see the failure-mode note
+;                              above for why that costs nothing.
+;
+; and, transitively, every `@name` in the body of anything reachable.
+;
+; `--emit-staticlib` PRUNES NOTHING, and needs no flag to say so. An
+; archive exists precisely so that another translation unit can call
+; into it: every `pub fn` is a C symbol by contract (docs/ffi.md), the
+; `axh_*` accessors and `Str$strAlloc` are called from the Rust
+; `--emit-rust-binding` writes, and the whole-program assumption this
+; pass rests on is false by construction. That is the one named
+; consumer, the compiler already knows which mode it is in, and there
+; is no opt-out for anyone else to remember.
+; ------------------------------------------------------------------
+
+; The four tables the walk carries, bundled so the scanners take one
+; parameter instead of four: 0 = the defined symbols, interned;
+; 1 = intern id -> index into `defStart`; 2 = index -> 0/1 live;
+; 3 = the worklist of defines marked live and not yet scanned.
+(pub :: pruneCtxNew (-> Int Int Int Int Int))
+
+(pub fn (pruneCtxNew si idToDef live stack)
+  (let ((v vecNew))
+    {
+      (vecPush v si)
+      (vecPush v idToDef)
+      (vecPush v live)
+      (vecPush v stack)
+      v
+    }
+  )
+)
+
+; Mark the define named `sym` live, and queue it. A name that defines
+; nothing in this module - `@putchar` from an `extern` declare, or a
+; `@`-shaped run of bytes inside a string constant - is silently no
+; symbol of ours, which is what makes the outside-a-define root class
+; safe to apply to every line without knowing what is on it.
+(pub :: pruneMark (-> Int String Int))
+
+(pub fn (pruneMark ctx sym)
+  (let ((id (internFind (vecGet ctx 0) sym)))
+    (if (< id 0)
+      0
+      (let ((idToDef (vecGet ctx 1)))
+        (if (>= id (vecLen idToDef))
+          0
+          (let (
+            (d (vecGet idToDef id))
+            (live (vecGet ctx 2))
+          )
+            (if (== (vecGet live d) 1)
+              0
+              {
+                (vecSet live d 1)
+                (vecPush (vecGet ctx 3) d)
+                0
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; One byte past the end of the `@`-spelling starting at `i`. A QUOTED
+; name is delimited by its closing quote and may hold anything;
+; `symtabQuoteEnd` already knows about the `\XX` escape `llvmSymBody`
+; writes, and is reused rather than re-derived. The slice this bounds
+; INCLUDES the quotes, because that is what `symtabScan` records for
+; the define line - the two spellings have to match to compare.
+(pub :: pruneRefEnd (-> String Int Int Int))
+
+(pub fn (pruneRefEnd s i n)
+  (if (>= i n)
+    i
+    (if (== (strByte s i) 34)
+      (let ((e (symtabQuoteEnd s (+ i 1) n)))
+        (if (< e 0)
+          i
+          e
+        )
+      )
+      (pruneRefPlainEnd s i n)
+    )
+  )
+)
+
+(pub :: pruneRefPlainEnd (-> String Int Int Int))
+
+(pub fn (pruneRefPlainEnd s i n)
+  (if (>= i n)
+    i
+    (if (llvmPlainByte (strByte s i))
+      (pruneRefPlainEnd s (+ i 1) n)
+      i
+    )
+  )
+)
+
+; Every `@name` on one line, marked. A `while` rather than the
+; per-byte recursion the neighbouring scanners use, because this one
+; is handed the string-constant lines too and those are as long as the
+; longest literal in the program.
+(pub :: pruneScanLine (-> Int String Int))
+
+(pub fn (pruneScanLine ctx ln)
+  (let (
+    (n (strLen ln))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (if (== (strByte ln i) 64)
+          (let ((e (pruneRefEnd ln (+ i 1) n)))
+            (if (> e (+ i 1))
+              {
+                (pruneMark ctx (strSlice ln (+ i 1) (- e (+ i 1))))
+                (set i e)
+              }
+              (set i (+ i 1))
+            )
+          )
+          (set i (+ i 1))
+        ))
+      0
+    }
+  )
+)
+
+; Index every `define` in the buffer: its symbol, its first and last
+; line, and for each line the define it belongs to (as index + 1, so 0
+; means "outside any define" and is the root class above).
+;
+; The block structure this relies on is the emitter's own and is
+; checked by construction: `emitFnDef` and every runtime emitter close
+; with a bare `}` in column 0, and nothing else in the buffer is a bare
+; `}` - a body's own lines are indented and its labels end in `:`.
+(pub :: pruneIndexDefs (-> Int Int Int Int Int Int Int Int))
+
+(pub fn (pruneIndexDefs lines si idToDef defStart defEnd live defOf)
+  (let (
+    (mut i 0)
+    (mut cur (- 0 1))
+  )
+    {
+      (while (< i (vecLen lines))
+        {
+          (let ((ln (vecGetStr lines i)))
+            (if (>= cur 0)
+              {
+                (vecPush defOf (+ cur 1))
+                (if (strEq ln "}")
+                  {
+                    (vecSet defEnd cur i)
+                    (set cur (- 0 1))
+                    0
+                  }
+                  0
+                )
+              }
+              (if (strStartsWith ln "define ")
+                (let ((at (symtabAtOf ln 0 (strLen ln))))
+                  (if (< at 0)
+                    (vecPush defOf 0)
+                    (let ((end (symtabEndOf ln (+ at 1) (strLen ln))))
+                      (if (< end 0)
+                        (vecPush defOf 0)
+                        (let (
+                          (sym (strSlice ln (+ at 1) (- end (+ at 1))))
+                          (d (vecLen defStart))
+                        )
+                          {
+                            (vecPush defStart i)
+                            (vecPush defEnd i)
+                            (vecPush live 0)
+                            (let ((id (internIntern si sym)))
+                              (if (== id (vecLen idToDef))
+                                (vecPush idToDef d)
+                                0
+                              )
+                            )
+                            (vecPush defOf (+ d 1))
+                            (set cur d)
+                            0
+                          }
+                        )
+                      )
+                    )
+                  )
+                )
+                (vecPush defOf 0)
+              )
+            )
+          )
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; The transitive closure, as a worklist rather than a fixpoint sweep:
+; `stack` only grows, and `sp` is how far it has been read, so every
+; define's body is scanned exactly once.
+(pub :: pruneWalk (-> Int Int Int Int Int))
+
+(pub fn (pruneWalk ctx lines defStart defEnd)
+  (let (
+    (stack (vecGet ctx 3))
+    (mut sp 0)
+  )
+    {
+      (while (< sp (vecLen stack))
+        (let (
+          (d (vecGet stack sp))
+          (mut k 0)
+        )
+          {
+            (set k (vecGet defStart d))
+            (while (<= k (vecGet defEnd d))
+              {
+                (pruneScanLine ctx (vecGetStr lines k))
+                (set k (+ k 1))
+              })
+            (set sp (+ sp 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; The buffer without the lines of any define that was never reached.
+(pub :: pruneRebuild (-> Int Int Int Int))
+
+(pub fn (pruneRebuild lines defOf live)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen lines))
+        {
+          (let ((o (vecGet defOf i)))
+            (if (== o 0)
+              (vecPush out (vecGetStr lines i))
+              (if (== (vecGet live (- o 1)) 1)
+                (vecPush out (vecGetStr lines i))
+                0
+              )
+            )
+          )
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+(pub :: pruneDeadDefs (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (pruneDeadDefs cg)
+  (if cgStaticlib
+    cg
+    (let (
+      (lines (memGetWord cg 0))
+      (si internNew)
+      (idToDef vecNew)
+      (defStart vecNew)
+      (defEnd vecNew)
+      (live vecNew)
+      (defOf vecNew)
+    )
+      (let ((ctx (pruneCtxNew si idToDef live vecNew)))
+        {
+          (pruneIndexDefs lines si idToDef defStart defEnd live defOf)
+          ; ------------------------------------------------------------
+          ; THE ROOT SET, and it is the whole design: everything below
+          ; is reached from here, so a name missing from this list is a
+          ; function deleted out from under a live call. Deliberately
+          ; generous - see the header for why an over-approximation
+          ; here costs nothing and an under-approximation cannot ship.
+          ; ------------------------------------------------------------
+          ; `main`, or `mainCRTStartup` on Windows. The linker starts
+          ; the program here and no IR of ours calls it.
+          (pruneMark ctx (targetEntryName (memGetWord cg 26)))
+          ; The C ABI a linked host calls. All three are `pub` in
+          ; `rust/axiom_ffi` and `rust/examples/demo/src/lib.rs` states
+          ; their external linkage as a contract - so they are roots in
+          ; EVERY build, not only an archive one: a `--crate` host
+          ; linked into an ordinary executable calls `axiom_release`
+          ; from Rust, where nothing in this module mentions it.
+          (pruneMark ctx "axiom_alloc")
+          (pruneMark ctx "axiom_retain")
+          (pruneMark ctx "axiom_release")
+          ; And the catch-all, which is why the three above are the
+          ; only names this pass has to know: every `@name` written
+          ; OUTSIDE any define. A global initialiser that holds a
+          ; function's address keeps that function, whatever the
+          ; emitter grows next, and so does an `@`-shaped run of bytes
+          ; inside a string constant that merely looks like one. That
+          ; second case is the price of the first and it is the right
+          ; way round - it retains, it never removes.
+          (let ((mut i 0))
+            (while (< i (vecLen lines))
+              {
+                (if (== (vecGet defOf i) 0)
+                  (pruneScanLine ctx (vecGetStr lines i))
+                  0
+                )
+                (set i (+ i 1))
+              }))
+          ; Everything reachable from those, through calls, through a
+          ; `ptrtoint` into a closure record, and through the thunks a
+          ; bare function reference synthesises - all one token to this
+          ; walk, which is the point of reading the IR.
+          (pruneWalk ctx lines defStart defEnd)
+          (memSetWord cg 0 (pruneRebuild lines defOf live))
+          cg
+        }
+      )
     )
   )
 )
@@ -8428,12 +8877,48 @@
     ; now, so it goes back on the free list. The marked chunk is then
     ; dirty from the restored waterline to its end - it was abandoned
     ; because it filled up - and saying so is one store.
+    ;
+    ; MM-ALLOC-16a, ENFORCED. The walk has two ways to stop and they
+    ; mean opposite things. `%reached` is the marked chunk still being
+    ; on the active list, which is the whole point of the walk.
+    ; `%ranout` is falling off the end of that list WITHOUT finding it -
+    ; the mark's chunk was already returned to the free list by an
+    ; outer reset, so the saved bump/end/chunk triple describes memory
+    ; the allocator no longer owns.
+    ;
+    ; Until 2026-08-31 both merged into one `%stop` and both fell
+    ; through to `tail`/`restore`, which restored that stale triple
+    ; unconditionally. Measured on this build before the split, with
+    ; the shape `MM-ALLOC-16a` names - mark outer, allocate past a
+    ; chunk boundary, mark inner, reset outer, reset inner:
+    ;
+    ;     111
+    ;     987654321
+    ;     exit 0
+    ;
+    ; - a program that read and wrote a chunk this very call had just
+    ; pushed onto the free list, and said nothing. The specification
+    ; said "the implementation does not trap, and a conforming
+    ; implementation SHOULD". It does now, and the SHOULD is a MUST.
+    ;
+    ; The two comparisons are the same two; only the merge is gone, so
+    ; the loop's per-iteration work does not grow. What this DOES NOT
+    ; catch is resetting the same mark twice: after the first reset
+    ; `@__axiom_chunk` IS `%schunk`, so `%same` takes the fast path
+    ; above and the walk is never entered - which is the documented
+    ; design (the mark cell sits below its own waterline precisely so
+    ; that a mark can be reset twice), not an escape.
+    ; `tests/stdlib/166-arena-bad-mark.ax` pins both halves.
     (emitLine cg "unwind:")
     (emitLine cg "  %c = phi i64 [ %chead, %resetbody ], [ %cnext, %unwind_body ]")
     (emitLine cg "  %reached = icmp eq i64 %c, %schunk")
+    (emitLine cg "  br i1 %reached, label %tail, label %unwind_live")
+    (emitLine cg "unwind_live:")
     (emitLine cg "  %ranout = icmp eq i64 %c, 0")
-    (emitLine cg "  %stop = or i1 %reached, %ranout")
-    (emitLine cg "  br i1 %stop, label %tail, label %unwind_body")
+    (emitLine cg "  br i1 %ranout, label %badmark, label %unwind_body")
+    (emitLine cg "badmark:")
+    (emitLine cg "  call i64 @__axiom_bad_mark()")
+    (emitLine cg "  unreachable")
     (emitLine cg "unwind_body:")
     (emitLine cg "  %clink = add i64 %c, 8")
     (emitLine cg "  %clinkp = inttoptr i64 %clink to ptr")
@@ -8728,7 +9213,17 @@
       ; `extern "kernel32"` block binding `WriteFile` does not declare
       ; it a second time - a repeated `declare` is an LLVM parse error,
       ; and the Windows platform module binds four of the runtime's six.
-      (let ((tailCg (emitExternDeclares decls (emitRecoverSlotHelpers (emitEffectGlobals (emitStringGlobals nextCg 0) 0)) 0 (runtimeDeclaredSyms (memGetWord nextCg 26)))))
+      ;
+      ; `pruneDeadDefs` LAST, and the order is the whole point: it is
+      ; the outermost call here and `symtabNames` reads its result, so
+      ; the backtrace table below is built over the functions that
+      ; SURVIVED. Run it the other way round and the table would hold
+      ; the address of every function in the module, which is a live
+      ; global referencing all of them and pins the lot - the reason
+      ; `internal` linkage alone removed one `define` of 388 when it
+      ; was measured. A stripped function can never appear in a
+      ; backtrace, so a table over the survivors is the complete table.
+      (let ((tailCg (pruneDeadDefs (emitExternDeclares decls (emitRecoverSlotHelpers (emitEffectGlobals (emitStringGlobals nextCg 0) 0)) 0 (runtimeDeclaredSyms (memGetWord nextCg 26))))))
         (renderCG (emitLine (emitBacktrace tailCg (symtabNames (memGetWord tailCg 0))) "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }"))
       )
       (emitModuleTail decls nextCg (+ i 1))
@@ -12943,6 +13438,15 @@
   (let (
     (revArgs (memGetWord cg 5))
     (args (reverseVec revArgs))
+    ; SNAPSHOTTED HERE, beside the arguments and for the identical
+    ; reason: the two branches below that apply a SURPLUS argument
+    ; through a closure need the class the checker recorded for it,
+    ; and every `emitExpr` between here and there re-enters `emitApp`,
+    ; which resets `argEv`. `emitIndirectCall` takes the same snapshot
+    ; at the same point; until 2026-08-31 these two took none and
+    ; passed `vecNew`, which reads as 0 - "not a reference" - at every
+    ; step. See `emitOverApplied`.
+    (evs (spineEvs cg))
     (isTail (memGetWord cg 30))
     (_clr (memSetWord cg 30 0))
   )
@@ -12972,7 +13476,7 @@
                 ; the surplus applies one argument at a time from
                 ; position 2 - each application may yield another
                 ; closure, which is exactly the curried case.
-                (emitApplyChain args cgc (strDup (memGetWordStr cgc 2)) 2)
+                (emitApplyChain args cgc (strDup (memGetWordStr cgc 2)) 2 evs)
                 cgc
               )
             }
@@ -13028,7 +13532,7 @@
                       ; correct answer is a value.
                       (if (&& (== isTail 1) (&& (!= (memGetWord cg 27) 0) (&& (strEq fnName (memGetWordStr cg 27)) (== (vecLen args) (vecLen (memGetWord cg 28))))))
                         (emitTailJump args stamp cg)
-                        (emitOverApplied fnName args stamp cg)
+                        (emitOverApplied fnName args stamp cg evs)
                       )
                       (zeroFloat (emitConstructor args entry stamp cg))
                     )
@@ -13082,11 +13586,19 @@
   )
 )
 
-(pub :: emitApplyChain (-> Int Int String Int Int))
+; `evs` is `spineEvs`' snapshot for the same spine `args` came from,
+; and the start index `i` indexes both - the two vectors are pushed in
+; lockstep by `walkAppChain` and reversed together. It was `vecNew`
+; here until 2026-08-31, which made every argument this walker applies
+; read as class 0 at `evOperandAt`; both callers are surplus
+; arguments applied through a closure, which is the one place the
+; class is the only thing that can tell the callee whether the word it
+; was handed is a reference.
+(pub :: emitApplyChain (-> Int Int String Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitApplyChain args cg rec i)
-  (emitApplyChainOwned args cg rec i 0 vecNew)
+(pub fn (emitApplyChain args cg rec i evs)
+  (emitApplyChainOwned args cg rec i 0 evs)
 )
 
 ; The evidence classes for a spine, SNAPSHOTTED before the walk begins
@@ -13456,15 +13968,31 @@
 ; a contract's predicate would have to be evaluated in TWO passes -
 ; `expLowerContracts` writes the call, this module decides whether the
 ; callee exists - which is one more place for them to disagree than
-; the division trap ever had. Thirteen lines of IR in every module is
-; the price, and `opt` deletes an internal function nothing calls.
+; the division trap ever had.
 ;
-; STATUS 75. `MM-EXEC-16` reserves 70 (out of memory), 71 (unhandled
-; effect) and 72 (division by zero); 73 is the FFI boundary's
-; (`docs/ffi.md` 5.1) and 74 is a `__syscallN` on a target with no
-; syscall ABI (`emitWinRuntime`). A contract failure is a fifth, and
-; distinct on purpose: a supervisor reading a status has to be able to
-; tell a broken invariant from a broken machine.
+; AND IT COSTS A PROGRAM THAT STATES NO CONTRACT NOTHING, which is not
+; a claim about `opt`. `pruneDeadDefs` walks the rendered line buffer
+; and drops every `define` no root reaches, so this helper survives
+; exactly where something calls it: measured on `(fn (main) 7)`, the
+; emitted module carries zero `@__axiom_contract_fail`, zero
+; `@__axiom_div_by_zero` and zero `@__axiom_str_eq` - twelve defines in
+; all. Unconditional at the emitter so the two passes cannot disagree,
+; absent from the module when nothing calls it. Both halves are section
+; 3 of `scripts/check-contracts.sh`, and the second is asserted against
+; the other two unconditional helpers so that a 0 there is the pruner
+; rather than this function having quietly become conditional.
+;
+; STATUS 76, AND IT WAS DESIGNED AS 75. `MM-EXEC-16` reserves 70 (out
+; of memory), 71 (unhandled effect) and 72 (division by zero); 73 is
+; the FFI boundary's (`docs/ffi.md` 5.1), 74 is a `__syscallN` on a
+; target with no syscall ABI (`emitWinRuntime`), and 75 is an arena
+; reset handed an invalid mark (`emitBadMarkTrap`, MM-ALLOC-16a). That
+; last one and this one were written on two branches on the same day
+; and both took 75; this is the one that moved, because it had not
+; shipped. A contract failure is a sixth, and distinct on purpose:
+; `docs/ffi.md` 5.1 took 73 precisely because a Rust panic and an
+; Axiom division were indistinguishable to a supervisor at 72, and two
+; broken invariants sharing one status would be that defect again.
 ;
 ; The message arrives as a `Str` HANDLE, whose word 0 is the length and
 ; whose word 1 is the byte pointer (`emitStrEqHelper` reads the same
@@ -13475,7 +14003,7 @@
   {
     (emitLine cg "define internal i64 @__axiom_contract_fail(i64 %s) #0 {")
     (emitLine cg "entry:")
-    (emitLine cg "  call i64 @__axiom_recover_abort(i64 75)")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 76)")
     (emitLine cg "  %csp = inttoptr i64 %s to ptr")
     (emitLine cg "  %cn = load i64, ptr %csp")
     (emitLine cg "  %cda = add i64 %s, 8")
@@ -13483,7 +14011,7 @@
     (emitLine cg "  %cd = load i64, ptr %cdap")
     (emitRuntimeWrite cg "%cd" "%cn")
     (emitLine cg "  call void @__axiom_backtrace()")
-    (emitRuntimeExit cg "75")
+    (emitRuntimeExit cg "76")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     (emitLine cg "")
@@ -14325,17 +14853,21 @@
 ; name answers arity 0, and treating every builtin and binary operator
 ; as over-applied would route `(+ a b)` through a closure record that
 ; does not exist.
-(pub :: emitOverApplied (-> String Int Int Int Int))
+(pub :: emitOverApplied (-> String Int Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitOverApplied fnName args stamp cg)
+(pub fn (emitOverApplied fnName args stamp cg evs)
   (let ((decls (memGetWord cg 8)))
     (if (isDefinedFn decls fnName)
       (let ((ar (fnArityOf decls fnName)))
         (if (|| (<= (vecLen args) ar) (== ar 0))
           (emitCall fnName args stamp cg)
           (let ((cgD (emitCall fnName (takeVec args ar) stamp cg)))
-            (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0)
+            ; The surplus is applied through a closure, so it needs the
+            ; classes `walkAppChain` recorded - dropped by the same
+            ; arity the arguments were, because the two vectors are one
+            ; reversal of the same spine and must stay aligned.
+            (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0 (dropVec evs ar))
           )
         )
       )
@@ -14710,7 +15242,7 @@
     cg
     (let ((cls (fnResultClass cg fnName)))
       (if (|| (== cls 0) (== cls 2))
-        (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0)))))
+        (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0))))))
           ; the callee parks nothing of a typed arrival
           ; there, and answers no part of it that the caller
           ; now holds instead - and an immediate (`Nil`)
@@ -14726,6 +15258,49 @@
         )
         cg
       )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; A STATIC SENTINEL: a value whose count word is `-1`, so releasing it
+; loads a count, compares it against `-1` and returns having done
+; nothing. `emitStrExpr` emits the only one - a bare string literal is
+; the address of a `@strhdr_*` constant, and `MM-LIFE-2b`'s header sits
+; at handle-16 with `-1` where a heap block has its count.
+;
+; This is the sibling of `isNullaryConNode` beside it and it is applied
+; the same way and for the same reason: that rule already excludes an
+; immediate from an argument release because "an immediate (`Nil`) has
+; nothing to give back". Neither does a static.
+;
+; IT IS NOT `valueOwnedRef` ANSWERING 0, and the difference is the whole
+; care in this change. That predicate answers 1 for `TAG_E_STR` on
+; purpose - its own comment says "a static: immortal, and releasing it
+; is a no-op, so a branch answering one does not stop the join being
+; owned" - because `(if c "lit" (mkStr))` has to stay owned for the
+; OTHER branch's share to be given back. Answering 0 there would silence
+; this release and leak that one. So the question is asked here, at the
+; emission of a release for a value that IS the literal, and the join
+; reasoning is untouched.
+;
+; Measured before this existed, over the compiler's own emitted IR
+; (`emit-llvm self_host/main.ax`, 197,562 lines, 3,469 functions):
+; 5,762 of the 10,849 `axiom_release` call sites released a `@strhdr_*`
+; literal - 53.1% of the release traffic in the largest Axiom program
+; there is, every one of them a call that cannot free anything.
+; Ablating them out of the IR by hand gave byte-identical output from
+; the rebuilt compiler, a 5.3% smaller binary, and peak RSS at or below
+; baseline, which is the arithmetic: deleting a call that frees nothing
+; cannot cost memory.
+(pub :: isStaticSentinelNode (-> Int Int Int))
+
+(pub fn (isStaticSentinelNode cg e)
+  (if (== e 0)
+    0
+    (if (== (nodeTag e) TAG_E_STR)
+      1
+      0
     )
   )
 )
@@ -15807,7 +16382,7 @@
             ))
               (let ((cgS (storeWordAt cgR ptr (+ base i) reg)))
                 (let ((cgT 
-                  (if (&& (== rc 1) (== (valueOwnedRef cgS argNode) 1))
+                  (if (&& (== rc 1) (&& (== (isStaticSentinelNode cgS argNode) 0) (== (valueOwnedRef cgS argNode) 1)))
                     (emitReleaseOf cgS reg)
                     cgS
                   )

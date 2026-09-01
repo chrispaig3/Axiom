@@ -161,7 +161,11 @@
   (span : Int)
   (unit : Int))
 
-;@axiom:restrict(no-io,no-alloc,no-foreign)
+; `no-alloc` came off on 2026-08-31: the body is one eleven-field
+; `Diag` construction, which allocates. It was accepted while a
+; constructor application contributed nothing to the effect row
+; (`MM-EXEC-9a`); `no-io` and `no-foreign` are unchanged.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: mkDiagBase (-> Int String String Int String Int))
 
 (pub fn (mkDiagBase sev code slug span msg)

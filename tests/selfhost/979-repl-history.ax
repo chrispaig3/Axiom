@@ -1,0 +1,327 @@
+; expect 38
+; `self_host/replhist.ax` without a terminal and without a file: the
+; codec, the ring, browsing and reverse search, all reachable because
+; `histOpenWith` takes `interactive` as an ordinary Int instead of
+; asking the operating system.
+;
+; The thirty-eight checks below each add 1, so a single regression
+; answers 37 and the harness prints the number it wanted. Six of them
+; are NEGATIVE controls - a duplicate that must be REFUSED, a blank
+; entry that must be refused, an out-of-range index that must answer
+; "", a search that must answer -1, a Down at the draft that must
+; answer 0 - because a module whose every answer is "yes" would satisfy
+; a count of positive assertions and nothing else.
+;
+; The persistence half is not here: writing a file, reading it back in
+; a FRESH PROCESS and surviving two writers at once are what
+; `scripts/check-repl-history.sh` drives, because a single-process
+; fixture cannot tell a file that was written from a ring that was
+; never dropped.
+(import Str)
+
+(import Vec)
+
+(import replhist)
+
+; The eight entries. Three span more than one line, and one of those
+; has a continuation line that itself begins with a TAB - the case that
+; decides whether the format's marker is injective or merely present.
+(:: e0 String)
+
+(fn (e0) "(+ 1 2)")
+
+(:: e1 String)
+
+(fn (e1) "(fn (f x)\n  (if (> x 0)\n    1 0))")
+
+(:: e2 String)
+
+(fn (e2) "(* 3 4)")
+
+(:: e3 String)
+
+(fn (e3) "(tabbed)\n\t(inner)")
+
+(:: e4 String)
+
+(fn (e4) "(+ 1 2)")
+
+(:: e5 String)
+
+(fn (e5) "(let ((a 1))\n  a)")
+
+(:: e6 String)
+
+(fn (e6) ":type foo")
+
+(:: e7 String)
+
+(fn (e7) "(- 9 5)")
+
+(:: eightEntries Int)
+
+(fn (eightEntries)
+  (let ((v vecNew))
+    {
+      (vecPush v e0)
+      (vecPush v e1)
+      (vecPush v e2)
+      (vecPush v e3)
+      (vecPush v e4)
+      (vecPush v e5)
+      (vecPush v e6)
+      (vecPush v e7)
+      v
+    }
+  )
+)
+
+; Record the eight into a fresh non-persisting session at `cap`.
+(:: eightInto (-> Int Int))
+
+;@axiom:effect(io)
+(fn (eightInto cap)
+  (let ((h (histOpenWith 0 cap)))
+    {
+      (histRecord h e0)
+      (histRecord h e1)
+      (histRecord h e2)
+      (histRecord h e3)
+      (histRecord h e4)
+      (histRecord h e5)
+      (histRecord h e6)
+      (histRecord h e7)
+      h
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mut n 0)
+    (text (histSerialize eightEntries))
+    (h (eightInto 1000))
+    (hs (eightInto 3))
+  )
+    {
+      ; ---- the codec, one entry at a time ----
+      ; 1: a single-line entry is itself plus LF
+      (if (strEq (histEncode "abc") "abc\n")
+        (set n (+ n 1))
+        0
+      )
+      ; 2: a continuation line gets one TAB
+      (if (strEq (histEncode "a\nb") "a\n\tb\n")
+        (set n (+ n 1))
+        0
+      )
+      ; 3: a continuation that ALREADY starts with a TAB gets two, which
+      ; is what makes the mapping injective rather than merely marked
+      (if (strEq (histEncode "a\n\tb") "a\n\t\tb\n")
+        (set n (+ n 1))
+        0
+      )
+      ; 4, 5: the format's precondition is established here, not assumed
+      (if (strEq (histNormalize "   (x)") "(x)")
+        (set n (+ n 1))
+        0
+      )
+      (if (strEq (histNormalize "\t\t (x)") "(x)")
+        (set n (+ n 1))
+        0
+      )
+      ; 6: a wholly blank entry is not an entry
+      (if (== (strLen (histNormalize "   \n\t  ")) 0)
+        (set n (+ n 1))
+        0
+      )
+      ; 7, 8: the one-row rendering Ctrl-R shows
+      (if (strEq (histFlatten "a\nb\nc" " | ") "a | b | c")
+        (set n (+ n 1))
+        0
+      )
+      (if (strEq (histFlatten "abc" " | ") "abc")
+        (set n (+ n 1))
+        0
+      )
+      ; ---- the round trip ----
+      ; 9: eight entries in, eight entries out. The two `(+ 1 2)`s are
+      ; NOT adjacent, so consecutive dedup must leave both.
+      (if (== (vecLen (histDecode text 1000)) 8)
+        (set n (+ n 1))
+        0
+      )
+      ; 10: THE assertion this format exists for - a three-line entry
+      ; comes back as ONE entry, byte for byte
+      (if (strEq (vecGetStr (histDecode text 1000) 1) e1)
+        (set n (+ n 1))
+        0
+      )
+      ; 11: and one whose continuation is itself indented with a TAB
+      (if (strEq (vecGetStr (histDecode text 1000) 3) e3)
+        (set n (+ n 1))
+        0
+      )
+      ; 12: and a two-line one
+      (if (strEq (vecGetStr (histDecode text 1000) 5) e5)
+        (set n (+ n 1))
+        0
+      )
+      ; 13: consecutive duplicates collapse on the way in
+      (if (== (vecLen (histDecode "a\na\nb\n" 1000)) 2)
+        (set n (+ n 1))
+        0
+      )
+      ; 14, 15: the cap keeps the NEWEST, which is the end a user
+      ; reaches with Up
+      (if (== (vecLen (histDecode text 3)) 3)
+        (set n (+ n 1))
+        0
+      )
+      (if (&& (strEq (vecGetStr (histDecode text 3) 0) e5) (strEq (vecGetStr (histDecode text 3) 2) e7))
+        (set n (+ n 1))
+        0
+      )
+      ; 16: TOTAL on a file nobody promised was well formed - a
+      ; continuation with no entry in progress starts one rather than
+      ; being swallowed
+      (if (&& (== (vecLen (histDecode "\tstray\nx\n" 1000)) 2) (strEq (vecGetStr (histDecode "\tstray\nx\n" 1000) 0) "stray"))
+        (set n (+ n 1))
+        0
+      )
+      ; 17: an empty file is no history, not an empty entry
+      (if (== (vecLen (histDecode "" 1000)) 0)
+        (set n (+ n 1))
+        0
+      )
+      ; ---- a session that persists nothing ----
+      ; 18, 19: `interactive` 0 resolves no path and writes nothing.
+      ; This is the direction a gate run under a redirected HOME would
+      ; otherwise be unable to distinguish from a broken path.
+      (if (== (histPersist h) 0)
+        (set n (+ n 1))
+        0
+      )
+      (if (== (strLen (histPath h)) 0)
+        (set n (+ n 1))
+        0
+      )
+      ; 20: a fresh entry is recorded
+      (if (== (histRecord h "(new)") 1)
+        (set n (+ n 1))
+        0
+      )
+      ; 21: NEGATIVE CONTROL - the same entry again is REFUSED
+      (if (== (histRecord h "(new)") 0)
+        (set n (+ n 1))
+        0
+      )
+      ; 22: NEGATIVE CONTROL - a blank entry is REFUSED
+      (if (== (histRecord h "   ") 0)
+        (set n (+ n 1))
+        0
+      )
+      ; 23: eight plus the one new one
+      (if (== (histLen h) 9)
+        (set n (+ n 1))
+        0
+      )
+      ; 24: the ring holds whole multi-line entries too
+      (if (strEq (histAt h 1) e1)
+        (set n (+ n 1))
+        0
+      )
+      ; 25: NEGATIVE CONTROL - out of range answers "", not a crash and
+      ; not somebody else's entry
+      (if (== (strLen (histAt h 99)) 0)
+        (set n (+ n 1))
+        0
+      )
+      ; 26: the in-memory cap trims from the old end
+      (if (&& (== (histLen hs) 3) (strEq (histAt hs 0) e5))
+        (set n (+ n 1))
+        0
+      )
+      ; ---- browsing ----
+      ; 27: the first Up saves the editor's buffer and lands on the
+      ; newest entry
+      (if (&& (== (histBrowseUp h "draft") 1) (strEq (histCurrent h) "(new)"))
+        (set n (+ n 1))
+        0
+      )
+      ; 28: the second Up steps back one
+      (if (&& (== (histBrowseUp h "ignored") 1) (strEq (histCurrent h) e7))
+        (set n (+ n 1))
+        0
+      )
+      ; 29: Down twice comes back to the saved draft, not to ""
+      (if (&& (== (histBrowseDown h) 1) (&& (== (histBrowseDown h) 1) (strEq (histCurrent h) "draft")))
+        (set n (+ n 1))
+        0
+      )
+      ; 30: NEGATIVE CONTROL - Down on the draft does not move
+      (if (== (histBrowseDown h) 0)
+        (set n (+ n 1))
+        0
+      )
+      ; 31: nine Ups walk the whole ring and the tenth REFUSES, landing
+      ; on the oldest entry rather than off the end
+      (if (== (upsUntilStuck h 0) 9)
+        (set n (+ n 1))
+        0
+      )
+      (if (strEq (histCurrent h) e0)
+        (set n (+ n 1))
+        0
+      )
+      ; ---- reverse incremental search ----
+      ; 33: a needle that appears only on the SECOND line of a
+      ; multi-line entry still matches - the search reads the whole
+      ; entry, which is why the ring holds whole entries
+      (if (== (histFindBack h "(> x 0)" (histSearchTop h)) 1)
+        (set n (+ n 1))
+        0
+      )
+      ; 34: the most recent match, walking backwards
+      (if (== (histFindBack h "(+ 1 2)" (histSearchTop h)) 4)
+        (set n (+ n 1))
+        0
+      )
+      ; 35: a repeated Ctrl-R steps past it
+      (if (== (histFindBack h "(+ 1 2)" 3) 0)
+        (set n (+ n 1))
+        0
+      )
+      ; 36: NEGATIVE CONTROL - nothing matches, and the answer is -1
+      (if (== (histFindBack h "zzzz" (histSearchTop h)) (- 0 1))
+        (set n (+ n 1))
+        0
+      )
+      ; 37: the empty needle matches `from`, which is readline's
+      ; behaviour for a Ctrl-R with nothing typed yet
+      (if (== (histFindBack h "" (histSearchTop h)) (histSearchTop h))
+        (set n (+ n 1))
+        0
+      )
+      ; 38: a needle on the tab-indented continuation line
+      (if (== (histFindBack h "(inner)" (histSearchTop h)) 3)
+        (set n (+ n 1))
+        0
+      )
+      n
+    }
+  )
+)
+
+; How many Ups the ring accepts before it refuses.
+(:: upsUntilStuck (-> Int Int Int))
+
+(fn (upsUntilStuck h acc)
+  (if (== (histBrowseUp h "x") 0)
+    acc
+    (upsUntilStuck h (+ acc 1))
+  )
+)

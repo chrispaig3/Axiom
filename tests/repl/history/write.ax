@@ -1,0 +1,44 @@
+; A REPL session's worth of history, recorded and closed. One binary
+; serves BOTH directions of the interactivity gate: `HIST_INTERACTIVE`
+; is what `histOpen` is handed, so the only difference between "writes
+; the file" and "writes nothing" is that one Int. A gate that used two
+; different programs for the two directions would be comparing two
+; builds rather than one decision.
+;
+; Ten records go in and eight come out: one is a consecutive duplicate
+; and one is blank, and both must be refused. The exit status carries
+; both facts the gate needs - `10 * persist + entries` - so a run that
+; persisted when it should not have is a different number rather than a
+; different file.
+;
+; Driven by scripts/check-repl-history.sh.
+(import Str)
+
+(import Sys)
+
+(import replhist)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((h (histOpen (if (strEq (sysEnv "HIST_INTERACTIVE") "1")
+    1
+    0
+  ))))
+    {
+      (histRecord h "(+ 1 2)")
+      (histRecord h "(fn (f x)\n  (if (> x 0)\n    1 0))")
+      (histRecord h "(* 3 4)")
+      (histRecord h "(tabbed)\n\t(inner)")
+      (histRecord h "(+ 1 2)")
+      (histRecord h "(+ 1 2)")
+      (histRecord h "   ")
+      (histRecord h "(let ((a 1))\n  a)")
+      (histRecord h ":type foo")
+      (histRecord h "(- 9 5)")
+      (histClose h)
+      (+ (* 10 (histPersist h)) (histLen h))
+    }
+  )
+)

@@ -1,0 +1,78 @@
+; `restrict(no-alloc)` against a CONSTRUCTOR, which is the form the
+; check could not see until 2026-08-31.
+;
+; `no-alloc` reads the effect row, and a constructor application
+; contributed nothing to that row - `findFnEnt` answers 0 for a `data`
+; constructor and for a struct, and the branch that handled the answer
+; added nothing. So a body whose only act was allocating a value
+; checked clean under a claim that it allocates nothing.  Measured on
+; `mk` below, against the compiler at 0.6.0:
+;
+;   $ axiom check 384-restrict-no-alloc-ctor.ax
+;   OK
+;   $ axiom emit-llvm --input 384-restrict-no-alloc-ctor.ax -o out.ll
+;   $ awk '/^define .*@mk\(/,/^}/' out.ll | grep -c 'call i64 @axiom_alloc'
+;   1
+;
+; The claim, its refutation and the compiler agreeing with the claim,
+; in one file.  `docs/memory-model.md` `MM-EXEC-9a` had this listed as
+; a DECISION rather than a gap; it is a decision no `restrict(no-alloc)`
+; can survive, and the row is closed rather than documented now.
+;
+;   `mk`    matches on a `data` constructor it builds     -> AX3049
+;   `pair`  builds a struct positionally                  -> AX3049
+;   `kw`    builds the same struct, keyword spelling      -> AX3049
+;   `tag`   answers a NULLARY constructor                 -> silent:
+;           an immediate tag with no block behind it, and the emitted
+;           body holds no `axiom_alloc` at all.  This arm is the half
+;           that would go quiet under a fix that simply said "every
+;           constructor allocates", so it is asserted, not assumed.
+;   `pass`  arithmetic only                               -> silent
+
+(data W
+  (Wrap Int)
+  (Empty))
+
+(struct P
+  (a : Int)
+  (b : Int))
+
+;@axiom:restrict(no-alloc)
+(:: mk (-> Int Int))
+
+(fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+
+;@axiom:restrict(no-alloc)
+(:: pair (-> Int P))
+
+(fn (pair n) (P n n))
+
+;@axiom:restrict(no-alloc)
+(:: kw (-> Int P))
+
+(fn (kw n) (struct P n n))
+
+;@axiom:restrict(no-alloc)
+(:: tag (-> Int W))
+
+(fn (tag n) (Empty))
+
+;@axiom:restrict(no-alloc)
+(:: pass (-> Int Int Int))
+
+(fn (pass a b) (+ a b))
+
+(:: sizeOf (-> W Int))
+
+(fn (sizeOf w) (match w ((Wrap x) x) ((Empty) 0)))
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (p (pair 5))
+    (q (kw 6))
+  )
+    (+ (mk 1) (+ (pass 2 3) (+ (sizeOf (tag 4)) (+ p.a q.b))))
+  )
+)

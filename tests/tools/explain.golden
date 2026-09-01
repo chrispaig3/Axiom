@@ -343,9 +343,17 @@ changed by accident.
 Add `mut` at the declaration, or - usually better - compute the value
 you want with a `let` rather than mutating one you already have.
 
-Only a whole local can be assigned. Function parameters, pattern
-bindings and top-level declarations are never mutable, and structure
-fields are written with `memSetWord` instead.
+Function parameters, pattern bindings and top-level declarations are
+never mutable, and no marker makes them so.
+
+The same code refuses a store into a STRUCT FIELD whose declaration
+does not mark it `mut`. A field is immutable by default, exactly as a
+binding is: `(set p.x 9)` needs `(mut x : Int)` on the struct, and
+`mut` on the binding that holds `p` has nothing to do with it. Only
+the last segment of a path is governed - `(set a.b.c v)` needs `c`
+declared `mut` and says nothing about `b`, because the store mutates
+the value `b` points at rather than the `b` slot. `memSetWord` writes
+a block by word index and is outside the rule.
 
 ### explain AX3013
 AX3013 - partial application is not supported
@@ -633,8 +641,11 @@ any of the names is two definitions of one symbol.
 Before this refusal that program passed `check` and died in `opt`
 with `invalid redefinition of function 'axiom_alloc'` - the
 documented "override seam" that never worked. The seam does not
-exist; whether it should is re-decided with the reclamation work.
-See docs/memory-model.md MM-ALLOC-8.
+exist and is not planned: MM-ALLOC-8 moved from Planned to REFUSED on
+2026-08-31, because a program that wants control over reclamation has
+the arena primitives (MM-ALLOC-22) and a second allocator identity
+underneath them is an unspecified feature. See docs/memory-model.md
+MM-ALLOC-8.
 
 Only an entry-file definition collides: a module's declaration is
 mangled to `Mod$axiom_alloc`, a different symbol.
@@ -1435,9 +1446,9 @@ failure writes
 
     axiom: precondition failed in `half`: (> n 0)
 
-on fd 2, prints the backtrace, and exits 75 - a status of its own,
+on fd 2, prints the backtrace, and exits 76 - a status of its own,
 beside 70 out of memory, 71 unhandled effect, 72 division by zero, 73
-the FFI boundary and 74 no syscall ABI, so a supervisor reading a
+the FFI boundary, 74 no syscall ABI and 75 an invalid arena mark, so a supervisor reading a
 status can tell a broken invariant from a broken machine. There is no
 flag: a check that is off by default is a comment by default.
 

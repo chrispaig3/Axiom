@@ -211,7 +211,7 @@
 ; The same program with a named `fn` in place of the lambda was always
 ; correct, which is the whole diagnosis in one substitution.
 (struct Session
-  (name : String))
+  (mut name : String))
 
 (:: mkLogger (-> Int (-> String Int)))
 
