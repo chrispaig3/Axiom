@@ -16,6 +16,57 @@ its changelog too.
 
 ## Unreleased
 
+### `restrict(..., strict)` — when unproven has to mean refused
+
+**`AX3057`, an error: a `strict` restriction the effect walk cannot
+prove.** `restrict(no-io)` is a claim the compiler checks; where it
+cannot settle the claim it says `AX3051`, a **warning**, and the
+program compiles. Measured: `(fn (runIt f n) { (f "x") n })` under
+`restrict(no-io)` warns, checks OK, and prints to stdout at run time.
+**That is not a guarantee**, and a restriction on a sensitive operation
+is asked for as one.
+
+**The default is unchanged, deliberately.** `severity.policy` records
+why `AX3051` is a warning: a body dispatching through a stored
+function is a correct program the walk cannot follow, and refusing it
+would make that shape unwriteable under any restriction rather than
+merely unverified. That decision stands. `strict` is the author's side
+of the same argument, **per declaration**: prove it or refuse the
+program. A reader who sees `restrict(no-io)` and assumes it was checked
+is worse off than one who sees nothing, which is the whole reason an
+unproven guarantee can be worth less than no claim at all.
+
+**`strict` is a MODIFIER, not a restriction.** It names nothing a body
+must not do — it says what happens when the walk cannot settle what the
+body does. So it is neither dispatched as a restriction nor reported by
+`AX3052`: `restrict(strict)` alone restricts nothing and is silent,
+where any other unknown word in that list is an error.
+
+The seven arms, all in `tests/diagnostics/393-restrict-strict.ax`:
+
+| declaration | claim | answer |
+|---|---|---|
+| `hardIo`, `hardAlloc`, `hardRec` | `X, strict` over a called parameter | **`AX3057`** |
+| `softIo` | `no-io` alone, same body | `AX3051`, warning — default untouched |
+| `provable` | `no-io, strict`, settled and kept | **silent** — what `strict` asks for |
+| `refuted` | `no-io, strict`, body performs IO | **`AX3049`** — refuted beats unproven |
+| `strictOnly` | `strict` alone | silent, and specifically not `AX3052` |
+| `lexStrict` | `no-cast, strict` | silent — lexical, nothing to escalate |
+
+`no-recursion` was already complete for the graph it can see: mutual
+recursion is caught with the cycle path (`pingR -> pongR -> pingR`).
+What `strict` closes is the cycle whose middle edge is a **parameter**
+the graph has no edge for — the case `391` records as silent before
+`AX3051` existed.
+
+Zero `AX3051` in the tree today, so nothing was reclassified.
+
+GATES: `check-diagnostics` 194/194 (up from 193), `check-render-selfhost`
+190/190, `check-restrictions` (393 added to the fixture table),
+`check-doc-drift`, `check-fmt`, `check-compat`, `check-agent-policy`,
+`check-unboxed-sums`, `run-stdlib-tests` 95/95, `check-self-host`
+179/179, byte-identical fixpoint (199,145 lines, twice).
+
 ### The compiler's own absence sentinels, slice 1
 
 **`namedFieldIndex` and `findExternUnit` answer `Option Int`.** The

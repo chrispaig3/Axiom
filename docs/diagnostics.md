@@ -572,7 +572,13 @@ Both NID and AXTAG are now implemented.
   the path of resolved calls to where the effect enters, or the cycle; a claim over a row the walk could not close is
   `AX3051`, a warning; a name that is not a restriction is `AX3052`,
   an error, because that list is closed
-  ([reference.md](reference.md), AXTAG Keys). Other tags
+  ([reference.md](reference.md), AXTAG Keys). `strict` in the same
+  list is a MODIFIER and not a restriction: it makes an unsettleable
+  claim `AX3057`, an **error**, instead of `AX3051`. The default stays
+  a warning because a body dispatching through a stored function is a
+  correct program the walk cannot follow; `strict` is the author
+  saying that on THIS declaration an unproven guarantee is not a
+  guarantee. Other tags
   (`no_refactor`, `owned(arena=frame)`, etc.) are preserved and
   emitted but not yet validated.
 

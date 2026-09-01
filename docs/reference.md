@@ -1599,6 +1599,7 @@ restrictions are checked:
 | `no-cast` | no `cast` head in this body | LOCAL |
 | `no-cast:deep` | no `cast` head in this body or in any function it reaches | transitive, opt-in |
 | `no-recursion` | no cycle in the call graph reachable from this declaration | transitive |
+| `strict` | a MODIFIER: an unsettleable claim in this set is `AX3057` (error), not `AX3051` (warning) | — |
 | `no-wrap` | no `+`, `-` or `*` head in this body | LOCAL |
 
 Every transitive violation names its path. The checker walks the call
@@ -1682,6 +1683,26 @@ time, and `no-recursion` was silent over `runIt -> back -> runIt`, a
 cycle whose middle edge is a parameter the graph has no edge for. A
 body that performs the effect concretely AND calls a parameter is
 `AX3049`: refuted beats undecided.
+
+**`strict` — when unproven must mean refused.** `restrict(no-io, strict)`
+is the same claim with a different answer where the walk cannot settle
+it: `AX3057`, an **error**, instead of `AX3051`. The default stays a
+warning for the reason above — a body dispatching through a stored
+function is a correct program the walk cannot follow, and refusing it
+would make that shape unwriteable under any restriction rather than
+merely unverified. `strict` is the author's side of that argument, per
+declaration: a restriction on a sensitive operation is asked for as a
+guarantee, and a reader who sees `restrict(no-io)` and assumes it was
+checked is worse off than one who sees nothing.
+
+`strict` is a **modifier and not a restriction**. It names nothing a
+body must not do, so it is neither dispatched as a restriction nor
+reported by `AX3052` — `restrict(strict)` alone restricts nothing and
+is silent. A claim the walk **refutes** is still `AX3049`, not
+`AX3057`: refuted beats unproven, the same way it beats unverifiable.
+A claim the walk settles and finds kept is silent, which is what
+`strict` is asking for. `tests/diagnostics/393-restrict-strict.ax`
+carries all seven arms.
 
 `no-cast` and `no-wrap` never draw `AX3051` under any of the three:
 both are lexical, are checked whether or not a call resolved, and a

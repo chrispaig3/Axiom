@@ -35,7 +35,8 @@
 #      comparison to notice.
 #
 #   2. THE FIXTURES ANSWER, AND THE CONTROLS ARE SILENT. Each of
-#      `tests/diagnostics/371`-`379` must draw the restriction code
+#      `tests/diagnostics/371`-`379`, `383` and `393` must draw the
+#      restriction code
 #      its header promises, and no diagnostic of any code may name a
 #      control declaration - `pureMath`, `delegates`, `native`,
 #      `measures` and the rest are the controls that keep each rule
@@ -305,6 +306,7 @@ fixture_expectations() {
 378-restrict-no-cast-deep AX3049 5 deepClean shallow plain
 379-restrict-no-recursion AX3049 4 deep looped d1 d2 d3 d4
 383-restrict-no-wrap     AX3049 3 delegates compares honest
+393-restrict-strict      AX3057 3 provable strictOnly lexStrict
 EXP
 }
 
@@ -334,7 +336,7 @@ fixtures_answer() {
 }
 
 if fixtures_answer "$axc"; then
-  ok "371-379, 383 draw their codes and every control is silent"
+  ok "371-379, 383, 393 draw their codes and every control is silent"
 else
   bad "a restriction fixture did not answer as its header promises (above)"
 fi

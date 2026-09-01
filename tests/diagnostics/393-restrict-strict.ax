@@ -1,0 +1,112 @@
+; `strict` inside `restrict(...)`: an unsettleable claim is REFUSED
+; (AX3057) instead of warned (AX3051).
+;
+; `391-restrict-effect-transparent.ax` is this file's other half. It
+; records why the default is a warning: a body that calls one of its
+; own parameters is a correct program the walk cannot follow, and
+; refusing it would make dispatch through a stored function
+; unwriteable under any restriction rather than merely unverified.
+; `severity.policy` states that decision and this file does not
+; reverse it.
+;
+; WHAT `strict` ADDS IS THE AUTHOR'S SIDE OF THAT ARGUMENT. A
+; restriction on a sensitive operation is asked for as a GUARANTEE, and
+; a guarantee the compiler could not check is not one. A reader who
+; sees `restrict(no-io)` and assumes it was verified is worse off than
+; a reader who sees nothing at all, which is the whole reason an
+; unproven claim can be worth less than no claim. `strict` says: prove
+; it or refuse the program.
+;
+; `strict` IS A MODIFIER AND NOT A RESTRICTION. It names nothing a body
+; must not do; it says what happens when the walk cannot settle what
+; the body does. So it is neither dispatched as a restriction nor
+; reported as an unknown name - `strictOnly` below carries it with no
+; restriction beside it and is silent, where any other unknown word in
+; that list is AX3052.
+;
+;   `hardIo`      no-io, strict        -> AX3057: calls a parameter
+;   `hardAlloc`   no-alloc, strict     -> AX3057: same, other row
+;   `hardRec`     no-recursion, strict -> AX3057: the cycle a parameter
+;                                          edge hides is exactly what
+;                                          a guarantee has to refuse
+;
+;   `softIo`      no-io                -> AX3051, a warning, unchanged:
+;                                          the default is not touched
+;   `provable`    no-io, strict        -> SILENT. The walk settles it
+;                                          and it holds, which is what
+;                                          `strict` is asking for -
+;                                          this arm is the one that
+;                                          fails if `strict` starts
+;                                          refusing everything.
+;   `refuted`     no-io, strict        -> AX3049 and NOT AX3057. The
+;                                          body performs IO concretely,
+;                                          so the claim is REFUTED, and
+;                                          refuted beats unproven the
+;                                          same way it beats
+;                                          unverifiable in 391.
+;   `strictOnly`  strict               -> SILENT, and specifically not
+;                                          AX3052: a modifier alone
+;                                          restricts nothing.
+;   `lexStrict`   no-cast, strict      -> SILENT: `no-cast` is lexical
+;                                          and needs no call resolved,
+;                                          so there is nothing for
+;                                          `strict` to escalate.
+(import IO)
+
+;@axiom:restrict(no-io, strict)
+(:: hardIo (-> (-> Int Int) Int Int))
+
+(fn (hardIo f n) (f n))
+
+;@axiom:restrict(no-alloc, strict)
+(:: hardAlloc (-> (-> Int Int) Int Int))
+
+(fn (hardAlloc f n) (f n))
+
+;@axiom:restrict(no-recursion, strict)
+(:: hardRec (-> (-> Int Int) Int Int))
+
+(fn (hardRec f n) (f n))
+
+;@axiom:restrict(no-io)
+(:: softIo (-> (-> Int Int) Int Int))
+
+(fn (softIo f n) (f n))
+
+;@axiom:restrict(no-io, strict)
+(:: provable (-> Int Int))
+
+(fn (provable n) (+ n 1))
+
+;@axiom:effect(io)
+;@axiom:restrict(no-io, strict)
+(:: refuted (-> Int Int))
+
+;@axiom:effect(io)
+(fn (refuted n) { (println "loud") n })
+
+;@axiom:restrict(strict)
+(:: strictOnly (-> Int Int))
+
+(fn (strictOnly n) n)
+
+;@axiom:restrict(no-cast, strict)
+(:: lexStrict (-> (-> Int Int) Int Int))
+
+(fn (lexStrict f n) (f n))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (hardIo provable 1)
+    (hardAlloc provable 1)
+    (hardRec provable 1)
+    (softIo provable 1)
+    (provable 1)
+    (refuted 1)
+    (strictOnly 1)
+    (lexStrict provable 1)
+  }
+)
