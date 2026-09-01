@@ -5696,3 +5696,37 @@
     )
   )
 )
+
+; The type declared for argument position `i` of the arrow `t`, or 0
+; when there is no answer - `t` is absent, or the spine ran out of
+; arrows before `i`.
+;
+; ZERO IS THE UNKNOWN, and both readers pair it with a classifier that
+; treats 0 as the conservative answer: `codegen`'s `fldClass` calls it
+; a word, so an `Int` parameter is never retained; `typecheck`'s
+; `tyIsCallable` calls it callable, so an unfollowed argument in an
+; unknown position is still a hole. A missing signature, an
+; over-applied spine and a poisoned type therefore all land on the safe
+; side without a second test at either call site.
+;
+; HERE BECAUSE IT HAD TWO HOMES. `codegen.ax` wrote it for the
+; ownership pass and `typecheck.ax` wrote it again, byte for byte
+; except for `<= 0` against `== 0`, for the effect walk's
+; argument-position question - and the two modules do not import each
+; other, so nothing compared them. `arrowArity` beside it has always
+; lived here for the same reason: an arrow spine is the parser's shape
+; and every pass reads it the same way.
+(pub :: arrowParamTy (-> Int Int Int))
+
+(pub fn (arrowParamTy t i)
+  (if (== t 0)
+    0
+    (if (!= (nodeTag t) TAG_T_ARR)
+      0
+      (if (<= i 0)
+        (nodeA t)
+        (arrowParamTy (nodeB t) (- i 1))
+      )
+    )
+  )
+)

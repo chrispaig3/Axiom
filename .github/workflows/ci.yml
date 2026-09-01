@@ -212,7 +212,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Fifty of the gates below build the compiler under test from
+    # Fifty-one of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -687,6 +687,20 @@ jobs:
       - name: The effect fixpoint is a worklist, and the frontier is what makes it one
         run: ./scripts/check-effect-fixpoint.sh
 
+      # `#effects-incomplete` says a row is a LOWER bound, and a claim of
+      # absence over one cannot be answered - AX3037, AX3038, AX3051, all
+      # warnings rather than verdicts. The mark used to fire on the
+      # ARGUMENT's shape, so `(cmp (memGetWord d r) (memGetWord d k))`
+      # made `vecSortBy` a lower bound on the strength of two machine
+      # words its own signature calls integers. It fires on the CALLEE'S
+      # DECLARED POSITION now. Four controls must KEEP the mark - a type
+      # variable, an arrow position, a mixed callee, a head that is not a
+      # name - because deleting the mark outright would otherwise pass,
+      # and the ablation drops the type test and requires the two
+      # complete rows to go back to lower bounds.
+      - name: An unfollowed argument is a hole only where the signature says it could be one
+        run: ./scripts/check-effect-argpos.sh
+
       # The emitted runtime's eight mutable globals and the one
       # predicate that decides their storage class. Under `fork`,
       # MM-PAR-3 gets memory safety for free - every process-wide
@@ -1147,7 +1161,7 @@ jobs:
   # touches bootstrap/" rather than a wrong answer, but it would report
   # it on every run. And it costs a compiler build plus six
   # whole-compiler emissions, about seven minutes, which is a poor
-  # neighbour for the `test` job's fifty steps.
+  # neighbour for the `test` job's fifty-one steps.
   seed-provenance:
     name: The seed is its source's emission
     needs: grammar

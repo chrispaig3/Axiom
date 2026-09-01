@@ -10532,17 +10532,24 @@
 )
 
 ; The scope a function body is walked in.
+;
+; The signature travels with the scope, not just the per-parameter
+; callability derived from it. `paramCallablesOf` answers "can THIS
+; function's parameter `p` hold a callable value"; a call through `p`
+; then asks the same question one level down - "can `p`'s own argument
+; position `i` hold one" - and only the type node can answer that.
+; `escapeArgs` is where it is asked.
 (pub :: bodyScopeOf (-> Int Int Int))
 
 (pub fn (bodyScopeOf tc d)
   (let ((ent (findFnEnt tc (nodeAName d))))
-    (bsNew
-      (nodeB d)      (paramCallablesOf
-        (if (== ent 0)
-          0
-          (memGetWord ent 1)
-        )        (vecLen (nodeB d))
-      )      vecNew
+    (let ((sig 
+      (if (== ent 0)
+        0
+        (memGetWord ent 1)
+      )
+    ))
+      (bsNew (nodeB d) (paramCallablesOf sig (vecLen (nodeB d))) vecNew sig)
     )
   )
 )
@@ -10984,7 +10991,15 @@
     ; called too.
     {
       (markEparam bound (bsParamAlias bound n))
-      (escapeArgs bound args 0 acc)
+      ; The callee is a parameter, or a local aliasing one, so the
+      ; enclosing signature names its type and `escapeArgs` can ask
+      ; which of its argument positions could hold a function at all.
+      ; An opaque local answers 0 here and every position stays
+      ; conservative, which is the right answer for a value whose
+      ; identity the walk lost.
+      (escapeArgs
+        bound        args        0        acc        (bsParamTy bound (bsParamAlias bound n))
+      )
       ; An OPAQUE local: the value came out of memory, so no call edge
       ; carries what it performs and `markEparam` had no parameter to
       ; mark. This is the `let`-shaped spelling of the same hole the
@@ -11120,17 +11135,65 @@
 ; function. `acc` is 0 at the sites where the CALLEE is not known to
 ; call its arguments; where it is, an unaccounted value is a hole and
 ; the sentinel records it.
-(pub :: escapeArgs (-> Int Int Int Int Int))
+;
+; `cty` IS THE CALLEE'S OWN DECLARED TYPE, and it is what decides
+; whether an unfollowed argument is a hole at all. The rule is
+; `paramCallablesOf`'s, asked one level down: "an arrow, a type
+; variable or poison can hold a callable value; a concrete `Int`
+; cannot, and marking one would claim a transparency the signature
+; forbids." An `Int` position cannot be applied - the checker refuses
+; it, `AX3004 expected function type` - so no effect can hide in a
+; value handed there, however little the walk knows about the value.
+;
+; Without this the mark fired on the ARGUMENTS' shape alone, and the
+; standard library's own sort was the casualty. Measured on this tree
+; before the type was consulted:
+;
+;     F vecSiftDownBy ... #effects=Mut #effects-incomplete #effect-params=cmp
+;     F vecSortBy     ... #effects=Mut #effects-incomplete #effect-params=cmp
+;
+; `vecSiftDownBy` calls `(cmp (memGetWord d r) (memGetWord d k))`, and
+; `cmp` is declared `(-> Int Int Int)`. Both arguments are loads, so
+; `escapeValue` answered 0 for both and the row was published as a
+; LOWER BOUND - which is a claim that something might be hiding in two
+; machine words the signature says are integers. A `pure` claim over
+; anything reaching `vecSortBy` drew `AX3037` on the strength of it.
+;
+; `escapeValue` IS STILL CALLED for every argument, non-callable
+; positions included, because it also marks a parameter alias
+; effect-transparent and that mark is an over-approximation the walk
+; is required to keep. Only the sentinel is gated.
+;
+; TYPE ALIASES WERE THE QUESTION WORTH PROBING, since a name in a
+; signature could stand for an arrow while reading as a `TCon`. Both
+; kinds were measured rather than argued:
+;
+;   (type Fn1 = (-> Int Int))     expanded before checking, so the
+;                                 signature already holds the arrow and
+;                                 `tyIsCallable` sees it - the row is
+;                                 still a lower bound;
+;   (type Fn2 a = (-> a a))       NOT expanded, nominal by design, and
+;                                 the checker refuses both halves of
+;                                 the worry: applying one is `AX3004
+;                                 expected function type, found Fn2
+;                                 Int`, and handing an arrow to a
+;                                 `Fn2 Int` position is `AX3004` too.
+;
+; So no well-typed program can put a function where a nominal type is
+; declared, which is the same fact this whole rule rests on.
+(pub :: escapeArgs (-> Int Int Int Int Int Int))
 
-(pub fn (escapeArgs bound args i acc)
+(pub fn (escapeArgs bound args i acc cty)
   (if (>= i (vecLen args))
     0
     {
-      (if (&& (== (escapeValue bound (vecGet args i)) 0) (!= acc 0))
+      (if (&& (== (escapeValue bound (vecGet args i)) 0) (&& (!= acc 0) (== (tyIsCallable (arrowParamTy cty i)) 1)))
         (effAdd acc effIncomplete)
         0
       )
-      (escapeArgs bound args (+ i 1) acc)
+      (escapeArgs
+        bound        args        (+ i 1)        acc        cty
+      )
     }
   )
 )
@@ -11700,12 +11763,15 @@
   (names : Int)
   (params : Int)
   (callable : Int)
-  (eparams : Int))
+  (eparams : Int)
+  (fnty : Int))
 
-(pub :: bsNew (-> Int Int Int Int))
+(pub :: bsNew (-> Int Int Int Int Int))
 
-(pub fn (bsNew params callable eparams)
-  (cast Int (BScope vecNew params callable eparams))
+(pub fn (bsNew params callable eparams fnty)
+  (cast Int (BScope
+    vecNew    params    callable    eparams    fnty
+  ))
 )
 
 (pub :: bsNames (-> Int Int))
@@ -11724,6 +11790,24 @@
 
 (pub fn (bsEparams b) (memGetWord b 3))
 
+; The enclosing function's declared type, or 0 when it has none. Every
+; derived scope shares it, exactly as `params` and `callable` do.
+(pub :: bsFnTy (-> Int Int))
+
+(pub fn (bsFnTy b) (memGetWord b 4))
+
+; The type declared for parameter `p` of the enclosing function, or 0.
+; `bsParamAlias`'s two negative answers (-1 bound-and-attributed, -2
+; opaque) have no parameter and therefore no type.
+(pub :: bsParamTy (-> Int Int Int))
+
+(pub fn (bsParamTy b p)
+  (if (< p 0)
+    0
+    (arrowParamTy (bsFnTy b) p)
+  )
+)
+
 (pub :: bsWith (-> Int String Int Int))
 
 (pub fn (bsWith b n pidx)
@@ -11733,7 +11817,9 @@
       (vecPush
         v        (cast Int (BEnt n pidx))
       )
-      (cast Int (BScope v (bsParams b) (bsCallable b) (bsEparams b)))
+      (cast Int (BScope
+        v        (bsParams b)        (bsCallable b)        (bsEparams b)        (bsFnTy b)
+      ))
     }
   )
 )
@@ -12762,8 +12848,32 @@
 (pub :: handleScopeOf (-> Int Int))
 
 (pub fn (handleScopeOf tc)
-  (let ((base (bsNew (memGetWord tc 11) (memGetWord tc 12) vecNew)))
+  (let ((base (bsNew (memGetWord tc 11) (memGetWord tc 12) vecNew (curFnSigTy tc))))
     (seedFrameBinders base (tcScope tc) (tcFrameBase tc))
+  )
+)
+
+; The declared type of the function being checked, or 0 outside one.
+;
+; Word 24 is the current declaration - `tcCheckFn` sets it before the
+; body and clears it after - so this is the same signature
+; `bodyScopeOf` reads, arrived at from the other direction. A handle
+; site inside a body needs it for the same reason the body does: a
+; call through a parameter in there asks which of that parameter's
+; argument positions could hold a function.
+(pub :: curFnSigTy (-> Int Int))
+
+(pub fn (curFnSigTy tc)
+  (let ((d (memGetWord tc 24)))
+    (if (== d 0)
+      0
+      (let ((ent (findFnEnt tc (nodeAName d))))
+        (if (== ent 0)
+          0
+          (memGetWord ent 1)
+        )
+      )
+    )
   )
 )
 

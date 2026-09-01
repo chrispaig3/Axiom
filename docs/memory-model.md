@@ -252,6 +252,49 @@ implementation **SHOULD** make it an over-approximation. It was not, in
 |---|---|---|
 | calls through a local, a parameter, or an unresolved name | contributes nothing but a transparency mark | needs the flow analysis `MM-EXEC-9b` describes and the language does not have. **It announces itself**: the row carries `#effects-incomplete` and a `pure` claim over it draws `AX3037`, so a reader is handed a lower bound labelled as one rather than a set that looks complete |
 
+**The row is narrower than it was, and the part that closed on
+2026-08-31 is the part a TYPE could answer.** Setting the mark is
+right; setting it for every argument the walk could not follow was
+not. A call through an effect-transparent parameter asked only about
+the ARGUMENT's shape — a load, a call result and an `if` are all
+"unfollowable" — and never about the position it landed in. So
+`vecSiftDownBy`, whose whole body is `(cmp (memGetWord d r)
+(memGetWord d k))` against a `cmp` declared `(-> Int Int Int)`,
+published the standard library's sort as a lower bound:
+
+    F vecSiftDownBy ... #effects=Mut #effects-incomplete #effect-params=cmp
+    F vecSortBy     ... #effects=Mut #effects-incomplete #effect-params=cmp
+
+Two machine words the signature itself calls integers were enough, and
+`restrict(no-io)` over any function that sorted came back `AX3051`,
+unanswerable. The rule now asked is `paramCallablesOf`'s own, one
+level down — *an arrow, a type variable or poison can hold a callable
+value; a concrete `Int` cannot* — which is the argument `markEparam`
+already rested on for the parameter itself, applied to that
+parameter's own argument positions. A value in an `Int` position can
+hide no effect: applying it is `AX3004` and the program does not
+compile.
+
+**Measured with `symbols` file by file across every source under
+`stdlib/`, `self_host/`, `tests/`, `examples/` and `compat/` — 578 of
+them — 34 declarations carried the mark and 30 do.** The four that closed are
+`vecSiftDownBy`, `vecSortBy` and the two fixtures that reach them. The
+thirty that remain carry the first two shapes below, and the third is
+what closed — a separation the table could not previously state,
+because until now one mark stood for all three:
+
+| what the walk met | closable? |
+|---|---|
+| a head that is not a name; an opaque `let`; a pattern binder; over-application; a lambda's own parameter | **no** — this is `MM-EXEC-9b`'s flow analysis, and dispatch through a capability record (`stdlib/Http.ax`'s `httpCall`, `((h.run) fd r)`) is the shape that matters |
+| an unfollowable value in a position whose declared type is a TYPE VARIABLE | **no, and correctly**: a caller may instantiate it to an arrow. `tests/selfhost/999-placeholder-under-arrow.ax`'s `twice` is `(-> (-> a a) a a)` with the same body as `tests/stdlib/140-function-values.ax`'s `(-> (-> Int Int) Int Int)` version, and only the second one closed |
+| an unfollowable value in a position whose declared type cannot hold a function | **closed 2026-08-31** — 4 declarations, and no well-typed program can put a function there: applying a nominal type is `AX3004`, and so is handing an arrow to one (probed on both alias forms, `(type F = ...)` expanded and `(type F a = ...)` nominal) |
+
+Held by `scripts/check-effect-argpos.sh`, whose four controls are the
+shapes that must KEEP the mark; the ablation drops the type test and
+requires the closed rows to reopen. No `#effects=` set moved anywhere
+in the tree and no diagnostic did: 883 diagnostic lines over every
+`.ax` before and after, byte-identical.
+
 **The constructor row closed on 2026-08-31, and it closed because it
 was not survivable.** It stood here as a DECISION — applying a `data`
 or `struct` constructor contributed nothing to the row, though the

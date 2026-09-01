@@ -10332,21 +10332,9 @@
 ; released, which is why the Life probe's board - a `Vec` behind
 ; `(-> Int Int Int)` - is untouched by any of this.
 ; ------------------------------------------------------------------
-(pub :: arrowParamTy (-> Int Int Int))
-
-(pub fn (arrowParamTy ty i)
-  (if (== ty 0)
-    0
-    (if (!= (nodeTag ty) TAG_T_ARR)
-      0
-      (if (<= i 0)
-        (nodeA ty)
-        (arrowParamTy (nodeB ty) (- i 1))
-      )
-    )
-  )
-)
-
+; `arrowParamTy` lives in `parser.ax` beside `arrowArity`: the effect
+; walk needed the same spine read for a different question, and two
+; modules that do not import each other had written it twice.
 (pub :: curParamRefClass (-> Int Int Int))
 
 (pub fn (curParamRefClass cg i)

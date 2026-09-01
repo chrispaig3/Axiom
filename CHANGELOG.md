@@ -16,6 +16,92 @@ its changelog too.
 
 ## Unreleased
 
+### An unfollowed argument is a hole only where the signature says it could be one
+
+`#effects-incomplete` marks a declaration's effect row as a LOWER
+bound: the walk met a call it could not resolve, so an effect ABSENT
+from the row is not evidence the body does not perform it. Every claim
+of absence over such a row therefore goes unanswered —
+`;@axiom:pure` draws `AX3037`, `restrict(no-io)` draws `AX3051`, a
+`handle` draws `AX3038`, each a warning rather than a verdict, and
+each is the analysis saying "ask me something I can answer."
+
+**The mark was being set from the ARGUMENT's shape, and the standard
+library's own sort was the casualty.** A call through an
+effect-transparent parameter marked the row incomplete for every
+argument the walk could not follow — a load, a call result, an `if` —
+without asking what the callee's signature said that argument *was*.
+`vecSiftDownBy` calls `(cmp (memGetWord d r) (memGetWord d k))` and
+`cmp` is declared `(-> Int Int Int)`, so on 2026-08-31, at 0.6.1:
+
+    F vecSiftDownBy ... #effects=Mut #effects-incomplete #effect-params=cmp
+    F vecSortBy     ... #effects=Mut #effects-incomplete #effect-params=cmp
+
+Two machine words the signature calls integers were enough to publish
+`vecSortBy`'s row as a lower bound, and `restrict(no-io)` over a
+function that sorted anything came back `AX3051 ... the effect row is
+a lower bound and the absence of IO from it is not evidence`.
+
+The rule is now `paramCallablesOf`'s own, asked one level down: **an
+arrow, a type variable or poison can hold a callable value; a concrete
+`Int` cannot.** A value handed to an `Int` position can hide no
+effect, because applying it is `AX3004` and the program does not
+compile — which is exactly the argument `markEparam` has always rested
+on for the parameter itself. `escapeArgs` takes the callee's declared
+type and asks `tyIsCallable` of the position each argument lands in;
+an unknown type answers 0 and `tyIsCallable` answers 1 for 0, so a
+missing signature, an over-applied spine and a poisoned type all stay
+conservative without a second test.
+
+**Population, swept file by file with `symbols` over every source
+under `stdlib/`, `self_host/`, `tests/`, `examples/` and `compat/` (578
+of them; own-file rows only): 34 declarations carried the mark before
+and 30 after.** The four that closed are `vecSiftDownBy`, `vecSortBy`,
+`tests/stdlib/140-function-values.ax`'s `twice` and
+`tests/stdlib/405-vec-sort.ax`'s `main`. The thirty that remain are
+the shapes `MM-EXEC-9a` describes and this does not touch: a head that
+is not a name, an opaque `let`, a pattern binder, over-application —
+and, newly separable, an argument position that is a type VARIABLE.
+`tests/selfhost/999-placeholder-under-arrow.ax` holds the pair that
+makes the point: `twice` there is `(-> (-> a a) a a)` with the same
+body as `140`'s `(-> (-> Int Int) Int Int)` version, and it keeps the
+mark, because a caller may instantiate `a` to an arrow.
+
+**Blast radius, measured rather than argued.** `check` over every
+`.ax` in the tree emits 883 diagnostic lines before and 883 after,
+byte-identical: no diagnostic in the corpus moves, and
+`tests/agent/restrictions.allow`'s 474 verdicts are unchanged. The
+AXSYM streams
+for the whole standard library and for `self_host/main.ax` differ in
+exactly the two `Vec.ax` rows above, and only by the marker — no
+`#effects=` set and no `#effect-params=` changed anywhere. What the
+change buys is visible only on a claim nobody had written yet:
+`restrict(no-io)` over `(vecSortBy v (lambda (a b) (- a b)))` was
+`AX3051` and is now checked and clean.
+
+`arrowParamTy` moved to `parser.ax` beside `arrowArity` on the way.
+`codegen.ax` had written it for the ownership pass and `typecheck.ax`
+needed the same arrow-spine read for this question; the two modules do
+not import each other, so nothing had compared them.
+
+Gated by `scripts/check-effect-argpos.sh`. **Fifty-one gates** now
+call `gate_build_axc`, so the six places that state that number moved
+with it and `word_for`'s table grew an arm. Eight probe declarations, of which
+**four are controls that must keep the mark**: a type variable, an
+arrow position, a callee with one position of each kind handed an
+unfollowable value in both, and a head that is not a name. Without
+them, deleting the mark outright passes every other assertion — which
+is the silent direction, since a missing mark turns three unverifiable
+warnings into verdicts nobody asked for. `vecSortBy` and
+`vecSiftDownBy` are asserted in both directions (the mark is gone AND
+the row still reads `Mut` through a transparent `cmp`), so a walk that
+stopped reporting anything at all cannot pass either. The ablation
+drops the type test from `escapeArgs`, rebuilds, and requires both
+complete rows to go back to lower bounds while all four controls stay
+put; run end to end against a tree with the fix removed, the gate
+reports 5 of 15 checks failed, and the two `Vec.ax` rows are in the
+failure text.
+
 ## 0.6.2 — 2026-09-01
 
 Two silent memory faults become diagnosed exits, and over half the
@@ -23,6 +109,7 @@ compiler's reference-counting traffic turns out to have been calls that
 could not free anything. Nothing in this release changes what a correct
 program does; three things change what an incorrect one does, and one
 makes every program smaller.
+||||||| parent of 82314c0 (An unfollowed argument counted as a hole wherever it was shaped like one, and never mind what the callee's signature called the position)
 
 ### Memory model v2, proposals 3, 4 and 5
 
@@ -179,7 +266,7 @@ that state that number were moved with it — `scripts/lib/gate.sh`,
 `scripts/build-shared-axc.sh`, `scripts/check-gate-lib.sh`,
 `.github/workflows/ci.yml`, `CONTRIBUTING.md` and this file — and
 `word_for`'s table grew an arm so the stale-spelling sweep covers
-**fifty gates** rather than stopping one short of the live count. That
+the live count rather than stopping one short of it. That
 sweep derives its upper bound from the table, so it extended itself;
 the six edits are the part that does not.
 
