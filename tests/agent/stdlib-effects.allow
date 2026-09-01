@@ -103,6 +103,7 @@ httpServeFile Http.ax Alloc,IO,Mut
 httpServeOne Http.ax Alloc,IO,Mut
 internAdd Intern.ax Alloc,Mut
 internAllocTable Intern.ax Alloc,Mut
+internFind Intern.ax Alloc
 internIntern Intern.ax Alloc,Mut
 internLookup Intern.ax Alloc,Mut
 internNew Intern.ax Alloc,Mut
