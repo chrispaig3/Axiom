@@ -367,6 +367,17 @@
 ;            an evidence stamp names its author, and `evStampOk`
 ;            refuses a stamp another declaration wrote - a
 ;            macro-spliced argument node is a shared object)
+; Fields 37-40 = the name indexes, all four built together by
+;            `buildNameIndexes` and read by the `…Cg` twins beside it:
+;            37/38 index the signature table, 39/40 the mangle map and
+;            the declaration list. Field 40 carries FIVE structures in
+;            one Vec rather than five fields, because `CG` declares 46
+;            of the 47 payload words MM-LIFE-2d's reference map covers
+;            and `AX3029` refuses a 48th - the layout is written out
+;            above `buildNameIndexes`. 37 and 39 are 0 until it runs,
+;            and 40 is the empty Vec; every reader falls back to the
+;            linear scan while they are, which is the REPL's and LSP's
+;            partial paths.
 (pub struct CG
   (lines : Int)
   (tmp : Int)
@@ -615,12 +626,49 @@
   )
 )
 
-; The signature table and the mangle map, indexed. `findFSig` and
-; `mangledFor` are linear scans - 1,700 signatures, 1,600 bares - and
-; were asked a few times per function; the ownership questions below
-; ask them at every call site, several times, and a self-compile went
-; from 2.8 s to 5.0 s on the scans alone. Built once in
-; `emitResolved`, after every `mangleRecord` has run.
+; The signature table, the mangle map and the DECLARATION LIST,
+; indexed. `findFSig` and `mangledFor` are linear scans - 1,700
+; signatures, 1,600 bares - and were asked a few times per function;
+; the ownership questions below ask them at every call site, several
+; times, and a self-compile went from 2.8 s to 5.0 s on the scans
+; alone. Built once in `emitResolved`, after every `mangleRecord` has
+; run and immediately after field 8 is set, which is the only write
+; either input ever takes.
+;
+; THE DECLARATION HALF, added because the mangle half was not the only
+; scan at a call site. `emitVar` asks `isNullaryFn` for every variable
+; reference it emits and `isDefinedFn` for every one that is not
+; nullary; `emitOverApplied` asks `isDefinedFn` and then `fnArityOf`
+; for every call. All three walk the WHOLE merged declaration list -
+; 4,600 declarations when the compiler compiles itself - so emission
+; was quadratic in the program's size, and measurably so.
+;
+; The three answers share one Intern because they share one key, and
+; they are three parallel Vecs rather than three packed bitfields
+; because the packing would buy nothing a `vecGet` does not already
+; give. Where they LIVE is the constrained part, and field 40 is the
+; answer: MM-LIFE-2d's record-form shape word maps 47 payload words,
+; `AX3029` refuses a 48th, and `CG` already declares 46. A new field
+; per index would have taken the last slot and left the next person to
+; want one splitting the record; so field 40, which held one Vec
+; (`bareFirst`), now holds five, and `CG` stays 46 wide.
+;
+;   [0] bareFirst    intern id (field 39) -> first index in field 12
+;                    carrying that name; what `mangledForCg` reads
+;   [1] declNames    Intern over every name the declaration list
+;                    answers to - a `D_FN`'s own spelling, and BOTH
+;                    spellings of a zero-arity `extern` item
+;   [2] declNullary  0/1 per id: `isNullaryFnIn`'s answer
+;   [3] declDefined  0/1 per id: `isDefinedFnIn`'s answer
+;   [4] declArity    the FIRST `D_FN` of that name's parameter count,
+;                    -1 when no `D_FN` carries it; `fnArityIn`'s answer
+;
+; The two booleans are order-independent - each scan returns true at
+; its first match and false at the end, so it is asking "does one
+; exist" and the order it asks in cannot change the answer. `fnArityIn`
+; is NOT: it answers the first `D_FN` it reaches, whatever that one's
+; arity, so the index is built in declaration order and only the first
+; writer of a name touches [4].
 (pub :: buildNameIndexes (-> Int Int))
 
 (pub fn (buildNameIndexes cg)
@@ -631,6 +679,12 @@
     (bares (memGetWord cg 12))
     (bi internNew)
     (first vecNew)
+    (decls (memGetWord cg 8))
+    (dn internNew)
+    (dnull vecNew)
+    (ddef vecNew)
+    (dar vecNew)
+    (rest vecNew)
   )
     {
       (let ((mut i 0))
@@ -659,12 +713,115 @@
             (set j (+ j 1))
           })
       )
+      ; In declaration order, because [4] is first-writer-wins. A `CG`
+      ; whose field 8 is still 0 - nothing but this function reads the
+      ; declaration list through the index - leaves the three Vecs
+      ; empty and every reader below falls back to the scan.
+      (if (== decls 0)
+        0
+        (let ((mut k 0))
+          (while (< k (vecLen decls))
+            {
+              (declIndexAdd dn dnull ddef dar (vecGet decls k))
+              (set k (+ k 1))
+            })
+        )
+      )
+      (vecPush rest first)
+      (vecPush rest dn)
+      (vecPush rest dnull)
+      (vecPush rest ddef)
+      (vecPush rest dar)
       (memSetWord cg 37 si)
       (memSetWord cg 38 byId)
       (memSetWord cg 39 bi)
-      (memSetWord cg 40 first)
+      (memSetWord cg 40 rest)
       cg
     }
+  )
+)
+
+; The row for `name`, created on first sight. Intern ids are dense, so
+; an id equal to the current length is a name never seen before and
+; every parallel Vec gains exactly one entry; anything else already
+; has its row. -1 in `dar` is "no `D_FN` has claimed this name", which
+; is what makes [4] first-writer-wins without a fourth Vec to say so.
+(:: declSlotFor (-> Int Int Int Int String Int))
+
+(fn (declSlotFor dn dnull ddef dar name)
+  (let ((id (internIntern dn name)))
+    {
+      (if (== id (vecLen dnull))
+        {
+          (vecPush dnull 0)
+          (vecPush ddef 0)
+          (vecPush dar (- 0 1))
+        }
+        0
+      )
+      id
+    }
+  )
+)
+
+; One declaration's contribution to the three answers, in the shape
+; `isNullaryFnIn`, `isDefinedFnIn` and `fnArityIn` read it: a `D_FN`
+; is nullary or defined by its parameter count and never both, and an
+; `extern` block contributes only to nullary.
+(:: declIndexAdd (-> Int Int Int Int Int Int))
+
+(fn (declIndexAdd dn dnull ddef dar d)
+  (let ((tag (nodeTag d)))
+    (if (== tag TAG_D_FN)
+      (let (
+        (id (declSlotFor dn dnull ddef dar (nodeAName d)))
+        (ar (vecLen (nodeB d)))
+      )
+        {
+          (if (== ar 0)
+            (vecSet dnull id 1)
+            (vecSet ddef id 1)
+          )
+          (if (< (vecGet dar id) 0)
+            (vecSet dar id ar)
+            0
+          )
+        }
+      )
+      (if (== tag TAG_D_EXTERN)
+        (declIndexExtern dn dnull ddef dar (nodeC d) 0)
+        0
+      )
+    )
+  )
+)
+
+; A ZERO-ARITY `extern` item is a nullary function, and it answers to
+; EITHER spelling - `externHasNullary` matches the Axiom name in slot
+; a or the linker symbol in slot c, because a lookup arriving from
+; `emitVar` has already been through `mangledFor` and is holding the
+; symbol. Both are interned, and `internIntern` folds them together
+; when an item's two spellings agree.
+(:: declIndexExtern (-> Int Int Int Int Int Int Int))
+
+(fn (declIndexExtern dn dnull ddef dar items i)
+  (if (== items 0)
+    0
+    (if (>= i (vecLen items))
+      0
+      {
+        (let ((f (vecGet items i)))
+          (if (== (arrowArity (nodeB f)) 0)
+            {
+              (vecSet dnull (declSlotFor dn dnull ddef dar (nodeAName f)) 1)
+              (vecSet dnull (declSlotFor dn dnull ddef dar (nodeCName f)) 1)
+            }
+            0
+          )
+        )
+        (declIndexExtern dn dnull ddef dar items (+ i 1))
+      }
+    )
   )
 )
 
@@ -697,22 +854,103 @@
       (if (strEq name "main")
         "__axiom_user_main"
         (let ((m (memGetWordStr cg 34)))
-          (let ((hit 
-            (if (==
-              (cast Int m)              0
-            )
+          (let ((hit
+            (if (== (cast Int m) 0)
               (- 0 1)
               (internFind bi (cat3 m "$" name))
             )
           ))
+            ; The ANSWER comes out of the index, not out of a second
+            ; `cat3`. A hit means the Intern already holds a string
+            ; whose content is `m$name` - it is the entry in field 12
+            ; that put the id there - so `bares[first[hit]]` is that
+            ; spelling, borrowed, where rebuilding it allocated and
+            ; copied a second time on every module-local reference. The
+            ; probe's own `cat3` stays an ARGUMENT, which is what makes
+            ; `releaseOwnedArgs` hand it back on the same line; a `let`
+            ; that both probes and answers cannot be released at all,
+            ; because one branch returns it - measured at +69 MiB of
+            ; peak, see this commit.
             (if (>= hit 0)
-              (cat3 m "$" name)
-              (let ((id (internFind bi name)))
-                (if (< id 0)
-                  name
-                  (vecGetStr (memGetWord cg 13) (vecGet (memGetWord cg 40) id))
-                )
-              )
+              (vecGetStr (memGetWord cg 12) (vecGet (vecGet (memGetWord cg 40) 0) hit))
+              (mangledForBareCg cg bi name)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The half of `mangledForCg` that no module-local spelling claimed:
+; `mangledForIn`'s first-match, read out of the index. Field 40 slot 0
+; is the old `bareFirst`; see `buildNameIndexes` for the other four.
+(:: mangledForBareCg (-> Int Int String String))
+
+(fn (mangledForBareCg cg bi name)
+  (let ((id (internFind bi name)))
+    (if (< id 0)
+      name
+      (vecGetStr (memGetWord cg 13) (vecGet (vecGet (memGetWord cg 40) 0) id))
+    )
+  )
+)
+
+; The three declaration-list scans, through the index; the linear scan
+; when no index has been built (the REPL's and LSP's partial paths,
+; where field 40 is still the empty Vec `newCG` gave it).
+;
+; Each takes the `CG` rather than the declaration list, which is what
+; lets the fallback name both. Every caller passed `(memGetWord cg 8)`
+; anyway - there has never been a second declaration list to ask.
+(pub :: isNullaryFnCg (-> Int String Bool))
+
+(pub fn (isNullaryFnCg cg name)
+  (let ((rest (memGetWord cg 40)))
+    (if (< (vecLen rest) 5)
+      (isNullaryFn (memGetWord cg 8) name)
+      (let ((id (internFind (vecGet rest 1) (declSpellingOf name))))
+        (if (< id 0)
+          false
+          (== (vecGet (vecGet rest 2) id) 1)
+        )
+      )
+    )
+  )
+)
+
+(pub :: isDefinedFnCg (-> Int String Bool))
+
+(pub fn (isDefinedFnCg cg name)
+  (let ((rest (memGetWord cg 40)))
+    (if (< (vecLen rest) 5)
+      (isDefinedFn (memGetWord cg 8) name)
+      (let ((id (internFind (vecGet rest 1) (declSpellingOf name))))
+        (if (< id 0)
+          false
+          (== (vecGet (vecGet rest 3) id) 1)
+        )
+      )
+    )
+  )
+)
+
+; `fnArityIn` answers 0 for a name it never finds, and so does this:
+; slot [4] holds -1 for a name only an `extern` item put in the index,
+; and there is no id at all for a name no declaration carries.
+(pub :: fnArityOfCg (-> Int String Int))
+
+(pub fn (fnArityOfCg cg name)
+  (let ((rest (memGetWord cg 40)))
+    (if (< (vecLen rest) 5)
+      (fnArityOf (memGetWord cg 8) name)
+      (let ((id (internFind (vecGet rest 1) (declSpellingOf name))))
+        (if (< id 0)
+          0
+          (let ((ar (vecGet (vecGet rest 4) id)))
+            (if (< ar 0)
+              0
+              ar
             )
           )
         )
@@ -3263,7 +3501,7 @@
 (pub :: fnTakesEvw (-> Int String Int))
 
 (pub fn (fnTakesEvw cg full)
-  (let ((e (findFSig (memGetWord cg 15) full)))
+  (let ((e (findFSigCg cg full)))
     (if (== e 0)
       0
       (memGetWord e 4)
@@ -3557,7 +3795,7 @@
 (pub :: fnRetIsFloat (-> Int String Int))
 
 (pub fn (fnRetIsFloat cg name)
-  (let ((e (findFSig (memGetWord cg 15) name)))
+  (let ((e (findFSigCg cg name)))
     (if (== e 0)
       0
       (let ((flags (memGetWord e 2)))
@@ -9991,7 +10229,7 @@
       (_5r (memSetWord cg 41 (borrowedTailLeaves cg name body params)))
       (_5p (memSetWord cg 42 vecNew))
       (_6 (memSetWord
-        cg        18        (let ((e (findFSig (memGetWord cg 15) name)))
+        cg        18        (let ((e (findFSigCg cg name)))
           (if (== e 0)
             0
             (memGetWord e 2)
@@ -10341,7 +10579,7 @@
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       0
-      (let ((e (findFSig (memGetWord cg 15) (nodeAName d))))
+      (let ((e (findFSigCg cg (nodeAName d))))
         (if (== e 0)
           0
           (if (== (fldClass cg (arrowParamTy (memGetWord e 3) i)) 2)
@@ -10366,7 +10604,7 @@
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       (- 0 1)
-      (let ((e (findFSig (memGetWord cg 15) (nodeAName d))))
+      (let ((e (findFSigCg cg (nodeAName d))))
         (if (== e 0)
           (- 0 1)
           (if (== (memGetWord e 4) 0)
@@ -13339,8 +13577,13 @@
                   ; defines. The decl list carries mangled names, so the
                   ; reference is resolved through the map before it is
                   ; compared or emitted.
-                  (let ((full (mangledFor cg name)))
-                    (if (isNullaryFn (memGetWord cg 8) full)
+                  ;
+                  ; Through the INDEX. `buildNameIndexes` exists because
+                  ; the linear `mangledFor` cost a self-compile 2.2s on
+                  ; the scans alone - and then this call site, one of the
+                  ; two hottest it was built for, kept asking the scan.
+                  (let ((full (mangledForCg cg name)))
+                    (if (isNullaryFnCg cg full)
                       (let ((rn (allocReg cg)))
                         (let ((r (regStr rn)))
                           {
@@ -13361,9 +13604,9 @@
                       ; A parameter of the function being emitted wins
                       ; first, though: a param named `lex` is the
                       ; param, not the lexer entry point it shadows.
-                      (if (&& (isDefinedFn (memGetWord cg 8) full) (< (paramIndexOf cg name) 0))
+                      (if (&& (isDefinedFnCg cg full) (< (paramIndexOf cg name) 0))
                         (let (
-                          (ti (thunkIndexFor cg full (fnArityOf (memGetWord cg 8) full)))
+                          (ti (thunkIndexFor cg full (fnArityOfCg cg full)))
                           (pn (allocReg cg))
                           (fn2 (allocReg cg))
                         )
@@ -14919,26 +15162,28 @@
 ; name answers arity 0, and treating every builtin and binary operator
 ; as over-applied would route `(+ a b)` through a closure record that
 ; does not exist.
+;
+; Both are asked through `buildNameIndexes` (`…Cg`), because both are
+; asked for every call this emitter writes, and both used to walk the
+; whole merged declaration list to answer.
 (pub :: emitOverApplied (-> String Int Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitOverApplied fnName args stamp cg evs)
-  (let ((decls (memGetWord cg 8)))
-    (if (isDefinedFn decls fnName)
-      (let ((ar (fnArityOf decls fnName)))
-        (if (|| (<= (vecLen args) ar) (== ar 0))
-          (emitCall fnName args stamp cg)
-          (let ((cgD (emitCall fnName (takeVec args ar) stamp cg)))
-            ; The surplus is applied through a closure, so it needs the
-            ; classes `walkAppChain` recorded - dropped by the same
-            ; arity the arguments were, because the two vectors are one
-            ; reversal of the same spine and must stay aligned.
-            (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0 (dropVec evs ar))
-          )
+  (if (isDefinedFnCg cg fnName)
+    (let ((ar (fnArityOfCg cg fnName)))
+      (if (|| (<= (vecLen args) ar) (== ar 0))
+        (emitCall fnName args stamp cg)
+        (let ((cgD (emitCall fnName (takeVec args ar) stamp cg)))
+          ; The surplus is applied through a closure, so it needs the
+          ; classes `walkAppChain` recorded - dropped by the same
+          ; arity the arguments were, because the two vectors are one
+          ; reversal of the same spine and must stay aligned.
+          (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0 (dropVec evs ar))
         )
       )
-      (emitCall fnName args stamp cg)
     )
+    (emitCall fnName args stamp cg)
   )
 )
 
@@ -15197,7 +15442,10 @@
   ; The callee's defining module may have renamed it - a bare
   ; reference reaches whatever symbol the map says (entry file
   ; first, then first import). Operators and primitives never
-  ; enter the map, so `full` is `fnName` for them.
+  ; enter the map, so `full` is `fnName` for them. Asked through
+  ; `mangledForCg`, which answers the same question off
+  ; `buildNameIndexes`' Intern rather than by walking all 1,600
+  ; bare names - this runs once per emitted call.
   ; MM-LIFE-2d: presence of the hidden argument is SIG-driven -
   ; every call to a polymorphic callee passes a word even when no
   ; stamp survived (the unchecked emitModule path, a demoted
@@ -15207,7 +15455,7 @@
     (let ((argStrCg (emitArgsRegs args cg argRegs 0)))
       (let (
         (argStrT (strDup (memGetWordStr argStrCg 9)))
-        (full (mangledFor argStrCg fnName))
+        (full (mangledForCg argStrCg fnName))
       )
         (let ((takesEv (fnTakesEvw argStrCg full)))
           (let ((cgE 
