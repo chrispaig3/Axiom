@@ -30,6 +30,8 @@
 
 (import Sys)
 
+(import Err)
+
 (import Mem)
 
 (:: say (-> Int String Int))
@@ -91,9 +93,9 @@
             )            "socket() answers a descriptor"
           )
           (say
-            (if (== (netSetOptInt
+            (if (isOk (netSetOptInt
               lsn              solSocket              soReuseAddr              1              optb
-            ) 0)
+            ))
               1
               0
             )            "setsockopt(SO_REUSEADDR) is accepted"
@@ -133,19 +135,19 @@
             )            "the port is written big-endian"
           )
           (say
-            (if (== (netBind lsn buf) 0)
+            (if (isOk (netBind lsn buf))
               1
               0
             )            "bind() accepts a 16-byte address"
           )
           (say
-            (if (== (netListen lsn 16) 0)
+            (if (isOk (netListen lsn 16))
               1
               0
             )            "listen() is accepted"
           )
           (say
-            (if (>= (netSetNonBlocking lsn) 0)
+            (if (isOk (netSetNonBlocking lsn))
               1
               0
             )            "the listener goes non-blocking"
@@ -165,7 +167,7 @@
             (let ((rc (netConnect cli buf)))
               {
                 (say
-                  (if (>= rc 0)
+                  (if (isOk rc)
                     1
                     0
                   )                  "connect() to our own listener is accepted"
@@ -179,7 +181,7 @@
                       )                      "accept() answers the connected socket"
                     )
                     (say
-                      (if (== (netShutdown con 2) 0)
+                      (if (isOk (netShutdown con 2))
                         1
                         0
                       )                      "shutdown() closes both directions"

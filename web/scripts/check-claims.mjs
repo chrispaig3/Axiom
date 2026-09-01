@@ -31,7 +31,20 @@ const CLAIMS = [
   },
   {
     what: '.ax files in the tree',
-    derive: () => sh("find . -name '*.ax' -not -path './.git/*' | wc -l"),
+    // `.claude/worktrees/` MUST be excluded and this checker did not.
+    // Each agent worktree is a full checkout, so with twenty of them
+    // present the count read 12,621 against a real 587 - a number the
+    // build would then have demanded the site publish. A claim checker
+    // that fails the build over its own miscount is worse than none,
+    // because the obvious way to make it pass is to write its answer
+    // into the page. `node_modules` is excluded for the same reason it
+    // is excluded from the Linux harness's tar: a nested copy of
+    // somebody else's tree is not this tree.
+    derive: () =>
+      sh(
+        "find . -name '*.ax' -not -path './.git/*'" +
+          " -not -path './.claude/*' -not -path '*/node_modules/*' | wc -l",
+      ),
     format: (n) => String(Number(n)),
   },
   {

@@ -390,13 +390,19 @@
       (netAddr4
         addr        port        127        0        0        1
       )
-      (let ((rc (netBind lsn addr)))
-        (if (!= rc 0)
-          {
-            (println "bind failed: rc {rc} port {port}")
-            (sysExitWith 2)
-          }
-          0
+      ; `netBind` answers a `Result` since 0.6.2, so the failure is
+      ; matched rather than compared: the errno is `errCode`, which is
+      ; the number a reader of "address already in use" needs and the
+      ; old `rc` only carried negated.
+      (match (netBind lsn addr)
+        ((Ok bound) bound)
+        ((Err be)
+          (let ((eno (errCode be)))
+            {
+              (println "bind failed: errno {eno} port {port}")
+              (sysExitWith 2)
+            }
+          )
         )
       )
       (netListen lsn 512)

@@ -1366,6 +1366,67 @@ before the next:
    boundary for the same reason of scope: the compiler's own phases are
    slice 4.
 
+   **The socket-CONFIGURATION half is done, 2026-08-31.** Seven calls
+   answer `(Result Int Error)` through `sysResult`: `netBind`,
+   `netListen`, `netConnect`, `netShutdown`, `netSetOptInt`,
+   `netSetBlocking` and `netSetNonBlocking`. Each answers nothing but
+   whether it managed what it was asked to do, so `Ok 0` is the whole
+   of the success and the errno is `Error.code`. `stdlib/Sys.ax`'s
+   census: **26 → 19**; the library **29 → 22**
+   (`scripts/check-compat.sh`, 30 checks).
+
+   **The slice line is WHERE THE CALL RUNS, not what it does.** All
+   seven run once per socket. What is left in `Sys.ax` is per-connection
+   (`netAccept`, `netAcceptFrom`), per-wake (`netPollWait`,
+   `netPollSignalAt`) or per-write (`sysWriteFd`, which `IO.writeStr`
+   forwards) — the exclusions this section already states, and the
+   paragraph below is what actually holds them.
+   `netSocketTcp`/`netSocketTcp6` are left for a different
+   reason: they are nullary and answer the descriptor itself, so
+   porting them retypes every `lsn` and `cli` *binding* in eight files
+   rather than one expression at each call site.
+
+   The blast radius was **47 call expressions over eight files**, all
+   in `tests/` and `examples/`: `stdlib/` and `self_host/` call none of
+   the seven. Every site that compared the answer against `0` is now
+   `isOk` or `isErr`, and `tests/net/echo-server.ax` renders a failed
+   bind through `errMessage` and `errCode`.
+
+   **Slice 1's "eight exports are reached by nothing" is stale, and
+   this slice is not what closed it.** Counted 2026-08-31 over
+   `stdlib/`, `self_host/`, `tests/` and `examples/`, excluding
+   `Err.ax` itself, at the commit before this one: `isOk` 17, `isErr`
+   21, `unwrapOr` 73, `errMessage` 3, `errContext` 1, `mapOk` 1,
+   `remChecked` 2, `shrChecked` 1. All eight already had a caller —
+   four of them only through `tests/stdlib/371-err-module.ax`, which
+   grew to reach them. This slice takes `isOk` to 28, `isErr` to 25 and
+   `errMessage` to 4. The list above is left in place because it is
+   what the decision was made against; it is not a description of the
+   tree today, and a reader deciding whether to delete a name must
+   recount rather than quote.
+
+   **A CALLEE UNDID THE EXCLUSION FROM UNDERNEATH, and `symbols`
+   is what saw it.** `netAcceptFinish` — shared by `netAccept` and
+   `netAcceptFrom` — calls `netSetNonBlocking` on the target where the
+   kernel does not take `SOCK_NONBLOCK`, which is once per accepted
+   connection. Porting that callee gave **`netAccept` and
+   `netAcceptFrom` `Alloc`**, an `(Ok 0)` per connection allocated
+   *below* the echo server's arena mark and therefore never reclaimed.
+   The fix is a private `netSetNonBlockingRaw` answering the raw
+   result, with the `Result` as the public skin over it.
+
+   **And `check-net.sh` would NOT have caught it.** Measured
+   2026-08-31 with the allocation restored to the accept path: the
+   gate stayed green at **182×** against its floor of 50 (344× with
+   the split), and the scoped arm's growth over 9,800 connections rose
+   from 400 KiB to 512 KiB — about 12 bytes per connection, which is
+   inside what a page-granular RSS reading can be asked to resolve.
+   So the sentence above — "risking a measured gate" — overstates what
+   the gate measures. The ratio floor is sized to catch an arena that
+   stopped reclaiming, not one 32-byte block per connection. The
+   exclusion still stands, and it now stands on `#effects=` in
+   `axiom symbols`, which is exact, rather than on a ratio that is not.
+
    **`unwrapOr` with a constant is not a port, and it cost three
    defects here.** Wherever the sentinel carried WHICH failure, a
    fallback value destroys it and nothing complains:
@@ -1441,15 +1502,23 @@ them would have taken its module's count up and failed
 `scripts/check-compat.sh` for a commit that changed no contract.
 
 *So the `Result` migration is NOT complete, and this section's claim
-that it was is withdrawn.* What remains is 29 public functions handing
-a caller a negative errno, and none of them is free: `netSocketTcp` has
-17 call sites, **seven of which never test the result at all**, which is
-the reason the migration exists rather than an argument against it. The
-hot-path exclusions still stand on their own measurement — `IO.writeStr`
-and the `net` polling calls allocate an `(Ok n)` per call or per wake
-outside the per-request arena scope, and `scripts/check-net.sh` holds
-the ratios — but "excluded" is a decision about four of twenty-nine, not
-a description of the whole.
+that it was is withdrawn.* What remained was 29 public functions handing
+a caller a negative errno; the socket-configuration slice took seven of
+them on 2026-08-31 and **22** are left. None of them is free:
+`netSocketTcp` has 17 call sites, **seven of which never test the result
+at all**, which is the reason the migration exists rather than an
+argument against it.
+
+The hot-path exclusions still stand on their own measurement —
+`IO.writeStr` and the `net` accepting and polling calls allocate an
+`(Ok n)` per call, per connection or per wake, outside the per-request
+arena scope. **What holds them is `#effects=` in `axiom symbols`, not
+`scripts/check-net.sh`**, and §10's slice-3 note carries the
+measurement: with a per-connection allocation deliberately restored to
+the accept path, that gate stayed green at 182× against its floor of
+50. Its ratio is sized to catch an arena that stopped reclaiming, not
+one 32-byte block per connection. And "excluded" is a decision about a
+handful of the twenty-nine, not a description of the whole.
 
 The other half is unchanged in kind and one larger in count: **nine**
 lookups in `stdlib/` that answer `-1` for "not found" and want
