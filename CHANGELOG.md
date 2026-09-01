@@ -16,6 +16,19 @@ its changelog too.
 
 ## Unreleased
 
+## 0.6.3 — 2026-09-01
+
+Contracts arrive, the error model starts being adopted rather than
+merely specified, and the emitter stops asking the same un-indexed
+question at every call site.
+
+The through-line is narrower than the list looks: almost everything
+here was found by ablating a check to see whether it could fail. Four
+of the claim mechanisms this language ships — a contract, a
+restriction, an AXTAG on a macro template, an AXTAG typed at the REPL —
+turned out to accept a program that violated them, and eleven gates
+would have reported one fault in a tree that had two.
+
 ### The five calls that answer a descriptor, and eleven gates that would have reported one fault in a tree with two
 
 `ERR-ADOPT-1`'s third slice: `sysOpenPath`, `netSocketTcp`,

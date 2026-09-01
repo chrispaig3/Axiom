@@ -33,7 +33,7 @@
 
 export const BENCH_ENV = {
   machine: 'Apple M1, macOS 26.6.2, darwin-aarch64',
-  axiom: 'Axiom 0.6.2',
+  axiom: 'Axiom 0.6.3',
   rust: 'rustc 1.97.1',
   c: 'clang 23.1.0',
   answer: '428343467',
@@ -53,18 +53,18 @@ export const BENCH: BenchRow[] = [
   {
     metric: 'Run time',
     how: '3,000,000 Collatz sequences · best of 20, interleaved',
-    axiom: '0.700 s',
-    rust: '0.700 s',
+    axiom: '0.699 s',
+    rust: '0.699 s',
     c: '0.699 s',
     note: 'One millisecond apart across all three. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
   },
   {
     metric: 'Compile to a native binary',
     how: 'one file, cold · best of 15, interleaved',
-    axiom: '0.186 s',
-    rust: '0.128 s',
-    c: '0.181 s',
-    note: 'Axiom is still the slowest of the three, by fifty-eight milliseconds against rustc. Published because it is what was measured. The gap NARROWED — 1.54x to 1.46x against rustc, and 1.19x to 1.02x against clang — but read the ratio, not the seconds: all three arms also got faster between the two measurements, so the machine was quieter, not Axiom 1.8x better.',
+    axiom: '0.182 s',
+    rust: '0.129 s',
+    c: '0.180 s',
+    note: 'Axiom is still the slowest of the three, by fifty-three milliseconds against rustc. Published because it is what was measured. The gap NARROWED — 1.54x to 1.41x against rustc, and 1.19x to 1.01x against clang — but read the ratio, not the seconds: all three arms also got faster between the two measurements, so the machine was quieter, not Axiom 1.8x better.',
   },
   {
     metric: 'Binary size',
@@ -85,6 +85,22 @@ export const BENCH: BenchRow[] = [
 ]
 
 /*
+ * RE-MEASURED for 0.6.3 against the compiler this page ships with, and
+ * the previous pass carried a label it had not earned: the row named
+ * the release before this one while the binary that produced it
+ * already contained the emitter indexing work, which landed AFTER that
+ * release was cut. (The version is not spelled in this comment on
+ * purpose - `webbench_version` in `scripts/lib/version-sites.sh` reads
+ * this file by matching the word beside a version anywhere in it, so a
+ * second mention here is a second SITE, and `check-version.sh` refuses
+ * a file that states two. It refused this one, which is the reader and
+ * the writer being a pair exactly as that file's header claims.) The
+ * numbers were right and the version beside them was not, which is the
+ * failure the version-site machinery was added to stop and did not,
+ * because it checks that the label matches VERSION rather than that it
+ * matches the compiler someone ran. It does now, by construction: the
+ * bump moves the label and the release re-measures beneath it.
+ *
  * RE-MEASURED 2026-09-01 against the compiler this page ships with,
  * after the emitter's un-indexed name lookups were replaced with the
  * indexes the compiler already built. Interleaved, best of 15 for the
