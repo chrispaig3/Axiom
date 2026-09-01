@@ -1,0 +1,77 @@
+; AN AXTAG ON THE FIRST DECLARATION A TEMPLATE GENERATES.
+;
+; `tests/diagnostics/361-macro-template-effect.ax` records three bugs
+; that stood between an author and a claim written inside a macro
+; template, and closed them. This is the fourth, and it was invisible
+; to 361 because 361's tag sits on the template's FIFTH declaration.
+;
+; `expCopyDeclInto` copies the first generated declaration into the
+; INVOCATION's node - the node that already sits in the top-level list -
+; and it copied words 0,1,2,3,4,5,6 and 9 while writing a literal 0
+; into word 7, the AXTAGs. So a tag on element 0 of a template was
+; parsed, attached by `attachAxtags`, copied by `expBuildDecls`, and
+; then thrown away. Measured before the fix, with one near-miss key
+; moved one line between two runs of the same file:
+;
+;   ;@axiom:pur above the template's FIRST declaration   -> nothing
+;   ;@axiom:pur above the template's SECOND declaration  -> AX3039
+;
+; The zero was there so `expGiveTags` could park an INVOCATION's tags
+; on the first generated `fn` unconditionally. It does not need to be:
+; that walk already reads each generated declaration's own word 7 to
+; decide whether it is spoken for, and `made[0]`'s copy was never
+; zeroed - only the invocation node's was.
+;
+; Two arms, both of which must FIRE, because the defect's signature is
+; silence:
+;
+;   `loud`   the first template declaration is a `::` carrying
+;            `restrict(no-io)`, over a body that calls `println`
+;            -> AX3049, with the path
+;   `quiet`  the first template declaration is a `fn` carrying
+;            `effect(io)`, over a body that performs nothing
+;            -> AX3010, the claim the body does not support
+;
+; and one control that must stay SILENT:
+;
+;   `plain`  the same shape with no tag on the first declaration - so
+;            a fix that handed some tag to every element 0 would be
+;            caught here rather than shipped
+(import IO)
+
+(macro defLoud ((defLoud nm)
+  ;@axiom:restrict(no-io)
+  (:: nm (-> Int Int))
+  ;@axiom:effect(io)
+  (fn (nm n)
+    {
+      (println "io")
+      n
+    }
+  )))
+
+(macro defQuiet ((defQuiet nm)
+  ;@axiom:effect(io)
+  (fn (nm n) n)
+  (:: nm (-> Int Int))))
+
+(macro defPlain ((defPlain nm)
+  (:: nm (-> Int Int))
+  (fn (nm n) n)))
+
+(defLoud loud)
+
+(defQuiet quiet)
+
+(defPlain plain)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (loud 1)
+    (quiet 2)
+    (plain 3)
+  }
+)

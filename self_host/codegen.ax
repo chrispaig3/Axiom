@@ -7788,6 +7788,7 @@
     (emitOomTrap cg)
     (emitRecoverRuntime cg)
     (emitStrEqHelper cg)
+    (emitContractTrap cg)
     cg
   }
 )
@@ -14177,9 +14178,21 @@
                                         true
                                         (if (strEq nm "__call_word")
                                           true
+                                          ; `(__contract cond "message")` - the run-time
+                                          ; half of a `;@axiom:pre(...)` / `post(...)`,
+                                          ; written by `expLowerContracts` and by nothing
+                                          ; else. A primitive rather than a call because
+                                          ; there is no function to reach: it is a compare,
+                                          ; a branch and a trap. A name this misses is an
+                                          ; `@__contract` nothing defines - measured, and
+                                          ; exactly what the arena pair's note above
+                                          ; records for its own omission.
+                                          (if (strEq nm "__contract")
+                                            true
                                           (if (isAtomicPrimName nm)
                                             true
                                             (isSyscallName nm)
+                                          )
                                           )
                                         )
                                       )
@@ -14301,9 +14314,12 @@
                                           (emitPrimStrEq args cg 0)
                                           (if (strEq fnName "__call_word")
                                             (emitPrimCallWord args cg)
+                                            (if (strEq fnName "__contract")
+                                              (emitPrimContract args cg)
                                             (if (isAtomicPrimName fnName)
                                               (emitPrimAtomic fnName args cg)
                                               (emitPrimSyscall args cg)
+                                            )
                                             )
                                           )
                                         )
@@ -14326,6 +14342,108 @@
       )
     )
   )
+)
+
+; `(__contract cond "message")` - the run-time half of a
+; `;@axiom:pre(...)` / `;@axiom:post(...)`, and the only thing that
+; makes a contract more than a comment: this compiler has no value
+; analysis (measured: `grep -v '^ *;' FILE | grep -c
+; 'constFold\|interval\|rangeOf'` over `typecheck.ax` and this file
+; answers 0 and 0 - the comment lines are excluded because this
+; sentence matches the pattern it quotes), so `(> n 0)` about an
+; unseen caller is not a question it can decide statically.
+;
+; A branch and a trap, in the shape `emitAndOr` uses for its own two
+; blocks. The MESSAGE IS EMITTED IN THE FAILING BLOCK, not before the
+; branch: a passing contract - which is every contract in a working
+; program, on every call - executes the compare, the branch, and
+; nothing else.
+(pub :: emitPrimContract (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPrimContract args cg)
+  (let (
+    (cg1 (emitExpr (vecGet args 0) cg))
+    (c (strDup (memGetWordStr cg1 2)))
+    (cn (allocReg cg1))
+    (okL (allocReg cg1))
+    (badL (allocReg cg1))
+    (cr (regStr cn))
+    (okB (labelStr okL))
+    (badB (labelStr badL))
+    (_1 (emitLine cg1 (cat4 (cat2 "  " cr) " = icmp ne i64 " c ", 0")))
+    (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cr ", label %") okB (cat2 ", label %" badB) "")))
+    (_3 (emitLabel cg1 badB))
+    (cg2 (emitExpr (vecGet args 1) cg1))
+    (m (strDup (memGetWordStr cg2 2)))
+    (_4 (emitLine cg2 (cat3 "  call i64 @__axiom_contract_fail(i64 " m ")")))
+    (_5 (emitLine cg2 "  unreachable"))
+    (_6 (emitLabel cg2 okB))
+    (_7 (memSetWord cg2 2 (constStr 0)))
+  )
+    cg2
+  )
+)
+
+; The contract trap, emitted UNCONDITIONALLY beside the division trap
+; and the string-equality helper, and for the reason written above
+; both of them: a helper emitted only when the program looks like it
+; needs one is a call to a symbol nothing defines the first time the
+; predicate and the generator disagree. `emitDivTrap`'s own note
+; records that exact failure ("every program that divided and had no
+; effects reached `opt` with a call to a symbol nothing defined"), and
+; a contract's predicate would have to be evaluated in TWO passes -
+; `expLowerContracts` writes the call, this module decides whether the
+; callee exists - which is one more place for them to disagree than
+; the division trap ever had.
+;
+; AND IT COSTS A PROGRAM THAT STATES NO CONTRACT NOTHING, which is not
+; a claim about `opt`. `pruneDeadDefs` walks the rendered line buffer
+; and drops every `define` no root reaches, so this helper survives
+; exactly where something calls it: measured on `(fn (main) 7)`, the
+; emitted module carries zero `@__axiom_contract_fail`, zero
+; `@__axiom_div_by_zero` and zero `@__axiom_str_eq` - twelve defines in
+; all. Unconditional at the emitter so the two passes cannot disagree,
+; absent from the module when nothing calls it. Both halves are section
+; 3 of `scripts/check-contracts.sh`, and the second is asserted against
+; the other two unconditional helpers so that a 0 there is the pruner
+; rather than this function having quietly become conditional.
+;
+; STATUS 76, AND IT WAS DESIGNED AS 75. `MM-EXEC-16` reserves 70 (out
+; of memory), 71 (unhandled effect) and 72 (division by zero); 73 is
+; the FFI boundary's (`docs/ffi.md` 5.1), 74 is a `__syscallN` on a
+; target with no syscall ABI (`emitWinRuntime`), and 75 is an arena
+; reset handed an invalid mark (`emitBadMarkTrap`, MM-ALLOC-16a). That
+; last one and this one were written on two branches on the same day
+; and both took 75; this is the one that moved, because it had not
+; shipped. A contract failure is a sixth, and distinct on purpose:
+; `docs/ffi.md` 5.1 took 73 precisely because a Rust panic and an
+; Axiom division were indistinguishable to a supervisor at 72, and two
+; broken invariants sharing one status would be that defect again.
+;
+; The message arrives as a `Str` HANDLE, whose word 0 is the length and
+; whose word 1 is the byte pointer (`emitStrEqHelper` reads the same
+; two words, and `emitStringGlobals` writes them).
+(pub :: emitContractTrap (-> Int Int))
+
+(pub fn (emitContractTrap cg)
+  {
+    (emitLine cg "define internal i64 @__axiom_contract_fail(i64 %s) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 77)")
+    (emitLine cg "  %csp = inttoptr i64 %s to ptr")
+    (emitLine cg "  %cn = load i64, ptr %csp")
+    (emitLine cg "  %cda = add i64 %s, 8")
+    (emitLine cg "  %cdap = inttoptr i64 %cda to ptr")
+    (emitLine cg "  %cd = load i64, ptr %cdap")
+    (emitRuntimeWrite cg "%cd" "%cn")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "77")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
+    cg
+  }
 )
 
 ; `(__call_word fn arg)`: `fn` is the ADDRESS of a C function

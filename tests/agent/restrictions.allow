@@ -52,6 +52,7 @@ allocates tests/diagnostics/371-restrict-no-io.ax no-io ok
 badEscapeIn self_host/lexer.ax no-io,no-alloc,no-foreign ok
 bareOf self_host/core.ax no-io,no-foreign ok
 bareOfFrom self_host/core.ax no-io,no-foreign ok
+bothWays tests/diagnostics/391-restrict-effect-transparent.ax no-io violated
 bridges tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
 builds tests/diagnostics/372-restrict-no-alloc.ax no-alloc violated
 casts tests/diagnostics/375-restrict-unverifiable.ax no-cast violated
@@ -275,7 +276,9 @@ ledWordRightSpan stdlib/Tui/Edit.ax no-io,no-alloc,no-foreign ok
 ledYank stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledYankPop stdlib/Tui/Edit.ax no-io,no-foreign ok
 lex self_host/lexer.ax no-io,no-foreign ok
+lexCast tests/diagnostics/391-restrict-effect-transparent.ax no-cast ok
 lexTokens self_host/lexer.ax no-io,no-foreign ok
+lexWrap tests/diagnostics/391-restrict-effect-transparent.ax no-wrap ok
 lineCount self_host/diag.ax no-io,no-alloc,no-foreign ok
 lineEndFrom self_host/core.ax no-io,no-alloc,no-foreign ok
 lineOf self_host/diag.ax no-io,no-alloc,no-foreign ok
@@ -285,6 +288,7 @@ lineStartOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 lineStartScan self_host/diag.ax no-io,no-alloc,no-foreign ok
 local tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 looped tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
+loud tests/diagnostics/392-macro-template-first-tag.ax no-io violated
 measures tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 memAlloc stdlib/Mem.ax no-io,no-foreign ok
 memAllocMapped stdlib/Mem.ax no-io,no-foreign ok
@@ -313,6 +317,7 @@ mkHlScan self_host/replhl.ax no-io,no-foreign ok
 mkHlSpan self_host/replhl.ax no-io,no-foreign ok
 mkSpan self_host/core.ax no-io,no-foreign ok
 mkToken self_host/core.ax no-io,no-foreign ok
+named tests/diagnostics/391-restrict-effect-transparent.ax no-io ok
 native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
@@ -324,6 +329,7 @@ parseConfig tests/diagnostics/371-restrict-no-io.ax no-io violated
 pass tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 pastBom self_host/core.ax no-io,no-alloc,no-foreign ok
 ping tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
+plain tests/diagnostics/391-restrict-effect-transparent.ax no-io ok
 powTen stdlib/Fmt.ax no-io,no-alloc,no-foreign ok
 pureMath tests/diagnostics/371-restrict-no-io.ax no-io ok
 pushQ self_host/diag.ax no-io,no-foreign ok
@@ -462,13 +468,18 @@ vecSwapWords stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecTry stdlib/Vec.ax no-io,no-foreign ok
 vecWithCapacity stdlib/Vec.ax no-io,no-foreign ok
 vecWithCapacityRef stdlib/Vec.ax no-io,no-foreign ok
+viaAlloc tests/diagnostics/391-restrict-effect-transparent.ax no-alloc unverifiable
 viaBuiltin tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaCallback tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaCap tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaCap tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
+viaDeep tests/diagnostics/391-restrict-effect-transparent.ax no-cast:deep unverifiable
 viaField tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
+viaForeign tests/diagnostics/391-restrict-effect-transparent.ax no-foreign unverifiable
 viaForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 viaHelper tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
+viaIo tests/diagnostics/391-restrict-effect-transparent.ax no-io unverifiable
 viaModule tests/diagnostics/377-restrict-witness-path.ax no-io violated
+viaRec tests/diagnostics/391-restrict-effect-transparent.ax no-recursion unverifiable
 visLen self_host/style.ax no-io,no-alloc,no-foreign ok
 wraps tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok

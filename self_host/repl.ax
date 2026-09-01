@@ -314,6 +314,130 @@
 ; `(+ 1 2)` as a module is gone) - so the head is inspected before
 ; choosing a parser.
 ; ------------------------------------------------------------------
+; ------------------------------------------------------------------
+; AXTAGs AT THE PROMPT.
+;
+; Every `;`-led line was discarded by the loop, and an AXTAG is a
+; `;`-led line, so a claim typed at the prompt reached nothing: it was
+; never appended to `declsSrc`, never seen by `scanAxtags`, and never
+; answered. Measured before this changed:
+;
+;   ;@axiom:restrict(no-io) above a function that calls `println`
+;     -> AX3042 for the undeclared effect and NOTHING for the
+;        restriction, where the same three lines in a FILE draw both
+;   ;@axiom:effect(io) above the same function
+;     -> AX3042 anyway, so an IO-performing function could not be
+;        DEFINED at the prompt at all, with no workaround at the
+;        prompt: `(println "hi")` typed as an expression works
+;        (`replWrapper`'s `needsIo` retry), a function that prints
+;        does not.
+;
+; The second is the one that decides this. A silently dropped claim is
+; this project's most-refused defect; a claim that cannot be written
+; is a language surface missing from a tool, and effect enforcement
+; (2026-08-25) is what created it.
+;
+; So a `;@axiom:` line is now APPENDED to `declsSrc` like a
+; declaration, where `parseModuleWith (lex wrapper) (scanAxtags
+; wrapper)` reads it. Two things follow, and both are handled here
+; rather than discovered later:
+;
+;   * A REDEFINITION must drop the old declaration's tags with it.
+;     `replDropMatching` slices out the declaration's own span, so a
+;     withdrawn function's `restrict(no-io)` would have been left
+;     sitting above whatever declaration came next in the accumulated
+;     source. `replTagRunStart` extends the removed range back over
+;     the contiguous `;@axiom:` lines immediately above it - which are
+;     exactly the tags that belong to it.
+;
+;   * A TRAILING tag - one typed with no declaration after it yet -
+;     must not attach to the wrapper's own `(:: __repl_result ...)`,
+;     which `replWrapper` splices in directly after `declsSrc`. It is
+;     stripped from the copy the wrapper compiles and KEPT in
+;     `declsSrc`, so it still attaches to the declaration the user
+;     types next, however many expressions come in between - which is
+;     what it would do in a file.
+;
+; `replTopLevelSpans` counts parens over the TOKEN stream, and the
+; lexer drops comments, so `;@axiom:pre((> n 0))` cannot be mistaken
+; for a top-level form however many parens it carries. That is why
+; this is safe to put in `declsSrc` at all.
+; ------------------------------------------------------------------
+
+; Does a `;@axiom:` tag begin at `p`?
+(pub :: replIsAxtagAt (-> String Int Int))
+
+(pub fn (replIsAxtagAt src p)
+  (if (> (+ p 8) (strLen src))
+    0
+    (if (strEq (strSlice src p 8) ";@axiom:")
+      1
+      0
+    )
+  )
+)
+
+(pub :: replIsAxtagLine (-> String Int))
+
+(pub fn (replIsAxtagLine line) (replIsAxtagAt line 0))
+
+; The offset of the first byte of the line containing `i`.
+(pub :: replLineStartAt (-> String Int Int))
+
+(pub fn (replLineStartAt src i)
+  (if (<= i 0)
+    0
+    (if (== (strByte src (- i 1)) 10)
+      i
+      (replLineStartAt src (- i 1))
+    )
+  )
+)
+
+; The start of the line immediately above the one beginning at `s`, or
+; -1 when `s` does not begin a line or there is nothing above it.
+(pub :: replPrevLineStart (-> String Int Int))
+
+(pub fn (replPrevLineStart src s)
+  (if (<= s 1)
+    (- 0 1)
+    (if (== (strByte src (- s 1)) 10)
+      (replLineStartAt src (- s 2))
+      (- 0 1)
+    )
+  )
+)
+
+; `s`, moved back over the run of `;@axiom:` lines immediately above
+; it. A tag belongs to the declaration below it, so this is the start
+; of everything that declaration owns.
+(pub :: replTagRunStart (-> String Int Int))
+
+(pub fn (replTagRunStart src s)
+  (let ((p (replPrevLineStart src s)))
+    (if (< p 0)
+      s
+      (if (== (replIsAxtagAt src p) 1)
+        (replTagRunStart src p)
+        s
+      )
+    )
+  )
+)
+
+; `src` without its trailing run of `;@axiom:` lines - the tags that
+; have no declaration under them yet.
+(pub :: replStripTrailingTags (-> String String))
+
+(pub fn (replStripTrailingTags src)
+  (let ((k (replTagRunStart src (strLen src))))
+    (if (>= k (strLen src))
+      src
+      (strSlice src 0 k)
+    )
+  )
+)
+
 (pub :: isDeclLine (-> String Bool))
 
 (pub fn (isDeclLine line)
@@ -609,7 +733,14 @@
       (let ((v vecNew))
         {
           (vecPush v "(import IO)\n(import Str)\n(import Mem)\n")
-          (vecPush v declsSrc)
+          ; The TRAILING tags stripped: a `;@axiom:` line typed with no
+          ; declaration under it yet would otherwise attach to the
+          ; `(:: __repl_result ...)` spliced in three lines below, and
+          ; a `restrict(no-io)` meant for the user's next function
+          ; would be answered against the REPL's own carrier. It stays
+          ; in `declsSrc` and attaches to whatever the user declares
+          ; next - see `replStripTrailingTags`.
+          (vecPush v (replStripTrailingTags declsSrc))
           (vecPush v "\n(:: __repl_result (-> Int ")
           (vecPush v carrier)
           (vecPush v "))\n")
@@ -1146,7 +1277,14 @@
               (let ((d (vecGet decls i)))
                 (if (&& (== (nodeTag d) tag) (strEq (nodeAName d) name))
                   (let ((sp (vecGet spans i)))
-                    (let ((s (spanStart sp)) (e (spanEnd sp)))
+                    ; The declaration's own span, extended back over the
+                    ; `;@axiom:` lines above it: a redefinition
+                    ; withdraws the claims written about the definition
+                    ; it replaces, exactly as rewriting the function in
+                    ; a file would. Without this the old function's
+                    ; `restrict(no-io)` was left above whatever
+                    ; declaration came next in `declsSrc`.
+                    (let ((s (replTagRunStart src (spanStart sp))) (e (spanEnd sp)))
                       {
                         (set out (strConcat out (strSlice src cursor (- s cursor))))
                         (set cursor (replSkipNl src e))
@@ -1645,7 +1783,19 @@
                     (if (== (strLen line) 0)
                       0
                       (if (== (strByte line 0) 59)
-                        0
+                        ; A comment is discarded; an AXTAG looks like a
+                        ; comment and is a CLAIM, so it is kept and
+                        ; attaches to the declaration typed next. See
+                        ; `replIsAxtagAt` for what that costs and why
+                        ; the two edges - redefinition and a trailing
+                        ; tag - are handled where they are.
+                        (if (== (replIsAxtagLine line) 1)
+                          {
+                            (set declsSrc (strConcat (strConcat declsSrc line) "\n"))
+                            0
+                          }
+                          0
+                        )
                         (if (== (strByte line 0) 58)
                           (let (
                             (w (cmdWord line))

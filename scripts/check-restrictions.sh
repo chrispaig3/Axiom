@@ -189,12 +189,32 @@ for f in tests/selfhost/*.ax; do
     continue
   fi
   # Every AX3051 names a declaration (first backticked name); each must
-  # have a row marked incomplete or over-approximated.
+  # have a row that JUSTIFIES the word "unverifiable", and there are
+  # three ways a row can (`docs/reference.md`, `restrict(...)`):
+  #
+  #   #effects-incomplete   the walk met a call it could not resolve,
+  #                         so an absent effect is not evidence;
+  #   #effects-overapprox   an effect is present only as POSSIBLE, so
+  #                         its presence is not evidence;
+  #   #effect-params=       the body CALLS one of its own parameters,
+  #                         so the row is COMPLETE about this body and
+  #                         answers the wrong question - what the call
+  #                         performs is the caller's argument's.
+  #
+  # The third arm was added on 2026-08-31 with the reading itself, and
+  # this loop is where its absence would have shown: before it, four
+  # of this corpus's programs - `520-fn-values`, `972-polymorphic-
+  # signature`, `997-let-box-value-escapes`, `999-placeholder-under-
+  # arrow` - drew an AX3051 this check called unjustified, on rows
+  # that carry `#effect-params=` and neither of the other two marks.
+  # That is the check doing its job: a new reading has to be admitted
+  # here explicitly, one marker at a time, rather than by widening the
+  # test until nothing fails it.
   unverifiable_ok=1
   while read -r name; do
     [[ -z "$name" ]] && continue
-    if ! awk -v n="$name" '$1 == "F" && $2 == n && (/#effects-incomplete/ || /#effects-overapprox/)' "$work/ir/$base.tagged.sym" | grep -q .; then
-      bad "tests/selfhost/$base.ax: AX3051 on \`$name\`, whose row is neither incomplete nor over-approximated"
+    if ! awk -v n="$name" '$1 == "F" && $2 == n && (/#effects-incomplete/ || /#effects-overapprox/ || /#effect-params=/)' "$work/ir/$base.tagged.sym" | grep -q .; then
+      bad "tests/selfhost/$base.ax: AX3051 on \`$name\`, whose row carries none of #effects-incomplete, #effects-overapprox or #effect-params="
       unverifiable_ok=0
     else
       unverifiable=$((unverifiable + 1))
@@ -237,7 +257,7 @@ fi
 if (( unverifiable < 3 )); then
   bad "only $unverifiable AX3051 across the sweep; the corpus carries the incompleteness sentinel in six files, so a satisfied no-foreign should be unverifiable in several"
 else
-  ok "$unverifiable declarations drew AX3051, every one on a row marked incomplete or over-approximated, and none was refused"
+  ok "$unverifiable declarations drew AX3051, every one on a row carrying #effects-incomplete, #effects-overapprox or #effect-params=, and none was refused"
 fi
 
 # The probe: the comparison must be able to fail. One swept program's

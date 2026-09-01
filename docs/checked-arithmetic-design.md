@@ -4,8 +4,15 @@ Ada round 1 shipped restriction profiles (`no-io`, `no-alloc`,
 `no-cast`, `no-cast:deep`, `no-recursion`, `no-foreign`;
 `05fb064`/`4a55781`/`7540524`). Three items stayed unstarted:
 pre/post contracts (`AX3050` reserved for them,
-`docs/error-model.md:871`), range-constrained subtypes, and this one
-— checked arithmetic. This note is the design pass required before
+`docs/error-model.md`), range-constrained subtypes
+(`docs/subtypes-design.md`, designed 2026-08-31 and deliberately not
+built), and this one
+— checked arithmetic. The contracts landed on 2026-08-31 and spent
+`AX3050`; `docs/contracts-design.md` is their note, and it re-measures
+the hazard this one records below (see "Question 2 — the effect-row
+interaction"): the pair really is unsatisfiable, and since
+`MM-EXEC-9a`'s constructor row closed on the same day the compiler says
+so, with the path. This note is the design pass required before
 touching any code, per the task brief; every claim below carries the
 command that established it.
 
@@ -130,7 +137,20 @@ restrictions:
 - `restrict(no-wrap, no-alloc)` together are unsatisfiable for any
   function that needs to add two numbers it did not get from a
   caller already carrying a checked value — `no-alloc` refuses the
-  only path `no-wrap` leaves open.
+  only path `no-wrap` leaves open. **Probed twice on 2026-08-31, and
+  the second probe is the one that stands.** Against `9116167` the
+  prediction was right about the program and wrong about the compiler:
+  `(fn (addSafe a b) (unwrapOr (addChecked a b) 0))` under both
+  restrictions checked `OK`, because a constructor application
+  contributed no `Alloc` to the effect row at all. That was
+  `restrict(no-alloc)` being unfalsifiable rather than this pair being
+  satisfiable, and it closed the same day (`MM-EXEC-9a`'s constructor
+  row, seven claims withdrawn). Against the merged tree the same file
+  answers what this bullet predicted, with the path:
+  `E AX3049 ... "`addSafe` claims `restrict(no-alloc)` and the body
+  performs Alloc: addSafe -> Err$addChecked -> Err$mkError, in
+  `mkError`'s own body"`. `docs/contracts-design.md` records both runs
+  and why the first one's numbers are kept rather than corrected.
 - `;@axiom:pure` and `restrict(no-wrap)` together are unsatisfiable
   for the same reason: a pure function cannot allocate, and the only
   sanctioned arithmetic under `no-wrap` allocates.

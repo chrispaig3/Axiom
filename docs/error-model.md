@@ -682,12 +682,28 @@ instead of writing to fd 2 and exiting:
 | out of memory answers **70** | `axiom: out of memory (mmap failed)`, exit 70 |
 | an unhandled effect answers **71** | `axiom: unhandled effect`, exit 71 |
 | division by zero answers **72** | `axiom: division by zero`, exit 72 |
+| a violated contract answers **77** | ``axiom: precondition failed in `half`: (> n 0)``, exit 77 |
 
-Both halves are in one program per case, at four optimisation levels:
-`tests/stdlib/401-recover-effect.ax`, `402-recover-oom.ax`,
-`403-recover-div.ax`, gated by `scripts/check-recover.sh`.
+The first three have both halves in one program per case, at four
+optimisation levels: `tests/stdlib/401-recover-effect.ax`,
+`402-recover-oom.ax`, `403-recover-div.ax`, gated by
+`scripts/check-recover.sh`.
 
-**The table has three rows and gains no fourth from status 75.** An
+**The fourth row is `;@axiom:pre(...)`/`post(...)`, added 2026-08-31,
+and it is here rather than in that gate because it is a claim about the
+contracts feature.** `@__axiom_contract_fail` opens with
+`__axiom_recover_abort` exactly as the division trap does, so a
+violated contract is *programmer error* in the same sense: the arena is
+intact, nothing half-wrote a structure, and a process that armed a
+recovery point asked to survive precisely this. Both halves are in one
+program, for the reason `403-recover-div.ax` gives for its own — with
+`__axiom_recover` unreferenced the mechanism is dead code and the armed
+test folds to false — and it is section 1 of
+`scripts/check-contracts.sh`: the arming call answers `recovered 77` on
+stdout, the second violation outside every extent exits 76 with the
+sentence on fd 2.
+
+**The table gains no row from status 75.** An
 arena reset handed a mark whose chunk is no longer on the active list
 traps with status **75** since 2026-08-31 (`MM-ALLOC-16a`), and it is
 deliberately outside this mechanism. A recovery point's abort IS an
@@ -709,6 +725,12 @@ corrupted structure the same question. It is also why the trap needs no
 exemption for the recovery path in the other direction: the abort
 restores every slot *before* it resets, so the check is already false
 by the time it runs (`docs/memory-model.md` `MM-ALLOC-16b`).
+paragraph describes, which a process can be written to survive - and so
+is 76, whose predicate is the programmer's own sentence about their own
+values. 75 is a violated *implementation* invariant (`I8`), and it is
+nearer the memory-safety fault the paragraph above refuses to contain.
+That is the line the table is drawn on: whose invariant broke, not how
+bad it sounds.
 
 **What it is not.** It is not unwinding, not a `catch`, and not an early
 return, so `ERR-REC-1` stands as written for everything except these
@@ -887,8 +909,8 @@ marks `;@axiom:deprecated`, a warning by design - see
 on 2026-08-29 by the `restrict(...)` AXTAG (`restriction-violated`, an
 error; `restriction-unverifiable`, a warning in the same policy file;
 `restriction-unknown`, an error - `docs/reference.md`, AXTAG Keys),
-`AX3050` is RESERVED below for the contracts work that follows the
-restrictions, `AX3043` and `AX3045` are still unspent and stay where
+`AX3050` was SPENT on 2026-08-31 by `contract-malformed` (the
+paragraph after next), `AX3043` and `AX3045` are still unspent and stay where
 they are, `AX3044` is the namespace pass's, and `AX3032` is retired and
 **MUST NOT** be reused. `AX3055` was spent on 2026-08-29 by
 `effect-op-untyped` (an effect operation that declares no type - an
@@ -933,6 +955,48 @@ naming it draws `AX3016` like any other undeclared name. The reserved
 block below is now empty and the next free semantic number is
 `AX3057`.
 
+`AX3050` was SPENT on 2026-08-31 by `contract-malformed`, and it is the
+one number in this section that reached the work it was reserved for
+rather than being reconciled. It was taken on 2026-08-29 from BETWEEN
+two numbers the restrictions were spending that same day - `AX3049` and
+`AX3051` - for no reason except that the contracts design named it, and
+the contracts landed on it. Eleven reconciliations, and one number kept.
+
+What it refuses is worth stating precisely, because a contract is the
+first claim in the AXTAG namespace this compiler **cannot decide**.
+`restrict(...)` is refused from analysis the checker already performs;
+`(> n 0)` is a statement about a VALUE, and there is no value analysis
+in this tree at all - `grep -v '^ *;' FILE | grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
+`self_host/typecheck.ax`, `self_host/codegen.ax` and
+`self_host/expand.ax` answers 0, 0, 0, the comment lines excluded
+because the sentence making the claim matches the pattern it quotes. So
+the claim is enforced at RUN TIME: `expLowerContracts` compiles the
+check into the body, and a failure writes ``axiom: precondition failed
+in `half`: (> n 0)`` on fd 2 and exits 76.
+
+`AX3050` is then everything about the contract that IS static, and it
+is four questions under one code:
+
+1. the value must PARSE, as exactly one expression;
+2. it must type as `Bool`, with the parameters in scope and against
+   this declaration's own signature;
+3. `result` must name something - the declared result of a `post`, and
+   nothing anywhere else: a `pre` runs before the body, and a
+   declaration with no `::` declares no result type for it to have;
+4. it must PERFORM nothing, since a contract is evaluated on every
+   call and one that allocates or writes changes the program by being
+   stated.
+
+Four questions and one code because they share a remedy - correct the
+expression, or delete the tag, which withdraws the claim - which is the
+same argument `AX3010` and `AX3049` make for their own arms. Question 4
+is not a blanket refusal, and that is measured rather than asserted:
+`vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and `memGetWord` carry
+an empty effect row, while `strConcat`, `fmtInt` and `vecNew` carry
+`Alloc,Mut`. A contract may compare, index, measure and test; it may not
+build. `docs/contracts-design.md` is the design note and
+`scripts/check-contracts.sh` the gate.
+
 `AX3047` is the ninth number this section has had to reconcile, and the
 first one it allocated rather than surrendered: it was taken from the
 free end deliberately, leaving the three proposals below untouched.
@@ -951,7 +1015,6 @@ what keeps it honest.
 | `AX3046` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning (was `AX3042` until that number was built as `undeclared-effect`) |
 | `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 | `AX3045` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
-| `AX3050` | `contract-malformed` | a `;@axiom:pre(...)`/`post(...)` whose value does not parse as an expression, does not type-check as `Bool` against the signature, or names `result` where the declared result is absent — error; reserved 2026-08-29 between two numbers the restrictions spent, so that the contracts land on the number their design names |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
@@ -1177,7 +1240,36 @@ the end.
 
 **ERR-ADOPT-1 (P). The migration is 64 sites by §1.2's `grep` proxy,
 and 30 public functions over 7 modules by the metric that is gated. It
-is not one commit.** The proxy sizes the work and is recomputed rather
+is not one commit.**
+
+> **THE BLOCKER THIS RULE WAS WAITING ON DOES NOT APPLY, measured
+> 2026-09-01.** `memory-model-v2-proposal.md`'s P6 was named as the
+> thing that "closes the real `ERR-ADOPT-1` blocker": a `Result`
+> wrapper whose `Err` arm explains *why* it failed with a computed
+> message pays `Alloc, Mut`, so it cannot carry `pure`, cannot survive
+> `restrict(no-alloc)`, and cannot sit in a `handle` checked
+> exhaustive against a narrower row. The mechanism is real and
+> reproduces —
+>
+> ```
+> F openish  "(Int -> Result Int Error)"  #effects=Alloc,Mut
+> F openLit  "(Int -> Result Int Error)"  #effects=Alloc
+> ```
+>
+> — the first with a `strConcat`'d message, the second with a literal.
+> **It bites nowhere this migration goes.** The two populations are
+> almost disjoint: all **29 failure sentinels**, the ones that become
+> `Result`, sit in modules carrying **zero** `no-alloc` and **zero**
+> `restrict` claims (`Sys.ax` has 26 of them and already declares
+> `effect(io)` seventy times — they are syscall wrappers, effectful
+> already). The modules dense with `no-alloc`/`restrict` — `Str.ax`,
+> `Tui/Keys.ax`, `Utf8.ax`, `Tui/Term.ax` — carry **absence**
+> sentinels, which become `Option`, which has no `Error`, no computed
+> message and none of the traffic the blocker is about. Recomputed
+> from `compat/SENTINELS` and a claim count per file; P6 stays
+> refuted (its `Mut` half is unsound, see the proposal) and stays
+> irrelevant here. **The migration may proceed, starting with
+> `Sys.ax`.** The proxy sizes the work and is recomputed rather
 than quoted (§1.2). The gated unit is a public function whose own
 doc-comment states a sentinel contract - what the migration ports, and
 what a caller depends on - recorded in `compat/SENTINELS` and

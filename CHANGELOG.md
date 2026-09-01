@@ -93,6 +93,7 @@ so in the type. `stdlib/Tui/Term.ax` is the one stdlib caller, and its
 against `0`; two `if` arms became `{ (sysCloseFd fd) 0 }` where a
 discarded close sat opposite an `Int`.
 
+>>>>>>> origin/trunk
 ### Seven socket calls that answered a negative errno now answer a `Result`, and a callee nearly undid the exclusion the slice was drawn around
 
 `ERR-ADOPT-1`'s third slice. `netBind`, `netListen`, `netConnect`,
@@ -227,7 +228,7 @@ change buys is visible only on a claim nobody had written yet:
 needed the same arrow-spine read for this question; the two modules do
 not import each other, so nothing had compared them.
 
-Gated by `scripts/check-effect-argpos.sh`. **Fifty-one gates** now
+Gated by `scripts/check-effect-argpos.sh`. **Fifty-two gates** now
 call `gate_build_axc`, so the six places that state that number moved
 with it and `word_for`'s table grew an arm. Eight probe declarations, of which
 **four are controls that must keep the mark**: a type variable, an
@@ -385,7 +386,6 @@ compiler's reference-counting traffic turns out to have been calls that
 could not free anything. Nothing in this release changes what a correct
 program does; three things change what an incorrect one does, and one
 makes every program smaller.
-||||||| parent of 82314c0 (An unfollowed argument counted as a hole wherever it was shaped like one, and never mind what the callee's signature called the position)
 
 ### Memory model v2, proposals 3, 4 and 5
 
@@ -545,6 +545,12 @@ that state that number were moved with it — `scripts/lib/gate.sh`,
 the live count rather than stopping one short of it. That
 sweep derives its upper bound from the table, so it extended itself;
 the six edits are the part that does not.
+
+`word_for`'s table grew an arm so the stale-spelling sweep covers the
+live count rather than stopping one short of it. That sweep derives its
+upper bound from the table, so it extended itself; the six edits are
+the part that does not — and they were spent again in the same release,
+when `check-contracts.sh` arrived as the fifty-first.
 
 **No wall-clock claim is made here either.** The two compilers were
 timed and the arms interleaved; there is no finding in either
