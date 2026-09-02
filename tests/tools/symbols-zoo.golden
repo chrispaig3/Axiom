@@ -157,6 +157,7 @@ F restrictedTwice tests/fmt/syntax-zoo.ax:397:5-20 "(Int -> Int)" @09253db9ca447
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option
+D Vec - "data Vec"
 D Shape tests/fmt/syntax-zoo.ax:24:11-16 "data Shape" @f67d31a9f1847a1c #ctors=Circle,Rect,Empty
 C Circle tests/fmt/syntax-zoo.ax:25:4-10 "(Int -> Shape)" #of=Shape
 C Rect tests/fmt/syntax-zoo.ax:26:4-8 "(Int -> (Int -> Shape))" #of=Shape

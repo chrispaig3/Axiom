@@ -157,6 +157,7 @@ Fn       restrictedTwice      (Int -> Int)                             [tests/fm
 Data     Option               data Option                              [builtin]
 Ctor     Some                 (a -> Option a)                          [builtin]
 Ctor     None                 Option a                                 [builtin]
+Data     Vec                  data Vec                                 [builtin]
 Data     Shape                data Shape                               [tests/fmt/syntax-zoo.ax:24:11-16]
 Ctor     Circle               (Int -> Shape)                           [tests/fmt/syntax-zoo.ax:25:4-10]
 Ctor     Rect                 (Int -> (Int -> Shape))                  [tests/fmt/syntax-zoo.ax:26:4-8]

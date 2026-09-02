@@ -471,12 +471,13 @@ See [reference.md](reference.md) for the language, and
 
 ## `Pre`
 
-`stdlib/Pre.ax` — 8 public names
+`stdlib/Pre.ax` — 9 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `when` | macro |  |  | Axiom standard prelude — macros and utilities. |
 | `unless` | macro |  |  | ;; unless — evaluate body unless test is true ;; (unless test body) -> (if test 0 body) |
+| `range` | macro |  |  | ;; range — the counted loop: `(range i 0 n body)` is `0..n` ;; (range i lo hi body) -> `body` once per `i` in [lo, hi), ascending, ;; with both ends read ONCE. |
 | `cond2` | macro |  |  | ;; cond2 — two-condition branching plus else ;; (cond2 t1 b1 t2 b2 els) -> (if t1 b1 (if t2 b2 els)) |
 | `cond3` | macro |  |  | ;; cond3 — three-condition branching plus else ;; (cond3 t1 b1 t2 b2 t3 b3 els) -> (if t1 b1 (if t2 b2 (if t3 b3 els))) |
 | `deriveEq` | macro |  |  | ;; deriveEq — structural equality for a data type, derived at the ;; point of use: `(deriveEq Color)` generates `eqColor : Color -> ;; Color -> Bool`, one match arm per constructor, answered from the ;; declaration list at expansion time (macro-system.md MAC-CAP-5/9). ;; The nullary form: works for any sum of nullary constructors, which ;; is the enum case. Fieldful sums want the impl form written where ;; the Eq trait is in scope — see macro-system.md section 10.2. |
