@@ -2473,6 +2473,17 @@
       ; `mkNode` - which is where MM-LIFE-2c's co-ownership blocker
       ; actually lives (docs/memory-model.md).
       (regFn fns "__retainref" (mkTArr (mkTVar "a") mkIntTy))
+      ; `(__indexTrap)` NEVER RETURNS, so it inhabits every result type:
+      ; its type is a bare variable, freshly instantiated at each use.
+      ; That is AX3040's own stated way out - "make it DIVERGE, so every
+      ; path ends in a call that never returns, which is what makes
+      ; `for all a` honest" - and it is why a container can refuse an
+      ; index without fabricating an element.
+      ;
+      ; No effect row: the trap writes to fd 2 and exits, and giving it
+      ; `IO` would put an effect on every function that merely REFUSES
+      ; an index, which is a claim about the happy path nobody takes.
+      (regFn fns "__indexTrap" (mkTVar "a"))
       (regFnEff fns "__argc" (mkIntArrow 0) (builtinEff "IO"))
       (regFnEff fns "__argv" (mkIntArrow 1) (builtinEff "IO"))
       ; `(__axiom_recover mark thunk)` - MM-ALLOC-16a. The second

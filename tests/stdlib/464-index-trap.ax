@@ -1,0 +1,55 @@
+; `__indexTrap`: a call that never returns, so it inhabits every result
+; type - and the status-77 trap it lowers to.
+;
+; WHY THIS PRIMITIVE EXISTS. Traps in Axiom are `internal` LLVM
+; functions the runtime block emits, so nothing in `stdlib/` could
+; reach one. A container that wants to REFUSE an out-of-range index
+; rather than answer a value needs exactly that:
+; `docs/generics-design.md` section 4 records the decision that
+; `vecGet` should trap, and the reason it could not - `(-> (Vec a) Int
+; a)` cannot answer 0, because there is no way to make up an `a`.
+;
+; WHAT THIS FIXTURE PINS, and the first two terms are the type-level
+; claim rather than the runtime one:
+;
+;   1. It inhabits `Int`. `pick` returns `Int` and one arm is the trap.
+;   2. It inhabits `String`. The same trap, a different result type, in
+;      one program - which is what "never returns" buys and what a
+;      concrete `Int` trap could not give. AX3040's own way out.
+;   3. The value arms still answer, so the trap has not swallowed the
+;      function: `pick 7` is 7 and `name 1` is "ok".
+;
+; The trap itself - the message, the backtrace and exit 77 - is pinned
+; by `464-index-trap.exit` and `.err` beside this file, because a
+; fixture that traps cannot also print its own success.
+(import IO)
+
+(:: pick (-> Int Int))
+
+(fn (pick n)
+  (if (< n 0)
+    __indexTrap
+    n
+  )
+)
+
+(:: name (-> Int String))
+
+(fn (name n)
+  (if (< n 0)
+    __indexTrap
+    "ok"
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (pick 7))
+    (println (name 1))
+    (println (pick (- 0 1)))
+    0
+  }
+)

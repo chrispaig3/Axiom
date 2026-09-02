@@ -16,6 +16,51 @@ its changelog too.
 
 ## Unreleased
 
+### `__indexTrap`: a call that never returns, and status 77
+
+**A trap `stdlib/` can reach.** Traps in Axiom are `internal` LLVM
+functions the runtime block emits, so nothing in the library could
+raise one. `(__indexTrap)` is a nullary primitive that lowers to
+`@__axiom_index_out_of_range` — message, `__axiom_recover_abort` first,
+backtrace, **exit 77**.
+
+**Typed `(mkTVar "a")` — a bare variable, freshly instantiated at each
+use — so it inhabits every result type.** One call stands in an `Int`
+result and a `String` result in the same program, which a
+concrete-typed trap could not. That is `AX3040`'s own stated way out:
+"make it DIVERGE, so every path ends in a call that never returns,
+which is what makes `for all a` honest".
+
+**The divergence fixpoint never entered it, and I expected it to.** I
+recorded last commit that admitting a builtin to the greatest fixpoint
+over Axiom-level tails would be a type-system change. It is not: that
+fixpoint decides whether a *declaration* with a result-only variable is
+honest, and a builtin registered in `fns` has no declaration to ask
+about. The teeth were in the wrong place.
+
+**`vecGet` does NOT use it yet, and the reason is the bootstrap.**
+`build-shared-axc.sh` compiles `stdlib/` with the **installed**
+compiler, so a library using a primitive the seed does not know cannot
+build — `error[AX3001]: undefined variable __indexTrap` at
+`stdlib/Vec.ax:225`. A primitive lands in the compiler first and the
+library uses it once the seed advances. Ordinary for a bootstrapped
+language, and it is why this stops one step short of the change it
+exists for.
+
+`tests/stdlib/464-index-trap.ax` pins all of it: the two result types,
+the value arms still answering, and the trap's own stderr and exit
+status beside it.
+
+**The formatter table was re-pinned, not re-blessed.**
+`check-fmt-selfhost` refuses more than 60 `.ax` files with no entry,
+and today's editing retired 65 — an edited file retires its own entry
+by design, which is what keeps the table from churning. Entries were
+**appended** for exactly those 65 (0 refused); no surviving pin was
+touched. The golden's header warns that "a re-bless is how a broken
+formatter becomes the reference", and the gate's preservation and
+rebuild halves do not read this file, so a formatter that had gone
+wrong still fails there.
+
 ### `Vec` is a type, and `AX3040` was refusing every empty container
 
 Two pieces toward parameterised containers, both landed, both inert

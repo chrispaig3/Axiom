@@ -148,18 +148,35 @@ possible place.
    ("make it DIVERGE, so every path ends in a call that never returns,
    which is what makes `for all a` honest").
 
-Step 3 is the one with teeth. Divergence is decided by a **greatest
-fixpoint over Axiom-level tail positions** (`typecheck.ax`, the
-`panic` argument), and a builtin is not in that graph. Admitting one is
-a type-system change, not a table entry, and it is why this stops at
-the decision.
+**Steps 1–3 are built.** `(__indexTrap)` is a nullary primitive typed
+`(mkTVar "a")` — a bare variable, freshly instantiated at each use, so
+one call stands in an `Int` result and a `String` result in the same
+program. The divergence fixpoint never entered it: that fixpoint
+decides whether a DECLARATION with a result-only variable is honest,
+and a builtin registered in `fns` has no declaration to ask about. The
+teeth were in the wrong place.
+
+**Step 4 — `vecGet` calling it — is not built, and the reason is the
+bootstrap.** `scripts/build-shared-axc.sh` compiles `stdlib/` with the
+INSTALLED compiler, so a library that uses a primitive the seed does
+not know cannot be built:
+
+```
+error[AX3001]: undefined variable `__indexTrap`
+   --> stdlib/Vec.ax:225:7
+```
+
+A primitive lands in the compiler first and the library uses it after
+the seed advances. That is the ordinary shape of adding one to a
+bootstrapped language, and it is why this commit stops one step short
+of the change it exists for.
 
 ## 5. The order
 
 1. **`Vec` as a type, and `AX3040` narrowed.** Landed; nothing uses the
    type yet.
-2. **`vecGet` traps.** Decided (§4). Needs status 77, and a diverging
-   primitive the divergence fixpoint admits.
+2. **`vecGet` traps.** Decided (§4). The trap and the primitive are
+   built; `vecGet` uses them once the seed carries `__indexTrap`.
 3. **The migration**, driven by the checker, with byte-identical IR as
    the acceptance test.
 4. **`for` as a keyword**, which is only expressible once 3 exists.

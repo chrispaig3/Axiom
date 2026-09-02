@@ -7844,6 +7844,7 @@
     (emitLiveHandleTrap cg)
     (emitEvCheck cg)
     (emitDivTrap cg)
+    (emitIndexTrap cg)
     (emitOomTrap cg)
     (emitRecoverRuntime cg)
     (emitStrEqHelper cg)
@@ -8152,6 +8153,39 @@
     (emitRuntimeWrite cg "%oomp" "35")
     (emitLine cg "  call void @__axiom_backtrace()")
     (emitRuntimeExit cg "70")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  }
+)
+
+; An index out of range: status 77, `docs/generics-design.md` section 4.
+;
+; WHY A TRAP AND NOT AN ANSWER. `vecGet` answered 0, and
+; `stdlib/Vec.ax`'s own comment calls that "the worse of the two
+; failure modes: not a crash, a wrong answer that keeps going" - 0 is a
+; value a caller may have pushed, so a read past the end and a stored
+; zero are indistinguishable. The shape here is `emitDivTrap`'s and so
+; is the argument: an index out of range is the class of programmer
+; error division by zero is, and Axiom already answers that class with
+; a trap rather than a value.
+;
+; RECOVERABLE, which is what makes it acceptable rather than blunt:
+; `__axiom_recover_abort` runs first, so a recovery point answers 77
+; instead of the process exiting. `vecTry` remains the checked read for
+; an index that may legitimately be out of range.
+(pub :: emitIndexTrap (-> Int Int))
+
+(pub fn (emitIndexTrap cg)
+  {
+    (emitLine cg "@__axiom_index_msg = private unnamed_addr constant [33 x i8] c\"axiom: vector index out of range\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_index_out_of_range() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 77)")
+    (emitLine cg "  %ixp = ptrtoint ptr @__axiom_index_msg to i64")
+    (emitRuntimeWrite cg "%ixp" "33")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "77")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     cg
@@ -14552,7 +14586,9 @@
 (pub :: isPrimName (-> String Bool))
 
 (pub fn (isPrimName nm)
-  (if (strEq nm "__alloc")
+  (if (strEq nm "__indexTrap")
+    true
+    (if (strEq nm "__alloc")
     true
     (if (strEq nm "__retain")
       true
@@ -14637,6 +14673,7 @@
       )
     )
   )
+  )
 )
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
@@ -14659,12 +14696,15 @@
 (pub :: isNullaryPrimName (-> String Bool))
 
 (pub fn (isNullaryPrimName nm)
+  (if (strEq nm "__indexTrap")
+    true
   (if (strEq nm "__argc")
     true
     (if (strEq nm "__axiom_arena_mark")
       true
       (strEq nm "__fence")
     )
+  )
   )
 )
 
@@ -14719,6 +14759,8 @@
                         (emitPrimStore args cg 1)
                         (if (strEq fnName "__addr")
                           (emitPrimAddr args cg)
+                          (if (strEq fnName "__indexTrap")
+                            (emitPrimIndexTrap cg)
                           (if (strEq fnName "__argc")
                             (emitPrimArgc cg)
                             (if (strEq fnName "__argv")
@@ -14765,6 +14807,7 @@
       )
     )
   )
+                          )
 )
 
 ; `(__contract cond "message")` - the run-time half of a
@@ -15210,6 +15253,26 @@
 
 ; `(__argc)`: the count the entry wrapper captured before main ran.
 (pub :: emitPrimArgc (-> Int Int))
+
+; `(__indexTrap)`: the status-77 trap, reached from Axiom source.
+;
+; Traps are `internal` LLVM functions the runtime block emits, so
+; nothing in `stdlib/` could reach one before this. A `Vec` that wants
+; to refuse an out-of-range index rather than answer 0 needs exactly
+; that, and so will every later container.
+(pub :: emitPrimIndexTrap (-> Int Int))
+
+(pub fn (emitPrimIndexTrap cg)
+  (let ((rn (allocReg cg)))
+    (let ((r (regStr rn)))
+      {
+        (emitLine cg (cat2 (cat2 "  " r) " = call i64 @__axiom_index_out_of_range()"))
+        (memSetWord cg 2 r)
+        cg
+      }
+    )
+  )
+)
 
 (pub fn (emitPrimArgc cg)
   (let ((rn (allocReg cg)))
