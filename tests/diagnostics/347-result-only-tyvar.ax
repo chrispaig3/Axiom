@@ -43,6 +43,26 @@
   (cast a n)
 )
 
+; A variable NESTED in the result is not a variable the body returns.
+; `(-> Int (Option a))` answers an `Option`, and `None` carries no `a`
+; at all - there is nothing for a `cast` to have fabricated, and the
+; caller choosing `a` for an empty container is exactly as sound as
+; `None` has always been.
+;
+; SILENT, and this arm is why the rule was narrowed: before it, every
+; polymorphic EMPTY constructor was refused, so a generic container
+; could not declare the one function it cannot do without -
+; `(pub :: vecNew (Vec a))` drew AX3040 with no way around it.
+; `docs/generics-design.md` records what that blocked.
+(:: emptyOpt (-> Int (Option a)))
+
+(fn (emptyOpt n) None)
+
+; The same shape one arrow deeper: still nested, still silent.
+(:: emptyOptPair (-> Int Int (Option a)))
+
+(fn (emptyOptPair a b) None)
+
 (:: main Int)
 
 (fn (main) 0)

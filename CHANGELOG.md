@@ -16,6 +16,55 @@ its changelog too.
 
 ## Unreleased
 
+### `Vec` is a type, and `AX3040` was refusing every empty container
+
+Two pieces toward parameterised containers, both landed, both inert
+until the decision in `docs/generics-design.md` §4 is made.
+
+**`Vec` is seeded beside `Option`** — a `DataEnt` with **no
+constructors**: abstract and parameterised. A `Vec` is made by `vecNew`
+and read by `vecGet`, never matched, so there is nothing for a pattern
+to name. `(Vec a)` is a writable type; before this it was `AX3002
+undefined type`. **The runtime shape does not move** — a `Vec` is the
+handle it always was, one word — which is what lets the type land
+before the migration that uses it.
+
+**`AX3040` narrowed to a BARE result variable, because it was wrong as
+written.** `(pub :: vecNew (Vec a))` drew "the caller chooses the type
+and a `cast` fabricates the value". It does not: `(-> Int (Vec a))`
+returns a **`Vec`**, and an empty container holds no value of type `a`
+for anything to have fabricated. The rule's own sentence says "returns
+type variable `a`", and that is now what it checks. `None : (Option a)`
+has had this exact shape since `Option` was seeded — it escaped only
+because a builtin constructor never passes through the check. **Before
+this, every polymorphic empty constructor was refused**, so no generic
+container could declare the one function it cannot do without.
+`tests/diagnostics/347-result-only-tyvar.ax` carries both arms.
+
+**What the migration costs, measured:** flipping four signatures in
+`Vec.ax` produces **3,934 errors**. That is mechanical and the checker
+drives it — and because `(Vec a)` and `Int` share a runtime
+representation, a correct type-level migration must emit
+**byte-identical IR**, which is the acceptance test.
+
+**What stops it is not types.** Flipping all thirty container positions
+leaves 42 errors inside `Vec.ax`, and `vecGet` is the reason: its body
+answers `0` out of range, and under `(-> (Vec a) Int a)` that is
+fabricating an `a` — a null for a reference element. **You cannot make
+up an `a`.** So generics forces a decision about `vecGet`'s sentinel:
+answer `(Option a)`, trap, or go `;@axiom:raw` with `vecTry` as the
+checked surface. §4 lays out the three; the first matches
+`compat/SENTINELS`'s direction rule and costs hundreds of call sites.
+
+**A route tried and rejected**, recorded in §6 so it is not
+re-proposed: a transparent-newtype representation (`(data Vec (a)
+(MkVec Int))` represented AS its field). It works and is free, and it
+is wrong twice over — `fldClass` answers from the type NAME, so a
+newtype over `Int` would be released as a pointer; and `Handle` carries
+a close/inert protocol the FFI keys on identity, which collapsing the
+wrapper breaks (`demo/060-opaque-handle`, exit 73). None of it is in
+the tree.
+
 ### `range`, the counted loop — and `for` reserved for a keyword
 
 **`(range i 0 n body)` in the prelude**: `body` once per `i` in

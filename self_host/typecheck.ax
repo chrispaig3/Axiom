@@ -2545,6 +2545,21 @@
           (vecPush
             datas            (cast Int (DataEnt "Option" optCtors 0))
           )
+          ; `Vec`, ABSTRACT AND PARAMETERISED. No constructors: a `Vec`
+          ; is made by `vecNew` and read by `vecGet`, never matched, so
+          ; there is nothing for a pattern to name. What the entry buys
+          ; is the one thing `Vec` has never had - an ELEMENT TYPE - so
+          ; that `vecPush`'s `a` and `vecGet`'s answer are the same `a`
+          ; instead of an `a` going in and an `Int` coming out.
+          ;
+          ; The runtime shape does not move: a `Vec` is the handle it
+          ; always was, one word, allocated by `vecNew`. This is a
+          ; type-level change only, which is what makes it separable
+          ; from the reference-class question - `fldClass` answers for
+          ; `Vec` exactly what it answered for the `Int` it replaces.
+          (vecPush
+            datas            (cast Int (DataEnt "Vec" vecNew 0))
+          )
         }
       )
       ; The exact-name index, before collection rather than after:
@@ -5681,17 +5696,50 @@
 (pub :: resultOnlyVarOf (-> Int String))
 
 (pub fn (resultOnlyVarOf d)
-  (let (
-    (pos vecNew)
-    (neg vecNew)
-    (ps vecNew)
-    (rs vecNew)
+  ; ONLY A BARE RESULT VARIABLE, which is what this rule's own sentence
+  ; says: "returns type variable `a`". A variable NESTED in the result
+  ; - `(-> Int (Vec a))` - returns a Vec, not an `a`, and there is no
+  ; value of type `a` anywhere in an empty container for a `cast` to
+  ; have fabricated. The caller still chooses `a` and that is sound:
+  ; `None` has had exactly this shape since `Option` was seeded.
+  ;
+  ; Before this narrowing every polymorphic empty constructor was
+  ; refused, which is why `Vec` could not have an element type:
+  ; `(pub :: vecNew (Vec a))` drew AX3040 and there was no way to
+  ; declare the one function every generic container needs.
+  (let ((r (sigArrowResultTy (nodeTy d))))
+    (if (== r 0)
+      ""
+      (if (!= (nodeTag r) TAG_T_VAR)
+        ""
+        (let (
+          (pos vecNew)
+          (neg vecNew)
+          (ps vecNew)
+          (rs vecNew)
+        )
+          {
+            (sigSplitPolar (nodeTy d) 1 pos neg)
+            (sigSplitVars (nodeTy d) ps rs)
+            (firstResultOnly neg rs 0)
+          }
+        )
+      )
+    )
   )
-    {
-      (sigSplitPolar (nodeTy d) 1 pos neg)
-      (sigSplitVars (nodeTy d) ps rs)
-      (firstResultOnly neg rs 0)
-    }
+)
+
+; The result of an arrow spine: the first `nodeB` that is not itself an
+; arrow, or the type when there is no arrow at all.
+(pub :: sigArrowResultTy (-> Int Int))
+
+(pub fn (sigArrowResultTy t)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_T_ARR)
+      (sigArrowResultTy (nodeB t))
+      t
+    )
   )
 )
 
