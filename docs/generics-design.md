@@ -323,7 +323,39 @@ and each is a piece of design rather than a heuristic:
   so `(if c 0 (vecPush ...))` has two types where it had one. The value
   was always discarded there; `{ (vecPush ...) 0 }` says so.
 
-**AND THE PLATEAU IS STILL STRUCTURAL, which is the point.** At 210 the
+### The error count is the wrong measure, and that is why every search stalled
+
+**A correct coupled change RAISES the error count.** Typing
+`parseNamedFieldTypes`'s `names` as `(Vec String)` is right and reddens
+every call site, so a search that accepts a move only when errors drop
+rejects the correct move every time. Every plateau above was that
+measure, not the port.
+
+The measure that IS monotone is **how many DECLARATIONS the errors
+touch**. Fixing one removes it and adds only the callers that were
+always going to need fixing, so the count falls even while the error
+count rises. Switching the objective, and fanning the trials out
+across eight workers because each is a convergence pass, moved a
+search that had been stuck at 210 for hours:
+
+    149 declarations / 202 errors   ->   130 / 181
+
+**A second bug was hiding inside the first.** The trial's rollback
+restored the FILE it had edited and not the tree, while the
+convergence pass it ran had rewritten dozens of others {D} so a round
+that kept two moves came out 37 declarations WORSE than it started,
+and read as evidence against the method. It was evidence about the
+harness.
+
+**AND THE PLATEAU IS STILL REAL, at 130 declarations.** The search
+now accepts one move a round rather than none, which closes the port
+in about a hundred rounds of eight minutes each and is not a plan. The
+candidates are the limit: they come from positions an error already
+names, and a coupled fix needs the positions that have no error YET.
+That is the whole-chain inference this document keeps arriving at,
+and it now has a measure to optimise that will not reject its answers.
+
+**THE STRUCTURAL PLATEAU, unchanged in what it shows.** At 210 the
 same wall stands, and it is now possible to say exactly what it is:
 **the port needs a declaration and its callers to change together, and
 nothing available decides both.** Fixing a parameter from how its body
@@ -549,6 +581,6 @@ replaces this document's earlier cost estimate: 4,406 errors, reducible
 to about 1,500 over ~650 declarations by checker-driven rewriting, with
 the remainder needing a per-function decision rather than a rule. §4d was the harder finding and is
 now answered in the tree. What remains is the port itself: 4,432
-errors with a pinning checker, which the driver takes to **210 over
-about 150 declarations** and no further, for the reason §4c now
+errors with a pinning checker, which the driver takes to **181 over
+130 declarations** and no further, for the reason §4c now
 records. Nothing from §4c or §6 is in the tree.

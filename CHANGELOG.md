@@ -16,7 +16,7 @@ its changelog too.
 
 ## Unreleased
 
-### The `Vec` port reaches 95%, and the wall has a name now
+### The `Vec` port's measure was wrong, and the searches were reading it now
 
 With pinning in the tree and the full rule set, the port goes **4,432
 errors to 210**, and stops. Four more rules and three accessors took it
@@ -38,13 +38,31 @@ from 370 to 210, and each is design rather than heuristic:
 - **discarding a container result**: `vecPush` answers the handle, so
   `(if c 0 (vecPush ...))` has two types where it had one.
 
-**The wall now has a name.** The port needs a declaration and its
-callers to change together, and nothing available decides both. Fixing
-a parameter from how its body uses it is right and turns every call
-site red; propagating that back to the callers is also right and turns
-THEIR callers red. Run together and unjudged for twenty rounds they
-oscillate between 219 and 238 and never reach 210 — each correct
-locally, neither closing. `docs/generics-design.md` §4c records the rules and
+**The wall has a name, and part of it was the measure.** The port
+needs a declaration and its callers to change together, so **a correct
+coupled change RAISES the error count** — typing
+`parseNamedFieldTypes`'s `names` as `(Vec String)` is right and reddens
+every call site. Every search above accepted a move only when errors
+dropped, so every one of them rejected the correct move.
+
+The monotone measure is **how many DECLARATIONS the errors touch**:
+fixing one removes it and adds only the callers that were always going
+to need fixing. Switching the objective, and fanning the trials across
+eight workers, moved a search stuck at 210 for hours to
+**149 declarations / 202 errors → 130 / 181**.
+
+A second bug was hiding inside the first: a trial's rollback restored
+the FILE it edited and not the tree, while the convergence pass it ran
+had rewritten dozens of others — so a round that kept two moves came
+out 37 declarations WORSE and read as evidence against the method. It
+was evidence about the harness.
+
+**The plateau is still real at 130 declarations.** The search now takes
+one move a round, which closes the port in about a hundred rounds and
+is not a plan. The limit is the candidates: they come from positions an
+error already names, and a coupled fix needs the positions that have no
+error yet. That is the whole-chain inference this keeps arriving at —
+which now has a measure to optimise that will not reject its answers. `docs/generics-design.md` §4c records the rules and
 the plateau; the highest-value one was **the let-init typed view**
 (`(let ((v (nodeB t))) ... (vecLen v))` fixes at the BINDING, not at
 every use), worth 1,531 → 1,068 on its own.
@@ -56,7 +74,7 @@ incremental run at 354. Applying every candidate at once goes to
 them — goes to 5,462. One at a time with a convergence lookahead,
 serial or across eight workers, buys about two errors a round.
 
-The residue is **210 errors over about 150 declarations**, each a decision
+The residue is **181 errors over 130 declarations**, each a decision
 about what a particular vector holds, and the decisions are COUPLED:
 typing `parseNamedFieldTypes`'s `names` as `(Vec String)` raises the
 count until every caller moves with it, so one-at-a-time verification
