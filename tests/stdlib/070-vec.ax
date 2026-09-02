@@ -92,23 +92,30 @@
         (cast Int (vecGet v 69))
       )
       ; 69
-      ; --- out of range on both sides ---
+      ; --- out of range on both sides, through the CHECKED read ---
+      ;
+      ; These four used to call `vecGet` and expect 0. `vecGet` REFUSES
+      ; an out-of-range index now (status 77,
+      ; `docs/generics-design.md` section 4), so a fixture that reads
+      ; past the end cannot also print anything afterwards - the terms
+      ; move to `vecTry`, which is what a caller who does not know the
+      ; index is good was always supposed to use.
       (println
-        (cast Int (vecGet v (- 0 1)))
+        (match (vecTry v (- 0 1)) ((Some x) x) ((None) (- 0 1)))
       )
-      ; 0
+      ; -1: None
       (println
-        (cast Int (vecGet v (- 0 1000)))
+        (match (vecTry v (- 0 1000)) ((Some x) x) ((None) (- 0 1)))
       )
-      ; 0
+      ; -1: None
       (println
-        (cast Int (vecGet v 70))
+        (match (vecTry v 70) ((Some x) x) ((None) (- 0 1)))
       )
-      ; 0: one past the end
+      ; -1: None, one past the end
       (println
-        (cast Int (vecGet v 100000))
+        (match (vecTry v 100000) ((Some x) x) ((None) (- 0 1)))
       )
-      ; 0: inside cap, past len
+      ; -1: None, inside cap but past len
       ; --- set then get, including rejected out-of-range sets ---
       (vecSet v 0 999)
       (println
@@ -117,9 +124,9 @@
       ; 999
       (vecSet v 70 777)  ; ignored: index == len
       (println
-        (cast Int (vecGet v 70))
+        (match (vecTry v 70) ((Some x) x) ((None) (- 0 1)))
       )
-      ; 0
+      ; -1: the set was ignored, so there is still nothing there
       (println (vecLen v))  ; 70: set did not append
       (vecSet v (- 0 1) 555)  ; ignored
       (println (vecLen v))  ; 70
@@ -132,9 +139,12 @@
       (println (vecCap v))  ; 128: capacity retained
       (println (vecSum v))  ; 0: stale words not visible
       (println
-        (cast Int (vecGet v 0))
+        (match (vecTry v 0) ((Some x) x) ((None) (- 0 1)))
       )
-      ; 0: even though 999 is there
+      ; -1: None. The word 999 is still in the block, and that is the
+      ; point - `vecClear` drops the LENGTH, so the element is gone as
+      ; far as any reader is concerned, and the checked read says so
+      ; rather than handing back a stale word.
       ; --- pop to empty and past it ---
       (pushRange v 3)
       (println (vecLen v))  ; 3

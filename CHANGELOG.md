@@ -16,6 +16,47 @@ its changelog too.
 
 ## Unreleased
 
+### `vecGet` refuses an out-of-range index
+
+**The decision in `docs/generics-design.md` §4, built.** `vecGet`
+answered `0` past the end; it raises `(__indexTrap)` now — **status
+77**, recoverable. `vecTry` is unchanged and is the reader for an index
+nobody has checked.
+
+**The seed had to move first**, and that is the whole reason this is a
+separate commit from the primitive. `build-shared-axc.sh` compiles
+`stdlib/` with the installed compiler, so a library using a primitive
+the seed does not know cannot build. `reseed.sh`'s own header states
+the rule — *"land the construct the compiler must learn, reseed, THEN
+use it"* — and this is the third step of it.
+
+**Two fixtures pinned the old behaviour on purpose, and both went
+red.** `tests/stdlib/313-vec-try.ax` asserted that `vecGet` answers the
+same for a stored zero and a missing element, with a comment saying it
+was *"asserted here, not assumed, because if `vecGet` ever started
+distinguishing them this file should say so rather than quietly keep
+passing."* It started; the file says so. Its header now records the
+premise it was built on and what answered it, instead of being rewritten
+as though the argument never happened. `070-vec` read out of range in
+five places and moved them to `vecTry`.
+
+**A trap cannot be tested beside passing assertions** — it ends the
+program — so the refusal itself is pinned by
+`tests/stdlib/464-index-trap.ax` and its `.exit`, and 313 keeps only
+the half that can still be asserted inline: `Some 0` for the stored
+zero, `None` for the element past the end.
+
+**Recorded in `compat/BREAKING` even though nothing can compute it.**
+The signature is `(-> Int Int Int)` before and after and `#effects=`
+does not move — a trap is not an effect — so `verify-compat.py` sees
+nothing. It is a behaviour a caller could depend on, which is what that
+file is for.
+
+**The compiler itself never read out of range**: `check-self-host`
+179/179 and `check-diagnostics` 194/194 passed on the first build with
+the trap live, which is a stronger statement about the compiler's own
+indexing than anything that was previously asserted about it.
+
 ### `__indexTrap`: a call that never returns, and status 77
 
 **A trap `stdlib/` can reach.** Traps in Axiom are `internal` LLVM
@@ -52,8 +93,8 @@ the value arms still answering, and the trap's own stderr and exit
 status beside it.
 
 **The formatter table was re-pinned, not re-blessed.**
-`check-fmt-selfhost` refuses more than 60 `.ax` files with no entry,
-and today's editing retired 65 — an edited file retires its own entry
+`check-fmt-selfhost` refuses a table that leaves more than sixty
+source files unpinned, and today's editing retired sixty-five — an edited file retires its own entry
 by design, which is what keeps the table from churning. Entries were
 **appended** for exactly those 65 (0 refused); no surviving pin was
 touched. The golden's header warns that "a re-bless is how a broken

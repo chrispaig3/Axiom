@@ -1,22 +1,32 @@
-; `vecTry`, and the one thing `vecGet` structurally cannot tell you.
+; `vecTry`, the reader for an index nobody has checked.
 ;
-; `vecGet` answers 0 for an index past the end. 0 IS ALSO A VALUE A
-; CALLER MAY HAVE PUSHED, so the two cases arrive identically and
-; nothing in the answer says which happened. That is not a crash - it is
-; a wrong answer that keeps going, which on a parser fed by a peer is
-; the worse of the two failure modes.
+; THIS FILE'S PREMISE WAS ANSWERED, AND THE HEADER SAYS SO RATHER THAN
+; BEING QUIETLY REWRITTEN. It used to open: "`vecGet` answers 0 for an
+; index past the end. 0 IS ALSO A VALUE A CALLER MAY HAVE PUSHED, so
+; the two cases arrive identically and nothing in the answer says which
+; happened. That is not a crash - it is a wrong answer that keeps
+; going, which on a parser fed by a peer is the worse of the two
+; failure modes."
 ;
-; THE LOAD-BEARING TERM IS THE DISCRIMINATION ONE. Any single assertion
-; here can be satisfied by an accessor that is wrong in an interesting
-; way: one that always answers `None` passes every out-of-range term,
-; one that always answers `Some` passes every in-range term. What
-; neither can do is tell a stored zero from a missing element WHILE
-; `vecGet` answers the same for both - so that pair is asserted
-; together, on the same vector, in the same breath.
+; That argument was accepted. `vecGet` REFUSES an out-of-range index
+; now - status 77, `docs/generics-design.md` section 4 - so the wrong
+; answer that keeps going is gone, and with it the term this file was
+; built around: a stored zero and a missing element can no longer be
+; COMPARED in one program, because reading the missing one ends it.
+; The refusal is pinned by `tests/stdlib/464-index-trap.ax` and its
+; `.exit`, which is the only shape a fixture for a trap can take.
 ;
-; `vecGet` is deliberately unchanged and is still the right call where
-; the index is known good. This is not a deprecation; it is the second
-; accessor for the case the first cannot describe.
+; THE LOAD-BEARING TERM IS STILL THE DISCRIMINATION ONE. Any single
+; assertion here can be satisfied by an accessor that is wrong in an
+; interesting way: one that always answers `None` passes every
+; out-of-range term, one that always answers `Some` passes every
+; in-range term. Both halves are still asserted on the same vector -
+; `Some 0` for the stored zero, `None` for the element past the end.
+;
+; `vecGet` is still the right call where the index is known good, and
+; that has not changed: what changed is what it does when the index is
+; NOT good. This is not a deprecation; it is the second accessor for
+; the case the first now refuses.
 (import IO)
 
 (import Vec)
@@ -69,16 +79,25 @@
       (say (isNone (vecTry v 2)) "one past the end is nothing")
       (say (isNone (vecTry v 99)) "far past the end is nothing")
       (say (isNone (vecTry v (- 0 1))) "a negative index is still nothing once there are elements")
-      ; THE TERM THIS FILE EXISTS FOR. Element 0 holds a stored zero and
-      ; element 2 does not exist. `vecGet` answers 0 for both - that is
-      ; asserted here, not assumed, because if `vecGet` ever started
+      ; THE TERM THIS FILE EXISTS FOR, and it has been ANSWERED.
+      ;
+      ; Element 0 holds a stored zero and element 2 does not exist.
+      ; This file used to assert that `vecGet` answers 0 for BOTH -
+      ; "asserted here, not assumed, because if `vecGet` ever started
       ; distinguishing them this file should say so rather than quietly
-      ; keep passing. `vecTry` answers Some 0 and None.
+      ; keep passing". It started distinguishing them, so this says so.
+      ;
+      ; `vecGet` REFUSES a missing element now, status 77
+      ; (`docs/generics-design.md` section 4), so the pair cannot be
+      ; compared in one program any more - a trap ends it. The refusal
+      ; is pinned by `tests/stdlib/464-index-trap.ax` and its `.exit`,
+      ; which is the only shape a fixture for a trap can take.
+      ;
+      ; What remains here is the half that was always the point:
+      ; `vecTry` tells the two apart, and it is now the only reader
+      ; that can be asked about an index nobody has checked.
       (say
-        (if (== (vecGet v 0) (vecGet v 2))
-          1
-          0
-        )        "vecGet answers the same for a stored zero and a missing element"
+        (someIs (vecTry v 0) 0)        "the stored zero is Some 0, not an absence"
       )
       (say
         (if (== (someIs (vecTry v 0) 0) 1)

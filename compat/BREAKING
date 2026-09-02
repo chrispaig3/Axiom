@@ -264,3 +264,32 @@
 # distinct string - allocates nothing new. Only the nine external
 # callers pay, and all nine were `(< id 0)`.
 0.6.4  F  internFind  -1 -> (Option Int), row gains Alloc: a dense id space starts at 0, so the miss was only ever a comparison the caller had to remember
+
+# 0.6.4 - `vecGet` REFUSES an out-of-range index instead of answering 0.
+#
+# NOT A SIGNATURE CHANGE, so `verify-compat.py` cannot see it: the type
+# is `(-> Int Int Int)` before and after, and the row's `#effects=` does
+# not move either, because a trap is not an effect. It is recorded here
+# because it is a BEHAVIOUR a caller could depend on, which is what this
+# file is for - `docs/compatibility.md`'s policy is about what callers
+# rely on, not about what the census can compute.
+#
+# WHAT A CALLER RELIED ON. `vecGet v i` past the end answered 0, and 0
+# is a value a caller may have pushed, so a read past the end and a
+# stored zero arrived identically. `stdlib/Vec.ax`'s own comment called
+# that "the worse of the two failure modes: not a crash, a wrong answer
+# that keeps going", and `tests/stdlib/313-vec-try.ax` asserted the
+# confusion deliberately so that a change here could not pass quietly.
+# It did not: 313 and `070-vec` both went red and both were rewritten.
+#
+# WHAT TO WRITE INSTEAD. `vecTry v i` answers `(Option a)` and is the
+# reader for an index nobody has checked; `vecGet` remains the reader
+# for one a loop has already bounded. The trap is RECOVERABLE -
+# `__axiom_recover` answers 77 rather than exiting - so a caller that
+# genuinely wants to survive a bad index still can.
+#
+# WHY NOW: `docs/generics-design.md` section 4. `(-> (Vec a) Int a)`
+# cannot answer 0, because there is no way to make up an `a`, and for a
+# reference element the 0 is a null the caller dereferences. The
+# sentinel had to go before `Vec` could carry an element type.
+0.6.4  F  vecGet  answers 0 -> refuses (status 77): a stored zero and a missing element were indistinguishable

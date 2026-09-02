@@ -220,9 +220,9 @@
 
 (pub fn (vecGet v i)
   (if (< i 0)
-    0
+    __indexTrap
     (if (>= i (vecLen v))
-      0
+      __indexTrap
       (memGetWord (vecData v) i)
     )
   )
@@ -230,8 +230,9 @@
 
 ; The element at `i`, or `None` when there is no element at `i`.
 ;
-; `vecGet` above answers 0 for an out-of-range index, and 0 IS A VALUE A
-; CALLER MAY HAVE PUSHED - so a caller who reads past the end and one
+; `vecGet` above REFUSES an out-of-range index - status 77, via
+; `(__indexTrap)`. It used to answer 0, and 0 IS A VALUE A CALLER MAY
+; HAVE PUSHED - so a caller who reads past the end and one
 ; who reads a stored zero receive the same answer and cannot tell which
 ; happened. On a parser fed by a peer that is the worse of the two
 ; failure modes: not a crash, a wrong answer that keeps going.
@@ -241,8 +242,10 @@
 ; as a `Result`, since `Err` would drag a module in for a distinction
 ; that has no error to report.
 ;
-; `vecGet` is unchanged and stays. It is the right call where the index
-; is already known good - a loop bounded by `vecLen` - and making every
+; `vecGet` stays, and is still the right call where the index is
+; already known good - a loop bounded by `vecLen`. What changed is what
+; it does when the index is NOT good: it refuses instead of answering.
+; The old sentence continued: "and making every
 ; such read allocate an `Option` would be a cost paid everywhere to
 ; describe a case that cannot arise there.
 ; `no-alloc` came off on 2026-08-31. The comment above already said it -

@@ -5,7 +5,7 @@ ok   a stored value reads back
 ok   one past the end is nothing
 ok   far past the end is nothing
 ok   a negative index is still nothing once there are elements
-ok   vecGet answers the same for a stored zero and a missing element
+ok   the stored zero is Some 0, not an absence
 ok   vecTry tells those two apart
 ok   what was past the end is readable once pushed
 ok   the end moved with it
