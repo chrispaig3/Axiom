@@ -54,6 +54,18 @@ the one function it cannot do without.
 `tests/diagnostics/347-result-only-tyvar.ax` carries both arms: the
 bare case still refused, the nested case silent.
 
+**THE NARROWING IS RIGHT AND ITS ARGUMENT IS INCOMPLETE**, measured in
+§4d. "An empty container holds no value of type `a` for anything to
+have fabricated" is true at the moment of construction, and it stops
+being the whole story one line later: the caller still CHOOSES `a`, and
+then mutates the container at that choice. Where nothing pins the
+choice — an un-annotated `let` — the same binding can be written at one
+type and read at another, and `AX3040`'s own exit 139 is reached with
+no `cast` written anywhere. The refusal `AX3040` gives up here has to
+be paid for by pinning (§5 item 4), not by re-widening the rule: the
+nested case really is a different shape, and a bare result variable is
+still the only one a `cast` alone can produce.
+
 ## 3. What the migration costs, measured
 
 Flipping **four** signatures in `stdlib/Vec.ax` — `vecNew`, `vecLen`,
@@ -278,6 +290,61 @@ same answer — `__indexTrap` — and `vecLast` inherits the trap for
 free because it delegates to `vecGet`. Nothing else in the module has
 the shape.
 
+## 4d. The migration's PREMISE only half holds, measured
+
+`(Vec a)` exists to stop a caller putting an `Int` in and taking a
+`String` out. It does that **exactly where a declaration says the
+element type, and nowhere else** — and the second half is not a
+rough edge, it is the shape `AX3040` was promoted to an error for.
+
+Measured against a migrated `Vec.ax`, four probes:
+
+| the program | `check` | runs |
+|---|---|---|
+| push a `String` into a declared `(Vec Int)` parameter | **refused** | — |
+| pass a `(Vec Int)` where `(Vec String)` is declared | **refused** | — |
+| read an element through a declared return type at the wrong type | **refused** | — |
+| `(let ((v vecNew)) { (vecPush v 42) (needVec (vecGet v 0)) })` | **OK** | **exit 139** |
+
+The last row has **no `cast` anywhere in it**. An `Int` goes in, a
+`(Vec Int)` comes out, and `vecLen` dereferences 42 as a block header.
+That is `conjure`'s exit 139 reached without writing the coercion
+`AX3040`'s own help text says is the only way to produce it.
+
+**THE CAUSE IS THAT THE CHECKER DOES NOT UNIFY.** `tyCompat` is a
+COMPATIBILITY PREDICATE — it answers 1 or 0 and records nothing.
+A minted placeholder "still matches anything — that is the whole
+reason it exists", and since no binding is ever written down, `(Vec
+_a)` is compatible with `(Vec Int)` and then, just as happily, with
+`(Vec String)`. The let-bound vector's placeholder is never pinned,
+because each `vecPush` matches against its own fresh one.
+
+It is NOT a general unifier defect, which is worth stating because it
+narrows the fix. A user-defined `(Box a)` behaves:
+`(needStr (unbox (MkBox 42)))` is refused, because the constructor
+hands over a concrete `(Box Int)` and nothing has to be remembered.
+`(-> a a)` behaves for the same reason. The hole needs a placeholder
+that OUTLIVES the expression that could have pinned it, which is
+precisely what a `let`-bound mutable container is.
+
+**So `Vec` is not the subject here.** Any parameterised type reached
+through an un-annotated `let` has it; `Vec` is where it bites because
+a container is the thing you bind and then mutate.
+
+**WHAT THIS MEANS FOR THE ORDER.** The migration must not land before
+pinning exists. Landing it would replace a visible unsafety with an
+invisible one: today reading an element back at a reference type is
+spelled `vecGetStr` or an explicit `cast` and `#raw`/`AXSYM` can
+enumerate it, whereas afterwards `(vecGet v 0)` would silently become
+whatever the context asked for. The type-level win at declared
+boundaries is real and is worth having — it is the first three rows
+above — but it is not worth buying with the fourth.
+
+Pinning is a substitution, and the checker has nowhere to put one:
+`tyCompat` returns a Bool. That is an architectural change to
+inference, not a patch, and it is the next thing this document should
+be about.
+
 ## 5. The order
 
 1. **`Vec` as a type, and `AX3040` narrowed.** Landed.
@@ -287,10 +354,16 @@ the shape.
    until a migration attempt found it — see §4b. It is a
    prerequisite: until `fldClass` classifies `Vec`, every record that
    holds one leaks its OTHER fields.
-4. **The migration**, driven by the checker, with byte-identical IR as
+4. **Pinning a placeholder** — the checker compares types and never
+   records a binding, so an un-annotated `let` over a container is
+   unpinned and `(vecGet v 0)` answers whatever the context wants
+   (§4d, `check` OK and exit 139). This is now BEFORE the migration
+   rather than after it, because the migration would otherwise trade a
+   visible unsafety for a silent one.
+5. **The migration**, driven by the checker, with byte-identical IR as
    the acceptance test. Measured in §4c, and it is not the mechanical
    change this document assumed.
-5. **`for` as a keyword**, which is only expressible once 4 exists.
+6. **`for` as a keyword**, which is only expressible once 5 exists.
 
 ## 6. A route that was tried and is the wrong one
 
@@ -332,8 +405,11 @@ byte-for-byte inert for every program that exists, and
 `scripts/check-vec-field-shape.sh` is what would notice it coming
 back.
 
-**The migration (§5 item 4) is measured and not started.** §4c
-replaces this document's earlier estimate: 4,406 errors, reducible to
-1,916 over 648 declarations by checker-driven rewriting, with the
-remainder needing a per-function decision rather than a rule. Nothing
-from §6 is in the tree.
+**The migration is measured and BLOCKED, and §4d is why.** §4c
+replaces this document's earlier cost estimate: 4,406 errors, reducible
+to about 1,500 over ~650 declarations by checker-driven rewriting, with
+the remainder needing a per-function decision rather than a rule. §4d
+is the harder finding: the safety the migration exists for holds only
+where a declaration names the element type, because `tyCompat` compares
+and never binds. Pinning comes first (§5 item 4). Nothing from §4c,
+§4d or §6 is in the tree.

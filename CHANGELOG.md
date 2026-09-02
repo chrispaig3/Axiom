@@ -16,6 +16,49 @@ its changelog too.
 
 ## Unreleased
 
+### The `Vec` migration's premise only half holds, and it blocks the port
+
+`(Vec a)` exists to stop a caller putting an `Int` in and taking a
+`String` out. Measured against a migrated `Vec.ax`, it does that
+**exactly where a declaration names the element type, and nowhere
+else** — and the second half is the shape `AX3040` was promoted to an
+error for.
+
+| the program | `check` | runs |
+|---|---|---|
+| push a `String` into a declared `(Vec Int)` parameter | refused | — |
+| pass a `(Vec Int)` where `(Vec String)` is declared | refused | — |
+| read an element through a declared return type at the wrong type | refused | — |
+| `(let ((v vecNew)) { (vecPush v 42) (needVec (vecGet v 0)) })` | **OK** | **exit 139** |
+
+The last row contains **no `cast` at all**: an `Int` goes in, a
+`(Vec Int)` comes out, and `vecLen` dereferences 42 as a block header.
+
+**The cause is that the checker does not unify.** `tyCompat` is a
+COMPATIBILITY PREDICATE — it answers 1 or 0 and records nothing — and a
+minted placeholder "still matches anything". With no binding written
+down, `(Vec _a)` is compatible with `(Vec Int)` and then just as
+happily with `(Vec String)`, because each `vecPush` matches its own
+fresh placeholder rather than the one in the `let`. It is not a general
+unifier defect, which narrows the fix: `(Box a)` and `(-> a a)` both
+behave, because a constructor hands over a concrete type and nothing
+has to be remembered. The hole needs a placeholder that OUTLIVES the
+expression that could have pinned it — which is what a `let`-bound
+mutable container is, and why `Vec` is where it bites.
+
+**So the migration is BLOCKED rather than merely expensive**, and
+`docs/generics-design.md` §5 now puts pinning ahead of it. Landing the
+port first would trade a visible unsafety for a silent one: today
+reading an element back at a reference type is spelled `vecGetStr` or
+an explicit `cast`, and `#raw`/AXSYM can enumerate the unsafe layer,
+whereas afterwards `(vecGet v 0)` would quietly become whatever the
+context asked for. §2's narrowing of `AX3040` stays right and its
+argument is completed in place: "an empty container holds no value of
+type `a`" is true at construction and stops being the whole story one
+line later, when the caller mutates at the type it chose.
+
+No code changed. §4d records the four probes; nothing is in the tree.
+
 ### A `Vec` field silently unmapped the record that held it
 
 **`fldClass` had no arm for `Vec`, so a record holding one leaked its
