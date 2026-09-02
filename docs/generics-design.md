@@ -94,17 +94,72 @@ with types:
    surface — the unsafe layer made finite and enumerable, which is what
    `#raw` in AXSYM is for.
 
-**(1) is the one that matches everything else this repository has
-decided** — it is `compat/SENTINELS`'s direction rule applied to the
-literal-`0` sentinel the census already names as out of its reach — and
-it is the one with a cost: `vecGet` has hundreds of call sites.
+### DECIDED: `vecGet` traps, `vecTry` stays the checked read
+
+**(2)**, and the case rests on three decisions this repository has
+already made rather than on taste.
+
+* **`Vec.ax`'s own comment already calls the sentinel the worse
+  failure.** "0 IS A VALUE A CALLER MAY HAVE PUSHED — so a caller who
+  reads past the end and one who reads a stored zero receive the same
+  answer and cannot tell which happened. On a parser fed by a peer that
+  is the worse of the two failure modes: **not a crash, a wrong answer
+  that keeps going**." The file argues for the crash; it just could not
+  have one while the element was an untyped word.
+* **The same comment already chose the split.** "`vecGet` is unchanged
+  and stays. It is the right call where the index is already known good
+  — a loop bounded by `vecLen`." `vecGet` direct, `vecTry` checked, is
+  the design on file. Trapping keeps it; option (1) discards it and
+  forces a match at every in-range access.
+* **Axiom already answers this class of bug with a trap.** Division by
+  zero exits 72 with `axiom: division by zero`. An index out of range
+  is the same class of programmer error, and answering it with a value
+  is the odd one out.
+
+And the trap is **recoverable**, which is what makes it acceptable
+rather than merely blunt: `__axiom_recover` answers 70, 71 or 72 at a
+recovery point instead of exiting, and 77 would join them. A trap in
+Axiom is a catchable outcome, not unconditional process death.
+
+**(1) is the runner-up and is rejected on cost, not principle.** It is
+`compat/SENTINELS`'s direction rule applied to the literal-`0`
+sentinel, and today's register-pair work makes `(Option a)` free at a
+direct match — the 11.86 ns objection that governed this for months is
+gone. What it does not answer is the ergonomics: `vecGet` has hundreds
+of call sites, most of them indices a loop already bounded, and forcing
+a match there adds noise without adding safety. `vecTry` exists for the
+ones that need it.
+
+**(3) is refused outright.** `docs/memory-model.md` records the raw
+layer closed 14 → 0; making `vecGet` — one of the highest-traffic
+functions in the tree — `;@axiom:raw` would reopen it at the worst
+possible place.
+
+### What (2) needs, and why it is not in this commit
+
+1. A trap `@__axiom_index_out_of_range`, status **77** (70–76 are
+   taken; 73 is the FFI's), mirroring `emitDivTrap` — message,
+   `__axiom_recover_abort` first, backtrace, exit.
+2. A **diverging nullary primitive** so `stdlib/Vec.ax` can reach it.
+   Traps today are `internal` LLVM functions emitted by codegen and
+   unreachable from Axiom source.
+3. **The primitive must type as `(-> a)`** — it never returns, so it
+   inhabits every result type, which is `AX3040`'s own stated way out
+   ("make it DIVERGE, so every path ends in a call that never returns,
+   which is what makes `for all a` honest").
+
+Step 3 is the one with teeth. Divergence is decided by a **greatest
+fixpoint over Axiom-level tail positions** (`typecheck.ax`, the
+`panic` argument), and a builtin is not in that graph. Admitting one is
+a type-system change, not a table entry, and it is why this stops at
+the decision.
 
 ## 5. The order
 
 1. **`Vec` as a type, and `AX3040` narrowed.** Landed; nothing uses the
    type yet.
-2. **Decide `vecGet`.** Section 4 is the fork, and it is a language
-   decision, not a refactor.
+2. **`vecGet` traps.** Decided (§4). Needs status 77, and a diverging
+   primitive the divergence fixpoint admits.
 3. **The migration**, driven by the checker, with byte-identical IR as
    the acceptance test.
 4. **`for` as a keyword**, which is only expressible once 3 exists.
@@ -139,5 +194,8 @@ allocation, no reclassification. The newtype work is not in the tree.
 ## 7. Status
 
 `Vec` is a type and `AX3040` is narrowed — both landed, both inert
-until section 4 is decided. The migration is measured at 3,934 errors
-and is not started.
+until §4 is built. §4 is **decided** — `vecGet` traps — and not
+implemented: it needs a diverging primitive, and divergence is a
+fixpoint over Axiom-level tails that no builtin is currently in. The
+migration is measured at 3,934 errors and is not started. Nothing from
+§4 or §6 is in the tree.
