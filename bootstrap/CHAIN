@@ -68,4 +68,5 @@ orphan  79c8ebc its tree's fixpoint from c98924c is 87624 lines from this seed
 991e8bd c98924c skip        stage2  81 skips=79c8ebc
 39fc81d 991e8bd seed        stage1  17
 e31d122 39fc81d seed stage2 76
-next e31d122 seed stage2 84
+e9cfb14 e31d122 seed stage2 84
+next e9cfb14 seed stage2 26
