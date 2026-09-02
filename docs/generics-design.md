@@ -294,7 +294,46 @@ were found to matter:
 | struct field | a `(struct ...)` or `(data ...)` field the constructor is called with |
 | verified result / param / retype | applied one at a time and kept only if the count drops |
 
-**THE PLATEAU IS STRUCTURAL, and four experiments say so.** Restarting
+### The rules that came out of driving it further
+
+Four more rules and three accessors took the port from 370 to **210**,
+and each is a piece of design rather than a heuristic:
+
+* **`vecGetVec`** {D} `(-> (Vec a) Int (Vec b))`, the cast at the
+  return. Some of this compiler's vectors are HETEROGENEOUS by
+  construction: `pruneMark`'s `ctx` has an interner in slot 0 and
+  vectors in slots 1..3, so no element type describes it. Retyping the
+  container is wrong; the READ is what needs the type. The result
+  variable is `b`, not `a`, because what the vector holds and what one
+  slot holds are different questions, and pinning lets each call site
+  answer its own.
+* **`vecPushStr` / `vecPushVec`** {D} the same problem writing, and the
+  reason they exist rather than a call-site cast is MM-VAL-22.
+  `(vecPush r (cast Int s))` type-checks and is a USE-AFTER-FREE:
+  `vecPush`'s element parameter is a type variable, a cast at an
+  argument root there classifies the evidence 0, and `memSetWord`'s
+  `__retainref` then emits nothing {D} the vector holds a `String`
+  whose share nobody took. So the accessor takes the share EXPLICITLY
+  and pairs it with the cast: one retain here, and the one `vecPush`
+  would have taken is exactly the one the cast suppresses, so the count
+  matches a `(Vec String)` push.
+* **the let-init typed view** {D} `(let ((v (nodeB t))) ... (vecLen v))`
+  is fixed at the BINDING, not at each use. Worth 1,531 to 1,068 alone.
+* **discarding a container result** {D} `vecPush` answers the handle,
+  so `(if c 0 (vecPush ...))` has two types where it had one. The value
+  was always discarded there; `{ (vecPush ...) 0 }` says so.
+
+**AND THE PLATEAU IS STILL STRUCTURAL, which is the point.** At 210 the
+same wall stands, and it is now possible to say exactly what it is:
+**the port needs a declaration and its callers to change together, and
+nothing available decides both.** Fixing a parameter from how its body
+uses it (`reparam`) is right and turns every call site red; propagating
+that back to the callers (`argfix`) is also right and turns their
+callers red. Run together and unjudged for twenty rounds they
+oscillate between 219 and 238 and never reach 210 {D} each is correct
+locally and neither closes.
+
+**THE ORIGINAL FOUR EXPERIMENTS, unchanged in what they show.** Restarting
 from a clean tree with every rule available lands at **370**; the
 incremental run reached **354**. Applying every candidate at once goes
 to **5,611**, and applying only the positions every error AGREES about
@@ -510,6 +549,6 @@ replaces this document's earlier cost estimate: 4,406 errors, reducible
 to about 1,500 over ~650 declarations by checker-driven rewriting, with
 the remainder needing a per-function decision rather than a rule. §4d was the harder finding and is
 now answered in the tree. What remains is the port itself: 4,432
-errors with a pinning checker, which the driver takes to about **370
-over 224 declarations** and no further, for the reason §4c now
+errors with a pinning checker, which the driver takes to **210 over
+about 150 declarations** and no further, for the reason §4c now
 records. Nothing from §4c or §6 is in the tree.

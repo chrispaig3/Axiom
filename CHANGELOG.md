@@ -16,11 +16,35 @@ its changelog too.
 
 ## Unreleased
 
-### The `Vec` port is 92% mechanical and the last 8% is not
+### The `Vec` port reaches 95%, and the wall has a name now
 
-With pinning in the tree and the full rule set — six syntactic rules
-plus three verified passes — the port goes **4,432 errors to about
-370**, and stops. `docs/generics-design.md` §4c records the rules and
+With pinning in the tree and the full rule set, the port goes **4,432
+errors to 210**, and stops. Four more rules and three accessors took it
+from 370 to 210, and each is design rather than heuristic:
+
+- **`vecGetVec`** `(-> (Vec a) Int (Vec b))`, cast at the return. Some
+  of this compiler's vectors are HETEROGENEOUS by construction —
+  `pruneMark`'s `ctx` holds an interner in slot 0 and vectors in 1..3 —
+  so no element type describes them and the READ is what needs a type.
+- **`vecPushStr` / `vecPushVec`**, and MM-VAL-22 is why they exist
+  rather than a call-site cast. `(vecPush r (cast Int s))` type-checks
+  and is a use-after-free: the element parameter is a type variable, a
+  cast at an argument root classifies the evidence 0, and
+  `memSetWord`'s `__retainref` emits nothing. The accessor takes the
+  share EXPLICITLY and pairs it with the cast — one retain, exactly the
+  one the cast suppressed.
+- **the let-init typed view**, fixing at the binding rather than at
+  each use (1,531 → 1,068 alone).
+- **discarding a container result**: `vecPush` answers the handle, so
+  `(if c 0 (vecPush ...))` has two types where it had one.
+
+**The wall now has a name.** The port needs a declaration and its
+callers to change together, and nothing available decides both. Fixing
+a parameter from how its body uses it is right and turns every call
+site red; propagating that back to the callers is also right and turns
+THEIR callers red. Run together and unjudged for twenty rounds they
+oscillate between 219 and 238 and never reach 210 — each correct
+locally, neither closing. `docs/generics-design.md` §4c records the rules and
 the plateau; the highest-value one was **the let-init typed view**
 (`(let ((v (nodeB t))) ... (vecLen v))` fixes at the BINDING, not at
 every use), worth 1,531 → 1,068 on its own.
@@ -32,7 +56,7 @@ incremental run at 354. Applying every candidate at once goes to
 them — goes to 5,462. One at a time with a convergence lookahead,
 serial or across eight workers, buys about two errors a round.
 
-The residue is **370 errors over 224 declarations**, each a decision
+The residue is **210 errors over about 150 declarations**, each a decision
 about what a particular vector holds, and the decisions are COUPLED:
 typing `parseNamedFieldTypes`'s `names` as `(Vec String)` raises the
 count until every caller moves with it, so one-at-a-time verification
