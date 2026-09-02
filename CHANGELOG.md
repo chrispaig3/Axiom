@@ -16,6 +16,42 @@ its changelog too.
 
 ## Unreleased
 
+### The `Vec` port is 92% mechanical and the last 8% is not
+
+With pinning in the tree and the full rule set — six syntactic rules
+plus three verified passes — the port goes **4,432 errors to about
+370**, and stops. `docs/generics-design.md` §4c records the rules and
+the plateau; the highest-value one was **the let-init typed view**
+(`(let ((v (nodeB t))) ... (vecLen v))` fixes at the BINDING, not at
+every use), worth 1,531 → 1,068 on its own.
+
+**Four experiments say the plateau is structural rather than a missing
+rule.** A clean restart with every rule available lands at 370, the
+incremental run at 354. Applying every candidate at once goes to
+5,611. Applying only the positions every error AGREES about — 183 of
+them — goes to 5,462. One at a time with a convergence lookahead,
+serial or across eight workers, buys about two errors a round.
+
+The residue is **370 errors over 224 declarations**, each a decision
+about what a particular vector holds, and the decisions are COUPLED:
+typing `parseNamedFieldTypes`'s `names` as `(Vec String)` raises the
+count until every caller moves with it, so one-at-a-time verification
+rejects it and bulk application — which moves the wrong ones too — is
+worse still.
+
+**A `cast` is not the way out**, and the memory model says why: the
+widest shape is 44 `vecPush` sites whose element is a `String` in a
+vector the port typed `(Vec Int)`, and `vecPush`'s element parameter
+is a type VARIABLE, so MM-VAL-22 applies — a cast at an argument root
+there classifies the evidence 0 and **suppresses the retain**. The
+`String`'s share would never be taken. The element type is the fix.
+
+What would finish it is element-type inference over declaration
+positions: a union-find whose nodes are parameters, results and
+fields, seeded by the certain sites and propagated through calls —
+the same shape as pinning, one level up. Nothing from the port is in
+the tree.
+
 ### A bound type placeholder now stays bound
 
 `tyCompat` COMPARED types and recorded nothing. A minted placeholder

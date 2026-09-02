@@ -277,11 +277,59 @@ that value's evidence 0 and drops its retain or its release"
 (`docs/memory-model.md` MM-VAL-22). `memGetWordVec` and
 `nodeAVec`/`nodeBVec`/`nodeCVec` are the same move for containers.
 
-**What remains is 1,916 errors over 648 declarations**, and the head
-of that list is the compiler's context constructors — `newCG`,
-`tcNew`, `smNew`, `symbolsRenderGens` — which build records of many
-`Vec` fields through raw words. Those need §4b's classification to be
-correct before they can be typed at all, which is why it went first.
+### Re-run with pinning and the full rule set: it plateaus at ~370
+
+The numbers above were taken before §4d was built. With pinning in the
+tree and six syntactic rules plus three verified passes, the port goes
+**4,432 to about 370**, and stops there. The rules, in the order they
+were found to matter:
+
+| rule | what it decides |
+|---|---|
+| typed view | `(memGetWord n i)` becomes `memGetWordVec`; `nodeB` becomes `nodeBVec` |
+| let-init view | the same, one hop through the `let` that bound the value — **1,531 to 1,068 on its own** |
+| param | a parameter USED as a container takes its type |
+| absent `0` | the "no vector" literal becomes `(cast (Vec T) 0)` |
+| null check | `(== v 0)` on a handle becomes `(== (cast Int v) 0)` |
+| struct field | a `(struct ...)` or `(data ...)` field the constructor is called with |
+| verified result / param / retype | applied one at a time and kept only if the count drops |
+
+**THE PLATEAU IS STRUCTURAL, and four experiments say so.** Restarting
+from a clean tree with every rule available lands at **370**; the
+incremental run reached **354**. Applying every candidate at once goes
+to **5,611**, and applying only the positions every error AGREES about
+— 183 of them — goes to **5,462**. Trying candidates one at a time
+with a full convergence lookahead, serial or across eight workers,
+buys about **two errors a round**.
+
+So the residue is not a rule that has not been written. **It is ~370
+errors over 224 declarations, each needing a decision about what a
+particular vector holds**, and the decisions are COUPLED: typing
+`parseNamedFieldTypes`'s `names` as `(Vec String)` raises the count
+until every caller moves with it, which is why one-at-a-time
+verification rejects it and why bulk application, which moves them all
+including the wrong ones, is worse still.
+
+The head of the list is the compiler's context constructors —
+`newCG`, `tcNew`, `smNew`, `symbolsRenderGens` — which build records
+of many `Vec` fields through raw words, and the widest single shape is
+44 `vecPush` sites whose element is a `String` in a vector the port
+typed `(Vec Int)`.
+
+**A `cast` at those sites is NOT the way out, and the memory model
+says why.** `(vecPush v (cast Int s))` would typecheck, and
+`vecPush`'s element parameter is a type VARIABLE, so MM-VAL-22's
+measured rule applies: a cast at an argument root in a type-variable
+position classifies the value's evidence 0 and **suppresses the
+retain**. The `String`'s share would never be taken. The honest fix is
+the element type, not a cast.
+
+**What would finish it** is element-type inference over declaration
+positions — a union-find whose nodes are parameters, results and
+fields, seeded by the sites that are certain (a `String` literal
+pushed, an `Int` arithmetic use) and propagated through calls. That is
+the same shape as §4d's pinning, one level up, and it is a piece of
+work in its own right rather than a rule to add to the driver.
 
 **`vecPop` is a second `vecGet`, and section 4 did not name it.** Its
 body answers `0` on an empty vector, and under `(-> (Vec a) a)` that
@@ -457,10 +505,11 @@ back.
 let-bound container is now pinned by its first use, and the exit-139
 program is refused. `scripts/check-type-pinning.sh` holds it.
 
-**The migration is measured and not landed.** §4c
+**The migration is measured, driven to about 92%, and not landed.** §4c
 replaces this document's earlier cost estimate: 4,406 errors, reducible
 to about 1,500 over ~650 declarations by checker-driven rewriting, with
-the remainder needing a per-function decision rather than a rule. §4d was the harder finding and
-is now answered in the tree; what remains is the port itself, whose
-error count with a pinning checker is 4,430 and which the driver takes
-to about 1,800. Nothing from §4c or §6 is in the tree.
+the remainder needing a per-function decision rather than a rule. §4d was the harder finding and is
+now answered in the tree. What remains is the port itself: 4,432
+errors with a pinning checker, which the driver takes to about **370
+over 224 declarations** and no further, for the reason §4c now
+records. Nothing from §4c or §6 is in the tree.
