@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Fifty-four of the gates below build the compiler under test from
+    # fifty-five of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -327,6 +327,19 @@ jobs:
       # pass vacuously - two of them must read a DIFFERENT number.
       - name: A Vec field maps exactly as the Int it replaces
         run: ./scripts/check-vec-field-shape.sh
+
+      # `tyCompat` compared types and recorded nothing, so a minted
+      # placeholder matched anything and went on matching anything.
+      # Sound for a value read once; unsound for one BOUND and used
+      # twice, which is what a container is - a let-bound box written
+      # at `Int` and read at `String` checked OK and exited 139, with
+      # no `cast` written anywhere. A placeholder from INSTANTIATION
+      # now binds. Two halves: the unsound shapes must be refused, and
+      # the correct ones - including two boxes pinned to DIFFERENT
+      # types in one scope - must still be accepted, or a checker that
+      # refused everything would pass.
+      - name: A bound type placeholder stays bound
+        run: ./scripts/check-type-pinning.sh
 
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is

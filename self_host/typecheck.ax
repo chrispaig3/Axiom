@@ -142,12 +142,20 @@
 
 (pub :: tyVarsInto (-> Int Int Int))
 
-(pub fn (tyVarsInto t names)
+(pub fn (tyVarsInto t0 names)
+  (let ((t (tyResolve t0)))
+  ; a pinned placeholder is not a variable the reader must be shown
   (if (== t 0)
     0
     (let ((tag (nodeTag t)))
       (if (== tag TAG_T_VAR)
-        (if (&& (strStartsWith (nodeAName t) "_t") (< (tyVarIndex names (nodeAName t) 0) 0))
+        ; ANY minted prefix, not just `_t`. There are two now -
+        ; `_iN` from instantiation, which may be pinned, and `_tN`
+        ; from "not known yet", which may not - and both are names
+        ; the user did not write, so both get a reader-friendly
+        ; label. Testing `_t` alone printed a raw `_i267` into a
+        ; diagnostic the moment the second prefix existed.
+        (if (&& (strStartsWith (nodeAName t) "_") (< (tyVarIndex names (nodeAName t) 0) 0))
           (vecPush names (nodeAName t))
           0
         )
@@ -171,6 +179,7 @@
     )
   )
 )
+)
 
 (pub :: tyVarsIntoAll (-> Int Int Int Int))
 
@@ -186,7 +195,9 @@
 
 (pub :: tyRenderIn (-> Int Int String))
 
-(pub fn (tyRenderIn t names)
+(pub fn (tyRenderIn t0 names)
+  (let ((t (tyResolve t0)))
+  ; render what a placeholder was PINNED to, not the placeholder
   (if (== t 0)
     "{unknown}"
     (let ((tag (nodeTag t)))
@@ -221,6 +232,7 @@
       )
     )
   )
+)
 )
 
 (pub :: tyRenderApp (-> String Int Int Int String))
@@ -374,9 +386,176 @@
 ; unsoundness is one signature shape (AX3040). Instantiation happens
 ; per call site above this function, not in it.
 ; ------------------------------------------------------------------
+; ------------------------------------------------------------------
+; PINNING: the half of unification this checker did not have
+; ------------------------------------------------------------------
+; `tyCompat` used to COMPARE and record nothing, so a minted
+; placeholder matched anything and went on matching anything. That is
+; sound for a value read once and unsound for one that is BOUND and
+; then used twice, which is exactly a container:
+;
+;     (let ((v vecNew))            ; v : (Vec _t1)
+;       { (vecPush v 42)           ; (Vec _t1) vs (Vec _t2), then Int vs _t2
+;         (needVec (vecGet v 0)) })
+;
+; Each `vecPush` matched its OWN fresh placeholder, `_t1` was never
+; pinned, and `check` answered OK for a program that exits 139 - an
+; `Int` read back as a block header with no `cast` written anywhere.
+; That is `AX3040`'s failure reached without `AX3040`'s coercion, and
+; `docs/generics-design.md` section 4d has the four probes.
+;
+; So a placeholder now BINDS. Word 2 of a `TAG_T_VAR` node is 0 until
+; something pins it; `parser.ax` documents that tag as `a=name`, and
+; every consumer in the tree dispatches on the tag and reads only the
+; name, so the slot aliases nothing.
+;
+; FOUR OBLIGATIONS MAKE THIS SOUND, each a rule below rather than a
+; hope:
+;
+;   1. ONLY A MINTED PLACEHOLDER BINDS. A source variable is rigid -
+;      that is what makes `(-> a a Bool)` say something - and the
+;      empty-named wildcard `mkSilentWild` means "no information", so
+;      pinning it would turn a silence into a claim.
+;   2. NOTHING BINDS TO POISON. `TAG_T_ERR` is compatible with
+;      everything so one error does not cascade; pinning a placeholder
+;      to it would spread the error instead of stopping it.
+;   3. THE OCCURS CHECK IS NOT OPTIONAL. Binding `_t` to a type
+;      containing `_t` builds a cycle, and `tyResolve` and the
+;      reference-map walk would both follow it forever.
+;   4. THERE IS NO BACKTRACKING. Binding is monotone, so it is sound
+;      only if no caller tries a match and discards it. All 53
+;      `tyCompat` call sites were read: every one either reports on
+;      failure or walks positional arguments. None speculate.
+;
+; It is nearly inert today, which is the fifth thing worth saying: 47
+; of 4,434 signatures in `self_host/` and `stdlib/` mention a source
+; type variable at all, so almost nothing is instantiated and almost
+; no placeholder exists to pin. It becomes load-bearing when a
+; parameterised container lands.
+
+; A minted placeholder - `_tN`. The only thing that may be bound.
+(pub :: tyIsMintedVar (-> Int Int))
+
+(pub fn (tyIsMintedVar t)
+  (if (== t 0)
+    0
+    (if (!= (nodeTag t) TAG_T_VAR)
+      0
+      (if (== (tyIsSrcVar t) 1)
+        0
+        ; `_iN` and nothing else. The empty name is `mkSilentWild` and
+        ; `_tN` is a "not known yet" placeholder; neither may be
+        ; pinned - see `freshInstVar` for what the prefix separates.
+        (if (< (strLen (nodeAName t)) 2)
+          0
+          (if (== (strByte (nodeAName t) 1) 105)
+            1
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+; Follow a bound placeholder to whatever it stands for.
+(pub :: tyResolve (-> Int Int))
+
+(pub fn (tyResolve t)
+  (if (== (tyIsMintedVar t) 0)
+    t
+    (let ((b (nodeB t)))
+      (if (== b 0)
+        t
+        (tyResolve b)
+      )
+    )
+  )
+)
+
+; Does `v` - a placeholder NODE, compared by identity - occur in `t`?
+; Obligation 3.
+(pub :: tyOccurs (-> Int Int Int))
+
+(pub fn (tyOccurs v t)
+  (let ((r (tyResolve t)))
+    (if (== r 0)
+      0
+      (if (== r v)
+        1
+        (let ((tg (nodeTag r)))
+          (if (== tg TAG_T_CON)
+            (tyOccursVec v (nodeB r) 0)
+            (if (== tg TAG_T_ARR)
+              (if (== (tyOccurs v (nodeA r)) 1)
+                1
+                (tyOccurs v (nodeB r))
+              )
+              (if (== tg TAG_T_TUP)
+                (tyOccursVec v (nodeA r) 0)
+                (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+                  (tyOccurs v (nodeA r))
+                  0
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tyOccursVec (-> Int Int Int Int))
+
+(pub fn (tyOccursVec v xs i)
+  (if (>= i (vecLen xs))
+    0
+    (if (== (tyOccurs v (vecGet xs i)) 1)
+      1
+      (tyOccursVec v xs (+ i 1))
+    )
+  )
+)
+
+; Pin `v` to `t`, answering whether the two are now compatible.
+; Refuses on the occurs check and on poison, and both refusals answer
+; 1: this is only reached where the old code said "a minted variable
+; matches anything", so declining to RECORD a binding must not by
+; itself turn a program red.
+(pub :: tyPin (-> Int Int Int))
+
+(pub fn (tyPin v t)
+  (if (== v t)
+    1
+    (if (== t 0)
+      1
+      ; obligation 2 - never pin to poison
+      (if (== (nodeTag t) TAG_T_ERR)
+        1
+        ; nor to a placeholder that is not itself pinnable - the
+        ; silent wildcard and `_tN` both mean "no information", and
+        ; pinning one would turn a silence into a claim
+        (if (&& (== (nodeTag t) TAG_T_VAR) (&& (== (tyIsSrcVar t) 0) (== (tyIsMintedVar t) 0)))
+          1
+          (if (== (tyOccurs v t) 1)
+            1
+            {
+              (memSetWord (cast Int v) 2 t)
+              1
+            }
+          )
+        )
+      )
+    )
+  )
+)
+
 (pub :: tyCompat (-> Int Int Int))
 
-(pub fn (tyCompat a b)
+(pub fn (tyCompat a0 b0)
+  (let ((a (tyResolve a0)) (b (tyResolve b0)))
+  ; RESOLVE FIRST - a placeholder pinned by an earlier comparison must be read as what it was pinned TO
   (if (|| (== a 0) (== b 0))
     1
     ; Poison BEFORE variables. The two orders differ on exactly one
@@ -436,6 +615,7 @@
       )
     )
   )
+)
 )
 
 (pub :: tyCompatVec (-> Int Int Int Int))
@@ -501,16 +681,31 @@
         1
         0
       )
-      1
+      ; One of them is minted or a wildcard. Pinning one to the other
+      ; is what makes two uses of ONE binding agree; `tyPin` declines
+      ; on a wildcard, so a silence stays a silence.
+      (if (== (tyIsMintedVar a) 1)
+        (tyPin a b)
+        (if (== (tyIsMintedVar b) 1)
+          (tyPin b a)
+          1
+        )
+      )
     )
     (if (== ta TAG_T_VAR)
       (if (== (tyIsSrcVar a) 1)
         0
-        1
+        (if (== (tyIsMintedVar a) 1)
+          (tyPin a b)
+          1
+        )
       )
       (if (== (tyIsSrcVar b) 1)
         0
-        1
+        (if (== (tyIsMintedVar b) 1)
+          (tyPin b a)
+          1
+        )
       )
     )
   )
@@ -622,7 +817,7 @@
 
 (pub fn (tyInstVar tc name env i)
   (if (>= i (vecLen env))
-    (let ((fresh (freshTVar tc 1)))
+    (let ((fresh (freshInstVar tc)))
       {
         (vecPush env name)
         (vecPush env fresh)
@@ -2194,6 +2389,32 @@
 
 ; A fresh `_tN`. stage0 mints the name from the current counter and
 ; increments at SOME sites but not others; callers say which.
+; An INSTANTIATION placeholder, named `_iN` rather than `_tN`, and the
+; prefix is load-bearing: it is the only kind `tyPin` may bind.
+;
+; `freshTVar` mints for two different jobs and only one of them may be
+; pinned. Instantiating a DECLARED signature mints "the type the caller
+; chose for `a` at this call", and two uses of one binding have to
+; agree about that or a container can be written at `Int` and read at
+; `String`. Every other use - a `cond` with no arms yet, a pattern
+; binder, a missing parameter type - mints "not known", and pinning
+; THAT reports an error where the checker simply has no information.
+;
+; Measured: without the split, `(fn (untyped x) x)` applied to an `Int`
+; and then a `String` was refused. The function is correct and the
+; refusal was invented by pinning - "under-report, never mis-report" is
+; this file's rule, and one prefix is what keeps it.
+(pub :: freshInstVar (-> Int Int))
+
+(pub fn (freshInstVar tc)
+  (let ((t (mkTVar (strConcat "_i" (decStr (tcCounter tc))))))
+    {
+      (tcBumpCounter tc)
+      t
+    }
+  )
+)
+
 (pub :: freshTVar (-> Int Int Int))
 
 (pub fn (freshTVar tc bump)

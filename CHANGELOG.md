@@ -16,6 +16,63 @@ its changelog too.
 
 ## Unreleased
 
+### A bound type placeholder now stays bound
+
+`tyCompat` COMPARED types and recorded nothing. A minted placeholder
+matched anything and went on matching anything, which is a sound
+under-approximation for a value read once and unsound for one that is
+BOUND and then used twice — which is exactly what a container is:
+
+    (let ((v vecNew))
+      { (vecPush v 42) (needVec (vecGet v 0)) })
+
+Each `vecPush` matched its OWN fresh placeholder, the `let`'s was never
+pinned, and `check` answered OK for a program that exits 139 — an `Int`
+read back as a block header **with no `cast` written anywhere**. That is
+`AX3040`'s own failure reached without `AX3040`'s coercion.
+
+**A placeholder from INSTANTIATION now binds.** Word 2 of a
+`TAG_T_VAR` node is 0 until something pins it; `parser.ax` documents
+that tag as `a=name` and every consumer dispatches on the tag and reads
+only the name, so the slot aliases nothing. `tyCompat` resolves both
+sides before dispatching and `tyVarCompat` pins instead of matching.
+
+FOUR OBLIGATIONS, each a rule in the code rather than a hope:
+
+1. **Only an instantiation placeholder binds.** `freshTVar` mints for
+   two jobs. Instantiating a declared signature mints "the type the
+   caller chose for `a` here", and two uses of one binding must agree.
+   Every other use — a `cond` with no arms yet, a pattern binder, a
+   missing parameter type — mints "not known", and pinning THAT reports
+   an error where the checker has no information. Separated by name:
+   `_iN` binds, `_tN` does not, and `mkSilentWild` never does.
+2. **Nothing binds to poison**, or one error would cascade instead of
+   stopping.
+3. **The occurs check is not optional** — a cycle would be followed
+   forever by `tyResolve` and by the reference-map walk.
+4. **There is no backtracking**, so binding is monotone only because
+   no caller speculates. All 53 `tyCompat` call sites were read.
+
+**Nearly inert on the tree as it stands**, which is what made it safe
+to land ahead of the port: 47 of 4,434 signatures mention a source type
+variable at all, so almost nothing is instantiated. Byte-identical
+fixpoint from the seed; `check-self-host` 179/179, `check-diagnostics`
+194/194, `check-stdlib-selfhost` — no gate moved.
+
+**Diagnostics now render what a placeholder was pinned TO.** The first
+build reported `expected _a, found String`; `tyRenderIn` and
+`tyVarsInto` resolve first, so it reads `expected Int, found String`.
+
+`scripts/check-type-pinning.sh`, 5 checks, in two halves — a checker
+that refused everything would pass the first. The unsound shapes are
+refused (both were ACCEPTED before, measured), and the correct ones are
+still accepted, including **two containers pinned to DIFFERENT element
+types in one scope**, which is what separates this from a global
+substitution. Not asserted, deliberately: that an UNDECLARED function
+may be used at two types. It may not, and it could not before pinning
+either — that is a pre-existing rule about inference without
+generalisation, and recording it here would be a false attribution.
+
 ### The `Vec` migration's premise only half holds, and it blocks the port
 
 `(Vec a)` exists to stop a caller putting an `Int` in and taking a
@@ -606,7 +663,7 @@ well by a function that was never emitted).
 `docs/unboxed-sums-design.md` §4 asks for, written first and on
 purpose. It counts the heap blocks an `Option` construction costs **in
 the emitted IR**, for a fixture whose matched lookups are a known
-number. Fifty-four gates call `gate_build_axc` now, up from fifty-two —
+number. fifty-five gates call `gate_build_axc` now, up from fifty-two —
 this one and `check-vec-field-shape.sh`.
 
 Why a count and not a timing: `bench-compile.sh` is explicit that a

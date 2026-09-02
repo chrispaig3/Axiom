@@ -340,10 +340,58 @@ whatever the context asked for. The type-level win at declared
 boundaries is real and is worth having — it is the first three rows
 above — but it is not worth buying with the fourth.
 
-Pinning is a substitution, and the checker has nowhere to put one:
-`tyCompat` returns a Bool. That is an architectural change to
-inference, not a patch, and it is the next thing this document should
-be about.
+### Pinning, built
+
+**A placeholder from INSTANTIATION now binds.** Word 2 of a
+`TAG_T_VAR` node is 0 until something pins it; `parser.ax` documents
+that tag as `a=name` and every consumer dispatches on the tag and
+reads only the name, so the slot aliases nothing. `tyCompat` resolves
+both sides before it dispatches, and `tyVarCompat` pins instead of
+merely matching. All four probes above reverse: the two unsound rows
+are refused, the two sound ones still pass.
+
+**Four obligations make it sound, and each is a rule in the code
+rather than a hope.**
+
+1. **Only an INSTANTIATION placeholder binds.** `freshTVar` mints for
+   two different jobs and only one may be pinned. Instantiating a
+   declared signature mints "the type the caller chose for `a` here",
+   and two uses of one binding must agree about that. Every other use
+   {D} a `cond` with no arms yet, a pattern binder, a missing
+   parameter type {D} mints "not known", and pinning THAT reports an
+   error where the checker simply has no information. The two are
+   separated by name: `_iN` binds, `_tN` does not, and the empty-named
+   `mkSilentWild` never does.
+2. **Nothing binds to poison.** `TAG_T_ERR` is compatible with
+   everything so one error does not cascade; pinning to it would
+   spread the error instead of stopping it.
+3. **The occurs check is not optional.** Binding `_i` to a type
+   containing `_i` builds a cycle that `tyResolve` and the
+   reference-map walk would both follow forever.
+4. **There is no backtracking.** Binding is monotone, so it is sound
+   only if no caller tries a match and discards it. All 53 `tyCompat`
+   call sites were read: every one reports on failure or walks
+   positional arguments, and none speculate.
+
+**It is nearly inert on the tree as it stands**, which is what made it
+safe to land ahead of the port: 47 of 4,434 signatures in `self_host/`
+and `stdlib/` mention a source type variable at all, so almost nothing
+is instantiated and almost no placeholder exists to pin. Byte-identical
+fixpoint from the seed, `check-self-host` 179/179,
+`check-diagnostics` 194/194, `check-stdlib-selfhost` {D} no gate moved.
+
+**Pinning is PER BINDING, not a global substitution**, and that is
+gated rather than asserted: two containers from the same polymorphic
+constructor may be pinned to different element types in one scope. A
+global substitution passes every other check in
+`scripts/check-type-pinning.sh` and fails that one.
+
+**One thing it deliberately does NOT change.** An UNDECLARED function
+still may not be used at two types {D} `(fn (untyped x) x)` applied to
+an `Int` and then a `String` is refused. It was refused before pinning
+too. That is a pre-existing rule about inference without
+generalisation, and it is written down here so the next reader does
+not attribute it to this change.
 
 ## 5. The order
 
@@ -354,12 +402,12 @@ be about.
    until a migration attempt found it — see §4b. It is a
    prerequisite: until `fldClass` classifies `Vec`, every record that
    holds one leaks its OTHER fields.
-4. **Pinning a placeholder** — the checker compares types and never
-   records a binding, so an un-annotated `let` over a container is
-   unpinned and `(vecGet v 0)` answers whatever the context wants
-   (§4d, `check` OK and exit 139). This is now BEFORE the migration
-   rather than after it, because the migration would otherwise trade a
-   visible unsafety for a silent one.
+4. **Pinning a placeholder.** LANDED. The checker compared types and
+   recorded nothing, so an un-annotated `let` over a container was
+   unpinned and `(vecGet v 0)` answered whatever the context wanted
+   (§4d: `check` OK, exit 139). It had to come before the migration,
+   which would otherwise have traded a visible unsafety for a silent
+   one.
 5. **The migration**, driven by the checker, with byte-identical IR as
    the acceptance test. Measured in §4c, and it is not the mechanical
    change this document assumed.
@@ -405,11 +453,14 @@ byte-for-byte inert for every program that exists, and
 `scripts/check-vec-field-shape.sh` is what would notice it coming
 back.
 
-**The migration is measured and BLOCKED, and §4d is why.** §4c
+**Pinning is BUILT** (§4d), so the block §4d described is lifted: a
+let-bound container is now pinned by its first use, and the exit-139
+program is refused. `scripts/check-type-pinning.sh` holds it.
+
+**The migration is measured and not landed.** §4c
 replaces this document's earlier cost estimate: 4,406 errors, reducible
 to about 1,500 over ~650 declarations by checker-driven rewriting, with
-the remainder needing a per-function decision rather than a rule. §4d
-is the harder finding: the safety the migration exists for holds only
-where a declaration names the element type, because `tyCompat` compares
-and never binds. Pinning comes first (§5 item 4). Nothing from §4c,
-§4d or §6 is in the tree.
+the remainder needing a per-function decision rather than a rule. §4d was the harder finding and
+is now answered in the tree; what remains is the port itself, whose
+error count with a pinning checker is 4,430 and which the driver takes
+to about 1,800. Nothing from §4c or §6 is in the tree.
