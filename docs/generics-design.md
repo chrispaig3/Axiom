@@ -61,9 +61,14 @@ Flipping **four** signatures in `stdlib/Vec.ax` — `vecNew`, `vecLen`,
 `AX3004`s among them. The whole compiler passes Vecs as `Int`, so every
 signature that takes or returns one has to say so.
 
-That is mechanical and the type checker drives it: each error names a
-file, line and column, and the fixpoint is "no errors", which is a
-strong acceptance condition. There is a stronger one available.
+**"That is mechanical and the type checker drives it" is WITHDRAWN**
+— §4c drove it and measured otherwise. The checker does name a file,
+line and column for every error, and the fixpoint is "no errors",
+which is a strong acceptance condition; what does not follow is that a
+rule can reach it. Widening a parameter because a `Vec` arrives there
+breaks the callers that pass an `Int`, and the tree diverges rather
+than converging. Read §4c before planning the port. There is a
+stronger acceptance condition available, and it still holds.
 `(Vec a)` and `Int` have the **same runtime representation**, so a
 correct type-level migration must emit **byte-identical IR**. That is
 the test to hold it to.
@@ -171,15 +176,121 @@ the seed advances. That is the ordinary shape of adding one to a
 bootstrapped language, and it is why this commit stops one step short
 of the change it exists for.
 
+## 4b. `Vec` as a FIELD type was a silent leak, measured
+
+Seeding `Vec` as a writable type had a consequence section 1 did not
+look for, and it is a live defect rather than a migration blocker:
+**`fldClass` had no arm for `Vec`.**
+
+`self_host/codegen.ax`'s `fldClass` answers 0 (machine scalar, never
+walked), 2 (reference, walked and released) or 1 (UNCLASSIFIABLE) —
+and 1 does not mean "skip this field". It forces the whole block to
+the LEAF shape, on the stated grounds that "under-reclaiming leaks, a
+wrong bit use-after-frees, and only one of those is survivable". A
+`Vec` reached that arm: not a scalar name, not one of the
+`String`/`Option`/`Handle` trio, and — being seeded by the checker
+rather than declared — not in the module's data list either.
+
+Measured on one record, one field type apart:
+
+| the record | shape word | the `String` field |
+|---|---|---|
+| `(data Rec (MkRec Int String))` | `262152` | walked |
+| `(data Rec (MkRec (Vec Int) String))` | **`8`** | **never walked** |
+
+`262152` is `0x40008`: bit 18 names block word 2, the `String`. At `8`
+the map is empty, so the sibling's share is never handed back. No
+diagnostic, every gate green, and reachable from ordinary source the
+day `Vec` became writable.
+
+**`Vec` is class 0, and that is an ownership decision rather than a
+claim that a vector is a number.** `stdlib/Vec.ax` says "a vector is
+born owned ... and `vecFree` is the only thing that ends one", so a
+record that merely HOLDS a vector does not own it and must not release
+it. Class 0 is also exactly what such a field got while it was spelled
+`Int`, which is what makes typing the handle a type-level change with
+no reclamation consequence. Class 2 — walking and releasing it, as
+`String` and `Handle` are — is the other defensible answer and is a
+SEPARATE decision: it would have to audit every `vecFree` in the tree
+first, because an automatic release beside an explicit one is a double
+free.
+
+The name is spelled in the two lists the tree requires to agree —
+`scalarTyName` in codegen and `evScalarName` in typecheck — so
+evidence reaches the same answer the reference map does.
+
+**It is inert for everything that exists.** Stage-matched emission of
+`self_host/main.ax` before and after: **199,765 lines of IR, byte for
+byte identical**. The classification can only move code that has a
+`Vec`-typed field, and nothing in the tree has one yet.
+
+Gated by `scripts/check-vec-field-shape.sh`, whose table has four rows
+so the equality cannot pass vacuously: two of them must read a
+different number, and the `(Vec Int)`/`String` row read `8` before the
+fix.
+
+## 4c. What the migration actually costs, re-measured
+
+Section 3 records "3,934 errors ... mechanical, and the checker drives
+it". The first half is right and **the second half is wrong**,
+measured 2026-09-01 by driving it.
+
+Flipping `Vec.ax`'s thirty container positions — `vecGet` answering
+`a`, `vecTry` `(Option a)`, `vecPush` `(-> (Vec a) a (Vec a))` —
+typechecks **`Vec.ax` itself with zero errors** and leaves **4,406**
+in the tree, every one `AX3004`. A checker-driven rewriter then took
+it to **1,916** over four rules, each verified by recompiling and
+rolled back when it made things worse:
+
+| rule | what it does | effect |
+|---|---|---|
+| typed view | `(memGetWord n i)` becomes `(memGetWordVec n i)`; `nodeB` becomes `nodeBVec` | **converges** |
+| param | a parameter USED as a `Vec` gets `(Vec a)` | **converges** |
+| null check | `(== v 0)` on a handle becomes `(== (cast Int v) 0)` | **converges** |
+| callee param | a parameter that RECEIVES a `Vec` gets `(Vec a)` | **diverges** |
+
+**THE LAST ROW IS THE FINDING.** Widening a parameter because one
+caller passes a `Vec` breaks the callers that pass an `Int`, and those
+are not a residue: run unguarded, the tree goes 1,916 to 5,990 to
+10,102 to 14,392 and never comes back. The compiler uses `Int` as a
+universal word type on purpose, and many functions are genuinely
+polymorphic by punning. Separating `Vec` out of that is a decision per
+function, not a rewrite.
+
+**The vehicle that works is the typed view**, and it is the one this
+repository already uses for the same problem: `nodeAName` casts word 1
+to `String` at a RETURN, inside a signature that carries the type,
+"and not at the call sites — a cast at an argument root classifies
+that value's evidence 0 and drops its retain or its release"
+(`docs/memory-model.md` MM-VAL-22). `memGetWordVec` and
+`nodeAVec`/`nodeBVec`/`nodeCVec` are the same move for containers.
+
+**What remains is 1,916 errors over 648 declarations**, and the head
+of that list is the compiler's context constructors — `newCG`,
+`tcNew`, `smNew`, `symbolsRenderGens` — which build records of many
+`Vec` fields through raw words. Those need §4b's classification to be
+correct before they can be typed at all, which is why it went first.
+
+**`vecPop` is a second `vecGet`, and section 4 did not name it.** Its
+body answers `0` on an empty vector, and under `(-> (Vec a) a)` that
+fabricates an `a` exactly as `vecGet`'s sentinel did. It takes the
+same answer — `__indexTrap` — and `vecLast` inherits the trap for
+free because it delegates to `vecGet`. Nothing else in the module has
+the shape.
+
 ## 5. The order
 
-1. **`Vec` as a type, and `AX3040` narrowed.** Landed; nothing uses the
-   type yet.
-2. **`vecGet` traps.** Decided (§4). The trap and the primitive are
-   built; `vecGet` uses them once the seed carries `__indexTrap`.
-3. **The migration**, driven by the checker, with byte-identical IR as
-   the acceptance test.
-4. **`for` as a keyword**, which is only expressible once 3 exists.
+1. **`Vec` as a type, and `AX3040` narrowed.** Landed.
+2. **`vecGet` traps.** Landed. The seed carries `__indexTrap`, and
+   `vecGet` calls it on an out-of-range index (status 77).
+3. **The field-shape defect.** Landed, and it was NOT on this list
+   until a migration attempt found it — see §4b. It is a
+   prerequisite: until `fldClass` classifies `Vec`, every record that
+   holds one leaks its OTHER fields.
+4. **The migration**, driven by the checker, with byte-identical IR as
+   the acceptance test. Measured in §4c, and it is not the mechanical
+   change this document assumed.
+5. **`for` as a keyword**, which is only expressible once 4 exists.
 
 ## 6. A route that was tried and is the wrong one
 
@@ -210,9 +321,19 @@ allocation, no reclassification. The newtype work is not in the tree.
 
 ## 7. Status
 
-`Vec` is a type and `AX3040` is narrowed — both landed, both inert
-until §4 is built. §4 is **decided** — `vecGet` traps — and not
-implemented: it needs a diverging primitive, and divergence is a
-fixpoint over Axiom-level tails that no builtin is currently in. The
-migration is measured at 3,934 errors and is not started. Nothing from
-§4 or §6 is in the tree.
+`Vec` is a type, `AX3040` is narrowed, and **§4 is built**: `vecGet`
+refuses an out-of-range index through `(__indexTrap)` at status 77,
+and the seed carries both. `vecTry` remains the checked read.
+
+**§4b is built and gated** — `fldClass` classifies `Vec` as class 0,
+so a record holding one keeps the reference map for its other fields.
+That was a live defect from the day `Vec` became writable, it is
+byte-for-byte inert for every program that exists, and
+`scripts/check-vec-field-shape.sh` is what would notice it coming
+back.
+
+**The migration (§5 item 4) is measured and not started.** §4c
+replaces this document's earlier estimate: 4,406 errors, reducible to
+1,916 over 648 declarations by checker-driven rewriting, with the
+remainder needing a per-function decision rather than a rule. Nothing
+from §6 is in the tree.

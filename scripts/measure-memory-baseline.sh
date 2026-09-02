@@ -56,8 +56,25 @@
 # the ceiling leaves headroom for the allocator's 1 MiB chunk
 # quantization), and the DELIBERATELY-UNSOUND variant (reset with
 # no copy - the exact shape the review's p4 probe measured
-# corrupting) must NOT print 5, proving the population check
+# corrupting) must NOT complete with population 5, proving the check
 # discriminates the unsoundness this contract exists to prevent.
+#
+# THE NEGATIVE HAS TWO PASSING SHAPES SINCE `vecGet` TRAPPED, and
+# only one of them existed when it was written. The ablated board is
+# read through `vecGet`, which answered 0 out of range; the corruption
+# therefore showed up as a WRONG POPULATION. `vecGet` now refuses an
+# out-of-range index (`__indexTrap`, status 77), so the same ablation
+# is caught at the read instead of being carried into the answer, and
+# the probe dies with no stdout at all. Both are the negative doing
+# its job - a refusal is strictly the better one, and is exactly what
+# `docs/generics-design.md` §4 chose it for: "not a crash, a wrong
+# answer that keeps going" is the failure mode being traded away. The
+# ONE outcome that fails is the ablation running to completion and
+# printing 5, which is the blindness this probe exists to rule out.
+#
+# Read as an unconditional error, the trap turned this gate red on
+# trunk for three CI legs (2026-09-02) - the ablation was working
+# better than before and the gate could not say so.
 #
 # Usage:
 #   scripts/measure-memory-baseline.sh              # 10 80 500 2000
@@ -267,12 +284,27 @@ if [[ "$gate" == 1 ]]; then
   # over the reset region. If the ablated probe prints 5, the
   # population check cannot see the corruption class and the gate
   # is vacuous.
-  build_and_measure ablated 80 || failed=1
-  if [[ "$pop" == 5 ]]; then
-    echo "FAIL: the deliberately-unsound variant printed 5 - the negative is blind"
+  # Run it directly rather than through `build_and_measure`: that
+  # helper reports a non-zero exit as a gate failure, and here a
+  # non-zero exit is the ablation being CAUGHT. RSS is not wanted
+  # either - this probe is about the answer, not the footprint.
+  emit_probe ablated 80 "$work/life_ablated_80.ax"
+  if ! "$axiom" build --input "$work/life_ablated_80.ax" \
+       --output "$work/life_ablated_80" --opt 2 \
+       >"$work/build_ablated_80.log" 2>&1; then
+    echo "FAIL: the ablated probe did not build - the negative never ran"
+    tail -5 "$work/build_ablated_80.log" >&2
     failed=1
   else
-    echo "negative: ablated variant corrupts as expected (population $pop)"
+    ab_out="$("$work/life_ablated_80" 2>/dev/null)"; ab_rc=$?
+    if [[ "$ab_rc" == 0 && "$ab_out" == 5 ]]; then
+      echo "FAIL: the deliberately-unsound variant ran clean and printed 5 - the negative is blind"
+      failed=1
+    elif [[ "$ab_rc" != 0 ]]; then
+      echo "negative: ablated variant is REFUSED at the read (exit $ab_rc), not carried into the answer"
+    else
+      echo "negative: ablated variant corrupts as expected (population ${ab_out:-<none>})"
+    fi
   fi
   if [[ "$failed" == 0 ]]; then
     echo "check-memory-baseline: gate passed"

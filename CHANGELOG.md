@@ -16,6 +16,78 @@ its changelog too.
 
 ## Unreleased
 
+### A `Vec` field silently unmapped the record that held it
+
+**`fldClass` had no arm for `Vec`, so a record holding one leaked its
+OTHER fields.** The classifier answers 0 (machine scalar), 2
+(reference) or 1 (UNCLASSIFIABLE), and 1 does not mean "skip this
+field" — it forces the whole block to the LEAF shape. `Vec` reached
+that arm the day it became a writable type: not a scalar name, not one
+of the `String`/`Option`/`Handle` trio, and, being seeded by the
+checker rather than declared, not in the module's data list either.
+
+Measured on one record, one field type apart:
+
+| the record | shape word | the `String` field |
+|---|---|---|
+| `(data Rec (MkRec Int String))` | `262152` | walked |
+| `(data Rec (MkRec (Vec Int) String))` | **`8`** | **never walked** |
+
+`262152` is `0x40008` — bit 18 names block word 2, the `String`. At
+`8` the map is empty and the sibling's share is never handed back. No
+diagnostic, every gate green, reachable from ordinary source.
+
+**`Vec` is class 0, and that is an ownership decision.**
+`stdlib/Vec.ax` says "a vector is born owned ... and `vecFree` is the
+only thing that ends one", so a record that merely HOLDS a vector must
+not release it — and class 0 is exactly what such a field got while it
+was spelled `Int`, which is what keeps typing the handle free of
+reclamation consequences. Class 2 is the other defensible answer and is
+a SEPARATE decision: an automatic release beside an explicit `vecFree`
+is a double free, so it would have to audit every call first. The name
+is spelled in the two lists the tree requires to agree — `scalarTyName`
+in codegen and `evScalarName` in typecheck — so evidence reaches the
+same answer the reference map does.
+
+**Inert for everything that exists**: stage-matched emission of
+`self_host/main.ax` before and after is **199,765 lines of IR, byte for
+byte identical**. Only a `Vec`-typed field can move, and nothing in the
+tree has one yet.
+
+`scripts/check-vec-field-shape.sh`, 5 checks. Its table has four rows
+rather than one because a single equality passes just as well from an
+extractor that answers one constant: two rows must read a DIFFERENT
+number, and the `(Vec Int)`/`String` row read `8` before this. Ablated
+by deleting the classification and rebuilding — the gate exits 1 and
+names the leaf shape.
+
+### The `Vec` migration is not mechanical, measured
+
+`docs/generics-design.md` §3 said the port "is mechanical and the type
+checker drives it". **The second half is withdrawn**, in place, and §4c
+records what driving it actually measured.
+
+Flipping `Vec.ax`'s thirty container positions typechecks **`Vec.ax`
+itself with zero errors** and leaves **4,406** in the tree, every one
+`AX3004`. A checker-driven rewriter reduced that to **1,916** over four
+rules, each verified by recompiling and rolled back when it made things
+worse. Three converge — the typed view (`memGetWordVec`, `nodeBVec`),
+widening a parameter USED as a `Vec`, and the `(== v 0)` handle
+comparison. The fourth, widening a parameter that RECEIVES a `Vec`,
+**diverges**: 1,916 → 5,990 → 10,102 → 14,392, and never comes back.
+The compiler uses `Int` as a universal word type on purpose, so many
+functions are genuinely polymorphic by punning and separating `Vec` out
+is a decision per function rather than a rule.
+
+**`vecPop` is a second `vecGet` and §4 did not name it** — its `0` on
+an empty vector fabricates an `a` under `(-> (Vec a) a)`, and takes the
+same `__indexTrap` answer. `vecLast` inherits the trap by delegating.
+
+What remains is 1,916 errors over **648 declarations**, headed by the
+compiler's context constructors (`newCG`, `tcNew`, `smNew`), which
+build records of many `Vec` fields through raw words — and which the
+classification above had to be right about first.
+
 ### `vecGet` refuses an out-of-range index
 
 **The decision in `docs/generics-design.md` §4, built.** `vecGet`
@@ -491,7 +563,8 @@ well by a function that was never emitted).
 `docs/unboxed-sums-design.md` §4 asks for, written first and on
 purpose. It counts the heap blocks an `Option` construction costs **in
 the emitted IR**, for a fixture whose matched lookups are a known
-number. Fifty-three gates call `gate_build_axc` now, up from fifty-two.
+number. Fifty-four gates call `gate_build_axc` now, up from fifty-two —
+this one and `check-vec-field-shape.sh`.
 
 Why a count and not a timing: `bench-compile.sh` is explicit that a
 wall-clock bound on a shared runner is a flaky test, and the ratio

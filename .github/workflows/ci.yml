@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Fifty-three of the gates below build the compiler under test from
+    # Fifty-four of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -315,6 +315,18 @@ jobs:
       # every acceptance check and refuse nothing.
       - name: A fabricated value is refused and a diverging one is not
         run: ./scripts/check-diverging-tyvar.sh
+
+      # `fldClass` has three answers and the third - UNCLASSIFIABLE -
+      # forces the whole block to the LEAF shape, so a field type it
+      # does not know costs the record's OTHER fields their reference
+      # map. `Vec` became a writable type without an arm there, and a
+      # record holding one read shape word 8 where the same record
+      # with an `Int` in that slot reads 262152: the String sibling's
+      # share was never handed back, with no diagnostic and every gate
+      # green. The table has four rows so that the equality cannot
+      # pass vacuously - two of them must read a DIFFERENT number.
+      - name: A Vec field maps exactly as the Int it replaces
+        run: ./scripts/check-vec-field-shape.sh
 
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is

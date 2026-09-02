@@ -16592,7 +16592,25 @@
 (pub :: scalarTyName (-> String Int))
 
 (pub fn (scalarTyName n)
-  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (strEq n "Foreign")))))))))))))))
+  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Foreign") (strEq n "Vec"))))))))))))))))
+    ; `Vec` - a handle to a counted block that this block does NOT
+    ; own. It is here for the same ownership reason `Foreign` is and
+    ; not because a vector is a number: `stdlib/Vec.ax` says "a
+    ; vector is born owned ... and `vecFree` is the only thing that
+    ; ends one", so a record that merely HOLDS one must not release
+    ; it. Class 0 is therefore what a `Vec` field already got while
+    ; it was spelled `Int`, and typing the handle changes no
+    ; reclamation - which is the property `check-vec-field-shape.sh`
+    ; measures.
+    ;
+    ; WITHOUT THIS LINE A `Vec` FIELD IS UNCLASSIFIABLE, and
+    ; unclassifiable forces the whole block to LEAF - so the record's
+    ; OTHER fields silently lose their reference map. Measured on
+    ; `(data Rec (MkRec (Vec Int) String))`: shape word 8 against the
+    ; 262152 the same record gets with an `Int` in that slot, and the
+    ; `String` share is never handed back. Reachable since `Vec`
+    ; became a writable type, with no diagnostic and every gate green.
+    ;
     ; `Foreign` - a raw pointer into memory Axiom did not allocate
     ; and does not own (MM-FFI-3). It is class 0 for the same reason
     ; `Int` is, and more urgently: a set bit here would make

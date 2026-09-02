@@ -778,10 +778,15 @@
 ; The scalar family, spelled once here and once in codegen's
 ; scalarTyName - the two lists must agree, and the evidence fixture
 ; is what notices a drift.
+;
+; `Vec` is in both for an OWNERSHIP reason rather than a numeric one -
+; see the note on `fldClass`. Evidence must reach the same answer the
+; reference map does: a `Vec` handed to a type-variable parameter took
+; no share while it was spelled `Int`, and typing it takes none now.
 (pub :: evScalarName (-> String Int))
 
 (pub fn (evScalarName n)
-  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (strEq n "F64"))))))))))))))
+  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (strEq n "Vec")))))))))))))))
     1
     0
   )
