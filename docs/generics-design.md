@@ -355,6 +355,38 @@ names, and a coupled fix needs the positions that have no error YET.
 That is the whole-chain inference this document keeps arriving at,
 and it now has a measure to optimise that will not reject its answers.
 
+### Why whole-chain inference cannot close it either, measured
+
+The obvious next move was an inferencer over the source graph {D}
+declaration positions as nodes, the places the language forces two to
+agree as edges, union-find, solve once, write once. It was built, and
+it decides **417 positions from the source alone**, taking 4,432 to
+3,889 in one pass with no error-driven guessing. Then it stops, and the
+reason is worth more than the inferencer.
+
+**The classes come out as one giant component.** With generic positions
+excluded {D} `vecAppendFrom : (-> (Vec a) ...)` is one declaration every
+vector in the program is passed to, and unifying through it merges them
+all {D} the largest class is still 8,866 of about 12,000 positions.
+Modelling `Int` as a real type rather than as "undecided" does not
+break it up either: a `Vec` refines a word, so every `Int` position
+that touches any container joins the same class, and 11,457 end up in
+one.
+
+**That is not a defect in the solver. It is the answer.** The compiler
+passes an undifferentiated machine word everywhere, and inference can
+only recover what the program still says. The positions it CAN decide
+are exactly the ones where something concrete is actually stored {D} a
+`String` literal pushed, a nested container read back {D} which is what
+the 417 are. **For the rest the source has erased the distinction, so
+there is nothing to infer**, and `(Vec Int)` is the honest answer,
+which is already what the driver writes.
+
+So the residue is not waiting on a better algorithm. **It is 130
+declarations whose element type is known to a reader and to nobody
+else**, and closing the port means someone deciding them {D} which is
+the same thing §4c said, now with the reason underneath it.
+
 **THE STRUCTURAL PLATEAU, unchanged in what it shows.** At 210 the
 same wall stands, and it is now possible to say exactly what it is:
 **the port needs a declaration and its callers to change together, and
