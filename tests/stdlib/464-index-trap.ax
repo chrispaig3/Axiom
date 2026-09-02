@@ -1,3 +1,5 @@
+; exit 77 (see .exit)
+;
 ; `__indexTrap`: a call that never returns, so it inhabits every result
 ; type - and the status-77 trap it lowers to.
 ;
@@ -23,6 +25,8 @@
 ; by `464-index-trap.exit` and `.err` beside this file, because a
 ; fixture that traps cannot also print its own success.
 (import IO)
+
+(import Str)
 
 (:: pick (-> Int Int))
 
@@ -50,6 +54,12 @@
     (println (pick 7))
     (println (name 1))
     (println (pick (- 0 1)))
-    0
+    ; NOT REACHED, and deliberately not a bare numeral:
+    ; `verify-stdlib-out.py` models a case's exit status from `main`'s
+    ; tail when that tail is one, and this program's status comes from
+    ; the trap rather than from its last expression. It is also the
+    ; tripwire for the trap being removed - if `__indexTrap` ever starts
+    ; returning, this line runs and the golden says so.
+    (printlnLit (strCStr "UNREACHABLE: the trap returned"))
   }
 )
