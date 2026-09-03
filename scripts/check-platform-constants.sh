@@ -589,6 +589,17 @@ kernel32_table_report() {
       fn = $0
       sub(/^.*@/, "", fn)
       sub(/\(.*$/, "", fn)
+      # A function whose every tail is `Ok`/`Err` is emitted ONCE, as
+      # `@F$pair` returning the register pair, and `@F` is a boxing
+      # wrapper that calls it (docs/unboxed-sums-design.md 5b,
+      # 2026-09-03). `platformWriteFd`/`platformReadFd` answer
+      # `(Result Int Error)` since ERR-ADOPT-1, so the WriteFile call
+      # this gate reads sits in `@Sys.Platform$platformWriteFd$pair`.
+      # Attribute the pair body to the function it specialises, or
+      # the shim table has no row for the name the census asks about
+      # and the gate reads "exposes no function that calls into
+      # kernel32" - which was CI red on every leg on 26df546.
+      sub(/\$pair$/, "", fn)
       inplat = (fn ~ /^Sys\.Platform\$/)
       inrt = (fn ~ /^(axiom_alloc$|__axiom_|mainCRTStartup$)/)
       next

@@ -132,6 +132,7 @@ cat > "$work/probe.ax" <<'AX'
 (import Mem)
 (import Fmt)
 (import Str)
+(import Err)
 
 ; `n` bytes at `buf` as lowercase hex, no separator - one field this
 ; script can compare with `=`.
@@ -185,7 +186,10 @@ cat > "$work/probe.ax" <<'AX'
       (kvInt "RAW_DIFFERS" (if (== (memCmp save live sysTermStateBytes) 0) 0 1))
       ; One keypress. With ICANON off this returns on the first byte,
       ; with no newline anywhere. The driver writes exactly one 'A'.
-      (kvInt "KEY_RC" (sysReadFd 0 key 1))
+      ; `sysReadFd` answers `(Result Int Error)` since 2026-09-03
+      ; (ERR-ADOPT-1); the probe reads the count out of the `Ok` and
+      ; keeps the old `-errno` spelling for the driver's KEY_RC key.
+      (kvInt "KEY_RC" (match (sysReadFd 0 key 1) ((Ok k) k) ((Err e) (- 0 (errCode e)))))
       (kvInt "KEY_BYTE" (memGetByte key 0))
       (kvInt "RESTORE_RC" (sysTermRestore 0 save))
       (kvInt "AFTER_RC" (sysTermSave 0 after))
