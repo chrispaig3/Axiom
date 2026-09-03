@@ -220,12 +220,12 @@
 ; emitter's fallback on the REPL's and LSP's partial paths before
 ; `buildNameIndexes` has run. Every writer in this module asks
 ; `mangleIdxHas` instead - see the note above `MangleIdx`.
-(pub :: mangleHasIn (-> (Vec Int) String Int Bool))
+(pub :: mangleHasIn (-> (Vec String) String Int Bool))
 
 (pub fn (mangleHasIn bares bare i)
   (if (>= i (vecLen bares))
     false
-    (if (strEq (vecGetStr bares i) bare)
+    (if (strEq (vecGet bares i) bare)
       true
       (mangleHasIn bares bare (+ i 1))
     )

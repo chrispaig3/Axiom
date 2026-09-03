@@ -5777,13 +5777,13 @@
   )
 )
 
-(pub :: mangledForIn (-> (Vec Int) (Vec Int) String Int String))
+(pub :: mangledForIn (-> (Vec String) (Vec String) String Int String))
 
 (pub fn (mangledForIn bares fulls name i)
   (if (>= i (vecLen bares))
     name
-    (if (strEq (vecGetStr bares i) name)
-      (vecGetStr fulls i)
+    (if (strEq (vecGet bares i) name)
+      (vecGet fulls i)
       (mangledForIn bares fulls name (+ i 1))
     )
   )
