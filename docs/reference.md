@@ -3747,6 +3747,69 @@ So the shape to avoid at scale is a fold whose combining step happens
 needed for the *correctness* of mutual tail recursion — only a **self**
 tail call is a loop without the optimiser.
 
+### What the Vectorizer Does With an Axiom Loop
+
+Axiom emits LLVM IR and the driver hands it to `opt`, so SIMD is
+automatic exactly where LLVM's loop vectorizer accepts the loop the
+emitter wrote — and **only at `--opt 2` and above**: LLVM enables the
+loop and SLP vectorizers at speedup level 2, and the default `--opt 1`
+runs neither. Measured 2026-09-03 (`scripts/check-simd.sh` holds the
+fixtures and the IR facts; the timings are best of five with the arms
+interleaved on a machine at load average 9):
+
+| Loop | At `--opt 2` | LLVM's reason, from `--pass-remarks-output` |
+|---|---|---|
+| `(for x xs (set acc (+ acc x)))` over a `(Vec Int)` | **vectorized**, width 2, interleave 4; **3.1x** over `--opt 1` | no store in the loop, so the header reads hoist and the range check folds against the hoisted bound |
+| `(for i 0 n (if (== (strByte s i) 97) ...))` over a `String` | **vectorized**, width 16; **1.9x** | same shape, byte elements |
+| `(for i 0 n (vecSet v i (+ (vecGet v i) 1)))` in place | **not vectorized** (1.09x, from other passes) | `Control flow cannot be substituted for a select`, `call instruction cannot be vectorized`, `Cannot vectorize early exit loop with complex writes to memory` |
+| the same map with `* 3` written over raw words, nothing checked | **not vectorized** | `the cost-model indicates that vectorization is not beneficial`: an `i64` multiply has no vector instruction on baseline NEON or SSE2; with `+ 1` the identical loop vectorizes at width 2 |
+| `web/bench/collatz.ax`'s `while` | **not vectorized**, correctly | `Cannot vectorize uncountable loop`: the trip count is data-dependent |
+
+Read the third row as the shape of the whole problem. Every memory
+access is a `load`/`store` through an integer address, so a store
+into one vector's data block may, as far as LLVM knows, have changed
+another vector's length word — the length, data pointer and ownership
+flag are re-read every iteration, the range check cannot fold, and its
+trap is an exit inside the loop. Tagging the header and element
+accesses by hand with scalar TBAA (a data block never overlaps a
+header block) folds the trap but does not get the loop vectorized: the
+data-pointer read sits inside the check's branch, where LICM will not
+speculate a load through an integer address; the ownership branch
+keeps an `axiom_release` call in the body; and `vecSet`'s silent
+out-of-range skip is a predicated store, which neither baseline has a
+masked-store instruction for, so the cost model declines even once the
+loop is legal. Write loops are the open half, and the memory-model
+argument for them is not a flag.
+
+What did change on 2026-09-03 is the trap itself. The six trap
+functions (`__axiom_index_out_of_range` and its siblings) are emitted
+`noreturn cold`. Before that, every inlined `vecGet` carried the
+trap's two syscalls and `@__axiom_backtrace` call into its caller —
+**1,518 copies** inside the compiler's own optimised IR at `--opt 2`,
+1,685 at `--opt 1`, one in every hot function that indexes a vector —
+and a trap call that returned into the loop was an exit the vectorizer
+refused to reason about. Now the inliner leaves the cold callee as a
+call, the block after it is `unreachable`, the compiler binary is
+**6.9% smaller** for it (2,153,352 → 2,004,600 bytes), and three more
+of its loops vectorize (98 → 101). `nounwind` was measured beside it
+and moved nothing.
+
+To see what LLVM decides about your own loop:
+
+```bash
+axiom emit-llvm main.ax -o main.ll
+opt -O2 -S main.ll -o main.O2.ll \
+  --pass-remarks-output=main.yaml --pass-remarks-filter=loop-vectorize
+grep -B2 -A2 'Function: *yourFunction' main.yaml
+```
+
+A `Vectorized` remark names the width and interleave count; a
+`MissedDetails` remark is preceded by the analysis remarks that say
+why. The compiler's own IR reports 101 vectorized loops this way, out
+of a few thousand — `CantVectorizeLibcall` (a call in the body) and
+`UnsupportedUncountableLoop` (a `while` whose bound is not a counter)
+are the two reasons that account for most of the rest.
+
 ---
 
 ## Tips and Patterns

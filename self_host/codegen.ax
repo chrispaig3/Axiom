@@ -8163,7 +8163,7 @@
 (pub fn (emitOomTrap cg)
   {
     (emitLine cg "@__axiom_oom_msg = private unnamed_addr constant [35 x i8] c\"axiom: out of memory (mmap failed)\\0A\"")
-    (emitLine cg "define internal i64 @__axiom_out_of_memory() #0 {")
+    (emitLine cg (cat3 "define internal i64 @__axiom_out_of_memory() " trapFnAttrs " {"))
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
     (emitLine cg "  %oomp = ptrtoint ptr @__axiom_oom_msg to i64")
@@ -8193,10 +8193,43 @@
 ; an index that may legitimately be out of range.
 (pub :: emitIndexTrap (-> Int Int))
 
+; ------------------------------------------------------------------
+; THE SIX TRAPS ARE `noreturn cold`, and `trapFnAttrs` is the one
+; spelling of that. Each of them ends in an exit syscall - or, with a
+; recovery point armed, in `__axiom_recover_abort`'s longjmp - and then
+; `unreachable`; none has a `ret`. So `noreturn` states a fact, and
+; `cold` states the other one: a trap is the path a program takes at
+; most once.
+;
+; WHAT IT IS FOR, measured 2026-09-03 on the compiler's own emitted IR
+; (`emit-llvm self_host/main.ax`, 202,424 lines) through `opt`:
+;
+;   inlined copies of the index trap (two syscalls and a
+;   `@__axiom_backtrace` call each), counted by the uses of
+;   `@__axiom_index_msg`:
+;       --opt 1   1,685 -> 2      --opt 2   1,518 -> 2
+;   loops the vectorizer accepted at --opt 2: 98 -> 101
+;   (`lsp$lspChSites`, `lsp$lspSignatureHelp`, `lsp$lspViewHintsCall`)
+;
+; The source of those copies is `Vec$vecGet` and every accessor like
+; it: small, inlined everywhere, and carrying the trap's body with it,
+; so the cold path of a bounds check sat inside 1,500 hot functions.
+; With the callee cold, the inliner leaves it a call, and with it
+; noreturn the block after the call is `unreachable` rather than an
+; edge back into the loop - which is what the loop vectorizer's
+; "early exit with writes" refusals were about. `nounwind` was
+; measured beside it and moved nothing; it is not here.
+; `scripts/check-simd.sh` holds the copy count, with an ablation that
+; blanks this string and requires the copies back.
+; ------------------------------------------------------------------
+(pub :: trapFnAttrs String)
+
+(pub fn (trapFnAttrs) "noreturn cold #0")
+
 (pub fn (emitIndexTrap cg)
   {
     (emitLine cg "@__axiom_index_msg = private unnamed_addr constant [33 x i8] c\"axiom: vector index out of range\\0A\"")
-    (emitLine cg "define internal i64 @__axiom_index_out_of_range() #0 {")
+    (emitLine cg (cat3 "define internal i64 @__axiom_index_out_of_range() " trapFnAttrs " {"))
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 77)")
     (emitLine cg "  %ixp = ptrtoint ptr @__axiom_index_msg to i64")
@@ -8214,7 +8247,7 @@
 (pub fn (emitDivTrap cg)
   {
     (emitLine cg "@__axiom_divzero_msg = private unnamed_addr constant [24 x i8] c\"axiom: division by zero\\0A\"")
-    (emitLine cg "define internal i64 @__axiom_div_by_zero() #0 {")
+    (emitLine cg (cat3 "define internal i64 @__axiom_div_by_zero() " trapFnAttrs " {"))
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 72)")
     (emitLine cg "  %dzp = ptrtoint ptr @__axiom_divzero_msg to i64")
@@ -8284,7 +8317,7 @@
   {
     (emitLine cg "")
     (emitLine cg "@__axiom_livehandle_msg = private unnamed_addr constant [38 x i8] c\"axiom: arena reset past a live handle\\0A\"")
-    (emitLine cg "define internal i64 @__axiom_live_handle() #0 {")
+    (emitLine cg (cat3 "define internal i64 @__axiom_live_handle() " trapFnAttrs " {"))
     (emitLine cg "entry:")
     (emitLine cg "  %lhp = ptrtoint ptr @__axiom_livehandle_msg to i64")
     (emitRuntimeWrite cg "%lhp" "38")
@@ -8427,7 +8460,7 @@
   {
     (emitLine cg "")
     (emitLine cg "@__axiom_badmark_msg = private unnamed_addr constant [38 x i8] c\"axiom: arena reset to an invalid mark\\0A\"")
-    (emitLine cg "define internal i64 @__axiom_bad_mark() #0 {")
+    (emitLine cg (cat3 "define internal i64 @__axiom_bad_mark() " trapFnAttrs " {"))
     (emitLine cg "entry:")
     (emitLine cg "  %bmp = ptrtoint ptr @__axiom_badmark_msg to i64")
     (emitRuntimeWrite cg "%bmp" "38")
@@ -13594,7 +13627,7 @@
   {
     (emitLine cg "")
     (emitLine cg "@__axiom_unhandled_msg = private unnamed_addr constant [24 x i8] c\"axiom: unhandled effect\\0A\"")
-    (emitLine cg "define internal i64 @__axiom_unhandled_effect() #0 {")
+    (emitLine cg (cat3 "define internal i64 @__axiom_unhandled_effect() " trapFnAttrs " {"))
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 71)")
     (emitLine cg "  %uep = ptrtoint ptr @__axiom_unhandled_msg to i64")
