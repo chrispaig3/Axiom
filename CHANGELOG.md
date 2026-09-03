@@ -14,7 +14,145 @@ its changelog too.
 
 ---
 
-## Unreleased
+## 0.7.0 — 2026-09-03
+
+A segfault the gate battery was structurally unable to see, the Rust
+FFI's first lint gate of any kind, and a front page that stopped being a
+reference manual. Four of this release's findings were stale artifacts
+sitting behind a CI failure that stopped the run at gate 20 of 70 — each
+found by fixing the gate in front of it.
+
+### A lambda's parameters were typed by the function around it, and an `Int` was retained as a pointer
+
+```scheme
+(:: g (-> String Int Int))
+(fn (g s k) (let ((f (lambda (a b) (+ a b)))) (+ k (f 999999999 2))))
+```
+
+exited **139**. Change `g`'s signature to `(-> Int Int Int)` and the same
+lambda prints 1000000002. Codegen keeps the parameter NAMES it is
+emitting in word 17 and the declaration whose signature TYPES them in
+word 36; `emitLamDef` set the first to the lambda's parameters and left
+the second on the enclosing declaration, so `curParamRefClass` typed the
+lambda's `a` as `g`'s `String`, set the closure record's map bit for it,
+and emitted `axiom_retain` on the integer. The parser curries
+`(lambda (a b) ..)`, so **every** multi-parameter lambda took the path,
+and the classification was wrong whenever the enclosing arrow disagreed
+at that index. Below 4096 the runtime's immediate guard swallows it.
+
+Fixed with `pairSlot 7`, set while a lifted lambda's body is emitted and
+read by the two classifiers that lacked the identity check their three
+siblings (`paramFlowBit`, `paramIsString`, `paramClassOf`) already made.
+A flag rather than their name comparison, because a lambda shadowing the
+function's parameters with the same arity and spelling passes that test
+and is still a different binding — term 5 of the fixture.
+
+**The compiler's own source never took the path, and that is measured:**
+compiling the identical `self_host/main.ax` with the pre-fix and post-fix
+compilers gives byte-identical IR, 8,729,830 bytes. So no gate, no
+self-host fixpoint and no bootstrap could have gone red on it. It is the
+zero-population region the 2026-08-10 corpus survey named FIRST
+("multi-parameter `lambda`, 0 of 97 lambdas"), producing its second bug
+after the first was fixed. Gate: `tests/stdlib/472-lambda-param-class.ax`,
+five terms, exit 139 on the pre-fix compiler having printed nothing.
+
+### A `Map` you cannot enumerate is not a `Map`, and an `Option` nothing reads is not a type
+
+`mapKeyAt`, `mapValAt` and `mapStateAt` were all private, so the public
+surface offered `mapLen` and `mapCap` — a loop bound with nothing to read
+inside it — and no caller outside `stdlib/Map.ax` could name a table's
+contents. The evidence it was felt is in the module: `mapSumKeys` and
+`mapSumVals` exist, and their comment says the two sums "pin down a small
+map's contents well enough to test with".
+
+Added: `mapLiveFrom` (a cursor answering `(Option Int)`), `mapKeys` and
+`mapValues` (sharing one traversal and one slot order, so they zip), with
+`mapKeyAt`/`mapValAt` made `pub`. `mapStateAt` stays private — tombstones
+are an artifact of how delete keeps linear probing terminating.
+
+Separately, fourteen public functions across `Str`, `Vec`, `Intern`,
+`Utf8` and `Path` answer an `(Option a)` and the standard library shipped
+**zero** ways to read one. `isSome`, `isNone`, `optUnwrapOr`, `optMap`,
+`optAndThen` and `optOr` join `Err.ax` beside `okOr` and `toOption`.
+
+`check-agent-policy.sh` then contradicted a sentence in the new module
+comment claiming the cursor is allocation-free: `mapLiveFrom` is charged
+`Alloc` because `Some` is a heap block — `call i64 @axiom_alloc(i64 16)`
+per live slot, read out of the emitted IR. The comment now says so. The
+gate was right.
+
+Gates: 107 stdlib tests; `check-stdlib-api.sh` with both floors
+re-derived — the name sweep 400 → 700 against a measured 749 (three
+hundred and forty-nine names could have been deleted with it green), and
+the documentation ratchet 290 → 560.
+
+### The Rust workspace had no lint gate at all, and the freestanding runtime read a failed syscall as a short write
+
+CI ran `cargo test` and nothing else over ~9,500 lines of hand-written
+Rust, most of it unsafe. Moving to **edition 2024** (for
+`unsafe_op_in_unsafe_fn`, a hard error there — 116 unmarked operations)
+with a declared **MSRV of 1.85** and a `[workspace.lints]` policy then
+found, and this release fixes: 33 unsafe blocks with no `// SAFETY:`
+line, 36 undocumented public items, 7 `missing_safety_doc`, and six libc
+shims declaring `*mut u8` where the ABI is `*mut c_void`.
+
+**Every boundary handle was `Send + Sync`** — `AxStr`, `AxVec`,
+`AxFn1/2/3` and the owning `AxString` — while `axiom_retain` is a plain
+load-add-store. A `NotThreadSafe` marker fixes it at zero representation
+cost; four `compile_fail` doctests hold it, and weakening the marker
+makes all four report "compiled successfully, but it's marked
+compile_fail".
+
+**And a real bug in `nostd_runtime.rs`**, behind a feature no member
+enables and which therefore did not compile under edition 2024 at all:
+both Darwin `call3` implementations were missing the `b.cc`/`jnc`
+branch-and-negate that `targetSyscallAsm` emits. A BSD kernel signals
+failure through the carry flag with a POSITIVE errno, so a `write`
+failing with `EBADF` came back as `9` and `write_stderr`'s `if n <= 0`
+read it as nine bytes written. Verified by reading the emitted assembly
+for both targets (`b.lo`/`jae` are the assembler's spellings).
+
+`self_host/rustbind.ax` emits `unsafe extern "C"` now, because edition
+2024 refuses the bare form and a generator writes into somebody else's
+crate. Gate: `check-ffi.sh` runs clippy `-D warnings` and `cargo fmt
+--check` over **three** surfaces — the workspace, `--features host`, and
+`--features nostd-runtime` — because the workspace sweep reaches neither
+feature, and each hid a finding.
+
+### The front door was a reference manual: README 75,806 bytes to 7,587
+
+Two thirds of it was `## Implementation Status`, whose rows average 1,195
+characters. That, the type table, the CLI list and the diagnostics
+showcase moved verbatim to `docs/status.md`; `### Targets` stayed,
+being the one copy of the supported-target list and of the sentence that
+defines *supported*. Five gate readers were repointed in the same commit,
+and two of them caught the move doing damage: `check-release-targets`
+refused the condensed Targets section for dropping the `darwin-x86_64`
+exception, and `check-version` refused a README with no version banner.
+
+`check-doc-drift.sh` gained a claim — the compiler's own line count, now
+recomputed in every prose document that states it — and lost a blind
+spot: `claim()` strips a thousands separator before comparing, so
+`97,017` and `97017` are the same claim where the readable spelling used
+to be invisible.
+
+### Three goldens had decayed while the gate ahead of them was red
+
+`26df546`'s CI died at gate 20 of 70, so gates 21-70 never ran on it.
+Behind the failure sat three stale artifacts, each found by fixing the
+one in front: `tests/fmt/corpus-fmt.golden` at 64 unpinned files against
+a ceiling of 60; the three `symbols-zoo` goldens 62 rows short because
+`Platform.darwin.ax` gained an `(import Err)` and `symbols` lists a
+transitive closure; and `tests/agent/stdlib-effects.allow` recording
+which HOST blessed it — both linux legs failed on a two-line diff that
+was only a file name, `Platform.darwin.ax` against
+`Platform.linux-aarch64.ax`, with the effect identical. The derived set
+now collapses `Platform.<host>.ax` to `Platform.ax`.
+
+Also `check-net.sh` moved to the serial set: it serves 20,400 real HTTP
+requests and asserts every byte returns, which under six-way parallelism
+reported "echoed 5983 of 10000" and passed alone immediately after. The
+header's own rule — the tell is the RATIO, not the clock.
 
 ### ERR-ADOPT-1: the failure column reaches zero, and the question it waited on is answered
 
