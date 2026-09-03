@@ -16,6 +16,77 @@ its changelog too.
 
 ## Unreleased
 
+### `examples/` is swept, and it is documented
+
+The three programs under `examples/` all still compile and still answer
+correctly — measured, not assumed: `axdoc` regenerates `docs/stdlib-api.md`
+byte for byte, `batch-fallible` prints totals that check against the
+arithmetic in its own header, and `server.ax` answers `200` on every route,
+`404` on a miss, `400` on a traversal, and `&lt;script&gt;` on
+`/hello?name=<script>`. None of them had rotted, because each one is the
+load-bearing artefact of a gate.
+
+What no gate was looking at was the file **list**. A 156 KB arm64 Mach-O —
+`examples/web/axiom_temp_output.92420`, the scratch executable `axiom run`
+writes into the working directory and unlinks only when the child returns —
+was committed in `d1e4a71` and lived in the tree with every gate green,
+because every gate reads file *contents* and a file nothing imports has no
+contents anyone reads. It is deleted; `.gitignore` now names the pattern,
+which it never did; and `scripts/check-web.sh` — the only thing CI points at
+`examples/` — now sweeps the directory.
+
+Two arms with an ablation each, because two arms sharing one ablation is one
+arm and a decoration: an **extension** arm (a tracked file must be `.ax`,
+`.js`, `.css` or `.md`) ablated by a planted `axiom_temp_output.<pid>`, and a
+**mode** arm (nothing tracked `100755`) ablated by an `.ax` with the bit set,
+which the extension arm would wave through. A third refuses an empty file
+list, so a mistyped path cannot pass by reading nothing. The allowed list is
+deliberately one-directional: a new asset type is a visible edit to it.
+
+A fourth arm holds `examples/README.md` and the tree to each other both ways
+— every tracked `.ax` is named in the table, and every path the table names
+is in the tree — and requires `README.md` to link there. `README.md` had
+contained no occurrence of the string `examples` for the whole of this
+project's history, so the programs were reachable only by `ls`.
+
+**What is NOT fixed, and is now written down.** `region`, `parallel`, `simd`
+and `;@axiom:restrict` appear zero times across the three sources: four
+features that shipped in the 0.5–0.7 window have no worked example.
+`examples/README.md` says so rather than leaving a reader to grep for it.
+Separately, `axiom fmt` mangles `server.ax` — 27 non-comment lines carry
+indent-width padding used as an inter-argument separator, the worst density
+in the repository — which is `fpApp`'s multi-line branch in
+`self_host/format.ax` emitting an indent per argument with no newline between
+them. Its comment justified the bug as byte-identity with `stage0`, and
+`stage0` has been deleted; `scripts/check-fmt-selfhost.sh`'s own header says
+the differential was rewritten into goldens rather than repointed. The
+rationale has expired and the note now says so.
+
+The fix itself was built and measured rather than reasoned about: emitting a
+newline before the indent for every argument after the first moves **159 of
+613** `.ax` files, refuses none, stays idempotent, and takes `server.ax` from
+27 padded lines to 0. It is **not applied**, because it is not one printer.
+
+### `check-fmt.sh`: the generated bindings must be fixed points of the formatter
+
+`rust/axiom-bindgen/src/sexp.rs` is a **second printer**. It re-states this
+formatter's layout rules in Rust — `fpApp`'s stage0 quirk named explicitly —
+and its header claims its output is "byte-for-byte what `axiom fmt` produces
+for it". Nothing held that claim. `check-ffi.sh` diffs each committed binding
+against a *fresh generation*, which compares bindgen with bindgen and stays
+green while both sides drift together away from the formatter; `check-fmt.sh`
+asserted only that `fmt` does not *refuse*, deliberately, because the
+repository is not kept in normal form.
+
+So the two files where normal form **is** the claim now say so:
+`rust/examples/*/axiom/*.ax` must be fixed points of `axiom fmt`, with one
+ablation per binding — two spaces added to one indented line, and the
+comparison must go red. The section was also run against a compiler carrying
+the `fpApp` fix above, which is a real divergence rather than a synthetic
+one: it turns red on `Demo.ax` and prints the five lines that moved. That is
+the whole reason the formatter fix is left to a change that owns both
+printers.
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a

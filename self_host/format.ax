@@ -3639,10 +3639,38 @@
                     (fpExpr p func)
                     (fpP p "\n")
                     (foPushIndent o)
-                    ; No newline between the arguments: stage0's
-                    ; broken-application branch omits it, measured
-                    ; (`(f\n  1  2  3  4  5\n))`), and byte-identity
-                    ; means keeping the bug.
+                    ; No newline between the arguments, so a broken
+                    ; application prints its indent width as an
+                    ; INTER-ARGUMENT SEPARATOR: `(divA\n  b    (class b
+                    ; "card")    {`. This is a bug and it is known to
+                    ; be one. It was kept for byte-identity with
+                    ; stage0's broken-application branch, which omitted
+                    ; the newline; that rationale EXPIRED when stage0
+                    ; was deleted, and `check-fmt-selfhost.sh`'s header
+                    ; says so in its own words - the differential was
+                    ; rewritten into goldens rather than repointed,
+                    ; because "a differential does not FAIL when its
+                    ; reference disappears". Nothing byte-identical to
+                    ; stage0 is preserved here any more; three
+                    ; re-blessable goldens are all that pin the shape.
+                    ;
+                    ; Measured 2026-09-03: emitting `\n` before the
+                    ; indent for every argument after the first moves
+                    ; 159 of 613 `.ax` files in the tree, refuses none,
+                    ; stays idempotent, and takes the flagship example
+                    ; `examples/web/server.ax` from 27 padded lines to
+                    ; 0. It is not applied here because it also moves
+                    ; `tests/fmt/corpus-fmt.golden`, `parity.golden`,
+                    ; `syntax-zoo.expected.ax`, AND the SECOND printer
+                    ; that mimics this layout in Rust -
+                    ; `rust/axiom-bindgen/src/sexp.rs`, whose header
+                    ; names this quirk and whose output
+                    ; (`rust/examples/*/axiom/*.ax`) is diffed against
+                    ; a fresh generation by `check-ffi.sh`. Fixing one
+                    ; printer and not the other silently breaks the
+                    ; invariant that a generated binding is already in
+                    ; the formatter's normal form - which today is
+                    ; true, and is gated by nothing.
                     (while (< j (vecLen elems))
                       {
                         (foEmitIndent o)

@@ -27,6 +27,13 @@
 # form, because a formatted tree would bury the narrative comments this
 # codebase is written in. A gate that cannot go green is not a gate.
 #
+# There are exactly two files where normal form IS the claim, and
+# section 1b holds them: the `axiom-bindgen` output under
+# `rust/examples/*/axiom/`. Their generator carries a second copy of
+# this formatter's layout rules, written in Rust, and says its output
+# is byte-for-byte what `axiom fmt` produces. Nothing checked that
+# until 2026-09-03.
+#
 # Usage:
 #   scripts/check-fmt.sh          # format a copy, then re-run the suites
 
@@ -82,6 +89,98 @@ for file in $(find "$copy" -name '*.ax' | sort); do
   fi
 done
 echo "     $total files"
+
+# ---------------------------------------------------------------
+# 1b. The GENERATED bindings are already in the formatter's normal
+# form, which is the one place in this tree where that is a claim
+# rather than a preference.
+#
+# `rust/axiom-bindgen/src/sexp.rs` is a SECOND printer. Its header
+# says its output is "byte-for-byte what `axiom fmt` produces for it,
+# so a generated module is formatter-clean without shelling out to the
+# formatter", and it re-states this formatter's layout rules in Rust -
+# `fpApp`'s stage0 quirk among them, by name. Two printers agreeing is
+# a fact somebody has to check, and until 2026-09-03 nobody did:
+# `check-ffi.sh` diffs each committed binding against a FRESH
+# GENERATION, which compares bindgen with bindgen and would stay green
+# with both printers drifting together away from `axiom fmt`. Section
+# 1 above would not notice either - it asserts only that `fmt` does
+# not REFUSE, which is deliberate, because the repository is not kept
+# in normal form. These two files are the exception that says so.
+#
+# Measured while this was written: `axiom fmt` is a byte-identical
+# no-op on both committed bindings today, and a one-line change to
+# `fpApp` moves `rust/examples/demo/axiom/Demo.ax` by five lines. The
+# claim is true, it is fragile in exactly the way a duplicated
+# implementation is, and this is what holds it.
+#
+# ABLATION, per file because a per-file claim earns a per-file
+# negative probe: two spaces are added to one indented line, and the
+# SAME fixed-point comparison must go red on the result. A fixed-point
+# check is one line away from being a comparison that cannot fail.
+# ---------------------------------------------------------------
+echo "== the generated bindings are fixed points of the formatter =="
+genfmt="$work/genfmt"
+mkdir -p "$genfmt"
+gen_n=0
+for gen in "$repo_root"/rust/examples/*/axiom/*.ax; do
+  [[ -e "$gen" ]] || continue
+  gen_n=$((gen_n + 1))
+  rel="${gen#"$repo_root"/}"
+
+  cp "$gen" "$genfmt/probe.ax"
+  if ! "$axiom" fmt "$genfmt/probe.ax" >/dev/null 2>&1; then
+    echo "FAIL $rel: the formatter refused a generated binding"
+    failed=$((failed + 1))
+    continue
+  fi
+  if cmp -s "$genfmt/probe.ax" "$gen"; then
+    echo "ok   $rel is a fixed point of axiom fmt"
+  else
+    echo "FAIL $rel is NOT what axiom fmt produces for it."
+    echo "     rust/axiom-bindgen/src/sexp.rs claims to print exactly what this"
+    echo "     formatter prints; one of the two printers has moved and the other"
+    echo "     has not. Fix the printer, then regenerate - check-ffi.sh diffs the"
+    echo "     committed bindings against a fresh generation."
+    { diff "$gen" "$genfmt/probe.ax" || true; } | head -8 | sed 's/^/     /'
+    failed=$((failed + 1))
+    # The ablation below exists to prove a GREEN comparison meaningful.
+    # There is no green here to prove, and running it anyway reports a
+    # second failure that misdiagnoses the first one - measured: with a
+    # deliberately-diverged formatter it blamed the perturbation.
+    continue
+  fi
+
+  awk 'BEGIN{done=0} {if (!done && $0 ~ /^  [^ ]/) {print "  " $0; done=1} else print}' \
+      "$gen" > "$genfmt/abl.ax"
+  if cmp -s "$genfmt/abl.ax" "$gen"; then
+    echo "FAIL $rel: the ablation perturbed nothing, so the probe below compares"
+    echo "     a file with itself"
+    failed=$((failed + 1))
+    continue
+  fi
+  cp "$genfmt/abl.ax" "$genfmt/abl.fmt.ax"
+  "$axiom" fmt "$genfmt/abl.fmt.ax" >/dev/null 2>&1 || true
+  if cmp -s "$genfmt/abl.fmt.ax" "$genfmt/abl.ax"; then
+    echo "FAIL negative probe: a perturbed $rel passed the fixed-point comparison,"
+    echo "     so the green above is green about nothing"
+    failed=$((failed + 1))
+  elif ! cmp -s "$genfmt/abl.fmt.ax" "$gen"; then
+    echo "FAIL negative probe: formatting the perturbed $rel produced neither the"
+    echo "     perturbed bytes nor the committed ones - the perturbation changed"
+    echo "     more than whitespace and the probe is not testing what it says"
+    failed=$((failed + 1))
+  else
+    echo "ok   negative probe: a perturbed $rel is refused, and fmt restores it"
+  fi
+done
+if (( gen_n < 2 )); then
+  echo "FAIL: found $gen_n generated bindings under rust/examples/*/axiom/, and the"
+  echo "      tree has two - this loop is reading the wrong path"
+  failed=$((failed + 1))
+else
+  echo "     $gen_n generated bindings checked, each with its own ablation"
+fi
 
 # ---------------------------------------------------------------
 # 2. The formatted copy still behaves identically.
