@@ -478,7 +478,7 @@ out="$(python3 "$helper" compare "$axc" "$work" "$baseline" "$abl" 2>&1 || true)
 if printf '%s\n' "$out" | grep -q '^FATAL'; then
   bad "the addition probe stopped the tree compiling"
   printf '%s\n' "$out" | sed 's/^/     /' | head -3
-elif printf '%s\n' "$out" | grep -q '^  ADDED F compatProbeAdded$'; then
+elif printf '%s\n' "$out" | grep -q '^  ADDED [FD] compatProbeAdded$'; then
   ok "a new public name is ADDED and not breaking"
 else
   bad "adding a public name was not reported ADDED - this gate is a freeze, not a contract"
