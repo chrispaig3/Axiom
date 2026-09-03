@@ -7,7 +7,6 @@ assertNe Test.ax Alloc,Assert,IO,Mut
 assertStrEq Test.ax Alloc,Assert,IO,Mut
 assertTrue Test.ax Alloc,Assert,IO,Mut
 axsymBuild Tags.ax Alloc,Mut
-axsymHexVal Tags.ax Alloc
 axsymLine Tags.ax Alloc,Mut
 axsymMeta Tags.ax Alloc,Mut
 axsymMetaScan Tags.ax Alloc,Mut
@@ -103,7 +102,6 @@ httpServeFile Http.ax Alloc,IO,Mut
 httpServeOne Http.ax Alloc,IO,Mut
 internAdd Intern.ax Alloc,Mut
 internAllocTable Intern.ax Alloc,Mut
-internFind Intern.ax Alloc
 internIntern Intern.ax Alloc,Mut
 internLookup Intern.ax Alloc,Mut
 internNew Intern.ax Alloc,Mut
@@ -272,9 +270,7 @@ okOr Err.ax Alloc
 pathBase Path.ax Alloc,Mut
 pathDir Path.ax Alloc,Mut
 pathExt Path.ax Alloc,Mut
-pathExtIndex Path.ax Alloc
 pathJoin Path.ax Alloc,Mut
-pathLastSlash Path.ax Alloc
 pathReplaceExt Path.ax Alloc,Mut
 pathStem Path.ax Alloc,Mut
 pathWithSlash Path.ax Alloc,Mut
@@ -304,11 +300,9 @@ shrChecked Err.ax Alloc
 strAlloc Str.ax Alloc,Mut
 strConcat Str.ax Alloc,Mut
 strDup Str.ax Alloc,Mut
-strFind Str.ax Alloc
 strFromByte Str.ax Alloc,Mut
 strFromLit Str.ax Alloc,Mut
 strLower Str.ax Alloc,Mut
-strParseInt Str.ax Alloc
 strSlice Str.ax Alloc,Mut
 strSplit Str.ax Alloc,Mut
 strSplitFrom Str.ax Alloc,Mut

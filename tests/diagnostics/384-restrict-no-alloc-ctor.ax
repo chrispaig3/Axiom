@@ -27,8 +27,17 @@
 ;           body holds no `axiom_alloc` at all.  This arm is the half
 ;           that would go quiet under a fix that simply said "every
 ;           constructor allocates", so it is asserted, not assumed.
-;   `some`  answers `(Some n)`                            -> AX3049
+;   `some`  answers `(Some n)`                            -> silent
+;           SINCE 2026-09-03, and refused before it. The emitter writes
+;           a function of this shape - a declared `(Option Int)` whose
+;           every tail is `None` or `(Some e)` - as `@some$pair`,
+;           answering two registers and building no block on any path
+;           (`docs/unboxed-sums-design.md`), and the checker's mirror of
+;           that test (`tcPairFnOK`) charges the leaf nothing. The block
+;           a caller may still need is built at the CALL, in the caller,
+;           and charged there: `held` below is that caller.
 ;   `none`  answers `None`                                -> silent
+;   `held`  `let`-binds `(some n)` past its match           -> AX3049
 ;   `pass`  arithmetic only                               -> silent
 ;
 ; `some` AND `none` ARE HERE BECAUSE `Option` IS WHERE A MIGRATION IS
@@ -36,17 +45,22 @@
 ; - a lookup answering `-1` for "not found" - to `Option`, and §10.1
 ; reasoned that the modules dense with `restrict` claims were safe to
 ; migrate because they carry absence rather than failure, so they need
-; no `Error` and no computed message. That is true and it is not the
-; constraint: `(Some v)` is a constructor application like any other,
-; and four of the ten absence sentinels left in `stdlib/` -
-; `strHexVal`, `utf8DecodeAt`, `utf8CharAt` and `keyStrEnd` - carry
-; `restrict(no-alloc)` themselves. They cannot become `Option` without
-; withdrawing that claim.
+; no `Error` and no computed message. That was true and was not the
+; constraint: `(Some v)` was a constructor application like any other,
+; and five of the absence sentinels in `stdlib/` - `strHexVal`,
+; `utf8DecodeAt`, `utf8CharAt`, `keyStrEnd` and `strFindByte` - carried
+; `restrict(no-alloc)` themselves. From 2026-08-31 to 2026-09-03 they
+; could not become `Option` without withdrawing that claim; `some`
+; going silent is what lifted that, and `held` is what keeps the lift
+; honest - the block did not vanish, it moved to whoever stores the
+; answer.
 ;
 ; The pair is what makes it a measurement rather than a warning: `None`
 ; is silent, so the refusal is specifically about carrying a VALUE out
 ; of a lookup, and a partial migration that only ever answers `None`
-; would not have found it.
+; would not have found it. `held` is the third leg: a `some` that went
+; silent because the checker stopped looking would leave `held` silent
+; too.
 
 (data W
   (Wrap Int)
@@ -87,6 +101,15 @@
 (fn (none n) None)
 
 ;@axiom:restrict(no-alloc)
+(:: held (-> Int Int))
+
+(fn (held n)
+  (let ((o (some n)))
+    (match o ((Some x) x) (None 0))
+  )
+)
+
+;@axiom:restrict(no-alloc)
 (:: pass (-> Int Int Int))
 
 (fn (pass a b) (+ a b))
@@ -104,6 +127,7 @@
   )
     (+ (mk 1) (+ (pass 2 3) (+ (sizeOf (tag 4)) (+ p.a (+ q.b
       (+ (match (some 7) ((Some x) x) (None 0))
-         (match (none 8) ((Some x) x) (None 0))))))))
+         (+ (held 9)
+         (match (none 8) ((Some x) x) (None 0)))))))))
   )
 )

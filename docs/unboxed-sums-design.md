@@ -333,19 +333,78 @@ lookups so nothing is dead. The three variants differ only in the body
 of the loop: a raw `-1` compared against zero, a `match` on a boxed
 `(Option Int)`, and a `match` on the register pair.
 
-### The `no-alloc` claim is NOT lifted, measured after building
+### The `no-alloc` claim was NOT lifted by the first slice, measured after building
+
+*Superseded by §5b on 2026-09-03; kept because the measurement was
+right about the code as it stood.*
 
 A `restrict(no-alloc)` function answering `(Option Int)` in the
-specialised shape still draws `AX3049`, and the checker is right. **The
-boxed `@F` is still emitted** for every caller that does not
-immediately match, so the function genuinely can allocate — which
-caller it gets decides. `no-alloc` is a property of a function; after
-specialisation the honest version of it is a property of the function
-AND its call sites, and that is a whole-program question the effect
-walk does not ask.
+specialised shape still drew `AX3049`, and the checker was right. **The
+boxed `@F` was still emitted** for every caller that did not
+immediately match, so the function genuinely could allocate — which
+caller it got decided. `no-alloc` is a property of a function; after
+the first slice the honest version of it was a property of the function
+AND its call sites, a whole-program question the effect walk did not
+ask.
 
-So the four blocked rows stay blocked. Lifting them is a decision about
-what the claim means, not a port and not a code-generation change.
+### 5b. The box belongs to the caller, 2026-09-03 — and the claim is lifted
+
+The whole-program question has a local answer: **build the block where
+it is needed, and charge it there.** Three changes, one in each of the
+two files and one that holds them together.
+
+**The emitter writes the body once.** A function in the pair set is
+emitted only as `@F$pair`. `@F` is a wrapper — call the pair, box what
+comes back — kept for a reference taken as a value, and pruned with
+every other unreferenced definition otherwise (`emitPairWrapper`).
+Every direct call to `F` calls the pair: a `match` on it reads the
+registers as before, a tail leaf of another pair function FORWARDS the
+two registers (`pairFwdOK` — `utf8CharAt` ends in `(utf8DecodeAt s
+i)`), and any other site — a `let` that outlives the match, an
+argument, a field store, a statement — boxes the pair **in the
+caller's own definition**, with the shape word, tag, count and field
+store a boxed constructor writes (`emitPairBox`). Since nothing is
+written twice, the "body shape" refusal that kept a `while`, a `set`
+or a lambda out of the pair is gone, and a tail match the tail
+emitter could only lower boxed is routed to the ordinary emitter
+(`pairTailDelegates`), so every `pairMatchOK` match reads registers.
+On the compiler's own source the pair set went from **8 functions to
+24** for it.
+
+**The checker charges the block where the emitter builds it.**
+`self_host/typecheck.ax` carries a mirror of `pairFnOK` — the same
+eligibility test, asked of the checker's own tables (`tcPairFnOK`,
+`tcPairTails`, `tcPairMatchOK`) — and the effect walk uses it three
+ways: a constructor leaf of an eligible function's tail contributes no
+`Alloc`; a call to a pair function contributes `Alloc` unless it is a
+recorded site (a matched direct call, a forwarding leaf); a pair
+function named as a value contributes `Alloc` for the wrapper it
+reaches. So `internFind`, `pathLastSlash` and `scopeFindIdx` read no
+`Alloc` in `symbols` now, and a caller that stores their answer past
+its match reads the `Alloc` they used to carry.
+
+**And the two are held to one answer.** `scripts/check-unboxed-sums.sh`
+section 5 asks `check` the three claims at once — `restrict(no-alloc)`
+on the lookup (accepted), on a caller that matches it directly
+(accepted), on a caller that `let`-binds the answer (`AX3049`) — and
+reads the same split from `symbols` and from the IR; section 6 runs
+`scripts/lib/alloc-rows.py` over the whole self-compile, holding every
+function whose row lacks `Alloc` to a definition with no `axiom_alloc`
+(3,482 rows held, 0 disagreements). The mirror may over-charge and
+never under-charge; the direction is stated in both files and section
+6 is what would notice it going the other way.
+`tests/diagnostics/384-restrict-no-alloc-ctor.ax`'s `some` arm is
+silent now, and a `held` arm that stores the answer is the refusal
+that keeps the silence honest.
+
+**What this does NOT do.** A self-tail-recursive function still keeps
+the boxed shape (`tailCallsSelf` is still a refusal — the loop header
+and the pair return have not been reconciled), so `strFindByte`
+cannot take the pair as written; a `match` in tail position of a pair
+function is still not a tail the pair recognises; and a third sum
+type — anything but `Option` and `Result` — is still refused by name.
+Every one of those is a refusal, not a wrong answer: the fallback is
+the boxed path with `Alloc` charged, which the mirror charges too.
 
 ## 5a. `Result` and reference payloads, 2026-09-01
 
@@ -444,6 +503,13 @@ sites. The gated claim is the block count - 1 and 1 before, 0 and 0
 after. The speed claim is NOT made: see the CHANGELOG entry for why the
 38% a stage-1/stage-2 comparison showed is a stage artifact and 2.6% is
 what this change can account for.
+
+**THE CLAIM IS LIFTED, 2026-09-03** (§5b). `@F` is a boxing wrapper
+rather than a second body, a pair is boxed at the call that needs a
+block and charged there by the checker's mirror of the eligibility
+test, and `restrict(no-alloc)` holds for a pair-shaped function on the
+strength of its emitted IR. The five absence sentinels §5 names are
+portable on their own terms, and the port is the next commit's.
 
 The remainder of this section is what was written before it was built.
 

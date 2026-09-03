@@ -16,6 +16,59 @@ its changelog too.
 
 ## Unreleased
 
+### The box is the caller's, and `restrict(no-alloc)` holds for an `Option` lookup
+
+**A function whose every tail is `None` or `(Some e)` no longer
+allocates on any path, and the checker knows it.** Until now the
+register-pair specialisation of 0.6.3 emitted `@F$pair` BESIDE the
+boxed `@F`, so the function genuinely could allocate — whichever
+caller it got decided — and `restrict(no-alloc)` on `strHexVal`,
+`utf8DecodeAt`, `utf8CharAt`, `keyStrEnd` and `strFindByte` was the
+reason five absence sentinels could not become `Option`
+(`docs/unboxed-sums-design.md` "not lifted", `docs/error-model.md`
+§10). Three changes close it:
+
+- **The emitter writes the body once**, as the pair. `@F` is a
+  wrapper that calls it and boxes, kept only for a reference taken as
+  a value. Every direct call calls the pair: a `match` reads the
+  registers, a tail leaf of another pair function forwards them
+  (`utf8CharAt` → `utf8DecodeAt`), and any other site boxes the pair
+  **in the caller's own definition** — the same shape word, tag, count
+  and field store a constructor writes. With nothing written twice,
+  the "would be lifted twice" refusal is gone and the pair set on the
+  compiler's own source grows from 8 functions to 24; a tail match the
+  tail emitter could only lower boxed goes to the ordinary emitter
+  instead, so every `pairMatchOK` match reads registers.
+- **The checker mirrors the eligibility test** (`tcPairFnOK` and its
+  neighbours in `self_host/typecheck.ax`) and charges `Alloc` where
+  the block is built: not at a pair function's constructor leaves, at
+  every call of a pair function that is not a matched direct call or a
+  forwarding leaf, and at a pair function named as a value. Measured
+  on the self-compile, `internFind`, `pathLastSlash` and
+  `scopeFindIdx` lose `Alloc` from their rows; nothing gains an
+  effect it did not already carry, so every `compat` movement is
+  `NARROWED`.
+- **The two are held to one answer.** `scripts/check-unboxed-sums.sh`
+  gains section 5 — `check` accepts `no-alloc` on the lookup and on a
+  caller that matches it, refuses it (`AX3049`) on a caller that
+  `let`-binds the answer, and `symbols` and the IR say the same — and
+  section 6, `scripts/lib/alloc-rows.py` over the whole self-compile:
+  every function whose row lacks `Alloc` has a definition with no
+  `axiom_alloc` (3,482 rows held, 0 disagreements). The mirror may
+  over-charge and never under-charge; section 6 is what would notice
+  the other direction.
+
+`tests/diagnostics/384-restrict-no-alloc-ctor.ax`'s `some` arm is
+silent, and a new `held` arm — the same value stored past its match —
+is the refusal that keeps the silence honest. **What is not here:** a
+self-tail-recursive function still keeps the boxed shape, a `match` in
+tail position of a pair function is still not a pair tail, and a
+third sum type is still refused by name — each a refusal with the
+boxed path and `Alloc` charged as the fallback, never a wrong answer.
+The ports the lift permits are the next commit's, after a reseed: the
+committed seed's checker refuses the claims this one accepts, and the
+seed-skew rule is land, reseed, then use.
+
 ### `Vec` carries its element type, and the port is landed
 
 `stdlib/Vec.ax` handed out a bare `Int` handle. It hands out a

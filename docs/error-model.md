@@ -1268,21 +1268,33 @@ bodies instead of prose. It is not one commit.**
 > sentinels, which become `Option`, which has no `Error` and no
 > computed message.
 >
-> **THAT IS TRUE AND THE CONCLUSION DOES NOT FOLLOW, measured
+> **THAT IS TRUE AND THE CONCLUSION DID NOT FOLLOW, measured
 > 2026-09-01.** `Option` carries no `Error` and builds no message, and
-> it still ALLOCATES: `(Some v)` is a constructor application, and
-> `restrict(no-alloc)` refuses it with `AX3049`. Four of the ten
-> absence sentinels carry that claim themselves — `strHexVal`,
-> `utf8DecodeAt`, `utf8CharAt` and `keyStrEnd` — so they cannot become
-> `Option` without withdrawing it. The one absence sentinel in a module
-> with NO restriction claim was ported on that reading and is where the
-> column stands at nine: `internFind` (§10.1). This was invisible until 0.6.1,
+> it still ALLOCATED: `(Some v)` was a constructor application, and
+> `restrict(no-alloc)` refused it with `AX3049`. Five of the absence
+> sentinels carried that claim themselves — `strHexVal`,
+> `utf8DecodeAt`, `utf8CharAt`, `keyStrEnd` and `strFindByte` — so
+> they could not become `Option` without withdrawing it. The one
+> absence sentinel in a module with NO restriction claim was ported on
+> that reading: `internFind` (§10.1). This was invisible until 0.6.1,
 > which made `restrict(no-alloc)` able to fail at all; before that a
 > constructor contributed nothing to the effect walk and the claim
-> could not be violated. `tests/diagnostics/384-restrict-no-alloc-ctor.ax`
-> gates it with a `some` arm (`AX3049`) beside a `none` arm (silent) —
-> `None` is an immediate tag with no block behind it, so what is
-> refused is carrying a VALUE out of a lookup. Recomputed
+> could not be violated.
+>
+> **AND THE ALLOCATION IS GONE, 2026-09-03.** A function whose every
+> tail is `None` or `(Some e)` is emitted as a two-register pair with
+> no boxed body beside it, a caller that needs a block builds it at the
+> call, and the effect walk charges the block there — the caller's
+> row, not the lookup's (`docs/unboxed-sums-design.md` §5b). So
+> `restrict(no-alloc)` HOLDS for a lookup of that shape, checked
+> against its IR rather than withdrawn, and the four claims above are
+> no longer a reason not to port; `strFindByte` still is, for a
+> different reason (it tail-calls itself, which the pair does not yet
+> take). `tests/diagnostics/384-restrict-no-alloc-ctor.ax` gates the
+> whole rule: a `some` arm (silent), a `none` arm (silent), and a
+> `held` arm that `let`-binds the answer past its match (`AX3049`) —
+> the block did not vanish, it moved to whoever stores the answer.
+> Recomputed
 > from `compat/SENTINELS` and a claim count per file; P6 stays
 > refuted (its `Mut` half is unsound, see the proposal) and stays
 > irrelevant here. **The migration may proceed, starting with

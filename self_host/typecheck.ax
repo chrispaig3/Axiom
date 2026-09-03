@@ -2228,14 +2228,22 @@
   (aliases : (Vec Int))
   ; Word 18 was `traits`, the `trait` declaration nodes `symbols`
   ; walked, and word 28 was `implIdx`, every `impl` declaration
-  ; precomputed for the effect fixpoint. Both are RETIRED IN PLACE
-  ; rather than removed: every reader of this record indexes it by
-  ; position (`memGetWord tc 26`, and so on, in two files), so closing
-  ; a hole in the middle renumbers thirteen later fields at eighty-odd
-  ; sites - which is how the unit table broke the last time this
-  ; record grew in the middle. Two dead words in a record allocated
-  ; once per compile is the cheaper of the two mistakes.
-  (retired18 : (Vec Int))
+  ; precomputed for the effect fixpoint. Both were RETIRED IN PLACE
+  ; rather than removed when traits went: every reader of this record
+  ; indexes it by position (`memGetWord tc 26`, and so on, in two
+  ; files), so closing a hole in the middle renumbers thirteen later
+  ; fields at eighty-odd sites - which is how the unit table broke the
+  ; last time this record grew in the middle.
+  ;
+  ; Both words are LIVE AGAIN as of 2026-09-03, for the register-pair
+  ; mirror (`tcPairFnsBuild` and what follows it): 18 holds the
+  ; mangled names of every function the emitter gives a `@F$pair`,
+  ; and 28 the per-declaration site record `tcPairSitesOf` builds -
+  ; the tail leaves and match scrutinees that are NOT boxed, which is
+  ; what the effect walk needs to know to charge `Alloc` where the
+  ; block is really built. Reusing the holes is the same arithmetic
+  ; that retired them.
+  (pairFns : (Vec Int))
   (privates : Int)
   (fnIdx : Int)
   (ambIdx : Int)
@@ -2245,7 +2253,7 @@
   (sigTags : Int)
   (fnSufIdx : Int)
   (privIdx : Int)
-  (retired28 : Int)
+  (pairSites : Int)
   (curCalls : Int)
   (tyIdx : Int)
   ; Names carrying `;@axiom:deprecated`, built ONCE and lazily, on
@@ -10903,6 +10911,740 @@
   )
 )
 
+; ------------------------------------------------------------------
+; THE REGISTER-PAIR MIRROR.
+;
+; `self_host/codegen.ax` emits a function whose declared result is an
+; `(Option T)` or `(Result T E)` of the right shape as `@F$pair`,
+; answering `{ tag, payload }` in two registers, and boxes that pair
+; only where a caller needs a block: a `let` that outlives the match,
+; an argument, a field, a statement. A `match` on the direct call
+; reads the registers and boxes nothing; a tail leaf of another pair
+; function forwards them. So the block a `(Some v)` used to cost is
+; built in the CALLER, at some sites and not others - and the effect
+; row, which is what `restrict(no-alloc)` reads, has to say so, or the
+; claim is checked against a block that is not there.
+;
+; Everything below is a MIRROR of a predicate in codegen.ax, named
+; beside it, and the rule for the pair is that this side may refuse
+; what the emitter accepts and never the reverse: a function this side
+; calls boxed that the emitter unboxes is over-charged `Alloc`, which
+; can refuse a true `no-alloc` claim; one this side calls unboxed that
+; the emitter boxes is a claim checked against nothing, which is the
+; defect `tests/diagnostics/384-restrict-no-alloc-ctor.ax` exists to
+; keep out. `scripts/check-unboxed-sums.sh` section 5 holds the two
+; sides to one answer over every function the compiler compiles into
+; itself: a row without `Alloc` and a definition with an
+; `axiom_alloc` in it is a failure there.
+; ------------------------------------------------------------------
+; `pairCtorNamed`'s four spellings.
+(pub :: tcPairCtorNamed (-> String Int))
+
+(pub fn (tcPairCtorNamed n)
+  (if (|| (strEq n "None") (|| (strEq n "Some") (|| (strEq n "Ok") (strEq n "Err"))))
+    1
+    0
+  )
+)
+
+; `scalarTyName`, the emitter's list of machine-word type names. `Vec`
+; and `Foreign` are here for the ownership reason codegen.ax states:
+; a handle the block does not own is a word to the reference map.
+(pub :: tcScalarTyName (-> String Int))
+
+(pub fn (tcScalarTyName n)
+  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Foreign") (strEq n "Vec"))))))))))))))))
+    1
+    0
+  )
+)
+
+; `fldClass`: 0 a machine word, 2 a reference, 1 unclassifiable. The
+; SPELLING is classified, not the type it resolves to - an alias is 1
+; here as it is there, because the emitter never expands one.
+(pub :: tcFldClass (-> Int Int Int))
+
+(pub fn (tcFldClass tc tn)
+  (if (== tn 0)
+    1
+    (let ((tg (nodeTag tn)))
+      (if (== tg TAG_T_ARR)
+        2
+        (if (== tg TAG_T_TUP)
+          (if (== (vecLen (nodeAVec tn)) 0)
+            0
+            2
+          )
+          (if (== tg TAG_T_CON)
+            (let ((n (nodeAName tn)))
+              (if (== (tcScalarTyName n) 1)
+                0
+                (if (|| (strEq n "String") (|| (strEq n "Option") (strEq n "Handle")))
+                  2
+                  (if (!= (findData tc n) 0)
+                    2
+                    (if (!= (findStruct tc n) 0)
+                      2
+                      1
+                    )
+                  )
+                )
+              )
+            )
+            1
+          )
+        )
+      )
+    )
+  )
+)
+
+; `arrowResultTy`.
+(pub :: tcArrowResultTy (-> Int Int))
+
+(pub fn (tcArrowResultTy t)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_T_ARR)
+      (tcArrowResultTy (nodeB t))
+      t
+    )
+  )
+)
+
+; `pairRetOK`: `(Option T)` or `(Result T E)` whose arguments are
+; each a word or a reference.
+(pub :: tcPairRetOK (-> Int Int Int))
+
+(pub fn (tcPairRetOK tc rt)
+  (if (== rt 0)
+    0
+    (if (!= (nodeTag rt) TAG_T_CON)
+      0
+      (let (
+        (tn (nodeAName rt))
+        (args (nodeBVec rt))
+      )
+        (if (== (cast Int args) 0)
+          0
+          (if (strEq tn "Option")
+            (if (== (vecLen args) 1)
+              (tcPairArgClassOK tc (vecGet args 0))
+              0
+            )
+            (if (strEq tn "Result")
+              (if (== (vecLen args) 2)
+                (if (== (tcPairArgClassOK tc (vecGet args 0)) 1)
+                  (tcPairArgClassOK tc (vecGet args 1))
+                  0
+                )
+                0
+              )
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tcPairArgClassOK (-> Int Int Int))
+
+(pub fn (tcPairArgClassOK tc t)
+  (let ((c (tcFldClass tc t)))
+    (if (== c 0)
+      1
+      (if (== c 2)
+        1
+        0
+      )
+    )
+  )
+)
+
+; `pairPayloadClass`: the class of the payload `cname` carries under
+; the declared result `rt`, positionally.
+(pub :: tcPairPayloadClass (-> Int Int String Int))
+
+(pub fn (tcPairPayloadClass tc rt cname)
+  (let ((args (nodeBVec rt)))
+    (if (== (cast Int args) 0)
+      (- 0 1)
+      (if (strEq cname "Err")
+        (if (< (vecLen args) 2)
+          (- 0 1)
+          (tcFldClass tc (vecGet args 1))
+        )
+        (if (strEq cname "Some")
+          (tcFldClass tc (vecGet args 0))
+          (if (strEq cname "Ok")
+            (tcFldClass tc (vecGet args 0))
+            (- 0 1)
+          )
+        )
+      )
+    )
+  )
+)
+
+; `cgTakesEvidence`: a source type variable in any PARAMETER position
+; of the arrow means the function takes a hidden evidence word, which
+; the emitter refuses to pair.
+(pub :: tcTyHasSrcVar (-> Int Int))
+
+(pub fn (tcTyHasSrcVar t)
+  (if (== t 0)
+    0
+    (let ((tg (nodeTag t)))
+      (if (== tg TAG_T_VAR)
+        (tyIsSrcVar t)
+        (if (== tg TAG_T_CON)
+          (tcTyVecHasSrcVar (nodeBVec t) 0)
+          (if (== tg TAG_T_ARR)
+            (if (== (tcTyHasSrcVar (nodeA t)) 1)
+              1
+              (tcTyHasSrcVar (nodeB t))
+            )
+            (if (== tg TAG_T_TUP)
+              (tcTyVecHasSrcVar (nodeAVec t) 0)
+              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+                (tcTyHasSrcVar (nodeA t))
+                0
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tcTyVecHasSrcVar (-> (Vec Int) Int Int))
+
+(pub fn (tcTyVecHasSrcVar xs i)
+  (if (== (cast Int xs) 0)
+    0
+    (if (>= i (vecLen xs))
+      0
+      (if (== (tcTyHasSrcVar (vecGet xs i)) 1)
+        1
+        (tcTyVecHasSrcVar xs (+ i 1))
+      )
+    )
+  )
+)
+
+(pub :: tcParamPosVars (-> Int Int))
+
+(pub fn (tcParamPosVars t)
+  (if (&& (!= t 0) (== (nodeTag t) TAG_T_ARR))
+    (if (== (tcTyHasSrcVar (nodeA t)) 1)
+      1
+      (tcParamPosVars (nodeB t))
+    )
+    0
+  )
+)
+
+; `pairEntryOfArity`, asked of the checker's tables: is `name` a
+; constructor of exactly `want` fields, of a data type that unboxes
+; its nullary arms (mixed, rep 2) or has none (all fieldful, rep 0)?
+; A type whose every arm is nullary is already immediate, and the
+; emitter answers 0 for it.
+(pub :: tcCtorOfArity (-> Int String Int Int))
+
+(pub fn (tcCtorOfArity tc name want)
+  (let ((c (rfindCtor tc name)))
+    (if (== c 0)
+      0
+      (if (!= (arrowArity (memGetWord c 3)) want)
+        0
+        (let ((res (memGetWord c 2)))
+          (if (== res 0)
+            0
+            (if (!= (nodeTag res) TAG_T_CON)
+              0
+              (let ((d (findData tc (nodeAName res))))
+                (if (== d 0)
+                  0
+                  (if (== (tcDataAllNullary (memGetWordVec d 1) 0) 1)
+                    0
+                    1
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tcDataAllNullary (-> (Vec Int) Int Int))
+
+(pub fn (tcDataAllNullary ctors i)
+  (if (== (cast Int ctors) 0)
+    1
+    (if (>= i (vecLen ctors))
+      1
+      (if (> (arrowArity (memGetWord (vecGet ctors i) 3)) 0)
+        0
+        (tcDataAllNullary ctors (+ i 1))
+      )
+    )
+  )
+)
+
+; `pairLeafEntry`: a bare `None`, or `(Some e)`, `(Ok e)`, `(Err e)`.
+(pub :: tcPairLeafOK (-> Int Int Int))
+
+(pub fn (tcPairLeafOK tc e)
+  (if (== e 0)
+    0
+    (let ((tg (nodeTag e)))
+      (if (== tg TAG_E_VAR)
+        (if (== (tcPairCtorNamed (nodeAName e)) 1)
+          (tcCtorOfArity tc (nodeAName e) 0)
+          0
+        )
+        (if (== tg TAG_E_APP)
+          (if (!= (nodeTag (nodeA e)) TAG_E_VAR)
+            0
+            (if (== (tcPairCtorNamed (nodeAName (nodeA e))) 1)
+              (tcCtorOfArity tc (nodeAName (nodeA e)) 1)
+              0
+            )
+          )
+          0
+        )
+      )
+    )
+  )
+)
+
+; Is `full` - a declaration's own spelling, `Mod$name` for an import -
+; in the pair set?
+(pub :: tcIsPairName (-> (Vec Int) String Int))
+
+(pub fn (tcIsPairName pn full)
+  (if (== (cast Int pn) 0)
+    0
+    (strVecHas pn full)
+  )
+)
+
+(pub :: tcIsPairEnt (-> Int Int Int))
+
+(pub fn (tcIsPairEnt tc ent)
+  (if (== ent 0)
+    0
+    (tcIsPairName (memGetWordVec tc 18) (memGetWordStr ent 0))
+  )
+)
+
+; `pairFwdOK`: a saturated direct call to a pair function whose head
+; no `let` on the path and no parameter has bound.
+(pub :: tcPairFwdOK (-> Int Int (Vec Int) (Vec Int) Int))
+
+(pub fn (tcPairFwdOK tc e bound pn)
+  (if (!= (nodeTag e) TAG_E_APP)
+    0
+    (let ((h (spineHead e)))
+      (if (!= (nodeTag h) TAG_E_VAR)
+        0
+        (let ((n (nodeAName h)))
+          (if (>= (strVecIdx bound n) 0)
+            0
+            (let ((ent (findFnEnt tc n)))
+              (if (== ent 0)
+                0
+                (if (== (tcIsPairName pn (memGetWordStr ent 0)) 0)
+                  0
+                  (if (== (spineArgs e 0) (arrowArity (memGetWord ent 1)))
+                    1
+                    0
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; `pairTailsOK`, collecting: every tail leaf of `e` is a constructor
+; leaf or a forwarding call, and each is pushed onto `acc`.
+(pub :: tcPairTails (-> Int Int (Vec Int) (Vec Int) (Vec Int) Int))
+
+(pub fn (tcPairTails tc e bound pn acc)
+  (if (== e 0)
+    0
+    (let ((tg (nodeTag e)))
+      (if (== tg TAG_E_BEGIN)
+        (let ((xs (nodeAVec e)))
+          (if (== (cast Int xs) 0)
+            0
+            (if (== (vecLen xs) 0)
+              0
+              (tcPairTails tc (vecGet xs (- (vecLen xs) 1)) bound pn acc)
+            )
+          )
+        )
+        (if (== tg TAG_E_IF)
+          (if (== (tcPairTails tc (nodeB e) bound pn acc) 1)
+            (tcPairTails tc (nodeC e) bound pn acc)
+            0
+          )
+          (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+            (let ((_p (vecPush bound (cast Int (nodeAName e)))))
+              (let ((r (tcPairTails tc (nodeC e) bound pn acc)))
+                {
+                  (vecPop bound)
+                  r
+                }
+              )
+            )
+            (if (== (tcPairLeafOK tc e) 1)
+              {
+                (vecPush acc e)
+                1
+              }
+              (if (== (tcPairFwdOK tc e bound pn) 1)
+                {
+                  (vecPush acc e)
+                  1
+                }
+                0
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; `tailCallsSelf`, as the emitter asks it: does a tail of `e` call
+; `name` with exactly `arity` arguments?
+(pub :: tcTailCallsSelf (-> Int String Int Int))
+
+(pub fn (tcTailCallsSelf e name arity)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_APP)
+        (let ((h (spineHead e)))
+          (if (&& (== (nodeTag h) TAG_E_VAR) (&& (strEq (nodeAName h) name) (== (spineArgs e 0) arity)))
+            1
+            0
+          )
+        )
+        (if (== tag TAG_E_BEGIN)
+          (let ((v (nodeAVec e)))
+            (if (== (cast Int v) 0)
+              0
+              (if (== (vecLen v) 0)
+                0
+                (tcTailCallsSelf (vecGet v (- (vecLen v) 1)) name arity)
+              )
+            )
+          )
+          (if (== tag TAG_E_IF)
+            (if (== (tcTailCallsSelf (nodeB e) name arity) 1)
+              1
+              (tcTailCallsSelf (nodeC e) name arity)
+            )
+            (if (== tag TAG_E_MATCH)
+              (tcArmsCallSelf (nodeBVec e) name arity 0)
+              (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                (if (strEq (nodeAName e) name)
+                  0
+                  (tcTailCallsSelf (nodeC e) name arity)
+                )
+                0
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tcArmsCallSelf (-> (Vec Int) String Int Int Int))
+
+(pub fn (tcArmsCallSelf arms name arity i)
+  (if (== (cast Int arms) 0)
+    0
+    (if (>= i (vecLen arms))
+      0
+      (if (== (tcTailCallsSelf (nodeB (vecGet arms i)) name arity) 1)
+        1
+        (tcArmsCallSelf arms name arity (+ i 1))
+      )
+    )
+  )
+)
+
+; A fresh vector of the declaration's parameter names, for the walk
+; to push binders onto.
+(pub :: tcParamNames (-> Int (Vec Int)))
+
+(pub fn (tcParamNames d) (tcParamNamesFrom (nodeBVec d) 0 vecNew))
+
+(pub :: tcParamNamesFrom (-> (Vec Int) Int (Vec Int) (Vec Int)))
+
+(pub fn (tcParamNamesFrom ps i acc)
+  (if (== (cast Int ps) 0)
+    acc
+    (if (>= i (vecLen ps))
+      acc
+      (tcParamNamesFrom ps (+ i 1) (vecPush acc (vecGet ps i)))
+    )
+  )
+)
+
+; `pairFnOK`, with the tail leaves it accepted left in `acc`. Field 16
+; must name the declaration's module when this is asked, as
+; `inferEffectsOne` arranges, because the callee lookups are
+; visibility-scoped.
+(pub :: tcPairFnOK (-> Int Int (Vec Int) (Vec Int) Int))
+
+(pub fn (tcPairFnOK tc d pn acc)
+  (if (!= (nodeTag d) TAG_D_FN)
+    0
+    (let ((name (nodeAName d)))
+      (if (strEq name "main")
+        0
+        (let ((ent (findFnEnt tc name)))
+          (if (== ent 0)
+            0
+            (let ((ty (memGetWord ent 1)))
+              (if (== ty 0)
+                0
+                (if (== (tcParamPosVars ty) 1)
+                  0
+                  (if (== (tcPairRetOK tc (tcArrowResultTy ty)) 0)
+                    0
+                    (if (== (tcPairTails tc (nodeC d) (tcParamNames d) pn acc) 0)
+                      0
+                      (if (== (tcTailCallsSelf (nodeC d) (bareOf name) (vecLen (nodeBVec d))) 1)
+                        0
+                        1
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The pair set, to a fixpoint, exactly as `buildNameIndexes` builds
+; the emitter's: a forwarding leaf makes one function's answer depend
+; on another's, so the scan repeats until a pass adds nothing.
+(pub :: tcPairFnsBuild (-> Int (Vec Int) (Vec Int)))
+
+(pub fn (tcPairFnsBuild tc decls)
+  (let (
+    (pn vecNew)
+    (mut grew 1)
+  )
+    {
+      (while (== grew 1)
+        {
+          (set grew 0)
+          (let ((mut m 0))
+            (while (< m (vecLen decls))
+              {
+                (let ((d (vecGet decls m)))
+                  (if (== (nodeTag d) TAG_D_FN)
+                    (if (== (tcIsPairName pn (nodeAName d)) 0)
+                      {
+                        (memSetWord tc 16 (nodeModule d))
+                        (if (== (tcPairFnOK tc d pn vecNew) 1)
+                          {
+                            (vecPush pn (cast Int (nodeAName d)))
+                            (set grew 1)
+                            0
+                          }
+                          0
+                        )
+                        (memSetWord tc 16 0)
+                      }
+                      0
+                    )
+                    0
+                  )
+                )
+                (set m (+ m 1))
+              })
+          )
+        })
+      pn
+    }
+  )
+)
+
+; The per-declaration site record: the nodes the emitter reads from
+; registers - the tail leaves of a pair function, and every match
+; scrutinee `tcPairMatchOK` admits, added as the walk meets it. Built
+; at every `collectEffects` over a declaration body, so the
+; restriction check's own re-walk sees the same sites the fixpoint
+; did.
+(pub :: tcPairSitesOf (-> Int Int (Vec Int)))
+
+(pub fn (tcPairSitesOf tc d)
+  (let ((sites vecNew))
+    {
+      (if (== (tcIsPairName (memGetWordVec tc 18) (nodeAName d)) 1)
+        (tcPairTails tc (nodeC d) (tcParamNames d) (memGetWordVec tc 18) sites)
+        0
+      )
+      sites
+    }
+  )
+)
+
+; Is node `e` recorded in the current declaration's site list?
+(pub :: tcNodeIn (-> (Vec Int) Int Int))
+
+(pub fn (tcNodeIn v e) (tcNodeInFrom v e 0))
+
+(pub :: tcNodeInFrom (-> (Vec Int) Int Int Int))
+
+(pub fn (tcNodeInFrom v e i)
+  (if (== (cast Int v) 0)
+    0
+    (if (>= i (vecLen v))
+      0
+      (if (== (vecGet v i) e)
+        1
+        (tcNodeInFrom v e (+ i 1))
+      )
+    )
+  )
+)
+
+(pub :: tcSiteIn (-> Int Int Int))
+
+(pub fn (tcSiteIn tc e)
+  (let ((rec (memGetWord tc 28)))
+    (if (== rec 0)
+      0
+      (tcNodeIn (cast (Vec Int) rec) e)
+    )
+  )
+)
+
+(pub :: tcSiteAdd (-> Int Int Int))
+
+(pub fn (tcSiteAdd tc e)
+  (let ((rec (memGetWord tc 28)))
+    (if (== rec 0)
+      0
+      {
+        (vecPush (cast (Vec Int) rec) e)
+        0
+      }
+    )
+  )
+)
+
+; `pairMatchOK`: the scrutinee is a saturated direct call to a pair
+; function that no local shadows, and every arm is a shape the
+; register test answers. Every such match is read from registers by
+; one emitter or the other (`emitMatch`, or `emitMatchTail` with
+; `pairTailDelegates` routing the case it cannot release to
+; `emitMatch`), so there is no tail-position case here.
+(pub :: tcPairMatchOK (-> Int Int Int Int))
+
+(pub fn (tcPairMatchOK tc e bound)
+  (let ((s (nodeA e)))
+    (if (!= (nodeTag s) TAG_E_APP)
+      0
+      (let ((h (spineHead s)))
+        (if (!= (nodeTag h) TAG_E_VAR)
+          0
+          (if (== (bsIsLocal bound (nodeAName h)) 1)
+            0
+            (let ((ent (findFnEnt tc (nodeAName h))))
+              (if (== ent 0)
+                0
+                (if (== (tcIsPairEnt tc ent) 0)
+                  0
+                  (if (!= (spineArgs s 0) (arrowArity (memGetWord ent 1)))
+                    0
+                    (tcPairArmsOK tc (nodeBVec e) 0)
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; `pairArmsOK`.
+(pub :: tcPairArmsOK (-> Int (Vec Int) Int Int))
+
+(pub fn (tcPairArmsOK tc arms i)
+  (if (== (cast Int arms) 0)
+    0
+    (if (>= i (vecLen arms))
+      1
+      (let ((pat (nodeA (vecGet arms i))))
+        (let ((tg (nodeTag pat)))
+          (if (== tg TAG_P_CON0)
+            (if (&& (== (tcPairCtorNamed (nodeAName pat)) 1) (== (tcCtorOfArity tc (nodeAName pat) 0) 1))
+              (tcPairArmsOK tc arms (+ i 1))
+              0
+            )
+            (if (== tg TAG_E_APP)
+              (if (!= (nodeTag (nodeA pat)) TAG_E_VAR)
+                0
+                (if (== (tcPairCtorNamed (nodeAName (nodeA pat))) 0)
+                  0
+                  (if (== (tcCtorOfArity tc (nodeAName (nodeA pat)) 1) 0)
+                    0
+                    (if (== (nodeTag (nodeB pat)) TAG_E_VAR)
+                      (tcPairArmsOK tc arms (+ i 1))
+                      0
+                    )
+                  )
+                )
+              )
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; A one-effect row, for the possible spelling.
+(pub :: tcAllocRow (Vec Int))
+
+(pub fn (tcAllocRow)
+  (let ((v vecNew))
+    {
+      (vecPushStr v (builtinEff "Alloc"))
+      v
+    }
+  )
+)
+
 ; Which parameters can hold a callable value, from the declared type -
 ; stage0's `param_callables`. An arrow, a type variable or poison can;
 ; a concrete `Int` cannot, and marking one would claim a transparency
@@ -11084,6 +11826,15 @@
                                   )
                                   (if (== tag TAG_E_MATCH)
                                     {
+                                      ; A match whose scrutinee is a direct
+                                      ; call the emitter answers in two
+                                      ; registers is recorded BEFORE the
+                                      ; scrutinee is walked, so the call
+                                      ; below is charged no box.
+                                      (if (== (tcPairMatchOK tc e bound) 1)
+                                        (tcSiteAdd tc (nodeA e))
+                                        0
+                                      )
                                       (walkEffects tc (nodeA e) bound acc)
                                       (walkEffectsArms
                                         tc                                        (nodeBVec e)                                        0                                        bound                                        acc
@@ -11347,7 +12098,7 @@
       )
       (if (== (nodeTag head) TAG_E_VAR)
         (walkCallHead
-          tc          (nodeAName head)          args          bound          acc
+          tc          (nodeAName head)          args          bound          acc          (tcSiteIn tc e)
         )
         ; A head that is not a name at all: a field holding a
         ; function, the result of a call, a `let`-bound value. Walking
@@ -11412,9 +12163,15 @@
 )
 
 ; stage0's `walk_call`, by callee kind.
-(pub :: walkCallHead (-> Int String (Vec Int) Int (Vec a) Int))
+(pub :: walkCallHead (-> Int String (Vec Int) Int (Vec a) Int Int))
 
-(pub fn (walkCallHead tc n args bound acc)
+; `unboxed` is 1 for exactly the call nodes `tcPairSitesOf` recorded:
+; a tail leaf of a function the emitter writes as `@F$pair`, or a
+; match scrutinee it reads from registers. Everywhere else a
+; constructor application allocates its block and a call to a pair
+; function boxes the pair it gets back - in THIS body, which is where
+; the charge lands.
+(pub fn (walkCallHead tc n args bound acc unboxed)
   (if (== (bsIsLocal bound n) 1)
     ; Calling a local or a parameter. If it aliases a parameter,
     ; THAT parameter is effect-transparent - this is the case the
@@ -11505,12 +12262,31 @@
           ; immediate tag with no block behind it. Adding `Alloc` for
           ; `(Empty)` would refuse a `no-alloc` claim the emitted code
           ; keeps, which is the opposite error and just as wrong.
-          (if (> (ctorAllocArity tc n) 0)
+          ;
+          ; UNLESS THE SITE IS ONE THE EMITTER DOES NOT BOX. A tail
+          ; leaf of a function in the pair set answers `(Some n)` in
+          ; two registers (`emitPairRet`), and no block exists to
+          ; charge; `tcPairSitesOf` recorded that leaf and `unboxed`
+          ; says so. The mirror on the emitter's side is `pairFnOK`,
+          ; and `scripts/check-unboxed-sums.sh` holds the two to the
+          ; same answer over the compiler's own source.
+          (if (&& (== unboxed 0) (> (ctorAllocArity tc n) 0))
             (effAdd acc (builtinEff "Alloc"))
             0
           )
           {
             (tcNoteCall tc (memGetWordStr ent 0))
+            ; A PAIR FUNCTION'S ANSWER IS BOXED BY ITS CALLER, at every
+            ; call that is not a recorded site: the callee's row no
+            ; longer carries the block its tail leaves used to build,
+            ; so the block is charged here, where `emitPlainCall`
+            ; builds it. A site the emitter reads from registers - a
+            ; matched direct call, a forwarding leaf - is charged
+            ; nothing.
+            (if (&& (== unboxed 0) (== (tcIsPairEnt tc ent) 1))
+              (effAdd acc (builtinEff "Alloc"))
+              0
+            )
             (effUnion acc (memGetWordVec ent 5) 0)
             ; Instantiate the callee's transparent positions
             ; with what this call passes there.
@@ -11801,6 +12577,18 @@
             (if (&& (== mark 1) (== (tyIsArrow (memGetWord ent 1)) 1))
               (effUnionPossible acc (memGetWordVec ent 5) 0)
               (effUnion acc (memGetWordVec ent 5) 0)
+            )
+            ; A pair function reached by NAME is reached through `@F`,
+            ; the boxing wrapper: a nullary one called by its bare name
+            ; boxes here, definitely; an arrow-typed one taken as a
+            ; value boxes wherever it is later applied, which is the
+            ; same possible/definite split the row above just took.
+            (if (== (tcIsPairEnt tc ent) 1)
+              (if (&& (== mark 1) (== (tyIsArrow (memGetWord ent 1)) 1))
+                (effUnionPossible acc (tcAllocRow) 0)
+                (effAdd acc (builtinEff "Alloc"))
+              )
+              0
             )
           }
         )
@@ -12513,7 +13301,14 @@
 ; monotone if it ever changes.
 (pub :: inferEffects (-> Int (Vec Int) Int))
 
-(pub fn (inferEffects tc decls) (inferEffectsRound tc decls 0 (+ (vecLen decls) 1)))
+(pub fn (inferEffects tc decls)
+  {
+    ; The pair set depends on signatures and syntax only, so it is
+    ; complete before any row is, and the walk reads it from round 1.
+    (memSetWord tc 18 (tcPairFnsBuild tc decls))
+    (inferEffectsRound tc decls 0 (+ (vecLen decls) 1))
+  }
+)
 
 (pub :: inferEffectsRound (-> Int (Vec Int) Int Int Int))
 
@@ -12613,7 +13408,9 @@
         (let ((sc (bodyScopeOf tc d)))
           (let (
             (_c (memSetWord tc 29 (memGetWord ent 7)))
+            (_s (memSetWord tc 28 (cast Int (tcPairSitesOf tc d))))
             (got (collectEffects tc (nodeC d) sc))
+            (_s0 (memSetWord tc 28 0))
             (_c0 (memSetWord tc 29 0))
             (_m0 (memSetWord tc 16 0))
           )
@@ -16386,7 +17183,9 @@
       (sc (bodyScopeOf tc d))
     )
       (let (
+        (_s (memSetWord tc 28 (cast Int (tcPairSitesOf tc d))))
         (eff (collectEffects tc (nodeC d) sc))
+        (_s0 (memSetWord tc 28 0))
         (_m0 (memSetWord tc 16 0))
       )
         {
