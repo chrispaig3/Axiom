@@ -57,6 +57,7 @@ Exit 0 if every pair preserved everything; 1 otherwise.
 """
 
 import collections
+import bisect
 import re
 import sys
 
@@ -97,6 +98,11 @@ def scan(text):
     rather than applied to a bare quote.
     """
     comments, strings, chars, delims, numbers = [], [], [], [], []
+    # The LINE each delimiter sits on, parallel to `delims`. Recorded
+    # here rather than rescanned, because a second scanner over the
+    # same bytes is the defect this file exists to be the opposite of.
+    delim_lines = []
+    newlines = [m.start() for m in re.finditer('\n', text)]
     i, n = 0, len(text)
     while i < n:
         c = text[i]
@@ -137,6 +143,7 @@ def scan(text):
         elif c in DELIMS:
             if c in OPENERS or c in CLOSERS:
                 delims.append(c)
+                delim_lines.append(bisect.bisect_left(newlines, i))
             i += 1
         else:
             j = i
@@ -165,7 +172,7 @@ def scan(text):
                 # which introduces a literal without changing a value.
                 numbers.append(abs(float(atom.replace('_', ''))))
             i = j if j > i else i + 1
-    return comments, strings, chars, delims, numbers
+    return comments, strings, chars, delims, numbers, delim_lines
 
 
 def load(path):
@@ -195,18 +202,45 @@ def shape_problems(text, delims):
     return problems
 
 
-def maxdepth_of(text, delims):
-    depth = maxdepth = 0
-    for d in delims:
-        if d in OPENERS:
-            depth += 1
-            maxdepth = max(maxdepth, depth)
-        else:
-            depth -= 1
-    return maxdepth
+def indent_facts(text, delims, delim_lines):
+    """-> (lead_depth, distinct_leads, code_lines) for a formatted file.
+
+    ONE predicate, read by the indentation rule below and by the floor
+    that counts how many files the rule applied to. They used to be two
+    - the rule triggered on nesting anywhere in the file, the floor
+    counted files by the same measure - and the moment the rule's
+    trigger changed, the floor would have gone on counting a different
+    population than the rule was checking, which is this repository's
+    own recurring defect wearing a smaller hat.
+
+    `lead_depth` is the deepest nesting in effect at the START of a
+    code line: how many levels the printer had to express through
+    indentation. A file whose forms all fit on one line has 0, however
+    deeply those single lines nest.
+    """
+    by_line = {}
+    for d, ln in zip(delims, delim_lines):
+        by_line.setdefault(ln, []).append(d)
+    leads = set()
+    code_lines = 0
+    depth = 0
+    lead_depth = 0
+    for idx, line in enumerate(text.split('\n')):
+        body = line.lstrip(' ')
+        if body and not body.startswith(';'):
+            leads.add(len(line) - len(body))
+            code_lines += 1
+            lead_depth = max(lead_depth, depth)
+        for d in by_line.get(idx, ()):
+            depth += 1 if d in OPENERS else -1
+    return lead_depth, len(leads), code_lines
 
 
-def indent_problems(text, delims, orig):
+def indent_rule_applies(lead_depth, code_lines):
+    return lead_depth >= 3 and code_lines > 20
+
+
+def indent_problems(text, delims, delim_lines, orig):
     """The output must actually be INDENTED.
 
     Layout is the one thing about a formatter that has no independent
@@ -232,25 +266,36 @@ def indent_problems(text, delims, orig):
     `stdlib/Utf8.ax: formatted to 1 distinct indentation level(s) with
     nesting 16 deep over 191 code lines`. Exit 1, with every golden
     still blessed from the defective compiler.
+
+    THE DEPTH THAT MATTERS IS THE DEPTH A LINE STARTS AT, not the
+    deepest nesting anywhere in the file, and reading the second for
+    the first cost four false accusations on 2026-09-03. A file of
+    short one-line declarations can be nested three deep INSIDE a
+    single line and still have nothing whatever to indent: the four
+    syscall-ABI `stdlib/Sys/Platform.*.ax` are exactly that shape, 211
+    code lines each, every line beginning at depth 0. They passed for
+    as long as their deepest line was two deep and began failing the
+    moment ERR-ADOPT-1 added one `(Err (mkError ...))` stub - a change
+    that gave the printer no new indentation decision at all.
+
+    So the trigger is the maximum depth in effect AT THE START of a
+    code line: the printer had that many levels to express and chose
+    where to put them. It is strictly the same test for the defect
+    this exists to catch - flush-left output still BREAKS forms across
+    lines, so its lines still begin nested, and only the leading
+    spaces are gone. Measured against a compiler built with
+    `foIndentStr`'s `(strConcat s "  ")` cut to `""`: over the files
+    that build rewrites, the old trigger and this one name the same
+    set, and the four Platform files leave it - they failed under the
+    good compiler and the defective one alike, so they were never
+    evidence of anything.
     """
-    depth = maxdepth = 0
-    for d in delims:
-        if d in OPENERS:
-            depth += 1
-            maxdepth = max(maxdepth, depth)
-        else:
-            depth -= 1
-    leads = set()
-    code_lines = 0
-    for line in text.split('\n'):
-        body = line.lstrip(' ')
-        if body and not body.startswith(';'):
-            leads.add(len(line) - len(body))
-            code_lines += 1
-    if maxdepth >= 3 and code_lines > 20 and len(leads) < 3:
-        return [f'{orig}: formatted to {len(leads)} distinct indentation '
-                f'level(s) with nesting {maxdepth} deep over {code_lines} '
-                f'code lines - the printer is not indenting']
+    lead_depth, n_leads, code_lines = indent_facts(text, delims, delim_lines)
+    if indent_rule_applies(lead_depth, code_lines) and n_leads < 3:
+        return [f'{orig}: formatted to {n_leads} distinct indentation '
+                f'level(s) with lines beginning as deep as {lead_depth} '
+                f'over {code_lines} code lines - the printer is not '
+                f'indenting']
     return []
 
 
@@ -288,16 +333,19 @@ def main(argv):
         except OSError as exc:
             failures.append(f'{orig}: cannot read the pair: {exc}')
             continue
-        b_com, b_str, b_chr, _, b_num = scan(before)
-        a_com, a_str, a_chr, a_delims, a_num = scan(after)
+        b_com, b_str, b_chr, _, b_num, _ = scan(before)
+        a_com, a_str, a_chr, a_delims, a_num, a_delim_lines = scan(after)
         n_comments += compare('comments', b_com, a_com, orig, failures)
         n_strings += compare('string literals', b_str, a_str, orig, failures)
         n_chars += compare('character literals', b_chr, a_chr, orig, failures)
         n_numbers += compare('float values', b_num, a_num, orig, failures)
         for problem in shape_problems(after, a_delims):
             failures.append(f'{orig}: the formatted output {problem}')
-        failures.extend(indent_problems(after, a_delims, orig))
-        if maxdepth_of(after, a_delims) >= 3:
+        failures.extend(indent_problems(after, a_delims, a_delim_lines,
+                                        orig))
+        a_lead_depth, _, a_code_lines = indent_facts(after, a_delims,
+                                                     a_delim_lines)
+        if indent_rule_applies(a_lead_depth, a_code_lines):
             n_indented += 1
 
     for f in failures[:20]:

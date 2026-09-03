@@ -137,7 +137,15 @@ def main(argv):
             line = src[:m.start()].count('\n') + 1
             blocks += 1
             info = (m.group(2) or '')
-            _, _, _, delims, _ = vf.scan(body)
+            # INDEXED, NOT UNPACKED. This file needs one of `scan`'s
+            # results and `verify-fmt.py` owns how many there are: it
+            # grew a sixth on 2026-09-03 (the line each delimiter sits
+            # on, for the indentation rule) and a five-way unpack here
+            # became `ValueError: too many values to unpack`, which is
+            # this gate failing for a reason that has nothing to do
+            # with what it checks. Reading the one element keeps the
+            # two files coupled only by the thing they share.
+            delims = vf.scan(body)[3]
             depth = 0
             under = False
             for d in delims:

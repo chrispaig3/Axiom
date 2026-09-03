@@ -16,7 +16,7 @@
   [1;34m = [0m[1;32mhelp: [0mname the function at the call, or drop the claim: an unresolved call may perform anything
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3037` for a full explanation
 
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `liar`: `pure` claim contradicted: body performs IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `liar`: `pure` claim contradicted: body performs Alloc, IO[0m
   [1;34m--> [0m355-tag-over-approximated.ax:50:6
 [1;34m   |[0m
 [1;34m50 |[0m (fn (liar n)
@@ -25,7 +25,7 @@
   [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `liar`: `pure` claim contradicted: body performs IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `liar`: `pure` claim contradicted: body performs Alloc, IO[0m
   [1;34m--> [0m355-tag-over-approximated.ax:50:6
 [1;34m   |[0m
 [1;34m50 |[0m (fn (liar n)
