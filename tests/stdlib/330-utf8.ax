@@ -29,6 +29,19 @@
   )
 )
 
+; `utf8DecodeAt` and `utf8CharAt` answer `(Option Int)`; this file
+; prints the code point, and -1 for `None`, which keeps the golden
+; readable as numbers and is the sentinel the two answered until
+; 2026-09-03.
+(:: cpOr (-> (Option Int) Int))
+
+(fn (cpOr o)
+  (match o
+    ((Some c) c)
+    ((None) (- 0 1))
+  )
+)
+
 (:: main Int)
 
 ;@axiom:effect(io)
@@ -42,28 +55,28 @@
     (println
       (check
         (==
-          (utf8DecodeAt "A" 0)          (cast Int 'A')
+          (cpOr (utf8DecodeAt "A" 0))          (cast Int 'A')
         )        101
       )
     )
     (println
       (check
         (==
-          (utf8DecodeAt "é" 0)          (cast Int 'é')
+          (cpOr (utf8DecodeAt "é" 0))          (cast Int 'é')
         )        102
       )
     )
     (println
       (check
         (==
-          (utf8DecodeAt "世" 0)          (cast Int '世')
+          (cpOr (utf8DecodeAt "世" 0))          (cast Int '世')
         )        103
       )
     )
     (println
       (check
         (==
-          (utf8DecodeAt "😀" 0)          (cast Int '😀')
+          (cpOr (utf8DecodeAt "😀" 0))          (cast Int '😀')
         )        104
       )
     )
@@ -88,7 +101,7 @@
     )
     ; Character indexing steps over multi-byte sequences: in
     ; "aé世", character 2 is 世 even though it starts at byte 3.
-    (println (utf8CharAt "aé世" 2))
+    (println (cpOr (utf8CharAt "aé世" 2)))
     (println (utf8Offset "aé世" 2))
     (println (utf8Slice "héllo, 世界" 7 2))
     ; Validation says yes to real text and no to a lone continuation
@@ -106,13 +119,14 @@
     ; tail byte of "é" alone is one "character".
     (println (utf8Len (strSlice "é" 1 1)))
     ; Decoding refuses to invent. A sequence cut short by the end of
-    ; the string, and a stray continuation byte, both answer -1 -
-    ; before this they answered U+4000 (an ordinary CJK character) and
-    ; U+00A9 (the copyright sign), which is the failure that looks
-    ; like success.
-    (println (utf8DecodeAt (strSlice "世" 0 1) 0))
-    (println (utf8DecodeAt (strSlice "é" 1 1) 0))
-    (println (utf8CharAt "abc" 99))
+    ; the string, and a stray continuation byte, both answer `None` -
+    ; printed as -1 through `cpOr`, which is what they answered as a
+    ; sentinel before 2026-09-03 - where before this they answered
+    ; U+4000 (an ordinary CJK character) and U+00A9 (the copyright
+    ; sign), which is the failure that looks like success.
+    (println (cpOr (utf8DecodeAt (strSlice "世" 0 1) 0)))
+    (println (cpOr (utf8DecodeAt (strSlice "é" 1 1) 0)))
+    (println (cpOr (utf8CharAt "abc" 99)))
     ; Stepping past the end clamps, as utf8Offset does - two stepping
     ; functions that disagreed about the end of a string was a trap.
     (println (utf8Next "abc" 99))
@@ -123,7 +137,7 @@
     (println (check (utf8Valid (utf8FromChar (- 0 1))) 107))
     (println (check (utf8Valid (utf8FromChar 55296)) 108))
     (println (check (utf8Valid (utf8FromChar 2000000)) 109))
-    (println (utf8DecodeAt (utf8FromChar 55296) 0))
+    (println (cpOr (utf8DecodeAt (utf8FromChar 55296) 0)))
     0
   }
 )

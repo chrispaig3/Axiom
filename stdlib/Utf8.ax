@@ -73,16 +73,23 @@
 ; ------------------------------------------------------------------
 ; Decoding
 ; ------------------------------------------------------------------
-; The code point whose encoding begins at byte offset `i`, or -1 when
-; there is none there.
+; The code point whose encoding begins at byte offset `i`, or `None`
+; when there is none there.
 ;
-; -1, not 0, because 0 is a real character (NUL) and `strFindByte`
-; already sets the precedent for a caller-visible sentinel over an
-; allocating `Option` (see the argument in Vec.ax and Map.ax: every
-; `data` value heap-boxes, and this is a compiler's inner loop).
+; `None`, and until 2026-09-03 it was -1: 0 is a real character (NUL),
+; and an `Option` heap-boxed every answer - this is a compiler's inner
+; loop, and `restrict(no-alloc)` above refused the constructor
+; outright (tests/diagnostics/384-restrict-no-alloc-ctor.ax). Neither
+; holds now. A function of exactly this shape - every tail `None` or
+; `(Some e)` - is emitted as a two-register pair and builds no block
+; on any path (`docs/unboxed-sums-design.md`); a caller that matches
+; the call directly reads the registers, and only a caller that stores
+; the answer past its match pays for a block, in its own row.
+; `scripts/check-unboxed-sums.sh` holds both halves, and the claim
+; above is checked against the emitted IR by it.
 ;
 ; A sequence cut short by the end of the string, and a byte that
-; begins no sequence at all, both answer -1 rather than a plausible
+; begins no sequence at all, both answer `None` rather than a plausible
 ; wrong character. Reading missing bytes as 0 - which is what
 ; `strByte`'s clamp would give - turns the first byte of `世` into
 ; U+4000, a perfectly ordinary CJK character, and passing a stray
@@ -93,15 +100,15 @@
 ; Iteration is unaffected: `utf8SeqLen` still answers 1 for a bad
 ; byte, so `utf8Next` advances and no loop can hang on one.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: utf8DecodeAt (-> String Int Int))
+(pub :: utf8DecodeAt (-> String Int (Option Int)))
 
 (pub fn (utf8DecodeAt s i)
   (let ((b (strByte s i)))
     (let ((n (utf8SeqLen b)))
       (if (|| (< i 0) (>= i (strLen s)))
-        (- 0 1)
+        None
         (if (> (+ i n) (strLen s))
-          (- 0 1)
+          None
           ; A byte that begins no sequence - a stray continuation byte, or
           ; an `11111xxx` lead - is reported, not passed through as though
           ; it were a code point. `utf8SeqLen` still answers 1 for it, so
@@ -109,14 +116,14 @@
           ; only the decoded *value* refuses to invent something. Passing
           ; it through turned the tail byte of `é` into `©`.
           (if (&& (>= b 128) (== n 1))
-            (- 0 1)
+            None
             (if (== n 1)
-              b
+              (Some b)
               (if (== n 2)
-                (| (<< (& b 31) 6) (& (strByte s (+ i 1)) 63))
+                (Some (| (<< (& b 31) 6) (& (strByte s (+ i 1)) 63)))
                 (if (== n 3)
-                  (| (| (<< (& b 15) 12) (<< (& (strByte s (+ i 1)) 63) 6)) (& (strByte s (+ i 2)) 63))
-                  (| (| (| (<< (& b 7) 18) (<< (& (strByte s (+ i 1)) 63) 12)) (<< (& (strByte s (+ i 2)) 63) 6)) (& (strByte s (+ i 3)) 63))
+                  (Some (| (| (<< (& b 15) 12) (<< (& (strByte s (+ i 1)) 63) 6)) (& (strByte s (+ i 2)) 63)))
+                  (Some (| (| (| (<< (& b 7) 18) (<< (& (strByte s (+ i 1)) 63) 12)) (<< (& (strByte s (+ i 2)) 63) 6)) (& (strByte s (+ i 3)) 63)))
                 )
               )
             )
@@ -188,15 +195,17 @@
   )
 )
 
-; Character `n` of `s`, counting from 0. -1 past the end, the same
-; sentinel `utf8DecodeAt` uses and for the same reason.
+; Character `n` of `s`, counting from 0. `None` past the end, the same
+; answer `utf8DecodeAt` gives a byte it cannot decode and for the same
+; reason. The tail call FORWARDS `utf8DecodeAt`'s two registers as
+; they arrive (`pairFwdOK`), so this keeps `no-alloc` on the same terms.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: utf8CharAt (-> String Int Int))
+(pub :: utf8CharAt (-> String Int (Option Int)))
 
 (pub fn (utf8CharAt s n)
   (let ((i (utf8Offset s n)))
     (if (>= i (strLen s))
-      (- 0 1)
+      None
       (utf8DecodeAt s i)
     )
   )

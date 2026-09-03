@@ -143,9 +143,9 @@
                                     )                                    "the event names the listener"
                                   )
                                   (say
-                                    (if (< (netPollSignalAt buf 0 sh scratch) 0)
-                                      1
-                                      0
+                                    (match (netPollSignalAt buf 0 sh scratch)
+                                      ((None) 1)
+                                      ((Some s) 0)
                                     )                                    "a socket event is NOT reported as a signal"
                                   )
                                 }
@@ -177,9 +177,9 @@
                                 )                                "the signal wakes one event"
                               )
                               (say
-                                (if (== (netPollSignalAt buf 0 sh scratch) sigTerm)
-                                  1
-                                  0
+                                (match (netPollSignalAt buf 0 sh scratch)
+                                  ((Some s) (if (== s sigTerm) 1 0))
+                                  ((None) 0)
                                 )                                "the event decodes as SIGTERM"
                               )
                             }

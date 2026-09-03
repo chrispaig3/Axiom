@@ -125,7 +125,8 @@ jobSubmitArgv Job.ax Alloc,IO,Mut
 jobWaitAll Job.ax Alloc,IO,Mut
 jpArray Json.ax Alloc,Mut
 jpEscape Json.ax Alloc,Mut
-jpHex4 Json.ax Mut
+jpHex4 Json.ax Alloc,Mut
+jpHexDigits Json.ax Alloc
 jpLit Json.ax Mut
 jpNumber Json.ax Alloc,Mut
 jpObject Json.ax Alloc,Mut

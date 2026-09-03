@@ -349,11 +349,9 @@
     {
       (while (< i n)
         {
-          (let ((cp (utf8DecodeAt s i)))
-            (if (< cp 0)
-              0
-              (set got (+ got (ledInsert ed cp)))
-            )
+          (match (utf8DecodeAt s i)
+            ((None) 0)
+            ((Some cp) (set got (+ got (ledInsert ed cp))))
           )
           (set i (utf8Next s i))
         })

@@ -535,7 +535,7 @@ See [reference.md](reference.md) for the language, and
 | `strIsDigit` | value | `(-> Int Bool)` |  |  |
 | `strIsAlpha` | value | `(-> Int Bool)` |  |  |
 | `strIsSpace` | value | `(-> Int Bool)` |  | Space, tab, LF, CR - and nothing else. Not `char::is_whitespace`: VT and FF are AX1001 to this language's lexer, and a formatter that skipped them turned a refused file into an accepted one. |
-| `strHexVal` | value | `(-> Int Int)` |  | The value of a hex digit, or -1. Stated as the VALUE and not as a predicate because the value is what every caller needed: the JSON parser's `\uXXXX` escape and the language server's percent-decoding each carried a byte-identical copy of this ladder under its own name, while the predicate here had no caller at all. |
+| `strHexVal` | value | `(-> Int (Option Int))` |  | The value of a hex digit, or `None`. Stated as the VALUE and not as a predicate because the value is what every caller needed: the JSON parser's `\uXXXX` escape and the language server's percent-decoding each carried a byte-identical copy of this ladder under its own name, while the predicate here had no caller at all. |
 | `strIsHexDigit` | value | `(-> Int Bool)` |  |  |
 | `strSplit` | value | `(-> String Int (Vec Int))` | `Alloc,Mut` | Every segment of `s` between occurrences of `byte`, in order, as a Vec of Str handles. Empty segments are KEPT: a `PATH` entry of "" means the working directory, and a caller that wants them dropped can drop them, while a caller that needs them cannot get them back. `strSplit "" 58` answers one empty segment, and `strSplit "a:" 58` answers two - the same rule as splitting on a separator anywhere else, and the one that makes the segment count equal the separator count plus one. |
 | `strSplitFrom` | value | `(-> String Int Int (Vec Int) Int)` | `Alloc,Mut` |  |
@@ -623,7 +623,7 @@ See [reference.md](reference.md) for the language, and
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before a server forks, so that every worker inherits the mask. |
 | `netSignalOpen` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
-| `netPollSignalAt` | value | `(-> Int Int Int Int Int)` | `IO` | The signal named by event `i`, or a negative when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
+| `netPollSignalAt` | value | `(-> Int Int Int Int (Option Int))` | `IO` | The signal named by event `i`, or `None` when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Send a signal, which is how a test raises one against itself. |
 | `sysForkProcess` | value | `Int` | `IO` | Duplicating this process |
 | `sysTermStateBytes` | value | `Int` |  | How many bytes a saved terminal state occupies, which is how large the buffer a caller hands `sysTermSave`, `sysTermRaw` and `sysTermRestore` must be. 72, 36 or 44 depending on the target; 0 where there is no `termios` at all. |
@@ -910,11 +910,11 @@ See [reference.md](reference.md) for the language, and
 |---|---|---|---|---|
 | `utf8IsCont` | value | `(-> Int Bool)` |  | Is `b` a continuation byte, `10xxxxxx`? |
 | `utf8SeqLen` | value | `(-> Int Int)` |  | How many bytes the sequence beginning with lead byte `b` occupies. |
-| `utf8DecodeAt` | value | `(-> String Int Int)` |  | The code point whose encoding begins at byte offset `i`, or -1 when there is none there. |
+| `utf8DecodeAt` | value | `(-> String Int (Option Int))` |  | The code point whose encoding begins at byte offset `i`, or `None` when there is none there. |
 | `utf8Next` | value | `(-> String Int Int)` |  | The byte offset of the character after the one beginning at `i`, clamped to the byte length - `utf8Offset` clamps, and two stepping functions that disagree about the end of a string is a trap. |
 | `utf8Len` | value | `(-> String Int)` |  | The number of code points in `s`. |
 | `utf8Offset` | value | `(-> String Int Int)` |  | The byte offset at which character `n` begins, or the byte length of `s` when there are fewer than `n` characters. |
-| `utf8CharAt` | value | `(-> String Int Int)` |  | Character `n` of `s`, counting from 0. -1 past the end, the same sentinel `utf8DecodeAt` uses and for the same reason. |
+| `utf8CharAt` | value | `(-> String Int (Option Int))` |  | Character `n` of `s`, counting from 0. `None` past the end, the same answer `utf8DecodeAt` gives a byte it cannot decode and for the same reason. The tail call FORWARDS `utf8DecodeAt`'s two registers as they arrive (`pairFwdOK`), so this keeps `no-alloc` on the same terms. |
 | `utf8Slice` | value | `(-> String Int Int String)` | `Alloc,Mut` | `count` characters of `s` beginning at character `start`, as a `Str` sharing the original's bytes - the character-indexed counterpart of `strSlice`. |
 | `utf8Replacement` | value | `Int` |  | U+FFFD REPLACEMENT CHARACTER, what a code point that cannot be encoded becomes. |
 | `utf8Width` | value | `(-> Int Int)` |  | How many bytes code point `cp` occupies when encoded - counting what `utf8FromChar` will actually write, so the two never disagree. |

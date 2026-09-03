@@ -2641,9 +2641,15 @@
   )
 )
 
-; The signal named by event `i`, or a negative when that event is not a
+; The signal named by event `i`, or `None` when that event is not a
 ; signal at all. `sigHandle` is what `netSignalOpen` answered and
 ; `scratch` is caller scratch of at least `sigInfoSize` bytes.
+;
+; `None` since 2026-09-03; every caller is an event loop that matches
+; the call directly, and a function of this shape is a two-register
+; pair, so the wake path builds no block - the row is still `IO`
+; alone, which `compat/BREAKING` records as a CHANGED type and not a
+; widened one.
 ;
 ; THIS IS THE ONE FUNCTION THAT KNOWS THE SEAM. On the BSDs the event's
 ; own filter says it is a signal and its `ident` IS the signal number,
@@ -2651,17 +2657,17 @@
 ; the number has to be read out of it - four bytes at offset 0 of a
 ; 128-byte record, and FOUR rather than eight, because eight would fold
 ; `ssi_errno` into the answer.
-(pub :: netPollSignalAt (-> Int Int Int Int Int))
+(pub :: netPollSignalAt (-> Int Int Int Int (Option Int)))
 
 ;@axiom:effect(io)
 (pub fn (netPollSignalAt buf i sigHandle scratch)
   (if (== signalUsesSignalFd 1)
     (if (!= (netPollFdAt buf i) sigHandle)
-      (- 0 1)
+      None
       (let ((n (__syscall3 sysRead sigHandle scratch sigInfoSize)))
         (if (< n sigInfoSize)
-          (- 0 1)
-          (+ (memGetByte scratch 0) (+ (<< (memGetByte scratch 1) 8) (+ (<< (memGetByte scratch 2) 16) (<< (memGetByte scratch 3) 24))))
+          None
+          (Some (+ (memGetByte scratch 0) (+ (<< (memGetByte scratch 1) 8) (+ (<< (memGetByte scratch 2) 16) (<< (memGetByte scratch 3) 24)))))
         )
       )
     )
@@ -2670,10 +2676,10 @@
     (let ((off (* i pollEventSize)))
       (if (== (memGetByte buf (+ off 8)) (& pollSignalFilter 255))
         (if (== (memGetByte buf (+ off 9)) (& (>> pollSignalFilter 8) 255))
-          (netPollFdAt buf i)
-          (- 0 1)
+          (Some (netPollFdAt buf i))
+          None
         )
-        (- 0 1)
+        None
       )
     )
   )

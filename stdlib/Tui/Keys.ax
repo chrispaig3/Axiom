@@ -615,13 +615,11 @@
   (let ((need (utf8SeqLen (strByte src off))))
     (if (> (+ off need) len)
       (KeyEv KEY_MORE 0 0 0)
-      (let ((cp (utf8DecodeAt (strSlice src off need) 0)))
-        (if (< cp 0)
-          ; A stray continuation byte or an 11111xxx lead: advance
-          ; one, the same rule Utf8.ax gives, for the same reason.
-          (KeyEv KEY_NONE 0 0 1)
-          (KeyEv KEY_CHAR cp 0 need)
-        )
+      (match (utf8DecodeAt (strSlice src off need) 0)
+        ; A stray continuation byte or an 11111xxx lead: advance
+        ; one, the same rule Utf8.ax gives, for the same reason.
+        ((None) (KeyEv KEY_NONE 0 0 1))
+        ((Some cp) (KeyEv KEY_CHAR cp 0 need))
       )
     )
   )

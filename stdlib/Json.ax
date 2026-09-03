@@ -1075,20 +1075,39 @@
       (jcFail c)
       0
     }
-    (let (
-      (a (strHexVal (strByte src p)))
-      (b (strHexVal (strByte src (+ p 1))))
-      (d (strHexVal (strByte src (+ p 2))))
-      (e (strHexVal (strByte src (+ p 3))))
-    )
-      (if (|| (< a 0) (|| (< b 0) (|| (< d 0) (< e 0))))
+    (match (jpHexDigits src p)
+      ((Some v) v)
+      ((None)
         {
           (jcFail c)
           0
-        }
-        (+ (* a 4096) (+ (* b 256) (+ (* d 16) e)))
-      )
+        })
     )
+  )
+)
+
+; The four hex digits at `p` as one value, or `None` when any of them
+; is not a digit. Each `strHexVal` is matched directly and read from
+; registers; the four-deep nest is the shape a lookup that answers
+; `Option` asks of a caller that needs all four before it can answer.
+(:: jpHexDigits (-> String Int (Option Int)))
+
+(fn (jpHexDigits src p)
+  (match (strHexVal (strByte src p))
+    ((None) None)
+    ((Some a)
+      (match (strHexVal (strByte src (+ p 1)))
+        ((None) None)
+        ((Some b)
+          (match (strHexVal (strByte src (+ p 2)))
+            ((None) None)
+            ((Some d)
+              (match (strHexVal (strByte src (+ p 3)))
+                ((None) None)
+                ((Some e) (Some (+ (* a 4096) (+ (* b 256) (+ (* d 16) e)))))
+              ))
+          ))
+      ))
   )
 )
 

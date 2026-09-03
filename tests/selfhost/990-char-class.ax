@@ -82,7 +82,7 @@
 (:: agreeHex (-> Int Int))
 
 (fn (agreeHex b)
-  (if (== (strHexVal b) (refHexVal b))
+  (if (== (match (strHexVal b) ((Some v) v) ((None) (- 0 1))) (refHexVal b))
     (agree (strIsHexDigit b) (>= (refHexVal b) 0))
     0
   )
