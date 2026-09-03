@@ -539,6 +539,16 @@
       (vecPush ps 0)
       ; slot 6: the emitted fn's LLVM parameter count, see `pairSlot`
       (vecPush ps 0)
+      ; slot 7: 1 while a LIFTED LAMBDA's body is being emitted.
+      ;
+      ; It exists because word 17 (the current parameter NAMES) and
+      ; word 36 (the declaration whose signature TYPES them) come
+      ; apart there and nowhere else: `emitLamDef` sets 17 to the
+      ; lambda's own parameters and leaves 36 pointing at the
+      ; enclosing declaration, so an index into the first was being
+      ; read against the second's arrow. `curParamRefClass` and
+      ; `curParamEvBit` read this before trusting that pairing.
+      (vecPush ps 0)
       (addTypeNamed
         ts        "Some"        TF_DATA        1        0        2        (let ((f vecNew))
           {
@@ -11648,18 +11658,61 @@
 ; `arrowParamTy` lives in `parser.ax` beside `arrowArity`: the effect
 ; walk needed the same spine read for a different question, and two
 ; modules that do not import each other had written it twice.
+; INSIDE A LIFTED LAMBDA THIS ANSWERS 0, AND THAT IS THE WHOLE OF THE
+; FIX FOR A SEGFAULT. `i` indexes word 17, the parameter NAMES being
+; emitted; the arrow below comes from word 36, the DECLARATION. Those
+; are the same function in a function body and are NOT in a lambda
+; body: `emitLamDef` sets 17 to the lambda's own parameters and leaves
+; 36 on the enclosing declaration. So parameter `i` of the lambda was
+; classified by the type of parameter `i` of the function around it.
+;
+; The parser curries `(lambda (a b) ...)` into `(lambda (a) (lambda
+; (b) ...))`, so the inner record is built while word 17 is the OUTER
+; lambda's `(a)` - which is to say every multi-parameter lambda took
+; this path. Measured, before this line existed:
+;
+;   (:: g (-> String Int Int))
+;   (fn (g s k) (let ((f (lambda (a b) (+ a b)))) (+ k (f 999999999 2))))
+;
+; `g`'s parameter 0 is a `String`, so `a` was classified a reference:
+; `lamShapeBits` set the closure record's map bit for it and
+; `retainParamCaps` emitted `call void @axiom_retain(i64 %a)` on the
+; integer 999999999. `axiom_retain` clears its `< 4096` immediate
+; guard and loads from `999999983`. Exit 139. Changing only `g`'s
+; signature to `(-> Int Int Int)` compiles the same lambda correctly,
+; which is the whole diagnosis in one A/B.
+;
+; ANSWERING 0 IS NOT A GUESS, it is the conservative direction and the
+; one already taken beside it: codegen has no types for a lambda's
+; parameters - the lifted node carries names and a body, no arrow - so
+; a capture it cannot classify goes uncounted, which is exactly what
+; `lamCaptureMask`'s comment calls "captured uncounted - parked" for a
+; let-bound capture. This makes a lambda's own parameter agree with
+; that, trading a leak for a wild pointer.
+;
+; Three sibling readers of word 36 - `paramFlowBit`, `paramIsString`
+; and `paramClassOf` - already refuse to trust the pairing, each by
+; comparing the params vector it was handed against `(nodeBVec d)`
+; before indexing the arrow. Two did not. A name comparison would not
+; have been enough here anyway: a lambda whose parameters happen to
+; shadow the function's, same arity and same spelling, passes that
+; test and is still a different binding. Word 7 answers the question
+; those three approximate.
 (pub :: curParamRefClass (-> Int Int Int))
 
 (pub fn (curParamRefClass cg i)
-  (let ((d (memGetWord cg 36)))
-    (if (== d 0)
-      0
-      (let ((e (findFSigCg cg (nodeAName d))))
-        (if (== e 0)
-          0
-          (if (== (fldClass cg (arrowParamTy (memGetWord e 3) i)) 2)
-            1
+  (if (== (pairSlot cg 7) 1)
+    0
+    (let ((d (memGetWord cg 36)))
+      (if (== d 0)
+        0
+        (let ((e (findFSigCg cg (nodeAName d))))
+          (if (== e 0)
             0
+            (if (== (fldClass cg (arrowParamTy (memGetWord e 3) i)) 2)
+              1
+              0
+            )
           )
         )
       )
@@ -11675,7 +11728,12 @@
 ; side of MM-LIFE-2d counts.
 (pub :: curParamEvBit (-> Int Int Int))
 
+; The same word-17/word-36 hazard `curParamRefClass` documents, and
+; the same answer: -1, "not evidence-driven", is this function's
+; conservative direction.
 (pub fn (curParamEvBit cg i)
+  (if (== (pairSlot cg 7) 1)
+    (- 0 1)
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       (- 0 1)
@@ -11702,7 +11760,7 @@
         )
       )
     )
-  )
+  ))
 )
 
 ; The entry retain, once per reference parameter, before the loop
@@ -13123,6 +13181,13 @@
       (_5 (memSetWord cg 17 lparams))
       (_6 (memSetWord cg 18 0))
       (_6b (pairSetSlot cg 6 0))
+      ; Word 17 now holds the LAMBDA's parameters while word 36 still
+      ; holds the enclosing DECLARATION, and the two classifiers that
+      ; read an index into the first against the arrow of the second
+      ; must not. Cleared again at the `}` below, because
+      ; `emitPairWrapper` runs after `drainPending` and would read
+      ; whatever the last lambda left here.
+      (_6c (pairSetSlot cg 7 1))
     )
       ; MM-LIFE-2g: the evidence word for THIS lambda's own argument,
       ; appended to the rendered parameter list only - the AST param
@@ -13165,7 +13230,9 @@
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
               (let ((cg2 (emitExpr body cg1c)))
                 (let ((ret (cat3 "  ret i64 " (strDup (memGetWordStr cg2 2)) "")))
-                  (emitLine (emitLine (closeAllocaMark cg2) ret) "}")
+                  (pairSetSlot
+                    (emitLine (emitLine (closeAllocaMark cg2) ret) "}")                    7                    0
+                  )
                 )
               )
             )

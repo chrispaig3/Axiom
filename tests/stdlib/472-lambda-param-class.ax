@@ -1,0 +1,122 @@
+; A lifted lambda's parameters are classified by the LAMBDA, not by the
+; function around it.
+;
+; Codegen keeps the parameter NAMES being emitted in word 17 and the
+; declaration whose signature TYPES them in word 36. `emitFnDef` sets
+; both to the same function; `emitLamDef` sets word 17 to the lambda's
+; own parameters and leaves word 36 on the enclosing declaration. Until
+; 2026-09-03 `curParamRefClass` read an index into the first against
+; the arrow of the second, so parameter `i` of a lambda was given the
+; type of parameter `i` of the function containing it.
+;
+; The parser curries `(lambda (a b) ...)` into `(lambda (a) (lambda (b)
+; ...))`, so the inner closure record is built while word 17 is the
+; OUTER lambda's parameter list - which is to say EVERY multi-parameter
+; lambda took this path, and the classification was wrong whenever the
+; enclosing signature disagreed at that index.
+;
+; It was not a wrong number. A capture classified as a reference gets
+; `axiom_retain` emitted on it and its bit set in the closure record's
+; shape map, so an `Int` was retained as a pointer and released as one:
+; `axiom_retain` clears its `< 4096` immediate guard for any value
+; above 4095 and loads from `v-16`. Term 1 below exited 139 - SIGSEGV -
+; and its only difference from term 2 is the enclosing signature.
+;
+; What each term establishes:
+;
+;   1. THE CRASH. A two-parameter lambda inside `(-> String Int Int)`.
+;      `a` is the lambda's first parameter and `s` is the function's,
+;      so `a` was classified `String`. The literal is far above 4095
+;      on purpose: a small one is swallowed by the immediate guard and
+;      the bug hides.
+;   2. THE CONTROL. The same lambda, same literal, inside
+;      `(-> Int Int Int)`. This has always printed 1000000002; it is
+;      here so that a future regression shows up as a DIFFERENCE
+;      between two lines of this file rather than as one line moving.
+;   3. THREE parameters, so the currying is two deep and the innermost
+;      record is built two lambda bodies down from the declaration.
+;   4. THE FIX MUST NOT DISARM THE REAL CASE. A lambda capturing the
+;      enclosing function's genuine `String` parameter still has to
+;      retain it and still has to carry its map bit - the capture is
+;      named in the body, resolved through word 17 of the FUNCTION,
+;      which is the pairing that was always correct. If this regresses
+;      the string is freed under the closure and the length is wrong
+;      or the process dies.
+;   5. A lambda whose parameters SHADOW the enclosing function's, same
+;      arity and same spelling. This is why the fix is a flag and not
+;      a name comparison: `paramFlowBit`, `paramIsString` and
+;      `paramClassOf` all guard the same pairing by comparing names,
+;      and that test passes here while the bindings are still
+;      different.
+(import IO)
+
+(import Str)
+
+(:: crashed (-> String Int Int))
+
+(fn (crashed s k)
+  (let ((f 
+    (lambda (a b) (+ a b))
+  ))
+    (+ k (f 999999999 2))
+  )
+)
+
+(:: control (-> Int Int Int))
+
+(fn (control s k)
+  (let ((f 
+    (lambda (a b) (+ a b))
+  ))
+    (+ k (f 999999999 2))
+  )
+)
+
+(:: threeDeep (-> String String Int))
+
+(fn (threeDeep s t)
+  (let ((f 
+    (lambda (a b c) (+ a (+ b c)))
+  ))
+    (f 999999997 999999998 999999999)
+  )
+)
+
+(:: keepsCapture (-> String Int))
+
+(fn (keepsCapture s)
+  (let ((f 
+    (lambda (n) (+ n (strLen s)))
+  ))
+    (f 100)
+  )
+)
+
+(:: shadowed (-> String Int Int))
+
+(fn (shadowed s k)
+  (let ((f 
+    (lambda (s k) (+ s k))
+  ))
+    (f 999999999 2)
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  ; --- 1. the crash: a two-parameter lambda under a reference arrow ---
+  {
+    (println (crashed "x" 1))
+    ; --- 2. the control: the same lambda under a word arrow ---
+    (println (control 7 1))
+    ; --- 3. three parameters, curried two deep ---
+    (println (threeDeep "x" "y"))
+    ; --- 4. a genuine reference capture is still counted ---
+    (println (keepsCapture (strConcat "abc" "de")))
+    ; --- 5. lambda parameters shadowing the function's ---
+    (println (shadowed "x" 1))
+    0
+  }
+)
