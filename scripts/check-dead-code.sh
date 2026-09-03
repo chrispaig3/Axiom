@@ -167,12 +167,27 @@ ll, binary = sys.argv[1], sys.argv[2]
 text = open(ll, encoding="utf-8", errors="surrogateescape").read()
 
 SYM = r'("(?:[^"\\]|\\..)*"|[-A-Za-z0-9$._]+)'
-HEAD = re.compile(r'define\s+(?:internal\s+)?\S+\s+@' + SYM)
+# The return type is matched as `[^@]*` rather than as one non-space
+# run, because a return type CONTAINS SPACES the moment a function
+# answers a register pair: `define { i64, i64 } @F$pair(`. With
+# `\S+` there, the head did not match, the line was skipped as a
+# head, and every line of that function's body was skipped too - so
+# the walk never saw the pair body's calls and reported everything
+# reachable only through one as dead. That is what this gate did on
+# trunk at 26df546, naming `Err$mkError`, `Sys.Platform$sysWrite` and
+# `Sys.Platform$usesSyscallAbi` in a hello world whose emitter had
+# kept all three correctly. No return type contains `@`, and the
+# name is the first `@` on the line, so this is exact rather than
+# merely wider.
+HEAD = re.compile(r'define\s+[^@]*@' + SYM + r'\s*\(')
 REF = re.compile('@' + SYM)
 
 bodies, order, cur = {}, [], None
+heads_seen = 0
 for ln in text.split("\n"):
     if cur is None:
+        if ln.startswith("define "):
+            heads_seen += 1
         m = HEAD.match(ln)
         if ln.startswith("define ") and m:
             cur = m.group(1)
@@ -209,6 +224,12 @@ reached = {plain(d) for d in live}
 ir_dead = [d for d in order if d not in live]
 nm_dead = sorted(n for n in names if plain(n) in defined and plain(n) not in reached)
 
+# THE COUNT THIS WALK IS ALLOWED TO MISS IS ZERO. A `define` whose
+# header shape the regex above cannot read is not a define this walk
+# may quietly skip: its body's calls vanish and its callees are
+# reported dead, which is a FALSE accusation against the emitter
+# rather than a missed one. Printed so the shell can refuse it.
+print("define_lines %d" % heads_seen)
 print("defines %d" % len(order))
 print("reachable %d" % len(live))
 print("ir_dead %s" % " ".join(ir_dead))
@@ -232,7 +253,26 @@ python3 "$work/walk.py" "$work/hello.ll" "$work/hello" > "$work/report" 2>&1 || 
 }
 
 defines="$(sed -n 's/^defines //p' "$work/report")"
+define_lines="$(sed -n 's/^define_lines //p' "$work/report")"
 reachable="$(sed -n 's/^reachable //p' "$work/report")"
+
+# THE WALK MUST HAVE READ EVERY `define` IN THE MODULE, and this is
+# the assertion that says so. A header shape the regex cannot parse
+# does not make this gate silent - it makes it WRONG, and in the
+# direction that blames the emitter: the unparsed function's body is
+# never scanned, so everything called only from there is reported
+# unreachable. That is what `define { i64, i64 } @F$pair(` did on
+# trunk at 26df546. Compare the count, not the shapes, because the
+# next shape nobody thought of is the one this catches.
+checks=$((checks + 1))
+if [[ "$define_lines" == "$defines" ]]; then
+  echo "ok   the walk parsed all $defines define headers in the module"
+else
+  echo "FAIL the walk parsed $defines of $define_lines define headers:"
+  echo "     a header shape it cannot read makes every callee reached"
+  echo "     only from that body look dead. Widen HEAD in walk.py."
+  failed=$((failed + 1))
+fi
 ir_dead="$(sed -n 's/^ir_dead //p' "$work/report")"
 nm_total="$(sed -n 's/^nm_total //p' "$work/report")"
 nm_dead="$(sed -n 's/^nm_dead //p' "$work/report")"
