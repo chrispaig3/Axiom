@@ -148,9 +148,17 @@ exactly once, before any arm is tried.
 compiler performs this itself, at every optimisation level: the
 function's parameters are promoted to `alloca` slots, the call becomes
 stores into them, and control branches back to a loop header. No
-`tail`/`musttail` marker is emitted — the loop is built by Axiom's
-codegen, not delegated to LLVM. Measured: a self-recursive loop of
-5,000,000 iterations answers correctly.
+`tail`/`musttail` marker is emitted for it — the loop is built by
+Axiom's codegen, not delegated to LLVM. Measured: a self-recursive loop
+of 5,000,000 iterations answers correctly. **Every tail position
+counts**: the last expression of a `{ }` block, both arms of an `if`,
+every arm of a `match` and of a `cond` (lowered to `if` first), and the
+body of a `let` — the last since 2026-08-22, and measured again on
+2026-09-03 at `--opt 0` with ten million iterations through each
+(`tests/stdlib/467-mutual-tail.ax` term 6 for the `let` body;
+`scripts/check-tail-calls.sh` runs it under a 512 KiB stack). What is
+NOT a tail position: a `while` body, a `handle` body, and the operands
+of `&&`/`||`.
 
 The tail positions recognised are exactly: the expression itself, both
 arms of an `if`, the last expression of a `{}` block, every `match` arm,
@@ -177,13 +185,47 @@ deep, it overflowed the stack where the leaking compiler had not.
 > (`axiom run` ignores `--opt` entirely and always builds at 1, which
 > is a separate defect, and still current.)
 
-**MM-EXEC-6c (H).** **A mutual tail call does not.** The compiler emits
-a plain `call`; mutual tail recursion runs in constant space only
-because LLVM's passes handle it at `--opt >= 1`, and overflows the stack
-at `--opt 0` — and, since events 2/3 ship, at every level when the
-call hands over an owned temporary, because the release the caller
-emits after the call is an instruction after it. A program **MUST
-NOT** rely on mutual tail calls for unbounded recursion.
+**MM-EXEC-6c (H).** **A mutual tail call runs in constant stack when
+the prototypes match and nothing is owed after it.** Since 2026-09-03
+the emitter marks such a call `musttail` — LLVM's *guaranteed* tail
+call, which `llc` lowers to a jump at every optimisation level or
+refuses the module — when every one of these holds (`mustTailOK` in
+`self_host/codegen.ax` is the list): the call sits in tail position
+with no leaf retain owed; the callee is a defined function applied to
+exactly its arity; the caller is a plain `fn` (not a lambda or thunk,
+whose prototypes carry the closure record) and not a self-tail-call
+loop (whose retained parameter slots are released after the body); no
+`let` temporary is pending release at the scope end; the two prototypes
+are identical — every parameter is `i64`, so identical means the same
+count, the hidden evidence word included, and both answer `i64`; and no
+argument is an owned temporary the caller would release after the call.
+Measured: `tests/stdlib/467-mutual-tail.ax` runs ten million
+alternating calls through `ev`/`od`, through a `let` body and a `match`
+arm, and around a three-way cycle at `--opt 0` under a 512 KiB stack,
+and `scripts/check-tail-calls.sh` deletes the marker from the same IR
+and requires the program to die by signal. On the compiler's own IR
+(`emit-llvm self_host/main.ax`, 2026-09-03), 386 of the 1,059 calls
+sitting immediately before a `ret` are marked.
+
+**Two shapes stay a plain `call`, and a program MUST NOT rely on either
+for unbounded recursion.** (1) **A callee of a different arity.** Under
+the C calling convention LLVM requires a `musttail` caller and callee
+to have identical prototypes; 603 of the compiler's own tail calls are
+of this shape. The `tailcc` convention lifts the requirement — measured
+2026-09-03: `llc -O0` accepts `musttail` between `tailcc` functions of
+two and three parameters and emits a jump (`b`/`jmp`) on all seven
+triples, and the darwin binary runs ten million such calls under 512
+KiB — but adopting it means every function in the module changes
+convention, the runtime's callback trampoline and every `extern`
+boundary with it, so it is recorded here as the measured next step
+rather than built. (2) **A call that hands over an owned temporary**
+(`(od (+ i 1) (strConcat s "x"))`): the caller releases the temporary
+after the callee returns (event 3), and releasing it before the call
+would free a block the callee is about to read; moving the release
+into the callee would change the convention for every function.
+These two run in constant space only at `--opt >= 1` and only while
+the release after them is dead, which is LLVM's sibling-call pass
+happening to succeed, not a guarantee.
 
 **MM-EXEC-6d (H).** Non-tail recursion is bounded by the machine stack.
 Measured on an 8176 KiB stack: **174,000–175,000** frames at `--opt 0`

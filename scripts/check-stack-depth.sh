@@ -3,19 +3,28 @@
 # How much STACK the compiler needs to check the largest Axiom program
 # there is, as a number, bisected and reported.
 #
-# WHY THIS EXISTS. This backend eliminates only SELF tail calls, and a
-# `let` body is not a tail position (codegen.ax's `tailCallsSelf`), so
-# the shape
+# WHY THIS EXISTS. When this gate was written, a `let` body was not a
+# tail position for the SELF tail call rewrite (codegen.ax's
+# `tailCallsSelf`), so the shape
 #
 #     (let ((e (vecGet v i))) (if ... e (recur ...)))
 #
-# costs one real stack frame per loop iteration. `typecheck.ax` is
+# cost one real stack frame per loop iteration. `typecheck.ax` is
 # written almost entirely in that shape and contains no `while` at all,
-# so a dozen of its table walks are one frame per table entry. That has
+# so a dozen of its table walks were one frame per table entry. That
 # produced three separate SIGSEGVs in this repository's history, each
 # presenting as a crash in whatever was being compiled rather than in
 # the walk: `memCopyFrom` on a few hundred KB, `lookupByIdx` 25 frames
 # deep in stage2, and `scanAxtagsFrom` one frame per source byte.
+#
+# A `let` body IS a tail position since 2026-08-22, and a MUTUAL tail
+# call of matching prototype is a `musttail` since 2026-09-03
+# (`scripts/check-tail-calls.sh`); this header said otherwise for
+# twelve days, which is why the sentence above is now in the past
+# tense. What still costs a frame per iteration is what neither
+# rewrite reaches: a recursion whose combining step runs AFTER the
+# call, a mutual call across arities, and a call handing over an
+# owned temporary (docs/memory-model.md MM-EXEC-6c).
 #
 # Nothing measured it. The alternative to this gate was converting every
 # such walk to a `while` - a large diff across the most

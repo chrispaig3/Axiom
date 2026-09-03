@@ -537,6 +537,8 @@
       ; `parScan` writes both before `emitAllocator` runs.
       (vecPush ps 0)
       (vecPush ps 0)
+      ; slot 6: the emitted fn's LLVM parameter count, see `pairSlot`
+      (vecPush ps 0)
       (addTypeNamed
         ts        "Some"        TF_DATA        1        0        2        (let ((f vecNew))
           {
@@ -564,6 +566,15 @@
 
 ; Slot `i` of the register-pair state: 0 mode, 1 arm, 2 names, 3 tag -
 ; and, beside them, 4 `cgThreads` and 5 `parUsed` (see `newCG`).
+;
+; Slot 6 is not pair state either and lives here because `CG` is at 47 fields
+; and a 50-field record is AX3029 (the comment on `pairState` above):
+; the LLVM parameter count of the plain `fn` being emitted - declared
+; parameters plus one for `%__evw.h` when the function is polymorphic -
+; and 0 while a lambda or a thunk is being emitted, whose prototypes
+; carry `%.env` and `%__evwa.h` and can never match a plain function's.
+; `mustTailOK` compares it against the callee's, because LLVM's
+; `musttail` demands identical prototypes under the C convention.
 (pub :: pairSlot (-> Int Int Int))
 
 (pub fn (pairSlot cg i) (vecGet (memGetWordVec cg 46) i))
@@ -11263,11 +11274,13 @@
             )
           ))
             (let ((cg0e 
-              (if (== takesEv 1)
-                (bindSym
-                  cg                  "__evw."                  "%__evw.h"                  0                  0
-                )
-                cg
+              (pairSetSlot
+                (if (== takesEv 1)
+                  (bindSym
+                    cg                    "__evw."                    "%__evw.h"                    0                    0
+                  )
+                  cg
+                )                6                (+ (vecLen params) takesEv)
               )
             ))
               (let ((cg1 
@@ -11301,7 +11314,10 @@
                             ; `emitExprTail` is where a leaf is
                             ; recognised as one a register pair can
                             ; carry.
-                            (if (|| (!= (pairSlot cg1c 0) 0) (|| (== wantsTCO 1) (> (vecLen (memGetWordVec cg1c 41)) 0)))
+                            ; ... and so does a body whose tail is a call
+                            ; to ANOTHER function: that is where a mutual
+                            ; tail call becomes `musttail` (`mustTailOK`).
+                            (if (|| (!= (pairSlot cg1c 0) 0) (|| (== wantsTCO 1) (|| (> (vecLen (memGetWordVec cg1c 41)) 0) (== (tailCallsKnown cg1c body selfName) 1))))
                               (emitExprTail body cg1c)
                               (emitExpr body cg1c)
                             )
@@ -12254,6 +12270,67 @@
   )
 )
 
+; Does `e` contain, in TAIL position, a call to a DEFINED function
+; other than `self`, applied to exactly its arity? The same positions
+; as `tailCallsSelf`, and only a pre-scan: it decides whether a body
+; takes the tail walk at all (`emitFnDef`), so that a function with no
+; such call keeps emitting exactly the LLVM it emitted before. Whether
+; the call is then marked `musttail` is `mustTailOK`'s decision at the
+; call, with the facts only emission has.
+(pub :: tailCallsKnown (-> Int Int String Int))
+
+(pub fn (tailCallsKnown cg e self)
+  (let ((tag (nodeTag e)))
+    (if (== tag TAG_E_APP)
+      (let ((h (spineHeadName e)))
+        (if (== (strLen h) 0)
+          0
+          (if (strEq h self)
+            0
+            (if (&& (>= (fnArityCg cg h) 0) (== (spineArgs e 0) (fnArityCg cg h)))
+              1
+              0
+            )
+          )
+        )
+      )
+      (if (== tag TAG_E_BEGIN)
+        (let ((v (nodeAVec e)))
+          (if (== (vecLen v) 0)
+            0
+            (tailCallsKnown cg (vecGet v (- (vecLen v) 1)) self)
+          )
+        )
+        (if (== tag TAG_E_IF)
+          (if (== (tailCallsKnown cg (nodeB e) self) 1)
+            1
+            (tailCallsKnown cg (nodeC e) self)
+          )
+          (if (== tag TAG_E_MATCH)
+            (armsCallKnown cg (nodeBVec e) self 0)
+            (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+              (tailCallsKnown cg (nodeC e) self)
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: armsCallKnown (-> Int (Vec Int) String Int Int))
+
+(pub fn (armsCallKnown cg arms self i)
+  (if (>= i (vecLen arms))
+    0
+    (if (== (tailCallsKnown cg (nodeB (vecGet arms i)) self) 1)
+      1
+      (armsCallKnown cg arms self (+ i 1))
+    )
+  )
+)
+
 ; The head of an application spine, as a name, or "" when the head is
 ; not a plain name.
 (pub :: spineHeadName (-> Int String))
@@ -12297,7 +12374,11 @@
       (let ((tag (nodeTag e)))
     (if (== tag TAG_E_APP)
       {
-        (memSetWord cg 30 1)
+        ; 3 when nothing follows the call but the `ret` - no leaf
+        ; retain is owed for this node - which is what a `musttail`
+        ; needs (`mustTailOK`); 1 when `retainTailLeaf` will retain
+        ; after it. Both read as "tail" in `dispatchCall`.
+        (memSetWord cg 30 (if (== (nodeInVec (memGetWordVec cg 41) e 0) 1) 1 3))
         (let ((cgA (emitExpr e cg)))
           {
             (memSetWord cgA 30 0)
@@ -12969,6 +13050,7 @@
       (_4b (memSetWord cg 20 vecNew))
       (_5 (memSetWord cg 17 lparams))
       (_6 (memSetWord cg 18 0))
+      (_6b (pairSetSlot cg 6 0))
     )
       ; MM-LIFE-2g: the evidence word for THIS lambda's own argument,
       ; appended to the rendered parameter list only - the AST param
@@ -15310,9 +15392,9 @@
                       ; claimed the call above, and rewriting it as a jump to
                       ; the function would be an infinite loop where the
                       ; correct answer is a value.
-                      (if (&& (== isTail 1) (&& (!= (memGetWord cg 27) 0) (&& (strEq fnName (memGetWordStr cg 27)) (== (vecLen args) (vecLen (memGetWordVec cg 28))))))
+                      (if (&& (!= isTail 0) (&& (!= (memGetWord cg 27) 0) (&& (strEq fnName (memGetWordStr cg 27)) (== (vecLen args) (vecLen (memGetWordVec cg 28))))))
                         (emitTailJump args stamp cg)
-                        (emitOverApplied fnName args stamp cg evs)
+                        (emitOverApplied fnName args stamp (armMustTail cg isTail fnName args) evs)
                       )
                       (zeroFloat (emitConstructor args entry stamp cg))
                     )
@@ -16965,8 +17047,17 @@
     ; the token the match site armed for the OUTERMOST call. Each
     ; invocation takes its own copy and restores it for its own call
     ; line, so nesting cannot steal it.
-    (let ((armed (pairSlot cg 1)))
-      (let ((_dis (pairSetSlot cg 1 0)))
+    ; The musttail token is taken the same way and for the same reason
+    ; (`armMustTail` set it for THIS call; a call inside an argument
+    ; must not read it).
+    (let (
+      (armed (pairSlot cg 1))
+      (mt0 (memGetWord cg 30))
+    )
+      (let (
+        (_dis (pairSetSlot cg 1 0))
+        (_mtc (memSetWord cg 30 0))
+      )
     (let ((argStrCg (emitArgsRegs args cg argRegs 0)))
       (let (
         (argStrT (strDup (memGetWordStr argStrCg 9)))
@@ -17023,18 +17114,34 @@
                           cgE
                         }
                       )
-                      (let ((callInst (cat3 (cat3 (cat2 "  " r) " = call i64 @" (llvmSym (strDup full))) "(i64 " (cat3 argStrT evStr ")"))))
+                      (if (== (mustTailOK cgE mt0 takesEv fnName args) 1)
+                        ; MM-EXEC-6c: a MUTUAL tail call, guaranteed. The
+                        ; call and the `ret` are emitted together, the
+                        ; block is marked terminated exactly as a self
+                        ; jump marks it, and nothing may come between
+                        ; them - `mustTailOK` is the list of everything
+                        ; that could have.
                         {
-                          (emitLine cgE callInst)
-                          ; the temporaries this call consumed, released now that
-                          ; the callee has taken whatever share it keeps
-                          (releaseOwnedArgs
-                            cgE                            fnName                            args                            argRegs                            0
-                          )
+                          (emitLine cgE (cat3 (cat3 (cat2 "  " r) " = musttail call i64 @" (llvmSym (strDup full))) "(i64 " (cat3 argStrT evStr ")")))
+                          (emitLine cgE (cat2 "  ret i64 " r))
                           (memSetWord cgE 2 r)
                           (memSetWord cgE 14 (fnRetIsFloat cgE full))
+                          (memSetWord cgE 31 1)
                           cgE
                         }
+                        (let ((callInst (cat3 (cat3 (cat2 "  " r) " = call i64 @" (llvmSym (strDup full))) "(i64 " (cat3 argStrT evStr ")"))))
+                          {
+                            (emitLine cgE callInst)
+                            ; the temporaries this call consumed, released now that
+                            ; the callee has taken whatever share it keeps
+                            (releaseOwnedArgs
+                              cgE                              fnName                              args                              argRegs                              0
+                            )
+                            (memSetWord cgE 2 r)
+                            (memSetWord cgE 14 (fnRetIsFloat cgE full))
+                            cgE
+                          }
+                        )
                       )
                     )
                   )
@@ -17109,25 +17216,144 @@
 (pub fn (releaseOwnedArgs cg fnName args regs i)
   (if (>= i (vecLen args))
     cg
-    (let ((cls (fnResultClass cg fnName)))
-      (if (|| (== cls 0) (== cls 2))
-        (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0))))))
-          ; the callee parks nothing of a typed arrival
-          ; there, and answers no part of it that the caller
-          ; now holds instead - and an immediate (`Nil`)
-          ; has nothing to give back
-          (releaseOwnedArgs
-            (emitReleaseOf
-              cg              (cast String (vecGet regs i))
-            )            fnName            args            regs            (+ i 1)
-          )
-          (releaseOwnedArgs
-            cg            fnName            args            regs            (+ i 1)
-          )
-        )
-        cg
+    (if (== (argOwnedRelease cg fnName args i) 1)
+      (releaseOwnedArgs
+        (emitReleaseOf
+          cg          (cast String (vecGet regs i))
+        )        fnName        args        regs        (+ i 1)
+      )
+      (releaseOwnedArgs
+        cg        fnName        args        regs        (+ i 1)
       )
     )
+  )
+)
+
+; Would `releaseOwnedArgs` release argument `i` after the call? ONE
+; predicate, asked by the release above and by `mustTailOK` below, so
+; the two cannot drift: a `musttail` over an argument the caller still
+; had to release would be a use after free in the callee, and a plain
+; call left where a `musttail` was sound is only a missed guarantee.
+;
+; The callee parks nothing of a typed arrival there, and answers no
+; part of it that the caller now holds instead - and an immediate
+; (`Nil`) or a static literal has nothing to give back.
+(pub :: argOwnedRelease (-> Int String (Vec Int) Int Int))
+
+(pub fn (argOwnedRelease cg fnName args i)
+  (let ((cls (fnResultClass cg fnName)))
+    (if (|| (== cls 0) (== cls 2))
+      (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0))))))
+        1
+        0
+      )
+      0
+    )
+  )
+)
+
+; How many of `args` the caller releases after the call.
+(pub :: ownedArgReleases (-> Int String (Vec Int) Int Int))
+
+(pub fn (ownedArgReleases cg fnName args i)
+  (if (>= i (vecLen args))
+    0
+    (+ (argOwnedRelease cg fnName args i) (ownedArgReleases cg fnName args (+ i 1)))
+  )
+)
+
+; ------------------------------------------------------------------
+; MM-EXEC-6c, the mutual tail call. `musttail` is LLVM's GUARANTEED
+; tail call: `llc` must emit a jump at every optimisation level or
+; refuse the module, so a mutual recursion marked this way runs in
+; constant stack at `--opt 0` exactly as a self call does through
+; `emitTailJump`. The guarantee comes with LLVM's conditions, and
+; every one of them is a line here:
+;
+;   * the call is in tail position, and nothing is owed after it -
+;     `emitExprTail` armed 3 (no leaf retain for this node) and
+;     `armMustTail` turned that into the token 2 for a call to a
+;     DEFINED function applied to exactly its arity;
+;   * the caller is not emitting its register-pair variant (that
+;     returns `{ i64, i64 }`) and is not a self-tail-call loop (its
+;     retained parameter slots are released after the body,
+;     `releaseRefParamSlots`);
+;   * no `let` temporary is pending release at the scope end
+;     (`pendingOwned`, field 42, paid after the body);
+;   * the prototypes are identical - every parameter is `i64` and both
+;     return `i64`, so identical means the same COUNT, evidence word
+;     included: `pairSlot 4` for the caller, `args + takesEv` for the
+;     callee - and the caller is a plain `fn`, not a lambda or a thunk
+;     (slot 4 is 0 there);
+;   * no argument is an owned temporary the caller would release after
+;     the call (`ownedArgReleases`, the same predicate
+;     `releaseOwnedArgs` spends).
+;
+; THE OWNED-TEMPORARY CASE IS REFUSED, NOT TRANSFERRED. A callee
+; borrows its arguments (event 1) and the caller releases its temporary
+; once the callee has returned; releasing it BEFORE the call would free
+; a block the callee is about to read, and skipping the release would
+; leak a share per iteration. Moving the release into the callee would
+; change the convention for every function in the module for the sake
+; of this shape. So `(od (+ i 1) (strConcat s "x"))` stays a plain call,
+; constant-stack only under `opt` and only while the release after it
+; is dead, and MM-EXEC-6c keeps its sentence for exactly that case.
+;
+; A mismatched arity is refused for LLVM's reason, not this compiler's:
+; under the C calling convention `musttail` requires the prototypes to
+; match, and the convention that lifts that (`tailcc`) would have to be
+; adopted by every function in the module, `@main` and every `extern`
+; boundary excepted. Measured over the compiler's own IR before this
+; was written, the matched-prototype case is the common one; the
+; mismatched one is recorded in docs/memory-model.md MM-EXEC-6c as what
+; still needs `--opt 1`.
+; ------------------------------------------------------------------
+(pub :: mustTailOK (-> Int Int Int String (Vec Int) Int))
+
+(pub fn (mustTailOK cg mt takesEv fnName args)
+  (if (!= mt 2)
+    0
+    (if (!= (pairSlot cg 0) 0)
+      0
+      (if (!= (memGetWord cg 27) 0)
+        0
+        (if (== (pairSlot cg 6) 0)
+          0
+          (if (!= (pairSlot cg 6) (+ (vecLen args) takesEv))
+            0
+            (if (> (vecLen (memGetWordVec cg 42)) 0)
+              0
+              (if (> (ownedArgReleases cg fnName args 0) 0)
+                0
+                1
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; `dispatchCall` arms the token for the one call it may mark: a tail
+; application (3 - no leaf retain owed) whose head is a DEFINED
+; function applied to exactly its declared arity. Operators, primitives,
+; constructors, locals and effect operations never reach here; a
+; partial or an over-application is not a tail call to the function.
+(pub :: armMustTail (-> Int Int String (Vec Int) Int))
+
+(pub fn (armMustTail cg isTail fnName args)
+  ; `fnArityCg`, not `fnArityOfCg`: the second is keyed on the ENTRY
+  ; file's spelling and answers 0 for an imported function, which is
+  ; most callees; the first mangles the name and reads the signature
+  ; the same way `fnTakesEvw` does, and answers -1 for a function with
+  ; no signature or no body - an `extern`, which is never marked.
+  (if (&& (== isTail 3) (&& (>= (fnArityCg cg fnName) 0) (== (vecLen args) (fnArityCg cg fnName))))
+    {
+      (memSetWord cg 30 2)
+      cg
+    }
+    cg
   )
 )
 

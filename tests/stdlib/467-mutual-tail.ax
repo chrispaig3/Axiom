@@ -1,0 +1,174 @@
+; MM-EXEC-6c: a MUTUAL tail call runs in constant stack, at every
+; `--opt` level, when the two prototypes match.
+;
+; The corpus runner builds this at its default level, so what THIS file
+; pins is the answer and the shape; `scripts/check-tail-calls.sh` builds
+; the same terms at `--opt 0` under a 512 KiB stack, which is where a
+; plain call chain of ten million frames dies by signal and a
+; `musttail` chain does not, and ablates the marker out of the IR to
+; prove the difference is the marker.
+;
+; What each term establishes:
+;
+;   1. `ev`/`od`, two parameters each: ten million alternating calls
+;      answer the count. Matched prototypes, no owned temporary - the
+;      emitter marks both calls `musttail` (`mustTailOK` in
+;      self_host/codegen.ax).
+;   2. The same through a `let` body and a `match` arm - the positions
+;      `emitExprTail` hands down - because a tail call that is only
+;      recognised at the top of a body is a guarantee with a hole in it.
+;   3. A three-way cycle, `a -> b -> c -> a`, all of one arity.
+;   4. `ev2`/`od3`, MISMATCHED arity: correct at the corpus level, and
+;      NOT constant-stack at `--opt 0` - the gate holds that it is left
+;      as a plain call, which is the sound direction; MM-EXEC-6c keeps
+;      this case. Two thousand deep, so that the frames it genuinely
+;      costs at `--opt 0` fit under the gate's 512 KiB with the other
+;      terms; a hundred thousand did not, and the whole fixture died
+;      of the term that claims no guarantee.
+;   5. An OWNED TEMPORARY handed over, `(od (+ i 1) (strConcat s "x"))`:
+;      the caller must release the string after the callee returns, so
+;      the call stays plain. Two thousand iterations answer the length,
+;      for the reason in 4; the gate holds that no `musttail` was
+;      emitted for it and that its release follows the call.
+;   6. A self tail call in a `let` body, at the same time, so the two
+;      mechanisms - `emitTailJump`'s loop and `musttail` - are seen
+;      beside each other in one file.
+(import IO)
+
+(import Str)
+
+; --- 1. matched prototypes ---
+(:: ev (-> Int Int Int))
+
+(:: od (-> Int Int Int))
+
+(fn (ev i acc)
+  (if (>= i 10000000)
+    acc
+    (od (+ i 1) (+ acc 1))
+  )
+)
+
+(fn (od i acc)
+  (if (>= i 10000000)
+    acc
+    (ev (+ i 1) (+ acc 1))
+  )
+)
+
+; --- 2. through a let body and a match arm ---
+(:: evL (-> Int Int Int))
+
+(:: odM (-> Int Int Int))
+
+(fn (evL i acc)
+  (let ((j (+ i 1)))
+    (if (>= i 10000000)
+      acc
+      (odM j (+ acc 1))
+    )
+  )
+)
+
+(fn (odM i acc)
+  (match (if (>= i 10000000)
+    None
+    (Some i)
+  )
+    ((Some k) (evL (+ k 1) (+ acc 1)))
+    (_ acc)
+  )
+)
+
+; --- 3. a three-way cycle ---
+(:: cyA (-> Int Int Int))
+
+(:: cyB (-> Int Int Int))
+
+(:: cyC (-> Int Int Int))
+
+(fn (cyA i acc)
+  (if (>= i 9000000)
+    acc
+    (cyB (+ i 1) (+ acc 1))
+  )
+)
+
+(fn (cyB i acc)
+  (if (>= i 9000000)
+    acc
+    (cyC (+ i 1) (+ acc 1))
+  )
+)
+
+(fn (cyC i acc)
+  (if (>= i 9000000)
+    acc
+    (cyA (+ i 1) (+ acc 1))
+  )
+)
+
+; --- 4. mismatched arity: a plain call, and still correct ---
+(:: ev2 (-> Int Int Int))
+
+(:: od3 (-> Int Int Int Int))
+
+(fn (ev2 i acc)
+  (if (>= i 2000)
+    acc
+    (od3 (+ i 1) (+ acc 1) 7)
+  )
+)
+
+(fn (od3 i acc k)
+  (if (>= i 2000)
+    acc
+    (ev2 (+ i 1) (+ acc k))
+  )
+)
+
+; --- 5. an owned temporary handed over: a plain call ---
+(:: evS (-> Int String Int))
+
+(:: odS (-> Int String Int))
+
+(fn (evS i s)
+  (if (>= i 2000)
+    (strLen s)
+    (odS (+ i 1) (strConcat s "x"))
+  )
+)
+
+(fn (odS i s)
+  (if (>= i 2000)
+    (strLen s)
+    (evS (+ i 1) (strConcat s "y"))
+  )
+)
+
+; --- 6. a self tail call in a let body ---
+(:: selfLet (-> Int Int Int))
+
+(fn (selfLet i acc)
+  (let ((j (+ i 1)))
+    (if (>= i 10000000)
+      acc
+      (selfLet j (+ acc 1))
+    )
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (ev 0 0))
+    (println (evL 0 0))
+    (println (cyA 0 0))
+    (println (ev2 0 0))
+    (println (evS 0 ""))
+    (println (selfLet 0 0))
+    0
+  }
+)

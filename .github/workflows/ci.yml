@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # fifty-eight of the gates below build the compiler under test from
+    # fifty-nine of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -605,6 +605,19 @@ jobs:
       # this is how we find out when that stops being true.
       - name: Checking the compiler fits in a small stack
         run: ./scripts/check-stack-depth.sh
+
+      # A tail call runs in constant stack at `--opt 0`: a self call in
+      # every tail position, and a mutual call whose prototypes match,
+      # which `emitPlainCall` marks `musttail` - LLVM's guaranteed tail
+      # call. The fixture runs ten million alternating calls under a
+      # 512 KiB stack; the ablation deletes the marker from the same IR
+      # and requires the program to die by signal, because the marker is
+      # the whole mechanism and a fixture that survived without it would
+      # be measuring the stack rather than the guarantee. The two
+      # refusals - a mismatched prototype, an owned temporary handed over
+      # - must stay plain calls, the second with its release after it.
+      - name: A mutual tail call runs in constant stack at --opt 0, and the marker is proved to be why
+        run: ./scripts/check-tail-calls.sh
 
       # A module's PRIVATE declarations must cost no more to resolve
       # than its public ones. `findFnEnt` was indexed and its note
