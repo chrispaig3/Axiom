@@ -1,0 +1,46 @@
+[1;31merror[AX3060][0m[1m: parameter `x`, which lives in region `@s`, is stored into the field `s` of a value, which lives in region `@r`[0m
+  [1;34m--> [0m640-region-escape-store.ax:48:12
+[1;34m   |[0m
+[1;34m48 |[0m     (set c.s x)
+[1;34m   |[0m            [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mMM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3060` for a full explanation
+
+[1;31merror[AX3060][0m[1m: a value allocated in this function's own region is stored into parameter `v` of `vecPush`, which lives in region `@r` - `vecPush` stores a value it allocates into that parameter[0m
+  [1;34m--> [0m640-region-escape-store.ax:66:6
+[1;34m   |[0m
+[1;34m66 |[0m     (vecPush v x)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mMM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3060` for a full explanation
+
+[1;31merror[AX3060][0m[1m: parameter `x`, which lives in region `@s`, is stored into parameter `v` of `vecPush`, which lives in region `@r` - `vecPush` stores its parameter `x` into it[0m
+  [1;34m--> [0m640-region-escape-store.ax:66:6
+[1;34m   |[0m
+[1;34m66 |[0m     (vecPush v x)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mMM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3060` for a full explanation
+
+[1;31merror[AX3060][0m[1m: a value allocated in this function's own region is stored into parameter `v` of `vecPush`, which lives in region `@r` - `vecPush` stores a value it allocates into that parameter[0m
+  [1;34m--> [0m640-region-escape-store.ax:75:6
+[1;34m   |[0m
+[1;34m75 |[0m     (vecPush v (strConcat x "!"))
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mMM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3060` for a full explanation
+
+[1;31merror[AX3060][0m[1m: a value allocated in this function's own region is stored into parameter `v` of `vecPush`, which lives in region `@r` - `vecPush` stores its parameter `x` into it[0m
+  [1;34m--> [0m640-region-escape-store.ax:75:6
+[1;34m   |[0m
+[1;34m75 |[0m     (vecPush v (strConcat x "!"))
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mMM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3060` for a full explanation
+
+compilation failed due to 5 previous errors

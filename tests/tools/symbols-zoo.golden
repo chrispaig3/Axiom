@@ -155,6 +155,7 @@ F integerName tests/fmt/syntax-zoo.ax:348:5-16 "(Int -> Int)" @78077a35b687a150
 F negatives tests/fmt/syntax-zoo.ax:354:5-14 "Int" @c1e7a0698a782505
 F splitTags tests/fmt/syntax-zoo.ax:387:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #pure
 F restrictedTwice tests/fmt/syntax-zoo.ax:397:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast
+F regionKeep tests/fmt/syntax-zoo.ax:404:5-15 "(Vec String -> (String -> (a -> Int)))" @a46706b1069fed62
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option

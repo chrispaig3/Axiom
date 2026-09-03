@@ -1,0 +1,37 @@
+; MM-RGN-3 at the RETURN (docs/memory-model-v2-design.md §2.3), and
+; the one refusal that belongs to the signature alone.
+;
+;   1  `pick` answers its `@s` parameter as a `(String @r)`: AX3061.
+;      Two named regions are UNORDERED, so `@s` is not known to
+;      outlive `@r`.
+;   2  `fresh` answers a value it allocated itself as `(String @r)`:
+;      AX3061. The body allocates in its caller's current region
+;      (MM-RGN-4), and a named region outlives that; allocating INTO
+;      `@r` is stage S4's work, not this stage's.
+;   3  `same` answers its own `@r` parameter: SILENT - the value the
+;      signature promises.
+;   4  `orphan` names `@q` on its result and on no parameter: AX3063
+;      at the declaration. A region is chosen by the caller through an
+;      argument, and a result-only region is one the callee would
+;      have to invent - AX3040's shape, one type system over.
+(import Str)
+
+(:: pick (-> (String @s) (String @r) (String @r)))
+
+(fn (pick a b) a)
+
+(:: fresh (-> (String @r) (String @r)))
+
+(fn (fresh a) (strConcat a "x"))
+
+(:: same (-> (String @r) (String @r)))
+
+(fn (same a) a)
+
+(:: orphan (-> Int (String @q)))
+
+(fn (orphan n) "x")
+
+(:: main Int)
+
+(fn (main) 0)

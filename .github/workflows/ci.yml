@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # fifty-five of the gates below build the compiler under test from
+    # fifty-six of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -340,6 +340,16 @@ jobs:
       # refused everything would pass.
       - name: A bound type placeholder stays bound
         run: ./scripts/check-type-pinning.sh
+
+      # A signature may name the region a reference lives in, and the
+      # escape rule refuses a store, a return or a capture whose place
+      # outlives the value. Held four ways: an annotated program and its
+      # stripped twin emit byte-identical IR; the fixtures are refused by
+      # code and name; a compiler with the pass ablated accepts them and
+      # the program it lets through reads reclaimed memory; and the
+      # two-region sweep of the design note is a band, not a number.
+      - name: Region annotations change nothing, and the escape rule refuses
+        run: ./scripts/check-region-escape.sh
 
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is

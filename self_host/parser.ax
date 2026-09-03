@@ -438,6 +438,17 @@
 
 (pub fn (TAG_P_CONNAMED) 43)
 
+; --- S2 stub: R1's TAG_E_REGION, identical shape; collapses at merge ---
+; `(region r EXPR)`: the region NAME in word 1, EXPR in word 2, the
+; keyword's span. Stage S2 (docs/memory-model-v2-design.md §4) parses
+; and lowers it; stage S3's escape walk (`typecheck.ax`, `rgnExpr`)
+; reads it by this shape and is written against it here so the two
+; stages meet on one definition. The number is the next free one -
+; 53 is spent twice already, by TAG_D_EXTERN and TAG_EVSTAMP.
+(pub :: TAG_E_REGION Int)
+
+(pub fn (TAG_E_REGION) 54)
+
 (pub :: nodeTag (-> Int Int))
 
 (pub fn (nodeTag n) (memGetWord n 0))
@@ -641,6 +652,46 @@
   }
 )
 
+; ------------------------------------------------------------------
+; REGION ANNOTATIONS ON TYPE NODES (docs/memory-model-v2-design.md,
+; MM-RGN-4, stage S3). `(Str @r)` is the `Str` type node with the
+; region name `r` in word 7 - `axtags` on a declaration, and free on
+; every type node, because a type carries no tags. It lives in a
+; spare word rather than in a wrapper node ON PURPOSE: the whole type
+; checker - `tyCompat`, `tyResolve`, `tyRender`, `evClassOf`,
+; codegen's `fldClass` and `findFSigCg`, `symbols`' rendering - reads
+; a type through `nodeTag`/`nodeA`/`nodeB` and never sees word 7, so
+; an annotated signature checks, renders and emits EXACTLY as its
+; unannotated spelling does. That is the compatibility half of
+; MM-RGN-4 by construction, and `scripts/check-region-escape.sh`
+; measures it: the same program with and without its annotations
+; emits byte-identical IR.
+;
+; The cost of the choice is stated beside it: a type COPIED by the
+; instantiation machinery (`tyInst`, substitution, a macro template's
+; `substTpl`) is a fresh node with word 7 zero, so the annotation is
+; read from the DECLARED signature only - which is the only place the
+; region checker (`typecheck.ax`, `rgnCheckAll`) reads it from.
+; ------------------------------------------------------------------
+(pub :: tyRegion (-> Int Int))
+
+(pub fn (tyRegion t) (memGetWord t 7))
+
+(pub :: tyRegionName (-> Int String))
+
+(pub fn (tyRegionName t) (memGetWordStr t 7))
+
+(pub :: tySetRegion (-> Int String Int))
+
+(pub fn (tySetRegion t r)
+  {
+    (memSetWord
+      t      7      (cast Int r)
+    )
+    t
+  }
+)
+
 (pub :: mkEInt (-> Int Int))
 
 (pub fn (mkEInt v) (mkNode TAG_E_INT v 0 0))
@@ -789,6 +840,17 @@
 (pub fn (pOk v p)
   (PResult
     1    (cast (Vec Int) v)    p    ""    ""
+  )
+)
+
+; `pOk` with the region annotation `parseTypeAtomsRgn` found riding
+; the `exp` slot, which is "" on every other success and which nothing
+; reads on one. See that function for why the name travels here.
+(pub :: pOkRgn (-> a Int String Int))
+
+(pub fn (pOkRgn v p rgn)
+  (PResult
+    1    (cast (Vec Int) v)    p    rgn    ""
   )
 )
 
@@ -2894,6 +2956,60 @@
   )
 )
 
+; The same run of atoms, admitting ONE region annotation `@r` as the
+; LAST element before the `)`: `(Str @r)`, `(Vec Int @r)`, `(a @r)`.
+; The name (without its `@`) travels back in the result's `exp` slot -
+; the String `pOk` writes "" into, which nothing reads on a success -
+; and the caller hangs it on the node it built with `tyWithRegion`.
+; That channel is chosen because it costs NOTHING on the path every
+; parenthesised type takes - the region name is sliced only when a
+; `@r` is actually there. The first draft allocated an out-parameter
+; Vec per type application instead, and the honest measurement is that
+; the two are indistinguishable at the scale `scripts/check-bootstrap.sh`
+; watches: the self-compile's peak RSS is set by the SOURCE's size
+; (4.98 KiB per line before and after this stage, 2026-09-03), and this
+; compiler on the pre-stage source costs 0.02% more than the pre-stage
+; compiler does. Zero is kept because it is zero, not because a number
+; asked for it. Last and only last: `(Vec @r Int)` is refused where the
+; `Int` stands, with the `)` the annotation promised. Two annotations,
+; or one that is not last, are the same refusal - an annotation names
+; the type whose parentheses it closes, and nothing else.
+(pub :: parseTypeAtomsRgn (-> (Vec Int) Int (Vec Int) Int))
+
+(pub fn (parseTypeAtomsRgn tokens pos acc)
+  (if (peekIs tokens pos TK_RPAREN)
+    (pOk acc (advance pos))
+    (if (peekIs tokens pos TK_EOF)
+      (pErrExp pos "type")
+      (if (peekIs tokens pos TK_REGION)
+        (let ((lex (tokenLexeme (vecGet tokens pos))))
+          (if (peekIs tokens (advance pos) TK_RPAREN)
+            (pOkRgn acc (advance (advance pos)) (strSlice lex 1 (- (strLen lex) 1)))
+            (pErrExp (advance pos) "`)` - a region annotation `@r` is the last thing inside a type's parentheses")
+          )
+        )
+        (let ((r (parseTypeAtom tokens pos)))
+          (if (== (memGetWord r 0) 0)
+            r
+            (parseTypeAtomsRgn tokens (memGetWord r 2) (vecPush acc (memGetWord r 1)))
+          )
+        )
+      )
+    )
+  )
+)
+
+; Hang the annotation a successful `parseTypeAtomsRgn` result carries,
+; if any, on the node the caller built.
+(pub :: tyWithRegion (-> Int Int Int))
+
+(pub fn (tyWithRegion t r)
+  (if (== (strLen (pResExp r)) 0)
+    t
+    (tySetRegion t (pResExp r))
+  )
+)
+
 ; `pos` is just past the opening paren.
 (pub :: parseTypeParens (-> (Vec Int) Int Int))
 
@@ -2940,20 +3056,24 @@
           ; (Int Bool) - is NOT an application; it falls through to the
           ; tuple loop, stage0's rule.
           (let ((head (tokenLexeme (vecGet tokens pos))))
-            (let ((r (parseTypeAtoms tokens (advance pos) vecNew)))
+            (let ((r (parseTypeAtomsRgn tokens (advance pos) vecNew)))
               (if (== (memGetWord r 0) 0)
                 r
-                (pOk (mkTCon head (memGetWordVec r 1)) (memGetWord r 2))
+                (pOk (tyWithRegion (mkTCon head (memGetWordVec r 1)) r) (memGetWord r 2))
               )
             )
           )
-          (let ((r (parseTypeAtoms tokens pos vecNew)))
+          (let ((r (parseTypeAtomsRgn tokens pos vecNew)))
             (if (== (memGetWord r 0) 0)
               r
               (let ((tys (memGetWordVec r 1)))
+                ; `(String @r)` and `(a @r)`: one atom, and the
+                ; annotation lands on IT. The atom is a fresh node
+                ; from `parseTypeAtom` - a keyword constructor, a
+                ; variable - so writing its word 7 aliases nothing.
                 (if (== (vecLen tys) 1)
-                  (pOk (vecGet tys 0) (memGetWord r 2))
-                  (pOk (mkTTup tys) (memGetWord r 2))
+                  (pOk (tyWithRegion (vecGet tys 0) r) (memGetWord r 2))
+                  (pOk (tyWithRegion (mkTTup tys) r) (memGetWord r 2))
                 )
               )
             )

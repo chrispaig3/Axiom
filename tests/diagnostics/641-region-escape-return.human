@@ -1,0 +1,28 @@
+[1;31merror[AX3061][0m[1m: `pick` answers parameter `a`, which lives in region `@s`, and its result is declared to live in region `@r`[0m
+  [1;34m--> [0m641-region-escape-return.ax:21:6
+[1;34m   |[0m
+[1;34m21 |[0m (fn (pick a b) a)
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mMM-RGN-3 at the return: the result is read by a caller in the declared region, after every shorter region has been reclaimed. Answer a value that lives in the declared region - one derived from a parameter annotated with it - or drop the result's annotation, which makes the result the caller's current region and lets the caller decide
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3061` for a full explanation
+
+[1;31merror[AX3061][0m[1m: `fresh` answers a value allocated in this function's own region, and its result is declared to live in region `@r`[0m
+  [1;34m--> [0m641-region-escape-return.ax:25:6
+[1;34m   |[0m
+[1;34m25 |[0m (fn (fresh a) (strConcat a "x"))
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mMM-RGN-3 at the return: the result is read by a caller in the declared region, after every shorter region has been reclaimed. Answer a value that lives in the declared region - one derived from a parameter annotated with it - or drop the result's annotation, which makes the result the caller's current region and lets the caller decide
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3061` for a full explanation
+
+[1;31merror[AX3063][0m[1m: `orphan` answers a value in region `@q`, which no parameter supplies[0m
+  [1;34m--> [0m641-region-escape-return.ax:33:6
+[1;34m   |[0m
+[1;34m33 |[0m (fn (orphan n) "x")
+[1;34m   |[0m      [1;31m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma region parameter is chosen by the CALLER through an argument, as a type variable is; a region named only in the result is one the callee would have to invent. Name it on a parameter, or drop the annotation and answer a value in the caller's current region
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3063` for a full explanation
+
+compilation failed due to 3 previous errors

@@ -155,6 +155,7 @@ Fn       integerName          (Int -> Int)                             [tests/fm
 Fn       negatives            Int                                      [tests/fmt/syntax-zoo.ax:354:5-14]
 Fn       splitTags            (Int -> Int)                             [tests/fmt/syntax-zoo.ax:387:5-14]
 Fn       restrictedTwice      (Int -> Int)                             [tests/fmt/syntax-zoo.ax:397:5-20]
+Fn       regionKeep           (Vec String -> (String -> (a -> Int)))   [tests/fmt/syntax-zoo.ax:404:5-15]
 Data     Option               data Option                              [builtin]
 Ctor     Some                 (a -> Option a)                          [builtin]
 Ctor     None                 Option a                                 [builtin]

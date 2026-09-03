@@ -1,0 +1,117 @@
+; Region-annotated signatures on a program that is CORRECT, so that
+; what stage S3 accepts is pinned beside what it refuses
+; (tests/diagnostics/640-644). Every function here names a region,
+; every call site instantiates it, and the program prints what it
+; would have printed with the annotations deleted - which
+; `scripts/check-region-escape.sh` also proves at the IR level: this
+; file and its annotation-stripped twin emit byte-identical LLVM.
+;
+;   `lookup`   answers an element of a `@r` table as `(String @r)`:
+;              `vecGet` answers what it was given, so the element is
+;              the table's region (the facts' `resultFrom`).
+;   `left`     the same through a `match` binder: a field of a `@r`
+;              value lives where the value does. (Not through `vecTry`
+;              and `Some`: a WRAPPER the callee builds is fresh, and
+;              this stage attributes a binder the wrapper's origins as
+;              well as the payload's - conservative, and stated in
+;              `rgnBindPat`.)
+;   `longest`  a value derived from `@r` returned as `@r`, chosen by
+;              a comparison - two paths, both `@r`.
+;   `count`    an un-annotated result computed from a `@r` table: the
+;              caller's region, which `@r` outlives.
+;   `keep`     a `@r` string stored into the field of a `@r` cell -
+;              the store 640 refuses across regions, accepted within
+;              one. A FIELD store and not a `vecPush`, because growing
+;              a container allocates, and this stage cannot allocate
+;              into a named region (640, row 3).
+;   `describe` calls `keep` and `count` with values from ITS own
+;              region - the one-region instance of MM-RGN-4, where a
+;              caller naming no region passes everything from one.
+;
+; `restrict(no-escape)` on `lookup` and `count` is a checked claim
+; that holds, and stays silent.
+(import IO)
+
+(import Vec)
+
+(import Str)
+
+(struct Cell
+  (mut s : String))
+
+;@axiom:restrict(no-escape)
+(:: lookup (-> (Vec String @r) Int (String @r)))
+
+(fn (lookup t i) (vecGet t i))
+
+(data Pair
+  (Pair String String))
+
+(:: left (-> (Pair @r) (String @r)))
+
+(fn (left p)
+  (match p
+    ((Pair a b) a)
+  )
+)
+
+(:: longest (-> (Vec String @r) (String @r)))
+
+(fn (longest t)
+  (let (
+    (a (vecGet t 0))
+    (b (vecGet t 1))
+  )
+    (if (> (strLen a) (strLen b))
+      a
+      b
+    )
+  )
+)
+
+;@axiom:restrict(no-escape)
+(:: count (-> (Vec String @r) Int))
+
+(fn (count t) (vecLen t))
+
+(:: keep (-> (Cell @r) (String @r) Int))
+
+(fn (keep c s)
+  {
+    (set c.s s)
+    0
+  }
+)
+
+(:: describe (-> (Vec String) Cell Int))
+
+;@axiom:effect(io)
+(fn (describe t c)
+  {
+    (keep c (lookup t 2))
+    (println (count t))
+    (println c.s)
+    0
+  }
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (t vecNew)
+    (c (Cell "none"))
+  )
+    {
+      (vecPush t "alpha")
+      (vecPush t "be")
+      (vecPush t "gamma")
+      (println (lookup t 1))
+      (println (left (Pair (lookup t 0) "zed")))
+      (println (longest t))
+      (describe t c)
+      0
+    }
+  )
+)

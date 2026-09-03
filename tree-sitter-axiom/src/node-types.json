@@ -228,6 +228,10 @@
         "named": true
       },
       {
+        "type": "region_type",
+        "named": true
+      },
+      {
         "type": "syntax_join_name",
         "named": true
       },
@@ -1516,6 +1520,44 @@
     }
   },
   {
+    "type": "region_type",
+    "named": true,
+    "fields": {
+      "region": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "region_annotation",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "builtin_type",
+            "named": true
+          },
+          {
+            "type": "function_type",
+            "named": true
+          },
+          {
+            "type": "list_type",
+            "named": true
+          },
+          {
+            "type": "type_variable",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "removed_form",
     "named": true,
     "fields": {
@@ -2065,6 +2107,16 @@
             "named": true
           }
         ]
+      },
+      "region": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "region_annotation",
+            "named": true
+          }
+        ]
       }
     },
     "children": {
@@ -2450,6 +2502,10 @@
   {
     "type": "region",
     "named": false
+  },
+  {
+    "type": "region_annotation",
+    "named": true
   },
   {
     "type": "set",

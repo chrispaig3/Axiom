@@ -55,7 +55,8 @@
   (TK_LBRACKET)
   (TK_RBRACKET)
   (TK_COMMA)
-  (TK_ERROR_ESC))
+  (TK_ERROR_ESC)
+  (TK_REGION))
 
 ; (
 ; )
@@ -103,6 +104,13 @@
   (kind : TokenKind)
   (lexeme : String)
   (span : Int))
+; `@r` - a REGION ANNOTATION, read only in type position:
+; `(Str @r)` names the region a value lives in (docs/memory-model-v2-
+; design.md MM-RGN-4, the S3 stage). `@` was AX1001 everywhere before
+; this token existed and is still AX1001 unless an identifier starts
+; right after it; in expression position the token is AX2001, so a
+; program cannot bind a name that begins with `@`. Appended, so no
+; existing tag moves.
 
 ; `no-alloc` came off with `mkSpan`'s, for the same reason and on the
 ; same day: the body is one `Token` construction, which allocates.

@@ -65,6 +65,7 @@ colOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 compares tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
 confined tests/diagnostics/369-axtag-known-keys.ax no-io ok
 control tests/diagnostics/376-restrict-unknown-name.ax no-io ok
+count tests/stdlib/467-region-signatures.ax no-escape ok
 countErrorDiags self_host/diag.ax no-io,no-alloc,no-foreign ok
 countdown tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 cstrLen stdlib/Str.ax no-io,no-alloc,no-foreign ok
@@ -109,6 +110,8 @@ diagTraceUnit self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagUnit self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagVecAt self_host/diag.ax no-io,no-foreign ok
 direct tests/diagnostics/372-restrict-no-alloc.ax no-alloc violated
+dispatch tests/diagnostics/644-restrict-no-escape.ax no-escape unverifiable
+dispatchStrict tests/diagnostics/644-restrict-no-escape.ax no-escape,strict unproven
 emitToken self_host/lexer.ax no-io,no-foreign ok
 entry tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 fabricates tests/diagnostics/373-restrict-no-cast.ax no-cast violated
@@ -291,6 +294,7 @@ lineStartOf self_host/diag.ax no-io,no-alloc,no-foreign ok
 lineStartOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 lineStartScan self_host/diag.ax no-io,no-alloc,no-foreign ok
 local tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
+lookup tests/stdlib/467-region-signatures.ax no-escape ok
 looped tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
 loud tests/diagnostics/392-macro-template-first-tag.ax no-io violated
 measures tests/diagnostics/373-restrict-no-cast.ax no-cast ok
@@ -346,6 +350,7 @@ quoteHexDigit self_host/diag.ax no-io,no-foreign ok
 quoteStr self_host/diag.ax no-io,no-foreign ok
 quoteUesc self_host/diag.ax no-io,no-foreign ok
 reads tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
+reads tests/diagnostics/644-restrict-no-escape.ax no-escape ok
 refuted tests/diagnostics/393-restrict-strict.ax no-io,strict violated
 renderDiag self_host/diag.ax no-io,no-foreign ok
 renderDiagIx self_host/diag.ax no-io,no-foreign ok
@@ -382,6 +387,7 @@ stepCharToken self_host/lexer.ax no-io,no-foreign ok
 stepIdentToken self_host/lexer.ax no-io,no-foreign ok
 stepNumberFrom self_host/lexer.ax no-io,no-foreign ok
 stepToken self_host/lexer.ax no-io,no-foreign ok
+stores tests/diagnostics/644-restrict-no-escape.ax no-escape violated
 strAlloc stdlib/Str.ax no-io,no-foreign ok
 strByte stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strCStr stdlib/Str.ax no-io,no-alloc,no-foreign ok

@@ -1,0 +1,49 @@
+; `restrict(no-escape)` (docs/memory-model-v2-design.md §2.7): the
+; declaration stores nothing it allocates into any of its parameters.
+; It rides the restriction rail every other claim rides, and reads the
+; region facts (typecheck.ax, `restrictNoEscape`) rather than the
+; effect row.
+;
+;   1  `stores` pushes a string it allocated onto its parameter, and
+;      the store is made by `vecPush`: AX3049, naming the parameter
+;      and the callee the value went in through.
+;   2  `reads` answers a length: SILENT, proven.
+;   3  `dispatch` calls its own parameter, so where its allocations
+;      flow is decided by the caller: AX3051, a warning.
+;   4  `dispatchStrict` is the same body under `strict`: AX3057.
+;
+; The facts are the same ones the escape rule consults, so a claim
+; here is checked by the analysis that also refuses AX3060 - one
+; computation, two readers.
+(import Vec)
+
+(import Str)
+
+;@axiom:restrict(no-escape)
+(:: stores (-> (Vec String) String Int))
+
+(fn (stores v x)
+  {
+    (vecPush v (strConcat x "!"))
+    0
+  }
+)
+
+;@axiom:restrict(no-escape)
+(:: reads (-> (Vec String) Int))
+
+(fn (reads v) (vecLen v))
+
+;@axiom:restrict(no-escape)
+(:: dispatch (-> (-> String Int) String Int))
+
+(fn (dispatch f s) (f s))
+
+;@axiom:restrict(no-escape, strict)
+(:: dispatchStrict (-> (-> String Int) String Int))
+
+(fn (dispatchStrict f s) (f s))
+
+(:: main Int)
+
+(fn (main) 0)

@@ -16,6 +16,66 @@ its changelog too.
 
 ## Unreleased
 
+### Region-annotated signatures and the escape rule — stage S3 of the regions note
+
+**A signature may name the region a reference lives in**, `(:: intern
+(-> (String @s) (Table @r) (Sym @r)))`, and `MM-RGN-3` of
+[memory-model-v2-design.md](docs/memory-model-v2-design.md) §2.3 is
+checked over every body: a value may be stored into, returned into or
+captured by a place only if its region outlives the place's. Four
+errors — `AX3060` a store, `AX3061` a return, `AX3062` a closure
+(named against the capture), `AX3063` arguments that disagree on a
+region the callee names, or a result-only region — one fixture per
+shape in `tests/diagnostics/640`–`644`, and `restrict(no-escape)` on
+the restriction rail (refuted through the callee by name, unverifiable
+over an unresolved call, `AX3057` under `strict`).
+
+**An un-annotated callee is READ, not assumed.** The checker computes
+per function, as a fixpoint over the call graph like the effect row,
+which parameters the body stores a fresh value into and which
+parameters flow into which — `vecPush` stores its second into its
+first and allocates into its first when it grows — so `(vecPush v x)`
+is refused across regions and accepted within one with nothing written
+on `vecPush`, and `(strLen s)` on a string from any region is legal.
+§2.4's "region-monomorphic in the caller's current region", stated as
+invariance, would have refused the second.
+
+**A program that never writes `@` is untouched, measured two ways.**
+The pass is absent - not silent - when no signature names a region
+(`rgnCheckAll`'s first line), and the annotation lives in a spare word
+of the type node that no reader of a type consults, so an annotated
+program and its stripped twin emit **byte-identical IR** (1,652 lines,
+`tests/stdlib/467-region-signatures.ax`). The type checker's own
+functions that moved for the annotation: **zero**.
+
+**`scripts/check-region-escape.sh`** holds all of it from the outside:
+the byte-identity, the five refusals by code and name, an ABLATED
+compiler (`rgnCheckAll` answering 0) that accepts 640–643 and then
+runs `tests/region/escape-store.ax` — the program the rule exists to
+refuse, which stores a string from a region into a cell that outlives
+it, resets the arena, reuses the bytes and reads the cell back, and
+must not print `hello` at exit 0 — and §5's two-region sweep as a
+program (`scripts/lib/region-sweep.py`: 241 of 6,206 functions relate
+two regions, 3.88%, inside the 3.5–5.2% the hand audit gave). fifty-six
+gates call `gate_build_axc` now.
+
+**What S3 is not**, stated in the note beside the staging table:
+nothing allocates INTO a named region yet, so a value the body makes
+cannot be stored into a `@r` place or answered as `(T @r)` — growing a
+`@r` vector included — until S4 hands a callee a region; the witness
+of §2.5 is deferred to S4 with its first reader, because a hidden
+trailing word would change the IR of exactly the programs this stage
+proves inert; and `(region r ...)`, S2's form, is walked against its
+contract but is another track's to parse and lower. The seed's parser
+cannot read `@r`, so nothing in `self_host/` or `stdlib/` carries an
+annotation: land, reseed, then use.
+
+Also: `@r` in the formatter (`fpType` prints it, `fpExpr` refuses it)
+and in the tree-sitter grammar (`region_annotation`, `region_type`; the
+`@` in `OPERATOR_CHAR` stays, because `region_annotation` is the longer
+match wherever it is valid); `AX3052`'s closed list gains `no-escape`,
+which re-blessed `tests/diagnostics/376`.
+
 ### `Vec` carries its element type, and the port is landed
 
 `stdlib/Vec.ax` handed out a bare `Int` handle. It hands out a
@@ -812,8 +872,9 @@ well by a function that was never emitted).
 `docs/unboxed-sums-design.md` §4 asks for, written first and on
 purpose. It counts the heap blocks an `Option` construction costs **in
 the emitted IR**, for a fixture whose matched lookups are a known
-number. fifty-five gates call `gate_build_axc` now, up from fifty-two —
-this one and `check-vec-field-shape.sh`.
+number. fifty-six gates call `gate_build_axc` now, up from fifty-two —
+this one, `check-vec-field-shape.sh` and, later in this cycle,
+`check-region-escape.sh`.
 
 Why a count and not a timing: `bench-compile.sh` is explicit that a
 wall-clock bound on a shared runner is a flaky test, and the ratio

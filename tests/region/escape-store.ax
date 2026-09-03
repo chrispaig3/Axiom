@@ -1,0 +1,67 @@
+; THE PROGRAM THE ESCAPE RULE EXISTS TO REFUSE, run under a compiler
+; that does not have it. `scripts/check-region-escape.sh` builds that
+; compiler - the tree with `rgnCheckAll` answering 0 - and this file is
+; what it lets through.
+;
+; `put` stores a `@s` string into a `@r` cell: AX3060 from the tree's
+; compiler, at the `set`. Here the two regions are real: `c` is made
+; before an arena mark and the string after it, the mark is reset once
+; the store is done, sixty-four allocations reuse the reclaimed bytes,
+; and `c.s` is read back. Under the ablated compiler that read is of
+; memory the arena has handed out again, and the gate requires it NOT
+; to print `hello` at exit 0 - whatever else it does. Under the tree's
+; compiler the program never builds, which is the point.
+;
+; This is MM-ALLOC-16's program obligation ("after a reset, nothing
+; allocated since the matching mark may be read again") made into a
+; type error rather than a sentence - §2.3 of the design note. The
+; arena primitives are named directly because stage S2's `region`
+; form, which would spell the mark and the reset, is a different
+; track's work.
+(import IO)
+
+(import Mem)
+
+(import Str)
+
+(struct Cell
+  (mut s : String))
+
+(:: put (-> (Cell @r) (String @s) Int))
+
+(fn (put c x)
+  {
+    (set c.s x)
+    0
+  }
+)
+
+(:: burn (-> Int Int))
+
+(fn (burn n)
+  (if (<= n 0)
+    0
+    {
+      (memAlloc 65536)
+      (burn (- n 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (c (Cell "empty"))
+    (m __axiom_arena_mark)
+  )
+    {
+      (put c (strConcat "hel" "lo"))
+      (__axiom_arena_reset m)
+      (burn 64)
+      (println c.s)
+      0
+    }
+  )
+)
