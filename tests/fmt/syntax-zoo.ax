@@ -116,6 +116,13 @@
       (if (> acc 10) acc 0)
     }))
 
+; --- region --------------------------------------------------------
+(:: arenaSum (-> Int Int))
+(fn (arenaSum n)
+  (region r
+    (let ((mut acc 0))
+      { (while (< acc n) (set acc (+ acc 1))) acc })))
+
 ; --- cond ----------------------------------------------------------
 (:: classify (-> Int Int))
 (fn (classify n)

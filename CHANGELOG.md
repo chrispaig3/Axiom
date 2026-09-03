@@ -16,6 +16,94 @@ its changelog too.
 
 ## Unreleased
 
+### `region` returns as a checked scope — S2 of the memory-model v2 design
+
+**`(region r body)` is a keyword again.** It reads the allocator's
+waterline when `body` starts and rolls it back when `body` ends —
+`MM-RGN-1` over the runtime `MM-ALLOC-15`/`16` already specify — and
+answers `body`'s value. `docs/memory-model-v2-design.md` §4's S2 row
+asked for exactly this: mark/reset, names scope-checked, and `AX2004`'s
+false advice deleted. `region` had been refused on the strength of an
+inference that was withdrawn the same month (§1.4), and the advice —
+"lifetimes are inferred" — outlived the model it described in the
+parser, in `explain AX2004`, in README and in reference.md. All four
+say the true thing now, and a `region` at the top level reports
+`AX3027` like any other expression head; the fixture that pinned the
+refusal, `tests/diagnostics/940-removed-region`, is deleted with it. Measured before the change:
+`(region r 0)` in expression position drew `AX3001 undefined variable
+region`, because the `AX2004` arm only ever fired at the top level.
+
+**The mark cell is a stack slot, not the heap cell a hand-written mark
+allocates.** `__axiom_arena_mark` takes its 24 bytes from `axiom_alloc`
+below the waterline it then records, so it is never reclaimed, and a
+mark per loop iteration leaks a cell per iteration into the arena it
+means to keep flat. `emitRegion` loads the three words the mark
+function reads into one hoisted `alloca` per region form and hands that
+to the unchanged `@__axiom_arena_reset_fn`, so `MM-ALLOC-16a`'s
+status-75 walk and `16b`'s status-76 evidence check run as they run
+for a hand-written mark. 2,000 regions of 64 KiB each leave the
+waterline where it was (`tests/stdlib/168-region.ax`, terms 2 and 3),
+and a region inside a live `handle`'s extent still dispatches after
+its reset (term 8).
+
+**Checked, with no types yet — and the two refusals say exactly what a
+scope check can see.** `AX3059 region-escape`: the region's own value
+must be a scalar (`Int`, `Bool`, `Char`, `Float`, `Unit`), because it
+is handed past the reset by value and a `String` is a descriptor over
+a second block; and a `set` inside the region on a binding bound
+outside it must store a scalar, `(set x.f v)` included
+(`tests/diagnostics/631-region-escape.ax`: three rows, and three silent
+shapes beside them written with the same `strConcat`). `AX3058
+region-name-shadowed`: a nested region may not reuse an open name,
+because `MM-RGN-2` orders regions by nesting and a name meaning two
+extents cannot be ordered (`630`; siblings may share one). The node is
+real — `TAG_E_REGION`, the name's span in its third word — rather than
+a `for`-style desugaring, because S3's escape rule has to FIND region
+extents; the checker keeps the stack of open regions S3's `@r` will
+resolve against, and a macro template's own region name is gensymed
+like a `let` binder's.
+
+**What it does not see is written down, not implied.** A call that
+stores a region-allocated reference for you and a raw `Int` that is an
+address are `MM-ALLOC-16`'s program obligation, as for a hand-written
+mark; S3 is what closes them. A region contributes `Alloc` — the
+primitives' row — so a `restrict(no-alloc)` body cannot hold one.
+
+**Byte-identical for everyone else.** A program that writes no
+`region` reaches none of this: the compiler built from the commit
+before and the compiler built from this one emit the same 202,021
+lines for `self_host/main.ax`, byte for byte, and the same IR for
+`tests/stdlib/165-arena-keep.ax`. That is `MM-RGN-4`'s
+one-region-instance claim, measured.
+
+**`scripts/check-region-scope.sh`** holds four things: a no-region
+program emits no region cell and a two-region program emits exactly
+two; 4,000 iterations of a region allocating and filling 64 KiB,
+against the same body with the word deleted, is **185x** on
+peak RSS; 631 and 630 draw exactly their rows; and the ABLATION — a
+compiler rebuilt with `rgTyScalar` answering 1 for every type accepts
+the refused store, and `hello world` written into an outer binding
+from inside a region reads back as `XXXXXXXXXXX`, the string built after
+it, because the waterline was rolled back to exactly where the region
+began and the next descriptor landed on the old one. It calls
+`gate_build_axc`, and the count of gates that do is stated once in
+this section, in the unboxed-sums entry below.
+
+Around the keyword: `axiom fmt` prints it as `while` is printed and
+refuses a second body (`tests/fmt/parity/210`, `211`; the bank is 50
+cases, 25 rewrites and 25 refusals); the tree-sitter grammar has a
+`region_expression` and `region` left `removed_keyword`
+(`tree-sitter-axiom/test/corpus/expressions.txt`, `removed.txt`); the
+LSP offers the keyword and treats its name as a binder in a fix;
+`explain AX3058` and `AX3059` answer. `region` is an ordinary
+identifier off the head of a form (168, term 10).
+
+**Seed skew, and what therefore does not use it yet.** The committed
+seed cannot parse `region`, so nothing in `self_host/` or `stdlib/`
+writes one — land, reseed, then use. The compiler's own per-line
+`checkModule` reset and the pre-forked server's per-request mark are
+the first two candidates once a reseed lands.
+
 ### `Vec` carries its element type, and the port is landed
 
 `stdlib/Vec.ax` handed out a bare `Int` handle. It hands out a
@@ -812,8 +900,9 @@ well by a function that was never emitted).
 `docs/unboxed-sums-design.md` §4 asks for, written first and on
 purpose. It counts the heap blocks an `Option` construction costs **in
 the emitted IR**, for a fixture whose matched lookups are a known
-number. fifty-five gates call `gate_build_axc` now, up from fifty-two —
-this one and `check-vec-field-shape.sh`.
+number. fifty-six gates call `gate_build_axc` now, up from fifty-two —
+this one, `check-vec-field-shape.sh` and, since 2026-09-03,
+`check-region-scope.sh`.
 
 Why a count and not a timing: `bench-compile.sh` is explicit that a
 wall-clock bound on a shared runner is a flaky test, and the ratio

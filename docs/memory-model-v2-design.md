@@ -196,6 +196,15 @@ derived, then withdrew the derivation, and the diagnostic still tells
 every reader who writes `region` that the compiler does the work. The
 question was never re-opened. This note re-opens it.
 
+*Re-opened and answered, 2026-09-03:* `region` is a keyword again — S2
+in §4 — and the advice is gone from the parser, from `explain AX2004`,
+from README and from reference.md alike. One more measurement belongs
+beside the refusal quoted above: it fired only at the TOP level. In
+expression position, where a region belongs, `(region r 0)` drew
+`AX3001 undefined variable region` and a second `AX3001` for `r`, so a
+reader who wrote one where it made sense was never told anything at
+all.
+
 ---
 
 ## 2. The design
@@ -433,7 +442,7 @@ gate below follows it.
 |---|---|---|---|
 | **S0** | **DONE 2026-08-31. Stop emitting the 5,762 no-op releases** on static literals (§1.2) | one compile-time test on the operand's definition; no rule, no type change | `scripts/check-static-release.sh`. 5,762 static releases became **5**, total release sites 10,849 -> 5,117, the compiler binary 5.6% smaller, emitted output byte-identical. The gate ablates `isStaticSentinelNode`'s answer, rebuilds, and requires the count back in the thousands — and asserts separately that a join over a literal still gives its share back, which is the trap the obvious one-line fix falls into |
 | **S1** | **DONE 2026-08-31. `MM-ALLOC-16b` alone** becomes checked, as `16a` did — a reset that would reclaim a live `handle`'s evidence record | one gated call in `resetbody`, one on the unwind walk, and `@__axiom_ev_check` over the effect slots | `tests/stdlib/167-arena-live-handle.ax`, exit **76**. Before: the operation ran off reclaimed memory and the program **exited 0**. The two legal shapes beside it stay silent, and `401-recover-effect.ax` still exits 71 — the recovery path needs no exemption because it restores every slot *before* it resets. Byte-identical IR for a program declaring no effect, `self_host/` included |
-| S2 | `region` returns as a **checked scope with no types yet** — mark/reset, names scope-checked, `AX2004`'s false advice deleted | parser + a scope check; no typechecker change | a value used after its region's reset is refused; ablate by accepting it and reading freed memory, which is §1.4's measured behaviour today |
+| **S2** | **DONE 2026-09-03. `region` returns as a checked scope with no types yet** — mark/reset on a STACK cell, names scope-checked (`AX3058`), `AX2004`'s false advice deleted. "No typechecker change" was wrong as written and is corrected here: without types the checker still has to refuse the two escape channels a scope can see — the region's own value when it is not a scalar, and a `set` on a binding bound outside the region when the stored value is not one — as `AX3059`, or the reset hands a program a dangling descriptor with every gate green | a real node (`TAG_E_REGION`, so S3 can find extents) + the open-region stack + the value/store rule in `typecheck.ax`; `emitRegion` is three loads, one hoisted `alloca` and the existing `@__axiom_arena_reset_fn` | `scripts/check-region-scope.sh`: a no-region program emits no cell; 4,000 × 64 KiB with the region against without is 185x on peak RSS; `tests/diagnostics/631` draws exactly its three rows; and the ABLATION — `rgTyScalar` answering 1 — builds a compiler under which `hello world` stored out of a region reads back as `XXXXXXXXXXX`, the next allocation. `tests/stdlib/168-region.ax` (ten terms). Byte-identical IR for a program with no region, measured against the previous commit's compiler on `self_host/main.ax`: 202,021 lines both ways. NOT done here, by design: a reference leaving a region, which is S3's typed promotion, and the two channels a scope cannot see (a call that stores, a raw `Int`), which stay `MM-ALLOC-16`'s obligation |
 | S3 | Region-parameterised types and `MM-RGN-3` | the real work: typecheck, the witness of §2.5 | `tests/diagnostics/*` per escape shape, plus the two-region corpus sweep of §5 |
 | S4 | Delete ownership traffic the region proves dead | codegen | **re-run §1.1's ablation and expect the binary win with the RSS win intact** — the one measurement that decides whether any of this was worth it |
 | S5 | `__thread_spawn`, and `cgThreads`'s owed body | the primitive, the scan, the thread runtime | `check-thread-local.sh` already exists for the ON path; `check-freestanding` pins tier 1 for everyone else |

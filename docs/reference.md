@@ -285,6 +285,7 @@ which was the retired Rust compiler's lexer rule, and refused
 | `mut` | Marks a `let` binding assignable |
 | `set` | Assign to a `mut` binding |
 | `while` | Loop while a condition holds |
+| `region` | Bracket an allocation scope: `(region r body)` reclaims everything `body` allocated when it ends and answers `body`'s value ([Regions](#regions), since 2026-09-03) |
 | `if` | Conditional expression |
 | `cond` | Multi-branch conditional |
 | `match` | Pattern matching |
@@ -312,7 +313,6 @@ These words still have a rule, and the rule is a refusal (`AX2004`). Using one i
 | Keyword | Replacement |
 |---|---|
 | `union` | Use `data` for a tagged sum or `struct` for a product |
-| `region` | Delete the `region` wrapper; lifetimes are inferred |
 | `foreign` | Write an `extern` block (see below); or use the standard library, which needs no FFI |
 
 ### `extern` — binding Rust
@@ -2832,6 +2832,92 @@ So does everything else that is ABI rather than language. `Sys.Platform` is a ta
 
 Memory comes from the backend's `mmap`-backed bump allocator. There is no `free` to call, and there is no wait for process exit either: every heap block carries a reference count, and a block whose count reaches zero is walked and re-issued from a size class (`docs/memory-model.md` MM-LIFE-2b/2c, `tests/stdlib/359-arc-str-bytes.ax`). Defining `axiom_alloc` yourself does **not** replace the allocator: the name is refused (`AX3026`) — the override seam does not exist. Before that refusal the program passed `check` and failed in `opt` with `invalid redefinition of function 'axiom_alloc'` (`docs/memory-model.md` MM-ALLOC-8).
 
+### Regions
+
+`(region r body)` brackets an **allocation scope**: the allocator's
+waterline is read when `body` starts and rolled back when `body` ends,
+so everything `body` allocated is reclaimed in one pointer move, and
+the form answers `body`'s value.
+
+```scheme
+(fn (serve conn)
+  (let ((mut served 0))
+    {
+      (while (hasRequest conn)
+        (region req
+          {
+            (answer conn (render (parse (readRequest conn))))
+            (set served (+ served 1))
+          }))
+      served
+    }))
+```
+
+Every string the request built dies when `req` ends; `served`, an
+`Int`, is written through. That is the per-request reset
+`docs/memory-model.md` MM-ALLOC-22 measures for the pre-forked server,
+written as a keyword instead of a `__axiom_arena_mark` beside a `let`
+— with one difference that matters in a loop. A hand-written mark
+allocates its 24-byte cell on the heap, below the waterline it then
+records, so the cell is never reclaimed; a region's cell is a stack
+slot (`self_host/codegen.ax`, `emitRegion`), so two thousand
+iterations leave the waterline where they found it
+(`tests/stdlib/168-region.ax`, terms 2 and 3).
+
+This is stage **S2** of [`docs/memory-model-v2-design.md`](memory-model-v2-design.md)
+§4: a *checked scope with no types yet*. What "checked" means today,
+and what it does not, is stated rather than implied:
+
+- **The value must be a scalar.** The form hands `body`'s value past
+  the reset by value, and only an `Int`, `Bool`, `Char`, `Float` or
+  `Unit` survives that: a `String` is a descriptor over a second
+  block, a struct is a block, a closure is a record, and every one of
+  them would point at reclaimed memory. A region answering any other
+  type is `AX3059` at the body
+  (`tests/diagnostics/631-region-escape.ax`). Answer a count, a
+  status or a hash; a reference has to be built outside the region
+  until typed regions (S3) can promote one.
+- **A store out of the region must be a scalar.** `(set x v)` inside
+  the region, where `x` was bound before it opened, is `AX3059` when
+  `v` is not a scalar — and so is `(set x.f v)`, a store into `x`.
+  `(set served (+ served 1))` above is fine, which is what makes a
+  region per loop iteration writable.
+- **A nested region may not reuse an open name.**
+  `(region r (region r ...))` is `AX3058`
+  (`tests/diagnostics/630-region-name-shadowed.ax`): regions are
+  ordered by nesting (MM-RGN-2), and a name that meant two open
+  extents could not be ordered. Two *sibling* regions may share a
+  name. Nothing can refer to a region by name yet; the `@r` in type
+  position that will is S3's, and it resolves against the same stack.
+- **What it does not see.** A call that stores a region-allocated
+  reference for you — `vecPush` onto an outer vector, `memSetWord`
+  into an outer block — and a raw `Int` that is an address are the
+  program's obligation under `docs/memory-model.md` MM-ALLOC-16,
+  exactly as they are for a hand-written mark. S3 is what closes
+  them.
+- **The runtime's traps still fire.** A region's mark is taken inside
+  whatever `handle` extent encloses it, so MM-ALLOC-16b's status-76
+  trap has nothing to say (168, term 8), and nested regions reset
+  innermost-first by construction, so neither does MM-ALLOC-16a's 75.
+  Resetting an *outer* hand-written mark inside a region is the same
+  fault it always was, and traps the same way.
+
+A region contributes `Alloc` to its function's effect row — the row the
+three arena primitives carry, because a reset is heap machinery
+whether or not the body allocated — so a `restrict(no-alloc)` body
+cannot contain one. A program that writes no `region` emits what it
+emitted before this keyword existed: byte-identical IR for the
+compiler's own 202,021 lines, measured against the previous commit's
+compiler, and `scripts/check-region-scope.sh` holds the mechanism
+behind that (no region, no cell), the reclaim as a peak-RSS ratio, the
+fixtures' row counts, and the ablation — with the refusal switched off,
+`hello world` stored into an outer binding from inside a region reads
+back as the string built after it.
+
+`region` is an ordinary identifier off the head of a form, like every
+keyword ([Keywords](#keywords)); `axiom fmt` prints it as `while` is
+printed (`tests/fmt/parity/210-region-head-layout.axp`).
+
 ---
 
 ## Standard Library
@@ -3203,9 +3289,9 @@ effects the way every other function does. `where` went too — it was a
 keyword only inside these two forms, and it is an ordinary identifier
 again.
 
-### `region` — Removed
+### `region` — returned
 
-Reclamation is never written by hand as a region annotation — the chosen automatic strategy is reference counting, and the region-inference sketch that originally justified this sentence is withdrawn (`docs/memory-model.md` MM-LIFE-2a, §3.4). Delete the `region` wrapper and keep its body.
+`region` sat on this list from 2026-08-10 to 2026-09-03, and the advice this section gave — "delete the wrapper; lifetimes are inferred" — described a region-inference sketch that was withdrawn the same month (`docs/memory-model.md` MM-ALLOC-18, §3.4). Inference never replaced the annotation, so the keyword is back as a scope the *program* brackets: see [Regions](#regions). A `(region ...)` at the top level is not a declaration and reports `AX3027` like any other expression head.
 
 ### `foreign` — Removed
 

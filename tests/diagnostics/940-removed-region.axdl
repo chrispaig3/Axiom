@@ -1,1 +1,0 @@
-E AX2004 940-removed-region.ax:1:2-8 removed-construct "`region` is no longer part of Axiom" #"`region` was removed: allocation lifetime is inferred from where a value is created and how far it escapes, not written by hand" ?"delete the `region` wrapper and keep its body; values are dropped deterministically at the end of the arena they belong to"

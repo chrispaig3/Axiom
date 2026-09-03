@@ -1,9 +1,17 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 48 cases: 24 rewrites and 24 refusals, which is why this
+# it formatted at all. 50 cases: 25 rewrites and 25 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# TWO CASES WERE ADDED for the `region` keyword (2026-09-03, S2 of
+# docs/memory-model-v2-design.md). 210 pins `fpRegion`'s head layout - the name
+# on the head line, the one body indented under it, which is `while`'s layout
+# and not the application layout a two-operand unknown head would get. 211 is
+# the REFUSAL: `(region r)` has no body, `fpRegion` answers `fpBad` for any
+# element count but two, and `check` refuses the same form at the parser
+# (AX2001). Regenerating this file for them moved no other case's bytes.
 #
 # TWO CASES CHANGED SIDES on 2026-08-28, the other way round from the three
 # below, and for the same reason - this file records what the formatter DID,
@@ -179,3 +187,16 @@
 )
 ### 196-consume-head-refused.axp (exit 1)
 ### 197-begin-head-refused.axp (exit 1)
+### 210-region-head-layout.axp (exit 0)
+(fn (f xs)
+  {
+    (region r
+      (println 1))
+    (region s
+      {
+        (println 1)
+        (println 2)
+      })
+  }
+)
+### 211-region-arity-refused.axp (exit 1)

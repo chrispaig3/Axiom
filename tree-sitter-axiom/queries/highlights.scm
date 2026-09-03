@@ -147,6 +147,7 @@
   "where"
   "pub"
   "import"
+  "region"
 ] @keyword
 
 [
@@ -160,10 +161,11 @@
 ; ---------------------------------------------------------------
 ; Removed constructs
 ;
-; `union`, `region` and `foreign` parse, so that an editor can mark the
-; dead form as one bounded region instead of showing an anonymous ERROR
-; whose extent depends on where recovery landed. They are highlighted as
-; errors because that is what the compiler reports (`AX2004`).
+; `union` and `foreign` parse, so that an editor can mark the dead
+; form as one bounded region instead of showing an anonymous ERROR
+; whose extent depends on where recovery landed. They are highlighted
+; as errors because that is what the compiler reports (`AX2004`).
+; `region` left this list on 2026-09-03: it is a keyword again, above.
 ; ---------------------------------------------------------------
 
 (removed_keyword) @error

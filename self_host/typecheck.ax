@@ -2303,7 +2303,16 @@
   ; bottom of a chain of ten - `checkOneRestrict` and the seven
   ; `restrictX` checks - and threading a flag through all of them to
   ; read it in one place is more edits and more places to get it wrong.
-  (restrictStrict : Int))
+  (restrictStrict : Int)
+  ; The stack of OPEN `region` forms while a body is checked, one
+  ; `RgEnt` per form, innermost last (`checkRegion`). Appended, for the
+  ; reason every field before it was. It is what S2 scope-checks a
+  ; region NAME against (AX3058) and what tells `checkSet` whether a
+  ; store's target was bound before the innermost region opened
+  ; (AX3059) - and it is the stack S3's `@r` in type position will
+  ; resolve against, which is why it is a real table rather than a
+  ; counter.
+  (regions : (Vec Int)))
 
 ; The module whose body is being checked, or 0 for the
 ; entry file. A bare reference inside it resolves to
@@ -2876,7 +2885,7 @@
       ; missing every alias, and missing it silently.
       (let ((tc 
         (cast Int (TC
-          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0
+          fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          vecNew
         ))
       ))
         {
@@ -6220,14 +6229,18 @@
                     (divTailOk decls (nodeB e) names depth)
                     0
                   )
-                  (if (== tag TAG_E_WHILE)
+                  (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
                     ; A loop whose test cannot become false. Only a
                     ; CONSTANT test is read: `(while true ...)` and
                     ; `(while 1 ...)` are the two spellings of "forever",
                     ; and deciding it for a computed test is the halting
                     ; problem. A loop this cannot prove endless is simply
                     ; not a diverging tail, which is the safe direction.
-                    (divConstTrue (nodeA e))
+                    ; A region diverges exactly when its body does.
+                    (if (== tag TAG_E_REGION)
+                      (divTailOk decls (nodeB e) names depth)
+                      (divConstTrue (nodeA e))
+                    )
                     (if (== tag TAG_E_APP)
                       (if (strEq (divHeadName e) "cast")
                         ; The value being coerced. `(cast a x)` parses as
@@ -7097,6 +7110,259 @@
 )
 
 ; ------------------------------------------------------------------
+; Regions, stage S2 of docs/memory-model-v2-design.md §4: `(region r
+; EXPR)` is a CHECKED SCOPE with no types yet.
+;
+; What the checker does with one, and the two things it refuses:
+;
+;   - It keeps the stack of open regions (`TC` word 35), pushed on
+;     entry and popped on exit. MM-RGN-2 makes nesting the outlives
+;     order, so the stack IS the order, and a nested region that
+;     reuses an enclosing name is refused - AX3058 - because a name
+;     that means two extents cannot be ordered. Nothing can refer to a
+;     region by name yet; the `@r` in type position that will is S3's,
+;     and it resolves against this stack.
+;
+;   - It refuses the two ways a value can leave a region that need no
+;     region TYPES to see - AX3059, `region-escape`:
+;       (a) the region's own VALUE, when its type is not a scalar. The
+;           lowering (`emitRegion`) hands the body's value out past the
+;           reset by VALUE, and only a scalar - Int, Bool, Char, Float,
+;           Unit, `()` - survives that. A `String` is a 24-byte
+;           descriptor over a second block; a struct is a block; a
+;           closure is a record. Every one of them would point into
+;           reclaimed memory.
+;       (b) a `set` inside the region on a binding that was bound
+;           OUTSIDE it, when the stored value is not a scalar. That is
+;           MM-RGN-3's escape rule for the one channel a scope check
+;           can see. `(set i (+ i 1))` on an outer counter is allowed,
+;           which is what makes a region per loop iteration writable.
+;
+; What it does NOT see, stated rather than implied: a call that stores
+; a region-allocated reference into an outer structure (`vecPush`,
+; `memSetWord`), and a raw `Int` that is an address. Both are
+; `MM-ALLOC-16`'s program obligation exactly as they are for a
+; hand-written `__axiom_arena_mark`, and S3's typed regions are what
+; close them. `tests/diagnostics/631-region-escape.ax` holds the
+; refusals, `tests/stdlib/168-region.ax` what passes, and
+; `scripts/check-region-scope.sh` the ablation that shows what (a)
+; and (b) refuse reading freed memory when accepted.
+; ------------------------------------------------------------------
+(pub struct RgEnt
+  (name : Int)
+  (mark : Int)
+  (span : Int))
+
+(pub :: tcRegionsVec (-> Int (Vec a)))
+
+(pub fn (tcRegionsVec tc) (cast (Vec a) (memGetWord tc 35)))
+
+; The innermost open region's index in the stack, or -1 outside any.
+(pub :: rgInner (-> Int Int))
+
+(pub fn (rgInner tc) (- (vecLen (tcRegionsVec tc)) 1))
+
+; The scope length when the innermost region opened, or -1 outside
+; any: a scope entry below it was bound OUTSIDE the region.
+(pub :: rgInnerMark (-> Int Int))
+
+(pub fn (rgInnerMark tc)
+  (if (< (rgInner tc) 0)
+    (- 0 1)
+    (memGetWord (vecGet (tcRegionsVec tc) (rgInner tc)) 1)
+  )
+)
+
+(pub :: rgInnerName (-> Int String))
+
+(pub fn (rgInnerName tc) (memGetWordStr (vecGet (tcRegionsVec tc) (rgInner tc)) 0))
+
+; The index of the open region named `name`, or -1.
+(pub :: rgFind (-> Int String Int))
+
+(pub fn (rgFind tc name) (rgFindFrom (tcRegionsVec tc) name (rgInner tc)))
+
+(pub :: rgFindFrom (-> (Vec Int) String Int Int))
+
+(pub fn (rgFindFrom rs name i)
+  (if (< i 0)
+    (- 0 1)
+    (if (strEq (memGetWordStr (vecGet rs i) 0) name)
+      i
+      (rgFindFrom rs name (- i 1))
+    )
+  )
+)
+
+(pub :: rgPush (-> Int Int Int Int Int))
+
+(pub fn (rgPush tc name mark span)
+  { (vecPush
+    (tcRegionsVec tc)    (cast Int (RgEnt name mark span))
+  ) 0 }
+)
+
+(pub :: rgPop (-> Int Int))
+
+(pub fn (rgPop tc)
+  {
+    (vecPop (tcRegionsVec tc))
+    0
+  }
+)
+
+; Is this a type whose VALUE survives a reset - a word that is not an
+; address? The four scalar constructors, `Unit`, and the empty tuple.
+; A bare type variable answers 0: what it stands for is not known
+; here, and the safe direction is to refuse.
+(pub :: rgTyScalar (-> Int Int Int))
+
+(pub fn (rgTyScalar tc ty0)
+  (let ((ty (tyExpandAliases tc (tyResolve ty0) 0)))
+    (if (== (nodeTag ty) TAG_T_CON)
+      (if (== (vecLen (nodeBVec ty)) 0)
+        (let ((n (nodeAName ty)))
+          (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (strEq n "Unit")))))
+            1
+            0
+          )
+        )
+        0
+      )
+      (if (== (nodeTag ty) TAG_T_TUP)
+        (if (== (vecLen (nodeAVec ty)) 0)
+          1
+          0
+        )
+        0
+      )
+    )
+  )
+)
+
+(pub :: emitRegionShadow (-> Int String Int Int))
+
+(pub fn (emitRegionShadow tc name span)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR      "AX3058"      "region-name-shadowed"      span      (strConcat (strConcat "region `" name) "` is already open: a nested region cannot reuse an enclosing region's name")      0      0      "rename the inner region: regions are ordered by nesting (MM-RGN-2), and a name that means two extents cannot be ordered"      "nothing can refer to a region by name yet; when a `@r` in type position can, this is the ambiguity it must not meet"
+    ) (strConcat (strConcat "`" name) "` is already the name of an enclosing region")))
+    0
+  }
+)
+
+(pub :: emitRegionValueEscape (-> Int String Int Int Int))
+
+(pub fn (emitRegionValueEscape tc name ty span)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR      "AX3059"      "region-escape"      span      (strConcat (strConcat (strConcat (strConcat "region `" name) "` answers a value of type `") (tyRender ty)) "`, which may point into the memory the region reclaims")      0      0      "answer a scalar - Int, Bool, Char, Float or Unit - which survives the reset by value; a reference has to be built outside the region until typed regions (docs/memory-model-v2-design.md §4, S3) can promote one"      "a `String` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory"
+    ) (strConcat (strConcat "this has type `" (tyRender ty)) "`")))
+    0
+  }
+)
+
+(pub :: emitRegionStoreEscape (-> Int String String Int Int Int))
+
+(pub fn (emitRegionStoreEscape tc rname bname ty span)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR      "AX3059"      "region-escape"      span      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" bname) "` is bound outside region `") rname) "`, and the value stored into it has type `") (tyRender ty)) "`")      0      0      "a reference allocated inside the region would outlive it: store a scalar, or bind the target inside the region"      "a store is the one escape channel a scope check can see; a call that stores the value for you is the program's obligation (docs/memory-model.md MM-ALLOC-16) until typed regions"
+    ) "this store leaves the region"))
+    0
+  }
+)
+
+; `set` on the binding at scope index `idx`, inside a region: refused
+; when the target was bound before the innermost region opened and the
+; value is not a scalar. `suppressed` is `checkSet`'s own flag - an
+; AX3012 already reported on this store - and a poisoned value type
+; is silent, the cascade rule.
+(pub :: rgCheckStore (-> Int Int Int Int String Int Int))
+
+(pub fn (rgCheckStore tc idx valTy span bname suppressed)
+  (let ((mark (rgInnerMark tc)))
+    (if (|| (< mark 0) (|| (>= idx mark) (!= suppressed 0)))
+      0
+      (if (|| (== (tyIsErr valTy) 1) (|| (== (tyIsSilentWild valTy) 1) (== (rgTyScalar tc valTy) 1)))
+        0
+        (emitRegionStoreEscape tc (rgInnerName tc) bname valTy span)
+      )
+    )
+  )
+)
+
+; The scope index of the binding at the root of a field path -
+; `a.b.c` is a store into `a` - or -1 when the base is not a name.
+(pub :: rgRootIdx (-> Int Int Int))
+
+(pub fn (rgRootIdx tc e)
+  (if (== (nodeTag e) TAG_E_VAR)
+    (match (scopeFindIdx (tcScopeVec tc) (nodeAName e))
+      ((Some i) i)
+      ((None) (- 0 1))
+    )
+    (if (== (nodeTag e) TAG_E_FIELD)
+      (rgRootIdx tc (nodeA e))
+      (- 0 1)
+    )
+  )
+)
+
+(pub :: rgRootName (-> Int String))
+
+(pub fn (rgRootName e)
+  (if (== (nodeTag e) TAG_E_FIELD)
+    (rgRootName (nodeA e))
+    (nodeAName e)
+  )
+)
+
+(pub :: rgCheckFieldStore (-> Int Int Int Int Int))
+
+(pub fn (rgCheckFieldStore tc base vty span)
+  (let ((idx (rgRootIdx tc base)))
+    (if (< idx 0)
+      0
+      (rgCheckStore tc idx vty span (rgRootName base) 0)
+    )
+  )
+)
+
+; The form itself. The name is checked against the stack BEFORE it is
+; pushed, the body is checked with it open, and the value's type is
+; judged after the pop so a diagnostic about the value names the
+; region that just closed. The form's type is its body's.
+(pub :: checkRegion (-> Int Int Int))
+
+(pub fn (checkRegion tc e)
+  (let ((name (nodeAName e)))
+    {
+      (if (>= (rgFind tc name) 0)
+        (emitRegionShadow tc name (nodeC e))
+        0
+      )
+      (rgPush tc (nodeA e) (vecLen (tcScopeVec tc)) (nodeC e))
+      (let ((bodyTy (checkExprH tc (nodeB e) 0)))
+        {
+          (rgPop tc)
+          (if (|| (== (tyIsErr bodyTy) 1) (|| (== (tyIsSilentWild bodyTy) 1) (== (rgTyScalar tc bodyTy) 1)))
+            0
+            (emitRegionValueEscape
+              tc              name              bodyTy              (if (== (spanOf (nodeB e)) 0)
+                (nodeSpan e)
+                (spanOf (nodeB e))
+              )
+            )
+          )
+          bodyTy
+        }
+      )
+    }
+  )
+)
+
+; ------------------------------------------------------------------
 ; spanOf: stage0's Expr::span(), the anchor for every EXPRESSION-
 ; position diagnostic. An application's span is its ultimate head's;
 ; a field access or field store anchors at its BASE (the field-name
@@ -7740,12 +8006,15 @@
                             (checkExprSeq tc (nodeAVec e) 0 mkUnitTy)
                             (if (== tag TAG_E_MATCH)
                               (checkMatch tc e)
-                              (if (== tag TAG_E_WHILE)
-                                {
-                                  (checkCondBool tc (nodeA e))
-                                  (checkExprSeq tc (nodeBVec e) 0 mkUnitTy)
-                                  mkIntTy
-                                }
+                              (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                                (if (== tag TAG_E_REGION)
+                                  (checkRegion tc e)
+                                  {
+                                    (checkCondBool tc (nodeA e))
+                                    (checkExprSeq tc (nodeBVec e) 0 mkUnitTy)
+                                    mkIntTy
+                                  }
+                                )
                                 (if (== tag TAG_E_SET)
                                   (checkSet tc e)
                                   (if (== tag TAG_E_SETF)
@@ -11049,13 +11318,23 @@
                         (walkEffectsVec
                           tc                          (nodeAVec e)                          0                          bound                          acc
                         )
-                        (if (== tag TAG_E_WHILE)
-                          {
-                            (walkEffects tc (nodeA e) bound acc)
-                            (walkEffectsVec
-                              tc                              (nodeBVec e)                              0                              bound                              acc
-                            )
-                          }
+                        (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                          (if (== tag TAG_E_REGION)
+                            ; The row the three arena primitives carry:
+                            ; a reset ends every block allocated since
+                            ; its mark, which is heap MACHINERY whether
+                            ; or not the body allocated.
+                            {
+                              (effAdd acc (builtinEff "Alloc"))
+                              (walkEffects tc (nodeB e) bound acc)
+                            }
+                            {
+                              (walkEffects tc (nodeA e) bound acc)
+                              (walkEffectsVec
+                                tc                                (nodeBVec e)                                0                                bound                                acc
+                              )
+                            }
+                          )
                           (if (== tag TAG_E_SET)
                             (walkEffects tc (nodeB e) bound acc)
                             (if (== tag TAG_E_FIELD)
@@ -13906,6 +14185,9 @@
               (let ((vty (checkExprH tc (nodeC e) 0)))
                 {
                   (stampFieldStruct e ent)
+                  ; `(set a.b v)` inside a `region` is a store into
+                  ; `a`; the same rule as `checkSet`'s (AX3059).
+                  (rgCheckFieldStore tc (nodeA e) vty (nodeSpan e))
                   ; The MUTABILITY refusal runs beside the type
                   ; check, not instead of it: a write to an
                   ; immutable field with the wrong type is two
@@ -13997,6 +14279,9 @@
                   (emitMismatchTy tc (sEntTy ent) valTy (spanOf (nodeB e)))
                   0
                 )
+                ; Inside a `region`, a store to a binding bound before
+                ; it opened may not carry a reference out (AX3059).
+                (rgCheckStore tc idx valTy (nodeSpan e) name suppressed)
                 (sEntTy ent)
               }
             )
@@ -17531,11 +17816,14 @@
                       }
                       (if (== tag TAG_E_BEGIN)
                         (castScanVec (nodeAVec e) 0 acc)
-                        (if (== tag TAG_E_WHILE)
-                          {
-                            (castScanIn (nodeA e) acc)
-                            (castScanVec (nodeBVec e) 0 acc)
-                          }
+                        (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                          (if (== tag TAG_E_REGION)
+                            (castScanIn (nodeB e) acc)
+                            {
+                              (castScanIn (nodeA e) acc)
+                              (castScanVec (nodeBVec e) 0 acc)
+                            }
+                          )
                           (if (== tag TAG_E_SET)
                             (castScanIn (nodeB e) acc)
                             (if (== tag TAG_E_FIELD)
@@ -17731,11 +18019,14 @@
                       }
                       (if (== tag TAG_E_BEGIN)
                         (wrapScanVec (nodeAVec e) 0 acc)
-                        (if (== tag TAG_E_WHILE)
-                          {
-                            (wrapScanIn (nodeA e) acc)
-                            (wrapScanVec (nodeBVec e) 0 acc)
-                          }
+                        (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                          (if (== tag TAG_E_REGION)
+                            (wrapScanIn (nodeB e) acc)
+                            {
+                              (wrapScanIn (nodeA e) acc)
+                              (wrapScanVec (nodeBVec e) 0 acc)
+                            }
+                          )
                           (if (== tag TAG_E_SET)
                             (wrapScanIn (nodeB e) acc)
                             (if (== tag TAG_E_FIELD)

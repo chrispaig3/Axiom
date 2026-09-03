@@ -1,0 +1,31 @@
+[1;31merror[AX3059][0m[1m: region `r` answers a value of type `String`, which may point into the memory the region reclaims[0m
+  [1;34m--> [0m631-region-escape.ax:48:18
+[1;34m   |[0m
+[1;34m48 |[0m       (region r (strConcat "a" "b"))
+[1;34m   |[0m                  [1;31m^^^^^^^^^ this has type `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma `String` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory
+  [1;34m = [0m[1;32mhelp: [0manswer a scalar - Int, Bool, Char, Float or Unit - which survives the reset by value; a reference has to be built outside the region until typed regions (docs/memory-model-v2-design.md §4, S3) can promote one
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3059` for a full explanation
+
+[1;31merror[AX3059][0m[1m: `out` is bound outside region `s`, and the value stored into it has type `String`[0m
+  [1;34m--> [0m631-region-escape.ax:52:16
+[1;34m   |[0m
+[1;34m52 |[0m           (set out (strConcat "a" "b"))
+[1;34m   |[0m                [1;31m^^^ this store leaves the region[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma store is the one escape channel a scope check can see; a call that stores the value for you is the program's obligation (docs/memory-model.md MM-ALLOC-16) until typed regions
+  [1;34m = [0m[1;32mhelp: [0ma reference allocated inside the region would outlive it: store a scalar, or bind the target inside the region
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3059` for a full explanation
+
+[1;31merror[AX3059][0m[1m: `b` is bound outside region `t`, and the value stored into it has type `String`[0m
+  [1;34m--> [0m631-region-escape.ax:58:18
+[1;34m   |[0m
+[1;34m58 |[0m           (set b.s (strConcat "c" "d"))
+[1;34m   |[0m                  [1;31m^ this store leaves the region[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma store is the one escape channel a scope check can see; a call that stores the value for you is the program's obligation (docs/memory-model.md MM-ALLOC-16) until typed regions
+  [1;34m = [0m[1;32mhelp: [0ma reference allocated inside the region would outlive it: store a scalar, or bind the target inside the region
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3059` for a full explanation
+
+compilation failed due to 3 previous errors

@@ -1,0 +1,77 @@
+; A value leaving the region it was allocated in - AX3059, the two
+; shapes a scope check can refuse without region TYPES.
+;
+; `(region r body)` reclaims, when `body` ends, everything `body`
+; allocated. Anything still pointing into that memory afterwards points
+; at bytes the next allocation hands out again, and reading it does
+; not fail loudly: it answers the NEXT value's bytes.
+; `scripts/check-region-scope.sh` measures exactly that, with the
+; refusal below ablated - `hello world` stored into `out` from inside a
+; region reads back as the string built after it.
+;
+;   (a) the region's own VALUE, when its type is not a scalar. The
+;       lowering hands the value past the reset by value, and only a
+;       scalar survives that; a `String` is a 24-byte descriptor over a
+;       second block. Anchored at the BODY, which is what has to change.
+;   (b) a `set` inside the region on a binding bound OUTSIDE it, when
+;       the stored value is not a scalar. Anchored at the store.
+;   (c) the same through a field path: `(set b.s v)` is a store into
+;       `b`, and `b` was bound outside.
+;
+; The three SILENT shapes below them are the half that must not move:
+; a scalar leaves a region by value, a scalar store to an outer
+; counter is what a region inside a loop needs, and a store to a
+; binding made INSIDE the region dies with it. Each is written with
+; the reference the refused shape carries, so a refusal that keyed on
+; "a `strConcat` appears in the body" would draw three rows too many.
+;
+; Every row is AX3059 with the one slug `region-escape`: a code has one
+; slug, and the message says which shape it was.
+(import IO)
+
+(import Str)
+
+(struct Box
+  (mut s : String))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mut out "")
+    (mut n 0)
+    (b (Box ""))
+  )
+    {
+      ; --- (a) the value ---
+      (region r (strConcat "a" "b"))
+      ; --- (b) a store to an outer binding ---
+      (region s
+        {
+          (set out (strConcat "a" "b"))
+          0
+        })
+      ; --- (c) a store into an outer struct's field ---
+      (region t
+        {
+          (set b.s (strConcat "c" "d"))
+          0
+        })
+      ; --- silent: a scalar leaves ---
+      (println (region u (strLen (strConcat "a" "b"))))
+      ; --- silent: a scalar store to an outer counter ---
+      (region v (set n (+ n (strLen (strConcat "a" "b")))))
+      ; --- silent: a store to a binding made inside ---
+      (region w
+        (let ((mut inner ""))
+          {
+            (set inner (strConcat "x" "y"))
+            (strLen inner)
+          }))
+      (println n)
+      (println (strLen out))
+      0
+    }
+  )
+)

@@ -68,6 +68,8 @@
   [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
   [93mAX3056[0m  a struct field that declares no type  (struct-field-untyped)
   [93mAX3057[0m  a `strict` restriction the effect walk cannot prove  (restriction-unproven)
+  [93mAX3058[0m  a nested region reusing an enclosing region's name  (region-name-shadowed)
+  [93mAX3059[0m  a value leaving the region it was allocated in  (region-escape)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -189,11 +191,15 @@ sequences - so the wrapper is usually just deletable. It is reserved
 rather than left as an ordinary name because an ordinary name draws
 `AX3001 undefined variable begin`, which names no replacement.
 
-`region` is gone because memory is no longer scoped by an explicit
-source-level block. Allocation lifetime is inferred: a value's arena is
-determined by where it is created and how far it escapes, and it is
-dropped deterministically at the end of that arena. Delete the `region`
-wrapper; the body is the program.
+`region` was on this list until 2026-09-03 and is a keyword again:
+`(region r body)` brackets an allocation scope whose memory is
+reclaimed when the body ends (docs/reference.md, Regions). The advice
+this paragraph used to give - that allocation lifetime is INFERRED
+from where a value is created and how far it escapes - described a
+model the language withdrew (docs/memory-model-v2-design.md section
+1.4), which is the one thing a reserved word's advice must not do.
+A `region` at the top level is not a declaration and reports AX3027
+like any other expression head.
 
 `deriving` is refused rather than removed: the clause parsed and was
 silently DISCARDED from the day it was written - its names never
@@ -1746,6 +1752,63 @@ claim as a checked best effort.
 `restrict(...)` and not a restriction, so it is neither checked as
 one nor reported as an unknown name (AX3052).
 
+### explain AX3058
+AX3058 - a nested region reusing an enclosing region's name
+
+`(region r (region r ...))`: the inner `region` is named like an
+enclosing one that is still open.
+
+Regions are ORDERED BY NESTING - an inner region's extent is inside
+its enclosing region's, and that order is the whole of what `outlives`
+means for them (docs/memory-model-v2-design.md MM-RGN-2). A name that
+named two open extents at once could not be placed in that order, so
+the checker keeps the stack of open regions and refuses the reuse
+while the outer one is open. The same name in two SIBLING regions is
+fine: `{ (region r a) (region r b) }` opens and closes each in turn.
+
+Nothing can refer to a region by name yet. When a `@r` in type
+position can (S3 of the same document), it will resolve against the
+stack this rule keeps unambiguous, which is why the rule exists before
+the reference does.
+
+Rename the inner region.
+
+### explain AX3059
+AX3059 - a value leaving the region it was allocated in
+
+`(region r body)` reclaims, when `body` ends, everything `body`
+allocated: the allocator's waterline is read on entry and rolled back
+on exit. Anything still pointing into that memory afterwards points at
+bytes the next allocation will hand out again - reading it is reading
+freed memory, and it does not fail loudly, it answers the NEXT value's
+bytes (`scripts/check-region-scope.sh` measures exactly that, with the
+refusal below ablated).
+
+Two shapes are refused, and they are the two a scope check can see
+without region TYPES:
+
+  - the region's own VALUE, when its type is not a scalar. The value
+    is handed past the reset by value, so an `Int`, `Bool`, `Char`,
+    `Float` or `Unit` survives it and a `String` (a descriptor over a
+    second block), a struct, a `Vec` or a closure does not. Answer a
+    scalar - a count, a status, a hash - and keep the reference's
+    owner outside.
+
+  - a `set` inside the region on a binding that was bound OUTSIDE it,
+    when the stored value is not a scalar: `(let ((mut out "")) (region
+    r (set out (strConcat a b))))` would leave `out` pointing into the
+reclaimed extent. `(set i (+ i 1))` on an outer counter is fine, which
+    is what makes a region per loop iteration writable. A field store
+    `(set o.f v)` is a store into `o` and follows the same rule.
+
+What this does NOT see, stated rather than implied: a CALL that stores
+a region-allocated reference for you - `vecPush` onto an outer vector,
+`memSetWord` into an outer block - and a raw `Int` that is an address.
+Those are the program's obligation under docs/memory-model.md
+MM-ALLOC-16, exactly as they are for a hand-written
+`__axiom_arena_mark`, and typed regions (docs/memory-model-v2-design.md
+section 4, S3) are what close them.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -1927,6 +1990,8 @@ run `axiom explain --list` to see all known codes
   [93mAX3055[0m  an effect operation that declares no type  (effect-op-untyped)
   [93mAX3056[0m  a struct field that declares no type  (struct-field-untyped)
   [93mAX3057[0m  a `strict` restriction the effect walk cannot prove  (restriction-unproven)
+  [93mAX3058[0m  a nested region reusing an enclosing region's name  (region-name-shadowed)
+  [93mAX3059[0m  a value leaving the region it was allocated in  (region-escape)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

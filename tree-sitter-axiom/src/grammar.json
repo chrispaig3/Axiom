@@ -1777,17 +1777,8 @@
       ]
     },
     "removed_keyword": {
-      "type": "CHOICE",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "union"
-        },
-        {
-          "type": "STRING",
-          "value": "region"
-        }
-      ]
+      "type": "STRING",
+      "value": "union"
     },
     "_removed_foreign": {
       "type": "STRING",
@@ -2519,6 +2510,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "region_expression"
+        },
+        {
+          "type": "SYMBOL",
           "name": "set_expression"
         },
         {
@@ -2799,6 +2794,39 @@
               "type": "SYMBOL",
               "name": "_expression"
             }
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "region_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "STRING",
+          "value": "region"
+        },
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_expression"
           }
         },
         {

@@ -616,30 +616,27 @@ module.exports = grammar({
     // -----------------------------------------------------------------
     // Removed constructs
     //
-    // `union`, `region` and `foreign` are no longer part of the language
-    // but remain reserved words, and the compiler reports `AX2004` for
-    // them. They are in the grammar so an editor can mark the whole form
+    // `union` and `foreign` are no longer part of the language but
+    // remain reserved words, and the compiler reports `AX2004` for
+    // them. `region` was the third until 2026-09-03; it is an expression
+    // again (`region_expression` below) and left this list with its
+    // false migration advice. They are in the grammar so an editor can mark the whole form
     // as an error region with a useful name, instead of showing an
     // anonymous ERROR node whose extent depends on where the recovery
     // happened to land.
     // -----------------------------------------------------------------
 
-    // A single rule for both spellings, for the same reason
-    // `type_signature` is a single rule: `(union Value (i : Int))` and
-    // `(region r body)` occupied declaration and expression position
-    // respectively, and two rules whose bodies both start
-    // `'(' removed_keyword` cannot be told apart locally. Nothing is lost -
-    // the point of the node is to give an editor one named, bounded region
-    // to mark, and it does not matter which grammatical category the dead
-    // form used to belong to.
-    //
-    // The body accepts field declarations and expressions, which between
-    // them cover both dead forms: `union`'s `(name : Type)` items and
-    // `region`'s name-plus-body. Accepting bare types as well was tried and
-    // is ambiguous - `[]` is both an empty `list_type` and an empty
+    // One permissive rule, for the reason `type_signature` is one: a
+    // dead form's body has to be swallowed whole, and `(union Value (i :
+    // Int))` sat in declaration position. It accepted `region`'s
+    // name-plus-body too while `region` was dead, and the body still
+    // accepts expressions beside field declarations so that an old
+    // `union` with an expression in it is one bounded node rather than
+    // a cascade. Accepting bare types as well was tried and is
+    // ambiguous - `[]` is both an empty `list_type` and an empty
     // `list_literal`, with nothing in a dead form to disambiguate them -
-    // and it is unnecessary, because the only types that appeared in these
-    // forms were inside field declarations.
+    // and it is unnecessary, because the only types that appeared in
+    // these forms were inside field declarations.
     //
     // Consuming the body at all is the point: an old `union` must be
     // swallowed whole, or recovery ends mid-declaration and the trailing
@@ -670,7 +667,7 @@ module.exports = grammar({
       ),
     ),
 
-    removed_keyword: _ => choice('union', 'region'),
+    removed_keyword: _ => 'union',
     _removed_foreign: _ => 'foreign',
 
     // -----------------------------------------------------------------
@@ -848,6 +845,7 @@ module.exports = grammar({
       $.qualified_identifier,
       $.if_expression,
       $.while_expression,
+      $.region_expression,
       $.set_expression,
       $.cond_expression,
       $.match_expression,
@@ -903,6 +901,20 @@ module.exports = grammar({
       '(', 'while',
       field('condition', $._expression),
       repeat(field('body', $._expression)),
+      ')',
+    ),
+
+    // `(region r body)` - a checked allocation scope, MM-RGN-1 of
+    // docs/memory-model-v2-design.md (S2, 2026-09-03). The name is a
+    // binder and the body is exactly one expression
+    // (`self_host/parser.ax`'s `parseRegionExpr`); a second body is a
+    // parse error in the compiler and is simply not in this grammar's
+    // language either. `region` was a REMOVED keyword until this rule
+    // existed - see `removed_form` above, which no longer names it.
+    region_expression: $ => seq(
+      '(', 'region',
+      field('name', $.identifier),
+      field('body', $._expression),
       ')',
     ),
 
