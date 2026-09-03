@@ -159,39 +159,40 @@ F apply tests/fmt/syntax-zoo.ax:96:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5f
 F literals tests/fmt/syntax-zoo.ax:100:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure #calls=+,<,>
 F counted tests/fmt/syntax-zoo.ax:125:5-12 "(Vec Int -> Int)" @a2afd435642141eb #pure #calls=+,<,Vec$vecGet,Vec$vecLen
-F classify tests/fmt/syntax-zoo.ax:136:5-13 "(Int -> Int)" @0c968703c9c681f5 #calls=<,==
-F area tests/fmt/syntax-zoo.ax:144:5-9 "(Shape -> Int)" @925bb7869087e3f6 #calls=*
-F depth tests/fmt/syntax-zoo.ax:151:5-10 "(Tree Int -> Int)" @bea0e2e519a4f594 #calls=+,depth
-F add2 tests/fmt/syntax-zoo.ax:167:5-9 "(Int -> (Int -> Int))" @09ea3a86d3c3a984 #calls=+
-F ignoresIts tests/fmt/syntax-zoo.ax:170:5-15 "(Int -> (Int -> Int))" @3bd4ee8d4490ed38
-F holeExample tests/fmt/syntax-zoo.ax:173:5-16 "Int" @cf2ca28645662d19 #calls=add2
-F misc tests/fmt/syntax-zoo.ax:179:5-9 "(Rec -> Int)" @a624386346f1362f #calls=+
-F keyword_forms tests/fmt/syntax-zoo.ax:193:5-18 "(Int -> Int)" @81b1a8cbfde09fae #effects=Alloc #calls=+
-F qualified tests/fmt/syntax-zoo.ax:201:5-14 "(Int -> Int)" @6e608b2ecabed39f #effects=Alloc #calls=Mem$memAlloc
-F last tests/fmt/syntax-zoo.ax:205:5-9 "(Int -> Int)" @436b6f6ddf64413b
+F arenaSum tests/fmt/syntax-zoo.ax:135:5-13 "(Int -> Int)" @dc206b96c4c2200d #effects=Alloc #calls=+,<
+F classify tests/fmt/syntax-zoo.ax:142:5-13 "(Int -> Int)" @0c968703c9c681f5 #calls=<,==
+F area tests/fmt/syntax-zoo.ax:150:5-9 "(Shape -> Int)" @925bb7869087e3f6 #calls=*
+F depth tests/fmt/syntax-zoo.ax:157:5-10 "(Tree Int -> Int)" @bea0e2e519a4f594 #calls=+,depth
+F add2 tests/fmt/syntax-zoo.ax:173:5-9 "(Int -> (Int -> Int))" @09ea3a86d3c3a984 #calls=+
+F ignoresIts tests/fmt/syntax-zoo.ax:176:5-15 "(Int -> (Int -> Int))" @3bd4ee8d4490ed38
+F holeExample tests/fmt/syntax-zoo.ax:179:5-16 "Int" @cf2ca28645662d19 #calls=add2
+F misc tests/fmt/syntax-zoo.ax:185:5-9 "(Rec -> Int)" @a624386346f1362f #calls=+
+F keyword_forms tests/fmt/syntax-zoo.ax:199:5-18 "(Int -> Int)" @81b1a8cbfde09fae #effects=Alloc #calls=+
+F qualified tests/fmt/syntax-zoo.ax:207:5-14 "(Int -> Int)" @6e608b2ecabed39f #effects=Alloc #calls=Mem$memAlloc
+F last tests/fmt/syntax-zoo.ax:211:5-9 "(Int -> Int)" @436b6f6ddf64413b
 F log - "(String -> Int)" #effects=Console
 F send - "(Int -> (Int -> Int))" #effects=Wire
 F recv - "(Int -> Int)" #effects=Wire
-F handled tests/fmt/syntax-zoo.ax:216:5-12 "(Int -> Int)" @8aed8da9c866693b #effects=Alloc #calls=log
-F scoped tests/fmt/syntax-zoo.ax:220:5-11 "(Int -> Int)" @456a949d82a7c7bf
-F aBox tests/fmt/syntax-zoo.ax:241:5-9 "Box Int" @06331c8640b36edb #effects=Alloc
+F handled tests/fmt/syntax-zoo.ax:222:5-12 "(Int -> Int)" @8aed8da9c866693b #effects=Alloc #calls=log
+F scoped tests/fmt/syntax-zoo.ax:226:5-11 "(Int -> Int)" @456a949d82a7c7bf
+F aBox tests/fmt/syntax-zoo.ax:247:5-9 "Box Int" @06331c8640b36edb #effects=Alloc
 F store - "(Box Int -> Int)" #effects=Boxes
-F interiors tests/fmt/syntax-zoo.ax:280:5-14 "(*Box Int -> ([Box Int] -> (Box Int -> Int)))" @9ab1e7805f0e9380
-F typed_exprs tests/fmt/syntax-zoo.ax:283:5-16 "(Int -> Int)" @81369cab7bd3cafe #effects=Alloc #calls=+
-F helperD tests/fmt/syntax-zoo.ax:328:5-12 "(Int -> Int)" @882707b1b1adf681
-F zeroParam tests/fmt/syntax-zoo.ax:331:5-14 "Int" @3beac987ddf32d0a
-F bigNums tests/fmt/syntax-zoo.ax:334:5-12 "Int" @dd7253ccf2a8d5b6 #calls=+
-F addTwo tests/fmt/syntax-zoo.ax:337:5-11 "(Int -> (Int -> Int))" @5d1e51e3da8ca0ac #calls=+
-F spine tests/fmt/syntax-zoo.ax:340:5-10 "Int" @b90b9fd2b6072666 #calls=addTwo
-F redundantParens tests/fmt/syntax-zoo.ax:343:5-20 "(Int -> Int)" @1e81a579343438b5
-F oneBlock tests/fmt/syntax-zoo.ax:346:5-13 "(Int -> Int)" @0a7b44cba65e02ae
-F manyBody tests/fmt/syntax-zoo.ax:349:5-13 "(Int -> Int)" @a31645c57f2b7230
-F curried tests/fmt/syntax-zoo.ax:352:5-12 "(Int -> (Int -> Int))" @8e5e55c0dcd4848b
-F unitArg tests/fmt/syntax-zoo.ax:361:5-12 "(() -> Int)" @6cefab6aa3adb3a3
-F integerName tests/fmt/syntax-zoo.ax:364:5-16 "(Int -> Int)" @78077a35b687a150
-F negatives tests/fmt/syntax-zoo.ax:370:5-14 "Int" @c1e7a0698a782505 #calls=+,-
-F splitTags tests/fmt/syntax-zoo.ax:403:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #pure #calls=+
-F restrictedTwice tests/fmt/syntax-zoo.ax:413:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast #calls=*
+F interiors tests/fmt/syntax-zoo.ax:286:5-14 "(*Box Int -> ([Box Int] -> (Box Int -> Int)))" @9ab1e7805f0e9380
+F typed_exprs tests/fmt/syntax-zoo.ax:289:5-16 "(Int -> Int)" @81369cab7bd3cafe #effects=Alloc #calls=+
+F helperD tests/fmt/syntax-zoo.ax:334:5-12 "(Int -> Int)" @882707b1b1adf681
+F zeroParam tests/fmt/syntax-zoo.ax:337:5-14 "Int" @3beac987ddf32d0a
+F bigNums tests/fmt/syntax-zoo.ax:340:5-12 "Int" @dd7253ccf2a8d5b6 #calls=+
+F addTwo tests/fmt/syntax-zoo.ax:343:5-11 "(Int -> (Int -> Int))" @5d1e51e3da8ca0ac #calls=+
+F spine tests/fmt/syntax-zoo.ax:346:5-10 "Int" @b90b9fd2b6072666 #calls=addTwo
+F redundantParens tests/fmt/syntax-zoo.ax:349:5-20 "(Int -> Int)" @1e81a579343438b5
+F oneBlock tests/fmt/syntax-zoo.ax:352:5-13 "(Int -> Int)" @0a7b44cba65e02ae
+F manyBody tests/fmt/syntax-zoo.ax:355:5-13 "(Int -> Int)" @a31645c57f2b7230
+F curried tests/fmt/syntax-zoo.ax:358:5-12 "(Int -> (Int -> Int))" @8e5e55c0dcd4848b
+F unitArg tests/fmt/syntax-zoo.ax:367:5-12 "(() -> Int)" @6cefab6aa3adb3a3
+F integerName tests/fmt/syntax-zoo.ax:370:5-16 "(Int -> Int)" @78077a35b687a150
+F negatives tests/fmt/syntax-zoo.ax:376:5-14 "Int" @c1e7a0698a782505 #calls=+,-
+F splitTags tests/fmt/syntax-zoo.ax:409:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #pure #calls=+
+F restrictedTwice tests/fmt/syntax-zoo.ax:419:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast #calls=*
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option
@@ -203,19 +204,19 @@ C Empty tests/fmt/syntax-zoo.ax:32:4-9 "Shape" #of=Shape
 D Tree tests/fmt/syntax-zoo.ax:34:7-11 "data Tree" @a1a9ddbf67cfeaaf #ctors=Leaf,Node
 C Leaf tests/fmt/syntax-zoo.ax:35:4-8 "Tree a" #of=Tree
 C Node tests/fmt/syntax-zoo.ax:36:4-8 "(Tree a -> (a -> (Tree a -> Tree a)))" #of=Tree
-D Box tests/fmt/syntax-zoo.ax:238:11-14 "data Box" @649cdc153a9e31b4 #ctors=B
-C B tests/fmt/syntax-zoo.ax:239:4-5 "(a -> Box a)" #of=Box
-D Wrapped tests/fmt/syntax-zoo.ax:256:7-14 "data Wrapped" @456b706b2b771a60 #ctors=W
-C W tests/fmt/syntax-zoo.ax:257:4-5 "(Box Int -> Wrapped)" #of=Wrapped
+D Box tests/fmt/syntax-zoo.ax:244:11-14 "data Box" @649cdc153a9e31b4 #ctors=B
+C B tests/fmt/syntax-zoo.ax:245:4-5 "(a -> Box a)" #of=Box
+D Wrapped tests/fmt/syntax-zoo.ax:262:7-14 "data Wrapped" @456b706b2b771a60 #ctors=W
+C W tests/fmt/syntax-zoo.ax:263:4-5 "(Box Int -> Wrapped)" #of=Wrapped
 S Rec tests/fmt/syntax-zoo.ax:55:13-16 "struct Rec" @7e8483a9aaef3fde #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
-S ZooCap tests/fmt/syntax-zoo.ax:246:9-15 "struct ZooCap" @565a8bdeb3d12664 #fields=render:(a -> String)
-S ZooPair tests/fmt/syntax-zoo.ax:249:9-16 "struct ZooPair" @149f38cfa5316df8 #fields=fst:a,snd:b
-S Holder tests/fmt/syntax-zoo.ax:253:9-15 "struct Holder" @39a2b36e5f606cfe #fields=item:Box Int
-S RecTwin tests/fmt/syntax-zoo.ax:394:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
+S ZooCap tests/fmt/syntax-zoo.ax:252:9-15 "struct ZooCap" @565a8bdeb3d12664 #fields=render:(a -> String)
+S ZooPair tests/fmt/syntax-zoo.ax:255:9-16 "struct ZooPair" @149f38cfa5316df8 #fields=fst:a,snd:b
+S Holder tests/fmt/syntax-zoo.ax:259:9-15 "struct Holder" @39a2b36e5f606cfe #fields=item:Box Int
+S RecTwin tests/fmt/syntax-zoo.ax:400:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:26:11-16 "Int" @910ecfbfa27ddde2
-A BoxedCount tests/fmt/syntax-zoo.ax:244:11-21 "Box Int" @ce5c1ba8305ca704
+A BoxedCount tests/fmt/syntax-zoo.ax:250:11-21 "Box Int" @ce5c1ba8305ca704
 M twice tests/fmt/syntax-zoo.ax:93:9-14 "macro twice" @a0ee9867b2571b97
-M defRecTwin tests/fmt/syntax-zoo.ax:386:8-18 "macro defRecTwin" @175bc52ff43ee048
-E Console tests/fmt/syntax-zoo.ax:209:9-16 "effect Console" @5e35620abc5f495d
-E Wire tests/fmt/syntax-zoo.ax:212:9-13 "effect Wire" @f3f0a43895c12689
-E Boxes tests/fmt/syntax-zoo.ax:265:9-14 "effect Boxes" @244d27b945c772d1
+M defRecTwin tests/fmt/syntax-zoo.ax:392:8-18 "macro defRecTwin" @175bc52ff43ee048
+E Console tests/fmt/syntax-zoo.ax:215:9-16 "effect Console" @5e35620abc5f495d
+E Wire tests/fmt/syntax-zoo.ax:218:9-13 "effect Wire" @f3f0a43895c12689
+E Boxes tests/fmt/syntax-zoo.ax:271:9-14 "effect Boxes" @244d27b945c772d1

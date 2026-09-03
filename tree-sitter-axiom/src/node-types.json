@@ -118,6 +118,10 @@
         "named": true
       },
       {
+        "type": "region_expression",
+        "named": true
+      },
+      {
         "type": "removed_form",
         "named": true
       },
@@ -1546,6 +1550,32 @@
     }
   },
   {
+    "type": "region_expression",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "removed_form",
     "named": true,
     "fields": {
@@ -2528,10 +2558,6 @@
   {
     "type": "type_variable",
     "named": true
-  },
-  {
-    "type": "union",
-    "named": false
   },
   {
     "type": "where",

@@ -1904,7 +1904,7 @@
               true
               (if (strEq name "cond")
                 true
-                (if (strEq name "while")
+                (if (|| (strEq name "while") (strEq name "region"))
                   true
                   (if (strEq name "for")
                     true
@@ -3112,6 +3112,40 @@
   )
 )
 
+; `region` prints like `while`: the name on the head line, the one
+; body on its own indented line. Two elements after the head and
+; nothing else is a `region` - the parser takes exactly one body
+; (`self_host/parser.ax`'s `parseRegionExpr`), and a printer that
+; accepted a third would print something `check` then refuses.
+;
+; This exists because the formatter is a SEPARATE grammar that never
+; sees the parser's AST. Measured before it was written: a two-operand
+; unknown head printed as the APPLICATION layout, `(region r\n  { ... })`
+; hanging off the name - idempotent and re-checkable, and wrong for
+; every `region` in the tree. `tests/fmt/parity/210-region-head-layout`
+; holds the bytes.
+(pub :: fpRegion (-> Int Int Int))
+
+(pub fn (fpRegion p n)
+  (let ((elems (fpExprElems n 1)))
+    (if (!= (vecLen elems) 2)
+      (fpBad p)
+      (let ((o (fpOut p)))
+        {
+          (fpP p "(region ")
+          (fpExpr p (vecGet elems 0))
+          (fpP p "\n")
+          (foPushIndent o)
+          (foEmitIndent o)
+          (fpBodyVec p elems 1)
+          (foPopIndent o)
+          (fpP p ")")
+        }
+      )
+    )
+  )
+)
+
 (pub :: fpSet (-> Int Int Int))
 
 (pub fn (fpSet p n)
@@ -3688,8 +3722,11 @@
                         (fpLet p n)
                         (if (strEq h "if")
                           (fpIf p n)
-                          (if (strEq h "while")
-                            (fpWhile p n)
+                          (if (|| (strEq h "while") (strEq h "region"))
+                            (if (strEq h "region")
+                              (fpRegion p n)
+                              (fpWhile p n)
+                            )
                             (if (strEq h "for")
                               (fpFor p n)
                             (if (strEq h "set")
@@ -4416,7 +4453,7 @@
                       (fpAnchor src (fnKid n 2))
                       0
                     )
-                    (if (|| (strEq h "if") (|| (strEq h "while") (|| (strEq h "for") (|| (strEq h "match") (|| (strEq h "handle") (|| (strEq h "consume") (strEq h "::")))))))
+                    (if (|| (strEq h "if") (|| (strEq h "while") (|| (strEq h "for") (|| (strEq h "region") (|| (strEq h "match") (|| (strEq h "handle") (|| (strEq h "consume") (strEq h "::"))))))))
                       (if (> (fnLen n) 1)
                         (fpAnchor src (fnKid n 1))
                         0

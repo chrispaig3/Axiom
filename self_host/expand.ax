@@ -3776,13 +3776,59 @@
                         (nodeAVec tpl)                        params                        args                        ren                        env                        isp
                       )                      0                      0                      isp
                     )
-                    (if (== tag TAG_E_WHILE)
-                      (mkNodeAt
-                        TAG_E_WHILE                        (substTpl
-                          (nodeA tpl)                          params                          args                          ren                          env                          isp
-                        )                        (substVec
-                          (nodeBVec tpl)                          params                          args                          ren                          env                          isp
-                        )                        0                        isp
+                    (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                      (if (== tag TAG_E_REGION)
+                        ; --- `(region r body)`: `r` is a BINDER ------------
+                        ; A macro parameter in that position keeps the
+                        ; caller's name (`expBinderParam`); one the
+                        ; template introduced is gensymed, exactly as a
+                        ; `let`'s is, so a template's `r` never shadows
+                        ; an invocation site's and never draws AX3058
+                        ; against it. The rename is pushed for the body's
+                        ; sake: nothing can spell the name yet, and when
+                        ; S3's `@r` in type position can, the entry is
+                        ; what it will find.
+                        (let (
+                          (mark (vecLen ren))
+                          (pb (expBinderParam
+                            (nodeAName tpl)                            params                            args                            env                            isp
+                          ))
+                        )
+                          (let ((new
+                            (if (!=
+                              (cast Int pb)                              0
+                            )
+                              pb
+                              (expFresh env (nodeAName tpl))
+                            )
+                          ))
+                            {
+                              (if (==
+                                (cast Int pb)                                0
+                              )
+                                (expRenPush ren (nodeAName tpl) new)
+                                ren
+                              )
+                              (let ((body (substTpl
+                                (nodeB tpl)                                params                                args                                ren                                env                                isp
+                              )))
+                                {
+                                  (expTrunc ren mark)
+                                  (mkNodeAt
+                                    TAG_E_REGION                                    new                                    body                                    isp                                    isp
+                                  )
+                                }
+                              )
+                            }
+                          )
+                        )
+                        (mkNodeAt
+                          TAG_E_WHILE                          (substTpl
+                            (nodeA tpl)                            params                            args                            ren                            env                            isp
+                          )                          (substVec
+                            (nodeBVec tpl)                            params                            args                            ren                            env                            isp
+                          )                          0                          isp
+                        )
                       )
                       ; --- `(set name value)`: the name is a REFERENCE ------------
                       (if (== tag TAG_E_SET)
@@ -4242,9 +4288,14 @@
                     (mkNodeAt
                       TAG_E_BEGIN                      (expandVec (nodeAVec e) env bs)                      0                      0                      sp
                     )
-                    (if (== tag TAG_E_WHILE)
-                      (mkNodeAt
-                        TAG_E_WHILE                        (expandExpr (nodeA e) env bs)                        (expandVec (nodeBVec e) env bs)                        0                        sp
+                    (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                      (if (== tag TAG_E_REGION)
+                        (mkNodeAt
+                          TAG_E_REGION                          (nodeA e)                          (expandExpr (nodeB e) env bs)                          (nodeC e)                          sp
+                        )
+                        (mkNodeAt
+                          TAG_E_WHILE                          (expandExpr (nodeA e) env bs)                          (expandVec (nodeBVec e) env bs)                          0                          sp
+                        )
                       )
                       (if (== tag TAG_E_SET)
                         (mkNodeAt

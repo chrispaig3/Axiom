@@ -363,6 +363,28 @@ for, both shapes: a range and a container
             operand: (identifier)))))))
 
 ================================================================
+region: a checked allocation scope, nested
+================================================================
+
+(:: main Int)
+(fn (main)
+  (region r (region s 0)))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    subject: (identifier)
+    type: (builtin_type))
+  (function_definition
+    name: (identifier)
+    body: (region_expression
+      name: (identifier)
+      body: (region_expression
+        name: (identifier)
+        body: (integer_literal)))))
+
+================================================================
 set writes a struct field through a dotted path
 ================================================================
 

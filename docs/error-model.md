@@ -594,7 +594,8 @@ or not at all. `Linear T` *was* a real nominal barrier (`AX3004` against
 enough to build ownership on. Every rule above is correct without
 linearity — which is why the keywords were **refused** rather than left
 reserved-and-inert: they now report `AX2004` with migration advice,
-alongside `union`, `region`, `foreign` and `deriving`. A marker that
+alongside `union`, `foreign` and `deriving` — and `region`, until it
+returned as a checked scope on 2026-09-03. A marker that
 reads as an ownership guarantee and supplies none is worse than no
 marker.
 

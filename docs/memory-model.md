@@ -1681,6 +1681,13 @@ asked which arena a value belongs in; ownership then follows the
 reference wherever it is stored (`MM-LIFE-2c`, events 2 and 6), and
 `region` stays deleted either way.
 
+*Amended 2026-09-03:* `region` is back in the surface syntax, as
+`MM-RGN-1`'s checked scope (`docs/memory-model-v2-design.md` §4, S2)
+— a scope the PROGRAM brackets, which is what §3.4's own verdict asked
+for, and not the annotation this rule said the compiler would derive.
+The sentences above stand for the inferred model; they no longer
+describe the keyword.
+
 **MM-ALLOC-19 (W).** A **self tail call SHALL reset its activation's
 arena to the entry watermark**, and this is the rule that matters. A
 tail-recursive loop never returns, so `MM-ALLOC-17` alone reclaims
@@ -3788,7 +3795,10 @@ than deleted, because the property it protected is still protected and
 the amendment is what says how.
 
 `foreign` remains removed and remains a reserved word reporting
-`AX2004`, as do `union` and `region`. It is not the FFI under a new
+`AX2004`, as does `union`; `region` returned on 2026-09-03 as
+`MM-RGN-1`'s checked scope (`docs/memory-model-v2-design.md` §4, S2),
+a scope the program brackets rather than the annotation this section's
+history refused. It is not the FFI under a new
 name: `foreign` named ONE symbol and emitted a call the emitted module
 never declared, so every program using one passed `check` and died in
 `opt`. The FFI is the `extern` BLOCK (docs/ffi.md), and the entire
@@ -4312,7 +4322,10 @@ may fire, not which arena a value belongs in — and turns
 `MM-ALLOC-21`'s write barrier into an ordinary field-store event
 (`MM-LIFE-2c`). And `region` stays deleted either way: an annotation
 the compiler can derive is one that will eventually disagree with the
-compiler, silently.
+compiler, silently. *Amended 2026-09-03:* the keyword is back as
+`MM-RGN-1`'s checked scope — a scope the program brackets, which is the
+opposite of an annotation the compiler derives, and what this
+paragraph's own verdict asked for.
 
 **Why explicit primitives are the strategy.** This paragraph read "why
 explicit primitives exist anyway", and called `MM-ALLOC-12`–`MM-ALLOC-16`

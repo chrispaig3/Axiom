@@ -1870,13 +1870,15 @@
 ; than a menu quietly behind the language - which is the drift a
 ; hand-kept list of another module's vocabulary otherwise guarantees.
 ;
-; The five the parser names only in order to REFUSE them - `union`,
-; `region`, `foreign` and, since 0.6.0, `trait` and `impl`, whose
-; whole effect is AX2004 - are not offered. Suggesting a word that
-; cannot be used is worse than suggesting nothing. `tests/lsp/drive.py`
-; carries the same five as the exclusion set it subtracts from the
-; parser's `kwEq` sites, and the equality between the two is what
-; `check-lsp-selfhost.sh` asserts.
+; The four the parser names only in order to REFUSE them - `union`,
+; `foreign` and, since 0.6.0, `trait` and `impl`, whose whole effect
+; is AX2004 - are not offered. Suggesting a word that cannot be used
+; is worse than suggesting nothing. `tests/lsp/drive.py` carries the
+; same four as the exclusion set it subtracts from the parser's
+; `kwEq` sites, and the equality between the two is what
+; `check-lsp-selfhost.sh` asserts. `region` was the fifth until
+; 2026-09-03; it is a keyword again (`parseRegionExpr`) and is offered
+; like `while`.
 (pub :: lspKeywords (Vec String))
 
 (pub fn (lspKeywords)
@@ -1900,6 +1902,7 @@
       (vecPush v "macro")
       (vecPush v "match")
       (vecPush v "pub")
+      (vecPush v "region")
       (vecPush v "set")
       (vecPush v "struct")
       (vecPush v "syntax/for")
@@ -3928,11 +3931,16 @@
                 }
                 (if (== tag TAG_E_BEGIN)
                   (lspNavWalkVec nv (nodeAVec e))
-                  (if (== tag TAG_E_WHILE)
+                  (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                    (if (== tag TAG_E_REGION)
+                      ; the name binds no value and nothing can refer
+                      ; to it yet (S3's `@r` will): only the body
+                      (lspNavWalk nv (nodeB e))
                     {
                       (lspNavWalk nv (nodeA e))
                       (lspNavWalkVec nv (nodeBVec e))
                     }
+                    )
                     (if (== tag TAG_E_MATCH)
                       {
                         (lspNavWalk nv (nodeA e))
@@ -7137,11 +7145,14 @@
                 (lspViewHintsVec out src ix fns locals (nodeAVec e) rs re)
                 (if (== tag TAG_E_STRUCTCON)
                   (lspViewHintsVec out src ix fns locals (nodeBVec e) rs re)
-                  (if (== tag TAG_E_WHILE)
+                  (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                    (if (== tag TAG_E_REGION)
+                      (lspViewHintsExpr out src ix fns locals (nodeB e) rs re)
                     {
                       (lspViewHintsExpr out src ix fns locals (nodeA e) rs re)
                       (lspViewHintsVec out src ix fns locals (nodeBVec e) rs re)
                     }
+                    )
                     (if (== tag TAG_E_MATCH)
                       {
                         (lspViewHintsExpr out src ix fns locals (nodeA e) rs re)
@@ -9629,7 +9640,7 @@
         ; but not the arity, so it answers false there rather than
         ; guess; the binder at 1 and the body at 4 are not expressions
         ; evaluated once either.
-        (if (|| (strEq head "let") (|| (strEq head "set") (|| (strEq head "cast") (|| (strEq head "alloc") (strEq head "for")))))
+        (if (|| (strEq head "let") (|| (strEq head "set") (|| (strEq head "cast") (|| (strEq head "alloc") (|| (strEq head "for") (strEq head "region"))))))
           (== k 2)
           (if (strEq head "struct")
             (>= k 2)
@@ -11007,8 +11018,11 @@
     (lspRenderCond e ind)
     (if (== tag TAG_E_SET)
       (lspRenderForm (lspParts3 "set" (lspRenderName (nodeAName e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind)
-      (if (== tag TAG_E_WHILE)
-        (strConcat (strConcat (strConcat "(while " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeBVec e) (+ ind 2))) ")")
+      (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+        (if (== tag TAG_E_REGION)
+          (lspRenderForm (lspParts3 "region" (lspRenderName (nodeAName e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind)
+          (strConcat (strConcat (strConcat "(while " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeBVec e) (+ ind 2))) ")")
+        )
         (if (== tag TAG_E_FIELD)
           (strConcat (strConcat (lspRenderExpr (nodeA e) ind) ".") (nodeBName e))
           (if (== tag TAG_E_SETF)

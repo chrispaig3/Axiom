@@ -74,16 +74,19 @@ const KEYWORD_CONDITIONAL = new Set(['if', 'cond', 'match', 'else'])
 const KEYWORD_PLAIN = new Set([
   'let', 'handle', 'where', 'pub', 'import', 'set', 'while', 'for', 'extern',
   'macro',
+  // `region` returned on 2026-09-03 as a checked allocation scope
+  // (docs/reference.md, Regions); it left REMOVED below the same day.
+  'region',
 ])
 const KEYWORD_MODIFIER = new Set(['alloc', 'sizeof', 'alignof', 'cast', 'mut'])
 
 // Heads the parser refuses with AX2004. highlights.scm captures these as
 // `@error` "because that is what the compiler reports".
 // docs/reference.md, Keywords / Removed Keywords, is the list: union,
-// region, foreign, deriving, linear, consume, begin, and — since
-// 2026-08-31 — trait and impl.
+// foreign, deriving, linear, consume, begin, and — since 2026-08-31 —
+// trait and impl. `region` was on it until 2026-09-03.
 const REMOVED = new Set([
-  'union', 'region', 'foreign', 'deriving',
+  'union', 'foreign', 'deriving',
   'linear', 'consume', 'begin', 'trait', 'impl',
 ])
 

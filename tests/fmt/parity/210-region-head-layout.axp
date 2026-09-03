@@ -1,0 +1,5 @@
+(fn (f xs)
+  {
+    (region r (println 1))
+    (region s { (println 1) (println 2) })
+  })

@@ -1,0 +1,27 @@
+; A nested `region` reusing an enclosing region's name.
+;
+; Regions are ordered by NESTING - MM-RGN-2 of
+; docs/memory-model-v2-design.md: an inner region's extent is inside
+; its enclosing one's, and that is the whole of what "outlives" means
+; for them. A name that named two open extents at once could not be
+; placed in that order, so the checker keeps the stack of open regions
+; (`checkRegion`, `self_host/typecheck.ax`) and refuses the reuse while
+; the outer one is open. Nothing can refer to a region by name yet;
+; when a `@r` in type position can (S3), it resolves against this
+; stack, which is why the rule exists before the reference does.
+;
+; The two SIBLING regions at the end share a name and must be silent:
+; each opens and closes in turn, and the stack never holds both.
+; The anchor is the inner NAME token, not the keyword - the name is
+; what has to change.
+(import IO)
+
+(:: main Int)
+
+(fn (main)
+  {
+    (region r
+      (region r 0))
+    (region s 1)
+    (region s 2)
+  })

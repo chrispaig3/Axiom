@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # fifty-five of the gates below build the compiler under test from
+    # fifty-six of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -327,6 +327,17 @@ jobs:
       # pass vacuously - two of them must read a DIFFERENT number.
       - name: A Vec field maps exactly as the Int it replaces
         run: ./scripts/check-vec-field-shape.sh
+
+      # `(region r body)` is a checked scope: the waterline comes back
+      # when the body ends, the value and every store out of it must
+      # be a scalar (AX3059), a nested region may not reuse an open
+      # name (AX3058), and a program that writes no region emits no
+      # region cell. The gate's fourth check rebuilds the compiler with
+      # the refusal ablated and shows the refused store reading the
+      # next allocation's bytes - what AX3059 stands between a program
+      # and.
+      - name: A region is a checked scope, and the refusal is not vacuous
+        run: ./scripts/check-region-scope.sh
 
       # `tyCompat` compared types and recorded nothing, so a minted
       # placeholder matched anything and went on matching anything.

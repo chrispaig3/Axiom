@@ -1228,8 +1228,10 @@
                           (if (== tg TAG_E_SET)
                             ; `(set k v)` evaluates to `v`, as owned as `v` is
                             (tailOwned cg (nodeB e) params env)
-                            (if (|| (== tg TAG_E_WHILE) (|| (== tg TAG_E_SETF) (== tg TAG_E_STRUCTCON)))
-                              ; words, and a keyword construction born at count 1
+                            (if (|| (== tg TAG_E_WHILE) (|| (== tg TAG_E_SETF) (|| (== tg TAG_E_STRUCTCON) (== tg TAG_E_REGION))))
+                              ; words, and a keyword construction born at count 1;
+                              ; a `region`'s value is a scalar by the checker's
+                              ; rule (AX3059), so it is a word too
                               1
                               (if (== tg TAG_E_ALLOC)
                                 ; `(alloc T n)` is raw memory at count 0 - see `__alloc`
@@ -2333,7 +2335,12 @@
                   (flowStashesVec
                     cg                    (nodeAVec e)                    params                    env                    cell                    0
                   )
-                  (if (== tg TAG_E_WHILE)
+                  (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                    (if (== tg TAG_E_REGION)
+                      ; a `region` body runs exactly once: transparent
+                      (flowStashes
+                        cg                        (nodeB e)                        params                        env                        cell
+                      )
                     ; the condition runs once more than the body, and the
                     ; body may never run: two regions
                     {
@@ -2348,6 +2355,7 @@
                       )
                       (branchLeave cell)
                     }
+                    )
                     (if (== tg TAG_E_LET)
                       {
                         (flowStashes
@@ -2656,12 +2664,17 @@
                           ) (setFlowsArms
                             cg                            name                            (nodeBVec e)                            params                            env                            (flowMask cg (nodeA e) params env)                            0
                           ))
-                          (if (== tg TAG_E_WHILE)
+                          (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                            (if (== tg TAG_E_REGION)
+                              (setFlows
+                                cg                                name                                (nodeB e)                                params                                env
+                              )
                             (| (setFlows
                               cg                              name                              (nodeA e)                              params                              env
                             ) (setFlowsVec
                               cg                              name                              (nodeBVec e)                              params                              env                              0
                             ))
+                            )
                             (if (== tg TAG_E_LAM)
                               (setFlows
                                 cg                                name                                (nodeB e)                                params                                env
@@ -10017,10 +10030,13 @@
                       ; refused the undefined `%__scr.h` - loudly, as the comment
                       ; above promises, and in the program rather than the compiler
                       ; (the QA sweep's refutation pass, 2026-08-21).
-                      (if (== tg TAG_E_WHILE)
+                      (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                        (if (== tg TAG_E_REGION)
+                          (bodyHasMatch (nodeB e))
                         (if (== (bodyHasMatch (nodeA e)) 1)
                           1
                           (bodyHasMatchVec (nodeBVec e))
+                        )
                         )
                         (if (== tg TAG_E_FIELD)
                           (bodyHasMatch (nodeA e))
@@ -10152,12 +10168,18 @@
                       (lowerCondsArms (nodeBVec e) 0)
                       e
                     }
-                    (if (== tag TAG_E_WHILE)
+                    (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                      (if (== tag TAG_E_REGION)
+                        {
+                          (lowerConds (nodeB e))
+                          e
+                        }
                       {
                         (lowerConds (nodeA e))
                         (lowerCondsVec (nodeBVec e) 0)
                         e
                       }
+                      )
                       (if (== tag TAG_E_SET)
                         {
                           (lowerConds (nodeB e))
@@ -10608,7 +10630,7 @@
                               0
                             }
                           )
-                          (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (|| (== tg TAG_E_CHAR) (|| (== tg TAG_E_LAM) (|| (== tg TAG_E_WHILE) (|| (== tg TAG_E_SETF) (== tg TAG_E_STRUCTCON))))))))
+                          (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (|| (== tg TAG_E_CHAR) (|| (== tg TAG_E_LAM) (|| (== tg TAG_E_WHILE) (|| (== tg TAG_E_SETF) (|| (== tg TAG_E_STRUCTCON) (== tg TAG_E_REGION)))))))))
                             0
                             ; a shape the walk does not know answers borrowed
                             {
@@ -13179,8 +13201,11 @@
                             (emitLetM node cg)
                             (if (== tag TAG_E_SET)
                               (emitSet node cg)
-                              (if (== tag TAG_E_WHILE)
-                                (emitWhile node cg)
+                              (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                                (if (== tag TAG_E_REGION)
+                                  (emitRegion node cg)
+                                  (emitWhile node cg)
+                                )
                                 (if (== tag TAG_E_FIELD)
                                   (emitField node cg)
                                   (if (== tag TAG_E_SETF)
@@ -18268,7 +18293,11 @@
                             )
                           )
                         )
-                        (if (== tg TAG_E_WHILE)
+                        (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                          (if (== tg TAG_E_REGION)
+                            (escapes
+                              cg                              name                              (nodeB e)                              vp                              root
+                            )
                           (if (== (escapes
                             cg                            name                            (nodeA e)                            0                            root
                           ) 1)
@@ -18276,6 +18305,7 @@
                             (escapesSeq
                               cg                              name                              (nodeBVec e)                              0                              0                              root
                             )
+                          )
                           )
                           (if (== tg TAG_E_SET)
                             ; a slot store takes no share - of what REACHES the slot:
@@ -18730,10 +18760,13 @@
                       (boundWithin name (nodeB e))
                       (if (|| (== tg TAG_E_BEGIN) (== tg TAG_E_COND))
                         (boundWithinVec name (nodeAVec e) 0)
-                        (if (== tg TAG_E_WHILE)
+                        (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                          (if (== tg TAG_E_REGION)
+                            (boundWithin name (nodeB e))
                           (if (== (boundWithin name (nodeA e)) 1)
                             1
                             (boundWithinVec name (nodeBVec e) 0)
+                          )
                           )
                           1
                         )
@@ -19062,10 +19095,13 @@
                             1
                             (mentionsArms name (nodeBVec e) 0)
                           )
-                          (if (== tg TAG_E_WHILE)
+                          (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                            (if (== tg TAG_E_REGION)
+                              (mentions name (nodeB e))
                             (if (== (mentions name (nodeA e)) 1)
                               1
                               (mentionsVec name (nodeBVec e) 0)
+                            )
                             )
                             (if (== tg TAG_E_LAM)
                               ; a capture takes no share, so any mention counts
@@ -19373,6 +19409,106 @@
             {
               (memSetWord cgB 2 (constStr 0))
               (memSetWord cgB 14 0)
+              cgB
+            }
+          )
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `(region r EXPR)`: read the allocator's waterline, run the body,
+; roll the waterline back, answer the body's value. MM-RGN-1, and
+; docs/memory-model-v2-design.md §2.1 is exact about the runtime: there
+; is none to add. `@__axiom_arena_reset_fn` IS the reset, and it takes
+; a MARK CELL - three words: the bump, its end and the chunk.
+;
+; THE CELL IS A STACK SLOT, NOT THE HEAP CELL A MARK ALLOCATES.
+; `@__axiom_arena_mark_fn` gets its 24 bytes from `axiom_alloc`, below
+; the waterline it then records, so the cell survives its own reset
+; and is never freed: a region per loop iteration would leak a cell
+; per iteration into the arena it exists to keep flat. So the three
+; words are loaded here from the same three globals the mark function
+; reads, into one `alloca` per region form hoisted to the function's
+; entry block like every other alloca (`openAllocaMark`, and the
+; `%__scr.h` scratch is the precedent), and that slot is what the
+; reset is handed. Nothing the reset does changes: MM-ALLOC-16a's
+; status-75 walk and MM-ALLOC-16b's status-76 evidence check run as
+; they run for a hand-written mark, because they read the cell's
+; three words and nothing else. `tests/stdlib/168-region.ax` term 8
+; is a region inside a live `handle`'s extent, the shape 16b traps
+; on when the mark is taken OUTSIDE the extent - the region's mark is
+; inside it, and the operation still dispatches after the reset.
+;
+; THE BODY IS EMITTED IN NON-TAIL POSITION, on purpose. The reset
+; must run after it, so a self call inside a region is a call and not
+; the jump `emitExprTail` would make of it. A body that terminated its
+; own block (word 31: a trap, an abort) gets no reset after the
+; terminator - an instruction after one is not LLVM, and the process
+; is ending anyway.
+;
+; THE VALUE IS THE BODY'S REGISTER, UNCHANGED. The checker refuses a
+; body whose type is not a scalar (AX3059, `checkRegion`), so the word
+; handed past the reset is a word and not an address into what the
+; reset reclaimed. A program that writes no `region` reaches none of
+; this and emits exactly what it emitted before, which is the half of
+; MM-RGN-4 a gate can hold: `scripts/check-region-scope.sh`.
+; ------------------------------------------------------------------
+(pub :: emitRegionCell (-> Int String Int))
+
+(pub fn (emitRegionCell cg cell)
+  (if (< (memGetWord cg 43) 0)
+    (emitLine cg (cat2 (cat2 "  " cell) " = alloca i64, i64 3, align 16"))
+    {
+      (vecPush
+        (memGetWordVec cg 44)        (cast Int (cat2 (cat2 "  " cell) " = alloca i64, i64 3, align 16"))
+      )
+      cg
+    }
+  )
+)
+
+(pub :: emitRegion (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitRegion node cg)
+  (let (
+    (cell (regStr (allocReg cg)))
+    (p1 (regStr (allocReg cg)))
+    (p2 (regStr (allocReg cg)))
+    (br (regStr (allocReg cg)))
+    (er (regStr (allocReg cg)))
+    (kr (regStr (allocReg cg)))
+  )
+    (let (
+      (_0 (emitRegionCell cg cell))
+      (_1 (emitLine cg (cat4 (cat2 "  " p1) " = getelementptr i64, ptr " cell ", i64 1")))
+      (_2 (emitLine cg (cat4 (cat2 "  " p2) " = getelementptr i64, ptr " cell ", i64 2")))
+      (_3 (emitLine cg (cat2 (cat2 "  " br) " = load i64, ptr @__axiom_bump")))
+      (_4 (emitLine cg (cat2 (cat2 "  " er) " = load i64, ptr @__axiom_bump_end")))
+      (_5 (emitLine cg (cat2 (cat2 "  " kr) " = load i64, ptr @__axiom_chunk")))
+      (_6 (emitLine cg (cat4 (cat2 "  store i64 " br) ", ptr " cell "")))
+      (_7 (emitLine cg (cat4 (cat2 "  store i64 " er) ", ptr " p1 "")))
+      (_8 (emitLine cg (cat4 (cat2 "  store i64 " kr) ", ptr " p2 "")))
+      (cgB (emitExpr (nodeB node) cg))
+    )
+      (if (== (memGetWord cgB 31) 1)
+        cgB
+        (let (
+          (val (strDup (memGetWordStr cgB 2)))
+          (flag (memGetWord cgB 14))
+          (ci (regStr (allocReg cgB)))
+          (rr (regStr (allocReg cgB)))
+        )
+          (let (
+            (_9 (emitLine cgB (cat4 (cat2 "  " ci) " = ptrtoint ptr " cell " to i64")))
+            (_10 (emitLine cgB (cat4 (cat2 "  " rr) " = call i64 @__axiom_arena_reset_fn(i64 " ci ")")))
+          )
+            {
+              (memSetWord cgB 2 val)
+              (memSetWord cgB 14 flag)
               cgB
             }
           )
