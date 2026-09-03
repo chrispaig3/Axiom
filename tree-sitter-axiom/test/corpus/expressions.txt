@@ -331,6 +331,38 @@ while loop with a mutable binding and set
             operand: (integer_literal)))))))
 
 ================================================================
+for, both shapes: a range and a container
+================================================================
+
+(:: main Int)
+(fn (main)
+  (let ((v vecNew))
+    (for i 0 3 (for x v (println x)))))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    subject: (identifier)
+    type: (builtin_type))
+  (function_definition
+    name: (identifier)
+    body: (let_expression
+      binding: (let_binding
+        pattern: (identifier)
+        value: (identifier))
+      body: (for_expression
+        binder: (identifier)
+        operand: (integer_literal)
+        operand: (integer_literal)
+        operand: (for_expression
+          binder: (identifier)
+          operand: (identifier)
+          operand: (application
+            operand: (identifier)
+            operand: (identifier)))))))
+
+================================================================
 set writes a struct field through a dotted path
 ================================================================
 

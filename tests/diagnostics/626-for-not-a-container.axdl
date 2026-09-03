@@ -1,0 +1,4 @@
+E AX3004 626-for-not-a-container.ax:37:10-11 type-mismatch "type mismatch: expected Vec _a, found Int" #"this has type `Int`, expected `Vec _a`"
+E AX3004 626-for-not-a-container.ax:37:4-7 type-mismatch "type mismatch: expected Vec _a, found Int" #"this has type `Int`, expected `Vec _a`"
+E AX3004 626-for-not-a-container.ax:42:10-12 type-mismatch "type mismatch: expected Vec _a, found Int" #"this has type `Int`, expected `Vec _a`"
+E AX3004 626-for-not-a-container.ax:42:4-7 type-mismatch "type mismatch: expected Vec _a, found Int" #"this has type `Int`, expected `Vec _a`"

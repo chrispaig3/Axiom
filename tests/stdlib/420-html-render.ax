@@ -236,7 +236,7 @@
       ; --- iteration, with the caller's binder name --------------
       (eq "for binds the caller's name over three items" (rendered b (ul b (for it items (li b (text b it))))) "<ul><li>one</li><li>t&lt;w&gt;o</li><li>three</li></ul>")
       (eq "for over an empty vector writes nothing" (rendered b (ul b (for it none (li b (text b it))))) "<ul></ul>")
-      (eq "forInt over Ints" (rendered b (ol b (forInt k nums (li b (text b (fmtInt k)))))) "<ol><li>1</li><li>2</li></ol>")
+      (eq "for over Ints" (rendered b (ol b (for k nums (li b (text b (fmtInt k)))))) "<ol><li>1</li><li>2</li></ol>")
       ; hygiene: `i` and `n` are the template's names for its counter
       ; and bound; a caller holding its own must still read its own
       (let (

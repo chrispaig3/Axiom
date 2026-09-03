@@ -160,7 +160,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Html`
 
-`stdlib/Html.ax` — 123 public names
+`stdlib/Html.ax` — 118 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -182,9 +182,6 @@ See [reference.md](reference.md) for the language, and
 | `hClose` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | `</tag>`. |
 | `hAttr` | value | `(-> HtmlBuf String String Int)` | `Alloc,Mut` | ` name="value"`, the value escaped for the attribute context. |
 | `hFlag` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | ` name` alone - a boolean attribute such as `disabled`. |
-| `hVecLen` | value | `(-> (Vec a) Int)` |  | The `Vec` length, as the `for` templates name it. This module's own so the templates' free identifiers all resolve here (MAC-HYG-7), and PUBLIC because a template's free identifier is checked for visibility at the INVOCATION: measured, a private `hVecLen` made every `(for ...)` in an importing file `AX3023 private-name Html::hVecLen`. See the header's third point. |
-| `hVecStr` | value | `(-> (Vec a) Int String)` |  | Element `i` of a `Vec` of Strings, as `for` reads it. |
-| `hVecWord` | value | `(-> (Vec Int) Int Int)` |  | Element `i` of a `Vec` of Ints, as `forInt` reads it. |
 | `el` | macro |  |  | `(el b "tag" { children })` - an element with children and no attributes. The builder and the tag are bound first (MAC-SAFE-1): each is mentioned twice in the template. |
 | `elA` | macro |  |  | `(elA b "tag" { attributes } { children })` - an element with an attribute block, written between `<tag` and `>`, then its children. |
 | `elVoid` | macro |  |  | `(elVoid b "tag")` - a void element, `<br>`, with nothing inside and no closing tag. |
@@ -285,8 +282,6 @@ See [reference.md](reference.md) for the language, and
 | `width` | macro |  |  | ` width="..."` |
 | `height` | macro |  |  | ` height="..."` |
 | `target` | macro |  |  | ` target="..."` |
-| `for` | macro |  |  | `(for x xs body)` - `body` once per element of the `Vec` of Strings `xs`, with `x` bound to each. `x` is the CALLER's name (MAC-HYG-10); `i`, `n` and `v` are the template's and are renamed, so a body that mentions `i` means its own. Answers 0. `vecGetStr` rather than `vecGet`, because a value out of the polymorphic accessor has no named type and reaches MAC-CAP-10.6's AX3025 the moment a body interpolates it. |
-| `forInt` | macro |  |  | `(forInt x xs body)` - the same over a `Vec` of Ints, `x` bound to each word. |
 
 ## `Http`
 

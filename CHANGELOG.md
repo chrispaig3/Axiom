@@ -16,6 +16,121 @@ its changelog too.
 
 ## Unreleased
 
+### `for` is a keyword, and it has two shapes
+
+**`(for i lo hi body)` counts `[lo, hi)`; `(for x xs body)` binds `x`
+to each element of a `(Vec a)`.** One keyword, told apart by ARITY —
+three operands after the binder is the range, two is the container —
+because a parser knows no types and arity is the only discriminator it
+has. That forces exactly ONE body expression: a variadic body would
+make `(for x xs a b)` ambiguous with the range, so `{ ... }` sequences
+several, and a fifth element is `AX2001` naming both shapes
+(`tests/diagnostics/625-for-shape`). Both shapes answer `0`, as `while`
+does. `tests/stdlib/466-for-loop.ax` pins twelve terms and its header
+says what each establishes; `docs/reference.md` documents both shapes
+in a section of their own under Let Bindings.
+
+**A keyword and not a macro, and `stdlib/Pre.ax`'s `range` header
+recorded why before this existed.** An expression macro has exactly one
+shape (`MAC-LANG-14` — the rule form's templates are declarations), and
+`for` needs two. Measured then, they could not even coexist as two
+macros: `Html.ax` exported its own `(for x xs body)`, and a program
+importing it beside a range `for` resolved to Html's and answered
+`AX3001: undefined variable i` in the body rather than an ambiguity at
+the import. The container half additionally needed an ELEMENT type,
+which is `docs/generics-design.md` §5 item 6 waiting on item 5 — and
+item 5 landed in the entry below this one.
+
+**Desugared in the parser into nodes that already exist** —
+`parseForExpr` in `self_host/parser.ax` emits `let`/`while`/`set` —
+so no AST tag was added and `expand.ax`, `typecheck.ax`, `codegen.ax`
+and `lsp.ax` did not move. The IR a `for` emits is by construction the
+hand-written loop's: measured on a range over `println` against the
+`let`/`while`/`set` it stands for, **byte-identical at 1,196 lines**.
+Both ends are bound BEFORE the loop — the range's `lo` and `hi`, the
+container and its length — so a body that pushes onto the very vector
+the bound came from still runs its entry count (466 terms 4 and 5; the
+`while` shape this replaces re-reads `(vecLen xs)` every iteration and
+runs until memory is gone).
+
+**Hygiene without a renamer.** The desugaring binds `for$lo`, `for$n`,
+`for$i` and `for$v`, and `$` is `AX1001 unexpected character` inside an
+identifier, so a user cannot write or capture them — 466 term 6 binds a
+caller's own `i`, `n` and `v` around both shapes and prints them after.
+The element read is the MANGLED `Vec$vecGet`/`Vec$vecLen`, the spelling
+`mangledFromChain` gives `Vec::vecGet`, for the reason `MAC-CAP-10.5`
+records: a bare `vecLen` in a generated body IS captured by an entry
+file's own function of that name. Term 12 and
+`tests/diagnostics/626-for-not-a-container` both declare a `vecLen`
+answering 99, and the loop runs twice. A tree with no path to `Vec` at
+all gets `AX3001 undefined variable Vec::vecLen` at the `for`, which is
+a diagnostic rather than a silence.
+
+**A non-container is refused at the USER's expression.** `(for x n
+body)` over an `Int` underlines `n`, not the word `for`: `AX3004
+expected Vec _a, found Int`, two rows per site because the desugaring
+reads the container twice and the checker does not poison a binding
+after one bad use. The second row deliberately carries the keyword's
+span — measured, two rows with the same message at the same span read
+as a compiler bug rather than as two uses (626, four rows).
+
+**`stdlib/Html.ax`'s `for` and `forInt` macros, and the three helpers
+`hVecLen`, `hVecStr` and `hVecWord` that existed only to SPELL their
+element reads, are deleted**, and not one call site moved: a keyword
+head wins over a macro of the same name with no diagnostic at all
+(measured — `(macro (for a b c d) 42)` then `(for k 0 2 0)` answers
+`0`), and the rendered bytes of `tests/stdlib/420-html-render.ax` are
+unchanged, `forInt over Ints` now reading `for over Ints` with the
+same `<ol>`. `examples/web/server.ax`'s `(for it items ...)` is
+untouched. `compat/BREAKING` declares five removals under 0.6.4: the
+three `hVec*` rows now say REMOVED rather than retyped, and the two
+macros have rows of their own — AXSYM emits a macro as kind `M`, 114
+of them in the 0.5.0 baseline, so a deleted macro is a break the gate
+sees rather than one it has to be told about.
+
+**`showResolve` read a placeholder instead of resolving it, and the
+container loop is what exposed it.** An un-annotated `let` over a
+container binds its element to a fresh var that pinning later BINDS
+(`scripts/check-type-pinning.sh`); the `show` lowering read the
+placeholder itself, saw `TAG_T_VAR`, and answered `AX3025 its type is a
+type variable` about a type that was not a variable any more —
+measured, `(strLen y)` type-checked and `(println y)` on the SAME
+binding one line above was refused. It resolves first now
+(`tyResolve`, which walks BOUND placeholders only, so an unbound var
+still reaches every refusal in `tests/diagnostics/620-show-refusals`).
+Inert on the tree: `axiom emit-llvm self_host/main.ax` byte-identical at
+202,021 lines, zero diagnostic movement over 256 corpus files. 466
+term 7 is the fixture — `(println s)` directly on a `(Vec String)`'s
+element.
+
+**The formatter is a separate grammar and had to learn the head.**
+Before `fpFor`, a four-operand unknown head with a `{ }` body printed
+as the APPLICATION layout — idempotent, re-checkable, and wrong for
+every `for` in the tree. It prints like `while` now, the head line
+carrying everything the loop is controlled by and the one body indented
+under it (`tests/fmt/parity/198-for-head-layout.axp`), and `for` in
+parameter, binder, pattern and argument position prints as the
+identifier it is (`199-for-arg-position.axp`). The parity bank is 50
+cases, 26 rewrites and 24 refusals, up from 48; regenerating it moved
+no other case's bytes. `tests/fmt/syntax-zoo.ax` carries both shapes.
+
+**Tree-sitter** gains `for_expression` — binder, two operands and an
+optional third, which is how one rule covers both shapes — and a
+`@keyword.repeat` group holding `while` and `for`, `while` having been
+missing from `highlights.scm` until the group existed. The corpus pins
+a range nested over a container. `check-tree-sitter` parses every `.ax`
+in the tree with it.
+
+**What is NOT done, stated rather than implied.** `self_host/` and
+`stdlib/` do not USE `for`. The compiler's own sources are built by the
+committed seed, which does not know the keyword, and `scripts/reseed.sh`
+states the order: land the construct, reseed, THEN use it. So `range`
+stays in the prelude — its template is what the keyword's range shape
+mirrors, binding for binding — and `self_host/symbols.ax` still spells
+its one loop with it. The reseed and the migration of the hand-written
+`while` loops (about a hundred, per `range`'s header) are the next
+commits, not this one.
+
 ### `Vec` carries its element type, and the port is landed
 
 `stdlib/Vec.ax` handed out a bare `Int` handle. It hands out a

@@ -1,0 +1,33 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Int[0m
+  [1;34m--> [0m626-for-not-a-container.ax:37:10
+[1;34m   |[0m
+[1;34m37 |[0m   (for x n
+[1;34m   |[0m          [1;31m^ this has type `Int`, expected `Vec _a`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Int[0m
+  [1;34m--> [0m626-for-not-a-container.ax:37:4
+[1;34m   |[0m
+[1;34m37 |[0m   (for x n
+[1;34m   |[0m    [1;31m^^^ this has type `Int`, expected `Vec _a`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Int[0m
+  [1;34m--> [0m626-for-not-a-container.ax:42:10
+[1;34m   |[0m
+[1;34m42 |[0m   (for x xs
+[1;34m   |[0m          [1;31m^^ this has type `Int`, expected `Vec _a`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Int[0m
+  [1;34m--> [0m626-for-not-a-container.ax:42:4
+[1;34m   |[0m
+[1;34m42 |[0m   (for x xs
+[1;34m   |[0m    [1;31m^^^ this has type `Int`, expected `Vec _a`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 4 previous errors

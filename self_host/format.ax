@@ -1906,6 +1906,8 @@
                 true
                 (if (strEq name "while")
                   true
+                  (if (strEq name "for")
+                    true
                   (if (strEq name "set")
                     true
                     (if (strEq name "struct")
@@ -1925,6 +1927,7 @@
                                   (if (strEq name "::")
                                     true
                                     false
+                                  )
                                   )
                                 )
                               )
@@ -3064,6 +3067,51 @@
   )
 )
 
+; `for` prints like `while`: the head line carries everything the loop
+; is CONTROLLED by, and the body goes on its own indented line. Three
+; elements after the head is the container form `(for x xs body)`, four
+; is the range `(for i lo hi body)`, and nothing else is a `for` - the
+; parser discriminates the two by exactly this arity
+; (`self_host/parser.ax`'s `parseForExpr`), and a printer that accepted
+; a fifth element would print something `check` then refuses.
+;
+; This exists because the formatter is a SEPARATE grammar that never
+; sees the parser's AST. Measured before it was written: a four-operand
+; unknown head with a `{ }` body printed as the APPLICATION layout,
+; `(for\n  i      0      5      {` - idempotent and re-checkable, and
+; wrong for every `for` in the tree. `tests/fmt/parity/198-for-head-layout`
+; holds the bytes.
+(pub :: fpFor (-> Int Int Int))
+
+(pub fn (fpFor p n)
+  (let ((elems (fpExprElems n 1)))
+    (if (|| (< (vecLen elems) 3) (> (vecLen elems) 4))
+      (fpBad p)
+      (let ((o (fpOut p)))
+        {
+          (fpP p "(for ")
+          (fpExpr p (vecGet elems 0))
+          (fpP p " ")
+          (fpExpr p (vecGet elems 1))
+          (if (== (vecLen elems) 4)
+            {
+              (fpP p " ")
+              (fpExpr p (vecGet elems 2))
+            }
+            p
+          )
+          (fpP p "\n")
+          (foPushIndent o)
+          (foEmitIndent o)
+          (fpBodyVec p elems (- (vecLen elems) 1))
+          (foPopIndent o)
+          (fpP p ")")
+        }
+      )
+    )
+  )
+)
+
 (pub :: fpSet (-> Int Int Int))
 
 (pub fn (fpSet p n)
@@ -3642,6 +3690,8 @@
                           (fpIf p n)
                           (if (strEq h "while")
                             (fpWhile p n)
+                            (if (strEq h "for")
+                              (fpFor p n)
                             (if (strEq h "set")
                               (fpSet p n)
                               (if (strEq h "cond")
@@ -3763,6 +3813,7 @@
                                   )
                                 )
                               )
+                            )
                             )
                           )
                         )
@@ -4365,7 +4416,7 @@
                       (fpAnchor src (fnKid n 2))
                       0
                     )
-                    (if (|| (strEq h "if") (|| (strEq h "while") (|| (strEq h "match") (|| (strEq h "handle") (|| (strEq h "consume") (strEq h "::"))))))
+                    (if (|| (strEq h "if") (|| (strEq h "while") (|| (strEq h "for") (|| (strEq h "match") (|| (strEq h "handle") (|| (strEq h "consume") (strEq h "::")))))))
                       (if (> (fnLen n) 1)
                         (fpAnchor src (fnKid n 1))
                         0

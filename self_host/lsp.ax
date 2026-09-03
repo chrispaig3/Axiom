@@ -1891,6 +1891,7 @@
       (vecPush v "effect")
       (vecPush v "extern")
       (vecPush v "fn")
+      (vecPush v "for")
       (vecPush v "handle")
       (vecPush v "if")
       (vecPush v "import")
@@ -3317,9 +3318,38 @@
 (pub :: lspNavEmitBinder (-> Int String Int String Int Int Int))
 
 (pub fn (lspNavEmitBinder nv name span key bkind idx)
-  (if (|| (== span 0) (strEq name "_"))
+  (if (|| (== span 0) (|| (strEq name "_") (>= (strFindByte name 36 0) 0)))
     0
     (lspNavEmit nv name span NAV_BINDER key bkind idx)
+  )
+)
+
+; A name the user CANNOT have written is a desugaring's, and it has no
+; occurrence: `$` is AX1001 inside an identifier, so a binder holding
+; one - `for$v`, `for$i`, `for$n`, `for$lo`, which `parseForExpr`
+; binds around a loop with the KEYWORD's span - was never in the
+; document. Emitted, it sat on the word `for`: measured before this
+; guard, `prepareRename` at the keyword answered the placeholder
+; `for$v`, and applying it would have rewritten the keyword's bytes.
+; The binder is still PUSHED on the scope stack by its walker, so the
+; desugaring's own reads resolve as they did; those reads are dropped
+; by `lspNavRef` under the rule below.
+;
+; The same question for a REFERENCE cannot be asked of the name alone,
+; because a user's `Vec::vecLen` reaches here as `Vec$vecLen` too. It
+; is asked of the BYTES: a qualified reference the user wrote has its
+; last segment in the document at the span `lspNavQualSpan` finds, and
+; a reference the parser made up does not - `Vec$vecLen` and `for$v`
+; sit on `for`, or on the container expression `(for x XS body)` reads
+; its length from. A macro template's free identifier rewritten to
+; `Html$hAttr` (MAC-HYG-7) keeps its own span, which spells `hAttr`,
+; so it stays.
+(pub :: lspNavSpells (-> String Int String Bool))
+
+(pub fn (lspNavSpells src sp name)
+  (if (== sp 0)
+    true
+    (strEq (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp))) name)
   )
 )
 
@@ -3985,12 +4015,24 @@
 (pub fn (lspNavRef nv name span role)
   (if (strEq name "_")
     0
-    (let ((key (lspNavResolve nv name)))
-      (lspNavEmit
-        nv        (bareOf name)        (if (>= (strFindByte name 36 0) 0)
-          (lspNavQualSpan (memGetWordStr nv 0) span)
-          span
-        )        role        key        0        0
+    (if (== (strFindByte name 36 0) (- 0 1))
+      ; The bytes decide here too. `parseForExpr` builds `(< for$i
+      ; for$n)` and `(+ for$i 1)` with the KEYWORD's span on `<` and
+      ; `+`, so that a type error in a bound reports at the loop;
+      ; emitted, those two sat on the word `for` and `documentHighlight`
+      ; there answered every `for` in the document (measured: two
+      ; loops, two highlights, while `while` answered null).
+      (if (lspNavSpells (memGetWordStr nv 0) span name)
+        (lspNavEmit nv name span role (lspNavResolve nv name) 0 0)
+        0
+      )
+      ; Qualified, or made up by the parser: the bytes decide, see
+      ; `lspNavSpells`.
+      (let ((qs (lspNavQualSpan (memGetWordStr nv 0) span)))
+        (if (lspNavSpells (memGetWordStr nv 0) qs (bareOf name))
+          (lspNavEmit nv (bareOf name) qs role (lspNavResolve nv name) 0 0)
+          0
+        )
       )
     )
   )
@@ -9579,7 +9621,15 @@
       false
       (if (|| (strEq head "if") (|| (strEq head "match") (|| (strEq head "&&") (strEq head "||"))))
         (== k 1)
-        (if (|| (strEq head "let") (|| (strEq head "set") (|| (strEq head "cast") (strEq head "alloc"))))
+        ; `for` is here with `let`: `(for x XS body)` and `(for i LO hi
+        ; body)` both evaluate their SECOND item exactly once, before the
+        ; loop, because the parser hoists it into `for$v`/`for$lo`
+        ; (`parseForExpr`). The third is `hi` in one shape and the BODY
+        ; in the other, and this predicate sees the head and the index
+        ; but not the arity, so it answers false there rather than
+        ; guess; the binder at 1 and the body at 4 are not expressions
+        ; evaluated once either.
+        (if (|| (strEq head "let") (|| (strEq head "set") (|| (strEq head "cast") (|| (strEq head "alloc") (strEq head "for")))))
           (== k 2)
           (if (strEq head "struct")
             (>= k 2)

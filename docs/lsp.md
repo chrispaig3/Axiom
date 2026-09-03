@@ -561,7 +561,17 @@ open document whose imports resolve to this file, each under its own
 URI, and honours `includeDeclaration`; it does not open files the
 editor has not, so a reference in a closed module is not listed.
 `documentHighlight` is the same set within one document, with the
-binder as the `Write` kind and reads as `Read`. The gate derives every
+binder as the `Write` kind and reads as `Read`. A form the parser
+DESUGARS contributes only what the user wrote: a binder whose name
+holds `$` — `for$v`, `for$i`, unwritable by AX1001 — is never
+recorded, and a reference is recorded only where the document's bytes
+at its span spell its bare name, which drops the loop's `Vec$vecGet`
+read and the `<`/`+` it emits on the keyword while keeping a user's
+`Vec::vecLen` and a template's `Html$hAttr`. So `documentHighlight`
+and `prepareRename` at the word `for` answer `null`, as at `while`;
+before that rule, `prepareRename` there answered the placeholder
+`for$v` with the keyword's own range, and highlight listed ten
+occurrences the document does not contain. The gate derives every
 expected `Location` from documents the driver writes — a parameter
 with and without its declaration, a `let` from its read, a type in a
 signature, a struct field and an alias — and the changelog's review
@@ -747,7 +757,13 @@ of a `{ }` block, else the fn body; it becomes `(let ((x E)) S')` with
 document does not spell. It is refused wherever hoisting would change
 how often or whether `E` runs — under a `lambda`, `while`, `cond` or
 `handle`, in a branch of an `if` or an arm of a `match` (the test and
-the scrutinee are fine), in a head position or a binding list — and
+the scrutinee are fine), in a head position or a binding list, and
+past the first operand of a `for`: the container, or a range's start,
+is hoisted into a binding the loop reads once and stays extractable,
+while the third item is `hi` in one shape and the body in the other
+and the rule sees the head and the position but not the arity, so it
+is refused in both (measured before the rule: extraction was offered
+on a per-iteration `(mk 5)` in a `for` body) — and
 whenever `E` references a binder bound inside the statement. What it
 changes on purpose: `E` now runs before whatever the statement
 evaluated ahead of it. This request runs the pipeline for the

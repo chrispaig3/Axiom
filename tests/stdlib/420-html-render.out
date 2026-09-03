@@ -9,7 +9,7 @@ ok   el and elVoidA reach a tag outside the table
 ok   void elements close nothing
 ok   for binds the caller's name over three items
 ok   for over an empty vector writes nothing
-ok   forInt over Ints
+ok   for over Ints
 ok   a caller's i and n survive the loop template
 ok   a component is a function taking the builder
 ok   when, taken

@@ -1389,7 +1389,9 @@ came from `syntax/join` has **no source spelling**, so it records no
 span and `axiom symbols` reports it positionless rather than claiming
 bytes that spell something else.
 
-`syntax/for` and `syntax/fold` are the only constructs that turn a
+`syntax/for` is the rule form's binding syntax and is unrelated to the
+expression keyword `for` of 2026-09-03, which is a loop over values
+at run time and not over declarations at expansion time. `syntax/for` and `syntax/fold` are the only constructs that turn a
 query's *sequence* answer into repeated output, and both are bounded by
 the length of that sequence — which is a property of the program's
 declarations, not of anything a macro computes. That is what keeps
@@ -2605,10 +2607,18 @@ rule:
   where its parameter stands. Children are a `{ ... }` block, which
   `MAC-CAP-1` admits as a template form and the parser admits as an
   argument, so a fixed-arity macro takes any number of them.
-- **`MAC-HYG-10`** is what makes `(for it items body)` writable: `it`
-  is a parameter in binder position and keeps the caller's spelling,
-  while the template's `i` and `n` are renamed (`MAC-HYG-3`) — 420's
-  hygiene check surrounds a `for` with a caller's own `i` and `n`.
+- **`MAC-HYG-10`** is what MADE `(for it items body)` writable while
+  the loop was this module's macro: `it` was a parameter in binder
+  position and kept the caller's spelling, while the template's `i`
+  and `n` were renamed (`MAC-HYG-3`). Since 2026-09-03 `for` is a
+  language KEYWORD (`docs/reference.md`, "`for` — the counted loop
+  and the container loop") and the module's two loop macros are
+  deleted; the keyword needs neither rule, because its binders are
+  `for$i`, `for$n` and `for$v`, and `$` is `AX1001` inside an
+  identifier, so nothing a caller writes can collide with them. 420's
+  hygiene check — a `for` surrounded by a caller's own `i` and `n` —
+  still holds, and now holds for that reason. `MAC-HYG-10` itself is
+  unchanged and `Err.ax`'s `try!` still depends on it.
 - **`MAC-HYG-6`/`MAC-HYG-7`** resolve every helper a template names at
   the definition site, and the module keeps a rule because of it:
   every such helper is declared in `Html.ax` — and declared `pub`,

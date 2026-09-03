@@ -9264,43 +9264,59 @@
 
 (pub :: showResolve (-> Int Int Int Int Int Int))
 
-(pub fn (showResolve tc e head arg at)
-  (if (== at 0)
-    (showUnknownDiag tc arg at)
-    (if (== (tyIsErr at) 1)
-      ; poison: a diagnostic about this argument has already been
-      ; reported (the cascade rule)
-      0
-      (let ((ty (tyExpandAliases tc at 0)))
-        (if (!= (nodeTag ty) TAG_T_CON)
-          (if (== (nodeTag ty) TAG_T_VAR)
-            (showUnknownDiag tc arg ty)
-            (- 0 1)
-          )
-          (if (== (showTyGround ty) 0)
-            (showUnknownDiag tc arg ty)
-            (let ((n (nodeAName ty)))
-              (if (strEq n "String")
-                (showSplice e arg)
-                (if (strEq n "Bool")
-                  (showSpliceBool e arg)
-                  (if (strEq n "Int")
-                    (showRewriteTo
-                      tc                      head                      "Fmt"                      "fmtInt"                      (spanOf e)
-                    )
-                    (if (strEq n "Float")
+(pub fn (showResolve tc e head arg at0)
+  ; RESOLVE FIRST. `at0` is whatever `checkExprH` probed, and that is
+  ; routinely a MINTED PLACEHOLDER that is already BOUND - an
+  ; un-annotated `let` over a container binds its element to a fresh
+  ; var and pinning later binds that var to the element type
+  ; (`scripts/check-type-pinning.sh`). This function read the
+  ; placeholder itself, saw TAG_T_VAR, and answered AX3025 "its type is
+  ; a type variable" about a type that was not a variable any more:
+  ; measured, `(strLen y)` type-checked and `(println y)` on the SAME
+  ; binding one line above was refused. Following the binding is not a
+  ; widening - `tyResolve` walks bound placeholders only, so an UNBOUND
+  ; var still reaches `showUnknownDiag` and all three refusals in
+  ; `tests/diagnostics/620-show-refusals` still fire. Measured inert on
+  ; the tree: `axiom emit-llvm self_host/main.ax` byte-identical at
+  ; 202,021 lines, and zero diagnostic movement over 256 corpus files.
+  (let ((at (tyResolve at0)))
+    (if (== at 0)
+      (showUnknownDiag tc arg at)
+      (if (== (tyIsErr at) 1)
+        ; poison: a diagnostic about this argument has already been
+        ; reported (the cascade rule)
+        0
+        (let ((ty (tyExpandAliases tc at 0)))
+          (if (!= (nodeTag ty) TAG_T_CON)
+            (if (== (nodeTag ty) TAG_T_VAR)
+              (showUnknownDiag tc arg ty)
+              (- 0 1)
+            )
+            (if (== (showTyGround ty) 0)
+              (showUnknownDiag tc arg ty)
+              (let ((n (nodeAName ty)))
+                (if (strEq n "String")
+                  (showSplice e arg)
+                  (if (strEq n "Bool")
+                    (showSpliceBool e arg)
+                    (if (strEq n "Int")
                       (showRewriteTo
-                        tc                        head                        "Fmt"                        "fmtFloat"                        (spanOf e)
+                        tc                      head                      "Fmt"                      "fmtInt"                      (spanOf e)
                       )
-                      (if (strEq n "Char")
-                        (showRewriteGen
-                          tc                          e                          head                          arg                          ty                          0
+                      (if (strEq n "Float")
+                        (showRewriteTo
+                          tc                        head                        "Fmt"                        "fmtFloat"                        (spanOf e)
                         )
-                        (if (|| (!= (findData tc n) 0) (!= (findStruct tc n) 0))
+                        (if (strEq n "Char")
                           (showRewriteGen
-                            tc                            e                            head                            arg                            ty                            1
+                            tc                          e                          head                          arg                          ty                          0
                           )
-                          (- 0 1)
+                          (if (|| (!= (findData tc n) 0) (!= (findStruct tc n) 0))
+                            (showRewriteGen
+                              tc                            e                            head                            arg                            ty                            1
+                            )
+                            (- 0 1)
+                          )
                         )
                       )
                     )

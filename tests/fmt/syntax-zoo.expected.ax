@@ -17,6 +17,12 @@
 
 (import Sys.Platform)
 
+; `Vec`, because the container `for` below reads its element through
+; `Vec::vecGet` and its bound through `Vec::vecLen`, resolved by
+; import path; with no path to `Vec` at all those two are AX3001 at the
+; loop, and this file is type-checked after it is formatted.
+(import Vec)
+
 ; --- type alias -----------------------------------------------------
 (pub type Count = Int)
 
@@ -124,6 +130,25 @@
         acc
         0
       )
+    }
+  )
+)
+
+; --- for, both shapes ----------------------------------------------
+(:: counted (-> (Vec Int) Int))
+
+;@axiom:pure
+(fn (counted xs)
+  (let ((mut acc 0))
+    {
+      (for i 0 4
+        (set acc (+ acc i)))
+      (for x xs
+        {
+          (set acc (+ acc x))
+          (set acc (+ acc 1))
+        })
+      acc
     }
   )
 )

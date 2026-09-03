@@ -1,0 +1,5 @@
+(:: g (-> Int Int))
+(fn (g for) for)
+(fn (h xs)
+  (let ((for 1))
+    (match xs ((Some for) (g for)) (_ 0))))

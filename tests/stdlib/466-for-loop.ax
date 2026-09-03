@@ -1,0 +1,194 @@
+; `for`: the loop keyword, in both of its shapes.
+;
+; `for` is a KEYWORD and not a macro, and `stdlib/Pre.ax`'s `range`
+; header records why: an expression macro has exactly ONE shape
+; (MAC-LANG-14, because the rule form's templates are DECLARATIONS),
+; and `for` has two - `(for i lo hi body)` over a range and
+; `(for x xs body)` over a container. The parser desugars both into
+; `let`/`while`/`set`, so no AST tag was added and no consumer of one
+; moved (`self_host/parser.ax`'s `parseForExpr`).
+;
+; The container half was blocked on an ELEMENT type until `Vec` became
+; parameterised; this is item 6 of `docs/generics-design.md` §5 and
+; item 5 is what unblocked it.
+;
+; What each term establishes:
+;
+;   1. The range counts [0, n) ascending, and the sum says which values
+;      and in what order - 0+1+2+3+4 is 10.
+;   2. A nonzero start counts [lo, hi). 3+4+5+6 = 18.
+;   3. Three EMPTY ranges run zero times: `(for a 0 0 ..)`,
+;      `(for b 5 5 ..)` and a backwards `(for c 7 3 ..)`.
+;   4. THE BOUND IS READ ONCE, range form. The body pushes onto the very
+;      Vec the bound was computed from; the loop must still run twice.
+;      Read inside the `while` condition instead, this runs until the
+;      Vec exhausts memory.
+;   5. THE BOUND IS READ ONCE, container form - the same property for
+;      the shape that computes its own bound. Four elements at entry,
+;      four iterations, eight at exit.
+;   6. HYGIENE. The desugaring's binders are `for$i`, `for$n`, `for$v`,
+;      `for$lo` and `for$hi`, and `$` is `AX1001 unexpected character`
+;      inside an identifier, so a user cannot write them. A caller's own
+;      `i`, `n` and `v` are bound around a loop here and printed after
+;      it; named `i`/`n`/`v` instead, the loop's numbers come out.
+;   7. A container of Strings, with `(println x)` DIRECTLY on the bound
+;      element. This is the term `showResolve`'s `tyResolve` exists for:
+;      the element's type is a placeholder that pinning BOUND, and
+;      reading the placeholder rather than resolving it answered
+;      `AX3025 its type is a type variable` about a type that was not a
+;      variable any more.
+;   8. The same over a container of Ints - one keyword, both element
+;      types, where `stdlib/Html.ax` needed `for` and `forInt`.
+;   9. An empty container runs zero times.
+;  10. Nesting: 3 x 4 = 12, with each loop's counter its own.
+;  11. `for` is an ordinary identifier everywhere except the head of a
+;      form - the rule `docs/reference.md`'s Keywords section states -
+;      so it is a parameter name and a `let` binder here.
+;  12. THE ELEMENT READ IS QUALIFIED. The desugaring emits `Vec$vecGet`
+;      and `Vec$vecLen`, the mangled spelling of `Vec::vecGet` and
+;      `Vec::vecLen`, so an entry file's own `vecLen` cannot capture it
+;      (MAC-CAP-10.5's defect: a bare `strConcat` in a generated body
+;      WAS captured, silently and wrongly). This file declares a
+;      `vecLen` that answers 99; the loop must still run twice.
+(import IO)
+
+(import Vec)
+
+(import Mem)
+
+; Term 12's shadow. A bare `vecLen` in the desugaring would resolve
+; here; the mangled `Vec$vecLen` cannot.
+(:: vecLen (-> (Vec Int) Int))
+
+(fn (vecLen z) 99)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (acc (memAlloc 8))
+    (i 111)
+    (n 222)
+    (v 333)
+  )
+    {
+      ; --- 1. the range counts [0, n) ---
+      (memSetWord acc 0 0)
+      (for k 0 5 (memSetWord acc 0 (+ (memGetWord acc 0) k)))
+      (println (memGetWord acc 0))  ; 10
+
+      ; --- 2. the range counts [lo, hi) ---
+      (memSetWord acc 0 0)
+      (for k 3 7 (memSetWord acc 0 (+ (memGetWord acc 0) k)))
+      (println (memGetWord acc 0))  ; 18
+
+      ; --- 3. empty ranges run zero times ---
+      (memSetWord acc 0 0)
+      (for a 0 0 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+      (for b 5 5 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+      (for c 7 3 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+      (println (memGetWord acc 0))  ; 0
+
+      ; --- 4. the bound is read once, range form ---
+      (let ((g vecNew))
+        {
+          (vecPush g 10)
+          (vecPush g 20)
+          (memSetWord acc 0 0)
+          (for k 0 (Vec::vecLen g)
+            {
+              (vecPush g 99)
+              (memSetWord acc 0 (+ (memGetWord acc 0) 1))
+            })
+          (println (memGetWord acc 0))  ; 2, not runaway
+          (println (Vec::vecLen g))  ; 4: the body really did push
+        })
+
+      ; --- 5. the bound is read once, container form ---
+      (let ((g vecNew))
+        {
+          (vecPush g 10)
+          (vecPush g 20)
+          (vecPush g 30)
+          (vecPush g 40)
+          (memSetWord acc 0 0)
+          (for e g
+            {
+              (vecPush g 99)
+              (memSetWord acc 0 (+ (memGetWord acc 0) 1))
+            })
+          (println (memGetWord acc 0))  ; 4, not runaway
+          (println (Vec::vecLen g))  ; 8
+        })
+
+      ; --- 6. hygiene: a caller's i, n and v survive both shapes ---
+      (memSetWord acc 0 0)
+      (for k 0 3 (memSetWord acc 0 (+ (memGetWord acc 0) i)))
+      (println (memGetWord acc 0))  ; 333
+      (let ((g vecNew))
+        {
+          (vecPush g 1)
+          (vecPush g 2)
+          (for e g (memSetWord acc 0 (+ (memGetWord acc 0) n)))
+        })
+      (println (memGetWord acc 0))  ; 333 + 444 = 777
+      (println i)  ; 111
+      (println n)  ; 222
+      (println v)  ; 333
+
+      ; --- 7. a container of Strings, printed directly ---
+      (let ((ss vecNew))
+        {
+          (vecPush ss "one")
+          (vecPush ss "two")
+          (for s ss (println s))  ; one, two
+        })
+
+      ; --- 8. a container of Ints, printed directly ---
+      (let ((ns vecNew))
+        {
+          (vecPush ns 7)
+          (vecPush ns 8)
+          (for w ns (println w))  ; 7, 8
+        })
+
+      ; --- 9. an empty container runs zero times ---
+      (memSetWord acc 0 0)
+      (let ((emp vecNew))
+        {
+          (vecPush emp 1)
+          (vecPop emp)
+          (for e emp (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+        })
+      (println (memGetWord acc 0))  ; 0
+
+      ; --- 10. nesting ---
+      (memSetWord acc 0 0)
+      (for p 0 3
+        (for q 0 4 (memSetWord acc 0 (+ (memGetWord acc 0) 1))))
+      (println (memGetWord acc 0))  ; 12
+
+      ; --- 11. `for` is an ordinary identifier off the head ---
+      (let ((for 5))
+        (println (twice for)))  ; 10
+
+      ; --- 12. the qualified read is not captured ---
+      (let ((g vecNew))
+        {
+          (vecPush g 41)
+          (vecPush g 42)
+          (memSetWord acc 0 0)
+          (for e g (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+          (println (memGetWord acc 0))  ; 2, not 99
+          (println (vecLen g))  ; 99: this file's own vecLen really is in scope
+        })
+      0
+    }
+  )
+)
+
+; Term 11's callee: `for` in PARAMETER position.
+(:: twice (-> Int Int))
+
+(fn (twice for) (+ for for))

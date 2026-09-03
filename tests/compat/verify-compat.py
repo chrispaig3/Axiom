@@ -233,11 +233,16 @@ def compare(base, cur):
 def uncovered(root, axiom, work):
     """Public names the symbol stream does not carry.
 
-    `symbols` has no arm for `TAG_D_MACRO` and none for `TAG_D_IMPL`,
-    and its `TAG_D_EFFECT` arm registers the effect's OPERATIONS rather
-    than the effect. So twelve macros - `println` and `format` among
-    them - and one effect declaration are public API that no gate over
-    this stream can see.
+    `symbols` HAD no arm for `TAG_D_MACRO` and none for `TAG_D_IMPL`,
+    and its `TAG_D_EFFECT` arm registered the effect's OPERATIONS
+    rather than the effect. So twelve macros - `println` and `format`
+    among them - and one effect declaration were public API that no
+    gate over this stream could see. CLOSED 2026-08-26: a macro is a
+    kind-`M` row now and an effect declaration carries its own row, so
+    `compat/UNCOVERED` is empty and is compared as an empty set. It
+    stays load-bearing: the first thing to exercise a macro REMOVAL,
+    Html's `for`/`forInt` on 2026-09-03, was refused by check-compat
+    until two `M` rows were declared in `compat/BREAKING`.
 
     That is a hole in the contract, and it is reported as a SET rather
     than a count: a fourteenth invisible name must go red, and the list

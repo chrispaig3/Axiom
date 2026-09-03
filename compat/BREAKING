@@ -11,8 +11,8 @@
 #   <version>  <kind-letter>  <name>  <why>
 #
 # The kind letter is AXSYM's: F function, D data, C constructor,
-# S struct, T trait. `docs/compatibility.md` is the policy this file
-# implements.
+# S struct, T trait, M macro. `docs/compatibility.md` is the policy
+# this file implements.
 
 # 0.3.3 - ERR-ADOPT-1 slice 3, the half of it where `-errno` genuinely
 # means a failure. Seven filesystem calls and `copyFile` answer
@@ -375,9 +375,25 @@
 # `vecLen` before popping; the trap is RECOVERABLE, so `__axiom_recover`
 # answers 77 rather than exiting.
 0.6.4  F  vecPop              (-> Int Int) -> (-> (Vec a) a), AND answers 0 on empty -> refuses (status 77): an `a` cannot be fabricated
-0.6.4  F  hVecLen             (-> Int Int) -> (-> (Vec a) Int)
-0.6.4  F  hVecStr             (-> Int Int String) -> (-> (Vec a) Int String)
-0.6.4  F  hVecWord            (-> Int Int Int) -> (-> (Vec Int) Int Int): it reads a word, so the container is (Vec Int)
+# THE THREE `Html` HELPERS BELOW ARE REMOVED, NOT RETYPED. They existed
+# only to SPELL the element read for the module's `for` and `forInt`
+# macros - `hVecStr` for a `Vec` of Strings, `hVecWord` for a `Vec` of
+# Ints - because an expression macro has one shape and `vecGet` had no
+# element type to answer. `for` is a language keyword as of 0.6.4
+# (`self_host/parser.ax`'s `parseForExpr`) whose element read is the
+# polymorphic `Vec::vecGet`, so the two macros and their three helpers
+# are deleted together. A consumer that named a helper directly writes
+# `vecLen`, `vecGetStr` or `vecGet`. One that wrote `(for x xs body)`
+# writes nothing new - that is the keyword's container shape, and a
+# keyword head wins over a macro of the same name, which is why not one
+# call site in the tree moved - and `(forInt x nums body)` becomes the
+# same `(for x nums body)`, because the keyword reads an element at
+# whatever type the `(Vec a)` carries.
+0.6.4  F  hVecLen             REMOVED: `for` is a keyword; write `vecLen`
+0.6.4  F  hVecStr             REMOVED: `for` is a keyword; write `vecGetStr`, or let `(for x xs body)` read the element
+0.6.4  F  hVecWord            REMOVED: `for` is a keyword; write `vecGet`, or let `(for x xs body)` read the element
+0.6.4  M  for                 REMOVED as a macro, and the call sites are unchanged: `(for x xs body)` is the keyword's container shape
+0.6.4  M  forInt              REMOVED: write `(for x nums body)`; the keyword's element read is typed by the (Vec a), not spelled per type
 0.6.4  F  ffiWordsToVec       (-> Int Int Int) -> (-> Int Int (Vec Int))
 0.6.4  F  ffiStrsToVec        (-> Int Int Int) -> (-> Int Int (Vec String))
 0.6.4  F  ffiWordListsToVec   (-> Int Int Int) -> (-> Int Int (Vec (Vec Int)))

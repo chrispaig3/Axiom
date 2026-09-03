@@ -4225,6 +4225,23 @@
                       (parseCondExpr tokens (advance pos))
                       (if (kwEq name "while")
                         (parseWhileExpr tokens (advance pos))
+                        ; `for` is a KEYWORD and not a macro, and `stdlib/Pre.ax`'s `range`
+                        ; header records why: an expression macro has exactly ONE shape
+                        ; (MAC-LANG-14 - the rule form's templates are DECLARATIONS), and
+                        ; `for` has two, `(for i lo hi body)` over a range and
+                        ; `(for x xs body)` over a container. Measured, they cannot even
+                        ; coexist as two macros: `stdlib/Html.ax` exported its own
+                        ; `(for x xs body)` and a program importing it beside a range `for`
+                        ; resolved to Html's and answered `AX3001: undefined variable i`
+                        ; in the body rather than an ambiguity at the import. The container
+                        ; half additionally needs an ELEMENT type, which arrived with the
+                        ; parameterised `Vec`; this is item 6 of `docs/generics-design.md`
+                        ; §5, and item 5 is what unblocked it.
+                        ;
+                        ; The keyword span is passed through rather than recovered, exactly
+                        ; as the `alloc` arm below does: `advance pos` loses the token.
+                        (if (kwEq name "for")
+                          (parseForExpr tokens (advance pos) (tokenSpan kw))
                         (if (kwEq name "set")
                           (parseSetExpr tokens (advance pos))
                           ; The three keyword-headed forms stage0 parses here that
@@ -4263,6 +4280,7 @@
                               )
                             )
                           )
+                        )
                         )
                       )
                     )
@@ -4372,6 +4390,216 @@
         )
       )
     )
+  )
+)
+
+; ------------------------------------------------------------------
+; (for i lo hi body) - the counted loop - and (for x xs body) - the
+; container loop. ONE keyword, TWO shapes, discriminated by ARITY.
+;
+; Arity is the only discriminator a parser has, because a parser knows
+; no types: three operands after the binder is the range, two is the
+; container. Exactly ONE body expression in both, and that is forced
+; rather than chosen - a variadic body would make `(for x xs a b)`
+; ambiguous with the range. `{ ... }` sequences several, which is what
+; `(range i lo hi body)` in `stdlib/Pre.ax` and the `(for x xs body)`
+; macro `stdlib/Html.ax` used to export already contracted for, so no
+; call site of either moves.
+;
+; DESUGARED HERE, into nodes that already exist. A new AST tag would
+; cost edits in `expand.ax` (substTpl and expandExpr), `typecheck.ax`,
+; `codegen.ax` and `lsp.ax`; `let`/`while`/`set` cost none of them, and
+; the IR a `for` emits is by construction the IR the hand-written loop
+; already emitted.
+;
+;   (for i LO HI BODY)
+;     => (let ((for$lo LO))
+;          (let ((for$hi HI))
+;            (let ((mut for$i for$lo))
+;              { (while (< for$i for$hi)
+;                  { (let ((i for$i)) BODY)
+;                    (set for$i (+ for$i 1)) })
+;                0 })))
+;
+;   (for x XS BODY)
+;     => (let ((for$v XS))
+;          (let ((mut for$i 0))
+;            (let ((for$n (Vec$vecLen for$v)))
+;              { (while (< for$i for$n)
+;                  { (let ((x (Vec$vecGet for$v for$i))) BODY)
+;                    (set for$i (+ for$i 1)) })
+;                0 })))
+;
+; The range shape mirrors `range`'s template binding for binding, so
+; the macro and the keyword provably agree. Both answer 0.
+;
+; BOTH ENDS ARE READ ONCE, before the loop. That is a CORRECTNESS
+; property and not a speed one: the shape this replaces,
+;
+;   (let ((mut i 0)) (while (< i (vecLen xs)) { BODY (set i (+ i 1)) }))
+;
+; re-reads `(vecLen xs)` every iteration, so a body that pushes onto
+; `xs` is a loop whose length moves under it. `tests/stdlib/466-for-loop.ax`
+; terms 4 and 5 pin it for both shapes, and reading the bound inside the
+; `while` condition instead turns them red.
+;
+; HYGIENE WITHOUT A RENAMER. The parser has no gensym and does not need
+; one: `$` is `AX1001 unexpected character` inside an identifier
+; (measured), so `for$lo`, `for$hi`, `for$v`, `for$i` and `for$n` are
+; names a user cannot write and therefore cannot capture. This is the
+; same trick `Mod$name` already uses for a qualified reference. Nesting
+; is safe with fixed names because an inner `for`'s bindings are
+; visible only inside the inner body, where nothing refers to the
+; outer's. `tests/stdlib/466-for-loop.ax` term 6 and
+; `tests/stdlib/420-html-render.ax:246` are the live tests: both bind a
+; caller's own `i`, `n` and `v` around a loop and print them after.
+;
+; THE ELEMENT READ IS QUALIFIED, NOT BARE. `Vec$vecLen`/`Vec$vecGet` is
+; the mangled spelling `mangledFromChain` gives `Vec::vecLen`, and it is
+; what a generated body must use for the same reason the `show` rewrite
+; does: a bare `vecLen` is CAPTURED by an entry file's own function of
+; that name (measured - it drew AX3004 against the user's), and the
+; qualified one is not. It resolves transitively, so a file that imports
+; only `IO` still gets `Vec`'s; a program with no path to `Vec` at all
+; gets `AX3001 undefined variable Vec::vecLen` at the `for`'s span,
+; which is a diagnostic rather than a silence.
+;
+; Every generated node carries the KEYWORD's span except the user's own
+; binder `let`, which carries the binder token's, so hover and rename
+; land on the text the user wrote.
+; ------------------------------------------------------------------
+(pub :: parseForExpr (-> (Vec Int) Int Int Int))
+
+(pub fn (parseForExpr tokens pos kwSpan)
+  (if (peekIs tokens pos TK_IDENT)
+    (let (
+      (bindTok (vecGet tokens pos))
+      (bindName (tokenLexeme bindTok))
+      (aR (parseExpr tokens (advance pos)))
+    )
+      (if (== (memGetWord aR 0) 0)
+        aR
+        (let ((bR (parseExpr tokens (memGetWord aR 2))))
+          (if (== (memGetWord bR 0) 0)
+            bR
+            ; Two operands and then `)` is the container; anything else
+            ; must be the range, and the range must then close.
+            (if (peekIs tokens (memGetWord bR 2) TK_RPAREN)
+              (pOk (mkForContainer
+                bindName                (tokenSpan bindTok)                (memGetWord aR 1)                (memGetWord bR 1)                kwSpan
+              ) (advance (memGetWord bR 2)))
+              (let ((cR (parseExpr tokens (memGetWord bR 2))))
+                (if (== (memGetWord cR 0) 0)
+                  cR
+                  (if (peekIs tokens (memGetWord cR 2) TK_RPAREN)
+                    (pOk (mkForRange
+                      bindName                      (tokenSpan bindTok)                      (memGetWord aR 1)                      (memGetWord bR 1)                      (memGetWord cR 1)                      kwSpan
+                    ) (advance (memGetWord cR 2)))
+                    (pErrExp (memGetWord cR 2) "`)` - `for` takes ONE body: `(for x xs body)` or `(for i lo hi body)`, and `{ ... }` sequences several")
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+    (pErrExp pos "the name to bind")
+  )
+)
+
+; A two-argument call, `(f a b)`, as the left spine an application
+; already is. `mkEApp` copies the head's span, so the whole call
+; reports at `sp`.
+(pub :: mkForCall2 (-> String Int Int Int Int))
+
+(pub fn (mkForCall2 f a b sp) (mkEApp (mkEApp (mkEVarAt f sp) a) b))
+
+; A two-element `(Vec Int)` of node handles. Written as a declared
+; function rather than `(vecPush (vecPush vecNew a) b)` inline so the
+; element type is pinned by the SIGNATURE: a let-bound container is
+; pinned by its first use (`scripts/check-type-pinning.sh`), and a
+; generated one that is never used at a second type has nothing to pin
+; it.
+(pub :: forSeq2 (-> Int Int (Vec Int)))
+
+(pub fn (forSeq2 a b)
+  (let ((v vecNew))
+    {
+      (vecPush v a)
+      (vecPush v b)
+      v
+    }
+  )
+)
+
+; The shared tail of both shapes: the `while` whose body binds the
+; user's name to the element and then bumps the counter, followed by
+; the `0` that is a `for`'s value.
+;
+; `bound` is a parameter rather than the fixed name `for$n` because it
+; is the one thing this file must be able to get WRONG in a reviewable
+; way. Both callers pass `(mkEVarAt "for$n" ...)`, a reference to a
+; binding made BEFORE the loop; passing the un-hoisted expression
+; instead - `hi` for the range, a fresh `(Vec$vecLen for$v)` for the
+; container - is the hand-written loop this keyword replaces, and it is
+; the ablation `tests/stdlib/466-for-loop.ax` terms 4 and 5 are written
+; to catch.
+(pub :: forWhileBody (-> String Int Int Int Int Int (Vec Int)))
+
+(pub fn (forWhileBody bindName bindSpan elem bound body kwSpan)
+  (forSeq2
+    (mkNode
+      TAG_E_WHILE      (mkForCall2 "<" (mkEVarAt "for$i" kwSpan) bound kwSpan)      (forSeq2
+        (mkELetAt bindName elem body bindSpan)        (mkNodeAt
+          TAG_E_SET          "for$i"          (mkForCall2 "+" (mkEVarAt "for$i" kwSpan) (mkEInt 1) kwSpan)          0          kwSpan
+        )
+      )      0
+    )    (mkEInt 0)
+  )
+)
+
+; (for i LO HI BODY). `for$lo` and `for$n` are bound in source order and
+; before the loop, so each end is computed ONCE.
+(pub :: mkForRange (-> String Int Int Int Int Int Int))
+
+(pub fn (mkForRange bindName bindSpan lo hi body kwSpan)
+  (mkELetAt
+    "for$lo"    lo    (mkELetAt
+      "for$n"      hi      (mkNodeAt
+        TAG_E_LETM        "for$i"        (mkEVarAt "for$lo" kwSpan)        (mkEBegin (forWhileBody
+          bindName          bindSpan          (mkEVarAt "for$i" kwSpan)          (mkEVarAt "for$n" kwSpan)          body          kwSpan
+        ))        kwSpan
+      )      kwSpan
+    )    kwSpan
+  )
+)
+
+; (for x XS BODY). `for$v` holds the container so `XS` is evaluated once
+; even when it is a call, and `for$n` its length so the bound is read
+; once - the property `tests/stdlib/466-for-loop.ax` term 5 pins.
+;
+; The `for$v` reference inside the LENGTH call carries `XS`'s own span
+; rather than the keyword's, because that is the node AX3004 anchors on
+; when the thing being iterated is not a container: `(for x n body)`
+; over an `Int` underlines `n`, not the word `for`. The element read's
+; reference keeps the keyword's span deliberately. The checker does not
+; poison a binding after one bad use, so both references report, and two
+; rows carrying the SAME message at the SAME span read as a compiler bug
+; rather than as two uses; measured, that is exactly what giving both
+; `XS`'s span produced. `tests/diagnostics/626-for-not-a-container`
+; holds the four rows.
+(pub :: mkForContainer (-> String Int Int Int Int Int))
+
+(pub fn (mkForContainer bindName bindSpan xs body kwSpan)
+  (mkELetAt
+    "for$v"    xs    (mkNodeAt
+      TAG_E_LETM      "for$i"      (mkEInt 0)      (mkELetAt
+        "for$n"        (mkEApp (mkEVarAt "Vec$vecLen" kwSpan) (mkEVarAt "for$v" (nodeSpan xs)))        (mkEBegin (forWhileBody
+          bindName          bindSpan          (mkForCall2 "Vec$vecGet" (mkEVarAt "for$v" kwSpan) (mkEVarAt "for$i" kwSpan) kwSpan)          (mkEVarAt "for$n" kwSpan)          body          kwSpan
+        ))        kwSpan
+      )      kwSpan
+    )    kwSpan
   )
 )
 

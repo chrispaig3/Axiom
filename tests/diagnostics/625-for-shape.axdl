@@ -1,0 +1,1 @@
+E AX2001 625-for-shape.ax:18:25-26 unexpected-token "expected `)` - `for` takes ONE body: `(for x xs body)` or `(for i lo hi body)`, and `{ ... }` sequences several, found `2`" #"found `2` here" ?"Axiom expected `)` - `for` takes ONE body: `(for x xs body)` or `(for i lo hi body)`, and `{ ... }` sequences several at this position"

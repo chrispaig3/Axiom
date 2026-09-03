@@ -141,6 +141,13 @@
   "else"
 ] @keyword.conditional
 
+; The two loop heads. `while` was missing from this file before `for`
+; existed, so this group is both of them rather than the new one alone.
+[
+  "while"
+  "for"
+] @keyword.repeat
+
 [
   "let"
   "handle"

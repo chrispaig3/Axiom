@@ -1,0 +1,5 @@
+(fn (f xs)
+  {
+    (for i 0 5 { (println i) (println i) })
+    (for x xs (println x))
+  })

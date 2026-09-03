@@ -1,0 +1,18 @@
+; `for` has exactly two shapes and one body expression, and a form that
+; is neither is a PARSE error rather than a type error.
+;
+; `(for i lo hi body)` and `(for x xs body)` are told apart by ARITY,
+; because a parser knows no types - three operands after the binder is
+; the range, two is the container. That forces the one-body rule: a
+; variadic body would make `(for x xs a b)` ambiguous with the range,
+; and `{ ... }` is how several expressions are sequenced.
+;
+; So a fifth element cannot belong to either shape, and the expectation
+; string names both rather than only the one the parser happened to be
+; attempting. `.axbad` because a parse error stops the file, so this
+; case carries exactly one malformed form.
+(import IO)
+
+(:: main Int)
+
+(fn (main) (for i 0 5 1 2))

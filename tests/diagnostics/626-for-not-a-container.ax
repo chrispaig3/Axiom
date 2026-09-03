@@ -1,0 +1,47 @@
+; The container `for` over something that is not a container.
+;
+; This case PARSES - `(for x n body)` is a well-formed three-element
+; `for` - and is refused by the checker at the user's OWN expression:
+; `n` is underlined, not the word `for`. Two rows per site, because the
+; desugaring reads the container twice - once for its length, once per
+; element - and the checker does not poison a binding after one bad use.
+; The first row carries the user's span and the second the keyword's,
+; deliberately: two rows with the same message at the same span read as
+; a compiler bug rather than as two uses, and that is what giving both
+; the user's span produced when it was measured.
+;
+;   1  a DECLARED `Int` parameter. `expected Vec _a, found Int`.
+;   2  an UNDECLARED parameter, which is `Int` and not a type variable -
+;      a pre-existing rule about inference without generalisation, and
+;      the reason it is written down here is that a reader meeting this
+;      diagnostic will otherwise attribute it to `for`.
+;
+; The file declares its OWN `vecLen`. That is the ablation this case
+; exists to hold: the desugaring emits the MANGLED `Vec$vecLen` and
+; `Vec$vecGet`, the spelling `mangledFromChain` gives `Vec::vecLen`, so
+; a name the entry file declares cannot capture it. Emit a bare
+; `vecLen` instead and this file's own wins - the messages become
+; `expected Vec Int` and the case goes red. MAC-CAP-10.5 records the
+; same defect being real once: an entry file's own `strConcat` captured
+; the format lowering's, silently and wrongly.
+(import IO)
+
+(:: vecLen (-> (Vec Int) Int))
+
+(fn (vecLen z) 99)
+
+(:: overAnInt (-> Int Int))
+
+;@axiom:effect(io)
+(fn (overAnInt n)
+  (for x n
+    (println 1)))
+
+;@axiom:effect(io)
+(fn (overAnUndeclaredParam xs)
+  (for x xs
+    (println 1)))
+
+(:: main Int)
+
+(fn (main) 0)

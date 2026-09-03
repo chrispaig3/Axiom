@@ -1,0 +1,10 @@
+[1;31merror[AX2001][0m[1m: expected `)` - `for` takes ONE body: `(for x xs body)` or `(for i lo hi body)`, and `{ ... }` sequences several, found `2`[0m
+  [1;34m--> [0m625-for-shape.ax:18:25
+[1;34m   |[0m
+[1;34m18 |[0m (fn (main) (for i 0 5 1 2))
+[1;34m   |[0m                         [1;31m^ found `2` here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mAxiom expected `)` - `for` takes ONE body: `(for x xs body)` or `(for i lo hi body)`, and `{ ... }` sequences several at this position
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2001` for a full explanation
+
+compilation failed due to 1 previous error

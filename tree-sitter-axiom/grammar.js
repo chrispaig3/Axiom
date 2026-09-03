@@ -848,6 +848,7 @@ module.exports = grammar({
       $.qualified_identifier,
       $.if_expression,
       $.while_expression,
+      $.for_expression,
       $.set_expression,
       $.cond_expression,
       $.match_expression,
@@ -903,6 +904,23 @@ module.exports = grammar({
       '(', 'while',
       field('condition', $._expression),
       repeat(field('body', $._expression)),
+      ')',
+    ),
+
+    // `(for i lo hi body)` and `(for x xs body)`, told apart by ARITY -
+    // three operands after the binder is the range, two is the
+    // container, and there is exactly one body expression in both
+    // (`self_host/parser.ax`'s `parseForExpr`). The optional third
+    // operand is what makes one rule cover both; a fourth is a parse
+    // error in the compiler (AX2001,
+    // `tests/diagnostics/625-for-shape.axbad`) and is simply not in this
+    // grammar's language either.
+    for_expression: $ => seq(
+      '(', 'for',
+      field('binder', $.identifier),
+      field('operand', $._expression),
+      field('operand', $._expression),
+      optional(field('operand', $._expression)),
       ')',
     ),
 

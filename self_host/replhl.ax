@@ -387,8 +387,9 @@
 ; copy into a checked copy - the `impl`-was-missing comment sitting
 ; right below `isDeclLine` records what an unchecked one costs.
 ;
-; format.ax's `isKeywordHead` covers the other seventeen (and four of
-; these twelve); neither list alone is the keyword set.
+; format.ax's `isKeywordHead` covers the other eighteen (and four of
+; these twelve; `for` made it eighteen on 2026-09-03); neither list
+; alone is the keyword set.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlIsDeclHead (-> String Bool))
 

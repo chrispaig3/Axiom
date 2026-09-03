@@ -23,16 +23,23 @@
 ; templates are DECLARATIONS (MAC-LANG-14), so an expression macro has
 ; one shape, and `(range i 0 n ...)` spells the range it means.
 ;
-; NOT NAMED `for`, and the name is RESERVED rather than taken. `for` is
-; to be a language keyword covering both a range and a container, and a
-; macro cannot be that: one shape cannot serve `(for i 0 n ..)` and
-; `(for x xs ..)`. Measured, they cannot even coexist - `Html.ax`
-; exports its own `(for x xs body)` over a `Vec`, and a program
-; importing both resolved `for` to Html's and answered `AX3001:
-; undefined variable i` in the body rather than an ambiguity at the
-; import. A container `for` also needs an element type `Vec` does not
-; have yet (`docs/generics-design.md`); parameterised containers come
-; first and the keyword follows them.
+; NOT NAMED `for`, because `for` is a language KEYWORD as of 0.6.4
+; (`self_host/parser.ax`'s `parseForExpr`), covering both a range and
+; a container, and a macro cannot be that: one shape cannot serve
+; `(for i 0 n ..)` and `(for x xs ..)`. Measured before the keyword
+; existed, they could not even coexist - `Html.ax` exported its own
+; `(for x xs body)` over a `Vec`, and a program importing both resolved
+; `for` to Html's and answered `AX3001: undefined variable i` in the
+; body rather than an ambiguity at the import. The keyword's range
+; shape mirrors THIS template binding for binding - `lo` and `hi`
+; hoisted in source order, a `mut` counter, the caller's name bound
+; over the body, `0` as the value - so the two agree by construction.
+;
+; WHY THIS STAYS. The compiler's own sources are built by the committed
+; seed, which predates the keyword, and `scripts/reseed.sh` states the
+; order: land the construct, reseed, THEN use it. Until that reseed,
+; `self_host/` cannot write `for` - `self_host/symbols.ax` spells its
+; loop with `range` - and the prelude is where it lives.
 ;
 ; The shape this replaces is written by hand about a hundred times in
 ; this repository:

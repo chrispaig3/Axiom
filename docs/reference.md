@@ -285,6 +285,7 @@ which was the retired Rust compiler's lexer rule, and refused
 | `mut` | Marks a `let` binding assignable |
 | `set` | Assign to a `mut` binding |
 | `while` | Loop while a condition holds |
+| `for` | Loop over a range, `(for i lo hi body)`, or over a `(Vec a)`, `(for x xs body)` — one keyword, [two shapes](#for--the-counted-loop-and-the-container-loop), since 2026-09-03 |
 | `if` | Conditional expression |
 | `cond` | Multi-branch conditional |
 | `match` | Pattern matching |
@@ -792,6 +793,99 @@ the binding is introduced, not where it is used.
 > fold written as `(+ (f i) (loop (+ i 1)))` is the shape to avoid at
 > scale. [Optimisation](#optimisation) has the three spellings side by
 > side and the measured depth.
+
+### `for` — the counted loop and the container loop
+
+`for` is one keyword with two shapes, told apart by how many operands
+follow the binder:
+
+```scheme
+(for i 0 n                 ; the RANGE: i over [0, n), ascending
+  (set acc (+ acc i)))
+
+(for x xs                  ; the CONTAINER: x over each element of a (Vec a)
+  (println x))
+```
+
+`(for i lo hi body)` runs `body` once per `i` in `[lo, hi)`; a range
+whose `hi` is at or below `lo` runs zero times, backwards included
+(`tests/stdlib/466-for-loop.ax`, terms 1–3). `(for x xs body)` runs
+`body` once per element of the `(Vec a)` `xs`, with `x` bound to the
+element at whatever type `a` is — a `(Vec String)` prints directly and
+so does a `(Vec Int)` (terms 7 and 8), which is the one case the two
+loop macros `stdlib/Html.ax` used to carry could not share. Both shapes
+evaluate to `0`, as `while` does, and nesting is an ordinary nesting of
+scopes (term 10, 3 × 4 = 12 with each counter its own).
+
+**Exactly one body expression, and that is forced rather than chosen.**
+A parser knows no types, so arity is the only discriminator it has:
+three operands after the binder is the range, two is the container. A
+variadic body would make `(for x xs a b)` ambiguous with the range, so
+several expressions go in `{ ... }`, and a fifth element is a parse
+error that names both shapes rather than the one the parser happened
+to be attempting (`AX2001`, `tests/diagnostics/625-for-shape`).
+
+**Both ends are read once, before the loop, and that is a correctness
+property.** The hand-written shape this replaces —
+
+```scheme
+(let ((mut i 0)) (while (< i (vecLen xs)) { BODY (set i (+ i 1)) }))
+```
+
+— re-reads `(vecLen xs)` every iteration, so a body that pushes onto
+`xs` is a loop whose length moves under it. `for` binds `lo` and `hi`,
+or the container and its length, before the first iteration; terms 4
+and 5 of 466 push onto the very vector the bound came from, and the
+loop still runs exactly its entry count.
+
+**It desugars to `let`, `while` and `set` in the parser**
+(`parseForExpr`, `self_host/parser.ax`), so nothing after the parser
+knows the keyword exists: no AST tag was added, and the IR a `for`
+emits is the IR of the loop above with its bound hoisted. Measured: a
+range over `println` and the `let`/`while`/`set` it stands for, written
+by hand, emit byte-identical IR, 1,196 lines against 1,196.
+
+**Hygiene without a renamer.** The desugaring's own bindings are
+`for$lo`, `for$n`, `for$i` and `for$v`, and `$` is `AX1001 unexpected
+character` inside an identifier, so no program can write them and none
+can be captured by them: a caller's own `i`, `n` and `v` bound around a
+loop read as the caller's after it (466 term 6, and the hygiene check
+in `tests/stdlib/420-html-render.ax`). The element read is the
+*qualified* `Vec::vecGet` and the length `Vec::vecLen`, so a program
+declaring its own `vecLen` cannot capture them — term 12 declares one
+that answers 99 and the loop still runs twice, and
+`tests/diagnostics/626-for-not-a-container` holds the same ablation. A
+program with no path to `Vec` at all, because no import reaches it,
+gets `AX3001 undefined variable Vec::vecLen` at the `for`: a diagnostic
+rather than a silence.
+
+**Iterating something that is not a container is refused at your
+expression, not at the keyword.** `(for x n body)` over an `Int`
+underlines `n`: `AX3004 type mismatch: expected Vec _a, found Int`
+(626). Two rows per site, because the desugaring reads the container
+twice — once for its length, once per element — and the checker does
+not poison a binding after one bad use; the second row carries the
+keyword's span so the pair reads as two uses rather than as one report
+printed twice.
+
+**`for` is a keyword only at the head of a form**, like every word in
+the table above: it is a parameter name, a `let` binder and a pattern
+variable everywhere else (466 term 11), `fmt` prints it as the
+identifier it is (`tests/fmt/parity/199-for-arg-position.axp`), and a
+macro of your own named `for` is dead code that still type-checks,
+because the keyword head wins with no diagnostic — measured,
+`(macro (for a b c d) 42)` followed by `(for k 0 2 0)` answers `0`.
+`fmt` lays a `for` out as it lays out `while`: the binder and its
+bounds on the head line, the one body indented under them
+(`198-for-head-layout.axp`).
+
+**`range` in the prelude is the same loop as a macro** —
+`(range i lo hi body)`, `stdlib/Pre.ax` — and it stays. The compiler's
+own sources are built by the committed seed, which predates the
+keyword, so `self_host/` and `stdlib/` cannot write `for` until a
+reseed follows it (`scripts/reseed.sh`'s rule: land the construct,
+reseed, then use it). The keyword's range shape mirrors `range`'s
+template binding for binding, so the two agree by construction.
 
 ### Sequential Let Bindings
 

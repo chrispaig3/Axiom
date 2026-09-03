@@ -1,9 +1,18 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 48 cases: 24 rewrites and 24 refusals, which is why this
+# it formatted at all. 50 cases: 26 rewrites and 24 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# TWO CASES WERE ADDED for the `for` keyword (0.6.4). 198 pins `fpFor`'s head
+# layout for BOTH shapes - the range's three operands and the container's two
+# on the head line, the one body indented under them, which is `while`'s
+# layout and not the application layout a four-operand unknown head would get.
+# 199 pins the other half of the Keywords rule: `for` in parameter, `let`
+# binder, pattern and argument position is an ordinary identifier and prints
+# as one, the same property 190-193 hold for the older keywords. Regenerating
+# this file for them moved no other case's bytes.
 #
 # TWO CASES CHANGED SIDES on 2026-08-28, the other way round from the three
 # below, and for the same reason - this file records what the formatter DID,
@@ -179,3 +188,28 @@
 )
 ### 196-consume-head-refused.axp (exit 1)
 ### 197-begin-head-refused.axp (exit 1)
+### 198-for-head-layout.axp (exit 0)
+(fn (f xs)
+  {
+    (for i 0 5
+      {
+        (println i)
+        (println i)
+      })
+    (for x xs
+      (println x))
+  }
+)
+### 199-for-arg-position.axp (exit 0)
+(:: g (-> Int Int))
+
+(fn (g for) for)
+
+(fn (h xs)
+  (let ((for 1))
+    (match xs
+      ((Some for) (g for))
+      (_ 0)
+    )
+  )
+)

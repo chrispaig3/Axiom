@@ -42,35 +42,51 @@
 ;    `set` inside a template's block), which is how a macro of fixed
 ;    arity takes any number of children.
 ;
-; 2. ITERATION IS A MACRO OVER A BINDER PARAMETER. `(for it items
-;    body)` binds `it` for the body, and `it` keeps the CALLER's
-;    spelling because a macro parameter in binder position takes the
-;    argument's name and is not renamed - MAC-HYG-10, `expBinderParam`
-;    in self_host/expand.ax, the rule `Err.ax`'s `try!` depends on and
-;    tests/stdlib/371-err-module.ax cannot compile without. The
-;    template's own `i` and `n` ARE renamed (MAC-HYG-1/2/3,
-;    tests/selfhost/361-macro-hygiene.ax), so a body that names `i`
-;    means its own. An argument that is not a bare name is AX3035 at
-;    the invocation (tests/diagnostics/590-macro-binder-target.ax).
+; 2. ITERATION IS NOT THIS MODULE'S ANY MORE. `(for it items body)`
+;    used to be a macro here, and a second one, `(forInt it nums
+;    body)`, existed beside it for exactly one reason: an expression
+;    macro has ONE shape (MAC-LANG-14) and the element read had to be
+;    SPELLED, `hVecStr` for a `Vec` of Strings and `hVecWord` for a
+;    `Vec` of Ints. `for` is a language KEYWORD as of 0.6.4
+;    (`self_host/parser.ax`'s `parseForExpr`), it covers a range and a
+;    container in one head, and its element read is the polymorphic
+;    `Vec::vecGet` - which now has an element type to return, because
+;    `Vec` is parameterised. Both macros and the three `hVec*` helpers
+;    that existed only to spell their reads are DELETED; the call sites
+;    did not move, because a keyword head wins over a macro of the same
+;    name and the rendered bytes of tests/stdlib/420-html-render.ax are
+;    unchanged.
+;
+;    What this module still leans on from that machinery: a macro
+;    parameter in binder position takes the CALLER's name and is not
+;    renamed (MAC-HYG-10, `expBinderParam` in self_host/expand.ax, the
+;    rule `Err.ax`'s `try!` depends on and tests/stdlib/371-err-
+;    module.ax cannot compile without), and a template's own names ARE
+;    renamed (MAC-HYG-1/2/3, tests/selfhost/361-macro-hygiene.ax). The
+;    keyword needs neither: the parser has no gensym and does not need
+;    one, because `for$i`/`for$n`/`for$v` contain a `$`, which is
+;    AX1001 inside an identifier, so a user cannot write them.
 ;
 ; 3. A FREE IDENTIFIER IN A TEMPLATE MEANS WHAT IT MEANS HERE.
-;    `hOpenSolo`, `hClose`, `hAttr`, `hVecLen` and the rest resolve at
+;    `hOpenSolo`, `hClose`, `hAttr`, `hText` and the rest resolve at
 ;    the definition site - MAC-HYG-6, tests/selfhost/364-macro-
 ;    definition-site.ax (157) - because import resolution has already
 ;    spelled them `Html$name` and the expander rewrites the reference
 ;    to that spelling when this module declares it (MAC-HYG-7). The
 ;    rule this file keeps because of it: EVERY helper a template names
-;    is declared in Html.ax, AND IS `pub`. The `for` templates call
-;    `hVecLen` and `hVecStr`, declared below, rather than `Vec`'s own
-;    `vecLen` and `vecGetStr`; a name this module merely imports is
-;    resolved by the fallback of MAC-HYG-8.4, which declines when two
-;    modules declare it, and MAC-CAP-10.5 records what a bare name in
-;    a template costs (an entry file's own `strConcat` captured the
-;    format lowering's, silently and wrongly). `pub` is measured, not
-;    chosen: MAC-LANG-10 judges a template's PRIVATE MACRO at the
+;    is declared in Html.ax, AND IS `pub`. A name this module merely
+;    imports is resolved by the fallback of MAC-HYG-8.4, which declines
+;    when two modules declare it, and MAC-CAP-10.5 records what a bare
+;    name in a template costs (an entry file's own `strConcat` captured
+;    the format lowering's, silently and wrongly). `pub` is measured,
+;    not chosen: MAC-LANG-10 judges a template's PRIVATE MACRO at the
 ;    definition site, but a private FUNCTION named by a template is
 ;    refused at the invocation - `AX3023 private-name Html::hVecLen`
-;    from tests/stdlib/420-html-render.ax while it was private.
+;    from tests/stdlib/420-html-render.ax while the deleted `hVecLen`
+;    was private. The parser-generated `for` reads `Vec::vecGet` under
+;    the same rule and for the same reason: it emits the MANGLED
+;    spelling `Vec$vecGet`, which a user cannot capture, rather than a
+;    bare `vecGet`, which they can.
 ;
 ; 4. ESCAPING IS A RUN-TIME CALL. A macro cannot escape, concatenate
 ;    or read a literal's bytes at expansion time: MAC-LANG-13 refuses
@@ -118,7 +134,7 @@
 ;
 ;   - the heads self_host/parser.ax dispatches on before the macro
 ;     table is read: `fn`, `lambda`, `let`, `if`, `match`, `cond`,
-;     `while`, `set`, `struct`, `alloc`, `handle`, `cast`, `pub`,
+;     `while`, `for`, `set`, `struct`, `alloc`, `handle`, `cast`, `pub`,
 ;     `data`, `import`, `macro`, `effect`, `type`, `trait`, `impl`,
 ;     `extern`, and the reserved `begin`/`consume`/`union`/`region`/
 ;     `foreign`. So the `<input type=...>` attribute is `(attr b
@@ -134,9 +150,14 @@
 ;     (MAC-HYG-8.3) and the element would be unreachable by its own
 ;     name. `<main>` is `(el b "main" k)`.
 ;   - `title` and `style` are TAGS here, so the attributes of those
-;     names are `(attr b "title" v)` and `(attr b "style" v)`; `for`
-;     is the iteration form, so `<label for=...>` is `(attr b "for"
-;     v)`.
+;     names are `(attr b "title" v)` and `(attr b "style" v)`. `for`
+;     used to be on this list as THIS module's iteration form; it is on
+;     it now as a language keyword, which is stricter - a keyword head
+;     wins over a macro of the same name with NO diagnostic at all
+;     (measured: `(macro (while a b) ...)` then `(while 1 2)` reports
+;     AX3004 about the `while` FORM), so a `for` macro would be dead
+;     code that still type-checks. `<label for=...>` is `(attr b "for"
+;     v)` either way.
 ;   - and the rule cuts the other way for a macro of YOUR OWN: a
 ;     template parameter named like a tag hides that tag inside the
 ;     template. `(macro (page b body) ... (body b {...}) ...)` does
@@ -529,26 +550,6 @@
   }
 )
 
-; The `Vec` length, as the `for` templates name it. This module's own
-; so the templates' free identifiers all resolve here (MAC-HYG-7), and
-; PUBLIC because a template's free identifier is checked for
-; visibility at the INVOCATION: measured, a private `hVecLen` made
-; every `(for ...)` in an importing file `AX3023 private-name
-; Html::hVecLen`. See the header's third point.
-(pub :: hVecLen (-> (Vec a) Int))
-
-(pub fn (hVecLen v) (vecLen v))
-
-; Element `i` of a `Vec` of Strings, as `for` reads it.
-(pub :: hVecStr (-> (Vec a) Int String))
-
-(pub fn (hVecStr v i) (vecGetStr v i))
-
-; Element `i` of a `Vec` of Ints, as `forInt` reads it.
-(pub :: hVecWord (-> (Vec Int) Int Int))
-
-(pub fn (hVecWord v i) (vecGet v i))
-
 ; ------------------------------------------------------------------
 ; The element forms. Four macros define the whole vocabulary; the tag
 ; table below is one line per spelling forwarding to one of them.
@@ -935,49 +936,3 @@
 
 ; ` target="..."`
 (pub macro (target b v) (hAttr b "target" v))
-
-; ------------------------------------------------------------------
-; Iteration
-; ------------------------------------------------------------------
-; `(for x xs body)` - `body` once per element of the `Vec` of Strings
-; `xs`, with `x` bound to each. `x` is the CALLER's name (MAC-HYG-10);
-; `i`, `n` and `v` are the template's and are renamed, so a body that
-; mentions `i` means its own. Answers 0. `vecGetStr` rather than
-; `vecGet`, because a value out of the polymorphic accessor has no
-; named type and reaches MAC-CAP-10.6's AX3025 the moment a body
-; interpolates it.
-(pub macro (for x xs body) (let ((v xs))
-  (let ((mut i 0))
-    (let ((n (hVecLen v)))
-      {
-        (while (< i n)
-          {
-            (let ((x (hVecStr v i)))
-              body
-            )
-            (set i (+ i 1))
-          })
-        0
-      }
-    )
-  )
-))
-
-; `(forInt x xs body)` - the same over a `Vec` of Ints, `x` bound to
-; each word.
-(pub macro (forInt x xs body) (let ((v xs))
-  (let ((mut i 0))
-    (let ((n (hVecLen v)))
-      {
-        (while (< i n)
-          {
-            (let ((x (hVecWord v i)))
-              body
-            )
-            (set i (+ i 1))
-          })
-        0
-      }
-    )
-  )
-))

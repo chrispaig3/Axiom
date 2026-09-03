@@ -20,6 +20,12 @@ The asymmetry is already in the signatures:
 because there is no `Vec a` to carry it. **That is the whole of the
 generics problem.**
 
+> **Status, 2026-09-03.** The paragraph above is the framing this
+> document was written under and is kept as it was. `Vec` carries its
+> element type (§5 item 5, `68f145b`), and **`for` is a keyword** —
+> §5 item 6, the last item on the list, `tests/stdlib/466-for-loop.ax`.
+> Nothing on the list remains; §7 says what landed and what did not.
+
 ## 1. `Vec` is a type now
 
 `Vec` is seeded in `typecheck.ax` beside `Option`: a `DataEnt` with
@@ -628,8 +634,14 @@ not attribute it to this change.
    acceptance test this document proposed — byte-identical IR — was
    itself wrong and is corrected in §3; the fixpoint (stage2 against
    stage3, byte-identical) is the one that held.
-6. **`for` as a keyword**, which is only expressible once 5 exists —
-   and 5 exists now. This is what remains on this list.
+6. **`for` as a keyword.** LANDED, 2026-09-03. One keyword with two
+   shapes told apart by arity, desugared in the parser to the
+   `let`/`while`/`set` the hand-written loop already was
+   (`parseForExpr`, `self_host/parser.ax`); the container half reads
+   `Vec::vecGet`, which is the read item 5 gave an element type.
+   `tests/stdlib/466-for-loop.ax` pins twelve terms, and the two
+   loop macros `stdlib/Html.ax` carried for one idea are deleted.
+   Nothing remains on this list.
 
 ## 6. A route that was tried and is the wrong one
 
@@ -708,3 +720,19 @@ BEHAVIOUR break among them: it answered `0` on an empty vector and now
 refuses at status 77, for `vecGet`'s reason.
 
 Nothing from §6 is in the tree, and §4c's inferencer is not either.
+
+**`for` IS A KEYWORD, and the list is closed.** Item 6 was the reason
+this document exists — its opening paragraph is the statement that a
+container loop cannot be a keyword until a container has an element
+type — and it landed on 2026-09-03 on top of item 5: `(for i lo hi
+body)` over a range and `(for x xs body)` over a `(Vec a)`, one head
+discriminated by arity, desugared in the parser so no consumer of the
+AST moved, both ends read once before the loop. The element read is
+the qualified `Vec::vecGet`, so it is the polymorphic accessor the port
+typed and not a per-type spelling; `stdlib/Html.ax`'s `for` and
+`forInt` — the two macros for one idea the opening paragraph names —
+are deleted with no call site moved. `tests/stdlib/466-for-loop.ax`
+holds twelve terms, `tests/diagnostics/625-for-shape` and
+`626-for-not-a-container` the two refusals. What the keyword does NOT
+yet do is appear in `self_host/` or `stdlib/`: the seed must learn it
+first, and `range` stays in the prelude until it has.
