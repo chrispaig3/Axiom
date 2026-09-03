@@ -202,8 +202,16 @@ fi
 # rather than as a library with nothing in it. Re-derive it, with the
 # date and the command, when it legitimately moves.
 #   2026-08-25: 417, from the sed above over the 20 modules listed here.
-if (( n_names >= 400 )); then
-  ok "the name sweep found $n_names names (floor 400, measured 417 on 2026-08-25)"
+#   2026-09-03: 749, over the 26 modules listed here. The floor moved
+#   400 -> 700 with it, keeping the same slack it was set with (about
+#   6% under the measurement) rather than a fixed distance: at 400
+#   against 749, THREE HUNDRED AND FORTY-NINE public names could have
+#   been deleted and this line would still have printed `ok`. A floor
+#   is anti-vacuity insurance against the `sed` above silently
+#   ceasing to match, and insurance sized to a library 45% smaller
+#   than the one it covers has stopped being that.
+if (( n_names >= 700 )); then
+  ok "the name sweep found $n_names names (floor 700, measured 749 on 2026-09-03)"
 else
   bad "the name sweep found only $n_names names - the pattern has stopped matching"
 fi
@@ -244,14 +252,22 @@ echo "== documentation coverage =="
 # too, and lowering it is then a deliberate edit with the new count and
 # the date written here - which is what "re-derive rather than relax"
 # means. Measured 2026-08-25: 290 of 417.
+#
+# RE-DERIVED 2026-09-03: 560 of 749. The ratchet had not moved while
+# the documented surface nearly doubled, so 270 names could have lost
+# their summaries with this line still green - which is the failure
+# the ratchet exists to prevent, arrived at by standing still. Moved
+# to the measured value, which is what "set AT the measured value" in
+# the paragraph above asks for on every legitimate change and did not
+# get on the last five.
 rows="$(grep -c '^| `' "$repo_root/$doc" || true)"
 blank="$(grep -c '^| `.*| *|$' "$repo_root/$doc" || true)"
 documented=$((rows - blank))
 echo "     $documented of $rows rows carry a summary"
-if (( documented >= 290 )); then
-  ok "documentation coverage is $documented of $rows (ratchet 290, set 2026-08-25)"
+if (( documented >= 560 )); then
+  ok "documentation coverage is $documented of $rows (ratchet 560, set 2026-09-03)"
 else
-  bad "documentation coverage fell to $documented, below the ratchet of 290"
+  bad "documentation coverage fell to $documented, below the ratchet of 560"
   echo "     A public name with no comment block above it is a blank Summary"
   echo "     cell. Document it, or lower this number here with the date and"
   echo "     the accounting for why it moved."

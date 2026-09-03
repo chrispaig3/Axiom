@@ -221,6 +221,104 @@
 )
 
 ; ------------------------------------------------------------------
+; Option, on its own terms.
+;
+; WHY THESE ARE HERE AND NOT IN A MODULE OF THEIR OWN. `Option` is a
+; compiler builtin, so it has no defining module to hold them, and
+; fourteen public functions across `Str`, `Vec`, `Intern`, `Utf8` and
+; `Path` answer one. Until 2026-09-03 the standard library shipped
+; ZERO ways to consume one: every caller in the tree hand-wrote the
+; same four-line `match`, including the ones a few lines above this.
+; This section is where they go because `okOr` and `toOption` already
+; put the two outcome types in one file, and a user who has an
+; `(Option a)` from `vecTry` should not have to know which of two
+; modules names the thing that reads it.
+;
+; THE NAMING follows `Result`'s, which is why it is not uniform.
+; `isSome`/`isNone` are bare, mirroring `isOk`/`isErr`: an `is` name
+; says which case, and the case names are already unambiguous. The
+; transforms carry `opt` because `Result` took the bare spellings
+; first - `mapOk`, `andThen`, `unwrapOr` - and this language has no
+; overloading, so the alternative to a prefix is a worse name for one
+; of the two types. Prefixing the newcomer is the smaller cost.
+;
+; EACH OF THE TWO HIGHER-ORDER FUNCTIONS COSTS A CLOSURE RECORD per
+; call, which is not reclaimed - the closure-argument leak, the same
+; one `vecSortBy` pays. It is bounded by the number of calls and not
+; by the data, which is why these are worth having anyway; a loop that
+; calls `optMap` per element pays per element, and should use `match`.
+; ------------------------------------------------------------------
+; Whether the `Option` holds a value. The `Option` half of `isOk`.
+(pub :: isSome (-> (Option a) Bool))
+
+(pub fn (isSome o)
+  (match o
+    ((Some x) true)
+    ((None) false)
+  )
+)
+
+; Whether the `Option` is empty. Exactly `isSome` negated, spelled
+; out because a caller reads for the case it cares about.
+(pub :: isNone (-> (Option a) Bool))
+
+(pub fn (isNone o)
+  (match o
+    ((Some x) false)
+    ((None) true)
+  )
+)
+
+; The value, or `fallback` when there is none. The one combinator that
+; ends the `Option` rather than passing it on, and the reason most
+; call sites need no `match` at all.
+(pub :: optUnwrapOr (-> (Option a) a a))
+
+(pub fn (optUnwrapOr o fallback)
+  (match o
+    ((Some x) x)
+    ((None) fallback)
+  )
+)
+
+; Apply `f` to the value if there is one, leaving an absence alone.
+; The result type is `f`'s, so this is how an `(Option Int)` becomes
+; an `(Option String)`.
+(pub :: optMap (-> (Option a) (-> a b) (Option b)))
+
+(pub fn (optMap o f)
+  (match o
+    ((Some x) (Some (f x)))
+    ((None) None)
+  )
+)
+
+; Chain a step that may itself be absent, without nesting two
+; `Option`s. `optMap` with a function answering `(Option b)` would
+; give `(Option (Option b))`; this is that flattened.
+(pub :: optAndThen (-> (Option a) (-> a (Option b)) (Option b)))
+
+(pub fn (optAndThen o f)
+  (match o
+    ((Some x) (f x))
+    ((None) None)
+  )
+)
+
+; The first of two that is present. `alt` is EVALUATED at the call, so
+; this is not a short-circuit: a caller whose alternative is expensive
+; should write the `match`. Said here because the name is borrowed
+; from languages where it is lazy.
+(pub :: optOr (-> (Option a) (Option a) (Option a)))
+
+(pub fn (optOr o alt)
+  (match o
+    ((Some x) (Some x))
+    ((None) alt)
+  )
+)
+
+; ------------------------------------------------------------------
 ; ERR-REC-2: a value-returning alternative for every trap.
 ;
 ; `/` and `%` are unchanged and still trap - the compiler emits a zero

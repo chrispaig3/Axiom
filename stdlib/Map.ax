@@ -47,6 +47,7 @@
 ; old three, because there is no `free`. Same trade, and same reasoning,
 ; as `Vec`; see that module's comment.
 (import Mem)
+(import Vec)
 
 ; ------------------------------------------------------------------
 ; The hash
@@ -382,13 +383,28 @@
 
 (pub fn (mapOwnsVals m) (== (memGetWord m 6) 1))
 
-(:: mapKeyAt (-> Int Int Int))
+; Read the key, or the value, out of slot `i`.
+;
+; `pub` since 2026-09-03, and `mapStateAt` below deliberately is NOT.
+; These two are the whole of what iterating a table needs to READ; the
+; state byte is how it decides WHICH slots to read, and that question
+; is answered by `mapLiveFrom` instead. Exporting the state array as
+; well would put tombstones - an artifact of how delete keeps linear
+; probing terminating - into the surface a caller has to understand,
+; and there is nothing a caller could correctly do with a `2` that
+; `mapLiveFrom` does not already do for it.
+;
+; Neither bounds-checks. A slot index that did not come from
+; `mapLiveFrom` is the caller's error, the same way `vecGet`'s is.
+(pub :: mapKeyAt (-> Int Int Int))
 
-(fn (mapKeyAt m i) (memGetWord (memGetWord m 2) i))
+(pub fn (mapKeyAt m i) (memGetWord (memGetWord m 2) i))
 
-(:: mapValAt (-> Int Int Int))
+; The value in slot `i`. See `mapKeyAt` above for the bounds rule
+; and why `mapStateAt` is not exported beside these two.
+(pub :: mapValAt (-> Int Int Int))
 
-(fn (mapValAt m i) (memGetWord (memGetWord m 3) i))
+(pub fn (mapValAt m i) (memGetWord (memGetWord m 3) i))
 
 (:: mapStateAt (-> Int Int Int))
 
@@ -956,6 +972,93 @@
       (mapPlaceLoop
         keys        vals        states        cap        key        value        (mapNextSlot i cap)        (- left 1)
       )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; Iteration
+;
+; A table you cannot enumerate is not a table. Until 2026-09-03 this
+; module exported `mapLen` and `mapCap` - a loop bound with nothing to
+; read inside it - and the three slot accessors were private, so no
+; caller outside this file could name the contents of a `Map` at all.
+; The `mapSumKeys`/`mapSumVals` pair below is the evidence: its own
+; comment says the two sums "pin down a small map's contents well
+; enough to test with", which is a workaround written because the
+; obvious thing was unavailable, not a design.
+;
+; THE CURSOR, NOT A CALLBACK. `mapLiveFrom` answers a slot index and
+; the caller reads it with `mapKeyAt`/`mapValAt`, rather than this
+; module taking a function and calling it per entry. A callback would
+; allocate a closure record per iteration site and would have to
+; decide what a caller returning early means; a cursor is a word, is
+; allocation-free, and composes with `while`, with early `return`, and
+; with a caller that wants only keys or only values.
+;
+;   (let ((mut c (mapLiveFrom m 0)))
+;     (while (isSomeSlot c)
+;       { ... (mapKeyAt m (slotOf c)) ... (set c (mapLiveFrom m (+ (slotOf c) 1))) }))
+;
+; ORDER IS SLOT ORDER, WHICH IS TO SAY UNDEFINED - the same statement
+; the "Bulk reads" section below makes, and for the same reason: slot
+; order changes on every rehash. Two iterations of a table that has
+; not been written to in between agree; nothing else is promised, and
+; a caller that needs an order must impose one (`Vec.vecSort` over the
+; keys).
+; ------------------------------------------------------------------
+; The first live slot at or after `i`, or `None` when the table has no
+; live slot from there on. `(mapLiveFrom m 0)` starts an iteration;
+; `(mapLiveFrom m (+ prev 1))` continues one.
+;
+; Self-tail-recursive over `cap`, so it is a loop after TCO - the same
+; shape `mapSumKeysFrom` has carried over the same range since this
+; module was written.
+(pub :: mapLiveFrom (-> Int Int (Option Int)))
+
+(pub fn (mapLiveFrom m i)
+  (if (>= i (mapCap m))
+    None
+    (if (== (mapStateAt m i) mapStateLive)
+      (Some i)
+      (mapLiveFrom m (+ i 1))
+    )
+  )
+)
+
+; Every live key, and every live value, in one shared slot order: the
+; `j`th key and the `j`th value came out of the same slot, so the two
+; vectors zip. Both are freshly allocated and the caller owns them.
+;
+; These allocate where the cursor does not, and both are here rather
+; than only one of them because a caller that wants pairs otherwise
+; walks the table twice.
+(pub :: mapKeys (-> Int (Vec Int)))
+
+(pub fn (mapKeys m) (mapCollect m 0 (vecWithCapacity (mapLen m)) 1))
+
+; Every live value, in the same slot order `mapKeys` uses, so the two
+; vectors zip element for element.
+(pub :: mapValues (-> Int (Vec Int)))
+
+(pub fn (mapValues m) (mapCollect m 0 (vecWithCapacity (mapLen m)) 0))
+
+; The walk both collectors share. `keys` picks which array is read, so
+; the traversal exists once: two copies of a probe loop is how this
+; module's own `mapNextSlot` comment says `Intern` went wrong.
+(:: mapCollect (-> Int Int (Vec Int) Int (Vec Int)))
+
+(fn (mapCollect m i out keys)
+  (match (mapLiveFrom m i)
+    ((None) out)
+    ((Some s)
+      {
+        (vecPush out (if (== keys 1)
+          (mapKeyAt m s)
+          (mapValAt m s)
+        ))
+        (mapCollect m (+ s 1) out keys)
+      }
     )
   )
 )

@@ -67,7 +67,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Err`
 
-`stdlib/Err.ax` — 30 public names
+`stdlib/Err.ax` — 36 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -92,6 +92,12 @@ See [reference.md](reference.md) for the language, and
 | `withContext` | value | `(-> (Result a Error) String (Result a Error))` | `Alloc` |  |
 | `okOr` | value | `(-> (Option a) e (Result a e))` | `Alloc` |  |
 | `toOption` | value | `(-> (Result a e) (Option a))` | `Alloc` |  |
+| `isSome` | value | `(-> (Option a) Bool)` |  | Whether the `Option` holds a value. The `Option` half of `isOk`. |
+| `isNone` | value | `(-> (Option a) Bool)` |  | Whether the `Option` is empty. Exactly `isSome` negated, spelled out because a caller reads for the case it cares about. |
+| `optUnwrapOr` | value | `(-> (Option a) a a)` |  | The value, or `fallback` when there is none. The one combinator that ends the `Option` rather than passing it on, and the reason most call sites need no `match` at all. |
+| `optMap` | value | `(-> (Option a) (-> a b) (Option b))` | `Alloc` | Apply `f` to the value if there is one, leaving an absence alone. The result type is `f`'s, so this is how an `(Option Int)` becomes an `(Option String)`. |
+| `optAndThen` | value | `(-> (Option a) (-> a (Option b)) (Option b))` |  | Chain a step that may itself be absent, without nesting two `Option`s. `optMap` with a function answering `(Option b)` would give `(Option (Option b))`; this is that flattened. |
+| `optOr` | value | `(-> (Option a) (Option a) (Option a))` | `Alloc` | The first of two that is present. `alt` is EVALUATED at the call, so this is not a short-circuit: a caller whose alternative is expensive should write the `match`. Said here because the name is borrowed from languages where it is lazy. |
 | `intMin` | value | `Int` |  |  |
 | `addChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` | The three that WRAP. |
 | `subChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
@@ -402,7 +408,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Map`
 
-`stdlib/Map.ax` — 21 public names
+`stdlib/Map.ax` — 26 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -419,12 +425,17 @@ See [reference.md](reference.md) for the language, and
 | `mapCap` | value | `(-> Int Int)` |  |  |
 | `mapUsed` | value | `(-> Int Int)` |  | Slots that are live or tombstoned. Exposed because it is the number that explains a rehash, and a test that could not see it would have to infer growth from timing. |
 | `mapOwnsVals` | value | `(-> Int Bool)` |  | Whether this table owns a share of every value it holds - the `mapNewRefVals` half. Word 6 of the header, and not a test of the value array's shape word: see `mapAllocTable`. |
+| `mapKeyAt` | value | `(-> Int Int Int)` |  | Read the key, or the value, out of slot `i`. |
+| `mapValAt` | value | `(-> Int Int Int)` |  | The value in slot `i`. See `mapKeyAt` above for the bounds rule and why `mapStateAt` is not exported beside these two. |
 | `mapNextSlot` | value | `(-> Int Int Int)` |  | The next slot after `i`. |
 | `mapHas` | value | `(-> Int Int Bool)` |  |  |
 | `mapGet` | value | `(-> Int Int Int Int)` |  | The value for `key`, or `dflt` if `key` is absent. |
 | `mapGetStr` | value | `(-> Int Int String String)` |  | The value for `key` read as a `String`, or `dflt` if `key` is absent. |
 | `mapInsert` | value | `(-> Int Int a Int)` | `Alloc,Mut` | Insert or overwrite, growing first if the load factor demands it. Returns the handle - the same one, since the header is mutated in place; see `Vec`'s module comment for why it is returned anyway. |
 | `mapRemove` | value | `(-> Int Int Int)` | `Mut` | Delete `key`. Returns the handle. |
+| `mapLiveFrom` | value | `(-> Int Int (Option Int))` | `Alloc` | The first live slot at or after `i`, or `None` when the table has no live slot from there on. `(mapLiveFrom m 0)` starts an iteration; `(mapLiveFrom m (+ prev 1))` continues one. |
+| `mapKeys` | value | `(-> Int (Vec Int))` | `Alloc,Mut` | Every live key, and every live value, in one shared slot order: the `j`th key and the `j`th value came out of the same slot, so the two vectors zip. Both are freshly allocated and the caller owns them. |
+| `mapValues` | value | `(-> Int (Vec Int))` | `Alloc,Mut` | Every live value, in the same slot order `mapKeys` uses, so the two vectors zip element for element. |
 | `mapSumVals` | value | `(-> Int Int)` |  | The sum of every live value. |
 | `mapSumKeys` | value | `(-> Int Int)` |  | The sum of every live key. Together with `mapSumVals` and `mapLen` this pins down a small map's contents well enough to test with. |
 

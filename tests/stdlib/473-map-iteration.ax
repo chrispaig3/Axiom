@@ -1,0 +1,148 @@
+; `Map`, enumerated - the operation this module could not do until
+; 2026-09-03.
+;
+; `mapKeyAt`, `mapValAt` and `mapStateAt` were all private, so the
+; public surface offered `mapLen` and `mapCap` - a loop bound with
+; nothing to read inside it - and no caller outside `stdlib/Map.ax`
+; could name the contents of a table. `mapSumKeys` and `mapSumVals`
+; exist because of that: their own comment says the two sums "pin down
+; a small map's contents well enough to test with", which is a
+; workaround, and this file is what it was working around.
+;
+; The cursor is `mapLiveFrom`, answering `(Option Int)`: the first LIVE
+; slot at or after `i`, `None` past the end. `mapKeyAt`/`mapValAt` read
+; it. `mapStateAt` stays private - tombstones are an artifact of how
+; delete keeps linear probing terminating, and a caller has nothing to
+; do with a `2` that the cursor has not already done for it.
+;
+; What each term establishes:
+;
+;   1. AN EMPTY TABLE HAS NO LIVE SLOT, from 0 and from the far end.
+;      `mapNew` allocates capacity, so this is not the same question as
+;      `mapLen` being 0.
+;   2. THE CURSOR REACHES EVERY LIVE ENTRY EXACTLY ONCE, checked
+;      against the two sums that were the old workaround: walking with
+;      `mapLiveFrom` and adding `mapKeyAt` must equal `mapSumKeys`, and
+;      the same for values. Two independent walks of the same table.
+;   3. `mapKeys` AND `mapValues` ZIP. The j-th key and the j-th value
+;      came out of the same slot, so looking each key up in the map
+;      must answer the value beside it. This is the property that makes
+;      the pair usable, and the one a second traversal would break.
+;   4. THE VECTORS ARE AS LONG AS THE TABLE IS. `vecLen` of either
+;      equals `mapLen`, so nothing is dropped and nothing is counted
+;      twice.
+;   5. DELETE. After `mapRemove` the removed key is gone from `mapKeys`
+;      and the survivors are all still there - the tombstone the delete
+;      leaves is a slot the cursor must skip, and it is the one shape
+;      that distinguishes a state-aware walk from a bare index loop.
+;   6. A TABLE THAT HAS GROWN. Twenty entries force at least one
+;      rehash at load factor 0.5, so the cursor runs over a capacity
+;      that is not the one the entries were inserted under.
+(import IO)
+
+(import Map)
+
+(import Vec)
+
+; Walk with the cursor, adding keys or values, and answer the total.
+(:: walkSum (-> Int Int Int Int))
+
+(fn (walkSum m i keys)
+  (match (mapLiveFrom m i)
+    ((None) 0)
+    ((Some s)
+      (+
+        (if (== keys 1)
+          (mapKeyAt m s)
+          (mapValAt m s)
+        )        (walkSum m (+ s 1) keys)
+      )
+    )
+  )
+)
+
+; Does every (key, value) pair from the two vectors agree with what the
+; map answers for that key? 1 if so.
+(:: zipOk (-> Int (Vec Int) (Vec Int) Int Int))
+
+(fn (zipOk m ks vs j)
+  (if (>= j (vecLen ks))
+    1
+    (if (== (mapGet m (vecGet ks j) 0) (vecGet vs j))
+      (zipOk m ks vs (+ j 1))
+      0
+    )
+  )
+)
+
+(:: hasKey (-> (Vec Int) Int Int Int))
+
+(fn (hasKey ks k j)
+  (if (>= j (vecLen ks))
+    0
+    (if (== (vecGet ks j) k)
+      1
+      (hasKey ks k (+ j 1))
+    )
+  )
+)
+
+(:: fill (-> Int Int Int Int))
+
+(fn (fill m i n)
+  (if (>= i n)
+    m
+    (fill (mapInsert m (* i 10) (* i 100)) (+ i 1) n)
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  ; --- 1. an empty table has no live slot ---
+  (let ((empty mapNew))
+    {
+      (println
+        (match (mapLiveFrom empty 0)
+          ((None) 1)
+          ((Some s) 0)
+        )
+      )
+      (println
+        (match (mapLiveFrom empty 1000000)
+          ((None) 1)
+          ((Some s) 0)
+        )
+      )
+      ; --- 2. the cursor reaches every entry exactly once ---
+      (let ((m (fill mapNew 0 5)))
+        {
+          (println (== (walkSum m 0 1) (mapSumKeys m)))
+          (println (== (walkSum m 0 0) (mapSumVals m)))
+          ; --- 3. mapKeys and mapValues zip ---
+          (println (zipOk m (mapKeys m) (mapValues m) 0))
+          ; --- 4. the vectors are as long as the table ---
+          (println (== (vecLen (mapKeys m)) (mapLen m)))
+          (println (== (vecLen (mapValues m)) (mapLen m)))
+          ; --- 5. delete: the tombstone is skipped ---
+          (let ((m2 (mapRemove m 20)))
+            {
+              (println (hasKey (mapKeys m2) 20 0))
+              (println (hasKey (mapKeys m2) 30 0))
+              (println (vecLen (mapKeys m2)))
+            }
+          )
+        }
+      )
+      ; --- 6. a table that has grown past its first capacity ---
+      (let ((big (fill mapNew 0 20)))
+        {
+          (println (vecLen (mapKeys big)))
+          (println (== (walkSum big 0 1) (mapSumKeys big)))
+        }
+      )
+      0
+    }
+  )
+)

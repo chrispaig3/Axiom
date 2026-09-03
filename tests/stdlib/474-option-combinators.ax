@@ -1,0 +1,98 @@
+; `Option`, consumed - the other half of the outcome types.
+;
+; `Option` is a compiler builtin, so it has no defining module, and
+; until 2026-09-03 the standard library shipped ZERO ways to read one
+; while fourteen public functions across `Str`, `Vec`, `Intern`,
+; `Utf8` and `Path` answered one. Every caller hand-wrote the same
+; four-line `match`, including callers inside `stdlib/Err.ax` a few
+; lines above where these now live.
+;
+; They are in `Err.ax` beside `okOr` and `toOption` because that file
+; already holds the two outcome types together, and a user who has an
+; `(Option a)` out of `vecTry` should not have to know which of two
+; modules names the thing that reads it.
+;
+; What each term establishes:
+;
+;   1. `isSome`/`isNone` on both cases, and that they DISAGREE - two
+;      functions that both answered `true` would pass a test that only
+;      checked one arm each.
+;   2. `optUnwrapOr` takes the value when there is one and the
+;      fallback when there is not, AND a stored zero is not an
+;      absence: `(Some 0)` unwraps to 0 rather than to the fallback,
+;      which is the whole reason `Option` is a type rather than a
+;      sentinel. `tests/stdlib/313-vec-try.ax` pins the same
+;      distinction on the producing side.
+;   3. `optMap` applies over `Some`, passes `None` through, and
+;      CHANGES THE TYPE: `(Option Int)` to `(Option String)`, which is
+;      the signature's `b` doing work rather than decorating it.
+;   4. `optAndThen` chains a function that can itself answer `None`,
+;      in all three combinations - present-then-present,
+;      present-then-absent, absent.
+;   5. `optOr` takes the first present of two, and is NOT lazy: its
+;      own comment says the alternative is evaluated at the call, and
+;      the term is written so that a lazy implementation would print
+;      something different.
+;   6. THEY COMPOSE WITH A REAL PRODUCER. `strFind` answers
+;      `(Option Int)`; the whole pipeline runs without a `match` at the
+;      call site, which is the DX claim this file is the evidence for.
+(import IO)
+
+(import Err)
+
+(import Str)
+
+(import Vec)
+
+(:: doubleIt (-> Int (Option Int)))
+
+(fn (doubleIt n)
+  (if (> n 100)
+    None
+    (Some (* n 2))
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (some7 (Some 7))
+    (some0 (Some 0))
+    (none0 None)
+  )
+    {
+      ; --- 1. isSome and isNone, on both cases, disagreeing ---
+      (println (isSome some7))
+      (println (isNone some7))
+      (println (isSome none0))
+      (println (isNone none0))
+
+      ; --- 2. optUnwrapOr, and Some 0 is not an absence ---
+      (println (optUnwrapOr some7 99))
+      (println (optUnwrapOr none0 99))
+      (println (optUnwrapOr some0 99))
+
+      ; --- 3. optMap, including a change of type ---
+      (println (optUnwrapOr (optMap some7 (lambda (x) (* x 3))) 0))
+      (println (isNone (optMap none0 (lambda (x) (* x 3)))))
+      (println (optUnwrapOr
+        (optMap some7 (lambda (x) (strConcat "n=" (fmtInt x))))        "none"
+      ))
+
+      ; --- 4. optAndThen, all three combinations ---
+      (println (optUnwrapOr (optAndThen some7 doubleIt) 0))
+      (println (isNone (optAndThen (Some 500) doubleIt)))
+      (println (isNone (optAndThen none0 doubleIt)))
+
+      ; --- 5. optOr takes the first present of two ---
+      (println (optUnwrapOr (optOr some7 (Some 42)) 0))
+      (println (optUnwrapOr (optOr none0 (Some 42)) 0))
+      (println (isNone (optOr none0 None)))
+
+      ; --- 6. composing with a real producer, no match at the call ---
+      (println (optUnwrapOr (optMap (strFind "hello world" "world" 0) (lambda (i) (+ i 1))) 0))
+      (println (optUnwrapOr (optMap (strFind "hello world" "zebra" 0) (lambda (i) (+ i 1))) 0))
+      0
+    }))
