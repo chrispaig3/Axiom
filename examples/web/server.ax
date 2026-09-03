@@ -303,17 +303,17 @@
       ; did before `netSignalOpen` answered a `Result`.
       (let ((sh (unwrapOr (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
         (while (== running 1)
-          (let ((n (netPollWait
+          (let ((n (match (netPollWait
             pfd            buf            64            (- 0 1)            ts
-          )))
+          ) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
             (if (< n 0)
               (set running 0)
               (let ((mut e 0))
                 (while (< e n)
                   {
-                    (if (>= (netPollSignalAt buf e sh scratch) 0)
-                      (set running 0)
-                      (let ((con (netAccept lsn)))
+                    (match (netPollSignalAt buf e sh scratch)
+                      ((Some sig) (set running 0))
+                      ((None) (let ((con (match (netAccept lsn) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
                         (if (< con 0)
                           0
                           ; EVERYTHING THE CONNECTION ALLOCATES IS
@@ -334,7 +334,7 @@
                           }
                         )
                       )
-                    )
+                    ))
                     (set e (+ e 1))
                   })
               )

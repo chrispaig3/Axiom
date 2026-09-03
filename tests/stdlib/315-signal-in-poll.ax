@@ -112,9 +112,9 @@
                             1                            "SIGTERM is watched on the same descriptor"
                           )
                           (say
-                            (if (== (netPollWait
+                            (if (== (match (netPollWait
                               pfd                              buf                              8                              0                              ts
-                            ) 0)
+                            ) ((Ok k) k) ((Err e) (- 0 (errCode e)))) 0)
                               1
                               0
                             )                            "nothing pending wakes nothing"
@@ -126,9 +126,9 @@
                             ((Ok cli)
                             {
                               (netConnect cli addr)
-                              (let ((n (netPollWait
+                              (let ((n (match (netPollWait
                                 pfd                                buf                                8                                2000                                ts
-                              )))
+                              ) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
                                 {
                                   (say
                                     (if (== n 1)
@@ -143,17 +143,18 @@
                                     )                                    "the event names the listener"
                                   )
                                   (say
-                                    (if (< (netPollSignalAt buf 0 sh scratch) 0)
-                                      1
-                                      0
+                                    (match (netPollSignalAt buf 0 sh scratch)
+                                      ((None) 1)
+                                      ((Some s) 0)
                                     )                                    "a socket event is NOT reported as a signal"
                                   )
                                 }
                               )
                               ; Take the connection, or the listener stays
                               ; readable and the next wait sees two events.
-                              (let ((con (netAccept lsn)))
-                                (sysCloseFd con)
+                              (match (netAccept lsn)
+                                ((Ok con) (sysCloseFd con))
+                                ((Err e) (Err e))
                               )
                               (sysCloseFd cli)
                             }
@@ -166,9 +167,9 @@
                               0
                             )                            "SIGTERM is raised"
                           )
-                          (let ((n2 (netPollWait
+                          (let ((n2 (match (netPollWait
                             pfd                            buf                            8                            2000                            ts
-                          )))
+                          ) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
                             {
                               (say
                                 (if (== n2 1)
@@ -177,9 +178,9 @@
                                 )                                "the signal wakes one event"
                               )
                               (say
-                                (if (== (netPollSignalAt buf 0 sh scratch) sigTerm)
-                                  1
-                                  0
+                                (match (netPollSignalAt buf 0 sh scratch)
+                                  ((Some s) (if (== s sigTerm) 1 0))
+                                  ((None) 0)
                                 )                                "the event decodes as SIGTERM"
                               )
                             }

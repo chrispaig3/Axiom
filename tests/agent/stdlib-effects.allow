@@ -7,7 +7,6 @@ assertNe Test.ax Alloc,Assert,IO,Mut
 assertStrEq Test.ax Alloc,Assert,IO,Mut
 assertTrue Test.ax Alloc,Assert,IO,Mut
 axsymBuild Tags.ax Alloc,Mut
-axsymHexVal Tags.ax Alloc
 axsymLine Tags.ax Alloc,Mut
 axsymMeta Tags.ax Alloc,Mut
 axsymMetaScan Tags.ax Alloc,Mut
@@ -103,7 +102,6 @@ httpServeFile Http.ax Alloc,IO,Mut
 httpServeOne Http.ax Alloc,IO,Mut
 internAdd Intern.ax Alloc,Mut
 internAllocTable Intern.ax Alloc,Mut
-internFind Intern.ax Alloc
 internIntern Intern.ax Alloc,Mut
 internLookup Intern.ax Alloc,Mut
 internNew Intern.ax Alloc,Mut
@@ -127,7 +125,8 @@ jobSubmitArgv Job.ax Alloc,IO,Mut
 jobWaitAll Job.ax Alloc,IO,Mut
 jpArray Json.ax Alloc,Mut
 jpEscape Json.ax Alloc,Mut
-jpHex4 Json.ax Mut
+jpHex4 Json.ax Alloc,Mut
+jpHexDigits Json.ax Alloc
 jpLit Json.ax Mut
 jpNumber Json.ax Alloc,Mut
 jpObject Json.ax Alloc,Mut
@@ -154,7 +153,7 @@ jsonWriteInto Json.ax Alloc,Mut
 jsonWriteObj Json.ax Alloc,Mut
 keyFromCsi Keys.ax Alloc
 keyFromSs3 Keys.ax Alloc
-keyInFill Term.ax IO,Mut
+keyInFill Term.ax Alloc,IO,Mut
 keyNext Term.ax Alloc,IO,Mut
 keyResolve Keys.ax Alloc
 keyScan Keys.ax Alloc,Mut
@@ -238,9 +237,9 @@ memSetWord Mem.ax Mut
 mkError Err.ax Alloc
 mkKeyIn Term.ax Alloc,IO,Mut
 mulChecked Err.ax Alloc
-netAccept Sys.ax IO
+netAccept Sys.ax Alloc,IO
 netAcceptFinish Sys.ax IO
-netAcceptFrom Sys.ax IO,Mut
+netAcceptFrom Sys.ax Alloc,IO,Mut
 netAddr4 Sys.ax Mut
 netAddr6 Sys.ax Mut
 netAddrText Sys.ax Alloc,Mut
@@ -255,7 +254,7 @@ netPollCreate Sys.ax Alloc,IO
 netPollDelRead Sys.ax Alloc,IO,Mut
 netPollRec Sys.ax Mut
 netPollSignalAt Sys.ax IO
-netPollWait Sys.ax IO,Mut
+netPollWait Sys.ax Alloc,IO,Mut
 netPutGroup Sys.ax Mut
 netPutInt32 Sys.ax Mut
 netPutWord Sys.ax Mut
@@ -272,14 +271,14 @@ okOr Err.ax Alloc
 pathBase Path.ax Alloc,Mut
 pathDir Path.ax Alloc,Mut
 pathExt Path.ax Alloc,Mut
-pathExtIndex Path.ax Alloc
 pathJoin Path.ax Alloc,Mut
-pathLastSlash Path.ax Alloc
 pathReplaceExt Path.ax Alloc,Mut
 pathStem Path.ax Alloc,Mut
 pathWithSlash Path.ax Alloc,Mut
-printLit IO.ax IO
-printlnLit IO.ax IO
+platformReadFd Platform.darwin.ax Alloc
+platformWriteFd Platform.darwin.ax Alloc
+printLit IO.ax Alloc,IO
+printlnLit IO.ax Alloc,IO
 rdCompact Rpc.ax Alloc,Mut
 rdFill Rpc.ax Alloc,IO,Mut
 rdNew Rpc.ax Alloc,Mut
@@ -296,7 +295,7 @@ routeDispatch Http.ax Alloc,IO,Mut
 routeNotFound Http.ax Mut
 routeStatic Http.ax Alloc,Mut
 routerNew Http.ax Alloc,IO,Mut
-rpcPut Rpc.ax IO
+rpcPut Rpc.ax Alloc,IO
 rpcRead Rpc.ax Alloc,IO,Mut
 rpcWrite Rpc.ax Alloc,IO,Mut
 shlChecked Err.ax Alloc
@@ -304,11 +303,9 @@ shrChecked Err.ax Alloc
 strAlloc Str.ax Alloc,Mut
 strConcat Str.ax Alloc,Mut
 strDup Str.ax Alloc,Mut
-strFind Str.ax Alloc
 strFromByte Str.ax Alloc,Mut
 strFromLit Str.ax Alloc,Mut
 strLower Str.ax Alloc,Mut
-strParseInt Str.ax Alloc
 strSlice Str.ax Alloc,Mut
 strSplit Str.ax Alloc,Mut
 strSplitFrom Str.ax Alloc,Mut
@@ -340,8 +337,8 @@ sysIsDir Sys.ax Alloc,IO,Mut
 sysIsatty Sys.ax Alloc,IO
 sysKill Sys.ax Alloc,IO
 sysMkdir Sys.ax Alloc,IO
-sysNowMicros Sys.ax IO
-sysNowMonotonic Sys.ax IO
+sysNowMicros Sys.ax Alloc,IO
+sysNowMonotonic Sys.ax Alloc,IO
 sysOpenPath Sys.ax Alloc,IO
 sysOpenPathMode Sys.ax IO
 sysOpenRaw Sys.ax IO
@@ -351,7 +348,7 @@ sysReadDir Sys.ax Alloc,IO,Mut
 sysReadDirDecode Sys.ax Alloc,Mut
 sysReadDirLoop Sys.ax Alloc,IO,Mut
 sysReadErrno Sys.ax Alloc,IO,Mut
-sysReadFd Sys.ax IO
+sysReadFd Sys.ax Alloc,IO
 sysReadFile Sys.ax Alloc,IO,Mut
 sysRename Sys.ax Alloc,IO
 sysResult Sys.ax Alloc
@@ -369,8 +366,8 @@ sysTermSave Sys.ax IO
 sysTermSize Sys.ax IO
 sysUnlink Sys.ax Alloc,IO
 sysWaitPid Sys.ax Alloc,IO,Mut
-sysWriteAllFd Sys.ax IO
-sysWriteFd Sys.ax IO
+sysWriteAllFd Sys.ax Alloc,IO
+sysWriteFd Sys.ax Alloc,IO
 sysWriteFile Sys.ax Alloc,IO
 termEditLoop Term.ax Alloc,IO,Mut
 termFlagClear Sys.ax Mut
@@ -407,4 +404,4 @@ vecWithCapacity Vec.ax Alloc,Mut
 vecWithCapacityRef Vec.ax Alloc,Mut
 withContext Err.ax Alloc
 writeFile IO.ax Alloc,IO,Mut
-writeStr IO.ax IO
+writeStr IO.ax Alloc,IO

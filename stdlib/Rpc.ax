@@ -193,7 +193,7 @@
       (rdCompact r)
       0
     )
-    (let ((n (sysReadFd (rdFd r) (+ (strData (rdBuf r)) (rdFilled r)) (- (strLen (rdBuf r)) (rdFilled r)))))
+    (let ((n (match (sysReadFd (rdFd r) (+ (strData (rdBuf r)) (rdFilled r)) (- (strLen (rdBuf r)) (rdFilled r))) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
       {
         (if (> n 0)
           (memSetWord r 2 (+ (rdFilled r) n))

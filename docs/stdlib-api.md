@@ -44,7 +44,7 @@ See [reference.md](reference.md) for the language, and
 | `axsymIsKind` | value | `(-> Int Bool)` |  | The six KIND letters, and deliberately only those: they are disjoint from AXDL's `E`/`W`/`N`/`H` severity sigils, so a line's first byte says which notation produced it even in a concatenated stream. A seventh kind added to the compiler must be added here, and a line whose first byte is unknown is answered `None` rather than guessed at - a reader that guesses turns a compiler change into silently wrong data. |
 | `axsymTrimEnd` | value | `(-> String String)` | `Alloc,Mut` | Trailing spaces off the end of a slice. The head field is taken as the bytes before the opening quote, which includes the space that separated the location from it. |
 | `axsymEscapable` | value | `(-> Int Bool)` |  | The bytes `saAxMeta` escapes on the way out, restated here because this is the other end of the same wire: space and every control byte (`< 33`), `"`, `#`, `%` and DEL. Anything else is left alone, so a UTF-8 tag value survives. |
-| `axsymHexVal` | value | `(-> Int (Option Int))` | `Alloc` | One hex digit's value, or `None`. Both cases are accepted: the emitter writes upper, and a reader that took only what one emitter happens to write is pinned to that emitter rather than to the notation. Absence, not failure - `docs/error-model.md` ERR-REC-3 - and `Option` is built in, so this costs the module no import. |
+| `axsymHexVal` | value | `(-> Int (Option Int))` |  | One hex digit's value, or `None`. Both cases are accepted: the emitter writes upper, and a reader that took only what one emitter happens to write is pinned to that emitter rather than to the notation. Absence, not failure - `docs/error-model.md` ERR-REC-3 - and `Option` is built in, so this costs the module no import. |
 | `axsymPctAt` | value | `(-> String Int (Option Int))` | `Alloc` | The byte a `%XX` at `i` stands for, or `None` where there is no complete escape. STRICT, and that is the point: only the bytes `saAxSafe` escapes decode, so a literal `%` standing in a value the COMPILER built - a rendered type, a generated `Trait#Type#method` name - is never mistaken for an escape. `%41` stays `%41`. |
 | `axsymUnpct` | value | `(-> String String)` | `Alloc,Mut` | A meta key or value with its escapes undone. The `strFindByte` guard is not an optimisation for its own sake: no AXTAG in this repository contains a byte that is escaped, so every token on every line in the corpus takes the first arm and is returned as it arrived, allocating nothing and copying nothing. |
 | `axsymUnpctFrom` | value | `(-> String Int String String)` | `Alloc,Mut` |  |
@@ -323,8 +323,8 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `writeStr` | value | `(-> Int String Int)` | `IO` | Write all of `s` to `fd`, returning the number of bytes written or a negative errno. |
-| `printlnLit` | value | `(-> Int Int)` | `IO` |  |
+| `writeStr` | value | `(-> Int String Int)` | `Alloc,IO` | Write all of `s` to `fd`, returning the number of bytes written or a negative errno. |
+| `printlnLit` | value | `(-> Int Int)` | `Alloc,IO` |  |
 | `println` | macro |  |  |  |
 | `eprintln` | macro |  |  |  |
 | `readFileLit` | value | `(-> Int String)` | `Alloc,IO,Mut` | The whole contents of the file at NUL-terminated path `cstr`, or an empty `Str` if it cannot be opened. |
@@ -361,7 +361,7 @@ See [reference.md](reference.md) for the language, and
 | `internCap` | value | `(-> Int Int)` |  |  |
 | `internCount` | value | `(-> Int Int)` |  | How many distinct strings have been interned. Ids are exactly 0..internCount-1, with no gaps - that is what "dense" means here, and it is what lets a caller size a side table by `internCount` and index it by id. |
 | `internLookup` | value | `(-> Int Int String)` | `Alloc,Mut` | The string with id `id`, or an empty `Str` if `id` was never handed out. |
-| `internFind` | value | `(-> Int String (Option Int))` | `Alloc` | The id of a string equal in content to `s`, or `None`. |
+| `internFind` | value | `(-> Int String (Option Int))` |  | The id of a string equal in content to `s`, or `None`. |
 | `internIntern` | value | `(-> Int String Int)` | `Alloc,Mut` | The id for `s`, interning it if its content is new. |
 
 ## `Job`
@@ -454,12 +454,12 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `pathLastSlash` | value | `(-> String (Option Int))` | `Alloc` | The last `/` in `p`, or `None`. Everything below is a decision about this one index. `compat/SENTINELS`'s direction rule is "absence wants `Option`", and this is the primitive every caller in this file goes through - `pathExtIndex` is the one exception, and it goes straight to the raw `-1` helper below because it needs the sentinel back in arithmetic (`(+ slash 1)` is 0, correctly, when there is no slash at all), not a value to branch on. |
+| `pathLastSlash` | value | `(-> String (Option Int))` |  | The last `/` in `p`, or `None`. Everything below is a decision about this one index. `compat/SENTINELS`'s direction rule is "absence wants `Option`", and this is the primitive every caller in this file goes through - `pathExtIndex` is the one exception, and it goes straight to the raw `-1` helper below because it needs the sentinel back in arithmetic (`(+ slash 1)` is 0, correctly, when there is no slash at all), not a value to branch on. |
 | `pathDir` | value | `(-> String String)` | `Alloc,Mut` | Everything up to and INCLUDING the last `/`, or "" when `p` names something in the working directory. |
 | `pathBase` | value | `(-> String String)` | `Alloc,Mut` | Everything after the last `/` - the file name on its own, or `p` entire when there is no separator. |
 | `pathWithSlash` | value | `(-> String String)` | `Alloc,Mut` | A directory name that ends in `/`, so concatenation forms a path. |
 | `pathJoin` | value | `(-> String String String)` | `Alloc,Mut` | `dir` and `name` as one path, with exactly one `/` between them. |
-| `pathExtIndex` | value | `(-> String (Option Int))` | `Alloc` | The index of the extension's `.` within `p`, or `None`. |
+| `pathExtIndex` | value | `(-> String (Option Int))` |  | The index of the extension's `.` within `p`, or `None`. |
 | `pathExt` | value | `(-> String String)` | `Alloc,Mut` | The extension INCLUDING its dot (`".ax"`), or "" when there is none. |
 | `pathStem` | value | `(-> String String)` | `Alloc,Mut` | The base name with its extension removed: `"src/main.ax"` is `"main"`. What a driver names an output after. |
 | `pathReplaceExt` | value | `(-> String String String)` | `Alloc,Mut` | `p` with its extension replaced by `ext`, which carries its own dot. `(pathReplaceExt "build/main.ax" ".ll")` is `"build/main.ll"`, and a path with no extension simply gains one. |
@@ -530,15 +530,15 @@ See [reference.md](reference.md) for the language, and
 | `strIsDigit` | value | `(-> Int Bool)` |  |  |
 | `strIsAlpha` | value | `(-> Int Bool)` |  |  |
 | `strIsSpace` | value | `(-> Int Bool)` |  | Space, tab, LF, CR - and nothing else. Not `char::is_whitespace`: VT and FF are AX1001 to this language's lexer, and a formatter that skipped them turned a refused file into an accepted one. |
-| `strHexVal` | value | `(-> Int Int)` |  | The value of a hex digit, or -1. Stated as the VALUE and not as a predicate because the value is what every caller needed: the JSON parser's `\uXXXX` escape and the language server's percent-decoding each carried a byte-identical copy of this ladder under its own name, while the predicate here had no caller at all. |
+| `strHexVal` | value | `(-> Int (Option Int))` |  | The value of a hex digit, or `None`. Stated as the VALUE and not as a predicate because the value is what every caller needed: the JSON parser's `\uXXXX` escape and the language server's percent-decoding each carried a byte-identical copy of this ladder under its own name, while the predicate here had no caller at all. |
 | `strIsHexDigit` | value | `(-> Int Bool)` |  |  |
 | `strSplit` | value | `(-> String Int (Vec Int))` | `Alloc,Mut` | Every segment of `s` between occurrences of `byte`, in order, as a Vec of Str handles. Empty segments are KEPT: a `PATH` entry of "" means the working directory, and a caller that wants them dropped can drop them, while a caller that needs them cannot get them back. `strSplit "" 58` answers one empty segment, and `strSplit "a:" 58` answers two - the same rule as splitting on a separator anywhere else, and the one that makes the segment count equal the separator count plus one. |
 | `strSplitFrom` | value | `(-> String Int Int (Vec Int) Int)` | `Alloc,Mut` |  |
 | `strFromByte` | value | `(-> Int String)` | `Alloc,Mut` | A one-byte `Str` holding `b`. The compiler driver and the JSON encoder each had this three-line allocate-and-store under a private name; it is a `Str` constructor, so it lives with the others. |
 | `strLower` | value | `(-> String String)` | `Alloc,Mut` | `s` with every ASCII upper-case byte lowered, or `s` itself when it has none - so a header name already in the form a table wants is not copied. Bytes above 127 pass through untouched: this is the ASCII fold a case-insensitive header table needs, not a Unicode case mapping. |
-| `strFind` | value | `(-> String String Int (Option Int))` | `Alloc` | The index of the first occurrence of `needle` in `s` at or after `from`, or `None`. An empty needle is found at `from` whenever `from` is inside `s` or at its end, which is the rule that makes `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than nothing. `no-alloc` came off on 2026-08-31: the `(Some found)` answer allocates. Accepted until then because a constructor contributed nothing to the effect row (`MM-EXEC-9a`). `no-io` and `no-foreign` are unchanged. |
+| `strFind` | value | `(-> String String Int (Option Int))` |  | The index of the first occurrence of `needle` in `s` at or after `from`, or `None`. An empty needle is found at `from` whenever `from` is inside `s` or at its end, which is the rule that makes `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than nothing. `no-alloc` came off on 2026-08-31: the `(Some found)` answer allocates. Accepted until then because a constructor contributed nothing to the effect row (`MM-EXEC-9a`). `no-io` and `no-foreign` are unchanged. |
 | `strTrim` | value | `(-> String String)` | `Alloc,Mut` | `s` without the `strIsSpace` bytes at either end, as a SLICE that shares `s`'s storage - so it is not NUL-terminated unless it ends where `s` does, exactly as `strSlice` says. A string that is all space trims to "". |
-| `strParseInt` | value | `(-> String (Option Int))` | `Alloc` | The decimal integer `s` spells - an optional `-`, then one or more ASCII digits and nothing else - or `None`: for an empty string, a sign alone, any other byte, and any value outside the 64-bit range. |
+| `strParseInt` | value | `(-> String (Option Int))` |  | The decimal integer `s` spells - an optional `-`, then one or more ASCII digits and nothing else - or `None`: for an empty string, a sign alone, any other byte, and any value outside the 64-bit range. |
 
 ## `Sys`
 
@@ -550,9 +550,9 @@ See [reference.md](reference.md) for the language, and
 | `stdin` | value | `Int` |  |  |
 | `stdout` | value | `Int` |  |  |
 | `stderr` | value | `Int` |  |  |
-| `sysWriteFd` | value | `(-> Int Int Int Int)` | `IO` |  |
-| `sysWriteAllFd` | value | `(-> Int Int Int Int Int)` | `IO` | THREE OUTCOMES, AND THE Int CHANNEL HELD TWO. Until 2026-08-30 this answered `done` when `write` returned exactly 0 - a short, NON-NEGATIVE count, indistinguishable from the complete one. The comment above calls treating a short write as success "the classic way to truncate output", and that is what this did in the one case it cannot retry. |
-| `sysReadFd` | value | `(-> Int Int Int Int)` | `IO` |  |
+| `sysWriteFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO` | write(2): `Ok` bytes written - possibly fewer than asked, which is what `sysWriteAllFd` below exists to retry - or `Err` carrying the errno. `(Result Int Error)` since 2026-09-03; the sentinel it replaced is recorded in `sysWriteAllFd`'s header, with why it stood and what let it go. |
+| `sysWriteAllFd` | value | `(-> Int Int Int Int Int)` | `Alloc,IO` | THREE OUTCOMES, AND THE Int CHANNEL HELD TWO. Until 2026-08-30 this answered `done` when `write` returned exactly 0 - a short, NON-NEGATIVE count, indistinguishable from the complete one. The comment above calls treating a short write as success "the classic way to truncate output", and that is what this did in the one case it cannot retry. |
+| `sysReadFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO` | read(2): `Ok` bytes read, `Ok 0` at end of input, or `Err` carrying the errno. `(Result Int Error)` since 2026-09-03, on the same terms as `sysWriteFd`: every reader in the tree matches the call directly and pays for no block on the bytes-arrived path. |
 | `sysOpenPath` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | ANSWERS `(Result Int Error)` - the descriptor, or the errno `open` refused with. This is the port `docs/error-model.md` ERR-ADOPT-1 calls the canonical one: a failed open is what a reader checks first when deciding whether the error model is real, and ENOENT, EACCES and EISDIR are three different things a caller does three different things about. As an `Int` they were all "negative". |
 | `sysCloseFd` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Close a descriptor. |
 | `sysExitWith` | value | `(-> Int Int)` | `IO` |  |
@@ -583,8 +583,8 @@ See [reference.md](reference.md) for the language, and
 | `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Run `path` to completion and answer its exit code. |
 | `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,IO,Mut` | Run `name`, searching `PATH` for it when it contains no slash. |
 | `sysGetPid` | value | `Int` | `IO` | The calling process's own id - the per-session suffix scratch files need so two concurrent processes cannot collide. The syscall takes no arguments; the unused ones are simply zero. |
-| `sysNowMicros` | value | `(-> Int Int)` | `IO` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
-| `sysNowMonotonic` | value | `(-> Int Int)` | `IO` | Microseconds from a clock that NEVER steps backwards, or a negative when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing. |
+| `sysNowMicros` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
+| `sysNowMonotonic` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Microseconds from a clock that NEVER steps backwards, or `Err` when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing on the path that answers. |
 | `netSocketTcp` | value | `(Result Int Error)` | `Alloc,IO` | A TCP socket, as `(Result Int Error)`. |
 | `netSocketTcp6` | value | `(Result Int Error)` | `Alloc,IO` | The same over IPv6. Its own name rather than a family parameter, because the family is not a runtime choice at this layer: a caller already picked a builder when it made the address, and a socket whose family disagrees with the address it is given fails at `bind` and not here. |
 | `netAddr4Bytes` | value | `Int` |  | How many bytes an address of each family occupies, and how big a buffer that must take either has to be. |
@@ -597,8 +597,8 @@ See [reference.md](reference.md) for the language, and
 | `netAddrSize` | value | `(-> Int Int)` |  | How many bytes of `addr` a syscall must be given, read off the family the buffer carries. This is what `netBind` and `netConnect` pass, and the reason neither of them takes a length. |
 | `netBind` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Bind a socket to an address built by `netAddr4` or `netAddr6`. |
 | `netListen` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Answers `(Result Int Error)`; `Ok 0` on success. |
-| `netAccept` | value | `(-> Int Int)` | `IO` | Accept a connection, answering the new socket or a negative errno, and throw the peer's address away. `netAcceptFrom` below keeps it; this is the form for a caller that does not want the buffer, and it passes NULL for both of `accept`'s out-parameters. |
-| `netAcceptFrom` | value | `(-> Int Int Int Int Int)` | `IO,Mut` | Accept a connection AND KEEP THE PEER'S ADDRESS. Answers the new socket or a negative errno, exactly as `netAccept` does, and fills `addr` with the peer's `sockaddr`, which `netAddrFamily`, `netAddrPort` and `netAddrText` read. |
+| `netAccept` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Accept a connection, answering `Ok` the new socket or `Err` the errno - `(Result Int Error)` since 2026-09-03; a would-block answer is `Err` carrying EAGAIN, which `netWouldBlock` still recognises from the negated code - and throw the peer's address away. `netAcceptFrom` below keeps it; this is the form for a caller that does not want the buffer, and it passes NULL for both of `accept`'s out-parameters. |
+| `netAcceptFrom` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Accept a connection AND KEEP THE PEER'S ADDRESS. Answers the new socket or a negative errno, exactly as `netAccept` does, and fills `addr` with the peer's `sockaddr`, which `netAddrFamily`, `netAddrPort` and `netAddrText` read. |
 | `netAddrLenRead` | value | `(-> Int Int)` |  | The length the kernel wrote back into a `netAcceptFrom` cell - 16 for a v4 peer, 28 for a v6 one - as normalised by `netAcceptFrom`. It is the REAL length of the peer's address, which is not necessarily how much of it arrived: Linux and Darwin copy what fits and report the whole size, FreeBSD reports the copied size and `netAcceptFrom` reads the whole one back off the BSD length byte, so a value larger than the `cap` that went in means the address was cut short on every target. `netAcceptFrom` acts on that itself; a caller reads this to log the family it could not store. |
 | `netAddrText` | value | `(-> Int String)` | `Alloc,Mut` | Render an address as text: a dotted quad for `afInet`, RFC 5952 form for `afInet6`. |
 | `netAddrTextPort` | value | `(-> Int String)` | `Alloc,Mut` | The same, with the port, in the form a URL authority uses: `127.0.0.1:80` and `[::1]:80`. |
@@ -612,13 +612,13 @@ See [reference.md](reference.md) for the language, and
 | `netPollCreate` | value | `(Result Int Error)` | `Alloc,IO` | A readiness descriptor, as `(Result Int Error)`. |
 | `netPollAddRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes. |
 | `netPollDelRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Answers `(Result Int Error)`; `Ok 0` on success. |
-| `netPollWait` | value | `(-> Int Int Int Int Int Int)` | `IO,Mut` | Wait for readiness, answering how many events landed in `buf` or a negative errno. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
+| `netPollWait` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Wait for readiness, answering `Ok` how many events landed in `buf` or `Err` the errno - `(Result Int Error)` since 2026-09-03, matched directly by every wake loop so the wake itself builds no block. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
 | `netPollFdAt` | value | `(-> Int Int Int)` |  | The descriptor named by event `i` of a buffer `netPollWait` filled. |
 | `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before a server forks, so that every worker inherits the mask. |
 | `netSignalOpen` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
-| `netPollSignalAt` | value | `(-> Int Int Int Int Int)` | `IO` | The signal named by event `i`, or a negative when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
+| `netPollSignalAt` | value | `(-> Int Int Int Int (Option Int))` | `IO` | The signal named by event `i`, or `None` when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Send a signal, which is how a test raises one against itself. |
 | `sysForkProcess` | value | `Int` | `IO` | Duplicating this process |
 | `sysTermStateBytes` | value | `Int` |  | How many bytes a saved terminal state occupies, which is how large the buffer a caller hands `sysTermSave`, `sysTermRaw` and `sysTermRestore` must be. 72, 36 or 44 depending on the target; 0 where there is no `termios` at all. |
@@ -720,8 +720,8 @@ See [reference.md](reference.md) for the language, and
 | `forkChildIsZero` | value | `Int` |  | Whether `fork` answers 0 in the child, which is the POSIX convention and what Linux does. Darwin answers the child's pid to both, so `sysForkProcess` normalises; see `sysFork` above for the measurement. |
 | `acceptNonblockFlag` | value | `Int` |  | The flag `netAccept` passes to make the accepted socket non-blocking. Darwin's `accept` HAS no such flag - it has no `accept4` at all - so this is 0 and `Sys.ax` reaches for `fcntl` afterwards instead. |
 | `usesSyscallAbi` | value | `Int` |  |  |
-| `platformWriteFd` | value | `(-> Int Int Int Int)` |  |  |
-| `platformReadFd` | value | `(-> Int Int Int Int)` |  |  |
+| `platformWriteFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc` |  |
+| `platformReadFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc` |  |
 | `platformExitWith` | value | `(-> Int Int)` |  |  |
 | `ttyUsesTermios` | value | `Int` |  | Whether this platform's terminal control is the POSIX `termios` trio - read the attributes, edit them, write them back - reached through `ioctl`. Windows answers 0: its mechanism is `GetConsoleMode`/`SetConsoleMode` against a HANDLE, which shares no part of this shape. |
 | `sysIoctlNum` | value | `Int` |  | ioctl(fd, request, arg) - BSD 54, encoded the way every number in this file is: `0x2000000 \| 54` = 33554486. Probe: `SYS_ioctl = 54 (0x36)`, `SYS_ioctl encoded = 33554486`. |
@@ -887,7 +887,7 @@ See [reference.md](reference.md) for the language, and
 | `KeyIn` | struct |  |  |  |
 | `mkKeyIn` | value | `(-> Int Int KeyIn)` | `Alloc,IO,Mut` | A reader over `fd`. `active` 0 builds the inert shape: no poll descriptor, a one-byte buffer, and nothing ever read - which is what the piped path gets, so that the byte-identical surface pays for none of this. |
 | `keyInPending` | value | `(-> KeyIn Int)` |  | Bytes read but not yet consumed. The redraw coalescing asks this. |
-| `keyInFill` | value | `(-> KeyIn Int Int)` | `IO,Mut` |  |
+| `keyInFill` | value | `(-> KeyIn Int Int)` | `Alloc,IO,Mut` |  |
 | `keyNext` | value | `(-> KeyIn KeyEv)` | `Alloc,IO,Mut` |  |
 | `termReadSize` | value | `(-> KeyIn Int)` | `IO,Mut` | Refresh `kin.ws` from the terminal. One ioctl; there is no SIGWINCH handling anywhere in this tree, so the size is asked for rather than delivered. |
 | `termWsCols` | value | `(-> KeyIn Int)` |  | Columns, or 80. A pty that has never been sized answers 0 with a SUCCESSFUL ioctl - Sys.ax states it - so the fallback is on the VALUE and not only on the return code. |
@@ -905,11 +905,11 @@ See [reference.md](reference.md) for the language, and
 |---|---|---|---|---|
 | `utf8IsCont` | value | `(-> Int Bool)` |  | Is `b` a continuation byte, `10xxxxxx`? |
 | `utf8SeqLen` | value | `(-> Int Int)` |  | How many bytes the sequence beginning with lead byte `b` occupies. |
-| `utf8DecodeAt` | value | `(-> String Int Int)` |  | The code point whose encoding begins at byte offset `i`, or -1 when there is none there. |
+| `utf8DecodeAt` | value | `(-> String Int (Option Int))` |  | The code point whose encoding begins at byte offset `i`, or `None` when there is none there. |
 | `utf8Next` | value | `(-> String Int Int)` |  | The byte offset of the character after the one beginning at `i`, clamped to the byte length - `utf8Offset` clamps, and two stepping functions that disagree about the end of a string is a trap. |
 | `utf8Len` | value | `(-> String Int)` |  | The number of code points in `s`. |
 | `utf8Offset` | value | `(-> String Int Int)` |  | The byte offset at which character `n` begins, or the byte length of `s` when there are fewer than `n` characters. |
-| `utf8CharAt` | value | `(-> String Int Int)` |  | Character `n` of `s`, counting from 0. -1 past the end, the same sentinel `utf8DecodeAt` uses and for the same reason. |
+| `utf8CharAt` | value | `(-> String Int (Option Int))` |  | Character `n` of `s`, counting from 0. `None` past the end, the same answer `utf8DecodeAt` gives a byte it cannot decode and for the same reason. The tail call FORWARDS `utf8DecodeAt`'s two registers as they arrive (`pairFwdOK`), so this keeps `no-alloc` on the same terms. |
 | `utf8Slice` | value | `(-> String Int Int String)` | `Alloc,Mut` | `count` characters of `s` beginning at character `start`, as a `Str` sharing the original's bytes - the character-indexed counterpart of `strSlice`. |
 | `utf8Replacement` | value | `Int` |  | U+FFFD REPLACEMENT CHARACTER, what a code point that cannot be encoded becomes. |
 | `utf8Width` | value | `(-> Int Int)` |  | How many bytes code point `cp` occupies when encoded - counting what `utf8FromChar` will actually write, so the two never disagree. |

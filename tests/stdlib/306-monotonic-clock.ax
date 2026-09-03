@@ -51,8 +51,8 @@
     (let ((b2 (memAlloc 16)))
       {
         (if (== clockHasMonotonic 1)
-          (let ((t0 (sysNowMonotonic buf)))
-            (let ((t1 (sysNowMonotonic buf)))
+          (let ((t0 (match (sysNowMonotonic buf) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+            (let ((t1 (match (sysNowMonotonic buf) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
               {
                 (say
                   (if (< t0 0)
@@ -64,8 +64,8 @@
               }
             )
           )
-          (let ((r0 (sysNowMonotonic buf)))
-            (let ((r1 (sysNowMonotonic buf)))
+          (let ((r0 (match (sysNowMonotonic buf) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+            (let ((r1 (match (sysNowMonotonic buf) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
               {
                 (say (if (< r0 0) 1 0) "monotonic clock does not run backwards")
                 (say (if (== r0 r1) 1 0) "monotonic clock answers a positive time")
@@ -78,8 +78,8 @@
         ; the realtime one. `sysNowMicros` is positive on every platform
         ; this compiles for, so equality here would mean the refusal had
         ; been replaced by a substitution.
-        (let ((m (sysNowMicros b2)))
-          (let ((n (sysNowMonotonic buf)))
+        (let ((m (match (sysNowMicros b2) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+          (let ((n (match (sysNowMonotonic buf) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
             (say
               (if (== clockHasMonotonic 1)
                 (if (> n 0) 1 0)

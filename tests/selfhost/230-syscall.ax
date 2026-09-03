@@ -6,7 +6,7 @@
 ;@axiom:effect(io)
 (fn (main)
   {
-    (sysWriteFd 1 (__addr "ok\n") 3)
+    (sysWriteAllFd 1 (__addr "ok\n") 3 0)
     42
   }
 )

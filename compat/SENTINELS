@@ -450,9 +450,45 @@
 # `Utf8.ax` takes it 2 -> 3, and the SAME body declared to answer a
 # struct stays at 2.
 
-stdlib/Str.ax 0 2
-stdlib/Sys.ax 7 1
-stdlib/Sys/Platform.darwin.ax 2 0
+
+# MOVED 2026-09-03, THE ABSENCE COLUMN: 7 -> 3, and every row that moved
+# KEPT its `no-alloc` claim. The emitter writes a function whose every
+# tail is `None` or `(Some e)` once, as a two-register pair, and boxes
+# only at a caller that stores the answer past its match - in that
+# caller, where the checker's mirror of the eligibility test charges it
+# (docs/unboxed-sums-design.md section 5b; scripts/check-unboxed-sums.sh
+# holds the claim to the emitted IR). So `strHexVal`, `utf8DecodeAt` and
+# `utf8CharAt` answer `(Option Int)` under the same three restrictions
+# they always carried, and `netPollSignalAt` - `Option` was never the
+# wrong shape for "the signal, or no signal": the wrong-shape argument
+# above was `keyInFill`'s, and this file put the two in one sentence -
+# answers `(Option Int)` with its row still `IO` alone.
+#
+# WHAT IS LEFT IS THREE, AND EACH IS A NAMED REFUSAL rather than a
+# measurement waiting to be taken: `strFindByte` tail-calls itself, the
+# one shape the pair does not take yet, so a port would keep the boxed
+# body and refuse its own claim; `keyStrEnd` answers three outcomes (an
+# end index, "incomplete", "too long" - `keyScanStr` reads all three)
+# and `keyInFill` three more (a count, end of input, a full buffer that
+# is still a prefix), and three outcomes want a `data` of their own,
+# which the pair refuses by name until a third sum type is admitted.
+
+
+# MOVED 2026-09-03, THE FAILURE COLUMN: 9 -> 0. The column waited on one
+# question - may `println`'s effect row widen? - and the answer is a
+# measurement, recorded in docs/error-model.md section 10.1: with
+# `sysWriteFd` ported alone the row widens from `IO` to `Alloc,IO` on
+# eleven functions in the compiler's whole closure, six public, and
+# ZERO `restrict(no-alloc)` claims are refused, because what widens it
+# is the FAILURE path building an `Error` while the success path is two
+# registers read by a direct match. `sysWriteFd`, `sysReadFd`,
+# `netAccept`, `netAcceptFrom`, `netPollWait`, `sysNowMicros`,
+# `sysNowMonotonic`, `platformWriteFd` and `platformReadFd` answer
+# `(Result Int Error)`; `sysWriteAllFd` and `writeStr` keep the `Int`
+# channel `println`'s 804 expansions are, which this census never
+# counted and still does not. The `Sys.ax` and `Sys/Platform.darwin.ax`
+# rows leave the table because a module with no sentinel has no row.
+
+stdlib/Str.ax 0 1
 stdlib/Tui/Keys.ax 0 1
 stdlib/Tui/Term.ax 0 1
-stdlib/Utf8.ax 0 2

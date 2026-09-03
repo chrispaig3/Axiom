@@ -1,3 +1,8 @@
+; `Err` for the `(Result Int Error)` the two descriptor calls below
+; answer since 2026-09-03. `Err` imports `Str`, which imports `Mem` and
+; `Vec`, and none of those import this module, so the edge is acyclic.
+(import Err)
+
 ; Sys.Platform - Linux/x86-64 syscall numbers and flags.
 ;
 ; Selected by the `.linux-x86_64.ax` filename suffix when compiling for
@@ -548,15 +553,13 @@
 
 (pub fn (usesSyscallAbi) 1)
 
-(pub :: platformWriteFd (-> Int Int Int Int))
+(pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
 
-;@axiom:pure
-(pub fn (platformWriteFd fd buf count) (- 0 38))
+(pub fn (platformWriteFd fd buf count) (Err (mkError 38 "platformWriteFd")))
 
-(pub :: platformReadFd (-> Int Int Int Int))
+(pub :: platformReadFd (-> Int Int Int (Result Int Error)))
 
-;@axiom:pure
-(pub fn (platformReadFd fd buf count) (- 0 38))
+(pub fn (platformReadFd fd buf count) (Err (mkError 38 "platformReadFd")))
 
 (pub :: platformExitWith (-> Int Int))
 

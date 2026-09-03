@@ -36,18 +36,32 @@
 #      first or the rest asserts an optimisation by absence of
 #      evidence. Both were 1 before the specialisation landed.
 #
-#   3. A REFUSED SHAPE STILL BOXES, AND IS COUNTED. `(Option String)`
-#      carries a reference, which `pairRetOK` declines - the block owns
-#      a share of it and a pair has no refcount to give that share
-#      back with, so a variant here would be a use-after-free rather
-#      than a speedup. It must still build one block, which is also
-#      what proves `calls_in` reads the IR at all: without it the
-#      zeroes above could be an awk range that never opened.
+#   3. A REFERENCE PAYLOAD AND A RESULT specialise too, and give their
+#      shares back: the arena must not move under 40,000 iterations.
 #
-#   4. THE COUNTER IS ANCHORED ON ONE DEFINITION. A name with no
-#      definition in the module must read 0 while `optStr` reads more.
-#      3 proves the counter can be nonzero; this proves it is not
-#      counting every `axiom_alloc` in the program.
+#   4. THE BOX MOVED TO THE CALLER, AND IS COUNTED THERE. A scrutinee
+#      that is not a direct call - a `let`-bound one - is boxed at the
+#      CALL, in the caller's definition: `viaLet` builds one block and
+#      `optFind$pair` none. That is also what proves `calls_in` reads
+#      the IR at all: without it the zeroes above could be an awk
+#      range that never opened. A name with no definition reads 0.
+#      The boxing wrapper `@optFind` is asserted from a fixture that
+#      names the function as a VALUE, because an unreferenced wrapper
+#      is pruned from the module like any unreferenced definition.
+#
+#   5. THE `no-alloc` CLAIM HOLDS FOR THE FUNCTION AND IS CHARGED TO
+#      THE CALLER THAT BOXES. `check` accepts `restrict(no-alloc)` on
+#      the pair-shaped lookup and on a caller that matches it directly,
+#      and refuses it (AX3049) on a caller that `let`-binds the answer.
+#      `symbols` reads the same split. Before 2026-09-03 the first of
+#      those was refused: the boxed `@F` was still emitted beside the
+#      pair, so the function genuinely could allocate.
+#
+#   6. THE CHECKER AND THE EMITTER AGREE OVER THE COMPILER ITSELF.
+#      `scripts/lib/alloc-rows.py` holds every function of the
+#      self-compile whose row lacks `Alloc` to a definition with no
+#      `axiom_alloc`. The checker's eligibility test is a MIRROR of the
+#      emitter's, in another file; this is what notices them drifting.
 #
 # THE FIXTURE LIVES HERE, in a heredoc, rather than under `tests/`.
 # Every `.ax` added to `tests/selfhost/` is swept by several gates that
@@ -75,10 +89,12 @@ bad() { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL $*"; }
 # representation regression.
 ALLOC_EXPECT=0
 RELEASE_EXPECT=0
-# What a REFUSED shape still costs. A scrutinee that is not a DIRECT
-# call - here a `let`-bound one - keeps the boxed path, which is what
-# proves `calls_in` can read a nonzero count at all.
-REFUSED_ALLOC_EXPECT=1
+# What a scrutinee that is not a DIRECT call costs, and WHERE: the
+# `let`-bound answer is boxed in the caller's own definition, one
+# block, which is what proves `calls_in` can read a nonzero count at
+# all. The wrapper `@optFind`, the symbol a reference-as-a-value
+# reaches, boxes the same way - one block, in the wrapper.
+BOX_IN_CALLER_EXPECT=1
 # Bytes the arena bump may move over 20,000 iterations of each
 # reference-carrying loop. A leaked payload is 32 bytes and up per
 # iteration, so a real leak is megabytes and this bound is not close.
@@ -285,11 +301,14 @@ if ! "$axc" emit-llvm --input "$work/us/ref.ax" -o "$work/us/ref.ll" > "$work/us
   bad "the reference/Result fixture did not compile"
   sed 's/^/     /' "$work/us/ref.log" | head -10
 else
-  np="$(grep -c '^define { i64, i64 }' "$work/us/ref.ll" || true)"
-  if (( np == 2 )); then
+  # By NAME. A count of every pair variant in the module reads the
+  # standard library's too - `sysResult` is one - and moves whenever
+  # one of those changes shape, which is not this fixture's subject.
+  if grep -q '^define { i64, i64 } @nameOf\$pair(' "$work/us/ref.ll" \
+     && grep -q '^define { i64, i64 } @half\$pair(' "$work/us/ref.ll"; then
     ok "both \`nameOf\` and \`half\` get a register-pair variant"
   else
-    bad "$np pair variant(s) for a reference payload and a Result, wanted 2"
+    bad "a pair variant is missing for a reference payload or a Result"
   fi
   # `Err`'s payload is a share and `Ok`'s is a word, so exactly ONE of
   # the two arms may release. Releasing both is a wild read of an Int.
@@ -375,13 +394,14 @@ AX
 if ! "$axc" emit-llvm --input "$work/us/tail.ax" -o "$work/us/tail.ll" > /dev/null 2>&1; then
   bad "the tail-position fixture did not compile"
 else
-  tv="$(grep -c '^define { i64, i64 }' "$work/us/tail.ll" || true)"
   ta="$(calls_in "$work/us/tail.ll" 'look\$pair' axiom_alloc)"
-  if (( tv == 1 )) && [[ "$ta" == "0" ]]; then
-    ok "a match in tail position specialises, and its variant builds $ta blocks"
+  tc="$(calls_in "$work/us/tail.ll" viaTail 'call { i64, i64 } @look$pair')"
+  if grep -q '^define { i64, i64 } @look\$pair(' "$work/us/tail.ll" \
+     && [[ "$ta" == "0" ]] && [[ "$tc" == "1" ]]; then
+    ok "a match in tail position specialises: \`viaTail\` calls the pair, and the variant builds $ta blocks"
   else
-    bad "tail position: $tv pair variant(s) and $ta block(s), wanted 1 and 0 -
-     `emitMatchTail` is a second emitter and needs its own hook"
+    bad "tail position: variant present=$(grep -c '^define { i64, i64 } @look\$pair(' "$work/us/tail.ll" || true), $ta block(s), $tc pair call(s) from viaTail, wanted 1, 0 and 1 -
+     \`emitMatchTail\` is a second emitter and needs its own hook"
   fi
 fi
 if "$axc" build --opt 2 --input "$work/us/tail.ax" --output "$work/us/tail" > /dev/null 2>&1; then
@@ -396,12 +416,15 @@ else
 fi
 
 echo
-echo "== 4. negative probe: a scrutinee that is not a direct call still boxes =="
+echo "== 4. negative probe: a scrutinee that is not a direct call is boxed, in the caller =="
 # ------------------------------------------------------------------
 # The instrument check. If `calls_in` matched nothing, section 2's
 # zeroes would read 0 for that reason rather than for the
-# optimisation. A `let`-bound scrutinee is outside the rewrite, so it
-# must still build a block.
+# optimisation. A `let`-bound scrutinee is outside the rewrite, so a
+# block must still be built - and since 2026-09-03 it is built at the
+# CALL, in `viaLet`, where the checker charges it; the callee's body
+# (`optFind$pair`) builds none on any path, and `@optFind` is the
+# boxing wrapper a bare reference reaches.
 cat > "$work/us/indirect.ax" <<'AX'
 (import IO)
 
@@ -438,11 +461,12 @@ AX
 if ! "$axc" emit-llvm --input "$work/us/indirect.ax" -o "$work/us/indirect.ll" > /dev/null 2>&1; then
   bad "probe: the let-bound-scrutinee variant did not compile"
 else
-  ia="$(calls_in "$work/us/indirect.ll" optFind axiom_alloc)"
-  if [[ "$ia" == "$REFUSED_ALLOC_EXPECT" ]]; then
-    ok "probe: a let-bound scrutinee keeps the boxed path and builds $ia block - the counter reads the IR"
+  ia="$(calls_in "$work/us/indirect.ll" viaLet axiom_alloc)"
+  ip="$(calls_in "$work/us/indirect.ll" 'optFind\$pair' axiom_alloc)"
+  if [[ "$ia" == "$BOX_IN_CALLER_EXPECT" && "$ip" == "0" ]]; then
+    ok "probe: a let-bound scrutinee is boxed in the CALLER ($ia block in viaLet, $ip in the variant) - the counter reads the IR"
   else
-    bad "probe: the boxed path built $ia block(s), wanted $REFUSED_ALLOC_EXPECT"
+    bad "probe: viaLet builds $ia block(s), optFind\$pair $ip; wanted $BOX_IN_CALLER_EXPECT and 0"
   fi
   in0="$(calls_in "$work/us/indirect.ll" optFindAbsent axiom_alloc)"
   if [[ "$in0" == "0" ]]; then
@@ -452,11 +476,166 @@ else
   fi
 fi
 
+# The wrapper. `applyIt` takes `optFind` as a VALUE, so the module
+# keeps `@optFind`, and that definition is where a call through the
+# value boxes.
+cat > "$work/us/value.ax" <<'AX'
+(import IO)
+
+(:: optFind (-> Int (Option Int)))
+
+(fn (optFind n)
+  (if (< n 0)
+    None
+    (Some (* n 2))
+  )
+)
+
+(:: applyIt (-> (-> Int (Option Int)) Int Int))
+
+(fn (applyIt f n)
+  (match (f n)
+    ((Some v) v)
+    ((None) 0)
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (applyIt optFind 21))
+    0
+  }
+)
+AX
+if ! "$axc" emit-llvm --input "$work/us/value.ax" -o "$work/us/value.ll" > /dev/null 2>&1; then
+  bad "probe: the function-as-a-value fixture did not compile"
+else
+  vw="$(calls_in "$work/us/value.ll" optFind axiom_alloc)"
+  vp="$(calls_in "$work/us/value.ll" 'optFind\$pair' axiom_alloc)"
+  if grep -q '^define i64 @optFind(' "$work/us/value.ll" && [[ "$vw" == "1" && "$vp" == "0" ]]; then
+    ok "probe: named as a value, \`@optFind\` is the boxing wrapper - $vw block there, $vp in the variant"
+  else
+    bad "probe: the wrapper reads $vw block(s) and the variant $vp, wanted 1 and 0 (wrapper present: $(grep -c '^define i64 @optFind(' "$work/us/value.ll" || true))"
+  fi
+fi
+
+echo
+echo "== 5. the no-alloc claim: the function keeps it, the boxing caller pays =="
+# ------------------------------------------------------------------
+# Three claims on one file, and `check` must answer each differently.
+# `look` is the pair shape and allocates nothing on any path; `direct`
+# matches it and reads registers; `stored` lets it outlive the match
+# and is where the block is built. The row `symbols` prints must say
+# the same, because AX3049 is decided from that row.
+cat > "$work/us/claim.ax" <<'AX'
+(import IO)
+
+;@axiom:restrict(no-alloc)
+(:: look (-> Int (Option Int)))
+
+(fn (look n)
+  (if (< n 0)
+    None
+    (Some (* n 3))
+  )
+)
+
+;@axiom:restrict(no-alloc)
+(:: direct (-> Int Int))
+
+(fn (direct n)
+  (match (look n)
+    ((Some v) (+ v 1))
+    ((None) 0)
+  )
+)
+
+;@axiom:restrict(no-alloc)
+(:: stored (-> Int Int))
+
+(fn (stored n)
+  (let ((r (look n)))
+    (match r
+      ((Some v) (+ v 1))
+      ((None) 0)
+    )
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (+ (direct 4) (stored 5)))
+    0
+  }
+)
+AX
+"$axc" check "$work/us/claim.ax" > "$work/us/claim.log" 2>&1 || true
+if grep -q 'AX3049.*`stored`' "$work/us/claim.log" \
+   && ! grep -q 'AX3049.*`look`' "$work/us/claim.log" \
+   && ! grep -q 'AX3049.*`direct`' "$work/us/claim.log"; then
+  ok "check: \`look\` and \`direct\` keep no-alloc, \`stored\` is refused (AX3049) - the box is its"
+else
+  bad "check answered the three no-alloc claims wrongly:"
+  grep 'AX3049' "$work/us/claim.log" | sed 's/^/     /' | head -6
+fi
+"$axc" symbols --diagnostic-format=ai "$work/us/claim.ax" > "$work/us/claim.syms" 2>/dev/null || true
+rl="$(grep '^F look ' "$work/us/claim.syms" | grep -c '#effects=[^ ]*Alloc' || true)"
+rs="$(grep '^F stored ' "$work/us/claim.syms" | grep -c '#effects=[^ ]*Alloc' || true)"
+rd="$(grep '^F direct ' "$work/us/claim.syms" | grep -c '#effects=[^ ]*Alloc' || true)"
+if [[ "$rl" == "0" && "$rd" == "0" && "$rs" == "1" ]]; then
+  ok "symbols: no Alloc on \`look\` or \`direct\`, Alloc on \`stored\` - the row says where the block is"
+else
+  bad "symbols: Alloc on look=$rl direct=$rd stored=$rs, wanted 0, 0 and 1"
+fi
+# And the IR agrees with the row, function by function. Emitted from
+# a copy WITHOUT the claims: `stored`'s refusal is an error, and a
+# program with an error emits nothing.
+sed '/^;@axiom:restrict/d' "$work/us/claim.ax" > "$work/us/claim-untagged.ax"
+if "$axc" emit-llvm --input "$work/us/claim-untagged.ax" -o "$work/us/claim.ll" > /dev/null 2>&1; then
+  cl="$(calls_in "$work/us/claim.ll" 'look\$pair' axiom_alloc)"
+  cd_="$(calls_in "$work/us/claim.ll" direct axiom_alloc)"
+  cs="$(calls_in "$work/us/claim.ll" stored axiom_alloc)"
+  if [[ "$cl" == "0" && "$cd_" == "0" && "$cs" == "1" ]]; then
+    ok "IR: look\$pair $cl, direct $cd_, stored $cs block(s) - each definition matches its row"
+  else
+    bad "IR: look\$pair $cl, direct $cd_, stored $cs block(s), wanted 0, 0 and 1"
+  fi
+else
+  bad "the claim fixture did not emit"
+fi
+
+# ------------------------------------------------------------------
+echo
+echo "== 6. the checker's mirror against the emitter, over the compiler itself =="
+# ------------------------------------------------------------------
+# Every function the compiler compiles into itself, held by
+# `scripts/lib/alloc-rows.py`: a row without \`Alloc\` names a
+# definition without \`axiom_alloc\`. The two predicates that decide
+# which functions are unboxed live in two files (`pairFnOK`,
+# `tcPairFnOK`); this is the check that they have not drifted.
+if "$axc" emit-llvm --input "$repo_root/self_host/main.ax" -o "$work/us/self.ll" > "$work/us/self.log" 2>&1 \
+   && "$axc" symbols --diagnostic-format=ai "$repo_root/self_host/main.ax" > "$work/us/self.syms" 2>/dev/null; then
+  if out="$(python3 "$repo_root/scripts/lib/alloc-rows.py" "$work/us/self.syms" "$work/us/self.ll" 2>&1)"; then
+    ok "self-compile: $out"
+  else
+    bad "self-compile: a row and its definition disagree about Alloc:"
+    echo "$out" | sed 's/^/     /' | head -12
+  fi
+else
+  bad "could not emit IR and rows for self_host/main.ax"
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-unboxed-sums: $failed of $checks checks failed"
   exit 1
 fi
 echo "check-unboxed-sums: $checks checks - the answer is fixed, the blocks an"
-echo "                    Option costs are the number on file, and both probes"
-echo "                    show the counter can move and is anchored"
+echo "                    Option costs are the number on file, the box is the"
+echo "                    caller's, and the checker's mirror agrees with the emitter"

@@ -142,6 +142,7 @@ hardAlloc tests/diagnostics/393-restrict-strict.ax no-alloc,strict unproven
 hardIo tests/diagnostics/393-restrict-strict.ax no-io,strict unproven
 hardRec tests/diagnostics/393-restrict-strict.ax no-recursion,strict unproven
 hasAxiomPrefix self_host/lexer.ax no-io,no-alloc,no-foreign ok
+held tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
 histAllBlank self_host/replhist.ax no-io,no-alloc,no-foreign ok
 histAt self_host/replhist.ax no-io,no-alloc,no-foreign ok
 histBrowseDown self_host/replhist.ax no-io,no-alloc,no-foreign ok
@@ -377,7 +378,7 @@ skipStringBody self_host/lexer.ax no-io,no-alloc,no-foreign ok
 skipWhitespace self_host/lexer.ax no-io,no-alloc,no-foreign ok
 slipped tests/diagnostics/376-restrict-unknown-name.ax no-fo unknown
 softIo tests/diagnostics/393-restrict-strict.ax no-io unverifiable
-some tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
+some tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 spanEnd self_host/core.ax no-io,no-alloc,no-foreign ok
 spanStart self_host/core.ax no-io,no-alloc,no-foreign ok
 srcIxChars self_host/diag.ax no-io,no-alloc,no-foreign ok

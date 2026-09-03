@@ -61,7 +61,7 @@
 
 ;@axiom:effect(io)
 (fn (acceptSoon lsn tries)
-  (let ((c (netAccept lsn)))
+  (let ((c (match (netAccept lsn) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
     (if (>= c 0)
       c
       (if (netWouldBlock c)
@@ -157,7 +157,7 @@
           ; Nothing has connected yet, so this must be the "not yet"
           ; answer and not a failure - the distinction the whole event
           ; loop is built on.
-          (let ((idle (netAccept lsn)))
+          (let ((idle (match (netAccept lsn) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
             (say
               (if (netWouldBlock idle)
                 1

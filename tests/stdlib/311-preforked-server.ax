@@ -109,9 +109,9 @@
                     ; which is exactly what the old sentinel did.
                     (let ((sh (unwrapOr (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
                       (while (== running 1)
-                        (let ((n (netPollWait
+                        (let ((n (match (netPollWait
                           pfd                          buf                          8                          5000                          ts
-                        )))
+                        ) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
                           (if (< n 1)
                             ; The timeout is a safety net and not the
                             ; mechanism: if the parent died without saying
@@ -121,9 +121,9 @@
                             (let ((mut e 0))
                               (while (< e n)
                                 {
-                                  (if (>= (netPollSignalAt buf e sh scratch) 0)
-                                    (set running 0)
-                                    (let ((con (netAccept lsn)))
+                                  (match (netPollSignalAt buf e sh scratch)
+                                    ((Some sig) (set running 0))
+                                    ((None) (let ((con (match (netAccept lsn) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
                                       (if (< con 0)
                                         ; A sibling won the race for this
                                         ; connection. Not an error - it
@@ -139,8 +139,8 @@
                                         ; reading and hoping.
                                         {
                                           (netSetBlocking con)
-                                          (if (== (sysReadFd con byte 1) 1)
-                                            (sysWriteFd con byte 1)
+                                          (if (== (match (sysReadFd con byte 1) ((Ok k) k) ((Err e) (- 0 (errCode e)))) 1)
+                                            (sysWriteAllFd con byte 1 0)
                                             0
                                           )
                                           (sysCloseFd con)
@@ -148,7 +148,7 @@
                                         }
                                       )
                                     )
-                                  )
+                                  ))
                                   (set e (+ e 1))
                                 })
                             )
@@ -257,7 +257,7 @@
                                     (if (isOk (netConnect c addr))
                                       {
                                         (memPutByte byte 0 (% sent 251))
-                                        (sysWriteFd c byte 1)
+                                        (sysWriteAllFd c byte 1 0)
                                         (vecPush batch c)
                                         (vecPush want (% sent 251))
                                         0
@@ -275,7 +275,7 @@
                                     (let ((c (vecGet batch j)))
                                       {
                                         (memPutByte byte 0 0)
-                                        (if (== (sysReadFd c byte 1) 1)
+                                        (if (== (match (sysReadFd c byte 1) ((Ok k) k) ((Err e) (- 0 (errCode e)))) 1)
                                           (if (== (memGetByte byte 0) (vecGet want j))
                                             (set good (+ good 1))
                                             0

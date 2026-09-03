@@ -815,29 +815,67 @@
       (memSetWord cg 40 rest)
       ; AFTER the four above, because `pairFnOK` reads the signature
       ; through them. Names, not nodes: a match site has a name.
-      (let ((pn vecNew))
+      ;
+      ; A FIXPOINT, not one pass, since a forwarding leaf
+      ; (`pairFwdOK`) makes one function's eligibility depend on
+      ; another's: `utf8CharAt` is eligible only once `utf8DecodeAt`
+      ; is, and the declaration order must not decide that. The set
+      ; is installed in slot 2 BEFORE the scan so the walk reads it as
+      ; it grows, and the scan repeats until a pass adds nothing. A
+      ; handful of functions per program, so the cost is nothing.
+      ;
+      ; Field 34 is set to each declaration's module for its test,
+      ; because `pairFwdOK` resolves a callee through `mangledForCg`,
+      ; which answers the module-local spelling first - asked with no
+      ; module it would answer the first bare record of that name,
+      ; which for `utf8DecodeAt` is the right one and for a name two
+      ; modules declare is not.
+      (let (
+        (pn vecNew)
+        (savedMod (memGetWord cg 34))
+      )
         {
+          (pairSetSlot cg 2 (cast Int pn))
           (if (== (cast Int decls) 0)
             0
-            (let ((mut m 0))
-              (while (< m (vecLen decls))
-                {
-                  (let ((d (vecGet decls m)))
-                    (if (== (nodeTag d) TAG_D_FN)
-                      (if (== (pairFnOK cg d) 1)
-                        (vecPush
-                          pn                          (cast Int (nodeAName d))
-                        )
-                        (cast (Vec Int) 0)
-                      )
-                      (cast (Vec Int) 0)
+            (let ((mut grew 1))
+              {
+                (while (== grew 1)
+                  {
+                    (set grew 0)
+                    (let ((mut m 0))
+                      (while (< m (vecLen decls))
+                        {
+                          (let ((d (vecGet decls m)))
+                            (if (== (nodeTag d) TAG_D_FN)
+                              (if (== (pairNamesHas pn (nodeAName d)) 0)
+                                {
+                                  (memSetWord cg 34 (nodeModule d))
+                                  (if (== (pairFnOK cg d) 1)
+                                    {
+                                      (vecPush
+                                        pn                                        (cast Int (nodeAName d))
+                                      )
+                                      (set grew 1)
+                                      0
+                                    }
+                                    0
+                                  )
+                                }
+                                0
+                              )
+                              0
+                            )
+                          )
+                          (set m (+ m 1))
+                        })
                     )
-                  )
-                  (set m (+ m 1))
-                })
+                  })
+                0
+              }
             )
           )
-          (pairSetSlot cg 2 (cast Int pn))
+          (memSetWord cg 34 savedMod)
         }
       )
       cg
@@ -5230,9 +5268,9 @@
 ;@axiom:effect(io)
 (pub fn (dieImport msg name)
   {
-    (sysWriteFd 2 (strData msg) (strLen msg))
-    (sysWriteFd 2 (strData name) (strLen name))
-    (sysWriteFd 2 (strData "\n") (strLen "\n"))
+    (sysWriteAllFd 2 (strData msg) (strLen msg) 0)
+    (sysWriteAllFd 2 (strData name) (strLen name) 0)
+    (sysWriteAllFd 2 (strData "\n") (strLen "\n") 0)
     ; Exit 3 is this compiler's import-failure code - except under
     ; `symbols`, where stage0 folds EVERY failure into exit 1 and the
     ; parity gate compares statuses. The subcommand is re-derived from
@@ -5281,7 +5319,7 @@
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))
       ))
-        (sysWriteFd 2 (strData out) (strLen out))
+        (sysWriteAllFd 2 (strData out) (strLen out) 0)
       )
       (sysExitWith
         (if (strEq (firstOperandArg 1) "symbols")
@@ -6462,7 +6500,7 @@
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))
       ))
-        (sysWriteFd 2 (strData out) (strLen out))
+        (sysWriteAllFd 2 (strData out) (strLen out) 0)
       )
       ; Exit 1, stage0's code for this failure. The old 3 had exactly
       ; two consumers, both gates, both updated in this commit; the
@@ -6513,10 +6551,10 @@
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))
       ))
-        (sysWriteFd 2 (strData out) (strLen out))
+        (sysWriteAllFd 2 (strData out) (strLen out) 0)
       )
       (let ((tr (renderFailTrailer 1)))
-        (sysWriteFd 2 (strData tr) (strLen tr))
+        (sysWriteAllFd 2 (strData tr) (strLen tr) 0)
       )
       ; Exit 1, the status every other diagnostic exits with and the
       ; one `dieImportDiag` moved to when AX5001 became a real
@@ -10812,26 +10850,28 @@
       (_ (memSetWord cg 34 (nodeModule node)))
       (_e (memSetWord cg 36 node))
     )
-      (let ((cgD (drainPending (emitFnDef node cg))))
-        ; The register-pair variant, BESIDE the boxed definition and
-        ; never instead of it (`docs/unboxed-sums-design.md`).
-        ; `pairFnOK` refuses everything this slice does not handle, so a
-        ; declaration that does not get one is emitted, and called,
-        ; exactly as before.
-        (let ((cgP 
-          (if (== (pairFnOK cgD node) 1)
-            {
-              (pairSetSlot cgD 0 (pairRetTyOf cgD node))
-              (let ((cgQ (drainPending (emitFnDef node cgD))))
-                {
-                  (pairSetSlot cgQ 0 0)
-                  cgQ
-                }
-              )
-            }
-            cgD
-          )
-        ))
+      ; A function in the pair set is emitted ONCE, as `@F$pair`,
+      ; and `@F` is a wrapper that calls it and boxes the answer
+      ; (`emitPairWrapper`); every other declaration is emitted, and
+      ; called, exactly as before. The set is the one
+      ; `buildNameIndexes` computed, and not `pairFnOK` asked again
+      ; here: the call sites read the set, so the set is what the
+      ; definition must agree with.
+      (let ((cgD
+        (if (== (pairNamesHas (vecGetVec (memGetWordVec cg 46) 2) (nodeAName node)) 1)
+          {
+            (pairSetSlot cg 0 (pairRetTyOf cg node))
+            (let ((cgQ (drainPending (emitFnDef node cg))))
+              {
+                (pairSetSlot cgQ 0 0)
+                (emitPairWrapper node cgQ)
+              }
+            )
+          }
+          (drainPending (emitFnDef node cg))
+        )
+      ))
+        (let ((cgP cgD))
           {
             (memSetWord cgP 34 0)
             (memSetWord cgP 36 0)
@@ -12371,6 +12411,15 @@
   ))
     (if (!= pen 0)
       (emitPairRet e pen cg)
+      ; A forwarding leaf hands its callee's two registers straight
+      ; back. `pairFwdOK` is re-asked here with the names the symbol
+      ; table holds, so a head that a `let` has bound is a closure
+      ; call and takes the ordinary path below.
+      (if (if (!= (pairSlot cg 0) 0)
+        (== (pairFwdOK cg e (pairBoundNames cg e)) 1)
+        false
+      )
+      (emitPairFwd e cg)
       (let ((tag (nodeTag e)))
     (if (== tag TAG_E_APP)
       {
@@ -12391,7 +12440,20 @@
         (if (== tag TAG_E_IF)
           (emitIfTail e cg)
           (if (== tag TAG_E_MATCH)
-            (emitMatchTail e cg)
+            ; A match the tail emitter could only lower BOXED - a
+            ; reference-carrying pair whose scrutinee is releasable -
+            ; is emitted as the ordinary match instead and its value
+            ; treated as the tail leaf it is. `emitMatch` reads the
+            ; registers and releases per arm; what the arms lose is
+            ; tail position, which `tailCallsSelf` never granted a
+            ; self call under this shape anyway (the arm is emitted
+            ; as a call, not a jump). So EVERY match `pairMatchOK`
+            ; admits is unboxed, and the checker mirrors that rule
+            ; without a tail-position case (`tcPairMatchSite`).
+            (if (== (pairTailDelegates cg e) 1)
+              (retainTailLeaf e (emitMatch e cg))
+              (emitMatchTail e cg)
+            )
             ; a `let`'s body inherits tail position: the leaf retain, and
             ; the self call under it is rewritten like any other (its
             ; pending temporary is paid at the jump, `emitTailJump`)
@@ -12407,6 +12469,7 @@
       )
     )
   )
+      )
     )
   )
 )
@@ -12461,8 +12524,17 @@
     ; The tail hook, armed only where there is nothing to release -
     ; see `emitPairArmsTail`. `scrutineeReleasable` is asked first
     ; because it decides whether the pair path is even open here.
+    ; A pair whose every payload is a MACHINE WORD carries no share,
+    ; so there is nothing the tail arms could fail to release and the
+    ; hook is armed whatever `scrutineeReleasable` says. A pair with a
+    ; reference arm - `(Option String)`, `(Result Int Error)` - is
+    ; armed here only when the scrutinee is not releasable; when it
+    ; is, `emitExprTail` never reaches this emitter (`pairTailDelegates`
+    ; routes the match to `emitMatch`), so the arming below is
+    ; complete: every match `pairMatchOK` admits is read from
+    ; registers, by one emitter or the other.
     (_a (if (== (pairMatchOK cg scrutExpr arms) 1)
-      (if (== (scrutineeReleasable node scrutExpr cg) 0)
+      (if (|| (== (pairWordOnly cg (pairScrutRetTy cg scrutExpr)) 1) (== (scrutineeReleasable node scrutExpr cg) 0))
         (pairSetSlot cg 1 1)
         cg
       )
@@ -13511,7 +13583,7 @@
     (let ((pat (nodeA (vecGet arms i))))
       (let ((tg (nodeTag pat)))
         (if (== tg TAG_P_CON0)
-          (if (!= (pairEntryOfArity cg (nodeAName pat) 0) 0)
+          (if (&& (== (pairCtorNamed (nodeAName pat)) 1) (!= (pairEntryOfArity cg (nodeAName pat) 0) 0))
             (pairArmsOK cg arms (+ i 1))
             0
           )
@@ -13519,9 +13591,9 @@
             (let ((h (patHead pat)))
               (if (== h 0)
                 0
-                (if (== (pairEntryOfArity
+                (if (|| (== (pairCtorNamed (cast String h)) 0) (== (pairEntryOfArity
                   cg                  (cast String h)                  1
-                ) 0)
+                ) 0))
                   0
                   (let ((subs (patArgs pat vecNew)))
                     (if (!= (vecLen subs) 1)
@@ -17078,13 +17150,8 @@
             ))
               (let ((rn (allocReg cgE)))
                 (let ((r (regStr rn)))
-                  (let ((wantPair 
-                    (if (== armed 1)
-                      (pairNamesHas (vecGetVec (memGetWordVec cgE 46) 2) full)
-                      0
-                    )
-                  ))
-                    (if (== wantPair 1)
+                  (let ((isPair (pairNamesHas (vecGetVec (memGetWordVec cgE 46) 2) full)))
+                    (if (&& (== isPair 1) (== armed 1))
                       ; The register-pair form. `releaseOwnedArgs` still
                       ; runs, so the temporaries an argument built are
                       ; handed back exactly as they are for the boxed
@@ -17114,6 +17181,24 @@
                           cgE
                         }
                       )
+                      (if (== isPair 1)
+                        ; A pair function called ANYWHERE ELSE - a `let`
+                        ; that outlives the match, an argument, a field
+                        ; store, a statement - answers its two registers
+                        ; and is boxed HERE, in the caller's definition.
+                        ; That is where the allocation now sits and where
+                        ; the checker charges it (`walkCallHead`'s pair
+                        ; clause): the callee's body allocates nothing on
+                        ; any path, so its `no-alloc` claim is its own.
+                        {
+                          (emitLine
+                            cgE                            (cat3 (cat3 (cat2 "  " r) " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair")) "(i64 " (cat3 argStrT evStr ")"))
+                          )
+                          (releaseOwnedArgs
+                            cgE                            fnName                            args                            argRegs                            0
+                          )
+                          (emitPairBox cgE (arrowResultTy (memGetWord (findFSigCg cgE full) 3)) r)
+                        }
                       (if (== (mustTailOK cgE mt0 takesEv fnName args) 1)
                         ; MM-EXEC-6c: a MUTUAL tail call, guaranteed. The
                         ; call and the `ret` are emitted together, the
@@ -17142,6 +17227,7 @@
                             cgE
                           }
                         )
+                      )
                       )
                     )
                   )
@@ -18433,15 +18519,101 @@
     0
     (let ((tg (nodeTag e)))
       (if (== tg TAG_E_VAR)
-        (pairEntryOfArity cg (nodeAName e) 0)
+        (if (== (pairCtorNamed (nodeAName e)) 1)
+          (pairEntryOfArity cg (nodeAName e) 0)
+          0
+        )
         (if (== tg TAG_E_APP)
           (if (!= (nodeTag (nodeA e)) TAG_E_VAR)
             0
-            (pairEntryOfArity cg (nodeAName (nodeA e)) 1)
+            (if (== (pairCtorNamed (nodeAName (nodeA e))) 1)
+              (pairEntryOfArity cg (nodeAName (nodeA e)) 1)
+              0
+            )
           )
           0
         )
       )
+    )
+  )
+)
+
+; The four constructor SPELLINGS a pair leaf or a pair arm may name.
+; `pairPayloadClass` decides the payload's class from these names
+; positionally, and a constructor it does not know answers -1 there -
+; which `emitPairRet` reads as "no share to take". A user type whose
+; constructor happens to be arity 1 and named otherwise would have been
+; admitted by the entry test alone and then handed the consumer a
+; share nobody retained. The checker's mirror (`tcPairCtorNamed`,
+; self_host/typecheck.ax) holds the same four names, and the two lists
+; must agree or the effect row is wrong about a leaf.
+(pub :: pairCtorNamed (-> String Int))
+
+(pub fn (pairCtorNamed n)
+  (if (|| (strEq n "None") (|| (strEq n "Some") (|| (strEq n "Ok") (strEq n "Err"))))
+    1
+    0
+  )
+)
+
+; A tail leaf that FORWARDS another pair function's answer: a
+; saturated direct call to a function in the pair set, whose two
+; registers are returned as they arrive. `utf8CharAt` ends in
+; `(utf8DecodeAt s i)`, and without this the forwarding function would
+; have to box what its callee just unboxed.
+;
+; `bound` is every name a `let` on the path here has bound, plus the
+; parameters: a head that is one of those is a LOCAL, and the call
+; goes through a closure record rather than to `@F$pair`. At emission
+; the same question is asked of the symbol table (`emitPairFwd`), and
+; the two answers agree because the names bound on the tail path are
+; exactly the names in scope at the leaf.
+(pub :: pairFwdOK (-> Int Int (Vec Int) Int))
+
+(pub fn (pairFwdOK cg e bound)
+  (if (!= (nodeTag e) TAG_E_APP)
+    0
+    (let ((h (spineHead e)))
+      (if (!= (nodeTag h) TAG_E_VAR)
+        0
+        (let ((n (nodeAName h)))
+          (if (>= (strVecIdx bound n) 0)
+            0
+            (let ((full (mangledForCg cg n)))
+              (if (== (pairNamesHas (vecGetVec (memGetWordVec cg 46) 2) full) 0)
+                0
+                (let ((sig (findFSigCg cg full)))
+                  (if (== sig 0)
+                    0
+                    (if (== (spineArgs e 0) (arrowArity (memGetWord sig 3)))
+                      1
+                      0
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; A fresh `(Vec Int)` holding the same string handles, for a walk that
+; pushes and pops binders on it without touching the caller's vector.
+(pub :: strVecCopy (-> (Vec Int) (Vec Int)))
+
+(pub fn (strVecCopy xs) (strVecCopyFrom xs 0 vecNew))
+
+(pub :: strVecCopyFrom (-> (Vec Int) Int (Vec Int) (Vec Int)))
+
+(pub fn (strVecCopyFrom xs i acc)
+  (if (== (cast Int xs) 0)
+    acc
+    (if (>= i (vecLen xs))
+      acc
+      (strVecCopyFrom xs (+ i 1) (vecPush acc (vecGet xs i)))
     )
   )
 )
@@ -18483,9 +18655,9 @@
 ; elsewhere - answers 0, and the function keeps only its boxed
 ; definition. That is the whole safety argument: an unrecognised shape
 ; costs a speedup, never an answer.
-(pub :: pairTailsOK (-> Int Int Int))
+(pub :: pairTailsOK (-> Int Int (Vec Int) Int))
 
-(pub fn (pairTailsOK cg e)
+(pub fn (pairTailsOK cg e bound)
   (if (== e 0)
     0
     (let ((tg (nodeTag e)))
@@ -18495,85 +18667,32 @@
             0
             (if (== (vecLen xs) 0)
               0
-              (pairTailsOK cg (vecGet xs (- (vecLen xs) 1)))
+              (pairTailsOK cg (vecGet xs (- (vecLen xs) 1)) bound)
             )
           )
         )
         (if (== tg TAG_E_IF)
-          (if (== (pairTailsOK cg (nodeB e)) 1)
-            (pairTailsOK cg (nodeC e))
+          (if (== (pairTailsOK cg (nodeB e) bound) 1)
+            (pairTailsOK cg (nodeC e) bound)
             0
           )
-          (if (== tg TAG_E_LET)
-            (pairTailsOK cg (nodeC e))
-            (if (!= (pairLeafEntry cg e) 0)
-              1
-              0
-            )
-          )
-        )
-      )
-    )
-  )
-)
-
-; Is every node of `body` one this emitter can write TWICE without
-; duplicating something the module names once?
-;
-; The pair variant emits the SAME body a second time. A lambda is
-; LIFTED to its own top-level definition, so a second emission lifts it
-; again; the hazard is a duplicate `define`, which `opt` refuses
-; loudly, but the eligibility test should not be leaving that to the
-; backend.
-;
-; UNKNOWN TAGS ANSWER 0, which is this file's standing rule for a walk
-; that does not know a node's children - `mentions` records it as "not
-; knowing a node's children is not knowing whether the name is under
-; it". Here: not knowing what is under a node is not knowing whether
-; emitting it twice is safe.
-(pub :: pairBodySimple (-> Int Int))
-
-(pub fn (pairBodySimple e)
-  (if (== e 0)
-    1
-    (let ((tg (nodeTag e)))
-      (if (== tg TAG_E_INT)
-        1
-        (if (== tg TAG_E_STR)
-          1
-          (if (== tg TAG_E_FLT)
-            1
-            (if (== tg TAG_E_CHAR)
-              1
-              (if (== tg TAG_E_VAR)
-                1
-                (if (== tg TAG_E_APP)
-                  (if (== (pairBodySimple (nodeA e)) 1)
-                    (pairBodySimple (nodeB e))
-                    0
-                  )
-                  (if (== tg TAG_E_IF)
-                    (if (== (pairBodySimple (nodeA e)) 1)
-                      (if (== (pairBodySimple (nodeB e)) 1)
-                        (pairBodySimple (nodeC e))
-                        0
-                      )
-                      0
-                    )
-                    (if (== tg TAG_E_LET)
-                      (if (== (pairBodySimple (nodeB e)) 1)
-                        (pairBodySimple (nodeC e))
-                        0
-                      )
-                      (if (== tg TAG_E_BEGIN)
-                        (pairVecSimple (nodeAVec e) 0)
-                        0
-                      )
-                    )
-                  )
-                )
+          ; A `let` body inherits tail position (`emitLetAt`,
+          ; `emitLetMAt`), and its binder is in scope there - pushed
+          ; for the walk under it and popped on the way back, so a
+          ; sibling branch does not see it.
+          (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+            (let ((_p (vecPush bound (cast Int (nodeAName e)))))
+              (let ((r (pairTailsOK cg (nodeC e) bound)))
+                {
+                  (vecPop bound)
+                  r
+                }
               )
             )
+            (if (!= (pairLeafEntry cg e) 0)
+              1
+              (pairFwdOK cg e bound)
+            )
           )
         )
       )
@@ -18581,22 +18700,7 @@
   )
 )
 
-(pub :: pairVecSimple (-> (Vec Int) Int Int))
-
-(pub fn (pairVecSimple xs i)
-  (if (== (cast Int xs) 0)
-    1
-    (if (>= i (vecLen xs))
-      1
-      (if (== (pairBodySimple (vecGet xs i)) 1)
-        (pairVecSimple xs (+ i 1))
-        0
-      )
-    )
-  )
-)
-
-; Does this declaration get a `@F$pair` beside its `@F`?
+; Does this declaration get a `@F$pair`, with `@F` reduced to a boxing wrapper?
 ;
 ; Every clause is a REFUSAL, and each one is a hazard this slice
 ; declines rather than handles:
@@ -18605,10 +18709,18 @@
 ;   no signature    nothing to read a return type from
 ;   takesEv         an evidence word is a hidden parameter (MM-LIFE-2d)
 ;   return type     not `(Option T)` with `T` a machine word
-;   tails           a leaf that is not `None` or `(Some e)`
-;   body shape      something that would be lifted twice
+;   tails           a leaf that is not `None`, `(Some e)`, `(Ok e)`,
+;                   `(Err e)` or a forwarding call (`pairFwdOK`)
 ;   self tail call  TCO rewrites it into a jump to a loop header, and
 ;                   the pair variant would need its own
+;
+; THE BODY IS EMITTED ONCE, as `@F$pair`; `@F` is a wrapper that calls
+; it and boxes (`emitPairWrapper`). Until 2026-09-03 the body was
+; emitted TWICE, boxed and paired, which is why a lambda in it - lifted
+; twice, two `define`s of one name - was a refusal here
+; (`pairBodySimple`). Nothing is written twice now, so the shape
+; clause is gone and a `while`, a `set` or a lambda in the body no
+; longer costs the function its variant.
 ; The declared result type of `node`, or 0. What `pairPayloadClass`
 ; reads to decide whether a payload is a share or a word.
 (pub :: pairRetTyOf (-> Int Int Int))
@@ -18635,15 +18747,15 @@
             0
             (if (== (pairRetOK cg (arrowResultTy (memGetWord e 3))) 0)
               0
-              (let ((body (nodeC node)))
-                (if (== (pairTailsOK cg body) 0)
+              (let (
+                (body (nodeC node))
+                (bound (strVecCopy (nodeBVec node)))
+              )
+                (if (== (pairTailsOK cg body bound) 0)
                   0
-                  (if (== (pairBodySimple body) 0)
+                  (if (== (tailCallsSelf body (bareOf name) (vecLen (nodeBVec node))) 1)
                     0
-                    (if (== (tailCallsSelf body (bareOf name) (vecLen (nodeBVec node))) 1)
-                      0
-                      1
-                    )
+                    1
                   )
                 )
               )
@@ -18652,6 +18764,251 @@
         )
       )
     )
+  )
+)
+
+; Does this tail match take the ordinary emitter? Exactly when the
+; tail one would have declined the pair: the scrutinee is a pair call,
+; the arms are pair shapes, a payload is a share, and the scrutinee is
+; releasable - the case `emitPairArmsTail` cannot release in.
+(pub :: pairTailDelegates (-> Int Int Int))
+
+(pub fn (pairTailDelegates cg node)
+  (let (
+    (scrutExpr (nodeA node))
+    (arms (nodeBVec node))
+  )
+    (if (== (pairMatchOK cg scrutExpr arms) 0)
+      0
+      (if (== (pairWordOnly cg (pairScrutRetTy cg scrutExpr)) 1)
+        0
+        (scrutineeReleasable node scrutExpr cg)
+      )
+    )
+  )
+)
+
+; Every payload arm of the pair type `rt` a machine word? Then a pair
+; of it owns nothing and a consumer has nothing to give back.
+(pub :: pairWordOnly (-> Int Int Int))
+
+(pub fn (pairWordOnly cg rt)
+  (if (== rt 0)
+    0
+    (if (!= (nodeTag rt) TAG_T_CON)
+      0
+      (if (strEq (cast String (nodeA rt)) "Option")
+        (if (== (pairPayloadClass cg rt "Some") 0)
+          1
+          0
+        )
+        (if (&& (== (pairPayloadClass cg rt "Ok") 0) (== (pairPayloadClass cg rt "Err") 0))
+          1
+          0
+        )
+      )
+    )
+  )
+)
+
+; The names in scope at the tail leaf `e`, as `pairFwdOK` wants them:
+; the function's parameters, plus the leaf's head when a `let` has
+; bound it here - enough, because the predicate asks only whether the
+; HEAD is bound, and a bound local is what `lookupSym` answers for.
+(pub :: pairBoundNames (-> Int Int (Vec Int)))
+
+(pub fn (pairBoundNames cg e)
+  (let (
+    (v (strVecCopy (memGetWordVec cg 17)))
+    (h (spineHead e))
+  )
+    (if (!= (nodeTag h) TAG_E_VAR)
+      v
+      (if (!= (lookupSym cg (nodeAName h)) 0)
+        (vecPush v (cast Int (nodeAName h)))
+        v
+      )
+    )
+  )
+)
+
+; A forwarding tail leaf: the callee's pair, returned as it arrives.
+; The arguments and the call are emitted here rather than through
+; `emitPlainCall` so that nothing has to be armed and later checked
+; for consumption - the walk decided this leaf forwards, and this is
+; the emission that decision names.
+(pub :: emitPairFwd (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPairFwd e cg)
+  (let (
+    (name (nodeAName (spineHead e)))
+    (args (spineArgVec e vecNew))
+    (argRegs vecNew)
+  )
+    (let ((cgA (emitArgsRegs args cg argRegs 0)))
+      (let (
+        (argStrT (strDup (memGetWordStr cgA 9)))
+        (full (mangledForCg cgA name))
+        (r (regStr (allocReg cgA)))
+      )
+        {
+          (emitLine
+            cgA            (cat3 (cat3 (cat2 "  " r) " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair")) "(i64 " (cat2 argStrT ")"))
+          )
+          (releaseOwnedArgs
+            cgA            name            args            argRegs            0
+          )
+          (emitLine cgA (cat2 "  ret { i64, i64 } " r))
+          (memSetWord cgA 31 1)
+          cgA
+        }
+      )
+    )
+  )
+)
+
+; `@F` for a function in the pair set: call `@F$pair`, box what comes
+; back, answer the block. It exists for the callers that do not name
+; `F` at a call - a bare reference taken as a value goes through a
+; thunk to this symbol - and for nothing else: every direct call is
+; rewritten to the pair (`emitPlainCall`), and boxes there when it
+; must. The body is not here; `emitFnDef` wrote it once, as the pair.
+(pub :: emitPairWrapper (-> Int Int Int))
+
+(pub fn (emitPairWrapper node cg)
+  (let (
+    (name (nodeAName node))
+    (paramStr (emitParams (nodeBVec node) cg 0))
+    (rt (pairRetTyOf cg node))
+    (_r (memSetWord cg 1 0))
+  )
+    (let ((sym (llvmSym (strDup name))))
+      (let ((cgH (emitLine cg (strConcat (cat4 "define i64 @" sym "(" paramStr) ") #0 {"))))
+        (let ((r (regStr (allocReg cgH))))
+          (let ((cgC (emitLine cgH (cat3 (cat3 (cat2 "  " r) " = call { i64, i64 } @" (strConcat sym "$pair")) "(" (cat2 paramStr ")")))))
+            (let ((cgB (emitPairBox cgC rt r)))
+              (emitLine (emitLine cgB (cat2 "  ret i64 " (strDup (memGetWordStr cgB 2)))) "}")
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Box the pair in register `r` into the block a boxed constructor of
+; `rt` would have built - the same shape word, tag, count and field
+; store `emitConstructor` writes - leaving the block (or, for `None`,
+; the immediate tag) in field 2.
+;
+; THE PAYLOAD IS MOVED, never retained. A reference payload arrives
+; in the pair as an OWNED share (`emitPairRet` takes one when the
+; value did not already own one), and the block takes that share as
+; its field, exactly as a directly-built construction's field takes
+; the share of the temporary it was built from.
+(pub :: emitPairBox (-> Int Int String Int))
+
+(pub fn (emitPairBox cg rt r)
+  (let (
+    (tr (regStr (allocReg cg)))
+    (pr (regStr (allocReg cg)))
+    (_1 (emitLine cg (cat3 (cat2 "  " tr) " = extractvalue { i64, i64 } " (cat2 r ", 0"))))
+    (_2 (emitLine cg (cat3 (cat2 "  " pr) " = extractvalue { i64, i64 } " (cat2 r ", 1"))))
+  )
+    (if (strEq (cast String (nodeA rt)) "Option")
+      (emitPairBoxOption cg rt tr pr)
+      (emitPairBoxResult cg rt tr pr)
+    )
+  )
+)
+
+; `Option`: the `None` tag is its own immediate; `Some` is a block.
+(pub :: emitPairBoxOption (-> Int Int String String Int))
+
+(pub fn (emitPairBoxOption cg rt tr pr)
+  (let (
+    (noneE (pairEntryOfArity cg "None" 0))
+    (someE (pairEntryOfArity cg "Some" 1))
+    (lNone (labelStr (allocReg cg)))
+    (lSome (labelStr (allocReg cg)))
+    (lMerge (labelStr (allocReg cg)))
+    (c (regStr (allocReg cg)))
+    (_1 (emitLine cg (cat4 (cat2 "  " c) " = icmp eq i64 " tr (cat2 ", " (constStr (eTag noneE))))))
+    (_2 (emitLine cg (cat4 (cat3 "  br i1 " c ", label %") lNone (cat2 ", label %" lSome) "")))
+    (_3 (emitLabel cg lSome))
+    (blk (emitPairBoxBlock cg someE (pairPayloadClass cg rt "Some") pr))
+    (_4 (emitLine cg (cat2 "  br label %" lMerge)))
+    (_5 (emitLabel cg lNone))
+    (_6 (emitLine cg (cat2 "  br label %" lMerge)))
+    (_7 (emitLabel cg lMerge))
+    (res (regStr (allocReg cg)))
+    (_8 (emitLine cg (cat4 (cat3 (cat2 "  " res) " = phi i64 [ " blk) (cat3 ", %" lSome " ], [ ") (cat3 (constStr (eTag noneE)) ", %" lNone) " ]")))
+  )
+    {
+      (memSetWord cg 2 res)
+      (memSetWord cg 14 0)
+      cg
+    }
+  )
+)
+
+; `Result`: both arms are blocks, and they differ in the shape word
+; when one payload is a share and the other a word.
+(pub :: emitPairBoxResult (-> Int Int String String Int))
+
+(pub fn (emitPairBoxResult cg rt tr pr)
+  (let (
+    (okE (pairEntryOfArity cg "Ok" 1))
+    (errE (pairEntryOfArity cg "Err" 1))
+    (lOk (labelStr (allocReg cg)))
+    (lErr (labelStr (allocReg cg)))
+    (lMerge (labelStr (allocReg cg)))
+    (c (regStr (allocReg cg)))
+    (_1 (emitLine cg (cat4 (cat2 "  " c) " = icmp eq i64 " tr (cat2 ", " (constStr (eTag okE))))))
+    (_2 (emitLine cg (cat4 (cat3 "  br i1 " c ", label %") lOk (cat2 ", label %" lErr) "")))
+    (_3 (emitLabel cg lOk))
+    (b1 (emitPairBoxBlock cg okE (pairPayloadClass cg rt "Ok") pr))
+    (_4 (emitLine cg (cat2 "  br label %" lMerge)))
+    (_5 (emitLabel cg lErr))
+    (b2 (emitPairBoxBlock cg errE (pairPayloadClass cg rt "Err") pr))
+    (_6 (emitLine cg (cat2 "  br label %" lMerge)))
+    (_7 (emitLabel cg lMerge))
+    (res (regStr (allocReg cg)))
+    (_8 (emitLine cg (cat4 (cat3 (cat2 "  " res) " = phi i64 [ " b1) (cat3 ", %" lOk " ], [ ") (cat3 b2 ", %" lErr) " ]")))
+  )
+    {
+      (memSetWord cg 2 res)
+      (memSetWord cg 14 0)
+      cg
+    }
+  )
+)
+
+; One 16-byte block: tag word and one field, a share or a word by
+; `cls`. The shape is what `ctorShapeConst` computes for a two-word
+; data cell whose field 0 is a reference (bit 17) or is not - written
+; out here because the constructor's own entry cannot answer it (its
+; field type is the variable `a`) and the class is already known.
+(pub :: emitPairBoxBlock (-> Int Int Int String String))
+
+(pub fn (emitPairBoxBlock cg entry cls pr)
+  (let ((p (regStr (allocReg cg))))
+    {
+      (emitLine cg (cat3 (cat2 "  " p) " = call i64 @axiom_alloc(i64 16)" ""))
+      (storeShapeAt
+        cg        p        (+
+          (* (paddedWords 2) 2)          (if (== cls 2)
+            (pow2 17)
+            0
+          )
+        )
+      )
+      (storeWordAt cg p 0 (constStr (eTag entry)))
+      (storeCountOneAt cg p)
+      (storeWordAt cg p 1 pr)
+      p
+    }
   )
 )
 

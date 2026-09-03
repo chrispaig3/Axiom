@@ -16,6 +16,124 @@ its changelog too.
 
 ## Unreleased
 
+### ERR-ADOPT-1: the failure column reaches zero, and the question it waited on is answered
+
+`compat/SENTINELS` reads **3 absence + 0 failure** (from 7 + 9). The
+nine failure rows waited on one question — may `println`'s effect row
+widen? — and it is answered with a measurement rather than a
+workaround. With `sysWriteFd` ported alone, the row widens from `IO` to
+`Alloc,IO` on **11 functions** in the compiler's whole closure, six of
+them public (`sysWriteFd`, `sysWriteAllFd`, `writeStr`, `printLit`,
+`printlnLit`, `rpcPut`), and **zero** `restrict(no-alloc)` claims are
+refused: nothing in the tree claims to print without allocating. What
+widens the row is the failure path — a failed `write` builds an
+`Error` through `sysResult` — and the success path builds nothing,
+because `sysWriteAllFd` matches the call directly and reads two
+registers. That is what the 2026-08-30 attempt could not say, when an
+`(Ok n)` block per `write` turned ten gates red. **So `println`'s row
+may widen, because `println` can allocate, and only when a write
+fails.**
+
+Ported to `(Result Int Error)`: `sysWriteFd`, `sysReadFd`, `netAccept`,
+`netAcceptFrom`, `netPollWait`, `sysNowMicros`, `sysNowMonotonic`, and
+the seam under the first two, `platformWriteFd` and `platformReadFd`
+in all five `Sys/Platform.*.ax` (the four ENOSYS stubs lose their
+`pure` tag, because an `Err` is built; Windows answers `Ok 0` at end
+of file as before). `sysWriteAllFd` and `writeStr` keep their `Int`
+channel — `println`'s value is that `Int` in 804 expansions — and
+`sysWriteAllFd` holds its match in a `let` so the partial-write
+recursion keeps its loop. The compiler's own stderr writes, `Tui`'s
+flush and the echo server's reply go through `sysWriteAllFd` now,
+which retries a short write where they used to drop it. Every reader
+matches the call directly (`keyInFill`, `Http`, `Rpc`, the REPL), so
+no bytes-arrived path builds a block. The alternative measured and not
+taken — a private raw twin under `sysWriteAllFd` to keep `println` at
+`IO` exactly — was defeated by the seam: `platformWriteFd` builds the
+same `Error` on its own failure path, so the row widens through it
+either way. Every widened public row is declared in `compat/BREAKING`
+under 0.6.4; `docs/error-model.md` §10.1 carries the decision and the
+alternative.
+
+### ERR-ADOPT-1: the absence rows `no-alloc` held back are `Option`, claims intact
+
+`strHexVal`, `utf8DecodeAt` and `utf8CharAt` answer `(Option Int)` and
+KEEP `restrict(no-io,no-alloc,no-foreign)`: each is the pair shape, so
+its body builds no block on any path and the claim is checked against
+the emitted IR (`scripts/check-unboxed-sums.sh` section 6 holds the
+self-compile's rows to their definitions). `utf8CharAt` forwards
+`utf8DecodeAt`'s two registers as they arrive. `netPollSignalAt` answers
+`(Option Int)` too, and its row stays `IO` alone. Every caller matches
+the call directly; the three that needed all of several digits before
+answering (`Json`'s `\uXXXX`, `Http`'s and the LSP's percent-decoding)
+got a private helper that nests the matches. `compat/SENTINELS`:
+`Utf8.ax` 2 → 0, `Str.ax` 2 → 1, `Sys.ax` absence 1 → 0. **What stays,
+and why:** `strFindByte` tail-calls itself, the one shape the pair
+does not take yet, so a port would keep the boxed body and refuse its
+own claim; `keyStrEnd` and `keyInFill` answer three outcomes each and
+want a `data` of their own, which the pair refuses by name. The floor
+is 3.
+
+### The seed learns the mirror
+
+A reseed, because the ports above use `restrict(no-alloc)` on a
+constructor-answering function and the committed seed's checker
+refused exactly that — the seed-skew rule is land, reseed, then use.
+`bootstrap/CHAIN` gains its row; the generator was the committed seed,
+as `scripts/reseed.sh` requires.
+
+### The box is the caller's, and `restrict(no-alloc)` holds for an `Option` lookup
+
+**A function whose every tail is `None` or `(Some e)` no longer
+allocates on any path, and the checker knows it.** Until now the
+register-pair specialisation of 0.6.3 emitted `@F$pair` BESIDE the
+boxed `@F`, so the function genuinely could allocate — whichever
+caller it got decided — and `restrict(no-alloc)` on `strHexVal`,
+`utf8DecodeAt`, `utf8CharAt`, `keyStrEnd` and `strFindByte` was the
+reason five absence sentinels could not become `Option`
+(`docs/unboxed-sums-design.md` "not lifted", `docs/error-model.md`
+§10). Three changes close it:
+
+- **The emitter writes the body once**, as the pair. `@F` is a
+  wrapper that calls it and boxes, kept only for a reference taken as
+  a value. Every direct call calls the pair: a `match` reads the
+  registers, a tail leaf of another pair function forwards them
+  (`utf8CharAt` → `utf8DecodeAt`), and any other site boxes the pair
+  **in the caller's own definition** — the same shape word, tag, count
+  and field store a constructor writes. With nothing written twice,
+  the "would be lifted twice" refusal is gone and the pair set on the
+  compiler's own source grows from 8 functions to 24; a tail match the
+  tail emitter could only lower boxed goes to the ordinary emitter
+  instead, so every `pairMatchOK` match reads registers.
+- **The checker mirrors the eligibility test** (`tcPairFnOK` and its
+  neighbours in `self_host/typecheck.ax`) and charges `Alloc` where
+  the block is built: not at a pair function's constructor leaves, at
+  every call of a pair function that is not a matched direct call or a
+  forwarding leaf, and at a pair function named as a value. Measured
+  on the self-compile, `internFind`, `pathLastSlash` and
+  `scopeFindIdx` lose `Alloc` from their rows; nothing gains an
+  effect it did not already carry, so every `compat` movement is
+  `NARROWED`.
+- **The two are held to one answer.** `scripts/check-unboxed-sums.sh`
+  gains section 5 — `check` accepts `no-alloc` on the lookup and on a
+  caller that matches it, refuses it (`AX3049`) on a caller that
+  `let`-binds the answer, and `symbols` and the IR say the same — and
+  section 6, `scripts/lib/alloc-rows.py` over the whole self-compile:
+  every function whose row lacks `Alloc` has a definition with no
+  `axiom_alloc` (3,482 rows held, 0 disagreements). The mirror may
+  over-charge and never under-charge; section 6 is what would notice
+  the other direction.
+
+`tests/diagnostics/384-restrict-no-alloc-ctor.ax`'s `some` arm is
+silent, and a new `held` arm — the same value stored past its match —
+is the refusal that keeps the silence honest. **What is not here:** a
+self-tail-recursive function still keeps the boxed shape, a `match` in
+tail position of a pair function is still not a pair tail, and a
+third sum type is still refused by name — each a refusal with the
+boxed path and `Alloc` charged as the fallback, never a wrong answer.
+The ports the lift permits are the next commit's, after a reseed: the
+committed seed's checker refuses the claims this one accepts, and the
+seed-skew rule is land, reseed, then use.
+
 ### Region-annotated signatures and the escape rule — stage S3 of the regions note
 
 **A signature may name the region a reference lives in**, `(:: intern

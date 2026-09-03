@@ -1456,6 +1456,11 @@
 ; Escapes are stage0's set: \n \t \r \0, and \\ \' \" denote
 ; themselves - as does any other escaped byte here, where stage0
 ; instead reports an error this parser has no channel for.
+;
+; A lexeme whose bytes decode to nothing - `utf8DecodeAt` answers
+; `None` - is -1 here, which is what this answered before the decoder
+; had an `Option` to say it with; the parser's channel for a bad char
+; literal is unchanged by the port.
 (pub :: charLexemeCode (-> String Int))
 
 (pub fn (charLexemeCode lex)
@@ -1475,7 +1480,10 @@
         )
       )
     )
-    (utf8DecodeAt lex 1)
+    (match (utf8DecodeAt lex 1)
+      ((Some cp) cp)
+      ((None) (- 0 1))
+    )
   )
 )
 

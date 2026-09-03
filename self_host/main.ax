@@ -2011,7 +2011,7 @@
 ;@axiom:effect(io)
 (pub fn (die msg code)
   {
-    (sysWriteFd 2 (strData msg) (strLen msg))
+    (sysWriteAllFd 2 (strData msg) (strLen msg) 0)
     (sysExitWith code)
     code
   }

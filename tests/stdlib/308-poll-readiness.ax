@@ -138,9 +138,9 @@
                   ; Nothing has connected, so a zero timeout must answer
                   ; zero events rather than blocking or erroring.
                   (say
-                    (if (== (netPollWait
+                    (if (== (match (netPollWait
                       pfd                      buf                      8                      0                      ts
-                    ) 0)
+                    ) ((Ok k) k) ((Err e) (- 0 (errCode e)))) 0)
                       1
                       0
                     )                    "polling with nothing pending answers no events"
@@ -156,9 +156,9 @@
                         addr                        base                        127                        0                        0                        1
                       )
                       (netConnect ca addr)
-                      (let ((n (netPollWait
+                      (let ((n (match (netPollWait
                         pfd                        buf                        8                        2000                        ts
-                      )))
+                      ) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
                         {
                           (say
                             (if (== n 1)
@@ -185,8 +185,9 @@
                       ; not necessarily landed. It passed under light
                       ; load and failed under the full battery, which is
                       ; the worst way for a gate to be wrong.
-                      (let ((acc (netAccept la)))
-                        (sysCloseFd acc)
+                      (match (netAccept la)
+                        ((Ok acc) (sysCloseFd acc))
+                        ((Err e) (Err e))
                       )
                       ; NOW BOTH AT ONCE, and this is the shape the
                       ; stride needs.
@@ -241,17 +242,17 @@
                             )
                             (netConnect cc addr)
                             (let (
-                              (mut n2 (netPollWait
+                              (mut n2 (match (netPollWait
                                 pfd                                buf                                8                                2000                                ts
-                              ))
+                              ) ((Ok k) k) ((Err e) (- 0 (errCode e)))))
                               (mut tries 0)
                             )
                               {
                                 (while (&& (< n2 2) (< tries 50))
                                   {
-                                    (set n2 (netPollWait
+                                    (set n2 (match (netPollWait
                                       pfd                                      buf                                      8                                      2000                                      ts
-                                    ))
+                                    ) ((Ok k) k) ((Err e) (- 0 (errCode e)))))
                                     (set tries (+ tries 1))
                                   })
                                 (say

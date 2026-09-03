@@ -440,22 +440,28 @@
   )
 )
 
-; The value of a hex digit, or -1. Stated as the VALUE and not as a
-; predicate because the value is what every caller needed: the JSON
+; The value of a hex digit, or `None`. Stated as the VALUE and not as
+; a predicate because the value is what every caller needed: the JSON
 ; parser's `\uXXXX` escape and the language server's percent-decoding
 ; each carried a byte-identical copy of this ladder under its own name,
 ; while the predicate here had no caller at all.
+;
+; `None` and not -1 since 2026-09-03, and `no-alloc` above still
+; holds: a function of this shape is emitted as a two-register pair
+; and builds no block on any path, so the claim is checked against
+; the IR rather than withdrawn (`scripts/check-unboxed-sums.sh`,
+; tests/diagnostics/384-restrict-no-alloc-ctor.ax).
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: strHexVal (-> Int Int))
+(pub :: strHexVal (-> Int (Option Int)))
 
 (pub fn (strHexVal ch)
   (if (&& (>= ch 48) (<= ch 57))
-    (- ch 48)
+    (Some (- ch 48))
     (if (&& (>= ch 97) (<= ch 102))
-      (+ 10 (- ch 97))
+      (Some (+ 10 (- ch 97)))
       (if (&& (>= ch 65) (<= ch 70))
-        (+ 10 (- ch 65))
-        (- 0 1)
+        (Some (+ 10 (- ch 65)))
+        None
       )
     )
   )
@@ -464,7 +470,12 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsHexDigit (-> Int Bool))
 
-(pub fn (strIsHexDigit ch) (>= (strHexVal ch) 0))
+(pub fn (strIsHexDigit ch)
+  (match (strHexVal ch)
+    ((Some v) true)
+    ((None) false)
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Splitting

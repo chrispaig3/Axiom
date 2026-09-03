@@ -1,3 +1,8 @@
+; `Err` for the `(Result Int Error)` the two descriptor calls below
+; answer since 2026-09-03. `Err` imports `Str`, which imports `Mem` and
+; `Vec`, and none of those import this module, so the edge is acyclic.
+(import Err)
+
 ; Sys.Platform - Darwin (macOS) syscall numbers and flags.
 ;
 ; Selected automatically by the `.darwin.ax` filename suffix when
@@ -734,15 +739,13 @@
 
 (pub fn (usesSyscallAbi) 1)
 
-(pub :: platformWriteFd (-> Int Int Int Int))
+(pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
 
-;@axiom:pure
-(pub fn (platformWriteFd fd buf count) (- 0 78))
+(pub fn (platformWriteFd fd buf count) (Err (mkError 78 "platformWriteFd")))
 
-(pub :: platformReadFd (-> Int Int Int Int))
+(pub :: platformReadFd (-> Int Int Int (Result Int Error)))
 
-;@axiom:pure
-(pub fn (platformReadFd fd buf count) (- 0 78))
+(pub fn (platformReadFd fd buf count) (Err (mkError 78 "platformReadFd")))
 
 (pub :: platformExitWith (-> Int Int))
 

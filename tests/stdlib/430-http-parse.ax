@@ -80,7 +80,7 @@
 
 ;@axiom:effect(io)
 (fn (acceptSoon lsn tries)
-  (let ((c (netAccept lsn)))
+  (let ((c (match (netAccept lsn) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
     (if (>= c 0)
       c
       (if (&& (netWouldBlock c) (> tries 0))

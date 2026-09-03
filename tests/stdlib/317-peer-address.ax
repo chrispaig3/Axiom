@@ -50,7 +50,7 @@
 
 ;@axiom:effect(io)
 (fn (acceptFromSoon lsn peer lenb tries)
-  (let ((c (netAcceptFrom lsn peer netAddrMaxBytes lenb)))
+  (let ((c (match (netAcceptFrom lsn peer netAddrMaxBytes lenb) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
     (if (>= c 0)
       c
       (if (netWouldBlock c)
@@ -72,7 +72,7 @@
 
 ;@axiom:effect(io)
 (fn (acceptFromCapSoon lsn peer cap lenb tries)
-  (let ((c (netAcceptFrom lsn peer cap lenb)))
+  (let ((c (match (netAcceptFrom lsn peer cap lenb) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
     (if (>= c 0)
       c
       (if (netWouldBlock c)
@@ -92,7 +92,7 @@
 
 ;@axiom:effect(io)
 (fn (acceptSoon lsn tries)
-  (let ((c (netAccept lsn)))
+  (let ((c (match (netAccept lsn) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
     (if (>= c 0)
       c
       (if (netWouldBlock c)

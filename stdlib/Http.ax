@@ -266,7 +266,7 @@
     )
     (if (>= r.filled (strLen r.buf))
       (- 0 2)
-      (let ((n (sysReadFd r.fd (+ (strData r.buf) r.filled) (- (strLen r.buf) r.filled))))
+      (let ((n (match (sysReadFd r.fd (+ (strData r.buf) r.filled) (- (strLen r.buf) r.filled)) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
         {
           (if (> n 0)
             {
@@ -404,7 +404,23 @@
 ; Whether the two bytes after a `%` at `i` are hex digits.
 (:: httpEscapeAt (-> String Int Bool))
 
-(fn (httpEscapeAt s i) (&& (== (strByte s i) 37) (&& (>= (strHexVal (strByte s (+ i 1))) 0) (>= (strHexVal (strByte s (+ i 2))) 0))))
+(fn (httpEscapeAt s i) (&& (== (strByte s i) 37) (&& (strIsHexDigit (strByte s (+ i 1))) (strIsHexDigit (strByte s (+ i 2))))))
+
+; The byte the two hex digits at `i` and `i+1` spell. Asked only where
+; `httpEscapeAt` has already said both are digits, so the `None` arms
+; are unreachable and answer 0.
+(:: httpHexPair (-> String Int Int))
+
+(fn (httpHexPair s i)
+  (match (strHexVal (strByte s i))
+    ((None) 0)
+    ((Some h)
+      (match (strHexVal (strByte s (+ i 1)))
+        ((None) 0)
+        ((Some l) (+ (* h 16) l))
+      ))
+  )
+)
 
 ; `s` percent-decoded: every `%XX` with two hex digits becomes the byte
 ; `XX`, and when `plusSpace` is set every `+` becomes a space - the
@@ -453,7 +469,7 @@
             (while (< i len)
               (if (httpEscapeAt s i)
                 {
-                  (__store8 d off (+ (* (strHexVal (strByte s (+ i 1))) 16) (strHexVal (strByte s (+ i 2)))))
+                  (__store8 d off (httpHexPair s (+ i 1)))
                   (set off (+ off 1))
                   (set i (+ i 3))
                   0
@@ -681,7 +697,7 @@
       (set r.consumed (+ r.consumed have))
       (set got have)
       (while (&& (< got n) (== dead 0))
-        (let ((k (sysReadFd r.fd (+ (strData body) got) (- n got))))
+        (let ((k (match (sysReadFd r.fd (+ (strData body) got) (- n got)) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
           (if (< k 1)
             {
               (set dead 1)

@@ -116,12 +116,13 @@
   )
     {
       (while (< i off)
-        (let ((cp (utf8DecodeAt src i)))
-          (if (< cp 0)
+        (match (utf8DecodeAt src i)
+          ((None)
             {
               (set acc (+ acc 1))
               (set i (+ i 1))
-            }
+            })
+          ((Some cp)
             {
               (set acc (+
                 acc                (if (>= cp 65536)
@@ -130,8 +131,7 @@
                 )
               ))
               (set i (+ i (utf8SeqLen (strByte src i))))
-            }
-          )
+            })
         ))
       acc
     }
@@ -689,12 +689,13 @@
               )
               false
             )
-              (let ((cp (utf8DecodeAt src i)))
-                (if (< cp 0)
+              (match (utf8DecodeAt src i)
+                ((None)
                   {
                     (set u (+ u 1))
                     (set i (+ i 1))
-                  }
+                  })
+                ((Some cp)
                   {
                     (set u (+
                       u                      (if (>= cp 65536)
@@ -703,8 +704,7 @@
                       )
                     ))
                     (set i (+ i (utf8SeqLen (strByte src i))))
-                  }
-                )
+                  })
               ))
             i
           }
@@ -2217,6 +2217,23 @@
   )
 )
 
+;; The byte two hex digits at `i` and `i+1` spell, or `None` when either
+;; is not a digit. `strHexVal` answers `(Option Int)` and both reads are
+;; matched directly, so no block is built; the combined value is what
+;; the percent-decoder below stores.
+(:: lspHexPair (-> String Int (Option Int)))
+
+(fn (lspHexPair s i)
+  (match (strHexVal (strByte s i))
+    ((None) None)
+    ((Some h)
+      (match (strHexVal (strByte s (+ i 1)))
+        ((None) None)
+        ((Some l) (Some (+ (* h 16) l)))
+      ))
+  )
+)
+
 ; ------------------------------------------------------------------
 ; URIs
 ;
@@ -2242,22 +2259,19 @@
       {
         (while (< i (strLen body))
           (if (&& (== (strByte body i) 37) (<= (+ i 3) (strLen body)))
-            (let (
-              (h (strHexVal (strByte body (+ i 1))))
-              (l (strHexVal (strByte body (+ i 2))))
-            )
-              (if (|| (< h 0) (< l 0))
+            (match (lspHexPair body (+ i 1))
+              ((None)
                 {
                   (__store8 (strData out) o (strByte body i))
                   (set o (+ o 1))
                   (set i (+ i 1))
-                }
+                })
+              ((Some hl)
                 {
-                  (__store8 (strData out) o (+ (* h 16) l))
+                  (__store8 (strData out) o hl)
                   (set o (+ o 1))
                   (set i (+ i 3))
-                }
-              )
+                })
             )
             {
               (__store8 (strData out) o (strByte body i))

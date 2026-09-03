@@ -108,7 +108,7 @@
 (pub :: replOut (-> String Int))
 
 ;@axiom:effect(io)
-(pub fn (replOut s) (sysWriteFd 1 (strData s) (strLen s)))
+(pub fn (replOut s) (sysWriteAllFd 1 (strData s) (strLen s) 0))
 
 ; ------------------------------------------------------------------
 ; Reading a line from fd 0. One byte per read(2): a REPL line is
@@ -144,7 +144,7 @@
   )
     {
       (while (== done 0)
-        (let ((n (sysReadFd 0 buf 1)))
+        (let ((n (match (sysReadFd 0 buf 1) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
           (if (<= n 0)
             (set done 1)
             (let ((b (memGetByte buf 0)))
@@ -1836,10 +1836,10 @@
                                             ; internals, and the gate's marker pins
                                             ; only the `Time: ` prefix.
                                             (let ((tbuf (memAlloc 16)))
-                                              (let ((t0 (sysNowMicros tbuf)))
+                                              (let ((t0 (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0))))
                                                 {
                                                   (replExpr declsSrc rest)
-                                                  (replOut (fmtMicrosMs (- (sysNowMicros tbuf) t0)))
+                                                  (replOut (fmtMicrosMs (- (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0)) t0)))
                                                   0
                                                 }
                                               )

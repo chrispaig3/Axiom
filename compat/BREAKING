@@ -265,6 +265,51 @@
 # callers pay, and all nine were `(< id 0)`.
 0.6.4  F  internFind  -1 -> (Option Int), row gains Alloc: a dense id space starts at 0, so the miss was only ever a comparison the caller had to remember
 
+# 0.6.4 - ERR-ADOPT-1, the ABSENCE column, the rows `restrict(no-alloc)`
+# held back. `strHexVal`, `utf8DecodeAt` and `utf8CharAt` answer
+# `(Option Int)` instead of an Int that is -1 for "not a digit" / "no
+# code point here", and `netPollSignalAt` answers `(Option Int)` instead
+# of an Int that is -1 for "not a signal event". None of the four rows
+# WIDENED: the emitter writes a function of this shape as a two-register
+# pair and builds no block on any path, so the three `no-alloc` claims
+# stand (checked against the IR by scripts/check-unboxed-sums.sh) and
+# `netPollSignalAt` stays `IO` alone. A caller that matches the call
+# directly reads registers; one that stores the answer past its match
+# builds the block itself and its own row says so.
+0.6.4  F  strHexVal        (-> Int Int) -> (-> Int (Option Int)): -1 was "not a hex digit"
+0.6.4  F  utf8DecodeAt     (-> String Int Int) -> (-> String Int (Option Int)): -1 was "no code point begins here"
+0.6.4  F  utf8CharAt       (-> String Int Int) -> (-> String Int (Option Int)): -1 was "past the end"
+0.6.4  F  netPollSignalAt  (-> Int Int Int Int Int) -> (-> Int Int Int Int (Option Int)): -1 was "not a signal event"
+
+# 0.6.4 - ERR-ADOPT-1, THE FAILURE COLUMN REACHES ZERO. The nine rows
+# below waited on one question - may `println`'s effect row widen? - and
+# the answer is a measurement recorded in docs/error-model.md section
+# 10.1: with `sysWriteFd` ported alone the row widens from `IO` to
+# `Alloc,IO` on eleven functions in the compiler's whole closure, six
+# public, and ZERO `restrict(no-alloc)` claims are refused, because
+# what widens it is the FAILURE path building an `Error` while the
+# success path is two registers read by a direct match (the box moved
+# to the caller on 2026-09-03, docs/unboxed-sums-design.md section 5b).
+# So `println` may allocate, and only when a write fails, and its row
+# says so. `sysWriteAllFd` and `writeStr` keep the Int channel that
+# `println`'s 804 expansions are; that channel is a separate decision.
+#
+# The nine read CHANGED where the row already carried Alloc and WIDENED
+# where it was IO alone; the rows after them are the callers the widening
+# reaches, every one under `sysWriteFd` or `sysReadFd`.
+0.6.4  F  sysWriteFd       (-> Int Int Int Int) -> (-> Int Int Int (Result Int Error)): bytes-or-errno was two signs in one Int; and Alloc joins the row, for a failed write's Error
+0.6.4  F  sysReadFd        (-> Int Int Int Int) -> (-> Int Int Int (Result Int Error)): Ok 0 is end of input, Err the errno; Alloc joins the row on the failure path
+0.6.4  F  netAccept        (-> Int Int) -> (-> Int (Result Int Error)): a would-block answer is Err carrying EAGAIN, and netWouldBlock still reads the negated code
+0.6.4  F  netAcceptFrom    (-> Int Int Int Int Int) -> (-> Int Int Int Int (Result Int Error))
+0.6.4  F  netPollWait      (-> Int Int Int Int Int Int) -> (-> Int Int Int Int Int (Result Int Error)): the wake loops match it directly, so a wake builds no block
+0.6.4  F  sysNowMicros     (-> Int Int) -> (-> Int (Result Int Error)): the syscall's own failure was a negative time
+0.6.4  F  sysNowMonotonic  (-> Int Int) -> (-> Int (Result Int Error)): Err carrying ENOSYS where there is no monotonic clock, every time, as the negative was
+0.6.4  F  platformWriteFd  (-> Int Int Int Int) -> (-> Int Int Int (Result Int Error)): the seam under sysWriteFd, in all five Sys/Platform files; the ENOSYS stubs lose `pure`, an Err is built
+0.6.4  F  platformReadFd   (-> Int Int Int Int) -> (-> Int Int Int (Result Int Error)): the seam under sysReadFd; Windows answers Ok 0 at end of file as it answered 0
+0.6.4  F  printlnLit       IO -> Alloc,IO: under sysWriteFd or sysReadFd, whose failure path builds an Error
+0.6.4  F  sysWriteAllFd    IO -> Alloc,IO: under sysWriteFd or sysReadFd, whose failure path builds an Error
+0.6.4  F  writeStr         IO -> Alloc,IO: under sysWriteFd or sysReadFd, whose failure path builds an Error
+
 # 0.6.4 - `vecGet` REFUSES an out-of-range index instead of answering 0.
 #
 # NOT A SIGNATURE CHANGE, so `verify-compat.py` cannot see it: the type
