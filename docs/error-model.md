@@ -1682,7 +1682,8 @@ changes what "finishing the migration" means.
 | `stdlib/`, by the census that read prose | 8 | 5 |
 | `stdlib/`, by the census that reads bodies | **9** | **29** |
 | `self_host/`, slice 4's 25 | 21 | 1 |
-| `stdlib/`, today — after slices 1–4 and the 2026-09-03 type correction | **7** | **9** |
+| `stdlib/`, after slices 1–4 and the 2026-09-03 type correction | 7 | 9 |
+| `stdlib/`, today — after the box moved to the caller (`docs/unboxed-sums-design.md` §5b) and the two ports it permitted | **3** | **0** |
 
 **THE ROW ABOVE IT WAS WRONG IN BOTH COLUMNS, AND THIS SECTION DREW THE
 WRONG CONCLUSION FROM IT.** Audited 2026-08-30. The census those numbers
@@ -1817,20 +1818,60 @@ Under-reporting is the failure the 2026-08-30 rewrite ended, so the
 `Int`-returning `(- 0 1)` planted in `Utf8.ax` takes it 2 → 3, and the
 same body declared to answer a struct stays at 2.
 
-**What this does not do is move a single row of the migration itself,
-and the reason is a decision rather than an effort.** Every one of the
-sixteen is blocked or excluded on a measurement. The nine failures wait
-on one question — whether `println`'s effect row may widen — and
-re-measured on 2026-09-03 the answer that forces it is unchanged by
-unboxed sums: a function returning `(Result Int Error)` still reports
-`#effects=Alloc`, and so does one returning `(Option Int)`, so porting
-`sysWriteFd` from `#effects=IO` still widens every caller beneath
-`writeStr` and `println`. Five of the seven absences claim
-`restrict(no-alloc)` and porting them withdraws a checked claim
-(AX3049); `strFindByte` is separately excluded at 7.4× over its
-scanning-path call sites; `keyInFill` answers three outcomes — a count,
-end-of-input, and a full buffer that is still a prefix — which is not
-`Option`'s shape. **The floor is 16 and it is a floor, not a backlog.**
+**That correction moved no row of the migration itself, and the
+reason was a decision rather than an effort** — every one of the
+sixteen was blocked or excluded on a measurement. What moved them was
+a change to the measurement's premise, later the same day: a function
+returning `(Option Int)` or `(Result Int Error)` in the pair shape no
+longer allocates on any path, because the emitter writes its body once
+as a two-register pair and a caller that needs a block builds it at
+the call, where the checker charges it (`docs/unboxed-sums-design.md`
+§5b). Two things followed.
+
+*The absence column: 7 → 3.* `strHexVal`, `utf8DecodeAt`, `utf8CharAt`
+and `netPollSignalAt` answer `(Option Int)`, and the three
+`restrict(no-alloc)` claims among them STAND, checked against the
+emitted IR by `scripts/check-unboxed-sums.sh` rather than withdrawn.
+`netPollSignalAt`'s row stays `IO` alone. What is left: `strFindByte`
+tail-calls itself, and a self tail call is the one shape the pair does
+not take yet (a loop header and a pair return are not reconciled) — a
+port today would keep the boxed body and refuse its own claim;
+`keyStrEnd` answers three outcomes (an end index, "incomplete", "too
+long", and `keyScanStr` reads all three), as does `keyInFill` (a
+count, end-of-input, a full buffer that is still a prefix), and three
+outcomes are not `Option`'s shape — they want a `data` of their own,
+which the pair refuses by name until a third sum type is admitted.
+
+*The failure column: 9 → 0, and the question is answered.* The nine
+waited on whether `println`'s effect row may widen. Measured
+2026-09-03 with `sysWriteFd` ported alone: the row widens from `IO` to
+`Alloc,IO` on **11 functions** in the compiler's whole closure — six
+public (`sysWriteFd`, `sysWriteAllFd`, `writeStr`, `printLit`,
+`printlnLit`, `rpcPut`), five in `self_host/` — and **zero**
+`restrict(no-alloc)` refusals, because nothing in the tree claims to
+print without allocating. What widens the row is the FAILURE path: a
+failed `write` builds an `Error` through `sysResult`, and a row is a
+fact about every path. The success path is the pair, read from two
+registers by the direct match in `sysWriteAllFd`, and builds nothing
+— which is what the 2026-08-30 attempt could not say, when an `(Ok
+n)` block per `write` was the cost that turned ten gates red. So the
+answer taken is: **`println`'s row may widen, because `println` can
+allocate, and only when a write fails.** `sysWriteFd`, `sysReadFd`,
+`netAccept`, `netAcceptFrom`, `netPollWait`, `sysNowMicros`,
+`sysNowMonotonic`, `platformWriteFd` and `platformReadFd` answer
+`(Result Int Error)`; `sysWriteAllFd` and `writeStr` keep their `Int`
+channel, because `println`'s value is that `Int` in 804 expansions and
+the channel above the seam is a separate decision. The alternative
+measured and not taken: a private raw twin of `sysWriteFd` under
+`sysWriteAllFd`, which keeps `println`'s row at `IO` exactly — and was
+defeated by the seam, since `platformWriteFd` (public, the Windows
+implementation) builds the same `Error` on its own failure path, so
+the row widens through the seam whichever way the wrapper is written.
+Every widened row is declared in `compat/BREAKING` under 0.6.4.
+
+**The floor is 3 and it is a floor, not a backlog:** one refusal in
+the emitter (a self tail call) and one in the design (a third sum
+type), both named above.
 
 **ERR-ADOPT-2 (P). Every slice keeps `stage2 == stage3`.** No slice
 touches the seed until one has to, and the one that does — a built-in

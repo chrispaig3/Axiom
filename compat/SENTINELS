@@ -473,8 +473,22 @@
 # is still a prefix), and three outcomes want a `data` of their own,
 # which the pair refuses by name until a third sum type is admitted.
 
+
+# MOVED 2026-09-03, THE FAILURE COLUMN: 9 -> 0. The column waited on one
+# question - may `println`'s effect row widen? - and the answer is a
+# measurement, recorded in docs/error-model.md section 10.1: with
+# `sysWriteFd` ported alone the row widens from `IO` to `Alloc,IO` on
+# eleven functions in the compiler's whole closure, six public, and
+# ZERO `restrict(no-alloc)` claims are refused, because what widens it
+# is the FAILURE path building an `Error` while the success path is two
+# registers read by a direct match. `sysWriteFd`, `sysReadFd`,
+# `netAccept`, `netAcceptFrom`, `netPollWait`, `sysNowMicros`,
+# `sysNowMonotonic`, `platformWriteFd` and `platformReadFd` answer
+# `(Result Int Error)`; `sysWriteAllFd` and `writeStr` keep the `Int`
+# channel `println`'s 804 expansions are, which this census never
+# counted and still does not. The `Sys.ax` and `Sys/Platform.darwin.ax`
+# rows leave the table because a module with no sentinel has no row.
+
 stdlib/Str.ax 0 1
-stdlib/Sys.ax 7 0
-stdlib/Sys/Platform.darwin.ax 2 0
 stdlib/Tui/Keys.ax 0 1
 stdlib/Tui/Term.ax 0 1

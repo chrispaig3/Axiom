@@ -284,7 +284,7 @@
         ))
       )
       (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
-        (sysWriteFd 2 (strData out) (strLen out))
+        (sysWriteAllFd 2 (strData out) (strLen out) 0)
       )
       exitToolFailed
     }
@@ -960,7 +960,7 @@
         ))
       )
       (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
-        (sysWriteFd 2 (strData out) (strLen out))
+        (sysWriteAllFd 2 (strData out) (strLen out) 0)
       )
       exitToolFailed
     }
@@ -1684,7 +1684,7 @@
                       )
                     )
                   ))
-                    (sysWriteFd 2 (strData out) (strLen out))
+                    (sysWriteAllFd 2 (strData out) (strLen out) 0)
                   )
                   exitToolFailed
                 }
@@ -1747,7 +1747,7 @@
                     )
                   )
                 ))
-                  (sysWriteFd 2 (strData out) (strLen out))
+                  (sysWriteAllFd 2 (strData out) (strLen out) 0)
                 )
                 exitToolFailed
               }
@@ -2121,7 +2121,9 @@
 (pub :: writeStderrStr (-> String Int))
 
 ;@axiom:effect(io)
-(pub fn (writeStderrStr s) (sysWriteFd 2 (strData s) (strLen s)))
+; Every byte, not the first `write`'s worth: a diagnostic cut short by a
+; full pipe is the silent truncation `sysWriteAllFd`'s header names.
+(pub fn (writeStderrStr s) (sysWriteAllFd 2 (strData s) (strLen s) 0))
 
 ; Decimal rendering of a small non-negative int, for `-O<n>`.
 ;

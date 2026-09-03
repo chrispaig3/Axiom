@@ -198,13 +198,13 @@
         (- 0 2)
         (let ((ready 
           (if (&& (>= timeoutMs 0) (>= kin.pfd 0))
-            (netPollWait kin.pfd kin.evs 4 timeoutMs kin.ts)
+            (match (netPollWait kin.pfd kin.evs 4 timeoutMs kin.ts) ((Ok k) k) ((Err e) (- 0 (errCode e))))
             1
           )
         ))
           (if (== ready 0)
             0
-            (let ((n (sysReadFd kin.fd (+ (strData kin.buf) kin.len) (- (strLen kin.buf) kin.len))))
+            (let ((n (match (sysReadFd kin.fd (+ (strData kin.buf) kin.len) (- (strLen kin.buf) kin.len)) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
               (if (<= n 0)
                 {
                   (set kin.eof 1)
@@ -367,7 +367,7 @@
     0
     (let ((s (tuiCat out)))
       {
-        (sysWriteFd 1 (strData s) (strLen s))
+        (sysWriteAllFd 1 (strData s) (strLen s) 0)
         (vecClear out)
         0
       }

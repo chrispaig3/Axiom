@@ -16,6 +16,71 @@ its changelog too.
 
 ## Unreleased
 
+### ERR-ADOPT-1: the failure column reaches zero, and the question it waited on is answered
+
+`compat/SENTINELS` reads **3 absence + 0 failure** (from 7 + 9). The
+nine failure rows waited on one question — may `println`'s effect row
+widen? — and it is answered with a measurement rather than a
+workaround. With `sysWriteFd` ported alone, the row widens from `IO` to
+`Alloc,IO` on **11 functions** in the compiler's whole closure, six of
+them public (`sysWriteFd`, `sysWriteAllFd`, `writeStr`, `printLit`,
+`printlnLit`, `rpcPut`), and **zero** `restrict(no-alloc)` claims are
+refused: nothing in the tree claims to print without allocating. What
+widens the row is the failure path — a failed `write` builds an
+`Error` through `sysResult` — and the success path builds nothing,
+because `sysWriteAllFd` matches the call directly and reads two
+registers. That is what the 2026-08-30 attempt could not say, when an
+`(Ok n)` block per `write` turned ten gates red. **So `println`'s row
+may widen, because `println` can allocate, and only when a write
+fails.**
+
+Ported to `(Result Int Error)`: `sysWriteFd`, `sysReadFd`, `netAccept`,
+`netAcceptFrom`, `netPollWait`, `sysNowMicros`, `sysNowMonotonic`, and
+the seam under the first two, `platformWriteFd` and `platformReadFd`
+in all five `Sys/Platform.*.ax` (the four ENOSYS stubs lose their
+`pure` tag, because an `Err` is built; Windows answers `Ok 0` at end
+of file as before). `sysWriteAllFd` and `writeStr` keep their `Int`
+channel — `println`'s value is that `Int` in 804 expansions — and
+`sysWriteAllFd` holds its match in a `let` so the partial-write
+recursion keeps its loop. The compiler's own stderr writes, `Tui`'s
+flush and the echo server's reply go through `sysWriteAllFd` now,
+which retries a short write where they used to drop it. Every reader
+matches the call directly (`keyInFill`, `Http`, `Rpc`, the REPL), so
+no bytes-arrived path builds a block. The alternative measured and not
+taken — a private raw twin under `sysWriteAllFd` to keep `println` at
+`IO` exactly — was defeated by the seam: `platformWriteFd` builds the
+same `Error` on its own failure path, so the row widens through it
+either way. Every widened public row is declared in `compat/BREAKING`
+under 0.6.4; `docs/error-model.md` §10.1 carries the decision and the
+alternative.
+
+### ERR-ADOPT-1: the absence rows `no-alloc` held back are `Option`, claims intact
+
+`strHexVal`, `utf8DecodeAt` and `utf8CharAt` answer `(Option Int)` and
+KEEP `restrict(no-io,no-alloc,no-foreign)`: each is the pair shape, so
+its body builds no block on any path and the claim is checked against
+the emitted IR (`scripts/check-unboxed-sums.sh` section 6 holds the
+self-compile's rows to their definitions). `utf8CharAt` forwards
+`utf8DecodeAt`'s two registers as they arrive. `netPollSignalAt` answers
+`(Option Int)` too, and its row stays `IO` alone. Every caller matches
+the call directly; the three that needed all of several digits before
+answering (`Json`'s `\uXXXX`, `Http`'s and the LSP's percent-decoding)
+got a private helper that nests the matches. `compat/SENTINELS`:
+`Utf8.ax` 2 → 0, `Str.ax` 2 → 1, `Sys.ax` absence 1 → 0. **What stays,
+and why:** `strFindByte` tail-calls itself, the one shape the pair
+does not take yet, so a port would keep the boxed body and refuse its
+own claim; `keyStrEnd` and `keyInFill` answer three outcomes each and
+want a `data` of their own, which the pair refuses by name. The floor
+is 3.
+
+### The seed learns the mirror
+
+A reseed, because the ports above use `restrict(no-alloc)` on a
+constructor-answering function and the committed seed's checker
+refused exactly that — the seed-skew rule is land, reseed, then use.
+`bootstrap/CHAIN` gains its row; the generator was the committed seed,
+as `scripts/reseed.sh` requires.
+
 ### The box is the caller's, and `restrict(no-alloc)` holds for an `Option` lookup
 
 **A function whose every tail is `None` or `(Some e)` no longer

@@ -93,7 +93,7 @@
         ; this case exists to measure, and writing it would measure the
         ; socket instead. `strLen` is what keeps it from being dead.
         (if (> (strLen s) 0)
-          (sysWriteFd con byte 1)
+          (sysWriteAllFd con byte 1 0)
           0
         )
       }
@@ -142,9 +142,9 @@
                     ; constant in.
                     (let ((sh (unwrapOr (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
                       (while (== running 1)
-                        (let ((n (netPollWait
+                        (let ((n (match (netPollWait
                           pfd                          buf                          64                          10000                          ts
-                        )))
+                        ) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
                           (if (< n 1)
                             (set running 0)
                             (let ((mut e 0))
@@ -154,8 +154,8 @@
                                     ((Some sig) (set running 0))
                                     ((None) (let ((con 
                                       (if reportPeer
-                                        (netAcceptFrom lsn peer netAddrMaxBytes lenb)
-                                        (netAccept lsn)
+                                        (match (netAcceptFrom lsn peer netAddrMaxBytes lenb) ((Ok k) k) ((Err e) (- 0 (errCode e))))
+                                        (match (netAccept lsn) ((Ok k) k) ((Err e) (- 0 (errCode e))))
                                       )
                                     ))
                                       (if (< con 0)
@@ -185,7 +185,7 @@
                                                 (printlnLit (strCStr (strConcat "peer " (netAddrTextPort peer))))
                                                 0
                                               )
-                                              (if (== (sysReadFd con byte 1) 1)
+                                              (if (== (match (sysReadFd con byte 1) ((Ok k) k) ((Err e) (- 0 (errCode e)))) 1)
                                                 (respond
                                                   con                                                  byte                                                  (if (== varied 1)
                                                     (+ 8 (* 32 (% served 16)))

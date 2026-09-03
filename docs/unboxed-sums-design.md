@@ -282,11 +282,13 @@ second lowering path selected by the scrutinee's type.
 
 ## 5. What it unblocks, which is the actual argument for doing it
 
-This is not only a speed change. `compat/SENTINELS` records **seven
-absence rows and nine failure rows** (nine and ten until the
-2026-09-03 correction removed three rows that were never portable —
-`docs/error-model.md` §10.1), and the reason five of the seven cannot
-move is stated there and in `docs/error-model.md` §10:
+This is not only a speed change. `compat/SENTINELS` recorded **seven
+absence rows and nine failure rows** when this section was written
+(nine and ten until the 2026-09-03 correction removed three rows that
+were never portable — `docs/error-model.md` §10.1); after §5b and the
+two ports it permitted it records **three and zero**. The reason five
+of the seven could not move was stated here and in
+`docs/error-model.md` §10:
 
 > `strHexVal`, `utf8DecodeAt`, `utf8CharAt` and `keyStrEnd` all read
 > `#restrict=no-io,no-alloc,no-foreign`. They cannot become `Option`

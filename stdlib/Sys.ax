@@ -164,12 +164,17 @@
 
 (pub fn (stderr) 2)
 
-(pub :: sysWriteFd (-> Int Int Int Int))
+; write(2): `Ok` bytes written - possibly fewer than asked, which is
+; what `sysWriteAllFd` below exists to retry - or `Err` carrying the
+; errno. `(Result Int Error)` since 2026-09-03; the sentinel it
+; replaced is recorded in `sysWriteAllFd`'s header, with why it stood
+; and what let it go.
+(pub :: sysWriteFd (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysWriteFd fd buf count)
   (if (== usesSyscallAbi 1)
-    (__syscall3 sysWrite fd buf count)
+    (sysResult "sysWriteFd" (__syscall3 sysWrite fd buf count))
     (platformWriteFd fd buf count)
   )
 )
@@ -187,29 +192,40 @@
 ; descriptor that stopped accepting bytes, where before it read a
 ; plausible count and carried on.
 ;
-; WHY NOT `Result`, WHICH IS WHERE ERR-ADOPT-1 IS GOING. Measured
-; both ways. The RUNTIME cost is nil: 2,000,000 calls at `--opt 2`,
-; 1.399 / 1.065 / 1.054 s against 1.298 / 1.092 / 1.093 s, because a
-; `write` is ~500 ns and the constructor ~9. The EFFECT ROW is the
-; cost, and it is not nil. Constructing an `Ok`/`Err` allocates, so
-; the row widens from `IO` to `IO, Alloc, Mut`, and this function is
-; under `writeStr` - which is under `println`, 804 macro expansions.
-; Ported, ten gates went red: `300-effect-handlers` could no longer
-; `handle` what it declares, and AXTAG claims across the tree read
-; `body performs Alloc, IO, Mut` where they had said `IO`.
+; THIS IS THE PRINTING PATH'S INT CHANNEL, AND IT STAYS AN INT.
+; `writeStr` answers it, and `println` - 804 expansions - is `writeStr`.
+; What is below it moved: `sysWriteFd` answers `(Result Int Error)`
+; since 2026-09-03, and this loop matches that call DIRECTLY, which the
+; emitter reads from two registers with no block built on the success
+; path (`docs/unboxed-sums-design.md`; `scripts/check-unboxed-sums.sh`
+; counts the blocks). The match sits in a `let` on purpose: in tail
+; position the self call under it would lose its loop, and a partial
+; write is the one case that recurses.
 ;
-; Narrowing the `Err` message to a literal does not help - the row
-; comes from the constructor, not the message. So the sentinel stays
-; here and `Result` waits for the callers that are not under the
-; printing path. That is a fact about ERR-ADOPT-1 nobody had written
-; down: the migration's blocker is the effect row, not performance.
+; WHAT THE PORT COSTS, MEASURED, AND WHY IT IS TAKEN. The row of this
+; function, and of `writeStr`, `printLit` and `printlnLit` above it,
+; widens from `IO` to `Alloc,IO`: a FAILED write builds an `Error`
+; (`sysResult` calls `mkError`), and an effect row is a fact about
+; every path. Measured over the compiler's whole closure on
+; 2026-09-03, that is 11 rows in all - six public, declared in
+; `compat/BREAKING` - and ZERO `restrict(no-alloc)` refusals: nothing
+; in the tree claims to print without allocating. When this was last
+; tried (2026-08-30) the SUCCESS path allocated too, an `(Ok n)` block
+; per `write`, and ten gates went red on that; with the pair the
+; success path is free, and what remains is a row that tells the
+; truth about the failure path. That is the language-level answer to
+; "may `println`'s row widen": it may, because it can allocate, and
+; only when a write fails.
 (pub :: sysWriteAllFd (-> Int Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (sysWriteAllFd fd buf count done)
   (if (>= done count)
     done
-    (let ((n (sysWriteFd fd (+ buf done) (- count done))))
+    (let ((n (match (sysWriteFd fd (+ buf done) (- count done))
+      ((Ok k) k)
+      ((Err e) (- 0 (errCode e)))
+    )))
       (if (< n 0)
         n
         (if (== n 0)
@@ -221,12 +237,16 @@
   )
 )
 
-(pub :: sysReadFd (-> Int Int Int Int))
+; read(2): `Ok` bytes read, `Ok 0` at end of input, or `Err` carrying
+; the errno. `(Result Int Error)` since 2026-09-03, on the same terms as
+; `sysWriteFd`: every reader in the tree matches the call directly and
+; pays for no block on the bytes-arrived path.
+(pub :: sysReadFd (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysReadFd fd buf count)
   (if (== usesSyscallAbi 1)
-    (__syscall3 sysRead fd buf count)
+    (sysResult "sysReadFd" (__syscall3 sysRead fd buf count))
     (platformReadFd fd buf count)
   )
 )
@@ -367,7 +387,7 @@
 
 ;@axiom:effect(io)
 (fn (sysReadAll fd buf used cap)
-  (let ((n (sysReadFd fd (+ (strData buf) used) (- cap used))))
+  (let ((n (match (sysReadFd fd (+ (strData buf) used) (- cap used)) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
     (if (<= n 0)
       (if (== used 0)
         ""
@@ -668,7 +688,7 @@
     (if (sysFailed fd)
       (sysErrno fd)
       (let ((probe (strAlloc 1)))
-        (let ((n (sysReadFd fd (strData probe) 1)))
+        (let ((n (match (sysReadFd fd (strData probe) 1) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
           {
             (sysCloseFd fd)
             (if (< n 0)
@@ -1437,38 +1457,41 @@
 ; needs a DURATION should ask `sysNowMonotonic` below and handle its
 ; refusal, rather than take whichever clock the target happened to have.
 ; The 16-byte buffer is caller-supplied so a timing loop allocates
-; nothing. tv_usec is 32-bit on Darwin with struct padding above it -
-; masked, not trusted. A negative answer is the syscall's own error.
-(pub :: sysNowMicros (-> Int Int))
+; nothing on the path that answers a time: the `Ok` is two registers
+; when the caller matches the call, and only the syscall's own failure
+; builds the `Error` it carries. tv_usec is 32-bit on Darwin with
+; struct padding above it - masked, not trusted. `(Result Int Error)`
+; since 2026-09-03.
+(pub :: sysNowMicros (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysNowMicros buf)
   (if (== clockIsGettimeofday 1)
     (let ((r (__syscall3 sysClockNum buf 0 0)))
       (if (< r 0)
-        r
-        (+ (* (memGetWord buf 0) 1000000) (& (memGetWord buf 1) 4294967295))
+        (Err (mkError (- 0 r) "sysNowMicros"))
+        (Ok (+ (* (memGetWord buf 0) 1000000) (& (memGetWord buf 1) 4294967295)))
       )
     )
     (let ((r (__syscall3 sysClockNum clockMonotonicId buf 0)))
       (if (< r 0)
-        r
-        (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000))
+        (Err (mkError (- 0 r) "sysNowMicros"))
+        (Ok (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000)))
       )
     )
   )
 )
 
-; Microseconds from a clock that NEVER steps backwards, or a negative
-; when this platform has none. The 16-byte buffer is the caller's, as
-; above, so a timing loop allocates nothing.
+; Microseconds from a clock that NEVER steps backwards, or `Err` when
+; this platform has none. The 16-byte buffer is the caller's, as
+; above, so a timing loop allocates nothing on the path that answers.
 ;
 ; This is the clock a timeout, a rate limiter, a retry backoff or a
 ; latency histogram wants. `sysNowMicros` is not: on Darwin it is the
 ; realtime clock and `ntpd` may step it, so a duration taken across the
 ; step is wrong and can be negative.
 ;
-; A NEGATIVE ANSWER IS NOT AN ERROR TO RETRY - on Darwin it is -ENOSYS
+; THE `Err` IS NOT AN ERROR TO RETRY - on Darwin it carries ENOSYS
 ; and it is what this platform will answer every time, until the arm64
 ; `CNTVCT_EL0` read that `Sys/Platform.darwin.ax` describes lands as a
 ; codegen primitive. Ask `clockHasMonotonic` ONCE at startup rather than
@@ -1477,16 +1500,16 @@
 ; affected work only where the clock exists. What it must not do is
 ; take the fallback silently, which is the bug this pair exists to make
 ; impossible to write by accident.
-(pub :: sysNowMonotonic (-> Int Int))
+(pub :: sysNowMonotonic (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (sysNowMonotonic buf)
   (if (== clockHasMonotonic 0)
-    (- 0 78)
+    (Err (mkError 78 "sysNowMonotonic"))
     (let ((r (__syscall3 sysClockNum clockMonotonicId buf 0)))
       (if (< r 0)
-        r
-        (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000))
+        (Err (mkError (- 0 r) "sysNowMonotonic"))
+        (Ok (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000)))
       )
     )
   )
@@ -1802,8 +1825,10 @@
   (sysResult "netListen" (__syscall3 sysListenNum fd backlog 0))
 )
 
-; Accept a connection, answering the new socket or a negative errno,
-; and throw the peer's address away. `netAcceptFrom` below keeps it;
+; Accept a connection, answering `Ok` the new socket or `Err` the
+; errno - `(Result Int Error)` since 2026-09-03; a would-block answer
+; is `Err` carrying EAGAIN, which `netWouldBlock` still recognises from
+; the negated code - and throw the peer's address away. `netAcceptFrom` below keeps it;
 ; this is the form for a caller that does not want the buffer, and it
 ; passes NULL for both of `accept`'s out-parameters.
 ;
@@ -1831,12 +1856,12 @@
 ; A caller that handles one connection at a time - a worker in a
 ; pre-forked pool - asks `netSetBlocking` for the other mode and gets a
 ; defined answer on both.
-(pub :: netAccept (-> Int Int))
+(pub :: netAccept (-> Int (Result Int Error)))
 
 ;@axiom:effect(io)
-(pub fn (netAccept fd) (netAcceptFinish (__syscall4
+(pub fn (netAccept fd) (sysResult "netAccept" (netAcceptFinish (__syscall4
   sysAcceptNum  fd  0  0  acceptNonblockFlag
-)))
+))))
 
 ; The half of an accept that is not the syscall: put the accepted
 ; socket into the non-blocking state this layer promises, on the target
@@ -1922,7 +1947,7 @@
 ;
 ; It shares `netAcceptFinish` with `netAccept`, so the non-blocking
 ; contract above is this function's too and is not re-solved here.
-(pub :: netAcceptFrom (-> Int Int Int Int Int))
+(pub :: netAcceptFrom (-> Int Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (netAcceptFrom fd addr cap lenbuf)
@@ -1961,7 +1986,7 @@
           (memSet addr 0 cap)
           0
         )
-        fd2
+        (sysResult "netAcceptFrom" fd2)
       }
     )
   }
@@ -2387,37 +2412,39 @@
   }
 )
 
-; Wait for readiness, answering how many events landed in `buf` or a
-; negative errno. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is
-; what a server's accept loop wants; zero polls and returns at once.
+; Wait for readiness, answering `Ok` how many events landed in `buf`
+; or `Err` the errno - `(Result Int Error)` since 2026-09-03, matched
+; directly by every wake loop so the wake itself builds no block. A
+; NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's
+; accept loop wants; zero polls and returns at once.
 ;
 ; The two calls spell the timeout differently and neither converts: epoll
 ; takes milliseconds in a register, kqueue takes a POINTER to a
 ; `timespec` and reads NULL as "no timeout". So the millisecond argument
 ; is this layer's, and the timespec is built here.
-(pub :: netPollWait (-> Int Int Int Int Int Int))
+(pub :: netPollWait (-> Int Int Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (netPollWait pfd buf maxEvents timeoutMs ts)
   (if (== pollUsesKqueue 1)
     (if (< timeoutMs 0)
-      (__syscall6
+      (sysResult "netPollWait" (__syscall6
         sysPollWaitNum        pfd        0        0        buf        maxEvents        0
-      )
+      ))
       {
         (netPutWord ts 0 (/ timeoutMs 1000))
         (netPutWord ts 8 (* (% timeoutMs 1000) 1000000))
-        (__syscall6
+        (sysResult "netPollWait" (__syscall6
           sysPollWaitNum          pfd          0          0          buf          maxEvents          ts
-        )
+        ))
       }
     )
     ; epoll_pwait's fifth argument is a signal mask this layer does not
     ; use, and its sixth is that mask's size, which the kernel checks
     ; against its own `sigset_t` and rejects unless it is exactly 8.
-    (__syscall6
+    (sysResult "netPollWait" (__syscall6
       sysPollWaitNum      pfd      buf      maxEvents      timeoutMs      0      pollSigsetSize
-    )
+    ))
   )
 )
 

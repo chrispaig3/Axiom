@@ -5236,9 +5236,9 @@
 ;@axiom:effect(io)
 (pub fn (dieImport msg name)
   {
-    (sysWriteFd 2 (strData msg) (strLen msg))
-    (sysWriteFd 2 (strData name) (strLen name))
-    (sysWriteFd 2 (strData "\n") (strLen "\n"))
+    (sysWriteAllFd 2 (strData msg) (strLen msg) 0)
+    (sysWriteAllFd 2 (strData name) (strLen name) 0)
+    (sysWriteAllFd 2 (strData "\n") (strLen "\n") 0)
     ; Exit 3 is this compiler's import-failure code - except under
     ; `symbols`, where stage0 folds EVERY failure into exit 1 and the
     ; parity gate compares statuses. The subcommand is re-derived from
@@ -5287,7 +5287,7 @@
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))
       ))
-        (sysWriteFd 2 (strData out) (strLen out))
+        (sysWriteAllFd 2 (strData out) (strLen out) 0)
       )
       (sysExitWith
         (if (strEq (firstOperandArg 1) "symbols")
@@ -5655,7 +5655,7 @@
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))
       ))
-        (sysWriteFd 2 (strData out) (strLen out))
+        (sysWriteAllFd 2 (strData out) (strLen out) 0)
       )
       ; Exit 1, stage0's code for this failure. The old 3 had exactly
       ; two consumers, both gates, both updated in this commit; the
@@ -5706,10 +5706,10 @@
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))
       ))
-        (sysWriteFd 2 (strData out) (strLen out))
+        (sysWriteAllFd 2 (strData out) (strLen out) 0)
       )
       (let ((tr (renderFailTrailer 1)))
-        (sysWriteFd 2 (strData tr) (strLen tr))
+        (sysWriteAllFd 2 (strData tr) (strLen tr) 0)
       )
       ; Exit 1, the status every other diagnostic exits with and the
       ; one `dieImportDiag` moved to when AX5001 became a real

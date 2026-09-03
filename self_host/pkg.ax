@@ -617,7 +617,7 @@
 ;@axiom:effect(io)
 (pub fn (pkgDie msg)
   {
-    (sysWriteFd 2 (strData msg) (strLen msg))
+    (sysWriteAllFd 2 (strData msg) (strLen msg) 0)
     (sysExitWith 3)
     0
   }

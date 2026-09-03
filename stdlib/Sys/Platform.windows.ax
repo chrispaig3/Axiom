@@ -57,6 +57,10 @@
 ; `usesSyscallAbi` 1, which is what keeps the four modules declaring
 ; one set of public names (`check-stdlib-api.sh` requires it).
 
+; `Err` for the `(Result Int Error)` the two descriptor calls answer
+; since 2026-09-03; acyclic, as the four syscall-ABI files record.
+(import Err)
+
 (pub :: sysRead Int)
 
 (pub fn (sysRead) 0)
@@ -458,25 +462,27 @@
 
 (fn (winCell) (__alloc 8))
 
-; write(fd, buf, count): bytes written, or -errno.
-(pub :: platformWriteFd (-> Int Int Int Int))
+; write(fd, buf, count): `Ok` bytes written, or `Err` carrying the
+; errno `winErrnoOf` maps the last error to.
+(pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (platformWriteFd fd buf count)
   (let ((cell winCell))
     (let ((ok (& (winWriteFile (winHandleOf fd) buf count cell 0) 4294967295)))
       (if (== ok 0)
-        (winErrnoOf (& winGetLastError 4294967295))
-        (& (__load64 cell 0) 4294967295)
+        (Err (mkError (- 0 (winErrnoOf (& winGetLastError 4294967295))) "platformWriteFd"))
+        (Ok (& (__load64 cell 0) 4294967295))
       )
     )
   )
 )
 
-; read(fd, buf, count): bytes read, 0 at end of file, or -errno. A
-; broken pipe (ERROR_BROKEN_PIPE, 109) on a read is end of file, which
-; is what a POSIX read of a closed pipe answers too.
-(pub :: platformReadFd (-> Int Int Int Int))
+; read(fd, buf, count): `Ok` bytes read, `Ok 0` at end of file, or
+; `Err` carrying the errno. A broken pipe (ERROR_BROKEN_PIPE, 109) on a
+; read is end of file, which is what a POSIX read of a closed pipe
+; answers too.
+(pub :: platformReadFd (-> Int Int Int (Result Int Error)))
 
 ;@axiom:effect(io)
 (pub fn (platformReadFd fd buf count)
@@ -485,11 +491,11 @@
       (if (== ok 0)
         (let ((code (& winGetLastError 4294967295)))
           (if (== code 109)
-            0
-            (winErrnoOf code)
+            (Ok 0)
+            (Err (mkError (- 0 (winErrnoOf code)) "platformReadFd"))
           )
         )
-        (& (__load64 cell 0) 4294967295)
+        (Ok (& (__load64 cell 0) 4294967295))
       )
     )
   )

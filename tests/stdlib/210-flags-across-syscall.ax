@@ -20,7 +20,7 @@
       (while (> n 0)
         {
           ; write of zero bytes: a real syscall with no output.
-          (sysWriteFd 1 0 0)
+          (sysWriteAllFd 1 0 0 0)
           (set n (- n 1))
         })
       (println n)

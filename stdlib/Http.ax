@@ -266,7 +266,7 @@
     )
     (if (>= r.filled (strLen r.buf))
       (- 0 2)
-      (let ((n (sysReadFd r.fd (+ (strData r.buf) r.filled) (- (strLen r.buf) r.filled))))
+      (let ((n (match (sysReadFd r.fd (+ (strData r.buf) r.filled) (- (strLen r.buf) r.filled)) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
         {
           (if (> n 0)
             {
@@ -697,7 +697,7 @@
       (set r.consumed (+ r.consumed have))
       (set got have)
       (while (&& (< got n) (== dead 0))
-        (let ((k (sysReadFd r.fd (+ (strData body) got) (- n got))))
+        (let ((k (match (sysReadFd r.fd (+ (strData body) got) (- n got)) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
           (if (< k 1)
             {
               (set dead 1)
