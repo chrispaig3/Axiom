@@ -137,7 +137,7 @@ sed 's/musttail call/call/' "$ll" > "$work/abl.ll"
 if grep -q musttail "$work/abl.ll"; then
   bad "the ablation left a musttail in the IR"
 fi
-if llc -O0 -filetype=obj "$work/abl.ll" -o "$work/abl.o" 2>"$work/abl.llc" && cc "$work/abl.o" -o "$work/abl" 2>"$work/abl.cc"; then
+if llc -O0 -relocation-model=pic -filetype=obj "$work/abl.ll" -o "$work/abl.o" 2>"$work/abl.llc" && cc "$work/abl.o" -o "$work/abl" 2>"$work/abl.cc"; then
   r="$(run_at "$work/abl" "$stack_kib")"
   case "$r" in
     signal:*) ok "without musttail the same program dies by ${r#signal:} under ${stack_kib} KiB - the marker is the mechanism" ;;
