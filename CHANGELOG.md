@@ -14,6 +14,15 @@ its changelog too.
 
 ---
 
+## Unreleased
+
+<!-- Empty by design until the next change lands. The heading STAYS when a
+     release is cut: `scripts/check-gate-lib.sh` reads this file starting at
+     `## Unreleased` and takes the two sections below it, so removing the
+     heading makes the gate read NOTHING and fail with "CHANGELOG.md does not
+     state \"sixty gates\" anywhere". Measured on the 0.7.0 tag, which is how
+     this comment came to be here. -->
+
 ## 0.7.0 — 2026-09-03
 
 A segfault the gate battery was structurally unable to see, the Rust
