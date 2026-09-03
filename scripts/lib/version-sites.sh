@@ -188,6 +188,15 @@ webbench_version() { grep -oE "Axiom [0-9]+[.][0-9]+[.][0-9]+" | grep -oE '[0-9]
 web_replace()  { _rewrite "$1" "s/'[0-9]+[.][0-9]+[.][0-9]+'/'$2'/g"; }
 webbench_replace() { _rewrite "$1" "s/(Axiom )[0-9]+[.][0-9]+[.][0-9]+/\\1$2/g"; }
 
+# TWO README-SHAPED SITES SINCE 2026-09-03. The `axiom version` banner
+# README carried moved to `docs/status.md` with the CLI section when the
+# README was cut from 75,806 bytes to 6,825; README kept a banner of its
+# own, the REPL greeting in Quick start, which needs no build hash to be
+# true. BOTH are counted, because an uncounted copy of the version is
+# exactly the drift this file exists to stop - `bump-version.sh` would
+# have left the moved one at the old number and nothing would have said
+# so. (Comments cannot go inside the string below: it is a plain
+# variable, not a heredoc, and a `#` line in it is parsed as a site.)
 VERSION_SITES="
 web/src/data/site.ts|1|web_version|web_replace
 web/src/data/bench.ts|1|webbench_version|webbench_replace
@@ -201,6 +210,7 @@ rust/examples/nostd/Cargo.lock|4|lock_version|lock_replace
 tree-sitter-axiom/package.json|1|json_version|json_replace
 tree-sitter-axiom/tree-sitter.json|1|json_version|json_replace
 README.md|1|ax_version|ax_replace
+docs/status.md|1|ax_version|ax_replace
 docs/reference.md|1|ax_version|ax_replace
 SECURITY.md|1|sec_version|sec_replace
 tests/lsp/010-clean.golden|1|lspg_version|lspg_replace

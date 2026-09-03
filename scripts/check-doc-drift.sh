@@ -293,7 +293,16 @@ root, axc = sys.argv[1], sys.argv[2]
 PROSE_DOCS = sys.argv[3:]
 os.chdir(root)
 bad = 0
-readme = open("README.md", encoding="utf-8").read()
+# README.md and docs/status.md are ONE document for the two checks
+# below. The status table, the type table and the showcased diagnostics
+# lived in README.md until 2026-09-03, when it was cut from 75,806 bytes
+# to 6,825 and they moved to docs/status.md; reading the pair means the
+# split did not have to be re-encoded in three regexes, and means a
+# future move back is also invisible here. `### Targets` deliberately
+# did NOT move, and section 8 below still opens README.md by name for
+# it.
+readme = (open("README.md", encoding="utf-8").read() + "\n\n"
+          + open("docs/status.md", encoding="utf-8").read())
 
 def claim(label, pattern, actual):
     """A numeric claim in the prose, recomputed - in every document
@@ -319,7 +328,11 @@ def claim(label, pattern, actual):
         text = open(doc, encoding="utf-8").read()
         for m in re.finditer(pattern, text):
             seen += 1
-            stated = int(m.group(1))
+            # `97,017` and `97017` are the same claim. Before
+            # 2026-09-03 the pattern had to avoid the separator, which
+            # meant the readable spelling of a number was the one this
+            # gate could not see.
+            stated = int(m.group(1).replace(",", ""))
             line = text.count("\n", 0, m.start()) + 1
             if stated != actual:
                 print(f"FAIL counts: {doc}:{line} says {stated} {label}, "
@@ -351,7 +364,15 @@ print("== counts: every number the prose documents state is recomputed ==")
 # That is the failure this gate prefers - loud and wrong over quiet and
 # absent - and the fix for it is to scope THAT claim, not to narrow the
 # pattern back until it matches one document's wording again.
+compiler_lines = sum(
+    1 for p in sorted(glob.glob("self_host/*.ax"))
+    for _ in open(p, encoding="utf-8"))
 claim("`.ax` files in the repo", r"(\d+) `\.ax` files", ax_files)
+# README's opening states the compiler's size, and the website states it
+# too (`web/src/data/site.ts`, checked by `web/scripts/check-claims.mjs`
+# against the same command). Two artifacts, one fact, both recomputed.
+claim("lines of Axiom in the compiler", r"([\d,]+) lines of it",
+      compiler_lines)
 claim("tree-shape corpus cases", r"(\d+)-case tree-shape corpus", corpus_cases)
 
 print("== status table: every **Complete** row names a fixture that exists ==")
@@ -979,7 +1000,7 @@ if (( failed == dup_before )); then
 fi
 
 # --------------------------------------------------------------------
-echo "== types: README's LLVM column, against what the emitter actually writes =="
+echo "== types: the LLVM column in docs/status.md, against what the emitter actually writes =="
 # --------------------------------------------------------------------
 # The column was WRONG FOR SEVEN OF NINE ROWS until 2026-08-25, and had
 # been for as long as the self-hosted compiler existed: it said `f64`,
@@ -1017,7 +1038,7 @@ while IFS='|' read -r ty want; do
   printf '(:: g (-> %s Int))\n\n(fn (g x) 0)\n\n(:: main Int)\n\n(fn (main) (let ((h g)) 0))\n' "$ty" > "$tw/t.ax"
   if ! ( cd "$tw" && AXIOM_STDLIB="$repo_root/stdlib" "$axc" build \
            --input t.ax --output t.bin --emit-llvm ) >/dev/null 2>&1; then
-    echo "FAIL types: the probe for \`$ty\` does not compile - README names a type the compiler will not take"
+    echo "FAIL types: the probe for \`$ty\` does not compile - docs/status.md names a type the compiler will not take"
     failed=$((failed+1)); continue
   fi
   got="$(grep -oE '^define [a-z0-9]+ @g\([a-z0-9]+' "$tw/t.bin.ll" | head -1 | sed -E 's/.*@g\(//')"
@@ -1026,7 +1047,7 @@ while IFS='|' read -r ty want; do
     failed=$((failed+1)); continue
   fi
   if [[ "$got" != "$want" ]]; then
-    echo "FAIL types: README says \`$ty\` lowers to \`$want\`; the emitter writes \`$got\`"
+    echo "FAIL types: docs/status.md says \`$ty\` lowers to \`$want\`; the emitter writes \`$got\`"
     failed=$((failed+1))
   fi
 done <<< "$(awk '
@@ -1042,12 +1063,12 @@ done <<< "$(awk '
     gsub(/^[ \t]*`?|`?[ \t]*$/, "", lv)
     if (ty != "" && lv != "") print ty "|" lv
   }
-' README.md)"
+' docs/status.md)"
 if (( row_n < 8 )); then
-  echo "FAIL types: read $row_n row(s) out of README's table; the parse broke and this section is checking almost nothing"
+  echo "FAIL types: read $row_n row(s) out of the type table in docs/status.md; the parse broke and this section is checking almost nothing"
   failed=$((failed+1))
 elif (( failed == types_before )); then
-  echo "ok   all $row_n documented types lower to what README's LLVM column says"
+  echo "ok   all $row_n documented types lower to what the LLVM column says"
 fi
 
 # --------------------------------------------------------------------
@@ -1092,7 +1113,11 @@ def names_in(text, lead):
     return set(re.findall(r"`([a-z0-9_-]+)`", m.group(1)))
 
 readme = open("README.md", encoding="utf-8").read()
-sec = re.search(r"^### Targets\n(.*?)(?=^### )", readme, re.S | re.M)
+# Terminated by any `##`/`###` heading, not just a `###`. `### Targets`
+# is the last subsection of the shortened README, so the old pattern -
+# which required another `### ` to stop at - would have matched nothing
+# and reported that README has no Targets section at all.
+sec = re.search(r"^### Targets\n(.*?)(?=^#{2,3} )", readme, re.S | re.M)
 if not sec:
     print("FAIL targets: README.md has no `### Targets` section"); sys.exit(1)
 targets_section = sec.group(1)
