@@ -2,10 +2,10 @@
 //!
 //! `axiom build --input lib.ax --output libaxiom_hostlib.a --emit-staticlib`
 //! emits a module without the `@main` wrapper, assembles and archives
-//! it. Every `pub fn` of the entry file is a C symbol under its own name
-//! - `addTwo`, `shout` - with Axiom's whole ABI: `i64` in, `i64` out.
-//! A Rust binary declares them in an `extern "C"` block, links the
-//! archive (`cargo:rustc-link-lib=static=axiom_hostlib` from a
+//! it. Every `pub fn` of the entry file is a C symbol under its own
+//! name (`addTwo`, `shout`) with Axiom's whole ABI: `i64` in, `i64`
+//! out. A Rust binary declares them in an `extern "C"` block, links
+//! the archive (`cargo:rustc-link-lib=static=axiom_hostlib` from a
 //! `build.rs`) and calls them. The runtime needs no initialisation:
 //! the allocator initialises on first use.
 //!
@@ -36,7 +36,7 @@
 use crate::{axiom_release, AxStr, AxStrRepr, AxWord};
 use core::str::Utf8Error;
 
-extern "C" {
+unsafe extern "C" {
     /// `stdlib/Str.ax`: a `String` over fresh zeroed space for `len`
     /// bytes (plus the NUL), held by one share the caller owns.
     #[link_name = "Str$strAlloc"]
@@ -59,6 +59,13 @@ impl AxString {
     ///
     /// Needs the archive linked: the call resolves against the Axiom
     /// side's own `Str` module.
+    ///
+    /// Deliberately NOT `std::str::FromStr`: that trait returns
+    /// `Result<Self, Self::Err>` and this cannot fail - every `&str` is
+    /// a valid Axiom `Str`, since an Axiom `Str` is a byte string with
+    /// no encoding requirement. An `Err` type nothing can construct is
+    /// worse than an inherent method with the obvious name.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> AxString {
         Self::from_bytes(s.as_bytes())
     }
@@ -76,7 +83,10 @@ impl AxString {
             core::ptr::copy_nonoverlapping(bytes.as_ptr(), repr.data as *mut u8, bytes.len());
             word
         };
-        AxString { word, _thread: core::marker::PhantomData }
+        AxString {
+            word,
+            _thread: core::marker::PhantomData,
+        }
     }
 
     /// Adopt the share of a `String` an Axiom function answered, so it
@@ -86,7 +96,10 @@ impl AxString {
     /// `word` must be a live Axiom `String` the caller owns one share
     /// of - the result of an Axiom call, not an argument it borrowed.
     pub unsafe fn from_owned(word: AxWord) -> AxString {
-        AxString { word, _thread: core::marker::PhantomData }
+        AxString {
+            word,
+            _thread: core::marker::PhantomData,
+        }
     }
 
     /// The word to pass to an Axiom function.
@@ -105,12 +118,18 @@ impl AxString {
         w
     }
 
+    /// The string's bytes, borrowed for as long as this handle lives.
+    /// Zero-copy: the pointer is the one Axiom holds, not a duplicate,
+    /// and the share this value owns is what keeps it alive.
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         // SAFETY: this value holds a share, so the string is live.
         unsafe { AxStr::from_raw(self.word).as_bytes() }
     }
 
+    /// The bytes as `&str`, validated. An Axiom `Str` is a BYTE string
+    /// and is not required to be UTF-8, which is why this can fail and
+    /// [`as_bytes`](Self::as_bytes) cannot.
     #[inline]
     pub fn as_str(&self) -> Result<&str, Utf8Error> {
         core::str::from_utf8(self.as_bytes())
@@ -130,7 +149,11 @@ impl Drop for AxString {
 /// `word` must be a live Axiom `String` for all of `'a`. The view does
 /// not take or release a share.
 pub unsafe fn read_str<'a>(word: AxWord) -> Result<&'a str, Utf8Error> {
-    AxStr::from_raw(word).as_str()
+    // SAFETY: `AxStr::from_raw` needs a live Axiom `String` for all of
+    // `'a`, which is exactly what this function's `# Safety` asks the
+    // caller for. The view takes no share, so nothing here has to be
+    // given back.
+    unsafe { AxStr::from_raw(word).as_str() }
 }
 
 /// Read an Axiom `String` in place, as bytes.
@@ -138,5 +161,8 @@ pub unsafe fn read_str<'a>(word: AxWord) -> Result<&'a str, Utf8Error> {
 /// # Safety
 /// As [`read_str`].
 pub unsafe fn read_bytes<'a>(word: AxWord) -> &'a [u8] {
-    AxStr::from_raw(word).as_bytes()
+    // SAFETY: as `read_str` - the caller promises a live Axiom `String`
+    // for all of `'a`, and this borrows its bytes without taking a
+    // share. Only the UTF-8 validation differs.
+    unsafe { AxStr::from_raw(word).as_bytes() }
 }

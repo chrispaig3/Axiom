@@ -34,3 +34,6 @@ nostd-runtime = []
 # archive defines, so it is off unless asked for (a staticlib that
 # Axiom links must not reference them).
 host = []
+
+[lints]
+workspace = true

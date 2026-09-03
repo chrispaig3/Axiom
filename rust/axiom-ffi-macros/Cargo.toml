@@ -20,3 +20,6 @@ proc-macro2 = { workspace = true }
 # (serde_derive's tests depend on serde the same way).
 axiom-ffi = { path = "../axiom-ffi" }
 trybuild = "1"
+
+[lints]
+workspace = true

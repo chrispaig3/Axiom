@@ -287,7 +287,7 @@ fn hidden(n: i64) -> i64 {
 }
 
 /// A hand-written shim, bound raw: `AxWord` is `Foreign`, `i64` is `Int`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_peek(h: axiom_ffi::AxWord, offset: i64) -> i64 {
     let _ = (h, offset);
     0

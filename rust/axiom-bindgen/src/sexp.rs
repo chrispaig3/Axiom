@@ -33,6 +33,10 @@
 /// An Axiom expression.
 #[derive(Clone, Debug)]
 pub enum Ex {
+    /// A leaf, pushed to the output as the string stands: a name, a
+    /// literal, an operator. It is the only form that is
+    /// unconditionally simple, so an atom is never broken or wrapped
+    /// and its string must already be one token.
     Atom(String),
     /// `(head args...)`.
     App(Vec<Ex>),
@@ -40,6 +44,9 @@ pub enum Ex {
     Cast(String, Box<Ex>),
     /// `(let (bindings...) body)`; bindings are `(name init)`.
     Let(Vec<(String, Ex)>, Box<Ex>),
+    /// `(if cond then else)`. Never simple, so it always breaks: the
+    /// condition stays on the `if` line and each branch takes its own
+    /// (`fpIf`).
     If(Box<Ex>, Box<Ex>, Box<Ex>),
     /// `(match scrutinee (pattern body)...)`; a pattern is an `App`.
     Match(Box<Ex>, Vec<(Ex, Ex)>),
@@ -47,6 +54,8 @@ pub enum Ex {
     Block(Vec<Ex>),
 }
 
+/// An [`Ex::Atom`] over a borrowed name. The tree owns its strings,
+/// so this is the one place the copy is made.
 pub fn atom(s: &str) -> Ex {
     Ex::Atom(s.to_string())
 }
@@ -242,18 +251,36 @@ mod tests {
         print(&app(vec![atom("f"), atom("a"), atom("b")]), 0, &mut s);
         assert_eq!(s, "(f a b)");
         let mut s = String::new();
-        print(&app(vec![atom("f"), atom("a"), atom("b"), atom("c"), atom("d"), atom("e")]), 1, &mut s);
+        print(
+            &app(vec![
+                atom("f"),
+                atom("a"),
+                atom("b"),
+                atom("c"),
+                atom("d"),
+                atom("e"),
+            ]),
+            1,
+            &mut s,
+        );
         assert_eq!(s, "(f\n    a    b    c    d    e\n  )");
     }
 
     #[test]
     fn let_forms() {
         let mut s = String::new();
-        print(&Ex::Let(vec![("x".into(), atom("1"))], Box::new(atom("x"))), 0, &mut s);
+        print(
+            &Ex::Let(vec![("x".into(), atom("1"))], Box::new(atom("x"))),
+            0,
+            &mut s,
+        );
         assert_eq!(s, "(let ((x 1))\n  x\n)");
         let mut s = String::new();
         print(
-            &Ex::Let(vec![("x".into(), atom("1")), ("y".into(), atom("2"))], Box::new(atom("x"))),
+            &Ex::Let(
+                vec![("x".into(), atom("1")), ("y".into(), atom("2"))],
+                Box::new(atom("x")),
+            ),
             1,
             &mut s,
         );
@@ -264,7 +291,10 @@ mod tests {
     fn fn_decl() {
         let body = Ex::Match(
             Box::new(atom("c")),
-            vec![(app(vec![atom("Counter"), atom("__h")]), app(vec![atom("ffiHandleClose"), atom("__h")]))],
+            vec![(
+                app(vec![atom("Counter"), atom("__h")]),
+                app(vec![atom("ffiHandleClose"), atom("__h")]),
+            )],
         );
         assert_eq!(
             decl_fn("counterClose", &["c".into()], &body),

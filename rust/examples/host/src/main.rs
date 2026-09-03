@@ -71,7 +71,8 @@ fn main() {
         Err(e) => e.as_str().unwrap_or("<not utf-8>").to_owned(),
         Ok(_) => String::new(),
     };
-    let mut structured_ok = opt == Some(8) && matches!(res_ok, Ok(42)) && err_text == "division by zero";
+    let mut structured_ok =
+        opt == Some(8) && matches!(res_ok, Ok(42)) && err_text == "division by zero";
     for i in 0..10_000 {
         let p = hostlib::Pair { f0: i, f1: 2 * i };
         let swapped = hostlib::pair_swap(&p);

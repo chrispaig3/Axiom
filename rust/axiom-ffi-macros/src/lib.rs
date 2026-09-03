@@ -1,7 +1,7 @@
 //! `#[axiom_export]`, `#[axiom_opaque]` and `#[axiom_record]` — turn
 //! ordinary Rust into something Axiom can link against.
 //!
-//! `#[axiom_export]` generates a `#[no_mangle] pub extern "C"` shim
+//! `#[axiom_export]` generates an `#[unsafe(no_mangle)] pub extern "C"` shim
 //! whose signature is entirely `i64`s, because that is Axiom's whole
 //! ABI: every value is one 64-bit word and every emitted function is
 //! `define i64 @name(i64, ...)` (the header `emitFnDef` writes in
@@ -148,8 +148,8 @@ pub fn __axiom_export_resolved(input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn axiom_opaque(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(item as Item);
-    let parsed = attr_metas(attr)
-        .and_then(|metas| cls::parse_opaque_attr(metas.iter()).map_err(attr_error));
+    let parsed =
+        attr_metas(attr).and_then(|metas| cls::parse_opaque_attr(metas.iter()).map_err(attr_error));
     match parsed.and_then(|a| expand_opaque(item, a)) {
         Ok(ts) => ts.into(),
         Err(e) => e.to_compile_error().into(),
@@ -224,7 +224,10 @@ struct Table(Vec<(String, Named)>);
 
 impl Registry for Table {
     fn lookup(&self, name: &str) -> Option<Named> {
-        self.0.iter().find(|(n, _)| n == name).map(|(_, k)| k.clone())
+        self.0
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, k)| k.clone())
     }
 }
 
@@ -246,12 +249,13 @@ impl Parse for Resolved {
                     braced!(body in input);
                     let fields: Punctuated<RecordFieldSyntax, Token![,]> =
                         body.parse_terminated(RecordFieldSyntax::parse, Token![,])?;
-                    let named: Vec<(String, Type)> =
-                        fields.iter().map(|f| (f.name.to_string(), f.ty.clone())).collect();
-                    let classified = cls::classify_record_fields(
-                        named.iter().map(|(n, t)| (n.as_str(), t)),
-                    )
-                    .map_err(|m| syn::Error::new(name.span(), m))?;
+                    let named: Vec<(String, Type)> = fields
+                        .iter()
+                        .map(|f| (f.name.to_string(), f.ty.clone()))
+                        .collect();
+                    let classified =
+                        cls::classify_record_fields(named.iter().map(|(n, t)| (n.as_str(), t)))
+                            .map_err(|m| syn::Error::new(name.span(), m))?;
                     Named::Record(classified)
                 }
                 other => {
@@ -263,7 +267,11 @@ impl Parse for Resolved {
             };
             table.push((name.to_string(), entry));
         }
-        Ok(Resolved { attr, func, table: Table(table) })
+        Ok(Resolved {
+            attr,
+            func,
+            table: Table(table),
+        })
     }
 }
 
@@ -313,7 +321,10 @@ fn expand_opaque(item: Item, attr: cls::OpaqueAttr) -> Result<TokenStream2, syn:
         "The destructor Axiom's handle calls for `{name}` when its last reference dies \
          (or on an explicit close). Null-checked; answers 0."
     );
-    let drop_fn_doc = format!("The address of `{}`, for `ffiHandleNew`.", cls::drop_symbol(&stem));
+    let drop_fn_doc = format!(
+        "The address of `{}`, for `ffiHandleNew`.",
+        cls::drop_symbol(&stem)
+    );
     let companion = companion(ident, quote! { @opaque #ident });
     Ok(quote! {
         #item
@@ -329,13 +340,13 @@ fn expand_opaque(item: Item, attr: cls::OpaqueAttr) -> Result<TokenStream2, syn:
         ///
         /// # Safety
         /// `h` is 0 or a handle word this crate produced and has not freed.
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe extern "C" fn #drop_ident(h: ::axiom_ffi::AxWord) -> ::axiom_ffi::AxWord {
             ::axiom_ffi::__private::drop_opaque::<#ident>(h)
         }
 
         #[doc = #drop_fn_doc]
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn #drop_fn_ident() -> ::axiom_ffi::AxWord {
             <#ident as ::axiom_ffi::AxiomOpaque>::DROP as usize as ::axiom_ffi::AxWord
         }
@@ -379,10 +390,15 @@ fn expand_record(item: Item) -> Result<TokenStream2, syn::Error> {
     };
     let pairs: Vec<(String, &Type)> = named
         .iter()
-        .map(|f| (f.ident.as_ref().map(|i| i.to_string()).unwrap_or_default(), &f.ty))
+        .map(|f| {
+            (
+                f.ident.as_ref().map(|i| i.to_string()).unwrap_or_default(),
+                &f.ty,
+            )
+        })
         .collect();
-    let fields = cls::classify_record_fields(pairs.iter().map(|(n, t)| (n.as_str(), *t)))
-        .map_err(|m| {
+    let fields =
+        cls::classify_record_fields(pairs.iter().map(|(n, t)| (n.as_str(), *t))).map_err(|m| {
             // Point at the offending field when the message names one.
             let span_on: &dyn quote::ToTokens = named
                 .iter()
@@ -619,7 +635,9 @@ fn expand_shim(
     let mut prologue = Vec::new();
 
     for (i, (arg, param)) in func.sig.inputs.iter().zip(params.iter()).enumerate() {
-        let FnArg::Typed(pt) = arg else { unreachable!("classify_signature refuses self") };
+        let FnArg::Typed(pt) = arg else {
+            unreachable!("classify_signature refuses self")
+        };
         let w = format_ident!("a{}", i);
         let idx = i + 1;
         let pname = match &*pt.pat {
@@ -628,7 +646,9 @@ fn expand_shim(
         };
         if let Param::Record(r) = param {
             // One shim word per field, rebuilt into the value.
-            let words: Vec<Ident> = (0..r.arity()).map(|j| format_ident!("a{}_{}", i, j)).collect();
+            let words: Vec<Ident> = (0..r.arity())
+                .map(|j| format_ident!("a{}_{}", i, j))
+                .collect();
             let ty = &r.ty;
             shim_params.extend(words.iter().map(|w| quote! { #w: ::axiom_ffi::AxWord }));
             prologue.push(quote! {
@@ -842,7 +862,7 @@ fn expand_shim(
     let sig_fn = quote! {
         #[doc = #sig_doc]
         #[doc(hidden)]
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn #sig() -> ::axiom_ffi::AxWord {
             0
         }
@@ -860,7 +880,11 @@ fn expand_shim(
             }
         };
         let tail = match &ret {
-            Ret::Bytes | Ret::Words(_) | Ret::WordLists(_) | Ret::Strs | Ret::Record(_)
+            Ret::Bytes
+            | Ret::Words(_)
+            | Ret::WordLists(_)
+            | Ret::Strs
+            | Ret::Record(_)
             | Ret::Records(_) => {
                 let store = store_payload(&ret.direct_payload());
                 quote! {
@@ -922,7 +946,7 @@ fn expand_shim(
         });
         quote! {
             #[doc = #doc]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             pub extern "C" fn #shim(#(#shim_params,)* out: ::axiom_ffi::AxWord)
                 -> ::axiom_ffi::AxStatus
             {
@@ -942,7 +966,7 @@ fn expand_shim(
         };
         quote! {
             #[doc = #doc]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             pub extern "C" fn #shim(#(#shim_params),*) -> ::axiom_ffi::AxWord {
                 #(#prologue)*
                 let v = #body_call;

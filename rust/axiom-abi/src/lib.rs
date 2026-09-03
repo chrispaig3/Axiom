@@ -67,7 +67,7 @@ pub const AX_NONE: AxStatus = 2;
 // `define internal` (`__axiom_str_eq`, `__axiom_div_by_zero`,
 // `__axiom_arena_mark_fn`, ...) and are deliberately not declared here.
 // ---------------------------------------------------------------------
-extern "C" {
+unsafe extern "C" {
     /// Axiom's bump allocator. Returns a 16-byte-aligned block whose
     /// bytes read as zero (invariants I5, I6).
     ///
@@ -189,9 +189,16 @@ impl<'a> AxStr<'a> {
     /// `raw` must be a live Axiom `String` value for all of `'a`.
     #[inline]
     pub const unsafe fn from_raw(raw: AxWord) -> Self {
-        Self { raw, _life: PhantomData, _thread: PhantomData }
+        Self {
+            raw,
+            _life: PhantomData,
+            _thread: PhantomData,
+        }
     }
 
+    /// The raw handle, for `axiom_retain` / `axiom_release` and for
+    /// handing the same `String` back to Axiom. Borrowing it does not
+    /// take a share; see the module note on who owns what.
     #[inline]
     pub fn as_word(self) -> AxWord {
         self.raw
@@ -203,11 +210,17 @@ impl<'a> AxStr<'a> {
         unsafe { &*(self.raw as *const AxStrRepr) }
     }
 
+    /// Length in BYTES, excluding the NUL terminator - not a character
+    /// count. Axiom stores it in the header, so this is a load rather
+    /// than a scan, and a NUL inside the bytes does not shorten it.
     #[inline]
     pub fn len(self) -> usize {
         self.repr().len as usize
     }
 
+    /// Whether the string is zero bytes long. Read from the header's
+    /// length, so an empty `String` and a `String` of NULs are told
+    /// apart the way Axiom tells them apart.
     #[inline]
     pub fn is_empty(self) -> bool {
         self.repr().len == 0
@@ -323,7 +336,14 @@ impl AxOutCell {
     /// `word` must be an address Axiom glue allocated for this call.
     #[inline]
     pub unsafe fn from_word<'a>(word: AxWord) -> &'a mut AxOutCell {
-        &mut *(word as *mut AxOutCell)
+        unsafe {
+            // SAFETY: this function's `# Safety` puts it on the caller -
+            // generated Axiom glue - to pass a cell it allocated for this
+            // call: a live arena block, 16-byte aligned (I5), and by C3 the
+            // caller's own for the call, so nothing else holds a reference
+            // while the shim writes through this `&mut`.
+            &mut *(word as *mut AxOutCell)
+        }
     }
 }
 
@@ -413,13 +433,21 @@ pub trait AxCallback: Copy {
 /// `record` must be a live closure record.
 #[inline]
 unsafe fn apply_one(record: AxWord, arg: AxWord) -> AxWord {
-    let code = *(record as *const AxWord);
-    let f: extern "C" fn(AxWord, AxWord) -> AxWord = core::mem::transmute(code as usize);
-    f(record, arg)
+    unsafe {
+        // SAFETY: the caller promises a live closure record (this
+        // function's `# Safety`), and the module note above fixes its
+        // shape: word 0 is the code address of a lifted
+        // `i64 (i64 %_env, i64 arg)` the emitter wrote, so the load is
+        // in bounds and the transmute names that exact signature - one
+        // argument, because the parser curries every lambda.
+        let code = *(record as *const AxWord);
+        let f: extern "C" fn(AxWord, AxWord) -> AxWord = core::mem::transmute(code as usize);
+        f(record, arg)
+    }
 }
 
 macro_rules! ax_fn {
-    ($name:ident, $arity:expr, $doc:expr) => {
+    ($name:ident, $arity:expr_2021, $doc:expr_2021) => {
         #[doc = $doc]
         ///
         /// `Copy`, one word: the closure record. Valid for the call the
@@ -436,7 +464,10 @@ macro_rules! ax_fn {
 
             #[inline]
             unsafe fn from_raw(record: AxWord) -> Self {
-                Self { record, _thread: core::marker::PhantomData }
+                Self {
+                    record,
+                    _thread: core::marker::PhantomData,
+                }
             }
 
             #[inline]
@@ -456,8 +487,16 @@ macro_rules! ax_fn {
 }
 
 ax_fn!(AxFn1, 1, "An Axiom `(-> Int Int)` value: one argument.");
-ax_fn!(AxFn2, 2, "An Axiom `(-> Int Int Int)` value: two arguments, applied one at a time.");
-ax_fn!(AxFn3, 3, "An Axiom `(-> Int Int Int Int)` value: three arguments, applied one at a time.");
+ax_fn!(
+    AxFn2,
+    2,
+    "An Axiom `(-> Int Int Int)` value: two arguments, applied one at a time."
+);
+ax_fn!(
+    AxFn3,
+    3,
+    "An Axiom `(-> Int Int Int Int)` value: three arguments, applied one at a time."
+);
 
 impl AxFn1 {
     /// Call the Axiom function with `a`.
@@ -543,9 +582,16 @@ impl<'a> AxVec<'a> {
     /// `raw` must be a live Axiom `Vec` handle for all of `'a`.
     #[inline]
     pub const unsafe fn from_raw(raw: AxWord) -> Self {
-        Self { raw, _life: PhantomData, _thread: PhantomData }
+        Self {
+            raw,
+            _life: PhantomData,
+            _thread: PhantomData,
+        }
     }
 
+    /// The raw handle, for `axiom_retain` / `axiom_release` and for
+    /// handing the same `Vec` back to Axiom. Borrowing it takes no
+    /// share.
     #[inline]
     pub fn as_word(self) -> AxWord {
         self.raw
@@ -557,11 +603,17 @@ impl<'a> AxVec<'a> {
         unsafe { &*(self.raw as *const AxVecRepr) }
     }
 
+    /// Live elements, not capacity. Clamped at 0: the header's `len` is
+    /// a signed word and a negative one would otherwise become an
+    /// enormous `usize` and a slice length no allocation can satisfy.
     #[inline]
     pub fn len(self) -> usize {
         self.repr().len.max(0) as usize
     }
 
+    /// Whether the vector has no live elements. A vector with capacity
+    /// and nothing in it is empty; the data block's size is not the
+    /// question.
     #[inline]
     pub fn is_empty(self) -> bool {
         self.len() == 0
@@ -585,18 +637,25 @@ impl<'a> AxVec<'a> {
     /// is the point. The vector's length and capacity are not touched.
     ///
     /// # Safety
-    /// No other view of the vector's words may be live: Axiom has no
-    /// threads (MM-PAR-1), so the only way to alias is to pass the same
-    /// `Vec` twice in one call.
+    /// No other view of the vector's words may be live. A shim runs on
+    /// the thread that called into it and touches no Axiom value from
+    /// any other - that is what [`NotThreadSafe`] enforces - so the only
+    /// way to alias is to pass the same `Vec` twice in one call.
     #[inline]
     pub unsafe fn as_mut_slice(self) -> &'a mut [i64] {
-        let r = self.repr();
-        if r.len <= 0 || r.data.is_null() {
-            return &mut [];
+        unsafe {
+            // SAFETY: this block rests on two promises: the `from_raw`
+            // contract (a live `Vec` handle for all of `'a`) and this
+            // function's own `# Safety` (no other view of the words is
+            // live); the raw construction below is annotated separately.
+            let r = self.repr();
+            if r.len <= 0 || r.data.is_null() {
+                return &mut [];
+            }
+            // SAFETY: the data block is `cap` words of Axiom heap memory
+            // the caller owns, `len` of them live; the from_raw contract
+            // plus this function's own makes the exclusive borrow sound.
+            slice::from_raw_parts_mut(r.data as *mut i64, r.len as usize)
         }
-        // SAFETY: the data block is `cap` words of Axiom heap memory
-        // the caller owns, `len` of them live; the from_raw contract
-        // plus this function's own makes the exclusive borrow sound.
-        slice::from_raw_parts_mut(r.data as *mut i64, r.len as usize)
     }
 }

@@ -49,25 +49,56 @@ pub const OPAQUE_KEYS: &str = "`symbol = \"stem\"`";
 /// A value that crosses as one word without any protocol.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scalar {
+    /// An Axiom `Int`: one machine word, passed and returned as it
+    /// stands, with no conversion, no check and no ownership.
     I64,
+    /// An Axiom `Int` narrowed to `i32`. The word is range-checked on
+    /// the way in and one out of range aborts, naming the argument
+    /// (exit 73); on the way out it sign-extends back, losslessly.
     I32,
+    /// An Axiom `Int` narrowed to `i16`: checked in, sign-extended
+    /// out, like [`Scalar::I32`].
     I16,
+    /// An Axiom `Int` narrowed to `i8`: checked in, sign-extended
+    /// out, like [`Scalar::I32`].
     I8,
     /// The word's 64 bits read unsigned, both ways, with no range
     /// check: nothing is lost, and Axiom sees a value >= 2^63 as
     /// negative.
     U64,
+    /// An Axiom `Int` narrowed to `u32`: range-checked on the way in
+    /// (a negative word is out of range too), zero-extended out.
     U32,
+    /// An Axiom `Int` narrowed to `u16`: checked in, zero-extended
+    /// out, like [`Scalar::U32`].
     U16,
+    /// An Axiom `Int` narrowed to `u8`: checked in, zero-extended out,
+    /// like [`Scalar::U32`]. It is the one word scalar with no `Vec`
+    /// row: `&[u8]` and `Vec<u8>` are bytes, and cross as an Axiom
+    /// `String`, not as a `Vec Int`.
     U8,
+    /// An Axiom `Int` as a `usize`, range-checked like a narrow int.
+    /// The word is 64 bits and every supported target is 64-bit, so
+    /// only a negative value can fail the check.
     Usize,
+    /// An Axiom `Int` as an `isize`, range-checked like
+    /// [`Scalar::Usize`]; on a 64-bit target the check cannot fail.
     Isize,
+    /// An Axiom `Bool`: the word is 0 or 1 on the way out and read as
+    /// `w != 0` on the way in, so any non-zero word is `true`.
     Bool,
     /// A Unicode scalar value in the word: Axiom `Char`. A word that
     /// is not one aborts on the way in, as a narrow integer out of
     /// range does.
     Char,
+    /// An Axiom `Float`: the `f64`'s IEEE-754 bits held in the word,
+    /// `to_bits` out and `from_bits` in. Nothing is converted - the
+    /// word is the representation Axiom already stores.
     F64,
+    /// An Axiom `Float` held as an `f32`. The word still carries `f64`
+    /// bits both ways: widened on the way out, rounded with `as f32`
+    /// on the way in, so a value the `f32` cannot hold rounds rather
+    /// than aborting.
     F32,
     /// `()` or no return type. Crosses as the word 0 and binds as `Int`.
     Unit,
@@ -125,6 +156,9 @@ impl Scalar {
         }
     }
 
+    /// Whether the word carries `f64` bits rather than an integer:
+    /// what the signature tag (`f` against `i`) and the generated
+    /// `cast` key off.
     pub fn is_float(self) -> bool {
         matches!(self, Scalar::F64 | Scalar::F32)
     }
@@ -149,7 +183,12 @@ pub struct OpaqueTy {
 /// One field of an `#[axiom_record]` struct: a word scalar.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordField {
+    /// The Rust field's name, verbatim: it names the Axiom `data`
+    /// field and the Rust field the companion reads and writes, so
+    /// the two sides agree only while it is copied unchanged.
     pub name: String,
+    /// The field's type. Classification admits only a word scalar
+    /// here, which is what keeps a record one word per field.
     pub scalar: Scalar,
 }
 
@@ -166,6 +205,10 @@ pub struct RecordTy {
     pub ty: Type,
     /// The bare type name, for the Axiom `data` and the companion.
     pub name: String,
+    /// The fields in declaration order, one crossing word each. Empty
+    /// means UNRESOLVED, not a field-less record: the list is filled
+    /// in from a [`Registry`], and [`RecordTy::is_resolved`] is the
+    /// test every consumer uses before reading it.
     pub fields: Vec<RecordField>,
 }
 
@@ -194,6 +237,9 @@ pub enum Named {
 /// parameter position is always a record; in return position it is an
 /// opaque handle unless the registry says it is a record.
 pub trait Registry {
+    /// What the source root says about the bare type `name`, or
+    /// `None` if nothing marked it. The classifier reads a bare
+    /// return type as a record only when this answers `Record`.
     fn lookup(&self, name: &str) -> Option<Named>;
 }
 
@@ -210,13 +256,25 @@ impl Registry for NoRecords {
 /// How one parameter crosses.
 #[derive(Clone, Debug)]
 pub enum Param {
+    /// A word scalar, crossing as its word - see [`Scalar`] for the
+    /// conversion and the checks it runs at the door. Never
+    /// [`Scalar::Unit`]: a `()` parameter is refused.
     Scalar(Scalar),
     /// `&str`: a borrowed view, validated (or lossily converted) UTF-8.
     Str,
     /// `&[u8]`: a borrowed view of the bytes.
     Bytes,
     /// `&T` / `&mut T`: a borrowed opaque handle.
-    Opaque { ty: OpaqueTy, mutable: bool },
+    Opaque {
+        /// The pointee type: what the shim borrows the word back
+        /// into, and the name the Axiom `data` and the drop symbol
+        /// are spelled from.
+        ty: OpaqueTy,
+        /// `true` for `&mut T`. Both borrows cross as the same word,
+        /// the boxed value's address, so this only picks which borrow
+        /// the shim reconstitutes.
+        mutable: bool,
+    },
     /// `&[T]` for a word scalar `T`: an Axiom `Vec` handle whose words
     /// are read as `T` for the call. `&[i64]`, `&[u64]` and `&[f64]`
     /// are read in place, every other `T` converted (and checked) into
@@ -245,6 +303,11 @@ pub enum Param {
 /// What a fallible or optional return carries on success.
 #[derive(Clone, Debug)]
 pub enum Payload {
+    /// A word scalar, written to the cell's payload word and
+    /// converted as [`Scalar`] describes. [`Scalar::Unit`] does reach
+    /// here, from `Result<(), E>`, and is refused only where the
+    /// payload sits directly under an `Option` - `Option<()>` and
+    /// `Result<Option<()>, E>` - since that is a `Bool`.
     Scalar(Scalar),
     /// `String` / `Vec<u8>`: owned bytes, handed over through the cell.
     Bytes,
@@ -315,7 +378,10 @@ impl Ret {
     /// Whether an `Err` can come back (so an invalid `&str` argument is
     /// reported rather than aborting).
     pub fn is_result(&self) -> bool {
-        matches!(self, Ret::Result(_) | Ret::ResultOption(_) | Ret::OptionResult(_))
+        matches!(
+            self,
+            Ret::Result(_) | Ret::ResultOption(_) | Ret::OptionResult(_)
+        )
     }
 
     /// The payload behind the status word of a fallible or optional
@@ -391,12 +457,11 @@ fn path_last(ty: &Type) -> Option<(&syn::PathSegment, String)> {
 
 /// The single generic argument of `Seg<T>`, if that is the shape.
 fn single_generic(seg: &syn::PathSegment) -> Option<&Type> {
-    if let PathArguments::AngleBracketed(a) = &seg.arguments {
-        if !a.args.is_empty() {
-            if let GenericArgument::Type(t) = &a.args[0] {
-                return Some(t);
-            }
-        }
+    if let PathArguments::AngleBracketed(a) = &seg.arguments
+        && !a.args.is_empty()
+        && let GenericArgument::Type(t) = &a.args[0]
+    {
+        return Some(t);
     }
     None
 }
@@ -460,10 +525,10 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
                         return Ok(Param::Bytes);
                     }
                     if let Some((seg, name)) = path_last(&s.elem) {
-                        if seg.arguments.is_none() {
-                            if let Some(sc) = Scalar::from_name(&name) {
-                                return Ok(Param::Words(sc));
-                            }
+                        if seg.arguments.is_none()
+                            && let Some(sc) = Scalar::from_name(&name)
+                        {
+                            return Ok(Param::Words(sc));
                         }
                         if name == "String" {
                             return Err(refuse_param(
@@ -521,9 +586,7 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
                     ))
                 }
                 Type::Path(_) => {
-                    let (seg, name) = path_last(&r.elem).ok_or_else(|| {
-                        refuse_param(&text, "")
-                    })?;
+                    let (seg, name) = path_last(&r.elem).ok_or_else(|| refuse_param(&text, ""))?;
                     if Scalar::from_name(&name).is_some() && seg.arguments.is_none() {
                         return Err(refuse_param(&text, " (scalars pass by value)"));
                     }
@@ -553,27 +616,31 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
                         ));
                     }
                     Ok(Param::Opaque {
-                        ty: OpaqueTy { ty: (*r.elem).clone(), name },
+                        ty: OpaqueTy {
+                            ty: (*r.elem).clone(),
+                            name,
+                        },
                         mutable,
                     })
                 }
                 _ => Err(refuse_param(&text, "")),
             }
         }
-        Type::Tuple(t) if t.elems.is_empty() => {
-            Err(refuse_param(&text, " (`()` carries nothing; drop the parameter)"))
-        }
+        Type::Tuple(t) if t.elems.is_empty() => Err(refuse_param(
+            &text,
+            " (`()` carries nothing; drop the parameter)",
+        )),
         Type::Path(_) => {
             let (seg, name) = path_last(ty).ok_or_else(|| refuse_param(&text, ""))?;
-            if let Some(s) = Scalar::from_name(&name) {
-                if seg.arguments.is_none() {
-                    return Ok(Param::Scalar(s));
-                }
+            if let Some(s) = Scalar::from_name(&name)
+                && seg.arguments.is_none()
+            {
+                return Ok(Param::Scalar(s));
             }
-            if let Some(arity) = callback_arity(&name) {
-                if seg.arguments.is_none() {
-                    return Ok(Param::Callback(arity));
-                }
+            if let Some(arity) = callback_arity(&name)
+                && seg.arguments.is_none()
+            {
+                return Ok(Param::Callback(arity));
             }
             match name.as_str() {
                 "u128" | "i128" => Err(refuse_param(&text, TWO_WORDS)),
@@ -600,10 +667,16 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
                         &text,
                         " (Axiom holds a handle, so take `&T` or `&mut T`, or return it)",
                     )),
-                    Some(Named::Record(fields)) => {
-                        Ok(Param::Record(RecordTy { ty: ty.clone(), name, fields }))
-                    }
-                    None => Ok(Param::Record(RecordTy { ty: ty.clone(), name, fields: Vec::new() })),
+                    Some(Named::Record(fields)) => Ok(Param::Record(RecordTy {
+                        ty: ty.clone(),
+                        name,
+                        fields,
+                    })),
+                    None => Ok(Param::Record(RecordTy {
+                        ty: ty.clone(),
+                        name,
+                        fields: Vec::new(),
+                    })),
                 },
             }
         }
@@ -616,8 +689,18 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
 fn is_refused_name(name: &str) -> bool {
     matches!(
         name,
-        "u128" | "i128" | "str" | "Vec" | "Option" | "Result" | "Box" | "Rc" | "Arc" | "AxFn1"
-            | "AxFn2" | "AxFn3"
+        "u128"
+            | "i128"
+            | "str"
+            | "Vec"
+            | "Option"
+            | "Result"
+            | "Box"
+            | "Rc"
+            | "Arc"
+            | "AxFn1"
+            | "AxFn2"
+            | "AxFn3"
     )
 }
 
@@ -659,18 +742,26 @@ where
         };
         let Some(scalar) = scalar else {
             let why = match path_last(ty).map(|(_, n)| n).as_deref() {
-                Some("String") | Some("str") => " (a record is its words; put the String beside \
+                Some("String") | Some("str") => {
+                    " (a record is its words; put the String beside \
                                                  it as a separate `&str` parameter, or hold it \
-                                                 in an `#[axiom_opaque]` type)",
-                Some("Vec") => " (a collection is not a word; pass it as a `&[T]` parameter \
-                                 or hold it in an `#[axiom_opaque]` type)",
+                                                 in an `#[axiom_opaque]` type)"
+                }
+                Some("Vec") => {
+                    " (a collection is not a word; pass it as a `&[T]` parameter \
+                                 or hold it in an `#[axiom_opaque]` type)"
+                }
                 Some("u128") | Some("i128") => TWO_WORDS,
-                _ if matches!(ty, Type::Reference(_)) => " (a record owns its words; a borrow \
-                                                          cannot cross as a field)",
-                _ if matches!(ty, Type::Path(_)) => " (a nested record or an opaque handle does \
+                _ if matches!(ty, Type::Reference(_)) => {
+                    " (a record owns its words; a borrow \
+                                                          cannot cross as a field)"
+                }
+                _ if matches!(ty, Type::Path(_)) => {
+                    " (a nested record or an opaque handle does \
                                                      not cross as a field: flatten the words \
                                                      into this record, or hold the value in an \
-                                                     `#[axiom_opaque]` type)",
+                                                     `#[axiom_opaque]` type)"
+                }
                 _ => "",
             };
             return Err(format!(
@@ -678,12 +769,17 @@ where
                  must be one of: {RECORD_FIELD_TYPES}"
             ));
         };
-        out.push(RecordField { name: name.to_string(), scalar });
+        out.push(RecordField {
+            name: name.to_string(),
+            scalar,
+        });
     }
     if out.is_empty() {
-        return Err("an `#[axiom_record]` needs at least one field: it crosses as its words, \
+        return Err(
+            "an `#[axiom_record]` needs at least one field: it crosses as its words, \
                     and a record of no words carries nothing"
-            .to_string());
+                .to_string(),
+        );
     }
     Ok(out)
 }
@@ -725,10 +821,10 @@ fn classify_payload(
         )),
         Type::Path(_) => {
             let (seg, name) = path_last(ty).ok_or_else(|| refuse_return(whole, ""))?;
-            if let Some(s) = Scalar::from_name(&name) {
-                if seg.arguments.is_none() {
-                    return Ok(Payload::Scalar(s));
-                }
+            if let Some(s) = Scalar::from_name(&name)
+                && seg.arguments.is_none()
+            {
+                return Ok(Payload::Scalar(s));
             }
             match name.as_str() {
                 "String" => Ok(Payload::Bytes),
@@ -806,10 +902,15 @@ fn classify_payload(
                     " (a type with generic arguments cannot cross: a shim is one symbol)",
                 )),
                 _ => match registry.lookup(&name) {
-                    Some(Named::Record(fields)) => {
-                        Ok(Payload::Record(RecordTy { ty: ty.clone(), name, fields }))
-                    }
-                    _ => Ok(Payload::Opaque(OpaqueTy { ty: ty.clone(), name })),
+                    Some(Named::Record(fields)) => Ok(Payload::Record(RecordTy {
+                        ty: ty.clone(),
+                        name,
+                        fields,
+                    })),
+                    _ => Ok(Payload::Opaque(OpaqueTy {
+                        ty: ty.clone(),
+                        name,
+                    })),
                 },
             }
         }
@@ -864,7 +965,9 @@ pub fn classify_return(ty: Option<&Type>) -> Result<Ret, String> {
 /// Classify the return type, consulting `registry` for a bare named
 /// type (a record's fields, else an opaque handle).
 pub fn classify_return_with(ty: Option<&Type>, registry: &dyn Registry) -> Result<Ret, String> {
-    let Some(ty) = ty else { return Ok(Ret::Scalar(Scalar::Unit)) };
+    let Some(ty) = ty else {
+        return Ok(Ret::Scalar(Scalar::Unit));
+    };
     let whole = quote_type(ty);
     if let Some((outer, inner)) = status_wrapper(ty) {
         let inner = inner.ok_or_else(|| {
@@ -884,7 +987,15 @@ pub fn classify_return_with(ty: Option<&Type>, registry: &dyn Registry) -> Resul
         let (ret, payload_ty, wrapper) = match status_wrapper(inner) {
             Some((mid, Some(payload))) if mid != outer => {
                 let wrapper = format!("{outer}<{mid}<..>>");
-                (if outer == "Result" { "ResultOption" } else { "OptionResult" }, payload, wrapper)
+                (
+                    if outer == "Result" {
+                        "ResultOption"
+                    } else {
+                        "OptionResult"
+                    },
+                    payload,
+                    wrapper,
+                )
             }
             Some((mid, None)) => {
                 return Err(refuse_return(
@@ -896,7 +1007,10 @@ pub fn classify_return_with(ty: Option<&Type>, registry: &dyn Registry) -> Resul
         };
         let p = classify_payload(payload_ty, &wrapper, &whole, registry)?;
         if matches!(p, Payload::Scalar(Scalar::Unit)) && matches!(ret, "Option" | "ResultOption") {
-            return Err(refuse_return(&whole, " (`Option<()>` is a `bool`; return one)"));
+            return Err(refuse_return(
+                &whole,
+                " (`Option<()>` is a `bool`; return one)",
+            ));
         }
         return Ok(match ret {
             "Result" => Ret::Result(p),
@@ -987,7 +1101,11 @@ pub fn unresolved_records(params: &[Param], ret: &Ret) -> Vec<String> {
 
 /// The descriptor tag of one scalar word.
 fn scalar_tag(s: Scalar) -> char {
-    if s.is_float() { 'f' } else { 'i' }
+    if s.is_float() {
+        'f'
+    } else {
+        'i'
+    }
 }
 
 /// The descriptor tags of a parameter: one character per word it
@@ -1060,11 +1178,18 @@ pub enum Utf8 {
 /// `#[axiom_export(symbol = "...", utf8 = "lossy")]`, parsed.
 #[derive(Clone, Debug, Default)]
 pub struct ExportAttr {
+    /// `symbol = "..."`, checked to be a C identifier as it is
+    /// parsed. `None` is the default, `axffi_<rust_name>`; read it
+    /// through [`export_symbol`] rather than unwrapping here.
     pub symbol: Option<String>,
+    /// `utf8 = "..."`: what an invalid `&str` argument does. `None`
+    /// is the default, [`Utf8::Strict`]; read it through
+    /// [`ExportAttr::utf8`].
     pub utf8: Option<Utf8>,
 }
 
 impl ExportAttr {
+    /// The `&str` policy with the default applied.
     pub fn utf8(&self) -> Utf8 {
         self.utf8.unwrap_or(Utf8::Strict)
     }
@@ -1073,6 +1198,10 @@ impl ExportAttr {
 /// `#[axiom_opaque(symbol = "...")]`, parsed.
 #[derive(Clone, Debug, Default)]
 pub struct OpaqueAttr {
+    /// `symbol = "..."`: the stem the drop symbols are built from,
+    /// checked to be a C identifier as it is parsed. `None` is the
+    /// default, snake_case of the type name; read it through
+    /// [`opaque_stem`].
     pub symbol: Option<String>,
 }
 
@@ -1083,7 +1212,12 @@ pub struct OpaqueAttr {
 /// successful call was paying for the failure's payload
 /// (clippy::result_large_err).
 pub struct AttrError {
+    /// The offending meta, for the span the caller reports at. Every
+    /// refusal raised here carries one; `None` is the consumers'
+    /// fallback, and they report at the call site instead.
     pub meta: Option<Box<Meta>>,
+    /// The refusal, already complete. The caller emits it unchanged -
+    /// that is what keeps a message spelled in exactly one place.
     pub message: String,
 }
 
@@ -1094,7 +1228,11 @@ fn string_value(m: &Meta, key: &str, what: &str) -> Result<String, AttrError> {
             message: format!("`{key}` takes a value: `{key} = \"{what}\"`"),
         });
     };
-    if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &nv.value {
+    if let syn::Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(s),
+        ..
+    }) = &nv.value
+    {
         Ok(s.value())
     } else {
         Err(AttrError {
@@ -1120,7 +1258,11 @@ where
 {
     let mut out = ExportAttr::default();
     for m in metas {
-        let key = m.path().get_ident().map(|i| i.to_string()).unwrap_or_default();
+        let key = m
+            .path()
+            .get_ident()
+            .map(|i| i.to_string())
+            .unwrap_or_default();
         match key.as_str() {
             "symbol" => {
                 let v = string_value(m, "symbol", "axffi_name")?;
@@ -1153,7 +1295,11 @@ where
                 });
             }
             other => {
-                let shown = if other.is_empty() { "<non-identifier>".to_string() } else { other.to_string() };
+                let shown = if other.is_empty() {
+                    "<non-identifier>".to_string()
+                } else {
+                    other.to_string()
+                };
                 return Err(AttrError {
                     meta: Some(Box::new(m.clone())),
                     message: format!(
@@ -1173,7 +1319,11 @@ where
 {
     let mut out = OpaqueAttr::default();
     for m in metas {
-        let key = m.path().get_ident().map(|i| i.to_string()).unwrap_or_default();
+        let key = m
+            .path()
+            .get_ident()
+            .map(|i| i.to_string())
+            .unwrap_or_default();
         match key.as_str() {
             "symbol" => {
                 let v = string_value(m, "symbol", "stem")?;
@@ -1189,7 +1339,11 @@ where
                 out.symbol = Some(v);
             }
             other => {
-                let shown = if other.is_empty() { "<non-identifier>".to_string() } else { other.to_string() };
+                let shown = if other.is_empty() {
+                    "<non-identifier>".to_string()
+                } else {
+                    other.to_string()
+                };
                 return Err(AttrError {
                     meta: Some(Box::new(m.clone())),
                     message: format!(
@@ -1208,7 +1362,9 @@ where
 
 /// The linker symbol of an exported function's shim.
 pub fn export_symbol(rust_name: &str, attr: &ExportAttr) -> String {
-    attr.symbol.clone().unwrap_or_else(|| format!("axffi_{rust_name}"))
+    attr.symbol
+        .clone()
+        .unwrap_or_else(|| format!("axffi_{rust_name}"))
 }
 
 /// The symbol stem of an opaque type: `HttpClient` -> `http_client`.
@@ -1244,7 +1400,8 @@ pub fn snake_case(name: &str) -> String {
     let mut out = String::with_capacity(name.len() + 4);
     for (i, &c) in chars.iter().enumerate() {
         if c.is_uppercase() {
-            let prev_lower = i > 0 && (chars[i - 1].is_lowercase() || chars[i - 1].is_ascii_digit());
+            let prev_lower =
+                i > 0 && (chars[i - 1].is_lowercase() || chars[i - 1].is_ascii_digit());
             let next_lower = i + 1 < chars.len() && chars[i + 1].is_lowercase();
             let prev_upper = i > 0 && chars[i - 1].is_uppercase();
             if i > 0 && (prev_lower || (prev_upper && next_lower)) {
@@ -1285,16 +1442,40 @@ mod tests {
 
     #[test]
     fn scalars_and_borrows() {
-        assert!(matches!(classify_param(&ty("i64")), Ok(Param::Scalar(Scalar::I64))));
-        assert!(matches!(classify_param(&ty("u8")), Ok(Param::Scalar(Scalar::U8))));
+        assert!(matches!(
+            classify_param(&ty("i64")),
+            Ok(Param::Scalar(Scalar::I64))
+        ));
+        assert!(matches!(
+            classify_param(&ty("u8")),
+            Ok(Param::Scalar(Scalar::U8))
+        ));
         assert!(matches!(classify_param(&ty("&str")), Ok(Param::Str)));
         assert!(matches!(classify_param(&ty("&[u8]")), Ok(Param::Bytes)));
-        assert!(matches!(classify_param(&ty("&Counter")), Ok(Param::Opaque { mutable: false, .. })));
-        assert!(matches!(classify_param(&ty("&mut Counter")), Ok(Param::Opaque { mutable: true, .. })));
-        assert!(matches!(classify_param(&ty("&[i64]")), Ok(Param::Words(Scalar::I64))));
-        assert!(matches!(classify_param(&ty("AxFn1")), Ok(Param::Callback(1))));
-        assert!(matches!(classify_param(&ty("axiom_ffi::AxFn2")), Ok(Param::Callback(2))));
-        assert!(matches!(classify_param(&ty("AxFn3")), Ok(Param::Callback(3))));
+        assert!(matches!(
+            classify_param(&ty("&Counter")),
+            Ok(Param::Opaque { mutable: false, .. })
+        ));
+        assert!(matches!(
+            classify_param(&ty("&mut Counter")),
+            Ok(Param::Opaque { mutable: true, .. })
+        ));
+        assert!(matches!(
+            classify_param(&ty("&[i64]")),
+            Ok(Param::Words(Scalar::I64))
+        ));
+        assert!(matches!(
+            classify_param(&ty("AxFn1")),
+            Ok(Param::Callback(1))
+        ));
+        assert!(matches!(
+            classify_param(&ty("axiom_ffi::AxFn2")),
+            Ok(Param::Callback(2))
+        ));
+        assert!(matches!(
+            classify_param(&ty("AxFn3")),
+            Ok(Param::Callback(3))
+        ));
     }
 
     #[test]
@@ -1311,16 +1492,33 @@ mod tests {
             ("&[f64]", Scalar::F64),
             ("&[f32]", Scalar::F32),
         ] {
-            assert!(matches!(classify_param(&ty(t)), Ok(Param::Words(x)) if x == s), "{t}");
+            assert!(
+                matches!(classify_param(&ty(t)), Ok(Param::Words(x)) if x == s),
+                "{t}"
+            );
         }
         // `&[u8]` stays the byte view of a String, not a Vec of words.
         assert!(matches!(classify_param(&ty("&[u8]")), Ok(Param::Bytes)));
         assert!(matches!(classify_param(&ty("&[&str]")), Ok(Param::Strs)));
-        for (t, s) in [("Vec<f64>", Scalar::F64), ("Vec<bool>", Scalar::Bool), ("Vec<u16>", Scalar::U16), ("Vec<f32>", Scalar::F32)] {
-            assert!(matches!(classify_return(Some(&ty(t))), Ok(Ret::Words(x)) if x == s), "{t}");
+        for (t, s) in [
+            ("Vec<f64>", Scalar::F64),
+            ("Vec<bool>", Scalar::Bool),
+            ("Vec<u16>", Scalar::U16),
+            ("Vec<f32>", Scalar::F32),
+        ] {
+            assert!(
+                matches!(classify_return(Some(&ty(t))), Ok(Ret::Words(x)) if x == s),
+                "{t}"
+            );
         }
-        assert!(matches!(classify_return(Some(&ty("Result<Vec<f32>, String>"))), Ok(Ret::Result(Payload::Words(Scalar::F32)))));
-        assert!(matches!(classify_return(Some(&ty("Option<Vec<i8>>"))), Ok(Ret::Option(Payload::Words(Scalar::I8)))));
+        assert!(matches!(
+            classify_return(Some(&ty("Result<Vec<f32>, String>"))),
+            Ok(Ret::Result(Payload::Words(Scalar::F32)))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Option<Vec<i8>>"))),
+            Ok(Ret::Option(Payload::Words(Scalar::I8)))
+        ));
     }
 
     #[test]
@@ -1332,8 +1530,13 @@ mod tests {
         let e = classify_param(&ty("&[u128]")).err().unwrap();
         assert!(e.contains("split it into two `u64`s"), "{e}");
         let e = classify_param(&ty("&[Vec<i64>]")).err().unwrap();
-        assert!(e.contains("only `&[u8]`, `&[&str]`, `&[T]` and `&[&[T]]`"), "{e}");
-        let e = classify_param_with(&ty("&[Counter]"), &Table).err().unwrap();
+        assert!(
+            e.contains("only `&[u8]`, `&[&str]`, `&[T]` and `&[&[T]]`"),
+            "{e}"
+        );
+        let e = classify_param_with(&ty("&[Counter]"), &Table)
+            .err()
+            .unwrap();
         assert!(e.contains("a slice of handles does not cross"), "{e}");
         let e = classify_param(&ty("&AxFn1")).err().unwrap();
         assert!(e.contains("take it by value"), "{e}");
@@ -1344,27 +1547,65 @@ mod tests {
         let e = classify_return(Some(&ty("Vec<u128>"))).err().unwrap();
         assert!(e.contains("split it into two `u64`s"), "{e}");
         let e = classify_return(Some(&ty("Vec<(i64, i64)>"))).err().unwrap();
-        assert!(e.contains("`Vec<T>` over an `#[axiom_record]` cross directly"), "{e}");
-        let e = classify_return_with(Some(&ty("Vec<Counter>")), &Table).err().unwrap();
+        assert!(
+            e.contains("`Vec<T>` over an `#[axiom_record]` cross directly"),
+            "{e}"
+        );
+        let e = classify_return_with(Some(&ty("Vec<Counter>")), &Table)
+            .err()
+            .unwrap();
         assert!(e.contains("a `Vec` of handles does not cross"), "{e}");
-        let e = classify_return_with(Some(&ty("Option<Vec<Counter>>")), &Table).err().unwrap();
+        let e = classify_return_with(Some(&ty("Option<Vec<Counter>>")), &Table)
+            .err()
+            .unwrap();
         assert!(e.contains("a `Vec` of handles does not cross"), "{e}");
     }
 
     #[test]
     fn char_and_u64_are_words() {
-        assert!(matches!(classify_param(&ty("char")), Ok(Param::Scalar(Scalar::Char))));
-        assert!(matches!(classify_param(&ty("u64")), Ok(Param::Scalar(Scalar::U64))));
-        assert!(matches!(classify_return(Some(&ty("char"))), Ok(Ret::Scalar(Scalar::Char))));
-        assert!(matches!(classify_return(Some(&ty("u64"))), Ok(Ret::Scalar(Scalar::U64))));
-        assert!(matches!(classify_param(&ty("&[char]")), Ok(Param::Words(Scalar::Char))));
-        assert!(matches!(classify_param(&ty("&[u64]")), Ok(Param::Words(Scalar::U64))));
-        assert!(matches!(classify_return(Some(&ty("Vec<char>"))), Ok(Ret::Words(Scalar::Char))));
-        assert!(matches!(classify_return(Some(&ty("Option<Vec<u64>>"))), Ok(Ret::Option(Payload::Words(Scalar::U64)))));
-        assert!(matches!(classify_return(Some(&ty("Result<char, String>"))), Ok(Ret::Result(Payload::Scalar(Scalar::Char)))));
+        assert!(matches!(
+            classify_param(&ty("char")),
+            Ok(Param::Scalar(Scalar::Char))
+        ));
+        assert!(matches!(
+            classify_param(&ty("u64")),
+            Ok(Param::Scalar(Scalar::U64))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("char"))),
+            Ok(Ret::Scalar(Scalar::Char))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("u64"))),
+            Ok(Ret::Scalar(Scalar::U64))
+        ));
+        assert!(matches!(
+            classify_param(&ty("&[char]")),
+            Ok(Param::Words(Scalar::Char))
+        ));
+        assert!(matches!(
+            classify_param(&ty("&[u64]")),
+            Ok(Param::Words(Scalar::U64))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Vec<char>"))),
+            Ok(Ret::Words(Scalar::Char))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Option<Vec<u64>>"))),
+            Ok(Ret::Option(Payload::Words(Scalar::U64)))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Result<char, String>"))),
+            Ok(Ret::Result(Payload::Scalar(Scalar::Char)))
+        ));
         assert_eq!(Scalar::Char.axiom_type(), "Char");
         assert_eq!(Scalar::U64.axiom_type(), "Int");
-        assert!(Scalar::U64.is_word_sized() && Scalar::F64.is_word_sized() && Scalar::I64.is_word_sized());
+        assert!(
+            Scalar::U64.is_word_sized()
+                && Scalar::F64.is_word_sized()
+                && Scalar::I64.is_word_sized()
+        );
         assert!(!Scalar::Char.is_word_sized() && !Scalar::U32.is_word_sized());
         // Two words fit nowhere, and the message says what to do.
         for bad in ["u128", "i128"] {
@@ -1398,14 +1639,28 @@ mod tests {
             Ret::Records(r) => assert!(!r.is_resolved()),
             other => panic!("{other:?}"),
         }
-        assert!(matches!(classify_return_with(Some(&ty("Result<Vec<Point>, String>")), &Table), Ok(Ret::Result(Payload::Records(_)))));
-        assert!(matches!(classify_return_with(Some(&ty("Option<Vec<Point>>")), &Table), Ok(Ret::Option(Payload::Records(_)))));
+        assert!(matches!(
+            classify_return_with(Some(&ty("Result<Vec<Point>, String>")), &Table),
+            Ok(Ret::Result(Payload::Records(_)))
+        ));
+        assert!(matches!(
+            classify_return_with(Some(&ty("Option<Vec<Point>>")), &Table),
+            Ok(Ret::Option(Payload::Records(_)))
+        ));
         // The cell of a record list is the two-word (ptr, n) pair.
-        assert_eq!(classify_return_with(Some(&ty("Vec<Point>")), &Table).unwrap().cell_words(), 2);
+        assert_eq!(
+            classify_return_with(Some(&ty("Vec<Point>")), &Table)
+                .unwrap()
+                .cell_words(),
+            2
+        );
         // Named types and unresolved ones are reported from every position.
         let ps = classify_param(&ty("&[Point]")).unwrap();
         let ret = classify_return(Some(&ty("Option<Vec<Line>>"))).unwrap();
-        let names: Vec<String> = named_types(std::slice::from_ref(&ps), &ret).iter().map(quote_type).collect();
+        let names: Vec<String> = named_types(std::slice::from_ref(&ps), &ret)
+            .iter()
+            .map(quote_type)
+            .collect();
         assert_eq!(names, vec!["Point", "Line"]);
         assert_eq!(unresolved_records(&[ps], &ret), vec!["Point", "Line"]);
         let resolved = classify_param_with(&ty("&[Point]"), &Table).unwrap();
@@ -1414,13 +1669,36 @@ mod tests {
 
     #[test]
     fn nested_vecs() {
-        assert!(matches!(classify_return(Some(&ty("Vec<Vec<i64>>"))), Ok(Ret::WordLists(Scalar::I64))));
-        assert!(matches!(classify_return(Some(&ty("Vec<Vec<f32>>"))), Ok(Ret::WordLists(Scalar::F32))));
-        assert!(matches!(classify_return(Some(&ty("Vec<Vec<char>>"))), Ok(Ret::WordLists(Scalar::Char))));
-        assert!(matches!(classify_return(Some(&ty("Result<Vec<Vec<u64>>, String>"))), Ok(Ret::Result(Payload::WordLists(Scalar::U64)))));
-        assert!(matches!(classify_param(&ty("&[&[i64]]")), Ok(Param::WordLists(Scalar::I64))));
-        assert!(matches!(classify_param(&ty("&[&[bool]]")), Ok(Param::WordLists(Scalar::Bool))));
-        for bad in ["Vec<Vec<String>>", "Vec<Vec<Point>>", "Vec<Vec<Vec<i64>>>", "Option<Vec<Vec<String>>>"] {
+        assert!(matches!(
+            classify_return(Some(&ty("Vec<Vec<i64>>"))),
+            Ok(Ret::WordLists(Scalar::I64))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Vec<Vec<f32>>"))),
+            Ok(Ret::WordLists(Scalar::F32))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Vec<Vec<char>>"))),
+            Ok(Ret::WordLists(Scalar::Char))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Result<Vec<Vec<u64>>, String>"))),
+            Ok(Ret::Result(Payload::WordLists(Scalar::U64)))
+        ));
+        assert!(matches!(
+            classify_param(&ty("&[&[i64]]")),
+            Ok(Param::WordLists(Scalar::I64))
+        ));
+        assert!(matches!(
+            classify_param(&ty("&[&[bool]]")),
+            Ok(Param::WordLists(Scalar::Bool))
+        ));
+        for bad in [
+            "Vec<Vec<String>>",
+            "Vec<Vec<Point>>",
+            "Vec<Vec<Vec<i64>>>",
+            "Option<Vec<Vec<String>>>",
+        ] {
             let e = classify_return(Some(&ty(bad))).expect_err(bad);
             assert!(e.contains("one level of word scalars"), "{bad}: {e}");
             assert!(e.contains(RETURN_TYPES), "{e}");
@@ -1436,24 +1714,65 @@ mod tests {
 
     #[test]
     fn mutable_slices() {
-        assert!(matches!(classify_param(&ty("&mut [i64]")), Ok(Param::MutWords(Scalar::I64))));
-        assert!(matches!(classify_param(&ty("&mut [f64]")), Ok(Param::MutWords(Scalar::F64))));
-        assert!(matches!(classify_param(&ty("&mut [u64]")), Ok(Param::MutWords(Scalar::U64))));
-        for bad in ["&mut [i32]", "&mut [u8]", "&mut [bool]", "&mut [char]", "&mut [f32]", "&mut [Point]", "&mut [&str]"] {
+        assert!(matches!(
+            classify_param(&ty("&mut [i64]")),
+            Ok(Param::MutWords(Scalar::I64))
+        ));
+        assert!(matches!(
+            classify_param(&ty("&mut [f64]")),
+            Ok(Param::MutWords(Scalar::F64))
+        ));
+        assert!(matches!(
+            classify_param(&ty("&mut [u64]")),
+            Ok(Param::MutWords(Scalar::U64))
+        ));
+        for bad in [
+            "&mut [i32]",
+            "&mut [u8]",
+            "&mut [bool]",
+            "&mut [char]",
+            "&mut [f32]",
+            "&mut [Point]",
+            "&mut [&str]",
+        ] {
             let e = classify_param(&ty(bad)).expect_err(bad);
-            assert!(e.contains("take `&[T]` and return a `Vec<T>`"), "{bad}: {e}");
-            assert!(e.contains("could not be written back as the same words"), "{e}");
+            assert!(
+                e.contains("take `&[T]` and return a `Vec<T>`"),
+                "{bad}: {e}"
+            );
+            assert!(
+                e.contains("could not be written back as the same words"),
+                "{e}"
+            );
         }
-        assert_eq!(sig_tags(&[Param::MutWords(Scalar::F64)], &Ret::Scalar(Scalar::Unit)), "i_i");
+        assert_eq!(
+            sig_tags(&[Param::MutWords(Scalar::F64)], &Ret::Scalar(Scalar::Unit)),
+            "i_i"
+        );
     }
 
     #[test]
     fn nested_fallible() {
-        assert!(matches!(classify_return(Some(&ty("Result<Option<i64>, String>"))), Ok(Ret::ResultOption(Payload::Scalar(Scalar::I64)))));
-        assert!(matches!(classify_return(Some(&ty("Option<Result<String, E>>"))), Ok(Ret::OptionResult(Payload::Bytes))));
-        assert!(matches!(classify_return_with(Some(&ty("Result<Option<Point>, E>")), &Table), Ok(Ret::ResultOption(Payload::Record(_)))));
-        assert!(matches!(classify_return_with(Some(&ty("Option<Result<Counter, E>>")), &Table), Ok(Ret::OptionResult(Payload::Opaque(_)))));
-        assert!(matches!(classify_return(Some(&ty("Option<Result<(), E>>"))), Ok(Ret::OptionResult(Payload::Scalar(Scalar::Unit)))));
+        assert!(matches!(
+            classify_return(Some(&ty("Result<Option<i64>, String>"))),
+            Ok(Ret::ResultOption(Payload::Scalar(Scalar::I64)))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Option<Result<String, E>>"))),
+            Ok(Ret::OptionResult(Payload::Bytes))
+        ));
+        assert!(matches!(
+            classify_return_with(Some(&ty("Result<Option<Point>, E>")), &Table),
+            Ok(Ret::ResultOption(Payload::Record(_)))
+        ));
+        assert!(matches!(
+            classify_return_with(Some(&ty("Option<Result<Counter, E>>")), &Table),
+            Ok(Ret::OptionResult(Payload::Opaque(_)))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Option<Result<(), E>>"))),
+            Ok(Ret::OptionResult(Payload::Scalar(Scalar::Unit)))
+        ));
         let r = classify_return_with(Some(&ty("Result<Option<Point>, E>")), &Table).unwrap();
         assert!(r.is_result() && r.needs_cell());
         assert_eq!(r.cell_words(), 2);
@@ -1471,17 +1790,39 @@ mod tests {
             assert!(e.contains("three states"), "{bad}: {e}");
             assert!(e.contains(RETURN_TYPES), "{e}");
         }
-        let e = classify_return(Some(&ty("Result<Option<()>, E>"))).err().unwrap();
+        let e = classify_return(Some(&ty("Result<Option<()>, E>")))
+            .err()
+            .unwrap();
         assert!(e.contains("`Option<()>` is a `bool`"), "{e}");
     }
 
     #[test]
     fn refusals_list_the_set() {
-        for bad in ["u128", "String", "Option<i64>", "&mut str", "&i64", "(i64, i64)", "&[String]", "&mut [i32]", "&[&[&str]]", "&AxFn1", "Wrapper<i64>"] {
+        for bad in [
+            "u128",
+            "String",
+            "Option<i64>",
+            "&mut str",
+            "&i64",
+            "(i64, i64)",
+            "&[String]",
+            "&mut [i32]",
+            "&[&[&str]]",
+            "&AxFn1",
+            "Wrapper<i64>",
+        ] {
             let e = classify_param(&ty(bad)).expect_err(bad);
             assert!(e.contains(PARAM_TYPES), "{e}");
         }
-        for bad in ["i128", "Vec<u128>", "Vec<Vec<String>>", "Result<Option<Option<i64>>, String>", "&str", "Option<()>", "AxFn1"] {
+        for bad in [
+            "i128",
+            "Vec<u128>",
+            "Vec<Vec<String>>",
+            "Result<Option<Option<i64>>, String>",
+            "&str",
+            "Option<()>",
+            "AxFn1",
+        ] {
             let e = classify_return(Some(&ty(bad))).expect_err(bad);
             assert!(e.contains(RETURN_TYPES), "{e}");
         }
@@ -1495,8 +1836,14 @@ mod tests {
         fn lookup(&self, name: &str) -> Option<Named> {
             match name {
                 "Point" => Some(Named::Record(vec![
-                    RecordField { name: "x".into(), scalar: Scalar::I64 },
-                    RecordField { name: "y".into(), scalar: Scalar::F64 },
+                    RecordField {
+                        name: "x".into(),
+                        scalar: Scalar::I64,
+                    },
+                    RecordField {
+                        name: "y".into(),
+                        scalar: Scalar::F64,
+                    },
                 ])),
                 "Counter" => Some(Named::Opaque),
                 _ => None,
@@ -1515,7 +1862,10 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert!(matches!(classify_return(Some(&ty("Point"))), Ok(Ret::Opaque(_))));
+        assert!(matches!(
+            classify_return(Some(&ty("Point"))),
+            Ok(Ret::Opaque(_))
+        ));
         // Resolved through the registry.
         match classify_param_with(&ty("geom::Point"), &Table).unwrap() {
             Param::Record(r) => {
@@ -1525,11 +1875,26 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert!(matches!(classify_return_with(Some(&ty("Point")), &Table), Ok(Ret::Record(_))));
-        assert!(matches!(classify_return_with(Some(&ty("Result<Point, String>")), &Table), Ok(Ret::Result(Payload::Record(_)))));
-        assert!(matches!(classify_return_with(Some(&ty("Option<Point>")), &Table), Ok(Ret::Option(Payload::Record(_)))));
-        assert!(matches!(classify_return_with(Some(&ty("Counter")), &Table), Ok(Ret::Opaque(_))));
-        assert!(matches!(classify_param_with(&ty("&Counter"), &Table), Ok(Param::Opaque { .. })));
+        assert!(matches!(
+            classify_return_with(Some(&ty("Point")), &Table),
+            Ok(Ret::Record(_))
+        ));
+        assert!(matches!(
+            classify_return_with(Some(&ty("Result<Point, String>")), &Table),
+            Ok(Ret::Result(Payload::Record(_)))
+        ));
+        assert!(matches!(
+            classify_return_with(Some(&ty("Option<Point>")), &Table),
+            Ok(Ret::Option(Payload::Record(_)))
+        ));
+        assert!(matches!(
+            classify_return_with(Some(&ty("Counter")), &Table),
+            Ok(Ret::Opaque(_))
+        ));
+        assert!(matches!(
+            classify_param_with(&ty("&Counter"), &Table),
+            Ok(Param::Opaque { .. })
+        ));
         // An opaque type by value, a record by reference: each says
         // which way to take it.
         let e = classify_param_with(&ty("Counter"), &Table).err().unwrap();
@@ -1537,7 +1902,14 @@ mod tests {
         let e = classify_param_with(&ty("&Point"), &Table).err().unwrap();
         assert!(e.contains("take it by value"), "{e}");
         // The cell of a record result holds its arity, never fewer than two.
-        let one = Ret::Record(RecordTy { ty: ty("One"), name: "One".into(), fields: vec![RecordField { name: "a".into(), scalar: Scalar::I64 }] });
+        let one = Ret::Record(RecordTy {
+            ty: ty("One"),
+            name: "One".into(),
+            fields: vec![RecordField {
+                name: "a".into(),
+                scalar: Scalar::I64,
+            }],
+        });
         assert_eq!(one.cell_words(), 2);
         let three = classify_return_with(Some(&ty("Point")), &Table).unwrap();
         assert_eq!(three.cell_words(), 2);
@@ -1557,17 +1929,27 @@ mod tests {
                 .collect();
             classify_record_fields(named.iter().map(|(n, t)| (n.as_str(), t)))
         };
-        let ok = fields("struct P { a: i64, b: f32, c: bool, d: u8, e: usize, f: char, g: u64 }").unwrap();
+        let ok = fields("struct P { a: i64, b: f32, c: bool, d: u8, e: usize, f: char, g: u64 }")
+            .unwrap();
         assert_eq!(ok.len(), 7);
         assert_eq!(ok[1].scalar, Scalar::F32);
         assert_eq!(ok[3].name, "d");
         assert_eq!(ok[5].scalar, Scalar::Char);
         assert_eq!(ok[6].scalar, Scalar::U64);
         for (src, why) in [
-            ("struct P { s: String }", "is not a word scalar (a record is its words"),
-            ("struct P { p: Inner }", "a nested record or an opaque handle does not cross as a field"),
+            (
+                "struct P { s: String }",
+                "is not a word scalar (a record is its words",
+            ),
+            (
+                "struct P { p: Inner }",
+                "a nested record or an opaque handle does not cross as a field",
+            ),
             ("struct P { v: Vec<i64> }", "a collection is not a word"),
-            ("struct P { r: &'static str }", "a borrow cannot cross as a field"),
+            (
+                "struct P { r: &'static str }",
+                "a borrow cannot cross as a field",
+            ),
             ("struct P { n: u128 }", "split it into two `u64`s"),
             ("struct P { }", "at least one field"),
         ] {
@@ -1595,21 +1977,54 @@ mod tests {
 
     #[test]
     fn returns() {
-        assert!(matches!(classify_return(None), Ok(Ret::Scalar(Scalar::Unit))));
-        assert!(matches!(classify_return(Some(&ty("()"))), Ok(Ret::Scalar(Scalar::Unit))));
-        assert!(matches!(classify_return(Some(&ty("String"))), Ok(Ret::Bytes)));
-        assert!(matches!(classify_return(Some(&ty("Vec<u8>"))), Ok(Ret::Bytes)));
-        assert!(matches!(classify_return(Some(&ty("Counter"))), Ok(Ret::Opaque(_))));
+        assert!(matches!(
+            classify_return(None),
+            Ok(Ret::Scalar(Scalar::Unit))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("()"))),
+            Ok(Ret::Scalar(Scalar::Unit))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("String"))),
+            Ok(Ret::Bytes)
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Vec<u8>"))),
+            Ok(Ret::Bytes)
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Counter"))),
+            Ok(Ret::Opaque(_))
+        ));
         assert!(matches!(
             classify_return(Some(&ty("Result<Counter, String>"))),
             Ok(Ret::Result(Payload::Opaque(_)))
         ));
-        assert!(matches!(classify_return(Some(&ty("Option<i64>"))), Ok(Ret::Option(Payload::Scalar(Scalar::I64)))));
-        assert!(matches!(classify_return(Some(&ty("Result<(), E>"))), Ok(Ret::Result(Payload::Scalar(Scalar::Unit)))));
-        assert!(matches!(classify_return(Some(&ty("Vec<i64>"))), Ok(Ret::Words(Scalar::I64))));
-        assert!(matches!(classify_return(Some(&ty("Vec<String>"))), Ok(Ret::Strs)));
-        assert!(matches!(classify_return(Some(&ty("Result<Vec<i64>, String>"))), Ok(Ret::Result(Payload::Words(Scalar::I64)))));
-        assert!(matches!(classify_return(Some(&ty("Option<Vec<String>>"))), Ok(Ret::Option(Payload::Strs))));
+        assert!(matches!(
+            classify_return(Some(&ty("Option<i64>"))),
+            Ok(Ret::Option(Payload::Scalar(Scalar::I64)))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Result<(), E>"))),
+            Ok(Ret::Result(Payload::Scalar(Scalar::Unit)))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Vec<i64>"))),
+            Ok(Ret::Words(Scalar::I64))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Vec<String>"))),
+            Ok(Ret::Strs)
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Result<Vec<i64>, String>"))),
+            Ok(Ret::Result(Payload::Words(Scalar::I64)))
+        ));
+        assert!(matches!(
+            classify_return(Some(&ty("Option<Vec<String>>"))),
+            Ok(Ret::Option(Payload::Strs))
+        ));
     }
 
     #[test]
@@ -1619,25 +2034,77 @@ mod tests {
         let b = Param::Scalar(Scalar::Bool);
         let narrow = Param::Scalar(Scalar::U8);
         let opaque = classify_param(&ty("&Counter")).unwrap();
-        assert_eq!(sig_symbol("axffi_add", &[i.clone(), i.clone()], &Ret::Scalar(Scalar::I64)), "axffi_add__sig_ii_i");
-        assert_eq!(sig_symbol("axffi_abi_probe", &[], &Ret::Scalar(Scalar::I64)), "axffi_abi_probe__sig__i");
+        assert_eq!(
+            sig_symbol(
+                "axffi_add",
+                &[i.clone(), i.clone()],
+                &Ret::Scalar(Scalar::I64)
+            ),
+            "axffi_add__sig_ii_i"
+        );
+        assert_eq!(
+            sig_symbol("axffi_abi_probe", &[], &Ret::Scalar(Scalar::I64)),
+            "axffi_abi_probe__sig__i"
+        );
         // The out-cell word of a bytes/fallible shim is an `i` parameter;
         // a unit, String, Result or Option result answers `i`.
-        assert_eq!(sig_symbol("axffi_shout", &[Param::Str], &Ret::Bytes), "axffi_shout__sig_si_i");
-        assert_eq!(sig_tags(&[Param::Bytes], &Ret::Result(Payload::Scalar(Scalar::F64))), "si_i");
-        assert_eq!(sig_tags(std::slice::from_ref(&i), &Ret::Option(Payload::Opaque(classify_opaque()))), "ii_i");
-        assert_eq!(sig_tags(std::slice::from_ref(&i), &Ret::Scalar(Scalar::Unit)), "i_i");
+        assert_eq!(
+            sig_symbol("axffi_shout", &[Param::Str], &Ret::Bytes),
+            "axffi_shout__sig_si_i"
+        );
+        assert_eq!(
+            sig_tags(&[Param::Bytes], &Ret::Result(Payload::Scalar(Scalar::F64))),
+            "si_i"
+        );
+        assert_eq!(
+            sig_tags(
+                std::slice::from_ref(&i),
+                &Ret::Option(Payload::Opaque(classify_opaque()))
+            ),
+            "ii_i"
+        );
+        assert_eq!(
+            sig_tags(std::slice::from_ref(&i), &Ret::Scalar(Scalar::Unit)),
+            "i_i"
+        );
         // Floats carry their bits; everything else is a word.
         assert_eq!(sig_tags(&[f.clone(), f], &Ret::Scalar(Scalar::F64)), "ff_f");
-        assert_eq!(sig_tags(&[b, narrow, opaque], &Ret::Scalar(Scalar::F32)), "iii_f");
+        assert_eq!(
+            sig_tags(&[b, narrow, opaque], &Ret::Scalar(Scalar::F32)),
+            "iii_f"
+        );
         // Handles answer their address: a word. Callbacks are `c`, a
         // `Vec` parameter is its handle word.
-        assert_eq!(sig_tags(std::slice::from_ref(&i), &Ret::Opaque(classify_opaque())), "i_i");
-        assert_eq!(sig_tags(&[Param::Callback(1), i.clone()], &Ret::Scalar(Scalar::I64)), "ci_i");
-        assert_eq!(sig_tags(&[Param::Callback(2), i.clone(), i.clone(), i.clone()], &Ret::Scalar(Scalar::I64)), "ciii_i");
-        assert_eq!(sig_tags(&[Param::Words(Scalar::I64)], &Ret::Scalar(Scalar::I64)), "i_i");
-        assert_eq!(sig_tags(&[Param::Words(Scalar::F64), Param::Strs], &Ret::Words(Scalar::Bool)), "iii_i");
-        assert_eq!(sig_tags(std::slice::from_ref(&i), &Ret::Words(Scalar::I64)), "ii_i");
+        assert_eq!(
+            sig_tags(std::slice::from_ref(&i), &Ret::Opaque(classify_opaque())),
+            "i_i"
+        );
+        assert_eq!(
+            sig_tags(&[Param::Callback(1), i.clone()], &Ret::Scalar(Scalar::I64)),
+            "ci_i"
+        );
+        assert_eq!(
+            sig_tags(
+                &[Param::Callback(2), i.clone(), i.clone(), i.clone()],
+                &Ret::Scalar(Scalar::I64)
+            ),
+            "ciii_i"
+        );
+        assert_eq!(
+            sig_tags(&[Param::Words(Scalar::I64)], &Ret::Scalar(Scalar::I64)),
+            "i_i"
+        );
+        assert_eq!(
+            sig_tags(
+                &[Param::Words(Scalar::F64), Param::Strs],
+                &Ret::Words(Scalar::Bool)
+            ),
+            "iii_i"
+        );
+        assert_eq!(
+            sig_tags(std::slice::from_ref(&i), &Ret::Words(Scalar::I64)),
+            "ii_i"
+        );
         assert_eq!(sig_tags(&[Param::Str], &Ret::Strs), "si_i");
         // A record parameter is one tag per field (`f` for a float
         // field); a record result is a cell word and a unit answer.
@@ -1645,20 +2112,57 @@ mod tests {
             Param::Record(r) => r,
             _ => unreachable!(),
         };
-        assert_eq!(sig_tags(&[Param::Record(point.clone()), i.clone()], &Ret::Scalar(Scalar::F64)), "ifi_f");
+        assert_eq!(
+            sig_tags(
+                &[Param::Record(point.clone()), i.clone()],
+                &Ret::Scalar(Scalar::F64)
+            ),
+            "ifi_f"
+        );
         assert_eq!(sig_tags(&[], &Ret::Record(point.clone())), "i_i");
-        assert_eq!(sig_tags(&[b2()], &Ret::Result(Payload::Record(point.clone()))), "ii_i");
-        assert_eq!(sig_symbol("axffi_point_scale", &[Param::Record(point), i], &Ret::Option(Payload::Record(classify_point()))), "axffi_point_scale__sig_ifii_i");
+        assert_eq!(
+            sig_tags(&[b2()], &Ret::Result(Payload::Record(point.clone()))),
+            "ii_i"
+        );
+        assert_eq!(
+            sig_symbol(
+                "axffi_point_scale",
+                &[Param::Record(point), i],
+                &Ret::Option(Payload::Record(classify_point()))
+            ),
+            "axffi_point_scale__sig_ifii_i"
+        );
         // A char or u64 is a word; a record slice, a nested Vec and a
         // mutable slice are each a Vec handle; a nested fallible result
         // is a cell and a status.
         let c = Param::Scalar(Scalar::Char);
         let u = Param::Scalar(Scalar::U64);
         assert_eq!(sig_tags(&[c, u], &Ret::Scalar(Scalar::Char)), "ii_i");
-        assert_eq!(sig_tags(&[Param::Records(classify_point()), b2()], &Ret::Records(classify_point())), "iii_i");
-        assert_eq!(sig_tags(&[Param::WordLists(Scalar::F64)], &Ret::WordLists(Scalar::I64)), "ii_i");
-        assert_eq!(sig_tags(&[Param::MutWords(Scalar::I64)], &Ret::Scalar(Scalar::I64)), "i_i");
-        assert_eq!(sig_tags(&[Param::Str], &Ret::ResultOption(Payload::Scalar(Scalar::I64))), "si_i");
+        assert_eq!(
+            sig_tags(
+                &[Param::Records(classify_point()), b2()],
+                &Ret::Records(classify_point())
+            ),
+            "iii_i"
+        );
+        assert_eq!(
+            sig_tags(
+                &[Param::WordLists(Scalar::F64)],
+                &Ret::WordLists(Scalar::I64)
+            ),
+            "ii_i"
+        );
+        assert_eq!(
+            sig_tags(&[Param::MutWords(Scalar::I64)], &Ret::Scalar(Scalar::I64)),
+            "i_i"
+        );
+        assert_eq!(
+            sig_tags(
+                &[Param::Str],
+                &Ret::ResultOption(Payload::Scalar(Scalar::I64))
+            ),
+            "si_i"
+        );
         assert_eq!(sig_tags(&[], &Ret::OptionResult(Payload::Bytes)), "i_i");
     }
 
@@ -1698,6 +2202,10 @@ mod tests {
         assert_eq!(a.utf8(), Utf8::Lossy);
         let bad: syn::punctuated::Punctuated<Meta, syn::Token![,]> = syn::parse_quote!(name = "x");
         let e = parse_export_attr(bad.iter()).err().unwrap();
-        assert!(e.message.contains("unknown `axiom_export` key `name`"), "{}", e.message);
+        assert!(
+            e.message.contains("unknown `axiom_export` key `name`"),
+            "{}",
+            e.message
+        );
     }
 }

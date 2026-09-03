@@ -558,4 +558,89 @@ if [[ -f "$hostlib" && -d rust/examples/host ]]; then
   fi
 fi
 
+# --------------------------------------------------------------------
+# The HAND-WRITTEN Rust: clippy and rustfmt.
+# --------------------------------------------------------------------
+# Until 2026-09-03 neither ran anywhere. `.github/workflows/ci.yml`
+# invoked only `cargo test --workspace --exclude axiom-host`, and its own
+# comment records that `cargo fmt` and `cargo clippy` were dropped when
+# the old Rust compiler was deleted - but the FFI workspace is still
+# ~9,500 lines of hand-written Rust, most of it unsafe. The only rustfmt
+# in this gate was the one above, over the file the compiler GENERATES.
+#
+# That is the gap that let the rest of this commit's findings stand: every
+# boundary handle auto-`Send`, 116 unsafe operations unmarked inside
+# `unsafe fn` bodies, 33 unsafe blocks with no `// SAFETY:` line, and 30
+# undocumented public items. A tool with no gate is a tool nobody runs.
+#
+# `-D warnings` rather than a count, because the lint policy in
+# `rust/Cargo.toml` is where the decisions live: a lint that should not
+# fire is `allow`ed THERE, with the reason, and one that fires is a
+# finding. `axiom-host` is excluded for the same reason `ci.yml` excludes
+# it - it links a real Axiom archive and needs $AXIOM_HOST_ARCHIVE_DIR.
+echo "== the hand-written Rust: clippy and rustfmt =="
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "ok   cargo is not installed; the Rust lint pass is skipped (reported, not silent)"
+elif ! cargo clippy --version >/dev/null 2>&1; then
+  echo "ok   clippy is not installed; the lint pass is skipped (reported, not silent)"
+else
+  if clippy_out="$(cd rust && cargo clippy --workspace --exclude axiom-host \
+                     --all-targets --quiet -- -D warnings 2>&1)"; then
+    echo "ok   clippy is clean over the workspace under -D warnings"
+  else
+    echo "FAIL clippy reported findings in the hand-written Rust"
+    printf '%s\n' "$clippy_out" | grep -E '^(error|warning)' | head -8 | sed 's/^/     /'
+    status=1
+  fi
+  # AND THE `host` FEATURE, for the same reason as `nostd-runtime` below:
+  # no workspace member enables it, so the sweep above never compiles
+  # `axiom-ffi/src/host.rs` at all. Measured 2026-09-03, the first time
+  # anything looked: four `doc_list_item_without_indentation`, one
+  # `should_implement_trait`, and two undocumented public methods - on
+  # the file that IS the Rust-calls-Axiom direction. `--all-targets`
+  # works here (unlike the nostd pass), there being no panic handler to
+  # collide with std's.
+  if host_out="$(cd rust && cargo clippy -p axiom-ffi --features host \
+                   --all-targets --quiet -- -D warnings 2>&1)"; then
+    echo "ok   clippy is clean over the host feature under -D warnings"
+  else
+    echo "FAIL clippy reported findings in the host-direction binding"
+    printf '%s\n' "$host_out" | grep -E '^(error|warning)' | head -6 | sed 's/^/     /'
+    status=1
+  fi
+  # AND THE `nostd-runtime` FEATURE, SEPARATELY, because the sweep above
+  # cannot reach it. No workspace member enables it, so
+  # `--workspace --all-targets` never compiles it - measured: zero
+  # mentions in that run's output. It is also the module that most needs
+  # a lint gate: raw `asm!` syscalls for four targets, a `GlobalAlloc`, a
+  # panic handler, and hand-written `memcpy`/`memmove`/`memset`/`memcmp`/
+  # `bcmp`/`bzero`/`strlen`. On 2026-09-03 it carried 14 warnings unique
+  # to this path, seven of them `missing_safety_doc` on the libc shims,
+  # and it did not compile at all under edition 2024.
+  #
+  # NO `--all-targets` HERE, and the reason is structural rather than a
+  # preference: the `lib test` target links std, and a `#[panic_handler]`
+  # in a `no_std` crate then collides with std's - `error[E0152]: found
+  # duplicate lang item panic_impl`. The library target is the whole of
+  # what this feature has.
+  if nostd_out="$(cd rust && cargo clippy -p axiom-ffi --no-default-features \
+                    --features nostd-runtime --quiet -- -D warnings 2>&1)"; then
+    echo "ok   clippy is clean over the nostd-runtime feature under -D warnings"
+  else
+    echo "FAIL clippy reported findings in the freestanding runtime"
+    printf '%s\n' "$nostd_out" | grep -E '^(error|warning)' | head -6 | sed 's/^/     /'
+    status=1
+  fi
+  if ! command -v rustfmt >/dev/null 2>&1; then
+    echo "ok   rustfmt is not installed; the format check is skipped (reported)"
+  elif ( cd rust && cargo fmt --all --check >/dev/null 2>&1 ); then
+    echo "ok   every Rust file is rustfmt-clean (style_edition 2021, pinned in rust/rustfmt.toml)"
+  else
+    echo "FAIL the hand-written Rust is not rustfmt-clean; run \`cargo fmt --all\` in rust/"
+    ( cd rust && cargo fmt --all --check 2>&1 ) | grep '^Diff in' \
+      | sed 's/Diff in //; s/:.*//' | sort -u | head -6 | sed 's/^/     /'
+    status=1
+  fi
+fi
+
 exit "$status"

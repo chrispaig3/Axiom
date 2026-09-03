@@ -20,7 +20,7 @@ use axiom_ffi::host::AxString;
 use axiom_ffi::{axiom_release, AxWord};
 
 mod raw {
-    extern "C" {
+    unsafe extern "C" {
         pub fn addTwo(a0: i64, a1: i64) -> i64;
         pub fn shout(a0: i64) -> i64;
         pub fn halve(a0: i64) -> i64;

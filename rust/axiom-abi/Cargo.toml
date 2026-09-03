@@ -9,3 +9,6 @@ license.workspace = true
 # Deliberately not a staticlib: this crate is a dependency of the crate
 # a user actually exports, and only THAT crate is built as a staticlib.
 crate-type = ["rlib"]
+
+[lints]
+workspace = true

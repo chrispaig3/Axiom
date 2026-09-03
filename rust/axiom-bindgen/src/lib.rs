@@ -94,15 +94,16 @@ pub fn generate(src_root: &Path, lib: &str) -> Result<String> {
     collect_rs(src_root, &mut files);
     files.sort();
     if files.is_empty() {
-        return Err(Error(format!("no `.rs` files under {}", src_root.display())));
+        return Err(Error(format!(
+            "no `.rs` files under {}",
+            src_root.display()
+        )));
     }
 
     let mut parsed = Vec::new();
     for f in &files {
-        let text = fs::read_to_string(f)
-            .map_err(|e| Error(format!("{}: {e}", f.display())))?;
-        let ast = syn::parse_file(&text)
-            .map_err(|e| Error(format!("{}: {e}", f.display())))?;
+        let text = fs::read_to_string(f).map_err(|e| Error(format!("{}: {e}", f.display())))?;
+        let ast = syn::parse_file(&text).map_err(|e| Error(format!("{}: {e}", f.display())))?;
         let file = f.strip_prefix(src_root).unwrap_or(f).display().to_string();
         parsed.push((file, ast));
     }
@@ -133,9 +134,13 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn attr_named<'a>(attrs: &'a [syn::Attribute], name: &str) -> Option<&'a syn::Attribute> {
-    attrs
-        .iter()
-        .find(|a| a.path().segments.last().map(|s| s.ident == name).unwrap_or(false))
+    attrs.iter().find(|a| {
+        a.path()
+            .segments
+            .last()
+            .map(|s| s.ident == name)
+            .unwrap_or(false)
+    })
 }
 
 fn attr_metas(a: &syn::Attribute) -> std::result::Result<Vec<syn::Meta>, String> {
@@ -194,7 +199,10 @@ impl Registry for Surface {
         if let Some(r) = self.records.iter().find(|r| r.name == name) {
             return Some(Named::Record(r.fields.clone()));
         }
-        self.opaques.iter().any(|o| o.name == name).then_some(Named::Opaque)
+        self.opaques
+            .iter()
+            .any(|o| o.name == name)
+            .then_some(Named::Opaque)
     }
 }
 
@@ -254,7 +262,9 @@ impl Surface {
         file: &str,
         path: &str,
     ) -> Result<()> {
-        let Some(a) = attr_named(attrs, "axiom_opaque") else { return Ok(()) };
+        let Some(a) = attr_named(attrs, "axiom_opaque") else {
+            return Ok(());
+        };
         let at = where_(file, path, &ident.to_string());
         let metas = attr_metas(a).map_err(|m| Error(format!("{at}: `#[axiom_opaque]`: {m}")))?;
         let parsed = cls::parse_opaque_attr(metas.iter())
@@ -272,12 +282,19 @@ impl Surface {
         let name = s.ident.to_string();
         let at = where_(file, path, &name);
         let syn::Fields::Named(named) = &s.fields else {
-            return Err(Error(format!("{at}: an `#[axiom_record]` needs named fields")));
+            return Err(Error(format!(
+                "{at}: an `#[axiom_record]` needs named fields"
+            )));
         };
         let pairs: Vec<(String, &syn::Type)> = named
             .named
             .iter()
-            .map(|f| (f.ident.as_ref().map(|i| i.to_string()).unwrap_or_default(), &f.ty))
+            .map(|f| {
+                (
+                    f.ident.as_ref().map(|i| i.to_string()).unwrap_or_default(),
+                    &f.ty,
+                )
+            })
             .collect();
         let fields = cls::classify_record_fields(pairs.iter().map(|(n, t)| (n.as_str(), *t)))
             .map_err(|m| Error(format!("{at}: {m}")))?;
@@ -295,8 +312,8 @@ impl Surface {
             if !is_pub {
                 return Ok(());
             }
-            let metas = attr_metas(a)
-                .map_err(|m| Error(format!("{at}: `#[axiom_export]`: {m}")))?;
+            let metas =
+                attr_metas(a).map_err(|m| Error(format!("{at}: `#[axiom_export]`: {m}")))?;
             let attr = cls::parse_export_attr(metas.iter())
                 .map_err(|e| Error(format!("{at}: {}", e.message)))?;
             let mut params = Vec::new();
@@ -322,8 +339,8 @@ impl Surface {
                 syn::ReturnType::Default => None,
                 syn::ReturnType::Type(_, t) => Some(&**t),
             };
-            let ret = cls::classify_return_with(ret_ty, self)
-                .map_err(|m| Error(format!("{at}: {m}")))?;
+            let ret =
+                cls::classify_return_with(ret_ty, self).map_err(|m| Error(format!("{at}: {m}")))?;
             // A record named by value, in a slice or in a `Vec` that no
             // `#[axiom_record]` under the source root declares.
             let classified: Vec<Param> = params.iter().map(|(_, p)| p.clone()).collect();
@@ -343,11 +360,13 @@ impl Surface {
                 raw: false,
                 at,
             });
-        } else if let Some(d) = raw_shim(f, &at) {
-            // A HAND-WRITTEN `pub extern "C" fn axffi_*`. Bound as a plain
-            // extern item over words: `AxWord` parameters are `Foreign`,
-            // integers are `Int`, the return is `Int`.
-            self.decls.push(d);
+        } else {
+            if let Some(d) = raw_shim(f, &at) {
+                // A HAND-WRITTEN `pub extern "C" fn axffi_*`. Bound as a plain
+                // extern item over words: `AxWord` parameters are `Foreign`,
+                // integers are `Int`, the return is `Int`.
+                self.decls.push(d);
+            }
         }
         Ok(())
     }
@@ -388,7 +407,11 @@ impl Surface {
             .opaques
             .iter()
             .map(|o| (o.name.as_str(), "#[axiom_opaque]", o.at.as_str()))
-            .chain(self.records.iter().map(|r| (r.name.as_str(), "#[axiom_record]", r.at.as_str())));
+            .chain(
+                self.records
+                    .iter()
+                    .map(|r| (r.name.as_str(), "#[axiom_record]", r.at.as_str())),
+            );
         for (name, kind, at) in typed {
             if let Some((prev_kind, prev_at)) = seen.insert(name, (kind, at)) {
                 return Err(Error(format!(
@@ -411,8 +434,14 @@ impl Surface {
         };
         for o in &self.opaques {
             let t = &o.name;
-            claim(format!("{}DropFn", lower_first(t)), format!("the drop function of `{t}`"))?;
-            claim(format!("{}Close", lower_first(t)), format!("the close wrapper of `{t}`"))?;
+            claim(
+                format!("{}DropFn", lower_first(t)),
+                format!("the drop function of `{t}`"),
+            )?;
+            claim(
+                format!("{}Close", lower_first(t)),
+                format!("the close wrapper of `{t}`"),
+            )?;
         }
         for d in &self.decls {
             let origin = format!("`{}` ({})", d.rust_name, d.at);
@@ -430,9 +459,12 @@ impl Surface {
         let mut opaques: Vec<&Opaque> = self.opaques.iter().collect();
         opaques.sort_by(|a, b| a.name.cmp(&b.name));
 
-        let needs_err = decls
-            .iter()
-            .any(|d| matches!(d.ret, Ret::Result(_) | Ret::ResultOption(_) | Ret::OptionResult(_)));
+        let needs_err = decls.iter().any(|d| {
+            matches!(
+                d.ret,
+                Ret::Result(_) | Ret::ResultOption(_) | Ret::OptionResult(_)
+            )
+        });
         // The record types that cross in a `Vec`, each way: the
         // module declares a rebuild loop and a flatten loop for them,
         // which is what needs `Vec`.
@@ -440,10 +472,10 @@ impl Surface {
         let mut to_words: Vec<&RecordTy> = Vec::new();
         for d in decls.iter().filter(|d| !d.raw) {
             for (_, p) in &d.params {
-                if let Param::Records(r) = p {
-                    if !to_words.iter().any(|x| x.name == r.name) {
-                        to_words.push(r);
-                    }
+                if let Param::Records(r) = p
+                    && !to_words.iter().any(|x| x.name == r.name)
+                {
+                    to_words.push(r);
                 }
             }
             let answered = match &d.ret {
@@ -453,10 +485,10 @@ impl Surface {
                     _ => None,
                 },
             };
-            if let Some(r) = answered {
-                if !from_words.iter().any(|x| x.name == r.name) {
-                    from_words.push(r);
-                }
+            if let Some(r) = answered
+                && !from_words.iter().any(|x| x.name == r.name)
+            {
+                from_words.push(r);
             }
         }
         from_words.sort_by(|a, b| a.name.cmp(&b.name));
@@ -479,7 +511,10 @@ impl Surface {
         // probe of every opaque type.
         let mut items: Vec<(String, String)> = Vec::new();
         for d in &decls {
-            items.push((d.raw_name(), format!("{} (symbol \"{}\")", d.raw_type(), d.symbol)));
+            items.push((
+                d.raw_name(),
+                format!("{} (symbol \"{}\")", d.raw_type(), d.symbol),
+            ));
         }
         for o in &opaques {
             items.push((
@@ -573,7 +608,10 @@ impl Surface {
             tops.push(format!("(pub :: {close} (-> {t} Int))"));
             let body = Ex::Match(
                 Box::new(atom("c")),
-                vec![(app(vec![atom(t), atom("__h")]), app(vec![atom("ffiHandleClose"), atom("__h")]))],
+                vec![(
+                    app(vec![atom(t), atom("__h")]),
+                    app(vec![atom("ffiHandleClose"), atom("__h")]),
+                )],
             );
             tops.push(sexp::decl_fn(&close, &["c".to_string()], &body));
         }
@@ -624,7 +662,7 @@ fn lower_first(s: &str) -> String {
     }
 }
 
-/// A hand-written `#[no_mangle] pub extern "C" fn axffi_*`, bound raw.
+/// A hand-written `#[unsafe(no_mangle)] pub extern "C" fn axffi_*`, bound raw.
 fn raw_shim(f: &syn::ItemFn, at: &str) -> Option<Decl> {
     let name = f.sig.ident.to_string();
     if !name.starts_with("axffi_") {
@@ -636,7 +674,9 @@ fn raw_shim(f: &syn::ItemFn, at: &str) -> Option<Decl> {
     f.sig.abi.as_ref()?;
     let mut params = Vec::new();
     for (i, a) in f.sig.inputs.iter().enumerate() {
-        let syn::FnArg::Typed(pt) = a else { return None };
+        let syn::FnArg::Typed(pt) = a else {
+            return None;
+        };
         let n = match &*pt.pat {
             syn::Pat::Ident(id) => id.ident.to_string(),
             _ => format!("__arg{}", i + 1),
@@ -649,7 +689,10 @@ fn raw_shim(f: &syn::ItemFn, at: &str) -> Option<Decl> {
             if p.path.segments.last().map(|s| s.ident == "AxWord").unwrap_or(false));
         let p = if is_word {
             Param::Opaque {
-                ty: cls::OpaqueTy { ty: (*pt.ty).clone(), name: "AxWord".into() },
+                ty: cls::OpaqueTy {
+                    ty: (*pt.ty).clone(),
+                    name: "AxWord".into(),
+                },
                 mutable: false,
             }
         } else {
@@ -690,7 +733,11 @@ fn payload_axiom_type(p: &Payload) -> String {
 /// them: one for every shape but a record, which is one per field.
 fn param_raw_types(p: &Param) -> Vec<String> {
     match p {
-        Param::Record(r) => r.fields.iter().map(|f| f.scalar.axiom_type().to_string()).collect(),
+        Param::Record(r) => r
+            .fields
+            .iter()
+            .map(|f| f.scalar.axiom_type().to_string())
+            .collect(),
         other => vec![param_raw_type(other)],
     }
 }
@@ -742,7 +789,11 @@ fn param_wrapper_type(p: &Param) -> String {
 fn param_is_vec(p: &Param) -> bool {
     matches!(
         p,
-        Param::Words(_) | Param::MutWords(_) | Param::WordLists(_) | Param::Strs | Param::Records(_)
+        Param::Words(_)
+            | Param::MutWords(_)
+            | Param::WordLists(_)
+            | Param::Strs
+            | Param::Records(_)
     )
 }
 
@@ -810,14 +861,27 @@ fn record_from_words_loop(r: &RecordTy) -> (String, String) {
         } else {
             app(vec![atom("*"), atom("__i"), atom(&arity.to_string())])
         };
-        let index = if j == 0 { base } else { app(vec![atom("+"), base, atom(&j.to_string())]) };
+        let index = if j == 0 {
+            base
+        } else {
+            app(vec![atom("+"), base, atom(&j.to_string())])
+        };
         let w = format!("__w{j}");
-        binds.push((w.clone(), field_from_word(f.scalar, app(vec![atom("ffiWordAt"), atom("__p"), index]))));
+        binds.push((
+            w.clone(),
+            field_from_word(f.scalar, app(vec![atom("ffiWordAt"), atom("__p"), index])),
+        ));
         ctor.push(atom(&w));
     }
     let step = Ex::Block(vec![
         app(vec![atom("vecPush"), atom("__v"), app(ctor)]),
-        app(vec![atom(&name), atom("__v"), atom("__p"), atom("__n"), app(vec![atom("+"), atom("__i"), atom("1")])]),
+        app(vec![
+            atom(&name),
+            atom("__v"),
+            atom("__p"),
+            atom("__n"),
+            app(vec![atom("+"), atom("__i"), atom("1")]),
+        ]),
     ]);
     let body = Ex::If(
         Box::new(app(vec![atom(">="), atom("__i"), atom("__n")])),
@@ -858,12 +922,25 @@ fn record_to_words_loop(r: &RecordTy) -> (String, String) {
     let mut stmts: Vec<Ex> = Vec::new();
     for (j, fld) in r.fields.iter().enumerate() {
         let f = format!("__f{j}");
-        stmts.push(app(vec![atom("vecPush"), atom("__w"), field_to_word(fld.scalar, atom(&f))]));
+        stmts.push(app(vec![
+            atom("vecPush"),
+            atom("__w"),
+            field_to_word(fld.scalar, atom(&f)),
+        ]));
         pat.push(atom(&f));
     }
-    stmts.push(app(vec![atom(&name), atom("__ps"), atom("__w"), app(vec![atom("+"), atom("__i"), atom("1")])]));
+    stmts.push(app(vec![
+        atom(&name),
+        atom("__ps"),
+        atom("__w"),
+        app(vec![atom("+"), atom("__i"), atom("1")]),
+    ]));
     let body = Ex::If(
-        Box::new(app(vec![atom(">="), atom("__i"), app(vec![atom("vecLen"), atom("__ps")])])),
+        Box::new(app(vec![
+            atom(">="),
+            atom("__i"),
+            app(vec![atom("vecLen"), atom("__ps")]),
+        ])),
         Box::new(atom("__w")),
         Box::new(Ex::Match(
             // `__ps` is a `(Vec Point)`, so `vecGet` answers a `Point`
@@ -898,7 +975,11 @@ fn callback_type(arity: u8) -> String {
 fn is_collection(p: &Payload) -> bool {
     matches!(
         p,
-        Payload::Bytes | Payload::Words(_) | Payload::WordLists(_) | Payload::Strs | Payload::Records(_)
+        Payload::Bytes
+            | Payload::Words(_)
+            | Payload::WordLists(_)
+            | Payload::Strs
+            | Payload::Records(_)
     )
 }
 
@@ -949,10 +1030,13 @@ fn collection_free(p: &Payload) -> Ex {
 /// The cell a wrapper allocates: `ffiCellNew` for the two-word
 /// protocols, `(ffiCellNewN n)` for a record of `n` words.
 fn cell_new(ret: &Ret) -> Ex {
-    let record = matches!(ret, Ret::Record(_))
-        || matches!(ret.status_payload(), Some(Payload::Record(_)));
+    let record =
+        matches!(ret, Ret::Record(_)) || matches!(ret.status_payload(), Some(Payload::Record(_)));
     if record {
-        app(vec![atom("ffiCellNewN"), atom(&ret.cell_words().to_string())])
+        app(vec![
+            atom("ffiCellNewN"),
+            atom(&ret.cell_words().to_string()),
+        ])
     } else {
         atom("ffiCellNew")
     }
@@ -994,10 +1078,26 @@ fn status_ctors(ret: &Ret) -> StatusCtors {
     }
     let err = app(vec![atom("Err"), atom("__m")]);
     match ret {
-        Ret::Result(_) => StatusCtors { ok, none: None, err: Some(err) },
-        Ret::Option(_) => StatusCtors { ok: some, none: Some(atom("None")), err: None },
-        Ret::ResultOption(_) => StatusCtors { ok: ok_some, none: Some(ok(atom("None"))), err: Some(err) },
-        Ret::OptionResult(_) => StatusCtors { ok: some_ok, none: Some(atom("None")), err: Some(some(err)) },
+        Ret::Result(_) => StatusCtors {
+            ok,
+            none: None,
+            err: Some(err),
+        },
+        Ret::Option(_) => StatusCtors {
+            ok: some,
+            none: Some(atom("None")),
+            err: None,
+        },
+        Ret::ResultOption(_) => StatusCtors {
+            ok: ok_some,
+            none: Some(ok(atom("None"))),
+            err: Some(err),
+        },
+        Ret::OptionResult(_) => StatusCtors {
+            ok: some_ok,
+            none: Some(atom("None")),
+            err: Some(some(err)),
+        },
         _ => unreachable!("not a status return"),
     }
 }
@@ -1034,7 +1134,11 @@ impl Decl {
 
     /// The raw extern's type: the shim's real arity over wire types.
     fn raw_type(&self) -> String {
-        let mut ps: Vec<String> = self.params.iter().flat_map(|(_, p)| param_raw_types(p)).collect();
+        let mut ps: Vec<String> = self
+            .params
+            .iter()
+            .flat_map(|(_, p)| param_raw_types(p))
+            .collect();
         let ret = if self.ret.needs_cell() {
             ps.push("Int".into());
             "Int".to_string()
@@ -1061,7 +1165,11 @@ impl Decl {
         let ret = match &self.ret {
             Ret::Scalar(s) => s.axiom_type().to_string(),
             Ret::Opaque(o) => o.name.clone(),
-            Ret::Bytes | Ret::Words(_) | Ret::WordLists(_) | Ret::Strs | Ret::Record(_)
+            Ret::Bytes
+            | Ret::Words(_)
+            | Ret::WordLists(_)
+            | Ret::Strs
+            | Ret::Record(_)
             | Ret::Records(_) => payload_axiom_type(&self.ret.direct_payload()),
             Ret::Result(p) => format!("(Result {} String)", payload_axiom_type(p)),
             Ret::Option(p) => format!("(Option {})", payload_axiom_type(p)),
@@ -1078,9 +1186,10 @@ impl Decl {
         let name = &self.axiom_name;
         for (pname, p) in &self.params {
             match p {
-                Param::Words(s) if *s != Scalar::I64 => {
-                    out.push(format!("`{name}` reads `{pname}` as a Vec of {};", element_note(*s)))
-                }
+                Param::Words(s) if *s != Scalar::I64 => out.push(format!(
+                    "`{name}` reads `{pname}` as a Vec of {};",
+                    element_note(*s)
+                )),
                 Param::MutWords(s) => out.push(format!(
                     "`{name}` writes `{pname}` in place, a Vec of {};",
                     element_note(*s)
@@ -1109,9 +1218,10 @@ impl Decl {
             Some(Payload::Words(s)) if s != Scalar::I64 => {
                 out.push(format!("`{name}` answers a Vec of {};", element_note(s)))
             }
-            Some(Payload::WordLists(s)) => {
-                out.push(format!("`{name}` answers a Vec of Vecs of {};", element_note(s)))
-            }
+            Some(Payload::WordLists(s)) => out.push(format!(
+                "`{name}` answers a Vec of Vecs of {};",
+                element_note(s)
+            )),
             Some(Payload::Records(r)) => out.push(format!("`{name}` answers a Vec of {};", r.name)),
             _ => {}
         }
@@ -1137,7 +1247,10 @@ impl Decl {
                     let a = format!("__a{i}");
                     binds.push((
                         a.clone(),
-                        Ex::Cast("Foreign".into(), Box::new(app(vec![atom("ffiHandlePtr"), atom(&h)]))),
+                        Ex::Cast(
+                            "Foreign".into(),
+                            Box::new(app(vec![atom("ffiHandlePtr"), atom(&h)])),
+                        ),
                     ));
                     args.push(atom(&a));
                     matches.push((name.clone(), app(vec![atom(&ty.name), atom(&h)])));
@@ -1178,9 +1291,7 @@ impl Decl {
                 // BORROWS for the length of the call and keeps nothing
                 // (`tests/ffi/demo/400-arc-retain.ax` is the case where
                 // Rust does keep one, and it retains explicitly).
-                p if param_is_vec(p) => {
-                    args.push(Ex::Cast("Int".into(), Box::new(atom(name))))
-                }
+                p if param_is_vec(p) => args.push(Ex::Cast("Int".into(), Box::new(atom(name)))),
                 _ => args.push(atom(name)),
             }
         }
@@ -1198,7 +1309,11 @@ impl Decl {
                 binds.push(("__p".into(), Ex::Cast("Int".into(), Box::new(app(call)))));
                 binds.push((
                     "__h".into(),
-                    app(vec![atom("ffiHandleNew"), atom("__p"), atom(&drop_fn_name(&o.name))]),
+                    app(vec![
+                        atom("ffiHandleNew"),
+                        atom("__p"),
+                        atom(&drop_fn_name(&o.name)),
+                    ]),
                 ));
                 Ex::Let(binds, Box::new(app(vec![atom(&o.name), atom("__h")])))
             }
@@ -1214,12 +1329,22 @@ impl Decl {
                 call.push(atom("__c"));
                 binds.push(("__c".into(), atom("ffiCellNew")));
                 binds.push(("__st".into(), app(call)));
-                binds.push(("__p".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("0")])));
-                binds.push(("__n".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("1")])));
+                binds.push((
+                    "__p".into(),
+                    app(vec![atom("ffiCellWord"), atom("__c"), atom("0")]),
+                ));
+                binds.push((
+                    "__n".into(),
+                    app(vec![atom("ffiCellWord"), atom("__c"), atom("1")]),
+                ));
                 binds.push(("__v".into(), collection_build(&payload)));
                 Ex::Let(
                     binds,
-                    Box::new(Ex::Block(vec![collection_free(&payload), cell_free, atom("__v")])),
+                    Box::new(Ex::Block(vec![
+                        collection_free(&payload),
+                        cell_free,
+                        atom("__v"),
+                    ])),
                 )
             }
             Ret::Result(p) | Ret::Option(p) | Ret::ResultOption(p) | Ret::OptionResult(p) => {
@@ -1227,8 +1352,14 @@ impl Decl {
                 call.push(atom("__c"));
                 binds.push(("__c".into(), cell_new(&self.ret)));
                 binds.push(("__st".into(), app(call)));
-                binds.push(("__p".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("0")])));
-                binds.push(("__n".into(), app(vec![atom("ffiCellWord"), atom("__c"), atom("1")])));
+                binds.push((
+                    "__p".into(),
+                    app(vec![atom("ffiCellWord"), atom("__c"), atom("0")]),
+                ));
+                binds.push((
+                    "__n".into(),
+                    app(vec![atom("ffiCellWord"), atom("__c"), atom("1")]),
+                ));
                 // A Float or Char payload is the word reinterpreted.
                 // The cast is bound up front (harmless on the other
                 // paths, where the word is a pointer or zero nothing
@@ -1237,10 +1368,16 @@ impl Decl {
                 // same way: on the other paths the cell holds a
                 // message or zeros, read by nothing.
                 if matches!(p, Payload::Scalar(s) if s.is_float()) {
-                    binds.push(("__f".into(), Ex::Cast("Float".into(), Box::new(atom("__p")))));
+                    binds.push((
+                        "__f".into(),
+                        Ex::Cast("Float".into(), Box::new(atom("__p"))),
+                    ));
                 }
                 if matches!(p, Payload::Scalar(Scalar::Char)) {
-                    binds.push(("__ch".into(), Ex::Cast("Char".into(), Box::new(atom("__p")))));
+                    binds.push((
+                        "__ch".into(),
+                        Ex::Cast("Char".into(), Box::new(atom("__p"))),
+                    ));
                 }
                 if let Payload::Record(r) = p {
                     record_from_cell(r, &mut binds);
@@ -1258,11 +1395,17 @@ impl Decl {
                     let value = match p {
                         Payload::Scalar(s) if s.is_float() => atom("__f"),
                         Payload::Scalar(Scalar::Char) => atom("__ch"),
-                        Payload::Scalar(Scalar::Bool) => app(vec![atom("!="), atom("__p"), atom("0")]),
+                        Payload::Scalar(Scalar::Bool) => {
+                            app(vec![atom("!="), atom("__p"), atom("0")])
+                        }
                         Payload::Scalar(_) => atom("__p"),
                         Payload::Opaque(o) => app(vec![
                             atom(&o.name),
-                            app(vec![atom("ffiHandleNew"), atom("__p"), atom(&drop_fn_name(&o.name))]),
+                            app(vec![
+                                atom("ffiHandleNew"),
+                                atom("__p"),
+                                atom(&drop_fn_name(&o.name)),
+                            ]),
                         ]),
                         Payload::Record(_) => atom("__r"),
                         _ => unreachable!("collections are built above"),
@@ -1272,7 +1415,10 @@ impl Decl {
                 // Status 1: the message's bytes, copied then freed.
                 let err = ctors.err.map(|e| {
                     Ex::Let(
-                        vec![("__m".into(), app(vec![atom("ffiBytesToStr"), atom("__p"), atom("__n")]))],
+                        vec![(
+                            "__m".into(),
+                            app(vec![atom("ffiBytesToStr"), atom("__p"), atom("__n")]),
+                        )],
                         Box::new(Ex::Block(vec![
                             app(vec![atom("ffiFreeBytes"), atom("__p"), atom("__n")]),
                             cell_free.clone(),

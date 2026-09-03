@@ -110,15 +110,15 @@ fn main() {
         }
         (_, p) => p,
     };
-    if let (Some(m), Some(c)) = (&module, &check) {
-        if module_of(c) != *m {
-            eprintln!(
-                "axiom-bindgen: --module {m} but --check names `{}`: the module's name is \
+    if let (Some(m), Some(c)) = (&module, &check)
+        && module_of(c) != *m
+    {
+        eprintln!(
+            "axiom-bindgen: --module {m} but --check names `{}`: the module's name is \
                  its file name",
-                c.display()
-            );
-            exit(2)
-        }
+            c.display()
+        );
+        exit(2)
     }
 
     let text = match axiom_bindgen::generate(&src_root, &lib) {
@@ -172,7 +172,10 @@ fn check_against(path: &Path, fresh: &str, quiet: bool) -> i32 {
     };
     if committed == fresh {
         if !quiet {
-            eprintln!("axiom-bindgen: {} is what a fresh generation produces", path.display());
+            eprintln!(
+                "axiom-bindgen: {} is what a fresh generation produces",
+                path.display()
+            );
         }
         return 0;
     }
@@ -196,7 +199,11 @@ fn check_against(path: &Path, fresh: &str, quiet: bool) -> i32 {
         }
     }
     if old.len() != new.len() {
-        eprintln!("  ({} lines checked in, {} generated)", old.len(), new.len());
+        eprintln!(
+            "  ({} lines checked in, {} generated)",
+            old.len(),
+            new.len()
+        );
     }
     1
 }

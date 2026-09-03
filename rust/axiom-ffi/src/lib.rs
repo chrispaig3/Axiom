@@ -17,7 +17,7 @@
 //! pub fn hasher_new() -> Hasher { Hasher(Default::default()) }
 //! ```
 //!
-//! `#[axiom_export]` generates `axffi_sha256_hex`, a `#[no_mangle]
+//! `#[axiom_export]` generates `axffi_sha256_hex`, a `#[unsafe(no_mangle)]
 //! extern "C"` shim whose signature is all `i64`; `axiom-bindgen` reads
 //! the same annotations and writes the Axiom module that binds it:
 //!
@@ -77,12 +77,12 @@ compile_error!(
 extern crate alloc;
 
 pub use axiom_abi::{
-    axiom_alloc, axiom_release, axiom_retain, AxCallback, AxFn1, AxFn2, AxFn3, AxOutCell,
-    AxRecord, AxStatus, AxStr, AxStrRepr, AxVec, AxVecRepr, AxWord, AX_ERR, AX_NONE, AX_OK,
+    axiom_alloc, axiom_release, axiom_retain, AxCallback, AxFn1, AxFn2, AxFn3, AxOutCell, AxRecord,
+    AxStatus, AxStr, AxStrRepr, AxVec, AxVecRepr, AxWord, AX_ERR, AX_NONE, AX_OK,
 };
-pub use axiom_ffi_macros::{axiom_export, axiom_opaque, axiom_record};
 #[doc(hidden)]
 pub use axiom_ffi_macros::__axiom_export_resolved;
+pub use axiom_ffi_macros::{axiom_export, axiom_opaque, axiom_record};
 
 #[cfg(feature = "nostd-runtime")]
 pub mod nostd_runtime;
@@ -331,10 +331,18 @@ pub mod __private {
     /// # Safety
     /// `word` is 0 or an address from [`leak_opaque`] not yet dropped.
     pub unsafe fn drop_opaque<T: AxiomOpaque>(word: AxWord) -> AxWord {
-        if word != 0 {
-            drop(Box::from_raw(word as *mut T));
+        unsafe {
+            // SAFETY: this function's `# Safety` limits `word` to 0 or a
+            // live `Box::into_raw` from `leak_opaque`, and the `!= 0` test
+            // below takes the 0 case. C5 is what makes the reclaim
+            // once-only: the runtime zeroes the handle's pointer word
+            // before calling the destructor (`ffiHandleClose` zeroes it
+            // too), so no second call reaches this `Box::from_raw`.
+            if word != 0 {
+                drop(Box::from_raw(word as *mut T));
+            }
+            0
         }
-        0
     }
 
     /// Borrow an opaque value for the duration of a call.
@@ -347,23 +355,40 @@ pub mod __private {
     /// `word` is 0 or an address from [`leak_opaque`] not yet dropped.
     #[inline]
     pub unsafe fn borrow<'a, T: AxiomOpaque>(word: AxWord, func: &str) -> &'a T {
-        if word == 0 {
-            abort(format_args!("`{func}`: handle is closed"));
+        unsafe {
+            // SAFETY: the `word == 0` test below is what rules out a closed
+            // handle - it aborts rather than dereferencing - and this
+            // function's `# Safety` makes a non-zero word a `leak_opaque`
+            // address not yet dropped, so the `T` it names is live and
+            // aligned. `'a` is the call and no longer (C1).
+            if word == 0 {
+                abort(format_args!("`{func}`: handle is closed"));
+            }
+            &*(word as *const T)
         }
-        &*(word as *const T)
     }
 
-    /// Borrow mutably. Axiom has no threads (MM-PAR-1), so the only way
-    /// to alias is to pass the same handle twice in one call.
+    /// Borrow mutably. A shim runs on the thread that called into it and
+    /// touches no Axiom value from any other (`axiom_abi::NotThreadSafe`
+    /// is what enforces that), so the only way to alias is to pass the
+    /// same handle twice in one call.
     ///
     /// # Safety
     /// As [`borrow`], and no other borrow of the value may be live.
     #[inline]
     pub unsafe fn borrow_mut<'a, T: AxiomOpaque>(word: AxWord, func: &str) -> &'a mut T {
-        if word == 0 {
-            abort(format_args!("`{func}`: handle is closed"));
+        unsafe {
+            // SAFETY: as `borrow` - the `== 0` test below refuses a closed
+            // handle - plus this function's extra promise that no other
+            // borrow of the value is live. A shim has no thread of its own,
+            // and `axiom_abi::NotThreadSafe` keeps every handle on the
+            // thread that received it, so aliasing here takes passing one
+            // handle twice in a single call.
+            if word == 0 {
+                abort(format_args!("`{func}`: handle is closed"));
+            }
+            &mut *(word as *mut T)
         }
-        &mut *(word as *mut T)
     }
 
     /// Check a scalar argument the word may not hold: a narrow integer
@@ -393,9 +418,15 @@ pub mod __private {
     /// `word` must be a live Axiom `String` for the call.
     #[inline]
     pub unsafe fn str_strict<'a>(word: AxWord, func: &str, idx: usize) -> &'a str {
-        match AxStr::from_raw(word).as_str() {
-            Ok(s) => s,
-            Err(_) => abort(format_args!("{}", utf8_message(func, idx))),
+        unsafe {
+            // SAFETY: `AxStr::from_raw` needs a live Axiom `String` for all
+            // of `'a`, which is exactly what this function's `# Safety` asks
+            // of the caller - generated glue, whose argument is borrowed for
+            // the call and no longer (C1).
+            match AxStr::from_raw(word).as_str() {
+                Ok(s) => s,
+                Err(_) => abort(format_args!("{}", utf8_message(func, idx))),
+            }
         }
     }
 
@@ -404,10 +435,19 @@ pub mod __private {
     /// # Safety
     /// `word` must be a live Axiom `String` for the call.
     #[inline]
-    pub unsafe fn str_fallible<'a>(word: AxWord, func: &str, idx: usize) -> Result<&'a str, String> {
-        AxStr::from_raw(word)
-            .as_str()
-            .map_err(|_| utf8_message(func, idx))
+    pub unsafe fn str_fallible<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+    ) -> Result<&'a str, String> {
+        unsafe {
+            // SAFETY: as `str_strict`: the caller promises a live Axiom
+            // `String` for the call, which is `AxStr::from_raw`'s whole
+            // requirement; only the UTF-8 failure path differs.
+            AxStr::from_raw(word)
+                .as_str()
+                .map_err(|_| utf8_message(func, idx))
+        }
     }
 
     /// A `&str` argument under `utf8 = "lossy"`.
@@ -416,7 +456,11 @@ pub mod __private {
     /// `word` must be a live Axiom `String` for the call.
     #[inline]
     pub unsafe fn str_lossy<'a>(word: AxWord) -> alloc::borrow::Cow<'a, str> {
-        String::from_utf8_lossy(AxStr::from_raw(word).as_bytes())
+        unsafe {
+            // SAFETY: as `str_strict`; `as_bytes` reads the `len` and `data`
+            // words of a `String` the caller promised is live for the call.
+            String::from_utf8_lossy(AxStr::from_raw(word).as_bytes())
+        }
     }
 
     /// A `&[u8]` argument.
@@ -425,7 +469,13 @@ pub mod __private {
     /// `word` must be a live Axiom `String` for the call.
     #[inline]
     pub unsafe fn bytes<'a>(word: AxWord) -> &'a [u8] {
-        AxStr::from_raw(word).as_bytes()
+        unsafe {
+            // SAFETY: the caller promises a live Axiom `String` for the call
+            // (this function's `# Safety`), which is `from_raw`'s contract;
+            // the bytes handed back are the block's own, borrowed for the
+            // call (C1), not a copy.
+            AxStr::from_raw(word).as_bytes()
+        }
     }
 
     /// A `&[i64]` argument: the live words of an Axiom `Vec`. A 0 word
@@ -435,10 +485,17 @@ pub mod __private {
     /// `word` must be 0 or a live Axiom `Vec` handle for the call.
     #[inline]
     pub unsafe fn words<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a [i64] {
-        if word == 0 {
-            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[i64]) is not a Vec: 0"));
+        unsafe {
+            // SAFETY: the `word == 0` test below rules out address 0, and
+            // this function's `# Safety` makes any other word a live `Vec`
+            // handle for the call - `AxVec::from_raw`'s contract.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[i64]) is not a Vec: 0"
+                ));
+            }
+            AxVec::from_raw(word).as_slice()
         }
-        AxVec::from_raw(word).as_slice()
     }
 
     /// A `&[f64]` argument: the live words of an Axiom `Vec`, read as
@@ -451,13 +508,20 @@ pub mod __private {
     /// `word` must be 0 or a live Axiom `Vec` handle for the call.
     #[inline]
     pub unsafe fn words_f64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a [f64] {
-        if word == 0 {
-            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[f64]) is not a Vec: 0"));
+        unsafe {
+            // SAFETY: as `words` - the `== 0` test below, then the `from_raw`
+            // contract the caller promised; the reinterpretation of the word
+            // slice is annotated at its own line further down.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[f64]) is not a Vec: 0"
+                ));
+            }
+            let s = AxVec::from_raw(word).as_slice();
+            // SAFETY: same size, same alignment, no invalid bit pattern;
+            // the lifetime and length are the word slice's own.
+            core::slice::from_raw_parts(s.as_ptr() as *const f64, s.len())
         }
-        let s = AxVec::from_raw(word).as_slice();
-        // SAFETY: same size, same alignment, no invalid bit pattern;
-        // the lifetime and length are the word slice's own.
-        core::slice::from_raw_parts(s.as_ptr() as *const f64, s.len())
     }
 
     /// A `&[u64]` argument: the live words of an Axiom `Vec`, read as
@@ -467,12 +531,18 @@ pub mod __private {
     /// `word` must be 0 or a live Axiom `Vec` handle for the call.
     #[inline]
     pub unsafe fn words_u64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a [u64] {
-        if word == 0 {
-            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[u64]) is not a Vec: 0"));
+        unsafe {
+            // SAFETY: as `words_f64`: the `== 0` test below, then the
+            // `from_raw` contract; the reinterpretation is annotated below.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[u64]) is not a Vec: 0"
+                ));
+            }
+            let s = AxVec::from_raw(word).as_slice();
+            // SAFETY: same size, same alignment, every bit pattern a u64.
+            core::slice::from_raw_parts(s.as_ptr() as *const u64, s.len())
         }
-        let s = AxVec::from_raw(word).as_slice();
-        // SAFETY: same size, same alignment, every bit pattern a u64.
-        core::slice::from_raw_parts(s.as_ptr() as *const u64, s.len())
     }
 
     /// A `&[T]` argument for any other word scalar: every word of the
@@ -483,14 +553,32 @@ pub mod __private {
     ///
     /// # Safety
     /// `word` must be 0 or a live Axiom `Vec` handle for the call.
-    pub unsafe fn words_as<T: WordScalar>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<T> {
-        if word == 0 {
-            abort(format_args!(
-                "`{func}`: argument {idx} (`{name}`: &[{}]) is not a Vec: 0",
-                T::NAME
-            ));
+    pub unsafe fn words_as<T: WordScalar>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> Vec<T> {
+        unsafe {
+            // SAFETY: the `== 0` test below rules out address 0 and this
+            // function's `# Safety` makes any other word a live `Vec` handle
+            // for the call; `as_slice` is the only raw read here,
+            // `convert_words` is safe and range-checks every element.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[{}]) is not a Vec: 0",
+                    T::NAME
+                ));
+            }
+            convert_words(
+                AxVec::from_raw(word).as_slice(),
+                func,
+                idx,
+                name,
+                T::NAME,
+                None,
+            )
         }
-        convert_words(AxVec::from_raw(word).as_slice(), func, idx, name, T::NAME, None)
     }
 
     /// Convert `s` into a `Vec<T>`, aborting on a word that holds no
@@ -540,10 +628,18 @@ pub mod __private {
     /// twice in one call is the only way to alias).
     #[inline]
     pub unsafe fn words_mut<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a mut [i64] {
-        if word == 0 {
-            abort(format_args!("`{func}`: argument {idx} (`{name}`: &mut [i64]) is not a Vec: 0"));
+        unsafe {
+            // SAFETY: the `== 0` test below, plus this function's `# Safety`:
+            // a live `Vec` handle for the call AND no other view of its
+            // words, which is what `as_mut_slice` in turn requires for the
+            // exclusive borrow.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &mut [i64]) is not a Vec: 0"
+                ));
+            }
+            AxVec::from_raw(word).as_mut_slice()
         }
-        AxVec::from_raw(word).as_mut_slice()
     }
 
     /// A `&mut [f64]` argument: the live words written in place as the
@@ -553,14 +649,26 @@ pub mod __private {
     /// # Safety
     /// As [`words_mut`].
     #[inline]
-    pub unsafe fn words_mut_f64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a mut [f64] {
-        if word == 0 {
-            abort(format_args!("`{func}`: argument {idx} (`{name}`: &mut [f64]) is not a Vec: 0"));
+    pub unsafe fn words_mut_f64<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> &'a mut [f64] {
+        unsafe {
+            // SAFETY: as `words_mut` - the `== 0` test below, the live
+            // handle, and the no-other-view promise `as_mut_slice` needs;
+            // the float reinterpretation is annotated at its own line.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &mut [f64]) is not a Vec: 0"
+                ));
+            }
+            let s = AxVec::from_raw(word).as_mut_slice();
+            // SAFETY: same size, same alignment, no invalid bit pattern in
+            // either direction; the lifetime and length are the word slice's.
+            core::slice::from_raw_parts_mut(s.as_mut_ptr() as *mut f64, s.len())
         }
-        let s = AxVec::from_raw(word).as_mut_slice();
-        // SAFETY: same size, same alignment, no invalid bit pattern in
-        // either direction; the lifetime and length are the word slice's.
-        core::slice::from_raw_parts_mut(s.as_mut_ptr() as *mut f64, s.len())
     }
 
     /// A `&mut [u64]` argument: the live words written in place as
@@ -569,13 +677,24 @@ pub mod __private {
     /// # Safety
     /// As [`words_mut`].
     #[inline]
-    pub unsafe fn words_mut_u64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a mut [u64] {
-        if word == 0 {
-            abort(format_args!("`{func}`: argument {idx} (`{name}`: &mut [u64]) is not a Vec: 0"));
+    pub unsafe fn words_mut_u64<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> &'a mut [u64] {
+        unsafe {
+            // SAFETY: as `words_mut_f64`; the unsigned reinterpretation is
+            // annotated at its own line below.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &mut [u64]) is not a Vec: 0"
+                ));
+            }
+            let s = AxVec::from_raw(word).as_mut_slice();
+            // SAFETY: as `words_mut_f64`.
+            core::slice::from_raw_parts_mut(s.as_mut_ptr() as *mut u64, s.len())
         }
-        let s = AxVec::from_raw(word).as_mut_slice();
-        // SAFETY: as `words_mut_f64`.
-        core::slice::from_raw_parts_mut(s.as_mut_ptr() as *mut u64, s.len())
     }
 
     /// The inner `Vec` handles of a `&[&[T]]` argument: an Axiom `Vec`
@@ -583,19 +702,34 @@ pub mod __private {
     ///
     /// # Safety
     /// `word` must be 0 or a live Axiom `Vec` of `Vec` handles for the call.
-    unsafe fn list_words<'a>(word: AxWord, func: &str, idx: usize, name: &str, shown: &str) -> &'a [i64] {
-        if word == 0 {
-            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[&[{shown}]]) is not a Vec: 0"));
-        }
-        let rows = AxVec::from_raw(word).as_slice();
-        for (r, &h) in rows.iter().enumerate() {
-            if h == 0 {
+    unsafe fn list_words<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+        shown: &str,
+    ) -> &'a [i64] {
+        unsafe {
+            // SAFETY: the `== 0` test below rules out address 0 and this
+            // function's `# Safety` makes any other word a live `Vec` of
+            // `Vec` handles, so `as_slice` is sound. The element loop is not
+            // what this block needs - it is what lets every caller
+            // dereference a row without checking it again.
+            if word == 0 {
                 abort(format_args!(
-                    "`{func}`: argument {idx} (`{name}`: &[&[{shown}]]) list {r} is not a Vec: 0"
+                    "`{func}`: argument {idx} (`{name}`: &[&[{shown}]]) is not a Vec: 0"
                 ));
             }
+            let rows = AxVec::from_raw(word).as_slice();
+            for (r, &h) in rows.iter().enumerate() {
+                if h == 0 {
+                    abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[&[{shown}]]) list {r} is not a Vec: 0"
+                ));
+                }
+            }
+            rows
         }
-        rows
     }
 
     /// A `&[&[i64]]` argument: one borrowed word slice per inner `Vec`,
@@ -603,11 +737,22 @@ pub mod __private {
     ///
     /// # Safety
     /// `word` must be 0 or a live Axiom `Vec` of `Vec` handles for the call.
-    pub unsafe fn word_lists<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<&'a [i64]> {
-        list_words(word, func, idx, name, "i64")
-            .iter()
-            .map(|&h| AxVec::from_raw(h).as_slice())
-            .collect()
+    pub unsafe fn word_lists<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> Vec<&'a [i64]> {
+        unsafe {
+            // SAFETY: `list_words` has already aborted unless `word` is a
+            // live `Vec` whose every element is a non-zero handle, so each
+            // `h` here meets `AxVec::from_raw`'s contract; the rows live as
+            // long as the outer vector the caller promised, the call (C1).
+            list_words(word, func, idx, name, "i64")
+                .iter()
+                .map(|&h| AxVec::from_raw(h).as_slice())
+                .collect()
+        }
     }
 
     /// A `&[&[f64]]` argument: each inner `Vec` reinterpreted in place
@@ -615,14 +760,25 @@ pub mod __private {
     ///
     /// # Safety
     /// As [`word_lists`].
-    pub unsafe fn word_lists_f64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<&'a [f64]> {
-        list_words(word, func, idx, name, "f64")
-            .iter()
-            .map(|&h| {
-                let s = AxVec::from_raw(h).as_slice();
-                core::slice::from_raw_parts(s.as_ptr() as *const f64, s.len())
-            })
-            .collect()
+    pub unsafe fn word_lists_f64<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> Vec<&'a [f64]> {
+        unsafe {
+            // SAFETY: as `word_lists` for each handle `list_words` checked;
+            // the reinterpretation is `words_f64`'s - same size, same
+            // alignment, no invalid `f64` bit pattern - over the length and
+            // lifetime of the word slice it came from.
+            list_words(word, func, idx, name, "f64")
+                .iter()
+                .map(|&h| {
+                    let s = AxVec::from_raw(h).as_slice();
+                    core::slice::from_raw_parts(s.as_ptr() as *const f64, s.len())
+                })
+                .collect()
+        }
     }
 
     /// A `&[&[u64]]` argument: each inner `Vec` reinterpreted in place
@@ -630,14 +786,23 @@ pub mod __private {
     ///
     /// # Safety
     /// As [`word_lists`].
-    pub unsafe fn word_lists_u64<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<&'a [u64]> {
-        list_words(word, func, idx, name, "u64")
-            .iter()
-            .map(|&h| {
-                let s = AxVec::from_raw(h).as_slice();
-                core::slice::from_raw_parts(s.as_ptr() as *const u64, s.len())
-            })
-            .collect()
+    pub unsafe fn word_lists_u64<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> Vec<&'a [u64]> {
+        unsafe {
+            // SAFETY: as `word_lists_f64`, and every 64-bit pattern is a
+            // valid `u64`, so the reinterpretation loses nothing either way.
+            list_words(word, func, idx, name, "u64")
+                .iter()
+                .map(|&h| {
+                    let s = AxVec::from_raw(h).as_slice();
+                    core::slice::from_raw_parts(s.as_ptr() as *const u64, s.len())
+                })
+                .collect()
+        }
     }
 
     /// A `&[&[T]]` argument for any other word scalar: every inner `Vec`
@@ -653,13 +818,25 @@ pub mod __private {
         idx: usize,
         name: &str,
     ) -> Vec<Vec<T>> {
-        list_words(word, func, idx, name, T::NAME)
-            .iter()
-            .enumerate()
-            .map(|(r, &h)| {
-                convert_words(AxVec::from_raw(h).as_slice(), func, idx, name, T::NAME, Some(r))
-            })
-            .collect()
+        unsafe {
+            // SAFETY: as `word_lists`: `list_words` has already aborted
+            // unless every element is a non-zero live `Vec` handle, so each
+            // `from_raw` below has its contract; `convert_words` is safe.
+            list_words(word, func, idx, name, T::NAME)
+                .iter()
+                .enumerate()
+                .map(|(r, &h)| {
+                    convert_words(
+                        AxVec::from_raw(h).as_slice(),
+                        func,
+                        idx,
+                        name,
+                        T::NAME,
+                        Some(r),
+                    )
+                })
+                .collect()
+        }
     }
 
     /// Hand owned word lists to Axiom as `(ptr, n)`: `ptr` holds `2n`
@@ -693,20 +870,34 @@ pub mod __private {
     ///
     /// # Safety
     /// `word` must be 0 or a live Axiom `Vec` handle for the call.
-    pub unsafe fn records<R: AxRecord>(word: AxWord, func: &str, idx: usize, name: &str, record: &str) -> Vec<R> {
-        if word == 0 {
-            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[{record}]) is not a Vec: 0"));
-        }
-        let s = AxVec::from_raw(word).as_slice();
-        if !s.len().is_multiple_of(R::ARITY) {
-            abort(format_args!(
+    pub unsafe fn records<R: AxRecord>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+        record: &str,
+    ) -> Vec<R> {
+        unsafe {
+            // SAFETY: the `== 0` test below, then the `from_raw` contract the
+            // caller promised, are what `as_slice` needs. The arity check
+            // after it is not a memory-safety condition; it is what stops
+            // `chunks_exact` from silently dropping a partial record.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[{record}]) is not a Vec: 0"
+                ));
+            }
+            let s = AxVec::from_raw(word).as_slice();
+            if !s.len().is_multiple_of(R::ARITY) {
+                abort(format_args!(
                 "`{func}`: argument {idx} (`{name}`: &[{record}]) holds {} words, not a multiple \
                  of the record's {} fields",
                 s.len(),
                 R::ARITY
             ));
+            }
+            s.chunks_exact(R::ARITY).map(R::from_words).collect()
         }
-        s.chunks_exact(R::ARITY).map(R::from_words).collect()
     }
 
     /// Hand owned records to Axiom as `(ptr, n)`: `ptr` holds
@@ -729,10 +920,17 @@ pub mod __private {
     /// # Safety
     /// `word` must be 0 or a live Axiom `Vec` of Strings for the call.
     unsafe fn str_words<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a [i64] {
-        if word == 0 {
-            abort(format_args!("`{func}`: argument {idx} (`{name}`: &[&str]) is not a Vec: 0"));
+        unsafe {
+            // SAFETY: the `== 0` test below rules out address 0, and this
+            // function's `# Safety` makes any other word a live Axiom `Vec`
+            // of String handles for the call - `from_raw`'s contract.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[&str]) is not a Vec: 0"
+                ));
+            }
+            AxVec::from_raw(word).as_slice()
         }
-        AxVec::from_raw(word).as_slice()
     }
 
     /// The UTF-8 failure message for one element of a `&[&str]`.
@@ -745,15 +943,27 @@ pub mod __private {
     ///
     /// # Safety
     /// `word` must be 0 or a live Axiom `Vec` of Strings for the call.
-    pub unsafe fn strs_strict<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<&'a str> {
-        let mut out = Vec::new();
-        for (k, &s) in str_words(word, func, idx, name).iter().enumerate() {
-            match AxStr::from_raw(s).as_str() {
-                Ok(v) => out.push(v),
-                Err(_) => abort(format_args!("{}", utf8_element_message(func, idx, k))),
+    pub unsafe fn strs_strict<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> Vec<&'a str> {
+        unsafe {
+            // SAFETY: `str_words` aborts unless `word` is a live `Vec` for
+            // the call, and this function's `# Safety` is what says its
+            // elements are Strings - `AxStr::from_raw`'s contract. Note that,
+            // unlike `list_words`, nothing here re-checks an element for 0:
+            // the promise carries it.
+            let mut out = Vec::new();
+            for (k, &s) in str_words(word, func, idx, name).iter().enumerate() {
+                match AxStr::from_raw(s).as_str() {
+                    Ok(v) => out.push(v),
+                    Err(_) => abort(format_args!("{}", utf8_element_message(func, idx, k))),
+                }
             }
+            out
         }
-        out
     }
 
     /// A `&[&str]` argument of a fallible shim: invalid UTF-8 is `Err`.
@@ -766,14 +976,19 @@ pub mod __private {
         idx: usize,
         name: &str,
     ) -> Result<Vec<&'a str>, String> {
-        let mut out = Vec::new();
-        for (k, &s) in str_words(word, func, idx, name).iter().enumerate() {
-            match AxStr::from_raw(s).as_str() {
-                Ok(v) => out.push(v),
-                Err(_) => return Err(utf8_element_message(func, idx, k)),
+        unsafe {
+            // SAFETY: as `strs_strict`, including its reliance on the
+            // caller's promise for the elements; the `Err` return changes
+            // only what invalid UTF-8 costs, not which words are read.
+            let mut out = Vec::new();
+            for (k, &s) in str_words(word, func, idx, name).iter().enumerate() {
+                match AxStr::from_raw(s).as_str() {
+                    Ok(v) => out.push(v),
+                    Err(_) => return Err(utf8_element_message(func, idx, k)),
+                }
             }
+            Ok(out)
         }
-        Ok(out)
     }
 
     /// A `&[&str]` argument under `utf8 = "lossy"`: the converted
@@ -782,10 +997,15 @@ pub mod __private {
     /// # Safety
     /// `word` must be 0 or a live Axiom `Vec` of Strings for the call.
     pub unsafe fn strs_lossy(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<String> {
-        str_words(word, func, idx, name)
-            .iter()
-            .map(|&s| String::from_utf8_lossy(AxStr::from_raw(s).as_bytes()).into_owned())
-            .collect()
+        unsafe {
+            // SAFETY: as `strs_strict` - `str_words` checks the vector, the
+            // caller's `# Safety` covers its String elements - and each
+            // string is copied out of the borrowed bytes before returning.
+            str_words(word, func, idx, name)
+                .iter()
+                .map(|&s| String::from_utf8_lossy(AxStr::from_raw(s).as_bytes()).into_owned())
+                .collect()
+        }
     }
 
     /// Range-check a narrow integer FIELD of a record parameter. Out of
@@ -811,8 +1031,15 @@ pub mod __private {
     /// Axiom glue allocated for this call (`ffiCellNewN`).
     #[inline]
     pub unsafe fn write_record<R: AxRecord>(out: AxWord, v: &R) {
-        let words = core::slice::from_raw_parts_mut(out as *mut AxWord, R::ARITY);
-        v.write_words(words)
+        unsafe {
+            // SAFETY: this function's `# Safety` puts the width on the
+            // caller: generated glue allocates the cell with
+            // `ffiCellNewN R::ARITY`, so `R::ARITY` words from `out` stay
+            // inside one Axiom block, and by C3 that cell is the caller's
+            // alone, so the `&mut` slice is unaliased for the write.
+            let words = core::slice::from_raw_parts_mut(out as *mut AxWord, R::ARITY);
+            v.write_words(words)
+        }
     }
 
     /// A callback argument. A 0 word is no closure record and aborts
@@ -823,15 +1050,21 @@ pub mod __private {
     /// for the call.
     #[inline]
     pub unsafe fn callback<F: AxCallback>(word: AxWord, func: &str, idx: usize, name: &str) -> F {
-        if word == 0 {
-            abort(format_args!(
-                "`{func}`: argument {idx} (`{name}`: a function of {} argument{}) is not a \
+        unsafe {
+            // SAFETY: the `word == 0` test below is what stops a code
+            // address being loaded from address 0, and this function's
+            // `# Safety` makes any other word a live closure record of
+            // `F::ARITY` for the call - `AxCallback::from_raw`'s contract.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: a function of {} argument{}) is not a \
                  closure: 0",
-                F::ARITY,
-                if F::ARITY == 1 { "" } else { "s" }
-            ));
+                    F::ARITY,
+                    if F::ARITY == 1 { "" } else { "s" }
+                ));
+            }
+            F::from_raw(word)
         }
-        F::from_raw(word)
     }
 
     /// Write an error message into the cell and answer `AX_ERR`.
@@ -854,14 +1087,22 @@ pub mod __private {
 /// Returns `i64` because Axiom's ABI is one word in and one word out;
 /// a `void` shim makes the call site read a register the callee never
 /// set. Nothing to report, so it reports 0.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_free_bytes(ptr: *mut u8, len: i64) -> i64 {
-    if ptr.is_null() || len <= 0 {
-        return 0;
+    unsafe {
+        // SAFETY: this function's `# Safety` pins `ptr`/`len` to exactly what
+        // a shim returned, i.e. `leak_bytes`'s `Box::into_raw` of a
+        // `Box<[u8]>`, so rebuilding that same box reclaims it with the layout
+        // it was allocated with. The null / `len <= 0` test below takes the
+        // empty case, which never allocated; Axiom's glue calls this once,
+        // right after the copy (C4).
+        if ptr.is_null() || len <= 0 {
+            return 0;
+        }
+        let s = core::ptr::slice_from_raw_parts_mut(ptr, len as usize);
+        drop(alloc::boxed::Box::from_raw(s));
+        0
     }
-    let s = core::ptr::slice_from_raw_parts_mut(ptr, len as usize);
-    drop(alloc::boxed::Box::from_raw(s));
-    0
 }
 
 /// Free words handed out by a shim (a `Vec<i64>` return).
@@ -869,14 +1110,20 @@ pub unsafe extern "C" fn axffi_free_bytes(ptr: *mut u8, len: i64) -> i64 {
 /// # Safety
 /// `ptr`/`len` must be exactly what a shim wrote into the out-cell and
 /// must not have been freed.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_free_words(ptr: *mut i64, len: i64) -> i64 {
-    if ptr.is_null() || len <= 0 {
-        return 0;
+    unsafe {
+        // SAFETY: as `axffi_free_bytes`, over `leak_words`'s `Box<[i64]>`:
+        // the caller promises the pair a shim wrote into the out-cell, and
+        // the null / `len <= 0` test below takes the empty case, which
+        // never allocated.
+        if ptr.is_null() || len <= 0 {
+            return 0;
+        }
+        let s = core::ptr::slice_from_raw_parts_mut(ptr, len as usize);
+        drop(alloc::boxed::Box::from_raw(s));
+        0
     }
-    let s = core::ptr::slice_from_raw_parts_mut(ptr, len as usize);
-    drop(alloc::boxed::Box::from_raw(s));
-    0
 }
 
 /// Free a string list handed out by a shim (a `Vec<String>` return):
@@ -886,16 +1133,25 @@ pub unsafe extern "C" fn axffi_free_words(ptr: *mut i64, len: i64) -> i64 {
 /// # Safety
 /// `ptr`/`n` must be exactly what a shim wrote into the out-cell and
 /// must not have been freed.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_free_str_list(ptr: *mut i64, n: i64) -> i64 {
-    if ptr.is_null() || n <= 0 {
-        return 0;
+    unsafe {
+        // SAFETY: the caller promises the `(ptr, n)` a shim wrote, so
+        // `leak_strs` allocated exactly `2n` words here and the read is in
+        // bounds; each pair is a `leak_bytes` result, which is
+        // `axffi_free_bytes`'s own precondition. The pair buffer is a
+        // `leak_words` buffer of `2n` words, freed last so the loop still
+        // has it to read. The null / `n <= 0` test below takes the empty
+        // case.
+        if ptr.is_null() || n <= 0 {
+            return 0;
+        }
+        let pairs = core::slice::from_raw_parts(ptr, n as usize * 2);
+        for pair in pairs.chunks_exact(2) {
+            axffi_free_bytes(pair[0] as *mut u8, pair[1]);
+        }
+        axffi_free_words(ptr, n * 2)
     }
-    let pairs = core::slice::from_raw_parts(ptr, n as usize * 2);
-    for pair in pairs.chunks_exact(2) {
-        axffi_free_bytes(pair[0] as *mut u8, pair[1]);
-    }
-    axffi_free_words(ptr, n * 2)
 }
 
 /// Free a word-list list handed out by a shim (a `Vec<Vec<T>>` return):
@@ -906,16 +1162,22 @@ pub unsafe extern "C" fn axffi_free_str_list(ptr: *mut i64, n: i64) -> i64 {
 /// # Safety
 /// `ptr`/`n` must be exactly what a shim wrote into the out-cell and
 /// must not have been freed.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_free_word_lists(ptr: *mut i64, n: i64) -> i64 {
-    if ptr.is_null() || n <= 0 {
-        return 0;
+    unsafe {
+        // SAFETY: as `axffi_free_str_list` over `leak_word_lists`: `2n`
+        // words of `(wordsPtr, len)` pairs, each pair exactly what
+        // `leak_words` answered and so `axffi_free_words`'s precondition,
+        // and the pair buffer freed last, after the loop has read it.
+        if ptr.is_null() || n <= 0 {
+            return 0;
+        }
+        let pairs = core::slice::from_raw_parts(ptr, n as usize * 2);
+        for pair in pairs.chunks_exact(2) {
+            axffi_free_words(pair[0] as *mut i64, pair[1]);
+        }
+        axffi_free_words(ptr, n * 2)
     }
-    let pairs = core::slice::from_raw_parts(ptr, n as usize * 2);
-    for pair in pairs.chunks_exact(2) {
-        axffi_free_words(pair[0] as *mut i64, pair[1]);
-    }
-    axffi_free_words(ptr, n * 2)
 }
 
 /// The ABI fingerprint this crate was built against.
@@ -923,7 +1185,7 @@ pub unsafe extern "C" fn axffi_free_word_lists(ptr: *mut i64, n: i64) -> i64 {
 /// Every crate that depends on the facade carries it, and an Axiom
 /// program can read it (`stdlib/Ffi.ax` binds it as `ffiAbiVersion`)
 /// to refuse a crate built against a different wire representation.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn axffi_abi_version() -> i64 {
     ABI_VERSION
 }

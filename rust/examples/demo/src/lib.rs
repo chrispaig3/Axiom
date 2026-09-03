@@ -265,7 +265,10 @@ pub fn point_origin() -> Point {
 
 #[axiom_export]
 pub fn point_scale(p: Point, k: i64) -> Point {
-    Point { x: p.x.wrapping_mul(k), y: p.y * k as f64 }
+    Point {
+        x: p.x.wrapping_mul(k),
+        y: p.y * k as f64,
+    }
 }
 
 #[axiom_export]
@@ -330,7 +333,12 @@ pub fn wrap_u64(x: u64) -> u64 {
 //     a words `Vec` the shim chunks back through `from_words`.
 #[axiom_export]
 pub fn points_scale(ps: &[Point], k: i64) -> Vec<Point> {
-    ps.iter().map(|p| Point { x: p.x.wrapping_mul(k), y: p.y * k as f64 }).collect()
+    ps.iter()
+        .map(|p| Point {
+            x: p.x.wrapping_mul(k),
+            y: p.y * k as f64,
+        })
+        .collect()
 }
 
 #[axiom_export]
@@ -349,7 +357,9 @@ pub fn points_try(ps: &[Point]) -> Result<Vec<Point>, String> {
 //     `Vec` of `Vec` handles, each row borrowed in place.
 #[axiom_export]
 pub fn grid(n: i64) -> Vec<Vec<i64>> {
-    (0..n.max(0)).map(|r| (0..n).map(|c| r * n + c).collect()).collect()
+    (0..n.max(0))
+        .map(|r| (0..n).map(|c| r * n + c).collect())
+        .collect()
 }
 
 #[axiom_export]
@@ -410,7 +420,10 @@ pub fn sum3(a: i64, b: i64, c: i64) -> i64 {
 
 #[axiom_export]
 pub fn sum5(a: i64, b: i64, c: i64, d: i64, e: i64) -> i64 {
-    a.wrapping_add(b).wrapping_add(c).wrapping_add(d).wrapping_add(e)
+    a.wrapping_add(b)
+        .wrapping_add(c)
+        .wrapping_add(d)
+        .wrapping_add(e)
 }
 
 // 8. The retain/release protocol.
@@ -433,11 +446,13 @@ static KEPT: AtomicI64 = AtomicI64::new(0);
 ///
 /// # Safety
 /// `s` must be a live Axiom `String` word.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_str_keep(s: axiom_ffi::AxWord) -> i64 {
-    axiom_ffi::axiom_retain(s);
-    KEPT.store(s, Ordering::Relaxed);
-    axiom_ffi::AxStr::from_raw(s).len() as i64
+    unsafe {
+        axiom_ffi::axiom_retain(s);
+        KEPT.store(s, Ordering::Relaxed);
+        axiom_ffi::AxStr::from_raw(s).len() as i64
+    }
 }
 
 /// Read the stashed value back. Answers -1 when nothing is held.
@@ -448,24 +463,28 @@ pub unsafe extern "C" fn axffi_str_keep(s: axiom_ffi::AxWord) -> i64 {
 ///
 /// # Safety
 /// Valid only between a `keep` and its paired `drop`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_str_recall() -> i64 {
-    let w = KEPT.load(Ordering::Relaxed);
-    if w == 0 {
-        return -1;
+    unsafe {
+        let w = KEPT.load(Ordering::Relaxed);
+        if w == 0 {
+            return -1;
+        }
+        axiom_ffi::AxStr::from_raw(w).len() as i64
     }
-    axiom_ffi::AxStr::from_raw(w).len() as i64
 }
 
 /// Release the share taken by `keep`. Pairs 1:1 with it.
 ///
 /// # Safety
 /// Must not be called twice for one `keep`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_str_drop() -> i64 {
-    let w = KEPT.swap(0, Ordering::Relaxed);
-    if w != 0 {
-        axiom_ffi::axiom_release(w);
+    unsafe {
+        let w = KEPT.swap(0, Ordering::Relaxed);
+        if w != 0 {
+            axiom_ffi::axiom_release(w);
+        }
+        0
     }
-    0
 }

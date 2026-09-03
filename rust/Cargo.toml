@@ -39,8 +39,49 @@ default-members = [
 
 [workspace.package]
 version = "0.6.3"
-edition = "2021"
+# EDITION 2024, from 2021 on 2026-09-03, and the reason is one lint.
+# `unsafe_op_in_unsafe_fn` is a hard error in this edition, so the body
+# of a `pub unsafe fn` can no longer perform unsafe operations without
+# marking them - which is the difference between a reader being able to
+# audit one and having to re-derive it. There were 116 such operations
+# here, 80 of them in `axiom-ffi/src/lib.rs`, every one inside a
+# function whose `# Safety` section already told the caller what to
+# guarantee and none of which said which line was relying on it.
+# `cargo fix --edition` did 41 of the 116; the rest are hand-written.
+edition = "2024"
+# The MSRV, declared rather than discovered. `#[diagnostic::on_unimplemented]`
+# in axiom-ffi needs 1.78 and edition 2024 needs 1.85; without this line an
+# older toolchain fails with a parse error somewhere in a dependency instead
+# of "requires rustc 1.85". Raise it deliberately, the way a target joins the
+# supported list.
+rust-version = "1.85"
 license = "MIT"
+
+# ONE LINT POLICY FOR THE WORKSPACE, inherited by every crate with
+# `[lints] workspace = true`, so a new crate starts at this level rather
+# than at rustc's defaults. Before 2026-09-03 the only crate-level
+# attribute anywhere in these five crates was one `#![deny(...)]` in
+# `axiom-abi`, and `.github/workflows/ci.yml` ran no clippy and no
+# rustfmt over any of them - 9.5k lines of hand-written Rust, most of it
+# unsafe, with no lint gate at all. `scripts/check-ffi.sh` now runs both.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# The FFI's whole subject is raw pointers and hand-built ABI structs, so
+# `undocumented_unsafe_blocks` is the lint that pays here: it asks for
+# the `// SAFETY:` line that says WHY, next to the code it is about.
+undocumented_unsafe_blocks = "warn"
+# ALLOWED BECAUSE THE SUGGESTION DOES NOT COMPILE, measured rather than
+# assumed. The four sites are `chunks_exact(R::ARITY)` over a record's
+# word count, and clippy proposes `as_chunks::<{ R::ARITY }>()`. `ARITY`
+# is an associated const of the generic parameter `R`, and putting one
+# in a const-generic position is `error: generic parameters may not be
+# used in const operations` on stable - it wants `generic_const_exprs`,
+# which is unstable. Tried on 2026-09-03 at `axiom-ffi/src/lib.rs:784`
+# before this line was written.
+chunks_exact_to_as_chunks = "allow"
 
 [workspace.dependencies]
 axiom-abi = { path = "axiom-abi", version = "0.6.3" }

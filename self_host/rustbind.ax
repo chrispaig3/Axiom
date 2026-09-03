@@ -239,20 +239,28 @@
       (if (strEq n "Option")
         {
           (vecPush
-            out            (cast Int (rbCtor "None" vecNew (cast (Vec Int) 0)))
+            out            (cast Int (rbCtor
+              "None"              vecNew              (cast (Vec Int) 0)
+            ))
           )
           (vecPush
-            out            (cast Int (rbCtor "Some" (rbVec1 (vecGet args 0)) (cast (Vec Int) 0)))
+            out            (cast Int (rbCtor
+              "Some"              (rbVec1 (vecGet args 0))              (cast (Vec Int) 0)
+            ))
           )
           0
         }
         (if (strEq n "Result")
           {
             (vecPush
-              out              (cast Int (rbCtor "Ok" (rbVec1 (vecGet args 0)) (cast (Vec Int) 0)))
+              out              (cast Int (rbCtor
+                "Ok"                (rbVec1 (vecGet args 0))                (cast (Vec Int) 0)
+              ))
             )
             (vecPush
-              out              (cast Int (rbCtor "Err" (rbVec1 (vecGet args 1)) (cast (Vec Int) 0)))
+              out              (cast Int (rbCtor
+                "Err"                (rbVec1 (vecGet args 1))                (cast (Vec Int) 0)
+              ))
             )
             0
           }
@@ -395,7 +403,9 @@
     (mut i 0)
   )
     {
-      (if (== (cast Int ts) 0)
+      (if (==
+        (cast Int ts)        0
+      )
         0
         (while (< i (vecLen ts))
           {
@@ -411,7 +421,9 @@
 (pub :: rbIndexOfName (-> (Vec Int) String Int))
 
 (pub fn (rbIndexOfName names n)
-  (if (== (cast Int names) 0)
+  (if (==
+    (cast Int names)    0
+  )
     (- 0 1)
     (let (
       (mut i 0)
@@ -560,7 +572,9 @@
                   }
                 )
                 (let ((fnames (rbCtorNames c)))
-                  (if (== (cast Int fnames) 0)
+                  (if (==
+                    (cast Int fnames)                    0
+                  )
                     0
                     (let ((mut k 0))
                       {
@@ -637,52 +651,52 @@
       (if (== (rbIsString t) 1)
         1
         (if (== (rbIsVec t) 1)
-        1
-        (if (== (rbIsData decls t) 1)
-          ; A type the Rust side cannot NAME is not carried, whatever
-          ; its fields are, and the test comes before the `visiting`
-          ; one so a recursive type is not waved through by its own
-          ; coinductive assumption.
-          (if (== (rbTypeNamesSpellable decls t) 0)
-            0
-            (let ((m (rbMangle t)))
-              (if (rbNamed visiting m)
-                1
-                (let (
-                  (cs (rbCtorsOf decls t))
-                  (mut ok 1)
-                  (mut i 0)
-                )
-                  {
-                    (vecPush
-                      visiting                      (cast Int m)
-                    )
-                    (while (< i (vecLen cs))
-                      {
-                        (let (
-                          (tys (rbCtorTys (vecGet cs i)))
-                          (mut k 0)
-                        )
-                          (while (< k (vecLen tys))
-                            {
-                              (if (== (rbCarried decls (vecGet tys k) visiting) 0)
-                                (set ok 0)
-                                0
-                              )
-                              (set k (+ k 1))
-                            })
-                        )
-                        (set i (+ i 1))
-                      })
-                    (vecPop visiting)
-                    ok
-                  }
+          1
+          (if (== (rbIsData decls t) 1)
+            ; A type the Rust side cannot NAME is not carried, whatever
+            ; its fields are, and the test comes before the `visiting`
+            ; one so a recursive type is not waved through by its own
+            ; coinductive assumption.
+            (if (== (rbTypeNamesSpellable decls t) 0)
+              0
+              (let ((m (rbMangle t)))
+                (if (rbNamed visiting m)
+                  1
+                  (let (
+                    (cs (rbCtorsOf decls t))
+                    (mut ok 1)
+                    (mut i 0)
+                  )
+                    {
+                      (vecPush
+                        visiting                        (cast Int m)
+                      )
+                      (while (< i (vecLen cs))
+                        {
+                          (let (
+                            (tys (rbCtorTys (vecGet cs i)))
+                            (mut k 0)
+                          )
+                            (while (< k (vecLen tys))
+                              {
+                                (if (== (rbCarried decls (vecGet tys k) visiting) 0)
+                                  (set ok 0)
+                                  0
+                                )
+                                (set k (+ k 1))
+                              })
+                          )
+                          (set i (+ i 1))
+                        })
+                      (vecPop visiting)
+                      ok
+                    }
+                  )
                 )
               )
             )
+            0
           )
-          0
-        )
         )
       )
     )
@@ -1053,9 +1067,21 @@
 
 (pub fn (rbHeader fileName) (cat4 (cat3 "//! GENERATED by `axiom build --emit-rust-binding` from " (rbCommentSafe (pathBase fileName)) ". Do not edit.\n") "//!\n//! Link the archive `--emit-staticlib` wrote beside this file; every\n//! function below is a `pub fn` of that module, a C symbol under its own\n//! name. Arguments are borrowed for the call (a callee that keeps one\n//! retains it); every result is an owned share the wrapper adopts or\n//! releases. `String` arguments are built with the archive's own\n//! `Str$strAlloc`; a `data` value is built and read through the `axh_*`\n//! accessors the same build synthesised into the archive.\n" "#![allow(non_snake_case, non_camel_case_types, dead_code, unused_imports, unused_unsafe, clippy::all)]\n\n" "use axiom_ffi::host::AxString;\nuse axiom_ffi::{axiom_release, AxWord};\n\n"))
 
+; `unsafe extern "C"`, not `extern "C"`, SINCE 2026-09-03. Edition 2024
+; makes an un-`unsafe` extern block a hard error - "extern blocks must
+; be unsafe" - and this file is generated INTO somebody else's crate,
+; so it has to compile in the edition that crate chose. The `unsafe`
+; spelling is accepted in every edition from Rust 1.82, which is below
+; `rust/Cargo.toml`'s declared MSRV, so writing it costs nothing on an
+; older edition and is required on the current one.
+;
+; `scripts/check-ffi.sh` diffs the checked-in
+; `rust/examples/host/src/hostlib.rs` against a fresh generation byte
+; for byte, so that file is regenerated in the same commit as this
+; line; the gate is what makes the pair a pair.
 (pub :: rbRawBlock (-> (Vec Int) String))
 
-(pub fn (rbRawBlock raws) (cat3 "mod raw {\n    extern \"C\" {\n" (rbJoin raws) "    }\n}\n\n"))
+(pub fn (rbRawBlock raws) (cat3 "mod raw {\n    unsafe extern \"C\" {\n" (rbJoin raws) "    }\n}\n\n"))
 
 ; `AxVecBuf`: an Axiom `Vec` the host builds and reads through the
 ; synthesised shims; its share is released on drop.
@@ -1266,22 +1292,22 @@
           "AxString"
         )
         (if (== (rbIsVec t) 1)
-        "AxWord"
-        (if (== (rbIsData decls t) 1)
-          (if (== (rbCarried decls t vecNew) 0)
-            ""
-            (let ((own (rbRustDataName decls t)))
-              (if (== pos 0)
-                (cat2 "&" own)
-                own
+          "AxWord"
+          (if (== (rbIsData decls t) 1)
+            (if (== (rbCarried decls t vecNew) 0)
+              ""
+              (let ((own (rbRustDataName decls t)))
+                (if (== pos 0)
+                  (cat2 "&" own)
+                  own
+                )
               )
             )
+            (if (&& (== (nodeTag t) TAG_T_TUP) (&& (== pos 1) (== (vecLen (nodeAVec t)) 0)))
+              "()"
+              ""
+            )
           )
-          (if (&& (== (nodeTag t) TAG_T_TUP) (&& (== pos 1) (== (vecLen (nodeAVec t)) 0)))
-            "()"
-            ""
-          )
-        )
         )
       )
     )
@@ -1399,15 +1425,15 @@
       (if (== (rbIsString t) 1)
         (cat2 e ".as_word()")
         (if (== (rbIsVec t) 1)
-        (cat2 deref e)
-        (cat4
-          "__to_"          (rbMangle t)          "("          (cat2
-            (if (== isRef 1)
-              e
-              (cat2 "&" e)
-            )            ")"
+          (cat2 deref e)
+          (cat4
+            "__to_"            (rbMangle t)            "("            (cat2
+              (if (== isRef 1)
+                e
+                (cat2 "&" e)
+              )              ")"
+            )
           )
-        )
         )
       )
     )
@@ -1623,7 +1649,11 @@
 
 (pub fn (rbFieldName c k)
   (let ((names (rbCtorNames c)))
-    (if (|| (== (cast Int names) 0) (>= k (vecLen names)))
+    (if (||
+      (==
+        (cast Int names)        0
+      )      (>= k (vecLen names))
+    )
       (cat2 "f" (fmtInt k))
       (rbSnake
         (cast String (vecGet names k))

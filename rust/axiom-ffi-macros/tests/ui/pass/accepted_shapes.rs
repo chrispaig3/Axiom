@@ -390,13 +390,13 @@ extern "C" fn lam_sum3_middle(env: AxWord, b: AxWord) -> AxWord {
 
 /// No Axiom runtime is linked here, so the chain's releases land on a
 /// stub that frees the two-word links the outer/middle steps boxed.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn axiom_release(h: AxWord) {
     RELEASED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     drop(unsafe { Box::from_raw(h as *mut [AxWord; 2]) });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn axiom_retain(_h: AxWord) {}
 
 static RELEASED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
