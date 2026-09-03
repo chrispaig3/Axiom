@@ -1,0 +1,90 @@
+; MM-PAR-6: what a `parallel` binding may CAPTURE
+; (docs/memory-model-v2-design.md section 3.2b).
+;
+; A binding runs BESIDE its parent, and `axiom_retain`/`axiom_release`
+; are a plain load-add-store rather than an `atomicrmw`. So a heap
+; value a thunk names is a block whose count two threads touch with no
+; fence between them, they lose an increment, and the block is freed
+; while a live reference still names it. What a binding may share with
+; its parent is a WORD.
+;
+; The rule is unconditional. The checker never sees `--threads`, and a
+; diagnostic that appears and disappears with a codegen flag is unlike
+; anything else in the AX3xxx band; `__proc_spawn` is exempt because it
+; names the ISOLATED lowering itself, which is a statement about that
+; primitive rather than about a build flag.
+;
+; Every row is `;@axiom:effect(io)` because `__par_spawn` carries `IO`:
+; a `parallel` is an effect whatever it computes.
+;
+;   1  `shared` captures a `String` its enclosing function also holds.
+;      Two AX3064s, one per BINDING - each binding is its own thunk -
+;      and the second occurrence inside `a` draws nothing, which is
+;      what pins the once-per-name rule. Each is anchored on the
+;      OCCURRENCE and not on the word `parallel`: the occurrence is
+;      where the fix is.
+;   2  `words` is the control, and the whole point of it: a binding
+;      capturing only an `Int` is SILENT. A rule that refused every
+;      capture would pass a fixture with row 1 alone.
+;   3  `shadowed` binds its own `s` inside the binding. That is not a
+;      capture even though an outer `s` of the same spelling is a
+;      `String`, and it is what the walk's binder arms exist for.
+;   4  `called` reaches a TOP-LEVEL function from inside a binding.
+;      Silent: `sink` is a module-level name, and value resolution -
+;      which this rule has to agree with - reads the current frame
+;      only. Looking below `frameBase` finds every signature the
+;      module walk has pushed, and a top-level `(-> String Int)` is an
+;      arrow, which classifies as a reference: with that lookup this
+;      row is a false AX3064 and so is `tests/stdlib/470-parallel.ax`.
+;   5  `container` captures a `Vec`. Silent, and not by accident:
+;      `evScalarName` lists `Vec` for the OWNERSHIP reason its own
+;      comment gives - a `Vec` takes no share, so there is no count to
+;      race over. `tests/stdlib/471-parallel-trap.ax` captures one.
+(import IO)
+
+(import Str)
+
+(import Vec)
+
+(:: sink (-> String Int))
+
+(fn (sink s) (strLen s))
+
+(:: shared (-> String Int))
+
+;@axiom:effect(io)
+(fn (shared s)
+  (parallel p ((a (+ (strLen s) (strLen s))) (b (strLen s)))
+    (+ a b)))
+
+(:: words (-> Int Int))
+
+;@axiom:effect(io)
+(fn (words n)
+  (parallel p ((a (* n 2)) (b (+ n 1)))
+    (+ a b)))
+
+(:: shadowed (-> String Int))
+
+;@axiom:effect(io)
+(fn (shadowed s)
+  (parallel p ((a (let ((s (strConcat "x" "y"))) (strLen s))) (b 2))
+    (+ a b)))
+
+(:: called (-> String Int))
+
+;@axiom:effect(io)
+(fn (called s)
+  (parallel p ((a (sink "lit")) (b 2))
+    (+ a b)))
+
+(:: container (-> (Vec Int) Int))
+
+;@axiom:effect(io)
+(fn (container v)
+  (parallel p ((a (vecLen v)) (b 2))
+    (+ a b)))
+
+(:: main Int)
+
+(fn (main) 0)

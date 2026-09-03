@@ -9035,6 +9035,460 @@
 )
 
 ; ------------------------------------------------------------------
+; MM-PAR-6: what a `parallel` binding may CAPTURE.
+;
+; `(parallel p ((a e1) (b e2)) body)` is a PARSER desugaring - each
+; binding becomes `(__par_spawn (lambda (parallel$_) e) 0)` - so the
+; only thing the checker ever sees is an ordinary two-argument
+; application with a lambda in argument 0. That is the whole reason
+; this rule lives here and not in codegen: at `parScan` time the type
+; table is not yet populated, so `fldClass` answers "not a reference"
+; for every struct and every `data` - a check that passes on exactly
+; the types it exists for. `codegen.ax`'s `emitParThread` header
+; records the measurement.
+;
+; WHAT IS WRONG WITH A CAPTURE. Under `--threads` a binding's thunk
+; runs on a real pthread while the parent keeps running, so a heap
+; value the thunk names is reachable from two threads at once. Neither
+; `axiom_retain` nor `axiom_release` is an `atomicrmw` - both are a
+; plain load-add-store, by design and everywhere - so the two threads
+; lose an increment and the block is freed while a live reference
+; names it. Corruption, not a leak.
+;
+; UNCONDITIONAL, and not gated on `--threads`. The checker does not
+; see codegen's flags, and a diagnostic that appears and disappears
+; with a build flag is unlike anything else in the AX3xxx band. So the
+; language rule is one rule and the PROCESS lowering is merely
+; permitted to be laxer than it: `__proc_spawn` names that lowering
+; explicitly - a separate address space, MM-PAR-3's isolation by
+; construction - and is exempt for that reason and not because a flag
+; was passed. `__par_spawn` (which is whichever lowering the build
+; picks, so it must assume the sharper one) and `__thread_spawn` are
+; refused alike.
+;
+; WHAT IS REFUSED IS EVERY CLASS BUT 0, and the width is a
+; measurement rather than a preference - `capReport` carries the
+; numbers. `evClassOf`'s 0 is the only answer that PROMISES no share
+; is taken; 1, `2+k` and the negatives each mean "a reference, or
+; possibly one", and the corpus contains none of them at a spawn, so
+; the wide rule costs nothing and leaves no hole to come back to.
+;
+; `Vec` IS CLASS 0 AND THAT IS NOT AN OVERSIGHT. `evScalarName` lists
+; it, for the ownership reason its own comment gives: a `Vec` takes no
+; share, so no count is raced over. `tests/stdlib/471-parallel-trap.ax`
+; captures one and stays green - which is worth stating plainly,
+; because that fixture's header does not mention the capture at all.
+; ------------------------------------------------------------------
+; The two spawn primitives whose lowering SHARES an address space with
+; the parent. `__proc_spawn` is deliberately not here: it names the
+; forked lowering, whose isolation is MM-PAR-3's by construction, and
+; exempting it is a statement about that primitive rather than about a
+; build flag. `__par_spawn` is whichever lowering the build selects, so
+; it has to assume the sharper one.
+(pub :: capSpawnHead (-> String Int))
+
+(pub fn (capSpawnHead nm)
+  (if (|| (strEq nm "__par_spawn") (strEq nm "__thread_spawn"))
+    1
+    0
+  )
+)
+
+(pub :: checkSpawnCaptures (-> Int Int Int))
+
+(pub fn (checkSpawnCaptures tc lam)
+  ; A bare function reference - `(__par_spawn worker 0)` - is not a
+  ; lambda and captures nothing: a top-level name is a symbol, not a
+  ; record.
+  (if (!= (nodeTag lam) TAG_E_LAM)
+    0
+    (capReport
+      tc      (capScanInto (nodeB lam) (capBoundOf (nodeAVec lam)) vecNew)      0      vecNew
+    )
+  )
+)
+
+; The lambda's own parameters, COPIED. The walk pushes and truncates
+; this vector as it enters and leaves binders, and the node's own
+; parameter vector is read again by `checkLam` afterwards.
+(pub :: capBoundOf (-> (Vec Int) (Vec Int)))
+
+(pub fn (capBoundOf params)
+  (let (
+    (v vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen params))
+        {
+          (vecPush v (vecGet params i))
+          (set i (+ i 1))
+        })
+      v
+    }
+  )
+)
+
+; Every TAG_E_VAR under `e` that no binder BETWEEN `e` and the
+; occurrence introduced, in source order, pushed into `acc`; answers
+; `acc`. `castScanInto`'s twin, predicate swapped from "head named
+; `cast`" to "a name this body did not bind", plus the binder arms
+; that walker has no use for. Duplicated rather than shared for the
+; reason `wrapScanInto` gives: this file already hand-duplicates a
+; full tree walk per collected fact, and a generic walker would be a
+; new abstraction for one rule.
+;
+; THE BINDER ARMS ARE THE WHOLE CORRECTNESS ARGUMENT. A name the
+; thunk binds itself is not a capture, and a thunk that shadows an
+; outer `String` with its own `let` would otherwise be refused for
+; using its own binding - the one false positive this shape can
+; have. `for` needs no arm of its own: the parser desugars it into
+; `let`/`letm`/`while`, which are here.
+(pub :: capScanInto (-> Int (Vec Int) (Vec Int) (Vec Int)))
+
+(pub fn (capScanInto e bound acc)
+  (if (== e 0)
+    acc
+    (let ((tag (nodeTag e)))
+      {
+        (if (== tag TAG_E_VAR)
+          (if (< (strVecIdx bound (nodeAName e)) 0)
+            { (vecPush acc e) 0 }
+            0
+          )
+          (if (== tag TAG_E_APP)
+            {
+              ; The HEAD too, unlike `castScanInto`: a head that names
+              ; a local closure is a capture of that closure's record,
+              ; and calling it from the child thread touches its count.
+              ; A head naming a top-level function resolves to nothing
+              ; in the frame and drops out at `capReport`.
+              (capScanIn (spineHead e) bound acc)
+              (capScanVec (spineArgVec e vecNew) 0 bound acc)
+            }
+            (if (== tag TAG_E_ALLOC)
+              (capScanIn (nodeB e) bound acc)
+              (if (== tag TAG_E_SETF)
+                {
+                  (capScanIn (nodeA e) bound acc)
+                  (capScanIn (nodeC e) bound acc)
+                }
+                (if (== tag TAG_E_HANDLE)
+                  ; Word 2 is a Vec of TAG_E_VAR nodes naming EFFECTS,
+                  ; not values, and walking it would report an effect
+                  ; name as a captured variable.
+                  {
+                    (capScanIn (nodeA e) bound acc)
+                    (capScanIn (nodeC e) bound acc)
+                  }
+                  (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                    {
+                      (capScanIn (nodeB e) bound acc)
+                      (let ((mark (vecLen bound)))
+                        {
+                          (vecPush bound (nodeA e))
+                          (capScanIn (nodeC e) bound acc)
+                          (scopeTrunc bound mark)
+                        }
+                      )
+                    }
+                    (if (== tag TAG_E_LAM)
+                      (let ((mark (vecLen bound)))
+                        {
+                          (capPushAll (nodeAVec e) 0 bound)
+                          (capScanIn (nodeB e) bound acc)
+                          (scopeTrunc bound mark)
+                        }
+                      )
+                      (if (== tag TAG_E_IF)
+                        {
+                          (capScanIn (nodeA e) bound acc)
+                          (capScanIn (nodeB e) bound acc)
+                          (capScanIn (nodeC e) bound acc)
+                        }
+                        (if (== tag TAG_E_BEGIN)
+                          (capScanVec (nodeAVec e) 0 bound acc)
+                          (if (== tag TAG_E_WHILE)
+                            {
+                              (capScanIn (nodeA e) bound acc)
+                              (capScanVec (nodeBVec e) 0 bound acc)
+                            }
+                            (if (== tag TAG_E_REGION)
+                              ; Word 1 is the region's NAME, which
+                              ; nothing refers to as a value.
+                              (capScanIn (nodeB e) bound acc)
+                              (if (== tag TAG_E_SET)
+                                ; The TARGET is `checkSet`'s: assigning
+                                ; an outer binding from inside a lambda
+                                ; is already MM-MUT-1a's refusal, and
+                                ; reporting it again here would say the
+                                ; same thing twice.
+                                (capScanIn (nodeB e) bound acc)
+                                (if (== tag TAG_E_FIELD)
+                                  (capScanIn (nodeA e) bound acc)
+                                  (if (== tag TAG_E_STRUCTCON)
+                                    (capScanVec (nodeBVec e) 0 bound acc)
+                                    (if (== tag TAG_E_COND)
+                                      (capScanCond (nodeAVec e) 0 bound acc)
+                                      (if (== tag TAG_E_MATCH)
+                                        {
+                                          (capScanIn (nodeA e) bound acc)
+                                          (capScanArms (nodeBVec e) 0 bound acc)
+                                        }
+                                        0
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+        acc
+      }
+    )
+  )
+)
+
+; `capScanInto` for effect, answering 0 - the arms above sequence
+; several of these in a block.
+(pub :: capScanIn (-> Int (Vec Int) (Vec Int) Int))
+
+(pub fn (capScanIn e bound acc)
+  {
+    (capScanInto e bound acc)
+    0
+  }
+)
+
+(pub :: capScanVec (-> (Vec Int) Int (Vec Int) (Vec Int) Int))
+
+(pub fn (capScanVec v i bound acc)
+  (if (>= i (vecLen v))
+    0
+    {
+      (capScanIn (vecGet v i) bound acc)
+      (capScanVec
+        v        (+ i 1)        bound        acc
+      )
+    }
+  )
+)
+
+(pub :: capScanCond (-> (Vec Int) Int (Vec Int) (Vec Int) Int))
+
+(pub fn (capScanCond cls i bound acc)
+  (if (>= i (vecLen cls))
+    0
+    (let ((c (vecGet cls i)))
+      {
+        (capScanIn (nodeA c) bound acc)
+        (capScanIn (nodeB c) bound acc)
+        (capScanCond
+          cls          (+ i 1)          bound          acc
+        )
+      }
+    )
+  )
+)
+
+; Each arm's PATTERN binds, and only inside that arm's body.
+(pub :: capScanArms (-> (Vec Int) Int (Vec Int) (Vec Int) Int))
+
+(pub fn (capScanArms arms i bound acc)
+  (if (>= i (vecLen arms))
+    0
+    (let ((a (vecGet arms i)))
+      {
+        (let ((mark (vecLen bound)))
+          {
+            (capPatBind (nodeA a) bound)
+            (capScanIn (nodeB a) bound acc)
+            (scopeTrunc bound mark)
+          }
+        )
+        (capScanArms
+          arms          (+ i 1)          bound          acc
+        )
+      }
+    )
+  )
+)
+
+(pub :: capPushAll (-> (Vec Int) Int (Vec Int) Int))
+
+(pub fn (capPushAll params i bound)
+  (if (>= i (vecLen params))
+    0
+    {
+      (vecPush bound (vecGet params i))
+      (capPushAll
+        params        (+ i 1)        bound
+      )
+    }
+  )
+)
+
+; The names a pattern binds, on `checkPatternTyped`'s reading of the
+; same nodes: a bare identifier binds (`_`, `true` and `false`
+; excepted), a constructor spine and a named-field pattern bind
+; through their sub-patterns, and a literal binds nothing.
+(pub :: capPatBind (-> Int (Vec Int) Int))
+
+(pub fn (capPatBind pat bound)
+  (if (== pat 0)
+    0
+    (let ((tag (nodeTag pat)))
+      (if (== tag TAG_E_VAR)
+        (if (|| (strEq (nodeAName pat) "_") (|| (strEq (nodeAName pat) "true") (strEq (nodeAName pat) "false")))
+          0
+          {
+            (vecPush bound (nodeA pat))
+            0
+          }
+        )
+        (if (== tag TAG_E_APP)
+          (capPatBindVec (spineArgVec pat vecNew) 0 bound)
+          (if (== tag TAG_P_CONNAMED)
+            (capPatBindVec (nodeCVec pat) 0 bound)
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: capPatBindVec (-> (Vec Int) Int (Vec Int) Int))
+
+(pub fn (capPatBindVec v i bound)
+  (if (>= i (vecLen v))
+    0
+    {
+      (capPatBind (vecGet v i) bound)
+      (capPatBindVec
+        v        (+ i 1)        bound
+      )
+    }
+  )
+)
+
+; One diagnostic per NAME, at its first occurrence, so a thunk that
+; reads the same string three times is refused once.
+;
+; `scopeFindFrame` and not `scopeFindIdx`: the scope vector holds the
+; MODULE walk's entries below `frameBase` - every signature seen so
+; far - and `scopeFindIdx` searches all of them. Measured: with that
+; lookup, `tests/stdlib/470-parallel.ax` is refused at `spin`, because
+; a top-level `(-> Int Int)` is a TAG_T_ARR and `evClassOf` answers 1
+; for one. Value resolution reads the frame only, which is the rule
+; this has to agree with.
+(pub :: capReport (-> Int (Vec Int) Int (Vec Int) Int))
+
+(pub fn (capReport tc occ i seen)
+  (if (>= i (vecLen occ))
+    0
+    (let ((v (vecGet occ i)))
+      {
+        (let ((name (nodeAName v)))
+          (if (>= (strVecIdx seen name) 0)
+            0
+            (let ((ent (scopeFindFrame tc name)))
+              (if (== ent 0)
+                0
+                (let ((ty (sEntTy ent)))
+                  ; POISON AND THE SILENT WILDCARD SAY NOTHING, and a
+                  ; check that reported them would break the cascade
+                  ; rule this file keeps everywhere else - `rgCheckStore`
+                  ; spells the same guard one screen up. It matters
+                  ; here in particular because `evClassOf` answers a
+                  ; NEGATIVE class to the silent wildcard, and the arm
+                  ; below refuses every negative: without this line an
+                  ; unrelated earlier error would grow an AX3064 of its
+                  ; own on top of it.
+                  (if (|| (== (tyIsErr ty) 1) (== (tyIsSilentWild ty) 1))
+                    0
+                    (let ((cls (evClassOf tc ty)))
+                      ; EVERYTHING BUT CLASS 0. `evClassOf` answers 0
+                      ; for a value that takes no share of a count -
+                      ; the scalars, and `Vec`, whose own comment gives
+                      ; the ownership reason - and that is the only
+                      ; answer which is a PROMISE that no count is
+                      ; raced over. 1 is a reference outright. `2+k`
+                      ; is a type the caller chooses, so it may be a
+                      ; reference at some call. And negative is two
+                      ; things, neither of them a promise: `EV_LAMARG
+                      ; - d` (-2 and down) is the enclosing lambda's
+                      ; own parameter, which codegen retains under a
+                      ; bit of the word the APPLICATION passes - a
+                      ; reference exactly when that bit is set - and
+                      ; -1 is a minted placeholder, which emits no
+                      ; `__retainref` at all and is MM-LIFE-2g's known
+                      ; hole rather than a classification.
+                      ;
+                      ; Refusing the last two is free, and that is a
+                      ; measurement rather than a guess: swept over
+                      ; every one of the 611 `.ax` files in the tree
+                      ; on 2026-09-03, the corpus contains TWELVE
+                      ; captures at a spawn, in four files
+                      ; (`tests/stdlib/470-parallel.ax` x5,
+                      ; `471-parallel-trap.ax` x1, and
+                      ; `tests/fmt/syntax-zoo.ax` and its `.expected`
+                      ; x3 each), and EVERY ONE classifies 0. Nothing
+                      ; reaches `2+k` or a negative, so the wider rule
+                      ; costs the corpus nothing and closes the hole
+                      ; for the first `parallel` written inside a
+                      ; generic function.
+                      (if (!= cls 0)
+                        {
+                          (vecPush seen (nodeA v))
+                          (emitSpawnCapture
+                            tc                            name                            ty                            (nodeSpan v)                            cls
+                          )
+                        }
+                        0
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+        (capReport
+          tc          occ          (+ i 1)          seen
+        )
+      }
+    )
+  )
+)
+
+(pub :: emitSpawnCapture (-> Int String Int Int Int Int))
+
+(pub fn (emitSpawnCapture tc name ty span cls)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR      "AX3064"      "parallel-capture"      span      (strConcat (strConcat (strConcat (strConcat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty)) (if (== cls 1)
+        "` - a reference the parent also holds"
+        (if (>= cls 2)
+          "` - a type the caller chooses, so it may be a reference here"
+          "` - a type this checker cannot classify, so it cannot promise the block's count is untouched"
+        )
+      ))      0      0      "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word"      "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt"
+    ) (strConcat (strConcat "`" name) "` is bound outside this binding")))
+    0
+  }
+)
+
+; ------------------------------------------------------------------
 ; Applications. At each spine's ROOT: the saturation check (AX3013 /
 ; AX3009 for under-application, with the refused spine's arguments
 ; still checked and the head left alone). At EVERY level - stage0
@@ -9099,6 +9553,19 @@
             ""
           )
         ))
+          ; MM-PAR-6, and it answers nothing: a SIDE CHECK, bound and
+          ; ignored so the arms below decide this application's type
+          ; exactly as they did before. `(spineArgs e 0)` is 2 only at
+          ; the ROOT of `(__par_spawn thunk word)`, which is what stops
+          ; it from running once per curried level, and argument 0 is
+          ; `(nodeB (nodeA e))` - the reading `checkNumeric` above uses
+          ; for the same shape.
+          (let ((_cap
+            (if (&& (== headIsVar 1) (&& (== (capSpawnHead hname) 1) (== (spineArgs e 0) 2)))
+              (checkSpawnCaptures tc (nodeB (nodeA e)))
+              0
+            )
+          ))
           (if (&& (== inHead 0) (&& (== headIsVar 1) (== (checkSaturation tc e head hname) 1)))
             (mkNode TAG_T_ERR 0 0 0)
             (if (&& (== headIsVar 1) (== (isNumericTwoArg e hname) 1))
@@ -9201,6 +9668,7 @@
                 )
               )
             )
+          )
           )
           )
         )
