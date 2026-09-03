@@ -99,14 +99,20 @@ F errContextOf stdlib/Err.ax:185:9-21 "(Error -> (String -> Error))" @b862d60d2e
 F withContext stdlib/Err.ax:189:9-20 "(Result a Error -> (String -> Result a Error))" @9733c7d4aeb3bcda #effects=Alloc #calls=Err$errContextOf
 F okOr stdlib/Err.ax:205:9-13 "(Option a -> (e -> Result a e))" @c1f60d511b5769c4 #effects=Alloc
 F toOption stdlib/Err.ax:214:9-17 "(Result a e -> Option a)" @8b13feec85bc508b #effects=Alloc
-F intMin stdlib/Err.ax:237:9-15 "Int" @f0cd39212565a998 #calls=-
-F addChecked stdlib/Err.ax:271:9-19 "(Int -> (Int -> Result Int Error))" @5d660b40b8422a2f #effects=Alloc #calls=&,+,<,Err$errOverflow,Err$mkError,^
-F subChecked stdlib/Err.ax:284:9-19 "(Int -> (Int -> Result Int Error))" @4c69b49dee798ee8 #effects=Alloc #calls=&,-,<,Err$errOverflow,Err$mkError,^
-F mulChecked stdlib/Err.ax:297:9-19 "(Int -> (Int -> Result Int Error))" @a9a6c99c92231704 #effects=Alloc #calls=!=,&&,*,-,/,==,Err$errOverflow,Err$intMin,Err$mkError,||
-F divChecked stdlib/Err.ax:330:9-19 "(Int -> (Int -> Result Int Error))" @64cf173b228d176f #effects=Alloc #calls=&&,-,/,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
-F remChecked stdlib/Err.ax:342:9-19 "(Int -> (Int -> Result Int Error))" @8fb62ce3aababe76 #effects=Alloc #calls=%,&&,-,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
-F shlChecked stdlib/Err.ax:357:9-19 "(Int -> (Int -> Result Int Error))" @554de2a593269cfd #effects=Alloc #calls=<,<<,>=,Err$errShiftTooWide,Err$mkError,||
-F shrChecked stdlib/Err.ax:366:9-19 "(Int -> (Int -> Result Int Error))" @d6fbeaead7a43037 #effects=Alloc #calls=<,>=,>>,Err$errShiftTooWide,Err$mkError,||
+F isSome stdlib/Err.ax:252:9-15 "(Option a -> Bool)" @607c94fa42bbf2d3
+F isNone stdlib/Err.ax:263:9-15 "(Option a -> Bool)" @663ca817f9615dd1
+F optUnwrapOr stdlib/Err.ax:275:9-20 "(Option a -> (a -> a))" @5843089a10bee3c2
+F optMap stdlib/Err.ax:287:9-15 "(Option a -> ((a -> b) -> Option b))" @1e5045cee49c1156 #effects=Alloc #effect-params=f
+F optAndThen stdlib/Err.ax:299:9-19 "(Option a -> ((a -> Option b) -> Option b))" @89260c14169ebce2 #effect-params=f
+F optOr stdlib/Err.ax:312:9-14 "(Option a -> (Option a -> Option a))" @9f2916831fbd7f1d #effects=Alloc
+F intMin stdlib/Err.ax:335:9-15 "Int" @f0cd39212565a998 #calls=-
+F addChecked stdlib/Err.ax:369:9-19 "(Int -> (Int -> Result Int Error))" @5d660b40b8422a2f #effects=Alloc #calls=&,+,<,Err$errOverflow,Err$mkError,^
+F subChecked stdlib/Err.ax:382:9-19 "(Int -> (Int -> Result Int Error))" @4c69b49dee798ee8 #effects=Alloc #calls=&,-,<,Err$errOverflow,Err$mkError,^
+F mulChecked stdlib/Err.ax:395:9-19 "(Int -> (Int -> Result Int Error))" @a9a6c99c92231704 #effects=Alloc #calls=!=,&&,*,-,/,==,Err$errOverflow,Err$intMin,Err$mkError,||
+F divChecked stdlib/Err.ax:428:9-19 "(Int -> (Int -> Result Int Error))" @64cf173b228d176f #effects=Alloc #calls=&&,-,/,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
+F remChecked stdlib/Err.ax:440:9-19 "(Int -> (Int -> Result Int Error))" @8fb62ce3aababe76 #effects=Alloc #calls=%,&&,-,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
+F shlChecked stdlib/Err.ax:455:9-19 "(Int -> (Int -> Result Int Error))" @554de2a593269cfd #effects=Alloc #calls=<,<<,>=,Err$errShiftTooWide,Err$mkError,||
+F shrChecked stdlib/Err.ax:464:9-19 "(Int -> (Int -> Result Int Error))" @d6fbeaead7a43037 #effects=Alloc #calls=<,>=,>>,Err$errShiftTooWide,Err$mkError,||
 F sysRead stdlib/Sys/Platform.darwin.ax:25:9-16 "Int" @d99009b49c22cd84
 F sysWrite stdlib/Sys/Platform.darwin.ax:30:9-17 "Int" @74cf7b68f9a13d7f
 F sysOpen stdlib/Sys/Platform.darwin.ax:35:9-16 "Int" @48be4da44965be58
@@ -279,7 +285,7 @@ S Holder tests/fmt/syntax-zoo.ax:260:9-15 "struct Holder" @39a2b36e5f606cfe #fie
 S RecTwin tests/fmt/syntax-zoo.ax:401:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:26:11-16 "Int" @910ecfbfa27ddde2
 A BoxedCount tests/fmt/syntax-zoo.ax:251:11-21 "Box Int" @ce5c1ba8305ca704
-M try! stdlib/Err.ax:401:13-17 "macro try!" @33e26f813784f1f9
+M try! stdlib/Err.ax:499:13-17 "macro try!" @33e26f813784f1f9
 M twice tests/fmt/syntax-zoo.ax:93:9-14 "macro twice" @a0ee9867b2571b97
 M defRecTwin tests/fmt/syntax-zoo.ax:393:8-18 "macro defRecTwin" @175bc52ff43ee048
 E Console tests/fmt/syntax-zoo.ax:216:9-16 "effect Console" @5e35620abc5f495d
