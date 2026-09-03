@@ -208,12 +208,15 @@ makeDirAll IO.ax Alloc,IO,Mut
 makeDirAllFrom IO.ax Alloc,IO,Mut
 makeDirOk IO.ax Alloc,IO,Mut
 mapAllocTable Map.ax Alloc,Mut
+mapCollect Map.ax Alloc,Mut
 mapDropVal Map.ax Mut
 mapErr Err.ax Alloc
 mapFillAt Map.ax Mut
 mapInsert Map.ax Alloc,Mut
 mapInsertLoop Map.ax Mut
 mapInsertNoGrow Map.ax Mut
+mapKeys Map.ax Alloc,Mut
+mapLiveFrom Map.ax Alloc
 mapNew Map.ax Alloc,Mut
 mapNewRefVals Map.ax Alloc,Mut
 mapOk Err.ax Alloc
@@ -222,6 +225,7 @@ mapRehash Map.ax Alloc,Mut
 mapReinsertLoop Map.ax Mut
 mapRemove Map.ax Mut
 mapSized Map.ax Alloc,Mut
+mapValues Map.ax Alloc,Mut
 mapWithCapacity Map.ax Alloc,Mut
 mapWithCapacityRefVals Map.ax Alloc,Mut
 memAlloc Mem.ax Alloc
@@ -268,6 +272,8 @@ netSignalOpenRaw Sys.ax IO,Mut
 netSocketTcp Sys.ax Alloc,IO
 netSocketTcp6 Sys.ax Alloc,IO
 okOr Err.ax Alloc
+optMap Err.ax Alloc
+optOr Err.ax Alloc
 pathBase Path.ax Alloc,Mut
 pathDir Path.ax Alloc,Mut
 pathExt Path.ax Alloc,Mut
@@ -275,8 +281,8 @@ pathJoin Path.ax Alloc,Mut
 pathReplaceExt Path.ax Alloc,Mut
 pathStem Path.ax Alloc,Mut
 pathWithSlash Path.ax Alloc,Mut
-platformReadFd Platform.darwin.ax Alloc
-platformWriteFd Platform.darwin.ax Alloc
+platformReadFd Platform.ax Alloc
+platformWriteFd Platform.ax Alloc
 printLit IO.ax Alloc,IO
 printlnLit IO.ax Alloc,IO
 rdCompact Rpc.ax Alloc,Mut

@@ -313,8 +313,31 @@ echo "ok   every stdlib module either contributes declarations or is exempt with
 # file simply had not applied it. The `comm` calls need it too: `comm`
 # requires both inputs collated the same way, and silently answers
 # nonsense when they are not.
+# AND `Platform.<host>.ax` COLLAPSES TO `Platform.ax`, for the reason
+# the locale paragraph above gives about the seed stamp: this file is a
+# golden, so it must be a property of the TREE and not of the machine
+# that ran the gate. `Sys.Platform` resolves to a different file per
+# host - `Platform.darwin.ax` here, `Platform.linux-aarch64.ax` on one
+# CI leg, `Platform.linux-x86_64.ax` on another - and the row's other
+# two columns, the declaration and the effects it performs, are the
+# same on all of them.
+#
+# Measured 2026-09-03, run 33791157377: the allowlist had been blessed
+# on darwin, and both linux legs went red on a two-line diff that was
+# ONLY the file name -
+#
+#     -platformReadFd Platform.darwin.ax Alloc
+#     +platformReadFd Platform.linux-aarch64.ax Alloc
+#
+# with the effect identical. Nothing had changed about what the standard
+# library performs; the golden was simply asserting which host blessed
+# it. (`26df546` is what made the rows appear at all - ERR-ADOPT-1 gave
+# the descriptor calls a `(Result Int Error)` answer, which allocates -
+# and this gate sits behind the one that failed on that commit, so no CI
+# run reached it until today.)
 grep -oE '^F [^ ]+ [^ ]+ .*#effects=[A-Za-z,]+' "$work/rows" \
   | sed -E 's|^F ([^ ]+) [^ ]*/([^/ :]+):[0-9].*#effects=([A-Za-z,]+)$|\1 \2 \3|' \
+  | sed -E 's|^([^ ]+) Platform\.[A-Za-z0-9_-]+\.ax |\1 Platform.ax |' \
   | LC_ALL=C sort -u > "$work/derived"
 
 echo

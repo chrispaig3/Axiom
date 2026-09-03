@@ -47,6 +47,7 @@
 ; old three, because there is no `free`. Same trade, and same reasoning,
 ; as `Vec`; see that module's comment.
 (import Mem)
+
 (import Vec)
 
 ; ------------------------------------------------------------------
@@ -991,10 +992,20 @@
 ; THE CURSOR, NOT A CALLBACK. `mapLiveFrom` answers a slot index and
 ; the caller reads it with `mapKeyAt`/`mapValAt`, rather than this
 ; module taking a function and calling it per entry. A callback would
-; allocate a closure record per iteration site and would have to
-; decide what a caller returning early means; a cursor is a word, is
-; allocation-free, and composes with `while`, with early `return`, and
-; with a caller that wants only keys or only values.
+; allocate a closure record per iteration site and would have to decide
+; what a caller returning early means; a cursor composes with `while`,
+; with early `return`, and with a caller that wants only keys.
+;
+; IT IS NOT FREE, AND AN EARLIER DRAFT OF THIS COMMENT SAID IT WAS.
+; `mapLiveFrom` answers `(Option Int)`, and `Some` is a heap block:
+; `axiom_alloc(16)` per LIVE slot reported, verified in the emitted IR
+; rather than reasoned about, after `scripts/check-agent-policy.sh`
+; charged this function `Alloc` and contradicted the sentence that used
+; to be here. `None` costs nothing - it is an immediate tag - so the
+; total is one small block per entry, which is the same order as the
+; `Vec` that `mapKeys` builds, in the same arena, reclaimed by the same
+; `region`. What the cursor saves against `mapKeys` is the vector and
+; the second pass, not the allocation.
 ;
 ;   (let ((mut c (mapLiveFrom m 0)))
 ;     (while (isSomeSlot c)
@@ -1053,10 +1064,12 @@
     ((None) out)
     ((Some s)
       {
-        (vecPush out (if (== keys 1)
-          (mapKeyAt m s)
-          (mapValAt m s)
-        ))
+        (vecPush
+          out          (if (== keys 1)
+            (mapKeyAt m s)
+            (mapValAt m s)
+          )
+        )
         (mapCollect m (+ s 1) out keys)
       }
     )
