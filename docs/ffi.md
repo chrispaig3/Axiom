@@ -1244,9 +1244,27 @@ names the fact in the way.
 - **A distinct `FFI` effect**, a per-item `pub`, a second extern clause,
   any manifest or lockfile. The library string and `(symbol "...")` are
   the whole surface.
-- **Threads from Rust.** `MM-PAR-1`: Axiom has no threads, all allocator
-  state is process-private, and a Rust crate that spawns one and touches
-  an Axiom value from it is outside the model.
+- **Threads from Rust.** A Rust crate that spawns a thread and touches an
+  Axiom value from it is outside the model. The RESTRICTION is unchanged;
+  its reason is not, and the old reason — "Axiom has no threads" — stopped
+  being true on 2026-09-03, when `parallel` shipped with a `--threads`
+  lowering that names the platform's `pthread_create`
+  (`self_host/codegen.ax`, `emitParThread`).
+
+  What actually holds is narrower and stronger. The emitted runtime's
+  `axiom_retain` and `axiom_release` are a plain load-add-store, not an
+  `atomicrmw`, so two threads touching one block's count race and lose
+  increments. Axiom's own thread lowering survives that by giving each
+  thread its own arena — the eight runtime globals become
+  `thread_local(localexec)`, so a child's first allocation maps a chunk of
+  its own — and by letting only a machine WORD cross a join. Neither
+  protection extends to a Rust thread: it shares the address space, holds
+  whatever handle you passed it, and nothing makes its retain atomic.
+
+  So the rule for a binding is: an Axiom value may be touched only from
+  the thread that called into Rust, for the duration of that call. That is
+  what "the lifetime is the call" already says about every borrowed view
+  here; this is the same sentence about threads.
 
 ---
 

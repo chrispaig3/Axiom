@@ -47,6 +47,10 @@ extern "C" {
 #[derive(Debug)]
 pub struct AxString {
     word: AxWord,
+    /// See [`axiom_abi::NotThreadSafe`]. This one is the OWNING handle,
+    /// so the race it prevents is `Drop` calling `axiom_release` from a
+    /// thread that did not allocate it.
+    _thread: axiom_abi::NotThreadSafe,
 }
 
 impl AxString {
@@ -72,7 +76,7 @@ impl AxString {
             core::ptr::copy_nonoverlapping(bytes.as_ptr(), repr.data as *mut u8, bytes.len());
             word
         };
-        AxString { word }
+        AxString { word, _thread: core::marker::PhantomData }
     }
 
     /// Adopt the share of a `String` an Axiom function answered, so it
@@ -82,7 +86,7 @@ impl AxString {
     /// `word` must be a live Axiom `String` the caller owns one share
     /// of - the result of an Axiom call, not an argument it borrowed.
     pub unsafe fn from_owned(word: AxWord) -> AxString {
-        AxString { word }
+        AxString { word, _thread: core::marker::PhantomData }
     }
 
     /// The word to pass to an Axiom function.

@@ -111,6 +111,65 @@ pub struct AxStrRepr {
     pub owner: i64,
 }
 
+/// A zero-sized field that takes `Send` and `Sync` away.
+///
+/// Every handle in this module is a machine word, and a word is
+/// `Send + Sync` by default — so until 2026-09-03 an `AxStr`, `AxVec`,
+/// `AxFn1/2/3` or an owning `AxString` could be moved into
+/// `std::thread::spawn` and nothing said otherwise. That contradicts the
+/// only rule this crate has: the emitted runtime's `axiom_retain` and
+/// `axiom_release` are a plain load-add-store, not an `atomicrmw`, so
+/// two threads touching one block's count lose increments and the block
+/// is freed under a live reference.
+///
+/// `docs/ffi.md` has always stated the restriction in prose. This is the
+/// same sentence in the type system, which is where a restriction
+/// belongs when it can be expressed there. `PhantomData<*const ()>` is
+/// the standard spelling: a raw pointer is neither `Send` nor `Sync`,
+/// and the field is zero-sized, so `#[repr(transparent)]` still holds
+/// and no representation moves.
+///
+/// It is `pub` because a host writing its own handle type wants the
+/// same field for the same reason.
+///
+/// The guarantee is a test, not a comment. Each of these fails to
+/// compile, and `cargo test` fails if any of them starts compiling:
+///
+/// ```compile_fail
+/// fn needs_send<T: Send>(_: T) {}
+/// let s = unsafe { axiom_abi::AxStr::from_raw(0) };
+/// needs_send(s);
+/// ```
+///
+/// ```compile_fail
+/// fn needs_sync<T: Sync>(_: T) {}
+/// let s = unsafe { axiom_abi::AxStr::from_raw(0) };
+/// needs_sync(s);
+/// ```
+///
+/// ```compile_fail
+/// fn needs_send<T: Send>(_: T) {}
+/// let v = unsafe { axiom_abi::AxVec::from_raw(0) };
+/// needs_send(v);
+/// ```
+///
+/// ```compile_fail
+/// use axiom_abi::AxCallback;
+/// fn needs_send<T: Send>(_: T) {}
+/// let f = unsafe { axiom_abi::AxFn1::from_raw(0) };
+/// needs_send(f);
+/// ```
+///
+/// A borrowed view still moves freely within one thread, which is the
+/// whole of what a shim needs:
+///
+/// ```
+/// let s = unsafe { axiom_abi::AxStr::from_raw(0) };
+/// let moved = s;
+/// let _ = moved.as_word();
+/// ```
+pub type NotThreadSafe = PhantomData<*const ()>;
+
 /// A borrowed view of an Axiom `String`.
 ///
 /// The lifetime is the *call*. Axiom's ARC may release the backing block
@@ -122,6 +181,7 @@ pub struct AxStrRepr {
 pub struct AxStr<'a> {
     raw: AxWord,
     _life: PhantomData<&'a [u8]>,
+    _thread: NotThreadSafe,
 }
 
 impl<'a> AxStr<'a> {
@@ -129,7 +189,7 @@ impl<'a> AxStr<'a> {
     /// `raw` must be a live Axiom `String` value for all of `'a`.
     #[inline]
     pub const unsafe fn from_raw(raw: AxWord) -> Self {
-        Self { raw, _life: PhantomData }
+        Self { raw, _life: PhantomData, _thread: PhantomData }
     }
 
     #[inline]
@@ -368,6 +428,7 @@ macro_rules! ax_fn {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub struct $name {
             record: AxWord,
+            _thread: $crate::NotThreadSafe,
         }
 
         impl AxCallback for $name {
@@ -375,7 +436,7 @@ macro_rules! ax_fn {
 
             #[inline]
             unsafe fn from_raw(record: AxWord) -> Self {
-                Self { record }
+                Self { record, _thread: core::marker::PhantomData }
             }
 
             #[inline]
@@ -474,6 +535,7 @@ pub struct AxVecRepr {
 pub struct AxVec<'a> {
     raw: AxWord,
     _life: PhantomData<&'a [i64]>,
+    _thread: NotThreadSafe,
 }
 
 impl<'a> AxVec<'a> {
@@ -481,7 +543,7 @@ impl<'a> AxVec<'a> {
     /// `raw` must be a live Axiom `Vec` handle for all of `'a`.
     #[inline]
     pub const unsafe fn from_raw(raw: AxWord) -> Self {
-        Self { raw, _life: PhantomData }
+        Self { raw, _life: PhantomData, _thread: PhantomData }
     }
 
     #[inline]
