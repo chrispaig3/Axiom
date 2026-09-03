@@ -78,7 +78,19 @@ NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a ba
 # three. A gate that fails for load is worse than a slow one: it
 # teaches its reader to re-run rather than to read, which is the habit
 # `run-gates.sh`'s own header exists to prevent.
-SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat)\.sh$'
+#
+# `check-net` joined on 2026-09-03, and it is the clearest case yet of
+# the rule the header states two paragraphs up - the tell is the RATIO,
+# not the clock. It serves 20,400 real HTTP requests over loopback and
+# asserts that every byte sent comes back; under six-way parallelism it
+# reported "varied-size run echoed 5983 of 10000" and failed. Run alone
+# immediately afterwards, on the same tree and the same compiler, it
+# passed. Nothing about the server is timing-dependent by design; what
+# is load-dependent is a socket's buffers and the scheduler's
+# willingness to drain them while fifteen compilers are running, and a
+# short read is indistinguishable at the assertion from a server that
+# lost data.
+SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net)\.sh$'
 
 # THE TWO REPL GATES ARE NOT HERE, and they were nearly added on
 # 2026-08-31 on the strength of a comment. `check-repl-selfhost.sh`'s
