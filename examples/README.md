@@ -2,9 +2,13 @@
 
 Three programs. Each one is a real thing the repository uses rather than a
 toy, and each one is the load-bearing artefact of a gate — which is the only
-reason all three still compile and still answer correctly after a year of
-compiler changes. An example CI does not run is an example that has already
-rotted and has not been told.
+reason all three still compile and still answer correctly across every
+compiler change since they were written. An example CI does not run is an
+example that has already rotted and has not been told.
+
+`scripts/check-web.sh` holds this table and the directory to each other in
+both directions, so a fourth program cannot land without a row here and a row
+cannot outlive its program. The count in the line above is part of the table.
 
 Run every command from the repository root.
 
