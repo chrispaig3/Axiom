@@ -16,12 +16,162 @@ its changelog too.
 
 ## Unreleased
 
+## 0.7.3 — 2026-09-03
+
 <!-- Empty by design until the next change lands. The heading STAYS when a
      release is cut: `scripts/check-gate-lib.sh` reads this file starting at
      `## Unreleased` and takes the two sections below it, so removing the
      heading makes the gate read NOTHING and fail with "CHANGELOG.md does not
      state \"sixty gates\" anywhere". Measured on the 0.7.0 tag, which is how
      this comment came to be here. -->
+
+### `AX3064`: a concurrent binding may not capture a reference the parent holds
+
+`(parallel p ((a e1) (b e2)) body)` under `--threads` lowers to real
+`pthread_create`, and the emitted runtime's `axiom_retain` and
+`axiom_release` are a plain load-add-store — **not** an `atomicrmw`. A
+binding that captured a heap value the parent also held raced the count,
+lost an increment, and freed a block a live reference still named. This
+compiled silently and ran:
+
+```scheme
+(let ((shared (strConcat "hello" " world")))
+  (parallel p ((a (len shared)) (b (len shared))) ...))
+```
+
+It is now two `AX3064`s, one per binding, naming the captured variable
+and its type.
+
+**The rule is unconditional**, not `--threads`-dependent. The checker
+does not see codegen flags, and a diagnostic that appears and disappears
+with a build flag is unlike anything else in the `AX3xxx` band. The
+process lowering is merely *permitted* to be laxer.
+
+**The corpus was measured before the rule was believed.** Zero of the
+611 files in the corpus as it stood before this change are refused. An instrumented
+compiler reports twelve captures at a spawn across four files —
+`tests/stdlib/470-parallel.ax` (`base`, ×5),
+`tests/stdlib/471-parallel-trap.ax` (`v`), and the two syntax zoos
+(`n`, ×3 each) — and **every one classifies as a non-reference**. The
+sweep is not vacuous: appending a heap-capture probe to that same list
+produces exactly one hit, and `tests/diagnostics/642-parallel-capture.ax`
+is that probe made permanent — re-run the sweep today and it is refused
+twice, by design, which is why the count above is stated against the
+corpus as it stood. Classes `2+k` and the negative witnesses never occur
+at a spawn in it, so refusing them costs nothing today, and the rule
+refuses every class but 0.
+
+Two corrections came out of building it. `EV_LAMARG` is **−2**, not a
+positive number, so "negative" is two distinct things — the enclosing
+lambda's own parameter, whose class the application decides, and a
+minted placeholder that emits no retain at all. Both are refused because
+neither is a promise. And the obvious lookup, `scopeFindIdx`, is
+**wrong**: it searches the module walk's entries below `frameBase`, so a
+top-level `(-> Int Int)` classifies as a reference and
+`tests/stdlib/470-parallel.ax` is refused at `spin`. `scopeFindFrame`
+— the current frame alone — is the rule value resolution already
+follows, and row 4 of `tests/diagnostics/642-parallel-capture.ax` pins
+the distinction.
+
+Gates: diagnostics 205 passed; stdlib 108 passed; `check-parallel` 20
+checks; `check-doc-drift` registry 78 constructed / 78 explained, sets
+equal both directions.
+
+### A constructor built inside a lambda claimed to hold no references
+
+```
+wrap    (Some x) outside a lambda    shape word 131076   record, word 1 is a reference
+viaLam  (Some x) inside  a lambda    shape word      4   record, LEAF
+```
+
+Same value, same type, different header. The leaf claims the block holds
+no reference, so the payload's share was never handed back.
+
+Three emitters read the same per-field evidence witness. `emitPrimRetainRef`
+enumerates three classes; `ctorShapeEmit` and `fieldRetainCode`
+enumerated two and let `EV_LAMARG` fall into a silent else. A third
+consumer, `ctorFieldParks`, tests `fieldRetainCode == -1` to decide
+whether a field parks — it corrects itself once the witness is passed
+through, which is the same treatment `wv >= 2` already had.
+
+**The shape word and the retain landed together, and that is the whole
+care in this fix.** Setting the bit alone would convert an undercount
+into a genuine over-release: the walk would hand back a share the store
+never took. The proof they landed together is the payload's reference
+count, which moves 1 → 2 while the block's own count is unchanged.
+
+| case | shape before → after |
+|---|---|
+| `(Some x)` inside a lambda | **4 → 131076** |
+| two ref fields, one lambda deep | **262152 → 393224** (bit 17 was lost) |
+| two ref fields, two lambdas deep | **8 → 393224** |
+| `Some` over an `Int` (control) | 4 → 4 |
+
+The `Int` control still reads LEAF because the bit is emitted as a
+run-time read of the lambda's evidence word rather than folded into the
+constant — which is what stops the fix from over-approximating.
+
+**Blast radius zero, measured rather than asserted:** `self_host/main.ax`
+compiled by the pre-fix and post-fix compilers is byte-identical,
+217,935 lines both ways. `self_host/` contains no constructor whose
+field witness is `EV_LAMARG`, which is also why no gate could have
+caught this.
+
+`tests/stdlib/475-lambda-ctor-shape.ax` is non-vacuous: on the pre-fix
+compiler four of its eight lines differ while four controls hold,
+including the `Int` line that would catch an over-release.
+
+Gates: closure-reclaim 5 checks including both source-substitution
+ablations; container-reclaim; fallible-reclaim; self-host 179 passed.
+
+### The site that argues it is built for agents was serving agents an empty div
+
+`dist/index.html` contained `<div id="root"></div>` and nothing else.
+Every word — the effect system, the zero-undefined-symbols claim, the
+benchmark, the honest list of what Axiom is not — existed only after
+React executed. Google renders JavaScript on a delay and a budget; Bing
+is best-effort; and every crawler that feeds a language model fetches
+HTML and executes none of it.
+
+Visible text a JavaScript-less reader receives: **0 → 17,498
+characters**.
+
+The render is not new code. `scripts/smoke.mjs` has rendered the whole
+tree in Node since it was written; `scripts/prerender.mjs` is its first
+fifteen lines with the output kept instead of asserted on, using
+`renderToString` so hydration matches. Two floors guard it — the mount
+point must still exist, and the markup must exceed 20 KB against a real
+68,065 — because a render that silently produced nothing reads exactly
+like one that worked.
+
+The hydration mismatch this would have introduced is fixed in the same
+change: `useTheme` resolves to `'light'` in Node, so the server always
+emitted the Moon glyph and every dark-mode reader would have hydrated
+into a console error on the one page whose gate exists to catch console
+errors. The button now carries both glyphs and CSS chooses, driven by
+the `data-theme` the inline script already stamps before first paint.
+
+### Six showcase programs that ran, replacing five feature demos in costume
+
+The tabbed samples parsed the literal string `"8080"` and logged
+`"starting"`/`"done"`. Nobody parses a literal, and a reader can tell
+when an example was reverse-engineered from the thing it is selling.
+
+Six small real tasks, each written against the standard library as it
+is, compiled, run, and formatted by `axiom fmt` — so the site shows the
+formatter's normal form and each result field is observed stdout. The
+order is an argument rather than a menu: types, failure, effects, data,
+memory, concurrency.
+
+`inbox.ax` could not have been written yesterday: counting into a `Map`
+and reading its keys back needs `mapKeys`, which landed this morning.
+
+Two dead documentation links went with them — `#error-handling` does not
+exist in the reference, and the `parallel` heading slugifies whole, so a
+bare `#parallel` landed silently at the top of a four-thousand-line
+file. Neither is reachable by `smoke.mjs`, which checks in-page anchors
+and cannot follow an external one.
+
 
 ## 0.7.0 — 2026-09-03
 

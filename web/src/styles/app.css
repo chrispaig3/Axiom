@@ -173,6 +173,47 @@
   transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
 }
 
+/* ------------------------------------------------------------------ *
+ * Theme toggle glyph
+ *
+ * The markup is rendered in Node at build time (scripts/prerender.mjs),
+ * where there is no `matchMedia` and no `localStorage`, so React would
+ * always emit the light-theme glyph and hydration would patch it for
+ * every dark-mode reader — a console error on the page whose smoke gate
+ * exists to catch console errors.
+ *
+ * So the button carries BOTH glyphs and CSS chooses. `data-theme` is
+ * stamped on the root by the inline script in index.html before first
+ * paint, and the three cases below are the three `tokens.css` already
+ * handles: an explicit dark, an explicit light, and neither — where only
+ * `prefers-color-scheme` separates them.
+ * ------------------------------------------------------------------ */
+.icon-btn__sun {
+  display: none;
+}
+
+.icon-btn__moon {
+  display: block;
+}
+
+:root[data-theme='dark'] .icon-btn__sun {
+  display: block;
+}
+
+:root[data-theme='dark'] .icon-btn__moon {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .icon-btn__sun {
+    display: block;
+  }
+
+  :root:not([data-theme='light']) .icon-btn__moon {
+    display: none;
+  }
+}
+
 .icon-btn:hover {
   border-color: var(--border-strong);
   background: var(--surface-2);

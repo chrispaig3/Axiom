@@ -74,6 +74,7 @@
   [93mAX3061[0m  a result that does not live in the region its signature names  (region-return)
   [93mAX3062[0m  a closure escaping the region of something it captures  (region-capture)
   [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
+  [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1901,6 +1902,32 @@ refuses for a type variable.
 Pass values from one region, give the parameters different region
 names, or name the result's region on a parameter.
 
+### explain AX3064
+AX3064 - a concurrent binding capturing a reference its parent also holds
+
+`(parallel p ((a e1) (b e2)) body)` runs each binding BESIDE the
+caller. A binding's expression is a thunk, and a name it reads from
+the enclosing function is CAPTURED: the same block is then reachable
+from two places that run at the same time.
+
+That is safe for a word and unsafe for a reference. `axiom_retain`
+and `axiom_release` are a plain load-add-store rather than an
+`atomicrmw` - by design, and everywhere - so two of them on one
+block's count lose an increment, and the block is freed while a live
+reference still names it. Corruption, not a leak (MM-PAR-6,
+docs/memory-model-v2-design.md section 3.2b).
+
+What a binding may share with its parent is a WORD. Pass the value
+through the thunk's word argument, or build a copy inside the
+binding; a `Vec` is not refused, because it takes no share of a
+count (`evScalarName`), and neither is anything the compiler can see
+is a scalar.
+
+The rule is the LANGUAGE's, not a lowering's, so it does not depend
+on `--threads`: the process lowering is merely permitted to be laxer
+than the rule. `__proc_spawn` names that lowering by itself - a
+separate address space, so no count is shared - and is exempt.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -2110,6 +2137,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3061[0m  a result that does not live in the region its signature names  (region-return)
   [93mAX3062[0m  a closure escaping the region of something it captures  (region-capture)
   [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
+  [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

@@ -25,7 +25,7 @@ runs the whole way down: 72 gate scripts, nearly every one carrying an
 bug. Even the prose is held to it — the numbers in this file, and on the
 website, are recomputed from the tree on every build.
 
-The compiler is written in Axiom: 97,083 lines of it, which rebuild
+The compiler is written in Axiom: 97,680 lines of it, which rebuild
 themselves from a committed LLVM seed until two successive compilers are
 **byte-identical**. And because the syntax is uniform S-expressions with a
 machine-readable diagnostic surface (`AXSYM`, `AXDL`, content-derived `NID`s,
@@ -125,7 +125,7 @@ Put this in `hello.ax`:
 axiom run hello.ax                              # compile and run
 axiom build --input hello.ax --output hello     # or keep the binary
 axiom explain AX3042                            # every code has a full explanation
-axiom repl                                      # Axiom 0.7.0 - REPL
+axiom repl                                      # Axiom 0.7.3 - REPL
 ```
 
 `IO` is Axiom's own standard library — that binary calls no C function, not

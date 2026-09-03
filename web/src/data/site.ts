@@ -1,4 +1,4 @@
-export const VERSION = '0.7.0'
+export const VERSION = '0.7.3'
 export const REPO = 'https://github.com/chrispaig3/Axiom'
 export const DOCS = `${REPO}/blob/trunk/docs`
 export const BLOB = `${REPO}/blob/trunk`
@@ -25,19 +25,19 @@ export interface Stat {
 export const STATS: Stat[] = [
   {
     key: 'lines',
-    n: '97,083',
+    n: '97,680',
     label: 'lines of Axiom in the compiler that compiles Axiom',
     evidence: 'cat self_host/*.ax | wc -l',
   },
   {
     key: 'axfiles',
-    n: '611',
+    n: '613',
     label: '.ax files in the tree, every one parsed by the grammar gate',
     evidence: "find . -name '*.ax' | wc -l",
   },
   {
     key: 'codes',
-    n: '77',
+    n: '78',
     label: 'diagnostic codes, each with an explanation and a fixture',
     evidence: 'axiom explain --list',
   },

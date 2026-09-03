@@ -1,0 +1,21 @@
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `s`, which has type `String` - a reference the parent also holds[0m
+  [1;34m--> [0m642-parallel-capture.ax:57:30
+[1;34m   |[0m
+[1;34m57 |[0m   (parallel p ((a (+ (strLen s) (strLen s))) (b (strLen s)))
+[1;34m   |[0m                              [1;31m^ `s` is bound outside this binding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `s`, which has type `String` - a reference the parent also holds[0m
+  [1;34m--> [0m642-parallel-capture.ax:57:57
+[1;34m   |[0m
+[1;34m57 |[0m   (parallel p ((a (+ (strLen s) (strLen s))) (b (strLen s)))
+[1;34m   |[0m                                                         [1;31m^ `s` is bound outside this binding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+compilation failed due to 2 previous errors

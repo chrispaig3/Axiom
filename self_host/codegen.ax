@@ -18322,6 +18322,8 @@
                 (vars vecNew)
                 (symPos vecNew)
                 (symK vecNew)
+                (lamPos vecNew)
+                (lamD vecNew)
                 (mut stat 0)
                 (mut leaf 0)
               )
@@ -18350,7 +18352,22 @@
                                           (vecPush symK (- wv 2))
                                           0
                                         }
-                                        0
+                                        ; a lam-arg witness is dynamic
+                                        ; too, but its bit comes from
+                                        ; a DIFFERENT word - not the
+                                        ; enclosing function's, the
+                                        ; lambda's own argument
+                                        ; evidence at depth d, bit 0 -
+                                        ; so it cannot join `symPos`
+                                        ; and gets its own loop below.
+                                        (if (<= wv (- 0 2))
+                                          {
+                                            (vecPush lamPos (+ 17 j))
+                                            (vecPush lamD (- (- 0 2) wv))
+                                            0
+                                          }
+                                          0
+                                        )
                                       )
                                     )
                                   )
@@ -18374,11 +18391,29 @@
                   )
                   (if (== leaf 1)
                     (storeShapeAt cg ptr (* cnt 2))
-                    (if (== (vecLen symPos) 0)
+                    ; BOTH vectors, or a block whose only dynamic bit
+                    ; is a lam-arg one stores the constant and drops
+                    ; that bit - the leaf answer the release walk then
+                    ; believes.
+                    (if (&& (== (vecLen symPos) 0) (== (vecLen lamPos) 0))
                       (storeShapeAt cg ptr (+ (* cnt 2) stat))
-                      (let ((cgR (emitEvwRead cg)))
+                      ; the enclosing function's word is read only if
+                      ; something reads a bit OUT of it; a block with
+                      ; lam-arg bits alone would otherwise emit a dead
+                      ; load.
+                      (let ((cgR 
+                        (if (== (vecLen symPos) 0)
+                          cg
+                          (emitEvwRead cg)
+                        )
+                      ))
                         (let (
-                          (src (strDup (memGetWordStr cgR 2)))
+                          (src 
+                            (if (== (vecLen symPos) 0)
+                              (constStr 0)
+                              (strDup (memGetWordStr cgR 2))
+                            )
+                          )
                           (mut acc (constStr (+ (* cnt 2) stat)))
                           (mut cgX cgR)
                           (mut q 0)
@@ -18418,6 +18453,75 @@
                                                         (set acc orr)
                                                       }
                                                     )
+                                                  )
+                                                )
+                                              )
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                                (set q (+ q 1))
+                              })
+                            ; THE LAM-ARG BITS. One source register per
+                            ; entry, not one for the whole loop: each
+                            ; is `evwaSym d` resolved through the
+                            ; symbol table, and the class sits at bit 0
+                            ; because a lifted lambda absorbs exactly
+                            ; one argument. `emitRetainIfLamArg` reads
+                            ; it the same way, and the two must agree.
+                            ;
+                            ; No symbol - a body emitted outside a
+                            ; lambda, which `evClassOf` should make
+                            ; unreachable - contributes NO bit, so the
+                            ; field goes uncounted and leaks. That is
+                            ; the safe direction: a bit with no store
+                            ; behind it is an over-release.
+                            (set q 0)
+                            (while (< q (vecLen lamPos))
+                              {
+                                (let ((symReg 
+                                  (lookupSym
+                                    cgX                                    (evwaSym
+                                      (cast Int (vecGet lamD q))
+                                    )
+                                  )
+                                ))
+                                  (if (== symReg 0)
+                                    0
+                                    (let ((bn (allocReg cgX)))
+                                      (let ((br (regStr bn)))
+                                        (let ((cgB 
+                                          (emitLine
+                                            cgX                                            (cat3
+                                              (cat2 "  " br)                                              " = and i64 "                                              (cat2
+                                                (strDup
+                                                  (cast String symReg)
+                                                )                                                ", 1"
+                                              )
+                                            )
+                                          )
+                                        ))
+                                          (let ((sn2 (allocReg cgB)))
+                                            (let ((sr2 (regStr sn2)))
+                                              (let ((cgS 
+                                                (emitLine
+                                                  cgB                                                  (cat4
+                                                    (cat3 (cat2 "  " sr2) " = shl i64 " br)                                                    ", "                                                    (constStr
+                                                      (cast Int (vecGet lamPos q))
+                                                    )                                                    ""
+                                                  )
+                                                )
+                                              ))
+                                                (let ((on (allocReg cgS)))
+                                                  (let ((orr (regStr on)))
+                                                    {
+                                                      (set cgX (emitLine cgS (cat4 (cat3 (cat2 "  " orr) " = or i64 " acc) ", " sr2 "")))
+                                                      (set acc orr)
+                                                      0
+                                                    }
                                                   )
                                                 )
                                               )
@@ -19388,7 +19492,21 @@
                         1
                         (if (>= wv 2)
                           wv
-                          (- 0 1)
+                          ; `EV_LAMARG - d` (<= -2) is the enclosing
+                          ; lifted lambda's own argument, whose class
+                          ; only the APPLICATION knows. Pass the
+                          ; witness through UNCHANGED: -1 already
+                          ; means "no retain" and 1 / >=2 are taken,
+                          ; so the negative range is the free one, and
+                          ; `emitFieldStores` decodes the depth back
+                          ; out of it the way `emitPrimRetainRef`
+                          ; does. Answering -1 here is what left the
+                          ; store uncounted while the shape word said
+                          ; leaf.
+                          (if (<= wv (- 0 2))
+                            wv
+                            (- 0 1)
+                          )
                         )
                       )
                     )
@@ -19431,7 +19549,15 @@
                 (emitRetainOf cg1 reg)
                 (if (>= rc 2)
                   (emitRetainIfEvBit cg1 reg (- rc 2))
-                  cg1
+                  ; the lam-arg twin of the bit-k guard above, and it
+                  ; MUST land with `ctorShapeEmit`'s bit: the map the
+                  ; walk reads at death and the retain set here are
+                  ; one claim, so a bit without its retain is an
+                  ; over-release and a retain without its bit a leak.
+                  (if (<= rc (- 0 2))
+                    (emitRetainIfLamArg cg1 reg (- (- 0 2) rc))
+                    cg1
+                  )
                 )
               )
             ))

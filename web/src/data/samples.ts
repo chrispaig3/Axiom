@@ -69,31 +69,73 @@ export const HERO: Sample = {
 )`,
 }
 
+// SIX RECIPES, AND EVERY ONE OF THEM RAN.
+//
+// The set these replaced were feature demos in costume: a function that
+// parsed the literal string "8080", a handler that logged
+// "starting"/"done". A reader could tell they were written to show a
+// language feature rather than to do a job, which is the fastest way to
+// lose one.
+//
+// Each of these is a small real task. Each was written against the
+// standard library as it actually is, compiled, run, and formatted by
+// `axiom fmt`, so what is shown IS the formatter's normal form. The
+// `result` field is the observed stdout, not a guess.
+//
+// The ORDER is an argument, not a menu: types, then failure, then
+// effects, then data, then memory, then concurrency. It walks a reader
+// from the thing every language has to the thing only this one does.
 export const SAMPLES: Sample[] = [
   {
-    id: 'result',
-    tab: 'parse.ax',
-    title: 'Failure is a value',
-    note: 'No exceptions and no null. `Option` and `Result` are ordinary data types from the standard library, and `match` on them has to be total.',
-    result: 'listening on :8080',
-    docs: { label: 'Pattern matching', href: `${REF}#pattern-matching` },
+    id: 'types',
+    tab: 'parcels.ax',
+    title: "Shipment status report",
+    note: "Add a fifth state and the compiler names both places it belongs.",
+    result: "parcel   status                action\nAX-1041  packing               not shipped yet\nAX-1042  DHL, 2 days out       -\nAX-1043  held at customs       call about customs\nAX-1044  delivered             -",
+    docs: { label: "Pattern Matching", href: `${REF}#pattern-matching` },
     code: `(import IO)
-
-(import Str)
 
 (import Err)
 
-(:: parsePort (-> String (Result Int Error)))
+(import Show)
 
-(fn (parsePort s)
-  (match (strParseInt s)
-    ((Some n)
-      (if (&& (> n 0) (< n 65536))
-        (Ok n)
-        (Err (mkError 2 "port out of range"))
-      )
-    )
-    ((None) (Err (mkError 1 "not a number")))
+(data Parcel
+  (Ordered)
+  (InTransit { carrier : String, days : Int })
+  (Held { why : String })
+  (Delivered))
+
+(:: status (-> Parcel String))
+
+(fn (status p)
+  (match p
+    ((Ordered) "packing")
+    ((InTransit carrier days) (format "{carrier}, {days} days out"))
+    ((Held why) (format "held at {why}"))
+    ((Delivered) "delivered")
+  )
+)
+
+(:: alert (-> Parcel (Option String)))
+
+(fn (alert p)
+  (match p
+    ((Ordered) (Some "not shipped yet"))
+    ((InTransit _ _) None)
+    ((Held why) (Some (format "call about {why}")))
+    ((Delivered) None)
+  )
+)
+
+(:: row (-> String Parcel Int))
+
+;@axiom:effect(io)
+(fn (row id p)
+  (let (
+    (s (status p))
+    (a (optUnwrapOr (alert p) "-"))
+  )
+    (println "{id:<9}{s:<22}{a}")
   )
 )
 
@@ -101,147 +143,258 @@ export const SAMPLES: Sample[] = [
 
 ;@axiom:effect(io)
 (fn (main)
-  (match (parsePort "8080")
-    ((Ok p) { (println "listening on :{p}") 0 })
-    ((Err e)
-      (let ((why (errMessage e)))
-        { (eprintln "bad port: {why}") 1 }))
-  )
-)`,
-  },
   {
-    id: 'effects',
-    tab: 'handler.ax',
-    title: 'The caller chooses the interpretation',
-    note: '`work` never names a handler and still reaches the one installed around its caller. Same function, two meanings: the first `handle` prints, the second swallows.',
-    result: '[log] starting\n[log] done',
-    docs: { label: 'Effects', href: `${REF}#effects` },
-    code: `(import IO)
-
-(effect Log
-  (write :: (-> String Int)))
-
-(:: work (-> Int Int))
-
-(fn (work n)
-  {
-    (write "starting")
-    (write "done")
-    n
-  }
-)
-
-(:: main Int)
-
-;@axiom:effect(io)
-(fn (main)
-  {
-    (handle (work 1) (Log IO) (lambda (m) { (println "[log] {m}") 0 }))
-    (handle (work 2) (Log) (lambda (m) 0))
+    (println "parcel   status                action")
+    (row "AX-1041" Ordered)
+    (row "AX-1042" (InTransit "DHL" 2))
+    (row "AX-1043" (Held "customs"))
+    (row "AX-1044" Delivered)
     0
   }
 )`,
   },
   {
-    id: 'capability',
-    tab: 'sink.ax',
-    title: 'An interface is a value',
-    note: 'This is what replaced traits in 0.6.0: a parameterised struct whose fields are functions. The record is an ordinary value, so it can be built at run time, passed as an argument, or stored in a `Vec`.',
-    result: 'the record is an ordinary value\nso the instance can be chosen at run time',
-    docs: { label: 'Capability records', href: `${REF}#capability-records` },
+    id: 'failure',
+    tab: 'settings.ax',
+    title: "Three steps, one error path",
+    note: "Three fallible steps, one arm to handle them, and the error still says which step failed.",
+    result: "4096 x 256 = 1048576 bytes\n4 KiB is not a number while reading chunk\nproduct is not representable while sizing the upload",
+    docs: { label: "The error model", href: `${LIB}docs/error-model.md` },
+    code: `(import Err)
+
+(import IO)
+
+(import Str)
+
+(:: number (-> String String (Result Int Error)))
+
+(fn (number name text)
+  (let ((bad (mkError 20 (strConcat text " is not a number"))))
+    (withContext (okOr (strParseInt text) bad) (strConcat "reading " name))
+  )
+)
+
+; \`*\` wraps silently on overflow; this is the one that can say no.
+(:: upload (-> Int Int (Result Int Error)))
+
+(fn (upload chunk parts) (withContext (mulChecked chunk parts) "sizing the upload"))
+
+(:: report (-> String String Int))
+
+;@axiom:effect(io)
+(fn (report chunk parts)
+  (match (try! size (number "chunk" chunk) (try! n (number "parts" parts) (upload size n)))
+    ((Ok total) (println "{chunk} x {parts} = {total} bytes"))
+    ((Err e) (eprintln (errorText e)))
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (report "4096" "256")
+    (report "4 KiB" "256")
+    (report "4096" "9007199254740993")
+    0
+  }
+)`,
+  },
+  {
+    id: 'effects',
+    tab: 'audit.ax',
+    title: "Capturing the log for tests",
+    note: "The same function prints in production and hands the test its output as data. One `handle` apart, no mocking framework.",
+    result: "skipped: n/a\n42\nok\n",
+    docs: { label: "Effects", href: `${REF}#effects` },
     code: `(import IO)
 
-(struct Sink (a)
-  (emit : (-> a Int)))
+(import Str)
 
-;@axiom:effect(io)
-(:: toStdout (-> String Int))
+(import Test)
 
-;@axiom:effect(io)
-(fn (toStdout s) (println s))
+(import Vec)
 
-;@axiom:effect(io)
-(:: toStderr (-> String Int))
+(effect Log
+  (log :: (-> String Int)))
 
-;@axiom:effect(io)
-(fn (toStderr s) (eprintln s))
+(:: total (-> (Vec String) Int))
+
+;@axiom:effect(log)
+(fn (total rows)
+  (let ((mut sum 0))
+    {
+      (for row rows
+        (match (strParseInt (strTrim row))
+          ((Some n)
+            (set sum (+ sum n))
+          )
+          ((None) (log (strConcat "skipped: " row)))
+        ))
+      sum
+    }
+  )
+)
 
 (:: main Int)
 
 ;@axiom:effect(io)
 (fn (main)
   (let (
-    (out (Sink toStdout))
-    (log (Sink toStderr))
+    (rows vecNew)
+    (seen vecNew)
   )
     {
-      (out.emit "the record is an ordinary value")
-      (log.emit "so the instance can be chosen at run time")
+      (vecPush rows "12")
+      (vecPush rows " 30 ")
+      (vecPush rows "n/a")
+      (println
+        (handle (total rows) (Log Alloc Mut) (lambda (m) (println m)))
+      )
+      (let ((sum 
+        (handle (total rows) (Log Alloc Mut) (lambda (m) (vecLen (vecPush seen m))))
+      ))
+        {
+          (assertEq "same total, nothing printed" 42 sum)
+          (assertStrEq "the warning was captured" "skipped: n/a" (vecGet seen 0))
+        }
+      )
+      (println "ok")
       0
     }
   )
 )`,
   },
   {
-    id: 'macros',
-    tab: 'Pre.ax',
-    title: 'Control flow you can add yourself',
-    note: 'Code is data, so a macro is a pattern over the tree. These two ship in the prelude, and both expand before the type checker runs — so everything a macro generates is checked like anything else.',
-    source: 'stdlib/Pre.ax',
-    href: `${LIB}stdlib/Pre.ax`,
-    code: `;; when \u2014 conditionally evaluate body
-;; (when test body) -> (if test body 0)
-(pub macro (when test body) (if test
-  body
-  0
-))
+    id: 'data',
+    tab: 'inbox.ax',
+    title: "Top words in a support inbox",
+    note: "Count into a `Map`, take its keys, sort them by what they point at.",
+    result: "   4  mobile\n   3  checkout\n   3  payment\n   3  safari\n   2  error\n",
+    docs: { label: "Standard Library", href: `${REF}#standard-library` },
+    code: `; Split on 32 (' ') for pieces, then each piece on 46 ('.'), so "Safari." counts as safari.
+(import IO)
 
-;; unless \u2014 evaluate body unless test is true
-;; (unless test body) -> (if test 0 body)
-(pub macro (unless test body) (if test
-  0
-  body
-))`,
-  },
-  {
-    id: 'lexer',
-    tab: 'lexer.ax',
-    title: "The compiler's own source",
-    note: "Skipping whitespace, from the lexer that reads every Axiom program. The `restrict` line is a claim the compiler checks against the call graph, and the comment records why the loop is a loop \u2014 a measurement, kept where the next reader will need it.",
-    source: 'self_host/lexer.ax',
-    href: `${LIB}self_host/lexer.ax#L155-L187`,
-    code: `;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: skipWhitespace (-> String Int Int Int))
+(import Str)
 
-; A loop rather than a recursion, and \`skipLineComment\` returns to it
-; rather than calling back, for the reason \`lexTokens\` below is a loop:
-; the two used to call each other in tail position, one frame per byte
-; of a comment-and-whitespace run, and stage1's tail-call rewrite fires
-; only for a SELF call.
-(pub fn (skipWhitespace src pos len)
+(import Vec)
+
+(import Map)
+
+(import Intern)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
   (let (
-    (mut p pos)
-    (mut go 1)
+    (pieces (strSplit (strLower "Checkout fails on mobile Safari. The payment sheet spins forever and never loads. Checkout works on desktop but the payment button is greyed out on mobile. Payment declined with no error message on mobile Safari. Safari on iOS shows the same error. Checkout on mobile is unusable.") 32))
+    (seen internNew)
+    (count mapNew)
+    (byCount (lambda (a b) (- (mapGet count b 0) (mapGet count a 0))))
   )
     {
-      (while (== go 1)
-        (if (>= p len)
-          (set go 0)
-          (let ((ch (strByte src p)))
-            (if (isSpace ch)
-              (set p (+ p 1))
-              (if (== ch 59)
-                (set p (skipLineComment src (+ p 1) len))
-                (if (&& (== ch 35) (isBlockOpen src p len))
-                  (set p (skipBlockComment src (+ p 2) len))
-                  (set go 0)
-                )
-              )
+      (for i 0 (vecLen pieces)
+        (let ((w (vecGetStr (strSplit (vecGetStr pieces i) 46) 0)))
+          (if (>= (strLen w) 4)
+            (let ((id (internIntern seen w)))
+              (mapInsert count id (+ 1 (mapGet count id 0)))
             )
+            0
           )
         ))
-      p
+      (let ((ranked (vecSortBy (mapKeys count) byCount)))
+        (for r 0 5
+          (let (
+            (n (mapGet count (vecGet ranked r) 0))
+            (w (internLookup seen (vecGet ranked r)))
+          )
+            (println "{n:>4}  {w}")
+          ))
+      )
+      0
     }
+  )
+)`,
+  },
+  {
+    id: 'memory',
+    tab: 'ledger.ax',
+    title: "A region per row",
+    note: "Five rows and a hundred thousand rows cost the same memory. The program prints the arena to prove it.",
+    result: "5 rows, 10374 cents, arena +48 bytes",
+    docs: { label: "Memory Primitives", href: `${REF}#memory-primitives` },
+    code: `(import IO)
+
+(import Str)
+
+(import Vec)
+
+(import Err)
+
+(import Mem)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (rows (strSplit "coffee,450\\nbooks,2299\\nfuel,5410\\nlunch,1875\\nstamps,340" 10))
+    (n (vecLen rows))
+    (mut cents 0)
+    (mark __axiom_arena_mark)
+  )
+    {
+      (for i 0 n
+        (region r
+          (let ((cols (strSplit (vecGetStr rows i) 44)))
+            (set cents (+ cents (optUnwrapOr (strParseInt (vecGetStr cols 1)) 0)))
+          )))
+      (let ((held (- (memGetWord __axiom_arena_mark 0) (memGetWord mark 0))))
+        (println "{n} rows, {cents} cents, arena +{held} bytes")
+      )
+      0
+    }
+  )
+)`,
+  },
+  {
+    id: 'concurrency',
+    tab: 'triage.ax',
+    title: "Sharded log triage",
+    note: "Three shards scanned beside each other, joined in the order written.",
+    result: "errors  us 1  eu 2  apac 0  total 3",
+    docs: { label: "parallel", href: `${REF}#parallel--bindings-that-run-beside-the-caller` },
+    code: `(import IO)
+
+(import Str)
+
+(:: errors (-> String Int Int))
+
+(fn (errors shard from)
+  (match (strFind shard "ERROR" from)
+    ((None) 0)
+    ((Some at) (+ 1 (errors shard (+ at 1))))
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  ; A join carries one machine word, so a shard answers its count.
+  (parallel scan (
+    (us (errors "INFO up\\nERROR db timeout\\nWARN slow disk\\n" 0))
+    (eu (errors "ERROR db timeout\\nERROR cache miss\\nINFO up\\n" 0))
+    (apac (errors "INFO up\\nWARN slow disk\\nINFO up\\n" 0))
+  )
+    (let ((total (+ us (+ eu apac))))
+      {
+        (println "errors  us {us}  eu {eu}  apac {apac}  total {total}")
+        0
+      }
+    )
   )
 )`,
   },

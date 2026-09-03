@@ -49,6 +49,16 @@
         }
       })()
     </script>
+    <noscript>
+      <style>
+        /* The entrance transition belongs to JavaScript. Now that the
+           markup ships in the HTML, a reader without JS — and any
+           renderer that bails before the observer fires — would get a
+           page that is present and invisible. Put it where the
+           transition would have ended. */
+        .reveal { opacity: 1 !important; transform: none !important; }
+      </style>
+    </noscript>
   </head>
   <body>
     <div id="root"></div>
