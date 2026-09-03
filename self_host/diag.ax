@@ -237,8 +237,8 @@
 (pub :: diagCountAt (-> Int Int Int))
 
 (pub fn (diagCountAt d w)
-  (let ((v (memGetWord d w)))
-    (if (== v 0)
+  (let ((v (memGetWordVec d w)))
+    (if (== (cast Int v) 0)
       0
       (vecLen v)
     )
@@ -247,11 +247,11 @@
 
 ; The slot's vector, allocating it on first use.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: diagVecAt (-> Int Int Int))
+(pub :: diagVecAt (-> Int Int (Vec a)))
 
 (pub fn (diagVecAt d w)
-  (let ((v (memGetWord d w)))
-    (if (== v 0)
+  (let ((v (memGetWordVec d w)))
+    (if (== (cast Int v) 0)
       (let ((nv vecNew))
         {
           (memSetWord d w nv)
@@ -271,12 +271,12 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSecSpan (-> Int Int Int))
 
-(pub fn (diagSecSpan d i) (memGetWord (vecGet (memGetWord d 7) i) 0))
+(pub fn (diagSecSpan d i) (memGetWord (vecGet (memGetWordVec d 7) i) 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSecMsg (-> Int Int String))
 
-(pub fn (diagSecMsg d i) (memGetWordStr (vecGet (memGetWord d 7) i) 1))
+(pub fn (diagSecMsg d i) (memGetWordStr (vecGet (memGetWordVec d 7) i) 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagNoteCount (-> Int Int))
@@ -286,7 +286,7 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagNote (-> Int Int String))
 
-(pub fn (diagNote d i) (vecGetStr (memGetWord d 8) i))
+(pub fn (diagNote d i) (vecGetStr (memGetWordVec d 8) i))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpCount (-> Int Int))
@@ -296,17 +296,17 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpMsg (-> Int Int String))
 
-(pub fn (diagHelpMsg d i) (memGetWordStr (vecGet (memGetWord d 9) i) 0))
+(pub fn (diagHelpMsg d i) (memGetWordStr (vecGet (memGetWordVec d 9) i) 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpFixSpan (-> Int Int Int))
 
-(pub fn (diagHelpFixSpan d i) (memGetWord (vecGet (memGetWord d 9) i) 1))
+(pub fn (diagHelpFixSpan d i) (memGetWord (vecGet (memGetWordVec d 9) i) 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpFixText (-> Int Int String))
 
-(pub fn (diagHelpFixText d i) (memGetWordStr (vecGet (memGetWord d 9) i) 2))
+(pub fn (diagHelpFixText d i) (memGetWordStr (vecGet (memGetWordVec d 9) i) 2))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceCount (-> Int Int))
@@ -316,17 +316,17 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceName (-> Int Int String))
 
-(pub fn (diagTraceName d i) (memGetWordStr (vecGet (memGetWord d 10) i) 0))
+(pub fn (diagTraceName d i) (memGetWordStr (vecGet (memGetWordVec d 10) i) 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceSpan (-> Int Int Int))
 
-(pub fn (diagTraceSpan d i) (memGetWord (vecGet (memGetWord d 10) i) 1))
+(pub fn (diagTraceSpan d i) (memGetWord (vecGet (memGetWordVec d 10) i) 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceUnit (-> Int Int Int))
 
-(pub fn (diagTraceUnit d i) (memGetWord (vecGet (memGetWord d 10) i) 2))
+(pub fn (diagTraceUnit d i) (memGetWord (vecGet (memGetWordVec d 10) i) 2))
 
 ; ------------------------------------------------------------------
 ; Builders. Each returns the diagnostic, so they chain.
@@ -395,8 +395,8 @@
 (pub :: diagDisarmFixes (-> Int Int))
 
 (pub fn (diagDisarmFixes d)
-  (let ((hs (memGetWord d 9)))
-    (if (== hs 0)
+  (let ((hs (memGetWordVec d 9)))
+    (if (== (cast Int hs) 0)
       0
       (let ((mut i 0))
         {
@@ -632,18 +632,30 @@
 ; is this finding, and neither of which is a file this change owns.
 ; ------------------------------------------------------------------
 (pub struct SrcIx
-  (starts : Int)
-  (chars : Int))
+  (starts : (Vec Int))
+  (chars : (Vec Int)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: srcIxStarts (-> Int Int))
 
 (pub fn (srcIxStarts x) (memGetWord x 0))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: srcIxStartsVec (-> Int (Vec a)))
+
+(pub fn (srcIxStartsVec x) (cast (Vec a) (srcIxStarts x)))
+
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: srcIxChars (-> Int Int))
 
 (pub fn (srcIxChars x) (memGetWord x 1))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: srcIxCharsVec (-> Int (Vec a)))
+
+(pub fn (srcIxCharsVec x) (cast (Vec a) (srcIxChars x)))
+
 
 ; A `while`, not a recursion: its depth would be the line count, and
 ; this backend eliminates only self tail calls.
@@ -685,7 +697,7 @@
                 (vecPush starts (+ i 1))
                 (vecPush chars nc)
               }
-              0
+              (cast (Vec Int) 0)
             )
             (set i (+ i 1))
           }
@@ -701,7 +713,7 @@
 ; `off`. An offset past the end answers the last line rather than
 ; walking off the buffer.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: ixLineK (-> Int Int Int))
+(pub :: ixLineK (-> (Vec Int) Int Int))
 
 (pub fn (ixLineK starts off)
   (let (
@@ -725,14 +737,14 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: lineOfIx (-> Int Int Int))
 
-(pub fn (lineOfIx ix off) (+ (ixLineK (srcIxStarts ix) off) 1))
+(pub fn (lineOfIx ix off) (+ (ixLineK (srcIxStartsVec ix) off) 1))
 
 ; `lineStartOf` through the index.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: lineStartOfIx (-> Int Int Int))
 
 (pub fn (lineStartOfIx ix off)
-  (let ((starts (srcIxStarts ix)))
+  (let ((starts (srcIxStartsVec ix)))
     (vecGet starts (ixLineK starts off))
   )
 )
@@ -753,9 +765,9 @@
 (pub :: charsToIx (-> String Int Int Int))
 
 (pub fn (charsToIx src ix off)
-  (let ((starts (srcIxStarts ix)))
+  (let ((starts (srcIxStartsVec ix)))
     (let ((k (ixLineK starts off)))
-      (colCount src (vecGet starts k) off (vecGet (srcIxChars ix) k))
+      (colCount src (vecGet starts k) off (vecGet (srcIxCharsVec ix) k))
     )
   )
 )
@@ -766,7 +778,7 @@
 ; below needs an arbitrary unit's index anyway - an expansion frame
 ; renders against a DIFFERENT source than the diagnostic's own.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: unitIndexes (-> Int Int))
+(pub :: unitIndexes (-> (Vec Int) (Vec Int)))
 
 (pub fn (unitIndexes units)
   (let (
@@ -787,7 +799,7 @@
 ; The index for a diagnostic's own unit, with the same out-of-range
 ; fallback to unit 0 the renderers apply to the unit table itself.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: indexForUnit (-> Int Int Int))
+(pub :: indexForUnit (-> (Vec Int) Int Int))
 
 (pub fn (indexForUnit ixs u)
   (vecGet
@@ -966,7 +978,7 @@
               {
                 (if (> k run)
                   (vecPush parts (strSlice s run (- k run)))
-                  0
+                  (cast (Vec String) 0)
                 )
                 (vecPush
                   parts                  (if (== b 92)
@@ -995,7 +1007,7 @@
         ))
       (if (> n run)
         (vecPush parts (strSlice s run (- n run)))
-        0
+        (cast (Vec String) 0)
       )
       (catStrs parts)
     }
@@ -1042,7 +1054,7 @@
 ; is a function rather than a block inside an `if` so the callers below
 ; read as one expression each.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: pushQ (-> Int String String Int))
+(pub :: pushQ (-> (Vec String) String String Int))
 
 (pub fn (pushQ parts pre s)
   {
@@ -1060,12 +1072,12 @@
 ; O(file) the scans it replaces cost. The report loop below calls
 ; `renderDiagIx` and builds one index for the whole run instead.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: renderDiag (-> Int String String Int String))
+(pub :: renderDiag (-> Int String String (Vec Int) String))
 
 (pub fn (renderDiag d src file units)
   (renderDiagIx
-    d    src    file    units    (srcLineIndex src)    (if (== units 0)
-      0
+    d    src    file    units    (srcLineIndex src)    (if (== (cast Int units) 0)
+      (cast (Vec Int) 0)
       (unitIndexes units)
     )
   )
@@ -1075,7 +1087,7 @@
 ; built once per render - see THE LINE INDEX above. `ixs` is 0 exactly
 ; when `units` is, on the single-unit path.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: renderDiagIx (-> Int String String Int Int Int String))
+(pub :: renderDiagIx (-> Int String String (Vec Int) Int (Vec Int) String))
 
 (pub fn (renderDiagIx d src file units ix ixs)
   (let ((parts vecNew))
@@ -1138,12 +1150,13 @@
             (if (== (diagHelpFixSpan d i) 0)
               (pushQ parts " ?" (diagHelpMsg d i))
               {
-                (vecPush parts " ?")
+                { (vecPush parts " ?") 0 }
                 (vecPush parts (fmtSpanIx src ix (diagHelpFixSpan d i)))
                 (vecPush parts ":")
                 (vecPush parts (quoteStr (diagHelpMsg d i)))
                 (vecPush parts "~>")
                 (vecPush parts (quoteStr (diagHelpFixText d i)))
+                0
               }
             )
             (set i (+ i 1))
@@ -1162,17 +1175,18 @@
               (fs (diagTraceSpan d i))
               (fu (diagTraceUnit d i))
             )
-              (if (|| (== fs 0) (|| (== units 0) (|| (== ixs 0) (>= fu (vecLen units)))))
+              (if (|| (== fs 0) (|| (== (cast Int units) 0) (|| (== (cast Int ixs) 0) (>= fu (vecLen units)))))
                 0
                 (let ((u (vecGet units fu)))
                   {
-                    (vecPush parts (memGetWord u 0))
+                    { (vecPush parts (memGetWordStr u 0)) 0 }
                     (vecPush parts ":")
                     ; The frame's own unit's index, not the
                     ; diagnostic's: this is the one field on the line
                     ; whose span points into a different source.
                     (vecPush parts (fmtSpanIx (memGetWordStr u 1) (vecGet ixs fu) fs))
                     (vecPush parts ":")
+                    0
                   }
                 )
               )
@@ -1190,7 +1204,7 @@
 ; source file that contributed declarations - and each diagnostic
 ; names the one its spans index.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: renderDiagsUnits (-> Int Int String))
+(pub :: renderDiagsUnits (-> (Vec Int) (Vec Int) String))
 
 (pub fn (renderDiagsUnits ds units)
   ; A linear join rather than the old recursive strConcat fold, whose
@@ -1239,7 +1253,7 @@
 ; wrong, which is the worst moment to add an allocation storm.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: catStrs (-> Int String))
+(pub :: catStrs (-> (Vec String) String))
 
 (pub fn (catStrs v)
   (let (
@@ -1284,7 +1298,7 @@
 ; discovery order stays observable to anything that wants it.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: orderDiags (-> Int Int))
+(pub :: orderDiags (-> (Vec Int) (Vec Int)))
 
 (pub fn (orderDiags ds)
   (let (
@@ -1297,7 +1311,7 @@
         {
           (if (!= (diagSev (vecGet ds i)) SEV_ERROR)
             (vecPush out (vecGet ds i))
-            0
+            (cast (Vec Int) 0)
           )
           (set i (+ i 1))
         })
@@ -1306,7 +1320,7 @@
         {
           (if (== (diagSev (vecGet ds i)) SEV_ERROR)
             (vecPush out (vecGet ds i))
-            0
+            (cast (Vec Int) 0)
           )
           (set i (+ i 1))
         })
@@ -1322,7 +1336,7 @@
 ; with only its own imports, so a shared helper in the entry file is
 ; a helper only the entry file can see.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: countErrorDiags (-> Int Int))
+(pub :: countErrorDiags (-> (Vec Int) Int))
 
 (pub fn (countErrorDiags ds)
   (let (

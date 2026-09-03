@@ -63,7 +63,7 @@
 ; ------------------------------------------------------------------
 ; Vec
 ; ------------------------------------------------------------------
-(pub :: scPush (-> Int Int Int Int))
+(pub :: scPush (-> (Vec Int) Int Int (Vec Int)))
 
 (pub fn (scPush v lo hi)
   (if (>= lo hi)
@@ -78,7 +78,7 @@
 ; Read every element back and count the ones holding what was pushed.
 ; Checked against the index rather than summed, so a Vec that returns
 ; the right total from the wrong slots still fails.
-(pub :: scVecIntact (-> Int Int Int Int Int))
+(pub :: scVecIntact (-> (Vec Int) Int Int Int Int))
 
 (pub fn (scVecIntact v lo hi acc)
   (if (>= lo hi)

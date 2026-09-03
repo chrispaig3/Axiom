@@ -5,10 +5,11 @@
 
 (import Vec)
 
-; A `Vec` is an `Int` handle holding one word per element, and the
-; element type is whatever the program reads it as - Float bits with
-; `(cast Float (vecGet v i))`, a Bool as 0/1, a Char as its code point,
-; every integer as the word (a u64 >= 2^63 reads negative):
+; A `Vec` of words is a `(Vec Int)`, one word per element, and which
+; scalar those words hold is whatever the program reads them as -
+; Float bits with `(cast Float (vecGet v i))`, a Bool as 0/1, a Char
+; as its code point, every integer as the word (a u64 >= 2^63 reads
+; negative):
 ;   `charsOf` answers a Vec of Char (code points);
 ;   `concat` reads `parts` as a Vec of String;
 ;   `doubleInPlace` writes `xs` in place, a Vec of Int;
@@ -30,7 +31,7 @@
   (combineRaw :: (-> (-> Int Int Int) (-> Int Int Int Int) Int Int Int) (symbol "axffi_combine"))
   (concatRaw :: (-> Int Int Int) (symbol "axffi_concat"))
   (deepest :: (-> Bool Bool) (symbol "axffi_deepest"))
-  (doubleInPlace :: (-> Int Int) (symbol "axffi_double_in_place"))
+  (doubleInPlaceRaw :: (-> Int Int) (symbol "axffi_double_in_place"))
   (echoRaw :: (-> String Int Int) (symbol "axffi_echo"))
   (evensRaw :: (-> Int Int Int) (symbol "axffi_evens"))
   (fromCharsRaw :: (-> Int Int Int) (symbol "axffi_from_chars"))
@@ -44,7 +45,7 @@
   (maybePiecesRaw :: (-> String Int Int) (symbol "axffi_maybe_pieces"))
   (maybePixelTryRaw :: (-> Int Int Int) (symbol "axffi_maybe_pixel_try"))
   (maybeTextRaw :: (-> Int Int Int) (symbol "axffi_maybe_text"))
-  (mean :: (-> Int Int Float) (symbol "axffi_mean"))
+  (meanRaw :: (-> Int Int Float) (symbol "axffi_mean"))
   (nestedAdd :: (-> Int Int Int) (symbol "axffi_nested_add"))
   (nextChar :: (-> Char Char) (symbol "axffi_next_char"))
   (nothing :: (-> Int Int) (symbol "axffi_nothing"))
@@ -60,14 +61,14 @@
   (pixelsTryRaw :: (-> Int Int Int) (symbol "axffi_pixels_try"))
   (ratioRaw :: (-> Int Int Int Int) (symbol "axffi_ratio"))
   (renamedRaw :: (-> String Int Int Int) (symbol "custom_symbol"))
-  (sumRows :: (-> Int Int) (symbol "axffi_sum_rows"))
+  (sumRowsRaw :: (-> Int Int) (symbol "axffi_sum_rows"))
   (thingDropFn :: Int (symbol "axffi_thing_drop_fn"))
   (thingGetRaw :: (-> Foreign Int) (symbol "axffi_thing_get"))
   (thingMaybeRaw :: (-> Foreign Int Int) (symbol "axffi_thing_maybe"))
   (thingNewRaw :: (-> Int Foreign) (symbol "axffi_thing_new"))
   (thingPairRaw :: (-> Foreign Foreign Float Float) (symbol "axffi_thing_pair"))
   (thingTryRaw :: (-> Int Int Int) (symbol "axffi_thing_try"))
-  (total :: (-> Int Int) (symbol "axffi_total"))
+  (totalRaw :: (-> Int Int) (symbol "axffi_total"))
   (tryEvensRaw :: (-> Int Int Int) (symbol "axffi_try_evens"))
   (tryGridF64Raw :: (-> Int Int Int) (symbol "axffi_try_grid_f64"))
   (unitResultRaw :: (-> Int Int Int) (symbol "axffi_unit_result"))
@@ -85,7 +86,7 @@
   (Pixel Int Float Bool))
 
 ; A `Vec` of `Glyph` answered by Rust: 2 words per element, rebuilt here.
-(:: __glyphFromWords (-> Int Int Int Int Int))
+(:: __glyphFromWords (-> (Vec Glyph) Int Int Int (Vec Glyph)))
 
 (fn (__glyphFromWords __v __p __n __i)
   (if (>= __i __n)
@@ -103,7 +104,7 @@
 )
 
 ; A `Vec` of `Pixel` answered by Rust: 3 words per element, rebuilt here.
-(:: __pixelFromWords (-> Int Int Int Int Int))
+(:: __pixelFromWords (-> (Vec Pixel) Int Int Int (Vec Pixel)))
 
 (fn (__pixelFromWords __v __p __n __i)
   (if (>= __i __n)
@@ -122,17 +123,21 @@
 )
 
 ; A `Vec` of `Pixel` handed to Rust: flattened to 3 words per element here.
-(:: __pixelToWords (-> Int Int Int Int))
+(:: __pixelToWords (-> (Vec Pixel) (Vec Int) Int (Vec Int)))
 
 (fn (__pixelToWords __ps __w __i)
   (if (>= __i (vecLen __ps))
     __w
-    (match (cast Pixel (vecGet __ps __i))
+    (match (vecGet __ps __i)
       ((Pixel __f0 __f1 __f2)
         {
           (vecPush __w __f0)
-          (vecPush __w __f1)
-          (vecPush __w __f2)
+          (vecPush
+            __w            (cast Int __f1)
+          )
+          (vecPush
+            __w            (cast Int __f2)
+          )
           (__pixelToWords __ps __w (+ __i 1))
         }
       )
@@ -166,7 +171,7 @@
   )
 )
 
-(pub :: charsOf (-> String Int))
+(pub :: charsOf (-> String (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (charsOf text)
@@ -231,13 +236,15 @@
   )
 )
 
-(pub :: concat (-> Int String))
+(pub :: concat (-> (Vec String) String))
 
 ;@axiom:effect(io)
 (pub fn (concat parts)
   (let (
     (__c ffiCellNew)
-    (__st (concatRaw parts __c))
+    (__st (concatRaw
+      (cast Int parts)      __c
+    ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
     (__v (ffiBytesToStr __p __n))
@@ -247,6 +254,19 @@
       (ffiCellFree __c)
       __v
     }
+  )
+)
+
+(pub :: doubleInPlace (-> (Vec Int) Int))
+
+;@axiom:effect(io)
+(pub fn (doubleInPlace xs)
+  (let ((__r 
+    (doubleInPlaceRaw
+      (cast Int xs)
+    )
+  ))
+    __r
   )
 )
 
@@ -269,7 +289,7 @@
   )
 )
 
-(pub :: evens (-> Int Int))
+(pub :: evens (-> Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (evens upto)
@@ -288,13 +308,15 @@
   )
 )
 
-(pub :: fromChars (-> Int String))
+(pub :: fromChars (-> (Vec Int) String))
 
 ;@axiom:effect(io)
 (pub fn (fromChars cs)
   (let (
     (__c ffiCellNew)
-    (__st (fromCharsRaw cs __c))
+    (__st (fromCharsRaw
+      (cast Int cs)      __c
+    ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
     (__v (ffiBytesToStr __p __n))
@@ -325,7 +347,7 @@
   )
 )
 
-(pub :: glyphsMaybe (-> Int (Option Int)))
+(pub :: glyphsMaybe (-> Int (Option (Vec Glyph))))
 
 ;@axiom:effect(io)
 (pub fn (glyphsMaybe n)
@@ -351,7 +373,7 @@
   )
 )
 
-(pub :: grid (-> Int Int))
+(pub :: grid (-> Int (Vec (Vec Int))))
 
 ;@axiom:effect(io)
 (pub fn (grid n)
@@ -458,7 +480,7 @@
   )
 )
 
-(pub :: maybePieces (-> String (Option Int)))
+(pub :: maybePieces (-> String (Option (Vec String))))
 
 ;@axiom:effect(io)
 (pub fn (maybePieces text)
@@ -546,7 +568,20 @@
   )
 )
 
-(pub :: parity (-> Int Int))
+(pub :: mean (-> (Vec Int) (Vec Int) Float))
+
+;@axiom:effect(io)
+(pub fn (mean xs weights)
+  (let ((__r 
+    (meanRaw
+      (cast Int xs)      (cast Int weights)
+    )
+  ))
+    __r
+  )
+)
+
+(pub :: parity (-> Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (parity n)
@@ -565,7 +600,7 @@
   )
 )
 
-(pub :: pieces (-> String Int))
+(pub :: pieces (-> String (Vec String)))
 
 ;@axiom:effect(io)
 (pub fn (pieces text)
@@ -584,7 +619,7 @@
   )
 )
 
-(pub :: piecesLookup (-> String (Option (Result Int String))))
+(pub :: piecesLookup (-> String (Option (Result (Vec String) String))))
 
 ;@axiom:effect(io)
 (pub fn (piecesLookup text)
@@ -723,14 +758,16 @@
   )
 )
 
-(pub :: pixelsDim (-> Int Int Int))
+(pub :: pixelsDim (-> (Vec Pixel) Int (Vec Pixel)))
 
 ;@axiom:effect(io)
 (pub fn (pixelsDim ps by)
   (let (
     (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
     (__c ffiCellNew)
-    (__st (pixelsDimRaw __a0 by __c))
+    (__st (pixelsDimRaw
+      (cast Int __a0)      by      __c
+    ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
     (__v (__pixelFromWords (vecWithCapacity __n) __p __n 0))
@@ -743,14 +780,16 @@
   )
 )
 
-(pub :: pixelsTry (-> Int (Result Int String)))
+(pub :: pixelsTry (-> (Vec Pixel) (Result (Vec Pixel) String)))
 
 ;@axiom:effect(io)
 (pub fn (pixelsTry ps)
   (let (
     (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
     (__c ffiCellNew)
-    (__st (pixelsTryRaw __a0 __c))
+    (__st (pixelsTryRaw
+      (cast Int __a0)      __c
+    ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
@@ -816,6 +855,19 @@
       (ffiCellFree __c)
       __v
     }
+  )
+)
+
+(pub :: sumRows (-> (Vec (Vec Int)) Int))
+
+;@axiom:effect(io)
+(pub fn (sumRows rows)
+  (let ((__r 
+    (sumRowsRaw
+      (cast Int rows)
+    )
+  ))
+    __r
   )
 )
 
@@ -922,7 +974,20 @@
   )
 )
 
-(pub :: tryEvens (-> Int (Result Int String)))
+(pub :: total (-> (Vec Int) Int))
+
+;@axiom:effect(io)
+(pub fn (total xs)
+  (let ((__r 
+    (totalRaw
+      (cast Int xs)
+    )
+  ))
+    __r
+  )
+)
+
+(pub :: tryEvens (-> Int (Result (Vec Int) String)))
 
 ;@axiom:effect(io)
 (pub fn (tryEvens upto)
@@ -951,7 +1016,7 @@
   )
 )
 
-(pub :: tryGridF64 (-> Int (Result Int String)))
+(pub :: tryGridF64 (-> Int (Result (Vec (Vec Int)) String)))
 
 ;@axiom:effect(io)
 (pub fn (tryGridF64 n)

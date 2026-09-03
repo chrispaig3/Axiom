@@ -4,10 +4,16 @@
 ; ways. The raw item is typed `Char` directly - `(nextChar :: (-> Char
 ; Char))` - and no wrapper is needed. A `Vec<char>` result is the
 ; unchanged words path (each word a code point, read with `(cast Char
-; (vecGet v i))`); a `&[char]` parameter is a `Vec` of Chars, each
-; word checked on the way in: a word that is not a Unicode scalar
-; value (`(cast Char 1114112)`, a negative word) aborts with the
-; argument named, as a narrow integer out of range does.
+; (vecGet v i))`); a `&[char]` parameter is the same `(Vec Int)` of
+; code points, each word checked on the way in: a word that is not a
+; Unicode scalar value (`(cast Char 1114112)`, a negative word) aborts
+; with the argument named, as a narrow integer out of range does.
+;
+; BOTH DIRECTIONS ARE `(Vec Int)` and that is deliberate rather than
+; lax. `charsOf` builds its result with `ffiWordsToVec`, which answers
+; words; if `fromChars` took a `(Vec Char)` instead, the round trip
+; `(fromChars (charsOf s))` would not typecheck. So a Char goes in as
+; the word it is, through `codePoint` below.
 ;
 ; A Rust `u64` is the word's 64 bits read unsigned, no range check
 ; either way: `(wrapU64 -1)` hands Rust `u64::MAX`, which wraps to 0.
@@ -21,12 +27,22 @@
 
 (import Demo)
 
+; A `Char` as the code-point word `fromChars` reads.
+;
+; The `cast` is at a RETURN, inside a function whose declared type
+; carries the truth, which is the vehicle `MM-VAL-23` prescribes - not
+; at an argument root, where `MM-VAL-22` measures the evidence word
+; classified 0.
+(:: codePoint (-> Char Int))
+
+(fn (codePoint c) (cast Int c))
+
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((cs vecNew))
     {
-      (vecPush cs 'o')
-      (vecPush cs 'k')
+      (vecPush cs (codePoint 'o'))
+      (vecPush cs (codePoint 'k'))
       (let (
         (next (cast Int (nextChar 'a')))
         (code (charCode

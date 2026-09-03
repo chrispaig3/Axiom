@@ -49,17 +49,17 @@ See [reference.md](reference.md) for the language, and
 | `axsymUnpct` | value | `(-> String String)` | `Alloc,Mut` | A meta key or value with its escapes undone. The `strFindByte` guard is not an optimisation for its own sake: no AXTAG in this repository contains a byte that is escaped, so every token on every line in the corpus takes the first arm and is returned as it arrived, allocating nothing and copying nothing. |
 | `axsymUnpctFrom` | value | `(-> String Int String String)` | `Alloc,Mut` |  |
 | `axsymMeta` | value | `(-> String Meta)` | `Alloc,Mut` | `#key=value` or a bare `#key`, with the leading `#` already dropped. Both halves are unescaped, because `saAxMeta` escapes both: an AXTAG key is everything from `;@axiom:` to the newline, so a key can carry a space or a `#` just as a value can. |
-| `axsymMetaScan` | value | `(-> String Int Int Int Int)` | `Alloc,Mut` | The metadata section, from `at` to the end of the line. A token opens at a `#` whose previous byte is a space, and runs to the byte before the next such `#`. `i` walks; `start` is the open token's first byte, or -1 before the first `#` is seen. |
+| `axsymMetaScan` | value | `(-> String Int Int (Vec Meta) (Vec Meta))` | `Alloc,Mut` | The metadata section, from `at` to the end of the line. A token opens at a `#` whose previous byte is a space, and runs to the byte before the next such `#`. `i` walks; `start` is the open token's first byte, or -1 before the first `#` is seen. |
 | `axsymLine` | value | `(-> String (Option Sym))` | `Alloc,Mut` | One line. `None` for a blank line, for a line whose first byte is not a KIND letter, and for a line with no quoted type - which together are every non-AXSYM line a caller might feed in, including the `compilation failed` trailer and AXDL diagnostics on the same stream. |
 | `axsymBuild` | value | `(-> String Int Int (Option Sym))` | `Alloc,Mut` | The three fields either side of the quoted type, once its bounds are known. Split out because the arms above are a refusal ladder and this is the one path that answers a symbol. |
 | `axsymNid` | value | `(-> String String)` | `Alloc,Mut` | The `@<nid>` between the type and the metadata, empty when absent. It is bounded by the next space rather than by the end, because the metadata follows it on the same line. |
-| `axsymParse` | value | `(-> String Int)` | `Alloc,Mut` | A whole AXSYM stream. Lines that are not AXSYM are skipped, so the caller may pass the compiler's output unfiltered. |
-| `axsymParseFrom` | value | `(-> Int Int Int Int)` | `Alloc,Mut` |  |
+| `axsymParse` | value | `(-> String (Vec Sym))` | `Alloc,Mut` | A whole AXSYM stream. Lines that are not AXSYM are skipped, so the caller may pass the compiler's output unfiltered. |
+| `axsymParseFrom` | value | `(-> (Vec Int) Int (Vec Sym) (Vec Sym))` | `Alloc,Mut` |  |
 | `symTag` | value | `(-> Sym String String)` |  | The value of the LAST `#key` on the line, or empty. Empty is also what a bare flag answers, so a caller distinguishing "absent" from "present with no value" wants `symHasTag`. |
-| `symTagFrom` | value | `(-> Int String Int String)` |  |  |
-| `symTagLastIdx` | value | `(-> Int String Int Int Int)` |  | The index of the last `#key` at or after `i`, or -1. Carried in an accumulator rather than compared on the way out of the recursion, because a bare flag's value is empty and "" cannot tell a later match from no match at all. |
+| `symTagFrom` | value | `(-> (Vec Meta) String Int String)` |  |  |
+| `symTagLastIdx` | value | `(-> (Vec Meta) String Int Int Int)` |  | The index of the last `#key` at or after `i`, or -1. Carried in an accumulator rather than compared on the way out of the recursion, because a bare flag's value is empty and "" cannot tell a later match from no match at all. |
 | `symHasTag` | value | `(-> Sym String Bool)` |  |  |
-| `symHasTagFrom` | value | `(-> Int String Int Bool)` |  |  |
+| `symHasTagFrom` | value | `(-> (Vec Meta) String Int Bool)` |  |  |
 | `symEffects` | value | `(-> Sym String)` |  | The effect row the CHECKER derived - not what the author claimed. Empty when the declaration performs none. |
 | `symDerivedPure` | value | `(-> Sym Bool)` |  | True when the checker derived no effects at all. This is a statement about the ANALYSIS, not a guarantee about the program: an effect reached through a function value in memory is not in the row, and a built-in effect named by an enclosing `handle` is subtracted from it. A policy that treats this as proof of purity is reading a lower bound as an upper one. |
 | `symAgentTag` | value | `(-> Sym String String)` | `Alloc,Mut` | The `agent:*` namespace, which the compiler records and does not check. `(symAgentTag s "rewrite")` reads `#agent:rewrite`. |
@@ -137,9 +137,9 @@ See [reference.md](reference.md) for the language, and
 | `ffiCellFree` | value | `(-> Int Int)` |  |  |
 | `ffiCellWord` | value | `(-> Int Int Int)` |  |  |
 | `ffiBytesToStr` | value | `(-> Int Int String)` | `Alloc,Mut` | Rust-owned bytes copied into a fresh Axiom `String`. `strAlloc` reserves len+1 and zeroes it, so the NUL terminator is already there. Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after. |
-| `ffiWordsToVec` | value | `(-> Int Int Int)` | `Alloc,Mut` | A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n` words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`. |
-| `ffiStrsToVec` | value | `(-> Int Int Int)` | `Alloc,Mut` | A Rust `Vec<String>` copied into an Axiom `Vec` of Strings: `p` points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT free the Rust side: the wrapper calls `ffiFreeStrList`. |
-| `ffiWordListsToVec` | value | `(-> Int Int Int)` | `Alloc,Mut` | A Rust `Vec<Vec<T>>` of word scalars copied into an Axiom `Vec` of `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list. Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`. |
+| `ffiWordsToVec` | value | `(-> Int Int (Vec Int))` | `Alloc,Mut` | A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n` words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`. |
+| `ffiStrsToVec` | value | `(-> Int Int (Vec String))` | `Alloc,Mut` | A Rust `Vec<String>` copied into an Axiom `Vec` of Strings: `p` points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT free the Rust side: the wrapper calls `ffiFreeStrList`. |
+| `ffiWordListsToVec` | value | `(-> Int Int (Vec (Vec Int)))` | `Alloc,Mut` | A Rust `Vec<Vec<T>>` of word scalars copied into an Axiom `Vec` of `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list. Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`. |
 
 ## `Fmt`
 
@@ -182,9 +182,9 @@ See [reference.md](reference.md) for the language, and
 | `hClose` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | `</tag>`. |
 | `hAttr` | value | `(-> HtmlBuf String String Int)` | `Alloc,Mut` | ` name="value"`, the value escaped for the attribute context. |
 | `hFlag` | value | `(-> HtmlBuf String Int)` | `Alloc,Mut` | ` name` alone - a boolean attribute such as `disabled`. |
-| `hVecLen` | value | `(-> Int Int)` |  | The `Vec` length, as the `for` templates name it. This module's own so the templates' free identifiers all resolve here (MAC-HYG-7), and PUBLIC because a template's free identifier is checked for visibility at the INVOCATION: measured, a private `hVecLen` made every `(for ...)` in an importing file `AX3023 private-name Html::hVecLen`. See the header's third point. |
-| `hVecStr` | value | `(-> Int Int String)` |  | Element `i` of a `Vec` of Strings, as `for` reads it. |
-| `hVecWord` | value | `(-> Int Int Int)` |  | Element `i` of a `Vec` of Ints, as `forInt` reads it. |
+| `hVecLen` | value | `(-> (Vec a) Int)` |  | The `Vec` length, as the `for` templates name it. This module's own so the templates' free identifiers all resolve here (MAC-HYG-7), and PUBLIC because a template's free identifier is checked for visibility at the INVOCATION: measured, a private `hVecLen` made every `(for ...)` in an importing file `AX3023 private-name Html::hVecLen`. See the header's third point. |
+| `hVecStr` | value | `(-> (Vec a) Int String)` |  | Element `i` of a `Vec` of Strings, as `for` reads it. |
+| `hVecWord` | value | `(-> (Vec Int) Int Int)` |  | Element `i` of a `Vec` of Ints, as `forInt` reads it. |
 | `el` | macro |  |  | `(el b "tag" { children })` - an element with children and no attributes. The builder and the tag are bound first (MAC-SAFE-1): each is mentioned twice in the template. |
 | `elA` | macro |  |  | `(elA b "tag" { attributes } { children })` - an element with an attribute block, written between `<tag` and `>`, then its children. |
 | `elVoid` | macro |  |  | `(elVoid b "tag")` - a void element, `<br>`, with nothing inside and no closing tag. |
@@ -347,7 +347,7 @@ See [reference.md](reference.md) for the language, and
 | `makeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create the directory `path`, mode 0755. Answers 0, or a negative errno - `-17` (EEXIST) when it is already there. |
 | `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers 0, or the negative errno of the first component that could not be made. |
 | `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the EMPTY directory `path`. Answers 0, or a negative errno - `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
-| `listDir` | value | `(-> String Int)` | `Alloc,IO,Mut` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
+| `listDir` | value | `(-> String (Vec Int))` | `Alloc,IO,Mut` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
 | `cwd` | value | `(Result String Error)` | `Alloc,IO,Mut` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno. See `Sys.sysGetCwd` for why this is two different syscalls underneath, and why it stopped answering `""` for every distinct reason it can fail. |
 | `exit` | value | `(-> Int Int)` | `IO` |  |
 | `die` | value | `(-> String Int Int)` | `Alloc,IO,Mut` | Print `s` to standard error and exit with `code`. Never returns. |
@@ -375,7 +375,7 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `jobRunAll` | value | `(-> Int Int Int)` | `Alloc,IO,Mut` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
+| `jobRunAll` | value | `(-> (Vec (Vec String)) Int (Vec Int))` | `Alloc,IO,Mut` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
 
 ## `Json`
 
@@ -435,7 +435,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Mem`
 
-`stdlib/Mem.ax` — 12 public names
+`stdlib/Mem.ax` — 13 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -448,6 +448,7 @@ See [reference.md](reference.md) for the language, and
 | `memCmp` | value | `(-> Int Int Int Int)` |  | Compare `count` bytes. 0 if equal, otherwise the signed difference of the first differing byte pair (so the result orders like `memcmp`). |
 | `memGetWord` | value | `(-> Int Int Int)` |  | The word at `index`. A word is what it is: an integer, or a handle, or a reference whose type this layer does not know. It answers `Int` because that is the truth about a machine word - it used to answer a type variable, which let the CALLER name any type at all and get it, including a reference, which then dereferenced. See `AX3040`. |
 | `memGetWordStr` | value | `(-> Int Int String)` |  | The String view, for the typed accessors built on this layer - `tokenLexeme`, `diagCode`, and the several dozen others whose own signature says `String` and whose body is one word read. |
+| `memGetWordVec` | value | `(-> Int Int (Vec a))` |  | The `Vec` view of the word at `index`. A `Vec` is a handle - one word, exactly what `memGetWord` answers - so this reinterprets and converts nothing. The cast is HERE, at a return inside a signature that carries the type, for the reason `memGetWordStr` gives: a cast at an argument root classifies that value's evidence 0 and drops its retain or its release (docs/memory-model.md MM-VAL-22, measured). |
 | `memSetWord` | value | `(-> Int Int a Int)` | `Mut` | Storing a word here is the moment a value can leave the type system's sight: `(cast Int value)` erases whatever `value` was, and the machine word that lands in `addr` is indistinguishable from an integer forever after. That is the whole of MM-LIFE-2c's co-ownership blocker, and the fix is one line - the store takes a SHARE of what it is about to hide. |
 | `memGetByte` | value | `(-> Int Int Int)` |  |  |
 | `memPutByte` | value | `(-> Int Int Int Int)` | `Mut` |  |
@@ -536,8 +537,8 @@ See [reference.md](reference.md) for the language, and
 | `strIsSpace` | value | `(-> Int Bool)` |  | Space, tab, LF, CR - and nothing else. Not `char::is_whitespace`: VT and FF are AX1001 to this language's lexer, and a formatter that skipped them turned a refused file into an accepted one. |
 | `strHexVal` | value | `(-> Int Int)` |  | The value of a hex digit, or -1. Stated as the VALUE and not as a predicate because the value is what every caller needed: the JSON parser's `\uXXXX` escape and the language server's percent-decoding each carried a byte-identical copy of this ladder under its own name, while the predicate here had no caller at all. |
 | `strIsHexDigit` | value | `(-> Int Bool)` |  |  |
-| `strSplit` | value | `(-> String Int Int)` | `Alloc,Mut` | Every segment of `s` between occurrences of `byte`, in order, as a Vec of Str handles. Empty segments are KEPT: a `PATH` entry of "" means the working directory, and a caller that wants them dropped can drop them, while a caller that needs them cannot get them back. `strSplit "" 58` answers one empty segment, and `strSplit "a:" 58` answers two - the same rule as splitting on a separator anywhere else, and the one that makes the segment count equal the separator count plus one. |
-| `strSplitFrom` | value | `(-> String Int Int Int Int)` | `Alloc,Mut` |  |
+| `strSplit` | value | `(-> String Int (Vec Int))` | `Alloc,Mut` | Every segment of `s` between occurrences of `byte`, in order, as a Vec of Str handles. Empty segments are KEPT: a `PATH` entry of "" means the working directory, and a caller that wants them dropped can drop them, while a caller that needs them cannot get them back. `strSplit "" 58` answers one empty segment, and `strSplit "a:" 58` answers two - the same rule as splitting on a separator anywhere else, and the one that makes the segment count equal the separator count plus one. |
+| `strSplitFrom` | value | `(-> String Int Int (Vec Int) Int)` | `Alloc,Mut` |  |
 | `strFromByte` | value | `(-> Int String)` | `Alloc,Mut` | A one-byte `Str` holding `b`. The compiler driver and the JSON encoder each had this three-line allocate-and-store under a private name; it is a `Str` constructor, so it lives with the others. |
 | `strLower` | value | `(-> String String)` | `Alloc,Mut` | `s` with every ASCII upper-case byte lowered, or `s` itself when it has none - so a header name already in the form a table wants is not copied. Bytes above 127 pass through untouched: this is the ASCII fold a case-insensitive header table needs, not a Unicode case mapping. |
 | `strFind` | value | `(-> String String Int (Option Int))` | `Alloc` | The index of the first occurrence of `needle` in `s` at or after `from`, or `None`. An empty needle is found at `from` whenever `from` is inside `s` or at its end, which is the rule that makes `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than nothing. `no-alloc` came off on 2026-08-31: the `(Some found)` answer allocates. Accepted until then because a constructor contributed nothing to the effect row (`MM-EXEC-9a`). `no-io` and `no-foreign` are unchanged. |
@@ -576,7 +577,7 @@ See [reference.md](reference.md) for the language, and
 | `sysFileSize` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
 | `sysReadErrno` | value | `(-> Int Int)` | `Alloc,IO,Mut` | 0 when `path` can be opened AND read as a file, otherwise the errno saying why not. |
 | `sysIsDir` | value | `(-> Int Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
-| `sysReadDir` | value | `(-> Int Int)` | `Alloc,IO,Mut` | Every name in the directory `path`, as a Vec of owned `Str` - `.` and `..` INCLUDED, in whatever order the filesystem gives them. |
+| `sysReadDir` | value | `(-> Int (Vec Int))` | `Alloc,IO,Mut` | Every name in the directory `path`, as a Vec of owned `Str` - `.` and `..` INCLUDED, in whatever order the filesystem gives them. |
 | `sysGetCwd` | value | `(Result String Error)` | `Alloc,IO,Mut` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno the kernel refused with. |
 | `sysEnv` | value | `(-> String String)` | `Alloc,IO,Mut` | The value of the environment variable `name`, or "" when it is unset. |
 | `sysEnvp` | value | `Int` | `Alloc,IO,Mut` | A NULL-terminated copy of the process's own environment vector, in the form a child expects. |
@@ -773,8 +774,8 @@ See [reference.md](reference.md) for the language, and
 | `LED_ABORT` | value | `Int` |  | Ctrl-C: abandon this line. NOT end of session - see the header of `term.ax` for why, and for why it cannot leave the terminal raw. |
 | `LED_RING_MAX` | value | `Int` |  | How many kills the ring remembers. |
 | `LineEd` | struct |  |  |  |
-| `ledRingNew` | value | `Int` | `Alloc,Mut` | The kill ring, created once per session and outliving every line. |
-| `ledNew` | value | `(-> Int String LineEd)` | `Alloc,Mut` | One editor over a session's ring, with the caller's word set. The gap vectors are `vecNew` (leaf) because their elements are CODE POINTS: Vec.ax's comment says a leaf block is exactly right for Ints and costs nothing. |
+| `ledRingNew` | value | `(Vec String)` | `Alloc,Mut` | The kill ring, created once per session and outliving every line. |
+| `ledNew` | value | `(-> (Vec String) String LineEd)` | `Alloc,Mut` | One editor over a session's ring, with the caller's word set. The gap vectors are `vecNew` (leaf) because their elements are CODE POINTS: Vec.ax's comment says a leaf block is exactly right for Ints and costs nothing. |
 | `ledReset` | value | `(-> LineEd String Int Int Int)` | `Mut` | Prepare for the next physical line. Keeps both vectors' capacity. |
 | `ledFree` | value | `(-> LineEd Int)` |  | Hand the two gap vectors back. For session end and for a test harness, which builds hundreds; see the struct's comment for why nothing else needs it. |
 | `ledLen` | value | `(-> LineEd Int)` |  |  |
@@ -805,7 +806,7 @@ See [reference.md](reference.md) for the language, and
 | `ledYank` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
 | `ledYankPop` | value | `(-> LineEd Int)` | `Alloc,Mut` | Alt-y. Valid only immediately after a yank or another yank-pop, which `yankLen > 0` is exactly: every other key zeroes it in `ledApply`, so pressed cold this is a refusal that changes nothing. |
 | `tuiVisLen` | value | `(-> String Int)` |  | The DISPLAY WIDTH of a string: no `ESC [ ... m` sequence counted, and no UTF-8 continuation byte counted. |
-| `tuiCat` | value | `(-> Int String)` | `Alloc,Mut` | Every fragment in `v`, concatenated, in ONE allocation. |
+| `tuiCat` | value | `(-> (Vec String) String)` | `Alloc,Mut` | Every fragment in `v`, concatenated, in ONE allocation. |
 | `ledCharCols` | value | `(-> Int Int)` |  | The display width of one code point. 1 for everything - see the header. The single place a wcwidth table would land. |
 | `ledColsBefore` | value | `(-> LineEd Int Int)` |  | The columns the first `k` code points occupy. O(k), and it is the only reason `ledCharCols` is a function rather than a `1` written in four formulas: with a wcwidth table this stays correct and nothing else changes. |
 | `ledCols` | value | `(-> LineEd Int)` |  | The width to compute with: the terminal's, or 80 when it answered something a division cannot use. A pty that has never been sized reports 0 columns with a SUCCESSFUL ioctl (Sys.ax says so), and dividing by it is the bug that report cannot make. |
@@ -816,19 +817,19 @@ See [reference.md](reference.md) for the language, and
 | `ledCup` | value | `(-> Int Int String)` | `Alloc,Mut` | `ESC [ n <final>`, or "" when n < 1 so a zero-distance move costs no bytes. 65 A up, 66 B down, 67 C forward, 68 D back. |
 | `ledClearScreen` | value | `(-> Int String)` | `Alloc,Mut` | `ESC [ H ESC [ 2 J` - cursor home, erase the whole screen. Ctrl-L. |
 | `ledEraseRow` | value | `(-> Int String)` | `Alloc,Mut` | `ESC [ 0 K` - erase from the cursor to the end of the row. Spelled out rather than routed through `ledCup`, which refuses n < 1 and would answer "" - an erase that emits nothing is a redraw that leaves the old line's tail on the screen. |
-| `ledEraseOld` | value | `(-> LineEd Int Int)` | `Alloc,Mut` | Erase what the previous refresh drew and leave the cursor at column 0 of the first row. |
-| `ledRefreshFull` | value | `(-> LineEd Int Int)` | `Alloc,Mut` | The multi-row repaint. |
-| `ledRefreshWindow` | value | `(-> LineEd Int Int)` | `Alloc,Mut` |  |
-| `ledRefresh` | value | `(-> LineEd Int Int)` | `Alloc,Mut` | The one dispatcher, so the choice between the two repaints lives in exactly one place. |
+| `ledEraseOld` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` | Erase what the previous refresh drew and leave the cursor at column 0 of the first row. |
+| `ledRefreshFull` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` | The multi-row repaint. |
+| `ledRefreshWindow` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` |  |
+| `ledRefresh` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` | The one dispatcher, so the choice between the two repaints lives in exactly one place. |
 | `ledResize` | value | `(-> LineEd Int Int Int)` | `Mut` | Called with the terminal's current size before every refresh. When the width changed we cannot know how the terminal reflowed the text it already holds, so `rows` and `curRow` are reset rather than used: refusing to compute motions from a stale width beats computing them wrongly, and one more keystroke fully repairs the line. 1 when it changed. |
-| `ledApply` | value | `(-> LineEd KeyEv Int Int)` | `Alloc,Mut` |  |
+| `ledApply` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut` |  |
 | `ledIsKillKey` | value | `(-> KeyEv Bool)` |  |  |
 | `ledIsYankKey` | value | `(-> KeyEv Bool)` |  |  |
 | `ledByWord` | value | `(-> KeyEv Bool)` |  | A motion key carrying Ctrl or Alt is the WORD variant. Terminals disagree about which modifier they send for Ctrl-Left - xterm sends MOD_CTRL, several send MOD_ALT, and Alt-b is the same motion by another name - so both are accepted rather than one being picked. |
-| `ledDispatch` | value | `(-> LineEd KeyEv Int Int)` | `Alloc,Mut` |  |
+| `ledDispatch` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut` |  |
 | `ledNavKey` | value | `(-> LineEd KeyEv Int)` | `Alloc,Mut` | Arrows, Home and End - and the keys this effort deliberately leaves alone. Up and Down belong to the HISTORY effort and Tab to COMPLETION; they are decoded, they arrive here, and they do nothing. Adding them is a branch beside these, not a change to the decoder. |
 | `ledCharKey` | value | `(-> LineEd KeyEv Int)` | `Alloc,Mut` | A printable key, or an Alt-<letter> word command. Alt-b/f/d/y are the bindings every terminal can produce, where Ctrl-Left and Alt-Delete are the ones only some can. |
-| `ledCtrlKey` | value | `(-> LineEd KeyEv Int Int)` | `Alloc,Mut` | The control keys. readline's letters, and only the ones this effort owns: Ctrl-N and Ctrl-P are history's and are left unbound so that effort can take them without moving anything here. |
+| `ledCtrlKey` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut` | The control keys. readline's letters, and only the ones this effort owns: Ctrl-N and Ctrl-P are history's and are left unbound so that effort can take them without moving anything here. |
 
 ## `Tui.Keys`
 
@@ -898,7 +899,7 @@ See [reference.md](reference.md) for the language, and
 | `termWsRows` | value | `(-> KeyIn Int)` |  |  |
 | `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Enter raw mode on fd 0, saving into `kin.save`. 0, or negative. `keepSignals` 0: see the header. |
 | `termRawLeave` | value | `(-> KeyIn Int)` | `IO` |  |
-| `termFlush` | value | `(-> Int Int)` | `Alloc,IO,Mut` |  |
+| `termFlush` | value | `(-> (Vec String) Int)` | `Alloc,IO,Mut` |  |
 | `termEditLoop` | value | `(-> KeyIn LineEd String (Option String))` | `Alloc,IO,Mut` |  |
 
 ## `Utf8`
@@ -922,28 +923,31 @@ See [reference.md](reference.md) for the language, and
 
 ## `Vec`
 
-`stdlib/Vec.ax` — 20 public names
+`stdlib/Vec.ax` — 23 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `vecNew` | value | `Int` | `Alloc,Mut` | An empty `Vec` with `vecDefaultCap` capacity. |
-| `vecWithCapacity` | value | `(-> Int Int)` | `Alloc,Mut` | An empty `Vec` that can hold at least `cap` elements without growing. |
-| `vecWithCapacityRef` | value | `(-> Int Int)` | `Alloc,Mut` | The same, with an ARRAY-FORM data block: every element is a handle this vector owns a share of. See the module comment. |
-| `vecNewRef` | value | `Int` | `Alloc,Mut` | An empty `Vec` with `vecDefaultCap` capacity, owning its elements. |
-| `vecFree` | value | `(-> Int Int)` |  | Hand `v` back. Its data block goes with it - the header's reference map names word 2 - and, for a `vecNewRef` vector, so does one share of every element. |
-| `vecOwnsRefs` | value | `(-> Int Bool)` |  | Whether this vector owns a share of every element it holds - the `vecNewRef` half of the module comment. It is word 3 of the header and not a test of the data block's shape word: see `vecBuild`. |
-| `vecLen` | value | `(-> Int Int)` |  |  |
-| `vecCap` | value | `(-> Int Int)` |  |  |
-| `vecGet` | value | `(-> Int Int Int)` |  | The element at `i`, or 0 when `i` is out of range. |
-| `vecTry` | value | `(-> Int Int (Option Int))` | `Alloc` | The element at `i`, or `None` when there is no element at `i`. |
-| `vecGetStr` | value | `(-> Int Int String)` |  |  |
-| `vecSet` | value | `(-> Int Int a Int)` | `Mut` | Overwrite the element at `i`. Returns the handle. |
-| `vecPush` | value | `(-> Int a Int)` | `Alloc,Mut` | Append `x`. Returns the handle - the same one, with this representation; see the module comment for why it is returned anyway. |
-| `vecPop` | value | `(-> Int Int)` | `Mut` | Remove and return the last element, or 0 if `v` is empty. |
-| `vecLast` | value | `(-> Int Int)` |  | The last element without removing it, or 0 if `v` is empty. |
-| `vecClear` | value | `(-> Int Int)` | `Mut` | Drop every element, keeping the capacity. Returns the handle. |
-| `vecSum` | value | `(-> Int Int)` |  | The sum of every element. |
-| `vecHash` | value | `(-> Int Int)` |  | A position-sensitive digest of the whole vector. |
-| `vecSort` | value | `(-> Int Int)` | `Mut` | Sort ascending, in place, by machine word. Answers the vector. |
-| `vecSortBy` | value | `(-> Int (-> Int Int Int) Int)` | `Mut` | The same, ordered by a caller's comparison rather than by the word. |
+| `vecNew` | value | `(Vec a)` | `Alloc,Mut` | An empty `Vec` with `vecDefaultCap` capacity. |
+| `vecWithCapacity` | value | `(-> Int (Vec a))` | `Alloc,Mut` | An empty `Vec` that can hold at least `cap` elements without growing. |
+| `vecWithCapacityRef` | value | `(-> Int (Vec a))` | `Alloc,Mut` | The same, with an ARRAY-FORM data block: every element is a handle this vector owns a share of. See the module comment. |
+| `vecNewRef` | value | `(Vec a)` | `Alloc,Mut` | An empty `Vec` with `vecDefaultCap` capacity, owning its elements. |
+| `vecFree` | value | `(-> (Vec a) Int)` |  | Hand `v` back. Its data block goes with it - the header's reference map names word 2 - and, for a `vecNewRef` vector, so does one share of every element. |
+| `vecOwnsRefs` | value | `(-> (Vec a) Bool)` |  | Whether this vector owns a share of every element it holds - the `vecNewRef` half of the module comment. It is word 3 of the header and not a test of the data block's shape word: see `vecBuild`. |
+| `vecLen` | value | `(-> (Vec a) Int)` |  |  |
+| `vecCap` | value | `(-> (Vec a) Int)` |  |  |
+| `vecGet` | value | `(-> (Vec a) Int a)` |  | The element at `i`. REFUSES an index outside `0 .. (vecLen v) - 1`. |
+| `vecTry` | value | `(-> (Vec a) Int (Option a))` | `Alloc` | The element at `i`, or `None` when there is no element at `i`. |
+| `vecGetStr` | value | `(-> (Vec a) Int String)` |  |  |
+| `vecGetVec` | value | `(-> (Vec a) Int (Vec b))` |  | The element at `i` read back as a CONTAINER. |
+| `vecPushStr` | value | `(-> (Vec a) String (Vec a))` | `Alloc,Mut` | Append a `String` to a vector of WORDS, keeping the share. |
+| `vecPushVec` | value | `(-> (Vec a) (Vec b) (Vec a))` | `Alloc,Mut` | The same for a nested container. A `Vec` handle is a counted block too, so it needs the same explicit share for the same reason. |
+| `vecSet` | value | `(-> (Vec a) Int a (Vec a))` | `Mut` | Overwrite the element at `i`. Returns the handle. |
+| `vecPush` | value | `(-> (Vec a) a (Vec a))` | `Alloc,Mut` | Append `x`. Returns the handle - the same one, with this representation; see the module comment for why it is returned anyway. |
+| `vecPop` | value | `(-> (Vec a) a)` | `Mut` | Remove and return the last element. REFUSES an empty vector. |
+| `vecLast` | value | `(-> (Vec a) a)` |  | The last element without removing it. REFUSES an empty vector. |
+| `vecClear` | value | `(-> (Vec a) (Vec a))` | `Mut` | Drop every element, keeping the capacity. Returns the handle. |
+| `vecSum` | value | `(-> (Vec Int) Int)` |  | The sum of every element. |
+| `vecHash` | value | `(-> (Vec Int) Int)` |  | A position-sensitive digest of the whole vector. |
+| `vecSort` | value | `(-> (Vec a) (Vec a))` | `Mut` | Sort ascending, in place, by machine word. Answers the vector. |
+| `vecSortBy` | value | `(-> (Vec a) (-> Int Int Int) (Vec a))` | `Mut` | The same, ordered by a caller's comparison rather than by the word. |
 

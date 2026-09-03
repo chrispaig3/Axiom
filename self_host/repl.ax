@@ -156,6 +156,7 @@
                 {
                   (set sawAny 1)
                   (vecPush parts (strSlice (byteAsStr b) 0 1))
+                  0
                 }
               )
             )
@@ -593,7 +594,7 @@
               ; and only then failed in the eval half, which
               ; reads as the prompt contradicting itself.
               (let (
-                (decls (memGetWord dr 1))
+                (decls (memGetWordVec dr 1))
                 (units (let ((v vecNew))
                   {
                     (vecPush
@@ -617,7 +618,7 @@
                       )))
                         (let ((exDiags vecNew))
                           (let ((_ex (expandProgram
-                            decls                            allDecls                            exDiags                            vecNew                            0                            tbares                            tfulls                            tmods
+                            decls                            allDecls                            exDiags                            vecNew                            (cast (Vec Int) 0)                            tbares                            tfulls                            tmods
                           )))
                             (if (> (countErrorDiags exDiags) 0)
                               {
@@ -629,9 +630,9 @@
                               ; counted twice - only what `checkExpr` adds is
                               ; printed.
                                 (let ((tc (checkModuleTc allDecls allDecls units)))
-                                  (let ((before (vecLen (tcOut tc))))
+                                  (let ((before (vecLen (tcOutVec tc))))
                                     (let ((ty (checkExpr tc (nodeC probe))))
-                                      (let ((after (tcOut tc)))
+                                      (let ((after (tcOutVec tc)))
                                         (if (> (vecLen after) before)
                                           {
                                             (printTypeErrors after before)
@@ -659,7 +660,7 @@
   )
 )
 
-(pub :: printTypeErrors (-> Int Int Int))
+(pub :: printTypeErrors (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (printTypeErrors ds from)
@@ -802,7 +803,7 @@
       ; goldens pin those bytes, and the prompt IS the invocation
       ; site the frame would point back at.
       (let (
-        (decls (memGetWord pr 1))
+        (decls (memGetWordVec pr 1))
         (tcode (checkedTargetCode hostTarget))
         (bares vecNew)
         (fulls vecNew)
@@ -825,7 +826,7 @@
             (let ((v vecNew))
               {
                 (expandProgram
-                  decls                  allDecls                  v                  vecNew                  0                  bares                  fulls                  mods
+                  decls                  allDecls                  v                  vecNew                  (cast (Vec Int) 0)                  bares                  fulls                  mods
                 )
                 v
               }
@@ -851,7 +852,7 @@
   (let ((tr (replTryCompile wrapper)))
     (if (== (memGetWord tr 0) 1)
       tr
-      (let ((ds (memGetWord tr 1)))
+      (let ((ds (memGetWordVec tr 1)))
         {
           (if (== (vecLen ds) 0)
             (replOut "Error: parsing failed\n")
@@ -871,7 +872,7 @@
 ; user's own function drawing its own AX3042 (a real bug in what they
 ; typed) must be reported, not silently retried into a second,
 ; unrelated failure.
-(pub :: replIoRetryNeeded (-> Int Bool))
+(pub :: replIoRetryNeeded (-> (Vec Int) Bool))
 
 (pub fn (replIoRetryNeeded ds)
   (if (!= (vecLen ds) 1)
@@ -904,9 +905,9 @@
   (let ((tr (replTryCompile (replWrapper declsSrc exprLine tyStr 0))))
     (if (== (memGetWord tr 0) 1)
       tr
-      (if (replIoRetryNeeded (memGetWord tr 1))
+      (if (replIoRetryNeeded (memGetWordVec tr 1))
         (replCompile (replWrapper declsSrc exprLine tyStr 1))
-        (let ((ds (memGetWord tr 1)))
+        (let ((ds (memGetWordVec tr 1)))
           {
             (if (== (vecLen ds) 0)
               (replOut "Error: parsing failed\n")
@@ -920,7 +921,7 @@
   )
 )
 
-(pub :: joinDiagMsgs (-> Int String))
+(pub :: joinDiagMsgs (-> (Vec Int) String))
 
 (pub fn (joinDiagMsgs ds)
   (let (
@@ -932,7 +933,7 @@
         {
           (if (> i 0)
             (vecPush parts "; ")
-            0
+            (cast (Vec String) 0)
           )
           (vecPush parts (diagMsg (vecGet ds i)))
           (set i (+ i 1))
@@ -1201,7 +1202,7 @@
 ; middle of `(fn (f) 1)` instead of the whole form and left `(fn ()
 ; 1)` behind, which does not parse; measured, `Error: the accumulated
 ; declarations no longer parse` on the very next line typed.
-(pub :: replTopLevelSpans (-> String Int))
+(pub :: replTopLevelSpans (-> String (Vec Int)))
 
 (pub fn (replTopLevelSpans src)
   (let ((toks (lex src)) (out vecNew))
@@ -1265,7 +1266,7 @@
     (if (== (memGetWord dr 0) 0)
       src
       (let (
-        (decls (memGetWord dr 1))
+        (decls (memGetWordVec dr 1))
         (spans (replTopLevelSpans src))
         (mut out "")
         (mut cursor 0)
@@ -1317,7 +1318,7 @@
 ; already names below - so an `import`, `macro`, `effect`, `type`,
 ; `trait` or `impl` re-declaration still accumulates as it always
 ; did; recorded, not fixed here.
-(pub :: replDeclsSrcDropping (-> String Int String))
+(pub :: replDeclsSrcDropping (-> String (Vec Int) String))
 
 (pub fn (replDeclsSrcDropping declsSrc newDecls)
   (let ((mut out declsSrc) (mut j 0))
@@ -1371,7 +1372,7 @@
         (replOut "Parse error: the declaration does not parse\n")
         declsSrc
       }
-      (let ((decls (memGetWord dr 1)))
+      (let ((decls (memGetWordVec dr 1)))
         {
           (if (== (vecLen decls) 0)
             (replOut "OK\n")
@@ -1469,7 +1470,7 @@
                 {
                   (vecPush v arg)
                   (vecPush v " : ")
-                  (vecPush v (memGetWord tr 1))
+                  (vecPush v (memGetWordStr tr 1))
                   (vecPush v "\n")
                   v
                 }
@@ -1526,7 +1527,7 @@
             ; unexpanded list reports an implementation's body
             ; as undefined names.
             (let (
-              (decls (memGetWord pr 1))
+              (decls (memGetWordVec pr 1))
               (tcode (checkedTargetCode hostTarget))
               (bares vecNew)
               (fulls vecNew)
@@ -1549,7 +1550,7 @@
                   (let ((v vecNew))
                     {
                       (expandProgram
-                        decls                        allDecls                        v                        vecNew                        0                        bares                        fulls                        mods
+                        decls                        allDecls                        v                        vecNew                        (cast (Vec Int) 0)                        bares                        fulls                        mods
                       )
                       v
                     }
@@ -1905,7 +1906,7 @@
       (if (== (memGetWord dr 0) 0)
         0
         (let (
-          (decls (memGetWord dr 1))
+          (decls (memGetWordVec dr 1))
           (mut i 0)
         )
           {

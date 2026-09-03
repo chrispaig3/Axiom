@@ -37,10 +37,11 @@
 //! through `Ffi.ax`, calls, decodes and frees. An opaque value is
 //! wrapped in a `Handle` that carries the type's drop function, so the
 //! Rust value dies with its last Axiom reference. A `Vec<T>` /
-//! `Vec<String>` return becomes an Axiom `Vec` (an `Int` handle)
+//! `Vec<String>` return becomes an Axiom `(Vec Int)` / `(Vec String)`
 //! through `ffiWordsToVec` / `ffiStrsToVec`, freed on the Rust side
 //! with `ffiFreeWords` / `ffiFreeStrList`; a `&[T]` or `&[&str]`
-//! parameter is a `Vec` handle passed through as `Int`; a callback
+//! parameter is that same `Vec`, cast to the word it is at the call
+//! because `AX3036` refuses `(Vec a)` in an `extern` item; a callback
 //! (`AxFn1..3`) is bound under its arrow type, `(-> Int Int)` and so
 //! on, and passed through. An `#[axiom_record]` struct is a `data`
 //! type with one positional field per Rust field: a parameter is
@@ -492,17 +493,18 @@ impl Surface {
             block.push_str(&format!("\n  ({name} :: {rest})"));
         }
         block.push(')');
-        // A `Vec` is `Int`-typed and holds one word per element; which
-        // scalar those words are is only known here, so say it where
-        // the items are declared (the formatter moves a comment out of
-        // the block, so it goes before it).
+        // A `Vec` of words is `(Vec Int)` whatever scalar Rust widened
+        // into those words; which scalar that was is only known here, so
+        // say it where the items are declared (the formatter moves a
+        // comment out of the block, so it goes before it).
         let notes: Vec<String> = decls.iter().flat_map(|d| d.vec_notes()).collect();
         if !notes.is_empty() {
             let mut note = String::from(
-                "; A `Vec` is an `Int` handle holding one word per element, and the\n\
-                 ; element type is whatever the program reads it as - Float bits with\n\
-                 ; `(cast Float (vecGet v i))`, a Bool as 0/1, a Char as its code point,\n\
-                 ; every integer as the word (a u64 >= 2^63 reads negative):",
+                "; A `Vec` of words is a `(Vec Int)`, one word per element, and which\n\
+                 ; scalar those words hold is whatever the program reads them as -\n\
+                 ; Float bits with `(cast Float (vecGet v i))`, a Bool as 0/1, a Char\n\
+                 ; as its code point, every integer as the word (a u64 >= 2^63 reads\n\
+                 ; negative):",
             );
             for n in notes {
                 note.push_str("\n;   ");
@@ -670,10 +672,15 @@ fn payload_axiom_type(p: &Payload) -> String {
     match p {
         Payload::Scalar(s) => s.axiom_type().to_string(),
         Payload::Bytes => "String".into(),
-        // A `Vec` is an `Int` handle in the stdlib, whatever it holds.
-        Payload::Words(_) | Payload::WordLists(_) | Payload::Strs | Payload::Records(_) => {
-            "Int".into()
-        }
+        // A `Vec` carries its element type since 2026-09-01, so the
+        // wrapper's signature says what the words are: `ffiWordsToVec`
+        // answers `(Vec Int)` whatever scalar Rust widened into those
+        // words, `ffiStrsToVec` a `(Vec String)`, `ffiWordListsToVec` a
+        // `(Vec (Vec Int))`, and the record loop below a `(Vec Point)`.
+        Payload::Words(_) => "(Vec Int)".into(),
+        Payload::WordLists(_) => "(Vec (Vec Int))".into(),
+        Payload::Strs => "(Vec String)".into(),
+        Payload::Records(r) => format!("(Vec {})", r.name),
         Payload::Opaque(o) => o.name.clone(),
         Payload::Record(r) => r.name.clone(),
     }
@@ -690,6 +697,14 @@ fn param_raw_types(p: &Param) -> Vec<String> {
 
 /// The Axiom type of a one-word parameter as the RAW extern item
 /// declares it.
+///
+/// A `Vec` is `Int` HERE and only here. `AX3036` refuses `(Vec a)` in
+/// an `extern` signature outright - the boundary names `Int`, `Float`,
+/// `Bool`, `Char`, `String` and `Foreign` and nothing else - so the
+/// handle crosses as the word it is, and the wrapper casts at the call
+/// the way `tests/ffi/demo/400-arc-retain.ax` casts a `String` to
+/// `Foreign`. The wrapper's own signature says the real type; that is
+/// [`param_wrapper_type`].
 fn param_raw_type(p: &Param) -> String {
     match p {
         Param::Scalar(s) => s.axiom_type().to_string(),
@@ -705,12 +720,48 @@ fn param_raw_type(p: &Param) -> String {
     }
 }
 
+/// The Axiom type of a parameter as the WRAPPER declares it: the same
+/// as the raw item's for every shape but a `Vec`, which the wrapper
+/// takes in its element type and hands on as a word.
+///
+/// A `&[Record]` is the one place the two differ in more than spelling:
+/// the wrapper takes `(Vec Point)` and the shim is handed the flattened
+/// `(Vec Int)` the `__pointToWords` loop builds.
+fn param_wrapper_type(p: &Param) -> String {
+    match p {
+        Param::Words(_) | Param::MutWords(_) => "(Vec Int)".into(),
+        Param::WordLists(_) => "(Vec (Vec Int))".into(),
+        Param::Strs => "(Vec String)".into(),
+        Param::Records(r) => format!("(Vec {})", r.name),
+        other => param_raw_type(other),
+    }
+}
+
+/// Whether a parameter is a `Vec` the wrapper must hand across as a
+/// bare word.
+fn param_is_vec(p: &Param) -> bool {
+    matches!(
+        p,
+        Param::Words(_) | Param::MutWords(_) | Param::WordLists(_) | Param::Strs | Param::Records(_)
+    )
+}
+
 /// How a field word reads back as its Axiom type: a Float, Bool or
 /// Char is the word reinterpreted, an Int is the word.
 fn field_from_word(scalar: Scalar, word: Ex) -> Ex {
     match scalar.axiom_type() {
         "Int" => word,
         other => Ex::Cast(other.to_string(), Box::new(word)),
+    }
+}
+
+/// How a field goes back out as a word, which is the inverse of
+/// [`field_from_word`]: an `Int` is the word, and a Float, Bool or Char
+/// is its bits, because the flattened vector is a `(Vec Int)`.
+fn field_to_word(scalar: Scalar, field: Ex) -> Ex {
+    match scalar.axiom_type() {
+        "Int" => field,
+        _ => Ex::Cast("Int".into(), Box::new(field)),
     }
 }
 
@@ -742,7 +793,7 @@ fn to_words_name(record: &str) -> String {
 /// The signature and body of the rebuild loop:
 ///
 /// ```text
-/// (:: __pointFromWords (-> Int Int Int Int Int))
+/// (:: __pointFromWords (-> (Vec Point) Int Int Int (Vec Point)))
 /// (fn (__pointFromWords __v __p __n __i)
 ///   (if (>= __i __n) __v
 ///     (let ((__w0 (ffiWordAt __p (* __i 2))) (__w1 (cast Float ..)))
@@ -774,8 +825,9 @@ fn record_from_words_loop(r: &RecordTy) -> (String, String) {
         Box::new(Ex::Let(binds, Box::new(step))),
     );
     let params = ["__v", "__p", "__n", "__i"].map(String::from);
+    let t = &r.name;
     (
-        format!("(:: {name} (-> Int Int Int Int Int))"),
+        format!("(:: {name} (-> (Vec {t}) Int Int Int (Vec {t})))"),
         sexp::decl_private_fn(&name, &params, &body),
     )
 }
@@ -783,24 +835,30 @@ fn record_from_words_loop(r: &RecordTy) -> (String, String) {
 /// The signature and body of the flatten loop:
 ///
 /// ```text
-/// (:: __pointToWords (-> Int Int Int Int))
+/// (:: __pointToWords (-> (Vec Point) (Vec Int) Int (Vec Int)))
 /// (fn (__pointToWords __ps __w __i)
 ///   (if (>= __i (vecLen __ps)) __w
-///     (match (cast Point (vecGet __ps __i))
+///     (match (vecGet __ps __i)
 ///       ((Point __f0 __f1)
-///         { (vecPush __w __f0) (vecPush __w __f1) (__pointToWords __ps __w (+ __i 1)) }))))
+///         { (vecPush __w __f0) (vecPush __w (cast Int __f1))
+///           (__pointToWords __ps __w (+ __i 1)) }))))
 /// ```
 ///
-/// Each field is pushed as the word it already is (`vecPush` is
-/// polymorphic in its element, and a Float, Bool or Char IS its word),
-/// which is what the shim's `from_words` reads back.
+/// The flattened vector is a `(Vec Int)` of raw words, so a field that
+/// is not already `Int` is pushed as its bits - a Float, Bool or Char
+/// IS its word, and `field_from_word` reads it back the same way on the
+/// other side. That reinterpretation is the only `cast` here: the
+/// element type now comes off `__ps` itself, so the scrutinee no longer
+/// needs one (`vecGet` answered a type variable before 2026-09-01,
+/// which matched the pattern silently and is the shape `AX3040`
+/// refuses).
 fn record_to_words_loop(r: &RecordTy) -> (String, String) {
     let name = to_words_name(&r.name);
     let mut pat = vec![atom(&r.name)];
     let mut stmts: Vec<Ex> = Vec::new();
-    for j in 0..r.arity() {
+    for (j, fld) in r.fields.iter().enumerate() {
         let f = format!("__f{j}");
-        stmts.push(app(vec![atom("vecPush"), atom("__w"), atom(&f)]));
+        stmts.push(app(vec![atom("vecPush"), atom("__w"), field_to_word(fld.scalar, atom(&f))]));
         pat.push(atom(&f));
     }
     stmts.push(app(vec![atom(&name), atom("__ps"), atom("__w"), app(vec![atom("+"), atom("__i"), atom("1")])]));
@@ -808,21 +866,18 @@ fn record_to_words_loop(r: &RecordTy) -> (String, String) {
         Box::new(app(vec![atom(">="), atom("__i"), app(vec![atom("vecLen"), atom("__ps")])])),
         Box::new(atom("__w")),
         Box::new(Ex::Match(
-            // `vecGet` answers the raw word: a `Vec` carries no element
-            // type, so the record type has to be named here. It used to
-            // answer a type variable, which matched the pattern's type
-            // silently and is the shape `AX3040` now refuses.
-            Box::new(app(vec![
-                atom("cast"),
-                atom(&r.name),
-                app(vec![atom("vecGet"), atom("__ps"), atom("__i")]),
-            ])),
+            // `__ps` is a `(Vec Point)`, so `vecGet` answers a `Point`
+            // and the pattern is checked against the real type. Before
+            // the element type existed this read the raw word and the
+            // record type had to be named in a `cast` here.
+            Box::new(app(vec![atom("vecGet"), atom("__ps"), atom("__i")])),
             vec![(app(pat), Ex::Block(stmts))],
         )),
     );
     let params = ["__ps", "__w", "__i"].map(String::from);
+    let t = &r.name;
     (
-        format!("(:: {name} (-> Int Int Int Int))"),
+        format!("(:: {name} (-> (Vec {t}) (Vec Int) Int (Vec Int)))"),
         sexp::decl_private_fn(&name, &params, &body),
     )
 }
@@ -950,16 +1005,23 @@ fn status_ctors(ret: &Ret) -> StatusCtors {
 impl Decl {
     /// Whether the symbol is bound under `<name>Raw` with an Axiom
     /// wrapper over it.
+    ///
+    /// A `Vec` parameter is one of the reasons since 2026-09-01. The
+    /// `extern` item cannot name `(Vec a)` at all (`AX3036`), so
+    /// without a wrapper the ergonomic name would be the raw item and
+    /// its signature would say `Int` - putting a `cast` at every call
+    /// in user code, which is the shape `MM-VAL-22` measures as a lost
+    /// retain. One wrapper puts that cast in one generated place and
+    /// lets the caller pass the vector it has.
     fn needs_wrapper(&self) -> bool {
         if self.raw {
             return false;
         }
         self.ret.needs_cell()
             || matches!(self.ret, Ret::Opaque(_))
-            || self
-                .params
-                .iter()
-                .any(|(_, p)| matches!(p, Param::Opaque { .. } | Param::Record(_) | Param::Records(_)))
+            || self.params.iter().any(|(_, p)| {
+                matches!(p, Param::Opaque { .. } | Param::Record(_)) || param_is_vec(p)
+            })
     }
 
     fn raw_name(&self) -> String {
@@ -993,7 +1055,7 @@ impl Decl {
             .iter()
             .map(|(_, p)| match p {
                 Param::Opaque { ty, .. } => ty.name.clone(),
-                other => param_raw_type(other),
+                other => param_wrapper_type(other),
             })
             .collect();
         let ret = match &self.ret {
@@ -1108,7 +1170,16 @@ impl Decl {
                             atom("0"),
                         ]),
                     ));
-                    args.push(atom(&a));
+                    args.push(Ex::Cast("Int".into(), Box::new(atom(&a))));
+                }
+                // A `Vec` crosses as the word it is: `AX3036` refuses
+                // `(Vec a)` in the `extern` item, so the cast is at the
+                // call. It suppresses no retain that is owed - the shim
+                // BORROWS for the length of the call and keeps nothing
+                // (`tests/ffi/demo/400-arc-retain.ax` is the case where
+                // Rust does keep one, and it retains explicitly).
+                p if param_is_vec(p) => {
+                    args.push(Ex::Cast("Int".into(), Box::new(atom(name))))
                 }
                 _ => args.push(atom(name)),
             }

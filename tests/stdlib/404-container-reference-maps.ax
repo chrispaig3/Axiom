@@ -135,9 +135,9 @@
     (mut acc 0)
   )
     {
-      (set acc (+ acc (* 128 (b2i (&& (== (shapeOf (memGetWord vr 2)) 32784) (== (shapeOf (memGetWord vp 2)) 16))))))
+      (set acc (+ acc (* 128 (b2i (&& (== (shapeOf (memGetWord (cast Int vr) 2)) 32784) (== (shapeOf (memGetWord (cast Int vp) 2)) 16))))))
       (set acc (+ acc (* 64 (b2i (== (shapeOf (memGetWord (memGetWord it 0) 2)) 32896)))))
-      (set acc (+ acc (* 32 (b2i (&& (== (shapeOf vr) 262152) (&& (== (shapeOf mp) 1835024) (== (shapeOf it) 327688)))))))
+      (set acc (+ acc (* 32 (b2i (&& (== (shapeOf (cast Int vr)) 262152) (&& (== (shapeOf mp) 1835024) (== (shapeOf it) 327688)))))))
       (set acc (+ acc (* 16 (b2i (bytesComeBack true)))))
       (set acc (+ acc (* 8 (b2i (== (b2i (bytesComeBack false)) 0)))))
       ; Cap 8 means a 64-byte data block. Nine pushes double it, the
@@ -145,7 +145,7 @@
       ; elements are zeroes, which release skips as immediates, so this
       ; probe measures the block and nothing else.
       (let ((g vecNewRef))
-        (let ((old (memGetWord g 2)))
+        (let ((old (memGetWord (cast Int g) 2)))
           {
             (vecPushN g 9)
             (set acc (+ acc (* 4 (b2i (== (memAlloc 64) old)))))
@@ -183,7 +183,7 @@
   )
 )
 
-(:: vecPushN (-> Int Int Int))
+(:: vecPushN (-> (Vec Int) Int (Vec Int)))
 
 (fn (vecPushN v n)
   (if (<= n 0)

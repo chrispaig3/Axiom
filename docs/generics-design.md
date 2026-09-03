@@ -79,11 +79,32 @@ line and column for every error, and the fixpoint is "no errors",
 which is a strong acceptance condition; what does not follow is that a
 rule can reach it. Widening a parameter because a `Vec` arrives there
 breaks the callers that pass an `Int`, and the tree diverges rather
-than converging. Read §4c before planning the port. There is a
-stronger acceptance condition available, and it still holds.
-`(Vec a)` and `Int` have the **same runtime representation**, so a
-correct type-level migration must emit **byte-identical IR**. That is
-the test to hold it to.
+than converging. Read §4c before planning the port.
+
+**THE PORT IS LANDED.** 4,432 errors to **zero**: `stdlib/`, every
+REPL module and the whole closure of `self_host/main.ax` typecheck
+clean, the stdlib fixture corpus passes against its goldens, and the
+self-hosting fixpoint holds — stage2 and stage3 are byte-identical at
+201,920 lines of emitted IR. What closed it was not a rule. The
+mechanical driver reached **181 errors over 130 declarations** and
+stopped there for the reason §4c records; three readers then decided
+the remaining element types from the code, and three fixers applied
+them.
+
+**THE BYTE-IDENTICAL-IR ACCEPTANCE TEST DID NOT SURVIVE, and that is a
+correction to this section rather than a failure of the port.** The
+reasoning was that `(Vec a)` and `Int` have the same runtime
+representation, so a type-level migration should emit identical code.
+The representation claim is still true; the conclusion was wrong.
+Measured, the pre-port tree emits 200,155 lines and the ported tree
+201,920, and the difference is concentrated in one place: `__evw`
+appears on **157 `define` lines, up from 36**. A genuinely
+polymorphic parameter carries an evidence word so ARC can decide at
+run time whether the value it holds is a reference, and typing these
+containers is exactly what created genuinely polymorphic parameters.
+The IR moved because the ARC system is doing its job on types that did
+not exist before. The fixpoint — stage2 against stage3 — is the
+acceptance test that survived, and it is the one that was load-bearing.
 
 ## 4. The blocker: `vecGet` cannot answer `a`
 
@@ -231,10 +252,19 @@ The name is spelled in the two lists the tree requires to agree —
 `scalarTyName` in codegen and `evScalarName` in typecheck — so
 evidence reaches the same answer the reference map does.
 
-**It is inert for everything that exists.** Stage-matched emission of
-`self_host/main.ax` before and after: **199,765 lines of IR, byte for
-byte identical**. The classification can only move code that has a
-`Vec`-typed field, and nothing in the tree has one yet.
+**It was inert for everything that existed WHEN IT LANDED.**
+Stage-matched emission of `self_host/main.ax` before and after:
+**199,765 lines of IR, byte for byte identical**. The classification
+can only move code that has a `Vec`-typed field, and nothing in the
+tree had one yet.
+
+**That last clause expired with the port, which is what makes this
+section a prerequisite rather than a curiosity.** `HtmlBuf`,
+`HttpReq`, `HttpRouter` and `Sym` now declare `Vec`-typed fields — the
+four `S` rows in `compat/BREAKING`'s 0.6.4 block — so `fldClass` is
+load-bearing for real records today. Had the port landed first, each
+of them would have lost the reference map for its OTHER fields, which
+is the defect §4b was written to describe.
 
 Gated by `scripts/check-vec-field-shape.sh`, whose table has four rows
 so the equality cannot pass vacuously: two of them must read a
@@ -242,6 +272,18 @@ different number, and the `(Vec Int)`/`String` row read `8` before the
 fix.
 
 ## 4c. What the migration actually costs, re-measured
+
+**READ THIS SECTION AS A RECORD OF WHAT THE AUTOMATION REACHED, NOT AS
+A BLOCKER.** The port is landed (§3, §7). Everything below was measured
+while driving it and every number in it still holds; what changed is
+the ending. The mechanical driver got to **181 errors over 130
+declarations** and stopped, for reasons this section establishes and
+which are still the right reasons. The last 130 declarations were then
+decided by three readers working from the code and applied by three
+fixers — people doing what the section concludes only a person can do.
+The negative results are kept deliberately: they are what says the
+residue was a decision problem rather than a missing rule, and they are
+the part worth reading before attempting a port of this shape again.
 
 Section 3 records "3,934 errors ... mechanical, and the checker drives
 it". The first half is right and **the second half is wrong**,
@@ -347,13 +389,24 @@ that kept two moves came out 37 declarations WORSE than it started,
 and read as evidence against the method. It was evidence about the
 harness.
 
-**AND THE PLATEAU IS STILL REAL, at 130 declarations.** The search
-now accepts one move a round rather than none, which closes the port
-in about a hundred rounds of eight minutes each and is not a plan. The
-candidates are the limit: they come from positions an error already
+**AND THE PLATEAU WAS REAL, at 130 declarations.** The search
+accepted one move a round rather than none, which closes the port in
+about a hundred rounds of eight minutes each and was not a plan. The
+candidates were the limit: they come from positions an error already
 names, and a coupled fix needs the positions that have no error YET.
-That is the whole-chain inference this document keeps arriving at,
-and it now has a measure to optimise that will not reject its answers.
+That is the whole-chain inference this document keeps arriving at —
+and the subsection below measures why that would not have closed it
+either.
+
+**WHAT ACTUALLY CLOSED IT: 181 to zero, by reading.** Three readers
+took the 130 declarations and decided each one's element type from the
+code around it — what the vector is pushed, what its elements are used
+as, what the function is for — and three fixers applied the decisions
+and the call-site changes they coupled to. That is not a rule the
+driver was missing. It is the per-function decision this section had
+already concluded was the only thing left, done by the only thing that
+can do it. The driver's 4,432 → 181 is what automation was worth here,
+and it was worth a great deal; the last 181 cost people.
 
 ### Why whole-chain inference cannot close it either, measured
 
@@ -382,10 +435,12 @@ the 417 are. **For the rest the source has erased the distinction, so
 there is nothing to infer**, and `(Vec Int)` is the honest answer,
 which is already what the driver writes.
 
-So the residue is not waiting on a better algorithm. **It is 130
+So the residue was not waiting on a better algorithm. **It is 130
 declarations whose element type is known to a reader and to nobody
-else**, and closing the port means someone deciding them {D} which is
-the same thing §4c said, now with the reason underneath it.
+else**, and closing the port meant someone deciding them {D} which is
+the same thing §4c said, now with the reason underneath it. That is
+what happened, and this paragraph is the prediction that turned out to
+be the plan.
 
 **THE STRUCTURAL PLATEAU, unchanged in what it shows.** At 210 the
 same wall stands, and it is now possible to say exactly what it is:
@@ -427,19 +482,26 @@ position classifies the value's evidence 0 and **suppresses the
 retain**. The `String`'s share would never be taken. The honest fix is
 the element type, not a cast.
 
-**What would finish it** is element-type inference over declaration
-positions — a union-find whose nodes are parameters, results and
-fields, seeded by the sites that are certain (a `String` literal
-pushed, an `Int` arithmetic use) and propagated through calls. That is
-the same shape as §4d's pinning, one level up, and it is a piece of
-work in its own right rather than a rule to add to the driver.
+**"What would finish it is element-type inference over declaration
+positions" — WITHDRAWN, and it is the last wrong prediction this
+section made.** The proposal was a union-find whose nodes are
+parameters, results and fields, seeded by the certain sites (a
+`String` literal pushed, an `Int` arithmetic use) and propagated
+through calls — §4d's pinning, one level up. It was built. The
+subsection above measures what it does: 417 positions decided from the
+source alone, 4,432 to 3,889 in one pass, and then a single class of
+8,866 positions, because `vecAppendFrom : (-> (Vec a) ...)` is a
+declaration every vector in the program passes through. What finished
+the port was people reading 130 declarations and deciding them.
 
-**`vecPop` is a second `vecGet`, and section 4 did not name it.** Its
-body answers `0` on an empty vector, and under `(-> (Vec a) a)` that
-fabricates an `a` exactly as `vecGet`'s sentinel did. It takes the
-same answer — `__indexTrap` — and `vecLast` inherits the trap for
-free because it delegates to `vecGet`. Nothing else in the module has
-the shape.
+**`vecPop` is a second `vecGet`, and section 4 did not name it.
+LANDED.** Its body answered `0` on an empty vector, and under
+`(-> (Vec a) a)` that fabricates an `a` exactly as `vecGet`'s sentinel
+did. It took the same answer — `__indexTrap` at status 77 — and
+`vecLast` inherits the trap for free because it delegates to `vecGet`.
+Nothing else in the module has the shape. This is the port's one
+BEHAVIOUR break as opposed to a retype, and `compat/BREAKING` declares
+it as one.
 
 ## 4d. The migration's PREMISE only half holds, measured
 
@@ -559,10 +621,15 @@ not attribute it to this change.
    (§4d: `check` OK, exit 139). It had to come before the migration,
    which would otherwise have traded a visible unsafety for a silent
    one.
-5. **The migration**, driven by the checker, with byte-identical IR as
-   the acceptance test. Measured in §4c, and it is not the mechanical
-   change this document assumed.
-6. **`for` as a keyword**, which is only expressible once 5 exists.
+5. **The migration.** LANDED, 4,432 errors to zero. Not the
+   mechanical change this document assumed and not driven to the end
+   by the checker: §4c's driver reached 181 errors over 130
+   declarations and stopped, and people decided the rest. The
+   acceptance test this document proposed — byte-identical IR — was
+   itself wrong and is corrected in §3; the fixpoint (stage2 against
+   stage3, byte-identical) is the one that held.
+6. **`for` as a keyword**, which is only expressible once 5 exists —
+   and 5 exists now. This is what remains on this list.
 
 ## 6. A route that was tried and is the wrong one
 
@@ -608,11 +675,36 @@ back.
 let-bound container is now pinned by its first use, and the exit-139
 program is refused. `scripts/check-type-pinning.sh` holds it.
 
-**The migration is measured, driven to about 92%, and not landed.** §4c
-replaces this document's earlier cost estimate: 4,406 errors, reducible
-to about 1,500 over ~650 declarations by checker-driven rewriting, with
-the remainder needing a per-function decision rather than a rule. §4d was the harder finding and is
-now answered in the tree. What remains is the port itself: 4,432
-errors with a pinning checker, which the driver takes to **181 over
-130 declarations** and no further, for the reason §4c now
-records. Nothing from §4c or §6 is in the tree.
+**THE MIGRATION IS LANDED.** `stdlib/Vec.ax` hands out a parameterised
+`(Vec a)`, and the 4,432 errors that produced are at **zero**:
+`stdlib/`, every REPL module and the whole closure of
+`self_host/main.ax` typecheck clean, the `tests/stdlib/` corpus passes
+against its goldens, and the self-hosting fixpoint holds — stage2 and
+stage3 byte-identical at 201,920 lines of emitted IR.
+
+**HOW IT CLOSED, because the shape of that is the finding.** The
+mechanical driver of §4c took it from 4,432 to **181 errors over 130
+declarations** and stopped. It did not stop for want of a rule: §4c
+measures four experiments and a whole-chain inferencer against that
+wall, and the inferencer's own answer is that the source has erased
+the distinction for those positions, so there is nothing left to
+infer. Three readers then decided the 130 element types from the code
+and three fixers applied them with the call-site changes each one
+coupled to. Automation was worth 4,432 → 181; people were worth 181 →
+0, and §4c is kept in full because it is the record of which is which.
+
+**THE IR IS NOT BYTE-IDENTICAL, and §3's acceptance test is corrected
+rather than met.** 200,155 lines before, 201,920 after, with `__evw`
+on **157 `define` lines against 36**. Typing these containers created
+genuinely polymorphic parameters, and a genuinely polymorphic
+parameter carries an evidence word so ARC can decide at run time
+whether it holds a reference. That is the memory model working on
+types that did not exist before the port, not a regression. The
+acceptance test that survived is the fixpoint.
+
+`compat/BREAKING` declares the port's 0.6.4 breaks — 39 the census
+sees, eleven `Tui` names it cannot — and `vecPop` is the only
+BEHAVIOUR break among them: it answered `0` on an empty vector and now
+refuses at status 77, for `vecGet`'s reason.
+
+Nothing from §6 is in the tree, and §4c's inferencer is not either.

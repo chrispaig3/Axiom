@@ -24,7 +24,7 @@
 (import Vec)
 
 (pub struct Box
-  (cells : Int)
+  (cells : (Vec Int))
   (pushed : Int))
 
 ; A fresh 2-word cell holding `(i, i*i)`, appended to `box`'s vector.
@@ -36,7 +36,7 @@
     {
       (memSetWord cell 0 i)
       (memSetWord cell 1 (* i i))
-      (vecPush (memGetWord box 0) cell)
+      (vecPush (memGetWordVec box 0) cell)
       (memSetWord box 1 (+ (memGetWord box 1) 1))
       box
     }
@@ -59,7 +59,7 @@
 )
 
 ; Number of cells that still read back as `(i, i*i)`.
-(pub :: intactFrom (-> Int Int Int Int))
+(pub :: intactFrom (-> (Vec Int) Int Int Int))
 
 (pub fn (intactFrom cells i acc)
   (if (>= i (vecLen cells))
@@ -88,15 +88,16 @@
         (cast Int (memGetWord filled 1))
       )
       ; 40: pushes counted
-      (println (vecLen (memGetWord filled 0)))  ; 40: cells retained
-      (println (vecCap (memGetWord filled 0)))  ; 64: 8 -> 16 -> 32 -> 64
-      (println (intactFrom (memGetWord filled 0) 0 0))  ; 40: none reclaimed
+      (println (vecLen (memGetWordVec filled 0)))  ; 40: cells retained
+      (println (vecCap (memGetWordVec filled 0)))  ; 64: 8 -> 16 -> 32 -> 64
+      (println (intactFrom (memGetWordVec filled 0) 0 0))  ; 40: none reclaimed
       (println
-        (cast Int (memGetWord (vecGet (memGetWord filled 0) 0) 0))
+        (cast Int (memGetWord (vecGet (memGetWordVec filled 0) 0) 0))
       )
       ; 0
       (println
-        (cast Int (memGetWord (vecGet (memGetWord filled 0) 39) 1))
+        (cast Int (memGetWord (vecGet (memGetWordVec filled 0) 39) 1))
+
       )
       ; 1521 = 39*39
       0

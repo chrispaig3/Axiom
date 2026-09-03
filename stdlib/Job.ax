@@ -63,8 +63,8 @@
 ; below appends to both or to neither.
 (struct JobPool
   (width : Int)
-  (pids : Int)
-  (codes : Int)
+  (pids : (Vec Int))
+  (codes : (Vec Int))
   (live : Int))
 
 ; The sentinel a slot's result holds before it has been reaped. It is
@@ -79,13 +79,13 @@
 
 (fn (jobWidth p) (memGetWord p 0))
 
-(:: jobPids (-> Int Int))
+(:: jobPids (-> Int (Vec Int)))
 
-(fn (jobPids p) (memGetWord p 1))
+(fn (jobPids p) (memGetWordVec p 1))
 
-(:: jobCodes (-> Int Int))
+(:: jobCodes (-> Int (Vec Int)))
 
-(fn (jobCodes p) (memGetWord p 2))
+(fn (jobCodes p) (memGetWordVec p 2))
 
 (:: jobLive (-> Int Int))
 
@@ -211,7 +211,7 @@
 ; Wait for every outstanding child and answer the Vec of results, in
 ; SUBMIT order. Safe to call more than once; the second call finds
 ; nothing live and answers the same Vec.
-(:: jobWaitAll (-> Int Int))
+(:: jobWaitAll (-> Int (Vec Int)))
 
 ;@axiom:effect(io)
 (fn (jobWaitAll p)
@@ -229,7 +229,7 @@
 ; the program, exactly as `sysRunPath` expects, and it is looked up on
 ; PATH the same way. This is the shape a gate script wants - a list of
 ; cases, a width, and an answer per case in the order it was listed.
-(pub :: jobRunAll (-> Int Int Int))
+(pub :: jobRunAll (-> (Vec (Vec String)) Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (jobRunAll cmds width)
@@ -254,7 +254,7 @@
 ; a missing program answer `-ENOENT` in its slot instead of becoming a
 ; child that exits 127 - the distinction `sysSpawn` documents and goes
 ; to some trouble to preserve.
-(:: jobSubmitArgv (-> Int Int Int))
+(:: jobSubmitArgv (-> Int (Vec String) Int))
 
 ;@axiom:effect(io)
 (fn (jobSubmitArgv p argv)
@@ -275,7 +275,7 @@
 ; the kernel reads a path or an argument that does not end where the
 ; `Str` does. `tests/stdlib/300-process.ax` records the same rule for
 ; the same reason on its own argv helper.
-(:: jobArgvVector (-> Int Int))
+(:: jobArgvVector (-> (Vec String) Int))
 
 (fn (jobArgvVector argv)
   (let (

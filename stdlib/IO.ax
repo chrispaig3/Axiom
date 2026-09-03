@@ -403,7 +403,7 @@
 ; it needs no scratch allocation, and `Vec` has no comparison sort to
 ; borrow. A directory large enough to notice wants `Sys.sysReadDir`
 ; and its own ordering.
-(pub :: listDir (-> String Int))
+(pub :: listDir (-> String (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (listDir path)
@@ -418,7 +418,7 @@
   )
 )
 
-(:: listDirKeep (-> Int Int Int Int))
+(:: listDirKeep (-> (Vec Int) Int (Vec Int) Int))
 
 (fn (listDirKeep raw i out)
   (if (>= i (vecLen raw))
@@ -440,7 +440,7 @@
 ; Push, then bubble the new entry down to where it belongs. The Vec
 ; below it is already sorted, so this settles in one comparison when
 ; the listing arrives in order.
-(:: listDirInsert (-> Int String Int))
+(:: listDirInsert (-> (Vec Int) String Int))
 
 (fn (listDirInsert v s)
   {
@@ -451,7 +451,7 @@
   }
 )
 
-(:: listDirSift (-> Int Int Int))
+(:: listDirSift (-> (Vec Int) Int Int))
 
 (fn (listDirSift v i)
   (if (<= i 0)

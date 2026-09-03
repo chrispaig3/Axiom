@@ -121,7 +121,7 @@
 (fn (kindOf s) (let ((ev (keyScan s (strLen s) 0))) ev.kind))
 
 ; How many distinct values a Vec holds.
-(:: distinct (-> Int Int))
+(:: distinct (-> (Vec Int) Int))
 
 (fn (distinct v)
   (let (

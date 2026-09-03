@@ -392,6 +392,8 @@ vecNew Vec.ax Alloc,Mut
 vecNewRef Vec.ax Alloc,Mut
 vecPop Vec.ax Mut
 vecPush Vec.ax Alloc,Mut
+vecPushStr Vec.ax Alloc,Mut
+vecPushVec Vec.ax Alloc,Mut
 vecReserve Vec.ax Alloc,Mut
 vecReserveExactly Vec.ax Alloc,Mut
 vecSet Vec.ax Mut

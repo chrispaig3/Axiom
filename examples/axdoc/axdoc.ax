@@ -260,7 +260,7 @@
   )
 )
 
-(:: docAbove (-> Int Int String))
+(:: docAbove (-> (Vec Int) Int String))
 
 (fn (docAbove lines i)
   ; Walk UP to the top of the contiguous comment block.
@@ -327,7 +327,7 @@
 ; both in the standard library and both would work; neither earns its
 ; place here, and a reference that reached for them would be teaching
 ; the wrong lesson in the file people read as an example.
-(:: effectsOf (-> Int String String))
+(:: effectsOf (-> (Vec Int) String String))
 
 (fn (effectsOf axsym name)
   (let (
@@ -470,7 +470,7 @@
   )
 )
 
-(:: renderModule (-> String Int String))
+(:: renderModule (-> String (Vec Int) String))
 
 ;@axiom:effect(io)
 (fn (renderModule path axsym)

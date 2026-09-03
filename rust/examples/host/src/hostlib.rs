@@ -82,7 +82,7 @@ mod raw {
 }
 
 /// An Axiom `Vec` of words, built and read through the archive's own `Vec`.
-/// A signature spells a `Vec` as `Int`, so pass `as_word()` where one is taken
+/// A signature spells a `Vec` as `AxWord`, so pass `as_word()` where one is taken
 /// and wrap a returned word with `from_owned`.
 pub struct AxVecBuf(AxWord);
 
@@ -554,15 +554,15 @@ pub fn opt_pair_sum(o: &Option<Pair>) -> i64 {
     __r
 }
 
-/// `(pub :: vecSum (-> Int Int))`
-pub fn vec_sum(v: i64) -> i64 {
+/// `(pub :: vecSum (-> (Vec Int) Int))`
+pub fn vec_sum(v: AxWord) -> i64 {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::vecSum(v) };
     __r
 }
 
-/// `(pub :: vecDouble (-> Int Int))`
-pub fn vec_double(v: i64) -> i64 {
+/// `(pub :: vecDouble (-> (Vec Int) (Vec Int)))`
+pub fn vec_double(v: AxWord) -> AxWord {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::vecDouble(v) };
     __r

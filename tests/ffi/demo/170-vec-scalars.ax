@@ -7,7 +7,9 @@
 ; IS WHATEVER THE PROGRAM READS: `halves` answers Float bits, read
 ; with `(cast Float (vecGet v i))`; `flags` answers 0/1 words.
 ;
-; IN: a `&[T]` parameter is the `Vec` handle (Int). `sumF64` reads the
+; IN: a `&[T]` parameter is a `(Vec Int)` of those same words - the
+; `extern` item may not name `(Vec a)` (`AX3036`), so the handle is
+; cast to its word inside `Demo.ax`'s wrapper. `sumF64` reads the
 ; words in place as `&[f64]` (same size, same alignment, every bit
 ; pattern a float - no copy); `sumU16` converts each word into a
 ; temporary `Vec<u16>`, range-checked (a word above 65535 would abort
@@ -26,7 +28,7 @@
 
 (import Demo)
 
-(pub :: sumFloats (-> Int Int Float Float))
+(pub :: sumFloats (-> (Vec Int) Int Float Float))
 
 (pub fn (sumFloats v i acc)
   (if (>= i (vecLen v))
@@ -39,7 +41,7 @@
   )
 )
 
-(pub :: countOnes (-> Int Int Int Int))
+(pub :: countOnes (-> (Vec Int) Int Int Int))
 
 (pub fn (countOnes v i acc)
   (if (>= i (vecLen v))

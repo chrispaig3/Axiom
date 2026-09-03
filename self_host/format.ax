@@ -392,7 +392,7 @@
 ; A line index: the byte offset of the first character of each line.
 ; Built once, so the comment scan can answer "which line" without
 ; walking the file again per comment.
-(pub :: lineStarts (-> String Int))
+(pub :: lineStarts (-> String (Vec Int)))
 
 (pub fn (lineStarts src)
   (let (
@@ -405,7 +405,7 @@
         {
           (if (== (strByte src i) 10)
             (vecPush starts (+ i 1))
-            0
+            (cast (Vec Int) 0)
           )
           (set i (+ i 1))
         })
@@ -415,7 +415,7 @@
 )
 
 ; The zero-based line holding `off`, by binary search over the starts.
-(pub :: lineAt (-> Int Int Int))
+(pub :: lineAt (-> (Vec Int) Int Int))
 
 (pub fn (lineAt starts off)
   (let (
@@ -611,20 +611,32 @@
 ; The scan's result: two vectors, held together so a caller gets both
 ; from one pass.
 (pub struct FScan
-  (toks : Int)
-  (coms : Int))
+  (toks : (Vec Int))
+  (coms : (Vec Int)))
 
-(pub :: mkFScan (-> Int Int Int))
+(pub :: mkFScan (-> (Vec Int) (Vec Int) Int))
 
 (pub fn (mkFScan t c) (FScan t c))
 
 (pub :: fsToks (-> Int Int))
 
 (pub fn (fsToks s) (memGetWord s 0))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: fsToksVec (-> Int (Vec a)))
+
+(pub fn (fsToksVec s) (cast (Vec a) (fsToks s)))
+
 
 (pub :: fsComs (-> Int Int))
 
 (pub fn (fsComs s) (memGetWord s 1))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: fsComsVec (-> Int (Vec a)))
+
+(pub fn (fsComsVec s) (cast (Vec a) (fsComs s)))
+
 
 (pub :: fscan (-> String Int))
 
@@ -693,7 +705,7 @@
 
 ; One non-trivia token. Returns the position just past it, and is the
 ; only place that decides what a byte begins.
-(pub :: fscanToken (-> String Int Int Int Int))
+(pub :: fscanToken (-> String Int Int (Vec Int) Int))
 
 (pub fn (fscanToken src p len toks)
   (let ((ch (strByte src p)))
@@ -819,7 +831,7 @@
 
 ; A number, integer or float. `_` is a digit separator and a `.` makes
 ; it a float only when a digit follows, so `1.foo` is `1` then `.foo`.
-(pub :: fscanNumber (-> String Int Int Int Int))
+(pub :: fscanNumber (-> String Int Int (Vec Int) Int))
 
 (pub fn (fscanNumber src p len toks)
   (let (
@@ -861,7 +873,7 @@
 ; and `->` is an identifier like any other operator run, which is why
 ; there is no arrow kind here: stage0 lexes `->` as an operator token
 ; and the printer only ever re-emits its text.
-(pub :: fscanOperator (-> String Int Int Int Int))
+(pub :: fscanOperator (-> String Int Int (Vec Int) Int))
 
 (pub fn (fscanOperator src p len toks)
   (let ((mut e p))
@@ -914,7 +926,7 @@
 ; `-5` adjacency rule, and because `? ~ $` are operator bytes here and
 ; not identifier bytes at all. What that leaves is recorded in
 ; the self-hosting record rather than guessed at.
-(pub :: fscanName (-> String Int Int Int Int))
+(pub :: fscanName (-> String Int Int (Vec Int) Int))
 
 (pub fn (fscanName src p len toks)
   (let ((mut e p))
@@ -944,8 +956,8 @@
 
 (pub fn (fscanCovers src sc)
   (let (
-    (toks (fsToks sc))
-    (coms (fsComs sc))
+    (toks (fsToksVec sc))
+    (coms (fsComsVec sc))
     (len (strLen src))
     (mut ti 0)
     (mut ci 0)
@@ -1025,7 +1037,7 @@
 
 (pub fn (fscanHasError sc)
   (let (
-    (toks (fsToks sc))
+    (toks (fsToksVec sc))
     (mut i 0)
     (mut bad 0)
   )
@@ -1098,11 +1110,11 @@
 (pub struct FNode
   (kind : Int)
   (tok : Int)
-  (kids : Int)
+  (kids : (Vec Int))
   (start : Int)
   (end : Int))
 
-(pub :: mkFNode (-> Int Int Int Int Int Int))
+(pub :: mkFNode (-> Int Int (Vec Int) Int Int Int))
 
 (pub fn (mkFNode k t ks s e) (FNode
   k  t  ks  s  e
@@ -1119,6 +1131,12 @@
 (pub :: fnKids (-> Int Int))
 
 (pub fn (fnKids n) (memGetWord n 2))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: fnKidsVec (-> Int (Vec a)))
+
+(pub fn (fnKidsVec n) (cast (Vec a) (fnKids n)))
+
 
 (pub :: fnStart (-> Int Int))
 
@@ -1133,13 +1151,13 @@
 (pub fn (fnLen n)
   (if (== (fnKids n) 0)
     0
-    (vecLen (fnKids n))
+    (vecLen (fnKidsVec n))
   )
 )
 
 (pub :: fnKid (-> Int Int Int))
 
-(pub fn (fnKid n i) (vecGet (fnKids n) i))
+(pub fn (fnKid n i) (vecGet (fnKidsVec n) i))
 
 ; An atom's source text, and the head atom's text for a group - the two
 ; questions the printer asks constantly.
@@ -1320,7 +1338,7 @@
 ; `i` is never the last index when the kind matches, because `fscan`
 ; ends every token vector with an `FT_EOF`, so reading `(+ i 1)` is in
 ; range whenever it is reached.
-(pub :: fIsPostfixAt (-> Int Int Bool))
+(pub :: fIsPostfixAt (-> (Vec Int) Int Bool))
 
 (pub fn (fIsPostfixAt toks i)
   (let ((k (ftKind (vecGet toks i))))
@@ -1351,7 +1369,7 @@
 ; reader reports on its own terms; depth is floored at 0 here rather
 ; than allowed to go negative, so a stray `)` early in a file cannot
 ; mask real depth after it.
-(pub :: fNestOverflow (-> Int Int Int))
+(pub :: fNestOverflow (-> (Vec Int) Int Int))
 
 (pub fn (fNestOverflow toks limit)
   (let (
@@ -1399,7 +1417,7 @@
 ; file, so it needs no loop - but it does need a bound, and the bound
 ; is `fNestOverflow` above, applied by `fmtOnce` before this function
 ; is ever entered. Nothing here re-checks it.
-(pub :: readForm (-> String Int Int Int))
+(pub :: readForm (-> String (Vec Int) Int Int))
 
 (pub fn (readForm src toks pos)
   (let (
@@ -1422,7 +1440,7 @@
           (if (|| (== k FT_LPAREN) (|| (== k FT_LBRACK) (== k FT_LBRACE)))
             (readPostfix toks (readGroup src toks pos))
             (readPostfix toks (mkFRead 1 (mkFNode
-              FN_ATOM              t              0              (ftStart t)              (ftEnd t)
+              FN_ATOM              t              (cast (Vec Int) 0)              (ftStart t)              (ftEnd t)
             ) (+ pos 1)))
           )
         )
@@ -1432,7 +1450,7 @@
 )
 
 ; Absorb any `.name` and `::name` that TOUCH what was just read.
-(pub :: readPostfix (-> Int Int Int))
+(pub :: readPostfix (-> (Vec Int) Int Int))
 
 (pub fn (readPostfix toks r)
   (if (== (frOk r) 0)
@@ -1454,7 +1472,7 @@
                     (set go 0)
                     (let (
                       (name (mkFNode
-                        FN_ATOM                        nameTok                        0                        (ftStart nameTok)                        (ftEnd nameTok)
+                        FN_ATOM                        nameTok                        (cast (Vec Int) 0)                        (ftStart nameTok)                        (ftEnd nameTok)
                       ))
                       (kids (vecPush vecNew node))
                     )
@@ -1482,7 +1500,7 @@
   )
 )
 
-(pub :: readGroup (-> String Int Int Int))
+(pub :: readGroup (-> String (Vec Int) Int Int))
 
 (pub fn (readGroup src toks pos)
   (let (
@@ -1540,7 +1558,7 @@
 )
 
 ; Every top-level form in the file, in source order.
-(pub :: readForms (-> String Int Int))
+(pub :: readForms (-> String (Vec Int) (Vec Int)))
 
 (pub fn (readForms src toks)
   (let (
@@ -1561,7 +1579,7 @@
         ))
       (if (== ok 1)
         forms
-        0
+        (cast (Vec Int) 0)
       )
     }
   )
@@ -1585,7 +1603,7 @@
 ; string.
 ; ------------------------------------------------------------------
 (pub struct FOut
-  (frags : Int)
+  (frags : (Vec Int))
   (nl : Int)
   (indent : Int)
   (bad : Int))
@@ -1597,6 +1615,12 @@
 (pub :: foFrags (-> Int Int))
 
 (pub fn (foFrags o) (memGetWord o 0))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: foFragsVec (-> Int (Vec a)))
+
+(pub fn (foFragsVec o) (cast (Vec a) (foFrags o)))
+
 
 (pub :: foNl (-> Int Int))
 
@@ -1628,7 +1652,7 @@
 
 (pub fn (foPush o s)
   {
-    (vecPush (foFrags o) s)
+    (vecPush (foFragsVec o) s)
     (memSetWord o 1 (+ (foNl o) (countNewlines s)))
     o
   }
@@ -1711,7 +1735,7 @@
 
 (pub fn (foFinish o)
   (let (
-    (v (foFrags o))
+    (v (foFragsVec o))
     (mut i 0)
     (mut total 0)
   )
@@ -1762,6 +1786,12 @@
 (pub :: fqComs (-> Int Int))
 
 (pub fn (fqComs q) (memGetWord q 0))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: fqComsVec (-> Int (Vec a)))
+
+(pub fn (fqComsVec q) (cast (Vec a) (fqComs q)))
+
 
 (pub :: fqNext (-> Int Int))
 
@@ -1778,11 +1808,11 @@
 
 (pub :: fqPending (-> Int Bool))
 
-(pub fn (fqPending q) (< (fqNext q) (vecLen (fqComs q))))
+(pub fn (fqPending q) (< (fqNext q) (vecLen (fqComsVec q))))
 
 (pub :: fqHead (-> Int Int))
 
-(pub fn (fqHead q) (vecGet (fqComs q) (fqNext q)))
+(pub fn (fqHead q) (vecGet (fqComsVec q) (fqNext q)))
 
 ; Emit every pending comment starting before `before`, each on its own
 ; line at the current indent, leaving the cursor at the start of a fresh
@@ -1823,7 +1853,7 @@
 ; after the closing paren and the next pass would move it again. Such a
 ; comment stays in the queue and goes on its own line instead - it moves
 ; once, and then it is stable.
-(pub :: flushTrailing (-> String Int Int Int Int Int Int))
+(pub :: flushTrailing (-> String Int Int (Vec Int) Int Int Int))
 
 (pub fn (flushTrailing src q o starts anchor mark)
   (if (!= (foNl o) mark)
@@ -2000,6 +2030,12 @@
 (pub :: fpStarts (-> Int Int))
 
 (pub fn (fpStarts p) (memGetWord p 1))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: fpStartsVec (-> Int (Vec a)))
+
+(pub fn (fpStartsVec p) (cast (Vec a) (fpStarts p)))
+
 
 (pub :: fpQ (-> Int Int))
 
@@ -2635,7 +2671,7 @@
 ; The body of a form that takes `expr...`: one expression stays
 ; itself, several are an implicit `{}` block, which is exactly
 ; stage0's `parse_body_exprs`.
-(pub :: fpBodyVecSimple (-> String Int Int Bool))
+(pub :: fpBodyVecSimple (-> String (Vec Int) Int Bool))
 
 (pub fn (fpBodyVecSimple src elems from)
   (if (== (- (vecLen elems) from) 1)
@@ -2644,7 +2680,7 @@
   )
 )
 
-(pub :: fpBodyVecAnchor (-> String Int Int Int))
+(pub :: fpBodyVecAnchor (-> String (Vec Int) Int Int))
 
 (pub fn (fpBodyVecAnchor src elems from)
   (if (> (vecLen elems) from)
@@ -2653,7 +2689,7 @@
   )
 )
 
-(pub :: fpBeginVec (-> Int Int Int Int))
+(pub :: fpBeginVec (-> Int (Vec Int) Int Int))
 
 (pub fn (fpBeginVec p elems from)
   (let (
@@ -2677,7 +2713,7 @@
                 (foEmitIndent o)
                 (fpExpr p e)
                 (flushTrailing
-                  src                  (fpQ p)                  o                  (fpStarts p)                  (fpAnchor src e)                  mark
+                  src                  (fpQ p)                  o                  (fpStartsVec p)                  (fpAnchor src e)                  mark
                 )
               }
             )
@@ -2692,7 +2728,7 @@
   )
 )
 
-(pub :: fpBodyVec (-> Int Int Int Int))
+(pub :: fpBodyVec (-> Int (Vec Int) Int Int))
 
 (pub fn (fpBodyVec p elems from)
   (if (== (- (vecLen elems) from) 1)
@@ -2708,7 +2744,7 @@
 ; bodies, match arms and cond clauses: a space and the body inline, or
 ; the body alone on the next indent level with the closing paren under
 ; the construct.
-(pub :: fpTailBody (-> Int Int Int Int))
+(pub :: fpTailBody (-> Int (Vec Int) Int Int))
 
 (pub fn (fpTailBody p elems from)
   (let ((o (fpOut p)))
@@ -2736,13 +2772,13 @@
   (if (|| (< (fnLen n) 3) (!= (fnKind (fnKid n 1)) FN_PAREN))
     (fpBad p)
     (let (
-      (params (fnKids (fnKid n 1)))
+      (params (fnKidsVec (fnKid n 1)))
       (mut i 0)
       (mut nth 0)
     )
       {
         (fpP p "(lambda (")
-        (if (== params 0)
+        (if (== (cast Int params) 0)
           p
           (while (< i (vecLen params))
             {
@@ -2948,7 +2984,7 @@
                 (fpExpr p init)
                 (fpP p ")")
                 (flushTrailing
-                  src                  (fpQ p)                  o                  (fpStarts p)                  (fpAnchor src init)                  mark
+                  src                  (fpQ p)                  o                  (fpStartsVec p)                  (fpAnchor src init)                  mark
                 )
               }
             )
@@ -2977,7 +3013,7 @@
             (fpP p "(if ")
             (fpExpr p c)
             (flushTrailing
-              src              (fpQ p)              o              (fpStarts p)              (fpAnchor src c)              condMark
+              src              (fpQ p)              o              (fpStartsVec p)              (fpAnchor src c)              condMark
             )
             (fpP p "\n")
             (foPushIndent o)
@@ -2987,7 +3023,7 @@
                 (foEmitIndent o)
                 (fpExpr p t)
                 (flushTrailing
-                  src                  (fpQ p)                  o                  (fpStarts p)                  (fpAnchor src t)                  thenMark
+                  src                  (fpQ p)                  o                  (fpStartsVec p)                  (fpAnchor src t)                  thenMark
                 )
               }
             )
@@ -3093,7 +3129,7 @@
                 ; fuses into a constructor pattern - and the body is
                 ; whatever remains. A fusion that swallows the last
                 ; kid leaves no body, which stage0 refuses.
-                (let ((patEnd (fpPatWidth src (fnKids arm) 0)))
+                (let ((patEnd (fpPatWidth src (fnKidsVec arm) 0)))
                   (let ((armBody (fpExprElems arm patEnd)))
                     (if (== (vecLen armBody) 0)
                       {
@@ -3108,7 +3144,7 @@
                         (flushLeading src (fpQ p) o (fpBodyVecAnchor src armBody 0))
                         (foEmitIndent o)
                         (fpP p "(")
-                        (fpPatVecAt p (fnKids arm) 0)
+                        (fpPatVecAt p (fnKidsVec arm) 0)
                         (fpTailBody p armBody 0)
                         (fpP p ")")
                         (set i (+ i 1))
@@ -3338,7 +3374,7 @@
           (while (== go 1)
             (let ((h (vecGet elems 0)))
               (if (&& (== (fnKind h) FN_PAREN) (== (fnLen h) 1))
-                (vecSet elems 0 (fnKid h 0))
+                { (vecSet elems 0 (fnKid h 0)) 0 }
                 (if (fpIsAppForm src h)
                   (let (
                     (hElems (fpExprElems h 0))
@@ -3359,6 +3395,7 @@
                           (set j (+ j 1))
                         })
                       (set elems merged)
+                      0
                     }
                   )
                   (set go 0)
@@ -3800,7 +3837,7 @@
 
 ; The expression elements of `n` from index `from`, with adjacent
 ; minus+number pairs fused into synthetic literal atoms.
-(pub :: fpExprElems (-> Int Int Int))
+(pub :: fpExprElems (-> Int Int (Vec Int)))
 
 (pub fn (fpExprElems n from)
   (let (
@@ -3819,7 +3856,7 @@
             (let ((d (fnKid n (+ i 1))))
               {
                 (vecPush v (mkFNode
-                  FN_ATOM                  (mkFTok (ftKind (fnTok d)) (fnStart kid) (fnEnd d))                  0                  (fnStart kid)                  (fnEnd d)
+                  FN_ATOM                  (mkFTok (ftKind (fnTok d)) (fnStart kid) (fnEnd d))                  (cast (Vec Int) 0)                  (fnStart kid)                  (fnEnd d)
                 ))
                 (set i (+ i 2))
               }
@@ -4000,7 +4037,7 @@
 ; the scan reads `, h` as an unquote prefix - context it cannot have -
 ; so the field walkers flatten the node and treat the comma as the
 ; separator it was.
-(pub :: fpPushExpanded (-> Int Int Int))
+(pub :: fpPushExpanded (-> (Vec Int) Int (Vec Int)))
 
 (pub fn (fpPushExpanded v kid)
   (if (&& (== (fnKind kid) FN_PREFIX) (== (ftKind (fnTok kid)) FT_COMMA))
@@ -4009,7 +4046,7 @@
   )
 )
 
-(pub :: fpFlattenCommas (-> Int Int))
+(pub :: fpFlattenCommas (-> Int (Vec Int)))
 
 (pub fn (fpFlattenCommas n)
   (let (
@@ -4057,7 +4094,7 @@
 ; when a bare uppercase ident is followed by a paren group - stage0's
 ; `parse_pattern` fuses `C (h t)` into the constructor pattern
 ; `(C h t)` in every pattern position - and one otherwise.
-(pub :: fpPatWidth (-> String Int Int Int))
+(pub :: fpPatWidth (-> String (Vec Int) Int Int))
 
 (pub fn (fpPatWidth src v i)
   (if (&&
@@ -4073,7 +4110,7 @@
 
 ; The number of patterns a fused walk reads from `v` starting at
 ; `from` - the count stage0's pattern loops see.
-(pub :: fpPatVecCount (-> String Int Int Int))
+(pub :: fpPatVecCount (-> String (Vec Int) Int Int))
 
 (pub fn (fpPatVecCount src v from)
   (let (
@@ -4092,19 +4129,19 @@
 )
 
 ; Print one pattern starting at `v[i]`, answering the index past it.
-(pub :: fpPatVecAt (-> Int Int Int Int))
+(pub :: fpPatVecAt (-> Int (Vec Int) Int Int))
 
 (pub fn (fpPatVecAt p v i)
   (let ((src (fpSrc p)))
     (if (== (fpPatWidth src v i) 2)
       (let (
-        (args (fnKids (vecGet v (+ i 1))))
+        (args (fnKidsVec (vecGet v (+ i 1))))
         (mut j 0)
       )
         {
           (fpP p "(")
           (fpP p (fnText src (vecGet v i)))
-          (if (== args 0)
+          (if (== (cast Int args) 0)
             p
             (while (< j (vecLen args))
               {
@@ -4213,13 +4250,13 @@
       )
       (if (== k FN_BRACK)
         (let (
-          (kids (fnKids n))
+          (kids (fnKidsVec n))
           (mut i 0)
           (mut nth 0)
         )
           {
             (fpP p "[")
-            (if (== kids 0)
+            (if (== (cast Int kids) 0)
               p
               (while (< i (vecLen kids))
                 {
@@ -4247,7 +4284,7 @@
               (if (&& (== (fnLen n) 2) (== (fnKind (fnKid n 1)) FN_BRACE))
                 (fpPatNamed p (fnKid n 0) (fnKid n 1))
                 (let (
-                  (kids (fnKids n))
+                  (kids (fnKidsVec n))
                   (mut i 1)
                 )
                   {
@@ -4267,7 +4304,7 @@
               ; tuple - counted through the constructor fusion, so
               ; `(C (x))` above and `((C x))` here agree with the
               ; parser.
-              (let ((kids (fnKids n)))
+              (let ((kids (fnKidsVec n)))
                 (if (== (fpPatVecCount src kids 0) 1)
                   {
                     (fpPatVecAt p kids 0)
@@ -4561,7 +4598,7 @@
                     (set j (+ j 1))
                   })
               )
-              (vecPush names kid)
+              { (vecPush names kid) 0 }
             )
             (set i (+ i 1))
           }
@@ -5053,7 +5090,7 @@
             (if (== (fnKind x) FN_PAREN)
               (if (&& (> (fnLen x) 0) (fpIsIdentAtom (fnKid x 0)))
                 (let (
-                  (kids (fnKids x))
+                  (kids (fnKidsVec x))
                   (mut i 1)
                 )
                   {
@@ -5516,7 +5553,7 @@
               (while (< i (fnLen hd))
                 {
                   (fpP p " ")
-                  (set i (fpPatVecAt p (fnKids hd) i))
+                  (set i (fpPatVecAt p (fnKidsVec hd) i))
                 })
               (fpP p ") ")
               (fpExpr p (vecGet tmpl 0))
@@ -5646,7 +5683,7 @@
 ; blank-line separator, leading comments, the mark for the trailing
 ; comment taken BEFORE the axtags print, the axtags, the declaration,
 ; the trailing comment, the newline.
-(pub :: fpEmitDecl (-> Int Int Int Int Int))
+(pub :: fpEmitDecl (-> Int Int (Vec Int) Int Int))
 
 (pub fn (fpEmitDecl p nth tags n)
   (let (
@@ -5672,7 +5709,7 @@
           )
           (fpDecl p n)
           (flushTrailing
-            src            (fpQ p)            o            (fpStarts p)            (fpDeclAnchor src n)            mark
+            src            (fpQ p)            o            (fpStartsVec p)            (fpDeclAnchor src n)            mark
           )
         }
       )
@@ -5685,7 +5722,7 @@
 ; above everything else (stage0 keeps them in `Module::imports` and
 ; chains them first), and emit with the comment queue threaded
 ; through.
-(pub :: fmtPrint (-> String Int Int Int Int))
+(pub :: fmtPrint (-> String (Vec Int) Int (Vec Int) Int))
 
 (pub fn (fmtPrint src forms coms starts)
   (let (
@@ -5693,7 +5730,7 @@
     (q (mkFCq coms))
   )
     (let (
-      (p (mkFPr src starts q o))
+      (p (mkFPr src (cast Int starts) q o))
       (imports vecNew)
       (declTags vecNew)
       (declNodes vecNew)
@@ -5706,7 +5743,7 @@
           (let ((f (vecGet forms i)))
             {
               (if (fpIsAxtagAtom f)
-                (vecPush pending (fnTok f))
+                { (vecPush pending (fnTok f)) 0 }
                 (if (!= (fnKind f) FN_PAREN)
                   (foSetBad o)
                   (if (== (fnLen f) 0)
@@ -5745,6 +5782,7 @@
                             importTags                            (cast Int pending)
                           )
                           (set pending vecNew)
+                          0
                         }
                         ; A known declaration head - or ANY
                         ; identifier head, which is a
@@ -5765,6 +5803,7 @@
                             )
                             (vecPush declNodes f)
                             (set pending vecNew)
+                            0
                           }
                           (foSetBad o)
                         )
@@ -5789,14 +5828,14 @@
           {
             (while (< j (vecLen imports))
               {
-                (fpEmitDecl p nth (vecGet importTags j) (vecGet imports j))
+                (fpEmitDecl p nth (vecGetVec importTags j) (vecGet imports j))
                 (set nth (+ nth 1))
                 (set j (+ j 1))
               })
             (set j 0)
             (while (< j (vecLen declNodes))
               {
-                (fpEmitDecl p nth (vecGet declTags j) (vecGet declNodes j))
+                (fpEmitDecl p nth (vecGetVec declTags j) (vecGet declNodes j))
                 (set nth (+ nth 1))
                 (set j (+ j 1))
               })
@@ -5836,10 +5875,10 @@
         ; refusal this function already has for every input it cannot
         ; print, so a file too deep to format is left untouched and
         ; exits 1, where it used to take the process down with SIGNAL 11.
-        (if (>= (fNestOverflow (fsToks sc) parseMaxDepth) 0)
+        (if (>= (fNestOverflow (fsToksVec sc) parseMaxDepth) 0)
           (cast Int (FRes 0 ""))
-          (let ((forms (readForms src (fsToks sc))))
-            (if (== forms 0)
+          (let ((forms (readForms src (fsToksVec sc))))
+            (if (== (cast Int forms) 0)
               (cast Int (FRes 0 ""))
               (let ((out (fmtPrint src forms (fsComs sc) (lineStarts src))))
                 (if (== (foBad out) 1)
@@ -5856,7 +5895,7 @@
 )
 
 ; The comment texts of `src`, for the count-and-content check.
-(pub :: fmtComTexts (-> String Int))
+(pub :: fmtComTexts (-> String (Vec String)))
 
 (pub fn (fmtComTexts src)
   (let (
@@ -5864,7 +5903,7 @@
     (v vecNew)
   )
     (let (
-      (coms (fsComs sc))
+      (coms (fsComsVec sc))
       (mut i 0)
     )
       {

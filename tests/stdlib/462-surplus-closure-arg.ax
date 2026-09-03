@@ -70,9 +70,9 @@
 ; question only the application can answer - a ground `String` here
 ; would be classified where the lambda is checked and would not
 ; exercise the evidence word at all.
-(:: mkParker (-> Int (-> a Int)))
+(:: mkParker (-> (Vec a) (-> a Int)))
 
-(fn (mkParker log) (lambda (v) (vecPush log v)))
+(fn (mkParker log) (lambda (v) { (vecPush log v) 0 }))
 
 (:: parkedByte (-> Int Int))
 
@@ -81,12 +81,13 @@
     (let ((h (Holder (strDup "alice"))))
       {
         (if (== pick 0)
-          ((lambda (v) (vecPush log v)) h.name)
+          ((lambda (v) { (vecPush log v) 0 }) h.name)
           (if (== pick 1)
             ((mkParker log) h.name)
-            ((cast Int (lambda (v) (vecPush log v))) h.name)
+            ((cast Int (lambda (v) { (vecPush log v) 0 })) h.name)
           )
         )
+
         ; Event 5: the field's only counted share goes.
         (set h.name (strDup "bob"))
         ; Allocated after it, so a freed block comes back here and the

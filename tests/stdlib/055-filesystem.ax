@@ -96,14 +96,15 @@
 ; listing against, so a missing or extra entry is one failing check
 ; rather than a length check that passes and a content check that does
 ; not exist.
-(:: joined (-> Int Int String String))
+(:: joined (-> (Vec Int) Int String String))
 
 (fn (joined v i acc)
   (if (>= i (vecLen v))
     acc
     (let ((name 
-      (cast String (vecGet v i))
+      (vecGetStr v i)
     ))
+
       (joined
         v        (+ i 1)        (if (== i 0)
           name

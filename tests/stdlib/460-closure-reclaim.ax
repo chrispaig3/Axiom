@@ -167,7 +167,7 @@
 ; What is left is the surplus arguments of a `cast` spine and the
 ; over-applied path, which are UNMEASURED rather than known safe.
 ; `docs/memory-model.md` MM-LIFE-2g carries the detail.
-(:: parked (-> Int Int))
+(:: parked (-> (Vec String) Int))
 
 (fn (parked box)
   {
@@ -213,9 +213,9 @@
 (struct Session
   (mut name : String))
 
-(:: mkLogger (-> Int (-> String Int)))
+(:: mkLogger (-> (Vec String) (-> String Int)))
 
-(fn (mkLogger log) (lambda (s) (vecPush log s)))
+(fn (mkLogger log) (lambda (s) { (vecPush log s) 0 }))
 
 (:: main Int)
 

@@ -36,7 +36,7 @@
 
 (import Str)
 
-(:: joined (-> Int Int String String))
+(:: joined (-> (Vec Int) Int String String))
 
 (fn (joined v i acc)
   (if (>= i (vecLen v))
@@ -45,7 +45,7 @@
   )
 )
 
-(:: push4 (-> Int Int Int Int Int Int))
+(:: push4 (-> (Vec Int) Int Int Int Int (Vec Int)))
 
 (fn (push4 v a b c d)
   {
@@ -57,7 +57,7 @@
   }
 )
 
-(:: fill (-> Int Int Int Int))
+(:: fill (-> (Vec Int) Int Int Int))
 
 (fn (fill v i n)
   (if (>= i n)
@@ -69,7 +69,7 @@
   )
 )
 
-(:: ordered (-> Int Int Int))
+(:: ordered (-> (Vec Int) Int Int))
 
 (fn (ordered v i)
   (if (>= (+ i 1) (vecLen v))
@@ -81,7 +81,7 @@
   )
 )
 
-(:: same (-> Int Int Int Int))
+(:: same (-> (Vec Int) (Vec Int) Int Int))
 
 (fn (same a b i)
   (if (>= i (vecLen a))

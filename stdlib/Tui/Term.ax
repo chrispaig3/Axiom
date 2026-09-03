@@ -359,7 +359,7 @@
 ; per fragment would put a syscall between the erase and the redraw,
 ; which is visible as flicker.
 ; ------------------------------------------------------------------
-(pub :: termFlush (-> Int Int))
+(pub :: termFlush (-> (Vec String) Int))
 
 ;@axiom:effect(io)
 (pub fn (termFlush out)

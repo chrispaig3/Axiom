@@ -89,7 +89,7 @@
   )
 )
 
-(:: dumpCands (-> Int Int))
+(:: dumpCands (-> (Vec Int) Int))
 
 ;@axiom:effect(io)
 (fn (dumpCands cands)

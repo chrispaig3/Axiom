@@ -749,7 +749,7 @@
 ; iteration of the loop, so a wrap over it would answer the same
 ; bytes N times over - which is the kind of bug that looks like a
 ; filesystem returning duplicates.
-(pub :: sysReadDir (-> Int Int))
+(pub :: sysReadDir (-> Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (sysReadDir path)
@@ -780,7 +780,7 @@
 ; kernel refuses (negative). A refusal mid-way keeps the names already
 ; decoded rather than discarding them, which matches `sysReadAll`'s
 ; rule for a short read.
-(:: sysReadDirLoop (-> Int Int Int Int Int))
+(:: sysReadDirLoop (-> Int Int Int (Vec Int) Int))
 
 ;@axiom:effect(io)
 (fn (sysReadDirLoop fd buf pos out)
@@ -826,7 +826,7 @@
 ; `n`; the shortest record any of the three kernels emits is 24 bytes
 ; (Linux; Darwin's and FreeBSD's is 32), so nothing a conforming one
 ; returns is refused by it.
-(:: sysReadDirDecode (-> Int Int Int Int Int))
+(:: sysReadDirDecode (-> Int Int Int (Vec Int) Int))
 
 (fn (sysReadDirDecode buf off n out)
   ; 18 is the last byte of `d_reclen` on both layouts; without room for

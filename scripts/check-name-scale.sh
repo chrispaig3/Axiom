@@ -300,6 +300,21 @@ cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/" || {
 # ablation that no longer matches makes the red half of this gate prove
 # nothing, which is why the mismatch is a hard failure below rather
 # than a skip.
+#
+# RE-ANCHORED AGAIN 2026-09-02, when `Vec` took an element type. The
+# scan this puts back USED to be spelled `(mangleHasIn bares name 0)`,
+# and `mangleHasIn` is still there and still the same seven lines - but
+# its signature says `(Vec Int)` while `bares` is a `(Vec String)`, so
+# that call is now `expected Vec Int, found Vec String` and the ablated
+# compiler does not build. The scan is therefore restored VERBATIM
+# under a fresh name carrying the type its own body already implies -
+# it reads every element with `vecGetStr` - which is the shape
+# `check-contracts.sh`'s `guard-restored` ablation uses too. Restoring
+# it rather than casting at the call keeps this ablation about the SCAN
+# and nothing else: `(cast (Vec Int) bares)` at an argument root is a
+# memory-model change (`MM-VAL-22`) on top of the speed change this arm
+# measures, and an ablation that moves two things at once proves
+# neither.
 if ! python3 - "$abl/self_host/namespace.ax" <<'PY'
 import sys
 p = sys.argv[1]
@@ -316,8 +331,20 @@ old = """(pub fn (mangleIdxHas idx bares name)
 new = """(pub fn (mangleIdxHas idx bares name)
   {
     (mangleIdxSync idx bares)
-    (mangleHasIn bares name 0)
+    (mangleScanIn bares name 0)
   }
+)
+
+(pub :: mangleScanIn (-> (Vec String) String Int Bool))
+
+(pub fn (mangleScanIn bares bare i)
+  (if (>= i (vecLen bares))
+    false
+    (if (strEq (vecGetStr bares i) bare)
+      true
+      (mangleScanIn bares bare (+ i 1))
+    )
+  )
 )"""
 n = s.count(old)
 if n != 1:

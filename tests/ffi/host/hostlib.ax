@@ -29,8 +29,9 @@
 ; Values with structure cross too. The binding carries a `data` or
 ; `struct` of the file, `Option`, `Result` and a user `List`, through
 ; accessor shims the `--emit-rust-binding` build synthesises into this
-; archive (`axh_*`); a `Vec` is an `Int` here and a word the host
-; builds through the binding's `AxVecBuf`.
+; archive (`axh_*`); a `(Vec Int)` crosses as the handle word - the
+; element type stays on this side - and the host builds and reads one
+; through the binding's `AxVecBuf`.
 (import Vec)
 
 (import Err)
@@ -192,11 +193,11 @@
   )
 )
 
-(pub :: vecSum (-> Int Int))
+(pub :: vecSum (-> (Vec Int) Int))
 
 (pub fn (vecSum v) (vecSumFrom v 0 0))
 
-(:: vecSumFrom (-> Int Int Int Int))
+(:: vecSumFrom (-> (Vec Int) Int Int Int))
 
 (fn (vecSumFrom v i acc)
   (if (>= i (vecLen v))
@@ -205,7 +206,7 @@
   )
 )
 
-(pub :: vecDouble (-> Int Int))
+(pub :: vecDouble (-> (Vec Int) (Vec Int)))
 
 (pub fn (vecDouble v)
   (let ((out vecNew))
@@ -216,7 +217,7 @@
   )
 )
 
-(:: vecDoubleInto (-> Int Int Int Int))
+(:: vecDoubleInto (-> (Vec Int) (Vec Int) Int Int))
 
 (fn (vecDoubleInto v out i)
   (if (>= i (vecLen v))

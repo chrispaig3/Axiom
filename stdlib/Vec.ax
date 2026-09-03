@@ -9,10 +9,24 @@
 ;
 ; Elements are machine words. Because Axiom's representation is uniform -
 ; every value is one 64-bit word - the same `Vec` code stores `Int`s,
-; `Str` handles, and boxed `data` values with no monomorphisation, which
-; is why the element type is `Int` rather than a type parameter: a
-; parameter would buy type safety the caller does not get anyway once it
-; puts a `Str` handle (also an `Int`) in.
+; `Str` handles, and boxed `data` values with no monomorphisation. One
+; body serves every element type, and `(Vec a)` is a type parameter over
+; that one body rather than a family of them.
+;
+; THE ELEMENT TYPE IS NEW, and this paragraph used to argue against it:
+; the element type was `Int` "rather than a type parameter" because "a
+; parameter would buy type safety the caller does not get anyway once
+; it puts a `Str` handle (also an `Int`) in". That holds for the vector
+; that really IS heterogeneous, and such a vector now has the four
+; accessors it needs - `vecPushStr`, `vecPushVec`, `vecGetStr`,
+; `vecGetVec` - each pairing its cast with the retain `MM-VAL-22`
+; measures the cast into suppressing. It never held for the ordinary
+; one. With the element erased, `vecNew` was declared `Int` and
+; `vecGet` `(-> Int Int Int)`: a vector, a node id and the machine word
+; 42 were one type, `(vecLen 42)` was a well-typed program, and every
+; read back at a reference type was a `cast` written from nothing.
+; `(Vec a)` costs those callers one type argument and hands back the
+; fact they were casting to recover.
 ;
 ; The header is mutated in place, so a `Vec` handle is stable for the
 ; lifetime of the vector: only `data` is ever reallocated, and it lives
@@ -70,7 +84,7 @@
 
 ; An empty `Vec` with `vecDefaultCap` capacity.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: vecNew Int)
+(pub :: vecNew (Vec a))
 
 (pub fn (vecNew) (vecWithCapacity vecDefaultCap))
 
@@ -82,20 +96,20 @@
 ; was pushed to. Clamping at the constructor means `vecGrownCap` can rely
 ; on `cap >= 1` and needs no special case.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: vecWithCapacity (-> Int Int))
+(pub :: vecWithCapacity (-> Int (Vec a)))
 
 (pub fn (vecWithCapacity cap) (vecBuild cap 0))
 
 ; The same, with an ARRAY-FORM data block: every element is a handle
 ; this vector owns a share of. See the module comment.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: vecWithCapacityRef (-> Int Int))
+(pub :: vecWithCapacityRef (-> Int (Vec a)))
 
 (pub fn (vecWithCapacityRef cap) (vecBuild cap 1))
 
 ; An empty `Vec` with `vecDefaultCap` capacity, owning its elements.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: vecNewRef Int)
+(pub :: vecNewRef (Vec a))
 
 (pub fn (vecNewRef) (vecWithCapacityRef vecDefaultCap))
 
@@ -107,7 +121,7 @@
 ; be reclaimed by the header's map. `strAlloc` takes the same retain on
 ; its buffer, for the same reason, and calls it "the header's own share".
 ;@axiom:restrict(no-io,no-foreign)
-(:: vecBuild (-> Int Int Int))
+(:: vecBuild (-> Int Int (Vec a)))
 
 (fn (vecBuild cap refs)
   (let (
@@ -137,7 +151,7 @@
       ; the vector says what it is in a word of its own. The header was
       ; three words in a four-word block already; this one is free.
       (memSetWord v 3 refs)
-      v
+      (cast (Vec a) v)
     }
   )
 )
@@ -150,11 +164,11 @@
 ; module must not encourage a caller to keep using, and every other
 ; mutator answers the handle precisely so that it CAN be chained.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecFree (-> Int Int))
+(pub :: vecFree (-> (Vec a) Int))
 
 (pub fn (vecFree v)
   {
-    (__release v)
+    (__release (cast Int v))
     0
   }
 )
@@ -166,19 +180,19 @@
 ; `vecNewRef` half of the module comment. It is word 3 of the header
 ; and not a test of the data block's shape word: see `vecBuild`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecOwnsRefs (-> Int Bool))
+(pub :: vecOwnsRefs (-> (Vec a) Bool))
 
-(pub fn (vecOwnsRefs v) (== (memGetWord v 3) 1))
-
-;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecLen (-> Int Int))
-
-(pub fn (vecLen v) (memGetWord v 0))
+(pub fn (vecOwnsRefs v) (== (memGetWord (cast Int v) 3) 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecCap (-> Int Int))
+(pub :: vecLen (-> (Vec a) Int))
 
-(pub fn (vecCap v) (memGetWord v 1))
+(pub fn (vecLen v) (memGetWord (cast Int v) 0))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: vecCap (-> (Vec a) Int))
+
+(pub fn (vecCap v) (memGetWord (cast Int v) 1))
 
 ; The address of the element block.
 ;
@@ -187,43 +201,57 @@
 ; hiding it would be pretend safety: the handle is an `Int`, so a caller
 ; that wants the data pointer can already read word 2 itself.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(:: vecData (-> Int Int))
+(:: vecData (-> (Vec a) Int))
 
-(fn (vecData v) (memGetWord v 2))
+(fn (vecData v) (memGetWord (cast Int v) 2))
 
-; The element at `i`, or 0 when `i` is out of range.
+; The element at `i`. REFUSES an index outside `0 .. (vecLen v) - 1`.
 ;
-; Out of range answers 0 rather than trapping, matching `Str.strByte`:
-; the callers that matter want a total accessor with a sentinel, and
-; Axiom has no way to signal failure that does not either allocate (the
-; builtin `Option` works, but every `data` value is heap-boxed, so an
-; `Option`-returning getter allocates on every read) or abort the
-; process. A caller that stores 0 as a real element and needs to tell it
-; from "absent" must check `vecLen` first; that is the honest cost of
-; this choice, and it is stated rather than hidden.
-; The element at `i`, as a word, or 0 out of range.
+; TWO CLAIMS USED TO STAND HERE AND BOTH ARE GONE. They are written out
+; because every caller in this tree was built against them.
 ;
-; A `Vec` carries no element type - there is no `Vec a`, only a handle -
-; so this cannot answer better than "the word that was pushed". It used
-; to answer a type VARIABLE, which is a stronger claim than that and a
-; false one: the caller named any type it liked and got it, so
-; `(vecPush v 42)` followed by `(strWrap (vecGet v 0) 8)` type-checked
-; and dereferenced 42 as a String. See `AX3040`.
+; THE SENTINEL. Out of range answered 0 rather than trapping until
+; 2026-09-01, matching `Str.strByte`, on the argument that Axiom had no
+; way to signal failure that did not either allocate - the builtin
+; `Option` works, but every `data` value is heap-boxed - or abort the
+; process. The cost was stated and it was the wrong side of the trade:
+; 0 IS A VALUE A CALLER MAY HAVE PUSHED, so a read past the end and a
+; read of a stored zero came back the same word and no caller could
+; tell them apart. That is not a crash, it is a wrong answer that keeps
+; going, and on a parser fed by a peer it is the worse failure. Out of
+; range is `(__indexTrap)` now - a call that never returns, status 77 -
+; and `vecTry` below is the checked read for a caller that has a
+; question rather than an invariant.
 ;
-; Reading an element back at a reference type now goes through
-; `vecGetStr`, which is still unchecked - the Vec does not know what is
-; in it - but is at least SAID, at the call, in one word. The real fix
-; is an element type, and that is a container change rather than an
-; accessor.
+; THE ELEMENT TYPE. This was declared `(-> Int Int Int)` over a bare
+; handle, and before that it answered a type VARIABLE over one - which
+; is a stronger claim than a bare handle can support and a false one:
+; the caller named any type it liked and got it, so `(vecPush v 42)`
+; followed by `(strWrap (vecGet v 0) 8)` type-checked and dereferenced
+; 42 as a String. `AX3040` closed that by pinning the answer to `Int`,
+; at the price of a `cast` on every read of anything else.
+;
+; `a` is the VECTOR's element type now, not the caller's wish: a
+; `(Vec String)` reads back `String` with no cast at the call site and
+; a `(Vec Int)` reads back `Int`. That is a fact about the container,
+; not a guarantee about what a word can be made to mean - measured on
+; this tree, `(vecPush v 42)` with `(strWrap (vecGet v 0) 8)` still
+; compiles, because both sides really are `Int` and `strWrap` is the
+; one lying. What ended is the vector that could not say what it held.
+;
+; A vector whose slots genuinely hold different KINDS of thing - the
+; heterogeneous records this compiler builds - still needs a cast to
+; read one back, and it takes the paired accessor that says so at the
+; call in one word: `vecGetStr`, `vecGetVec`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecGet (-> Int Int Int))
+(pub :: vecGet (-> (Vec a) Int a))
 
 (pub fn (vecGet v i)
   (if (< i 0)
     __indexTrap
     (if (>= i (vecLen v))
       __indexTrap
-      (memGetWord (vecData v) i)
+      (cast a (memGetWord (vecData v) i))
     )
   )
 )
@@ -255,23 +283,82 @@
 ; (`MM-EXEC-9a`). Returning a sentinel instead would delete the
 ; distinction this function exists to draw, so the CLAIM is what goes.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: vecTry (-> Int Int (Option Int)))
+(pub :: vecTry (-> (Vec a) Int (Option a)))
 
 (pub fn (vecTry v i)
   (if (< i 0)
     None
     (if (>= i (vecLen v))
       None
-      (Some (memGetWord (vecData v) i))
+      (Some (cast a (memGetWord (vecData v) i)))
     )
   )
 )
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecGetStr (-> Int Int String))
+(pub :: vecGetStr (-> (Vec a) Int String))
 
 (pub fn (vecGetStr v i)
   (cast String (vecGet v i))
+)
+
+; The element at `i` read back as a CONTAINER.
+;
+; A vector whose slots hold different kinds of thing - a `ctx` whose
+; slot 0 is an interner and whose slots 1..3 are vectors - cannot be
+; given one element type, and the alternative is a `cast` at the call
+; site. That is the one thing `docs/memory-model.md` MM-VAL-22 measures
+; as unsafe: a cast at an argument root in a type-variable position
+; classifies the value's evidence 0 and drops its retain. So the cast
+; is HERE, at a return inside a signature that carries the type, which
+; is the same shape `vecGetStr` and `memGetWordVec` already use.
+;
+; The result variable is `b` and not `a`: what the vector holds and
+; what this slot holds are different questions, and each call site
+; pins `b` for itself.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: vecGetVec (-> (Vec a) Int (Vec b)))
+
+(pub fn (vecGetVec v i)
+  (cast (Vec b) (vecGet v i))
+)
+
+; Append a `String` to a vector of WORDS, keeping the share.
+;
+; Some of this compiler's vectors are heterogeneous by construction -
+; a query answer whose slot 0 is a `String` and whose slot 1 is a
+; vector - so no single element type describes them and the element
+; has to be stored as the word it is. Writing `(vecPush r (cast Int s))`
+; at the call site would type-check and would be a USE-AFTER-FREE:
+; `vecPush`'s element parameter is a type variable, and MM-VAL-22
+; measures that a cast at an argument root there classifies the value's
+; evidence 0, so `memSetWord`'s `__retainref` emits nothing and the
+; vector holds a `String` whose share nobody took.
+;
+; So the retain is made explicit and the cast is paired with it, in one
+; place, behind a signature that says `String`. The count is the same
+; as a `(Vec String)` push: one retain here, and the one `vecPush`
+; would have taken is exactly the one the cast suppresses.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: vecPushStr (-> (Vec a) String (Vec a)))
+
+(pub fn (vecPushStr v s)
+  {
+    (__retainref s)
+    (vecPush v (cast a s))
+  }
+)
+
+; The same for a nested container. A `Vec` handle is a counted block
+; too, so it needs the same explicit share for the same reason.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: vecPushVec (-> (Vec a) (Vec b) (Vec a)))
+
+(pub fn (vecPushVec v x)
+  {
+    (__retainref x)
+    (vecPush v (cast a x))
+  }
 )
 
 ; Overwrite the element at `i`. Returns the handle.
@@ -281,7 +368,7 @@
 ; extending on a stray index turns an off-by-one into a slow leak instead
 ; of a wrong answer that `vecLen` makes visible.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecSet (-> Int Int a Int))
+(pub :: vecSet (-> (Vec a) Int a (Vec a)))
 
 (pub fn (vecSet v i x)
   (if (< i 0)
@@ -313,7 +400,7 @@
 ; Ensure `v` can hold `need` elements, reallocating if it cannot.
 ; Returns the handle.
 ;@axiom:restrict(no-io,no-foreign)
-(:: vecReserve (-> Int Int Int))
+(:: vecReserve (-> (Vec a) Int (Vec a)))
 
 (fn (vecReserve v need)
   (if (<= need (vecCap v))
@@ -349,7 +436,7 @@
 ; new block comes from `memAlloc`, which zeroes, so the tail is 0 rather
 ; than whatever the arena last held there.
 ;@axiom:restrict(no-io,no-foreign)
-(:: vecReserveExactly (-> Int Int Int))
+(:: vecReserveExactly (-> (Vec a) Int (Vec a)))
 
 (fn (vecReserveExactly v newCap)
   (let (
@@ -363,8 +450,8 @@
         bigger
       )
       (memCopy bigger old (* (vecLen v) 8))
-      (memSetWord v 2 bigger)
-      (memSetWord v 1 newCap)
+      (memSetWord (cast Int v) 2 bigger)
+      (memSetWord (cast Int v) 1 newCap)
       ; The copy MOVED the elements' shares, so the old block must not
       ; spend them on the way out: it is marked a leaf first, and its
       ; release then reclaims the block and touches nothing it held.
@@ -388,35 +475,42 @@
 ; would write the element into the abandoned block, and the bug would be
 ; invisible until the vector happened to grow.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: vecPush (-> Int a Int))
+(pub :: vecPush (-> (Vec a) a (Vec a)))
 
 (pub fn (vecPush v x)
   (let ((len (vecLen v)))
     {
       (vecReserve v (+ len 1))
       (memSetWord (vecData v) len x)
-      (memSetWord v 0 (+ len 1))
+      (memSetWord (cast Int v) 0 (+ len 1))
       v
     }
   )
 )
 
-; Remove and return the last element, or 0 if `v` is empty.
+; Remove and return the last element. REFUSES an empty vector.
 ;
-; 0-on-empty is ambiguous with a stored 0, for the reason given on
-; `vecGet`. Callers that can push 0 must guard with `vecLen`.
+; This answered 0 on empty until the element-type port, and the
+; ambiguity was `vecGet`'s exactly: 0 is a value a caller may have
+; pushed, so a pop off the end and a pop of a stored zero came back the
+; same word. The old comment's answer was a rule for the reader -
+; "callers that can push 0 must guard with `vecLen`" - which is a rule
+; nothing checks and every caller eventually forgets. An empty pop is
+; `(__indexTrap)` now, status 77; a caller that does not know whether
+; there is an element still asks `vecLen`, and now that is the only way
+; to get an answer at all.
 ;
 ; Capacity is not reduced: shrinking would reallocate and leak the larger
 ; block, so a vector used as a stack settles at its high-water mark and
 ; then stops allocating entirely, which is what a recursive-descent
 ; parser wants.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecPop (-> Int Int))
+(pub :: vecPop (-> (Vec a) a))
 
 (pub fn (vecPop v)
   (let ((len (vecLen v)))
     (if (== len 0)
-      0
+      __indexTrap
       ; The slot is ZEROED, and on a `vecNewRef` vector that is a
       ; correctness rule rather than tidiness: the array-form walk
       ; releases the whole BLOCK's words, so a stale handle left
@@ -427,17 +521,22 @@
       (let ((top (memGetWord (vecData v) (- len 1))))
         {
           (memSetWord (vecData v) (- len 1) 0)
-          (memSetWord v 0 (- len 1))
-          top
+          (memSetWord (cast Int v) 0 (- len 1))
+          (cast a top)
         }
       )
     )
   )
 )
 
-; The last element without removing it, or 0 if `v` is empty.
+; The last element without removing it. REFUSES an empty vector.
+;
+; It too answered 0 on empty until the element-type port, with the same
+; defect as `vecPop`. There is no empty test in the body and none is
+; needed: this is `(vecGet v (- (vecLen v) 1))`, and on an empty vector
+; that index is -1, which `vecGet` refuses.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecLast (-> Int Int))
+(pub :: vecLast (-> (Vec a) a))
 
 (pub fn (vecLast v) (vecGet v (- (vecLen v) 1)))
 
@@ -449,7 +548,7 @@
 ; Keeping the capacity is the point: a `Vec` reused as scratch across
 ; many iterations allocates once in total.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecClear (-> Int Int))
+(pub :: vecClear (-> (Vec a) (Vec a)))
 
 (pub fn (vecClear v)
   {
@@ -457,14 +556,15 @@
       (vecDropFrom v 0)
       v
     )
-    (memSetWord v 0 0)
+    (memSetWord (cast Int v) 0 0)
+    v
   }
 )
 
 ; Hand back the share of element `i` and zero the slot. Only ever called
 ; on an array-form data block, where the vector owns what it holds.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(:: vecDropAt (-> Int Int Int))
+(:: vecDropAt (-> (Vec a) Int (Vec a)))
 
 (fn (vecDropAt v i)
   (let ((old (memGetWord (vecData v) i)))
@@ -477,7 +577,7 @@
 )
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(:: vecDropFrom (-> Int Int Int))
+(:: vecDropFrom (-> (Vec a) Int (Vec a)))
 
 (fn (vecDropFrom v i)
   (if (>= i (vecLen v))
@@ -500,12 +600,12 @@
 ; reads at the boundaries. `vecHash` is the position-sensitive companion
 ; for when order matters.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecSum (-> Int Int))
+(pub :: vecSum (-> (Vec Int) Int))
 
 (pub fn (vecSum v) (vecSumFrom v 0 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(:: vecSumFrom (-> Int Int Int Int))
+(:: vecSumFrom (-> (Vec Int) Int Int Int))
 
 (fn (vecSumFrom v i acc)
   (if (>= i (vecLen v))
@@ -521,12 +621,12 @@
 ; changes when elements are reordered, which is what makes it usable as
 ; the single assertion in a test that cares about order.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecHash (-> Int Int))
+(pub :: vecHash (-> (Vec Int) Int))
 
 (pub fn (vecHash v) (vecHashFrom v 0 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(:: vecHashFrom (-> Int Int Int Int))
+(:: vecHashFrom (-> (Vec Int) Int Int Int))
 
 (fn (vecHashFrom v i h)
   (if (>= i (vecLen v))
@@ -610,13 +710,15 @@
 
 ; Sort ascending, in place, by machine word. Answers the vector.
 ;
-; BY WORD is the honest description: a `Vec` carries no element type,
-; so this orders the words it holds. For a vector of `Int` that is the
-; numeric order a caller wants. For a vector of `String` the word is a
-; handle and its order is an allocation order, which is stable within a
-; run and means nothing across runs - use `vecSortBy` with `strCmp`.
+; BY WORD is the honest description, and it stayed true when the
+; container gained its element type: `a` is RIGID here, so this body
+; cannot ask what an element means - it orders the words the vector
+; holds. For a `(Vec Int)` that is the numeric order a caller wants.
+; For a `(Vec String)` the word is a handle and its order is an
+; allocation order, which is stable within a run and means nothing
+; across runs - use `vecSortBy` with `strCmp`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecSort (-> Int Int))
+(pub :: vecSort (-> (Vec a) (Vec a)))
 
 (pub fn (vecSort v)
   (let (
@@ -704,7 +806,7 @@
 ; it is. The duplication is thirty lines that say the same thing twice
 ; and never diverge in behaviour, because the fixture below sorts one
 ; input both ways and requires the same answer.
-(pub :: vecSortBy (-> Int (-> Int Int Int) Int))
+(pub :: vecSortBy (-> (Vec a) (-> Int Int Int) (Vec a)))
 
 (pub fn (vecSortBy v cmp)
   (let (

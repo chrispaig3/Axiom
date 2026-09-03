@@ -266,7 +266,7 @@
 ; FIRST match or -1. The evidence walks in the checker and the emitter
 ; each had a copy under a phase-prefixed name.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: strVecHas (-> Int String Int))
+(pub :: strVecHas (-> (Vec a) String Int))
 
 (pub fn (strVecHas xs n)
   (let (
@@ -290,7 +290,7 @@
 )
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: strVecIdx (-> Int String Int))
+(pub :: strVecIdx (-> (Vec a) String Int))
 
 (pub fn (strVecIdx xs n)
   (let (
@@ -317,7 +317,7 @@
 
 ; Append every element of `src` to `acc`, answering `acc`.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: vecAppendFrom (-> Int Int Int Int))
+(pub :: vecAppendFrom (-> (Vec Int) (Vec Int) Int (Vec Int)))
 
 (pub fn (vecAppendFrom src acc i)
   (if (>= i (vecLen src))

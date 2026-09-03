@@ -307,7 +307,7 @@
                             (let ((pid sysForkProcess))
                               (if (== pid 0)
                                 (sysExitWith (serve lsn arenaOn varied (envOn "AXIOM_NET_PEER")))
-                                (vecPush pids pid)
+                                { (vecPush pids pid) 0 }
                               )
                             )
                             (set w (+ w 1))

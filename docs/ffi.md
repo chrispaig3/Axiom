@@ -210,8 +210,8 @@ compile error whose message lists what is accepted.
 | `&[u8]` | `String` | the `Str` header address | zero-copy view; no validation |
 | `&T`, `&mut T` (`T` marked `#[axiom_opaque]`) | `Foreign` | the boxed value's address | null check, then a borrow for the call |
 | `T` marked `#[axiom_record]` | `T` (a `data` type) | one word per field | `AxRecord::from_words` (§8) |
-| `&[T]`, `T` a word scalar ≠ `u8`; `&[&str]`; `&[Record]`; `&[&[T]]` | `Int` (a `Vec`) | the `Vec` handle | a borrowed view or a range-checked copy for the call (§8) |
-| `&mut [i64]`, `&mut [f64]`, `&mut [u64]` | `Int` (a `Vec`) | the `Vec` handle | the live elements, in place (§8) |
+| `&[T]`, `T` a word scalar ≠ `u8`; `&[&str]`; `&[Record]`; `&[&[T]]` | `(Vec Int)` / `(Vec String)` / `(Vec Point)` / `(Vec (Vec Int))` | the `Vec` handle | a borrowed view or a range-checked copy for the call (§8) |
+| `&mut [i64]`, `&mut [f64]`, `&mut [u64]` | `(Vec Int)` | the `Vec` handle | the live elements, in place (§8) |
 | `AxFn1`, `AxFn2`, `AxFn3` | `(-> Int Int)` … | the closure record | `.call` (§7) |
 
 Refused, with the reason in the message: `u128`/`i128` ("split it into
@@ -232,7 +232,7 @@ words), `&i64`, tuples, `()`.
 | `String`, `Vec<u8>` | `String` | `(-> ... Int Int)` + `Raw` suffix | bytes/out-cell (§5.2) |
 | `Result<T, E>` (`E: Display`) | `(Result T' String)` | `Raw` | fallible: status 0 / 1 (§5.3) |
 | `Option<T>` | `(Option T')` | `Raw` | fallible: status 0 / 2 (§5.3) |
-| `Vec<T>`, `T` a word scalar ≠ `u8`; `Vec<String>`; `Vec<Record>`; `Vec<Vec<T>>` | `Int` (a `Vec`) | `Raw` | words / string list / record words / word lists out-cell (§8) |
+| `Vec<T>`, `T` a word scalar ≠ `u8`; `Vec<String>`; `Vec<Record>`; `Vec<Vec<T>>` | `(Vec Int)` / `(Vec String)` / `(Vec Point)` / `(Vec (Vec Int))` | `Raw` | words / string list / record words / word lists out-cell (§8) |
 | `T` marked `#[axiom_record]` | `T` (a `data` type) | `Raw` | field words in a cell of `ARITY` words (§8) |
 | `Result<Option<T>, E>`, `Option<Result<T, E>>` | `(Result (Option T') String)`, `(Option (Result T' String))` | `Raw` | the three statuses, nested (§5.3) |
 | `u64`, `char` | `Int`, `Char` | same | scalar: the bits; the code point |
@@ -602,20 +602,49 @@ All over words, none of them writing an Axiom block from Rust (C4):
 
 | Rust | Axiom | wire |
 |---|---|---|
-| `-> Vec<T>`, `T` a word scalar (`i64`, the narrow ints other than `u8`, `usize`/`isize`, `bool`, `f64`, `f32`) | `Int` (a `Vec`) | the out-cell holds `{ptr, len}` of words — each element widened to its word (ints extended, `bool` 0/1, floats as `f64` bits); the wrapper copies with `ffiWordsToVec` and returns the buffer with `ffiFreeWords` → `axffi_free_words(ptr, len)` |
-| `-> Vec<String>` | `Int` (a `Vec` of `String`) | the cell holds `{ptr, n}`, `ptr` at `2n` words of `(bytes, len)` pairs; `ffiStrsToVec` copies each string, `ffiFreeStrList` → `axffi_free_str_list(ptr, n)` frees every string and the pair buffer |
-| `&[T]` parameter, `T` a word scalar other than `u8` | `Int` (a `Vec`) | the `Vec` handle itself; Rust reads it as `axiom_abi::AxVec` (word 0 `len`, 1 `cap`, 2 the data pointer) for the call only — `&[i64]` and `&[f64]` as the words are, any other `T` through a range-checked temporary (out of range **aborts**, §5.1) |
-| `&[&str]` parameter | `Int` (a `Vec` of `String`) | the `Vec` handle; each word a `Str`, viewed as `&str` for the call, UTF-8 checked |
+| `-> Vec<T>`, `T` a word scalar (`i64`, the narrow ints other than `u8`, `usize`/`isize`, `bool`, `f64`, `f32`) | `(Vec Int)` | the out-cell holds `{ptr, len}` of words — each element widened to its word (ints extended, `bool` 0/1, floats as `f64` bits); the wrapper copies with `ffiWordsToVec` and returns the buffer with `ffiFreeWords` → `axffi_free_words(ptr, len)` |
+| `-> Vec<String>` | `(Vec String)` | the cell holds `{ptr, n}`, `ptr` at `2n` words of `(bytes, len)` pairs; `ffiStrsToVec` copies each string, `ffiFreeStrList` → `axffi_free_str_list(ptr, n)` frees every string and the pair buffer |
+| `&[T]` parameter, `T` a word scalar other than `u8` | `(Vec Int)` | the `Vec` handle itself; Rust reads it as `axiom_abi::AxVec` (word 0 `len`, 1 `cap`, 2 the data pointer) for the call only — `&[i64]` and `&[f64]` as the words are, any other `T` through a range-checked temporary (out of range **aborts**, §5.1) |
+| `&[&str]` parameter | `(Vec String)` | the `Vec` handle; each word a `Str`, viewed as `&str` for the call, UTF-8 checked |
 | `Point` parameter, `#[axiom_record]` | `Point` (a `data` type) | **one word per field**, in declaration order; the wrapper destructures with `match` |
 | `-> Point` | `Point` | the out-cell holds the field words (`ffiCellNewN n`); the wrapper constructs the `data` value |
-| `&[Point]` parameter | `Int` (a `Vec` of `Point`) | the wrapper flattens into a words `Vec` (`ARITY` per element, a private loop bindgen writes); the shim chunks them with `from_words` |
-| `-> Vec<Point>` | `Int` (a `Vec` of `Point`) | the cell holds `{ptr, n}` over `n × ARITY` words; the wrapper rebuilds each element with `ffiWordAt` and frees with `ffiFreeWords` |
-| `-> Vec<Vec<T>>`, `T` a word scalar | `Int` (a `Vec` of `Vec`) | the cell holds `{ptr, n}`, `ptr` at `2n` words of `(words, len)`; `ffiWordListsToVec` copies, `ffiFreeWordLists` → `axffi_free_word_lists(ptr, n)` |
-| `&[&[T]]` parameter | `Int` (a `Vec` of `Vec`) | the outer `Vec` handle; the shim reads each inner `AxVec` for the call |
-| `&mut [i64]`, `&mut [f64]`, `&mut [u64]` | `Int` (a `Vec`) | the `Vec`'s live elements, written in place |
+| `&[Point]` parameter | `(Vec Point)` | the wrapper flattens into a words `Vec` (`ARITY` per element, a private loop bindgen writes); the shim chunks them with `from_words` |
+| `-> Vec<Point>` | `(Vec Point)` | the cell holds `{ptr, n}` over `n × ARITY` words; the wrapper rebuilds each element with `ffiWordAt` and frees with `ffiFreeWords` |
+| `-> Vec<Vec<T>>`, `T` a word scalar | `(Vec (Vec Int))` | the cell holds `{ptr, n}`, `ptr` at `2n` words of `(words, len)`; `ffiWordListsToVec` copies, `ffiFreeWordLists` → `axffi_free_word_lists(ptr, n)` |
+| `&[&[T]]` parameter | `(Vec (Vec Int))` | the outer `Vec` handle; the shim reads each inner `AxVec` for the call |
+| `&mut [i64]`, `&mut [f64]`, `&mut [u64]` | `(Vec Int)` | the `Vec`'s live elements, written in place |
 
 (`&[u8]` and `Vec<u8>` are not in this table because they were already
 in §5: a byte slice is a `String`'s bytes, and stays one.)
+
+**A `Vec` parameter is always wrapped**, even where the return is a
+plain scalar and nothing else would need one. `AX3036` refuses `(Vec
+a)` in an `extern` item — the boundary names six word types and a `Vec`
+is not one of them — so the raw item takes the handle as `Int` and the
+wrapper is the one place that casts:
+
+```scheme
+(sumWordsRaw :: (-> Int Int) (symbol "axffi_sum_words"))
+
+(pub :: sumWords (-> (Vec Int) Int))
+
+;@axiom:effect(io)
+(pub fn (sumWords xs)
+  (let ((__r 
+    (sumWordsRaw
+      (cast Int xs)
+    )
+  ))
+    __r
+  )
+)
+```
+
+Without the wrapper the ergonomic name would be the raw item and its
+signature would say `Int`, putting a `cast` at every call in user code
+— which is the shape `MM-VAL-22` measures as a lost retain. One
+generated wrapper puts that cast in one reviewed place and lets the
+caller pass the vector it has.
 
 ```rust
 #[axiom_export] pub fn range_vec(n: i64) -> Vec<i64> { (0..n).collect() }
@@ -853,10 +882,10 @@ let grown = hostlib::shape_grow(&Shape::Rect(2, 3), 2);     // Shape::Rect(4, 6)
 let err = hostlib::safe_div(1, 0);                          // Err("division by zero")
 ```
 
-An Axiom `Vec` has no type of its own (it is an `Int` in a signature),
-so it crosses as a word the host builds and reads through the
-binding's `AxVecBuf` (`from_words`, `as_word`, `words`; released on
-drop). The ownership rule the binding follows is the emitter's own,
+An Axiom `Vec` carries its element type on the Axiom side and nothing
+on the Rust one, so a signature naming `(Vec Int)` spells `AxWord` in
+the binding and the host builds and reads one through `AxVecBuf`
+(`from_words`, `as_word`, `words`; released on drop). The ownership rule the binding follows is the emitter's own,
 read from its IR: an **argument is borrowed** (a callee that keeps one
 retains it — a constructor does), a **result is an owned share**
 (`MM-LIFE-2c` event 2). So `to_axiom` answers an owned word the

@@ -207,7 +207,7 @@
                       (let ((pid sysForkProcess))
                         (if (== pid 0)
                           (sysExitWith (serve lsn))
-                          (vecPush pids pid)
+                          { (vecPush pids pid) 0 }
                         )
                       )
                       (set w (+ w 1))
@@ -260,7 +260,9 @@
                                         (sysWriteFd c byte 1)
                                         (vecPush batch c)
                                         (vecPush want (% sent 251))
+                                        0
                                       }
+
                                       { (sysCloseFd c) 0 }
                                     )
                                     (set sent (+ sent 1))

@@ -127,9 +127,18 @@ cat > "$work/sorted.ax" <<'PROBE'
 
 ;@axiom:effect(io)
 (fn (main)
-  (let ((v vecNew))
+  ; THE FIRST PUSH IS IN THE BINDING, and that is a type obligation
+  ; rather than a style: `vecNew` is `(Vec a)`, and a `let` that binds
+  ; it bare hands every later use its own fresh `a`. The pushes still
+  ; pin the binding - `check-type-pinning.sh` measures that, and writing
+  ; an `Int` and then a `String` into this same `v` is refused - but
+  ; pinning is what the checker REFUSES on, not a substitution `show`
+  ; can read: `(vecGet v 0)` off a bare `vecNew` reaches `println` as a
+  ; type variable and is AX3025. Threading one push through the binding
+  ; makes the element type `Int` at the binding itself, which is the
+  ; shape the standard library's own fixtures use.
+  (let ((v (vecPush vecNew 3)))
     {
-      (vecPush v 3)
       (vecPush v 1)
       (vecPush v 2)
       (vecSortBy v (lambda (a b) (desc a b)))

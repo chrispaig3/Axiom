@@ -1,0 +1,88 @@
+; exit 77 (see .exit)
+;
+; `vecPop` REFUSES an empty vector: `464-index-trap.ax`'s decision,
+; applied to the second accessor that carried a sentinel.
+;
+; WHY THE COVERAGE MOVED HERE. `vecPop`'s body answered `0` on an empty
+; vector, and under `(-> (Vec a) a)` that `0` FABRICATES an `a` -
+; exactly what `vecGet`'s out-of-range sentinel did before it was made
+; to trap. `docs/generics-design.md` section 4 records the decision for
+; `vecGet`, and the paragraph that follows it ("`vecPop` is a second
+; `vecGet`, and section 4 did not name it") records this one. A caller
+; who does not know the vector is non-empty bounds the walk by
+; `vecLen`, which is what `vecGet`'s own comment says of the same
+; question, or reads through `vecTry` and gets a `None`.
+;
+; `070-vec.ax` carried the over-pop terms until the trap landed, in two
+; places - a pop of the fresh vector, printed at line 4 of its 47-line
+; golden, and two surplus pops in `popTimes`. It can carry neither now,
+; because a program that over-pops cannot also print the 43 lines that
+; stood after the first. So the over-pop is a case of its own, its walk
+; there is bounded to the elements that exist, and what stands here
+; ASSERTS the refusal instead of printing a fabricated zero.
+;
+; THE LEGAL HALF IS HERE TOO, because a trap is only worth having if it
+; fires on nothing else. A vector that HAS elements pops them last-in
+; first-out and its length falls by one each time, printed element by
+; element rather than as a summary so that a pop answering the wrong
+; slot is visible and not merely miscounted. The checked read on the
+; emptied vector answers `None` and does not trap: refusing is
+; `vecPop`'s answer, not `Vec`'s.
+;
+; The status is in `465-pop-empty-trap.exit`, the sentence in `.err`,
+; and neither checks the other: a program that printed the right
+; sentence and exited 0 fails on the status, and one that exited 77 in
+; silence fails on the stderr.
+(import IO)
+
+(import Vec)
+
+(import Str)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  ; --- LEGAL: three elements, popped LIFO, the length falling ---
+  (let ((v vecNew))
+    {
+      (vecPush v 7)
+      (vecPush v 8)
+      (vecPush v 9)
+      (println (vecLen v))  ; 3
+      (println
+        (cast Int (vecPop v))
+      )
+      ; 9: last in, first out
+      (println (vecLen v))  ; 2
+      (println
+        (cast Int (vecPop v))
+      )
+      ; 8
+      (println
+        (cast Int (vecPop v))
+      )
+      ; 7
+      (println (vecLen v))  ; 0: popped exactly to empty, never negative
+      ; --- LEGAL: the checked read a caller writes instead ---
+      (println
+        (match (vecTry v 0)
+          ((Some x) x)
+          ((None) (- 0 1))
+        )
+      )
+      ; -1: None, and no trap - the refusal is `vecPop`'s
+      ; --- ILLEGAL: one pop past empty, and this is where it ends ---
+      (println
+        (cast Int (vecPop v))
+      )
+      ; NOT REACHED, and deliberately not a bare numeral:
+      ; `verify-stdlib-out.py` models a case's exit status from `main`'s
+      ; tail when that tail is one, and this program's status comes from
+      ; the trap rather than from its last expression. It is also the
+      ; tripwire for the trap being removed - if `vecPop` ever starts
+      ; answering 0 again, this line runs and the golden says so.
+      (printlnLit (strCStr "UNREACHABLE: the empty pop returned"))
+    }
+  )
+)

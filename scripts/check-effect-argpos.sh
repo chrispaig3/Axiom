@@ -229,10 +229,20 @@ echo "== 4. and the type test is what does it (ablation) =="
 # --------------------------------------------------------------------
 # The seam is `escapeArgs`'s condition, matched whole so a rename or a
 # reformat upstream is a loud failure here rather than a silent no-op.
+#
+# It was one such loud failure on 2026-09-01, and the report was right.
+# The `Vec` port gave `escapeArgs` the signature
+# `(-> Int (Vec Int) Int (Vec a) Int Int)`: `acc` is a container now and
+# not a bare word, so its absent test is spelled the way the port spells
+# every absent container - `(!= (cast Int acc) 0)` where it read
+# `(!= acc 0)`. The RULE this gate names did not move. The type test on
+# `(arrowParamTy cty i)` is the same conjunct of the same condition, and
+# the ablation still drops exactly it and nothing else; only the
+# sentinel's spelling changed, so only the string changed.
 abl="$work/tree"
 mkdir -p "$abl"
 cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/"
-seam='      (if (&& (== (escapeValue bound (vecGet args i)) 0) (&& (!= acc 0) (== (tyIsCallable (arrowParamTy cty i)) 1)))'
+seam='      (if (&& (== (escapeValue bound (vecGet args i)) 0) (&& (!= (cast Int acc) 0) (== (tyIsCallable (arrowParamTy cty i)) 1)))'
 n_seam="$(grep -c -F -x "$seam" "$abl/self_host/typecheck.ax" || true)"
 checks=$((checks + 1))
 if [[ "$n_seam" != 1 ]]; then
@@ -243,8 +253,8 @@ else
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-old = "(if (&& (== (escapeValue bound (vecGet args i)) 0) (&& (!= acc 0) (== (tyIsCallable (arrowParamTy cty i)) 1)))"
-new = "(if (&& (== (escapeValue bound (vecGet args i)) 0) (!= acc 0))"
+old = "(if (&& (== (escapeValue bound (vecGet args i)) 0) (&& (!= (cast Int acc) 0) (== (tyIsCallable (arrowParamTy cty i)) 1)))"
+new = "(if (&& (== (escapeValue bound (vecGet args i)) 0) (!= (cast Int acc) 0))"
 assert s.count(old) == 1
 open(p, "w", encoding="utf-8").write(s.replace(old, new))
 PY

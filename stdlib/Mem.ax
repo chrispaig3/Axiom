@@ -297,6 +297,19 @@
   (cast String (memGetWord addr index))
 )
 
+; The `Vec` view of the word at `index`. A `Vec` is a handle - one
+; word, exactly what `memGetWord` answers - so this reinterprets and
+; converts nothing. The cast is HERE, at a return inside a signature
+; that carries the type, for the reason `memGetWordStr` gives: a cast
+; at an argument root classifies that value's evidence 0 and drops its
+; retain or its release (docs/memory-model.md MM-VAL-22, measured).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: memGetWordVec (-> Int Int (Vec a)))
+
+(pub fn (memGetWordVec addr index)
+  (cast (Vec a) (memGetWord addr index))
+)
+
 ; Storing a word here is the moment a value can leave the type
 ; system's sight: `(cast Int value)` erases whatever `value` was, and
 ; the machine word that lands in `addr` is indistinguishable from an

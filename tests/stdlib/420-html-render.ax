@@ -103,7 +103,7 @@
   )
 )
 
-(:: page (-> String Int String))
+(:: page (-> String (Vec String) String))
 
 (fn (page heading items)
   (let ((b hNew))

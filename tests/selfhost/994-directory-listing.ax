@@ -87,13 +87,13 @@
 )
 
 ; Is `want` one of the names in `v`?
-(:: holds (-> Int String Int Bool))
+(:: holds (-> (Vec Int) String Int Bool))
 
 (fn (holds v want i)
   (if (>= i (vecLen v))
     false
     (if (strEq
-      (cast String (vecGet v i))      want
+      (vecGetStr v i)      want
     )
       true
       (holds v want (+ i 1))

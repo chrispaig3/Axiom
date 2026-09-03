@@ -88,7 +88,7 @@
 ; The corpus. One `vecPush` per case, the expectation on the same line
 ; as the buffer it describes.
 ; ------------------------------------------------------------------
-(:: corpus Int)
+(:: corpus (Vec Int))
 
 (fn (corpus)
   (let ((v vecNewRef))
@@ -98,58 +98,58 @@
       ;    that reserving words in every position is why
       ;    `fpIsReservedWord` was deleted; this is that regression's
       ;    tripwire.
-      (vecPush v (HCase "(fn (g data) data)" 0 "MKK.pi.iiiip.iiiiM" 0 17))
+      (vecPush v (mkHCase "(fn (g data) data)" 0 "MKK.pi.iiiip.iiiiM" 0 17))
       ; 2  MID-EDIT, the central case: an unterminated string and an
       ;    unclosed paren at once. The lexer answers one TK_ERROR from
       ;    the quote to the buffer end, and that is a literal IN
       ;    PROGRESS, not an error - `?`, not `E`.
-      (vecPush v (HCase "(println \"hel" 13 "piiiiiii.????" 1 (- 0 1)))
+      (vecPush v (mkHCase "(println \"hel" 13 "piiiiiii.????" 1 (- 0 1)))
       ; 3  the cursor just past a closer: both brackets light up
-      (vecPush v (HCase "(+ 1 2)" 7 "Mi.n.nM" 0 0))
+      (vecPush v (mkHCase "(+ 1 2)" 7 "Mi.n.nM" 0 0))
       ; 4  crossed families. `replParenDepth` measures 0 here and
       ;    dispatches; the typed walk says the `]` has no partner.
-      (vecPush v (HCase "( ]" 3 "p.X" 0 (- 0 2)))
+      (vecPush v (mkHCase "( ]" 3 "p.X" 0 (- 0 2)))
       ; 5  a line comment, which the lexer emits NO token for - the
       ;    letters come from walking the gap between two token spans
-      (vecPush v (HCase "(a ; note" 0 "Xi.cccccc" 1 (- 0 2)))
+      (vecPush v (mkHCase "(a ; note" 0 "Xi.cccccc" 1 (- 0 2)))
       ; 6  a NESTED block comment is one comment, as it is to the
       ;    compiler
-      (vecPush v (HCase "(a #| x #| y |# z |# b)" 0 "Mi.ccccccccccccccccc.iM" 0 22))
+      (vecPush v (mkHCase "(a #| x #| y |# z |# b)" 0 "Mi.ccccccccccccccccc.iM" 0 22))
       ; 7  a bad escape: settled, so red immediately - and the string
       ;    bytes either side of it are stranded in a GAP, which is the
       ;    measured exception to "a gap holds only trivia"
-      (vecPush v (HCase "\"a\\q\"" 0 "..EE." 0 (- 0 1)))
+      (vecPush v (mkHCase "\"a\\q\"" 0 "..EE." 0 (- 0 1)))
       ; 8  an integer past i64. It also ends at the buffer end, and no
       ;    further digit can fix it, so the first byte - a digit - is
       ;    what keeps it `E` while case 2 stays `?`.
-      (vecPush v (HCase "99999999999999999999999" 0 "EEEEEEEEEEEEEEEEEEEEEEE" 0 (- 0 1)))
+      (vecPush v (mkHCase "99999999999999999999999" 0 "EEEEEEEEEEEEEEEEEEEEEEE" 0 (- 0 1)))
       ; 9  `mut` is a keyword in a position that is not a form head, so
       ;    it is deliberately left an ident rather than guessed at
-      (vecPush v (HCase "(let ((mut 1)) mut)" 0 "MKKK.ppiii.npp.iiiM" 0 18))
+      (vecPush v (mkHCase "(let ((mut 1)) mut)" 0 "MKKK.ppiii.npp.iiiM" 0 18))
       ; 10 a char literal
-      (vecPush v (HCase "'x'" 0 "sss" 0 (- 0 1)))
+      (vecPush v (mkHCase "'x'" 0 "sss" 0 (- 0 1)))
       ; 11 the empty buffer - the first thing a prompt hands over
-      (vecPush v (HCase "" 0 "" 0 (- 0 1)))
+      (vecPush v (mkHCase "" 0 "" 0 (- 0 1)))
       ; 12 three families nested, matched across all of them
-      (vecPush v (HCase "{ [ ( ) ] }" 11 "M.p.p.p.p.M" 0 0))
+      (vecPush v (mkHCase "{ [ ( ) ] }" 11 "M.p.p.p.p.M" 0 0))
       ; 13 a MULTI-LINE continuation buffer, the shape `replMain`
       ;    accumulates: a `)` on line two matching a `(` on line two,
       ;    with the outer pair left alone
-      (vecPush v (HCase "(fn (f x)\n  (+ x 1))" 19 "pKK.pi.ip...Mi.i.nMp" 0 12))
+      (vecPush v (mkHCase "(fn (f x)\n  (+ x 1))" 19 "pKK.pi.ip...Mi.i.nMp" 0 12))
       ; 14 NON-ASCII, where bytes and columns differ: 17 bytes, 15
       ;    columns. lexer.ax:764 records `'é'` as the case a hardcoded
       ;    width of three broke.
-      (vecPush v (HCase "(f 'é' \"héllo\")" 15 "pi.ssss.ssssssssp" 0 (- 0 1)))
+      (vecPush v (mkHCase "(f 'é' \"héllo\")" 15 "pi.ssss.ssssssssp" 0 (- 0 1)))
       ; 15 the newline that ends a line comment stays PLAIN, so the
       ;    editor can still split the painted buffer into rows
-      (vecPush v (HCase "(a ; c\n b)" 0 "Mi.ccc..iM" 0 9))
+      (vecPush v (mkHCase "(a ; c\n b)" 0 "Mi.ccc..iM" 0 9))
       ; 16 a `#|` STRANDED by a bad escape. Its scan is bounded by the
       ;    gap, so it cannot swallow the rest of the line: `1)` after
       ;    it still classifies.
-      (vecPush v (HCase "(f \"a #| b\\q\" 1)" 0 "Mi....ccccEE..nM" 0 15))
+      (vecPush v (mkHCase "(f \"a #| b\\q\" 1)" 0 "Mi....ccccEE..nM" 0 15))
       ; 17 a closer with nothing open. Depth goes NEGATIVE, which is
       ;    what replParenDepth answers too.
-      (vecPush v (HCase ")" 1 "X" (- 0 1) (- 0 2)))
+      (vecPush v (mkHCase ")" 1 "X" (- 0 1) (- 0 2)))
       v
     }
   )
@@ -205,7 +205,7 @@
 )
 
 ; How many of the eleven class letters the corpus actually produced.
-(:: distinctLetters (-> Int Int))
+(:: distinctLetters (-> (Vec Int) Int))
 
 (fn (distinctLetters v)
   (let (

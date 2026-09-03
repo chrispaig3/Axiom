@@ -31,8 +31,8 @@
 (:: formCount (-> String Int))
 
 (fn (formCount src)
-  (let ((f (readForms src (fsToks (fscan src)))))
-    (if (== f 0)
+  (let ((f (readForms src (fsToksVec (fscan src)))))
+    (if (== (cast Int f) 0)
       99
       (vecLen f)
     )
@@ -47,8 +47,8 @@
 (:: kidsOf (-> String Int))
 
 (fn (kidsOf src)
-  (let ((f (readForms src (fsToks (fscan src)))))
-    (if (== f 0)
+  (let ((f (readForms src (fsToksVec (fscan src)))))
+    (if (== (cast Int f) 0)
       99
       (fnLen (vecGet f 0))
     )

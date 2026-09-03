@@ -58,7 +58,7 @@
 
 (fn (e7) "(- 9 5)")
 
-(:: eightEntries Int)
+(:: eightEntries (Vec String))
 
 (fn (eightEntries)
   (let ((v vecNew))

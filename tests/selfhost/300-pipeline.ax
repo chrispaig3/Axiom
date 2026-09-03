@@ -25,7 +25,7 @@
       (let ((pr (parseModule (lex src))))
         (if (== (memGetWord pr 0) 0)
           8
-          (let ((out (emitModule (memGetWord pr 1) "darwin-aarch64")))
+          (let ((out (emitModule (memGetWordVec pr 1) "darwin-aarch64")))
             (if (> (strLen out) 10)
               42
               9

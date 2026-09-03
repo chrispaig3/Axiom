@@ -16,6 +16,75 @@ its changelog too.
 
 ## Unreleased
 
+### `Vec` carries its element type, and the port is landed
+
+`stdlib/Vec.ax` handed out a bare `Int` handle. It hands out a
+parameterised **`(Vec a)`** now, and the **4,432 errors** that produced
+across the tree are at **zero**: `stdlib/`, every REPL module and the
+whole closure of `self_host/main.ax` typecheck clean, and
+`check-stdlib-selfhost` runs the `tests/stdlib/` corpus against its
+goldens. **The self-hosting fixpoint holds** — stage2 and stage3 are
+byte-identical at **201,920 lines** of emitted IR, which is the
+acceptance test that mattered.
+
+**How it closed is the part worth recording.** The mechanical driver
+reached **181 errors over 130 declarations** and stopped, and not for
+want of a rule: `docs/generics-design.md` §4c measures four experiments
+and a whole-chain inferencer against that wall, and the inferencer's
+own verdict is that the source has erased the distinction at those
+positions — it decides 417 of them and then merges 8,866 into one
+class, because `vecAppendFrom : (-> (Vec a) ...)` is a declaration
+every vector in the program passes through. Three readers then decided
+the 130 element types from the code and three fixers applied them.
+Automation was worth 4,432 → 181; people were worth 181 → 0.
+
+**New typed accessors, because some of this compiler's vectors are
+heterogeneous by construction** — `pruneMark`'s `ctx` holds an interner
+in slot 0 and vectors in 1..3, so no element type describes it and the
+ACCESS is what needs a type. Reading: `vecGetVec`, and `memGetWordVec`
+/ `nodeAVec` / `nodeBVec` / `nodeCVec` for a raw word read back as a
+container. Writing: `vecPushStr` and `vecPushVec`. (`vecGetStr` already
+existed; it was retyped, not added.)
+
+**`vecPushStr` takes its share EXPLICITLY, and that is a memory-model
+requirement rather than a style choice.** The obvious alternative is a
+cast at the call site — and it type-checks and is a use-after-free:
+
+    (vecPush v (cast Int s))     type-checks, LEAKS THE RETAIN
+
+`vecPush`'s element parameter is a type VARIABLE, and
+`docs/memory-model.md` MM-VAL-22 measures that a cast at an argument
+root in a type-variable position classifies that value's evidence 0 —
+so `memSetWord`'s `__retainref` emits nothing and the `String`'s share
+is never taken. The accessor pairs the cast with the retain, so the
+count matches a `(Vec String)` push. The widest shape this covered was
+44 `vecPush` sites whose element is a `String`.
+
+**`vecPop` refuses an empty vector** (status 77, through
+`__indexTrap`), where it used to answer `0`. `(-> (Vec a) a)` forces
+it: an `a` cannot be fabricated, and for a reference element the old
+`0` was a null the caller dereferenced. `vecLast` inherits the trap by
+delegating to `vecGet`. This is the port's one BEHAVIOUR break as
+opposed to a retype.
+
+**The IR is NOT byte-identical to the pre-port tree, and that is the
+ARC system working rather than a regression.** 200,155 lines before,
+201,920 after, with `__evw` on **157 `define` lines, up from 36**.
+Typing these containers is what created genuinely polymorphic
+parameters, and a genuinely polymorphic parameter carries an evidence
+word so ARC can decide at run time whether it holds a reference.
+`docs/generics-design.md` §3 proposed byte-identical IR as the
+acceptance test on the reasoning that `(Vec a)` and `Int` share a
+representation; the representation claim holds and the conclusion did
+not, and §3 is corrected rather than met.
+
+**Breaks declared:** `compat/BREAKING`, 0.6.4 — 39 the census sees
+(35 functions and 4 structs whose fields held vectors), plus eleven
+`Tui` names it cannot, because `Tui/Edit` and `Tui/Term` postdate the
+`compat/0.5.0.axsym` baseline and so read as ADDED, while a consumer
+making the only available hop, v0.6.3 → 0.6.4, breaks on them.
+`check-compat.sh` reports every breaking difference declared.
+
 ### The `Vec` port's measure was wrong, and the searches were reading it now
 
 With pinning in the tree and the full rule set, the port goes **4,432
@@ -91,8 +160,10 @@ there classifies the evidence 0 and **suppresses the retain**. The
 What would finish it is element-type inference over declaration
 positions: a union-find whose nodes are parameters, results and
 fields, seeded by the certain sites and propagated through calls —
-the same shape as pinning, one level up. Nothing from the port is in
-the tree.
+the same shape as pinning, one level up. **That inferencer was built,
+and the entry above records what it was worth: 417 positions from the
+source alone, then one class of 8,866. The port is landed; the last
+130 declarations were decided by people.**
 
 ### A bound type placeholder now stays bound
 

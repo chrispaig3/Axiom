@@ -351,8 +351,8 @@
   (path : String)
   (query : String)
   (version : String)
-  (hnames : Int)
-  (hvals : Int)
+  (hnames : (Vec String))
+  (hvals : (Vec String))
   (mut body : String))
 
 ; The index of header `name` (lowercased on both sides), or -1.
@@ -542,7 +542,7 @@
 ; `consumed`, starting at absolute offset `at` (just past the request
 ; line), pushed lowercased into `names` and trimmed into `vals`.
 ; Answers "" or what was wrong with the first bad line.
-(:: httpParseHeaders (-> HttpReader Int Int Int Int String))
+(:: httpParseHeaders (-> HttpReader Int Int (Vec String) (Vec String) String))
 
 (fn (httpParseHeaders r hdr from names vals)
   (let (
@@ -879,7 +879,7 @@
 
 ; The pieces of a `Vec` of Strings as one String: one allocation and
 ; one copy per piece, `Json.ax`'s `jsonJoin`.
-(:: httpJoin (-> Int String))
+(:: httpJoin (-> (Vec String) String))
 
 (fn (httpJoin pieces)
   (let (
@@ -1003,11 +1003,11 @@
 ; path, handler cell), static prefixes as two (URL prefix, directory),
 ; and the handler for a path nothing matched.
 (pub struct HttpRouter
-  (methods : Int)
-  (paths : Int)
-  (handlers : Int)
-  (prefixes : Int)
-  (dirs : Int)
+  (methods : (Vec String))
+  (paths : (Vec String))
+  (handlers : (Vec HttpHandler))
+  (prefixes : (Vec String))
+  (dirs : (Vec String))
   (mut missing : HttpHandler))
 
 ; The default not-found handler: a plain-text 404.
@@ -1066,13 +1066,11 @@
   }
 )
 
-; The handler cell at route `i`. The cast is at a RETURN inside a
-; signature that carries the type, the position `vecGetStr` uses.
+; The handler cell at route `i`. `handlers` is a `(Vec HttpHandler)`,
+; so the element comes out typed and no cast is involved.
 (:: routeHandlerAt (-> HttpRouter Int HttpHandler))
 
-(fn (routeHandlerAt rt i)
-  (cast HttpHandler (vecGet rt.handlers i))
-)
+(fn (routeHandlerAt rt i) (vecGet rt.handlers i))
 
 ; Call a handler cell.
 (:: httpCall (-> HttpHandler Int HttpReq Int))

@@ -223,7 +223,7 @@
 ; rejects is n-squared per keystroke. Axiom is strict, so the only
 ; way not to compute an argument is not to reach the call: every
 ; caller here builds its detail INSIDE the `if`.
-(pub :: replComplOffer (-> Int Int String Int Int String String Int))
+(pub :: replComplOffer (-> (Vec Int) (Vec String) String Int Int String String Int))
 
 (pub fn (replComplOffer out seen label origin tag detail prefix)
   (if (lspComplWants seen label prefix)
@@ -257,7 +257,7 @@
 ; here would close a cycle the moment the line editor adds
 ; `(import replcomp)`.
 ; ------------------------------------------------------------------
-(pub :: replCommands Int)
+(pub :: replCommands (Vec String))
 
 (pub fn (replCommands)
   (let ((v vecNew))
@@ -282,7 +282,7 @@
   )
 )
 
-(pub :: replComplCommands (-> Int Int String Int))
+(pub :: replComplCommands (-> (Vec Int) (Vec String) String Int))
 
 (pub fn (replComplCommands out seen prefix)
   (let (
@@ -321,7 +321,7 @@
 ; printer. Asked about a `fn` and about a bare signature, and about
 ; nothing else - a `data` or a `struct` has no signature to find, and
 ; the scan is the length of the declaration list.
-(pub :: replComplSigOf (-> String Int Int String))
+(pub :: replComplSigOf (-> String (Vec Int) Int String))
 
 (pub fn (replComplSigOf src decls d)
   (if (|| (== (nodeTag d) TAG_D_FN) (== (nodeTag d) TAG_D_SIG))
@@ -335,7 +335,7 @@
   )
 )
 
-(pub :: replComplCtors (-> Int Int Int String Int))
+(pub :: replComplCtors (-> (Vec Int) (Vec String) (Vec Int) String Int))
 
 (pub fn (replComplCtors out seen ctors prefix)
   (let (
@@ -355,7 +355,7 @@
   )
 )
 
-(pub :: replComplDecls (-> Int Int String Int String Int))
+(pub :: replComplDecls (-> (Vec Int) (Vec String) String (Vec Int) String Int))
 
 (pub fn (replComplDecls out seen src decls prefix)
   (let (
@@ -378,7 +378,7 @@
                   0
                 )
                 (if (== (nodeTag d) TAG_D_DATA)
-                  (replComplCtors out seen (nodeB d) prefix)
+                  (replComplCtors out seen (nodeBVec d) prefix)
                   0
                 )
               }
@@ -426,7 +426,7 @@
   )
 )
 
-(pub :: replComplImported (-> Int Int Int String Int))
+(pub :: replComplImported (-> (Vec Int) (Vec String) (Vec Int) String Int))
 
 (pub fn (replComplImported out seen allDecls prefix)
   (let (
@@ -443,7 +443,7 @@
                   out                  seen                  (bareOf (nodeAName d))                  RC_IMPORT                  (nodeTag d)                  (replComplModOf d)                  prefix
                 )
                 (if (== (nodeTag d) TAG_D_DATA)
-                  (replComplCtors out seen (nodeB d) prefix)
+                  (replComplCtors out seen (nodeBVec d) prefix)
                   0
                 )
               }
@@ -462,7 +462,7 @@
 ;
 ; `lspKeywords` by import, never by copy - see the file header.
 ; ------------------------------------------------------------------
-(pub :: replComplKeywords (-> Int Int String Int))
+(pub :: replComplKeywords (-> (Vec Int) (Vec String) String Int))
 
 (pub fn (replComplKeywords out seen prefix)
   (let (
@@ -496,7 +496,7 @@
 ; without a detail, because there is nothing true to say about a word
 ; whose declaration has not been typed yet.
 ; ------------------------------------------------------------------
-(pub :: replComplWords (-> Int Int String String Int))
+(pub :: replComplWords (-> (Vec Int) (Vec String) String String Int))
 
 (pub fn (replComplWords out seen pending prefix)
   (if (== (strLen pending) 0)
@@ -586,7 +586,7 @@
 ; would then serve a resolution for an import set the session no
 ; longer has. The walk is `TAG_D_IMPORT`, name in word 1 - the one
 ; `lspPreflight` and `resolveDeclsPhase` both use.
-(pub :: replComplImportKey (-> Int String))
+(pub :: replComplImportKey (-> (Vec Int) String))
 
 (pub fn (replComplImportKey decls)
   (let (
@@ -620,17 +620,17 @@
 ; "no session names" rather than as an error, because a completion
 ; menu that reports a parse failure while the user is mid-word is a
 ; REPL that looks broken exactly when it is not.
-(pub :: replComplEnvDecls (-> Int Int))
+(pub :: replComplEnvDecls (-> Int (Vec Int)))
 
 (pub fn (replComplEnvDecls e)
   (if (!= (memGetWord e 4) 0)
-    (memGetWord e 4)
+    (memGetWordVec e 4)
     (let ((dr (parseDecls (lex (memGetWordStr e 0)) 0 vecNew)))
       (if (== (memGetWord dr 0) 0)
-        0
+        (cast (Vec Int) 0)
         {
           (memSetWord e 4 (memGetWord dr 1))
-          (memGetWord dr 1)
+          (memGetWordVec dr 1)
         }
       )
     )
@@ -649,15 +649,15 @@
 ; a session, and it is the state in which Tab is most likely to be
 ; pressed. Only a SUCCESS is cached, so the module that appears on
 ; disk a moment later is picked up.
-(pub :: replComplResolved (-> Int Int Int))
+(pub :: replComplResolved (-> Int (Vec Int) (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (replComplResolved e decls)
-  (if (== decls 0)
-    0
+  (if (== (cast Int decls) 0)
+    (cast (Vec Int) 0)
     (let ((key (replComplImportKey decls)))
       (if (&& (!= (memGetWord e 3) 0) (strEq key (memGetWordStr e 2)))
-        (memGetWord e 3)
+        (memGetWordVec e 3)
         (let (
           (tcode (checkedTargetCode hostTarget))
           (units (let ((v vecNew))
@@ -672,7 +672,7 @@
           ))
         )
           (if (> (strLen (lspPreflight decls tcode "." vecNew)) 0)
-            0
+            (cast (Vec Int) 0)
             (let ((allDecls (resolveImports
               decls              vecNew              vecNew              vecNew              tcode              "."              units
             )))
@@ -698,7 +698,7 @@
 ; calls: buffer and cursor in, candidates out, with the prefix and
 ; the flag derived from the bytes.
 ; ------------------------------------------------------------------
-(pub :: replComplFor (-> Int String Bool Int))
+(pub :: replComplFor (-> Int String Bool (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (replComplFor e prefix atCmd)
@@ -711,14 +711,14 @@
         (replComplCommands out seen prefix)
         (let ((decls (replComplEnvDecls e)))
           {
-            (if (== decls 0)
+            (if (== (cast Int decls) 0)
               0
               (replComplDecls
                 out                seen                (memGetWordStr e 0)                decls                prefix
               )
             )
             (let ((allDecls (replComplResolved e decls)))
-              (if (== allDecls 0)
+              (if (== (cast Int allDecls) 0)
                 0
                 (replComplImported out seen allDecls prefix)
               )
@@ -801,7 +801,7 @@
 
 (pub fn (regAtCmd r) (== (memGetWord r 2) 1))
 
-(pub :: replComplAt (-> Int String Int Int))
+(pub :: replComplAt (-> Int String Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (replComplAt e buf cur)
@@ -823,7 +823,7 @@
 ; filtered on it - so the answer always contains the typed bytes and
 ; the insertion can never delete them. "" for an empty vector, and
 ; label 0 entire for a one-element one.
-(pub :: replComplLcp (-> Int String))
+(pub :: replComplLcp (-> (Vec Int) String))
 
 (pub fn (replComplLcp cands)
   (if (== (vecLen cands) 0)
@@ -901,7 +901,7 @@
 )
 
 ; The widest label in the vector, in columns.
-(pub :: replComplWidest (-> Int Int))
+(pub :: replComplWidest (-> (Vec Int) Int))
 
 (pub fn (replComplWidest cands)
   (let (
@@ -1018,7 +1018,7 @@
 (pub fn (REPL_COMPL_ROWS) 8)
 
 ; The number of candidates one page of the menu shows.
-(pub :: replComplPageSize (-> Int Int Int))
+(pub :: replComplPageSize (-> (Vec Int) Int Int))
 
 (pub fn (replComplPageSize cands width) (* (replComplCols width (replComplWidest cands)) REPL_COMPL_ROWS))
 
@@ -1038,7 +1038,7 @@
 ; with no highlight and no detail line instead of taking the process
 ; down - and it is idempotent, so the renderers can normalise
 ; independently and still agree with each other.
-(pub :: replComplSelOf (-> Int Int Int))
+(pub :: replComplSelOf (-> (Vec Int) Int Int))
 
 (pub fn (replComplSelOf cands sel)
   (if (>= sel (vecLen cands))
@@ -1051,7 +1051,7 @@
 )
 
 ; The first candidate index the page holding `sel` starts at.
-(pub :: replComplPageBase (-> Int Int Int Int))
+(pub :: replComplPageBase (-> (Vec Int) Int Int Int))
 
 (pub fn (replComplPageBase cands sel0 width)
   (let ((sel (replComplSelOf cands sel0)))
@@ -1063,7 +1063,7 @@
 )
 
 ; How many candidates that page actually shows.
-(pub :: replComplPageCount (-> Int Int Int Int))
+(pub :: replComplPageCount (-> (Vec Int) Int Int Int))
 
 (pub fn (replComplPageCount cands sel width)
   (let (
@@ -1104,7 +1104,7 @@
 ; only the picture is missing, and it was going to be an unreadable
 ; picture.
 ; ------------------------------------------------------------------
-(pub :: replComplMaxLine (-> Int Int Int Int))
+(pub :: replComplMaxLine (-> (Vec Int) Int Int Int))
 
 (pub fn (replComplMaxLine cands sel0 width)
   (let (
@@ -1157,7 +1157,7 @@
   )
 )
 
-(pub :: replComplFits (-> Int Int Int Bool))
+(pub :: replComplFits (-> (Vec Int) Int Int Bool))
 
 (pub fn (replComplFits cands sel width) (<= (replComplMaxLine cands sel width) (replComplWidthOf width)))
 
@@ -1170,7 +1170,7 @@
 ; the screen. `scripts/check-replcomp.sh` asserts this equals the
 ; newline count of `replComplMenu`'s output for every case it
 ; renders, which is what keeps the two arithmetics one.
-(pub :: replComplRows (-> Int Int Int Int))
+(pub :: replComplRows (-> (Vec Int) Int Int Int))
 
 (pub fn (replComplRows cands sel0 width)
   (let ((sel (replComplSelOf cands sel0)))
@@ -1205,7 +1205,7 @@
 
 ; One grid row: the gutter, then one padded, painted label per
 ; column, column-major so the list reads DOWN like `ls`.
-(pub :: replComplRow (-> Int Int Int Int Int Int Int String))
+(pub :: replComplRow (-> (Vec Int) Int Int Int Int Int Int String))
 
 (pub fn (replComplRow cands sel base shown cols grid r)
   (let (
@@ -1258,7 +1258,7 @@
 ; ends with one line naming the selected candidate and its detail -
 ; a type for a session name, a module for an imported one - which is
 ; where a type is shown without a column of them crowding the grid.
-(pub :: replComplMenu (-> Int Int Int String))
+(pub :: replComplMenu (-> (Vec Int) Int Int String))
 
 (pub fn (replComplMenu cands sel0 width)
   (let ((sel (replComplSelOf cands sel0)))
@@ -1368,7 +1368,7 @@
 (pub struct ComplSt
   (start : Int)
   (typed : String)
-  (cands : Int)
+  (cands : (Vec Int))
   (sel : Int)
   (rows : Int))
 
@@ -1380,9 +1380,9 @@
 
 (pub fn (stTyped s) (memGetWordStr s 1))
 
-(pub :: stCands (-> Int Int))
+(pub :: stCands (-> Int (Vec Int)))
 
-(pub fn (stCands s) (memGetWord s 2))
+(pub fn (stCands s) (memGetWordVec s 2))
 
 (pub :: stSel (-> Int Int))
 
@@ -1538,7 +1538,7 @@
 ; Render the menu for `sel` and answer it, without touching the
 ; buffer. The one place a menu's text and its row count are produced,
 ; so they cannot disagree.
-(pub :: replComplShow (-> String Int Int String Int Int Int Int))
+(pub :: replComplShow (-> String Int Int String (Vec Int) Int Int Int))
 
 (pub fn (replComplShow buf cur start typed cands sel width)
   (let (

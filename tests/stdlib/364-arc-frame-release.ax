@@ -135,7 +135,7 @@
 
 ; the record's WORD escapes through a cast, into a container that
 ; retains the integer and not the block
-(:: viaCast (-> Int Int Int))
+(:: viaCast (-> (Vec Int) Int Int))
 
 (fn (viaCast v n)
   (let ((p (Pair n n)))
@@ -186,7 +186,7 @@
   )
 )
 
-(:: sumCast (-> Int Int Int Int))
+(:: sumCast (-> (Vec Int) Int Int Int))
 
 (fn (sumCast v n acc)
   (if (<= n 0)

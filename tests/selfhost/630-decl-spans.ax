@@ -24,7 +24,7 @@
   (let ((pr (parseModule (lex "(fn (fname) 1)\n(:: s Int)"))))
     (if (== (memGetWord pr 0) 0)
       7
-      (let ((decls (memGetWord pr 1)))
+      (let ((decls (memGetWordVec pr 1)))
         (if (< (vecLen decls) 2)
           8
           (let (

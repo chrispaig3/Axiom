@@ -22,23 +22,26 @@
 
 (import Demo)
 
-(pub :: px (-> Int Int Int))
+; `v` is a `(Vec Point)`, so `vecGet` answers a `Point` and the
+; pattern is checked against it. These read `(cast Point (vecGet v i))`
+; while a `Vec` had no element type and the record had to be named.
+(pub :: px (-> (Vec Point) Int Int))
 
 (pub fn (px v i)
-  (match (cast Point (vecGet v i))
+  (match (vecGet v i)
     ((Point x _) x)
   )
 )
 
-(pub :: py (-> Int Int Float))
+(pub :: py (-> (Vec Point) Int Float))
 
 (pub fn (py v i)
-  (match (cast Point (vecGet v i))
+  (match (vecGet v i)
     ((Point _ y) y)
   )
 )
 
-(pub :: tryLen (-> (Result Int String) Int))
+(pub :: tryLen (-> (Result (Vec Point) String) Int))
 
 (pub fn (tryLen r)
   (match r
@@ -47,7 +50,7 @@
   )
 )
 
-(pub :: tryMsg (-> (Result Int String) String))
+(pub :: tryMsg (-> (Result (Vec Point) String) String))
 
 (pub fn (tryMsg r)
   (match r

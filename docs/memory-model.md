@@ -3240,14 +3240,47 @@ the LSP figure below is half of `MM-ALLOC-22`'s case for the arena.
 §9.1 records what they measure now.
 
 *The unmanaged column* of `scripts/measure-memory-baseline.sh` **MUST**
-go flat with no bracket in the source. It reads **33,568 KiB at 2000
-generations — 16 KiB per generation**, unchanged. It cannot move under
-this strategy as the probe is written: `advance` is declared
-`(-> Int Int Int)` and the board it carries is a `Vec`, whose handle
-is an `Int` in every signature `stdlib/Vec.ax` has. A type-directed
-ownership event can never fire on it. The measurement is not failing
-because the events are missing; it is unreachable until container
-handles carry a type the checker can see.
+go flat with no bracket in the source. It reads **17,456 KiB at 2000
+generations — 8 KiB per generation**, and it is still linear: 162,576
+KiB at 20,000. It has not gone flat.
+
+**The reason this paragraph gave for that is falsified, and the number
+it quoted was already stale when it was falsified.** It read, of the
+probe `scripts/measure-memory-baseline.sh` emits: *"It reads
+**33,568 KiB at 2000 generations — 16 KiB per generation**, unchanged.
+It cannot move under this strategy as the probe is written: `advance` is
+declared `(-> Int Int Int)` and the board it carries is a `Vec`, whose
+handle is an `Int` in every signature `stdlib/Vec.ax` has. A
+type-directed ownership event can never fire on it. The measurement is
+not failing because the events are missing; it is unreachable until
+container handles carry a type the checker can see."*
+
+Container handles carry that type now. `stdlib/Vec.ax` declares
+`(Vec a)`; the probe's `advance` is declared `(-> (Vec Int) Int
+(Vec Int))`, its `step` `(-> (Vec Int) (Vec Int))`, its board a
+`(Vec Int)` the checker can see end to end. **The column did not move.**
+Measured 2026-09-02 on both sides of that port — the pre-port tree in a
+worktree at its own last commit, the post-port tree with the same script
+— the two runs agree row for row, peak RSS in KiB:
+
+| generations | 10 | 80 | 500 | 2000 | 20,000 |
+|---|---|---|---|---|---|
+| handle is `Int` | 1424 | 1984 | 5360 | 17,456 | 162,576 |
+| handle is `(Vec Int)` | 1424 | 1984 | 5360 | 17,456 | 162,576 |
+
+The emitted IR says why in one line: the typed probe contains **no
+`__retainref` and no `__releaseref` call at all**. Typing the handle
+makes the container *visible* to the checker without making it
+*reclaimable* — the same distinction `MM-LIFE-2g` records for
+`ASTNode`'s ten `Int` fields, reached here from the opposite direction.
+So the precondition this paragraph named was real and is now met, and it
+was not the binding one: what is missing is a whole-program ownership
+event, and `MM-LIFE-2a` withdrew the strategy that would have emitted
+one. The `MUST` stands, unmet, with its excuse gone.
+
+(The 33,568 KiB figure was stale independently of the port: the pre-port
+tree measures 17,456 KiB too, so the halving happened earlier and under
+some other change, and this paragraph carried "unchanged" past it.)
 
 *The LSP's 200-edit session* **MUST** hold flat with the explicit
 boundary removed. An earlier revision of this paragraph said that was
@@ -4323,7 +4356,7 @@ gates, verbatim in shape: mark once, then per iteration **copy up,
 reset, copy down**.
 
 ```scheme
-(:: copyBoard (-> Int Int))
+(:: copyBoard (-> (Vec Int) (Vec Int)))
 (fn (copyBoard src)
   (let ((dst (vecWithCapacity 576)) (mut i 0))
     {
@@ -4332,7 +4365,7 @@ reset, copy down**.
       dst
     }))
 
-(:: advance (-> Int Int Int))
+(:: advance (-> (Vec Int) Int (Vec Int)))
 (fn (advance b n)
   (let ((m (__axiom_arena_mark)) (mut bb b) (mut nn n))
     {
@@ -4349,14 +4382,15 @@ reset, copy down**.
 ```
 
 Flat at ~1.4 MiB from 80 through 20,000 generations. The same loop
-without the bracket, at ~16 KiB per generation, forever:
+without the bracket, at ~8 KiB per generation, forever:
 
 | generations | unmanaged peak RSS | managed |
 |---|---|---|
-| 10 | 1.5 MB | ~1.4 MB |
-| 80 | 2.6 MB | ~1.4 MB |
-| 500 | 9.3 MB | ~1.4 MB |
-| 2000 | 33.3 MB | ~1.4 MB |
+| 10 | 1.4 MB | ~1.4 MB |
+| 80 | 2.0 MB | ~1.4 MB |
+| 500 | 5.4 MB | ~1.4 MB |
+| 2000 | 17.5 MB | ~1.4 MB |
+| 20000 | 162.6 MB | ~1.4 MB |
 
 The unit is **MB, not MiB**: the script reports max RSS in kibibytes and
 these are that figure divided by 1000, which is what
@@ -4368,7 +4402,10 @@ is the allocator never reclaiming; **peak memory tracks total
 allocation, not reachable data**, and that is the whole reason the
 memory model is the hinge of the roadmap rather than one item on a list.
 (The pre-`B3` numbers, still quoted in places: 10 → 5.2 MiB, 80 → 31.8
-MiB, 2000 → 744 MiB.)
+MiB, 2000 → 744 MiB. The column above was re-measured 2026-09-02, and
+the ~16 KiB per generation this section used to quote is a third stale
+figure — §9.1 records the same correction and the measurement either
+side of the `Vec` port that occasioned it.)
 
 Only one of these rows is enforced: the gate checks the **managed**
 variant's ceiling at N = 2000. The unmanaged column is regenerated by

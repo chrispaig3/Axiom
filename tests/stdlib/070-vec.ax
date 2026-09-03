@@ -11,7 +11,7 @@
 (import Vec)
 
 ; Push `x`, `x+1`, ... until the vector holds `upto` elements.
-(pub :: pushRange (-> Int Int Int))
+(pub :: pushRange (-> (Vec Int) Int (Vec Int)))
 
 (pub fn (pushRange v upto)
   (if (>= (vecLen v) upto)
@@ -25,7 +25,7 @@
 
 ; Pop `n` times, printing each result, so "pop to empty" is checked
 ; element by element rather than by a single summary number.
-(pub :: popTimes (-> Int Int Int))
+(pub :: popTimes (-> (Vec Int) Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (popTimes v n)
@@ -52,8 +52,14 @@
       (println (vecLen v))  ; 0
       (println (vecCap v))  ; 8, vecDefaultCap
       (println (vecSum v))  ; 0
-      (println (vecPop v))  ; 0: pop of empty
-      (println (vecLen v))  ; 0: still empty, not -1
+      ; A pop of an EMPTY vector used to answer 0 and be printed here.
+      ; `vecPop` REFUSES one now (status 77, `docs/generics-design.md`
+      ; section 4's decision applied to the second accessor that had a
+      ; sentinel: under `(-> (Vec a) a)` a `0` fabricates an `a`), so a
+      ; fixture that over-pops cannot also print anything afterwards.
+      ; The over-pop terms are `465-pop-empty-trap.ax`, which asserts
+      ; the refusal rather than a fabricated zero.
+      (println (vecLen v))  ; 0: a fresh vector is empty, not -1
       ; --- fill to exactly the initial capacity: no growth yet ---
       (pushRange v 8)
       (println (vecLen v))  ; 8
@@ -131,7 +137,11 @@
       (vecSet v (- 0 1) 555)  ; ignored
       (println (vecLen v))  ; 70
       ; --- order matters: vecHash catches a permutation, vecSum does not
-      (println (vecLast v))  ; 69
+      (println
+        (cast Int (vecLast v))
+      )
+      ; 69
+
       (println (vecHash v))  ; position-sensitive digest
       ; --- clear keeps capacity, drops contents ---
       (vecClear v)
@@ -145,11 +155,14 @@
       ; point - `vecClear` drops the LENGTH, so the element is gone as
       ; far as any reader is concerned, and the checked read says so
       ; rather than handing back a stale word.
-      ; --- pop to empty and past it ---
+      ; --- pop to empty; PAST it is 465-pop-empty-trap.ax ---
+      ; Bounded to the elements that exist: the walk is what checks
+      ; "pop to empty" element by element, and the pop past empty is a
+      ; refusal, which is a case that ends rather than one that prints.
       (pushRange v 3)
       (println (vecLen v))  ; 3
-      (popTimes v 5)  ; 2 1 0 0 0
-      (println (vecLen v))  ; 0: never negative
+      (popTimes v 3)  ; 2 1 0
+      (println (vecLen v))  ; 0: popped exactly to empty, never negative
       (println (vecCap v))  ; 128
       ; --- a capacity-1 vector: doubling from the smallest legal size ---
       (pushRange small 5)

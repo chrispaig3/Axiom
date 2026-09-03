@@ -404,7 +404,7 @@ PY
 # It will rot the same way if someone calls it. That is fine: the
 # failure is loud and names itself.
 probe "a public name leaves the API" "REMOVED F vecOwnsRefs" Vec.ax \
-  '(pub :: vecOwnsRefs (-> Int Bool))' '(:: vecOwnsRefs (-> Int Bool))'
+  '(pub :: vecOwnsRefs (-> (Vec a) Bool))' '(:: vecOwnsRefs (-> (Vec a) Bool))'
 
 probe "a signature changes" "CHANGED F unwrapOr" Err.ax \
   '(pub :: unwrapOr (-> (Result a e) a a))' '(pub :: unwrapOr (-> (Result a zz) a a))'

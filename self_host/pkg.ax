@@ -162,7 +162,7 @@
 )
 
 ; Every value of `key`, in file order.
-(pub :: pkgValues (-> String String Int))
+(pub :: pkgValues (-> String String (Vec Int)))
 
 (pub fn (pkgValues text key)
   (let (
@@ -179,7 +179,7 @@
               (vecPush
                 out                (cast Int v)
               )
-              0
+              (cast (Vec Int) 0)
             )
           )
           (set i (+ i 1))
@@ -294,7 +294,7 @@
 ; An empty Vec when there is no manifest, which is every invocation
 ; this repository's own gates make: the mechanism costs a project that
 ; does not use it one `sysFileExists` per directory level.
-(pub :: pkgDependDirs (-> String Int))
+(pub :: pkgDependDirs (-> String (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (pkgDependDirs entryDir)
@@ -545,7 +545,7 @@
 ; Every pair of dependency directories, checked for a module both
 ; provide. Quadratic in the number of dependencies and linear in their
 ; contents, which is the right shape for a list a human typed.
-(pub :: pkgCheckOverlap (-> Int String Int Int))
+(pub :: pkgCheckOverlap (-> (Vec Int) String Int Int))
 
 ;@axiom:effect(io)
 (pub fn (pkgCheckOverlap dirs mf i)
@@ -558,7 +558,7 @@
   )
 )
 
-(pub :: pkgCheckPair (-> Int String Int Int Int))
+(pub :: pkgCheckPair (-> (Vec Int) String Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (pkgCheckPair dirs mf i j)

@@ -2961,7 +2961,7 @@ answers — there is no for-loop and none is wanted:
 (import Err)
 
 ; Every `.ax` file in `dir`, with its size, one per line.
-(:: report (-> String Int Int Int))
+(:: report (-> String (Vec Int) Int Int))
 ;@axiom:effect(io)
 (fn (report dir names i)
   (if (>= i (vecLen names))

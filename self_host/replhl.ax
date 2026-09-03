@@ -358,23 +358,23 @@
 ; stream, and lexing twice per keystroke to keep two entry points
 ; tidy is work the editor pays for on every key.
 (pub struct HlScan
-  (spans : Int)
-  (brks : Int))
+  (spans : (Vec Int))
+  (brks : (Vec Int)))
 
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: mkHlScan (-> Int Int Int))
+(pub :: mkHlScan (-> (Vec Int) (Vec Int) Int))
 
 (pub fn (mkHlScan spans brks) (HlScan spans brks))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: hlScanSpans (-> Int Int))
+(pub :: hlScanSpans (-> Int (Vec Int)))
 
-(pub fn (hlScanSpans s) (memGetWord s 0))
+(pub fn (hlScanSpans s) (memGetWordVec s 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: hlScanBrks (-> Int Int))
+(pub :: hlScanBrks (-> Int (Vec Int)))
 
-(pub fn (hlScanBrks s) (memGetWord s 1))
+(pub fn (hlScanBrks s) (memGetWordVec s 1))
 
 ; ------------------------------------------------------------------
 ; The twelve declaration heads.
@@ -415,7 +415,7 @@
 ; nothing and would give `replHlClass` a letter to write nowhere.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(:: hlPush (-> Int Int Int Int Int))
+(:: hlPush (-> (Vec Int) Int Int Int (Vec Int)))
 
 (fn (hlPush out cls s e)
   (if (< s e)
@@ -447,7 +447,7 @@
 ; colour escape would put the reset on the next row.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(:: hlGap (-> String Int Int Int Int))
+(:: hlGap (-> String Int Int (Vec Int) (Vec Int)))
 
 (fn (hlGap src a b out)
   (let ((mut q a))
@@ -699,7 +699,7 @@
 ; keystroke.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(:: hlSetPartner (-> Int Int Int Int))
+(:: hlSetPartner (-> (Vec Int) Int Int (Vec Int)))
 
 (fn (hlSetPartner brks i partner)
   (let ((b (vecGet brks i)))
@@ -712,7 +712,7 @@
 )
 
 ;@axiom:restrict(no-io,no-foreign)
-(:: hlPair (-> String Int Int Int))
+(:: hlPair (-> String (Vec Int) (Vec Int) (Vec Int)))
 
 (fn (hlPair src spans brks)
   (let (
@@ -760,7 +760,7 @@
 ; not the one you are about to step onto.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: hlBrkAt (-> Int Int Int))
+(pub :: hlBrkAt (-> (Vec Int) Int Int))
 
 (pub fn (hlBrkAt brks cursor)
   (let (
@@ -804,7 +804,7 @@
 ; as well as without.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: hlMarkPair (-> Int Int Int Int))
+(pub :: hlMarkPair (-> (Vec Int) (Vec Int) Int (Vec Int)))
 
 (pub fn (hlMarkPair spans brks cursor)
   (let ((i (hlBrkAt brks cursor)))
@@ -829,7 +829,7 @@
 )
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(:: hlBrkIndexAt (-> Int Int Int))
+(:: hlBrkIndexAt (-> (Vec Int) Int Int))
 
 ; The bracket AT exactly this byte offset, or -1. Direct rather than
 ; reusing `hlBrkAt`, whose cursor rule prefers the bracket that ENDS
@@ -855,7 +855,7 @@
 )
 
 ;@axiom:restrict(no-io,no-foreign)
-(:: hlRecolour (-> Int Int Int Int))
+(:: hlRecolour (-> (Vec Int) Int Int (Vec Int)))
 
 (fn (hlRecolour spans i cls)
   (if (|| (< i 0) (>= i (vecLen spans)))

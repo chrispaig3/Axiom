@@ -231,6 +231,12 @@
 (:: internStrs (-> Int Int))
 
 (fn (internStrs it) (memGetWord it 0))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(:: internStrsVec (-> Int (Vec a)))
+
+(fn (internStrsVec it) (cast (Vec a) (internStrs it)))
+
 
 (pub :: internCap (-> Int Int))
 
@@ -246,7 +252,7 @@
 ; id.
 (pub :: internCount (-> Int Int))
 
-(pub fn (internCount it) (vecLen (internStrs it)))
+(pub fn (internCount it) (vecLen (internStrsVec it)))
 
 ; The string with id `id`, or an empty `Str` if `id` was never handed out.
 ;
@@ -261,7 +267,7 @@
     (strAlloc 0)
     (if (>= id (internCount it))
       (strAlloc 0)
-      (vecGetStr (internStrs it) id)
+      (vecGetStr (internStrsVec it) id)
     )
   )
 )
@@ -319,7 +325,7 @@
     (let ((cell (memGetWord (internTable it) i)))
       (if (== cell 0)
         (- 0 1)
-        (if (strEq (vecGetStr (internStrs it) (- cell 1)) s)
+        (if (strEq (vecGetStr (internStrsVec it) (- cell 1)) s)
           (- cell 1)
           (internFindFrom it s (mapNextSlot i (internCap it)) (- left 1))
         )
@@ -385,7 +391,7 @@
 (fn (internAdd it s)
   (let ((id (internCount it)))
     {
-      (vecPush (internStrs it) s)
+      (vecPush (internStrsVec it) s)
       (internPlace it id (internSlotOf s (internCap it)) (internCap it))
       id
     }
@@ -447,7 +453,7 @@
   (if (>= id (internCount it))
     it
     {
-      (internPlace it id (internSlotOf (vecGetStr (internStrs it) id) (internCap it)) (internCap it))
+      (internPlace it id (internSlotOf (vecGetStr (internStrsVec it) id) (internCap it)) (internCap it))
       (internReplaceFrom it (+ id 1))
     }
   )

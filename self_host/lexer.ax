@@ -271,7 +271,7 @@
 ; Emit a token.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: emitToken (-> TokenKind Int Int Int String Int))
+(pub :: emitToken (-> TokenKind Int Int (Vec Int) String (Vec Int)))
 
 (pub fn (emitToken kind start end tokens src)
   (let ((lex (strSlice src start (- end start))))
@@ -497,7 +497,7 @@
 ; at least one byte, which is what makes the loop terminate where the
 ; recursion terminated by running out of input.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: lexTokens (-> String Int Int Int Int))
+(pub :: lexTokens (-> String Int Int (Vec Int) (Vec a)))
 
 (pub fn (lexTokens src pos len tokens)
   (let ((mut p pos))
@@ -517,7 +517,7 @@
 )
 
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: stepToken (-> String Int Int Int Int Int))
+(pub :: stepToken (-> String Int Int (Vec Int) Int Int))
 
 (pub fn (stepToken src pos len tokens ch)
   (if (== ch 45)
@@ -765,7 +765,7 @@
 ; stage1 fail to parse any non-ASCII char literal at all, where stage0
 ; - which lexes a Vec<char> - reads it fine.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: stepCharToken (-> String Int Int Int Int))
+(pub :: stepCharToken (-> String Int Int (Vec Int) Int))
 
 (pub fn (stepCharToken src pos len tokens)
   ; Lexing resumes past the whole literal however it turned out, so
@@ -828,7 +828,7 @@
 )
 
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: stepIdentToken (-> String Int Int Int Int))
+(pub :: stepIdentToken (-> String Int Int (Vec Int) Int))
 
 (pub fn (stepIdentToken src pos len tokens)
   (let ((ep (skipIdent src (+ pos 1) len)))
@@ -847,7 +847,7 @@
 ; too. `numStart` may sit on a leading `-`; the scan begins at
 ; `scanFrom`.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: stepNumberFrom (-> String Int Int Int Int Int))
+(pub :: stepNumberFrom (-> String Int Int Int (Vec Int) Int))
 
 (pub fn (stepNumberFrom src numStart scanFrom len tokens)
   (let ((ep (skipDigits src scanFrom len)))
@@ -885,7 +885,7 @@
 ; Public lexer interface.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: lex (-> String Int))
+(pub :: lex (-> String (Vec Int)))
 
 (pub fn (lex src) (lexTokens src (pastBom src 0) (strLen src) vecNew))
 
@@ -925,7 +925,7 @@
 ; reached it, through `check-fmt.sh`, whose formatted copy of the
 ; repository is the largest input anything in this project reads.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: scanAxtags (-> String Int))
+(pub :: scanAxtags (-> String (Vec Int)))
 
 (pub fn (scanAxtags src)
   (let (
@@ -978,7 +978,7 @@
                           (vecPush
                             acc                            (cast Int (AxtagEnt pos (strSlice src (+ pos 8) (- nl (+ pos 8)))))
                           )
-                          0
+                          (cast (Vec Int) 0)
                         )
                         (set pos nl)
                       }

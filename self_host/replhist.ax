@@ -298,7 +298,7 @@
             {
               (if (== first 1)
                 (set first 0)
-                (vecPush parts "\t")
+                { (vecPush parts "\t") 0 }
               )
               (vecPush parts (strSlice e start (- end start)))
               (vecPush parts "\n")
@@ -314,7 +314,7 @@
 ; A Vec of entries -> the whole file's bytes. The inverse of
 ; `histDecode`, and the payload compaction renames into place.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: histSerialize (-> Int String))
+(pub :: histSerialize (-> (Vec String) String))
 
 (pub fn (histSerialize v)
   (let (
@@ -338,13 +338,13 @@
 ; build, or interleaved by two sessions, is deduped on the way in as
 ; well as on the way out.
 ;@axiom:restrict(no-io,no-foreign)
-(:: histPushDedup (-> Int String Int))
+(:: histPushDedup (-> (Vec String) String Int))
 
 (fn (histPushDedup out e)
   (let ((n (vecLen out)))
     (if (&& (> n 0) (strEq (vecGetStr out (- n 1)) e))
       0
-      (vecPush out (strDup e))
+      { (vecPush out (strDup e)) 0 }
     )
   )
 )
@@ -353,7 +353,7 @@
 ; the entries a user reaches with Up are the recent ones, so an
 ; overflow drops from the old end.
 ;@axiom:restrict(no-io,no-foreign)
-(:: histKeepLast (-> Int Int Int))
+(:: histKeepLast (-> (Vec String) Int (Vec String)))
 
 (fn (histKeepLast v cap)
   (let ((n (vecLen v)))
@@ -390,7 +390,7 @@
 ; `strSlice`'s answer is not NUL-terminated and this vector outlives
 ; the read.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: histDecode (-> String Int Int))
+(pub :: histDecode (-> String Int (Vec String)))
 
 (pub fn (histDecode text cap)
   (let (
@@ -485,7 +485,7 @@
             {
               (if (== first 1)
                 (set first 0)
-                (vecPush parts sep)
+                { (vecPush parts sep) 0 }
               )
               (vecPush parts (strSlice e start (- end start)))
               (set start (+ end 1))
@@ -624,7 +624,7 @@
 ;            promise
 ; ------------------------------------------------------------------
 (pub struct Hist
-  (entries : Int)
+  (entries : (Vec String))
   (path : String)
   (cap : Int)
   (pos : Int)
@@ -632,9 +632,9 @@
   (persist : Int))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(:: histRing (-> Int Int))
+(:: histRing (-> Int (Vec String)))
 
-(fn (histRing h) (memGetWord h 0))
+(fn (histRing h) (memGetWordVec h 0))
 
 ; The resolved history file, or "" when this session persists nothing.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)

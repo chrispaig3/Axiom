@@ -127,10 +127,10 @@ emit_probe() {
   local variant="$1" n="$2" out="$3"
   local advance
   case "$variant" in
-    unmanaged) advance='(:: advance (-> Int Int Int))
+    unmanaged) advance='(:: advance (-> (Vec Int) Int (Vec Int)))
 (fn (advance b n)
   (if (== n 0) b (advance (step b) (- n 1))))' ;;
-    managed) advance='(:: copyBoard (-> Int Int))
+    managed) advance='(:: copyBoard (-> (Vec Int) (Vec Int)))
 (fn (copyBoard src)
   (let ((dst (vecWithCapacity 576)) (mut i 0))
     {
@@ -139,7 +139,7 @@ emit_probe() {
       dst
     }))
 
-(:: advance (-> Int Int Int))
+(:: advance (-> (Vec Int) Int (Vec Int)))
 (fn (advance b n)
   (let ((m (__axiom_arena_mark)) (mut bb b) (mut nn n))
     {
@@ -153,7 +153,7 @@ emit_probe() {
             })))
       bb
     }))' ;;
-    ablated) advance='(:: advance (-> Int Int Int))
+    ablated) advance='(:: advance (-> (Vec Int) Int (Vec Int)))
 (fn (advance b n)
   (let ((m (__axiom_arena_mark)) (mut bb b) (mut nn n))
     {
@@ -172,18 +172,18 @@ emit_probe() {
 (import IO)
 (import Vec)
 
-(:: at (-> Int Int Int Int))
+(:: at (-> (Vec Int) Int Int Int))
 (fn (at b x y)
   (vecGet b (+ (* (% (+ y 24) 24) 24) (% (+ x 24) 24))))
 
-(:: neighbors (-> Int Int Int Int))
+(:: neighbors (-> (Vec Int) Int Int Int))
 (fn (neighbors b x y)
   (+ (+ (+ (at b (- x 1) (- y 1)) (at b x (- y 1)))
         (+ (at b (+ x 1) (- y 1)) (at b (- x 1) y)))
      (+ (+ (at b (+ x 1) y) (at b (- x 1) (+ y 1)))
         (+ (at b x (+ y 1)) (at b (+ x 1) (+ y 1))))))
 
-(:: step (-> Int Int))
+(:: step (-> (Vec Int) (Vec Int)))
 (fn (step b)
   (let ((nb vecNew) (mut i 0))
     {
@@ -202,7 +202,7 @@ emit_probe() {
 
 $advance
 
-(:: population (-> Int Int))
+(:: population (-> (Vec Int) Int))
 (fn (population b)
   (let ((mut i 0) (mut p 0))
     {
@@ -214,7 +214,7 @@ $advance
       p
     }))
 
-(:: seed Int)
+(:: seed (Vec Int))
 (fn (seed)
   (let ((b vecNew) (mut i 0))
     {

@@ -32,7 +32,7 @@
 
 (import typecheck)
 
-(:: renderSigAt (-> Int Int String))
+(:: renderSigAt (-> (Vec Int) Int String))
 
 (fn (renderSigAt decls i) (tyRender (nodeTy (vecGet decls i))))
 
@@ -43,7 +43,7 @@
     (let ((pr (parseModule (lex src))))
       (if (== (memGetWord pr 0) 0)
         7
-        (let ((decls (memGetWord pr 1)))
+        (let ((decls (memGetWordVec pr 1)))
           (if (!= (vecLen decls) 5)
             8
             (if (strEq (renderSigAt decls 0) "((Int -> Int) -> (Int -> Int))")

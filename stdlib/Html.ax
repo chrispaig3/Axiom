@@ -220,7 +220,7 @@
 ; Built by `hNew`, written through `hPut` and everything above it,
 ; finished once by `hFinish`.
 (pub struct HtmlBuf
-  (pieces : Int)
+  (pieces : (Vec String))
   (mut len : Int))
 
 ; A fresh builder. The piece vector is a leaf vector, as `Json.ax`'s
@@ -535,17 +535,17 @@
 ; visibility at the INVOCATION: measured, a private `hVecLen` made
 ; every `(for ...)` in an importing file `AX3023 private-name
 ; Html::hVecLen`. See the header's third point.
-(pub :: hVecLen (-> Int Int))
+(pub :: hVecLen (-> (Vec a) Int))
 
 (pub fn (hVecLen v) (vecLen v))
 
 ; Element `i` of a `Vec` of Strings, as `for` reads it.
-(pub :: hVecStr (-> Int Int String))
+(pub :: hVecStr (-> (Vec a) Int String))
 
 (pub fn (hVecStr v i) (vecGetStr v i))
 
 ; Element `i` of a `Vec` of Ints, as `forInt` reads it.
-(pub :: hVecWord (-> Int Int Int))
+(pub :: hVecWord (-> (Vec Int) Int Int))
 
 (pub fn (hVecWord v i) (vecGet v i))
 

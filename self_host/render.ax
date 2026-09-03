@@ -383,7 +383,7 @@
                   {
                     (if (&& (>= col a) (< col b))
                       (vecPush parts " ")
-                      0
+                      (cast (Vec String) 0)
                     )
                     (set col (+ col 1))
                   })
@@ -400,7 +400,7 @@
                     {
                       (if (&& (>= col a) (< col b))
                         (vecPush parts (strSlice src i n))
-                        0
+                        (cast (Vec String) 0)
                       )
                       (set col (+ col 1))
                     }
@@ -632,7 +632,7 @@
                 {
                   (if (> i run)
                     (vecPush parts (strSlice s run (- i run)))
-                    0
+                    (cast (Vec String) 0)
                   )
                   (vecPush
                     parts                    (if (== b 10)
@@ -658,7 +658,7 @@
           {
             (if (> n run)
               (vecPush parts (strSlice s run (- n run)))
-              0
+              (cast (Vec String) 0)
             )
             (catStrs parts)
           }
@@ -727,7 +727,7 @@
 ; on line 3 at columns 6 and 22, and the first defined is the first
 ; written. Sorting by offset says the same thing about that case and the
 ; right thing about the case where it is not.
-(pub :: sortRows (-> Int Int))
+(pub :: sortRows (-> (Vec Int) (Vec Int)))
 
 (pub fn (sortRows rows)
   (let (
@@ -757,7 +757,7 @@
 
 ; The primary span underlined with `^` and carrying the diagnostic's own
 ; label, then every related span with `-` and its note.
-(pub :: snipRowsOf (-> Int Int Int))
+(pub :: snipRowsOf (-> Int Int (Vec a)))
 
 (pub fn (snipRowsOf d span)
   ; The primary underline takes the diagnostic's own severity
@@ -783,7 +783,7 @@
 )
 
 ; Width of the widest line number any row will print.
-(pub :: rowsGutterWidth (-> String Int Int Int))
+(pub :: rowsGutterWidth (-> String Int (Vec Int) Int))
 
 (pub fn (rowsGutterWidth src ix rows)
   (let (
@@ -808,7 +808,7 @@
 
 ; The labeled blocks, in order, with a `...` row wherever two adjacent
 ; rows are more than one line apart.
-(pub :: snipBody (-> String Int Int Int String))
+(pub :: snipBody (-> String Int Int (Vec Int) String))
 
 (pub fn (snipBody src ix gw rows)
   (let (
@@ -823,7 +823,7 @@
             {
               (if (&& (> i 0) (> (- ln prev) 1))
                 (vecPush out (strConcat (paint SGR_GUT "...") "\n"))
-                0
+                (cast (Vec String) 0)
               )
               (vecPush out (labelBlock
                 src                ix                gw                (spanStart (rowSpan r))                (spanEnd (rowSpan r))                (rowCh r)                (rowMsg r)                (rowSgr r)
@@ -844,7 +844,7 @@
 ; `&` field's name and LOC - three spellings, one decision. The
 ; parenthetical repeats fmtSpan's exact text, so the derivation is a
 ; concatenation and not a re-parse.
-(pub :: traceNoteText (-> Int Int Int Int String))
+(pub :: traceNoteText (-> Int Int (Vec Int) (Vec Int) String))
 
 (pub fn (traceNoteText d i units ixs)
   (let ((base (strConcat (strConcat "in this expansion of `" (diagTraceName d i)) "`")))
@@ -852,7 +852,7 @@
       (fs (diagTraceSpan d i))
       (fu (diagTraceUnit d i))
     )
-      (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
+      (if (|| (== fs 0) (|| (== (cast Int units) 0) (>= fu (vecLen units))))
         base
         (let ((u (vecGet units fu)))
           (strConcat (strConcat (strConcat (strConcat (strConcat base " (") (memGetWordStr u 0)) ":") (fmtSpanIx (memGetWordStr u 1) (vecGet ixs fu) fs)) ")")
@@ -867,21 +867,21 @@
 ; template's line under a caret - instead of the one-line note above.
 ; The note form remains for a frame with no span or no reachable
 ; unit, which is what a REPL-shaped or spanless expansion leaves.
-(pub :: traceResolvable (-> Int Int Int Int))
+(pub :: traceResolvable (-> Int Int (Vec Int) Int))
 
 (pub fn (traceResolvable d i units)
   (let (
     (fs (diagTraceSpan d i))
     (fu (diagTraceUnit d i))
   )
-    (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
+    (if (|| (== fs 0) (|| (== (cast Int units) 0) (>= fu (vecLen units))))
       0
       1
     )
   )
 )
 
-(pub :: traceRows (-> Int Int Int))
+(pub :: traceRows (-> Int Int (Vec Int)))
 
 (pub fn (traceRows d i)
   (let ((rows vecNew))
@@ -897,7 +897,7 @@
 ; The gutter is one width for the whole report: a frame's line number
 ; can be wider than the primary's, and two blocks whose bars do not
 ; line up read as two reports.
-(pub :: traceGutterWidth (-> Int Int Int Int Int))
+(pub :: traceGutterWidth (-> Int (Vec Int) (Vec Int) Int Int))
 
 (pub fn (traceGutterWidth d units ixs w0)
   (let (
@@ -925,7 +925,7 @@
   )
 )
 
-(pub :: traceBlocks (-> Int Int Int Int String))
+(pub :: traceBlocks (-> Int (Vec Int) (Vec Int) Int String))
 
 (pub fn (traceBlocks d units ixs gw)
   (let (
@@ -970,7 +970,7 @@
                 )
               )
             )
-            0
+            (cast (Vec String) 0)
           )
           (set i (+ i 1))
         })
@@ -981,7 +981,7 @@
 
 ; `ix` is `src`'s line index and `ixs` the whole unit table's, both
 ; built once per render by the caller - see THE LINE INDEX in diag.ax.
-(pub :: renderDiagHuman (-> Int String String Int Int Int String))
+(pub :: renderDiagHuman (-> Int String String (Vec Int) Int (Vec Int) String))
 
 (pub fn (renderDiagHuman d src file units ix ixs)
   ; A span that starts AT the end of the source is the
@@ -1065,7 +1065,7 @@
                     {
                       (if (== (traceResolvable d i units) 1)
                         0
-                        (vecPush acc (noteLine gw (traceNoteText d i units ixs)))
+                        { (vecPush acc (noteLine gw (traceNoteText d i units ixs))) 0 }
                       )
                       (set i (+ i 1))
                     })
@@ -1106,7 +1106,7 @@
 
 ; Every diagnostic, each rendered against the source file its `unit`
 ; field names - the same table renderDiagsUnits (AXDL) reads.
-(pub :: renderDiagsHumanUnits (-> Int Int String))
+(pub :: renderDiagsHumanUnits (-> (Vec Int) (Vec Int) String))
 
 (pub fn (renderDiagsHumanUnits ds units)
   ; ONE index per unit for the whole report. The number of
@@ -1254,7 +1254,7 @@
               {
                 (if (> i run)
                   (vecPush parts (strSlice s run (- i run)))
-                  0
+                  (cast (Vec String) 0)
                 )
                 (vecPush
                   parts                  (if (== b 34)
@@ -1292,7 +1292,7 @@
         {
           (if (> n run)
             (vecPush parts (strSlice s run (- n run)))
-            0
+            (cast (Vec String) 0)
           )
           (catStrs parts)
         }
@@ -1324,7 +1324,7 @@
 )
 
 ; A JSON array of quoted strings.
-(pub :: jsonStrArray (-> Int String))
+(pub :: jsonStrArray (-> (Vec String) String))
 
 (pub fn (jsonStrArray items)
   (let (
@@ -1337,7 +1337,7 @@
         {
           (if (> i 0)
             (vecPush parts ",")
-            0
+            (cast (Vec String) 0)
           )
           (vecPush parts "\"")
           (vecPush parts (jsonEsc (vecGetStr items i)))
@@ -1391,7 +1391,7 @@
 ; ITS OWN unit - when the frame carries a span the unit table can
 ; resolve. The numbers are the same ones the AXDL LOC prints, which is
 ; what lets verify-json.py derive this array from that field.
-(pub :: jsonTraceArray (-> Int Int Int String))
+(pub :: jsonTraceArray (-> Int (Vec Int) (Vec Int) String))
 
 (pub fn (jsonTraceArray d units ixs)
   (let (
@@ -1404,7 +1404,7 @@
         {
           (if (> i 0)
             (vecPush parts ",")
-            0
+            (cast (Vec String) 0)
           )
           (vecPush parts "{\"macro\":\"")
           (vecPush parts (jsonEsc (diagTraceName d i)))
@@ -1413,7 +1413,7 @@
             (fs (diagTraceSpan d i))
             (fu (diagTraceUnit d i))
           )
-            (if (|| (== fs 0) (|| (== units 0) (>= fu (vecLen units))))
+            (if (|| (== fs 0) (|| (== (cast Int units) 0) (>= fu (vecLen units))))
               0
               (let ((u (vecGet units fu)))
                 (let (
@@ -1421,12 +1421,13 @@
                   (fix (vecGet ixs fu))
                 )
                   {
-                    (vecPush parts ",\"file\":\"")
+                    { (vecPush parts ",\"file\":\"") 0 }
                     (vecPush parts (jsonEsc (memGetWordStr u 0)))
                     (vecPush parts "\",\"line\":")
                     (vecPush parts (decStr (lineOfIx fix (spanStart fs))))
                     (vecPush parts ",\"col\":")
                     (vecPush parts (decStr (colOfIx fsrc fix (spanStart fs))))
+                    0
                   }
                 )
               )
@@ -1454,7 +1455,7 @@
         {
           (if (> i 0)
             (vecPush parts ",")
-            0
+            (cast (Vec String) 0)
           )
           (vecPush parts "{\"span\":")
           (vecPush parts (jsonSpan src ix (diagSecSpan d i)))
@@ -1478,7 +1479,7 @@
   )
 )
 
-(pub :: renderDiagJson (-> Int String String Int Int Int String))
+(pub :: renderDiagJson (-> Int String String (Vec Int) Int (Vec Int) String))
 
 (pub fn (renderDiagJson d src file units ix ixs)
   (let (
@@ -1509,7 +1510,7 @@
   )
 )
 
-(pub :: renderDiagsJsonUnits (-> Int Int String))
+(pub :: renderDiagsJsonUnits (-> (Vec Int) (Vec Int) String))
 
 (pub fn (renderDiagsJsonUnits ds units)
   ; One index per unit for the whole report, as the other two
@@ -1547,7 +1548,7 @@
 ; ------------------------------------------------------------------
 ; The dispatch every diagnostic-printing call site goes through.
 ; ------------------------------------------------------------------
-(pub :: renderDiagsFormat (-> Int Int Int String))
+(pub :: renderDiagsFormat (-> Int (Vec Int) (Vec Int) String))
 
 (pub fn (renderDiagsFormat fmt ds units)
   (if (== fmt FMT_AI)

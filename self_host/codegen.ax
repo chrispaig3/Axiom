@@ -62,7 +62,7 @@
   (arity : Int)
   (tag : Int)
   (rep : Int)
-  (fieldFlags : Int)
+  (fieldFlags : (Vec Int))
   (fieldNames : Int)
   (fieldTys : Int))
 
@@ -97,6 +97,12 @@
 (pub :: eFieldFlags (-> Int Int))
 
 (pub fn (eFieldFlags e) (memGetWord e 6))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: eFieldFlagsVec (-> Int (Vec a)))
+
+(pub fn (eFieldFlagsVec e) (cast (Vec a) (eFieldFlags e)))
+
 
 ; A length is not a name. An entry used to carry a `nameHash` word
 ; beside its `nameLen` and match on the pair alone, so every name of the
@@ -109,13 +115,13 @@
 
 (pub fn (eName e) (memGetWordStr e 0))
 
-(pub :: addType (-> Int String Int Int Int Int Int Int))
+(pub :: addType (-> (Vec Int) String Int Int Int Int (Vec Int) (Vec Int)))
 
 (pub fn (addType types name kind arity tag rep fieldFlags) (addTypeNamed
   types  name  kind  arity  tag  rep  fieldFlags  0  0
 ))
 
-(pub :: addTypeNamed (-> Int String Int Int Int Int Int Int Int Int))
+(pub :: addTypeNamed (-> (Vec Int) String Int Int Int Int (Vec Int) Int Int (Vec Int)))
 
 (pub fn (addTypeNamed types name kind arity tag rep fieldFlags fieldNames fieldTys)
   (let ((nl (strLen name)))
@@ -130,12 +136,24 @@
 (pub :: eFieldNames (-> Int Int))
 
 (pub fn (eFieldNames e) (memGetWord e 7))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: eFieldNamesVec (-> Int (Vec a)))
+
+(pub fn (eFieldNamesVec e) (cast (Vec a) (eFieldNames e)))
+
 
 (pub :: eFieldTys (-> Int Int))
 
 (pub fn (eFieldTys e) (memGetWord e 8))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: eFieldTysVec (-> Int (Vec a)))
 
-(pub :: lookupType (-> Int String Int))
+(pub fn (eFieldTysVec e) (cast (Vec a) (eFieldTys e)))
+
+
+(pub :: lookupType (-> (Vec Int) String Int))
 
 (pub fn (lookupType types name) (lookupByIdx types name (strLen name) 0))
 
@@ -153,7 +171,7 @@
 ; to eliminate the frames. `lldb` named it in one backtrace: 25 frames
 ; of `codegen$lookupByIdx`, and `Vec$vecGet` on top of them holding
 ; the address that had run off the stack.
-(pub :: lookupByIdx (-> Int String Int Int Int))
+(pub :: lookupByIdx (-> (Vec Int) String Int Int Int))
 
 (pub fn (lookupByIdx types name nLen i)
   (let (
@@ -226,7 +244,7 @@
 ; Entry file first, then whatever module defines it - the resolution
 ; rule every other bare-name lookup in this compiler uses. A first
 ; match alone would let an import outrank the file being compiled.
-(pub :: lookupEff (-> Int String Int))
+(pub :: lookupEff (-> (Vec Int) String Int))
 
 (pub fn (lookupEff tbl name)
   (let ((e (lookupEffIn tbl name 1 0)))
@@ -237,7 +255,7 @@
   )
 )
 
-(pub :: lookupEffIn (-> Int String Int Int Int))
+(pub :: lookupEffIn (-> (Vec Int) String Int Int Int))
 
 (pub fn (lookupEffIn tbl name entryOnly i)
   (if (>= i (vecLen tbl))
@@ -255,7 +273,7 @@
 ; reference sits in - `mangledFor`'s rule, applied to effects. A name
 ; the module does not declare falls through to `lookupEff`, so this
 ; only ever prepends a candidate.
-(pub :: lookupEffFor (-> Int Int String Int))
+(pub :: lookupEffFor (-> Int (Vec Int) String Int))
 
 (pub fn (lookupEffFor cg tbl name)
   (let ((m (memGetWord cg 34)))
@@ -273,7 +291,7 @@
   )
 )
 
-(pub :: effSlotRegistered (-> Int String Int Bool))
+(pub :: effSlotRegistered (-> (Vec Int) String Int Bool))
 
 (pub fn (effSlotRegistered tbl slot i)
   (if (>= i (vecLen tbl))
@@ -379,51 +397,51 @@
 ;            linear scan while they are, which is the REPL's and LSP's
 ;            partial paths.
 (pub struct CG
-  (lines : Int)
+  (lines : (Vec Int))
   (tmp : Int)
   (result : String)
-  (types : Int)
+  (types : (Vec Int))
   (tagN : Int)
-  (argVec : Int)
-  (symnames : Int)
-  (symregs : Int)
+  (argVec : (Vec Int))
+  (symnames : (Vec Int))
+  (symregs : (Vec Int))
   (decls : Int)
   (argsTyped : String)
-  (strings : Int)
+  (strings : (Vec Int))
   (curBlock : String)
-  (mangleBares : Int)
-  (mangleFulls : Int)
+  (mangleBares : (Vec Int))
+  (mangleFulls : (Vec Int))
   (resultIsFloat : Int)
-  (floatSigs : Int)
-  (symfloats : Int)
+  (floatSigs : (Vec Int))
+  (symfloats : (Vec Int))
   (curParams : Int)
   (curFlags : Int)
-  (macros : Int)
-  (symkinds : Int)
-  (pendingLams : Int)
+  (macros : (Vec Int))
+  (symkinds : (Vec Int))
+  (pendingLams : (Vec Int))
   (lamN : Int)
-  (thunkFulls : Int)
-  (thunkArities : Int)
+  (thunkFulls : (Vec Int))
+  (thunkArities : (Vec Int))
   (thunksEmitted : Int)
   (target : Int)
   (tcoName : Int)
-  (tcoSlots : Int)
+  (tcoSlots : (Vec Int))
   (tcoLabel : String)
   (tailOK : Int)
   (terminated : Int)
-  (effDecls : Int)
-  (effOps : Int)
+  (effDecls : (Vec Int))
+  (effOps : (Vec Int))
   (curModule : Int)
-  (dataTyNames : Int)
+  (dataTyNames : (Vec Int))
   (curDeclNode : Int)
   (sigIntern : Int)
-  (sigById : Int)
+  (sigById : (Vec Int))
   (bareIntern : Int)
-  (bareFirst : Int)
-  (tailRetain : Int)
-  (pendingOwned : Int)
+  (bareFirst : (Vec Int))
+  (tailRetain : (Vec Int))
+  (pendingOwned : (Vec Int))
   (allocaMark : Int)
-  (hoisted : Int)
+  (hoisted : (Vec Int))
   ; The evidence class of each spine argument, pushed in lockstep with
   ; `argVec` by `walkAppChain` and read back beside it. It exists
   ; because an application THROUGH A CLOSURE has to tell the callee
@@ -434,7 +452,7 @@
   ; which is otherwise unused for an application (`resolveStructField`
   ; reads it for a FIELD, `emitFnDef` for a declaration). Codegen
   ; cannot compute it: it has no types.
-  (argEv : Int)
+  (argEv : (Vec Int))
   ; 1 while the register-pair variant of a function is being emitted
   ; (`docs/unboxed-sums-design.md`). It changes exactly two things:
   ; the `define` line's return type and name, and what a TAIL LEAF
@@ -451,7 +469,7 @@
   ; reference map". That limit is `docs/memory-model.md` MM-LIFE-2d and
   ; it is the same shape word this whole optimisation is trying to stop
   ; writing - met here from the other side.
-  (pairState : Int))
+  (pairState : (Vec Int)))
 
 ; ------------------------------------------------------------------
 ; Tail-call optimisation, fields 27-31.
@@ -508,22 +526,22 @@
     {
       (vecPush ps 0)
       (vecPush ps 0)
-      (vecPush ps vecNew)
+      (vecPushVec ps vecNew)
       (vecPush
         ps        (cast Int "")
       )
       (addTypeNamed
         ts        "Some"        TF_DATA        1        0        2        (let ((f vecNew))
           {
-            (vecPush f 0)
+            { (vecPush f 0) 0 }
             f
           }
         )        0        (let ((ft vecNew))
           {
-            (vecPush
+            { (vecPush
               ft              (cast Int (mkTVar "a"))
-            )
-            ft
+            ) 0 }
+            (cast Int ft)
           }
         )
       )
@@ -540,13 +558,13 @@
 ; Slot `i` of the register-pair state: 0 mode, 1 arm, 2 names, 3 tag.
 (pub :: pairSlot (-> Int Int Int))
 
-(pub fn (pairSlot cg i) (vecGet (memGetWord cg 46) i))
+(pub fn (pairSlot cg i) (vecGet (memGetWordVec cg 46) i))
 
 (pub :: pairSetSlot (-> Int Int Int Int))
 
 (pub fn (pairSetSlot cg i v)
   {
-    (vecSet (memGetWord cg 46) i v)
+    (vecSet (memGetWordVec cg 46) i v)
     cg
   }
 )
@@ -586,7 +604,7 @@
   (stash : Int)
   (ret : Int))
 
-(pub :: scanFloatSigs (-> Int Int Int Int))
+(pub :: scanFloatSigs (-> (Vec Int) (Vec Int) Int (Vec Int)))
 
 (pub fn (scanFloatSigs decls sigs i)
   (if (>= i (vecLen decls))
@@ -594,11 +612,11 @@
     {
       (let ((d (vecGet decls i)))
         (if (== (nodeTag d) TAG_D_SIG)
-          (vecPush
+          { (vecPush
             sigs            (cast Int (FSig
               (nodeAName d)              (strLen (nodeAName d))              (nodeB d)              (nodeTy d)              (cgTakesEvidence (nodeTy d))              1              (- 0 1)              0              0
             ))
-          )
+          ) 0 }
           ; an `extern` item is a signed global under its LINKER
           ; SYMBOL (what `mangledForCg` answers for its name), with
           ; the masks the boundary contract gives it: a Rust shim
@@ -610,7 +628,7 @@
           ; call parked every argument, and a `Counter` cell
           ; handed to `counterValueRaw` never died
           (if (== (nodeTag d) TAG_D_EXTERN)
-            (scanExternSigs (nodeC d) sigs 0)
+            (scanExternSigs (nodeCVec d) sigs 0)
             0
           )
         )
@@ -620,10 +638,10 @@
   )
 )
 
-(pub :: scanExternSigs (-> Int Int Int Int))
+(pub :: scanExternSigs (-> (Vec Int) (Vec Int) Int Int))
 
 (pub fn (scanExternSigs items sigs i)
-  (if (== items 0)
+  (if (== (cast Int items) 0)
     0
     (if (>= i (vecLen items))
       0
@@ -631,11 +649,11 @@
         {
           (if (== (nodeB f) 0)
             0
-            (vecPush
+            { (vecPush
               sigs              (cast Int (FSig
                 (nodeCName f)                (strLen (nodeCName f))                0                (nodeB f)                0                1                (arrowArity (nodeB f))                0                0
               ))
-            )
+            ) 0 }
           )
           (scanExternSigs items sigs (+ i 1))
         }
@@ -644,7 +662,7 @@
   )
 )
 
-(pub :: findFSig (-> Int String Int))
+(pub :: findFSig (-> (Vec Int) String Int))
 
 (pub fn (findFSig sigs name)
   (let ((n (declSpellingOf name)))
@@ -652,7 +670,7 @@
   )
 )
 
-(pub :: findFSigIn (-> Int String Int Int Int))
+(pub :: findFSigIn (-> (Vec Int) String Int Int Int))
 
 (pub fn (findFSigIn sigs name nl i)
   (if (>= i (vecLen sigs))
@@ -713,13 +731,13 @@
 
 (pub fn (buildNameIndexes cg)
   (let (
-    (sigs (memGetWord cg 15))
+    (sigs (memGetWordVec cg 15))
     (si internNew)
     (byId vecNew)
-    (bares (memGetWord cg 12))
+    (bares (memGetWordVec cg 12))
     (bi internNew)
     (first vecNew)
-    (decls (memGetWord cg 8))
+    (decls (memGetWordVec cg 8))
     (dn internNew)
     (dnull vecNew)
     (ddef vecNew)
@@ -734,7 +752,7 @@
               (let ((id (internIntern si (memGetWordStr e 0))))
                 (if (== id (vecLen byId))
                   (vecPush byId e)
-                  0
+                  (cast (Vec Int) 0)
                 )
               )
             )
@@ -747,7 +765,7 @@
             (let ((id (internIntern bi (vecGetStr bares j))))
               (if (== id (vecLen first))
                 (vecPush first j)
-                0
+                (cast (Vec Int) 0)
               )
             )
             (set j (+ j 1))
@@ -757,7 +775,7 @@
       ; whose field 8 is still 0 - nothing but this function reads the
       ; declaration list through the index - leaves the three Vecs
       ; empty and every reader below falls back to the scan.
-      (if (== decls 0)
+      (if (== (cast Int decls) 0)
         0
         (let ((mut k 0))
           (while (< k (vecLen decls))
@@ -767,11 +785,11 @@
             })
         )
       )
-      (vecPush rest first)
+      (vecPushVec rest first)
       (vecPush rest dn)
-      (vecPush rest dnull)
-      (vecPush rest ddef)
-      (vecPush rest dar)
+      (vecPushVec rest dnull)
+      (vecPushVec rest ddef)
+      (vecPushVec rest dar)
       (memSetWord cg 37 si)
       (memSetWord cg 38 byId)
       (memSetWord cg 39 bi)
@@ -780,7 +798,7 @@
       ; through them. Names, not nodes: a match site has a name.
       (let ((pn vecNew))
         {
-          (if (== decls 0)
+          (if (== (cast Int decls) 0)
             0
             (let ((mut m 0))
               (while (< m (vecLen decls))
@@ -791,16 +809,16 @@
                         (vecPush
                           pn                          (cast Int (nodeAName d))
                         )
-                        0
+                        (cast (Vec Int) 0)
                       )
-                      0
+                      (cast (Vec Int) 0)
                     )
                   )
                   (set m (+ m 1))
                 })
             )
           )
-          (pairSetSlot cg 2 pn)
+          (pairSetSlot cg 2 (cast Int pn))
         }
       )
       cg
@@ -813,7 +831,7 @@
 ; every parallel Vec gains exactly one entry; anything else already
 ; has its row. -1 in `dar` is "no `D_FN` has claimed this name", which
 ; is what makes [4] first-writer-wins without a fourth Vec to say so.
-(:: declSlotFor (-> Int Int Int Int String Int))
+(:: declSlotFor (-> Int (Vec Int) (Vec Int) (Vec Int) String Int))
 
 (fn (declSlotFor dn dnull ddef dar name)
   (let ((id (internIntern dn name)))
@@ -824,7 +842,7 @@
           (vecPush ddef 0)
           (vecPush dar (- 0 1))
         }
-        0
+        (cast (Vec Int) 0)
       )
       id
     }
@@ -835,14 +853,14 @@
 ; `isNullaryFnIn`, `isDefinedFnIn` and `fnArityIn` read it: a `D_FN`
 ; is nullary or defined by its parameter count and never both, and an
 ; `extern` block contributes only to nullary.
-(:: declIndexAdd (-> Int Int Int Int Int Int))
+(:: declIndexAdd (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int))
 
 (fn (declIndexAdd dn dnull ddef dar d)
   (let ((tag (nodeTag d)))
     (if (== tag TAG_D_FN)
       (let (
         (id (declSlotFor dn dnull ddef dar (nodeAName d)))
-        (ar (vecLen (nodeB d)))
+        (ar (vecLen (nodeBVec d)))
       )
         {
           (if (== ar 0)
@@ -850,13 +868,13 @@
             (vecSet ddef id 1)
           )
           (if (< (vecGet dar id) 0)
-            (vecSet dar id ar)
+            { (vecSet dar id ar) 0 }
             0
           )
         }
       )
       (if (== tag TAG_D_EXTERN)
-        (declIndexExtern dn dnull ddef dar (nodeC d) 0)
+        (declIndexExtern dn dnull ddef dar (nodeCVec d) 0)
         0
       )
     )
@@ -869,10 +887,10 @@
 ; `emitVar` has already been through `mangledFor` and is holding the
 ; symbol. Both are interned, and `internIntern` folds them together
 ; when an item's two spellings agree.
-(:: declIndexExtern (-> Int Int Int Int Int Int Int))
+(:: declIndexExtern (-> Int (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int))
 
 (fn (declIndexExtern dn dnull ddef dar items i)
-  (if (== items 0)
+  (if (== (cast Int items) 0)
     0
     (if (>= i (vecLen items))
       0
@@ -883,7 +901,7 @@
               (vecSet dnull (declSlotFor dn dnull ddef dar (nodeAName f)) 1)
               (vecSet dnull (declSlotFor dn dnull ddef dar (nodeCName f)) 1)
             }
-            0
+            (cast (Vec Int) 0)
           )
         )
         (declIndexExtern dn dnull ddef dar items (+ i 1))
@@ -899,9 +917,9 @@
 (pub fn (findFSigCg cg name)
   (let ((si (memGetWord cg 37)))
     (if (== si 0)
-      (findFSig (memGetWord cg 15) name)
+      (findFSig (memGetWordVec cg 15) name)
       (match (internFind si (declSpellingOf name))
-        ((Some id) (vecGet (memGetWord cg 38) id))
+        ((Some id) (vecGet (memGetWordVec cg 38) id))
         ((None) 0)
       )
     )
@@ -937,7 +955,7 @@
             ; because one branch returns it - measured at +69 MiB of
             ; peak, see this commit.
             (match hit
-              ((Some h) (vecGetStr (memGetWord cg 12) (vecGet (vecGet (memGetWord cg 40) 0) h)))
+              ((Some h) (vecGetStr (memGetWordVec cg 12) (vecGet (vecGet (memGetWordVec cg 40) 0) h)))
               ((None) (mangledForBareCg cg bi name))
             )
           )
@@ -954,7 +972,7 @@
 
 (fn (mangledForBareCg cg bi name)
   (match (internFind bi name)
-    ((Some id) (vecGetStr (memGetWord cg 13) (vecGet (vecGet (memGetWord cg 40) 0) id)))
+    ((Some id) (vecGetStr (memGetWordVec cg 13) (vecGet (vecGet (memGetWordVec cg 40) 0) id)))
     ((None) name)
   )
 )
@@ -969,11 +987,11 @@
 (pub :: isNullaryFnCg (-> Int String Bool))
 
 (pub fn (isNullaryFnCg cg name)
-  (let ((rest (memGetWord cg 40)))
+  (let ((rest (memGetWordVec cg 40)))
     (if (< (vecLen rest) 5)
-      (isNullaryFn (memGetWord cg 8) name)
+      (isNullaryFn (memGetWordVec cg 8) name)
       (match (internFind (vecGet rest 1) (declSpellingOf name))
-        ((Some id) (== (vecGet (vecGet rest 2) id) 1))
+        ((Some id) (== (vecGet (vecGetVec rest 2) id) 1))
         ((None) false)
       )
     )
@@ -983,11 +1001,11 @@
 (pub :: isDefinedFnCg (-> Int String Bool))
 
 (pub fn (isDefinedFnCg cg name)
-  (let ((rest (memGetWord cg 40)))
+  (let ((rest (memGetWordVec cg 40)))
     (if (< (vecLen rest) 5)
-      (isDefinedFn (memGetWord cg 8) name)
+      (isDefinedFn (memGetWordVec cg 8) name)
       (match (internFind (vecGet rest 1) (declSpellingOf name))
-        ((Some id) (== (vecGet (vecGet rest 3) id) 1))
+        ((Some id) (== (vecGet (vecGetVec rest 3) id) 1))
         ((None) false)
       )
     )
@@ -1000,12 +1018,12 @@
 (pub :: fnArityOfCg (-> Int String Int))
 
 (pub fn (fnArityOfCg cg name)
-  (let ((rest (memGetWord cg 40)))
+  (let ((rest (memGetWordVec cg 40)))
     (if (< (vecLen rest) 5)
-      (fnArityOf (memGetWord cg 8) name)
+      (fnArityOf (memGetWordVec cg 8) name)
       (match (internFind (vecGet rest 1) (declSpellingOf name))
         ((Some id)
-          (let ((ar (vecGet (vecGet rest 4) id)))
+          (let ((ar (vecGet (vecGetVec rest 4) id)))
             (if (< ar 0)
               0
               ar
@@ -1080,7 +1098,7 @@
 ; `set`. Each is the leak direction, and each is narrower than the
 ; old rule's "everything not bound to a direct construction".
 ; ------------------------------------------------------------------
-(pub :: inferOwnership (-> Int Int Int))
+(pub :: inferOwnership (-> Int (Vec Int) Int))
 
 (pub fn (inferOwnership cg decls)
   (if (== (inferOwnershipPass cg decls 0 0) 0)
@@ -1094,7 +1112,7 @@
 
 ; One pass: recompute every signed function; answer 1 if any flag
 ; moved (always 1 -> 0, so the loop terminates).
-(pub :: inferOwnershipPass (-> Int Int Int Int Int))
+(pub :: inferOwnershipPass (-> Int (Vec Int) Int Int Int))
 
 (pub fn (inferOwnershipPass cg decls i changed)
   (if (>= i (vecLen decls))
@@ -1116,8 +1134,8 @@
             (if (== (memGetWord e 5) 0)
               (inferOwnershipPass cg decls (+ i 1) changed)
               (if (==
-                (let ((_a (memSetWord e 6 (vecLen (nodeB d)))))
-                  (tailOwned cg (nodeC d) (nodeB d) vecNew)
+                (let ((_a (memSetWord e 6 (vecLen (nodeBVec d)))))
+                  (tailOwned cg (nodeC d) (nodeBVec d) vecNew)
                 )                1
               )
                 (inferOwnershipPass cg decls (+ i 1) changed)
@@ -1151,7 +1169,7 @@
 ; Is every value `e` can answer owned? `params` are the enclosing
 ; function's parameters; `env` is a flat name/flag vector of the
 ; `let` bindings and match binders in scope.
-(pub :: tailOwned (-> Int Int Int Int Int))
+(pub :: tailOwned (-> Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (tailOwned cg e params env)
   (if (== e 0)
@@ -1167,7 +1185,7 @@
                 0
                 ; a nullary constructor is an immediate: owned,
                 ; and releasing it is a no-op
-                (if (!= (lookupType (memGetWord cg 3) (nodeAName e)) 0)
+                (if (!= (lookupType (memGetWordVec cg 3) (nodeAName e)) 0)
                   1
                   ; a bare global name: a nullary function's
                   ; answer, or a function value - the former by
@@ -1188,19 +1206,19 @@
                 )
                 (if (== tg TAG_E_COND)
                   (if (== (tailOwnedClauses
-                    cg                    (nodeA e)                    params                    env                    0
+                    cg                    (nodeAVec e)                    params                    env                    0
                   ) 1)
                     (tailOwned cg (nodeB e) params env)
                     0
                   )
                   (if (== tg TAG_E_MATCH)
                     (tailOwnedArms
-                      cg                      (nodeB e)                      params                      env                      0
+                      cg                      (nodeBVec e)                      params                      env                      0
                     )
                     (if (== tg TAG_E_BEGIN)
-                      (if (== (vecLen (nodeA e)) 0)
+                      (if (== (vecLen (nodeAVec e)) 0)
                         1
-                        (tailOwned cg (vecGet (nodeA e) (- (vecLen (nodeA e)) 1)) params env)
+                        (tailOwned cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1)) params env)
                       )
                       (if (== tg TAG_E_LET)
                         (tailOwned cg (nodeC e) params (envWith env (nodeAName e) (tailOwned cg (nodeB e) params env)))
@@ -1235,7 +1253,7 @@
 )
 
 ; An application's ownership, by its head.
-(pub :: tailOwnedApp (-> Int Int Int Int Int))
+(pub :: tailOwnedApp (-> Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (tailOwnedApp cg e params env)
   (let ((hd (spineHead e)))
@@ -1286,7 +1304,7 @@
                         1
                         (fnResultOwned cg n)
                       )
-                      (if (!= (lookupType (memGetWord cg 3) n) 0)
+                      (if (!= (lookupType (memGetWordVec cg 3) n) 0)
                         1
                         0
                       )
@@ -1302,7 +1320,7 @@
   )
 )
 
-(pub :: tailOwnedArgsAll (-> Int Int Int Int Int Int Int))
+(pub :: tailOwnedArgsAll (-> Int Int Int (Vec Int) (Vec Int) Int Int))
 
 (pub fn (tailOwnedArgsAll cg e n_ params env i)
   (if (>= i n_)
@@ -1316,7 +1334,7 @@
   )
 )
 
-(pub :: tailOwnedClauses (-> Int Int Int Int Int Int))
+(pub :: tailOwnedClauses (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int))
 
 (pub fn (tailOwnedClauses cg cls params env i)
   (if (>= i (vecLen cls))
@@ -1330,14 +1348,14 @@
   )
 )
 
-(pub :: tailOwnedArms (-> Int Int Int Int Int Int))
+(pub :: tailOwnedArms (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int))
 
 (pub fn (tailOwnedArms cg arms params env i)
   (if (>= i (vecLen arms))
     1
     (let ((arm (vecGet arms i)))
       (let ((bs (patBindersCg (nodeA arm) vecNew)))
-        (if (== bs 0)
+        (if (== (cast Int bs) 0)
           0
           (if (== (tailOwned cg (nodeB arm) params (envWithAll env bs 0)) 1)
             (tailOwnedArms
@@ -1379,11 +1397,11 @@
 
 ; The flat name/flag environment: innermost binding wins, -1 when
 ; the name is not bound.
-(pub :: envFlagOf (-> Int String Int))
+(pub :: envFlagOf (-> (Vec Int) String Int))
 
 (pub fn (envFlagOf env name) (envFlagFrom env name (- (vecLen env) 2)))
 
-(pub :: envFlagFrom (-> Int String Int Int))
+(pub :: envFlagFrom (-> (Vec Int) String Int Int))
 
 (pub fn (envFlagFrom env name i)
   (if (< i 0)
@@ -1397,7 +1415,7 @@
   )
 )
 
-(pub :: envWith (-> Int String Int Int))
+(pub :: envWith (-> (Vec Int) String Int (Vec Int)))
 
 (pub fn (envWith env name flag)
   (let ((v (vecAppendFrom env vecNew 0)))
@@ -1416,7 +1434,7 @@
 ; a binder of a SCALAR field carries nothing - `(ICons x r)`'s `x` is
 ; a number, and a function summing it answered "a word of the list",
 ; so no caller ever released one.
-(pub :: envWithPat (-> Int Int Int Int Int))
+(pub :: envWithPat (-> Int (Vec Int) Int Int (Vec Int)))
 
 (pub fn (envWithPat cg env pat flag)
   (let ((v (vecAppendFrom env vecNew 0)))
@@ -1427,7 +1445,7 @@
   )
 )
 
-(pub :: envPushPat (-> Int Int Int Int Int))
+(pub :: envPushPat (-> Int (Vec Int) Int Int Int))
 
 (pub fn (envPushPat cg v pat flag)
   (if (== pat 0)
@@ -1445,7 +1463,7 @@
           (let ((hd (spineHead pat)))
             (let ((entry 
               (if (== (nodeTag hd) TAG_E_VAR)
-                (lookupType (memGetWord cg 3) (nodeAName hd))
+                (lookupType (memGetWordVec cg 3) (nodeAName hd))
                 0
               )
             ))
@@ -1456,7 +1474,7 @@
           )
           (if (== tag TAG_P_CONNAMED)
             (envPushPatVec
-              cg              v              (nodeC pat)              flag              0
+              cg              v              (nodeCVec pat)              flag              0
             )
             0
           )
@@ -1466,7 +1484,7 @@
   )
 )
 
-(pub :: envPushPatArgs (-> Int Int Int Int Int Int Int Int))
+(pub :: envPushPatArgs (-> Int (Vec Int) Int Int Int Int Int Int))
 
 (pub fn (envPushPatArgs cg v pat n_ entry flag i)
   (if (>= i n_)
@@ -1497,10 +1515,10 @@
   )
 )
 
-(pub :: envPushPatVec (-> Int Int Int Int Int Int))
+(pub :: envPushPatVec (-> Int (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (envPushPatVec cg v subs flag i)
-  (if (== subs 0)
+  (if (== (cast Int subs) 0)
     0
     (if (>= i (vecLen subs))
       0
@@ -1514,7 +1532,7 @@
   )
 )
 
-(pub :: envWithAll (-> Int Int Int Int))
+(pub :: envWithAll (-> (Vec Int) (Vec Int) Int (Vec Int)))
 
 (pub fn (envWithAll env names flag)
   (let ((v (vecAppendFrom env vecNew 0)))
@@ -1522,7 +1540,7 @@
   )
 )
 
-(pub :: envPushAll (-> Int Int Int Int Int))
+(pub :: envPushAll (-> (Vec Int) (Vec Int) Int Int (Vec Int)))
 
 (pub fn (envPushAll v names flag i)
   (if (>= i (vecLen names))
@@ -1575,7 +1593,7 @@
 ; holes the single-form draft had: the cancel trusted blindly, and
 ; `(+ (cast Int s) 0)` dropping `s` at the operator.
 ; ------------------------------------------------------------------
-(pub :: inferFlows (-> Int Int Int))
+(pub :: inferFlows (-> Int (Vec Int) Int))
 
 (pub fn (inferFlows cg decls)
   (if (== (inferFlowsPass cg decls 0 0) 0)
@@ -1587,7 +1605,7 @@
   )
 )
 
-(pub :: inferFlowsPass (-> Int Int Int Int Int))
+(pub :: inferFlowsPass (-> Int (Vec Int) Int Int Int))
 
 (pub fn (inferFlowsPass cg decls i changed)
   (if (>= i (vecLen decls))
@@ -1605,7 +1623,7 @@
             (let ((cell regionNew))
               {
                 (flowStashes
-                  cg                  (nodeC d)                  (nodeB d)                  vecNew                  cell
+                  cg                  (nodeC d)                  (nodeBVec d)                  vecNew                  cell
                 )
                 ; MM-LIFE-2g's own stores: a parameter the body
                 ; handed to `__retainref` is COUNTED before it
@@ -1621,7 +1639,7 @@
                 (let ((st0 (| (regionNet cell) (tyvarSlotsMask cg e d))))
                   (let (
                     (st (| (memGetWord e 7) (| st0 (arrivalToWord st0))))
-                    (rt (| (memGetWord e 8) (flowMask cg (nodeC d) (nodeB d) vecNew)))
+                    (rt (| (memGetWord e 8) (flowMask cg (nodeC d) (nodeBVec d) vecNew)))
                   )
                     (if (&& (== st (memGetWord e 7)) (== rt (memGetWord e 8)))
                       (inferFlowsPass cg decls (+ i 1) changed)
@@ -1653,8 +1671,8 @@
 (pub :: tyvarSlotsMask (-> Int Int Int Int))
 
 (pub fn (tyvarSlotsMask cg e d)
-  (if (== (tailCallsSelf (nodeC d) (bareOf (nodeAName d)) (vecLen (nodeB d))) 1)
-    (tyvarSlotsFrom cg (memGetWord e 3) (vecLen (nodeB d)) 0)
+  (if (== (tailCallsSelf (nodeC d) (bareOf (nodeAName d)) (vecLen (nodeBVec d))) 1)
+    (tyvarSlotsFrom cg (memGetWord e 3) (vecLen (nodeBVec d)) 0)
     0
   )
 )
@@ -1840,7 +1858,7 @@
 ; The mask of parameters whose reference may be (part of) `e`'s
 ; value, in the form it has here. `env` is a flat name/mask vector
 ; for `let` bindings and match binders.
-(pub :: flowMask (-> Int Int Int Int Int))
+(pub :: flowMask (-> Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (flowMask cg e params env)
   (if (== e 0)
@@ -1866,16 +1884,16 @@
               (| (flowMask cg (nodeB e) params env) (flowMask cg (nodeC e) params env))
               (if (== tg TAG_E_COND)
                 (| (flowMaskClauses
-                  cg                  (nodeA e)                  params                  env                  0
+                  cg                  (nodeAVec e)                  params                  env                  0
                 ) (flowMask cg (nodeB e) params env))
                 (if (== tg TAG_E_MATCH)
                   (flowMaskArms
-                    cg                    (nodeB e)                    params                    env                    (flowMask cg (nodeA e) params env)                    0
+                    cg                    (nodeBVec e)                    params                    env                    (flowMask cg (nodeA e) params env)                    0
                   )
                   (if (== tg TAG_E_BEGIN)
-                    (if (== (vecLen (nodeA e)) 0)
+                    (if (== (vecLen (nodeAVec e)) 0)
                       0
-                      (flowMask cg (vecGet (nodeA e) (- (vecLen (nodeA e)) 1)) params env)
+                      (flowMask cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1)) params env)
                     )
                     (if (== tg TAG_E_LET)
                       (flowMask cg (nodeC e) params (envWith env (nodeAName e) (letFlag cg (nodeB e) params env)))
@@ -1910,7 +1928,7 @@
 ; word already - a header word or an owner word, the callee cannot
 ; tell which, so both - and a witness-directed store of it counts
 ; nothing (`strWrapOwned`'s `(memSetWord s 1 bytes)` parks `bytes`).
-(pub :: paramFlowBit (-> Int Int Int Int))
+(pub :: paramFlowBit (-> Int (Vec Int) Int Int))
 
 (pub fn (paramFlowBit cg params i)
   (if (< i 0)
@@ -1919,8 +1937,8 @@
       (if (== d 0)
         (paramBit i)
         (if (||
-          (!= (vecLen params) (vecLen (nodeB d)))          (if (strEq
-            (cast String (vecGet params i))            (cast String (vecGet (nodeB d) i))
+          (!= (vecLen params) (vecLen (nodeBVec d)))          (if (strEq
+            (cast String (vecGet params i))            (cast String (vecGet (nodeBVec d) i))
           )
             false
             true
@@ -1942,7 +1960,7 @@
   )
 )
 
-(pub :: flowMaskApp (-> Int Int Int Int Int))
+(pub :: flowMaskApp (-> Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (flowMaskApp cg e params env)
   (let (
@@ -2009,7 +2027,7 @@
                               cg                              e                              n_                              params                              env                              (fnRetMask cg n)                              0
                             )
                           )
-                          (if (!= (lookupType (memGetWord cg 3) n) 0)
+                          (if (!= (lookupType (memGetWordVec cg 3) n) 0)
                             ; a construction is a fresh block
                             0
                             (flowMaskAll
@@ -2034,7 +2052,7 @@
 ; construction to what its arguments carried - what the result may
 ; share storage with, for the word-taking heads: a slice shares its
 ; parent's bytes, a constructor holds its arguments.
-(pub :: aliasFlow (-> Int Int Int Int Int))
+(pub :: aliasFlow (-> Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (aliasFlow cg e params env)
   (|
@@ -2048,7 +2066,7 @@
             (let ((n (nodeAName hd)))
               (if (|| (isCastName n) (|| (isPrimName n) (|| (isBinop n) (|| (isCmpOp n) (isAndOr n)))))
                 0
-                (if (|| (!= (lookupType (memGetWord cg 3) n) 0) (== (fnResultClass cg n) 2))
+                (if (|| (!= (lookupType (memGetWordVec cg 3) n) 0) (== (fnResultClass cg n) 2))
                   (aliasFlowAll
                     cg                    e                    (spineArity e)                    params                    env                    0
                   )
@@ -2063,7 +2081,7 @@
   )
 )
 
-(pub :: aliasFlowAll (-> Int Int Int Int Int Int Int))
+(pub :: aliasFlowAll (-> Int Int Int (Vec Int) (Vec Int) Int Int))
 
 (pub fn (aliasFlowAll cg e n_ params env i)
   (if (>= i n_)
@@ -2083,7 +2101,7 @@
 ; `(- h 16)` at index 0 or 1, `(- h 8)` at index 0? Every other
 ; 64-bit load of a handle-relative address is a pointer the handle's
 ; block owns.
-(pub :: headerWordRead (-> Int Int Int Int Int))
+(pub :: headerWordRead (-> Int (Vec Int) Int Int Int))
 
 (pub fn (headerWordRead cg params addr idx)
   (if (|| (== idx 0) (!= (nodeTag idx) TAG_E_INT))
@@ -2127,7 +2145,7 @@
   )
 )
 
-(pub :: addrIsHandle (-> Int Int Int Int))
+(pub :: addrIsHandle (-> Int (Vec Int) Int Int))
 
 (pub fn (addrIsHandle cg params e)
   (if (== e 0)
@@ -2178,7 +2196,7 @@
 )
 
 ; OR over the spine's arguments, `n_` of them.
-(pub :: flowMaskAll (-> Int Int Int Int Int Int Int))
+(pub :: flowMaskAll (-> Int Int Int (Vec Int) (Vec Int) Int Int))
 
 (pub fn (flowMaskAll cg e n_ params env i)
   (if (>= i n_)
@@ -2192,7 +2210,7 @@
 ; What a callee's RET mask makes of the arguments: a parameter it
 ; answers as it arrived keeps the argument's form; one it answers as a
 ; word launders it.
-(pub :: flowMaskSel (-> Int Int Int Int Int Int Int Int))
+(pub :: flowMaskSel (-> Int Int Int (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (flowMaskSel cg e n_ params env mask i)
   (if (>= i n_)
@@ -2220,7 +2238,7 @@
   )
 )
 
-(pub :: flowMaskClauses (-> Int Int Int Int Int Int))
+(pub :: flowMaskClauses (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int))
 
 (pub fn (flowMaskClauses cg cls params env i)
   (if (>= i (vecLen cls))
@@ -2231,7 +2249,7 @@
   )
 )
 
-(pub :: flowMaskArms (-> Int Int Int Int Int Int Int))
+(pub :: flowMaskArms (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (flowMaskArms cg arms params env scrut i)
   (if (>= i (vecLen arms))
@@ -2240,7 +2258,7 @@
       (let ((bs (patBindersCg (nodeA arm) vecNew)))
         (|
           (flowMask
-            cg            (nodeB arm)            params            (if (== bs 0)
+            cg            (nodeB arm)            params            (if (== (cast Int bs) 0)
               env
               (envWithPat cg env (nodeA arm) scrut)
             )
@@ -2256,7 +2274,7 @@
 ; Walk the whole body and OR into `cell` word 0 the parameters some
 ; part of whose reference is parked beyond the frame uncounted, and
 ; into word 1 the ones `__retainref`/`__retain` counted.
-(pub :: flowStashes (-> Int Int Int Int Int Int))
+(pub :: flowStashes (-> Int Int (Vec Int) (Vec Int) Int Int))
 
 (pub fn (flowStashes cg e params env cell)
   (if (== e 0)
@@ -2294,7 +2312,7 @@
             (if (== tg TAG_E_COND)
               {
                 (flowStashesClauses
-                  cg                  (nodeA e)                  params                  env                  cell                  0
+                  cg                  (nodeAVec e)                  params                  env                  cell                  0
                 )
                 (branchEnter cell)
                 (flowStashes
@@ -2308,12 +2326,12 @@
                     cg                    (nodeA e)                    params                    env                    cell
                   )
                   (flowStashesArms
-                    cg                    (nodeB e)                    params                    env                    cell                    (flowMask cg (nodeA e) params env)                    0
+                    cg                    (nodeBVec e)                    params                    env                    cell                    (flowMask cg (nodeA e) params env)                    0
                   )
                 }
                 (if (== tg TAG_E_BEGIN)
                   (flowStashesVec
-                    cg                    (nodeA e)                    params                    env                    cell                    0
+                    cg                    (nodeAVec e)                    params                    env                    cell                    0
                   )
                   (if (== tg TAG_E_WHILE)
                     ; the condition runs once more than the body, and the
@@ -2326,7 +2344,7 @@
                       (branchLeave cell)
                       (branchEnter cell)
                       (flowStashesVec
-                        cg                        (nodeB e)                        params                        env                        cell                        0
+                        cg                        (nodeBVec e)                        params                        env                        cell                        0
                       )
                       (branchLeave cell)
                     }
@@ -2394,15 +2412,15 @@
                                 ; aliases one takes none, and parks it
                                 (stashAdd cell (parkForms (lamCaptureMask cg (nodeB e) params env)))
                                 (if (== tg TAG_E_STRUCTCON)
-                                  (let ((entry (lookupType (memGetWord cg 3) (nodeAName e))))
+                                  (let ((entry (lookupType (memGetWordVec cg 3) (nodeAName e))))
                                     {
                                       (flowStashesVec
-                                        cg                                        (nodeB e)                                        params                                        env                                        cell                                        0
+                                        cg                                        (nodeBVec e)                                        params                                        env                                        cell                                        0
                                       )
                                       (if (== entry 0)
                                         0
                                         (flowStashesFieldsVec
-                                          cg                                          entry                                          (nodeB e)                                          params                                          env                                          cell                                          0
+                                          cg                                          entry                                          (nodeBVec e)                                          params                                          env                                          cell                                          0
                                         )
                                       )
                                     }
@@ -2476,7 +2494,7 @@
 ; those - and one parameter only. `(__retainref r.name)` retains the
 ; field, not the record `r` whose park it would otherwise cancel;
 ; `(__retainref (if c s t))` retains one of two, and cancels neither.
-(pub :: countFlow (-> Int Int Int Int Int))
+(pub :: countFlow (-> Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (countFlow cg e params env)
   (let ((m (mustFlow cg e params env)))
@@ -2491,7 +2509,7 @@
 ; recorded as must (`MUST_BIT` on its environment flag - its own
 ; initialiser was one of these), a `cast` of one; anything else - a
 ; field, a match binder, a join, a call - 0.
-(pub :: mustFlow (-> Int Int Int Int Int))
+(pub :: mustFlow (-> Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (mustFlow cg e params env)
   (if (== e 0)
@@ -2547,13 +2565,13 @@
 ; (`(set t (strConcat t "x"))`). The flag of the slot is what a park
 ; or an answer of it carries: `(let ((mut t 0)) { (set t (cast Int
 ; s)) (__store64 m 0 t) })` parks a header word of `s`.
-(pub :: mutFlag (-> Int String Int Int Int Int Int))
+(pub :: mutFlag (-> Int String Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (mutFlag cg name init body params env) (mutFlagIter
   cg  name  body  params  env  (flowMask cg init params env)  0
 ))
 
-(pub :: mutFlagIter (-> Int String Int Int Int Int Int Int))
+(pub :: mutFlagIter (-> Int String Int (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (mutFlagIter cg name body params env f k)
   (let ((f2 (| f (setFlows
@@ -2570,7 +2588,7 @@
 
 ; OR of the flows of every `(set name v)` under `e`; a nested binding
 ; of the same name is not distinguished (conservative).
-(pub :: setFlows (-> Int String Int Int Int Int))
+(pub :: setFlows (-> Int String Int (Vec Int) (Vec Int) Int))
 
 (pub fn (setFlows cg name e params env)
   (if (== e 0)
@@ -2624,11 +2642,11 @@
                     )
                     (if (== tg TAG_E_BEGIN)
                       (setFlowsVec
-                        cg                        name                        (nodeA e)                        params                        env                        0
+                        cg                        name                        (nodeAVec e)                        params                        env                        0
                       )
                       (if (== tg TAG_E_COND)
                         (| (setFlowsClauses
-                          cg                          name                          (nodeA e)                          params                          env                          0
+                          cg                          name                          (nodeAVec e)                          params                          env                          0
                         ) (setFlows
                           cg                          name                          (nodeB e)                          params                          env
                         ))
@@ -2636,13 +2654,13 @@
                           (| (setFlows
                             cg                            name                            (nodeA e)                            params                            env
                           ) (setFlowsArms
-                            cg                            name                            (nodeB e)                            params                            env                            (flowMask cg (nodeA e) params env)                            0
+                            cg                            name                            (nodeBVec e)                            params                            env                            (flowMask cg (nodeA e) params env)                            0
                           ))
                           (if (== tg TAG_E_WHILE)
                             (| (setFlows
                               cg                              name                              (nodeA e)                              params                              env
                             ) (setFlowsVec
-                              cg                              name                              (nodeB e)                              params                              env                              0
+                              cg                              name                              (nodeBVec e)                              params                              env                              0
                             ))
                             (if (== tg TAG_E_LAM)
                               (setFlows
@@ -2650,7 +2668,7 @@
                               )
                               (if (== tg TAG_E_STRUCTCON)
                                 (setFlowsVec
-                                  cg                                  name                                  (nodeB e)                                  params                                  env                                  0
+                                  cg                                  name                                  (nodeBVec e)                                  params                                  env                                  0
                                 )
                                 (if (== tg TAG_E_HANDLE)
                                   (| (setFlows
@@ -2677,10 +2695,10 @@
   )
 )
 
-(pub :: setFlowsVec (-> Int String Int Int Int Int Int))
+(pub :: setFlowsVec (-> Int String (Vec Int) (Vec Int) (Vec Int) Int Int))
 
 (pub fn (setFlowsVec cg name v params env i)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     0
     (if (>= i (vecLen v))
       0
@@ -2693,10 +2711,10 @@
   )
 )
 
-(pub :: setFlowsClauses (-> Int String Int Int Int Int Int))
+(pub :: setFlowsClauses (-> Int String (Vec Int) (Vec Int) (Vec Int) Int Int))
 
 (pub fn (setFlowsClauses cg name cls params env i)
-  (if (== cls 0)
+  (if (== (cast Int cls) 0)
     0
     (if (>= i (vecLen cls))
       0
@@ -2713,10 +2731,10 @@
   )
 )
 
-(pub :: setFlowsArms (-> Int String Int Int Int Int Int Int))
+(pub :: setFlowsArms (-> Int String (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (setFlowsArms cg name arms params env scrut i)
-  (if (== arms 0)
+  (if (== (cast Int arms) 0)
     0
     (if (>= i (vecLen arms))
       0
@@ -2733,7 +2751,7 @@
 
 ; A `let`'s environment flag: its flow, marked must when the
 ; initialiser must be what it flows from.
-(pub :: letFlag (-> Int Int Int Int Int))
+(pub :: letFlag (-> Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (letFlag cg init params env)
   (let ((f (flowMask cg init params env)))
@@ -2761,7 +2779,7 @@
 (pub :: branchEnter (-> Int Int))
 
 (pub fn (branchEnter cell)
-  (let ((stk (memGetWord cell 2)))
+  (let ((stk (memGetWordVec cell 2)))
     {
       (vecPush stk (memGetWord cell 0))
       (vecPush stk (memGetWord cell 1))
@@ -2776,7 +2794,7 @@
 
 (pub fn (branchLeave cell)
   (let (
-    (stk (memGetWord cell 2))
+    (stk (memGetWordVec cell 2))
     (net (regionNet cell))
   )
     (let ((n (vecLen stk)))
@@ -2796,10 +2814,10 @@
   )
 )
 
-(pub :: flowStashesVec (-> Int Int Int Int Int Int Int))
+(pub :: flowStashesVec (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (flowStashesVec cg v params env cell i)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     0
     (if (>= i (vecLen v))
       0
@@ -2815,7 +2833,7 @@
   )
 )
 
-(pub :: flowStashesClauses (-> Int Int Int Int Int Int Int))
+(pub :: flowStashesClauses (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (flowStashesClauses cg cls params env cell i)
   (if (>= i (vecLen cls))
@@ -2843,7 +2861,7 @@
   )
 )
 
-(pub :: flowStashesArms (-> Int Int Int Int Int Int Int Int))
+(pub :: flowStashesArms (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int Int Int))
 
 (pub fn (flowStashesArms cg arms params env cell scrut i)
   (if (>= i (vecLen arms))
@@ -2853,7 +2871,7 @@
         {
           (branchEnter cell)
           (flowStashes
-            cg            (nodeB arm)            params            (if (== bs 0)
+            cg            (nodeB arm)            params            (if (== (cast Int bs) 0)
               env
               (envWithPat cg env (nodeA arm) scrut)
             )            cell
@@ -2872,7 +2890,7 @@
 ; each argument's FORM; a constructor: what its WORD fields park; a
 ; raw store: its value; a cast: nothing of itself (its consumer
 ; decides).
-(pub :: flowStashesApp (-> Int Int Int Int Int Int))
+(pub :: flowStashesApp (-> Int Int (Vec Int) (Vec Int) Int Int))
 
 (pub fn (flowStashesApp cg e params env cell)
   (let (
@@ -2950,7 +2968,7 @@
                     (stashAdd cell (stashSel
                       cg                      e                      n_                      params                      env                      (fnStashMask cg n)                      0
                     ))
-                    (let ((entry (lookupType (memGetWord cg 3) n)))
+                    (let ((entry (lookupType (memGetWordVec cg 3) n)))
                       (if (== entry 0)
                         ; an effect operation, or a name nothing signed
                         (stashAdd cell (parkForms (flowMaskAll
@@ -2972,7 +2990,7 @@
   )
 )
 
-(pub :: flowStashesArgsRegions (-> Int Int Int Int Int Int Int Int))
+(pub :: flowStashesArgsRegions (-> Int Int Int (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (flowStashesArgsRegions cg e n_ params env cell i)
   (if (>= i n_)
@@ -3003,7 +3021,7 @@
 ; would release the old reference under it (`(i1 (strConcat ..) (cast
 ; Int s) (- n 1))`). Every self call is treated so; a non-tail one
 ; parks conservatively.
-(pub :: selfSlotParks (-> Int Int Int Int Int Int Int Int))
+(pub :: selfSlotParks (-> Int Int Int Int (Vec Int) (Vec Int) Int Int))
 
 (pub fn (selfSlotParks cg e hd n_ params env cell)
   (let ((d (memGetWord cg 36)))
@@ -3027,7 +3045,7 @@
   )
 )
 
-(pub :: selfSlotParksFrom (-> Int Int Int Int Int Int Int Int Int))
+(pub :: selfSlotParksFrom (-> Int Int Int Int (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (selfSlotParksFrom cg e sigTy n_ params env cell i)
   (if (>= i n_)
@@ -3048,7 +3066,7 @@
 ; an argument's arrival half is parked if the callee parks a typed
 ; arrival there, its word half if the callee parks a word there; a
 ; parked word is parked in both forms of what it was a word of.
-(pub :: stashSel (-> Int Int Int Int Int Int Int Int))
+(pub :: stashSel (-> Int Int Int (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (stashSel cg e n_ params env mask i)
   (if (>= i n_)
@@ -3086,7 +3104,7 @@
   )
 )
 
-(pub :: flowStashesArgs (-> Int Int Int Int Int Int Int Int))
+(pub :: flowStashesArgs (-> Int Int Int (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (flowStashesArgs cg e n_ params env cell i)
   (if (>= i n_)
@@ -3106,7 +3124,7 @@
 ; is stored in them; reference fields retain (event 6), and a
 ; type-variable field retains under its witness when the value is a
 ; typed reference - a word laundered into one parks.
-(pub :: flowStashesFields (-> Int Int Int Int Int Int Int Int Int))
+(pub :: flowStashesFields (-> Int Int Int Int (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (flowStashesFields cg entry e n_ params env cell i)
   (if (>= i n_)
@@ -3130,7 +3148,7 @@
   )
 )
 
-(pub :: flowStashesFieldsVec (-> Int Int Int Int Int Int Int Int))
+(pub :: flowStashesFieldsVec (-> Int Int (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (flowStashesFieldsVec cg entry args params env cell i)
   (if (>= i (vecLen args))
@@ -3161,8 +3179,8 @@
 
 (pub fn (fieldTypeNode entry j)
   (if (== (eKind entry) TF_DATA)
-    (let ((ftys (eFieldTys entry)))
-      (if (== ftys 0)
+    (let ((ftys (eFieldTysVec entry)))
+      (if (== (cast Int ftys) 0)
         0
         (if (< j (vecLen ftys))
           (vecGet ftys j)
@@ -3170,7 +3188,7 @@
         )
       )
     )
-    (let ((fs (eFieldFlags entry)))
+    (let ((fs (eFieldFlagsVec entry)))
       (if (< j (vecLen fs))
         (nodeTy (vecGet fs j))
         0
@@ -3182,14 +3200,14 @@
 ; What a lambda body parks by capture: the `let`-bound locals it
 ; mentions, with their flows - a parameter captured directly takes a
 ; share (`emitLambda` retains reference parameters it captures).
-(pub :: lamCaptureMask (-> Int Int Int Int Int))
+(pub :: lamCaptureMask (-> Int Int (Vec Int) (Vec Int) Int))
 
 (pub fn (lamCaptureMask cg body params env) (| (lamCaptureFrom body env 0) (lamParamCaptures cg body params 0)))
 
 ; `emitLambda` retains a captured parameter only when its class is a
 ; reference (`retainParamCaps`): a type-variable or `Int` parameter
 ; is captured uncounted - parked.
-(pub :: lamParamCaptures (-> Int Int Int Int Int))
+(pub :: lamParamCaptures (-> Int Int (Vec Int) Int Int))
 
 (pub fn (lamParamCaptures cg body params i)
   (if (>= i (vecLen params))
@@ -3224,7 +3242,7 @@
           (let ((n (nodeAName hd)))
             (if (|| (isCastName n) (|| (isPrimName n) (|| (isBinop n) (|| (isCmpOp n) (isAndOr n)))))
               0
-              (if (!= (lookupType (memGetWord cg 3) n) 0)
+              (if (!= (lookupType (memGetWordVec cg 3) n) 0)
                 1
                 (if (== (fnResultClass cg n) 2)
                   1
@@ -3239,7 +3257,7 @@
   )
 )
 
-(pub :: paramIsString (-> Int Int Int Int))
+(pub :: paramIsString (-> Int (Vec Int) Int Int))
 
 (pub fn (paramIsString cg params i)
   (if (< i 0)
@@ -3248,8 +3266,8 @@
       (if (== d 0)
         0
         (if (||
-          (!= (vecLen params) (vecLen (nodeB d)))          (if (strEq
-            (cast String (vecGet params i))            (cast String (vecGet (nodeB d) i))
+          (!= (vecLen params) (vecLen (nodeBVec d)))          (if (strEq
+            (cast String (vecGet params i))            (cast String (vecGet (nodeBVec d) i))
           )
             false
             true
@@ -3276,13 +3294,13 @@
   )
 )
 
-(pub :: paramClassOf (-> Int Int Int Int))
+(pub :: paramClassOf (-> Int (Vec Int) Int Int))
 
 (pub fn (paramClassOf cg params i)
   (let ((d (memGetWord cg 36)))
     (if (== d 0)
       2
-      (if (!= (vecLen params) (vecLen (nodeB d)))
+      (if (!= (vecLen params) (vecLen (nodeBVec d)))
         2
         (let ((e (findFSigCg cg (nodeAName d))))
           (if (== e 0)
@@ -3295,7 +3313,7 @@
   )
 )
 
-(pub :: lamCaptureFrom (-> Int Int Int Int))
+(pub :: lamCaptureFrom (-> Int (Vec Int) Int Int))
 
 (pub fn (lamCaptureFrom body env i)
   (if (>= (+ i 1) (vecLen env))
@@ -3358,7 +3376,7 @@
             ; a nullary constructor - `None`, `Nil` - is an immediate,
             ; a no-op to release, so `(if c (Some x) None)` is owned
             ; and the `Some` it builds is given back
-            (if (!= (lookupType (memGetWord cg 3) (nodeAName e)) 0)
+            (if (!= (lookupType (memGetWordVec cg 3) (nodeAName e)) 0)
               (if (isLocalValue cg (nodeAName e))
                 0
                 1
@@ -3377,7 +3395,7 @@
                       0
                       (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
                         0
-                        (if (!= (lookupType (memGetWord cg 3) n) 0)
+                        (if (!= (lookupType (memGetWordVec cg 3) n) 0)
                           0
                           (if (== (spineArity e) (fnArityCg cg n))
                             1
@@ -3395,18 +3413,18 @@
                   0
                 )
                 (if (== tg TAG_E_COND)
-                  (if (== (valueOwnedRefClauses cg (nodeA e) 0) 1)
+                  (if (== (valueOwnedRefClauses cg (nodeAVec e) 0) 1)
                     (valueOwnedRef cg (nodeB e))
                     0
                   )
                   (if (== tg TAG_E_MATCH)
-                    (valueOwnedRefArms cg (nodeB e) 0)
+                    (valueOwnedRefArms cg (nodeBVec e) 0)
                     (if (== tg TAG_E_LET)
                       (valueOwnedRef cg (nodeC e))
                       (if (== tg TAG_E_BEGIN)
-                        (if (== (vecLen (nodeA e)) 0)
+                        (if (== (vecLen (nodeAVec e)) 0)
                           0
-                          (valueOwnedRef cg (vecGet (nodeA e) (- (vecLen (nodeA e)) 1)))
+                          (valueOwnedRef cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1)))
                         )
                         0
                       )
@@ -3422,7 +3440,7 @@
   )
 )
 
-(pub :: valueOwnedRefClauses (-> Int Int Int Int))
+(pub :: valueOwnedRefClauses (-> Int (Vec Int) Int Int))
 
 (pub fn (valueOwnedRefClauses cg cls i)
   (if (>= i (vecLen cls))
@@ -3434,7 +3452,7 @@
   )
 )
 
-(pub :: valueOwnedRefArms (-> Int Int Int Int))
+(pub :: valueOwnedRefArms (-> Int (Vec Int) Int Int))
 
 (pub fn (valueOwnedRefArms cg arms i)
   (if (>= i (vecLen arms))
@@ -3467,7 +3485,7 @@
 ; `strVecIdx` are `core.ax`'s. So what the fixture compares is two
 ; orderings, not two copies of a list search.
 ; ------------------------------------------------------------------
-(pub :: cgSigVarsInto (-> Int Int Int))
+(pub :: cgSigVarsInto (-> Int (Vec Int) Int))
 
 (pub fn (cgSigVarsInto t acc)
   (if (== t 0)
@@ -3477,21 +3495,21 @@
         (if (== (tyIsSrcVar t) 1)
           (if (== (strVecHas acc (nodeAName t)) 1)
             0
-            (vecPush
+            { (vecPush
               acc              (cast Int (nodeA t))
-            )
+            ) 0 }
           )
           0
         )
         (if (== tg TAG_T_CON)
-          (cgSigVarsVec (nodeB t) acc)
+          (cgSigVarsVec (nodeBVec t) acc)
           (if (== tg TAG_T_ARR)
             {
               (cgSigVarsInto (nodeA t) acc)
               (cgSigVarsInto (nodeB t) acc)
             }
             (if (== tg TAG_T_TUP)
-              (cgSigVarsVec (nodeA t) acc)
+              (cgSigVarsVec (nodeAVec t) acc)
               (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
                 (cgSigVarsInto (nodeA t) acc)
                 0
@@ -3504,10 +3522,10 @@
   )
 )
 
-(pub :: cgSigVarsVec (-> Int Int Int))
+(pub :: cgSigVarsVec (-> (Vec Int) (Vec Int) Int))
 
 (pub fn (cgSigVarsVec xs acc)
-  (if (== xs 0)
+  (if (== (cast Int xs) 0)
     0
     (let ((mut i 0))
       {
@@ -3522,7 +3540,7 @@
   )
 )
 
-(pub :: cgParamPosVars (-> Int Int Int))
+(pub :: cgParamPosVars (-> Int (Vec Int) Int))
 
 (pub fn (cgParamPosVars t acc)
   (if (&& (!= t 0) (== (nodeTag t) TAG_T_ARR))
@@ -3688,7 +3706,7 @@
       cg
     }
     (let (
-      (w (nodeB stamp))
+      (w (nodeBVec stamp))
       (mut c 0)
       (mut hasHigh 0)
       (mut hasSym 0)
@@ -3857,8 +3875,8 @@
   (let ((e (findFSigCg cg name)))
     (if (== e 0)
       0
-      (let ((flags (memGetWord e 2)))
-        (if (== flags 0)
+      (let ((flags (memGetWordVec e 2)))
+        (if (== (cast Int flags) 0)
           0
           (if (== (vecLen flags) 0)
             0
@@ -3876,8 +3894,8 @@
 (pub :: paramIsFloat (-> Int Int Int))
 
 (pub fn (paramIsFloat cg idx)
-  (let ((flags (memGetWord cg 18)))
-    (if (== flags 0)
+  (let ((flags (memGetWordVec cg 18)))
+    (if (== (cast Int flags) 0)
       0
       (if (>= idx (- (vecLen flags) 1))
         0
@@ -3890,15 +3908,15 @@
 (pub :: paramFloatByName (-> Int String Int))
 
 (pub fn (paramFloatByName cg name)
-  (let ((params (memGetWord cg 17)))
-    (if (== params 0)
+  (let ((params (memGetWordVec cg 17)))
+    (if (== (cast Int params) 0)
       0
       (paramFloatIdx cg params name 0)
     )
   )
 )
 
-(pub :: paramFloatIdx (-> Int Int String Int Int))
+(pub :: paramFloatIdx (-> Int (Vec Int) String Int Int))
 
 (pub fn (paramFloatIdx cg params name i)
   (if (>= i (vecLen params))
@@ -3927,7 +3945,7 @@
 (pub :: emitLine (-> Int String Int))
 
 (pub fn (emitLine cg line)
-  (let ((updated (vecPush (memGetWord cg 0) (strDup line))))
+  (let ((updated (vecPush (memGetWordVec cg 0) (strDup line))))
     {
       (memSetWord cg 0 updated)
       cg
@@ -3981,10 +3999,10 @@
 ; ------------------------------------------------------------------
 (pub :: renderCG (-> Int String))
 
-(pub fn (renderCG cg) (joinLines (memGetWord cg 0)))
+(pub fn (renderCG cg) (joinLines (memGetWordVec cg 0)))
 
 ; The exact size of the joined result: every line plus its newline.
-(pub :: joinSize (-> Int Int))
+(pub :: joinSize (-> (Vec Int) Int))
 
 (pub fn (joinSize lines)
   (let (
@@ -4002,7 +4020,7 @@
   )
 )
 
-(pub :: joinLines (-> Int String))
+(pub :: joinLines (-> (Vec Int) String))
 
 (pub fn (joinLines lines)
   (let (
@@ -4107,7 +4125,7 @@
 
 (pub fn (internString cg lexeme)
   (let (
-    (tbl (memGetWord cg 10))
+    (tbl (memGetWordVec cg 10))
     (found (findString tbl lexeme 0))
   )
     (if (>= found 0)
@@ -4122,7 +4140,7 @@
   )
 )
 
-(pub :: findString (-> Int String Int Int))
+(pub :: findString (-> (Vec a) String Int Int))
 
 (pub fn (findString tbl s i)
   (if (>= i (vecLen tbl))
@@ -4364,7 +4382,7 @@
 (pub :: emitStringGlobals (-> Int Int Int))
 
 (pub fn (emitStringGlobals cg i)
-  (let ((tbl (memGetWord cg 10)))
+  (let ((tbl (memGetWordVec cg 10)))
     (if (>= i (vecLen tbl))
       cg
       (let ((lex (vecGetStr tbl i)))
@@ -4417,22 +4435,22 @@
   )
 )
 
-(pub :: isNullaryFn (-> Int String Bool))
+(pub :: isNullaryFn (-> (Vec Int) String Bool))
 
 (pub fn (isNullaryFn decls name)
-  (if (== decls 0)
+  (if (== (cast Int decls) 0)
     false
     (isNullaryFnIn decls (declSpellingOf name) 0)
   )
 )
 
-(pub :: isNullaryFnIn (-> Int String Int Bool))
+(pub :: isNullaryFnIn (-> (Vec Int) String Int Bool))
 
 (pub fn (isNullaryFnIn decls name i)
   (if (>= i (vecLen decls))
     false
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) name) (== (vecLen (nodeB d)) 0)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) name) (== (vecLen (nodeBVec d)) 0)))
         true
         ; A ZERO-ARITY `extern` item is a nullary function too, and
         ; this is the one place that decides so. Without this arm the
@@ -4443,7 +4461,7 @@
         ;
         ; It matters only for arity 0: every other arity reaches
         ; `emitPlainCall` through an application node.
-        (if (&& (== (nodeTag d) TAG_D_EXTERN) (externHasNullary (nodeC d) name 0))
+        (if (&& (== (nodeTag d) TAG_D_EXTERN) (externHasNullary (nodeCVec d) name 0))
           true
           (isNullaryFnIn decls name (+ i 1))
         )
@@ -4454,10 +4472,10 @@
 
 ; Whether `name` is an item of this block whose declared type is not an
 ; arrow - i.e. takes no arguments.
-(pub :: externHasNullary (-> Int String Int Bool))
+(pub :: externHasNullary (-> (Vec Int) String Int Bool))
 
 (pub fn (externHasNullary items name i)
-  (if (== items 0)
+  (if (== (cast Int items) 0)
     false
     (if (>= i (vecLen items))
       false
@@ -4482,7 +4500,7 @@
 ; ------------------------------------------------------------------
 ; Pre-scan declarations: build the type registry.
 ; ------------------------------------------------------------------
-(pub :: scanDecls (-> Int Int Int Int))
+(pub :: scanDecls (-> (Vec Int) Int Int Int))
 
 (pub fn (scanDecls decls cg i)
   (if (>= i (vecLen decls))
@@ -4502,7 +4520,7 @@
 
 (pub fn (scanEffect node cg)
   (let (
-    (tbl (memGetWord cg 32))
+    (tbl (memGetWordVec cg 32))
     (slot (effSlotFor (nodeAName node) (nodeModule node)))
     (isEntry (if (== (nodeModule node) 0)
       1
@@ -4525,12 +4543,12 @@
         ; on valid source.
         (if (== (nodeModule node) 0)
           0
-          (vecPush
+          { (vecPush
             tbl            (cast Int (EffEnt (cat3 (nodeModuleName node) "$" (nodeAName node)) slot isEntry))
-          )
+          ) 0 }
         )
         (scanEffectOps
-          (nodeB node)          slot          isEntry          (nodeModule node)          (memGetWord cg 33)          0
+          (nodeBVec node)          slot          isEntry          (nodeModule node)          (memGetWordVec cg 33)          0
         )
         cg
       }
@@ -4544,7 +4562,7 @@
 ; `EffMod$ask`, and an `effect` declaration is one of the two kinds
 ; `mangleDecl` never rewrites. Both spellings dispatch through the one
 ; slot, which is the only thing that has to be single.
-(pub :: scanEffectOps (-> Int String Int a Int Int Int))
+(pub :: scanEffectOps (-> (Vec Int) String Int a (Vec Int) Int Int))
 
 (pub fn (scanEffectOps ops slot isEntry modName tbl i)
   (if (>= i (vecLen ops))
@@ -4557,13 +4575,13 @@
         (cast Int modName)        0
       )
         0
-        (vecPush
+        { (vecPush
           tbl          (cast Int (EffEnt
             (cat3
               (cast String modName)              "$"              (vecGetStr ops i)
             )            slot            isEntry
           ))
-        )
+        ) 0 }
       )
       (scanEffectOps
         ops        slot        isEntry        modName        tbl        (+ i 1)
@@ -4581,11 +4599,11 @@
       (if (== tag TAG_D_DATA)
         (let (
           (name (nodeAName node))
-          (ctors (nodeB node))
+          (ctors (nodeBVec node))
         )
           {
             (vecPush
-              (memGetWord cg 35)              (cast Int name)
+              (memGetWordVec cg 35)              (cast Int name)
             )
             (scanCtors
               ctors              cg              0              (ctorsRep ctors (memGetWord cg 4))              (nodeModuleName node)
@@ -4598,8 +4616,8 @@
           ; float flags alone - the kind decides the reading.
           (let (
             (name (nodeAName node))
-            (fields (nodeB node))
-            (types (memGetWord cg 3))
+            (fields (nodeBVec node))
+            (types (memGetWordVec cg 3))
           )
             {
               (memSetWord cg 3 (addQualified
@@ -4617,7 +4635,7 @@
   )
 )
 
-(pub :: ctorsHasNullary (-> Int Int Int))
+(pub :: ctorsHasNullary (-> (Vec Int) Int Int))
 
 (pub fn (ctorsHasNullary ctors i)
   (if (>= i (vecLen ctors))
@@ -4629,7 +4647,7 @@
   )
 )
 
-(pub :: ctorsHasBoxed (-> Int Int Int))
+(pub :: ctorsHasBoxed (-> (Vec Int) Int Int))
 
 (pub fn (ctorsHasBoxed ctors i)
   (if (>= i (vecLen ctors))
@@ -4650,7 +4668,7 @@
 ; every heap address is mmap-page memory at or above it). Mirrors
 ; stage0's S1 rule exactly; `firstTag` is the counter before this
 ; type's constructors are assigned.
-(pub :: ctorsRep (-> Int Int Int))
+(pub :: ctorsRep (-> (Vec Int) Int Int))
 
 (pub fn (ctorsRep ctors firstTag)
   (if (== (ctorsHasNullary ctors 0) 0)
@@ -4677,7 +4695,7 @@
 ; changes no rule: the tag, arity and representation are the SAME
 ; values, which is what keeps a constructor reached under either
 ; spelling one constructor rather than two.
-(pub :: addQualified (-> Int a String Int Int Int Int Int Int Int Int))
+(pub :: addQualified (-> (Vec Int) a String Int Int Int Int (Vec Int) Int Int (Vec Int)))
 
 (pub fn (addQualified types modName name kind arity tag rep fieldFlags fieldNames fieldTys)
   (if (==
@@ -4694,7 +4712,7 @@
   )
 )
 
-(pub :: scanCtors (-> Int Int Int Int String Int))
+(pub :: scanCtors (-> (Vec Int) Int Int Int String Int))
 
 (pub fn (scanCtors ctors cg i rep modName)
   (if (>= i (vecLen ctors))
@@ -4708,14 +4726,14 @@
         (n (nodeAName node))
         (a (nodeB node))
         (t (memGetWord cg 4))
-        (types (memGetWord cg 3))
+        (types (memGetWordVec cg 3))
       )
         {
           (memSetWord cg 4 (+ t 1))
           (memSetWord cg 3 (addQualified
             (addTypeNamed
-              types              n              TF_DATA              a              t              rep              (nodeC node)              (nodeFieldNames node)              (nodeTy node)
-            )            modName            n            TF_DATA            a            t            rep            (nodeC node)            (nodeFieldNames node)            (nodeTy node)
+              types              n              TF_DATA              a              t              rep              (nodeCVec node)              (nodeFieldNames node)              (nodeTy node)
+            )            modName            n            TF_DATA            a            t            rep            (nodeCVec node)            (nodeFieldNames node)            (nodeTy node)
           ))
           (scanCtors
             ctors            cg            (+ i 1)            rep            modName
@@ -4873,7 +4891,7 @@
 ; `(pathDir (sysArg 0))` is `""` and the exe-relative entries below
 ; would resolve against the working directory. `pushExeRelStdlib`
 ; handles that case rather than degrading into it; see its comment.
-(pub :: moduleSearchDirs (-> String Int))
+(pub :: moduleSearchDirs (-> String (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (moduleSearchDirs entryDir)
@@ -4967,7 +4985,7 @@
 ; The two working-directory entries are still pushed afterwards, so
 ; nothing that resolved before this resolves differently now - the
 ; resolved root is added AHEAD of them, never in place of them.
-(pub :: pushExeRelStdlib (-> Int String Int))
+(pub :: pushExeRelStdlib (-> (Vec Int) String (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (pushExeRelStdlib v exe)
@@ -4983,6 +5001,7 @@
             (vecPush
               v              (cast Int (cat2 found "../../stdlib/"))
             )
+            0
           }
           0
         )
@@ -5038,7 +5057,7 @@
 )
 
 ; Append each non-empty `:`-separated entry of `list`, slash-terminated.
-(pub :: pushPathList (-> Int String Int))
+(pub :: pushPathList (-> (Vec Int) String Int))
 
 (pub fn (pushPathList v list)
   ; `strSplit` owns the colon scan now. This was one of two open-coded
@@ -5055,7 +5074,7 @@
   )
 )
 
-(pub :: pushDependDirs (-> Int Int Int Int))
+(pub :: pushDependDirs (-> (Vec Int) (Vec Int) Int Int))
 
 (pub fn (pushDependDirs v dirs i)
   (if (>= i (vecLen dirs))
@@ -5069,7 +5088,7 @@
   )
 )
 
-(pub :: pushPathParts (-> Int Int Int Int))
+(pub :: pushPathParts (-> (Vec Int) (Vec Int) Int Int))
 
 (pub fn (pushPathParts v parts i)
   (if (>= i (vecLen parts))
@@ -5080,7 +5099,7 @@
           (vecPush
             v            (cast Int (pathWithSlash d))
           )
-          0
+          (cast (Vec Int) 0)
         )
       )
       (pushPathParts v parts (+ i 1))
@@ -5147,7 +5166,7 @@
   )
 )
 
-(pub :: searchDirsFor (-> Int String Int String))
+(pub :: searchDirsFor (-> (Vec Int) String Int String))
 
 ;@axiom:effect(io)
 (pub fn (searchDirsFor dirs base i)
@@ -5245,7 +5264,7 @@
 
 ; Every `--crate DIR` (or `--crate=DIR`) on the command line, as a
 ; module search directory `DIR/axiom/`.
-(pub :: pushCrateDirs (-> Int Int Int))
+(pub :: pushCrateDirs (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (pushCrateDirs v i)
@@ -5258,7 +5277,7 @@
             (vecPush
               v              (cast Int (cat2 (pathWithSlash (sysArg (+ i 1))) "axiom/"))
             )
-            0
+            (cast (Vec Int) 0)
           )
           (pushCrateDirs v (+ i 2))
         }
@@ -5388,7 +5407,7 @@
   )
 )
 
-(pub :: crateDirsOf Int)
+(pub :: crateDirsOf (Vec Int))
 
 ;@axiom:effect(io)
 (pub fn (crateDirsOf)
@@ -5400,7 +5419,7 @@
   )
 )
 
-(pub :: collectCrateDirs (-> Int Int Int))
+(pub :: collectCrateDirs (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (collectCrateDirs v i)
@@ -5413,7 +5432,7 @@
             (vecPush
               v              (cast Int (sysArg (+ i 1)))
             )
-            0
+            (cast (Vec Int) 0)
           )
           (collectCrateDirs v (+ i 2))
         }
@@ -5454,7 +5473,7 @@
 ; UNIT TABLE - the path a diagnostic about this module renders
 ; against, its text, and its name so the checker can find the index
 ; from a declaration's `module` stamp.
-(pub :: parseModuleOrDieUnit (-> String Int String Int Int))
+(pub :: parseModuleOrDieUnit (-> String Int String (Vec Int) (Vec a)))
 
 ;@axiom:effect(io)
 (pub fn (parseModuleOrDieUnit name tcode entryDir units)
@@ -5463,13 +5482,13 @@
       (vecPush
         units        (cast Int (CUnit2 (moduleSrcPath name tcode entryDir) (readModuleSrcOr name tcode entryDir "") name))
       )
-      0
+      (cast (Vec Int) 0)
     )
     (parseModuleOrDie name tcode entryDir)
   }
 )
 
-(pub :: unitIndexOf (-> Int String Int Int))
+(pub :: unitIndexOf (-> (Vec Int) String Int Int))
 
 (pub fn (unitIndexOf units name i)
   (if (>= i (vecLen units))
@@ -5563,12 +5582,10 @@
             {
               (if (> i 0)
                 (vecPush parts ", ")
-                0
+                (cast (Vec String) 0)
               )
               (vecPush parts "'")
-              (vecPush
-                parts                (cast Int (vecGet dirs i))
-              )
+              (vecPush parts (vecGetStr dirs i))
               (vecPush parts "'")
               (set i (+ i 1))
             })
@@ -5625,7 +5642,7 @@
 ; This was the last surface untouched by the parse-error port, and it
 ; is the one a person compiling a multi-module program meets first: it
 ; is what a compiler prints when a file it was told to read is broken.
-(pub :: dieModuleParse (-> String String Int Int Int Int String Int))
+(pub :: dieModuleParse (-> String String (Vec Int) Int Int Int String Int))
 
 ;@axiom:effect(io)
 (pub fn (dieModuleParse name src toks pr lexD tcode entryDir)
@@ -5699,7 +5716,7 @@
   )
 )
 
-(pub :: seenHas (-> Int String Bool))
+(pub :: seenHas (-> (Vec String) String Bool))
 
 (pub fn (seenHas seen name) (seenHasIn seen name 0))
 
@@ -5748,11 +5765,11 @@
       (if (==
         (cast Int m)        0
       )
-        (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0)
+        (mangledForIn (memGetWordVec cg 12) (memGetWordVec cg 13) name 0)
         (let ((local (cat3 m "$" name)))
-          (if (mangleHasIn (memGetWord cg 12) local 0)
+          (if (mangleHasIn (memGetWordVec cg 12) local 0)
             local
-            (mangledForIn (memGetWord cg 12) (memGetWord cg 13) name 0)
+            (mangledForIn (memGetWordVec cg 12) (memGetWordVec cg 13) name 0)
           )
         )
       )
@@ -5760,7 +5777,7 @@
   )
 )
 
-(pub :: mangledForIn (-> Int Int String Int String))
+(pub :: mangledForIn (-> (Vec Int) (Vec Int) String Int String))
 
 (pub fn (mangledForIn bares fulls name i)
   (if (>= i (vecLen bares))
@@ -5774,7 +5791,7 @@
 
 ; Every entry-file function maps to itself, recorded ahead of every
 ; import so that a collision resolves to the file being compiled.
-(pub :: recordEntryFns (-> Int Int Int Int Int Int))
+(pub :: recordEntryFns (-> (Vec Int) Int (Vec String) (Vec String) Int Int))
 
 (pub fn (recordEntryFns decls idx bares fulls i)
   (if (>= i (vecLen decls))
@@ -5789,7 +5806,7 @@
           ; `emitPlainCall` emits its usual `call i64 @<sym>(...)` and
           ; the symbol it names is the Rust one.
           (if (== (nodeTag d) TAG_D_EXTERN)
-            (recordExternSyms idx bares fulls (nodeC d) 0)
+            (recordExternSyms idx bares fulls (nodeCVec d) 0)
             0
           )
         )
@@ -5799,10 +5816,10 @@
   )
 )
 
-(pub :: recordExternSyms (-> Int Int Int Int Int Int))
+(pub :: recordExternSyms (-> Int (Vec String) (Vec String) (Vec Int) Int Int))
 
 (pub fn (recordExternSyms idx bares fulls items i)
-  (if (== items 0)
+  (if (== (cast Int items) 0)
     0
     (if (>= i (vecLen items))
       0
@@ -5818,7 +5835,7 @@
   )
 )
 
-(pub :: resolveImports (-> Int Int Int Int Int String Int Int))
+(pub :: resolveImports (-> (Vec Int) (Vec String) (Vec String) (Vec Int) Int String (Vec Int) (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (resolveImports decls bares fulls mods tcode entryDir units)
@@ -5831,7 +5848,7 @@
     {
       (recordEntryFns decls idx bares fulls 0)
       (resolveDecls
-        decls        vecNew        vecNew        0        (cast String 0)        idx        bares        fulls        mods        0        tcode        entryDir        units
+        decls        vecNew        vecNew        0        (cast String 0)        idx        bares        fulls        mods        (cast (Vec String) 0)        tcode        entryDir        units
       )
     }
   )
@@ -5853,7 +5870,7 @@
 ; `acc` and `seen` are threaded rather than rebuilt: `vecPush` mutates in
 ; place and returns the same handle, so both stay stable across the whole
 ; traversal and siblings observe each other's additions.
-(pub :: resolveDecls (-> Int Int Int Int String Int Int Int Int Int Int String Int Int))
+(pub :: resolveDecls (-> (Vec Int) (Vec Int) (Vec String) Int String Int (Vec String) (Vec String) (Vec Int) (Vec String) Int String (Vec Int) (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (resolveDecls decls acc seen i modName idx bares fulls mods filter tcode entryDir units) (resolveDeclsPhase
@@ -5874,7 +5891,7 @@
 ; One pass: phase 0 consumes only the `(import ...)` entries (each
 ; imported module resolving BOTH its phases depth-first), phase 1 only
 ; the module's own declarations.
-(pub :: resolveDeclsPhase (-> Int Int Int Int String Int Int Int Int Int Int String Int Int Int))
+(pub :: resolveDeclsPhase (-> (Vec Int) (Vec Int) (Vec String) Int String Int (Vec String) (Vec String) (Vec Int) (Vec String) Int String (Vec Int) Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (resolveDeclsPhase decls acc seen i modName idx bares fulls mods filter tcode entryDir units phase)
@@ -5903,18 +5920,18 @@
                 ; is applied here (MAC-EXP-16).
                 (let (
                   (modDecls (parseModuleOrDieUnit name tcode entryDir units))
-                  (subFilter (let ((ns (nodeB first)))
-                    (if (== ns 0)
-                      0
+                  (subFilter (let ((ns (nodeBVec first)))
+                    (if (== (cast Int ns) 0)
+                      (cast (Vec String) 0)
                       (if (== (vecLen ns) 0)
-                        0
+                        (cast (Vec String) 0)
                         ns
                       )
                     )
                   ))
                 )
                   {
-                    (modFilterRecord mods name subFilter)
+                    (modFilterRecord mods name (cast Int subFilter))
                     (resolveDeclsPhase
                       decls                      (resolveDecls
                         modDecls                        acc                        seen                        0                        name                        idx                        bares                        fulls                        mods                        subFilter                        tcode                        entryDir                        units
@@ -6617,7 +6634,7 @@
 ; archive (`--emit-staticlib`) does not carry - so the list must say
 ; exactly what was written, or a program's own binding of one of them
 ; would be skipped and go undefined at the link.
-(pub :: runtimeDeclaredSyms (-> Int Int))
+(pub :: runtimeDeclaredSyms (-> Int (Vec String)))
 
 ;@axiom:effect(io)
 (pub fn (runtimeDeclaredSyms t)
@@ -8062,7 +8079,7 @@
 ; `emitEffectGlobals` applies, because an imported effect is registered
 ; twice and both entries name one slot. It is the record's variable
 ; part and the two helpers' loop bound.
-(pub :: distinctSlotCount (-> Int Int Int Int))
+(pub :: distinctSlotCount (-> (Vec Int) Int Int Int))
 
 (pub fn (distinctSlotCount tbl i acc)
   (if (>= i (vecLen tbl))
@@ -8100,7 +8117,7 @@
 (pub :: emitRecoverSlotMoves (-> Int Int Int Int Int))
 
 (pub fn (emitRecoverSlotMoves cg i k save)
-  (let ((tbl (memGetWord cg 32)))
+  (let ((tbl (memGetWordVec cg 32)))
     (if (>= i (vecLen tbl))
       k
       (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
@@ -8262,7 +8279,7 @@
   ; function nothing could reach. Two lines is not a cost worth
   ; arguing about, and that is exactly why it had to go: the rule is
   ; byte-identity, not "small enough".
-  (if (== (distinctSlotCount (memGetWord cg 32) 0 0) 0)
+  (if (== (distinctSlotCount (memGetWordVec cg 32) 0 0) 0)
     cg
   {
     (emitLine cg "")
@@ -8315,7 +8332,7 @@
 (pub :: emitEvCall (-> Int String String Int))
 
 (pub fn (emitEvCall cg lo hi)
-  (if (== (distinctSlotCount (memGetWord cg 32) 0 0) 0)
+  (if (== (distinctSlotCount (memGetWordVec cg 32) 0 0) 0)
     cg
     (emitLine cg (cat3 "  call i64 @__axiom_ev_check(i64 " lo (cat3 ", i64 " hi ")")))
   )
@@ -8324,7 +8341,7 @@
 (pub :: emitEvChunkCall (-> Int Int))
 
 (pub fn (emitEvChunkCall cg)
-  (if (== (distinctSlotCount (memGetWord cg 32) 0 0) 0)
+  (if (== (distinctSlotCount (memGetWordVec cg 32) 0 0) 0)
     cg
     {
       (emitLine cg "  %csizep = inttoptr i64 %c to ptr")
@@ -8339,7 +8356,7 @@
 (pub :: emitEvCheck (-> Int Int))
 
 (pub fn (emitEvCheck cg)
-  (let ((n (distinctSlotCount (memGetWord cg 32) 0 0)))
+  (let ((n (distinctSlotCount (memGetWordVec cg 32) 0 0)))
     (if (== n 0)
       cg
       {
@@ -8368,7 +8385,7 @@
 (pub :: emitEvCheckSlots (-> Int Int Int Int))
 
 (pub fn (emitEvCheckSlots cg i k)
-  (let ((tbl (memGetWord cg 32)))
+  (let ((tbl (memGetWordVec cg 32)))
     (if (>= i (vecLen tbl))
       k
       (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
@@ -8480,7 +8497,7 @@
 ; name missing from the table is worse than absent: the lookup below
 ; takes the greatest entry at or below the return address, so a hole
 ; makes the walker confidently print the WRONG function.
-(pub :: symtabNames (-> Int Int))
+(pub :: symtabNames (-> (Vec Int) (Vec Int)))
 
 (pub fn (symtabNames lines)
   (let ((out vecNew))
@@ -8491,7 +8508,7 @@
   )
 )
 
-(pub :: symtabScan (-> Int Int Int Int))
+(pub :: symtabScan (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (symtabScan lines i out)
   (if (>= i (vecLen lines))
@@ -8505,9 +8522,9 @@
               (let ((end (symtabEndOf ln (+ at 1) (strLen ln))))
                 (if (< end 0)
                   0
-                  (vecPush
+                  { (vecPush
                     out                    (cast Int (strSlice ln (+ at 1) (- end (+ at 1))))
-                  )
+                  ) 0 }
                 )
               )
             )
@@ -8681,15 +8698,15 @@
 ; parameter instead of four: 0 = the defined symbols, interned;
 ; 1 = intern id -> index into `defStart`; 2 = index -> 0/1 live;
 ; 3 = the worklist of defines marked live and not yet scanned.
-(pub :: pruneCtxNew (-> Int Int Int Int Int))
+(pub :: pruneCtxNew (-> Int (Vec Int) (Vec Int) (Vec Int) (Vec Int)))
 
 (pub fn (pruneCtxNew si idToDef live stack)
   (let ((v vecNew))
     {
       (vecPush v si)
-      (vecPush v idToDef)
-      (vecPush v live)
-      (vecPush v stack)
+      (vecPushVec v idToDef)
+      (vecPushVec v live)
+      (vecPushVec v stack)
       v
     }
   )
@@ -8700,23 +8717,23 @@
 ; `@`-shaped run of bytes inside a string constant - is silently no
 ; symbol of ours, which is what makes the outside-a-define root class
 ; safe to apply to every line without knowing what is on it.
-(pub :: pruneMark (-> Int String Int))
+(pub :: pruneMark (-> (Vec Int) String Int))
 
 (pub fn (pruneMark ctx sym)
   (match (internFind (vecGet ctx 0) sym)
     ((Some id)
-      (let ((idToDef (vecGet ctx 1)))
+      (let ((idToDef (vecGetVec ctx 1)))
         (if (>= id (vecLen idToDef))
           0
           (let (
             (d (vecGet idToDef id))
-            (live (vecGet ctx 2))
+            (live (vecGetVec ctx 2))
           )
             (if (== (vecGet live d) 1)
               0
               {
                 (vecSet live d 1)
-                (vecPush (vecGet ctx 3) d)
+                (vecPush (vecGetVec ctx 3) d)
                 0
               }
             )
@@ -8767,7 +8784,7 @@
 ; per-byte recursion the neighbouring scanners use, because this one
 ; is handed the string-constant lines too and those are as long as the
 ; longest literal in the program.
-(pub :: pruneScanLine (-> Int String Int))
+(pub :: pruneScanLine (-> (Vec Int) String Int))
 
 (pub fn (pruneScanLine ctx ln)
   (let (
@@ -8801,7 +8818,7 @@
 ; checked by construction: `emitFnDef` and every runtime emitter close
 ; with a bare `}` in column 0, and nothing else in the buffer is a bare
 ; `}` - a body's own lines are indented and its labels end in `:`.
-(pub :: pruneIndexDefs (-> Int Int Int Int Int Int Int Int))
+(pub :: pruneIndexDefs (-> (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int))
 
 (pub fn (pruneIndexDefs lines si idToDef defStart defEnd live defOf)
   (let (
@@ -8827,10 +8844,10 @@
               (if (strStartsWith ln "define ")
                 (let ((at (symtabAtOf ln 0 (strLen ln))))
                   (if (< at 0)
-                    (vecPush defOf 0)
+                    { (vecPush defOf 0) 0 }
                     (let ((end (symtabEndOf ln (+ at 1) (strLen ln))))
                       (if (< end 0)
-                        (vecPush defOf 0)
+                        { (vecPush defOf 0) 0 }
                         (let (
                           (sym (strSlice ln (+ at 1) (- end (+ at 1))))
                           (d (vecLen defStart))
@@ -8842,7 +8859,7 @@
                             (let ((id (internIntern si sym)))
                               (if (== id (vecLen idToDef))
                                 (vecPush idToDef d)
-                                0
+                                (cast (Vec Int) 0)
                               )
                             )
                             (vecPush defOf (+ d 1))
@@ -8854,7 +8871,7 @@
                     )
                   )
                 )
-                (vecPush defOf 0)
+                { (vecPush defOf 0) 0 }
               )
             )
           )
@@ -8868,11 +8885,11 @@
 ; The transitive closure, as a worklist rather than a fixpoint sweep:
 ; `stack` only grows, and `sp` is how far it has been read, so every
 ; define's body is scanned exactly once.
-(pub :: pruneWalk (-> Int Int Int Int Int))
+(pub :: pruneWalk (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int))
 
 (pub fn (pruneWalk ctx lines defStart defEnd)
   (let (
-    (stack (vecGet ctx 3))
+    (stack (vecGetVec ctx 3))
     (mut sp 0)
   )
     {
@@ -8897,7 +8914,7 @@
 )
 
 ; The buffer without the lines of any define that was never reached.
-(pub :: pruneRebuild (-> Int Int Int Int))
+(pub :: pruneRebuild (-> (Vec Int) (Vec Int) (Vec Int) (Vec String)))
 
 (pub fn (pruneRebuild lines defOf live)
   (let (
@@ -8912,7 +8929,7 @@
               (vecPush out (vecGetStr lines i))
               (if (== (vecGet live (- o 1)) 1)
                 (vecPush out (vecGetStr lines i))
-                0
+                (cast (Vec String) 0)
               )
             )
           )
@@ -8930,7 +8947,7 @@
   (if cgStaticlib
     cg
     (let (
-      (lines (memGetWord cg 0))
+      (lines (memGetWordVec cg 0))
       (si internNew)
       (idToDef vecNew)
       (defStart vecNew)
@@ -9020,7 +9037,7 @@
 
 ; Is `name` one of the symbols this module defines? Asked once, about
 ; `main`, to decide whether the walk has a place to stop.
-(pub :: symtabHas (-> Int String Int Bool))
+(pub :: symtabHas (-> (Vec Int) String Int Bool))
 
 (pub fn (symtabHas names name i)
   (if (>= i (vecLen names))
@@ -9033,7 +9050,7 @@
 )
 
 ; The name constants, one per symbol.
-(pub :: emitSymNames (-> Int Int Int Int))
+(pub :: emitSymNames (-> Int (Vec Int) Int Int))
 
 (pub fn (emitSymNames cg names i)
   (if (>= i (vecLen names))
@@ -9058,7 +9075,7 @@
 ; scans it. Sorting it at startup would need an initialiser hook this
 ; language does not have, and a linear scan on a path that is about to
 ; call `exit` costs nothing anyone can measure.
-(pub :: emitSymRows (-> Int Int Int Int))
+(pub :: emitSymRows (-> Int (Vec Int) Int Int))
 
 (pub fn (emitSymRows cg names i)
   (if (>= i (vecLen names))
@@ -9083,7 +9100,7 @@
   )
 )
 
-(pub :: emitSymbolTable (-> Int Int Int))
+(pub :: emitSymbolTable (-> Int (Vec Int) Int))
 
 (pub fn (emitSymbolTable cg names)
   (let ((n (vecLen names)))
@@ -9299,7 +9316,7 @@
 ; which external symbols a program may name, to make a backtrace
 ; prettier, is the wrong trade. `targetFrameAsm` is one instruction per
 ; architecture and declares nothing.
-(pub :: emitBacktrace (-> Int Int Int))
+(pub :: emitBacktrace (-> Int (Vec Int) Int))
 
 (pub fn (emitBacktrace cg names)
   {
@@ -9600,7 +9617,7 @@
 ; The convenience entry point, for a caller with no path to derive a
 ; module search directory from; imports resolve against `self_host/`
 ; and `stdlib/` only, as they always did.
-(pub :: emitModule (-> Int String String))
+(pub :: emitModule (-> (Vec Int) String String))
 
 ;@axiom:effect(io)
 (pub fn (emitModule decls target)
@@ -9621,7 +9638,7 @@
     )))
       {
         (expandProgram
-          allDecls          allDecls          vecNew          vecNew          0          0          0          0
+          allDecls          allDecls          vecNew          vecNew          (cast (Vec Int) 0)          (cast (Vec String) 0)          (cast (Vec String) 0)          (cast (Vec Int) 0)
         )
         (emitResolved allDecls bares fulls tcode)
       }
@@ -9650,7 +9667,7 @@
 ; `emitModule` so import resolution happens exactly once per run: the
 ; checker needs `allDecls` too, and resolving twice would read every
 ; module from disk twice.
-(pub :: emitResolved (-> Int Int Int Int String))
+(pub :: emitResolved (-> (Vec Int) (Vec String) (Vec String) Int String))
 
 ;@axiom:effect(io)
 (pub fn (emitResolved allDecls bares fulls tcode)
@@ -9690,7 +9707,7 @@
   )
 )
 
-(pub :: emitModuleTail (-> Int Int Int String))
+(pub :: emitModuleTail (-> (Vec Int) Int Int String))
 
 ;@axiom:effect(io)
 (pub fn (emitModuleTail decls cg i)
@@ -9749,7 +9766,7 @@
       ; was measured. A stripped function can never appear in a
       ; backtrace, so a table over the survivors is the complete table.
       (let ((tailCg (pruneDeadDefs (emitExternDeclares decls (emitRecoverSlotHelpers (emitEffectGlobals (emitStringGlobals nextCg 0) 0)) 0 (runtimeDeclaredSyms (memGetWord nextCg 26))))))
-        (renderCG (emitLine (emitBacktrace tailCg (symtabNames (memGetWord tailCg 0))) "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }"))
+        (renderCG (emitLine (emitBacktrace tailCg (symtabNames (memGetWordVec tailCg 0))) "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }"))
       )
       (emitModuleTail decls nextCg (+ i 1))
     )
@@ -9769,7 +9786,7 @@
 ; a libc function it knows - which is the whole hazard
 ; `check-freestanding.sh` exists to watch.
 ; ------------------------------------------------------------------
-(pub :: emitExternDeclares (-> Int Int Int Int Int))
+(pub :: emitExternDeclares (-> (Vec Int) Int Int (Vec String) Int))
 
 (pub fn (emitExternDeclares decls cg i seen)
   (if (>= i (vecLen decls))
@@ -9781,7 +9798,7 @@
           ; comment the driver reads beside the declares: it is
           ; what lets `axiom build` link `-l<lib>` without being
           ; told, and name the block in a grounding diagnostic
-          (emitExternItems (nodeC d) (emitLine cg (cat2 "; axiom-extern-lib " (nodeAName d))) 0 seen)
+          (emitExternItems (nodeCVec d) (emitLine cg (cat2 "; axiom-extern-lib " (nodeAName d))) 0 seen)
           cg
         )        (+ i 1)        seen
       )
@@ -9789,17 +9806,17 @@
   )
 )
 
-(pub :: emitExternItems (-> Int Int Int Int Int))
+(pub :: emitExternItems (-> (Vec Int) Int Int (Vec String) Int))
 
 (pub fn (emitExternItems items cg i seen)
-  (if (== items 0)
+  (if (== (cast Int items) 0)
     cg
     (if (>= i (vecLen items))
       cg
       (let ((f (vecGet items i)))
         (let ((sym (nodeCName f)))
           (emitExternItems
-            items            (if (|| (== (externSeen seen sym 0) 1) (== (linesCallSym (memGetWord cg 0) (llvmSym (strDup sym)) 0) 0))
+            items            (if (|| (== (externSeen seen sym 0) 1) (== (linesCallSym (memGetWordVec cg 0) (llvmSym (strDup sym)) 0) 0))
               ; only a symbol the module CALLS is declared:
               ; a binding module imports fifteen items and a
               ; program calls two, and every declare must
@@ -9821,7 +9838,7 @@
 
 ; Does any emitted line call `@sym(`? A substring scan over the
 ; module's lines, once per extern item at the end of emission.
-(pub :: linesCallSym (-> Int String Int Int))
+(pub :: linesCallSym (-> (Vec Int) String Int Int))
 
 (pub fn (linesCallSym lines sym i)
   (if (>= i (vecLen lines))
@@ -9867,7 +9884,7 @@
   )
 )
 
-(pub :: externSeen (-> Int String Int Int))
+(pub :: externSeen (-> (Vec String) String Int Int))
 
 (pub fn (externSeen seen sym i)
   (if (>= i (vecLen seen))
@@ -9986,7 +10003,7 @@
                   )
                 )
                 (if (== tg TAG_E_BEGIN)
-                  (bodyHasMatchVec (nodeA e))
+                  (bodyHasMatchVec (nodeAVec e))
                   (if (== tg TAG_E_SET)
                     (bodyHasMatch (nodeB e))
                     (if (== tg TAG_E_SETF)
@@ -10003,14 +10020,14 @@
                       (if (== tg TAG_E_WHILE)
                         (if (== (bodyHasMatch (nodeA e)) 1)
                           1
-                          (bodyHasMatchVec (nodeB e))
+                          (bodyHasMatchVec (nodeBVec e))
                         )
                         (if (== tg TAG_E_FIELD)
                           (bodyHasMatch (nodeA e))
                           (if (== tg TAG_E_LAM)
                             (bodyHasMatch (nodeC e))
                             (if (== tg TAG_E_STRUCTCON)
-                              (bodyHasMatchVec (nodeB e))
+                              (bodyHasMatchVec (nodeBVec e))
                               (if (== tg TAG_E_ALLOC)
                                 (bodyHasMatch (nodeA e))
                                 (if (== tg TAG_E_HANDLE)
@@ -10040,10 +10057,10 @@
   )
 )
 
-(pub :: bodyHasMatchVec (-> Int Int))
+(pub :: bodyHasMatchVec (-> (Vec Int) Int))
 
 (pub fn (bodyHasMatchVec xs)
-  (if (== xs 0)
+  (if (== (cast Int xs) 0)
     0
     (let (
       (mut i 0)
@@ -10085,7 +10102,7 @@
       (if (== tag TAG_E_COND)
         (let ((chain 
           (condChainAt
-            (nodeA e)            (- (vecLen (nodeA e)) 1)            (if (== (nodeB e) 0)
+            (nodeAVec e)            (- (vecLen (nodeAVec e)) 1)            (if (== (nodeB e) 0)
               (mkEInt 0)
               (lowerConds (nodeB e))
             )
@@ -10126,19 +10143,19 @@
                 }
                 (if (== tag TAG_E_BEGIN)
                   {
-                    (lowerCondsVec (nodeA e) 0)
+                    (lowerCondsVec (nodeAVec e) 0)
                     e
                   }
                   (if (== tag TAG_E_MATCH)
                     {
                       (lowerConds (nodeA e))
-                      (lowerCondsArms (nodeB e) 0)
+                      (lowerCondsArms (nodeBVec e) 0)
                       e
                     }
                     (if (== tag TAG_E_WHILE)
                       {
                         (lowerConds (nodeA e))
-                        (lowerCondsVec (nodeB e) 0)
+                        (lowerCondsVec (nodeBVec e) 0)
                         e
                       }
                       (if (== tag TAG_E_SET)
@@ -10165,7 +10182,7 @@
                               }
                               (if (== tag TAG_E_STRUCTCON)
                                 {
-                                  (lowerCondsVec (nodeB e) 0)
+                                  (lowerCondsVec (nodeBVec e) 0)
                                   e
                                 }
                                 (if (== tag TAG_E_ALLOC)
@@ -10192,7 +10209,7 @@
   )
 )
 
-(pub :: condChainAt (-> Int Int Int Int))
+(pub :: condChainAt (-> (Vec Int) Int Int Int))
 
 (pub fn (condChainAt clauses i acc)
   (if (< i 0)
@@ -10203,7 +10220,7 @@
   )
 )
 
-(pub :: lowerCondsVec (-> Int Int Int))
+(pub :: lowerCondsVec (-> (Vec Int) Int Int))
 
 (pub fn (lowerCondsVec v i)
   (if (>= i (vecLen v))
@@ -10218,7 +10235,7 @@
 ; Arm PATTERNS are left alone: a cond form in pattern position is
 ; nonsense the emitter has always treated as match-everything, and
 ; lowering it would only change which nonsense it is.
-(pub :: lowerCondsArms (-> Int Int Int))
+(pub :: lowerCondsArms (-> (Vec Int) Int Int))
 
 (pub fn (lowerCondsArms arms i)
   (if (>= i (vecLen arms))
@@ -10329,7 +10346,7 @@
       "__axiom_user_main"
       (nodeAName node)
     ))
-    (params (nodeB node))
+    (params (nodeBVec node))
     (body (lowerConds (nodeC node)))
   )
     (let (
@@ -10406,7 +10423,7 @@
                             ; `emitExprTail` is where a leaf is
                             ; recognised as one a register pair can
                             ; carry.
-                            (if (|| (!= (pairSlot cg1c 0) 0) (|| (== wantsTCO 1) (> (vecLen (memGetWord cg1c 41)) 0)))
+                            (if (|| (!= (pairSlot cg1c 0) 0) (|| (== wantsTCO 1) (> (vecLen (memGetWordVec cg1c 41)) 0)))
                               (emitExprTail body cg1c)
                               (emitExpr body cg1c)
                             )
@@ -10483,7 +10500,7 @@
 ; the node identities are the ones emission meets; a self tail call
 ; is never a leaf (it becomes a jump, and the eventual non-recursive
 ; leaf is where the value is produced).
-(pub :: borrowedTailLeaves (-> Int String Int Int Int))
+(pub :: borrowedTailLeaves (-> Int String Int (Vec Int) (Vec Int)))
 
 (pub fn (borrowedTailLeaves cg name body params)
   (let (
@@ -10513,7 +10530,7 @@
   )
 )
 
-(pub :: collectTails (-> Int Int Int Int String Int Int))
+(pub :: collectTails (-> Int Int (Vec Int) (Vec Int) String (Vec Int) Int))
 
 (pub fn (collectTails cg e params env self acc)
   (if (== e 0)
@@ -10557,7 +10574,7 @@
               (if (== tg TAG_E_COND)
                 {
                   (collectTailsClauses
-                    cg                    (nodeA e)                    params                    env                    self                    acc                    0
+                    cg                    (nodeAVec e)                    params                    env                    self                    acc                    0
                   )
                   (collectTails
                     cg                    (nodeB e)                    params                    env                    self                    acc
@@ -10565,13 +10582,13 @@
                 }
                 (if (== tg TAG_E_MATCH)
                   (collectTailsArms
-                    cg                    (nodeB e)                    params                    env                    self                    acc                    0
+                    cg                    (nodeBVec e)                    params                    env                    self                    acc                    0
                   )
                   (if (== tg TAG_E_BEGIN)
-                    (if (== (vecLen (nodeA e)) 0)
+                    (if (== (vecLen (nodeAVec e)) 0)
                       0
                       (collectTails
-                        cg                        (vecGet (nodeA e) (- (vecLen (nodeA e)) 1))                        params                        env                        self                        acc
+                        cg                        (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1))                        params                        env                        self                        acc
                       )
                     )
                     (if (== tg TAG_E_LET)
@@ -10613,7 +10630,7 @@
   )
 )
 
-(pub :: collectTailsClauses (-> Int Int Int Int String Int Int Int))
+(pub :: collectTailsClauses (-> Int (Vec Int) (Vec Int) (Vec Int) String (Vec Int) Int Int))
 
 (pub fn (collectTailsClauses cg cls params env self acc i)
   (if (>= i (vecLen cls))
@@ -10629,7 +10646,7 @@
   )
 )
 
-(pub :: collectTailsArms (-> Int Int Int Int String Int Int Int))
+(pub :: collectTailsArms (-> Int (Vec Int) (Vec Int) (Vec Int) String (Vec Int) Int Int))
 
 (pub fn (collectTailsArms cg arms params env self acc i)
   (if (>= i (vecLen arms))
@@ -10638,7 +10655,7 @@
       (let ((bs (patBindersCg (nodeA arm) vecNew)))
         {
           (collectTails
-            cg            (nodeB arm)            params            (if (== bs 0)
+            cg            (nodeB arm)            params            (if (== (cast Int bs) 0)
               env
               (envWithAll env bs 0)
             )            self            acc
@@ -10660,7 +10677,7 @@
 ; Everything after the last `$`: the source-spelled name of a
 ; declaration whose node `mangleDecl` may have rewritten to
 ; `Mod$name`.
-(pub :: openTailLoop (-> String Int Int Int))
+(pub :: openTailLoop (-> String (Vec Int) Int Int))
 
 ; Park the evidence word in an alloca and rebind its unspellable
 ; name as mutable storage, exactly the registration `mut` locals
@@ -10758,7 +10775,7 @@
 ; header. It converts the caller's BORROW (event 1) into a share this
 ; frame owns, which is what makes the boundary release below legal:
 ; the release hands back a count this retain took, never the caller's.
-(pub :: retainRefParams (-> Int Int Int Int))
+(pub :: retainRefParams (-> (Vec Int) Int Int Int))
 
 (pub fn (retainRefParams params cg i)
   (if (>= i (vecLen params))
@@ -10801,7 +10818,7 @@
   )
 )
 
-(pub :: allocParamSlots (-> Int Int Int Int Int))
+(pub :: allocParamSlots (-> (Vec Int) (Vec String) Int Int Int))
 
 (pub fn (allocParamSlots params slots cg i)
   (if (>= i (vecLen params))
@@ -10841,8 +10858,8 @@
 (pub :: paramFloatFlag (-> Int Int Int))
 
 (pub fn (paramFloatFlag cg i)
-  (let ((flags (memGetWord cg 18)))
-    (if (== flags 0)
+  (let ((flags (memGetWordVec cg 18)))
+    (if (== (cast Int flags) 0)
       0
       (if (>= i (vecLen flags))
         0
@@ -10856,7 +10873,7 @@
 ; FIRST, and only then are the parameter slots written. Assigning as
 ; each argument is computed would clobber a parameter a later argument
 ; still reads - `(go (- n 1) n)` would see the decremented `n` twice.
-(pub :: emitTailJump (-> Int Int Int Int))
+(pub :: emitTailJump (-> (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitTailJump args stamp cg)
@@ -10935,16 +10952,16 @@
       ; name still resolves to the slot (a `let` shadowing it is a
       ; different value and pays).
       (let ((same (tailArgsUnchanged
-        cg        (memGetWord cg 28)        args        vecNew        0
+        cg        (memGetWordVec cg 28)        args        vecNew        0
       )))
         {
           (retainTailVals
-            (memGetWord cg 28)            vals            same            cg            (cast String (vecGet words 1))            0
+            (memGetWordVec cg 28)            vals            same            cg            (cast String (vecGet words 1))            0
           )
           (let ((olds vecNew))
             {
-              (loadTailOlds (memGetWord cg 28) olds cg 0)
-              (storeTailSlots (memGetWord cg 28) vals cg 0)
+              (loadTailOlds (memGetWordVec cg 28) olds cg 0)
+              (storeTailSlots (memGetWordVec cg 28) vals cg 0)
               (releaseTailOlds
                 (memGetWord cg 28)                olds                same                cg                (cast String (vecGet words 0))                0
               )
@@ -10957,12 +10974,12 @@
       ; the boundary retain above is the slot's share, and
       ; `(grind (wide n) (- n 1))` otherwise kept one per iteration
       (releaseTailTemps
-        (memGetWord cg 28)        args        vals        cg        (cast String (vecGet words 1))        0
+        (memGetWordVec cg 28)        args        vals        cg        (cast String (vecGet words 1))        0
       )
       ; and every releasable `let` (and owned scrutinee) still in scope:
       ; their scope ends are past the jump and will not be reached on
       ; this path; the values the slots keep were retained above
-      (releasePending cg (memGetWord cg 42) 0)
+      (releasePending cg (memGetWordVec cg 42) 0)
       (emitLine cg (cat2 "  br label %" (memGetWordStr cg 29)))
       (memSetWord cg 31 1)
       (memSetWord cg 2 "0")
@@ -11008,7 +11025,7 @@
   )
 )
 
-(pub :: releasePending (-> Int Int Int Int))
+(pub :: releasePending (-> Int (Vec Int) Int Int))
 
 (pub fn (releasePending cg pend i)
   (if (>= i (vecLen pend))
@@ -11025,7 +11042,7 @@
 ; the slot's, and a parameter this function parks keeps the slot's
 ; share for the stash (`releaseTailOlds` and the exit leave it), not
 ; the temporary's as well.
-(pub :: releaseTailTemps (-> Int Int Int Int String Int Int))
+(pub :: releaseTailTemps (-> (Vec Int) (Vec Int) (Vec String) Int String Int Int))
 
 (pub fn (releaseTailTemps slots args vals cg newW i)
   (if (>= i (vecLen slots))
@@ -11077,7 +11094,7 @@
   (let (
     (v (strDup (memGetWordStr cg 2)))
     (fl (memGetWord cg 14))
-    (slots (memGetWord cg 28))
+    (slots (memGetWordVec cg 28))
   )
     (let ((cgR (releaseRefParamSlotsFrom cg slots 0)))
       {
@@ -11089,7 +11106,7 @@
   )
 )
 
-(pub :: releaseRefParamSlotsFrom (-> Int Int Int Int))
+(pub :: releaseRefParamSlotsFrom (-> Int (Vec Int) Int Int))
 
 (pub fn (releaseRefParamSlotsFrom cg slots i)
   (if (>= i (vecLen slots))
@@ -11125,7 +11142,7 @@
   )
 )
 
-(pub :: retainTailVals (-> Int Int Int Int String Int Int))
+(pub :: retainTailVals (-> (Vec Int) (Vec String) (Vec Int) Int String Int Int))
 
 (pub fn (retainTailVals slots vals same cg newW i)
   (if (>= i (vecLen slots))
@@ -11155,7 +11172,7 @@
 
 ; Flag per slot: 1 when argument i is the VAR of parameter i and the
 ; name still names the slot.
-(pub :: tailArgsUnchanged (-> Int Int Int Int Int Int))
+(pub :: tailArgsUnchanged (-> Int (Vec Int) (Vec Int) (Vec Int) Int (Vec Int)))
 
 (pub fn (tailArgsUnchanged cg slots args out i)
   (if (>= i (vecLen slots))
@@ -11186,7 +11203,7 @@
   )
 )
 
-(pub :: loadTailOlds (-> Int Int Int Int Int))
+(pub :: loadTailOlds (-> (Vec Int) (Vec String) Int Int Int))
 
 (pub fn (loadTailOlds slots olds cg i)
   (if (>= i (vecLen slots))
@@ -11207,7 +11224,7 @@
 ; Not a parameter this function parks a word of: the iteration that
 ; parked it left the slot's share as the stash's keeper, and the
 ; jump must not take it back.
-(pub :: releaseTailOlds (-> Int Int Int Int String Int Int))
+(pub :: releaseTailOlds (-> Int (Vec String) (Vec Int) Int String Int Int))
 
 (pub fn (releaseTailOlds slots olds same cg oldW i)
   (if (>= i (vecLen olds))
@@ -11252,7 +11269,7 @@
   )
 )
 
-(pub :: evalTailArgs (-> Int Int Int Int Int))
+(pub :: evalTailArgs (-> (Vec Int) (Vec String) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (evalTailArgs args vals cg i)
@@ -11266,7 +11283,7 @@
   )
 )
 
-(pub :: storeTailSlots (-> Int Int Int Int Int))
+(pub :: storeTailSlots (-> (Vec Int) (Vec a) Int Int Int))
 
 (pub fn (storeTailSlots slots vals cg i)
   (if (>= i (vecLen slots))
@@ -11304,7 +11321,7 @@
         0
       )
       (if (== tag TAG_E_BEGIN)
-        (let ((v (nodeA e)))
+        (let ((v (nodeAVec e)))
           (if (== (vecLen v) 0)
             0
             (tailCallsSelf (vecGet v (- (vecLen v) 1)) name arity)
@@ -11316,7 +11333,7 @@
             (tailCallsSelf (nodeC e) name arity)
           )
           (if (== tag TAG_E_MATCH)
-            (armsCallSelf (nodeB e) name arity 0)
+            (armsCallSelf (nodeBVec e) name arity 0)
             (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
               (if (strEq (nodeAName e) name)
                 0
@@ -11347,7 +11364,7 @@
 ; deep, it overflowed where the leaking compiler had not. A `mut`
 ; body, a `while` body and `&&`/`||` operands are still not tail
 ; positions.
-(pub :: armsCallSelf (-> Int String Int Int Int))
+(pub :: armsCallSelf (-> (Vec Int) String Int Int Int))
 
 (pub fn (armsCallSelf arms name arity i)
   (if (>= i (vecLen arms))
@@ -11411,7 +11428,7 @@
         )
       }
       (if (== tag TAG_E_BEGIN)
-        (emitSeqTail (nodeA e) cg 0)
+        (emitSeqTail (nodeAVec e) cg 0)
         (if (== tag TAG_E_IF)
           (emitIfTail e cg)
           (if (== tag TAG_E_MATCH)
@@ -11437,7 +11454,7 @@
 
 ; Every expression of a block but the last is ordinary; the last
 ; inherits tail position.
-(pub :: emitSeqTail (-> Int Int Int Int))
+(pub :: emitSeqTail (-> (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitSeqTail exprs cg i)
@@ -11479,7 +11496,7 @@
 (pub fn (emitMatchTail node cg)
   (let (
     (scrutExpr (nodeA node))
-    (arms (nodeB node))
+    (arms (nodeBVec node))
     (ff (memAlloc 8))
     (_0 (memSetWord ff 0 (- 0 1)))
     ; The tail hook, armed only where there is nothing to release -
@@ -11497,7 +11514,7 @@
     (_z (pairSetSlot cg1 1 0))
     (sv (strDup (memGetWordStr cg1 2)))
     (tagR (if (== gotPair 2)
-      (strDup (vecGetStr (memGetWord cg1 46) 3))
+      (strDup (vecGetStr (memGetWordVec cg1 46) 3))
       ""
     ))
     (cn (allocReg cg1))
@@ -11509,12 +11526,12 @@
       0
       (scrutineeReleasable node scrutExpr cg1)
     ))
-    (pmark (vecLen (memGetWord cg1 42)))
+    (pmark (vecLen (memGetWordVec cg1 42)))
     (_p (if (== rel 1)
       (vecPush
-        (memGetWord cg1 42)        (cast Int sv)
+        (memGetWordVec cg1 42)        (cast Int sv)
       )
-      0
+      (cast (Vec Int) 0)
     ))
     (cg2 (if (== gotPair 2)
       (emitPairArmsTail
@@ -11543,7 +11560,7 @@
   )
 )
 
-(pub :: emitArmsTail (-> Int String String String Int Int Int Int))
+(pub :: emitArmsTail (-> (Vec Int) String String String Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitArmsTail arms sv cell mergeB cg i ff)
@@ -11690,7 +11707,7 @@
   )
 )
 
-(pub :: emitParams (-> Int Int Int String))
+(pub :: emitParams (-> (Vec Int) Int Int String))
 
 (pub fn (emitParams params cg i)
   (if (>= i (vecLen params))
@@ -11767,26 +11784,26 @@
   )
 )
 
-(pub :: collectCapNames (-> Int Int Int Int))
+(pub :: collectCapNames (-> Int (Vec String) Int (Vec a)))
 
 (pub fn (collectCapNames cg lparams body)
   (let ((out vecNew))
     {
       (capFromVec
-        (memGetWord cg 17)        lparams        body        out        0
+        (memGetWordVec cg 17)        lparams        body        out        0
       )
       (capFromVec
-        (memGetWord cg 6)        lparams        body        out        0
+        (memGetWordVec cg 6)        lparams        body        out        0
       )
       out
     }
   )
 )
 
-(pub :: capFromVec (-> Int Int Int Int Int Int))
+(pub :: capFromVec (-> (Vec Int) (Vec String) Int (Vec String) Int Int))
 
 (pub fn (capFromVec src lparams body out i)
-  (if (== src 0)
+  (if (== (cast Int src) 0)
     0
     (if (>= i (vecLen src))
       0
@@ -11805,7 +11822,7 @@
               ; in the inner lambda, and the word that classifies it
               ; belonged to the outer one.
               (if (|| (strEq name "__evw.") (|| (== (isEvwaName name) 1) (== (mentions name body) 1)))
-                (vecPush out name)
+                { (vecPush out name) 0 }
                 0
               )
             )
@@ -11819,16 +11836,16 @@
   )
 )
 
-(pub :: strIndexIn (-> Int String Int))
+(pub :: strIndexIn (-> (Vec a) String Int))
 
 (pub fn (strIndexIn v name)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     (- 0 1)
     (strIndexFrom v name 0)
   )
 )
 
-(pub :: strIndexFrom (-> Int String Int Int))
+(pub :: strIndexFrom (-> (Vec a) String Int Int))
 
 (pub fn (strIndexFrom v name i)
   (if (>= i (vecLen v))
@@ -11843,7 +11860,7 @@
 ; Evaluate each captured name in the enclosing scope, recording the
 ; value register and its float-ness. Goes through `emitVar` so a
 ; mutable binding is loaded, not aliased.
-(pub :: capValues (-> Int Int Int Int Int Int))
+(pub :: capValues (-> Int (Vec a) (Vec String) (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (capValues cg capNames capRegs capFloats i)
@@ -11864,7 +11881,7 @@
 ; A lifted lambda, waiting for the enclosing function to close:
 ; word 0 name, word 1 params, word 2 body, word 3 capture names,
 ; word 4 capture float flags.
-(pub :: mkLamDesc (-> String Int Int Int Int Int))
+(pub :: mkLamDesc (-> String (Vec String) Int (Vec a) (Vec Int) Int))
 
 (pub fn (mkLamDesc lname lparams body capNames capFloats)
   (let ((d (memAlloc 40)))
@@ -11884,7 +11901,7 @@
 ;@axiom:effect(io)
 (pub fn (emitLambda node cg)
   (let (
-    (lparams (nodeA node))
+    (lparams (nodeAVec node))
     (body (nodeB node))
     (n (memGetWord cg 22))
   )
@@ -11939,7 +11956,7 @@
               ; reference parameters.
               (retainParamCaps cg capNames capRegs 0)
               (storeCaps cg pr capRegs 0)
-              (memSetWord cg 21 (vecPush (memGetWord cg 21) (mkLamDesc
+              (memSetWord cg 21 (vecPush (memGetWordVec cg 21) (mkLamDesc
                 lname                lparams                body                capNames                capFloats
               )))
               (memSetWord cg 2 pr)
@@ -11959,7 +11976,7 @@
 ; capture i (payload word 1 + i) iff it is a reference-class
 ; parameter, the captures `retainParamCaps` retains. Past the map's
 ; 47 words the record is a leaf, as a constructor's would be.
-(pub :: lamShapeConst (-> Int Int Int Int))
+(pub :: lamShapeConst (-> Int (Vec a) Int Int))
 
 (pub fn (lamShapeConst cg capNames k)
   (let ((cnt (paddedWords (+ k 1))))
@@ -11972,7 +11989,7 @@
   )
 )
 
-(pub :: lamShapeBits (-> Int Int Int Int))
+(pub :: lamShapeBits (-> Int (Vec a) Int Int))
 
 (pub fn (lamShapeBits cg capNames i)
   (if (>= i (vecLen capNames))
@@ -11994,15 +12011,15 @@
 (pub :: curParamIndex (-> Int String Int))
 
 (pub fn (curParamIndex cg name)
-  (let ((ps (memGetWord cg 17)))
-    (if (== ps 0)
+  (let ((ps (memGetWordVec cg 17)))
+    (if (== (cast Int ps) 0)
       (- 0 1)
       (strIndexIn ps name)
     )
   )
 )
 
-(pub :: retainParamCaps (-> Int Int Int Int Int))
+(pub :: retainParamCaps (-> Int (Vec a) (Vec String) Int Int))
 
 (pub fn (retainParamCaps cg capNames capRegs i)
   (if (>= i (vecLen capNames))
@@ -12023,7 +12040,7 @@
   )
 )
 
-(pub :: storeCaps (-> Int String Int Int Int))
+(pub :: storeCaps (-> Int String (Vec String) Int Int))
 
 (pub fn (storeCaps cg base capRegs i)
   (if (>= i (vecLen capRegs))
@@ -12039,7 +12056,7 @@
 
 ;@axiom:effect(io)
 (pub fn (drainPending cg)
-  (let ((pend (memGetWord cg 21)))
+  (let ((pend (memGetWordVec cg 21)))
     (if (== (vecLen pend) 0)
       (drainThunks cg)
       (drainPending (emitLamDef (vecPop pend) cg))
@@ -12060,10 +12077,10 @@
   ; the types table between bodies.
   (let (
     (lname (memGetWordStr d 0))
-    (lparams (memGetWord d 1))
+    (lparams (memGetWordVec d 1))
     (body (memGetWord d 2))
-    (capNames (memGetWord d 3))
-    (capFloats (memGetWord d 4))
+    (capNames (memGetWordVec d 3))
+    (capFloats (memGetWordVec d 4))
   )
     (let (
       (paramStr (emitParams lparams cg 0))
@@ -12127,7 +12144,7 @@
   )
 )
 
-(pub :: bindCaps (-> Int Int Int Int Int))
+(pub :: bindCaps (-> Int (Vec a) (Vec Int) Int Int))
 
 (pub fn (bindCaps cg capNames capFloats i)
   (if (>= i (vecLen capNames))
@@ -12153,13 +12170,13 @@
 (pub :: thunkIndexFor (-> Int String Int Int))
 
 (pub fn (thunkIndexFor cg full ar)
-  (let ((idx (strIndexIn (memGetWord cg 23) full)))
+  (let ((idx (strIndexIn (memGetWordVec cg 23) full)))
     (if (>= idx 0)
       idx
-      (let ((n (vecLen (memGetWord cg 23))))
+      (let ((n (vecLen (memGetWordVec cg 23))))
         {
-          (vecPush (memGetWord cg 23) (strDup full))
-          (vecPush (memGetWord cg 24) ar)
+          (vecPush (memGetWordVec cg 23) (strDup full))
+          (vecPush (memGetWordVec cg 24) ar)
           n
         }
       )
@@ -12167,18 +12184,18 @@
   )
 )
 
-(pub :: fnArityOf (-> Int String Int))
+(pub :: fnArityOf (-> (Vec Int) String Int))
 
 (pub fn (fnArityOf decls full) (fnArityIn decls (declSpellingOf full) 0))
 
-(pub :: fnArityIn (-> Int String Int Int))
+(pub :: fnArityIn (-> (Vec Int) String Int Int))
 
 (pub fn (fnArityIn decls full i)
   (if (>= i (vecLen decls))
     0
     (let ((d (vecGet decls i)))
       (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeAName d) full))
-        (vecLen (nodeB d))
+        (vecLen (nodeBVec d))
         (fnArityIn decls full (+ i 1))
       )
     )
@@ -12189,7 +12206,7 @@
 
 (pub fn (drainThunks cg)
   (let ((i (memGetWord cg 25)))
-    (if (>= i (vecLen (memGetWord cg 23)))
+    (if (>= i (vecLen (memGetWordVec cg 23)))
       cg
       {
         (memSetWord cg 25 (+ i 1))
@@ -12210,8 +12227,8 @@
   ; sentence is unreachable under this type system, and
   ; memory-model.md now says so.
   (let (
-    (full (vecGetStr (memGetWord cg 23) i))
-    (ar (vecGet (memGetWord cg 24) i))
+    (full (vecGetStr (memGetWordVec cg 23) i))
+    (ar (vecGet (memGetWordVec cg 24) i))
   )
     ; The trailing `%__evwa.h` is IGNORED here and still declared: a
     ; thunk is reached through the same code pointer a lambda is, and
@@ -12315,10 +12332,10 @@
 
 (pub fn (bindSym cg name reg isFloat kind)
   {
-    (memSetWord cg 6 (vecPush (memGetWord cg 6) name))
-    (memSetWord cg 7 (vecPush (memGetWord cg 7) reg))
-    (memSetWord cg 16 (vecPush (memGetWord cg 16) isFloat))
-    (memSetWord cg 20 (vecPush (memGetWord cg 20) kind))
+    (memSetWord cg 6 (vecPush (memGetWordVec cg 6) name))
+    (memSetWord cg 7 (vecPush (memGetWordVec cg 7) reg))
+    (memSetWord cg 16 (vecPush (memGetWordVec cg 16) isFloat))
+    (memSetWord cg 20 (vecPush (memGetWordVec cg 20) kind))
     cg
   }
 )
@@ -12330,7 +12347,7 @@
 ; value that does not exist on the path that reaches it.
 (pub :: symMark (-> Int Int))
 
-(pub fn (symMark cg) (vecLen (memGetWord cg 6)))
+(pub fn (symMark cg) (vecLen (memGetWordVec cg 6)))
 
 (pub :: symRestore (-> Int Int Int))
 
@@ -12356,7 +12373,7 @@
 (pub fn (emitPairPatMatch cg pat tagR payR failB)
   (let ((tg (nodeTag pat)))
     (if (== tg TAG_P_CON0)
-      (let ((en (lookupType (memGetWord cg 3) (nodeAName pat))))
+      (let ((en (lookupType (memGetWordVec cg 3) (nodeAName pat))))
         (if (== en 0)
           cg
           (emitPatTest (constStr (eTag en)) (strDup tagR) failB cg)
@@ -12367,7 +12384,7 @@
           cg
           (let ((en 
             (lookupType
-              (memGetWord cg 3)              (cast String h)
+              (memGetWordVec cg 3)              (cast String h)
             )
           ))
             (if (== en 0)
@@ -12392,7 +12409,7 @@
 
 ; `emitArms` against a pair. The same chain - test, bind, body, store,
 ; branch to the merge - with the pattern step reading registers.
-(pub :: emitPairArms (-> Int String String String String Int Int Int Int Int Int))
+(pub :: emitPairArms (-> (Vec Int) String String String String Int Int Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPairArms arms tagR payR cell mergeB cg i ff rt rel)
@@ -12476,7 +12493,7 @@
 ; and a release written after the arms would sit past it, unreachable,
 ; which is a leak rather than a diagnostic. Refusing the case is
 ; cheaper than reasoning about which arms fall through.
-(pub :: emitPairArmsTail (-> Int String String String String Int Int Int Int))
+(pub :: emitPairArmsTail (-> (Vec Int) String String String String Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPairArmsTail arms tagR payR cell mergeB cg i ff)
@@ -12526,7 +12543,7 @@
   )
 )
 
-(pub :: pairArmsOK (-> Int Int Int Int))
+(pub :: pairArmsOK (-> Int (Vec Int) Int Int))
 
 (pub fn (pairArmsOK cg arms i)
   (if (>= i (vecLen arms))
@@ -12587,7 +12604,7 @@
   )
 )
 
-(pub :: pairMatchOK (-> Int Int Int Int))
+(pub :: pairMatchOK (-> Int Int (Vec Int) Int))
 
 (pub fn (pairMatchOK cg scrutExpr arms)
   (if (!= (nodeTag scrutExpr) TAG_E_APP)
@@ -12595,7 +12612,7 @@
     (let ((hn (spineHeadName scrutExpr)))
       (if (== (strLen hn) 0)
         0
-        (if (== (pairNamesHas (pairSlot cg 2) (mangledForCg cg hn)) 0)
+        (if (== (pairNamesHas (vecGetVec (memGetWordVec cg 46) 2) (mangledForCg cg hn)) 0)
           0
           (pairArmsOK cg arms 0)
         )
@@ -12614,7 +12631,7 @@
   ; arm, so the first arm speaks for the form.
   (let (
     (scrutExpr (nodeA node))
-    (arms (nodeB node))
+    (arms (nodeBVec node))
     (ff (memAlloc 8))
     (_0 (memSetWord ff 0 (- 0 1)))
     ; Arm the register-pair path when the scrutinee is a DIRECT call to
@@ -12631,7 +12648,7 @@
     (_z (pairSetSlot cg1 1 0))
     (sv (strDup (memGetWordStr cg1 2)))
     (tagR (if (== gotPair 2)
-      (strDup (vecGetStr (memGetWord cg1 46) 3))
+      (strDup (vecGetStr (memGetWordVec cg1 46) 3))
       ""
     ))
     (cn (allocReg cg1))
@@ -12648,13 +12665,13 @@
       (pairScrutRetTy cg1 scrutExpr)
       0
     ))
-    (pmark (vecLen (memGetWord cg1 42)))
+    (pmark (vecLen (memGetWordVec cg1 42)))
     (_p (if (== rel 1)
       (if (== gotPair 2)
         0
-        (vecPush
-          (memGetWord cg1 42)          (cast Int sv)
-        )
+        { (vecPush
+          (memGetWordVec cg1 42)          (cast Int sv)
+        ) 0 }
       )
       0
     ))
@@ -12699,7 +12716,7 @@
   (if (== (valueOwnedRef cg scrutExpr) 0)
     0
     (if (== (escapesViaBinders
-      cg      (nodeB node)      1      0      node
+      cg      (nodeBVec node)      1      0      node
     ) 1)
       0
       1
@@ -12724,7 +12741,7 @@
   )
 )
 
-(pub :: emitArms (-> Int String String String Int Int Int Int))
+(pub :: emitArms (-> (Vec Int) String String String Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitArms arms sv cell mergeB cg i ff)
@@ -12856,7 +12873,7 @@
                 ; small immediate tag, so the arm just fails. Only a nullary
                 ; constructor of a non-unboxing type is still a one-word block
                 ; whose tag loads from word 0.
-                (let ((entry (lookupType (memGetWord cg 3) (nodeAName pat))))
+                (let ((entry (lookupType (memGetWordVec cg 3) (nodeAName pat))))
                   (if (== entry 0)
                     (bindSym
                       cg                      (nodeAName pat)                      (strDup vr)                      isFloat                      0
@@ -12877,12 +12894,12 @@
                 ; rather than binding by position, which would be a silent wrong
                 ; answer.
                 (if (== tag TAG_P_CONNAMED)
-                  (let ((ent (lookupType (memGetWord cg 3) (nodeAName pat))))
+                  (let ((ent (lookupType (memGetWordVec cg 3) (nodeAName pat))))
                     (if (|| (== ent 0) (== (eFieldNames ent) 0))
                       cg
                       (emitPatMatch
                         (namedPatSpine
-                          (nodeAName pat)                          (eFieldNames ent)                          (nodeB pat)                          (nodeC pat)                          (nodeSpan pat)
+                          (nodeAName pat)                          (eFieldNamesVec ent)                          (nodeBVec pat)                          (nodeCVec pat)                          (nodeSpan pat)
                         )                        vr                        failB                        cg                        isFloat
                       )
                     )
@@ -12893,7 +12910,7 @@
                         (if (== cname 0)
                           0
                           (lookupType
-                            (memGetWord cg 3)                            (cast String cname)
+                            (memGetWordVec cg 3)                            (cast String cname)
                           )
                         )
                       ))
@@ -12915,7 +12932,7 @@
                           ))
                             (let ((cgT (emitPatTest (constStr (eTag entry)) (strDup (memGetWordStr cgL 2)) failB cgL)))
                               (emitPatFields
-                                (patArgs pat vecNew)                                (eFieldFlags entry)                                vr                                failB                                cgT                                0
+                                (patArgs pat vecNew)                                (eFieldFlagsVec entry)                                vr                                failB                                cgT                                0
                               )
                             )
                           )
@@ -13024,7 +13041,7 @@
 ; Load each field of the block in `vr` (fields start at word 1, past
 ; the tag) and recurse into the subpattern, carrying the field's
 ; declared float flag to whatever binder it bottoms out in.
-(pub :: emitPatFields (-> Int Int String String Int Int Int))
+(pub :: emitPatFields (-> (Vec Int) (Vec Int) String String Int Int Int))
 
 (pub fn (emitPatFields subs flags vr failB cg i)
   (if (>= i (vecLen subs))
@@ -13032,7 +13049,7 @@
     (let ((cgL (loadWordAt cg vr (+ i 1))))
       (let (
         (fr (strDup (memGetWordStr cgL 2)))
-        (fl (if (== flags 0)
+        (fl (if (== (cast Int flags) 0)
           0
           (if (< i (vecLen flags))
             (vecGet flags i)
@@ -13052,7 +13069,7 @@
 
 ; Subpattern nodes of a constructor pattern, in field order -
 ; `(Cons h t)` yields the node for `h` then the node for `t`.
-(pub :: patArgs (-> Int Int Int))
+(pub :: patArgs (-> Int (Vec Int) (Vec Int)))
 
 (pub fn (patArgs pat acc)
   (if (== (nodeTag pat) TAG_E_APP)
@@ -13088,7 +13105,7 @@
 (pub :: retainTailLeaf (-> Int Int Int))
 
 (pub fn (retainTailLeaf node cg)
-  (let ((tr (memGetWord cg 41)))
+  (let ((tr (memGetWordVec cg 41)))
     (if (== (vecLen tr) 0)
       cg
       (if (== (memGetWord cg 31) 1)
@@ -13113,7 +13130,7 @@
   )
 )
 
-(pub :: nodeInVec (-> Int Int Int Int))
+(pub :: nodeInVec (-> (Vec Int) Int Int Int))
 
 (pub fn (nodeInVec v node i)
   (if (>= i (vecLen v))
@@ -13230,14 +13247,14 @@
 ; (`IO`, `Alloc`, ...) declares no evidence and installs nothing.
 (pub :: handleEffectEnt (-> Int Int Int))
 
-(pub fn (handleEffectEnt node cg) (handleEffectEntFrom (nodeB node) cg 0))
+(pub fn (handleEffectEnt node cg) (handleEffectEntFrom (nodeBVec node) cg 0))
 
-(pub :: handleEffectEntFrom (-> Int Int Int Int))
+(pub :: handleEffectEntFrom (-> (Vec Int) Int Int Int))
 
 (pub fn (handleEffectEntFrom effs cg i)
   (if (>= i (vecLen effs))
     0
-    (let ((e (lookupEffFor cg (memGetWord cg 32) (nodeAName (vecGet effs i)))))
+    (let ((e (lookupEffFor cg (memGetWordVec cg 32) (nodeAName (vecGet effs i)))))
       (if (!= e 0)
         e
         (handleEffectEntFrom effs cg (+ i 1))
@@ -13367,7 +13384,7 @@
 ; Arguments are evaluated BEFORE the slot is read, which is stage0's
 ; order and matters at exactly one observable point: an argument that
 ; prints must print even when the dispatch below traps.
-(pub :: emitEffectOp (-> Int Int Int Int))
+(pub :: emitEffectOp (-> Int (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitEffectOp ent args cg)
@@ -13428,7 +13445,7 @@
 
 ; Every argument evaluated, left to right, into its own register -
 ; collected before anything that consumes them is emitted.
-(pub :: emitArgRegs (-> Int Int Int Int Int))
+(pub :: emitArgRegs (-> (Vec Int) Int (Vec String) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitArgRegs args cg out i)
@@ -13448,7 +13465,7 @@
 ; value absorbs exactly one, so a two-argument operation takes a
 ; curried handler chain and applying both at once would answer with
 ; the inner closure's address.
-(pub :: emitApplyRegs (-> Int Int String Int Int))
+(pub :: emitApplyRegs (-> (Vec a) Int String Int Int))
 
 (pub fn (emitApplyRegs regs cg rec i)
   (emitApplyRegsOwned regs cg rec i 0)
@@ -13468,7 +13485,7 @@
 ; the block files. Unreleased it was 31-32 bytes per two-argument
 ; operation, which is the whole of `Fallible.ax`'s "two arguments
 ; (message, fallback) 32 bytes per operation" row.
-(pub :: emitApplyRegsOwned (-> Int Int String Int Int Int))
+(pub :: emitApplyRegsOwned (-> (Vec a) Int String Int Int Int))
 
 (pub fn (emitApplyRegsOwned regs cg rec i recOwned)
   (if (>= i (vecLen regs))
@@ -13505,7 +13522,7 @@
 (pub :: emitEffectGlobals (-> Int Int Int))
 
 (pub fn (emitEffectGlobals cg i)
-  (let ((tbl (memGetWord cg 32)))
+  (let ((tbl (memGetWordVec cg 32)))
     (if (>= i (vecLen tbl))
       (if (== (vecLen tbl) 0)
         cg
@@ -13533,7 +13550,7 @@
 
 ; The index of the first entry carrying `slot`, or -1. Two entries may
 ; share one slot; only the first of them emits its global.
-(pub :: slotFirstIndex (-> Int String Int Int))
+(pub :: slotFirstIndex (-> (Vec Int) String Int Int))
 
 (pub fn (slotFirstIndex tbl slot i)
   (if (>= i (vecLen tbl))
@@ -13603,8 +13620,8 @@
 ;@axiom:effect(io)
 (pub fn (emitStructConExpr node cg)
   (let (
-    (types (memGetWord cg 3))
-    (args (nodeB node))
+    (types (memGetWordVec cg 3))
+    (args (nodeBVec node))
   )
     (let ((entry (lookupType types (nodeAName node))))
       (if (== entry 0)
@@ -13647,7 +13664,7 @@
   (let ((cgB (emitExpr (nodeA node) cg)))
     (let (
       (base (strDup (memGetWordStr cgB 2)))
-      (fi (resolveStructField (memGetWord cgB 3) node))
+      (fi (resolveStructField (memGetWordVec cgB 3) node))
     )
       (if (== fi 0)
         (dieCodegenDiag "unknown struct field: " (nodeBName node))
@@ -13727,14 +13744,14 @@
   (let ((cgB (emitExpr (nodeA node) cg)))
     (let (
       (base (strDup (memGetWordStr cgB 2)))
-      (fi (resolveStructField (memGetWord cgB 3) node))
+      (fi (resolveStructField (memGetWordVec cgB 3) node))
     )
       (if (== fi 0)
         ; Not a struct field: it may be a DATA constructor's named
         ; field. Those live PAST THE TAG WORD, so the offset is
         ; index + 1 where a struct's is index - a struct carries no
         ; tag. stage0 searches every data type, first match winning.
-        (let ((di (findDataField (memGetWord cgB 3) (nodeBName node))))
+        (let ((di (findDataField (memGetWordVec cgB 3) (nodeBName node))))
           (if (== di 0)
             (dieCodegenDiag "unknown struct field: " (nodeBName node))
             (let ((cgL (loadWordAt cgB base (+ (nodeA di) 1))))
@@ -13758,11 +13775,11 @@
 
 ; A data constructor's named field as an inert (index, floatFlag)
 ; node, or 0. Searched in registry order, first match winning.
-(pub :: findDataField (-> Int String Int))
+(pub :: findDataField (-> (Vec Int) String Int))
 
 (pub fn (findDataField types fname) (findDataFieldFrom types fname 0))
 
-(pub :: findDataFieldFrom (-> Int String Int Int))
+(pub :: findDataFieldFrom (-> (Vec Int) String Int Int))
 
 (pub fn (findDataFieldFrom types fname i)
   (if (>= i (vecLen types))
@@ -13770,12 +13787,12 @@
     (let ((e (vecGet types i)))
       (if (|| (!= (eKind e) TF_DATA) (== (eFieldNames e) 0))
         (findDataFieldFrom types fname (+ i 1))
-        (let ((j (dataFieldIndexIn (eFieldNames e) fname 0)))
+        (let ((j (dataFieldIndexIn (eFieldNamesVec e) fname 0)))
           (if (< j 0)
             (findDataFieldFrom types fname (+ i 1))
             (mkNode
-              TAG_FIELD              j              (if (< j (vecLen (eFieldFlags e)))
-                (vecGet (eFieldFlags e) j)
+              TAG_FIELD              j              (if (< j (vecLen (eFieldFlagsVec e)))
+                (vecGet (eFieldFlagsVec e) j)
                 0
               )              0
             )
@@ -13786,7 +13803,7 @@
   )
 )
 
-(pub :: dataFieldIndexIn (-> Int String Int Int))
+(pub :: dataFieldIndexIn (-> (Vec Int) String Int Int))
 
 (pub fn (dataFieldIndexIn names fname i)
   (if (>= i (vecLen names))
@@ -13812,7 +13829,7 @@
 ; that the table cannot find, or that lacks the field, answers 0
 ; rather than falling back: both are checker/emitter disagreements,
 ; and a wrong slot is the failure this exists to refuse.
-(pub :: resolveStructField (-> Int Int Int))
+(pub :: resolveStructField (-> (Vec Int) Int Int))
 
 (pub fn (resolveStructField types node)
   (if (== (nodeTy node) 0)
@@ -13848,21 +13865,21 @@
 (pub :: structFieldOf (-> Int String Int))
 
 (pub fn (structFieldOf e name)
-  (let ((idx (fieldIndexIn (eFieldFlags e) name 0)))
+  (let ((idx (fieldIndexIn (eFieldFlagsVec e) name 0)))
     (if (< idx 0)
       0
-      (mkNode TAG_NIL idx (nodeB (vecGet (eFieldFlags e) idx)) (nodeTy (vecGet (eFieldFlags e) idx)))
+      (mkNode TAG_NIL idx (nodeB (vecGet (eFieldFlagsVec e) idx)) (nodeTy (vecGet (eFieldFlagsVec e) idx)))
     )
   )
 )
 
 ; The field's (index, floatFlag) as an inert node, 0 when no struct
 ; declares the name.
-(pub :: findStructField (-> Int String Int))
+(pub :: findStructField (-> (Vec Int) String Int))
 
 (pub fn (findStructField types name) (findStructFieldIn types name 0))
 
-(pub :: findStructFieldIn (-> Int String Int Int))
+(pub :: findStructFieldIn (-> (Vec Int) String Int Int))
 
 (pub fn (findStructFieldIn types name i)
   (if (>= i (vecLen types))
@@ -13885,7 +13902,7 @@
   )
 )
 
-(pub :: fieldIndexIn (-> Int String Int Int))
+(pub :: fieldIndexIn (-> (Vec Int) String Int Int))
 
 (pub fn (fieldIndexIn fields name i)
   (if (>= i (vecLen fields))
@@ -14015,7 +14032,7 @@
               ; find_constructor first, so a name that is both - a nullary
               ; constructor and a nullary function - yields the constructor
               ; value, and parity means agreeing on that order.
-              (let ((entry (lookupType (memGetWord cg 3) name)))
+              (let ((entry (lookupType (memGetWordVec cg 3) name)))
                 (if (!= entry 0)
                   (if (== (eArity entry) 0)
                     ; A bare nullary constructor: an immediate tag for
@@ -14117,15 +14134,15 @@
 (pub :: paramIndexOf (-> Int String Int))
 
 (pub fn (paramIndexOf cg name)
-  (let ((params (memGetWord cg 17)))
-    (if (== params 0)
+  (let ((params (memGetWordVec cg 17)))
+    (if (== (cast Int params) 0)
       (- 0 1)
       (paramIndexIn params name 0)
     )
   )
 )
 
-(pub :: paramIndexIn (-> Int String Int Int))
+(pub :: paramIndexIn (-> (Vec Int) String Int Int))
 
 (pub fn (paramIndexIn params name i)
   (if (>= i (vecLen params))
@@ -14137,22 +14154,22 @@
   )
 )
 
-(pub :: isDefinedFn (-> Int String Bool))
+(pub :: isDefinedFn (-> (Vec Int) String Bool))
 
 (pub fn (isDefinedFn decls name)
-  (if (== decls 0)
+  (if (== (cast Int decls) 0)
     false
     (isDefinedFnIn decls (declSpellingOf name) 0)
   )
 )
 
-(pub :: isDefinedFnIn (-> Int String Int Bool))
+(pub :: isDefinedFnIn (-> (Vec Int) String Int Bool))
 
 (pub fn (isDefinedFnIn decls name i)
   (if (>= i (vecLen decls))
     false
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) name) (> (vecLen (nodeB d)) 0)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) name) (> (vecLen (nodeBVec d)) 0)))
         true
         (isDefinedFnIn decls name (+ i 1))
       )
@@ -14162,13 +14179,13 @@
 
 (pub :: lookupSymKind (-> Int String Int))
 
-(pub fn (lookupSymKind cg name) (lookupSymFloatIn (memGetWord cg 6) (memGetWord cg 20) name (- (vecLen (memGetWord cg 6)) 1)))
+(pub fn (lookupSymKind cg name) (lookupSymFloatIn (memGetWordVec cg 6) (memGetWordVec cg 20) name (- (vecLen (memGetWordVec cg 6)) 1)))
 
 (pub :: lookupSymFloat (-> Int String Int))
 
-(pub fn (lookupSymFloat cg name) (lookupSymFloatIn (memGetWord cg 6) (memGetWord cg 16) name (- (vecLen (memGetWord cg 6)) 1)))
+(pub fn (lookupSymFloat cg name) (lookupSymFloatIn (memGetWordVec cg 6) (memGetWordVec cg 16) name (- (vecLen (memGetWordVec cg 6)) 1)))
 
-(pub :: lookupSymFloatIn (-> Int Int String Int Int))
+(pub :: lookupSymFloatIn (-> (Vec a) (Vec Int) String Int Int))
 
 (pub fn (lookupSymFloatIn syms flags name i)
   (if (< i 0)
@@ -14187,14 +14204,14 @@
 
 (pub fn (lookupSym cg name)
   (let (
-    (syms (memGetWord cg 6))
-    (regs (memGetWord cg 7))
+    (syms (memGetWordVec cg 6))
+    (regs (memGetWordVec cg 7))
   )
     (lookupSymIn syms regs name (- (vecLen syms) 1))
   )
 )
 
-(pub :: lookupSymIn (-> Int Int String Int Int))
+(pub :: lookupSymIn (-> (Vec Int) (Vec Int) String Int Int))
 
 (pub fn (lookupSymIn syms regs name i)
   (if (< i 0)
@@ -14229,14 +14246,14 @@
     (argNode (nodeB node))
   )
     {
-      (vecPush (memGetWord cg 5) argNode)
+      (vecPush (memGetWordVec cg 5) argNode)
       ; In LOCKSTEP with the line above, and reversed with it: the
       ; class the checker recorded for THIS application step, which is
       ; the only thing that can tell a closure call whether the word it
       ; passes is a reference. 0 for every node the checker did not
       ; stamp, which is every application that is not through a closure
       ; - and 0 is "not a reference", the direction that leaks.
-      (vecPush (memGetWord cg 45) (nodeTy node))
+      (vecPush (memGetWordVec cg 45) (nodeTy node))
       (if (== (nodeTag fnNode) TAG_E_VAR)
         ; the stamp is snapshotted HERE, validated against the
         ; declaration being emitted, and threaded as a parameter - a
@@ -14269,7 +14286,7 @@
           ; it is the shape `tests/stdlib/460-closure-reclaim.ax`
           ; term 64 is written in - a closure applied where it stands,
           ; with no name in between.
-          (let ((args (reverseVec (memGetWord cg 5))) (evs (spineEvs cg)))
+          (let ((args (reverseVec (memGetWordVec cg 5))) (evs (spineEvs cg)))
             {
               (memSetWord cg 30 0)
               (let ((cgH (emitExpr fnNode cg)))
@@ -14318,7 +14335,7 @@
   ; fixed count too, and this is the one whose result is routinely a
   ; function value.
   (let (
-    (revArgs (memGetWord cg 5))
+    (revArgs (memGetWordVec cg 5))
     (args (reverseVec revArgs))
     ; SNAPSHOTTED HERE, beside the arguments and for the identical
     ; reason: the two branches below that apply a SURPLUS argument
@@ -14399,10 +14416,10 @@
                 ; operation name binds the local - which is how sema resolves it,
                 ; and a generator that disagreed would dispatch a name the checker
                 ; had already bound to a lambda.
-                (if (!= (lookupEffFor cg (memGetWord cg 33) fnName) 0)
-                  (emitEffectOp (lookupEffFor cg (memGetWord cg 33) fnName) args cg)
+                (if (!= (lookupEffFor cg (memGetWordVec cg 33) fnName) 0)
+                  (emitEffectOp (lookupEffFor cg (memGetWordVec cg 33) fnName) args cg)
                   (let (
-                    (types (memGetWord cg 3))
+                    (types (memGetWordVec cg 3))
                     (entry (lookupType types fnName))
                   )
                     (if (== entry 0)
@@ -14412,7 +14429,7 @@
                       ; claimed the call above, and rewriting it as a jump to
                       ; the function would be an infinite loop where the
                       ; correct answer is a value.
-                      (if (&& (== isTail 1) (&& (!= (memGetWord cg 27) 0) (&& (strEq fnName (memGetWordStr cg 27)) (== (vecLen args) (vecLen (memGetWord cg 28))))))
+                      (if (&& (== isTail 1) (&& (!= (memGetWord cg 27) 0) (&& (strEq fnName (memGetWordStr cg 27)) (== (vecLen args) (vecLen (memGetWordVec cg 28))))))
                         (emitTailJump args stamp cg)
                         (emitOverApplied fnName args stamp cg evs)
                       )
@@ -14451,7 +14468,7 @@
 ; closure's address, the same bug stage0's local-head path had. The
 ; result's float-ness is unknown (no signature to ask), so it reads
 ; as integer.
-(pub :: emitIndirectCall (-> String Int Int Int))
+(pub :: emitIndirectCall (-> String (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitIndirectCall fnName args cg)
@@ -14476,7 +14493,7 @@
 ; arguments applied through a closure, which is the one place the
 ; class is the only thing that can tell the callee whether the word it
 ; was handed is a reference.
-(pub :: emitApplyChain (-> Int Int String Int Int Int))
+(pub :: emitApplyChain (-> (Vec Int) Int String Int (Vec Int) Int))
 
 ;@axiom:effect(io)
 (pub fn (emitApplyChain args cg rec i evs)
@@ -14489,14 +14506,14 @@
 ; step would read the innermost nested application's classes instead of
 ; its own. Reversed here because `walkAppChain` pushes outermost-first,
 ; exactly as `dispatchCall` reverses `argVec`.
-(pub :: spineEvs (-> Int Int))
+(pub :: spineEvs (-> Int (Vec Int)))
 
-(pub fn (spineEvs cg) (reverseVec (memGetWord cg 45)))
+(pub fn (spineEvs cg) (reverseVec (memGetWordVec cg 45)))
 
 ; The operand for step `i`: the class the checker recorded, as an LLVM
 ; literal. Anything the checker did not classify is 0 - "not a
 ; reference" - which under-retains and therefore leaks.
-(pub :: evOperandAt (-> Int Int String))
+(pub :: evOperandAt (-> (Vec Int) Int String))
 
 (pub fn (evOperandAt evs i)
   (if (>= i (vecLen evs))
@@ -14519,7 +14536,7 @@
 ; (`emitApp`'s two-argument operator path, and the partial-application
 ; path that drops the arity prefix) still hand in a record they did
 ; not make, so they start at 0 like everyone else.
-(pub :: emitApplyChainOwned (-> Int Int String Int Int Int Int))
+(pub :: emitApplyChainOwned (-> (Vec Int) Int String Int Int (Vec Int) Int))
 
 ;@axiom:effect(io)
 (pub fn (emitApplyChainOwned args cg rec i recOwned evs)
@@ -14732,7 +14749,7 @@
   )
 )
 
-(pub :: emitPrim (-> String Int Int Int Int))
+(pub :: emitPrim (-> String (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrim fnName args cg stamp)
@@ -14824,7 +14841,7 @@
 ; branch: a passing contract - which is every contract in a working
 ; program, on every call - executes the compare, the branch, and
 ; nothing else.
-(pub :: emitPrimContract (-> Int Int Int))
+(pub :: emitPrimContract (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimContract args cg)
@@ -14917,7 +14934,7 @@
 ; call is an indirect `call i64 %fp(i64 %arg)`. Axiom has no other
 ; way to reach a function it holds only as a word, and the foreign
 ; form's own release path (`@axiom_release`) makes exactly this call.
-(pub :: emitPrimCallWord (-> Int Int Int))
+(pub :: emitPrimCallWord (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimCallWord args cg)
@@ -14952,7 +14969,7 @@
 ; release are effects on the header, not values - and in this slice
 ; the ONLY callers are fixtures: the compiler does not insert
 ; ownership events until MM-LIFE-2c.
-(pub :: emitPrimRetRel (-> Int Int String Int))
+(pub :: emitPrimRetRel (-> (Vec Int) Int String Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimRetRel args cg sym)
@@ -14985,7 +15002,7 @@
 ; one that leaks rather than frees early.
 ;
 ; The result is 0. A share is an effect on a header, not a value.
-(pub :: emitPrimRetainRef (-> Int Int Int Int))
+(pub :: emitPrimRetainRef (-> (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimRetainRef args cg stamp)
@@ -14994,9 +15011,9 @@
       (v (strDup (memGetWordStr cg1 2)))
       (wv (if (== stamp 0)
         0
-        (if (== (vecLen (nodeB stamp)) 0)
+        (if (== (vecLen (nodeBVec stamp)) 0)
           0
-          (cast Int (vecGet (nodeB stamp) 0))
+          (cast Int (vecGet (nodeBVec stamp) 0))
         )
       ))
     )
@@ -15035,7 +15052,7 @@
 ;
 ; Both operands are emitted before the call, left then right, which is
 ; the evaluation order every other two-operand form here uses.
-(pub :: emitPrimStrEq (-> Int Int Int Int))
+(pub :: emitPrimStrEq (-> (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimStrEq args cg want)
@@ -15092,7 +15109,7 @@
 ; The thunk is evaluated INSIDE the run arm. Evaluating it before the
 ; arm would build a closure the abort path never uses and would put one
 ; more value across the block for nothing.
-(pub :: emitPrimRecover (-> Int Int Int))
+(pub :: emitPrimRecover (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimRecover args cg)
@@ -15123,7 +15140,7 @@
   (let ((cg0 (emitExpr (vecGet args 0) cg)))
     (let (
       (mark (strDup (memGetWordStr cg0 2)))
-      (size (fmtInt (* (+ 16 (distinctSlotCount (memGetWord cg0 32) 0 0)) 8)))
+      (size (fmtInt (* (+ 16 (distinctSlotCount (memGetWordVec cg0 32) 0 0)) 8)))
       (rec (regStr (allocReg cg0)))
       (pv (regStr (allocReg cg0)))
       (a3 (regStr (allocReg cg0)))
@@ -15204,7 +15221,7 @@
   )
 )
 
-(pub :: emitPrimArenaReset (-> Int Int Int))
+(pub :: emitPrimArenaReset (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimArenaReset args cg)
@@ -15225,7 +15242,7 @@
 ; `(__axiom_arena_reset_keeping mark addr bytes)` -> where the kept
 ; block landed. Unlike the other two this one ANSWERS a value, so its
 ; result register goes in field 2.
-(pub :: emitPrimArenaResetKeeping (-> Int Int Int))
+(pub :: emitPrimArenaResetKeeping (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimArenaResetKeeping args cg)
@@ -15289,7 +15306,7 @@
 ; `(__argv i)`: the i-th argument's NUL-terminated bytes - the vector
 ; base the wrapper captured, then an ordinary indexed word load. No
 ; bounds check at this layer; `Sys.sysArg` owns that.
-(pub :: emitPrimArgv (-> Int Int Int))
+(pub :: emitPrimArgv (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimArgv args cg)
@@ -15323,7 +15340,7 @@
 ; `__intToFloat` is a numeric conversion (`sitofp`), not a
 ; reinterpretation - that is `cast`'s job - and the result travels as
 ; the i64 of its bits like every other float.
-(pub :: emitPrimIntToFloat (-> Int Int Int))
+(pub :: emitPrimIntToFloat (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimIntToFloat args cg)
@@ -15349,7 +15366,7 @@
   )
 )
 
-(pub :: emitPrimFloatToInt (-> Int Int Int))
+(pub :: emitPrimFloatToInt (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimFloatToInt args cg)
@@ -15403,7 +15420,7 @@
 ; for memory a program mapped itself, given an instruction, and the
 ; first phase of MM-PAR-6's obligation.
 ; ------------------------------------------------------------------
-(pub :: emitPrimAtomic (-> String Int Int Int))
+(pub :: emitPrimAtomic (-> String (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimAtomic fnName args cg)
@@ -15445,7 +15462,7 @@
   }
 )
 
-(pub :: emitPrimAtomicLoad (-> Int Int Int))
+(pub :: emitPrimAtomicLoad (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimAtomicLoad args cg)
@@ -15462,7 +15479,7 @@
   )
 )
 
-(pub :: emitPrimAtomicStore (-> Int Int Int))
+(pub :: emitPrimAtomicStore (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimAtomicStore args cg)
@@ -15482,7 +15499,7 @@
   )
 )
 
-(pub :: emitPrimAtomicAdd (-> Int Int Int))
+(pub :: emitPrimAtomicAdd (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimAtomicAdd args cg)
@@ -15508,7 +15525,7 @@
 ; whether it matched - and the primitive answers the word alone: the
 ; caller already holds `expected`, so the flag is one comparison away
 ; and a second result would need a second word to travel in.
-(pub :: emitPrimAtomicCas (-> Int Int Int))
+(pub :: emitPrimAtomicCas (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimAtomicCas args cg)
@@ -15537,7 +15554,7 @@
 
 ; The inline-assembly sequence takes the syscall number and six argument
 ; registers, so a call with fewer arguments is padded with zeros.
-(pub :: emitPrimSyscall (-> Int Int Int))
+(pub :: emitPrimSyscall (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimSyscall args cg)
@@ -15578,7 +15595,7 @@
   )
 )
 
-(pub :: emitPrimAlloc (-> Int Int Int))
+(pub :: emitPrimAlloc (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimAlloc args cg)
@@ -15609,7 +15626,7 @@
   )
 )
 
-(pub :: emitPrimLoad (-> Int Int Int Int))
+(pub :: emitPrimLoad (-> (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimLoad args cg width)
@@ -15655,7 +15672,7 @@
   )
 )
 
-(pub :: emitPrimStore (-> Int Int Int Int))
+(pub :: emitPrimStore (-> (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimStore args cg width)
@@ -15712,7 +15729,7 @@
 ; `(__addr "text")` is the only way a literal's bytes reach the program.
 ; The literal is interned into the module's string table and referenced
 ; by the global the table will emit.
-(pub :: emitPrimAddr (-> Int Int Int))
+(pub :: emitPrimAddr (-> (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPrimAddr args cg)
@@ -15739,11 +15756,11 @@
 
 (pub fn (isCastName nm) (strEq nm "cast"))
 
-(pub :: reverseVec (-> Int Int))
+(pub :: reverseVec (-> (Vec Int) (Vec Int)))
 
 (pub fn (reverseVec v) (reverseInto v (- (vecLen v) 1) vecNew))
 
-(pub :: reverseInto (-> Int Int Int Int))
+(pub :: reverseInto (-> (Vec Int) Int (Vec Int) (Vec Int)))
 
 (pub fn (reverseInto v i acc)
   (if (< i 0)
@@ -15770,7 +15787,7 @@
 ; Both are asked through `buildNameIndexes` (`…Cg`), because both are
 ; asked for every call this emitter writes, and both used to walk the
 ; whole merged declaration list to answer.
-(pub :: emitOverApplied (-> String Int Int Int Int Int))
+(pub :: emitOverApplied (-> String (Vec Int) Int Int (Vec Int) Int))
 
 ;@axiom:effect(io)
 (pub fn (emitOverApplied fnName args stamp cg evs)
@@ -15791,11 +15808,11 @@
   )
 )
 
-(pub :: takeVec (-> Int Int Int))
+(pub :: takeVec (-> (Vec Int) Int (Vec Int)))
 
 (pub fn (takeVec v n) (takeInto v n 0 vecNew))
 
-(pub :: takeInto (-> Int Int Int Int Int))
+(pub :: takeInto (-> (Vec Int) Int Int (Vec Int) (Vec Int)))
 
 (pub fn (takeInto v n i acc)
   (if (>= i n)
@@ -15804,11 +15821,11 @@
   )
 )
 
-(pub :: dropVec (-> Int Int Int))
+(pub :: dropVec (-> (Vec Int) Int (Vec Int)))
 
 (pub fn (dropVec v n) (dropInto v n vecNew))
 
-(pub :: dropInto (-> Int Int Int Int))
+(pub :: dropInto (-> (Vec Int) Int (Vec Int) (Vec Int)))
 
 (pub fn (dropInto v i acc)
   (if (>= i (vecLen v))
@@ -15818,7 +15835,7 @@
 )
 
 ; Emit regular call: check binops/comparisons first.
-(pub :: emitCall (-> String Int Int Int Int))
+(pub :: emitCall (-> String (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitCall fnName args stamp cg)
@@ -15844,7 +15861,7 @@
 ; once. Either operand being a float makes the operation a float
 ; operation; a program mixing the two would be a type error under
 ; stage0, and this compiler compiles what it is given.
-(pub :: emitBinop2 (-> String Int Int Int))
+(pub :: emitBinop2 (-> String (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitBinop2 fnName args cg)
@@ -15963,7 +15980,7 @@
   )
 )
 
-(pub :: emitCmp2 (-> String Int Int Int))
+(pub :: emitCmp2 (-> String (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitCmp2 fnName args cg)
@@ -16039,7 +16056,7 @@
   )
 )
 
-(pub :: emitPlainCall (-> String Int Int Int Int))
+(pub :: emitPlainCall (-> String (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitPlainCall fnName args stamp cg)
@@ -16085,7 +16102,7 @@
                 (let ((r (regStr rn)))
                   (let ((wantPair 
                     (if (== armed 1)
-                      (pairNamesHas (pairSlot cgE 2) full)
+                      (pairNamesHas (vecGetVec (memGetWordVec cgE 46) 2) full)
                       0
                     )
                   ))
@@ -16148,7 +16165,7 @@
 
 ; `emitArgsList` that also records each argument's register, in
 ; order, into `regs`.
-(pub :: emitArgsRegs (-> Int Int Int Int Int))
+(pub :: emitArgsRegs (-> (Vec Int) Int (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitArgsRegs args cg regs i)
@@ -16200,7 +16217,7 @@
 ; out, and keeps today's leak. The head reaching here is a global
 ; with a signature (`emitPlainCall` is past the primitive, local and
 ; constructor dispatch), or an unsigned one, which answers -1.
-(pub :: releaseOwnedArgs (-> Int String Int Int Int Int))
+(pub :: releaseOwnedArgs (-> Int String (Vec Int) (Vec Int) Int Int))
 
 (pub fn (releaseOwnedArgs cg fnName args regs i)
   (if (>= i (vecLen args))
@@ -16276,7 +16293,7 @@
   (if (== e 0)
     0
     (if (== (nodeTag e) TAG_E_VAR)
-      (if (!= (lookupType (memGetWord cg 3) (nodeAName e)) 0)
+      (if (!= (lookupType (memGetWordVec cg 3) (nodeAName e)) 0)
         1
         0
       )
@@ -16310,7 +16327,7 @@
   )
 )
 
-(pub :: emitAndOr (-> String Int Int Int))
+(pub :: emitAndOr (-> String (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitAndOr op args cg)
@@ -16536,7 +16553,7 @@
 )
 
 ; Emit argument expressions from a Vec, building comma-separated reg string.
-(pub :: emitArgsList (-> Int Int Int Int))
+(pub :: emitArgsList (-> (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitArgsList args cg i)
@@ -16630,7 +16647,7 @@
   )
 )
 
-(pub :: dataTyKnown (-> Int String Int Int))
+(pub :: dataTyKnown (-> (Vec Int) String Int Int))
 
 (pub fn (dataTyKnown names n i)
   (if (>= i (vecLen names))
@@ -16654,7 +16671,7 @@
       (if (== tg TAG_T_ARR)
         2
         (if (== tg TAG_T_TUP)
-          (if (== (vecLen (nodeA tn)) 0)
+          (if (== (vecLen (nodeAVec tn)) 0)
             0
             2
           )
@@ -16670,9 +16687,9 @@
                   ; the builtin `Option` is seeded by the checker and
                   ; never enters the module's data list
                   2
-                  (if (== (dataTyKnown (memGetWord cg 35) n 0) 1)
+                  (if (== (dataTyKnown (memGetWordVec cg 35) n 0) 1)
                     2
-                    (let ((e (lookupType (memGetWord cg 3) n)))
+                    (let ((e (lookupType (memGetWordVec cg 3) n)))
                       (if (if (== e 0)
                         false
                         (== (eKind e) TF_STRUCT)
@@ -16717,7 +16734,7 @@
 ; the map's capacity is 47 words and AX3029 refuses wider blocks
 ; before emission; every shape constant stays non-negative, which is
 ; what keeps `fmtInt` honest about it.
-(pub :: shapeBits (-> Int Int Int Int Int Int))
+(pub :: shapeBits (-> Int (Vec Int) Int Int Int Int))
 
 (pub fn (shapeBits cg ftys isStruct base i)
   (if (>= i (vecLen ftys))
@@ -16764,8 +16781,8 @@
       (let (
         (cnt (paddedWords words))
         (ftys (if (== kind TF_DATA)
-          (eFieldTys entry)
-          (eFieldFlags entry)
+          (eFieldTysVec entry)
+          (eFieldFlagsVec entry)
         ))
         (base (if (== kind TF_DATA)
           1
@@ -16779,7 +16796,7 @@
         (let ((bits 
           (if (> words 47)
             (- 0 1)
-            (if (== ftys 0)
+            (if (== (cast Int ftys) 0)
               (if (== arity 0)
                 0
                 (- 0 1)
@@ -16976,7 +16993,7 @@
       (if (|| (!= kind TF_DATA) (|| (> words 47) (== (eFieldTys entry) 0)))
         (storeShapeAt cg ptr (ctorShapeConst cg entry))
         (let (
-          (ftys0 (eFieldTys entry))
+          (ftys0 (eFieldTysVec entry))
           (mut anyVar 0)
         )
           {
@@ -16999,7 +17016,7 @@
               ; field index, so the prefix agrees by construction
               (let (
                 (cnt (paddedWords words))
-                (ftys (eFieldTys entry))
+                (ftys (eFieldTysVec entry))
                 (vars vecNew)
                 (symPos vecNew)
                 (symK vecNew)
@@ -17017,11 +17034,11 @@
                               (let ((vi (strVecIdx vars (nodeAName tn))))
                                 (if (if (< vi 0)
                                   true
-                                  (>= vi (vecLen (nodeB stamp)))
+                                  (>= vi (vecLen (nodeBVec stamp)))
                                 )
                                   0
                                   (let ((wv 
-                                    (cast Int (vecGet (nodeB stamp) vi))
+                                    (cast Int (vecGet (nodeBVec stamp) vi))
                                   ))
                                     (if (== wv 1)
                                       (set stat (+ stat (pow2 (+ 17 j))))
@@ -17029,6 +17046,7 @@
                                         {
                                           (vecPush symPos (+ 17 j))
                                           (vecPush symK (- wv 2))
+                                          0
                                         }
                                         0
                                       )
@@ -17188,8 +17206,8 @@
     (if (!= (nodeTag rt) TAG_T_CON)
       0
       (let ((tn (cast String (nodeA rt))))
-        (let ((args (nodeB rt)))
-          (if (== args 0)
+        (let ((args (nodeBVec rt)))
+          (if (== (cast Int args) 0)
             0
             (if (strEq tn "Option")
               (if (== (vecLen args) 1)
@@ -17247,8 +17265,8 @@
 (pub :: pairPayloadClass (-> Int Int String Int))
 
 (pub fn (pairPayloadClass cg rt cname)
-  (let ((args (nodeB rt)))
-    (if (== args 0)
+  (let ((args (nodeBVec rt)))
+    (if (== (cast Int args) 0)
       (- 0 1)
       (if (strEq cname "Err")
         (if (< (vecLen args) 2)
@@ -17274,16 +17292,16 @@
 ; every `(Option T)`-answering function of the right shape in the
 ; program - a handful - so a scan is cheaper than an index and cannot
 ; go stale between `buildNameIndexes` and emission.
-(pub :: pairNamesHas (-> Int String Int))
+(pub :: pairNamesHas (-> (Vec Int) String Int))
 
 (pub fn (pairNamesHas names name)
-  (if (== names 0)
+  (if (== (cast Int names) 0)
     0
     (pairNamesHasFrom names name 0)
   )
 )
 
-(pub :: pairNamesHasFrom (-> Int String Int Int))
+(pub :: pairNamesHasFrom (-> (Vec Int) String Int Int))
 
 (pub fn (pairNamesHasFrom names name i)
   (if (>= i (vecLen names))
@@ -17322,7 +17340,7 @@
 (pub :: pairEntryOfArity (-> Int String Int Int))
 
 (pub fn (pairEntryOfArity cg name want)
-  (let ((en (lookupType (memGetWord cg 3) name)))
+  (let ((en (lookupType (memGetWordVec cg 3) name)))
     (if (== en 0)
       0
       (if (!= (eKind en) TF_DATA)
@@ -17359,8 +17377,8 @@
     0
     (let ((tg (nodeTag e)))
       (if (== tg TAG_E_BEGIN)
-        (let ((xs (nodeA e)))
-          (if (== xs 0)
+        (let ((xs (nodeAVec e)))
+          (if (== (cast Int xs) 0)
             0
             (if (== (vecLen xs) 0)
               0
@@ -17435,7 +17453,7 @@
                         0
                       )
                       (if (== tg TAG_E_BEGIN)
-                        (pairVecSimple (nodeA e) 0)
+                        (pairVecSimple (nodeAVec e) 0)
                         0
                       )
                     )
@@ -17450,10 +17468,10 @@
   )
 )
 
-(pub :: pairVecSimple (-> Int Int Int))
+(pub :: pairVecSimple (-> (Vec Int) Int Int))
 
 (pub fn (pairVecSimple xs i)
-  (if (== xs 0)
+  (if (== (cast Int xs) 0)
     1
     (if (>= i (vecLen xs))
       1
@@ -17509,7 +17527,7 @@
                   0
                   (if (== (pairBodySimple body) 0)
                     0
-                    (if (== (tailCallsSelf body (bareOf name) (vecLen (nodeB node))) 1)
+                    (if (== (tailCallsSelf body (bareOf name) (vecLen (nodeBVec node))) 1)
                       0
                       1
                     )
@@ -17610,7 +17628,7 @@
 ; ------------------------------------------------------------------
 ; Constructor emission: alloc + shape + field stores.
 ; ------------------------------------------------------------------
-(pub :: emitConstructor (-> Int Int Int Int Int))
+(pub :: emitConstructor (-> (Vec Int) Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitConstructor args entry stamp cg)
@@ -17733,7 +17751,7 @@
           (let ((h (spineHead an)))
             (if (!= (nodeTag h) TAG_E_VAR)
               0
-              (if (!= (lookupType (memGetWord cg 3) (nodeAName h)) 0)
+              (if (!= (lookupType (memGetWordVec cg 3) (nodeAName h)) 0)
                 1
                 0
               )
@@ -17756,8 +17774,8 @@
   (let ((kind (eKind entry)))
     (let ((tn 
       (if (== kind TF_DATA)
-        (let ((ftys (eFieldTys entry)))
-          (if (== ftys 0)
+        (let ((ftys (eFieldTysVec entry)))
+          (if (== (cast Int ftys) 0)
             0
             (if (< j (vecLen ftys))
               (vecGet ftys j)
@@ -17765,7 +17783,7 @@
             )
           )
         )
-        (let ((fs (eFieldFlags entry)))
+        (let ((fs (eFieldFlagsVec entry)))
           (if (< j (vecLen fs))
             (nodeTy (vecGet fs j))
             0
@@ -17781,17 +17799,17 @@
             (let ((vars vecNew))
               {
                 (if (== kind TF_DATA)
-                  (cgSigVarsVec (eFieldTys entry) vars)
+                  (cgSigVarsVec (eFieldTysVec entry) vars)
                   0
                 )
                 (let ((vi (strVecIdx vars (nodeAName tn))))
                   (if (if (< vi 0)
                     true
-                    (>= vi (vecLen (nodeB stamp)))
+                    (>= vi (vecLen (nodeBVec stamp)))
                   )
                     (- 0 1)
                     (let ((wv 
-                      (cast Int (vecGet (nodeB stamp) vi))
+                      (cast Int (vecGet (nodeBVec stamp) vi))
                     ))
                       (if (== wv 1)
                         1
@@ -17816,7 +17834,7 @@
   )
 )
 
-(pub :: emitFieldStores (-> Int String Int Int Int Int Int Int))
+(pub :: emitFieldStores (-> Int String (Vec Int) Int Int Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (emitFieldStores cg ptr args i base entry stamp)
@@ -17929,13 +17947,13 @@
                   (letReleasable cg1 valExpr name body)
                 )
               ))
-                (let ((pmark (vecLen (memGetWord cg1 42))))
+                (let ((pmark (vecLen (memGetWordVec cg1 42))))
                   {
                     (if (== releasable 1)
                       (vecPush
-                        (memGetWord cg1 42)                        (cast Int valReg)
+                        (memGetWordVec cg1 42)                        (cast Int valReg)
                       )
-                      0
+                      (cast (Vec Int) 0)
                     )
                     (let ((cgB 
                       (if (== tail 1)
@@ -18183,7 +18201,7 @@
                 )
                 (if (== tg TAG_E_BEGIN)
                   (escapesSeq
-                    cg                    name                    (nodeA e)                    vp                    0                    root
+                    cg                    name                    (nodeAVec e)                    vp                    0                    root
                   )
                   (if (== tg TAG_E_MATCH)
                     ; the arms' binders are the scrutinee's fields, owned by
@@ -18195,12 +18213,12 @@
                     ) 1)
                       1
                       (if (== (escapesArms
-                        cg                        name                        (nodeB e)                        vp                        0                        root
+                        cg                        name                        (nodeBVec e)                        vp                        0                        root
                       ) 1)
                         1
                         (if (== (mentions name (nodeA e)) 1)
                           (escapesViaBinders
-                            cg                            (nodeB e)                            vp                            0                            root
+                            cg                            (nodeBVec e)                            vp                            0                            root
                           )
                           0
                         )
@@ -18208,11 +18226,11 @@
                     )
                     (if (== tg TAG_E_COND)
                       (if (== (escapesCondTests
-                        cg                        name                        (nodeA e)                        root                        0
+                        cg                        name                        (nodeAVec e)                        root                        0
                       ) 1)
                         1
                         (if (== (escapesArms
-                          cg                          name                          (nodeA e)                          vp                          0                          root
+                          cg                          name                          (nodeAVec e)                          vp                          0                          root
                         ) 1)
                           1
                           (escapes
@@ -18256,7 +18274,7 @@
                           ) 1)
                             1
                             (escapesSeq
-                              cg                              name                              (nodeB e)                              0                              0                              root
+                              cg                              name                              (nodeBVec e)                              0                              0                              root
                             )
                           )
                           (if (== tg TAG_E_SET)
@@ -18306,10 +18324,10 @@
   )
 )
 
-(pub :: escapesSeq (-> Int String Int Int Int Int Int))
+(pub :: escapesSeq (-> Int String (Vec Int) Int Int Int Int))
 
 (pub fn (escapesSeq cg name v vp i root)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     0
     (if (>= i (vecLen v))
       0
@@ -18332,10 +18350,10 @@
 
 ; A match arm or cond clause: word 2 is the body, and it inherits the
 ; position. An arm PATTERN cannot mention an outer binding as a value.
-(pub :: escapesArms (-> Int String Int Int Int Int Int))
+(pub :: escapesArms (-> Int String (Vec Int) Int Int Int Int))
 
 (pub fn (escapesArms cg name v vp i root)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     0
     (if (>= i (vecLen v))
       0
@@ -18373,16 +18391,16 @@
 ; iteration, and so did the `let`-bound spelling; a match whose arms
 ; bind NOTHING grew 0. The 32 bytes were the `Result` block, and the
 ; only thing holding it was `v`, an `Int`.
-(pub :: escapesViaBinders (-> Int Int Int Int Int Int))
+(pub :: escapesViaBinders (-> Int (Vec Int) Int Int Int Int))
 
 (pub fn (escapesViaBinders cg arms vp i root)
-  (if (== arms 0)
+  (if (== (cast Int arms) 0)
     0
     (if (>= i (vecLen arms))
       0
       (let ((arm (vecGet arms i)))
         (let ((bs (patBindersEsc (nodeA arm) vecNew)))
-          (if (== bs 0)
+          (if (== (cast Int bs) 0)
             1
             (if (== (escapesAny
               cg              bs              (nodeB arm)              vp              0              root
@@ -18399,7 +18417,7 @@
   )
 )
 
-(pub :: escapesAny (-> Int Int Int Int Int Int Int))
+(pub :: escapesAny (-> Int (Vec Int) Int Int Int Int Int))
 
 (pub fn (escapesAny cg names body vp i root)
   (if (>= i (vecLen names))
@@ -18447,10 +18465,10 @@
   )
 )
 
-(pub :: escapesCondTests (-> Int String Int Int Int Int))
+(pub :: escapesCondTests (-> Int String (Vec Int) Int Int Int))
 
 (pub fn (escapesCondTests cg name cls root i)
-  (if (== cls 0)
+  (if (== (cast Int cls) 0)
     0
     (if (>= i (vecLen cls))
       0
@@ -18535,7 +18553,7 @@
                       )
                     )                    0
                   )
-                  (let ((entry (lookupType (memGetWord cg 3) n)))
+                  (let ((entry (lookupType (memGetWordVec cg 3) n)))
                     (if (!= entry 0)
                       ; a constructor: a reference field retains what it
                       ; is given (event 6) and is walked in argument
@@ -18684,14 +18702,14 @@
             )
           )
           (if (== tg TAG_E_LAM)
-            (if (== (strInVecCg (nodeA e) name 0) 1)
+            (if (== (strInVecCg (nodeAVec e) name 0) 1)
               1
               (boundWithin name (nodeB e))
             )
             (if (== tg TAG_E_MATCH)
               (if (== (boundWithin name (nodeA e)) 1)
                 1
-                (boundWithinArms name (nodeB e) 0)
+                (boundWithinArms name (nodeBVec e) 0)
               )
               (if (|| (== tg TAG_E_APP) (== tg TAG_E_IF))
                 (if (== (boundWithin name (nodeA e)) 1)
@@ -18711,11 +18729,11 @@
                     (if (== tg TAG_E_SET)
                       (boundWithin name (nodeB e))
                       (if (|| (== tg TAG_E_BEGIN) (== tg TAG_E_COND))
-                        (boundWithinVec name (nodeA e) 0)
+                        (boundWithinVec name (nodeAVec e) 0)
                         (if (== tg TAG_E_WHILE)
                           (if (== (boundWithin name (nodeA e)) 1)
                             1
-                            (boundWithinVec name (nodeB e) 0)
+                            (boundWithinVec name (nodeBVec e) 0)
                           )
                           1
                         )
@@ -18732,10 +18750,10 @@
   )
 )
 
-(pub :: boundWithinVec (-> String Int Int Int))
+(pub :: boundWithinVec (-> String (Vec Int) Int Int))
 
 (pub fn (boundWithinVec name v i)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     0
     (if (>= i (vecLen v))
       0
@@ -18749,16 +18767,16 @@
 
 ; An arm binds its pattern's names; a cond clause binds nothing, and
 ; its word 1 is a condition `boundWithin` walks like any expression.
-(pub :: boundWithinArms (-> String Int Int Int))
+(pub :: boundWithinArms (-> String (Vec Int) Int Int))
 
 (pub fn (boundWithinArms name v i)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     0
     (if (>= i (vecLen v))
       0
       (let ((arm (vecGet v i)))
         (let ((bs (patBindersCg (nodeA arm) vecNew)))
-          (if (== bs 0)
+          (if (== (cast Int bs) 0)
             1
             (if (== (strInVecCg bs name 0) 1)
               1
@@ -18774,10 +18792,10 @@
   )
 )
 
-(pub :: strInVecCg (-> Int String Int Int))
+(pub :: strInVecCg (-> (Vec Int) String Int Int))
 
 (pub fn (strInVecCg v name i)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     0
     (if (>= i (vecLen v))
       0
@@ -18812,7 +18830,7 @@
 (pub :: fieldReadIsScalar (-> Int Int Int))
 
 (pub fn (fieldReadIsScalar cg e)
-  (let ((fi (resolveStructField (memGetWord cg 3) e)))
+  (let ((fi (resolveStructField (memGetWordVec cg 3) e)))
     (if (== fi 0)
       0
       (if (== (nodeC fi) 0)
@@ -18833,7 +18851,7 @@
 ; constructor pattern binds whatever its reordered spine would. `_`
 ; and `true`/`false` are names nobody references, so listing them
 ; costs nothing.
-(pub :: patBindersCg (-> Int Int Int))
+(pub :: patBindersCg (-> Int (Vec Int) (Vec Int)))
 
 (pub fn (patBindersCg pat acc)
   (if (== pat 0)
@@ -18847,13 +18865,13 @@
             acc
           }
           (if (== tag TAG_E_APP)
-            (if (== (patBindersCg (nodeB pat) acc) 0)
-              0
+            (if (== (cast Int (patBindersCg (nodeB pat) acc)) 0)
+              (cast (Vec Int) 0)
               (patBindersCgHead (nodeA pat) acc)
             )
             (if (== tag TAG_P_CONNAMED)
-              (patBindersCgVec (nodeC pat) acc 0)
-              0
+              (patBindersCgVec (nodeCVec pat) acc 0)
+              (cast (Vec Int) 0)
             )
           )
         )
@@ -18862,27 +18880,27 @@
   )
 )
 
-(pub :: patBindersCgHead (-> Int Int Int))
+(pub :: patBindersCgHead (-> Int (Vec Int) (Vec Int)))
 
 (pub fn (patBindersCgHead pat acc)
   (if (== (nodeTag pat) TAG_E_APP)
-    (if (== (patBindersCg (nodeB pat) acc) 0)
-      0
+    (if (== (cast Int (patBindersCg (nodeB pat) acc)) 0)
+      (cast (Vec Int) 0)
       (patBindersCgHead (nodeA pat) acc)
     )
     acc
   )
 )
 
-(pub :: patBindersCgVec (-> Int Int Int Int))
+(pub :: patBindersCgVec (-> (Vec Int) (Vec Int) Int (Vec Int)))
 
 (pub fn (patBindersCgVec subs acc i)
-  (if (== subs 0)
+  (if (== (cast Int subs) 0)
     acc
     (if (>= i (vecLen subs))
       acc
-      (if (== (patBindersCg (vecGet subs i) acc) 0)
-        0
+      (if (== (cast Int (patBindersCg (vecGet subs i) acc)) 0)
+        (cast (Vec Int) 0)
         (patBindersCgVec subs acc (+ i 1))
       )
     )
@@ -18900,7 +18918,7 @@
 ; environment (`flowMaskArms`, `flowStashesArms`, `tailOwnedArms`,
 ; `collectTailsArms`). A scalar binder is still a binding; it is only
 ; the escape question it cannot answer yes to.
-(pub :: patBindersEsc (-> Int Int Int))
+(pub :: patBindersEsc (-> Int (Vec Int) (Vec Int)))
 
 (pub fn (patBindersEsc pat acc)
   (if (== pat 0)
@@ -18920,13 +18938,13 @@
             acc
           }
           (if (== tag TAG_E_APP)
-            (if (== (patBindersEsc (nodeB pat) acc) 0)
-              0
+            (if (== (cast Int (patBindersEsc (nodeB pat) acc)) 0)
+              (cast (Vec Int) 0)
               (patBindersEscHead (nodeA pat) acc)
             )
             (if (== tag TAG_P_CONNAMED)
-              (patBindersEscVec (nodeC pat) acc 0)
-              0
+              (patBindersEscVec (nodeCVec pat) acc 0)
+              (cast (Vec Int) 0)
             )
           )
         )
@@ -18935,27 +18953,27 @@
   )
 )
 
-(pub :: patBindersEscHead (-> Int Int Int))
+(pub :: patBindersEscHead (-> Int (Vec Int) (Vec Int)))
 
 (pub fn (patBindersEscHead pat acc)
   (if (== (nodeTag pat) TAG_E_APP)
-    (if (== (patBindersEsc (nodeB pat) acc) 0)
-      0
+    (if (== (cast Int (patBindersEsc (nodeB pat) acc)) 0)
+      (cast (Vec Int) 0)
       (patBindersEscHead (nodeA pat) acc)
     )
     acc
   )
 )
 
-(pub :: patBindersEscVec (-> Int Int Int Int))
+(pub :: patBindersEscVec (-> (Vec Int) (Vec Int) Int (Vec Int)))
 
 (pub fn (patBindersEscVec subs acc i)
-  (if (== subs 0)
+  (if (== (cast Int subs) 0)
     acc
     (if (>= i (vecLen subs))
       acc
-      (if (== (patBindersEsc (vecGet subs i) acc) 0)
-        0
+      (if (== (cast Int (patBindersEsc (vecGet subs i) acc)) 0)
+        (cast (Vec Int) 0)
         (patBindersEscVec subs acc (+ i 1))
       )
     )
@@ -19033,21 +19051,21 @@
                   (if (== tg TAG_E_SET)
                     (mentions name (nodeB e))
                     (if (== tg TAG_E_BEGIN)
-                      (mentionsVec name (nodeA e) 0)
+                      (mentionsVec name (nodeAVec e) 0)
                       (if (== tg TAG_E_COND)
-                        (if (== (mentionsVec name (nodeA e) 0) 1)
+                        (if (== (mentionsVec name (nodeAVec e) 0) 1)
                           1
                           (mentions name (nodeB e))
                         )
                         (if (== tg TAG_E_MATCH)
                           (if (== (mentions name (nodeA e)) 1)
                             1
-                            (mentionsArms name (nodeB e) 0)
+                            (mentionsArms name (nodeBVec e) 0)
                           )
                           (if (== tg TAG_E_WHILE)
                             (if (== (mentions name (nodeA e)) 1)
                               1
-                              (mentionsVec name (nodeB e) 0)
+                              (mentionsVec name (nodeBVec e) 0)
                             )
                             (if (== tg TAG_E_LAM)
                               ; a capture takes no share, so any mention counts
@@ -19069,10 +19087,10 @@
   )
 )
 
-(pub :: mentionsVec (-> String Int Int Int))
+(pub :: mentionsVec (-> String (Vec Int) Int Int))
 
 (pub fn (mentionsVec name v i)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     0
     (if (>= i (vecLen v))
       0
@@ -19084,10 +19102,10 @@
   )
 )
 
-(pub :: mentionsArms (-> String Int Int Int))
+(pub :: mentionsArms (-> String (Vec Int) Int Int))
 
 (pub fn (mentionsArms name v i)
-  (if (== v 0)
+  (if (== (cast Int v) 0)
     0
     (if (>= i (vecLen v))
       0
@@ -19128,7 +19146,7 @@
 (pub fn (openAllocaMark cg)
   (let ((cgM (emitLine cg "")))
     {
-      (memSetWord cgM 43 (- (vecLen (memGetWord cgM 0)) 1))
+      (memSetWord cgM 43 (- (vecLen (memGetWordVec cgM 0)) 1))
       (memSetWord cgM 44 vecNew)
       cgM
     }
@@ -19142,7 +19160,7 @@
     (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
     {
       (vecPush
-        (memGetWord cg 44)        (cast Int (cat2 (cat2 "  " ar) " = alloca i64"))
+        (memGetWordVec cg 44)        (cast Int (cat2 (cat2 "  " ar) " = alloca i64"))
       )
       cg
     }
@@ -19155,13 +19173,13 @@
   (let ((mark (memGetWord cg 43)))
     (if (< mark 0)
       cg
-      (let ((hoisted (memGetWord cg 44)))
+      (let ((hoisted (memGetWordVec cg 44)))
         {
           (if (> (vecLen hoisted) 0)
             (vecSet
-              (memGetWord cg 0)              mark              (cast Int (joinAllocas hoisted))
+              (memGetWordVec cg 0)              mark              (cast Int (joinAllocas hoisted))
             )
-            0
+            (cast (Vec Int) 0)
           )
           (memSetWord cg 43 (- 0 1))
           (memSetWord cg 44 vecNew)
@@ -19175,7 +19193,7 @@
 ; One buffer of the exact size, not a recursive concatenation: 40,000
 ; `mut` bindings in one function joined in 11.6 s by the suffix-
 ; copying form (quadratic, and one frame per binding)
-(pub :: joinAllocas (-> Int String))
+(pub :: joinAllocas (-> (Vec Int) String))
 
 (pub fn (joinAllocas v)
   (let ((n (vecLen v)))
@@ -19211,7 +19229,7 @@
   )
 )
 
-(pub :: joinAllocasSize (-> Int Int Int Int))
+(pub :: joinAllocasSize (-> (Vec Int) Int Int Int))
 
 (pub fn (joinAllocasSize v i acc)
   (if (>= i (vecLen v))
@@ -19326,7 +19344,7 @@
 (pub fn (emitWhile node cg)
   (let (
     (cnd (nodeA node))
-    (body (nodeB node))
+    (body (nodeBVec node))
     (hn (allocReg cg))
     (bn (allocReg cg))
     (xn (allocReg cg))
@@ -19428,12 +19446,12 @@
 
 ;@axiom:effect(io)
 (pub fn (emitBegin node cg)
-  (let ((exprs (nodeA node)))
+  (let ((exprs (nodeAVec node)))
     (emitSeq exprs cg 0)
   )
 )
 
-(pub :: emitSeq (-> Int Int Int Int))
+(pub :: emitSeq (-> (Vec Int) Int Int Int))
 
 ; MM-LIFE-2c event 2, the sound subset: a DIRECTLY-BUILT construction
 ; discarded in statement position is released on the spot - its birth

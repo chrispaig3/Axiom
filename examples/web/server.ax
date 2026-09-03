@@ -176,7 +176,7 @@
 (fn (htmlType) "text/html; charset=utf-8")
 
 ; GET / - the items, and the form that leads to /hello.
-(:: indexPage (-> Int HttpReq Int Int))
+(:: indexPage (-> Int HttpReq (Vec String) Int))
 
 ;@axiom:effect(io)
 (fn (indexPage fd r items)
@@ -435,7 +435,7 @@
             (let ((pid sysForkProcess))
               (if (== pid 0)
                 (sysExitWith (serve lsn rt arenaOn))
-                (vecPush pids pid)
+                { (vecPush pids pid) 0 }
               )
             )
             (set w (+ w 1))

@@ -200,7 +200,7 @@
 
 (pub fn (jsonArrLen v)
   (if (== (jsonTag v) JARR)
-    (vecLen (memGetWord v 1))
+    (vecLen (memGetWordVec v 1))
     0
   )
 )
@@ -209,9 +209,9 @@
 
 (pub fn (jsonArrGet v i)
   (if (== (jsonTag v) JARR)
-    (if (|| (< i 0) (>= i (vecLen (memGetWord v 1))))
+    (if (|| (< i 0) (>= i (vecLen (memGetWordVec v 1))))
       0
-      (vecGet (memGetWord v 1) i)
+      (vecGet (memGetWordVec v 1) i)
     )
     0
   )
@@ -222,7 +222,7 @@
 (pub fn (jsonArrPush v x)
   {
     (if (== (jsonTag v) JARR)
-      (memSetWord v 1 (vecPush (memGetWord v 1) x))
+      (memSetWord v 1 (vecPush (memGetWordVec v 1) x))
       0
     )
     v
@@ -233,7 +233,7 @@
 
 (pub fn (jsonObjLen v)
   (if (== (jsonTag v) JOBJ)
-    (vecLen (memGetWord v 1))
+    (vecLen (memGetWordVec v 1))
     0
   )
 )
@@ -243,7 +243,7 @@
 (fn (jsonObjKeyAt v i)
   (if (|| (< i 0) (>= i (jsonObjLen v)))
     ""
-    (vecGetStr (memGetWord v 1) i)
+    (vecGetStr (memGetWordVec v 1) i)
   )
 )
 
@@ -252,7 +252,7 @@
 (fn (jsonObjValAt v i)
   (if (|| (< i 0) (>= i (jsonObjLen v)))
     0
-    (vecGet (memGetWord v 2) i)
+    (vecGet (memGetWordVec v 2) i)
   )
 )
 
@@ -268,8 +268,8 @@
   {
     (if (== (jsonTag v) JOBJ)
       {
-        (memSetWord v 1 (vecPush (memGetWord v 1) k))
-        (memSetWord v 2 (vecPush (memGetWord v 2) x))
+        (memSetWord v 1 (vecPush (memGetWordVec v 1) k))
+        (memSetWord v 2 (vecPush (memGetWordVec v 2) x))
         0
       }
       0
@@ -334,7 +334,7 @@
 ; left-fold alternative is quadratic in a bump allocator and is the
 ; single most expensive mistake this project has measured.
 ; ------------------------------------------------------------------
-(:: jsonJoin (-> Int String))
+(:: jsonJoin (-> (Vec a) String))
 
 (fn (jsonJoin pieces)
   (let ((total (jsonJoinLen pieces)))
@@ -347,7 +347,7 @@
   )
 )
 
-(:: jsonJoinLen (-> Int Int))
+(:: jsonJoinLen (-> (Vec a) Int))
 
 (fn (jsonJoinLen pieces)
   (let (
@@ -365,7 +365,7 @@
   )
 )
 
-(:: jsonJoinFill (-> Int String Int))
+(:: jsonJoinFill (-> (Vec a) String Int))
 
 (fn (jsonJoinFill pieces out)
   (let (
@@ -554,7 +554,7 @@
   )
 )
 
-(:: jsonWriteInto (-> Int Int Int))
+(:: jsonWriteInto (-> Int (Vec String) (Vec String)))
 
 (fn (jsonWriteInto v pieces)
   (let ((t (jsonTag v)))
@@ -568,7 +568,7 @@
           )
         )
         (if (== t JNUM)
-          (vecPush pieces (memGetWord v 2))
+          (vecPush pieces (memGetWordStr v 2))
           (if (== t JSTR)
             {
               (vecPush pieces "\"")
@@ -586,11 +586,11 @@
   )
 )
 
-(:: jsonWriteArr (-> Int Int Int))
+(:: jsonWriteArr (-> Int (Vec String) (Vec String)))
 
 (fn (jsonWriteArr v pieces)
   (let (
-    (items (memGetWord v 1))
+    (items (memGetWordVec v 1))
     (mut i 0)
   )
     {
@@ -599,7 +599,7 @@
         {
           (if (> i 0)
             (vecPush pieces ",")
-            0
+            (cast (Vec String) 0)
           )
           (jsonWriteInto (vecGet items i) pieces)
           (set i (+ i 1))
@@ -609,12 +609,12 @@
   )
 )
 
-(:: jsonWriteObj (-> Int Int Int))
+(:: jsonWriteObj (-> Int (Vec String) (Vec String)))
 
 (fn (jsonWriteObj v pieces)
   (let (
-    (keys (memGetWord v 1))
-    (vals (memGetWord v 2))
+    (keys (memGetWordVec v 1))
+    (vals (memGetWordVec v 2))
     (mut i 0)
   )
     {
@@ -623,7 +623,7 @@
         {
           (if (> i 0)
             (vecPush pieces ",")
-            0
+            (cast (Vec String) 0)
           )
           (vecPush pieces "\"")
           (vecPush pieces (jsonEscape (vecGetStr keys i)))
@@ -900,7 +900,7 @@
                 {
                   (if (> p run)
                     (vecPush pieces (strSlice src run (- p run)))
-                    0
+                    (cast (Vec String) 0)
                   )
                   (set p (+ p 1))
                   (set done 1)
@@ -909,7 +909,7 @@
                   {
                     (if (> p run)
                       (vecPush pieces (strSlice src run (- p run)))
-                      0
+                      (cast (Vec String) 0)
                     )
                     (set p (jpEscape src c (+ p 1) pieces))
                     (set run p)
@@ -946,7 +946,7 @@
 
 ; Decode one escape whose backslash was at `p - 1`, pushing its bytes.
 ; Answers the offset just past the escape.
-(:: jpEscape (-> String Int Int Int Int))
+(:: jpEscape (-> String Int Int (Vec String) Int))
 
 (fn (jpEscape src c p pieces)
   (if (>= p (strLen src))
@@ -1022,7 +1022,7 @@
 ; written with. An unpaired surrogate is replaced by U+FFFD rather than
 ; refused: it cannot be encoded as UTF-8, and refusing a whole message
 ; over one bad character is the less useful of the two failures.
-(:: jpUnicode (-> String Int Int Int Int))
+(:: jpUnicode (-> String Int Int (Vec String) Int))
 
 (fn (jpUnicode src c p pieces)
   (let ((hi (jpHex4 src c p)))

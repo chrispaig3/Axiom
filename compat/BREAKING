@@ -274,6 +274,15 @@
 # file is for - `docs/compatibility.md`'s policy is about what callers
 # rely on, not about what the census can compute.
 #
+# THE FIRST SENTENCE STOPPED BEING TRUE LATER IN THIS SAME RELEASE, and
+# it is left standing because it is why this row was written. The `Vec`
+# port below retyped `vecGet` to `(-> (Vec a) Int a)`, so the census
+# DOES see it now and reports `CHANGED`. This row satisfies that too -
+# the permit is keyed on the kind letter and the name, not on the
+# reason - but the two changes are separate events with one line: the
+# trap landed first and alone, and the retype is what section 4 said
+# the trap had to precede.
+#
 # WHAT A CALLER RELIED ON. `vecGet v i` past the end answered 0, and 0
 # is a value a caller may have pushed, so a read past the end and a
 # stored zero arrived identically. `stdlib/Vec.ax`'s own comment called
@@ -293,3 +302,118 @@
 # reference element the 0 is a null the caller dereferences. The
 # sentinel had to go before `Vec` could carry an element type.
 0.6.4  F  vecGet  answers 0 -> refuses (status 77): a stored zero and a missing element were indistinguishable
+
+# 0.6.4 - `Vec` CARRIES ITS ELEMENT TYPE. `stdlib/Vec.ax` handed out a
+# bare `Int` handle; it hands out a parameterised `(Vec a)` now, and
+# every public name that takes or answers a vector moved with it. This
+# is the port `docs/generics-design.md` section 5 item 5 planned and
+# section 4c measured: 4,432 errors to zero.
+#
+# WHAT A CONSUMER HAS TO DO. The runtime representation did not change
+# - a `(Vec a)` is the same machine word the `Int` was - so this is a
+# re-TYPING and not a re-implementation. Give the vector an element
+# type where you declare one: `(Vec Int)` for machine words (node
+# handles, ids, indices), `(Vec String)`, `(Vec (Vec Int))`, or
+# `(Vec a)` where the code is genuinely polymorphic. The absent-vector
+# sentinel is `(cast (Vec Int) 0)`, and a null test on a handle reads
+# `(== (cast Int v) 0)`.
+#
+# `vecPush` ANSWERS THE VECTOR NOW rather than an `Int`, which is a
+# break at every site that discarded the result in `Int` position.
+# Write `{ (vecPush v x) 0 }` - never nested, and never in an argument
+# position, where `(vecPush acc { ... 0 })` pushes 0 rather than the
+# vector.
+#
+# THE ONE TRAP WORTH WRITING DOWN, because it type-checks and is a
+# use-after-free. Do NOT reach for a cast at a `vecPush` argument:
+#
+#     (vecPush v (cast Int s))     type-checks, LEAKS THE RETAIN
+#
+# `vecPush`'s element parameter is a type VARIABLE, and
+# `docs/memory-model.md` MM-VAL-22 measures that a cast at an argument
+# root in a type-variable position classifies that value's evidence 0
+# - so `memSetWord`'s `__retainref` emits nothing, the `String`'s share
+# is never taken, and the vector holds a pointer to a block that will
+# be freed under it. `vecPushStr` and `vecPushVec` are the writes for
+# a heterogeneous vector: they take the share EXPLICITLY and pair it
+# with the cast, so the count matches a `(Vec String)` push. Reading
+# back is `vecGetVec` / `vecGetStr`, and a raw word read as a container
+# is `memGetWordVec` / `nodeAVec` / `nodeBVec` / `nodeCVec`. Those six
+# are ADDED names and need no declaration of their own; they are named
+# here because they are what a consumer hitting this trap needs.
+#
+# THE FOUR `S` ROWS ARE THE SAME EVENT, not a separate one. A struct
+# field that held a vector was declared `Int`, so retyping the field is
+# how the container's type reaches the constructor and the accessors.
+# No field was added, removed or reordered, and the layout is
+# unchanged.
+0.6.4  F  vecNew              Int -> (Vec a): the element type is in the handle now
+0.6.4  F  vecNewRef           Int -> (Vec a): the element type is in the handle now
+0.6.4  F  vecWithCapacity     (-> Int Int) -> (-> Int (Vec a))
+0.6.4  F  vecWithCapacityRef  (-> Int Int) -> (-> Int (Vec a))
+0.6.4  F  vecFree             (-> Int Int) -> (-> (Vec a) Int)
+0.6.4  F  vecOwnsRefs         (-> Int Bool) -> (-> (Vec a) Bool)
+0.6.4  F  vecLen              (-> Int Int) -> (-> (Vec a) Int)
+0.6.4  F  vecCap              (-> Int Int) -> (-> (Vec a) Int)
+0.6.4  F  vecGetStr           (-> Int Int String) -> (-> (Vec a) Int String): the CONTAINER is typed; the read still answers String
+0.6.4  F  vecSet              (-> Int Int a Int) -> (-> (Vec a) Int a (Vec a)): answers the vector, not an Int
+0.6.4  F  vecPush             (-> Int a Int) -> (-> (Vec a) a (Vec a)): answers the vector; a discarded result needs `{ (vecPush v x) 0 }`
+0.6.4  F  vecClear            (-> Int Int) -> (-> (Vec a) (Vec a)): answers the vector, not an Int
+0.6.4  F  vecSort             (-> Int Int) -> (-> (Vec a) (Vec a)): answers the vector, not an Int
+0.6.4  F  vecSortBy           (-> Int (-> Int Int Int) Int) -> (-> (Vec a) (-> Int Int Int) (Vec a)): the comparator still takes two words
+0.6.4  F  vecSum              (-> Int Int) -> (-> (Vec Int) Int): it adds its elements, so the element type is Int and not `a`
+0.6.4  F  vecHash             (-> Int Int) -> (-> (Vec Int) Int): it hashes words, so the element type is Int and not `a`
+0.6.4  F  vecLast             (-> Int Int) -> (-> (Vec a) a): and it delegates to vecGet, so it inherits the trap
+# `vecPop` IS A BEHAVIOUR BREAK AS WELL AS A RETYPE, and it is the only
+# row here that is. Its answer on an EMPTY vector was `0`; it now
+# refuses through `(__indexTrap)` at status 77, exactly as `vecGet`
+# does. `(-> (Vec a) a)` is what forces it: there is no way to
+# fabricate an `a`, and for a reference element the old `0` was a null
+# the caller went on to dereference. A stored 0 and an empty vector
+# arrived at the caller identically before, which is the same
+# indistinguishability the `vecGet` block below records. Guard with
+# `vecLen` before popping; the trap is RECOVERABLE, so `__axiom_recover`
+# answers 77 rather than exiting.
+0.6.4  F  vecPop              (-> Int Int) -> (-> (Vec a) a), AND answers 0 on empty -> refuses (status 77): an `a` cannot be fabricated
+0.6.4  F  hVecLen             (-> Int Int) -> (-> (Vec a) Int)
+0.6.4  F  hVecStr             (-> Int Int String) -> (-> (Vec a) Int String)
+0.6.4  F  hVecWord            (-> Int Int Int) -> (-> (Vec Int) Int Int): it reads a word, so the container is (Vec Int)
+0.6.4  F  ffiWordsToVec       (-> Int Int Int) -> (-> Int Int (Vec Int))
+0.6.4  F  ffiStrsToVec        (-> Int Int Int) -> (-> Int Int (Vec String))
+0.6.4  F  ffiWordListsToVec   (-> Int Int Int) -> (-> Int Int (Vec (Vec Int)))
+0.6.4  F  strSplit            (-> String Int Int) -> (-> String Int (Vec Int)): the pieces are interned ids, so (Vec Int)
+0.6.4  F  strSplitFrom        (-> String Int Int Int Int) -> (-> String Int Int (Vec Int) Int): the accumulator is the vector
+0.6.4  F  listDir             (-> String Int) -> (-> String (Vec Int))
+0.6.4  F  sysReadDir          (-> Int Int) -> (-> Int (Vec Int))
+0.6.4  F  jobRunAll           (-> Int Int Int) -> (-> (Vec (Vec String)) Int (Vec Int)): a vector of argv vectors in, exit statuses out
+0.6.4  F  axsymParse          (-> String Int) -> (-> String (Vec Sym))
+0.6.4  F  axsymParseFrom      (-> Int Int Int Int) -> (-> (Vec Int) Int (Vec Sym) (Vec Sym))
+0.6.4  F  axsymMetaScan       (-> String Int Int Int Int) -> (-> String Int Int (Vec Meta) (Vec Meta))
+0.6.4  F  symTagFrom          (-> Int String Int String) -> (-> (Vec Meta) String Int String)
+0.6.4  F  symTagLastIdx       (-> Int String Int Int Int) -> (-> (Vec Meta) String Int Int Int)
+0.6.4  F  symHasTagFrom       (-> Int String Int Bool) -> (-> (Vec Meta) String Int Bool)
+0.6.4  S  HtmlBuf     field `pieces` Int -> (Vec String)
+0.6.4  S  HttpReq     fields `hnames` and `hvals` Int -> (Vec String)
+0.6.4  S  HttpRouter  fields `methods`, `paths`, `prefixes`, `dirs` Int -> (Vec String); `handlers` Int -> (Vec HttpHandler)
+0.6.4  S  Sym         field `meta` Int -> (Vec Meta)
+# THE ELEVEN `Tui` ROWS BELOW ARE INVISIBLE TO THE GATE, and they are
+# declared anyway. `compat/0.5.0.axsym` is the baseline, `Tui/Edit` and
+# `Tui/Term` did not exist at 0.5.0, so `verify-compat.py` reads every
+# one of these as ADDED and asks for nothing. But they DID exist at the
+# tagged v0.6.3 carrying the `Int` types below, so a consumer making
+# the v0.6.3 -> 0.6.4 hop - the only hop anyone can make - breaks on
+# them. This file is what that reader opens, and `docs/compatibility.md`
+# scopes it to what callers rely on rather than to what the census can
+# compute. Same reasoning as the `vecGet` block: a break the tooling
+# cannot see is still a break.
+0.6.4  F  ledRingNew          Int -> (Vec String): the kill ring holds strings
+0.6.4  F  ledNew              (-> Int String LineEd) -> (-> (Vec String) String LineEd)
+0.6.4  F  ledEraseOld         (-> LineEd Int Int) -> (-> LineEd (Vec String) Int)
+0.6.4  F  ledRefreshFull      (-> LineEd Int Int) -> (-> LineEd (Vec String) Int)
+0.6.4  F  ledRefreshWindow    (-> LineEd Int Int) -> (-> LineEd (Vec String) Int)
+0.6.4  F  ledRefresh          (-> LineEd Int Int) -> (-> LineEd (Vec String) Int)
+0.6.4  F  ledApply            (-> LineEd KeyEv Int Int) -> (-> LineEd KeyEv (Vec String) Int)
+0.6.4  F  ledDispatch         (-> LineEd KeyEv Int Int) -> (-> LineEd KeyEv (Vec String) Int)
+0.6.4  F  ledCtrlKey          (-> LineEd KeyEv Int Int) -> (-> LineEd KeyEv (Vec String) Int)
+0.6.4  F  termFlush           (-> Int Int) -> (-> (Vec String) Int): the output buffer is a vector of pieces
+0.6.4  F  tuiCat              (-> Int String) -> (-> (Vec String) String)

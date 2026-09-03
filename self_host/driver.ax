@@ -97,7 +97,7 @@
 ;
 ; `argv[0]` is the tool's own name, which the kernel does not supply and
 ; which several tools read back out of their own argv.
-(pub :: runTool (-> String Int Int))
+(pub :: runTool (-> String (Vec Int) Int))
 
 ;@axiom:effect(io)
 (pub fn (runTool tool args)
@@ -132,7 +132,7 @@
   )
 )
 
-(pub :: fillArgv (-> Int Int Int Int Int))
+(pub :: fillArgv (-> Int (Vec Int) Int Int Int))
 
 (pub fn (fillArgv v args i n)
   (if (>= i n)
@@ -146,7 +146,7 @@
   )
 )
 
-(pub :: argsOf3 (-> String String String Int))
+(pub :: argsOf3 (-> String String String (Vec Int)))
 
 (pub fn (argsOf3 a b c)
   (let ((v vecNew))
@@ -319,10 +319,10 @@
 
 ; Copy the caller's already-formatted link arguments (`-L<dir>`,
 ; `-l<name>`) onto the `cc` argument vector.
-(pub :: appendLinkArgs (-> Int Int Int Int))
+(pub :: appendLinkArgs (-> (Vec Int) (Vec Int) Int Int))
 
 (pub fn (appendLinkArgs v linkArgs i)
-  (if (== linkArgs 0)
+  (if (== (cast Int linkArgs) 0)
     0
     (if (>= i (vecLen linkArgs))
       0
@@ -337,10 +337,10 @@
 ; The same arguments in lld-link's spelling: `-L<dir>` is
 ; `/libpath:<dir>` and `-l<name>` is `<name>.lib`. Anything else is
 ; copied as it came, which is what `cc` would have done with it too.
-(pub :: appendLinkArgsWindows (-> Int Int Int Int))
+(pub :: appendLinkArgsWindows (-> (Vec Int) (Vec Int) Int Int))
 
 (pub fn (appendLinkArgsWindows v linkArgs i)
-  (if (== linkArgs 0)
+  (if (== (cast Int linkArgs) 0)
     0
     (if (>= i (vecLen linkArgs))
       0
@@ -376,7 +376,7 @@
 ; quo rather than one more. `--emit-staticlib` is refused there for
 ; now: `ar` has no place in a Windows link and `llvm-lib` is a later
 ; phase, and saying so beats half-supporting it (Q11).
-(pub :: assembleAndLink (-> String String String Int Int Bool Int))
+(pub :: assembleAndLink (-> String String String Int (Vec Int) Bool Int))
 
 ;@axiom:effect(io)
 (pub fn (assembleAndLink llPath objPath outPath optLevel linkArgs isWin)
@@ -613,7 +613,7 @@
   )
 )
 
-(pub :: crateTargetDirs (-> String Int))
+(pub :: crateTargetDirs (-> String (Vec Int)))
 
 (pub fn (crateTargetDirs dir)
   (let ((v vecNew))
@@ -753,7 +753,7 @@
 ; `runTool` for a probe whose exit status is the whole answer. The
 ; tool is asked to be quiet by flag (`--quiet` rides in `args`): the
 ; driver redirects no descriptor, so a tool that talks anyway is heard.
-(pub :: runToolQuiet (-> String Int Int))
+(pub :: runToolQuiet (-> String (Vec Int) Int))
 
 ;@axiom:effect(io)
 (pub fn (runToolQuiet tool args) (runTool tool args))
@@ -1005,7 +1005,7 @@
 ; `<dir>/<name>.lib` for a Windows link - every directory crossed with
 ; every library, because the link line does not say which archive
 ; lives where and neither does this.
-(pub :: archivePathsOf (-> Int Bool Int))
+(pub :: archivePathsOf (-> (Vec Int) Bool (Vec Int)))
 
 (pub fn (archivePathsOf linkArgs isWin)
   (let (
@@ -1015,7 +1015,7 @@
     (mut i 0)
   )
     {
-      (if (== linkArgs 0)
+      (if (== (cast Int linkArgs) 0)
         0
         (while (< i (vecLen linkArgs))
           {
@@ -1030,7 +1030,7 @@
                   (vecPush
                     libs                    (cast Int (strSlice a 2 (- (strLen a) 2)))
                   )
-                  0
+                  (cast (Vec Int) 0)
                 )
               )
             )
@@ -1062,7 +1062,7 @@
 ; The `; axiom-extern-lib NAME` lines codegen writes beside the
 ; declares: one per `extern` block the program or its imports
 ; declare.
-(pub :: externLibsOf (-> String Int))
+(pub :: externLibsOf (-> String (Vec Int)))
 
 (pub fn (externLibsOf ir)
   (let (
@@ -1084,7 +1084,7 @@
                         (vecPush
                           out                          (cast Int nm)
                         )
-                        0
+                        (cast (Vec Int) 0)
                       )
                     )
                     (set at end)
@@ -1108,7 +1108,7 @@
 ; search directory holds and no explicit flag already names. The
 ; block's library string was dead data until 2026-08-22: every build
 ; repeated it as `--link-lib` and named the target directory too.
-(pub :: effectiveLinkArgs (-> String Int Int))
+(pub :: effectiveLinkArgs (-> String (Vec Int) (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (effectiveLinkArgs ir explicit)
@@ -1136,7 +1136,7 @@
                   (vecPush
                     libs                    (cast Int (strSlice a 2 (- (strLen a) 2)))
                   )
-                  0
+                  (cast (Vec Int) 0)
                 )
               )
             }
@@ -1186,9 +1186,9 @@
                       libs                      (cast Int lib)
                     )
                   }
-                  0
+                  (cast (Vec Int) 0)
                 )
-                0
+                (cast (Vec Int) 0)
               )
             )
             (set j (+ j 1))
@@ -1199,7 +1199,7 @@
   )
 )
 
-(pub :: addSearchDir (-> Int Int String Int))
+(pub :: addSearchDir (-> (Vec Int) (Vec Int) String Int))
 
 ;@axiom:effect(io)
 (pub fn (addSearchDir v dirs list)
@@ -1223,9 +1223,9 @@
                     dirs                    (cast Int d)
                   )
                 }
-                0
+                (cast (Vec Int) 0)
               )
-              0
+              (cast (Vec Int) 0)
             )
           )
           (set i (+ i 1))
@@ -1235,7 +1235,7 @@
   )
 )
 
-(pub :: addAxiomPathDirs (-> Int Int String Int))
+(pub :: addAxiomPathDirs (-> (Vec Int) (Vec Int) String Int))
 
 ;@axiom:effect(io)
 (pub fn (addAxiomPathDirs v dirs list)
@@ -1264,7 +1264,7 @@
   )
 )
 
-(pub :: addOneDir (-> Int Int String Int))
+(pub :: addOneDir (-> (Vec Int) (Vec Int) String Int))
 
 ;@axiom:effect(io)
 (pub fn (addOneDir v dirs d)
@@ -1285,7 +1285,7 @@
   )
 )
 
-(pub :: libExistsIn (-> Int String Int Bool Bool))
+(pub :: libExistsIn (-> (Vec Int) String Int Bool Bool))
 
 ;@axiom:effect(io)
 (pub fn (libExistsIn dirs lib i isWin)
@@ -1307,7 +1307,7 @@
 ; Read every archive once. A path that does not exist reads empty and
 ; simply grounds nothing, which lets `cc` produce its own error about
 ; the missing file rather than this pass inventing one.
-(pub :: readArchives (-> Int Int))
+(pub :: readArchives (-> (Vec Int) (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (readArchives paths)
@@ -1342,7 +1342,7 @@
 ; VirtualAlloc` 2). A bare substring scan - what this was until
 ; 2026-08-22 - let `axffi_trip` ground against `axffi_triple` and die
 ; in the linker with a message about `cc`.
-(pub :: symbolGrounded (-> Int String Int Bool))
+(pub :: symbolGrounded (-> (Vec Int) String Int Bool))
 
 (pub fn (symbolGrounded blobs name i)
   (if (>= i (vecLen blobs))
@@ -1436,7 +1436,7 @@
 )
 
 ; Every `axffi_` name an archive's tables hold, for a did-you-mean.
-(pub :: archiveFfiNames (-> Int Int))
+(pub :: archiveFfiNames (-> (Vec Int) (Vec a)))
 
 (pub fn (archiveFfiNames blobs)
   (let (
@@ -1456,7 +1456,7 @@
   )
 )
 
-(pub :: collectFfiNames (-> String Int Int Int))
+(pub :: collectFfiNames (-> String (Vec Int) Int Int))
 
 (pub fn (collectFfiNames blob out from)
   (let ((at (strFindSub blob "axffi_" from)))
@@ -1471,7 +1471,7 @@
                 (vecPush
                   out                  (cast Int nm)
                 )
-                0
+                (cast (Vec Int) 0)
               )
             )
             (collectFfiNames blob out end)
@@ -1484,7 +1484,7 @@
 
 ; The candidate sharing the longest prefix with `name`, when that
 ; prefix reaches past `axffi_`; "" otherwise.
-(pub :: closestFfiName (-> Int String String))
+(pub :: closestFfiName (-> (Vec Int) String String))
 
 (pub fn (closestFfiName names name)
   (let (
@@ -1528,7 +1528,7 @@
 )
 
 ; The name in each `declare i64 @NAME(` line of the IR.
-(pub :: declareNamesOf (-> String Int))
+(pub :: declareNamesOf (-> String (Vec Int)))
 
 (pub fn (declareNamesOf ir)
   (let (
@@ -1571,7 +1571,7 @@
 ; archive does define. `compileFile` runs this before the toolchain;
 ; `groundDeclares` below stays as the span-less fallback for IR built
 ; by another path.
-(pub :: groundExternsSpanned (-> String Int Int Int Int Int))
+(pub :: groundExternsSpanned (-> String (Vec Int) (Vec Int) Int (Vec Int) Int))
 
 ;@axiom:effect(io)
 (pub fn (groundExternsSpanned ir decls units dfmt linkArgs)
@@ -1589,7 +1589,7 @@
   )
 )
 
-(pub :: existingPaths (-> Int Int))
+(pub :: existingPaths (-> (Vec Int) (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (existingPaths paths)
@@ -1606,7 +1606,7 @@
             )
           )
             (vecPush out (vecGet paths i))
-            0
+            (cast (Vec Int) 0)
           )
           (set i (+ i 1))
         })
@@ -1615,7 +1615,7 @@
   )
 )
 
-(pub :: groundEachSpanned (-> Int Int Int Int Int Int Int Int))
+(pub :: groundEachSpanned (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (groundEachSpanned names blobs paths decls units dfmt i)
@@ -1767,7 +1767,7 @@
 ; comparison apart at every call site. The recursion below keeps the
 ; -1 and stays private; the boundary is where the type is worth
 ; having.
-(pub :: findExternUnit (-> Int String Int (Option Int)))
+(pub :: findExternUnit (-> (Vec Int) String (Vec Int) (Option Int)))
 
 (pub fn (findExternUnit decls sym units)
   (let ((u (findExternUnitFrom decls sym units 0)))
@@ -1778,13 +1778,13 @@
   )
 )
 
-(:: findExternUnitFrom (-> Int String Int Int Int))
+(:: findExternUnitFrom (-> (Vec Int) String (Vec Int) Int Int))
 
 (fn (findExternUnitFrom decls sym units i)
   (if (>= i (vecLen decls))
     (- 0 1)
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_EXTERN) (!= (findExternItemIn (nodeC d) sym 0) 0))
+      (if (&& (== (nodeTag d) TAG_D_EXTERN) (!= (findExternItemIn (nodeCVec d) sym 0) 0))
         (if (==
           (cast Int (nodeModule d))          0
         )
@@ -1854,7 +1854,7 @@
 
 ; Every `<sym>__sig_...` name an archive holds, as the part after
 ; `__sig_`.
-(pub :: descriptorsOf (-> Int String Int))
+(pub :: descriptorsOf (-> (Vec Int) String (Vec Int)))
 
 (pub fn (descriptorsOf blobs sym)
   (let (
@@ -1875,7 +1875,7 @@
   )
 )
 
-(pub :: collectPrefixed (-> String String Int Int Int))
+(pub :: collectPrefixed (-> String String (Vec Int) Int Int))
 
 (pub fn (collectPrefixed blob prefix out from)
   (let ((at (strFindSub blob prefix from)))
@@ -1890,7 +1890,7 @@
                 (vecPush
                   out                  (cast Int tail)
                 )
-                0
+                (cast (Vec Int) 0)
               )
             )
             (collectPrefixed blob prefix out end)
@@ -1945,7 +1945,7 @@
   )
 )
 
-(pub :: joinPaths (-> Int Int String))
+(pub :: joinPaths (-> (Vec Int) Int String))
 
 (pub fn (joinPaths paths i)
   (if (>= i (vecLen paths))
@@ -1960,14 +1960,14 @@
 )
 
 ; The extern ITEM node binding linker symbol `sym`, or 0.
-(pub :: findExternItem (-> Int String Int Int))
+(pub :: findExternItem (-> (Vec Int) String Int Int))
 
 (pub fn (findExternItem decls sym i)
   (if (>= i (vecLen decls))
     0
     (let ((d (vecGet decls i)))
       (if (== (nodeTag d) TAG_D_EXTERN)
-        (let ((it (findExternItemIn (nodeC d) sym 0)))
+        (let ((it (findExternItemIn (nodeCVec d) sym 0)))
           (if (== it 0)
             (findExternItem decls sym (+ i 1))
             it
@@ -1979,10 +1979,10 @@
   )
 )
 
-(pub :: findExternItemIn (-> Int String Int Int))
+(pub :: findExternItemIn (-> (Vec Int) String Int Int))
 
 (pub fn (findExternItemIn items sym i)
-  (if (== items 0)
+  (if (== (cast Int items) 0)
     0
     (if (>= i (vecLen items))
       0
@@ -1994,13 +1994,13 @@
   )
 )
 
-(pub :: findExternLib (-> Int String Int String))
+(pub :: findExternLib (-> (Vec Int) String Int String))
 
 (pub fn (findExternLib decls sym i)
   (if (>= i (vecLen decls))
     ""
     (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_EXTERN) (!= (findExternItemIn (nodeC d) sym 0) 0))
+      (if (&& (== (nodeTag d) TAG_D_EXTERN) (!= (findExternItemIn (nodeCVec d) sym 0) 0))
         (nodeAName d)
         (findExternLib decls sym (+ i 1))
       )
@@ -2010,7 +2010,7 @@
 
 ; 0 when every declare is grounded; otherwise the build's exit code,
 ; having reported the FIRST ungrounded symbol.
-(pub :: groundDeclares (-> String Int Int))
+(pub :: groundDeclares (-> String (Vec Int) Int))
 
 ;@axiom:effect(io)
 (pub fn (groundDeclares ir linkArgs)
@@ -2024,7 +2024,7 @@
   )
 )
 
-(pub :: groundEach (-> Int Int Int Int))
+(pub :: groundEach (-> (Vec Int) (Vec Int) Int Int))
 
 ;@axiom:effect(io)
 (pub fn (groundEach names blobs i)
@@ -2050,7 +2050,7 @@
 ; PRE-`opt` IR - also stage0's choice, and worth knowing before writing
 ; a gate that greps it, since it is the optimiser's input rather than
 ; what llc consumed.
-(pub :: buildToExecutable (-> String String Int Int Int Int))
+(pub :: buildToExecutable (-> String String Int Int (Vec Int) Int))
 
 ;@axiom:effect(io)
 (pub fn (buildToExecutable ir outPath optLevel keepLl linkArgs)
@@ -2226,7 +2226,7 @@
 ; This is the FFI's only reach into the driver. Before it, `cc` was
 ; invoked with exactly three arguments and the language had no way to
 ; name an external symbol, so there was nothing for a `-l` to resolve.
-(pub :: linkArgsOf Int)
+(pub :: linkArgsOf (Vec Int))
 
 ;@axiom:effect(io)
 (pub fn (linkArgsOf)
@@ -2246,7 +2246,7 @@
 ; Both `--flag VALUE` and `--flag=VALUE`, the two spellings
 ; `flagValueAt` already accepts, but collecting EVERY occurrence rather
 ; than the first: a program may bind more than one library.
-(pub :: collectFlagInto (-> Int String String Int Int Int))
+(pub :: collectFlagInto (-> (Vec Int) String String Int Int Int))
 
 ;@axiom:effect(io)
 (pub fn (collectFlagInto v name prefix i n)
@@ -2656,7 +2656,7 @@
   )
 )
 
-(pub :: subcommandNames Int)
+(pub :: subcommandNames (Vec Int))
 
 (pub fn (subcommandNames)
   (let ((v vecNew))
@@ -2716,7 +2716,7 @@
 
 (pub fn (nearestSubcommand w) (nearestSubcommandFrom w subcommandNames 0))
 
-(pub :: nearestSubcommandFrom (-> String Int Int String))
+(pub :: nearestSubcommandFrom (-> String (Vec Int) Int String))
 
 (pub fn (nearestSubcommandFrom w v i)
   (if (>= i (vecLen v))

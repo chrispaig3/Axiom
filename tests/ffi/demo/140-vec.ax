@@ -7,12 +7,16 @@
 ; `Vec<String>`: the cell holds `(pairs, n)`, `2n` words of
 ; `(bytesPtr, byteLen)`; every string is COPIED into an Axiom String
 ; (`ffiStrsToVec`) and the whole list freed at once
-; (`ffiFreeStrList` -> `axffi_free_str_list`). A Vec is an `Int`
-; handle in the stdlib, so both wrappers answer `Int`.
+; (`ffiFreeStrList` -> `axffi_free_str_list`). A `Vec` carries its
+; element type, so the two wrappers answer `(Vec Int)` and
+; `(Vec String)` and the signatures say which is which.
 ;
 ; IN: `sumWords` takes a `&[i64]`. Axiom passes the `Vec` handle and
 ; Rust reads the header in place - len at word 0, data at word 2 - for
-; the call; nothing is copied and nothing is retained.
+; the call; nothing is copied and nothing is retained. The `extern`
+; item cannot name `(Vec a)` at all (`AX3036`), so the handle is cast
+; to its word inside `Demo.ax`'s generated wrapper and the caller
+; passes the vector it has.
 ;
 ; The empty cases matter: a zero-length `Vec<i64>` crosses as a
 ; dangling pointer and length 0, which the free must treat as nothing.
@@ -26,13 +30,15 @@
 
 (import Demo)
 
-; `vecGet` answers the raw word - a `Vec` carries no element type - so
-; reading the String the wrapper pushed is `vecGetStr`, which says so.
-(pub :: wordAt (-> Int Int String))
+; `vecGetStr` is the explicit typed read. It was once the ONLY way to
+; get a String out - `vecGet` answered the raw word, because a `Vec`
+; carried no element type - and now that `ws` is a `(Vec String)` the
+; two agree; this case keeps the explicit one.
+(pub :: wordAt (-> (Vec String) Int String))
 
 (pub fn (wordAt v i) (vecGetStr v i))
 
-(pub :: sumVec (-> Int Int Int Int))
+(pub :: sumVec (-> (Vec Int) Int Int Int))
 
 (pub fn (sumVec v i acc)
   (if (>= i (vecLen v))

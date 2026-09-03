@@ -508,6 +508,13 @@ ablate "no-checking" typecheck.ax \
 # as one replacement of `expLowerOne`'s header so that the two helper
 # definitions ride in with it; the `(pub :: expLowerOne ...)` signature
 # above the anchor still covers the function the replacement re-opens.
+#
+# RE-ANCHORED 2026-09-02 for `(Vec a)`. The restored guard reads a
+# `TAG_E_BEGIN`'s statements, which was `(nodeA b)` while a `Vec` was
+# an `Int`; the typed accessor is `nodeAVec`, and `expHeadIsContract`
+# takes the `(Vec Int)` it answers. The DEFECT is unchanged - the guard
+# still asks whether the body LOOKS lowered - which is what keeps this
+# probe a probe of section 6 rather than of the port.
 ablate "guard-restored" expand.ax \
   "(pub fn (expLowerOne d tags)
   (if (== (vecLen tags) 0)
@@ -518,7 +525,7 @@ ablate "guard-restored" expand.ax \
   (if (== b 0)
     0
     (if (== (nodeTag b) TAG_E_BEGIN)
-      (expHeadIsContract (nodeA b))
+      (expHeadIsContract (nodeAVec b))
       (if (== (nodeTag b) TAG_E_LET)
         (if (strEq (nodeAName b) \"result\")
           (expWasLowered (nodeC b))
@@ -530,7 +537,7 @@ ablate "guard-restored" expand.ax \
   )
 )
 
-(pub :: expHeadIsContract (-> Int Int))
+(pub :: expHeadIsContract (-> (Vec Int) Int))
 
 (pub fn (expHeadIsContract v)
   (if (== (vecLen v) 0)

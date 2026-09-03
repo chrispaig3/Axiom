@@ -10,9 +10,10 @@ F memCmp stdlib/Mem.ax:245:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e3
 F memCmpFrom stdlib/Mem.ax:250:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4 #restrict=no-io,no-alloc,no-foreign
 F memGetWord stdlib/Mem.ax:281:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #restrict=no-io,no-alloc,no-foreign
 F memGetWordStr stdlib/Mem.ax:294:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #restrict=no-io,no-alloc,no-foreign
-F memSetWord stdlib/Mem.ax:325:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effects=Mut
-F memGetByte stdlib/Mem.ax:338:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign
-F memPutByte stdlib/Mem.ax:343:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effects=Mut
+F memGetWordVec stdlib/Mem.ax:307:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f886 #restrict=no-io,no-alloc,no-foreign
+F memSetWord stdlib/Mem.ax:338:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effects=Mut
+F memGetByte stdlib/Mem.ax:351:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign
+F memPutByte stdlib/Mem.ax:356:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effects=Mut
 F sysRead stdlib/Sys/Platform.darwin.ax:20:9-16 "Int" @d99009b49c22cd84
 F sysWrite stdlib/Sys/Platform.darwin.ax:25:9-17 "Int" @74cf7b68f9a13d7f
 F sysOpen stdlib/Sys/Platform.darwin.ax:30:9-16 "Int" @48be4da44965be58

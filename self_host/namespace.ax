@@ -84,7 +84,7 @@
 ; ------------------------------------------------------------------
 (pub struct MangleIdx
   (names : Int)
-  (pos : Int)
+  (pos : (Vec Int))
   (done : Int))
 
 (pub :: mangleIdxNew Int)
@@ -93,7 +93,7 @@
 
 ; Absorb every entry of `bares` from `done` to its end. Answers the
 ; new `done`.
-(pub :: mangleIdxSync (-> Int Int Int))
+(pub :: mangleIdxSync (-> Int (Vec String) Int))
 
 (pub fn (mangleIdxSync idx bares)
   (let ((mut i (memGetWord idx 2)))
@@ -101,9 +101,9 @@
       (while (< i (vecLen bares))
         {
           (let ((id (internIntern (memGetWord idx 0) (vecGetStr bares i))))
-            (if (== id (vecLen (memGetWord idx 1)))
-              (vecPush (memGetWord idx 1) i)
-              0
+            (if (== id (vecLen (memGetWordVec idx 1)))
+              (vecPush (memGetWordVec idx 1) i)
+              (cast (Vec Int) 0)
             )
           )
           (set i (+ i 1))
@@ -116,7 +116,7 @@
 
 ; Is `name` in `bares`? The indexed form of `mangleHasIn`, and the
 ; one every writer here asks.
-(pub :: mangleIdxHas (-> Int Int String Bool))
+(pub :: mangleIdxHas (-> Int (Vec String) String Bool))
 
 (pub fn (mangleIdxHas idx bares name)
   {
@@ -133,13 +133,13 @@
 ; `Option` rather than -1: `mangleRecordEntry` reads the answer as
 ; `(vecSet fulls i name)`, so a miss that reached the index is a wild
 ; WRITE - it would store into the word before the vector's first.
-(pub :: mangleIdxIndexOf (-> Int Int String (Option Int)))
+(pub :: mangleIdxIndexOf (-> Int (Vec String) String (Option Int)))
 
 (pub fn (mangleIdxIndexOf idx bares name)
   {
     (mangleIdxSync idx bares)
     (match (internFind (memGetWord idx 0) name)
-      ((Some id) (Some (vecGet (memGetWord idx 1) id)))
+      ((Some id) (Some (vecGet (memGetWordVec idx 1) id)))
       ((None) None)
     )
   }
@@ -149,7 +149,7 @@
 ; already claimed. First-writer-wins is what makes the entry file win:
 ; `resolveImports` records every entry-file function before any import
 ; is read.
-(pub :: mangleRecord (-> Int Int Int String String Int))
+(pub :: mangleRecord (-> Int (Vec String) (Vec String) String String Int))
 
 (pub fn (mangleRecord idx bares fulls bare full)
   ; The mangled name maps to itself, recorded whether or not the bare
@@ -195,7 +195,7 @@
 ; Measured before this existed: an entry file generating `tagShape`
 ; answering 42, importing a module that generates its own `tagShape`
 ; answering 7, checked clean and answered 7.
-(pub :: mangleRecordEntry (-> Int Int Int String Int))
+(pub :: mangleRecordEntry (-> Int (Vec String) (Vec String) String Int))
 
 (pub fn (mangleRecordEntry idx bares fulls name)
   (match (mangleIdxIndexOf idx bares name)
@@ -220,7 +220,7 @@
 ; emitter's fallback on the REPL's and LSP's partial paths before
 ; `buildNameIndexes` has run. Every writer in this module asks
 ; `mangleIdxHas` instead - see the note above `MangleIdx`.
-(pub :: mangleHasIn (-> Int String Int Bool))
+(pub :: mangleHasIn (-> (Vec Int) String Int Bool))
 
 (pub fn (mangleHasIn bares bare i)
   (if (>= i (vecLen bares))
@@ -248,7 +248,7 @@
 ; reference that gets past it lands here as a name this map does not
 ; hold and is emitted unchanged - an undefined symbol reported by
 ; `opt` against generated code.
-(pub :: mangleDecl (-> Int String Int Int Int Int Int))
+(pub :: mangleDecl (-> Int String Int (Vec String) (Vec String) Int Int))
 
 (pub fn (mangleDecl node modName idx bares fulls exported)
   (if (==
@@ -301,7 +301,7 @@
         ; reached from the one direction the entry-file fixtures could
         ; not see, because `recordEntryFns` covers only the entry file.
         (if (== (nodeTag node) TAG_D_EXTERN)
-          (mangleExternItems (nodeC node) 0 idx bares fulls)
+          (mangleExternItems (nodeCVec node) 0 idx bares fulls)
           0
         )
       )
@@ -313,10 +313,10 @@
 ; `(symbol "...")` clause the parser resolved. Visibility does not
 ; change the mapping - an unexported item is simply never referenced
 ; from outside, and recording it costs one entry.
-(pub :: mangleExternItems (-> Int Int Int Int Int Int))
+(pub :: mangleExternItems (-> (Vec Int) Int Int (Vec String) (Vec String) Int))
 
 (pub fn (mangleExternItems items i idx bares fulls)
-  (if (== items 0)
+  (if (== (cast Int items) 0)
     0
     (if (>= i (vecLen items))
       0
@@ -333,7 +333,7 @@
 ; The half of `mangleRecord` that a private declaration gets: the
 ; mangled name maps to itself, and the bare slot is left for whoever
 ; can legitimately claim it.
-(pub :: mangleRecordSelf (-> Int Int Int String Int))
+(pub :: mangleRecordSelf (-> Int (Vec String) (Vec String) String Int))
 
 (pub fn (mangleRecordSelf idx bares fulls full)
   (if (mangleIdxHas idx bares full)
@@ -350,7 +350,7 @@
 ; `seen` list and an import's name list are asked. It lives here
 ; rather than beside its first caller because its SECOND caller is
 ; the filter test below, which expansion needs.
-(pub :: seenHasIn (-> Int String Int Bool))
+(pub :: seenHasIn (-> (Vec String) String Int Bool))
 
 (pub fn (seenHasIn seen name i)
   (if (>= i (vecLen seen))
@@ -362,10 +362,10 @@
   )
 )
 
-(pub :: filterKeeps (-> Int String Bool))
+(pub :: filterKeeps (-> (Vec String) String Bool))
 
 (pub fn (filterKeeps filter name)
-  (if (== filter 0)
+  (if (== (cast Int filter) 0)
     true
     (seenHasIn filter name 0)
   )
@@ -378,10 +378,10 @@
 ; was running (MAC-EXP-16). A pair rather than two parallel vectors,
 ; because a parallel pair is one push away from desyncing and this
 ; table is written in exactly one place.
-(pub :: modFilterRecord (-> Int String Int Int))
+(pub :: modFilterRecord (-> (Vec Int) String Int Int))
 
 (pub fn (modFilterRecord mods name filter)
-  (if (== mods 0)
+  (if (== (cast Int mods) 0)
     0
     (let ((pair vecNew))
       {
@@ -402,16 +402,16 @@
 ; "the import named nothing, so everything is kept". The entry file
 ; (module 0) has no import and therefore no filter, which is the same
 ; answer.
-(pub :: modFilterFor (-> Int String Int))
+(pub :: modFilterFor (-> (Vec (Vec Int)) String (Vec a)))
 
 (pub fn (modFilterFor mods name)
-  (if (== mods 0)
+  (if (== (cast Int mods) 0)
     0
     (modFilterForIn mods name 0)
   )
 )
 
-(pub :: modFilterForIn (-> Int String Int Int))
+(pub :: modFilterForIn (-> (Vec (Vec Int)) String Int Int))
 
 (pub fn (modFilterForIn mods name i)
   (if (>= i (vecLen mods))

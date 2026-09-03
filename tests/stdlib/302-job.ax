@@ -46,7 +46,7 @@
 
 (import Job)
 
-(pub :: sh3 (-> String Int))
+(pub :: sh3 (-> String (Vec String)))
 
 (pub fn (sh3 script)
   (let ((v vecNew))
@@ -61,7 +61,7 @@
 
 ; `sleep 0.0N; exit CODE`, with the sleep DESCENDING as the code
 ; ascends, so completion order is the reverse of submit order.
-(pub :: staggered (-> Int Int))
+(pub :: staggered (-> Int (Vec String)))
 
 (pub fn (staggered i) (sh3 (strConcat (strConcat "sleep 0.0" (fmtInt (- 8 i))) (strConcat "; exit " (fmtInt (+ i 10))))))
 

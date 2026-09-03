@@ -63,7 +63,7 @@
   (loc : String)
   (ty : String)
   (nid : String)
-  (meta : Int))
+  (meta : (Vec Meta)))
 
 (pub :: axsymSpace Int)
 
@@ -243,15 +243,16 @@
 ; at a `#` whose previous byte is a space, and runs to the byte before
 ; the next such `#`. `i` walks; `start` is the open token's first byte,
 ; or -1 before the first `#` is seen.
-(pub :: axsymMetaScan (-> String Int Int Int Int))
+(pub :: axsymMetaScan (-> String Int Int (Vec Meta) (Vec Meta)))
 
 (pub fn (axsymMetaScan s i start out)
   (if (>= i (strLen s))
     {
       (if (>= start 0)
-        (vecPush
-          out          (cast Int (axsymMeta (strSlice s start (- (strLen s) start))))
-        )
+        {
+          (vecPush out (axsymMeta (strSlice s start (- (strLen s) start))))
+          0
+        }
         0
       )
       out
@@ -265,9 +266,10 @@
     )
       {
         (if (>= start 0)
-          (vecPush
-            out            (cast Int (axsymMeta (axsymTrimEnd (strSlice s start (- i start)))))
-          )
+          {
+            (vecPush out (axsymMeta (axsymTrimEnd (strSlice s start (- i start)))))
+            0
+          }
           0
         )
         (axsymMetaScan s (+ i 1) (+ i 1) out)
@@ -347,7 +349,7 @@
 
 ; A whole AXSYM stream. Lines that are not AXSYM are skipped, so the
 ; caller may pass the compiler's output unfiltered.
-(pub :: axsymParse (-> String Int))
+(pub :: axsymParse (-> String (Vec Sym)))
 
 (pub fn (axsymParse text)
   (let ((lines (strSplit text axsymNewline)))
@@ -355,7 +357,7 @@
   )
 )
 
-(pub :: axsymParseFrom (-> Int Int Int Int))
+(pub :: axsymParseFrom (-> (Vec Int) Int (Vec Sym) (Vec Sym)))
 
 (pub fn (axsymParseFrom lines i out)
   (if (>= i (vecLen lines))
@@ -363,9 +365,10 @@
     {
       (match (axsymLine (vecGetStr lines i))
         ((Some s)
-          (vecPush
-            out            (cast Int s)
-          )
+          {
+            (vecPush out s)
+            0
+          }
         )
         ((None) 0)
       )
@@ -393,15 +396,13 @@
 
 (pub fn (symTag s key) (symTagFrom s.meta key 0))
 
-(pub :: symTagFrom (-> Int String Int String))
+(pub :: symTagFrom (-> (Vec Meta) String Int String))
 
 (pub fn (symTagFrom meta key i)
   (let ((hit (symTagLastIdx meta key i (- 0 1))))
     (if (< hit 0)
       ""
-      (let ((m 
-        (cast Meta (vecGet meta hit))
-      ))
+      (let ((m (vecGet meta hit)))
         m.val
       )
     )
@@ -412,14 +413,12 @@
 ; accumulator rather than compared on the way out of the recursion,
 ; because a bare flag's value is empty and "" cannot tell a later match
 ; from no match at all.
-(pub :: symTagLastIdx (-> Int String Int Int Int))
+(pub :: symTagLastIdx (-> (Vec Meta) String Int Int Int))
 
 (pub fn (symTagLastIdx meta key i best)
   (if (>= i (vecLen meta))
     best
-    (let ((m 
-      (cast Meta (vecGet meta i))
-    ))
+    (let ((m (vecGet meta i)))
       (symTagLastIdx
         meta        key        (+ i 1)        (if (strEq m.key key)
           i
@@ -434,14 +433,12 @@
 
 (pub fn (symHasTag s key) (symHasTagFrom s.meta key 0))
 
-(pub :: symHasTagFrom (-> Int String Int Bool))
+(pub :: symHasTagFrom (-> (Vec Meta) String Int Bool))
 
 (pub fn (symHasTagFrom meta key i)
   (if (>= i (vecLen meta))
     false
-    (let ((m 
-      (cast Meta (vecGet meta i))
-    ))
+    (let ((m (vecGet meta i)))
       (if (strEq m.key key)
         true
         (symHasTagFrom meta key (+ i 1))

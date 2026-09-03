@@ -136,9 +136,9 @@
 ; object, not by remembering to free it.
 ; ------------------------------------------------------------------
 (pub struct LineEd
-  (left : Int)
-  (right : Int)
-  (ring : Int)
+  (left : (Vec Int))
+  (right : (Vec Int))
+  (ring : (Vec String))
   (mut ringIdx : Int)
   ; 0 none, 1 forward, 2 backward. Consecutive kills in the same
   ; direction accumulate into ONE ring entry, which is what makes
@@ -174,7 +174,7 @@
 ; `vecDropAt` on an owning vector and hands the displaced entry's
 ; share back.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: ledRingNew Int)
+(pub :: ledRingNew (Vec String))
 
 (pub fn (ledRingNew) vecNewRef)
 
@@ -183,7 +183,7 @@
 ; POINTS: Vec.ax's comment says a leaf block is exactly right for Ints
 ; and costs nothing.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: ledNew (-> Int String LineEd))
+(pub :: ledNew (-> (Vec String) String LineEd))
 
 (pub fn (ledNew ring wordChars) (LineEd vecNew vecNew ring 0 0 0 80 24 1 0 "" 0 wordChars))
 
@@ -575,12 +575,15 @@
   {
     (if (&& (== ed.lastKill dir) (> (vecLen ed.ring) 0))
       (let ((cur (vecGetStr ed.ring ed.ringIdx)))
-        (vecSet
-          ed.ring          ed.ringIdx          (if (== dir 1)
-            (strConcat cur text)
-            (strConcat text cur)
+        {
+          (vecSet
+            ed.ring            ed.ringIdx            (if (== dir 1)
+              (strConcat cur text)
+              (strConcat text cur)
+            )
           )
-        )
+          0
+        }
       )
       (if (< (vecLen ed.ring) LED_RING_MAX)
         {
@@ -791,7 +794,7 @@
 ; with a `compat/` obligation this effort has not earned; it is here
 ; because the refresh below is what needs it.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: tuiCat (-> Int String))
+(pub :: tuiCat (-> (Vec String) String))
 
 (pub fn (tuiCat v)
   (let (
@@ -1013,7 +1016,7 @@
 ; Erase what the previous refresh drew and leave the cursor at column
 ; 0 of the first row.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: ledEraseOld (-> LineEd Int Int))
+(pub :: ledEraseOld (-> LineEd (Vec String) Int))
 
 (pub fn (ledEraseOld ed out)
   {
@@ -1034,7 +1037,7 @@
 
 ; The multi-row repaint.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: ledRefreshFull (-> LineEd Int Int))
+(pub :: ledRefreshFull (-> LineEd (Vec String) Int))
 
 (pub fn (ledRefreshFull ed out)
   (let (
@@ -1048,7 +1051,7 @@
       (vecPush out (ledSnapshot ed))
       (if (&& (> c 0) (== (% c w) 0))
         (vecPush out "\n\r")
-        0
+        (cast (Vec String) 0)
       )
       (vecPush out (ledCup (- (/ c w) (ledRowOf ed k)) 65))
       (vecPush out "\r")
@@ -1076,7 +1079,7 @@
 ; leftward on a motion.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: ledRefreshWindow (-> LineEd Int Int))
+(pub :: ledRefreshWindow (-> LineEd (Vec String) Int))
 
 (pub fn (ledRefreshWindow ed out)
   (let (
@@ -1107,7 +1110,7 @@
                 (ledEraseOld ed out)
                 (if (== keepPrompt 1)
                   (vecPush out ed.prompt)
-                  0
+                  (cast (Vec String) 0)
                 )
                 (vecPush out (ledRangeStr ed s cnt))
                 (vecPush out "\r")
@@ -1127,7 +1130,7 @@
 ; The one dispatcher, so the choice between the two repaints lives in
 ; exactly one place.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: ledRefresh (-> LineEd Int Int))
+(pub :: ledRefresh (-> LineEd (Vec String) Int))
 
 (pub fn (ledRefresh ed out)
   (if (&& (> ed.height 1) (> (ledRowsUsed ed) ed.height))
@@ -1165,7 +1168,7 @@
 ; editor be driven by a test that never opens a terminal.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: ledApply (-> LineEd KeyEv Int Int))
+(pub :: ledApply (-> LineEd KeyEv (Vec String) Int))
 
 (pub fn (ledApply ed ev out)
   {
@@ -1233,7 +1236,7 @@
 (pub fn (ledByWord ev) (!= (& ev.mods (| MOD_ALT MOD_CTRL)) 0))
 
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: ledDispatch (-> LineEd KeyEv Int Int))
+(pub :: ledDispatch (-> LineEd KeyEv (Vec String) Int))
 
 (pub fn (ledDispatch ed ev out)
   (if (== ev.kind KEY_ENTER)
@@ -1334,7 +1337,7 @@
 ; owns: Ctrl-N and Ctrl-P are history's and are left unbound so that
 ; effort can take them without moving anything here.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: ledCtrlKey (-> LineEd KeyEv Int Int))
+(pub :: ledCtrlKey (-> LineEd KeyEv (Vec String) Int))
 
 (pub fn (ledCtrlKey ed ev out)
   (if (== ev.cp 67)

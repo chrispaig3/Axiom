@@ -303,6 +303,7 @@ memCopyFrom stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memGetByte stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memGetWord stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memGetWordStr stdlib/Mem.ax no-io,no-alloc,no-foreign ok
+memGetWordVec stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memMarkArray stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memMarkLeaf stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memPutByte stdlib/Mem.ax no-io,no-alloc,no-foreign ok
@@ -457,6 +458,7 @@ vecDropFrom stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecFree stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecGet stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecGetStr stdlib/Vec.ax no-io,no-alloc,no-foreign ok
+vecGetVec stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecGrownCap stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecHash stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecHashFrom stdlib/Vec.ax no-io,no-alloc,no-foreign ok
@@ -467,6 +469,8 @@ vecNewRef stdlib/Vec.ax no-io,no-foreign ok
 vecOwnsRefs stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecPop stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecPush stdlib/Vec.ax no-io,no-foreign ok
+vecPushStr stdlib/Vec.ax no-io,no-foreign ok
+vecPushVec stdlib/Vec.ax no-io,no-foreign ok
 vecReserve stdlib/Vec.ax no-io,no-foreign ok
 vecReserveExactly stdlib/Vec.ax no-io,no-foreign ok
 vecSet stdlib/Vec.ax no-io,no-alloc,no-foreign ok

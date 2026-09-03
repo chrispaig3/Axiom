@@ -59,6 +59,12 @@
 (pub :: nodeAxtags (-> Int Int))
 
 (pub fn (nodeAxtags n) (memGetWord n 7))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: nodeAxtagsVec (-> Int (Vec a)))
+
+(pub fn (nodeAxtagsVec n) (cast (Vec a) (nodeAxtags n)))
+
 
 (pub :: setNodeSpan (-> Int Int Int))
 
@@ -89,6 +95,12 @@
 (pub :: nodeTy (-> Int Int))
 
 (pub fn (nodeTy n) (memGetWord n 6))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: nodeTyVec (-> Int (Vec a)))
+
+(pub fn (nodeTyVec n) (cast (Vec a) (nodeTy n)))
+
 
 (pub :: setNodeTy (-> Int Int Int))
 
@@ -436,6 +448,12 @@
 (pub :: nodeA (-> Int Int))
 
 (pub fn (nodeA n) (memGetWord n 1))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: nodeAVec (-> Int (Vec a)))
+
+(pub fn (nodeAVec n) (cast (Vec a) (nodeA n)))
+
 
 ; The name in word 1: a declaration's name, a variable's spelling, a
 ; constructor's. The cast is here, at a return inside a signature that
@@ -449,6 +467,12 @@
 (pub :: nodeB (-> Int Int))
 
 (pub fn (nodeB n) (memGetWord n 2))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: nodeBVec (-> Int (Vec a)))
+
+(pub fn (nodeBVec n) (cast (Vec a) (nodeB n)))
+
 
 ; The String view of word 2. See `nodeCName` for why the cast lives
 ; here and not at the call sites.
@@ -461,6 +485,12 @@
 (pub :: nodeC (-> Int Int))
 
 (pub fn (nodeC n) (memGetWord n 3))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: nodeCVec (-> Int (Vec a)))
+
+(pub fn (nodeCVec n) (cast (Vec a) (nodeC n)))
+
 
 ; The String view of word 3, for the node tags whose third field is a
 ; name. The cast is HERE, at a return inside a signature that carries
@@ -540,6 +570,12 @@
 (pub :: nodeFieldNames (-> Int Int))
 
 (pub fn (nodeFieldNames n) (memGetWord n 9))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: nodeFieldNamesVec (-> Int (Vec a)))
+
+(pub fn (nodeFieldNamesVec n) (cast (Vec a) (nodeFieldNames n)))
+
 
 ; WORD 10, and the whole of what it means: this reference resolves
 ; where the MACRO TEMPLATE that produced it was written, which is
@@ -619,7 +655,7 @@
 
 (pub fn (mkTVar n) (mkNode TAG_T_VAR n 0 0))
 
-(pub :: mkTCon (-> String Int Int))
+(pub :: mkTCon (-> String (Vec Int) Int))
 
 (pub fn (mkTCon n args) (mkNode TAG_T_CON n args 0))
 
@@ -627,7 +663,7 @@
 
 (pub fn (mkTArr p r) (mkNode TAG_T_ARR p r 0))
 
-(pub :: mkTTup (-> Int Int))
+(pub :: mkTTup (-> (Vec Int) Int))
 
 (pub fn (mkTTup xs) (mkNode TAG_T_TUP xs 0 0))
 
@@ -671,7 +707,7 @@
 
 (pub fn (mkEIf t c a) (mkNode TAG_E_IF t c a))
 
-(pub :: mkEBegin (-> Int Int))
+(pub :: mkEBegin (-> (Vec Int) Int))
 
 (pub fn (mkEBegin xs) (mkNode TAG_E_BEGIN xs 0 0))
 
@@ -679,7 +715,7 @@
 ; its *name*, so the name token's span is the one worth keeping - and
 ; the only one this slice's checks ever report. Everything else keeps
 ; span 0, which no consumer reads.
-(pub :: mkDFnAt (-> String Int Int Int Int))
+(pub :: mkDFnAt (-> String (Vec Int) Int Int Int))
 
 (pub fn (mkDFnAt n p b sp) (mkNodeAt
   TAG_D_FN  n  p  b  sp
@@ -693,19 +729,19 @@
 
 ; With the module path's span, so a diagnostic about the import - an
 ; unexported name in its list - has somewhere to point.
-(pub :: mkDImportAt (-> String Int Int Int))
+(pub :: mkDImportAt (-> String (Vec Int) Int Int))
 
 (pub fn (mkDImportAt m ns sp) (mkNodeAt
   TAG_D_IMPORT  m  ns  0  sp
 ))
 
-(pub :: mkDDataAt (-> String Int Int Int))
+(pub :: mkDDataAt (-> String (Vec Int) Int Int))
 
 (pub fn (mkDDataAt n cs sp) (mkNodeAt
   TAG_D_DATA  n  cs  0  sp
 ))
 
-(pub :: mkDStructAt (-> String Int Int Int))
+(pub :: mkDStructAt (-> String (Vec Int) Int Int))
 
 (pub fn (mkDStructAt n fs sp) (mkNodeAt
   TAG_D_STRUCT  n  fs  0  sp
@@ -717,7 +753,7 @@
   TAG_D_MACRO  n  ps  b  sp
 ))
 
-(pub :: mkCtor (-> Int Int Int Int))
+(pub :: mkCtor (-> Int Int (Vec Int) Int))
 
 (pub fn (mkCtor n a fl) (mkNode TAG_CTOR n a fl))
 
@@ -743,7 +779,7 @@
 ; AX2003 rather than inventing an expectation it does not have.
 (pub struct PResult
   (ok : Int)
-  (value : Int)
+  (value : (Vec Int))
   (pos : Int)
   (exp : String)
   (code : String))
@@ -752,20 +788,20 @@
 
 (pub fn (pOk v p)
   (PResult
-    1    (cast Int v)    p    ""    ""
+    1    (cast (Vec Int) v)    p    ""    ""
   )
 )
 
 (pub :: pErr (-> Int Int))
 
 (pub fn (pErr p) (PResult
-  0  0  p  ""  ""
+  0  (cast (Vec Int) 0)  p  ""  ""
 ))
 
 (pub :: pErrExp (-> Int String Int))
 
 (pub fn (pErrExp p e) (PResult
-  0  0  p  e  ""
+  0  (cast (Vec Int) 0)  p  e  ""
 ))
 
 (pub :: pResExp (-> Int String))
@@ -784,7 +820,7 @@
 (pub :: pErrRemoved (-> Int String Int))
 
 (pub fn (pErrRemoved p kw) (PResult
-  0  0  p  kw  "AX2004"
+  0  (cast (Vec Int) 0)  p  kw  "AX2004"
 ))
 
 ; A failure that names its own code and expects nothing - AX2005 is the
@@ -795,7 +831,7 @@
 (pub :: pErrCode (-> Int String Int))
 
 (pub fn (pErrCode p c) (PResult
-  0  0  p  ""  c
+  0  (cast (Vec Int) 0)  p  ""  c
 ))
 
 ; A module-path segment carrying `/`. `exp` carries the SEGMENT, the way
@@ -805,7 +841,7 @@
 (pub :: pErrModSeg (-> Int String Int))
 
 (pub fn (pErrModSeg p seg) (PResult
-  0  0  p  seg  "AX2006"
+  0  (cast (Vec Int) 0)  p  seg  "AX2006"
 ))
 
 ; A C or Rust primitive type name in type position. `exp` carries the
@@ -815,7 +851,7 @@
 (pub :: pErrSizedTy (-> Int String Int))
 
 (pub fn (pErrSizedTy p n) (PResult
-  0  0  p  n  "AX3047"
+  0  (cast (Vec Int) 0)  p  n  "AX3047"
 ))
 
 ; An `extern` block's library name that is not one. `exp` carries the
@@ -827,7 +863,7 @@
 (pub :: pErrExternLib (-> Int String Int))
 
 (pub fn (pErrExternLib p ch) (PResult
-  0  0  p  ch  "AX3041"
+  0  (cast (Vec Int) 0)  p  ch  "AX3041"
 ))
 
 ; The diagnostic for a failed parse, from the failure's token position.
@@ -853,7 +889,7 @@
 ; AX2005, whose message, label and help are stage0's own wording. The
 ; limit renders from `parseMaxDepth` rather than being spelled out, so
 ; the constant and the sentence about it cannot drift.
-(pub :: ax2005Diag (-> Int Int Int))
+(pub :: ax2005Diag (-> (Vec Int) Int Int))
 
 (pub fn (ax2005Diag tokens pos)
   (let (
@@ -883,7 +919,7 @@
 ; the other half: it is a type VARIABLE, and a signature carrying one
 ; accepts anything at all. The help names the Axiom type so the fix is
 ; a substitution rather than a search.
-(pub :: ax3047Diag (-> Int Int String Int))
+(pub :: ax3047Diag (-> (Vec Int) Int String Int))
 
 (pub fn (ax3047Diag tokens pos n)
   ; `strConcat` rather than `cat3`/`cat4`: those live in `codegen.ax`,
@@ -927,7 +963,7 @@
 ; (`(import Sys/Platform)` for `Sys.Platform`). The note records what
 ; the acceptance used to cost, which is the fact that decides whether
 ; anyone may relax this later.
-(pub :: ax2006Diag (-> Int Int String Int))
+(pub :: ax2006Diag (-> (Vec Int) Int String Int))
 
 (pub fn (ax2006Diag tokens pos seg)
   (let ((tok (vecGet tokens pos)))
@@ -959,7 +995,7 @@
 ; the check is not in the lexer: `scanStringEnd` treats a line break
 ; inside a literal as an ordinary character on purpose, and banning it
 ; there would be a change to every string in the language.
-(pub :: ax3041Diag (-> Int Int String Int))
+(pub :: ax3041Diag (-> (Vec Int) Int String Int))
 
 (pub fn (ax3041Diag tokens pos ch)
   (let ((tok (vecGet tokens pos)))
@@ -994,7 +1030,7 @@
   )
 )
 
-(pub :: parseErrDiag (-> Int Int String Int))
+(pub :: parseErrDiag (-> (Vec Int) Int String Int))
 
 (pub fn (parseErrDiag tokens r src)
   ; Tested on the CODE rather than inferred from the position: the
@@ -1096,7 +1132,7 @@
 ; which is an unexpected character. Keying off the byte gave the bare
 ; one AX1005 where stage0 says AX1001 - found by sweeping all 94
 ; printable bytes through both compilers, not by reading.
-(pub :: lexErrDiag (-> Int String Int))
+(pub :: lexErrDiag (-> (Vec Int) String Int))
 
 (pub fn (lexErrDiag tokens src)
   (let (
@@ -1248,7 +1284,7 @@
   (cast Int k)
 )
 
-(pub :: peekToken (-> Int Int Int))
+(pub :: peekToken (-> (Vec Int) Int Int))
 
 (pub fn (peekToken tokens pos)
   (if (>= pos (vecLen tokens))
@@ -1257,7 +1293,7 @@
   )
 )
 
-(pub :: peekIs (-> Int Int TokenKind Bool))
+(pub :: peekIs (-> (Vec Int) Int TokenKind Bool))
 
 (pub fn (peekIs tokens pos kind)
   (let ((t (peekToken tokens pos)))
@@ -1275,7 +1311,7 @@
 ; ------------------------------------------------------------------
 ; Skip to matching close-paren. depth starts at 1.
 ; ------------------------------------------------------------------
-(pub :: skipParens (-> Int Int Int Int))
+(pub :: skipParens (-> (Vec Int) Int Int Int))
 
 (pub fn (skipParens tokens pos depth)
   (if (>= pos (vecLen tokens))
@@ -1296,7 +1332,7 @@
 ; ------------------------------------------------------------------
 ; Parse literals.
 ; ------------------------------------------------------------------
-(pub :: parseLit (-> Int Int Int))
+(pub :: parseLit (-> (Vec Int) Int Int))
 
 (pub fn (parseLit tokens pos)
   ; Literals carry their token's span now: an AX3004 about an argument
@@ -1437,7 +1473,7 @@
   )
 )
 
-(pub :: parseIdentRef (-> Int Int Int))
+(pub :: parseIdentRef (-> (Vec Int) Int Int))
 
 ; A dotted chain of identifiers is either FIELD ACCESS (`p.x.y`) or a
 ; MODULE PATH (`Sys.Platform::sysRead`), and which one is only known at
@@ -1482,7 +1518,7 @@
 ; is none the caller re-parses from the start as a field chain, which
 ; costs one extra pass over a handful of tokens and keeps the field
 ; path exactly as it was.
-(pub :: parseDottedChain (-> Int Int Int Int))
+(pub :: parseDottedChain (-> (Vec Int) Int (Vec String) Int))
 
 (pub fn (parseDottedChain tokens pos acc)
   (if (&& (peekIs tokens pos TK_DOT) (peekIs tokens (advance pos) TK_IDENT))
@@ -1496,7 +1532,7 @@
 
 ; At the `::`. Every further `::ident` extends the path; the LAST
 ; segment is the name and the rest are the module.
-(pub :: parseQualifiedTail (-> Int Int Int Int Int))
+(pub :: parseQualifiedTail (-> (Vec Int) Int (Vec String) Int Int))
 
 (pub fn (parseQualifiedTail tokens pos chain sp)
   (if (peekIs tokens pos TK_DOUBLE_COLON)
@@ -1514,11 +1550,11 @@
 ; `[A B name]` -> `A.B$name`: the module segments joined by `.`, then
 ; `$`, then the name. That is the spelling `mangleDecl` gives an
 ; imported declaration, so the reference and the definition meet.
-(pub :: mangledFromChain (-> Int String))
+(pub :: mangledFromChain (-> (Vec String) String))
 
 (pub fn (mangledFromChain chain) (strConcat (strConcat (joinDotted chain 0 "") "$") (vecGetStr chain (- (vecLen chain) 1))))
 
-(pub :: joinDotted (-> Int Int String String))
+(pub :: joinDotted (-> (Vec String) Int String String))
 
 (pub fn (joinDotted chain i acc)
   (if (>= i (- (vecLen chain) 1))
@@ -1535,7 +1571,7 @@
 ; `.field` suffixes make field accesses, folded left so `a.b.c` reads
 ; the `c` of the value at `a.b`. Dotted module paths never reach here -
 ; imports parse through parseModPath.
-(pub :: parseFieldChain (-> Int Int Int Int))
+(pub :: parseFieldChain (-> (Vec Int) Int Int Int))
 
 (pub fn (parseFieldChain tokens pos base)
   ; The node's span is the FIELD NAME token's - AX3007's anchor. An
@@ -1553,7 +1589,7 @@
 ; ------------------------------------------------------------------
 ; Parse an identifier token, returning the lexeme Str handle.
 ; ------------------------------------------------------------------
-(pub :: parseIdentName (-> Int Int Int))
+(pub :: parseIdentName (-> (Vec Int) Int Int))
 
 (pub fn (parseIdentName tokens pos)
   (if (peekIs tokens pos TK_IDENT)
@@ -1579,7 +1615,7 @@
 ; field name needs - `getX` twice is one program with two definitions
 ; of one symbol. The marker stays the same space-joined string,
 ; PREFIX-encoded, and `expMarkerPart` reads it back.
-(pub :: parseDeclName (-> Int Int Int))
+(pub :: parseDeclName (-> (Vec Int) Int Int))
 
 (pub fn (parseDeclName tokens pos)
   (if (&& (peekIs tokens pos TK_LPAREN) (&& (peekIs tokens (advance pos) TK_IDENT) (strEq (tokenLexeme (vecGet tokens (advance pos))) "syntax/join")))
@@ -1605,7 +1641,7 @@
 
 ; A join's operand: a bare identifier, or a nested join. Answers the
 ; operand's own marker text, which the caller splices into its own.
-(pub :: parseJoinOperand (-> Int Int Int))
+(pub :: parseJoinOperand (-> (Vec Int) Int Int))
 
 (pub fn (parseJoinOperand tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
@@ -1620,7 +1656,7 @@
 ; ------------------------------------------------------------------
 ; Parse a list of identifiers until ), returning a Vec of Str handles.
 ; ------------------------------------------------------------------
-(pub :: parseIdentList (-> Int Int Int Int))
+(pub :: parseIdentList (-> (Vec Int) Int (Vec String) Int))
 
 (pub fn (parseIdentList tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -1653,7 +1689,7 @@
 ; inherited from the AST rather than introduced here, and symmetric,
 ; so a pattern and an argument that spell alike still match.
 ; ------------------------------------------------------------------
-(pub :: parseMacroPat (-> Int Int Int))
+(pub :: parseMacroPat (-> (Vec Int) Int Int))
 
 (pub fn (parseMacroPat tokens pos)
   (if (peekIs tokens pos TK_IDENT)
@@ -1673,7 +1709,7 @@
 ; The elements of a parenthesised pattern, folded into a spine. An
 ; EMPTY one is refused: `()` would match a form of zero elements, and
 ; no argument is one, so it is a rule that could never fire.
-(pub :: parseMacroPatArgs (-> Int Int Int Int))
+(pub :: parseMacroPatArgs (-> (Vec Int) Int Int Int))
 
 (pub fn (parseMacroPatArgs tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -1711,7 +1747,7 @@
 ; identifier, so no template name can resolve to the marker - the same
 ; trick `(syntax/join a b)` uses one screen up, and for the same
 ; reason.
-(pub :: parseMacroPatList (-> Int Int Int Int Int Int Int))
+(pub :: parseMacroPatList (-> (Vec Int) Int (Vec Int) (Vec String) (Vec String) (Vec Int) Int))
 
 (pub fn (parseMacroPatList tokens pos pats names spells reps)
   (if (peekIs tokens pos TK_RPAREN)
@@ -1772,7 +1808,7 @@
   )
 )
 
-(pub :: patIsEllipsis (-> Int Int Bool))
+(pub :: patIsEllipsis (-> (Vec Int) Int Bool))
 
 (pub fn (patIsEllipsis tokens pos)
   (if (peekIs tokens pos TK_IDENT)
@@ -1800,7 +1836,7 @@
 ; either back would need a formatter the parser does not import, and
 ; would print a spelling the author did not write. The tokens are what
 ; the author wrote.
-(pub :: patTokensSpelling (-> Int Int Int String String))
+(pub :: patTokensSpelling (-> (Vec Int) Int Int String String))
 
 (pub fn (patTokensSpelling tokens from to acc)
   (if (>= from to)
@@ -1831,7 +1867,7 @@
 ; ------------------------------------------------------------------
 ; Parse an expression list until ), returning a Vec of Expr handles.
 ; ------------------------------------------------------------------
-(pub :: parseExprList (-> Int Int Int Int))
+(pub :: parseExprList (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseExprList tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -1925,7 +1961,7 @@
 ; ------------------------------------------------------------------
 ; Top-level declaration parse: (keyword ...)
 ; ------------------------------------------------------------------
-(pub :: parseDecl (-> Int Int Int))
+(pub :: parseDecl (-> (Vec Int) Int Int))
 
 (pub fn (parseDecl tokens pos)
   (if (peekIs tokens pos TK_EOF)
@@ -1937,7 +1973,7 @@
   )
 )
 
-(pub :: parseTopForm (-> Int Int Int))
+(pub :: parseTopForm (-> (Vec Int) Int Int))
 
 (pub fn (parseTopForm tokens pos)
   (if (peekIs tokens pos TK_DOUBLE_COLON)
@@ -2067,7 +2103,7 @@
 ; the same delegation the rule-form template uses - so a nested
 ; syntax/for parses through the parseTopForm hook above. At least one
 ; declaration is required.
-(pub :: parseDeclFor (-> Int Int Int))
+(pub :: parseDeclFor (-> (Vec Int) Int Int))
 
 (pub fn (parseDeclFor tokens pos)
   (let (
@@ -2098,7 +2134,7 @@
   )
 )
 
-(pub :: parseDeclForBody (-> Int Int String Int Int Int Int))
+(pub :: parseDeclForBody (-> (Vec Int) Int String Int Int (Vec Int) Int))
 
 (pub fn (parseDeclForBody tokens pos var seq sp acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -2133,7 +2169,7 @@
 ; and its operations' names. Nothing else survives: stage1 emits no
 ; effect code, and a type it cannot lower is a type it need not
 ; record.
-(pub :: parseEffectDecl (-> Int Int Int))
+(pub :: parseEffectDecl (-> (Vec Int) Int Int))
 
 (pub fn (parseEffectDecl tokens pos)
   ; `parseDeclName` for the same reason `data` uses it: an `effect`
@@ -2174,7 +2210,7 @@
 ; the end position, so acceptance is unchanged; a type the parser
 ; cannot read leaves 0 in the field and only `symbols` is the poorer
 ; for it.
-(pub :: parseEffectOps (-> Int Int Int Int Int))
+(pub :: parseEffectOps (-> (Vec Int) Int (Vec Int) (Vec Int) Int))
 
 (pub fn (parseEffectOps tokens pos ops opFields)
   (if (peekIs tokens pos TK_RPAREN)
@@ -2302,7 +2338,7 @@
   )
 )
 
-(pub :: parseExternDecl (-> Int Int Int))
+(pub :: parseExternDecl (-> (Vec Int) Int Int))
 
 (pub fn (parseExternDecl tokens pos)
   (if (peekIs tokens pos TK_STRING)
@@ -2354,7 +2390,7 @@
 ; symbol, or a clause the design document once proposed (`effects`,
 ; `opaque`, `drop`) used to be skipped without a word, and `(opaque
 ; Thing ...)` bound an item called `opaque`.
-(pub :: parseExternItems (-> Int Int Int Int Int))
+(pub :: parseExternItems (-> (Vec Int) Int (Vec Int) (Vec Int) Int))
 
 (pub fn (parseExternItems tokens pos names items)
   (if (peekIs tokens pos TK_RPAREN)
@@ -2398,7 +2434,7 @@
 ; absent (a documented footgun: a static link is one flat namespace,
 ; and two blocks binding a `parse` without the clause dedup to one
 ; `declare`; `axiom-bindgen` always writes it).
-(pub :: parseExternClauses (-> Int Int String Int))
+(pub :: parseExternClauses (-> (Vec Int) Int String Int))
 
 (pub fn (parseExternClauses tokens pos dflt)
   (if (peekIs tokens pos TK_RPAREN)
@@ -2463,7 +2499,7 @@
 ; checker's notation. Any shape this does not recognise falls back to
 ; the old skip, so acceptance is unchanged: only well-formed aliases
 ; gain a node.
-(pub :: parseAliasDecl (-> Int Int Int Int))
+(pub :: parseAliasDecl (-> (Vec Int) Int Int Int))
 
 (pub fn (parseAliasDecl tokens pos origPos)
   ; `(` as well as an identifier, because the name may be a
@@ -2513,7 +2549,7 @@
 
 ; Type parameters between an alias's name and its `=`: a paren list,
 ; or a bare run of idents that start with a lowercase LETTER.
-(pub :: aliasTyvarsEnd (-> Int Int Int Int))
+(pub :: aliasTyvarsEnd (-> (Vec Int) Int (Vec String) Int))
 
 (pub fn (aliasTyvarsEnd tokens pos tvs)
   (if (peekIs tokens pos TK_LPAREN)
@@ -2758,7 +2794,7 @@
   )
 )
 
-(pub :: parseTypeAtom (-> Int Int Int))
+(pub :: parseTypeAtom (-> (Vec Int) Int Int))
 
 (pub fn (parseTypeAtom tokens pos)
   ; `[T]` is the list type. The brackets only just became tokens -
@@ -2831,7 +2867,7 @@
   )
 )
 
-(pub :: parseType (-> Int Int Int))
+(pub :: parseType (-> (Vec Int) Int Int))
 
 (pub fn (parseType tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
@@ -2841,7 +2877,7 @@
 )
 
 ; A run of atoms up to the closing paren, which is consumed.
-(pub :: parseTypeAtoms (-> Int Int Int Int))
+(pub :: parseTypeAtoms (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseTypeAtoms tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -2859,14 +2895,14 @@
 )
 
 ; `pos` is just past the opening paren.
-(pub :: parseTypeParens (-> Int Int Int))
+(pub :: parseTypeParens (-> (Vec Int) Int Int))
 
 (pub fn (parseTypeParens tokens pos)
   (if (peekIs tokens pos TK_RARROW)
     (let ((r (parseTypeAtoms tokens (advance pos) vecNew)))
       (if (== (memGetWord r 0) 0)
         r
-        (let ((tys (memGetWord r 1)))
+        (let ((tys (memGetWordVec r 1)))
           (if (< (vecLen tys) 2)
             (pErrExp pos "type")
             (pOk (foldArrows tys (- (vecLen tys) 2) (vecGet tys (- (vecLen tys) 1))) (memGetWord r 2))
@@ -2907,14 +2943,14 @@
             (let ((r (parseTypeAtoms tokens (advance pos) vecNew)))
               (if (== (memGetWord r 0) 0)
                 r
-                (pOk (mkTCon head (memGetWord r 1)) (memGetWord r 2))
+                (pOk (mkTCon head (memGetWordVec r 1)) (memGetWord r 2))
               )
             )
           )
           (let ((r (parseTypeAtoms tokens pos vecNew)))
             (if (== (memGetWord r 0) 0)
               r
-              (let ((tys (memGetWord r 1)))
+              (let ((tys (memGetWordVec r 1)))
                 (if (== (vecLen tys) 1)
                   (pOk (vecGet tys 0) (memGetWord r 2))
                   (pOk (mkTTup tys) (memGetWord r 2))
@@ -2930,7 +2966,7 @@
 
 ; `(-> A B C)` folds right: A -> (B -> C). `i` walks from the second-
 ; to-last element down to 0, wrapping `acc` each step.
-(pub :: foldArrows (-> Int Int Int Int))
+(pub :: foldArrows (-> (Vec Int) Int Int Int))
 
 (pub fn (foldArrows tys i acc)
   (if (< i 0)
@@ -2942,7 +2978,7 @@
 ; ------------------------------------------------------------------
 ; Parse (:: name (-> ...))
 ; ------------------------------------------------------------------
-(pub :: parseSigDecl (-> Int Int Int))
+(pub :: parseSigDecl (-> (Vec Int) Int Int))
 
 (pub fn (parseSigDecl tokens pos)
   (let ((nr (parseDeclName tokens pos)))
@@ -3002,7 +3038,7 @@
           (if (== (memGetWord tr 0) 0)
             tr
             (if (peekIs tokens (memGetWord tr 2) TK_RPAREN)
-              (pOk (setNodeTy (mkDSigAt name (sigFloatFlags tokens typePos) (tokenSpan (vecGet tokens pos))) (memGetWord tr 1)) (advance (memGetWord tr 2)))
+              (pOk (setNodeTy (mkDSigAt name (cast Int (sigFloatFlags tokens typePos)) (tokenSpan (vecGet tokens pos))) (memGetWord tr 1)) (advance (memGetWord tr 2)))
               ; stage0's `expect(RParen)` renders its expectation as
               ; `)`, so this is its message verbatim: `expected ),
               ; found \`Bool\``.
@@ -3020,7 +3056,7 @@
 ; spine. A parenthesised position (a nested arrow, a type application
 ; like `(Vec Float)`) is a closure or a pointer, carried as a word,
 ; never a bare float.
-(pub :: sigFloatFlags (-> Int Int Int))
+(pub :: sigFloatFlags (-> (Vec Int) Int (Vec Int)))
 
 (pub fn (sigFloatFlags tokens pos)
   (if (peekIs tokens pos TK_IDENT)
@@ -3042,7 +3078,7 @@
   )
 )
 
-(pub :: identIsFloat (-> Int Int Int))
+(pub :: identIsFloat (-> (Vec Int) Int Int))
 
 (pub fn (identIsFloat tokens pos)
   (if (strEq (tokenLexeme (vecGet tokens pos)) "Float")
@@ -3051,7 +3087,7 @@
   )
 )
 
-(pub :: spineFlags (-> Int Int Int Int))
+(pub :: spineFlags (-> (Vec Int) Int (Vec Int) (Vec Int)))
 
 (pub fn (spineFlags tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -3106,7 +3142,7 @@
 ; is the fixture that says so.
 ; `tests/diagnostics/955-import-absolute-path.axbad` pins the refusal.
 ; ------------------------------------------------------------------
-(pub :: parseModPath (-> Int Int Int))
+(pub :: parseModPath (-> (Vec Int) Int Int))
 
 (pub fn (parseModPath tokens pos)
   (let ((nr (parseIdentName tokens pos)))
@@ -3120,7 +3156,7 @@
   )
 )
 
-(pub :: parseModPathRest (-> Int Int String Int))
+(pub :: parseModPathRest (-> (Vec Int) Int String Int))
 
 (pub fn (parseModPathRest tokens pos acc)
   (if (peekIs tokens pos TK_DOT)
@@ -3143,7 +3179,7 @@
 ; ------------------------------------------------------------------
 ; Parse (import Module (names...)) / (import Mod.Sub)
 ; ------------------------------------------------------------------
-(pub :: parseImportDecl (-> Int Int Int))
+(pub :: parseImportDecl (-> (Vec Int) Int Int))
 
 (pub fn (parseImportDecl tokens pos)
   (let ((mr (parseModPath tokens pos)))
@@ -3162,7 +3198,7 @@
             (if (== (memGetWord namesR 0) 0)
               namesR
               (let (
-                (names (memGetWord namesR 1))
+                (names (memGetWordVec namesR 1))
                 (afterNames (memGetWord namesR 2))
               )
                 (if (peekIs tokens afterNames TK_RPAREN)
@@ -3185,7 +3221,7 @@
 ; ------------------------------------------------------------------
 ; Parse (data Name (Ctor1 ...) (Ctor2) ...)
 ; ------------------------------------------------------------------
-(pub :: parseDataDecl (-> Int Int Int))
+(pub :: parseDataDecl (-> (Vec Int) Int Int))
 
 (pub fn (parseDataDecl tokens pos)
   ; `parseDeclName`, not `parseIdentName`: a `data` template may name
@@ -3207,7 +3243,7 @@
       )
         (let ((tvs vecNew))
           (parseConstructors
-            tokens            (collectTyParams tokens nextPos tvs)            name            (tokenSpan (vecGet tokens pos))            vecNew            tvs
+            tokens            (collectTyParams tokens nextPos tvs)            name            (tokenSpan (vecGet tokens pos))            vecNew            (cast Int tvs)
           )
         )
       )
@@ -3224,7 +3260,7 @@
 ; position advances, so deciding the shape and capturing it are one
 ; walk - they were two, and a shape one declined and the other did not
 ; drifted the parse position.
-(pub :: collectTyParams (-> Int Int Int Int))
+(pub :: collectTyParams (-> (Vec Int) Int (Vec String) Int))
 
 (pub fn (collectTyParams tokens pos tvs)
   (if (peekIs tokens pos TK_LPAREN)
@@ -3268,7 +3304,7 @@
   )
 )
 
-(pub :: collectIdentsUntilRParen (-> Int Int Int Int))
+(pub :: collectIdentsUntilRParen (-> (Vec Int) Int (Vec String) Int))
 
 (pub fn (collectIdentsUntilRParen tokens pos tvs)
   (if (peekIs tokens pos TK_IDENT)
@@ -3280,7 +3316,7 @@
   )
 )
 
-(pub :: parseConstructors (-> Int Int String Int Int Int Int))
+(pub :: parseConstructors (-> (Vec Int) Int String Int (Vec Int) Int Int))
 
 (pub fn (parseConstructors tokens pos dataName nameSpan acc tvs)
   (if (peekIs tokens pos TK_RPAREN)
@@ -3319,7 +3355,7 @@
   )
 )
 
-(pub :: parseOneCtor (-> Int Int Int))
+(pub :: parseOneCtor (-> (Vec Int) Int Int))
 
 (pub fn (parseOneCtor tokens pos)
   (let ((r0 (parseOneCtorInner tokens pos)))
@@ -3336,7 +3372,7 @@
   )
 )
 
-(pub :: parseOneCtorInner (-> Int Int Int))
+(pub :: parseOneCtorInner (-> (Vec Int) Int Int))
 
 (pub fn (parseOneCtorInner tokens pos)
   (let ((nr (parseDeclName tokens pos)))
@@ -3347,7 +3383,7 @@
         (nextPos (memGetWord nr 2))
       )
         (if (peekIs tokens nextPos TK_RPAREN)
-          (pOk (setNodeTy (mkCtor ctorName 0 vecNew) vecNew) (advance nextPos))
+          (pOk (setNodeTy (mkCtor ctorName 0 vecNew) (cast Int vecNew)) (advance nextPos))
           ; A STRUCT VARIANT: `(Rect { w : Int, h : Int })`. The field
           ; names are recorded, and everything else about the
           ; constructor - arity, per-field float flags, per-field type
@@ -3373,12 +3409,12 @@
 ; `name : Type` pairs to the closing brace, commas optional - stage0
 ; treats a comma as separator-or-not, so `{ w : Int h : Int }` parses
 ; the same as `{ w : Int, h : Int }`.
-(pub :: parseNamedFieldTypes (-> Int Int Int Int Int Int Int))
+(pub :: parseNamedFieldTypes (-> (Vec Int) Int (Vec Int) Int (Vec Int) (Vec String) Int))
 
 (pub fn (parseNamedFieldTypes tokens pos flags ctorName tys names)
   (if (peekIs tokens pos TK_RBRACE)
     (if (peekIs tokens (advance pos) TK_RPAREN)
-      (pOk (setCtorFieldNames (setNodeTy (mkCtor ctorName (vecLen flags) flags) tys) names) (advance (advance pos)))
+      (pOk (setCtorFieldNames (setNodeTy (mkCtor ctorName (vecLen flags) flags) (cast Int tys)) names) (advance (advance pos)))
       (pErr (advance pos))
     )
     (if (peekIs tokens pos TK_IDENT)
@@ -3418,7 +3454,7 @@
 ; for patterns). So `{ w : Int,, h : Int }` and a leading `{ , w ... }`
 ; are parse errors there, and skipping commas wherever they appear
 ; would accept programs it refuses.
-(pub :: skipFieldComma (-> Int Int Int))
+(pub :: skipFieldComma (-> (Vec Int) Int Int))
 
 (pub fn (skipFieldComma tokens pos)
   (if (peekIs tokens pos TK_COMMA)
@@ -3427,7 +3463,7 @@
   )
 )
 
-(pub :: setCtorFieldNames (-> Int Int Int))
+(pub :: setCtorFieldNames (-> Int (Vec String) Int))
 
 (pub fn (setCtorFieldNames n names)
   {
@@ -3446,11 +3482,11 @@
 ; these types and checks construction arguments against them. The flag
 ; rule above is deliberately unchanged (`(Float)` parenthesised is
 ; still flag 0), so codegen behaves bit-identically.
-(pub :: parseFieldTypes (-> Int Int Int Int Int Int))
+(pub :: parseFieldTypes (-> (Vec Int) Int (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseFieldTypes tokens pos flags ctorName tys)
   (if (peekIs tokens pos TK_RPAREN)
-    (pOk (setNodeTy (mkCtor ctorName (vecLen flags) flags) tys) (advance pos))
+    (pOk (setNodeTy (mkCtor ctorName (vecLen flags) flags) (cast Int tys)) (advance pos))
     (if (peekIs tokens pos TK_IDENT)
       {
         (vecPush flags (identIsFloat tokens pos))
@@ -3493,7 +3529,7 @@
 ; ------------------------------------------------------------------
 ; Parse (struct Name (field1 : Type1) (field2 : Type2) ...)
 ; ------------------------------------------------------------------
-(pub :: parseStructDecl (-> Int Int Int))
+(pub :: parseStructDecl (-> (Vec Int) Int Int))
 
 (pub fn (parseStructDecl tokens pos)
   (let ((nr (parseDeclName tokens pos)))
@@ -3557,7 +3593,7 @@
 ; identifier is NOT followed by a colon. `(a)` and `(a b)` are
 ; parameters; `(start : Int)` is a field; `()` is neither and is left
 ; to `parseFields` to refuse as it always has.
-(pub :: structGroupIsTyParams (-> Int Int Int))
+(pub :: structGroupIsTyParams (-> (Vec Int) Int Int))
 
 (pub fn (structGroupIsTyParams tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
@@ -3587,7 +3623,7 @@
 ; `collectTyParams` applies for `data`, and it separates the two
 ; shapes exactly: `String` is uppercase, so `(msg String)` is a field
 ; the checker still refuses.
-(pub :: structTyParamRun (-> Int Int Int))
+(pub :: structTyParamRun (-> (Vec Int) Int Int))
 
 (pub fn (structTyParamRun tokens pos)
   (if (peekIs tokens pos TK_RPAREN)
@@ -3602,7 +3638,7 @@
   )
 )
 
-(pub :: parseFieldsTv (-> Int Int String Int Int Int Int))
+(pub :: parseFieldsTv (-> (Vec Int) Int String Int (Vec Int) (Vec String) Int))
 
 (pub fn (parseFieldsTv tokens pos structName nameSpan acc tvs)
   (let ((r (parseFields tokens pos structName nameSpan acc)))
@@ -3621,7 +3657,7 @@
       (if (== (vecLen tvs) 0)
         r
         {
-          (setNodeTy (memGetWord r 1) tvs)
+          (setNodeTy (memGetWord r 1) (cast Int tvs))
           r
         }
       )
@@ -3629,7 +3665,7 @@
   )
 )
 
-(pub :: parseFields (-> Int Int String Int Int Int))
+(pub :: parseFields (-> (Vec Int) Int String Int (Vec Int) Int))
 
 (pub fn (parseFields tokens pos structName nameSpan acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -3669,7 +3705,7 @@
 ; ownership guarantee and supplies none" - and it is why `linear`,
 ; `consume` and `deriving` were removed rather than left parsing.
 ; `checkSetField` reads this word now; see AX3012 there.
-(pub :: parseOneField (-> Int Int Int))
+(pub :: parseOneField (-> (Vec Int) Int Int))
 
 (pub fn (parseOneField tokens pos)
   (if (&& (peekIs tokens pos TK_IDENT) (&& (strEq (tokenLexeme (vecGet tokens pos)) "mut") (peekIs tokens (advance pos) TK_IDENT)))
@@ -3706,7 +3742,7 @@
   )
 )
 
-(pub :: parseOneFieldNamed (-> Int Int Int))
+(pub :: parseOneFieldNamed (-> (Vec Int) Int Int))
 
 (pub fn (parseOneFieldNamed tokens pos)
   (let ((nr (parseIdentName tokens pos)))
@@ -3772,7 +3808,7 @@
 ; closing paren. The node must be a REAL handle (`parseDecls` reads a
 ; parse value of 0 as the clean end of the module - the historical
 ; skipParens trap), and `mkNodeAt` provides one.
-(pub :: parseMacroCall (-> Int Int Int))
+(pub :: parseMacroCall (-> (Vec Int) Int Int))
 
 (pub fn (parseMacroCall tokens pos)
   ; A QUALIFIED head - `Pre::when` - is three tokens here, exactly
@@ -3806,7 +3842,7 @@
 
 ; `:: IDENT` pairs after a head identifier, pushed onto the chain;
 ; answers the position after the last one consumed.
-(pub :: parseQualChainTail (-> Int Int Int Int))
+(pub :: parseQualChainTail (-> (Vec Int) Int (Vec String) Int))
 
 (pub fn (parseQualChainTail tokens pos chain)
   (if (&& (peekIs tokens pos TK_DOUBLE_COLON) (peekIs tokens (advance pos) TK_IDENT))
@@ -3837,7 +3873,7 @@
 ; own name stops the list, which is what makes a malformed second rule
 ; a refusal rather than a silent truncation - the caller then demands
 ; the closing paren and fails there.
-(pub :: parseMacroRules (-> Int Int String Int Int))
+(pub :: parseMacroRules (-> (Vec Int) Int String (Vec Int) Int))
 
 (pub fn (parseMacroRules tokens pos macName acc)
   (if (if (peekIs tokens pos TK_LPAREN)
@@ -3869,7 +3905,7 @@
                   ; rule is appending and not widening.)
                   (let (
                     (rule vecNew)
-                    (three (memGetWord paramsR 1))
+                    (three (memGetWordVec paramsR 1))
                   )
                     {
                       (vecPush rule (vecGet three 1))
@@ -3898,7 +3934,7 @@
   )
 )
 
-(pub :: parseTplDecls (-> Int Int Int Int))
+(pub :: parseTplDecls (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseTplDecls tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -3936,7 +3972,7 @@
 ; declaration. The template vec rides in the macro node's word 9
 ; (unused for macros); word 3, an expression macro's template, stays
 ; 0, and that pairing is the discriminator everywhere else.
-(pub :: parseDeclMacro (-> Int Int Int))
+(pub :: parseDeclMacro (-> (Vec Int) Int Int))
 
 (pub fn (parseDeclMacro tokens pos)
   (let (
@@ -3955,7 +3991,7 @@
           (if (== (memGetWord rulesR 0) 0)
             rulesR
             (let (
-              (rules (memGetWord rulesR 1))
+              (rules (memGetWordVec rulesR 1))
               (after (memGetWord rulesR 2))
             )
               (if (peekIs tokens after TK_RPAREN)
@@ -3977,7 +4013,7 @@
   )
 )
 
-(pub :: parseMacroDecl (-> Int Int Int))
+(pub :: parseMacroDecl (-> (Vec Int) Int Int))
 
 (pub fn (parseMacroDecl tokens pos)
   (if (peekIs tokens pos TK_IDENT)
@@ -4032,7 +4068,7 @@
 ; ------------------------------------------------------------------
 ; Parse (fn (name args...) body) at top level.
 ; ------------------------------------------------------------------
-(pub :: parseFnDecl (-> Int Int Int))
+(pub :: parseFnDecl (-> (Vec Int) Int Int))
 
 (pub fn (parseFnDecl tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
@@ -4054,14 +4090,14 @@
                 ; until the zoo's `(fn (manyBody n) 1 n)` met
                 ; it. parseExprList consumes the closing paren.
                 (let (
-                  (params (memGetWord paramsR 1))
+                  (params (memGetWordVec paramsR 1))
                   (afterParams (memGetWord paramsR 2))
                 )
                   (let ((bodyR (parseExprList tokens afterParams vecNew)))
                     (if (== (memGetWord bodyR 0) 0)
                       bodyR
                       (let (
-                        (exprs (memGetWord bodyR 1))
+                        (exprs (memGetWordVec bodyR 1))
                         (afterBody (memGetWord bodyR 2))
                       )
                         (if (== (vecLen exprs) 0)
@@ -4126,7 +4162,7 @@
 ; ------------------------------------------------------------------
 ; Expression parsing.
 ; ------------------------------------------------------------------
-(pub :: parseExpr (-> Int Int Int))
+(pub :: parseExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseExpr tokens pos)
   (if (peekIs tokens pos TK_INT)
@@ -4156,7 +4192,7 @@
 ; ------------------------------------------------------------------
 ; Parse an S-expression: dispatch on first token.
 ; ------------------------------------------------------------------
-(pub :: parseSExpr (-> Int Int Int))
+(pub :: parseSExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseSExpr tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
@@ -4165,7 +4201,7 @@
   )
 )
 
-(pub :: parseInner (-> Int Int Int))
+(pub :: parseInner (-> (Vec Int) Int Int))
 
 (pub fn (parseInner tokens pos)
   (if (peekIs tokens pos TK_IDENT)
@@ -4289,7 +4325,7 @@
 ; The synthetic head carries the *inner expression's* span, because
 ; stage0's `Expr::span()` for `ETypeSig` delegates to it, and `mkEApp`
 ; copies the head's span to the application.
-(pub :: parseTypeSigExpr (-> Int Int Int))
+(pub :: parseTypeSigExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseTypeSigExpr tokens pos)
   (let ((er (parseExpr tokens pos)))
@@ -4319,7 +4355,7 @@
 ; ------------------------------------------------------------------
 ; (while cond body...) - body takes any number of expressions.
 ; ------------------------------------------------------------------
-(pub :: parseWhileExpr (-> Int Int Int))
+(pub :: parseWhileExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseWhileExpr tokens pos)
   (let ((condR (parseExpr tokens pos)))
@@ -4347,7 +4383,7 @@
 ; mismatch (`expr.span()` of an EStructCon is its name's), and only a
 ; field's own AX3004 anchors at an argument.
 ; ------------------------------------------------------------------
-(pub :: parseStructConExpr (-> Int Int Int))
+(pub :: parseStructConExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseStructConExpr tokens pos)
   (if (peekIs tokens pos TK_IDENT)
@@ -4378,7 +4414,7 @@
 ; one from a subexpression. It is load-bearing: an AX3011 whose
 ; handle body is a bare `(alloc T)` anchors there, and a node with no
 ; span suppresses the diagnostic instead of misplacing it.
-(pub :: parseAllocExpr (-> Int Int Int Int))
+(pub :: parseAllocExpr (-> (Vec Int) Int Int Int))
 
 (pub fn (parseAllocExpr tokens pos kwSpan)
   (let ((tr (parseType tokens pos)))
@@ -4412,7 +4448,7 @@
 ; Each effect name is kept as a TAG_E_VAR node so it carries its own
 ; span; AX3016 and AX3017 both anchor at the name, not at the form.
 ; ------------------------------------------------------------------
-(pub :: parseHandleExpr (-> Int Int Int))
+(pub :: parseHandleExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseHandleExpr tokens pos)
   (let ((bodyR (parseExpr tokens pos)))
@@ -4442,7 +4478,7 @@
 )
 
 ; The names inside a handle's effect list, each as a spanned var node.
-(pub :: parseEffectNames (-> Int Int Int Int))
+(pub :: parseEffectNames (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseEffectNames tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -4464,7 +4500,7 @@
 ; `(set r.field v)` needs storage stage1 does not model; the dot after
 ; the name makes this a parse error rather than a miscompile.
 ; ------------------------------------------------------------------
-(pub :: parseSetExpr (-> Int Int Int))
+(pub :: parseSetExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseSetExpr tokens pos)
   ; stage0 names what a `set` target IS here rather than inheriting
@@ -4503,7 +4539,7 @@
 
 ; At a `.`: if another `.` follows the field, the field folds into the
 ; base; otherwise it is the store target and the value follows.
-(pub :: parseSetField (-> Int Int Int Int))
+(pub :: parseSetField (-> (Vec Int) Int Int Int))
 
 (pub fn (parseSetField tokens pos base)
   (if (&& (peekIs tokens pos TK_DOT) (peekIs tokens (advance pos) TK_IDENT))
@@ -4557,11 +4593,11 @@
 ; `else` is not a token: it is an ordinary identifier recognised by
 ; name here, so it stays usable as a variable everywhere else.
 ; ------------------------------------------------------------------
-(pub :: parseCondExpr (-> Int Int Int))
+(pub :: parseCondExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseCondExpr tokens pos) (parseCondClauses tokens pos vecNew))
 
-(pub :: parseCondClauses (-> Int Int Int Int))
+(pub :: parseCondClauses (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseCondClauses tokens pos clauses)
   (if (peekIs tokens pos TK_RPAREN)
@@ -4575,7 +4611,7 @@
             (if (== (memGetWord bodyR 0) 0)
               bodyR
               (let (
-                (body (condBodyOf (memGetWord bodyR 1)))
+                (body (condBodyOf (memGetWordVec bodyR 1)))
                 (afterClause (memGetWord bodyR 2))
               )
                 (if (peekIs tokens afterClause TK_RPAREN)
@@ -4595,7 +4631,7 @@
                 (if (== (memGetWord bodyR 0) 0)
                   bodyR
                   {
-                    (vecPush clauses (mkNode TAG_M_ARM test (condBodyOf (memGetWord bodyR 1)) 0))
+                    (vecPush clauses (mkNode TAG_M_ARM test (condBodyOf (memGetWordVec bodyR 1)) 0))
                     (parseCondClauses tokens (memGetWord bodyR 2) clauses)
                   }
                 )
@@ -4611,7 +4647,7 @@
 
 ; A clause body of several expressions is a block; of one, itself; of
 ; none, 0.
-(pub :: condBodyOf (-> Int Int))
+(pub :: condBodyOf (-> (Vec Int) Int))
 
 (pub fn (condBodyOf exprs)
   (if (== (vecLen exprs) 0)
@@ -4654,7 +4690,7 @@
 ; Each lambda carries the `lambda`/`fn` keyword's span. A node with no
 ; span is a diagnostic with no snippet - `check-render-selfhost.sh`
 ; refuses to bless one, which is how the missing span here was found.
-(pub :: curryLam (-> Int Int Int Int Int))
+(pub :: curryLam (-> (Vec a) Int Int Int Int))
 
 (pub fn (curryLam params body sp i)
   (if (>= i (vecLen params))
@@ -4678,7 +4714,7 @@
 ; with a span rather than the parser refusing it without one: a lambda
 ; of no parameters can never be called, because `(f)` and `f` are the
 ; same expression.
-(pub :: mkLamCurried (-> Int Int Int Int))
+(pub :: mkLamCurried (-> (Vec a) Int Int Int))
 
 (pub fn (mkLamCurried params body sp)
   (if (== (vecLen params) 0)
@@ -4689,7 +4725,7 @@
   )
 )
 
-(pub :: parseLamExpr (-> Int Int Int))
+(pub :: parseLamExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseLamExpr tokens pos)
   (let ((kwSp 
@@ -4703,7 +4739,7 @@
         (if (== (memGetWord paramsR 0) 0)
           paramsR
           (let (
-            (params (memGetWord paramsR 1))
+            (params (memGetWordVec paramsR 1))
             (afterParams (memGetWord paramsR 2))
           )
             (let ((bodyR (parseExpr tokens afterParams)))
@@ -4748,7 +4784,7 @@
 ; body is used directly; two or more are wrapped in TAG_E_BEGIN, which
 ; codegen already lowers as a sequence whose value is the last element.
 ; ------------------------------------------------------------------
-(pub :: parseLetExpr (-> Int Int Int))
+(pub :: parseLetExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseLetExpr tokens pos)
   (if (peekIs tokens pos TK_LPAREN)  ; enter ((n v) ...)
@@ -4757,14 +4793,14 @@
         br
         ; parseExprList consumes the closing paren of the let form.
         (let (
-          (binds (memGetWord br 1))
+          (binds (memGetWordVec br 1))
           (afterBinds (memGetWord br 2))
         )
           (let ((bodyR (parseExprList tokens afterBinds vecNew)))
             (if (== (memGetWord bodyR 0) 0)
               bodyR
               (let (
-                (exprs (memGetWord bodyR 1))
+                (exprs (memGetWordVec bodyR 1))
                 (afterBody (memGetWord bodyR 2))
               )
                 (if (== (vecLen exprs) 0)
@@ -4790,7 +4826,7 @@
 
 ; Parse the binding list ((n1 v1) (n2 v2) ...), returning a Vec of
 ; binding pairs carried as TAG_NIL nodes with a=name and b=value.
-(pub :: parseBindPairs (-> Int Int Int Int))
+(pub :: parseBindPairs (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseBindPairs tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -4847,7 +4883,7 @@
 )
 
 ; Fold binding pairs [0..i] around `body`, innermost binding first.
-(pub :: foldLets (-> Int Int Int Int))
+(pub :: foldLets (-> (Vec Int) Int Int Int))
 
 (pub fn (foldLets binds body i)
   (if (< i 0)
@@ -4868,7 +4904,7 @@
 ; ------------------------------------------------------------------
 ; Parse (if test then else)
 ; ------------------------------------------------------------------
-(pub :: parseIfExpr (-> Int Int Int))
+(pub :: parseIfExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseIfExpr tokens pos)
   (let ((testR (parseExpr tokens pos)))
@@ -4910,7 +4946,7 @@
 ; ------------------------------------------------------------------
 ; Parse (match scrutinee (pat body) ...)
 ; ------------------------------------------------------------------
-(pub :: parseMatchExpr (-> Int Int Int))
+(pub :: parseMatchExpr (-> (Vec Int) Int Int))
 
 (pub fn (parseMatchExpr tokens pos)
   (let ((scrutR (parseExpr tokens pos)))
@@ -4942,7 +4978,7 @@
 ; Stops *at* the closing paren without consuming it: `parseMatchExpr`
 ; expects to find it and consume it itself. Consuming it here made every
 ; `match` a parse error, since the caller then demanded a second one.
-(pub :: parseMatchArms (-> Int Int Int Int))
+(pub :: parseMatchArms (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseMatchArms tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -4982,7 +5018,7 @@
 ; paren. At least one template arm is required - an empty iteration
 ; body generates nothing and means nothing. BINDS is `parseIterBinder`'s
 ; form: one pair, or several zipped in lockstep.
-(pub :: parseMatchForArm (-> Int Int Int))
+(pub :: parseMatchForArm (-> (Vec Int) Int Int))
 
 (pub fn (parseMatchForArm tokens pos)
   (let (
@@ -5004,7 +5040,7 @@
                   (if (== (memGetWord armsR 0) 0)
                     armsR
                     (let (
-                      (arms (memGetWord armsR 1))
+                      (arms (memGetWordVec armsR 1))
                       (afterArms (memGetWord armsR 2))
                     )
                       (if (== (vecLen arms) 0)
@@ -5033,7 +5069,7 @@
 ;
 ; The pattern is kept. It used to be parsed and thrown away, which left
 ; codegen with a list of bodies and no way to tell which one applied.
-(pub :: identStartsUpper (-> Int Int Bool))
+(pub :: identStartsUpper (-> (Vec Int) Int Bool))
 
 (pub fn (identStartsUpper tokens pos)
   (let ((s (tokenLexeme (vecGet tokens pos))))
@@ -5059,7 +5095,7 @@
 ; A fieldful pattern still builds the application spine `parseExpr`
 ; would have built, so every consumer downstream is unchanged - only
 ; the ARGUMENTS are parsed as patterns rather than as expressions.
-(pub :: parseArmPattern (-> Int Int Int))
+(pub :: parseArmPattern (-> (Vec Int) Int Int))
 
 (pub fn (parseArmPattern tokens pos)
   (if (&& (peekIs tokens pos TK_LPAREN) (&& (peekIs tokens (advance pos) TK_IDENT) (identStartsUpper tokens (advance pos))))
@@ -5088,13 +5124,13 @@
 ; A field the pattern omits becomes `_`, which binds nothing - stage0
 ; fills the same hole with a wildcard, so a partial named pattern is
 ; legal by construction and needs no arity check.
-(pub :: namedPatSpine (-> String Int Int Int Int Int))
+(pub :: namedPatSpine (-> String (Vec Int) (Vec Int) (Vec Int) Int Int))
 
 (pub fn (namedPatSpine cname declared names pats sp) (namedPatSpineFrom
   declared  names  pats  0  (mkEVarAt cname sp)
 ))
 
-(pub :: namedPatSpineFrom (-> Int Int Int Int Int Int))
+(pub :: namedPatSpineFrom (-> (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (namedPatSpineFrom declared names pats i acc)
   (if (>= i (vecLen declared))
@@ -5122,7 +5158,7 @@
 ; The recursion keeps the -1 and stays private, as `Path.ax`'s
 ; `pathLastSlashFrom` does: the boundary is where the type is worth
 ; having, and a walk that has not finished is not a boundary.
-(pub :: namedFieldIndex (-> Int String (Option Int)))
+(pub :: namedFieldIndex (-> (Vec Int) String (Option Int)))
 
 (pub fn (namedFieldIndex names n)
   (let ((i (namedFieldIndexFrom names n 0)))
@@ -5133,7 +5169,7 @@
   )
 )
 
-(:: namedFieldIndexFrom (-> Int String Int Int))
+(:: namedFieldIndexFrom (-> (Vec Int) String Int Int))
 
 (fn (namedFieldIndexFrom names n i)
   (if (>= i (vecLen names))
@@ -5146,16 +5182,16 @@
 )
 
 ; Is `n` one of the constructor's declared fields?
-(pub :: declaredHasField (-> Int String Int))
+(pub :: declaredHasField (-> (Vec Int) String Int))
 
 (pub fn (declaredHasField declared n)
-  (if (== declared 0)
+  (if (== (cast Int declared) 0)
     0
     (declaredHasFieldFrom declared n 0)
   )
 )
 
-(pub :: declaredHasFieldFrom (-> Int String Int Int))
+(pub :: declaredHasFieldFrom (-> (Vec Int) String Int Int))
 
 (pub fn (declaredHasFieldFrom declared n i)
   (if (>= i (vecLen declared))
@@ -5167,7 +5203,7 @@
   )
 )
 
-(pub :: peekIsEq (-> Int Int Bool))
+(pub :: peekIsEq (-> (Vec Int) Int Bool))
 
 (pub fn (peekIsEq tokens pos)
   (if (peekIs tokens pos TK_IDENT)
@@ -5179,7 +5215,7 @@
 ; `{ f = pat, g }` to the closing brace. A bare name PUNS: `{ w, h }`
 ; means `{ w = w, h = h }`, which is stage0's rule and is resolved
 ; here at parse time, since it needs no knowledge of the declaration.
-(pub :: parseNamedPatFields (-> Int Int String Int Int Int Int))
+(pub :: parseNamedPatFields (-> (Vec Int) Int String Int (Vec Int) (Vec Int) Int))
 
 (pub fn (parseNamedPatFields tokens pos cname csp names pats)
   (if (peekIs tokens pos TK_RBRACE)
@@ -5222,7 +5258,7 @@
   )
 )
 
-(pub :: parseArmPatternArgs (-> Int Int Int Int))
+(pub :: parseArmPatternArgs (-> (Vec Int) Int Int Int))
 
 (pub fn (parseArmPatternArgs tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
@@ -5239,7 +5275,7 @@
   )
 )
 
-(pub :: parseMatchArm (-> Int Int Int))
+(pub :: parseMatchArm (-> (Vec Int) Int Int))
 
 (pub fn (parseMatchArm tokens pos)
   (let ((patR (parseArmPattern tokens pos)))
@@ -5271,11 +5307,11 @@
 ; ------------------------------------------------------------------
 ; Parse { expr1 expr2 ... }
 ; ------------------------------------------------------------------
-(pub :: parseBlock (-> Int Int Int))
+(pub :: parseBlock (-> (Vec Int) Int Int))
 
 (pub fn (parseBlock tokens pos) (parseBlockBody tokens pos vecNew))
 
-(pub :: parseBlockBody (-> Int Int Int Int))
+(pub :: parseBlockBody (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseBlockBody tokens pos acc)
   (if (peekIs tokens pos TK_RBRACE)
@@ -5307,7 +5343,7 @@
 ; ------------------------------------------------------------------
 ; Function application: (f args...)
 ; ------------------------------------------------------------------
-(pub :: parseAppForm (-> Int Int Int))
+(pub :: parseAppForm (-> (Vec Int) Int Int))
 
 (pub fn (parseAppForm tokens pos)
   (let ((r (parseExpr tokens pos)))
@@ -5357,7 +5393,7 @@
   )
 )
 
-(pub :: parseArgs (-> Int Int Int Int))
+(pub :: parseArgs (-> (Vec Int) Int Int Int))
 
 (pub fn (parseArgs tokens pos fnExpr)
   (if (peekIs tokens pos TK_RPAREN)
@@ -5382,7 +5418,7 @@
 ; ------------------------------------------------------------------
 ; Parse declarations until EOF.
 ; ------------------------------------------------------------------
-(pub :: parseDecls (-> Int Int Int Int))
+(pub :: parseDecls (-> (Vec Int) Int (Vec Int) Int))
 
 (pub fn (parseDecls tokens pos acc)
   (let ((r (parseDecl tokens pos)))
@@ -5404,7 +5440,7 @@
 ; ------------------------------------------------------------------
 ; Top-level: parse a module.
 ; ------------------------------------------------------------------
-(pub :: parseModule (-> Int Int))
+(pub :: parseModule (-> (Vec Int) Int))
 
 (pub fn (parseModule tokens)
   (let ((r (parseDecls tokens 0 vecNew)))
@@ -5460,7 +5496,7 @@
 ; A closer at depth 0 is unbalanced input, which the parser reports on
 ; its own terms; it is floored here rather than allowed to go negative,
 ; so a stray `)` early in a file cannot mask real depth after it.
-(pub :: nestOverflowTok (-> Int Int Int))
+(pub :: nestOverflowTok (-> (Vec Int) Int Int))
 
 (pub fn (nestOverflowTok tokens limit)
   (let (
@@ -5495,7 +5531,7 @@
   )
 )
 
-(pub :: parseModuleWith (-> Int Int Int))
+(pub :: parseModuleWith (-> (Vec Int) (Vec Int) Int))
 
 (pub fn (parseModuleWith tokens axtags)
   ; The depth check runs BEFORE `parseDecls`, because the failure it
@@ -5507,7 +5543,7 @@
         (if (== (memGetWord r 0) 0)
           r
           {
-            (attachAxtags (memGetWord r 1) 0 axtags 0)
+            (attachAxtags (memGetWordVec r 1) 0 axtags 0)
             r
           }
         )
@@ -5516,7 +5552,7 @@
   )
 )
 
-(pub :: attachAxtags (-> Int Int Int Int Int))
+(pub :: attachAxtags (-> (Vec Int) Int (Vec Int) Int Int))
 
 (pub fn (attachAxtags decls i axtags next)
   (if (>= i (vecLen decls))
@@ -5565,11 +5601,11 @@
 ; An `impl`'s methods and a `trait`'s defaults were the other two
 ; nested positions, and were the ones this was written for. Traits
 ; went in 0.6.0 and the macro rules are what is left.
-(pub :: attachAxtagsNested (-> Int Int Int Int))
+(pub :: attachAxtagsNested (-> Int (Vec Int) Int Int))
 
 (pub fn (attachAxtagsNested d axtags cur)
   (if (== (nodeTag d) TAG_D_MACRO)
-    (attachAxtagsRules (memGetWord d 9) 0 axtags cur)
+    (attachAxtagsRules (memGetWordVec d 9) 0 axtags cur)
     cur
   )
 )
@@ -5589,22 +5625,22 @@
 ; The rules are at word 9 and each rule's template vector at index 1 -
 ; `expRuleTpl`'s slot, and the wire format `parseMacroRules` documents
 ; as fixed at 0 and 1.
-(pub :: attachAxtagsRules (-> Int Int Int Int Int))
+(pub :: attachAxtagsRules (-> (Vec Int) Int (Vec Int) Int Int))
 
 (pub fn (attachAxtagsRules rules i axtags cur)
-  (if (== rules 0)
+  (if (== (cast Int rules) 0)
     cur
     (if (>= i (vecLen rules))
       cur
       (attachAxtagsRules
-        rules        (+ i 1)        axtags        (attachAxtags (vecGet (vecGet rules i) 1) 0 axtags cur)
+        rules        (+ i 1)        axtags        (attachAxtags (vecGet (vecGetVec rules i) 1) 0 axtags cur)
       )
     )
   )
 )
 
 ; The index one past the last tag whose offset precedes `limit`.
-(pub :: axtagsUpto (-> Int Int Int Int))
+(pub :: axtagsUpto (-> (Vec Int) Int Int Int))
 
 (pub fn (axtagsUpto axtags i limit)
   (if (>= i (vecLen axtags))
@@ -5616,7 +5652,7 @@
   )
 )
 
-(pub :: axtagSlice (-> Int Int Int Int))
+(pub :: axtagSlice (-> (Vec Int) Int Int (Vec Int)))
 
 (pub fn (axtagSlice axtags from upto)
   (let ((v vecNew))
@@ -5627,7 +5663,7 @@
   )
 )
 
-(pub :: axtagSliceInto (-> Int Int Int Int Int))
+(pub :: axtagSliceInto (-> (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (axtagSliceInto v axtags from upto)
   (if (>= from upto)
@@ -5749,7 +5785,7 @@
 
 ; Shift every token's span by `base`, in place. A `Span` is
 ; `(start, end)` (core.ax), so this is two words per token.
-(pub :: contractShift (-> Int Int Int Int))
+(pub :: contractShift (-> (Vec Int) Int Int Int))
 
 (pub fn (contractShift toks i base)
   (if (>= i (vecLen toks))
@@ -5800,33 +5836,33 @@
 ; common path is one `vecLen`. That is `deprecatedTable`'s argument in
 ; `typecheck.ax`, and the reason this is not a scan of the whole
 ; declaration list per function.
-(pub :: contractTagsFor (-> Int Int Int))
+(pub :: contractTagsFor (-> (Vec Int) Int (Vec Int)))
 
 (pub fn (contractTagsFor sigs d)
   (let ((v vecNew))
     {
       (contractTagsInto v (contractSigTags sigs (nodeAName d) 0))
-      (contractTagsInto v (memGetWord d 7))
+      (contractTagsInto v (memGetWordVec d 7))
       v
     }
   )
 )
 
-(pub :: contractTagsInto (-> Int Int Int))
+(pub :: contractTagsInto (-> (Vec Int) (Vec Int) Int))
 
 (pub fn (contractTagsInto v tags) (contractTagsFrom v tags 0))
 
-(pub :: contractTagsFrom (-> Int Int Int Int))
+(pub :: contractTagsFrom (-> (Vec Int) (Vec Int) Int Int))
 
 (pub fn (contractTagsFrom v tags i)
-  (if (== tags 0)
+  (if (== (cast Int tags) 0)
     0
     (if (>= i (vecLen tags))
       0
       {
         (if (> (strLen (contractKeyOf (vecGet tags i))) 0)
           (vecPush v (vecGet tags i))
-          0
+          (cast (Vec Int) 0)
         )
         (contractTagsFrom v tags (+ i 1))
       }
@@ -5837,20 +5873,20 @@
 ; The signatures in `decls` that carry a contract tag, as a Vec of
 ; declaration nodes. One pass, kept, so the lookup above is a scan of
 ; the contracts rather than of the program.
-(pub :: contractSigIndex (-> Int Int))
+(pub :: contractSigIndex (-> (Vec Int) (Vec Int)))
 
 (pub fn (contractSigIndex decls) (contractSigIndexFrom decls vecNew 0))
 
-(pub :: contractSigIndexFrom (-> Int Int Int Int))
+(pub :: contractSigIndexFrom (-> (Vec Int) (Vec Int) Int (Vec Int)))
 
 (pub fn (contractSigIndexFrom decls acc i)
   (if (>= i (vecLen decls))
     acc
     (let ((d (vecGet decls i)))
       {
-        (if (&& (== (nodeTag d) TAG_D_SIG) (== (contractTagCount (memGetWord d 7) 0) 1))
+        (if (&& (== (nodeTag d) TAG_D_SIG) (== (contractTagCount (memGetWordVec d 7) 0) 1))
           (vecPush acc d)
-          0
+          (cast (Vec Int) 0)
         )
         (contractSigIndexFrom decls acc (+ i 1))
       }
@@ -5859,10 +5895,10 @@
 )
 
 ; 1 when this tag list holds at least one contract tag.
-(pub :: contractTagCount (-> Int Int Int))
+(pub :: contractTagCount (-> (Vec Int) Int Int))
 
 (pub fn (contractTagCount tags i)
-  (if (== tags 0)
+  (if (== (cast Int tags) 0)
     0
     (if (>= i (vecLen tags))
       0
@@ -5874,13 +5910,13 @@
   )
 )
 
-(pub :: contractSigTags (-> Int String Int Int))
+(pub :: contractSigTags (-> (Vec Int) String Int (Vec Int)))
 
 (pub fn (contractSigTags sigs name i)
   (if (>= i (vecLen sigs))
-    0
+    (cast (Vec Int) 0)
     (if (strEq (nodeAName (vecGet sigs i)) name)
-      (memGetWord (vecGet sigs i) 7)
+      (memGetWordVec (vecGet sigs i) 7)
       (contractSigTags sigs name (+ i 1))
     )
   )
@@ -5898,7 +5934,7 @@
 ; those two callers and went in 0.6.0; the survivor is the
 ; duplicate-definition check, which asks this of an `effect`'s
 ; operations.
-(pub :: findFieldNamed (-> Int String Int Int))
+(pub :: findFieldNamed (-> (Vec Int) String Int Int))
 
 (pub fn (findFieldNamed fields name i)
   (if (>= i (vecLen fields))
@@ -5944,7 +5980,7 @@
   )
 )
 
-(pub :: spineArgVec (-> Int Int Int))
+(pub :: spineArgVec (-> Int (Vec Int) (Vec a)))
 
 (pub fn (spineArgVec e acc)
   (if (== (nodeTag e) TAG_E_APP)

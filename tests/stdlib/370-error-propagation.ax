@@ -217,7 +217,7 @@
 ; 2000 iterations, not the 288,176 recorded on 2026-08-16, so it is a
 ; flat line too now and would have made a control that cannot fail.
 ; A control has to be something the allocator must answer for.
-(:: hoard (-> Int Int))
+(:: hoard (-> Int (Vec String)))
 
 (fn (hoard n)
   (let (

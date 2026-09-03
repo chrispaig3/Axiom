@@ -163,17 +163,29 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
    project style. Read a few first: they are narrative, and they carry the
    measurement that justified the change.
 
-Run `axiom fmt` over anything you touch. The tree is kept in the
-formatter's normal form as of 2026-08-22 — `fmt --check` is clean on
-the 591 `.ax` files in the repository apart from the two named below,
-and, measured 2026-08-24, six more that were committed unformatted;
-`axiom fmt --check` over every `.ax` file names them. No gate does:
-`check-fmt-selfhost.sh` formats a COPY of the tree, so it fails when
-formatting changes MEANING, not when a committed file has drifted out
-of the normal form — and it fails if more than 60 files stop being
-covered by `tests/fmt/corpus-fmt.golden`.
+Run `axiom fmt` over anything you touch — and do not assume the tree
+is already in the formatter's normal form, because it is not. Measured
+2026-09-02, `axiom fmt --check` over every one of the 592 `.ax` files
+in the repository answers `is already formatted` for 478 of them and
+`needs formatting` for 114. Two of the 114 are deliberate and are named
+below; the other 112 were committed unformatted, and that same sweep is
+what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
+of the tree, so it fails when formatting changes MEANING, not when a
+committed file has drifted out of the normal form — and it fails if
+more than 60 files stop being covered by `tests/fmt/corpus-fmt.golden`.
 
-That 482 is recomputed, and recomputing it is why this paragraph was
+This paragraph promised something else until 2026-09-02: a tree kept in
+the normal form "as of 2026-08-22", clean "apart from the two named
+below, and, measured 2026-08-24, six more that were committed
+unformatted". Eight was wrong by better than a factor of ten, and had
+been wrong for some time before the port that exposed it: the same
+sweep run against the commit before the `Vec` element-type port answers
+99 of 591 files unformatted, and the port then left 15 more. Neither
+number is anyone's fault in particular, which is the point — nothing
+measures this, so it drifts, and a promise of tidiness that no reader
+can rely on is worse than the measurement it replaced.
+
+That count is recomputed, and recomputing it is why this paragraph was
 rewritten. `check-doc-drift.sh` checks every count the normative
 documents state, but until 2026-08-24 its `claim()` helper opened
 README.md and nothing else — so the sentence above stood 28 files
@@ -185,7 +197,12 @@ Which is also why the stale number is not spelled out in this
 paragraph: the pattern it matches on is the numeral and its unit, not
 one document's phrasing around it, so quoting the old sentence would
 reintroduce the drift it describes — the same trap the gate's own
-comments avoid by not naming the fixtures they were written for.
+comments avoid by not naming the fixtures they were written for. This
+sentence itself opened "That 482 is recomputed" until 2026-09-02: a
+bare numeral with no unit beside it matches no pattern, so 482 sat
+stale in the very paragraph explaining the class of claim it belonged
+to, and it is written without one now for exactly the reason the
+sentence gives.
 
 Two files are deliberately NOT formatted, and formatting them breaks
 what they exist to test: `tests/fmt/syntax-zoo.ax` is the formatter's

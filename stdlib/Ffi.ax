@@ -185,7 +185,7 @@
 
 ; A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n`
 ; words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`.
-(pub :: ffiWordsToVec (-> Int Int Int))
+(pub :: ffiWordsToVec (-> Int Int (Vec Int)))
 
 (pub fn (ffiWordsToVec p n)
   (let ((v 
@@ -200,7 +200,7 @@
   )
 )
 
-(:: ffiWordsInto (-> Int Int Int Int Int))
+(:: ffiWordsInto (-> (Vec Int) Int Int Int (Vec Int)))
 
 (fn (ffiWordsInto v p n i)
   (if (>= i n)
@@ -215,7 +215,7 @@
 ; A Rust `Vec<String>` copied into an Axiom `Vec` of Strings: `p`
 ; points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT
 ; free the Rust side: the wrapper calls `ffiFreeStrList`.
-(pub :: ffiStrsToVec (-> Int Int Int))
+(pub :: ffiStrsToVec (-> Int Int (Vec String)))
 
 (pub fn (ffiStrsToVec p n)
   (let ((v 
@@ -230,7 +230,7 @@
   )
 )
 
-(:: ffiStrsInto (-> Int Int Int Int Int))
+(:: ffiStrsInto (-> (Vec String) Int Int Int (Vec String)))
 
 (fn (ffiStrsInto v p n i)
   (if (>= i n)
@@ -247,7 +247,7 @@
 ; A Rust `Vec<Vec<T>>` of word scalars copied into an Axiom `Vec` of
 ; `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list.
 ; Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`.
-(pub :: ffiWordListsToVec (-> Int Int Int))
+(pub :: ffiWordListsToVec (-> Int Int (Vec (Vec Int))))
 
 (pub fn (ffiWordListsToVec p n)
   (let ((v 
@@ -262,7 +262,7 @@
   )
 )
 
-(:: ffiWordListsInto (-> Int Int Int Int Int))
+(:: ffiWordListsInto (-> (Vec (Vec Int)) Int Int Int (Vec (Vec Int))))
 
 (fn (ffiWordListsInto v p n i)
   (if (>= i n)

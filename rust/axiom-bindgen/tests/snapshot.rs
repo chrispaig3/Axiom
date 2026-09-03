@@ -115,17 +115,23 @@ fn nested_fixture_shape() {
     ));
     assert!(fresh.contains("(pub :: combine (-> (-> Int Int Int) (-> Int Int Int Int) Int (Option Int)))"));
     assert!(fresh.contains("(__st (combineRaw f g seed __c))"));
-    // A `Vec<i64>` / `Vec<String>` return is an `Int` handle built by
-    // Ffi.ax and freed on the Rust side; a `&[i64]` parameter is `Int`.
-    assert!(fresh.contains("(pub :: evens (-> Int Int))"));
+    // A `Vec<i64>` / `Vec<String>` return is a `(Vec Int)` / `(Vec
+    // String)` built by Ffi.ax and freed on the Rust side. A `&[i64]`
+    // parameter is that same `(Vec Int)` on the wrapper - the `extern`
+    // item may not name `(Vec a)` (`AX3036`), so the handle crosses as
+    // its word and the wrapper is what casts it. That is why `total`,
+    // which returns a plain scalar, still has a `Raw` item under it.
+    assert!(fresh.contains("(pub :: evens (-> Int (Vec Int)))"));
     assert!(fresh.contains("(__v (ffiWordsToVec __p __n))"));
     assert!(fresh.contains("(ffiFreeWords __p __n)"));
-    assert!(fresh.contains("(pub :: pieces (-> String Int))"));
+    assert!(fresh.contains("(pub :: pieces (-> String (Vec String)))"));
     assert!(fresh.contains("(__v (ffiStrsToVec __p __n))"));
     assert!(fresh.contains("(ffiFreeStrList __p __n)"));
-    assert!(fresh.contains("(total :: (-> Int Int) (symbol \"axffi_total\"))"));
-    assert!(fresh.contains("(pub :: tryEvens (-> Int (Result Int String)))"));
-    assert!(fresh.contains("(pub :: maybePieces (-> String (Option Int)))"));
+    assert!(fresh.contains("(totalRaw :: (-> Int Int) (symbol \"axffi_total\"))"));
+    assert!(fresh.contains("(pub :: total (-> (Vec Int) Int))"));
+    assert!(fresh.contains("(__r \n    (totalRaw\n      (cast Int xs)\n    )\n  )"));
+    assert!(fresh.contains("(pub :: tryEvens (-> Int (Result (Vec Int) String)))"));
+    assert!(fresh.contains("(pub :: maybePieces (-> String (Option (Vec String))))"));
     // A record is a `data` with one positional field per Rust field,
     // declared beside the opaque types; a record parameter is
     // destructured into one raw argument per field (the raw item
@@ -151,12 +157,15 @@ fn nested_fixture_shape() {
     assert!(fresh.contains("(Some __r)"));
     assert!(fresh.contains("(pub :: pixelParse (-> String (Result Pixel String)))"));
     assert!(fresh.contains("(Ok __r)"));
-    // Slices over the other scalars and `&[&str]` are `Int`; a
-    // `Vec<bool>` result is the unchanged words path; the element
+    // Slices over the other scalars are `(Vec Int)` whatever scalar
+    // Rust widened into those words, and `&[&str]` is `(Vec String)`;
+    // a `Vec<bool>` result is the unchanged words path; the element
     // note names each.
-    assert!(fresh.contains("(mean :: (-> Int Int Float) (symbol \"axffi_mean\"))"));
+    assert!(fresh.contains("(meanRaw :: (-> Int Int Float) (symbol \"axffi_mean\"))"));
+    assert!(fresh.contains("(pub :: mean (-> (Vec Int) (Vec Int) Float))"));
     assert!(fresh.contains("(concatRaw :: (-> Int Int Int) (symbol \"axffi_concat\"))"));
-    assert!(fresh.contains("(pub :: parity (-> Int Int))"));
+    assert!(fresh.contains("(pub :: concat (-> (Vec String) String))"));
+    assert!(fresh.contains("(pub :: parity (-> Int (Vec Int)))"));
     assert!(fresh.contains(";   `mean` reads `xs` as a Vec of Float bits (f64);"));
     assert!(fresh.contains(";   `mean` reads `weights` as a Vec of u16 (each word range-checked);"));
     assert!(fresh.contains(";   `parity` answers a Vec of Bool (0/1);"));
@@ -165,7 +174,8 @@ fn nested_fixture_shape() {
     // payload and field are cast from the word.
     assert!(fresh.contains("(nextChar :: (-> Char Char) (symbol \"axffi_next_char\"))"));
     assert!(fresh.contains("(wrapU64 :: (-> Int Int) (symbol \"axffi_wrap_u64\"))"));
-    assert!(fresh.contains("(pub :: charsOf (-> String Int))"));
+    assert!(fresh.contains("(pub :: charsOf (-> String (Vec Int)))"));
+    assert!(fresh.contains("(pub :: fromChars (-> (Vec Int) String))"));
     assert!(fresh.contains(";   `charsOf` answers a Vec of Char (code points);"));
     assert!(fresh.contains(";   `fromChars` reads `cs` as a Vec of Char (code points);"));
     assert!(fresh.contains("(pub :: maybeChar (-> Char (Option Char)))"));
@@ -176,40 +186,49 @@ fn nested_fixture_shape() {
     // Records in Vecs: the module's own loops, the flattened argument,
     // the rebuild over `vecWithCapacity`, the `n * ARITY` free.
     assert!(fresh.contains("(import Vec)"));
-    assert!(fresh.contains("(:: __pixelFromWords (-> Int Int Int Int Int))"));
+    assert!(fresh.contains("(:: __pixelFromWords (-> (Vec Pixel) Int Int Int (Vec Pixel)))"));
     assert!(fresh.contains(
         "(fn (__pixelFromWords __v __p __n __i)\n  (if (>= __i __n)\n    __v\n    (let (\n      \
          (__w0 (ffiWordAt __p (* __i 3)))\n      (__w1 (cast Float (ffiWordAt __p (+ (* __i 3) 1))))\n      \
          (__w2 (cast Bool (ffiWordAt __p (+ (* __i 3) 2))))\n    )\n      {\n        \
          (vecPush __v (Pixel __w0 __w1 __w2))\n        (__pixelFromWords __v __p __n (+ __i 1))"
     ));
-    assert!(fresh.contains("(:: __pixelToWords (-> Int Int Int Int))"));
+    // `__ps` carries `Pixel`, so the scrutinee needs no `cast` and the
+    // pattern is checked against the real type. The flattened vector is
+    // a `(Vec Int)` of raw words, so the Float and Bool fields go in as
+    // their bits - which is what `field_from_word` reads back above.
+    assert!(fresh.contains("(:: __pixelToWords (-> (Vec Pixel) (Vec Int) Int (Vec Int)))"));
     assert!(fresh.contains(
         "(fn (__pixelToWords __ps __w __i)\n  (if (>= __i (vecLen __ps))\n    __w\n    \
-         (match (cast Pixel (vecGet __ps __i))\n      ((Pixel __f0 __f1 __f2)\n        {\n          \
-         (vecPush __w __f0)\n          (vecPush __w __f1)\n          (vecPush __w __f2)\n          \
+         (match (vecGet __ps __i)\n      ((Pixel __f0 __f1 __f2)\n        {\n          \
+         (vecPush __w __f0)\n          (vecPush\n            __w            (cast Int __f1)\n          )\n          \
+         (vecPush\n            __w            (cast Int __f2)\n          )\n          \
          (__pixelToWords __ps __w (+ __i 1))"
     ));
     assert!(fresh.contains("(pixelsDimRaw :: (-> Int Int Int Int) (symbol \"axffi_pixels_dim\"))"));
-    assert!(fresh.contains("(pub :: pixelsDim (-> Int Int Int))"));
+    assert!(fresh.contains("(pub :: pixelsDim (-> (Vec Pixel) Int (Vec Pixel)))"));
     assert!(fresh.contains("(__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))"));
-    assert!(fresh.contains("(__st (pixelsDimRaw __a0 by __c))"));
+    assert!(fresh.contains("(__st (pixelsDimRaw\n      (cast Int __a0)      by      __c\n    ))"));
     assert!(fresh.contains("(__v (__pixelFromWords (vecWithCapacity __n) __p __n 0))"));
     assert!(fresh.contains("(ffiFreeWords __p (* __n 3))"));
-    assert!(fresh.contains("(pub :: pixelsTry (-> Int (Result Int String)))"));
-    assert!(fresh.contains("(pub :: glyphsMaybe (-> Int (Option Int)))"));
+    assert!(fresh.contains("(pub :: pixelsTry (-> (Vec Pixel) (Result (Vec Pixel) String)))"));
+    assert!(fresh.contains("(pub :: glyphsMaybe (-> Int (Option (Vec Glyph))))"));
     assert!(fresh.contains("(__glyphFromWords (vecWithCapacity __n) __p __n 0)"));
     assert!(!fresh.contains("__glyphToWords"));
     assert!(fresh.contains(";   `pixelsDim` reads `ps` as a Vec of Pixel (flattened to 3 words per element for the call);"));
     assert!(fresh.contains(";   `pixelsDim` answers a Vec of Pixel;"));
-    // Nested Vecs and the mutable slice.
-    assert!(fresh.contains("(pub :: grid (-> Int Int))"));
+    // Nested Vecs and the mutable slice. A `Vec<Vec<T>>` is
+    // `(Vec (Vec Int))` on both sides; a `&mut [i64]` is the same
+    // `(Vec Int)` the reader takes, and it is still written in place.
+    assert!(fresh.contains("(pub :: grid (-> Int (Vec (Vec Int))))"));
     assert!(fresh.contains("(__v (ffiWordListsToVec __p __n))"));
     assert!(fresh.contains("(ffiFreeWordLists __p __n)"));
-    assert!(fresh.contains("(sumRows :: (-> Int Int) (symbol \"axffi_sum_rows\"))"));
+    assert!(fresh.contains("(sumRowsRaw :: (-> Int Int) (symbol \"axffi_sum_rows\"))"));
+    assert!(fresh.contains("(pub :: sumRows (-> (Vec (Vec Int)) Int))"));
     assert!(fresh.contains(";   `sumRows` reads `rows` as a Vec of Vecs of Int;"));
     assert!(fresh.contains(";   `tryGridF64` answers a Vec of Vecs of Float bits (f64);"));
-    assert!(fresh.contains("(doubleInPlace :: (-> Int Int) (symbol \"axffi_double_in_place\"))"));
+    assert!(fresh.contains("(doubleInPlaceRaw :: (-> Int Int) (symbol \"axffi_double_in_place\"))"));
+    assert!(fresh.contains("(pub :: doubleInPlace (-> (Vec Int) Int))"));
     assert!(fresh.contains(";   `doubleInPlace` writes `xs` in place, a Vec of Int;"));
     // Nested fallible results: the constructors nest, ffiStatusNone is
     // the middle branch. The status encoding is named rather than
@@ -223,7 +242,7 @@ fn nested_fixture_shape() {
     assert!(fresh.contains("(Some (Err __m))"));
     assert!(fresh.contains("(pub :: maybePixelTry (-> Int (Result (Option Pixel) String)))"));
     assert!(fresh.contains("(Ok (Some __r))"));
-    assert!(fresh.contains("(pub :: piecesLookup (-> String (Option (Result Int String))))"));
+    assert!(fresh.contains("(pub :: piecesLookup (-> String (Option (Result (Vec String) String))))"));
     assert!(fresh.contains("(Some (Ok __v))"));
     // Everything shared comes from Ffi.ax: the record loops are the
     // only module-local declarations, and they are private.

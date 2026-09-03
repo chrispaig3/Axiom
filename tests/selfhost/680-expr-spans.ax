@@ -24,7 +24,7 @@
     (if (== (memGetWord pr 0) 0)
       7
       ; body is the application; its span must equal its head's
-      (let ((decls (memGetWord pr 1)))
+      (let ((decls (memGetWordVec pr 1)))
         (let ((body (nodeC (vecGet decls 0))))
           (let (
             (headSp (nodeSpan (nodeA body)))

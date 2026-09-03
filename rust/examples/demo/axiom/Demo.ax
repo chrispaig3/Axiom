@@ -5,10 +5,11 @@
 
 (import Vec)
 
-; A `Vec` is an `Int` handle holding one word per element, and the
-; element type is whatever the program reads it as - Float bits with
-; `(cast Float (vecGet v i))`, a Bool as 0/1, a Char as its code point,
-; every integer as the word (a u64 >= 2^63 reads negative):
+; A `Vec` of words is a `(Vec Int)`, one word per element, and which
+; scalar those words hold is whatever the program reads them as -
+; Float bits with `(cast Float (vecGet v i))`, a Bool as 0/1, a Char
+; as its code point, every integer as the word (a u64 >= 2^63 reads
+; negative):
 ;   `charsOf` answers a Vec of Char (code points);
 ;   `doubleInPlace` writes `xs` in place, a Vec of Int;
 ;   `flags` answers a Vec of Bool (0/1);
@@ -40,7 +41,7 @@
   (counterTryNewRaw :: (-> Int Int Int) (symbol "axffi_counter_try_new"))
   (counterValueRaw :: (-> Foreign Int) (symbol "axffi_counter_value"))
   (countersDropped :: Int (symbol "axffi_counters_dropped"))
-  (doubleInPlace :: (-> Int Int) (symbol "axffi_double_in_place"))
+  (doubleInPlaceRaw :: (-> Int Int) (symbol "axffi_double_in_place"))
   (flagsRaw :: (-> Int Int Int) (symbol "axffi_flags"))
   (fold3 :: (-> (-> Int Int Int) Int Int Int Int) (symbol "axffi_fold3"))
   (fromCharsRaw :: (-> Int Int Int) (symbol "axffi_from_chars"))
@@ -69,11 +70,11 @@
   (strRecall :: Int (symbol "axffi_str_recall"))
   (sum3 :: (-> Int Int Int Int) (symbol "axffi_sum3"))
   (sum5 :: (-> Int Int Int Int Int Int) (symbol "axffi_sum5"))
-  (sumF64 :: (-> Int Float) (symbol "axffi_sum_f64"))
-  (sumRows :: (-> Int Int) (symbol "axffi_sum_rows"))
-  (sumU16 :: (-> Int Int) (symbol "axffi_sum_u16"))
+  (sumF64Raw :: (-> Int Float) (symbol "axffi_sum_f64"))
+  (sumRowsRaw :: (-> Int Int) (symbol "axffi_sum_rows"))
+  (sumU16Raw :: (-> Int Int) (symbol "axffi_sum_u16"))
   (sumU8 :: (-> String Int) (symbol "axffi_sum_u8"))
-  (sumWords :: (-> Int Int) (symbol "axffi_sum_words"))
+  (sumWordsRaw :: (-> Int Int) (symbol "axffi_sum_words"))
   (wrapU64 :: (-> Int Int) (symbol "axffi_wrap_u64")))
 
 ; `Point` crosses the boundary as its fields, one word each: x Int, y Float.
@@ -81,7 +82,7 @@
   (Point Int Float))
 
 ; A `Vec` of `Point` answered by Rust: 2 words per element, rebuilt here.
-(:: __pointFromWords (-> Int Int Int Int Int))
+(:: __pointFromWords (-> (Vec Point) Int Int Int (Vec Point)))
 
 (fn (__pointFromWords __v __p __n __i)
   (if (>= __i __n)
@@ -99,16 +100,18 @@
 )
 
 ; A `Vec` of `Point` handed to Rust: flattened to 2 words per element here.
-(:: __pointToWords (-> Int Int Int Int))
+(:: __pointToWords (-> (Vec Point) (Vec Int) Int (Vec Int)))
 
 (fn (__pointToWords __ps __w __i)
   (if (>= __i (vecLen __ps))
     __w
-    (match (cast Point (vecGet __ps __i))
+    (match (vecGet __ps __i)
       ((Point __f0 __f1)
         {
           (vecPush __w __f0)
-          (vecPush __w __f1)
+          (vecPush
+            __w            (cast Int __f1)
+          )
           (__pointToWords __ps __w (+ __i 1))
         }
       )
@@ -148,7 +151,7 @@
   )
 )
 
-(pub :: charsOf (-> String Int))
+(pub :: charsOf (-> String (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (charsOf s)
@@ -237,7 +240,20 @@
   )
 )
 
-(pub :: flags (-> Int Int))
+(pub :: doubleInPlace (-> (Vec Int) Int))
+
+;@axiom:effect(io)
+(pub fn (doubleInPlace xs)
+  (let ((__r 
+    (doubleInPlaceRaw
+      (cast Int xs)
+    )
+  ))
+    __r
+  )
+)
+
+(pub :: flags (-> Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (flags n)
@@ -256,13 +272,15 @@
   )
 )
 
-(pub :: fromChars (-> Int String))
+(pub :: fromChars (-> (Vec Int) String))
 
 ;@axiom:effect(io)
 (pub fn (fromChars cs)
   (let (
     (__c ffiCellNew)
-    (__st (fromCharsRaw cs __c))
+    (__st (fromCharsRaw
+      (cast Int cs)      __c
+    ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
     (__v (ffiBytesToStr __p __n))
@@ -275,7 +293,7 @@
   )
 )
 
-(pub :: grid (-> Int Int))
+(pub :: grid (-> Int (Vec (Vec Int))))
 
 ;@axiom:effect(io)
 (pub fn (grid n)
@@ -294,7 +312,7 @@
   )
 )
 
-(pub :: halves (-> Int Int))
+(pub :: halves (-> Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (halves n)
@@ -313,13 +331,15 @@
   )
 )
 
-(pub :: joinWords (-> Int String))
+(pub :: joinWords (-> (Vec String) String))
 
 ;@axiom:effect(io)
 (pub fn (joinWords parts)
   (let (
     (__c ffiCellNew)
-    (__st (joinWordsRaw parts __c))
+    (__st (joinWordsRaw
+      (cast Int parts)      __c
+    ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
     (__v (ffiBytesToStr __p __n))
@@ -553,14 +573,16 @@
   )
 )
 
-(pub :: pointsScale (-> Int Int Int))
+(pub :: pointsScale (-> (Vec Point) Int (Vec Point)))
 
 ;@axiom:effect(io)
 (pub fn (pointsScale ps k)
   (let (
     (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
     (__c ffiCellNew)
-    (__st (pointsScaleRaw __a0 k __c))
+    (__st (pointsScaleRaw
+      (cast Int __a0)      k      __c
+    ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
     (__v (__pointFromWords (vecWithCapacity __n) __p __n 0))
@@ -573,14 +595,16 @@
   )
 )
 
-(pub :: pointsTry (-> Int (Result Int String)))
+(pub :: pointsTry (-> (Vec Point) (Result (Vec Point) String)))
 
 ;@axiom:effect(io)
 (pub fn (pointsTry ps)
   (let (
     (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
     (__c ffiCellNew)
-    (__st (pointsTryRaw __a0 __c))
+    (__st (pointsTryRaw
+      (cast Int __a0)      __c
+    ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
   )
@@ -603,7 +627,7 @@
   )
 )
 
-(pub :: rangeVec (-> Int Int))
+(pub :: rangeVec (-> Int (Vec Int)))
 
 ;@axiom:effect(io)
 (pub fn (rangeVec n)
@@ -641,7 +665,7 @@
   )
 )
 
-(pub :: splitWords (-> String Int))
+(pub :: splitWords (-> String (Vec String)))
 
 ;@axiom:effect(io)
 (pub fn (splitWords text)
@@ -657,5 +681,57 @@
       (ffiCellFree __c)
       __v
     }
+  )
+)
+
+(pub :: sumF64 (-> (Vec Int) Float))
+
+;@axiom:effect(io)
+(pub fn (sumF64 xs)
+  (let ((__r 
+    (sumF64Raw
+      (cast Int xs)
+    )
+  ))
+    __r
+  )
+)
+
+(pub :: sumRows (-> (Vec (Vec Int)) Int))
+
+;@axiom:effect(io)
+(pub fn (sumRows rows)
+  (let ((__r 
+    (sumRowsRaw
+      (cast Int rows)
+    )
+  ))
+    __r
+  )
+)
+
+(pub :: sumU16 (-> (Vec Int) Int))
+
+;@axiom:effect(io)
+(pub fn (sumU16 xs)
+  (let ((__r 
+    (sumU16Raw
+      (cast Int xs)
+    )
+  ))
+    __r
+  )
+)
+
+(pub :: sumWords (-> (Vec Int) Int))
+
+;@axiom:effect(io)
+(pub fn (sumWords xs)
+  (let ((__r 
+    (sumWordsRaw
+      (cast Int xs)
+    )
+  ))
+    __r
   )
 )

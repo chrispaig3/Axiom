@@ -76,7 +76,7 @@
 
 ; the same loop, with the parameter stashed where counting could not
 ; see it until `memSetWord` began taking a share
-(:: hoard (-> Int String Int Int))
+(:: hoard (-> (Vec String) String Int Int))
 
 (fn (hoard v s n)
   (if (<= n 0)
