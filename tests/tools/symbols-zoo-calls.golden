@@ -14,111 +14,6 @@ F memGetWordVec stdlib/Mem.ax:307:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f8
 F memSetWord stdlib/Mem.ax:338:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__retainref,__store64
 F memGetByte stdlib/Mem.ax:351:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #calls=__load8
 F memPutByte stdlib/Mem.ax:356:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__store8
-F sysRead stdlib/Sys/Platform.darwin.ax:20:9-16 "Int" @d99009b49c22cd84
-F sysWrite stdlib/Sys/Platform.darwin.ax:25:9-17 "Int" @74cf7b68f9a13d7f
-F sysOpen stdlib/Sys/Platform.darwin.ax:30:9-16 "Int" @48be4da44965be58
-F sysClose stdlib/Sys/Platform.darwin.ax:35:9-17 "Int" @3f19c86be94cca74
-F sysExit stdlib/Sys/Platform.darwin.ax:40:9-16 "Int" @c21daf50c2bdc420
-F sysLseek stdlib/Sys/Platform.darwin.ax:45:9-17 "Int" @b985a8cd089c8e5c
-F openNeedsDirFd stdlib/Sys/Platform.darwin.ax:52:9-23 "Int" @d12588b93c717bad
-F atFdCwd stdlib/Sys/Platform.darwin.ax:58:9-16 "Int" @dd105a98ff529076
-F oRdonly stdlib/Sys/Platform.darwin.ax:62:9-16 "Int" @bea12e59bc90ac1c
-F oWronlyCreateTrunc stdlib/Sys/Platform.darwin.ax:67:9-27 "Int" @20f55868f574f56b
-F oWronlyCreateAppend stdlib/Sys/Platform.darwin.ax:78:9-28 "Int" @26a10abfaabe5f03
-F seekEnd stdlib/Sys/Platform.darwin.ax:82:9-16 "Int" @ffd6d76db53ee6f4
-F seekSet stdlib/Sys/Platform.darwin.ax:86:9-16 "Int" @9bb0af6e0d80b0bd
-F spawnUsesPosixSpawn stdlib/Sys/Platform.darwin.ax:103:9-28 "Int" @7f321f2729051480
-F sysPosixSpawn stdlib/Sys/Platform.darwin.ax:124:9-22 "Int" @301427b704c87bd6
-F sysWait4 stdlib/Sys/Platform.darwin.ax:129:9-17 "Int" @c6592bc7da3c817f
-F sysFork stdlib/Sys/Platform.darwin.ax:148:9-16 "Int" @d2301f5b9cd3da3c
-F sysForkArg stdlib/Sys/Platform.darwin.ax:152:9-19 "Int" @ccc826600e295ed8
-F sysExecve stdlib/Sys/Platform.darwin.ax:156:9-18 "Int" @cf0811b42b349ef8
-F sysUnlinkNum stdlib/Sys/Platform.darwin.ax:161:9-21 "Int" @ba296983f73bf8b5
-F sysMkdirNum stdlib/Sys/Platform.darwin.ax:167:9-20 "Int" @d70958f5f657e079
-F sysRmdirNum stdlib/Sys/Platform.darwin.ax:172:9-20 "Int" @624e8f20729e9500
-F sysRenameNum stdlib/Sys/Platform.darwin.ax:178:9-21 "Int" @2f71f22a53ea2a9a
-F sysGetdentsNum stdlib/Sys/Platform.darwin.ax:194:9-23 "Int" @b41c5b342d9c34f2
-F dirReadNeedsPosition stdlib/Sys/Platform.darwin.ax:198:9-29 "Int" @67e373cb3c77d650
-F direntNameOffset stdlib/Sys/Platform.darwin.ax:212:9-25 "Int" @cbddd296a9b48d3f
-F cwdUsesFcntlPath stdlib/Sys/Platform.darwin.ax:232:9-25 "Int" @bc3db68f15679b55
-F sysCwdNum stdlib/Sys/Platform.darwin.ax:237:9-18 "Int" @9f128b205b538472
-F fGetPath stdlib/Sys/Platform.darwin.ax:241:9-17 "Int" @7c3930a7ed86acda
-F eExist stdlib/Sys/Platform.darwin.ax:254:9-15 "Int" @4a860ff9c061ee75
-F eIsDir stdlib/Sys/Platform.darwin.ax:258:9-15 "Int" @6b013530d7d877b5
-F sysGetPidNum stdlib/Sys/Platform.darwin.ax:263:9-21 "Int" @8dd97b36f3b03217
-F sysClockNum stdlib/Sys/Platform.darwin.ax:271:9-20 "Int" @338b1a845ae4c6ae
-F clockIsGettimeofday stdlib/Sys/Platform.darwin.ax:275:9-28 "Int" @48d4af426412da35
-F clockHasMonotonic stdlib/Sys/Platform.darwin.ax:307:9-26 "Int" @9718b6249aa77bff
-F clockMonotonicId stdlib/Sys/Platform.darwin.ax:318:9-25 "Int" @2897092e9f7766b0
-F sysSocketNum stdlib/Sys/Platform.darwin.ax:341:9-21 "Int" @d42ebb17e38c1a17
-F sysBindNum stdlib/Sys/Platform.darwin.ax:348:9-19 "Int" @fac8fabade48ff55
-F sysListenNum stdlib/Sys/Platform.darwin.ax:353:9-21 "Int" @2270bc9aee4f5729
-F sysAcceptNum stdlib/Sys/Platform.darwin.ax:365:9-21 "Int" @ec78a2fc609b0378
-F sysConnectNum stdlib/Sys/Platform.darwin.ax:371:9-22 "Int" @6d5f94b6d491b24e
-F sysSetSockOptNum stdlib/Sys/Platform.darwin.ax:376:9-25 "Int" @15fecfbd37170e5f
-F sysGetSockOptNum stdlib/Sys/Platform.darwin.ax:381:9-25 "Int" @9c1f4360d9bbdd5b
-F sysShutdownNum stdlib/Sys/Platform.darwin.ax:386:9-23 "Int" @0af83866f8239352
-F sysFcntlNum stdlib/Sys/Platform.darwin.ax:394:9-20 "Int" @5756ae47a61687bd
-F afInet stdlib/Sys/Platform.darwin.ax:401:9-15 "Int" @d27a836ebaf1ed16
-F afInet6 stdlib/Sys/Platform.darwin.ax:420:9-16 "Int" @981a7527a915ed60
-F sockStream stdlib/Sys/Platform.darwin.ax:424:9-19 "Int" @bfebe0265f896953
-F solSocket stdlib/Sys/Platform.darwin.ax:434:9-18 "Int" @dc009c67cc64ce6a
-F soReuseAddr stdlib/Sys/Platform.darwin.ax:438:9-20 "Int" @2eb918fe7c42780c
-F soReusePort stdlib/Sys/Platform.darwin.ax:442:9-20 "Int" @d5633181720e0e8c
-F soError stdlib/Sys/Platform.darwin.ax:446:9-16 "Int" @6c2e10dec509dfd1
-F fGetFl stdlib/Sys/Platform.darwin.ax:452:9-15 "Int" @586088fc3a85778b
-F fSetFl stdlib/Sys/Platform.darwin.ax:456:9-15 "Int" @b22030a3ced82cc7
-F oNonblock stdlib/Sys/Platform.darwin.ax:460:9-18 "Int" @e28c97fa7ca01710
-F eAgain stdlib/Sys/Platform.darwin.ax:468:9-15 "Int" @e069fc6f4f9b397a
-F sockaddrHasLenByte stdlib/Sys/Platform.darwin.ax:507:9-27 "Int" @ef72f44767bfc769
-F pollUsesKqueue stdlib/Sys/Platform.darwin.ax:527:9-23 "Int" @1908ec81ed6473d2
-F sysPollCreateNum stdlib/Sys/Platform.darwin.ax:532:9-25 "Int" @dc35fd57ec1f5d83
-F sysPollWaitNum stdlib/Sys/Platform.darwin.ax:539:9-23 "Int" @9ede20211dc34918
-F sysPollCtlNum stdlib/Sys/Platform.darwin.ax:543:9-22 "Int" @242bc4ea898a397a
-F pollEventSize stdlib/Sys/Platform.darwin.ax:557:9-22 "Int" @918d2641eec8e977
-F pollEventFdOffset stdlib/Sys/Platform.darwin.ax:561:9-26 "Int" @a82e65073201e547
-F pollReadFilter stdlib/Sys/Platform.darwin.ax:570:9-23 "Int" @2a42e21130434f1c #calls=-
-F pollAddOp stdlib/Sys/Platform.darwin.ax:577:9-18 "Int" @8ded25e2f48c404e
-F pollDelOp stdlib/Sys/Platform.darwin.ax:581:9-18 "Int" @b9dceb68276454ac
-F pollSigsetSize stdlib/Sys/Platform.darwin.ax:588:9-23 "Int" @a184d63c46ffcbc0
-F sysRandomNum stdlib/Sys/Platform.darwin.ax:607:9-21 "Int" @41dc832f2b0bd645
-F randomIsGetentropy stdlib/Sys/Platform.darwin.ax:611:9-27 "Int" @e644f15320868f39
-F randomMaxChunk stdlib/Sys/Platform.darwin.ax:615:9-23 "Int" @671fe1e243b8cebf
-F signalUsesSignalFd stdlib/Sys/Platform.darwin.ax:641:9-27 "Int" @e3835b13a0c96f39
-F sysSigProcMaskNum stdlib/Sys/Platform.darwin.ax:646:9-26 "Int" @82b597fafe8fd6ab
-F sigBlockHow stdlib/Sys/Platform.darwin.ax:654:9-20 "Int" @00f00dc0489ed3fd
-F sigsetBytes stdlib/Sys/Platform.darwin.ax:661:9-20 "Int" @5d5a22f9ed6b6af7
-F pollSignalFilter stdlib/Sys/Platform.darwin.ax:668:9-25 "Int" @505ea806bac66894 #calls=-
-F sysSignalFdNum stdlib/Sys/Platform.darwin.ax:674:9-23 "Int" @3df0630ac7abf0ae
-F sigInfoSize stdlib/Sys/Platform.darwin.ax:678:9-20 "Int" @b495ce207db60ed1
-F sysKillNum stdlib/Sys/Platform.darwin.ax:683:9-19 "Int" @6302c2903fe03690
-F sigTerm stdlib/Sys/Platform.darwin.ax:690:9-16 "Int" @2b81ae936de3a146
-F sigInt stdlib/Sys/Platform.darwin.ax:694:9-15 "Int" @a8fba5915b585705
-F forkChildIsZero stdlib/Sys/Platform.darwin.ax:701:9-24 "Int" @d2e5b0de4127a1a5
-F acceptNonblockFlag stdlib/Sys/Platform.darwin.ax:716:9-27 "Int" @897180219612fc65
-F usesSyscallAbi stdlib/Sys/Platform.darwin.ax:733:9-23 "Int" @5239c4a4eebd381e
-F platformWriteFd stdlib/Sys/Platform.darwin.ax:737:9-24 "(Int -> (Int -> (Int -> Int)))" @06b4d89d48f5eb21 #pure #calls=-
-F platformReadFd stdlib/Sys/Platform.darwin.ax:742:9-23 "(Int -> (Int -> (Int -> Int)))" @27c65d2cf874d88a #pure #calls=-
-F platformExitWith stdlib/Sys/Platform.darwin.ax:747:9-25 "(Int -> Int)" @becafad07ae354fc #pure #calls=-
-F ttyUsesTermios stdlib/Sys/Platform.darwin.ax:782:9-23 "Int" @c35c43360059ea61
-F sysIoctlNum stdlib/Sys/Platform.darwin.ax:789:9-20 "Int" @8604ef6ad1e274c3
-F tcGetAttrReq stdlib/Sys/Platform.darwin.ax:803:9-21 "Int" @92b4b419b6a552d3
-F tcSetAttrReq stdlib/Sys/Platform.darwin.ax:825:9-21 "Int" @8aa7eddbdc97ffb7
-F tcWinSizeReq stdlib/Sys/Platform.darwin.ax:840:9-21 "Int" @534179f86cd0f933
-F termiosBytes stdlib/Sys/Platform.darwin.ax:852:9-21 "Int" @073edd856e0cda49
-F termiosFlagBytes stdlib/Sys/Platform.darwin.ax:862:9-25 "Int" @a4e2f9d35892fff7
-F termiosCcOff stdlib/Sys/Platform.darwin.ax:868:9-21 "Int" @df76fb2b24f9095d
-F termiosVminIdx stdlib/Sys/Platform.darwin.ax:879:9-23 "Int" @3ec4607ebe1ed537
-F termiosVtimeIdx stdlib/Sys/Platform.darwin.ax:883:9-24 "Int" @5fce3f6e95e90f58
-F tiosEcho stdlib/Sys/Platform.darwin.ax:894:9-17 "Int" @65a7f3c40cdea1df
-F tiosIcanon stdlib/Sys/Platform.darwin.ax:898:9-19 "Int" @a7a7b7a695f6dca0
-F tiosIsig stdlib/Sys/Platform.darwin.ax:902:9-17 "Int" @db1ec3a614428392
-F tiosIexten stdlib/Sys/Platform.darwin.ax:906:9-19 "Int" @12172e2edd790507
-F tiosBrkint stdlib/Sys/Platform.darwin.ax:920:9-19 "Int" @92fd342d7152edf4
-F tiosIcrnl stdlib/Sys/Platform.darwin.ax:924:9-18 "Int" @17a01ebc5d026842
-F tiosIstrip stdlib/Sys/Platform.darwin.ax:928:9-19 "Int" @60570a6831aba481
-F tiosIxon stdlib/Sys/Platform.darwin.ax:932:9-17 "Int" @187fe9a6373cf8d2
-F tiosOpost stdlib/Sys/Platform.darwin.ax:945:9-18 "Int" @4880ccf70baf4fc5
 F vecDefaultCap stdlib/Vec.ax:81:5-18 "Int" @39b9ebeebcb69140 #restrict=no-io,no-alloc,no-foreign
 F vecNew stdlib/Vec.ax:87:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecDefaultCap,Vec$vecWithCapacity
 F vecWithCapacity stdlib/Vec.ax:99:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecBuild
@@ -155,6 +50,168 @@ F vecSiftDown stdlib/Vec.ax:674:5-16 "(Int -> (Int -> (Int -> Int)))" @3be531c7b
 F vecSort stdlib/Vec.ax:721:9-16 "(Vec a -> Vec a)" @d7b57bf54b6da257 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDown,Vec$vecSwapWords
 F vecSiftDownBy stdlib/Vec.ax:749:5-18 "(Int -> (Int -> (Int -> ((Int -> (Int -> Int)) -> Int))))" @cce0ed170bd79054 #effects=Mut #calls=*,+,<,==,>,>=,Mem$memGetWord,Vec$vecSwapWords #effect-params=cmp
 F vecSortBy stdlib/Vec.ax:809:9-18 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" @05b978068f71d6a2 #effects=Mut #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDownBy,Vec$vecSwapWords #effect-params=cmp
+F strWrap stdlib/Str.ax:46:9-16 "(Int -> (Int -> String))" @23328120de2f4a36 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Str$strWrapOwned
+F strWrapOwned stdlib/Str.ax:69:9-21 "(Int -> (Int -> (Int -> String)))" @2bbe9929cdf4389f #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Mem$memAllocMapped,Mem$memSetWord
+F strAlloc stdlib/Str.ax:94:9-17 "(Int -> String)" @b8ec3bb3fe2acd63 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=+,Mem$memAlloc,Str$strWrapOwned,__retain
+F strFromLit stdlib/Str.ax:119:9-19 "(Int -> String)" @6206421c05dd1a83 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Str$cstrLen,Str$strWrap
+F cstrLen stdlib/Str.ax:125:9-16 "(Int -> (Int -> Int))" @4883f0a813371906 #restrict=no-io,no-alloc,no-foreign #calls=+,==,Str$cstrLen,__load8
+F strLen stdlib/Str.ax:138:9-15 "(String -> Int)" @eda5fda2fbb7e0d9 #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
+F strData stdlib/Str.ax:151:9-16 "(String -> Int)" @67465baef4d86a22 #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
+F strOwner stdlib/Str.ax:162:9-17 "(String -> Int)" @8e64d8cc385f2c0d #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
+F strByte stdlib/Str.ax:176:9-16 "(String -> (Int -> Int))" @b744777f3cb15078 #restrict=no-io,no-alloc,no-foreign #calls=<,>=,Str$strData,Str$strLen,__load8
+F strCStr stdlib/Str.ax:193:9-16 "(String -> Int)" @c481b6861daac77a #restrict=no-io,no-alloc,no-foreign #calls=Str$strData
+F strIsEmpty stdlib/Str.ax:198:9-19 "(String -> Bool)" @a83222c0759c013b #restrict=no-io,no-alloc,no-foreign #calls===,Str$strLen
+F strCmp stdlib/Str.ax:209:9-15 "(String -> (String -> Int))" @7d1efca2bc01048e #restrict=no-io,no-alloc,no-foreign #calls=!=,-,<,Mem$memCmp,Str$strData,Str$strLen
+F strEq stdlib/Str.ax:251:9-14 "(String -> (String -> Bool))" @4ee168f65eaa3fec #restrict=no-io,no-alloc,no-foreign #calls=!=,==,Mem$memCmp,Str$strData,Str$strLen
+F strSlice stdlib/Str.ax:276:9-17 "(String -> (Int -> (Int -> String)))" @c1ced650f3717fa8 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=+,-,<,>,Str$strData,Str$strLen,Str$strOwner,Str$strWrapOwned,__retain
+F strDup stdlib/Str.ax:314:9-15 "(String -> String)" @a890bfa2d4a6809f #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Mem$memCopy,Str$strAlloc,Str$strData,Str$strLen
+F strConcat stdlib/Str.ax:328:9-18 "(String -> (String -> String))" @22972c7a28e75fd2 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=+,Mem$memCopy,Str$strAlloc,Str$strData,Str$strLen
+F strFindByte stdlib/Str.ax:350:9-20 "(String -> (Int -> (Int -> Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign #calls=+,-,==,>=,Str$strByte,Str$strFindByte,Str$strLen
+F strStartsWith stdlib/Str.ax:363:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign #calls===,>,Mem$memCmp,Str$strData,Str$strLen
+F strIsDigit stdlib/Str.ax:396:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign #calls=<=,>=
+F strIsAlpha stdlib/Str.ax:406:9-19 "(Int -> Bool)" @92f6658af52ff1ce #restrict=no-io,no-alloc,no-foreign #calls=<=,>=
+F strIsSpace stdlib/Str.ax:425:9-19 "(Int -> Bool)" @d84830fe78ed2530 #restrict=no-io,no-alloc,no-foreign #calls===
+F strHexVal stdlib/Str.ax:455:9-18 "(Int -> Option Int)" @9d2dd21191ab219a #restrict=no-io,no-alloc,no-foreign #calls=&&,+,-,<=,>=
+F strIsHexDigit stdlib/Str.ax:471:9-22 "(Int -> Bool)" @2b97165574231c58 #restrict=no-io,no-alloc,no-foreign #calls=Str$strHexVal
+F strSplit stdlib/Str.ax:497:9-17 "(String -> (Int -> Vec Int))" @999c5d68d9676692 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Str$strSplitFrom,Vec$vecNew
+F strSplitFrom stdlib/Str.ax:509:9-21 "(String -> (Int -> (Int -> (Vec Int -> Int))))" @5e61889eee5022b6 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=+,-,<,Str$strFindByte,Str$strLen,Str$strSlice,Str$strSplitFrom,Vec$vecPush
+F strFromByte stdlib/Str.ax:536:9-20 "(Int -> String)" @cc6843692d250f9c #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Str$strAlloc,Str$strData,__store8
+F strLower stdlib/Str.ax:565:9-17 "(String -> String)" @8705466b1ec7adbf #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=&&,+,<,<=,==,>=,Str$strAlloc,Str$strByte,Str$strData,Str$strLen,__store8
+F strFind stdlib/Str.ax:620:9-16 "(String -> (String -> (Int -> Option Int)))" @e124649e206d9a15 #restrict=no-io,no-foreign #calls=&&,+,-,<,<=,==,Mem$memCmp,Str$strData,Str$strLen
+F strTrim stdlib/Str.ax:651:9-16 "(String -> String)" @1659542ba70f16f2 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=&&,+,-,<,>,Str$strByte,Str$strIsSpace,Str$strLen,Str$strSlice
+F strParseInt stdlib/Str.ax:683:9-20 "(String -> Option Int)" @65f528e7dd0a78ee #restrict=no-io,no-foreign #calls=&&,*,+,-,<,==,>,Str$strByte,Str$strIsDigit,Str$strLen,||
+F errDivideByZero stdlib/Err.ax:47:9-24 "Int" @029f54fed7ccc8c4
+F errOverflow stdlib/Err.ax:51:9-20 "Int" @d27666f207e5c0cc
+F errShiftTooWide stdlib/Err.ax:55:9-24 "Int" @6a505014b69f075b
+F errShortWrite stdlib/Err.ax:65:9-22 "Int" @b166d14415d631b7
+F mkError stdlib/Err.ax:69:9-16 "(Int -> (String -> Error))" @a209679fd0d09783 #effects=Alloc
+F errCode stdlib/Err.ax:73:9-16 "(Error -> Int)" @cc1e4529d6664c73
+F errMessage stdlib/Err.ax:77:9-19 "(Error -> String)" @c92fba93fdf774cd
+F errContext stdlib/Err.ax:81:9-19 "(Error -> String)" @fe4f05b820694e19
+F errorText stdlib/Err.ax:90:9-18 "(Error -> String)" @f35171f54885d954 #effects=Alloc,Mut #calls===,Str$strConcat,Str$strLen
+F isOk stdlib/Err.ax:102:9-13 "(Result a e -> Bool)" @ae1736447ed221d1
+F isErr stdlib/Err.ax:111:9-14 "(Result a e -> Bool)" @f7427963ada0c9e2
+F unwrapOr stdlib/Err.ax:120:9-17 "(Result a e -> (a -> a))" @7c65bfd8d6878035
+F mapOk stdlib/Err.ax:136:9-14 "(Result a e -> ((a -> b) -> Result b e))" @64ad9b7011061ab5 #effects=Alloc #effect-params=f
+F mapErr stdlib/Err.ax:145:9-15 "(Result a e -> ((e -> f) -> Result a f))" @6f8c866d1e49e9be #effects=Alloc #effect-params=f
+F andThen stdlib/Err.ax:154:9-16 "(Result a e -> ((a -> Result b e) -> Result b e))" @7e9d9a86e9e8b953 #effects=Alloc #effect-params=f
+F errContextOf stdlib/Err.ax:185:9-21 "(Error -> (String -> Error))" @b862d60d2e00078c #effects=Alloc
+F withContext stdlib/Err.ax:189:9-20 "(Result a Error -> (String -> Result a Error))" @9733c7d4aeb3bcda #effects=Alloc #calls=Err$errContextOf
+F okOr stdlib/Err.ax:205:9-13 "(Option a -> (e -> Result a e))" @c1f60d511b5769c4 #effects=Alloc
+F toOption stdlib/Err.ax:214:9-17 "(Result a e -> Option a)" @8b13feec85bc508b #effects=Alloc
+F intMin stdlib/Err.ax:237:9-15 "Int" @f0cd39212565a998 #calls=-
+F addChecked stdlib/Err.ax:271:9-19 "(Int -> (Int -> Result Int Error))" @5d660b40b8422a2f #effects=Alloc #calls=&,+,<,Err$errOverflow,Err$mkError,^
+F subChecked stdlib/Err.ax:284:9-19 "(Int -> (Int -> Result Int Error))" @4c69b49dee798ee8 #effects=Alloc #calls=&,-,<,Err$errOverflow,Err$mkError,^
+F mulChecked stdlib/Err.ax:297:9-19 "(Int -> (Int -> Result Int Error))" @a9a6c99c92231704 #effects=Alloc #calls=!=,&&,*,-,/,==,Err$errOverflow,Err$intMin,Err$mkError,||
+F divChecked stdlib/Err.ax:330:9-19 "(Int -> (Int -> Result Int Error))" @64cf173b228d176f #effects=Alloc #calls=&&,-,/,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
+F remChecked stdlib/Err.ax:342:9-19 "(Int -> (Int -> Result Int Error))" @8fb62ce3aababe76 #effects=Alloc #calls=%,&&,-,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
+F shlChecked stdlib/Err.ax:357:9-19 "(Int -> (Int -> Result Int Error))" @554de2a593269cfd #effects=Alloc #calls=<,<<,>=,Err$errShiftTooWide,Err$mkError,||
+F shrChecked stdlib/Err.ax:366:9-19 "(Int -> (Int -> Result Int Error))" @d6fbeaead7a43037 #effects=Alloc #calls=<,>=,>>,Err$errShiftTooWide,Err$mkError,||
+F sysRead stdlib/Sys/Platform.darwin.ax:25:9-16 "Int" @d99009b49c22cd84
+F sysWrite stdlib/Sys/Platform.darwin.ax:30:9-17 "Int" @74cf7b68f9a13d7f
+F sysOpen stdlib/Sys/Platform.darwin.ax:35:9-16 "Int" @48be4da44965be58
+F sysClose stdlib/Sys/Platform.darwin.ax:40:9-17 "Int" @3f19c86be94cca74
+F sysExit stdlib/Sys/Platform.darwin.ax:45:9-16 "Int" @c21daf50c2bdc420
+F sysLseek stdlib/Sys/Platform.darwin.ax:50:9-17 "Int" @b985a8cd089c8e5c
+F openNeedsDirFd stdlib/Sys/Platform.darwin.ax:57:9-23 "Int" @d12588b93c717bad
+F atFdCwd stdlib/Sys/Platform.darwin.ax:63:9-16 "Int" @dd105a98ff529076
+F oRdonly stdlib/Sys/Platform.darwin.ax:67:9-16 "Int" @bea12e59bc90ac1c
+F oWronlyCreateTrunc stdlib/Sys/Platform.darwin.ax:72:9-27 "Int" @20f55868f574f56b
+F oWronlyCreateAppend stdlib/Sys/Platform.darwin.ax:83:9-28 "Int" @26a10abfaabe5f03
+F seekEnd stdlib/Sys/Platform.darwin.ax:87:9-16 "Int" @ffd6d76db53ee6f4
+F seekSet stdlib/Sys/Platform.darwin.ax:91:9-16 "Int" @9bb0af6e0d80b0bd
+F spawnUsesPosixSpawn stdlib/Sys/Platform.darwin.ax:108:9-28 "Int" @7f321f2729051480
+F sysPosixSpawn stdlib/Sys/Platform.darwin.ax:129:9-22 "Int" @301427b704c87bd6
+F sysWait4 stdlib/Sys/Platform.darwin.ax:134:9-17 "Int" @c6592bc7da3c817f
+F sysFork stdlib/Sys/Platform.darwin.ax:153:9-16 "Int" @d2301f5b9cd3da3c
+F sysForkArg stdlib/Sys/Platform.darwin.ax:157:9-19 "Int" @ccc826600e295ed8
+F sysExecve stdlib/Sys/Platform.darwin.ax:161:9-18 "Int" @cf0811b42b349ef8
+F sysUnlinkNum stdlib/Sys/Platform.darwin.ax:166:9-21 "Int" @ba296983f73bf8b5
+F sysMkdirNum stdlib/Sys/Platform.darwin.ax:172:9-20 "Int" @d70958f5f657e079
+F sysRmdirNum stdlib/Sys/Platform.darwin.ax:177:9-20 "Int" @624e8f20729e9500
+F sysRenameNum stdlib/Sys/Platform.darwin.ax:183:9-21 "Int" @2f71f22a53ea2a9a
+F sysGetdentsNum stdlib/Sys/Platform.darwin.ax:199:9-23 "Int" @b41c5b342d9c34f2
+F dirReadNeedsPosition stdlib/Sys/Platform.darwin.ax:203:9-29 "Int" @67e373cb3c77d650
+F direntNameOffset stdlib/Sys/Platform.darwin.ax:217:9-25 "Int" @cbddd296a9b48d3f
+F cwdUsesFcntlPath stdlib/Sys/Platform.darwin.ax:237:9-25 "Int" @bc3db68f15679b55
+F sysCwdNum stdlib/Sys/Platform.darwin.ax:242:9-18 "Int" @9f128b205b538472
+F fGetPath stdlib/Sys/Platform.darwin.ax:246:9-17 "Int" @7c3930a7ed86acda
+F eExist stdlib/Sys/Platform.darwin.ax:259:9-15 "Int" @4a860ff9c061ee75
+F eIsDir stdlib/Sys/Platform.darwin.ax:263:9-15 "Int" @6b013530d7d877b5
+F sysGetPidNum stdlib/Sys/Platform.darwin.ax:268:9-21 "Int" @8dd97b36f3b03217
+F sysClockNum stdlib/Sys/Platform.darwin.ax:276:9-20 "Int" @338b1a845ae4c6ae
+F clockIsGettimeofday stdlib/Sys/Platform.darwin.ax:280:9-28 "Int" @48d4af426412da35
+F clockHasMonotonic stdlib/Sys/Platform.darwin.ax:312:9-26 "Int" @9718b6249aa77bff
+F clockMonotonicId stdlib/Sys/Platform.darwin.ax:323:9-25 "Int" @2897092e9f7766b0
+F sysSocketNum stdlib/Sys/Platform.darwin.ax:346:9-21 "Int" @d42ebb17e38c1a17
+F sysBindNum stdlib/Sys/Platform.darwin.ax:353:9-19 "Int" @fac8fabade48ff55
+F sysListenNum stdlib/Sys/Platform.darwin.ax:358:9-21 "Int" @2270bc9aee4f5729
+F sysAcceptNum stdlib/Sys/Platform.darwin.ax:370:9-21 "Int" @ec78a2fc609b0378
+F sysConnectNum stdlib/Sys/Platform.darwin.ax:376:9-22 "Int" @6d5f94b6d491b24e
+F sysSetSockOptNum stdlib/Sys/Platform.darwin.ax:381:9-25 "Int" @15fecfbd37170e5f
+F sysGetSockOptNum stdlib/Sys/Platform.darwin.ax:386:9-25 "Int" @9c1f4360d9bbdd5b
+F sysShutdownNum stdlib/Sys/Platform.darwin.ax:391:9-23 "Int" @0af83866f8239352
+F sysFcntlNum stdlib/Sys/Platform.darwin.ax:399:9-20 "Int" @5756ae47a61687bd
+F afInet stdlib/Sys/Platform.darwin.ax:406:9-15 "Int" @d27a836ebaf1ed16
+F afInet6 stdlib/Sys/Platform.darwin.ax:425:9-16 "Int" @981a7527a915ed60
+F sockStream stdlib/Sys/Platform.darwin.ax:429:9-19 "Int" @bfebe0265f896953
+F solSocket stdlib/Sys/Platform.darwin.ax:439:9-18 "Int" @dc009c67cc64ce6a
+F soReuseAddr stdlib/Sys/Platform.darwin.ax:443:9-20 "Int" @2eb918fe7c42780c
+F soReusePort stdlib/Sys/Platform.darwin.ax:447:9-20 "Int" @d5633181720e0e8c
+F soError stdlib/Sys/Platform.darwin.ax:451:9-16 "Int" @6c2e10dec509dfd1
+F fGetFl stdlib/Sys/Platform.darwin.ax:457:9-15 "Int" @586088fc3a85778b
+F fSetFl stdlib/Sys/Platform.darwin.ax:461:9-15 "Int" @b22030a3ced82cc7
+F oNonblock stdlib/Sys/Platform.darwin.ax:465:9-18 "Int" @e28c97fa7ca01710
+F eAgain stdlib/Sys/Platform.darwin.ax:473:9-15 "Int" @e069fc6f4f9b397a
+F sockaddrHasLenByte stdlib/Sys/Platform.darwin.ax:512:9-27 "Int" @ef72f44767bfc769
+F pollUsesKqueue stdlib/Sys/Platform.darwin.ax:532:9-23 "Int" @1908ec81ed6473d2
+F sysPollCreateNum stdlib/Sys/Platform.darwin.ax:537:9-25 "Int" @dc35fd57ec1f5d83
+F sysPollWaitNum stdlib/Sys/Platform.darwin.ax:544:9-23 "Int" @9ede20211dc34918
+F sysPollCtlNum stdlib/Sys/Platform.darwin.ax:548:9-22 "Int" @242bc4ea898a397a
+F pollEventSize stdlib/Sys/Platform.darwin.ax:562:9-22 "Int" @918d2641eec8e977
+F pollEventFdOffset stdlib/Sys/Platform.darwin.ax:566:9-26 "Int" @a82e65073201e547
+F pollReadFilter stdlib/Sys/Platform.darwin.ax:575:9-23 "Int" @2a42e21130434f1c #calls=-
+F pollAddOp stdlib/Sys/Platform.darwin.ax:582:9-18 "Int" @8ded25e2f48c404e
+F pollDelOp stdlib/Sys/Platform.darwin.ax:586:9-18 "Int" @b9dceb68276454ac
+F pollSigsetSize stdlib/Sys/Platform.darwin.ax:593:9-23 "Int" @a184d63c46ffcbc0
+F sysRandomNum stdlib/Sys/Platform.darwin.ax:612:9-21 "Int" @41dc832f2b0bd645
+F randomIsGetentropy stdlib/Sys/Platform.darwin.ax:616:9-27 "Int" @e644f15320868f39
+F randomMaxChunk stdlib/Sys/Platform.darwin.ax:620:9-23 "Int" @671fe1e243b8cebf
+F signalUsesSignalFd stdlib/Sys/Platform.darwin.ax:646:9-27 "Int" @e3835b13a0c96f39
+F sysSigProcMaskNum stdlib/Sys/Platform.darwin.ax:651:9-26 "Int" @82b597fafe8fd6ab
+F sigBlockHow stdlib/Sys/Platform.darwin.ax:659:9-20 "Int" @00f00dc0489ed3fd
+F sigsetBytes stdlib/Sys/Platform.darwin.ax:666:9-20 "Int" @5d5a22f9ed6b6af7
+F pollSignalFilter stdlib/Sys/Platform.darwin.ax:673:9-25 "Int" @505ea806bac66894 #calls=-
+F sysSignalFdNum stdlib/Sys/Platform.darwin.ax:679:9-23 "Int" @3df0630ac7abf0ae
+F sigInfoSize stdlib/Sys/Platform.darwin.ax:683:9-20 "Int" @b495ce207db60ed1
+F sysKillNum stdlib/Sys/Platform.darwin.ax:688:9-19 "Int" @6302c2903fe03690
+F sigTerm stdlib/Sys/Platform.darwin.ax:695:9-16 "Int" @2b81ae936de3a146
+F sigInt stdlib/Sys/Platform.darwin.ax:699:9-15 "Int" @a8fba5915b585705
+F forkChildIsZero stdlib/Sys/Platform.darwin.ax:706:9-24 "Int" @d2e5b0de4127a1a5
+F acceptNonblockFlag stdlib/Sys/Platform.darwin.ax:721:9-27 "Int" @897180219612fc65
+F usesSyscallAbi stdlib/Sys/Platform.darwin.ax:738:9-23 "Int" @5239c4a4eebd381e
+F platformWriteFd stdlib/Sys/Platform.darwin.ax:742:9-24 "(Int -> (Int -> (Int -> Result Int Error)))" @06b4d89d48f5eb21 #effects=Alloc #calls=Err$mkError
+F platformReadFd stdlib/Sys/Platform.darwin.ax:746:9-23 "(Int -> (Int -> (Int -> Result Int Error)))" @27c65d2cf874d88a #effects=Alloc #calls=Err$mkError
+F platformExitWith stdlib/Sys/Platform.darwin.ax:750:9-25 "(Int -> Int)" @becafad07ae354fc #pure #calls=-
+F ttyUsesTermios stdlib/Sys/Platform.darwin.ax:785:9-23 "Int" @c35c43360059ea61
+F sysIoctlNum stdlib/Sys/Platform.darwin.ax:792:9-20 "Int" @8604ef6ad1e274c3
+F tcGetAttrReq stdlib/Sys/Platform.darwin.ax:806:9-21 "Int" @92b4b419b6a552d3
+F tcSetAttrReq stdlib/Sys/Platform.darwin.ax:828:9-21 "Int" @8aa7eddbdc97ffb7
+F tcWinSizeReq stdlib/Sys/Platform.darwin.ax:843:9-21 "Int" @534179f86cd0f933
+F termiosBytes stdlib/Sys/Platform.darwin.ax:855:9-21 "Int" @073edd856e0cda49
+F termiosFlagBytes stdlib/Sys/Platform.darwin.ax:865:9-25 "Int" @a4e2f9d35892fff7
+F termiosCcOff stdlib/Sys/Platform.darwin.ax:871:9-21 "Int" @df76fb2b24f9095d
+F termiosVminIdx stdlib/Sys/Platform.darwin.ax:882:9-23 "Int" @3ec4607ebe1ed537
+F termiosVtimeIdx stdlib/Sys/Platform.darwin.ax:886:9-24 "Int" @5fce3f6e95e90f58
+F tiosEcho stdlib/Sys/Platform.darwin.ax:897:9-17 "Int" @65a7f3c40cdea1df
+F tiosIcanon stdlib/Sys/Platform.darwin.ax:901:9-19 "Int" @a7a7b7a695f6dca0
+F tiosIsig stdlib/Sys/Platform.darwin.ax:905:9-17 "Int" @db1ec3a614428392
+F tiosIexten stdlib/Sys/Platform.darwin.ax:909:9-19 "Int" @12172e2edd790507
+F tiosBrkint stdlib/Sys/Platform.darwin.ax:923:9-19 "Int" @92fd342d7152edf4
+F tiosIcrnl stdlib/Sys/Platform.darwin.ax:927:9-18 "Int" @17a01ebc5d026842
+F tiosIstrip stdlib/Sys/Platform.darwin.ax:931:9-19 "Int" @60570a6831aba481
+F tiosIxon stdlib/Sys/Platform.darwin.ax:935:9-17 "Int" @187fe9a6373cf8d2
+F tiosOpost stdlib/Sys/Platform.darwin.ax:948:9-18 "Int" @4880ccf70baf4fc5
 F apply tests/fmt/syntax-zoo.ax:96:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:100:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure #calls=+,<,>
@@ -200,6 +257,9 @@ D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option
 D Vec - "data Vec"
+D Result stdlib/Err.ax:28:11-17 "data Result" @b9f5acf9ecf678ba #ctors=Ok,Err
+C Ok stdlib/Err.ax:29:4-6 "(a -> Result a e)" #of=Result
+C Err stdlib/Err.ax:30:4-7 "(e -> Result a e)" #of=Result
 D Shape tests/fmt/syntax-zoo.ax:29:11-16 "data Shape" @f67d31a9f1847a1c #ctors=Circle,Rect,Empty
 C Circle tests/fmt/syntax-zoo.ax:30:4-10 "(Int -> Shape)" #of=Shape
 C Rect tests/fmt/syntax-zoo.ax:31:4-8 "(Int -> (Int -> Shape))" #of=Shape
@@ -211,6 +271,7 @@ D Box tests/fmt/syntax-zoo.ax:245:11-14 "data Box" @649cdc153a9e31b4 #ctors=B
 C B tests/fmt/syntax-zoo.ax:246:4-5 "(a -> Box a)" #of=Box
 D Wrapped tests/fmt/syntax-zoo.ax:263:7-14 "data Wrapped" @456b706b2b771a60 #ctors=W
 C W tests/fmt/syntax-zoo.ax:264:4-5 "(Box Int -> Wrapped)" #of=Wrapped
+S Error stdlib/Err.ax:40:13-18 "struct Error" @0805ae0b9077d3a6 #fields=code:Int,message:String,context:String
 S Rec tests/fmt/syntax-zoo.ax:55:13-16 "struct Rec" @7e8483a9aaef3fde #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 S ZooCap tests/fmt/syntax-zoo.ax:253:9-15 "struct ZooCap" @565a8bdeb3d12664 #fields=render:(a -> String)
 S ZooPair tests/fmt/syntax-zoo.ax:256:9-16 "struct ZooPair" @149f38cfa5316df8 #fields=fst:a,snd:b
@@ -218,6 +279,7 @@ S Holder tests/fmt/syntax-zoo.ax:260:9-15 "struct Holder" @39a2b36e5f606cfe #fie
 S RecTwin tests/fmt/syntax-zoo.ax:401:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:26:11-16 "Int" @910ecfbfa27ddde2
 A BoxedCount tests/fmt/syntax-zoo.ax:251:11-21 "Box Int" @ce5c1ba8305ca704
+M try! stdlib/Err.ax:401:13-17 "macro try!" @33e26f813784f1f9
 M twice tests/fmt/syntax-zoo.ax:93:9-14 "macro twice" @a0ee9867b2571b97
 M defRecTwin tests/fmt/syntax-zoo.ax:393:8-18 "macro defRecTwin" @175bc52ff43ee048
 E Console tests/fmt/syntax-zoo.ax:216:9-16 "effect Console" @5e35620abc5f495d

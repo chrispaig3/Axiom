@@ -255,7 +255,7 @@ else
     failed=$((failed + 1))
   fi
   if [[ $entries -lt 420 ]]; then
-    echo "FAIL: the table has $entries entries; the floor is 420 (451 today)"
+    echo "FAIL: the table has $entries entries; the floor is 420 (601 today)"
     failed=$((failed + 1))
   fi
   # A table of one repeated value would be satisfied by a formatter that
@@ -267,9 +267,20 @@ else
   # Retirement is expected; retirement of everything is the vacuum this
   # gate is built to refuse. Regenerate per the golden's header when the
   # hit count nears the floor.
+  #
+  # THESE TWO FLOORS DELIBERATELY DO NOT TRACK THE POPULATION, and the
+  # parenthetical is the only thing corrected when it grows - 451 to 601
+  # on 2026-09-03. They guard a DIFFERENT failure from the ceiling below:
+  # a sweep that lost its corpus, or a table truncated to a stub. The
+  # ceiling on the unpinned count is the tight guard on decay, it fires
+  # first, and it fired on 2026-09-03 at 64 against 60 while both of
+  # these were still comfortably green. Ratcheting them up to the
+  # population would make two numbers report the one event the ceiling
+  # already reports, and each regeneration would then have to move
+  # three.
   if [[ $hits -lt 380 ]]; then
     echo "FAIL: only $hits of $entries table entries still match a file in the tree;"
-    echo "      the floor is 380 (451 of 451 hit today) - the table has decayed and must be regenerated"
+    echo "      the floor is 380 (601 of 601 hit today) - the table has decayed and must be regenerated"
     failed=$((failed + 1))
   elif [[ $bad -eq 0 ]]; then
     echo "ok   $hits of $entries pinned source->formatted mappings reproduced"
