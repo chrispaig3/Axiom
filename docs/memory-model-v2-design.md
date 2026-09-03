@@ -429,6 +429,27 @@ lowering, not the fallback one.
 existing machinery; `tests/net/echo-server.ax`'s pre-forked pool is the
 shape, and it is where `MM-ALLOC-22`'s measurement is taken.
 
+**Built 2026-09-03 (S5 and S6), and two things the table above promised
+are narrower than it reads.** The surface is exactly MM-RGN-7's, with
+`p` bound to the arena mark of the enclosing region (§2.5's witness, a
+word until S3 types it), and the two lowerings are selected by
+`--threads` with processes the default. *"Results are moved into `p`
+at join"* is true of a **word**: the thunk is `(-> Int Int)`, so a
+binding whose expression is a `String` is refused at that expression
+(`AX3004`), because under processes the answer crosses an address space
+through one page and under threads it would need the typed promotion
+of §2.6, which is S3/S4's. And the last row of the table - *"`MM-RGN-3`
+is a load-bearing static check"* under threads - is the check that does
+NOT exist yet: a binding may capture any heap value in scope, and under
+threads that value's count is touched from two threads with no fence.
+The process lowering has no such hazard, which is why it is the
+default; the thread lowering is what §3.2's corollary will make safe
+once regions are typed, and until then a program that opts into it
+captures words. `scripts/check-parallel.sh` holds the rest: the same
+bytes out of both lowerings, a trapping binding exiting 77 out of both,
+processes importing nothing, threads importing their own two symbols
+(three on Darwin), and the flag inert on a program that spawns nothing.
+
 ---
 
 ## 4. Staging
@@ -445,8 +466,8 @@ gate below follows it.
 | **S2** | **DONE 2026-09-03. `region` returns as a checked scope with no types yet** — mark/reset on a STACK cell, names scope-checked (`AX3058`), `AX2004`'s false advice deleted. "No typechecker change" was wrong as written and is corrected here: without types the checker still has to refuse the two escape channels a scope can see — the region's own value when it is not a scalar, and a `set` on a binding bound outside the region when the stored value is not one — as `AX3059`, or the reset hands a program a dangling descriptor with every gate green | a real node (`TAG_E_REGION`, so S3 can find extents) + the open-region stack + the value/store rule in `typecheck.ax`; `emitRegion` is three loads, one hoisted `alloca` and the existing `@__axiom_arena_reset_fn` | `scripts/check-region-scope.sh`: a no-region program emits no cell; 4,000 × 64 KiB with the region against without is 185x on peak RSS; `tests/diagnostics/631` draws exactly its three rows; and the ABLATION — `rgTyScalar` answering 1 — builds a compiler under which `hello world` stored out of a region reads back as `XXXXXXXXXXX`, the next allocation. `tests/stdlib/168-region.ax` (ten terms). Byte-identical IR for a program with no region, measured against the previous commit's compiler on `self_host/main.ax`: 202,021 lines both ways. NOT done here, by design: a reference leaving a region, which is S3's typed promotion, and the two channels a scope cannot see (a call that stores, a raw `Int`), which stay `MM-ALLOC-16`'s obligation |
 | S3 | Region-parameterised types and `MM-RGN-3` | the real work: typecheck, the witness of §2.5 | `tests/diagnostics/*` per escape shape, plus the two-region corpus sweep of §5 |
 | S4 | Delete ownership traffic the region proves dead | codegen | **re-run §1.1's ablation and expect the binary win with the RSS win intact** — the one measurement that decides whether any of this was worth it |
-| S5 | `__thread_spawn`, and `cgThreads`'s owed body | the primitive, the scan, the thread runtime | `check-thread-local.sh` already exists for the ON path; `check-freestanding` pins tier 1 for everyone else |
-| S6 | `parallel`, both lowerings | surface + two backends | one fixture, two lowerings, byte-identical stdout; `MM-PAR-5`'s argument order under both |
+| **S5** | **DONE 2026-09-03. `__thread_spawn`/`__thread_join`, and `cgThreads`'s owed body** | the primitive pair, the scan (`parScan` in codegen.ax, before `emitAllocator`), the thread runtime (`emitParThread`: the platform's `pthread_create`, an entry that runs the thunk and writes its word) | `scripts/check-thread-local.sh` reaches the ON path through a program that spawns, no ablation: eight globals move and nothing else, the OFF path imports no TLS symbol, a thread's cost is `pthread_create`+`pthread_join` (+`__tlv_bootstrap` on Darwin), local-exec on both Linux targets. freebsd and windows refuse it at build time (`AX4006`) |
+| **S6** | **DONE 2026-09-03, with the limit stated. `parallel`, both lowerings** | the surface is a parser desugaring over `__par_spawn`/`__par_join` (no AST tag); the two backends are `emitParProc` (fork, one `MAP_SHARED` page per binding, `wait4` re-raising a child's status) and `emitParThread`, selected by `--threads` | `scripts/check-parallel.sh`: `tests/stdlib/470-parallel.ax` and `471-parallel-trap.ax` under both lowerings, byte-identical stdout and the same exit (77 out of both for the trap); processes add no import, threads add exactly their own; the flag is inert on a program that spawns nothing; windows emits a status-79 trap in place of both primitives. **What crosses a join is a word, and captures are unchecked under threads** - §3.3 below |
 
 **`MM-ALLOC-16` is not in S1, and the first draft of this table was wrong
 to put it there.** That row read "`MM-ALLOC-16`/`16b` become checked,

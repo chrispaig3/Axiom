@@ -691,7 +691,28 @@ floor=8192       # 8 MiB
 # and it is why the answer is a bigger ceiling rather than a hunt.
 # 448 leaves 14% over the measured 385, the margin the entries above
 # settled on.
-ceiling=458752   # 448 MiB, over a measured 385
+#
+# 448 -> 512 MiB on 2026-09-03, at the `parallel` slice, and the entry
+# above wrote this one too: "448 leaves 14% over the measured 385" was
+# true the day it was set and the margin was 0.7% by the day this ran -
+# the tree BEFORE the slice peaked at 444.9 MiB against the 448
+# ceiling, eaten by the Vec port and the `for` keyword and everything
+# between, each of which passed. The slice crossed it at 449.9 MiB, and
+# the three-way split says what moved, the same way both entries above
+# said it:
+#
+#   base compiler on base source              455,616 KiB
+#   the NEW compiler on base source           455,632 KiB   +0.004%
+#   base compiler on the NEW source           460,704 KiB   +1.12%
+#   the NEW compiler on the NEW source        460,720 KiB   +1.12%
+#
+# The compiler CHANGE - a thread and a process runtime, a keyword's
+# parser, two primitives' emitters - costs 16 KiB on identical input.
+# The 1.12% is 1,209 more source lines to compile, 4.2 KiB per line
+# against the 4.85 the entry above measured, so the cost per line fell
+# again. Nothing here copies. 512 leaves 13.8% over the measured 450,
+# the margin these entries keep, and the `ok` line still prints it.
+ceiling=524288   # 512 MiB, over a measured 450
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi

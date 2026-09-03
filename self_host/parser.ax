@@ -4274,6 +4274,15 @@
                         ; the token.
                         (if (kwEq name "region")
                           (parseRegionExpr tokens (advance pos) (tokenSpan kw))
+                        ; `parallel` is a KEYWORD for the reason `for` and `while` are:
+                        ; it binds names, and its binding list is not an
+                        ; expression. Desugared by `parseParallelExpr` into
+                        ; `let`s over the `__par_spawn`/`__par_join`
+                        ; primitives, so no AST tag was added and no consumer
+                        ; of one moves. The keyword span is passed through,
+                        ; as the `alloc` arm below does.
+                        (if (kwEq name "parallel")
+                          (parseParallelExpr tokens (advance pos) (tokenSpan kw))
                         (if (kwEq name "set")
                           (parseSetExpr tokens (advance pos))
                           ; The three keyword-headed forms stage0 parses here that
@@ -4307,6 +4316,7 @@
                                 (if (kwEq name "handle")
                                   (parseHandleExpr tokens (advance pos))
                                   (parseAppForm tokens pos)
+                                  )
                                 )
                                 )
                               )
@@ -4679,6 +4689,206 @@
       )
     )
     (pErrExp pos "the region's name")
+  )
+)
+
+; ------------------------------------------------------------------
+; (parallel p ((a e1) (b e2) ...) body...) - MM-RGN-7 of
+; docs/memory-model-v2-design.md: every binding's expression runs
+; BESIDE the caller, each in a region of its own; the results are
+; bound, in ARGUMENT ORDER, and the body runs with them.
+;
+; DESUGARED HERE, into nodes that already exist, the way `for` is:
+;
+;   (parallel p ((a E1) (b E2)) BODY)
+;     => (let ((p __axiom_arena_mark))
+;          (let ((parallel$h0 (__par_spawn (lambda (parallel$_) E1) 0)))
+;            (let ((parallel$h1 (__par_spawn (lambda (parallel$_) E2) 0)))
+;              (let ((a (__par_join parallel$h0)))
+;                (let ((b (__par_join parallel$h1)))
+;                  BODY)))))
+;
+; EVERY SPAWN BEFORE ANY JOIN, so the bindings overlap; then EVERY JOIN
+; IN THE ORDER WRITTEN, so `a` is bound before `b` whichever finished
+; first - MM-PAR-5's rule, the one every byte-comparing gate in this
+; repository rests on. Completion order is not observable through this
+; form at all, which is the point.
+;
+; `p` IS BOUND TO THE ARENA MARK of the region the form runs in - the
+; witness §2.5 of the design says a region carries, and the only thing
+; a region has to be today. It is a word; S2 and S3 give it a type.
+;
+; WHAT A BINDING MAY ANSWER is a word: the thunk is `(-> Int Int)` and
+; `__par_join` answers `Int`, so a binding whose expression is a
+; `String` draws `AX3004: expected Int` AT THAT EXPRESSION. Codegen's
+; header (`emitPrimPar`) says why the limit is there and what lifts it.
+;
+; The lambda's parameter and the handle names carry a `$`, which is
+; `AX1001 unexpected character` inside an identifier, so a user cannot
+; write them and the desugaring captures nothing of theirs -
+; `parseForExpr`'s hygiene, for the same reason. The handle names are
+; numbered so two bindings never share one; the parameter is never
+; referenced and one name serves.
+;
+; ONE OR MORE BODY EXPRESSIONS, sequenced, as `let` takes them.
+; ------------------------------------------------------------------
+(pub :: parseParallelExpr (-> (Vec Int) Int Int Int))
+
+(pub fn (parseParallelExpr tokens pos kwSpan)
+  (if (peekIs tokens pos TK_IDENT)
+    (let (
+      (nameTok (vecGet tokens pos))
+      (rname (tokenLexeme (vecGet tokens pos)))
+    )
+      (if (peekIs tokens (advance pos) TK_LPAREN)
+        (let ((br (parseParBindings tokens (advance (advance pos)) vecNew)))
+          (if (== (memGetWord br 0) 0)
+            br
+            (let (
+              (binds (memGetWordVec br 1))
+              (afterBinds (memGetWord br 2))
+            )
+              (if (== (vecLen binds) 0)
+                (pErrExp (- afterBinds 1) "at least one binding - `(parallel p ((x e)) body)` runs `e` beside the caller")
+                (let ((bodyR (parseExprList tokens afterBinds vecNew)))
+                  (if (== (memGetWord bodyR 0) 0)
+                    bodyR
+                    (let (
+                      (exprs (memGetWordVec bodyR 1))
+                      (afterBody (memGetWord bodyR 2))
+                    )
+                      (if (== (vecLen exprs) 0)
+                        (pErrExp afterBinds "a body expression after the binding list")
+                        (pOk (mkParallel
+                          rname                          (tokenSpan nameTok)                          binds                          (if (== (vecLen exprs) 1)
+                            (vecGet exprs 0)
+                            (mkEBegin exprs)
+                          )                          kwSpan
+                        ) afterBody)
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+        (pErrExp (advance pos) "`(` opening the binding list - `(parallel p ((x e) ...) body)`")
+      )
+    )
+    (pErrExp pos "the name of the join region - `(parallel p ((x e) ...) body)`")
+  )
+)
+
+; The binding list `((x e) ...)`, each pair carried as a TAG_NIL node
+; with a=name and b=expression, the NAME token's span, as
+; `parseBindPairs` does - but without `mut`, which a binding bound once
+; at its join has nothing to mean by.
+(pub :: parseParBindings (-> (Vec Int) Int (Vec Int) Int))
+
+(pub fn (parseParBindings tokens pos acc)
+  (if (peekIs tokens pos TK_RPAREN)
+    (pOk acc (advance pos))
+    (if (peekIs tokens pos TK_LPAREN)
+      (if (peekIs tokens (advance pos) TK_IDENT)
+        (let (
+          (nt (vecGet tokens (advance pos)))
+          (nm (tokenLexeme (vecGet tokens (advance pos))))
+        )
+          (if (strEq nm "mut")
+            (pErrExp (advance pos) "a binding name - a `parallel` binding is bound once, at its join, so `mut` has nothing to mean here")
+            (let ((valR (parseExpr tokens (advance (advance pos)))))
+              (if (== (memGetWord valR 0) 0)
+                valR
+                (if (peekIs tokens (memGetWord valR 2) TK_RPAREN)
+                  (parseParBindings tokens (advance (memGetWord valR 2)) (vecPush acc (mkNodeAt
+                    TAG_NIL                    nm                    (memGetWord valR 1)                    0                    (tokenSpan nt)
+                  )))
+                  (pErrExp (memGetWord valR 2) "`)` - a `parallel` binding is one name and one expression")
+                )
+              )
+            )
+          )
+        )
+        (pErrExp (advance pos) "a binding name")
+      )
+      (pErrExp pos "`(name expr)` or `)` closing the binding list")
+    )
+  )
+)
+
+(pub :: mkParallel (-> String Int (Vec Int) Int Int Int))
+
+(pub fn (mkParallel rname rspan binds body kwSpan)
+  (mkELetAt
+    rname    (mkEVarAt "__axiom_arena_mark" kwSpan)    (parSpawnLets binds 0 (parJoinLets binds 0 body kwSpan) kwSpan)    rspan
+  )
+)
+
+; The spawns, outermost first, so the first binding starts first.
+(pub :: parSpawnLets (-> (Vec Int) Int Int Int Int))
+
+(pub fn (parSpawnLets binds i inner kwSpan)
+  (if (>= i (vecLen binds))
+    inner
+    (mkELetAt
+      (parHandleName i)      (parSpawnCall (nodeB (vecGet binds i)) kwSpan)      (parSpawnLets binds (+ i 1) inner kwSpan)      kwSpan
+    )
+  )
+)
+
+; The joins, outermost first, so `a` is bound before `b`. Each carries
+; its binder token's span, so hover and rename land on what was written.
+(pub :: parJoinLets (-> (Vec Int) Int Int Int Int))
+
+(pub fn (parJoinLets binds i body kwSpan)
+  (if (>= i (vecLen binds))
+    body
+    (let ((b (vecGet binds i)))
+      (mkELetAt
+        (nodeAName b)        (mkEApp (mkEVarAt "__par_join" kwSpan) (mkEVarAt (parHandleName i) kwSpan))        (parJoinLets binds (+ i 1) body kwSpan)        (nodeSpan b)
+      )
+    )
+  )
+)
+
+; `(__par_spawn (lambda (parallel$_) E) 0)`. The lambda carries E's OWN
+; span, because that is the node the checker anchors a mismatch on: a
+; binding that answers a `String` is `AX3004: expected (Int -> Int),
+; found (_a -> String)` underlining the expression the author wrote,
+; not the word `parallel` (`tests/diagnostics/641-parallel-word`).
+(pub :: parSpawnCall (-> Int Int Int))
+
+(pub fn (parSpawnCall e kwSpan)
+  (let ((ps vecNew))
+    {
+      (vecPush ps "parallel$_")
+      (mkEApp (mkEApp (mkEVarAt "__par_spawn" kwSpan) (mkLamCurried ps e (nodeSpan e))) (mkEInt 0))
+    }
+  )
+)
+
+; `parallel$h0`, `parallel$h1`, ... `parallel$hz`, `parallel$h10`: the
+; index in base 36 with the digits and the lowercase letters, which is
+; what LLVM admits in a name and what this file has to hand without an
+; import - `Str` has no decimal renderer, `Fmt` is not imported here.
+; `strConcat` and not codegen's `cat2`: a bare name resolves through
+; the entry file's imports, and `tests/selfhost/280-parse.ax` imports
+; this module without codegen (`check-diagnostics.sh` compiles the
+; compiler's own sources one module at a time and found the capture).
+(pub :: parHandleName (-> Int String))
+
+(pub fn (parHandleName i) (strConcat "parallel$h" (parIndexName i)))
+
+(pub :: parIndexName (-> Int String))
+
+(pub fn (parIndexName i)
+  (if (< i 36)
+    (strFromByte (if (< i 10)
+      (+ 48 i)
+      (+ 87 i)
+    ))
+    (strConcat (parIndexName (/ i 36)) (parIndexName (% i 36)))
   )
 )
 

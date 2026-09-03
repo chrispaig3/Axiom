@@ -2819,6 +2819,26 @@
       (regFnEff fns "__atomic_add" (mkIntArrow 2) (builtinEff "Mut"))
       (regFnEff fns "__atomic_cas" (mkIntArrow 3) (builtinEff "Mut"))
       (regFnEff fns "__fence" (mkIntArrow 0) (builtinEff "Mut"))
+      ; The six `parallel` primitives - S5 and S6 of
+      ; docs/memory-model-v2-design.md, lowered by `emitPrimPar` in
+      ; codegen.ax. A spawn takes the thunk to run and the word to hand
+      ; it and answers a handle; a join takes the handle and answers the
+      ; word the thunk answered. `IO`, for the syscall primitives'
+      ; reason: a fork and a thread creation reach the kernel, so a
+      ; `parallel` in a body claiming `no-io` is refused exactly as a
+      ; `__syscall3` there is. The thunk is spelled `(-> Int Int)` and
+      ; not `Int` because it is CALLED - `__axiom_recover`'s reason
+      ; above - and its answer is a WORD, which is the limit codegen's
+      ; header states: that is all a join can hand back across a
+      ; process or out of another thread's arena today. `__par_*` is
+      ; what `(parallel ...)` desugars to (`self_host/parser.ax`) and
+      ; follows `--threads`; the other two pairs name their lowering.
+      (regFnEff fns "__par_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
+      (regFnEff fns "__par_join" (mkIntArrow 1) (builtinEff "IO"))
+      (regFnEff fns "__thread_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
+      (regFnEff fns "__thread_join" (mkIntArrow 1) (builtinEff "IO"))
+      (regFnEff fns "__proc_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
+      (regFnEff fns "__proc_join" (mkIntArrow 1) (builtinEff "IO"))
       (regFn fns "__addr" (mkTArr mkStringTy mkIntTy))
       ; Not spellable in source - `checkNumeric` rewrites `==`/`!=`
       ; into these. They are registered anyway because the rewritten

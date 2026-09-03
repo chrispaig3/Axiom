@@ -1,0 +1,95 @@
+; `parallel`: the concurrency form, MM-RGN-7 of
+; docs/memory-model-v2-design.md, under the lowering the build selects.
+;
+; `(parallel p ((a e1) (b e2)) body)` runs every binding's expression
+; BESIDE the caller, binds the answers in ARGUMENT ORDER, and runs the
+; body with them. The parser desugars it into `let`s over the
+; `__par_spawn`/`__par_join` primitives (`self_host/parser.ax`,
+; `parseParallelExpr`), and codegen lowers the pair to PROCESSES - a
+; fork, a shared page, a `wait4` - unless `--threads` selects the
+; platform's pthread (`emitPrimPar` in `self_host/codegen.ax`). The
+; runner builds this case without the flag; `scripts/check-parallel.sh`
+; builds it both ways and requires the same bytes on stdout, which is
+; what "one surface, two lowerings" is measured by.
+;
+; What each term establishes:
+;
+;   1. TWO BINDINGS, and the one written FIRST finishes LAST: `a` spins
+;      through three million iterations while `b` is an addition. The
+;      answers come out as `a` then `b` because the body prints them in
+;      that order - and the joins happen in that order too (MM-PAR-5),
+;      so the form never exposes which child finished first.
+;   2. Words captured from the enclosing scope reach every binding, and
+;      three bindings run at once.
+;   3. One binding.
+;   4. A `parallel` inside a binding's expression: a child that spawns
+;      children of its own.
+;   5. Twelve bindings, so the handle names the desugaring writes pass
+;      `parallel$h9` and reach `parallel$ha` and `parallel$hb` - the
+;      base-36 spelling `parHandleName` uses - and none collides.
+;   6. The form's value is its body's.
+;   7. `parallel` is an ordinary identifier everywhere except the head
+;      of a form - the rule `docs/reference.md`'s Keywords section
+;      states - so it is a parameter name and a `let` binder here.
+(import IO)
+
+(:: spin (-> Int Int))
+
+(fn (spin n)
+  (let (
+    (mut i 0)
+    (mut acc 0)
+  )
+    {
+      (while (< i n)
+        {
+          (set acc (+ acc (% i 7)))
+          (set i (+ i 1))
+        })
+      acc
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((base 40))
+    {
+      ; --- 1. two bindings, the first one slow ---
+      (parallel p ((a (+ base (spin 3000000))) (b (+ base 2)))
+        (println a)
+        (println b))
+
+      ; --- 2. captured words, three bindings ---
+      (parallel q ((x (* base 2)) (y (* base 3)) (z (* base 4)))
+        (println (+ x (+ y z))))
+
+      ; --- 3. one binding ---
+      (parallel r ((one 1))
+        (println one))
+
+      ; --- 4. a child that spawns children ---
+      (parallel s ((inner (parallel t ((u 5) (v 6)) (* u v))))
+        (println inner))
+
+      ; --- 5. twelve bindings ---
+      (parallel w ((b0 0) (b1 1) (b2 2) (b3 3) (b4 4) (b5 5) (b6 6) (b7 7) (b8 8) (b9 9) (b10 10) (b11 11))
+        (println (+ b0 (+ b1 (+ b2 (+ b3 (+ b4 (+ b5 (+ b6 (+ b7 (+ b8 (+ b9 (+ b10 b11)))))))))))))
+
+      ; --- 6. the value of the form ---
+      (println (parallel v ((k 7)) (+ k 1)))
+
+      ; --- 7. `parallel` off the head is a name ---
+      (let ((parallel 3))
+        (println (twice parallel)))
+      0
+    }
+  )
+)
+
+; Term 7's callee: `parallel` in PARAMETER position.
+(:: twice (-> Int Int))
+
+(fn (twice parallel) (+ parallel parallel))

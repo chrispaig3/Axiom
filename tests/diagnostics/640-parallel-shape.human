@@ -1,0 +1,10 @@
+[1;31merror[AX2001][0m[1m: expected a binding name - a `parallel` binding is bound once, at its join, so `mut` has nothing to mean here, found `mut`[0m
+  [1;34m--> [0m640-parallel-shape.ax:11:26
+[1;34m   |[0m
+[1;34m11 |[0m (fn (main) (parallel p ((mut a 1)) a))
+[1;34m   |[0m                          [1;31m^^^ found `mut` here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mAxiom expected a binding name - a `parallel` binding is bound once, at its join, so `mut` has nothing to mean here at this position
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2001` for a full explanation
+
+compilation failed due to 1 previous error

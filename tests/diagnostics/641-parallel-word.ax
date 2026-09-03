@@ -1,0 +1,18 @@
+; What a `parallel` binding may answer is a WORD, and the checker says
+; so at the binding's expression.
+;
+; The thunk `parallel` builds for a binding is `(-> Int Int)` - codegen's
+; `emitPrimPar` header records why: under processes the answer crosses
+; an address space through one shared page, and under threads it would
+; have to be promoted out of another arena, which is S3/S4's typed
+; promotion and not this slice's. So a `String` here is `AX3004:
+; expected Int, found String`, anchored on the literal and not on the
+; word `parallel`; the second binding is a word and draws nothing.
+(import IO)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (parallel p ((s "x") (n 2))
+    n))

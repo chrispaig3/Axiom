@@ -1,0 +1,11 @@
+; `parallel` binds each name ONCE, at its join, so `mut` on a binding
+; has nothing to mean and is a PARSE error at the word rather than a
+; silent acceptance the checker then has to refuse. `.axbad` because a
+; parse error stops the file, so this case carries exactly one
+; malformed form.
+(import IO)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (parallel p ((mut a 1)) a))

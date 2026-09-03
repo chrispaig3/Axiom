@@ -1906,7 +1906,7 @@
                 true
                 (if (|| (strEq name "while") (strEq name "region"))
                   true
-                  (if (strEq name "for")
+                  (if (|| (strEq name "for") (strEq name "parallel"))
                     true
                   (if (strEq name "set")
                     true
@@ -1928,7 +1928,6 @@
                                     true
                                     false
                                   )
-                                  )
                                 )
                               )
                             )
@@ -1936,6 +1935,7 @@
                         )
                       )
                     )
+                  )
                   )
                 )
               )
@@ -3146,6 +3146,85 @@
   )
 )
 
+; `parallel` prints as `let` does, with the region name on the head
+; line: `(parallel p (` then the bindings, one per line when there are
+; several, then `)` and the body indented under it. Three elements
+; after the head at least - the name, the binding list, one body
+; expression - and each binding exactly `(name expr)`: `mut` is refused
+; here because the parser refuses it (`parseParBindings`), and a
+; printer that accepted it would print something `check` then rejects.
+; The formatter is a separate grammar and never sees the parser's AST,
+; which is why this arm exists at all: without it a `parallel` printed
+; as an application, which is idempotent and wrong.
+; `tests/fmt/parity/200-parallel-layout` holds the bytes.
+(pub :: fpParallel (-> Int Int Int))
+
+(pub fn (fpParallel p n)
+  (if (|| (< (fnLen n) 4) (|| (!= (fnKind (fnKid n 1)) FN_ATOM) (!= (fnKind (fnKid n 2)) FN_PAREN)))
+    (fpBad p)
+    (let (
+      (o (fpOut p))
+      (binds (fnKid n 2))
+      (body (fpExprElems n 3))
+    )
+      (if (|| (== (fnLen binds) 0) (== (fpParBindingsOK (fpSrc p) binds 0) 0))
+        (fpBad p)
+        {
+          (fpP p "(parallel ")
+          (fpExpr p (fnKid n 1))
+          (fpP p " (")
+          (if (== (fnLen binds) 1)
+            (fpLetBinding p (fnKid binds 0))
+            (let ((mut i 0))
+              {
+                (fpP p "\n")
+                (foPushIndent o)
+                (while (< i (fnLen binds))
+                  {
+                    (if (> i 0)
+                      (fpP p "\n")
+                      p
+                    )
+                    (fpLetBindingBroken p (fnKid binds i))
+                    (set i (+ i 1))
+                  })
+                (foPopIndent o)
+                (fpP p "\n")
+                (foEmitIndent o)
+              }
+            )
+          )
+          (fpP p ")")
+          (fpP p "\n")
+          (foPushIndent o)
+          (foEmitIndent o)
+          (fpBodyVec p body 0)
+          (foPopIndent o)
+          (fpP p "\n")
+          (foEmitIndent o)
+          (fpP p ")")
+        }
+      )
+    )
+  )
+)
+
+; Every binding is `(name expr)`: a paren of exactly two elements whose
+; first is an atom that is not `mut`.
+(pub :: fpParBindingsOK (-> String Int Int Int))
+
+(pub fn (fpParBindingsOK src binds i)
+  (if (>= i (fnLen binds))
+    1
+    (let ((b (fnKid binds i)))
+      (if (|| (!= (fnKind b) FN_PAREN) (|| (< (fnLen b) 2) (|| (!= (fnKind (fnKid b 0)) FN_ATOM) (|| (fpIsAtomText src (fnKid b 0) "mut") (!= (vecLen (fpExprElems b 1)) 1)))))
+        0
+        (fpParBindingsOK src binds (+ i 1))
+      )
+    )
+  )
+)
+
 (pub :: fpSet (-> Int Int Int))
 
 (pub fn (fpSet p n)
@@ -3729,6 +3808,8 @@
                             )
                             (if (strEq h "for")
                               (fpFor p n)
+                              (if (strEq h "parallel")
+                                (fpParallel p n)
                             (if (strEq h "set")
                               (fpSet p n)
                               (if (strEq h "cond")
@@ -3840,6 +3921,7 @@
                                                   ; calls whatever `data` is bound to,
                                                   ; and the checker says what that is.
                                                   (fpApp p n)
+                                                  )
                                                 )
                                               )
                                             )
@@ -4453,6 +4535,11 @@
                       (fpAnchor src (fnKid n 2))
                       0
                     )
+                    (if (strEq h "parallel")
+                      (if (> (fnLen n) 3)
+                        (fpAnchor src (fnKid n 3))
+                        0
+                      )
                     (if (|| (strEq h "if") (|| (strEq h "while") (|| (strEq h "for") (|| (strEq h "region") (|| (strEq h "match") (|| (strEq h "handle") (|| (strEq h "consume") (strEq h "::"))))))))
                       (if (> (fnLen n) 1)
                         (fpAnchor src (fnKid n 1))
@@ -4477,6 +4564,7 @@
                           )
                         )
                       )
+                    )
                     )
                   )
                 )

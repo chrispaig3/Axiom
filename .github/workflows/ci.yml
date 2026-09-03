@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # fifty-six of the gates below build the compiler under test from
+    # fifty-seven of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -799,8 +799,16 @@ jobs:
       # it to appear when `(localexec)` is dropped, on both Linux
       # targets, whose markers differ: x86-64 calls `__tls_get_addr`,
       # AArch64 uses TLS descriptors and never names it.
-      - name: The runtime's mutable globals move under the thread flag, and nothing else does
+      - name: The runtime's mutable globals move in a program that spawns a thread, and nothing else does
         run: ./scripts/check-thread-local.sh
+
+      # `parallel`, one surface and two lowerings: the same fixtures
+      # built as processes and as threads answer the same bytes and the
+      # same exit, a trapping binding included; processes import nothing
+      # and threads import exactly their own symbols; the flag is inert
+      # where nothing spawns; the targets that cannot say so.
+      - name: parallel answers the same bytes as processes and as threads
+        run: ./scripts/check-parallel.sh
 
       # And what a reset COSTS, which is the roadmap's P8 and the one
       # thing no gate here measured: every timing gate asserts a ratio,

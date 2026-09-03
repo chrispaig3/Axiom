@@ -75,6 +75,7 @@
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
   [93mAX4004[0m  an `extern` names a symbol no archive defines  (ungrounded-symbol)
   [93mAX4005[0m  an `extern` item's shape disagrees with the crate's shim  (extern-shape)
+  [93mAX4006[0m  a thread lowering the target does not have  (threads-unsupported)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 ### explain AX1001
 AX1001 - unexpected character
@@ -1884,6 +1885,28 @@ to let the macro write the shim.
 Regenerate the binding module with `axiom-bindgen` when the Rust signature
 changed, or correct the hand-written item.
 
+### explain AX4006
+AX4006 - a thread lowering the target does not have
+
+`--threads` lowers `(parallel ...)` to threads, and `__thread_spawn`
+spells a thread directly. Both need a thread runtime: the platform's
+`pthread_create`, and a local-exec thread-local storage the C
+runtime sets up for each new thread, because the emitted runtime's
+eight mutable globals - the allocator's five words, the size-class
+heads, the recovery point and one evidence slot per effect - become
+thread-local the moment a program has a second thread (MM-PAR-6).
+
+darwin and linux have both, and are measured. freebsd links no
+`libthr` here and is unmeasured; windows has no `fork` either, so
+neither lowering exists there and `parallel` compiles to a trap
+that says so (status 79).
+
+Drop `--threads` to lower `parallel` to processes - the default,
+and the lowering whose isolation MM-PAR-3 makes true by
+construction - or build for a target that has threads. A program
+that names `__thread_spawn` itself has asked for a thread and gets
+no process fallback: `__proc_spawn` is the spelling for one.
+
 ### explain AX5001
 AX5001 - cannot resolve import
 
@@ -1997,6 +2020,7 @@ run `axiom explain --list` to see all known codes
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
   [93mAX4004[0m  an `extern` names a symbol no archive defines  (ungrounded-symbol)
   [93mAX4005[0m  an `extern` item's shape disagrees with the crate's shim  (extern-shape)
+  [93mAX4006[0m  a thread lowering the target does not have  (threads-unsupported)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 
 Usage: axiom explain <CODE>

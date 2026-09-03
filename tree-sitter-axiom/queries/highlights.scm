@@ -165,6 +165,11 @@
   "mut"
 ] @keyword.modifier
 
+; The concurrency form: what runs beside the caller.
+[
+  "parallel"
+] @keyword.coroutine
+
 ; ---------------------------------------------------------------
 ; Removed constructs
 ;

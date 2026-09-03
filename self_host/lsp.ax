@@ -1901,6 +1901,7 @@
       (vecPush v "let")
       (vecPush v "macro")
       (vecPush v "match")
+      (vecPush v "parallel")
       (vecPush v "pub")
       (vecPush v "region")
       (vecPush v "set")
@@ -9644,9 +9645,14 @@
           (== k 2)
           (if (strEq head "struct")
             (>= k 2)
+            ; `parallel`: the region name and the binding list are not
+            ; plain expressions; the body from element 3 on is.
+            (if (strEq head "parallel")
+              (>= k 3)
             (if (|| (strEq head "fn") (|| (strEq head "lambda") (|| (strEq head "while") (|| (strEq head "cond") (|| (strEq head "handle") (|| (strEq head "quote") (|| (strEq head "pub") (strStartsWith head "syntax/"))))))))
               false
               true
+            )
             )
           )
         )

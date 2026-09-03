@@ -572,6 +572,34 @@
                                       ; archive: the Rust view of this file's
                                       ; `pub` surface, written from the same
                                       ; declarations the IR came from
+                                      ; `--threads`, or a `__thread_spawn`, on a target with no thread
+                                      ; runtime: refused here, before any IR is written, as
+                                      ; AX4006. `parThreadsRefused` is codegen's own
+                                      ; predicate (`emitPrimPar`'s header says which targets
+                                      ; have threads and why), asked here because the
+                                      ; emitter cannot report a diagnostic and the driver
+                                      ; can.
+                                      (if (parThreadsRefused allDecls tcode)
+                                        (let ((mds
+                                          (let ((v vecNew))
+                                            {
+                                              (vecPush v (mkDiag
+                                                SEV_ERROR                                                "AX4006"                                                "threads-unsupported"                                                0                                                (cat3 (if (== (declsNamePrim allDecls "__thread_spawn" 0) 1)
+                                                  "`__thread_spawn` is named"
+                                                  "`--threads` asks for the thread lowering"
+                                                ) ", and " (cat2 (targetSpelling tcode) " has no thread runtime"))                                                0                                                0                                                "threads exist on darwin and linux, where a thread is the platform's `pthread_create` and the runtime's globals go thread-local; freebsd is unmeasured and windows has no `fork` either. Drop `--threads` to lower `parallel` to processes, or build for a target that has threads"
+                                              ))
+                                              v
+                                            }
+                                          )
+                                        ))
+                                          {
+                                            (writeStderrStr (renderDiagsFormat dfmt mds units))
+                                            (writeStderrStr (renderFailTrailer 1))
+                                            (sysExitWith 1)
+                                            ""
+                                          }
+                                        )
                                       (let ((ir (emitResolved allDecls bares fulls tcode)))
                                         {
                                           (if (&& (== needMain 0) (> (strLen (flagValue "--emit-rust-binding" 1)) 0))
@@ -623,6 +651,7 @@
                                             ir
                                           )
                                         }
+                                      )
                                       )
                                     )
                                   )

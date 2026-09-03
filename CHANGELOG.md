@@ -16,6 +16,79 @@ its changelog too.
 
 ## Unreleased
 
+### `parallel`, and the thread lowering behind it
+
+**One construct, two lowerings.** `(parallel p ((a e1) (b e2)) body)`
+runs every binding's expression beside the caller and binds the
+answers **in the order written**, whichever finished first —
+`MM-PAR-5`'s rule for the process pool, now a language form
+(`docs/memory-model-v2-design.md` MM-RGN-7, S6 of its staging table).
+The parser desugars it into `let`s over two primitives, `__par_spawn`
+and `__par_join`, so no AST tag was added and no consumer of one moved
+(`self_host/parser.ax`, `parseParallelExpr`); `p` is bound to the arena
+mark of the region the form runs in, the witness §2.5 of the design
+says a region carries.
+
+**Processes by default, threads on request.** `__par_spawn` lowers to a
+`fork`, one `MAP_SHARED` page per binding and a `wait4` — the isolation
+`MM-PAR-3` makes true by construction, importing nothing — and, under
+`axiom build --threads`, to the platform's `pthread_create`
+(`emitPrimPar` and `emitParRuntime` in `self_host/codegen.ax`). That
+is S5: `cgThreads` is a **scan** now rather than a constant `false` —
+it answers 1 when the module names `__thread_spawn`, or names
+`__par_spawn` under `--threads`, and the eight mutable globals of the
+emitted runtime take `thread_local(localexec)` exactly then, so each
+thread starts from the zeroed image and allocates in an arena of its
+own (`MM-PAR-6`). Two more pairs name their lowering outright:
+`__thread_spawn`/`__thread_join` and `__proc_spawn`/`__proc_join`. All
+six carry `IO`, asserted primitive by primitive in
+`scripts/check-agent-policy.sh`.
+
+**Measured, not argued:**
+
+- `scripts/check-parallel.sh`, new, builds `tests/stdlib/470-parallel.ax`
+  (seven terms, twelve bindings at most) and `471-parallel-trap.ax`
+  under both lowerings and requires the same stdout and the same exit
+  status — the trap fixture exits **77** out of both, because under
+  processes the join reads the child's wait status and re-raises it
+  and under threads the trap is already `exit_group`. The process
+  lowering adds **no import** over a program that spawns nothing; the
+  thread lowering adds exactly `pthread_create`, `pthread_join` and, on
+  Darwin, `__tlv_bootstrap`. A program with no `parallel` built under
+  `--threads` is byte-identical to the same program without it.
+- `scripts/check-thread-local.sh` reaches the ON path through a
+  program that really spawns a thread, where before it could only
+  ablate `cgThreads`'s body; the eight-globals-and-nothing-else
+  assertion, the OFF path's zero TLS imports and the local-exec
+  assertions are unchanged.
+- The targets that cannot: `--threads` on freebsd-* or windows-x86_64,
+  and `__thread_spawn` there, are refused at build time as **`AX4006`**
+  (`self_host/main.ax`, before any IR is written; freebsd links no
+  `libthr` here and is unmeasured, windows has no `fork` either). On
+  windows-x86_64 both primitives compile to a trap that says
+  `axiom: parallel is not available on this target` and exits **79**,
+  so every cross-target sweep still emits and assembles the fixture;
+  a spawn the kernel refuses is **78** everywhere. Both join the
+  status table in `docs/memory-model.md`.
+- `tests/diagnostics/640-parallel-shape` (`mut` on a binding is
+  `AX2001`) and `641-parallel-word` (a `String` binding is `AX3004` at
+  the expression). `tests/fmt/parity/200-parallel-layout` and
+  `201-parallel-arg-position` pin the formatter's layout and the rule
+  that `parallel` off the head is an identifier; the tree-sitter grammar
+  has `parallel_expression` and `parallel_binding`, and its corpus a
+  case for both.
+
+**What crosses a join is a word, and that is the stated limit.** The
+thunk is `(-> Int Int)`: under processes the answer crosses an address
+space through one page, and under threads it would have to be promoted
+out of the child's arena, which is the typed promotion S3/S4 own. **The
+thread lowering does not yet check what a binding captures** — a heap
+value shared with the parent is touched from two threads with no
+fence; the static rule that refuses it is `MM-RGN-3` over sibling
+regions (§3.2 of the design), and until it lands processes are the
+default for exactly this reason. Nothing in `self_host/` or `stdlib/`
+uses `parallel` yet: the committed seed cannot parse it, and the rule
+is land, reseed, then use. fifty-seven gates call `gate_build_axc` now.
 ### `region` returns as a checked scope — S2 of the memory-model v2 design
 
 **`(region r body)` is a keyword again.** It reads the allocator's
@@ -87,7 +160,7 @@ from inside a region reads back as `XXXXXXXXXXX`, the string built after
 it, because the waterline was rolled back to exactly where the region
 began and the next descriptor landed on the old one. It calls
 `gate_build_axc`, and the count of gates that do is stated once in
-this section, in the unboxed-sums entry below.
+this section, in the `parallel` entry above.
 
 Around the keyword: `axiom fmt` prints it as `while` is printed and
 refuses a second body (`tests/fmt/parity/210`, `211`; the bank is 50
@@ -1014,9 +1087,8 @@ well by a function that was never emitted).
 `docs/unboxed-sums-design.md` §4 asks for, written first and on
 purpose. It counts the heap blocks an `Option` construction costs **in
 the emitted IR**, for a fixture whose matched lookups are a known
-number. fifty-six gates call `gate_build_axc` now, up from fifty-two —
-this one, `check-vec-field-shape.sh` and, since 2026-09-03,
-`check-region-scope.sh`.
+number. The count stood at fifty-four then, up from fifty-two — this one
+and `check-vec-field-shape.sh`; the section's own count is stated above.
 
 Why a count and not a timing: `bench-compile.sh` is explicit that a
 wall-clock bound on a shared runner is a flaky test, and the ratio

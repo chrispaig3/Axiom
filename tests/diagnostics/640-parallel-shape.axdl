@@ -1,0 +1,1 @@
+E AX2001 640-parallel-shape.ax:11:26-29 unexpected-token "expected a binding name - a `parallel` binding is bound once, at its join, so `mut` has nothing to mean here, found `mut`" #"found `mut` here" ?"Axiom expected a binding name - a `parallel` binding is bound once, at its join, so `mut` has nothing to mean here at this position"

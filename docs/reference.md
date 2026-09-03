@@ -287,6 +287,7 @@ which was the retired Rust compiler's lexer rule, and refused
 | `while` | Loop while a condition holds |
 | `for` | Loop over a range, `(for i lo hi body)`, or over a `(Vec a)`, `(for x xs body)` — one keyword, [two shapes](#for--the-counted-loop-and-the-container-loop), since 2026-09-03 |
 | `region` | Bracket an allocation scope: `(region r body)` reclaims everything `body` allocated when it ends and answers `body`'s value ([Regions](#regions), since 2026-09-03) |
+| `parallel` | Run bindings beside the caller and join them in the order written — processes by default, threads under `--threads` ([`parallel`](#parallel--bindings-that-run-beside-the-caller)) |
 | `if` | Conditional expression |
 | `cond` | Multi-branch conditional |
 | `match` | Pattern matching |
@@ -886,6 +887,73 @@ keyword, so `self_host/` and `stdlib/` cannot write `for` until a
 reseed follows it (`scripts/reseed.sh`'s rule: land the construct,
 reseed, then use it). The keyword's range shape mirrors `range`'s
 template binding for binding, so the two agree by construction.
+### `parallel` — bindings that run beside the caller
+
+`(parallel p ((a e1) (b e2) ...) body...)` evaluates every binding's
+expression at once, beside the caller, binds each answer to its name,
+and runs the body with them. The bindings are joined **in the order
+written**, always — `a` is bound before `b` whichever finished first —
+so which child finished first is not observable through the form,
+which is `MM-PAR-5`'s rule for the process pool
+([memory-model.md](memory-model.md)) applied to a language form. `p`
+names the region the form runs in; today it is bound to that region's
+arena mark, a word, and the typed regions of
+[memory-model-v2-design.md](memory-model-v2-design.md) are what give it
+a type.
+
+```scheme
+(fn (both n)
+  (parallel p ((a (slow n)) (b (fast n)))
+    (+ a b)))
+```
+
+**Two lowerings, one surface.** By default each binding is a *process*:
+`fork`, one shared page for the answer, `wait4` — the isolation
+`MM-PAR-3` makes true by construction, and a lowering that imports
+nothing (`scripts/check-freestanding.sh` sweeps the fixture that uses
+it and holds it at zero). Under `axiom build --threads` each binding is
+a *thread*: the platform's `pthread_create`, and the emitted runtime's
+eight mutable globals go `thread_local` so every thread allocates in
+an arena of its own (`MM-PAR-6`). `scripts/check-parallel.sh` builds
+the same fixture both ways and requires the same bytes on stdout and
+the same exit status, including from a binding that traps: under
+processes the child dies and the join re-raises its status; under
+threads the trap already ends the whole process
+(`tests/stdlib/471-parallel-trap.ax`, status 77 out of both).
+
+**What a binding may answer is a word.** The desugaring wraps each
+expression in a `(-> Int Int)` thunk and the join answers `Int`, so a
+binding whose expression is a `String` is refused where it is written
+— `AX3004: expected (Int -> Int), found (_a -> String)` on the
+expression (`tests/diagnostics/641-parallel-word.ax`). Under processes
+the answer crosses an address space through one page; under threads it
+would have to be promoted out of another thread's arena, which is the
+typed promotion of the regions design and not this form's. `mut` on a
+binding is a parse error (`AX2001`, `640-parallel-shape`): a binding is
+bound once, at its join.
+
+**What the thread lowering does not yet check.** A binding may capture
+any name in scope. Under processes that is safe by construction; under
+threads a captured *heap* value is shared with the parent and its count
+is touched from two threads with no fence — a data race the static rule
+`MM-RGN-3` over sibling regions will refuse, and until it lands the
+process lowering is the default for exactly this reason. Capture words.
+
+**Where it is not available.** `--threads` on freebsd-* or
+windows-x86_64, and `__thread_spawn` there, are refused at build time
+(`AX4006`). On windows-x86_64 there is no `fork` either, so a program
+using `parallel` builds and dies at its first spawn with
+`axiom: parallel is not available on this target` (status 79); a spawn
+the kernel refuses is status 78 on every target.
+
+The form is desugared by the parser into `let`s over three pairs of
+primitives — `__par_spawn`/`__par_join`, which follow `--threads`, and
+`__thread_spawn`/`__thread_join` and `__proc_spawn`/`__proc_join`, which
+name their lowering — each spawn `(-> (-> Int Int) Int Int)` and each
+join `(-> Int Int)`, all carrying `IO`, so a `parallel` in a body
+claiming `no-io` is refused as a syscall there is. Nothing in
+`self_host/` or `stdlib/` uses the form yet: the committed seed cannot
+parse it, and the rule is land, reseed, then use.
 
 ### Sequential Let Bindings
 
@@ -3488,6 +3556,11 @@ axiom emit-llvm source.ax -o output.ll
 
 # Compile and run immediately
 axiom run source.ax
+
+# Lower `parallel` to the platform's threads rather than to forked
+# processes (build, run, test; darwin and linux); see the `parallel`
+# section under Let Bindings for what that buys and costs
+axiom build --threads --input source.ax --output program
 ```
 
 ### Choosing a Memory Manager
